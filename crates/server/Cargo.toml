@@ -1,0 +1,17 @@
+[package]
+name = "server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+domain.workspace = true
+persistence.workspace = true
+media.workspace = true
+metadata.workspace = true
+services.workspace = true
+jobs.workspace = true
+api.workspace = true
+
+[lints]
+workspace = true
