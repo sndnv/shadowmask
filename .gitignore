@@ -1,0 +1,10 @@
+.idea
+.idea_modules
+.classpath
+.project
+.settings
+.local
+*.keystore
+.bsp
+.DS_Store
+/target
