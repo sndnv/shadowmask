@@ -1,0 +1,21 @@
+mod artwork;
+mod content_rating;
+mod credit;
+mod external_id;
+mod extra;
+mod genre;
+mod person;
+mod rating;
+mod studio;
+mod tag;
+
+pub use artwork::{Artwork, ArtworkKind};
+pub use content_rating::ContentRating;
+pub use credit::{Credit, CreditRole};
+pub use external_id::ExternalId;
+pub use extra::{Extra, ExtraKind};
+pub use genre::{Genre, GenreId};
+pub use person::{Person, PersonId};
+pub use rating::Rating;
+pub use studio::{Studio, StudioId};
+pub use tag::{Tag, TagId};

@@ -25,6 +25,7 @@ figment = "0.10"
 thiserror = "2"
 anyhow = "1"
 argon2 = "0.5"
+jiff = "0.2"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
