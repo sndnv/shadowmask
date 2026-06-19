@@ -6,6 +6,10 @@ license.workspace = true
 
 [dependencies]
 domain.workspace = true
+jiff.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints]
 workspace = true
