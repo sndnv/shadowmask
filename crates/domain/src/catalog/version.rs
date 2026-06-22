@@ -1,5 +1,6 @@
 use crate::catalog::TitleId;
 use crate::common::Quality;
+use crate::library::LibraryId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VersionId(pub String);
@@ -8,6 +9,7 @@ pub struct VersionId(pub String);
 pub struct Version {
     pub id: VersionId,
     pub title: TitleId,
+    pub library: LibraryId,
     pub quality: Quality,
     pub container: String,
     pub path: String,

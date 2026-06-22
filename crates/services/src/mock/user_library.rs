@@ -73,9 +73,9 @@ impl UserLibraryService for MockUserLibraryService {
         Ok(())
     }
 
-    async fn remove_from_watchlist(&self, user: &UserId, title: &TitleId) -> Result<(), UserError> {
+    async fn remove_from_watchlist(&self, user: &UserId, title_id: &str) -> Result<(), UserError> {
         if let Some(items) = self.state.lock().unwrap().watchlist.get_mut(user) {
-            items.retain(|i| &i.title != title);
+            items.retain(|i| i.title.id() != title_id);
         }
         Ok(())
     }
@@ -104,9 +104,9 @@ impl UserLibraryService for MockUserLibraryService {
         Ok(())
     }
 
-    async fn remove_favorite(&self, user: &UserId, title: &TitleId) -> Result<(), UserError> {
+    async fn remove_favorite(&self, user: &UserId, title_id: &str) -> Result<(), UserError> {
         if let Some(items) = self.state.lock().unwrap().favorites.get_mut(user) {
-            items.retain(|i| &i.title != title);
+            items.retain(|i| i.title.id() != title_id);
         }
         Ok(())
     }
@@ -153,30 +153,30 @@ mod tests {
     async fn watchlist_add_dedupe_remove() {
         let svc = MockUserLibraryService::new();
         assert!(svc.watchlist(&user()).await.unwrap().is_empty());
-        svc.remove_from_watchlist(&user(), &title()).await.unwrap();
+        svc.remove_from_watchlist(&user(), "m1").await.unwrap();
 
         svc.add_to_watchlist(&user(), &title()).await.unwrap();
         svc.add_to_watchlist(&user(), &title()).await.unwrap();
         assert_eq!(svc.watchlist(&user()).await.unwrap().len(), 1);
 
-        svc.remove_from_watchlist(&user(), &title()).await.unwrap();
+        svc.remove_from_watchlist(&user(), "m1").await.unwrap();
         assert!(svc.watchlist(&user()).await.unwrap().is_empty());
-        svc.remove_from_watchlist(&user(), &title()).await.unwrap();
+        svc.remove_from_watchlist(&user(), "m1").await.unwrap();
     }
 
     #[tokio::test]
     async fn favorites_add_dedupe_remove() {
         let svc = MockUserLibraryService::new();
         assert!(svc.favorites(&user()).await.unwrap().is_empty());
-        svc.remove_favorite(&user(), &title()).await.unwrap();
+        svc.remove_favorite(&user(), "m1").await.unwrap();
 
         svc.add_favorite(&user(), &title()).await.unwrap();
         svc.add_favorite(&user(), &title()).await.unwrap();
         assert_eq!(svc.favorites(&user()).await.unwrap().len(), 1);
 
-        svc.remove_favorite(&user(), &title()).await.unwrap();
+        svc.remove_favorite(&user(), "m1").await.unwrap();
         assert!(svc.favorites(&user()).await.unwrap().is_empty());
-        svc.remove_favorite(&user(), &title()).await.unwrap();
+        svc.remove_favorite(&user(), "m1").await.unwrap();
     }
 
     #[tokio::test]

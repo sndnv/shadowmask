@@ -1,14 +1,18 @@
 mod collection;
+mod collection_update;
 mod episode;
 mod movie;
+mod new_collection;
 mod season;
 mod series;
 mod title_id;
 mod version;
 
 pub use collection::{Collection, CollectionId};
+pub use collection_update::CollectionUpdate;
 pub use episode::{Episode, EpisodeId};
 pub use movie::{Movie, MovieId};
+pub use new_collection::NewCollection;
 pub use season::{Season, SeasonId};
 pub use series::{Series, SeriesId};
 pub use title_id::TitleId;
