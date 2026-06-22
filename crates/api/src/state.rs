@@ -1,0 +1,419 @@
+use domain::catalog::{
+    Collection, CollectionId, CollectionUpdate, Episode, EpisodeId, Movie, MovieId, NewCollection,
+    Season, SeasonId, Series, SeriesId, TitleId, Version, VersionId,
+};
+use domain::common::{Page, PageRequest};
+use domain::discovery::{ContinueWatchingItem, Hub, SearchResult};
+use domain::error::{
+    AuthError, CatalogError, DiscoveryError, LibraryError, SessionError, UserError,
+};
+use domain::library::{DuplicateCandidate, Library, LibraryId, ScanState, UnmatchedFile};
+use domain::playback::{Favorite, PlaybackProgress, WatchHistory, WatchlistItem};
+use domain::service::{
+    AuthService, CatalogService, DiscoveryService, LibraryService, SessionService,
+    UserLibraryService, UserService,
+};
+use domain::session::{
+    HeartbeatAck, PlaybackSession, PlaybackState, Renegotiated, SessionId, SessionStarted,
+    SessionUpdate, StartSessionRequest,
+};
+use domain::user::{
+    AccessToken, DeviceRegistration, IssuedToken, LibraryAccess, NewUser, Principal, TokenPair,
+    User, UserId, UserProfileUpdate,
+};
+
+#[derive(Clone)]
+pub struct AppState<A, C, Se, L, U, Ul, D> {
+    pub auth: A,
+    pub catalog: C,
+    pub session: Se,
+    pub library: L,
+    pub user: U,
+    pub user_library: Ul,
+    pub discovery: D,
+}
+
+impl<A, C, Se, L, U, Ul, D> AppState<A, C, Se, L, U, Ul, D> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        auth: A,
+        catalog: C,
+        session: Se,
+        library: L,
+        user: U,
+        user_library: Ul,
+        discovery: D,
+    ) -> Self {
+        Self {
+            auth,
+            catalog,
+            session,
+            library,
+            user,
+            user_library,
+            discovery,
+        }
+    }
+}
+
+impl<A, C, Se, L, U, Ul, D> AuthService for AppState<A, C, Se, L, U, Ul, D>
+where
+    A: AuthService + Sync,
+    C: Sync,
+    Se: Sync,
+    L: Sync,
+    U: Sync,
+    Ul: Sync,
+    D: Sync,
+{
+    async fn login(&self, username: &str, password: &str) -> Result<TokenPair, AuthError> {
+        self.auth.login(username, password).await
+    }
+
+    async fn refresh(&self, refresh_token: &str) -> Result<AccessToken, AuthError> {
+        self.auth.refresh(refresh_token).await
+    }
+
+    async fn redeem_link_code(
+        &self,
+        code: &str,
+        device: DeviceRegistration,
+    ) -> Result<IssuedToken, AuthError> {
+        self.auth.redeem_link_code(code, device).await
+    }
+
+    async fn authenticate(&self, access_token: &str) -> Result<Principal, AuthError> {
+        self.auth.authenticate(access_token).await
+    }
+}
+
+impl<A, C, Se, L, U, Ul, D> CatalogService for AppState<A, C, Se, L, U, Ul, D>
+where
+    A: Sync,
+    C: CatalogService + Sync,
+    Se: Sync,
+    L: Sync,
+    U: Sync,
+    Ul: Sync,
+    D: Sync,
+{
+    async fn collections(&self, page: PageRequest) -> Result<Page<Collection>, CatalogError> {
+        self.catalog.collections(page).await
+    }
+
+    async fn collection(&self, id: &CollectionId) -> Result<Collection, CatalogError> {
+        self.catalog.collection(id).await
+    }
+
+    async fn create_collection(&self, input: NewCollection) -> Result<Collection, CatalogError> {
+        self.catalog.create_collection(input).await
+    }
+
+    async fn update_collection(
+        &self,
+        id: &CollectionId,
+        update: CollectionUpdate,
+    ) -> Result<Collection, CatalogError> {
+        self.catalog.update_collection(id, update).await
+    }
+
+    async fn delete_collection(&self, id: &CollectionId) -> Result<(), CatalogError> {
+        self.catalog.delete_collection(id).await
+    }
+
+    async fn movies(&self, page: PageRequest) -> Result<Page<Movie>, CatalogError> {
+        self.catalog.movies(page).await
+    }
+
+    async fn movie(&self, id: &MovieId) -> Result<Movie, CatalogError> {
+        self.catalog.movie(id).await
+    }
+
+    async fn series(&self, page: PageRequest) -> Result<Page<Series>, CatalogError> {
+        self.catalog.series(page).await
+    }
+
+    async fn series_detail(&self, id: &SeriesId) -> Result<Series, CatalogError> {
+        self.catalog.series_detail(id).await
+    }
+
+    async fn seasons(&self, series: &SeriesId) -> Result<Vec<Season>, CatalogError> {
+        self.catalog.seasons(series).await
+    }
+
+    async fn season(&self, id: &SeasonId) -> Result<Season, CatalogError> {
+        self.catalog.season(id).await
+    }
+
+    async fn episodes(&self, season: &SeasonId) -> Result<Vec<Episode>, CatalogError> {
+        self.catalog.episodes(season).await
+    }
+
+    async fn episode(&self, id: &EpisodeId) -> Result<Episode, CatalogError> {
+        self.catalog.episode(id).await
+    }
+
+    async fn versions(&self, title: &TitleId) -> Result<Vec<Version>, CatalogError> {
+        self.catalog.versions(title).await
+    }
+
+    async fn library_versions(&self, library: &LibraryId) -> Result<Vec<Version>, CatalogError> {
+        self.catalog.library_versions(library).await
+    }
+}
+
+impl<A, C, Se, L, U, Ul, D> SessionService for AppState<A, C, Se, L, U, Ul, D>
+where
+    A: Sync,
+    C: Sync,
+    Se: SessionService + Sync,
+    L: Sync,
+    U: Sync,
+    Ul: Sync,
+    D: Sync,
+{
+    async fn start(
+        &self,
+        user: &UserId,
+        request: StartSessionRequest,
+    ) -> Result<SessionStarted, SessionError> {
+        self.session.start(user, request).await
+    }
+
+    async fn heartbeat(
+        &self,
+        session: &SessionId,
+        position_ms: u64,
+        state: PlaybackState,
+    ) -> Result<HeartbeatAck, SessionError> {
+        self.session.heartbeat(session, position_ms, state).await
+    }
+
+    async fn seek(
+        &self,
+        session: &SessionId,
+        position_ms: u64,
+    ) -> Result<Renegotiated, SessionError> {
+        self.session.seek(session, position_ms).await
+    }
+
+    async fn update(
+        &self,
+        session: &SessionId,
+        update: SessionUpdate,
+    ) -> Result<Renegotiated, SessionError> {
+        self.session.update(session, update).await
+    }
+
+    async fn end(&self, session: &SessionId) -> Result<(), SessionError> {
+        self.session.end(session).await
+    }
+
+    async fn active_sessions(&self) -> Result<Vec<PlaybackSession>, SessionError> {
+        self.session.active_sessions().await
+    }
+}
+
+impl<A, C, Se, L, U, Ul, D> LibraryService for AppState<A, C, Se, L, U, Ul, D>
+where
+    A: Sync,
+    C: Sync,
+    Se: Sync,
+    L: LibraryService + Sync,
+    U: Sync,
+    Ul: Sync,
+    D: Sync,
+{
+    async fn libraries(&self) -> Result<Vec<Library>, LibraryError> {
+        self.library.libraries().await
+    }
+
+    async fn library(&self, id: &LibraryId) -> Result<Library, LibraryError> {
+        self.library.library(id).await
+    }
+
+    async fn scan_state(&self, id: &LibraryId) -> Result<ScanState, LibraryError> {
+        self.library.scan_state(id).await
+    }
+
+    async fn trigger_scan(&self, id: &LibraryId) -> Result<(), LibraryError> {
+        self.library.trigger_scan(id).await
+    }
+
+    async fn unmatched(&self, id: &LibraryId) -> Result<Vec<UnmatchedFile>, LibraryError> {
+        self.library.unmatched(id).await
+    }
+
+    async fn duplicates(&self, id: &LibraryId) -> Result<Vec<DuplicateCandidate>, LibraryError> {
+        self.library.duplicates(id).await
+    }
+}
+
+impl<A, C, Se, L, U, Ul, D> UserService for AppState<A, C, Se, L, U, Ul, D>
+where
+    A: Sync,
+    C: Sync,
+    Se: Sync,
+    L: Sync,
+    U: UserService + Sync,
+    Ul: Sync,
+    D: Sync,
+{
+    async fn create(&self, input: NewUser) -> Result<User, UserError> {
+        self.user.create(input).await
+    }
+
+    async fn get(&self, id: &UserId) -> Result<User, UserError> {
+        self.user.get(id).await
+    }
+
+    async fn list(&self) -> Result<Vec<User>, UserError> {
+        self.user.list().await
+    }
+
+    async fn update_profile(
+        &self,
+        id: &UserId,
+        update: UserProfileUpdate,
+    ) -> Result<User, UserError> {
+        self.user.update_profile(id, update).await
+    }
+
+    async fn delete(&self, id: &UserId) -> Result<(), UserError> {
+        self.user.delete(id).await
+    }
+
+    async fn library_access(&self, id: &UserId) -> Result<Vec<LibraryAccess>, UserError> {
+        self.user.library_access(id).await
+    }
+
+    async fn set_library_access(
+        &self,
+        id: &UserId,
+        libraries: &[LibraryId],
+    ) -> Result<(), UserError> {
+        self.user.set_library_access(id, libraries).await
+    }
+}
+
+impl<A, C, Se, L, U, Ul, D> UserLibraryService for AppState<A, C, Se, L, U, Ul, D>
+where
+    A: Sync,
+    C: Sync,
+    Se: Sync,
+    L: Sync,
+    U: Sync,
+    Ul: UserLibraryService + Sync,
+    D: Sync,
+{
+    async fn watchlist(&self, user: &UserId) -> Result<Vec<WatchlistItem>, UserError> {
+        self.user_library.watchlist(user).await
+    }
+
+    async fn add_to_watchlist(&self, user: &UserId, title: &TitleId) -> Result<(), UserError> {
+        self.user_library.add_to_watchlist(user, title).await
+    }
+
+    async fn remove_from_watchlist(&self, user: &UserId, title_id: &str) -> Result<(), UserError> {
+        self.user_library
+            .remove_from_watchlist(user, title_id)
+            .await
+    }
+
+    async fn favorites(&self, user: &UserId) -> Result<Vec<Favorite>, UserError> {
+        self.user_library.favorites(user).await
+    }
+
+    async fn add_favorite(&self, user: &UserId, title: &TitleId) -> Result<(), UserError> {
+        self.user_library.add_favorite(user, title).await
+    }
+
+    async fn remove_favorite(&self, user: &UserId, title_id: &str) -> Result<(), UserError> {
+        self.user_library.remove_favorite(user, title_id).await
+    }
+
+    async fn history(
+        &self,
+        user: &UserId,
+        page: PageRequest,
+    ) -> Result<Page<WatchHistory>, UserError> {
+        self.user_library.history(user, page).await
+    }
+
+    async fn progress(
+        &self,
+        user: &UserId,
+        version: &VersionId,
+    ) -> Result<Option<PlaybackProgress>, UserError> {
+        self.user_library.progress(user, version).await
+    }
+}
+
+impl<A, C, Se, L, U, Ul, D> DiscoveryService for AppState<A, C, Se, L, U, Ul, D>
+where
+    A: Sync,
+    C: Sync,
+    Se: Sync,
+    L: Sync,
+    U: Sync,
+    Ul: Sync,
+    D: DiscoveryService + Sync,
+{
+    async fn search(
+        &self,
+        user: &UserId,
+        query: &str,
+        page: PageRequest,
+    ) -> Result<Page<SearchResult>, DiscoveryError> {
+        self.discovery.search(user, query, page).await
+    }
+
+    async fn continue_watching(
+        &self,
+        user: &UserId,
+    ) -> Result<Vec<ContinueWatchingItem>, DiscoveryError> {
+        self.discovery.continue_watching(user).await
+    }
+
+    async fn next_episodes(&self, user: &UserId) -> Result<Vec<Episode>, DiscoveryError> {
+        self.discovery.next_episodes(user).await
+    }
+
+    async fn next_movies(&self, user: &UserId) -> Result<Vec<Movie>, DiscoveryError> {
+        self.discovery.next_movies(user).await
+    }
+
+    async fn home_hubs(&self, user: &UserId) -> Result<Vec<Hub>, DiscoveryError> {
+        self.discovery.home_hubs(user).await
+    }
+}
+
+pub trait AppServices:
+    AuthService
+    + CatalogService
+    + SessionService
+    + LibraryService
+    + UserService
+    + UserLibraryService
+    + DiscoveryService
+    + Clone
+    + Send
+    + Sync
+    + 'static
+{
+}
+
+impl<T> AppServices for T where
+    T: AuthService
+        + CatalogService
+        + SessionService
+        + LibraryService
+        + UserService
+        + UserLibraryService
+        + DiscoveryService
+        + Clone
+        + Send
+        + Sync
+        + 'static
+{
+}

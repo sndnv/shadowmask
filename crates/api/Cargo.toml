@@ -7,6 +7,15 @@ license.workspace = true
 [dependencies]
 domain.workspace = true
 services.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+tower = { workspace = true, features = ["util"] }
+jiff = { workspace = true }
 
 [lints]
 workspace = true

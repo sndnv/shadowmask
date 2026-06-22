@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use domain::catalog::Episode;
+use domain::catalog::{Episode, Movie};
 use domain::common::{Page, PageRequest};
 use domain::discovery::{ContinueWatchingItem, Hub, SearchResult};
 use domain::error::DiscoveryError;
@@ -14,7 +14,8 @@ use crate::mock::page::paginate;
 struct State {
     search_index: Vec<SearchResult>,
     continue_watching: HashMap<UserId, Vec<ContinueWatchingItem>>,
-    next_up: HashMap<UserId, Vec<Episode>>,
+    next_episodes: HashMap<UserId, Vec<Episode>>,
+    next_movies: HashMap<UserId, Vec<Movie>>,
     hubs: Vec<Hub>,
 }
 
@@ -42,14 +43,24 @@ impl MockDiscoveryService {
             .push(item);
     }
 
-    pub fn add_next_up(&self, user: &UserId, episode: Episode) {
+    pub fn add_next_episode(&self, user: &UserId, episode: Episode) {
         self.state
             .lock()
             .unwrap()
-            .next_up
+            .next_episodes
             .entry(user.clone())
             .or_default()
             .push(episode);
+    }
+
+    pub fn add_next_movie(&self, user: &UserId, movie: Movie) {
+        self.state
+            .lock()
+            .unwrap()
+            .next_movies
+            .entry(user.clone())
+            .or_default()
+            .push(movie);
     }
 
     pub fn add_hub(&self, hub: Hub) {
@@ -100,12 +111,23 @@ impl DiscoveryService for MockDiscoveryService {
             .unwrap_or_default())
     }
 
-    async fn next_up(&self, user: &UserId) -> Result<Vec<Episode>, DiscoveryError> {
+    async fn next_episodes(&self, user: &UserId) -> Result<Vec<Episode>, DiscoveryError> {
         Ok(self
             .state
             .lock()
             .unwrap()
-            .next_up
+            .next_episodes
+            .get(user)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    async fn next_movies(&self, user: &UserId) -> Result<Vec<Movie>, DiscoveryError> {
+        Ok(self
+            .state
+            .lock()
+            .unwrap()
+            .next_movies
             .get(user)
             .cloned()
             .unwrap_or_default())
@@ -201,10 +223,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn continue_watching_and_next_up() {
+    async fn continue_watching_next_episodes_and_movies() {
         let svc = MockDiscoveryService::new();
         assert!(svc.continue_watching(&user()).await.unwrap().is_empty());
-        assert!(svc.next_up(&user()).await.unwrap().is_empty());
+        assert!(svc.next_episodes(&user()).await.unwrap().is_empty());
+        assert!(svc.next_movies(&user()).await.unwrap().is_empty());
 
         svc.add_continue_watching(
             &user(),
@@ -217,10 +240,12 @@ mod tests {
                 },
             },
         );
-        svc.add_next_up(&user(), episode("e1"));
+        svc.add_next_episode(&user(), episode("e1"));
+        svc.add_next_movie(&user(), movie("Sequel"));
 
         assert_eq!(svc.continue_watching(&user()).await.unwrap().len(), 1);
-        assert_eq!(svc.next_up(&user()).await.unwrap().len(), 1);
+        assert_eq!(svc.next_episodes(&user()).await.unwrap().len(), 1);
+        assert_eq!(svc.next_movies(&user()).await.unwrap().len(), 1);
     }
 
     #[tokio::test]

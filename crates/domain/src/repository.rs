@@ -79,11 +79,10 @@ pub trait ProgressRepository {
 pub trait PreferencesRepository {
     async fn list_watchlist(&self, user: &UserId) -> Result<Vec<WatchlistItem>, RepositoryError>;
     async fn add_watchlist(&self, item: WatchlistItem) -> Result<(), RepositoryError>;
-    async fn remove_watchlist(&self, user: &UserId, title: &TitleId)
-    -> Result<(), RepositoryError>;
+    async fn remove_watchlist(&self, user: &UserId, title_id: &str) -> Result<(), RepositoryError>;
     async fn list_favorites(&self, user: &UserId) -> Result<Vec<Favorite>, RepositoryError>;
     async fn add_favorite(&self, item: Favorite) -> Result<(), RepositoryError>;
-    async fn remove_favorite(&self, user: &UserId, title: &TitleId) -> Result<(), RepositoryError>;
+    async fn remove_favorite(&self, user: &UserId, title_id: &str) -> Result<(), RepositoryError>;
     async fn get_subtitle_offset(
         &self,
         user: &UserId,
