@@ -4,9 +4,10 @@ use domain::session::SubtitleChange;
 
 use super::SubtitleSelectionDto;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "action")]
 pub enum SubtitleChangeDto {
+    #[default]
     Keep,
     Disable,
     Set(SubtitleSelectionDto),

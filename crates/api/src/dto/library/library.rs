@@ -62,3 +62,36 @@ impl From<Library> for LibraryResponse {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_all_kinds_and_watchers() {
+        assert!(matches!(
+            LibraryKindDto::from(LibraryKind::Movie),
+            LibraryKindDto::Movie
+        ));
+        assert!(matches!(
+            LibraryKindDto::from(LibraryKind::Tv),
+            LibraryKindDto::Tv
+        ));
+        assert!(matches!(
+            WatcherStrategyDto::from(WatcherStrategy::Local),
+            WatcherStrategyDto::Local
+        ));
+        assert!(matches!(
+            WatcherStrategyDto::from(WatcherStrategy::Polling),
+            WatcherStrategyDto::Polling
+        ));
+        assert!(matches!(
+            WatcherStrategyDto::from(WatcherStrategy::Scheduled),
+            WatcherStrategyDto::Scheduled
+        ));
+        assert!(matches!(
+            WatcherStrategyDto::from(WatcherStrategy::Manual),
+            WatcherStrategyDto::Manual
+        ));
+    }
+}

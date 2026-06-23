@@ -19,3 +19,24 @@ impl From<DeliveryMode> for DeliveryModeDto {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_all_modes() {
+        assert!(matches!(
+            DeliveryModeDto::from(DeliveryMode::Direct),
+            DeliveryModeDto::Direct
+        ));
+        assert!(matches!(
+            DeliveryModeDto::from(DeliveryMode::Remux),
+            DeliveryModeDto::Remux
+        ));
+        assert!(matches!(
+            DeliveryModeDto::from(DeliveryMode::Transcode),
+            DeliveryModeDto::Transcode
+        ));
+    }
+}

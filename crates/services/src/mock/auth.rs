@@ -7,10 +7,12 @@ use domain::user::{
     AccessToken, DeviceRegistration, IssuedToken, Principal, Role, TokenPair, UserId,
 };
 
+use crate::password;
+
 #[derive(Debug, Clone)]
 struct Account {
     username: String,
-    password: String,
+    password_hash: String,
     user: UserId,
     role: Role,
 }
@@ -32,9 +34,10 @@ impl MockAuthService {
     }
 
     pub fn add_account(&self, username: &str, password: &str, user: UserId, role: Role) {
+        let password_hash = password::hash(password).expect("hash seed password");
         self.state.lock().unwrap().accounts.push(Account {
             username: username.to_string(),
-            password: password.to_string(),
+            password_hash,
             user,
             role,
         });
@@ -55,8 +58,11 @@ impl AuthService for MockAuthService {
         let account = state
             .accounts
             .iter()
-            .find(|a| a.username == username && a.password == password)
+            .find(|a| a.username == username)
             .ok_or(AuthError::InvalidCredentials)?;
+        if !password::verify(password, &account.password_hash).unwrap_or(false) {
+            return Err(AuthError::InvalidCredentials);
+        }
         Ok(TokenPair {
             access_token: format!("access:{}", account.user.0),
             refresh_token: format!("refresh:{}", account.user.0),

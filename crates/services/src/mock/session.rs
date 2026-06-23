@@ -17,6 +17,7 @@ const HEARTBEAT_INTERVAL_S: u32 = 10;
 struct State {
     sessions: HashMap<SessionId, PlaybackSession>,
     next_id: u64,
+    concurrent_limit: Option<usize>,
 }
 
 #[derive(Clone, Default)]
@@ -27,6 +28,10 @@ pub struct MockSessionService {
 impl MockSessionService {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn set_concurrent_limit(&self, limit: usize) {
+        self.state.lock().unwrap().concurrent_limit = Some(limit);
     }
 }
 
@@ -50,6 +55,17 @@ impl SessionService for MockSessionService {
         request: StartSessionRequest,
     ) -> Result<SessionStarted, SessionError> {
         let mut state = self.state.lock().unwrap();
+        if let Some(limit) = state.concurrent_limit {
+            let active: Vec<PlaybackSession> = state
+                .sessions
+                .values()
+                .filter(|s| &s.user == user)
+                .cloned()
+                .collect();
+            if active.len() >= limit {
+                return Err(SessionError::ConcurrentLimit { active });
+            }
+        }
         state.next_id += 1;
         let id = SessionId(format!("session-{}", state.next_id));
         let now = Timestamp::now();
@@ -316,6 +332,24 @@ mod tests {
             .unwrap_err(),
             SessionError::NotFound
         ));
+    }
+
+    #[tokio::test]
+    async fn start_enforces_concurrent_limit() {
+        let svc = MockSessionService::new();
+        svc.set_concurrent_limit(1);
+        svc.start(&UserId("u1".into()), start_request())
+            .await
+            .unwrap();
+        assert!(matches!(
+            svc.start(&UserId("u1".into()), start_request())
+                .await
+                .unwrap_err(),
+            SessionError::ConcurrentLimit { active } if active.len() == 1
+        ));
+        svc.start(&UserId("u2".into()), start_request())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

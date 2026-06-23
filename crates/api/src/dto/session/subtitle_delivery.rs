@@ -17,3 +17,20 @@ impl From<SubtitleDelivery> for SubtitleDeliveryDto {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_all_deliveries() {
+        assert!(matches!(
+            SubtitleDeliveryDto::from(SubtitleDelivery::HlsVtt),
+            SubtitleDeliveryDto::HlsVtt
+        ));
+        assert!(matches!(
+            SubtitleDeliveryDto::from(SubtitleDelivery::Burned),
+            SubtitleDeliveryDto::Burned
+        ));
+    }
+}
