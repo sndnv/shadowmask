@@ -7,6 +7,7 @@ use super::SubtitleChangeDto;
 #[derive(Debug, Deserialize)]
 pub struct UpdateSessionRequest {
     pub audio_track: Option<u32>,
+    #[serde(default)]
     pub subtitle: SubtitleChangeDto,
 }
 

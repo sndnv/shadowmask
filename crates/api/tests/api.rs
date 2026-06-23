@@ -518,6 +518,17 @@ async fn session_routes() {
         assert_eq!(status, StatusCode::OK);
     }
 
+    // subtitle omitted → defaults to keep.
+    let (status, _) = call(
+        ctx.app(),
+        Method::POST,
+        &format!("/api/v1/sessions/{sid}/update"),
+        Some(USER),
+        Some(json!({"audio_track": 3})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
     // Admin can see the active session.
     let (status, body) = call(
         ctx.app(),
@@ -539,6 +550,66 @@ async fn session_routes() {
     )
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn session_failure_paths() {
+    let ctx = Ctx::new();
+
+    // Mutating an unknown session → 404 session_not_found on every route.
+    let unknown = "/api/v1/sessions/does-not-exist";
+    let cases: [(Method, String, Option<Value>); 4] = [
+        (
+            Method::POST,
+            format!("{unknown}/progress"),
+            Some(json!({"position_ms": 1, "state": "playing"})),
+        ),
+        (
+            Method::POST,
+            format!("{unknown}/seek"),
+            Some(json!({"position_ms": 1})),
+        ),
+        (
+            Method::POST,
+            format!("{unknown}/update"),
+            Some(json!({"audio_track": 1, "subtitle": {"action": "keep"}})),
+        ),
+        (Method::DELETE, unknown.to_string(), None),
+    ];
+    for (method, uri, body) in cases {
+        let (status, body) = call(ctx.app(), method, &uri, Some(USER), body).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"]["code"], "session_not_found");
+    }
+
+    // Concurrent-stream limit exceeded → 409 listing the user's active sessions.
+    ctx.session.set_concurrent_limit(1);
+    let start = json!({
+        "version_id": "v1",
+        "capabilities": {"platform": "web", "profile_version": 1},
+        "audio_track": 0
+    });
+    let (status, _) = call(
+        ctx.app(),
+        Method::POST,
+        "/api/v1/sessions",
+        Some(USER),
+        Some(start.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let (status, body) = call(
+        ctx.app(),
+        Method::POST,
+        "/api/v1/sessions",
+        Some(USER),
+        Some(start),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(body["error"]["code"], "concurrent_limit");
+    assert_eq!(body["active"].as_array().unwrap().len(), 1);
 }
 
 #[tokio::test]
