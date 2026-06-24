@@ -1,0 +1,16 @@
+{
+  "containers": ["mp4", "mkv", "ts", "hls"],
+  "video": [
+    { "codec": "h264", "max_level": "4.2", "max_bit_depth": 8 },
+    { "codec": "hevc", "max_level": "5.1", "max_bit_depth": 10 }
+  ],
+  "audio": [
+    { "codec": "aac", "max_channels": 6 },
+    { "codec": "ac3", "max_channels": 6 },
+    { "codec": "eac3", "max_channels": 8 }
+  ],
+  "hdr": ["hdr10", "hlg"],
+  "max_width": 3840,
+  "max_height": 2160,
+  "max_bitrate": 40000000
+}

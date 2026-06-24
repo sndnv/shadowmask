@@ -3,6 +3,7 @@ pub mod catalog;
 pub mod discovery;
 pub mod library;
 pub mod sessions;
+pub mod stream;
 pub mod user_library;
 pub mod users;
 
