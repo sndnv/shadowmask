@@ -11,11 +11,13 @@ axum.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
+tower = { workspace = true, features = ["util"] }
+tower-http = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
-tower = { workspace = true, features = ["util"] }
 jiff = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

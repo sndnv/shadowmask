@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use domain::catalog::{
     Collection, CollectionId, CollectionUpdate, Episode, EpisodeId, Movie, MovieId, NewCollection,
     Season, SeasonId, Series, SeriesId, TitleId, Version, VersionId,
@@ -52,6 +54,29 @@ impl<A, C, Se, L, U, Ul, D> AppState<A, C, Se, L, U, Ul, D> {
             user,
             user_library,
             discovery,
+        }
+    }
+}
+
+pub struct StreamState<T, G> {
+    pub tokens: Arc<T>,
+    pub source: Arc<G>,
+}
+
+impl<T, G> StreamState<T, G> {
+    pub fn new(tokens: T, source: G) -> Self {
+        Self {
+            tokens: Arc::new(tokens),
+            source: Arc::new(source),
+        }
+    }
+}
+
+impl<T, G> Clone for StreamState<T, G> {
+    fn clone(&self) -> Self {
+        Self {
+            tokens: Arc::clone(&self.tokens),
+            source: Arc::clone(&self.source),
         }
     }
 }

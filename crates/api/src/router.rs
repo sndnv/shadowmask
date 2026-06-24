@@ -2,9 +2,11 @@ use axum::Router;
 use axum::middleware::from_fn_with_state;
 use axum::routing::{delete, get, post, put};
 
-use crate::handlers::{auth, catalog, discovery, library, sessions, user_library, users};
+use domain::session::{StreamSource, StreamTokens};
+
+use crate::handlers::{auth, catalog, discovery, library, sessions, stream, user_library, users};
 use crate::middleware::jwt;
-use crate::state::AppServices;
+use crate::state::{AppServices, StreamState};
 
 pub fn router<S: AppServices>(state: S) -> Router {
     let public = Router::<S>::new()
@@ -97,5 +99,20 @@ pub fn router<S: AppServices>(state: S) -> Router {
 
     Router::<S>::new()
         .nest("/api/v1", public.merge(protected))
+        .with_state(state)
+}
+
+pub fn stream_router<T, G>(state: StreamState<T, G>) -> Router
+where
+    T: StreamTokens + Send + Sync + 'static,
+    G: StreamSource + Send + Sync + 'static,
+{
+    Router::new()
+        .route("/stream/{token}/master.m3u8", get(stream::master::<T, G>))
+        .route("/stream/{token}/file", get(stream::file::<T, G>))
+        .route(
+            "/stream/{token}/{variant}/{file}",
+            get(stream::media::<T, G>),
+        )
         .with_state(state)
 }

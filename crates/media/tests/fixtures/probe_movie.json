@@ -1,0 +1,65 @@
+{
+  "streams": [
+    {
+      "index": 0,
+      "codec_name": "hevc",
+      "codec_type": "video",
+      "width": 3840,
+      "height": 2160,
+      "bits_per_raw_sample": "10",
+      "r_frame_rate": "24000/1001",
+      "color_transfer": "smpte2084",
+      "bit_rate": "45000000",
+      "disposition": { "default": 1, "forced": 0 },
+      "tags": { "language": "und" }
+    },
+    {
+      "index": 1,
+      "codec_name": "eac3",
+      "codec_type": "audio",
+      "channels": 6,
+      "bit_rate": "768000",
+      "disposition": { "default": 1, "forced": 0 },
+      "tags": { "language": "eng" }
+    },
+    {
+      "index": 2,
+      "codec_name": "aac",
+      "codec_type": "audio",
+      "channels": 2,
+      "disposition": { "default": 0, "forced": 0 }
+    },
+    {
+      "index": 3,
+      "codec_name": "subrip",
+      "codec_type": "subtitle",
+      "disposition": { "default": 1, "forced": 0 },
+      "tags": { "language": "eng" }
+    },
+    {
+      "index": 4,
+      "codec_name": "hdmv_pgs_subtitle",
+      "codec_type": "subtitle",
+      "disposition": { "default": 0, "forced": 1 },
+      "tags": { "language": "spa" }
+    },
+    {
+      "index": 5,
+      "codec_name": "bin_data",
+      "codec_type": "data"
+    }
+  ],
+  "chapters": [
+    {
+      "start_time": "0.000000",
+      "tags": { "title": "Opening" }
+    },
+    {
+      "start_time": "1800.000000",
+      "tags": { "title": "The Middle" }
+    }
+  ],
+  "format": {
+    "duration": "5400.500000"
+  }
+}

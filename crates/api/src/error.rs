@@ -4,7 +4,8 @@ use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
 use domain::error::{
-    AuthError, CatalogError, DiscoveryError, LibraryError, SessionError, UserError,
+    AuthError, CatalogError, DiscoveryError, LibraryError, SessionError, StreamError,
+    StreamTokenError, UserError,
 };
 use domain::session::PlaybackSession;
 
@@ -165,6 +166,33 @@ impl From<DiscoveryError> for ApiError {
     }
 }
 
+impl From<StreamTokenError> for ApiError {
+    fn from(err: StreamTokenError) -> Self {
+        let msg = err.to_string();
+        match err {
+            StreamTokenError::Expired => {
+                ApiError::new(StatusCode::FORBIDDEN, "stream_token_expired", msg)
+            }
+            StreamTokenError::Invalid => {
+                ApiError::new(StatusCode::FORBIDDEN, "invalid_stream_token", msg)
+            }
+            StreamTokenError::Create(_) => ApiError::internal(),
+        }
+    }
+}
+
+impl From<StreamError> for ApiError {
+    fn from(err: StreamError) -> Self {
+        let msg = err.to_string();
+        match err {
+            StreamError::NotLive => ApiError::new(StatusCode::FORBIDDEN, "stream_not_live", msg),
+            StreamError::Invalid => {
+                ApiError::new(StatusCode::BAD_REQUEST, "bad_stream_request", msg)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,6 +326,29 @@ mod tests {
             ApiError::from(DiscoveryError::Repository(repo())).status,
             StatusCode::INTERNAL_SERVER_ERROR
         );
+    }
+
+    #[test]
+    fn stream_token_error_mappings() {
+        let expired = ApiError::from(StreamTokenError::Expired);
+        assert_eq!(expired.status, StatusCode::FORBIDDEN);
+        assert_eq!(expired.code, "stream_token_expired");
+        let invalid = ApiError::from(StreamTokenError::Invalid);
+        assert_eq!(invalid.status, StatusCode::FORBIDDEN);
+        assert_eq!(invalid.code, "invalid_stream_token");
+        let create = ApiError::from(StreamTokenError::Create("boom".into()));
+        assert_eq!(create.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(create.code, "internal");
+    }
+
+    #[test]
+    fn stream_error_mappings() {
+        let not_live = ApiError::from(StreamError::NotLive);
+        assert_eq!(not_live.status, StatusCode::FORBIDDEN);
+        assert_eq!(not_live.code, "stream_not_live");
+        let invalid = ApiError::from(StreamError::Invalid);
+        assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
+        assert_eq!(invalid.code, "bad_stream_request");
     }
 
     #[test]
