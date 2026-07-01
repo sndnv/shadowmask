@@ -8,7 +8,7 @@ use domain::error::DiscoveryError;
 use domain::service::DiscoveryService;
 use domain::user::UserId;
 
-use crate::mock::page::paginate;
+use crate::page::paginate;
 
 #[derive(Debug, Default)]
 struct State {

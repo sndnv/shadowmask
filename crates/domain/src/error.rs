@@ -103,6 +103,34 @@ pub enum ProbeError {
 }
 
 #[derive(Debug, Error)]
+pub enum MetadataError {
+    #[error("metadata provider backend error: {0}")]
+    Backend(String),
+    #[error("could not parse metadata response: {0}")]
+    Parse(String),
+    #[error("metadata not found")]
+    NotFound,
+}
+
+#[derive(Debug, Error)]
+pub enum ArtworkError {
+    #[error("failed to download artwork: {0}")]
+    Download(String),
+    #[error("failed to decode artwork: {0}")]
+    Decode(String),
+}
+
+#[derive(Debug, Error)]
+pub enum SubtitleError {
+    #[error("subtitle provider backend error: {0}")]
+    Backend(String),
+    #[error("could not parse subtitle response: {0}")]
+    Parse(String),
+    #[error("subtitle not found")]
+    NotFound,
+}
+
+#[derive(Debug, Error)]
 pub enum ProfileError {
     #[error("could not parse profile data: {0}")]
     Parse(String),
@@ -116,6 +144,12 @@ pub enum TranscodeError {
     Spawn(String),
     #[error("transcode session not found")]
     NotFound,
+}
+
+#[derive(Debug, Error)]
+pub enum TrickplayError {
+    #[error("trickplay generation failed: {0}")]
+    Backend(String),
 }
 
 #[derive(Debug, Error)]

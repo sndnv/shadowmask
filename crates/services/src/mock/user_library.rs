@@ -9,7 +9,7 @@ use domain::service::UserLibraryService;
 use domain::user::UserId;
 use jiff::Timestamp;
 
-use crate::mock::page::paginate;
+use crate::page::paginate;
 
 #[derive(Debug, Default)]
 struct State {

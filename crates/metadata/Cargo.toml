@@ -6,6 +6,14 @@ license.workspace = true
 
 [dependencies]
 domain.workspace = true
+reqwest.workspace = true
+image.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+wiremock.workspace = true
 
 [lints]
 workspace = true

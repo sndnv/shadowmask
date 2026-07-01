@@ -5,7 +5,6 @@ mod job_store;
 mod library;
 mod library_repo;
 mod media_probe;
-pub(crate) mod page;
 mod session;
 mod source_walker;
 mod user;
