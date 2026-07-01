@@ -7,6 +7,12 @@ license.workspace = true
 [dependencies]
 domain.workspace = true
 services.workspace = true
+jiff.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time", "test-util"] }
 
 [lints]
 workspace = true

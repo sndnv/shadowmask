@@ -141,7 +141,7 @@ impl From<LibraryError> for ApiError {
             LibraryError::ScanInProgress => {
                 ApiError::new(StatusCode::CONFLICT, "scan_in_progress", msg)
             }
-            LibraryError::Repository(_) => ApiError::internal(),
+            LibraryError::Walk(_) | LibraryError::Repository(_) => ApiError::internal(),
         }
     }
 }
@@ -196,7 +196,7 @@ impl From<StreamError> for ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::error::RepositoryError;
+    use domain::error::{RepositoryError, WalkError};
     use domain::session::{DeliveryMode, PlaybackState, SelectedTracks, SessionId};
     use domain::user::UserId;
     use jiff::Timestamp;
@@ -301,6 +301,10 @@ mod tests {
         assert_eq!(conflict.code, "scan_in_progress");
         assert_eq!(
             ApiError::from(LibraryError::Repository(repo())).status,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(
+            ApiError::from(LibraryError::Walk(WalkError::RootNotFound("/x".into()))).status,
             StatusCode::INTERNAL_SERVER_ERROR
         );
     }
