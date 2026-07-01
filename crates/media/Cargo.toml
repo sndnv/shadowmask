@@ -13,6 +13,7 @@ jiff.workspace = true
 jsonwebtoken.workspace = true
 walkdir.workspace = true
 notify.workspace = true
+regex.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "time"] }

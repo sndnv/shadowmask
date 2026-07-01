@@ -1,7 +1,12 @@
 mod discovered_file;
+mod discovered_subtitle;
 mod duplicate_candidate;
 #[allow(clippy::module_inception)]
 mod library;
+mod match_key;
+mod match_report;
+mod matched_group;
+mod parsed_media;
 mod scan_report;
 mod scan_state;
 mod skip_reason;
@@ -13,8 +18,13 @@ mod watch_plan;
 mod watcher_trigger;
 
 pub use discovered_file::DiscoveredFile;
+pub use discovered_subtitle::DiscoveredSubtitle;
 pub use duplicate_candidate::{DuplicateCandidate, DuplicateCandidateId};
 pub use library::{Library, LibraryId, LibraryKind, WatcherStrategy};
+pub use match_key::MatchKey;
+pub use match_report::MatchReport;
+pub use matched_group::MatchedGroup;
+pub use parsed_media::ParsedMedia;
 pub use scan_report::ScanReport;
 pub use scan_state::{ScanState, ScanStatus};
 pub use skip_reason::SkipReason;

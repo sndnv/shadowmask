@@ -1,6 +1,9 @@
+pub mod cache;
 pub mod hls;
 pub mod probe;
 pub mod profile;
 pub mod scan;
 pub mod stream_token;
+pub mod subtitle;
 pub mod transcode;
+pub mod trickplay;

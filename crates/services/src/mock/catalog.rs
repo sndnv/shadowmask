@@ -9,7 +9,7 @@ use domain::error::CatalogError;
 use domain::library::LibraryId;
 use domain::service::CatalogService;
 
-use crate::mock::page::paginate;
+use crate::page::paginate;
 
 #[derive(Debug, Default)]
 struct State {
