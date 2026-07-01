@@ -1,9 +1,14 @@
+use std::future::Future;
+
+use jiff::Timestamp;
+
 use crate::catalog::{
     Collection, CollectionId, Episode, EpisodeId, Movie, MovieId, Season, SeasonId, Series,
     SeriesId, TitleId, Version, VersionId,
 };
 use crate::common::{Page, PageRequest};
 use crate::error::RepositoryError;
+use crate::job::{Job, JobId};
 use crate::library::{DuplicateCandidate, Library, LibraryId, ScanState, UnmatchedFile};
 use crate::playback::{
     Favorite, PlaybackProgress, SubtitleTrackRef, UserSubtitleOffset, WatchHistory, WatchlistItem,
@@ -31,14 +36,27 @@ pub trait CatalogRepository {
 }
 
 pub trait LibraryRepository {
-    async fn list(&self) -> Result<Vec<Library>, RepositoryError>;
-    async fn get(&self, id: &LibraryId) -> Result<Option<Library>, RepositoryError>;
-    async fn scan_state(&self, id: &LibraryId) -> Result<Option<ScanState>, RepositoryError>;
-    async fn list_unmatched(&self, id: &LibraryId) -> Result<Vec<UnmatchedFile>, RepositoryError>;
-    async fn list_duplicates(
+    fn list(&self) -> impl Future<Output = Result<Vec<Library>, RepositoryError>> + Send;
+    fn get(
         &self,
         id: &LibraryId,
-    ) -> Result<Vec<DuplicateCandidate>, RepositoryError>;
+    ) -> impl Future<Output = Result<Option<Library>, RepositoryError>> + Send;
+    fn scan_state(
+        &self,
+        id: &LibraryId,
+    ) -> impl Future<Output = Result<Option<ScanState>, RepositoryError>> + Send;
+    fn save_scan_state(
+        &self,
+        state: ScanState,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn list_unmatched(
+        &self,
+        id: &LibraryId,
+    ) -> impl Future<Output = Result<Vec<UnmatchedFile>, RepositoryError>> + Send;
+    fn list_duplicates(
+        &self,
+        id: &LibraryId,
+    ) -> impl Future<Output = Result<Vec<DuplicateCandidate>, RepositoryError>> + Send;
 }
 
 pub trait UserRepository {
@@ -98,4 +116,12 @@ pub trait SessionRegistry {
     async fn list_for_user(&self, user: &UserId) -> Result<Vec<PlaybackSession>, RepositoryError>;
     async fn list_all(&self) -> Result<Vec<PlaybackSession>, RepositoryError>;
     async fn remove(&self, id: &SessionId) -> Result<(), RepositoryError>;
+}
+
+pub trait JobRepository {
+    async fn enqueue(&self, job: Job) -> Result<(), RepositoryError>;
+    async fn claim_ready(&self, now: Timestamp, limit: usize) -> Result<Vec<Job>, RepositoryError>;
+    async fn update(&self, job: Job) -> Result<(), RepositoryError>;
+    async fn get(&self, id: &JobId) -> Result<Option<Job>, RepositoryError>;
+    async fn list(&self) -> Result<Vec<Job>, RepositoryError>;
 }

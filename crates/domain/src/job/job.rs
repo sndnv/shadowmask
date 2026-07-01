@@ -1,6 +1,6 @@
 use jiff::Timestamp;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct JobId(pub String);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -24,7 +24,7 @@ pub enum JobStatus {
     Cancelled,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum JobPriority {
     Low,
     Normal,
@@ -40,6 +40,8 @@ pub struct Job {
     pub payload: String,
     pub attempts: u32,
     pub progress: f32,
+    pub available_at: Timestamp,
+    pub last_error: Option<String>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
 }

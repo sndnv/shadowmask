@@ -55,7 +55,25 @@ pub enum LibraryError {
     #[error("scan already in progress")]
     ScanInProgress,
     #[error(transparent)]
+    Walk(#[from] WalkError),
+    #[error(transparent)]
     Repository(#[from] RepositoryError),
+}
+
+#[derive(Debug, Error)]
+pub enum WalkError {
+    #[error("scan root not found: {0}")]
+    RootNotFound(String),
+    #[error("scan root unreadable: {0}")]
+    Unreadable(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum WatchPlanError {
+    #[error("scheduled library has no scan schedule")]
+    MissingSchedule,
+    #[error("library has no roots to watch")]
+    NoRoots,
 }
 
 #[derive(Debug, Error)]

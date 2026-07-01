@@ -1,16 +1,24 @@
 mod auth;
 mod catalog;
 mod discovery;
+mod job_store;
 mod library;
+mod library_repo;
+mod media_probe;
 pub(crate) mod page;
 mod session;
+mod source_walker;
 mod user;
 mod user_library;
 
 pub use auth::MockAuthService;
 pub use catalog::MockCatalogService;
 pub use discovery::MockDiscoveryService;
+pub use job_store::MockJobStore;
 pub use library::MockLibraryService;
+pub use library_repo::MockLibraryRepo;
+pub use media_probe::MockMediaProbe;
 pub use session::MockSessionService;
+pub use source_walker::MockSourceWalker;
 pub use user::MockUserService;
 pub use user_library::MockUserLibraryService;
