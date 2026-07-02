@@ -18,7 +18,7 @@ pub(crate) fn build_hls_args(spec: &TranscodeSpec, output_dir: &Path) -> Vec<Str
         args.push("-map".to_owned());
         args.push("0:v:0".to_owned());
         args.push("-map".to_owned());
-        args.push(format!("0:a:{idx}"));
+        args.push(format!("0:{idx}"));
     }
     if let Some(filter) = video_filter(spec) {
         args.push("-vf".to_owned());
@@ -30,10 +30,16 @@ pub(crate) fn build_hls_args(spec: &TranscodeSpec, output_dir: &Path) -> Vec<Str
         args.push("-bufsize".to_owned());
         args.push((bitrate * 2).to_string());
     }
+    args.push("-force_key_frames".to_owned());
+    args.push(format!("expr:gte(t,n_forced*{HLS_SEGMENT_SECONDS})"));
     args.push("-f".to_owned());
     args.push("hls".to_owned());
     args.push("-hls_time".to_owned());
     args.push(HLS_SEGMENT_SECONDS.to_owned());
+    args.push("-hls_list_size".to_owned());
+    args.push("0".to_owned());
+    args.push("-hls_playlist_type".to_owned());
+    args.push("event".to_owned());
     let variant_dir = output_dir.join(crate::hls::VARIANT);
     args.push("-hls_segment_filename".to_owned());
     args.push(path_in(&variant_dir, SEGMENT_PATTERN));
@@ -44,7 +50,10 @@ pub(crate) fn build_hls_args(spec: &TranscodeSpec, output_dir: &Path) -> Vec<Str
 fn video_filter(spec: &TranscodeSpec) -> Option<String> {
     let mut filters = Vec::new();
     if let Some(path) = &spec.burn_subtitle_path {
-        filters.push(format!("subtitles={path}"));
+        filters.push(format!(
+            "subtitles=filename='{}'",
+            escape_subtitle_path(path)
+        ));
     }
     if let Some(height) = spec.max_height {
         filters.push(format!("scale=-2:{height}"));
@@ -54,6 +63,12 @@ fn video_filter(spec: &TranscodeSpec) -> Option<String> {
     } else {
         Some(filters.join(","))
     }
+}
+
+fn escape_subtitle_path(path: &str) -> String {
+    path.replace('\\', "\\\\")
+        .replace(':', "\\:")
+        .replace('\'', "'\\''")
 }
 
 fn path_in(dir: &Path, name: &str) -> String {
@@ -94,6 +109,15 @@ mod tests {
         assert_eq!(pair_after(&args, "-i").as_deref(), Some("/media/movie.mkv"));
         assert_eq!(pair_after(&args, "-f").as_deref(), Some("hls"));
         assert_eq!(pair_after(&args, "-hls_time").as_deref(), Some("4"));
+        assert_eq!(pair_after(&args, "-hls_list_size").as_deref(), Some("0"));
+        assert_eq!(
+            pair_after(&args, "-hls_playlist_type").as_deref(),
+            Some("event")
+        );
+        assert_eq!(
+            pair_after(&args, "-force_key_frames").as_deref(),
+            Some("expr:gte(t,n_forced*4)")
+        );
         assert_eq!(
             pair_after(&args, "-hls_segment_filename").as_deref(),
             Some("/cache/s1/v0/seg_%05d.ts")
@@ -133,7 +157,7 @@ mod tests {
             .filter(|(i, a)| *a == "-map" && i + 1 < args.len())
             .map(|(i, _)| &args[i + 1])
             .collect();
-        assert_eq!(maps, vec!["0:v:0", "0:a:2"]);
+        assert_eq!(maps, vec!["0:v:0", "0:2"]);
     }
 
     #[test]
@@ -156,7 +180,7 @@ mod tests {
         };
         assert_eq!(
             pair_after(&args_for(&spec), "-vf").as_deref(),
-            Some("subtitles=/media/movie.srt")
+            Some("subtitles=filename='/media/movie.srt'")
         );
     }
 
@@ -169,8 +193,29 @@ mod tests {
         };
         assert_eq!(
             pair_after(&args_for(&spec), "-vf").as_deref(),
-            Some("subtitles=/media/movie.srt,scale=-2:480")
+            Some("subtitles=filename='/media/movie.srt',scale=-2:480")
         );
+    }
+
+    #[test]
+    fn burn_subtitle_escapes_hostile_paths() {
+        let vf = |name: &str| {
+            let spec = TranscodeSpec {
+                burn_subtitle_path: Some(name.to_owned()),
+                ..base_spec()
+            };
+            pair_after(&args_for(&spec), "-vf").unwrap()
+        };
+        assert_eq!(
+            vf("/m/Mission: Impossible.srt"),
+            "subtitles=filename='/m/Mission\\: Impossible.srt'"
+        );
+        assert_eq!(
+            vf("/m/Bob's tape.srt"),
+            "subtitles=filename='/m/Bob'\\''s tape.srt'"
+        );
+        assert_eq!(vf("/m/a,b.srt"), "subtitles=filename='/m/a,b.srt'");
+        assert_eq!(vf("/m/a\\b.srt"), "subtitles=filename='/m/a\\\\b.srt'");
     }
 
     #[test]

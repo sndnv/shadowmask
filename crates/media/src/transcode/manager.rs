@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use jiff::{SignedDuration, Timestamp};
 use tokio::sync::Mutex;
+use tokio::task::spawn_blocking;
 
 use domain::error::TranscodeError;
 use domain::session::{SessionId, TranscodeManager, TranscodeSpec, TranscodeStarted};
@@ -30,8 +31,11 @@ struct TranscodeSession<C: TranscodeChild> {
 impl<C: TranscodeChild> Drop for TranscodeSession<C> {
     fn drop(&mut self) {
         self.child.kill();
-        let _ = std::fs::remove_dir_all(&self.output_dir);
     }
+}
+
+async fn remove_dir_off_lock(dir: PathBuf) {
+    let _ = spawn_blocking(move || std::fs::remove_dir_all(&dir)).await;
 }
 
 impl FfmpegTranscodeManager {
@@ -62,11 +66,23 @@ impl<S: ProcessSpawner> FfmpegTranscodeManager<S> {
     }
 
     async fn reap_at(&self, now: Timestamp) -> usize {
-        let mut sessions = self.sessions.lock().await;
-        let before = sessions.len();
         let timeout = self.idle_timeout;
-        sessions.retain(|_, s| !is_expired(now, s.last_active, timeout) && !s.child.has_exited());
-        before - sessions.len()
+        let evicted = {
+            let mut sessions = self.sessions.lock().await;
+            let mut evicted = Vec::new();
+            sessions.retain(|_, s| {
+                let keep = !is_expired(now, s.last_active, timeout) && !s.child.has_exited();
+                if !keep {
+                    evicted.push(s.output_dir.clone());
+                }
+                keep
+            });
+            evicted
+        };
+        for dir in &evicted {
+            remove_dir_off_lock(dir.clone()).await;
+        }
+        evicted.len()
     }
 }
 
@@ -74,15 +90,19 @@ impl<S: ProcessSpawner> TranscodeManager for FfmpegTranscodeManager<S> {
     async fn start(&self, spec: TranscodeSpec) -> Result<TranscodeStarted, TranscodeError> {
         let output_dir = self.cache_root.join(&spec.session.0);
         let args = build_hls_args(&spec, &output_dir);
-        let mut sessions = self.sessions.lock().await;
-        sessions.remove(&spec.session);
-        std::fs::create_dir_all(output_dir.join(crate::hls::VARIANT))
+        let previous = self.sessions.lock().await.remove(&spec.session);
+        drop(previous);
+        remove_dir_off_lock(output_dir.clone()).await;
+        let variant_dir = output_dir.join(crate::hls::VARIANT);
+        spawn_blocking(move || std::fs::create_dir_all(variant_dir))
+            .await
+            .expect("create_dir_all task panicked")
             .map_err(|e| TranscodeError::Spawn(e.to_string()))?;
         let child = self
             .spawner
             .spawn(&self.binary, &args)
             .map_err(|e| TranscodeError::Spawn(e.to_string()))?;
-        sessions.insert(
+        self.sessions.lock().await.insert(
             spec.session.clone(),
             TranscodeSession {
                 child,
@@ -104,11 +124,10 @@ impl<S: ProcessSpawner> TranscodeManager for FfmpegTranscodeManager<S> {
     }
 
     async fn stop(&self, session: &SessionId) -> Result<(), TranscodeError> {
-        let mut sessions = self.sessions.lock().await;
-        sessions
-            .remove(session)
-            .map(|_| ())
-            .ok_or(TranscodeError::NotFound)
+        let removed = self.sessions.lock().await.remove(session);
+        let entry = removed.ok_or(TranscodeError::NotFound)?;
+        remove_dir_off_lock(entry.output_dir.clone()).await;
+        Ok(())
     }
 
     async fn reap_idle(&self) -> usize {

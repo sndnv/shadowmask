@@ -4,20 +4,39 @@ import subprocess
 import sys
 from pathlib import Path
 
+FAIL_UNDER_LINES = "99.6"
+
 STEPS = [
     ("fmt", ["cargo", "fmt", "--all", "--check"]),
-    ("clippy", ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]),
-    ("build", ["cargo", "build", "--workspace"]),
-    ("test", ["cargo", "test", "--workspace"]),
-    ("coverage", ["cargo", "llvm-cov", "--workspace"]),
+    ("clippy", ["cargo", "clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"]),
+    ("build", ["cargo", "build", "--workspace", "--locked"]),
+    ("deny", ["cargo", "deny", "check"]),
+    ("test", ["cargo", "nextest", "run", "--workspace", "--locked"]),
+    ("coverage", ["cargo", "llvm-cov", "nextest", "--workspace", "--locked", "--fail-under-lines", FAIL_UNDER_LINES]),
 ]
 
-REQUIRED_TOOLS = ["ffmpeg", "ffprobe"]
-TOOL_DEPENDENT_STEPS = {"test", "coverage"}
+STEP_TOOLS = {
+    "deny": ["cargo-deny"],
+    "test": ["cargo-nextest", "ffmpeg", "ffprobe"],
+    "coverage": ["cargo-nextest", "cargo-llvm-cov", "ffmpeg", "ffprobe"],
+}
+
+INSTALL_HINTS = {
+    "ffmpeg": "ffmpeg + ffprobe: macOS `brew install ffmpeg`, Ubuntu `sudo apt-get install -y ffmpeg`",
+    "ffprobe": "ffmpeg + ffprobe: macOS `brew install ffmpeg`, Ubuntu `sudo apt-get install -y ffmpeg`",
+    "cargo-nextest": "cargo-nextest: `cargo install cargo-nextest --locked` or see https://get.nexte.st",
+    "cargo-deny": "cargo-deny: `cargo install cargo-deny --locked`",
+    "cargo-llvm-cov": "cargo-llvm-cov: `cargo install cargo-llvm-cov`",
+}
 
 
-def missing_tools():
-    return [tool for tool in REQUIRED_TOOLS if shutil.which(tool) is None]
+def missing_for(steps):
+    needed = []
+    for name, _ in steps:
+        for tool in STEP_TOOLS.get(name, []):
+            if tool not in needed and shutil.which(tool) is None:
+                needed.append(tool)
+    return needed
 
 
 def main(argv):
@@ -30,13 +49,12 @@ def main(argv):
         print(f"available: {', '.join(names)}")
         return 2
     steps = [step for step in STEPS if not selected or step[0] in selected]
-    if any(name in TOOL_DEPENDENT_STEPS for name, _ in steps):
-        missing = missing_tools()
-        if missing:
-            print(f"missing required tool(s): {', '.join(missing)}")
-            print("ffmpeg and ffprobe are required for the media probe and smoke tests.")
-            print("install — macOS: `brew install ffmpeg` · Ubuntu: `sudo apt-get install -y ffmpeg`")
-            return 1
+    missing = missing_for(steps)
+    if missing:
+        print(f"missing required tool(s): {', '.join(missing)}")
+        for hint in dict.fromkeys(INSTALL_HINTS[tool] for tool in missing):
+            print(f"install: {hint}")
+        return 1
     for name, cmd in steps:
         print(f"\n=== {name}: {' '.join(cmd)} ===", flush=True)
         result = subprocess.run(cmd, cwd=root)

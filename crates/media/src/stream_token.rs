@@ -8,6 +8,9 @@ use domain::error::StreamTokenError;
 use domain::session::{SessionId, StreamClaims, StreamToken, StreamTokens};
 use domain::user::UserId;
 
+const STREAM_AUDIENCE: &str = "shadowmask-stream";
+const STREAM_TOKEN_TYPE: &str = "stream";
+
 pub struct HmacStreamTokens {
     encoding_key: EncodingKey,
     decoding_key: DecodingKey,
@@ -18,7 +21,7 @@ pub struct HmacStreamTokens {
 impl HmacStreamTokens {
     pub fn new(secret: &[u8]) -> Self {
         let mut validation = Validation::new(Algorithm::HS256);
-        validation.validate_aud = false;
+        validation.set_audience(&[STREAM_AUDIENCE]);
         Self {
             encoding_key: EncodingKey::from_secret(secret),
             decoding_key: DecodingKey::from_secret(secret),
@@ -33,6 +36,8 @@ struct RawClaims {
     sub: String,
     sid: String,
     vid: String,
+    aud: String,
+    typ: String,
     exp: i64,
 }
 
@@ -42,6 +47,8 @@ impl StreamTokens for HmacStreamTokens {
             sub: claims.user.0.clone(),
             sid: claims.session.0.clone(),
             vid: claims.version.0.clone(),
+            aud: STREAM_AUDIENCE.to_owned(),
+            typ: STREAM_TOKEN_TYPE.to_owned(),
             exp: claims.expires_at.as_second(),
         };
         encode(&self.header, &raw, &self.encoding_key)
@@ -56,6 +63,9 @@ impl StreamTokens for HmacStreamTokens {
                 _ => StreamTokenError::Invalid,
             })?
             .claims;
+        if raw.typ != STREAM_TOKEN_TYPE {
+            return Err(StreamTokenError::Invalid);
+        }
         let expires_at = Timestamp::from_second(raw.exp).map_err(|_| StreamTokenError::Invalid)?;
         Ok(StreamClaims {
             session: SessionId(raw.sid),
@@ -144,6 +154,8 @@ mod tests {
             sub: "user-1".into(),
             sid: "session-1".into(),
             vid: "version-1".into(),
+            aud: STREAM_AUDIENCE.into(),
+            typ: STREAM_TOKEN_TYPE.into(),
             exp: i64::MAX,
         };
         let token = encode(
@@ -152,6 +164,49 @@ mod tests {
             &EncodingKey::from_secret(SECRET),
         )
         .unwrap();
+        assert!(matches!(
+            codec.verify(&token),
+            Err(StreamTokenError::Invalid)
+        ));
+    }
+
+    fn encode_raw(raw: &RawClaims) -> String {
+        encode(
+            &Header::new(Algorithm::HS256),
+            raw,
+            &EncodingKey::from_secret(SECRET),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn verify_rejects_wrong_audience() {
+        let codec = HmacStreamTokens::new(SECRET);
+        let token = encode_raw(&RawClaims {
+            sub: "user-1".into(),
+            sid: "session-1".into(),
+            vid: "version-1".into(),
+            aud: "shadowmask-rest".into(),
+            typ: STREAM_TOKEN_TYPE.into(),
+            exp: Timestamp::now().as_second() + 3600,
+        });
+        assert!(matches!(
+            codec.verify(&token),
+            Err(StreamTokenError::Invalid)
+        ));
+    }
+
+    #[test]
+    fn verify_rejects_wrong_token_type() {
+        let codec = HmacStreamTokens::new(SECRET);
+        let token = encode_raw(&RawClaims {
+            sub: "user-1".into(),
+            sid: "session-1".into(),
+            vid: "version-1".into(),
+            aud: STREAM_AUDIENCE.into(),
+            typ: "access".into(),
+            exp: Timestamp::now().as_second() + 3600,
+        });
         assert!(matches!(
             codec.verify(&token),
             Err(StreamTokenError::Invalid)

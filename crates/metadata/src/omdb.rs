@@ -404,6 +404,8 @@ mod tests {
 
     #[tokio::test]
     async fn new_builds_with_default_endpoint() {
-        let _client = OmdbClient::new("k");
+        let client = OmdbClient::new("k");
+        assert_eq!(client.base_url, DEFAULT_BASE_URL);
+        assert_eq!(client.api_key, "k");
     }
 }

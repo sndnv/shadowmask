@@ -5,16 +5,17 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.96"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-domain = { path = "crates/domain" }
-persistence = { path = "crates/persistence" }
-media = { path = "crates/media" }
-metadata = { path = "crates/metadata" }
-services = { path = "crates/services" }
-jobs = { path = "crates/jobs" }
-api = { path = "crates/api" }
+domain = { path = "crates/domain", version = "0.1.0" }
+persistence = { path = "crates/persistence", version = "0.1.0" }
+media = { path = "crates/media", version = "0.1.0" }
+metadata = { path = "crates/metadata", version = "0.1.0" }
+services = { path = "crates/services", version = "0.1.0" }
+jobs = { path = "crates/jobs", version = "0.1.0" }
+api = { path = "crates/api", version = "0.1.0" }
 
 tokio = "1"
 axum = "0.8"
