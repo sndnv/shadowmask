@@ -73,11 +73,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn kill_does_not_panic() {
+    async fn kill_terminates_the_process() {
         let spawner = TokioProcessSpawner;
         let mut child = spawner
-            .spawn("ffmpeg", &["-version".to_owned()])
+            .spawn(
+                "ffmpeg",
+                &[
+                    "-hide_banner",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "testsrc",
+                    "-f",
+                    "null",
+                    "-",
+                ]
+                .map(str::to_owned),
+            )
             .expect("ffmpeg should spawn");
         child.kill();
+        let mut exited = false;
+        for _ in 0..300 {
+            if child.has_exited() {
+                exited = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(exited);
     }
 }

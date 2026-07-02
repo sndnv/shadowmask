@@ -11,7 +11,11 @@ env:
 
 jobs:
   qa:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
@@ -21,8 +25,14 @@ jobs:
 
       - uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595
         with:
-          tool: cargo-llvm-cov
+          tool: cargo-llvm-cov,cargo-nextest,cargo-deny
 
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
 
       - run: python3 qa.py

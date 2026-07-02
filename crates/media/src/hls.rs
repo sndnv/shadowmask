@@ -75,7 +75,22 @@ impl StreamSource for HlsStreamSource {
         if !is_safe_segment(variant) || !is_safe_segment(file) {
             return Err(StreamError::Invalid);
         }
-        Ok(entry.output_dir.join(variant).join(file))
+        let base = entry
+            .output_dir
+            .canonicalize()
+            .map_err(|_| StreamError::NotLive)?;
+        let dir = base.join(variant);
+        let dir = match dir.canonicalize() {
+            Ok(real) if real.starts_with(&base) => real,
+            Ok(_) => return Err(StreamError::Invalid),
+            Err(_) => return Ok(dir.join(file)),
+        };
+        let candidate = dir.join(file);
+        match candidate.canonicalize() {
+            Ok(real) if real.starts_with(&base) => Ok(real),
+            Ok(_) => Err(StreamError::Invalid),
+            Err(_) => Ok(candidate),
+        }
     }
 
     fn direct_file(&self, claims: &StreamClaims) -> Result<PathBuf, StreamError> {
@@ -174,14 +189,106 @@ mod tests {
         ));
     }
 
+    fn entry_at(dir: PathBuf) -> StreamEntry {
+        StreamEntry {
+            output_dir: dir,
+            ..transcode_entry()
+        }
+    }
+
     #[test]
-    fn media_path_maps_variant_and_file() {
+    fn media_path_returns_canonical_existing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path().to_path_buf();
+        std::fs::create_dir_all(base.join("v0")).unwrap();
+        std::fs::write(base.join("v0").join("seg_00001.ts"), b"x").unwrap();
         let source = HlsStreamSource::new();
-        source.register(SessionId("s1".to_owned()), transcode_entry());
+        source.register(SessionId("s1".to_owned()), entry_at(base.clone()));
         let path = source
             .media_path(&claims("s1"), "v0", "seg_00001.ts")
             .unwrap();
-        assert_eq!(path, PathBuf::from("/cache/s1/v0/seg_00001.ts"));
+        assert_eq!(
+            path,
+            base.canonicalize().unwrap().join("v0").join("seg_00001.ts")
+        );
+    }
+
+    #[test]
+    fn media_path_allows_not_yet_produced_segment() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path().to_path_buf();
+        std::fs::create_dir_all(base.join("v0")).unwrap();
+        let source = HlsStreamSource::new();
+        source.register(SessionId("s1".to_owned()), entry_at(base.clone()));
+        let path = source
+            .media_path(&claims("s1"), "v0", "seg_09999.ts")
+            .unwrap();
+        assert_eq!(
+            path,
+            base.canonicalize().unwrap().join("v0").join("seg_09999.ts")
+        );
+    }
+
+    #[test]
+    fn media_path_allows_segment_when_variant_dir_absent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path().to_path_buf();
+        let source = HlsStreamSource::new();
+        source.register(SessionId("s1".to_owned()), entry_at(base.clone()));
+        let path = source
+            .media_path(&claims("s1"), "v0", "index.m3u8")
+            .unwrap();
+        assert_eq!(
+            path,
+            base.canonicalize().unwrap().join("v0").join("index.m3u8")
+        );
+    }
+
+    #[test]
+    fn media_path_missing_session_dir_is_not_live() {
+        let source = HlsStreamSource::new();
+        source.register(
+            SessionId("s1".to_owned()),
+            entry_at(PathBuf::from("/no/such/session/dir")),
+        );
+        assert!(matches!(
+            source.media_path(&claims("s1"), "v0", "index.m3u8"),
+            Err(StreamError::NotLive)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn media_path_rejects_symlinked_variant_escape() {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret"), b"x").unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path().to_path_buf();
+        std::os::unix::fs::symlink(outside.path(), base.join("v0")).unwrap();
+        let source = HlsStreamSource::new();
+        source.register(SessionId("s1".to_owned()), entry_at(base.clone()));
+        assert!(matches!(
+            source.media_path(&claims("s1"), "v0", "secret"),
+            Err(StreamError::Invalid)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn media_path_rejects_symlinked_file_escape() {
+        let outside = tempfile::tempdir().unwrap();
+        let secret = outside.path().join("secret");
+        std::fs::write(&secret, b"x").unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path().to_path_buf();
+        std::fs::create_dir_all(base.join("v0")).unwrap();
+        std::os::unix::fs::symlink(&secret, base.join("v0").join("leak.ts")).unwrap();
+        let source = HlsStreamSource::new();
+        source.register(SessionId("s1".to_owned()), entry_at(base.clone()));
+        assert!(matches!(
+            source.media_path(&claims("s1"), "v0", "leak.ts"),
+            Err(StreamError::Invalid)
+        ));
     }
 
     #[test]

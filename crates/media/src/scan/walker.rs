@@ -101,4 +101,34 @@ mod tests {
         assert!(entries.iter().any(|e| e.path.ends_with("real.mkv")));
         assert!(!entries.iter().any(|e| e.path.ends_with("hidden.mkv")));
     }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unreadable_root_is_unreadable_error() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o000)).unwrap();
+        let result = WalkdirSourceWalker.walk(root.to_str().unwrap()).await;
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(matches!(result, Err(WalkError::Unreadable(_))));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unreadable_subdir_is_skipped() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("ok.mkv"), b"data").unwrap();
+        let locked = root.join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let entries = WalkdirSourceWalker
+            .walk(root.to_str().unwrap())
+            .await
+            .unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(entries.iter().any(|e| e.path.ends_with("ok.mkv")));
+    }
 }
