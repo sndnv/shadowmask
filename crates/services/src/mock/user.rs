@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use domain::common::{Page, PageRequest};
 use domain::error::UserError;
 use domain::library::LibraryId;
 use domain::service::UserService;
 use domain::user::{LibraryAccess, NewUser, User, UserId, UserProfileUpdate};
 use jiff::Timestamp;
+
+use crate::page::paginate;
 
 #[derive(Debug, Default)]
 struct State {
@@ -59,8 +62,8 @@ impl UserService for MockUserService {
             .ok_or(UserError::NotFound)
     }
 
-    async fn list(&self) -> Result<Vec<User>, UserError> {
-        Ok(self.state.lock().unwrap().users.clone())
+    async fn list(&self, page: PageRequest) -> Result<Page<User>, UserError> {
+        Ok(paginate(&self.state.lock().unwrap().users, page))
     }
 
     async fn update_profile(
@@ -149,6 +152,13 @@ mod tests {
         }
     }
 
+    fn page() -> PageRequest {
+        PageRequest {
+            offset: 0,
+            limit: 10,
+        }
+    }
+
     #[tokio::test]
     async fn create_get_list() {
         let svc = MockUserService::new();
@@ -157,7 +167,7 @@ mod tests {
 
         let fetched = svc.get(&created.id).await.unwrap();
         assert_eq!(fetched.id, created.id);
-        assert_eq!(svc.list().await.unwrap().len(), 1);
+        assert_eq!(svc.list(page()).await.unwrap().total, 1);
     }
 
     #[tokio::test]
@@ -219,7 +229,7 @@ mod tests {
         let svc = MockUserService::new();
         let user = svc.create(new_user("dave")).await.unwrap();
         svc.delete(&user.id).await.unwrap();
-        assert!(svc.list().await.unwrap().is_empty());
+        assert!(svc.list(page()).await.unwrap().items.is_empty());
         assert!(matches!(
             svc.delete(&user.id).await.unwrap_err(),
             UserError::NotFound

@@ -105,6 +105,7 @@ impl From<CatalogError> for ApiError {
         let msg = err.to_string();
         match err {
             CatalogError::NotFound => ApiError::new(StatusCode::NOT_FOUND, "not_found", msg),
+            CatalogError::Forbidden => ApiError::new(StatusCode::FORBIDDEN, "access_denied", msg),
             CatalogError::Repository(_) => ApiError::internal(),
         }
     }
@@ -128,6 +129,7 @@ impl From<SessionError> for ApiError {
                 e.active = Some(active);
                 e
             }
+            SessionError::Forbidden => ApiError::new(StatusCode::FORBIDDEN, "access_denied", msg),
             SessionError::Repository(_) => ApiError::internal(),
         }
     }
@@ -141,6 +143,7 @@ impl From<LibraryError> for ApiError {
             LibraryError::ScanInProgress => {
                 ApiError::new(StatusCode::CONFLICT, "scan_in_progress", msg)
             }
+            LibraryError::Forbidden => ApiError::new(StatusCode::FORBIDDEN, "access_denied", msg),
             LibraryError::Walk(_) | LibraryError::Repository(_) => ApiError::internal(),
         }
     }
@@ -262,6 +265,9 @@ mod tests {
         let nf = ApiError::from(CatalogError::NotFound);
         assert_eq!(nf.status, StatusCode::NOT_FOUND);
         assert_eq!(nf.code, "not_found");
+        let forbidden = ApiError::from(CatalogError::Forbidden);
+        assert_eq!(forbidden.status, StatusCode::FORBIDDEN);
+        assert_eq!(forbidden.code, "access_denied");
         assert_eq!(
             ApiError::from(CatalogError::Repository(repo())).status,
             StatusCode::INTERNAL_SERVER_ERROR
@@ -287,6 +293,9 @@ mod tests {
         assert_eq!(limit.status, StatusCode::CONFLICT);
         assert_eq!(limit.code, "concurrent_limit");
         assert!(limit.active.is_some());
+        let forbidden = ApiError::from(SessionError::Forbidden);
+        assert_eq!(forbidden.status, StatusCode::FORBIDDEN);
+        assert_eq!(forbidden.code, "access_denied");
         assert_eq!(
             ApiError::from(SessionError::Repository(repo())).status,
             StatusCode::INTERNAL_SERVER_ERROR
@@ -299,6 +308,9 @@ mod tests {
         let conflict = ApiError::from(LibraryError::ScanInProgress);
         assert_eq!(conflict.status, StatusCode::CONFLICT);
         assert_eq!(conflict.code, "scan_in_progress");
+        let forbidden = ApiError::from(LibraryError::Forbidden);
+        assert_eq!(forbidden.status, StatusCode::FORBIDDEN);
+        assert_eq!(forbidden.code, "access_denied");
         assert_eq!(
             ApiError::from(LibraryError::Repository(repo())).status,
             StatusCode::INTERNAL_SERVER_ERROR

@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-use domain::catalog::VersionId;
 use domain::error::WalkError;
 use domain::library::{DiscoveredFile, Library, ScanReport, SkipReason, SkippedFile, SourceWalker};
 use domain::media::MediaProbe;
@@ -46,11 +45,7 @@ impl<W: SourceWalker, P: MediaProbe> Scanner<W, P> {
         let mut discovered = Vec::new();
         let mut skipped = Vec::new();
         for entry in candidates {
-            match self
-                .probe
-                .probe(&entry.path, &synthetic_version_id(&entry.path))
-                .await
-            {
+            match self.probe.probe(&entry.path).await {
                 Ok(probe) => discovered.push(DiscoveredFile {
                     library: library.id.clone(),
                     path: entry.path,
@@ -98,10 +93,6 @@ fn is_hidden(path: &str) -> bool {
     basename(path).starts_with('.')
 }
 
-fn synthetic_version_id(path: &str) -> VersionId {
-    VersionId(format!("scan:{path}"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,14 +132,6 @@ mod tests {
     fn hidden_detects_dotfiles_by_basename() {
         assert!(is_hidden("/m/.secret.mkv"));
         assert!(!is_hidden("/m/movie.mkv"));
-    }
-
-    #[test]
-    fn synthetic_version_is_path_scoped() {
-        assert_eq!(
-            synthetic_version_id("/m/a.mkv"),
-            VersionId("scan:/m/a.mkv".into())
-        );
     }
 
     #[tokio::test]

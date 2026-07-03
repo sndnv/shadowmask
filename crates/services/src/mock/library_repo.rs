@@ -2,9 +2,12 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use domain::common::{Page, PageRequest};
 use domain::error::RepositoryError;
 use domain::library::{DuplicateCandidate, Library, LibraryId, ScanState, UnmatchedFile};
 use domain::repository::LibraryRepository;
+
+use crate::page::paginate;
 
 #[derive(Clone, Default)]
 pub struct MockLibraryRepo {
@@ -62,15 +65,20 @@ impl LibraryRepository for MockLibraryRepo {
         Ok(())
     }
 
-    async fn list_unmatched(&self, _id: &LibraryId) -> Result<Vec<UnmatchedFile>, RepositoryError> {
-        Ok(Vec::new())
+    async fn list_unmatched(
+        &self,
+        _id: &LibraryId,
+        page: PageRequest,
+    ) -> Result<Page<UnmatchedFile>, RepositoryError> {
+        Ok(paginate(&Vec::<UnmatchedFile>::new(), page))
     }
 
     async fn list_duplicates(
         &self,
         _id: &LibraryId,
-    ) -> Result<Vec<DuplicateCandidate>, RepositoryError> {
-        Ok(Vec::new())
+        page: PageRequest,
+    ) -> Result<Page<DuplicateCandidate>, RepositoryError> {
+        Ok(paginate(&Vec::<DuplicateCandidate>::new(), page))
     }
 }
 
@@ -91,6 +99,13 @@ mod tests {
         }
     }
 
+    fn page() -> PageRequest {
+        PageRequest {
+            offset: 0,
+            limit: 10,
+        }
+    }
+
     #[tokio::test]
     async fn list_get_and_empty_queues() {
         let repo = MockLibraryRepo::new();
@@ -100,7 +115,19 @@ mod tests {
         assert_eq!(repo.list().await.unwrap().len(), 1);
         assert!(repo.get(&id).await.unwrap().is_some());
         assert!(repo.scan_state(&id).await.unwrap().is_none());
-        assert!(repo.list_unmatched(&id).await.unwrap().is_empty());
-        assert!(repo.list_duplicates(&id).await.unwrap().is_empty());
+        assert!(
+            repo.list_unmatched(&id, page())
+                .await
+                .unwrap()
+                .items
+                .is_empty()
+        );
+        assert!(
+            repo.list_duplicates(&id, page())
+                .await
+                .unwrap()
+                .items
+                .is_empty()
+        );
     }
 }

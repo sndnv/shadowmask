@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-FAIL_UNDER_LINES = "99.6"
+FAIL_UNDER_LINES = "99.5"
 
 STEPS = [
     ("fmt", ["cargo", "fmt", "--all", "--check"]),

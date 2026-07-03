@@ -82,7 +82,7 @@ async fn transcodes_fixture_and_serves_a_segment_end_to_end() {
     let input_path = input.to_string_lossy().into_owned();
 
     let probe = FfprobeMediaProbe::default()
-        .probe(&input_path, &VersionId("smoke".to_owned()))
+        .probe(&input_path)
         .await
         .expect("ffprobe should succeed; is ffmpeg installed and on PATH?");
     assert!(!probe.video.is_empty(), "fixture must have a video track");

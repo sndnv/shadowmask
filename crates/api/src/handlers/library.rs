@@ -1,5 +1,5 @@
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use tracing::debug;
 
@@ -12,6 +12,7 @@ use crate::dto::library::{
 use crate::error::ApiResult;
 use crate::extract::{AuthUser, RequireAdmin};
 use crate::handlers::log_fail;
+use crate::pagination::{PageParams, PageResponse};
 use crate::state::AppServices;
 
 pub async fn libraries<S: AppServices>(
@@ -20,7 +21,7 @@ pub async fn libraries<S: AppServices>(
 ) -> ApiResult<Json<Vec<LibraryResponse>>> {
     let actor = &principal.user.0;
     let libraries = state
-        .libraries()
+        .libraries(&principal)
         .await
         .map_err(log_fail(actor, "retrieve libraries"))?;
     debug!(
@@ -38,7 +39,7 @@ pub async fn library<S: AppServices>(
     let actor = &principal.user.0;
     let id = LibraryId(id);
     let library = state
-        .library(&id)
+        .library(&principal, &id)
         .await
         .map_err(log_fail(actor, "retrieve library"))?;
     debug!("User [{actor}] successfully retrieved library [{}]", id.0);
@@ -53,7 +54,7 @@ pub async fn scan_state<S: AppServices>(
     let actor = &principal.user.0;
     let id = LibraryId(id);
     let scan = state
-        .scan_state(&id)
+        .scan_state(&principal, &id)
         .await
         .map_err(log_fail(actor, "retrieve scan state"))?;
     debug!(
@@ -71,7 +72,7 @@ pub async fn trigger_scan<S: AppServices>(
     let actor = &principal.user.0;
     let id = LibraryId(id);
     state
-        .trigger_scan(&id)
+        .trigger_scan(&principal, &id)
         .await
         .map_err(log_fail(actor, "trigger scan"))?;
     debug!(
@@ -85,55 +86,67 @@ pub async fn unmatched<S: AppServices>(
     State(state): State<S>,
     RequireAdmin(principal): RequireAdmin,
     Path(id): Path<String>,
-) -> ApiResult<Json<Vec<UnmatchedFileResponse>>> {
+    Query(page): Query<PageParams>,
+) -> ApiResult<Json<PageResponse<UnmatchedFileResponse>>> {
     let actor = &principal.user.0;
     let id = LibraryId(id);
     let unmatched = state
-        .unmatched(&id)
+        .unmatched(&principal, &id, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve unmatched files"))?;
     debug!(
         "User [{actor}] successfully retrieved {} unmatched files for library [{}]",
-        unmatched.len(),
+        unmatched.items.len(),
         id.0
     );
-    Ok(Json(unmatched.into_iter().map(Into::into).collect()))
+    Ok(Json(PageResponse::from_page(
+        unmatched,
+        UnmatchedFileResponse::from,
+    )))
 }
 
 pub async fn duplicates<S: AppServices>(
     State(state): State<S>,
     RequireAdmin(principal): RequireAdmin,
     Path(id): Path<String>,
-) -> ApiResult<Json<Vec<DuplicateCandidateResponse>>> {
+    Query(page): Query<PageParams>,
+) -> ApiResult<Json<PageResponse<DuplicateCandidateResponse>>> {
     let actor = &principal.user.0;
     let id = LibraryId(id);
     let duplicates = state
-        .duplicates(&id)
+        .duplicates(&principal, &id, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve duplicate candidates"))?;
     debug!(
         "User [{actor}] successfully retrieved {} duplicate candidates for library [{}]",
-        duplicates.len(),
+        duplicates.items.len(),
         id.0
     );
-    Ok(Json(duplicates.into_iter().map(Into::into).collect()))
+    Ok(Json(PageResponse::from_page(
+        duplicates,
+        DuplicateCandidateResponse::from,
+    )))
 }
 
 pub async fn versions<S: AppServices>(
     State(state): State<S>,
     RequireAdmin(principal): RequireAdmin,
     Path(id): Path<String>,
-) -> ApiResult<Json<Vec<VersionResponse>>> {
+    Query(page): Query<PageParams>,
+) -> ApiResult<Json<PageResponse<VersionResponse>>> {
     let actor = &principal.user.0;
     let id = LibraryId(id);
     let versions = state
-        .library_versions(&id)
+        .library_versions(&principal, &id, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve library versions"))?;
     debug!(
         "User [{actor}] successfully retrieved {} versions for library [{}]",
-        versions.len(),
+        versions.items.len(),
         id.0
     );
-    Ok(Json(versions.into_iter().map(Into::into).collect()))
+    Ok(Json(PageResponse::from_page(
+        versions,
+        VersionResponse::from,
+    )))
 }

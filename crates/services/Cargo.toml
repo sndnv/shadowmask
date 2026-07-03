@@ -12,6 +12,7 @@ jiff-cron.workspace = true
 argon2.workspace = true
 thiserror.workspace = true
 regex.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

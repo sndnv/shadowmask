@@ -21,7 +21,7 @@ pub async fn start<S: AppServices>(
 ) -> ApiResult<(StatusCode, Json<SessionStartedResponse>)> {
     let actor = &principal.user.0;
     let started = state
-        .start(&principal.user, req.into())
+        .start(&principal, req.into())
         .await
         .map_err(log_fail(actor, "start a session"))?;
     debug!("User [{actor}] successfully started a session");
@@ -37,7 +37,7 @@ pub async fn heartbeat<S: AppServices>(
     let actor = &principal.user.0;
     let id = SessionId(id);
     let ack = state
-        .heartbeat(&id, req.position_ms, req.state.into())
+        .heartbeat(&principal, &id, req.position_ms, req.state.into())
         .await
         .map_err(log_fail(actor, "send a heartbeat"))?;
     debug!(
@@ -56,7 +56,7 @@ pub async fn seek<S: AppServices>(
     let actor = &principal.user.0;
     let id = SessionId(id);
     let renegotiated = state
-        .seek(&id, req.position_ms)
+        .seek(&principal, &id, req.position_ms)
         .await
         .map_err(log_fail(actor, "seek"))?;
     debug!("User [{actor}] successfully sought session [{}]", id.0);
@@ -72,7 +72,7 @@ pub async fn update<S: AppServices>(
     let actor = &principal.user.0;
     let id = SessionId(id);
     let renegotiated = state
-        .update(&id, req.into())
+        .update(&principal, &id, req.into())
         .await
         .map_err(log_fail(actor, "update a session"))?;
     debug!("User [{actor}] successfully updated session [{}]", id.0);
@@ -87,7 +87,7 @@ pub async fn end<S: AppServices>(
     let actor = &principal.user.0;
     let id = SessionId(id);
     state
-        .end(&id)
+        .end(&principal, &id)
         .await
         .map_err(log_fail(actor, "end a session"))?;
     debug!("User [{actor}] successfully ended session [{}]", id.0);

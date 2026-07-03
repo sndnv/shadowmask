@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use domain::catalog::{
     Collection, CollectionId, CollectionUpdate, Episode, EpisodeId, Movie, MovieId, NewCollection,
-    Season, SeasonId, Series, SeriesId, TitleId, Version, VersionId,
+    Season, SeasonId, Series, SeriesId, TitleId, Version, VersionDetail, VersionId,
 };
 use domain::common::{Page, PageRequest};
 use domain::discovery::{ContinueWatchingItem, Hub, SearchResult};
@@ -20,8 +20,8 @@ use domain::session::{
     SessionUpdate, StartSessionRequest,
 };
 use domain::user::{
-    AccessToken, DeviceRegistration, IssuedToken, LibraryAccess, NewUser, Principal, TokenPair,
-    User, UserId, UserProfileUpdate,
+    DeviceRegistration, IssuedToken, LibraryAccess, NewUser, Principal, TokenPair, User, UserId,
+    UserProfileUpdate,
 };
 
 #[derive(Clone)]
@@ -95,7 +95,7 @@ where
         self.auth.login(username, password).await
     }
 
-    async fn refresh(&self, refresh_token: &str) -> Result<AccessToken, AuthError> {
+    async fn refresh(&self, refresh_token: &str) -> Result<TokenPair, AuthError> {
         self.auth.refresh(refresh_token).await
     }
 
@@ -122,68 +122,123 @@ where
     Ul: Sync,
     D: Sync,
 {
-    async fn collections(&self, page: PageRequest) -> Result<Page<Collection>, CatalogError> {
-        self.catalog.collections(page).await
+    async fn collections(
+        &self,
+        caller: &Principal,
+        page: PageRequest,
+    ) -> Result<Page<Collection>, CatalogError> {
+        self.catalog.collections(caller, page).await
     }
 
-    async fn collection(&self, id: &CollectionId) -> Result<Collection, CatalogError> {
-        self.catalog.collection(id).await
+    async fn collection(
+        &self,
+        caller: &Principal,
+        id: &CollectionId,
+    ) -> Result<Collection, CatalogError> {
+        self.catalog.collection(caller, id).await
     }
 
-    async fn create_collection(&self, input: NewCollection) -> Result<Collection, CatalogError> {
-        self.catalog.create_collection(input).await
+    async fn create_collection(
+        &self,
+        caller: &Principal,
+        input: NewCollection,
+    ) -> Result<Collection, CatalogError> {
+        self.catalog.create_collection(caller, input).await
     }
 
     async fn update_collection(
         &self,
+        caller: &Principal,
         id: &CollectionId,
         update: CollectionUpdate,
     ) -> Result<Collection, CatalogError> {
-        self.catalog.update_collection(id, update).await
+        self.catalog.update_collection(caller, id, update).await
     }
 
-    async fn delete_collection(&self, id: &CollectionId) -> Result<(), CatalogError> {
-        self.catalog.delete_collection(id).await
+    async fn delete_collection(
+        &self,
+        caller: &Principal,
+        id: &CollectionId,
+    ) -> Result<(), CatalogError> {
+        self.catalog.delete_collection(caller, id).await
     }
 
-    async fn movies(&self, page: PageRequest) -> Result<Page<Movie>, CatalogError> {
-        self.catalog.movies(page).await
+    async fn movies(
+        &self,
+        caller: &Principal,
+        page: PageRequest,
+    ) -> Result<Page<Movie>, CatalogError> {
+        self.catalog.movies(caller, page).await
     }
 
-    async fn movie(&self, id: &MovieId) -> Result<Movie, CatalogError> {
-        self.catalog.movie(id).await
+    async fn movie(&self, caller: &Principal, id: &MovieId) -> Result<Movie, CatalogError> {
+        self.catalog.movie(caller, id).await
     }
 
-    async fn series(&self, page: PageRequest) -> Result<Page<Series>, CatalogError> {
-        self.catalog.series(page).await
+    async fn series(
+        &self,
+        caller: &Principal,
+        page: PageRequest,
+    ) -> Result<Page<Series>, CatalogError> {
+        self.catalog.series(caller, page).await
     }
 
-    async fn series_detail(&self, id: &SeriesId) -> Result<Series, CatalogError> {
-        self.catalog.series_detail(id).await
+    async fn series_detail(
+        &self,
+        caller: &Principal,
+        id: &SeriesId,
+    ) -> Result<Series, CatalogError> {
+        self.catalog.series_detail(caller, id).await
     }
 
-    async fn seasons(&self, series: &SeriesId) -> Result<Vec<Season>, CatalogError> {
-        self.catalog.seasons(series).await
+    async fn seasons(
+        &self,
+        caller: &Principal,
+        series: &SeriesId,
+    ) -> Result<Vec<Season>, CatalogError> {
+        self.catalog.seasons(caller, series).await
     }
 
-    async fn season(&self, id: &SeasonId) -> Result<Season, CatalogError> {
-        self.catalog.season(id).await
+    async fn season(&self, caller: &Principal, id: &SeasonId) -> Result<Season, CatalogError> {
+        self.catalog.season(caller, id).await
     }
 
-    async fn episodes(&self, season: &SeasonId) -> Result<Vec<Episode>, CatalogError> {
-        self.catalog.episodes(season).await
+    async fn episodes(
+        &self,
+        caller: &Principal,
+        season: &SeasonId,
+    ) -> Result<Vec<Episode>, CatalogError> {
+        self.catalog.episodes(caller, season).await
     }
 
-    async fn episode(&self, id: &EpisodeId) -> Result<Episode, CatalogError> {
-        self.catalog.episode(id).await
+    async fn episode(&self, caller: &Principal, id: &EpisodeId) -> Result<Episode, CatalogError> {
+        self.catalog.episode(caller, id).await
     }
 
-    async fn versions(&self, title: &TitleId) -> Result<Vec<Version>, CatalogError> {
-        self.catalog.versions(title).await
+    async fn versions(
+        &self,
+        caller: &Principal,
+        title: &TitleId,
+        page: PageRequest,
+    ) -> Result<Page<Version>, CatalogError> {
+        self.catalog.versions(caller, title, page).await
     }
 
-    async fn library_versions(&self, library: &LibraryId) -> Result<Vec<Version>, CatalogError> {
-        self.catalog.library_versions(library).await
+    async fn library_versions(
+        &self,
+        caller: &Principal,
+        library: &LibraryId,
+        page: PageRequest,
+    ) -> Result<Page<Version>, CatalogError> {
+        self.catalog.library_versions(caller, library, page).await
+    }
+
+    async fn version(
+        &self,
+        caller: &Principal,
+        id: &VersionId,
+    ) -> Result<VersionDetail, CatalogError> {
+        self.catalog.version(caller, id).await
     }
 }
 
@@ -199,43 +254,52 @@ where
 {
     async fn start(
         &self,
-        user: &UserId,
+        caller: &Principal,
         request: StartSessionRequest,
     ) -> Result<SessionStarted, SessionError> {
-        self.session.start(user, request).await
+        self.session.start(caller, request).await
     }
 
     async fn heartbeat(
         &self,
+        caller: &Principal,
         session: &SessionId,
         position_ms: u64,
         state: PlaybackState,
     ) -> Result<HeartbeatAck, SessionError> {
-        self.session.heartbeat(session, position_ms, state).await
+        self.session
+            .heartbeat(caller, session, position_ms, state)
+            .await
     }
 
     async fn seek(
         &self,
+        caller: &Principal,
         session: &SessionId,
         position_ms: u64,
     ) -> Result<Renegotiated, SessionError> {
-        self.session.seek(session, position_ms).await
+        self.session.seek(caller, session, position_ms).await
     }
 
     async fn update(
         &self,
+        caller: &Principal,
         session: &SessionId,
         update: SessionUpdate,
     ) -> Result<Renegotiated, SessionError> {
-        self.session.update(session, update).await
+        self.session.update(caller, session, update).await
     }
 
-    async fn end(&self, session: &SessionId) -> Result<(), SessionError> {
-        self.session.end(session).await
+    async fn end(&self, caller: &Principal, session: &SessionId) -> Result<(), SessionError> {
+        self.session.end(caller, session).await
     }
 
-    async fn active_sessions(&self) -> Result<Vec<PlaybackSession>, SessionError> {
-        self.session.active_sessions().await
+    async fn active_sessions(
+        &self,
+        caller: &Principal,
+        page: PageRequest,
+    ) -> Result<Page<PlaybackSession>, SessionError> {
+        self.session.active_sessions(caller, page).await
     }
 }
 
@@ -249,28 +313,42 @@ where
     Ul: Sync,
     D: Sync,
 {
-    async fn libraries(&self) -> Result<Vec<Library>, LibraryError> {
-        self.library.libraries().await
+    async fn libraries(&self, caller: &Principal) -> Result<Vec<Library>, LibraryError> {
+        self.library.libraries(caller).await
     }
 
-    async fn library(&self, id: &LibraryId) -> Result<Library, LibraryError> {
-        self.library.library(id).await
+    async fn library(&self, caller: &Principal, id: &LibraryId) -> Result<Library, LibraryError> {
+        self.library.library(caller, id).await
     }
 
-    async fn scan_state(&self, id: &LibraryId) -> Result<ScanState, LibraryError> {
-        self.library.scan_state(id).await
+    async fn scan_state(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+    ) -> Result<ScanState, LibraryError> {
+        self.library.scan_state(caller, id).await
     }
 
-    async fn trigger_scan(&self, id: &LibraryId) -> Result<(), LibraryError> {
-        self.library.trigger_scan(id).await
+    async fn trigger_scan(&self, caller: &Principal, id: &LibraryId) -> Result<(), LibraryError> {
+        self.library.trigger_scan(caller, id).await
     }
 
-    async fn unmatched(&self, id: &LibraryId) -> Result<Vec<UnmatchedFile>, LibraryError> {
-        self.library.unmatched(id).await
+    async fn unmatched(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+        page: PageRequest,
+    ) -> Result<Page<UnmatchedFile>, LibraryError> {
+        self.library.unmatched(caller, id, page).await
     }
 
-    async fn duplicates(&self, id: &LibraryId) -> Result<Vec<DuplicateCandidate>, LibraryError> {
-        self.library.duplicates(id).await
+    async fn duplicates(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+        page: PageRequest,
+    ) -> Result<Page<DuplicateCandidate>, LibraryError> {
+        self.library.duplicates(caller, id, page).await
     }
 }
 
@@ -292,8 +370,8 @@ where
         self.user.get(id).await
     }
 
-    async fn list(&self) -> Result<Vec<User>, UserError> {
-        self.user.list().await
+    async fn list(&self, page: PageRequest) -> Result<Page<User>, UserError> {
+        self.user.list(page).await
     }
 
     async fn update_profile(

@@ -52,13 +52,11 @@ fn synthetic_title_id(group: &MatchedGroup) -> TitleId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::catalog::VersionId;
     use domain::library::{LibraryId, MatchKey, ParsedMedia};
     use domain::media::{ProbeResult, VideoTrack};
 
     fn video_track(height: u32) -> VideoTrack {
         VideoTrack {
-            version: VersionId("scan".to_owned()),
             index: 0,
             codec: "h264".to_owned(),
             width: height * 16 / 9,

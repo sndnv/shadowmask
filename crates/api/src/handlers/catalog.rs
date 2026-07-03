@@ -22,7 +22,7 @@ pub async fn movies<S: AppServices>(
 ) -> ApiResult<Json<PageResponse<MovieResponse>>> {
     let actor = &principal.user.0;
     let page = state
-        .movies(page.to_request())
+        .movies(&principal, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve movies"))?;
     debug!(
@@ -40,7 +40,7 @@ pub async fn movie<S: AppServices>(
     let actor = &principal.user.0;
     let id = MovieId(id);
     let movie = state
-        .movie(&id)
+        .movie(&principal, &id)
         .await
         .map_err(log_fail(actor, "retrieve movie"))?;
     debug!("User [{actor}] successfully retrieved movie [{}]", id.0);
@@ -51,19 +51,23 @@ pub async fn movie_versions<S: AppServices>(
     State(state): State<S>,
     AuthUser(principal): AuthUser,
     Path(id): Path<String>,
-) -> ApiResult<Json<Vec<VersionResponse>>> {
+    Query(page): Query<PageParams>,
+) -> ApiResult<Json<PageResponse<VersionResponse>>> {
     let actor = &principal.user.0;
     let title = TitleId::Movie(MovieId(id));
     let versions = state
-        .versions(&title)
+        .versions(&principal, &title, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve movie versions"))?;
     debug!(
         "User [{actor}] successfully retrieved {} versions for movie [{}]",
-        versions.len(),
+        versions.items.len(),
         title.id()
     );
-    Ok(Json(versions.into_iter().map(Into::into).collect()))
+    Ok(Json(PageResponse::from_page(
+        versions,
+        VersionResponse::from,
+    )))
 }
 
 pub async fn collections<S: AppServices>(
@@ -73,7 +77,7 @@ pub async fn collections<S: AppServices>(
 ) -> ApiResult<Json<PageResponse<CollectionResponse>>> {
     let actor = &principal.user.0;
     let page = state
-        .collections(page.to_request())
+        .collections(&principal, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve collections"))?;
     debug!(
@@ -94,7 +98,7 @@ pub async fn collection<S: AppServices>(
     let actor = &principal.user.0;
     let id = CollectionId(id);
     let collection = state
-        .collection(&id)
+        .collection(&principal, &id)
         .await
         .map_err(log_fail(actor, "retrieve collection"))?;
     debug!(
@@ -111,7 +115,7 @@ pub async fn create_collection<S: AppServices>(
 ) -> ApiResult<(StatusCode, Json<CollectionResponse>)> {
     let actor = &principal.user.0;
     let collection = state
-        .create_collection(req.into())
+        .create_collection(&principal, req.into())
         .await
         .map_err(log_fail(actor, "create collection"))?;
     debug!(
@@ -130,7 +134,7 @@ pub async fn update_collection<S: AppServices>(
     let actor = &principal.user.0;
     let id = CollectionId(id);
     let collection = state
-        .update_collection(&id, req.into())
+        .update_collection(&principal, &id, req.into())
         .await
         .map_err(log_fail(actor, "update collection"))?;
     debug!("User [{actor}] successfully updated collection [{}]", id.0);
@@ -145,7 +149,7 @@ pub async fn delete_collection<S: AppServices>(
     let actor = &principal.user.0;
     let id = CollectionId(id);
     state
-        .delete_collection(&id)
+        .delete_collection(&principal, &id)
         .await
         .map_err(log_fail(actor, "delete collection"))?;
     debug!("User [{actor}] successfully deleted collection [{}]", id.0);
@@ -159,7 +163,7 @@ pub async fn series<S: AppServices>(
 ) -> ApiResult<Json<PageResponse<SeriesResponse>>> {
     let actor = &principal.user.0;
     let page = state
-        .series(page.to_request())
+        .series(&principal, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve series"))?;
     debug!(
@@ -177,7 +181,7 @@ pub async fn series_detail<S: AppServices>(
     let actor = &principal.user.0;
     let id = SeriesId(id);
     let series = state
-        .series_detail(&id)
+        .series_detail(&principal, &id)
         .await
         .map_err(log_fail(actor, "retrieve series"))?;
     debug!("User [{actor}] successfully retrieved series [{}]", id.0);
@@ -192,7 +196,7 @@ pub async fn seasons<S: AppServices>(
     let actor = &principal.user.0;
     let series_id = SeriesId(series_id);
     let seasons = state
-        .seasons(&series_id)
+        .seasons(&principal, &series_id)
         .await
         .map_err(log_fail(actor, "retrieve seasons"))?;
     debug!(
@@ -211,7 +215,7 @@ pub async fn season<S: AppServices>(
     let actor = &principal.user.0;
     let season_id = SeasonId(season_id);
     let season = state
-        .season(&season_id)
+        .season(&principal, &season_id)
         .await
         .map_err(log_fail(actor, "retrieve season"))?;
     debug!(
@@ -229,7 +233,7 @@ pub async fn episodes<S: AppServices>(
     let actor = &principal.user.0;
     let season_id = SeasonId(season_id);
     let episodes = state
-        .episodes(&season_id)
+        .episodes(&principal, &season_id)
         .await
         .map_err(log_fail(actor, "retrieve episodes"))?;
     debug!(
@@ -248,7 +252,7 @@ pub async fn episode<S: AppServices>(
     let actor = &principal.user.0;
     let episode_id = EpisodeId(episode_id);
     let episode = state
-        .episode(&episode_id)
+        .episode(&principal, &episode_id)
         .await
         .map_err(log_fail(actor, "retrieve episode"))?;
     debug!(
@@ -262,17 +266,21 @@ pub async fn episode_versions<S: AppServices>(
     State(state): State<S>,
     AuthUser(principal): AuthUser,
     Path((_series_id, _season_id, episode_id)): Path<(String, String, String)>,
-) -> ApiResult<Json<Vec<VersionResponse>>> {
+    Query(page): Query<PageParams>,
+) -> ApiResult<Json<PageResponse<VersionResponse>>> {
     let actor = &principal.user.0;
     let title = TitleId::Episode(EpisodeId(episode_id));
     let versions = state
-        .versions(&title)
+        .versions(&principal, &title, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve episode versions"))?;
     debug!(
         "User [{actor}] successfully retrieved {} versions for episode [{}]",
-        versions.len(),
+        versions.items.len(),
         title.id()
     );
-    Ok(Json(versions.into_iter().map(Into::into).collect()))
+    Ok(Json(PageResponse::from_page(
+        versions,
+        VersionResponse::from,
+    )))
 }

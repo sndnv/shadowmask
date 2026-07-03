@@ -93,13 +93,8 @@ fn subtitle_delivery_for(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::VersionId;
     use crate::media::{HdrFormat, SubtitleFileId};
     use crate::profile::{AudioCodecCap, Container, VideoCodecCap};
-
-    fn version() -> VersionId {
-        VersionId("v1".to_owned())
-    }
 
     fn video_track(
         codec: &str,
@@ -110,7 +105,6 @@ mod tests {
         bitrate: Option<u64>,
     ) -> VideoTrack {
         VideoTrack {
-            version: version(),
             index: 0,
             codec: codec.to_owned(),
             width,
@@ -124,7 +118,6 @@ mod tests {
 
     fn audio_track(codec: &str, channels: u8, index: u32) -> AudioTrack {
         AudioTrack {
-            version: version(),
             index,
             codec: codec.to_owned(),
             channels,
@@ -135,7 +128,6 @@ mod tests {
 
     fn subtitle(index: u32, format: SubtitleFormat) -> EmbeddedSubtitleTrack {
         EmbeddedSubtitleTrack {
-            version: version(),
             index,
             language: None,
             format,

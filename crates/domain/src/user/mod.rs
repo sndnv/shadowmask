@@ -1,4 +1,3 @@
-mod access_token;
 mod api_token;
 mod auth_session;
 mod device;
@@ -13,7 +12,6 @@ mod token_pair;
 mod user;
 mod user_profile_update;
 
-pub use access_token::AccessToken;
 pub use api_token::{ApiToken, ApiTokenId};
 pub use auth_session::{AuthSession, AuthSessionId};
 pub use device::{Device, DeviceId};

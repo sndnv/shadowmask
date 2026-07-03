@@ -12,6 +12,8 @@ pub struct VersionResponse {
     pub quality: QualityDto,
     pub container: String,
     pub size_bytes: u64,
+    pub duration_ms: u64,
+    pub edition: Option<String>,
 }
 
 impl From<Version> for VersionResponse {
@@ -23,6 +25,8 @@ impl From<Version> for VersionResponse {
             quality: v.quality.into(),
             container: v.container,
             size_bytes: v.size_bytes,
+            duration_ms: v.duration_ms,
+            edition: v.edition,
         }
     }
 }
