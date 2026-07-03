@@ -1,0 +1,79 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "items": [
+      {
+        "container": "mkv",
+        "duration_ms": 1000,
+        "edition": null,
+        "id": "v1",
+        "library_id": "lib1",
+        "quality": "sd",
+        "size_bytes": 1,
+        "title": {
+          "id": "m1",
+          "type": "movie"
+        }
+      },
+      {
+        "container": "mkv",
+        "duration_ms": 1000,
+        "edition": null,
+        "id": "v2",
+        "library_id": "lib1",
+        "quality": "hd",
+        "size_bytes": 1,
+        "title": {
+          "id": "m1",
+          "type": "movie"
+        }
+      },
+      {
+        "container": "mkv",
+        "duration_ms": 1000,
+        "edition": null,
+        "id": "v3",
+        "library_id": "lib1",
+        "quality": "fhd",
+        "size_bytes": 1,
+        "title": {
+          "id": "m1",
+          "type": "movie"
+        }
+      },
+      {
+        "container": "mkv",
+        "duration_ms": 1000,
+        "edition": null,
+        "id": "v4",
+        "library_id": "lib1",
+        "quality": "uhd",
+        "size_bytes": 1,
+        "title": {
+          "id": "m1",
+          "type": "movie"
+        }
+      },
+      {
+        "container": "mkv",
+        "duration_ms": 1000,
+        "edition": null,
+        "id": "ev1",
+        "library_id": "lib1",
+        "quality": "hd",
+        "size_bytes": 1,
+        "title": {
+          "id": "e1",
+          "type": "episode"
+        }
+      }
+    ],
+    "limit": 50,
+    "offset": 0,
+    "total": 5
+  },
+  "status": 200
+}

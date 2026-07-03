@@ -171,3 +171,51 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    prop_compose! {
+        fn policies()(
+            base_ms in 0i64..=100_000,
+            max_ms in 0i64..=1_000_000,
+            multiplier in 1u32..=10,
+        ) -> RetryPolicy {
+            RetryPolicy {
+                max_attempts: 3,
+                base_delay: SignedDuration::from_millis(base_ms),
+                multiplier,
+                max_delay: SignedDuration::from_millis(max_ms),
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn never_exceeds_max_delay(policy in policies(), attempts in 0u32..=64) {
+            prop_assert!(backoff(attempts, &policy) <= policy.max_delay);
+        }
+
+        #[test]
+        fn monotonic_non_decreasing_in_attempts(policy in policies(), a in 0u32..=32, b in 0u32..=32) {
+            let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+            prop_assert!(backoff(lo, &policy) <= backoff(hi, &policy));
+        }
+
+        #[test]
+        fn zero_and_one_attempt_equal_capped_base(policy in policies()) {
+            let capped_base = SignedDuration::from_millis(
+                policy.base_delay.as_millis().min(policy.max_delay.as_millis()) as i64,
+            );
+            prop_assert_eq!(backoff(0, &policy), backoff(1, &policy));
+            prop_assert_eq!(backoff(0, &policy), capped_base);
+        }
+
+        #[test]
+        fn no_overflow_at_max_attempts(policy in policies()) {
+            prop_assert!(backoff(u32::MAX, &policy) <= policy.max_delay);
+        }
+    }
+}

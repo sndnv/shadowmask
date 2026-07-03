@@ -1,0 +1,13 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "error": {
+      "code": "unauthorized",
+      "message": "missing bearer token"
+    }
+  },
+  "status": 401
+}

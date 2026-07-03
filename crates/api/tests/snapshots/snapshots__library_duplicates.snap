@@ -1,0 +1,25 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "items": [
+      {
+        "id": "d1",
+        "paths": [
+          "/a.mkv",
+          "/b.mkv"
+        ],
+        "title": {
+          "id": "e1",
+          "type": "episode"
+        }
+      }
+    ],
+    "limit": 50,
+    "offset": 0,
+    "total": 1
+  },
+  "status": 200
+}

@@ -1,0 +1,31 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "active": [
+      {
+        "device_id": null,
+        "last_heartbeat_at": "[last_heartbeat_at]",
+        "mode": "direct",
+        "position_ms": 0,
+        "selected": {
+          "audio_track": 0,
+          "subtitle_delivery": null,
+          "subtitle_track": null
+        },
+        "session_id": "[session_id]",
+        "started_at": "[started_at]",
+        "state": "playing",
+        "user_id": "u1",
+        "version_id": "v1"
+      }
+    ],
+    "error": {
+      "code": "concurrent_limit",
+      "message": "concurrent stream limit reached"
+    }
+  },
+  "status": 409
+}

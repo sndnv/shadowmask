@@ -1,0 +1,46 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "in_progress": [
+      {
+        "progress": {
+          "position_ms": 10,
+          "updated_at": "2023-11-14T22:13:50Z",
+          "user_id": "u1",
+          "version_id": "v1"
+        }
+      }
+    ],
+    "next_episodes": [
+      {
+        "added_at": "2023-11-14T22:13:24Z",
+        "air_date": "2023-11-14T22:13:23Z",
+        "id": "e1",
+        "number": 1,
+        "overview": null,
+        "runtime_minutes": 42,
+        "season_id": "se1",
+        "title": "Alpha e1"
+      }
+    ],
+    "next_movies": [
+      {
+        "added_at": "2023-11-14T22:13:21Z",
+        "content_rating": {
+          "code": "PG-13",
+          "system": "MPAA"
+        },
+        "id": "m2",
+        "overview": "overview",
+        "runtime_minutes": 100,
+        "title": "Alpha m2",
+        "year": 2020
+      }
+    ],
+    "now_playing": []
+  },
+  "status": 200
+}

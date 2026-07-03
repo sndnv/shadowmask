@@ -213,3 +213,66 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    prop_compose! {
+        fn future_claims()(
+            sub in "\\PC{0,20}",
+            sid in "\\PC{0,20}",
+            vid in "\\PC{0,20}",
+            offset in 3600i64..=1_000_000,
+        ) -> StreamClaims {
+            StreamClaims {
+                session: SessionId(sid),
+                user: UserId(sub),
+                version: VersionId(vid),
+                expires_at: Timestamp::from_second(Timestamp::now().as_second() + offset).unwrap(),
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn roundtrips_future_claims(claims in future_claims()) {
+            let codec = HmacStreamTokens::new(b"prop-secret");
+            let token = codec.create(&claims).unwrap();
+            prop_assert_eq!(codec.verify(&token.0).unwrap(), claims);
+        }
+
+        #[test]
+        fn wrong_secret_is_invalid(claims in future_claims()) {
+            let issuer = HmacStreamTokens::new(b"prop-secret");
+            let other = HmacStreamTokens::new(b"a-different-secret");
+            let token = issuer.create(&claims).unwrap();
+            prop_assert!(matches!(
+                other.verify(&token.0),
+                Err(StreamTokenError::Invalid)
+            ));
+        }
+
+        #[test]
+        fn past_expiry_is_expired(
+            sub in "\\PC{0,20}",
+            sid in "\\PC{0,20}",
+            vid in "\\PC{0,20}",
+            ago in 3600i64..=1_000_000,
+        ) {
+            let codec = HmacStreamTokens::new(b"prop-secret");
+            let claims = StreamClaims {
+                session: SessionId(sid),
+                user: UserId(sub),
+                version: VersionId(vid),
+                expires_at: Timestamp::from_second(Timestamp::now().as_second() - ago).unwrap(),
+            };
+            let token = codec.create(&claims).unwrap();
+            prop_assert!(matches!(
+                codec.verify(&token.0),
+                Err(StreamTokenError::Expired)
+            ));
+        }
+    }
+}

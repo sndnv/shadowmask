@@ -1,0 +1,13 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "error": {
+      "code": "unknown_link_code",
+      "message": "unknown or expired link code"
+    }
+  },
+  "status": 404
+}

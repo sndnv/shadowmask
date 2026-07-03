@@ -1,0 +1,13 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "id": "c1",
+    "movies": [],
+    "name": "Renamed",
+    "overview": "now"
+  },
+  "status": 200
+}

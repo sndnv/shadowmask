@@ -1,0 +1,17 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "added_at": "2023-11-14T22:13:24Z",
+    "air_date": "2023-11-14T22:13:23Z",
+    "id": "e1",
+    "number": 1,
+    "overview": null,
+    "runtime_minutes": 42,
+    "season_id": "se1",
+    "title": "Alpha e1"
+  },
+  "status": 200
+}

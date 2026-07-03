@@ -1,0 +1,18 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "added_at": "2023-11-14T22:13:22Z",
+    "content_rating": {
+      "code": "TV-14",
+      "system": "TV"
+    },
+    "id": "s1",
+    "overview": null,
+    "title": "Alpha s1",
+    "year": 2019
+  },
+  "status": 200
+}

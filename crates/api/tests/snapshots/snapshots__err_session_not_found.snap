@@ -1,0 +1,13 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "error": {
+      "code": "session_not_found",
+      "message": "session not found"
+    }
+  },
+  "status": 404
+}

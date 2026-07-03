@@ -1,0 +1,29 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "items": [
+      {
+        "candidates": [
+          {
+            "confidence": 0.9,
+            "label": "Alpha",
+            "title": {
+              "id": "m1",
+              "type": "movie"
+            }
+          }
+        ],
+        "id": "uf1",
+        "library_id": "lib1",
+        "path": "/media/x.mkv"
+      }
+    ],
+    "limit": 50,
+    "offset": 0,
+    "total": 1
+  },
+  "status": 200
+}

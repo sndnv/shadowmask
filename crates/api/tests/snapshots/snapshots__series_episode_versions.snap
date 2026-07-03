@@ -1,0 +1,27 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "items": [
+      {
+        "container": "mkv",
+        "duration_ms": 1000,
+        "edition": null,
+        "id": "ev1",
+        "library_id": "lib1",
+        "quality": "hd",
+        "size_bytes": 1,
+        "title": {
+          "id": "e1",
+          "type": "episode"
+        }
+      }
+    ],
+    "limit": 50,
+    "offset": 0,
+    "total": 1
+  },
+  "status": 200
+}
