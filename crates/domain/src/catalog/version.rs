@@ -14,4 +14,6 @@ pub struct Version {
     pub container: String,
     pub path: String,
     pub size_bytes: u64,
+    pub duration_ms: u64,
+    pub edition: Option<String>,
 }

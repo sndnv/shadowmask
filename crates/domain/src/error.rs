@@ -36,6 +36,8 @@ pub enum SessionError {
     ConcurrentLimit { active: Vec<PlaybackSession> },
     #[error("stream negotiation failed")]
     NegotiationFailed,
+    #[error("access denied")]
+    Forbidden,
     #[error(transparent)]
     Repository(#[from] RepositoryError),
 }
@@ -44,6 +46,8 @@ pub enum SessionError {
 pub enum CatalogError {
     #[error("catalog entity not found")]
     NotFound,
+    #[error("access denied")]
+    Forbidden,
     #[error(transparent)]
     Repository(#[from] RepositoryError),
 }
@@ -54,6 +58,8 @@ pub enum LibraryError {
     NotFound,
     #[error("scan already in progress")]
     ScanInProgress,
+    #[error("access denied")]
+    Forbidden,
     #[error(transparent)]
     Walk(#[from] WalkError),
     #[error(transparent)]

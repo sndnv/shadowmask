@@ -1,7 +1,6 @@
 use serde::Deserialize;
 use tokio::process::Command;
 
-use domain::catalog::VersionId;
 use domain::common::LanguageCode;
 use domain::error::ProbeError;
 use domain::media::{
@@ -31,7 +30,7 @@ impl FfprobeMediaProbe {
 }
 
 impl MediaProbe for FfprobeMediaProbe {
-    async fn probe(&self, path: &str, version: &VersionId) -> Result<ProbeResult, ProbeError> {
+    async fn probe(&self, path: &str) -> Result<ProbeResult, ProbeError> {
         let output = Command::new(&self.binary)
             .args([
                 "-v",
@@ -51,7 +50,7 @@ impl MediaProbe for FfprobeMediaProbe {
                 String::from_utf8_lossy(&output.stderr).into_owned(),
             ));
         }
-        parse_probe(&output.stdout, version)
+        parse_probe(&output.stdout)
     }
 }
 
@@ -116,7 +115,7 @@ struct FfChapter {
     tags: FfTags,
 }
 
-fn parse_probe(json: &[u8], version: &VersionId) -> Result<ProbeResult, ProbeError> {
+fn parse_probe(json: &[u8]) -> Result<ProbeResult, ProbeError> {
     let parsed: FfOutput =
         serde_json::from_slice(json).map_err(|e| ProbeError::Parse(e.to_string()))?;
 
@@ -127,18 +126,14 @@ fn parse_probe(json: &[u8], version: &VersionId) -> Result<ProbeResult, ProbeErr
     let mut subtitles = Vec::new();
     for stream in parsed.streams {
         match stream.codec_type.as_str() {
-            "video" => video.push(video_track(version, stream)),
-            "audio" => audio.push(audio_track(version, stream)),
-            "subtitle" => subtitles.push(subtitle_track(version, stream)),
+            "video" => video.push(video_track(stream)),
+            "audio" => audio.push(audio_track(stream)),
+            "subtitle" => subtitles.push(subtitle_track(stream)),
             _ => {}
         }
     }
 
-    let chapters = parsed
-        .chapters
-        .into_iter()
-        .map(|c| chapter(version, c))
-        .collect();
+    let chapters = parsed.chapters.into_iter().map(chapter).collect();
 
     Ok(ProbeResult {
         duration_ms,
@@ -149,9 +144,8 @@ fn parse_probe(json: &[u8], version: &VersionId) -> Result<ProbeResult, ProbeErr
     })
 }
 
-fn video_track(version: &VersionId, s: FfStream) -> VideoTrack {
+fn video_track(s: FfStream) -> VideoTrack {
     VideoTrack {
-        version: version.clone(),
         index: s.index,
         codec: s.codec_name.unwrap_or_default(),
         width: s.width.unwrap_or(0),
@@ -167,9 +161,8 @@ fn video_track(version: &VersionId, s: FfStream) -> VideoTrack {
     }
 }
 
-fn audio_track(version: &VersionId, s: FfStream) -> AudioTrack {
+fn audio_track(s: FfStream) -> AudioTrack {
     AudioTrack {
-        version: version.clone(),
         index: s.index,
         codec: s.codec_name.unwrap_or_default(),
         channels: s.channels.unwrap_or(0),
@@ -178,9 +171,8 @@ fn audio_track(version: &VersionId, s: FfStream) -> AudioTrack {
     }
 }
 
-fn subtitle_track(version: &VersionId, s: FfStream) -> EmbeddedSubtitleTrack {
+fn subtitle_track(s: FfStream) -> EmbeddedSubtitleTrack {
     EmbeddedSubtitleTrack {
-        version: version.clone(),
         index: s.index,
         language: s.tags.language.map(LanguageCode),
         format: subtitle_format(s.codec_name.as_deref()),
@@ -189,9 +181,8 @@ fn subtitle_track(version: &VersionId, s: FfStream) -> EmbeddedSubtitleTrack {
     }
 }
 
-fn chapter(version: &VersionId, c: FfChapter) -> Chapter {
+fn chapter(c: FfChapter) -> Chapter {
     Chapter {
-        version: version.clone(),
         title: c.tags.title.unwrap_or_default(),
         start_ms: seconds_to_ms(c.start_time.as_deref()),
     }
@@ -251,12 +242,8 @@ mod tests {
 
     const FIXTURE: &[u8] = include_bytes!("../tests/fixtures/probe_movie.json");
 
-    fn version() -> VersionId {
-        VersionId("v1".to_owned())
-    }
-
     fn parse(json: &[u8]) -> ProbeResult {
-        parse_probe(json, &version()).expect("fixture should parse")
+        parse_probe(json).expect("fixture should parse")
     }
 
     #[test]
@@ -272,7 +259,6 @@ mod tests {
     #[test]
     fn parses_video_track() {
         let v = &parse(FIXTURE).video[0];
-        assert_eq!(v.version, version());
         assert_eq!(v.index, 0);
         assert_eq!(v.codec, "hevc");
         assert_eq!(v.width, 3840);
@@ -384,7 +370,7 @@ mod tests {
 
     #[test]
     fn malformed_json_is_parse_error() {
-        let err = parse_probe(b"not json", &version()).unwrap_err();
+        let err = parse_probe(b"not json").unwrap_err();
         assert!(matches!(err, ProbeError::Parse(_)));
     }
 }

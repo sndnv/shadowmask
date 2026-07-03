@@ -1,5 +1,3 @@
-use crate::catalog::VersionId;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HdrFormat {
     Hdr10,
@@ -10,7 +8,6 @@ pub enum HdrFormat {
 
 #[derive(Debug, Clone)]
 pub struct VideoTrack {
-    pub version: VersionId,
     pub index: u32,
     pub codec: String,
     pub width: u32,

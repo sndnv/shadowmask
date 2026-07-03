@@ -1,5 +1,5 @@
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use tracing::debug;
 
@@ -14,16 +14,24 @@ use crate::dto::user::{
 use crate::error::ApiResult;
 use crate::extract::{AuthUser, RequireAdmin};
 use crate::handlers::{log_fail, require_admin_or_self};
+use crate::pagination::{PageParams, PageResponse};
 use crate::state::AppServices;
 
 pub async fn list<S: AppServices>(
     State(state): State<S>,
     RequireAdmin(principal): RequireAdmin,
-) -> ApiResult<Json<Vec<UserResponse>>> {
+    Query(page): Query<PageParams>,
+) -> ApiResult<Json<PageResponse<UserResponse>>> {
     let actor = &principal.user.0;
-    let users = state.list().await.map_err(log_fail(actor, "list users"))?;
-    debug!("User [{actor}] successfully listed {} users", users.len());
-    Ok(Json(users.into_iter().map(Into::into).collect()))
+    let users = state
+        .list(page.to_request())
+        .await
+        .map_err(log_fail(actor, "list users"))?;
+    debug!(
+        "User [{actor}] successfully listed {} users",
+        users.items.len()
+    );
+    Ok(Json(PageResponse::from_page(users, UserResponse::from)))
 }
 
 pub async fn create<S: AppServices>(
@@ -43,17 +51,21 @@ pub async fn create<S: AppServices>(
 pub async fn activity<S: AppServices>(
     State(state): State<S>,
     RequireAdmin(principal): RequireAdmin,
-) -> ApiResult<Json<Vec<PlaybackSessionResponse>>> {
+    Query(page): Query<PageParams>,
+) -> ApiResult<Json<PageResponse<PlaybackSessionResponse>>> {
     let actor = &principal.user.0;
     let sessions = state
-        .active_sessions()
+        .active_sessions(&principal, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve active sessions"))?;
     debug!(
         "User [{actor}] successfully retrieved {} active sessions",
-        sessions.len()
+        sessions.items.len()
     );
-    Ok(Json(sessions.into_iter().map(Into::into).collect()))
+    Ok(Json(PageResponse::from_page(
+        sessions,
+        PlaybackSessionResponse::from,
+    )))
 }
 
 pub async fn get<S: AppServices>(

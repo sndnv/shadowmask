@@ -59,7 +59,13 @@ pub async fn continue_watching<S: AppServices>(
     require_admin_or_self(&principal, &target)?;
 
     let sessions = state
-        .active_sessions()
+        .active_sessions(
+            &principal,
+            PageRequest {
+                offset: 0,
+                limit: MAX_LIMIT,
+            },
+        )
         .await
         .map_err(log_fail(actor, "retrieve continue data"))?;
     let in_progress = state
@@ -81,6 +87,7 @@ pub async fn continue_watching<S: AppServices>(
     );
     Ok(Json(ContinueResponse {
         now_playing: sessions
+            .items
             .into_iter()
             .filter(|s| s.user == target)
             .map(Into::into)

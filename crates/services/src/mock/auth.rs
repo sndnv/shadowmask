@@ -3,9 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use domain::error::AuthError;
 use domain::service::AuthService;
-use domain::user::{
-    AccessToken, DeviceRegistration, IssuedToken, Principal, Role, TokenPair, UserId,
-};
+use domain::user::{DeviceRegistration, IssuedToken, Principal, Role, TokenPair, UserId};
 
 use crate::password;
 
@@ -69,7 +67,7 @@ impl AuthService for MockAuthService {
         })
     }
 
-    async fn refresh(&self, refresh_token: &str) -> Result<AccessToken, AuthError> {
+    async fn refresh(&self, refresh_token: &str) -> Result<TokenPair, AuthError> {
         let id = refresh_token
             .strip_prefix("refresh:")
             .ok_or(AuthError::InvalidToken)?;
@@ -77,9 +75,9 @@ impl AuthService for MockAuthService {
         if !state.accounts.iter().any(|a| a.user.0 == id) {
             return Err(AuthError::InvalidToken);
         }
-        Ok(AccessToken {
+        Ok(TokenPair {
             access_token: format!("access:{id}"),
-            expires_in_s: 3600,
+            refresh_token: format!("refresh:{id}"),
         })
     }
 
@@ -144,9 +142,9 @@ mod tests {
     #[tokio::test]
     async fn refresh_success_and_failures() {
         let svc = service();
-        let access = svc.refresh("refresh:u1").await.unwrap();
-        assert_eq!(access.access_token, "access:u1");
-        assert!(access.expires_in_s > 0);
+        let tokens = svc.refresh("refresh:u1").await.unwrap();
+        assert_eq!(tokens.access_token, "access:u1");
+        assert_eq!(tokens.refresh_token, "refresh:u1");
 
         assert!(matches!(
             svc.refresh("garbage").await.unwrap_err(),

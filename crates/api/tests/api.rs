@@ -147,6 +147,8 @@ fn version(id: &str, title: TitleId, lib: &str, quality: Quality) -> Version {
         container: "mkv".into(),
         path: format!("/media/{id}.mkv"),
         size_bytes: 1,
+        duration_ms: 1000,
+        edition: None,
     }
 }
 
@@ -539,7 +541,7 @@ async fn session_routes() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body.as_array().unwrap().len(), 1);
+    assert_eq!(body["items"].as_array().unwrap().len(), 1);
 
     let (status, _) = call(
         ctx.app(),

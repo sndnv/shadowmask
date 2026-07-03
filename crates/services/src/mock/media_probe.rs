@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-use domain::catalog::VersionId;
 use domain::error::ProbeError;
 use domain::media::{MediaProbe, ProbeResult};
 
@@ -25,7 +24,7 @@ impl MockMediaProbe {
 }
 
 impl MediaProbe for MockMediaProbe {
-    async fn probe(&self, path: &str, _version: &VersionId) -> Result<ProbeResult, ProbeError> {
+    async fn probe(&self, path: &str) -> Result<ProbeResult, ProbeError> {
         if self.failing.contains(path) {
             return Err(ProbeError::Backend("mock probe failure".to_owned()));
         }

@@ -7,6 +7,7 @@ mod season;
 mod series;
 mod title_id;
 mod version;
+mod version_detail;
 
 pub use collection::{Collection, CollectionId};
 pub use collection_update::CollectionUpdate;
@@ -17,3 +18,4 @@ pub use season::{Season, SeasonId};
 pub use series::{Series, SeriesId};
 pub use title_id::TitleId;
 pub use version::{Version, VersionId};
+pub use version_detail::VersionDetail;

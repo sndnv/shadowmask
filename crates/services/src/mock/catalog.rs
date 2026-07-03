@@ -2,12 +2,14 @@ use std::sync::{Arc, Mutex};
 
 use domain::catalog::{
     Collection, CollectionId, CollectionUpdate, Episode, EpisodeId, Movie, MovieId, NewCollection,
-    Season, SeasonId, Series, SeriesId, TitleId, Version,
+    Season, SeasonId, Series, SeriesId, TitleId, Version, VersionDetail, VersionId,
 };
 use domain::common::{Page, PageRequest};
 use domain::error::CatalogError;
 use domain::library::LibraryId;
+use domain::media::DetectedMarkers;
 use domain::service::CatalogService;
+use domain::user::Principal;
 
 use crate::page::paginate;
 
@@ -58,11 +60,19 @@ impl MockCatalogService {
 }
 
 impl CatalogService for MockCatalogService {
-    async fn collections(&self, page: PageRequest) -> Result<Page<Collection>, CatalogError> {
+    async fn collections(
+        &self,
+        _caller: &Principal,
+        page: PageRequest,
+    ) -> Result<Page<Collection>, CatalogError> {
         Ok(paginate(&self.state.lock().unwrap().collections, page))
     }
 
-    async fn collection(&self, id: &CollectionId) -> Result<Collection, CatalogError> {
+    async fn collection(
+        &self,
+        _caller: &Principal,
+        id: &CollectionId,
+    ) -> Result<Collection, CatalogError> {
         self.state
             .lock()
             .unwrap()
@@ -73,7 +83,11 @@ impl CatalogService for MockCatalogService {
             .ok_or(CatalogError::NotFound)
     }
 
-    async fn create_collection(&self, input: NewCollection) -> Result<Collection, CatalogError> {
+    async fn create_collection(
+        &self,
+        _caller: &Principal,
+        input: NewCollection,
+    ) -> Result<Collection, CatalogError> {
         let mut state = self.state.lock().unwrap();
         state.collection_seq += 1;
         let collection = Collection {
@@ -88,6 +102,7 @@ impl CatalogService for MockCatalogService {
 
     async fn update_collection(
         &self,
+        _caller: &Principal,
         id: &CollectionId,
         update: CollectionUpdate,
     ) -> Result<Collection, CatalogError> {
@@ -103,7 +118,11 @@ impl CatalogService for MockCatalogService {
         Ok(collection.clone())
     }
 
-    async fn delete_collection(&self, id: &CollectionId) -> Result<(), CatalogError> {
+    async fn delete_collection(
+        &self,
+        _caller: &Principal,
+        id: &CollectionId,
+    ) -> Result<(), CatalogError> {
         let mut state = self.state.lock().unwrap();
         let before = state.collections.len();
         state.collections.retain(|c| &c.id != id);
@@ -113,11 +132,15 @@ impl CatalogService for MockCatalogService {
         Ok(())
     }
 
-    async fn movies(&self, page: PageRequest) -> Result<Page<Movie>, CatalogError> {
+    async fn movies(
+        &self,
+        _caller: &Principal,
+        page: PageRequest,
+    ) -> Result<Page<Movie>, CatalogError> {
         Ok(paginate(&self.state.lock().unwrap().movies, page))
     }
 
-    async fn movie(&self, id: &MovieId) -> Result<Movie, CatalogError> {
+    async fn movie(&self, _caller: &Principal, id: &MovieId) -> Result<Movie, CatalogError> {
         self.state
             .lock()
             .unwrap()
@@ -128,11 +151,19 @@ impl CatalogService for MockCatalogService {
             .ok_or(CatalogError::NotFound)
     }
 
-    async fn series(&self, page: PageRequest) -> Result<Page<Series>, CatalogError> {
+    async fn series(
+        &self,
+        _caller: &Principal,
+        page: PageRequest,
+    ) -> Result<Page<Series>, CatalogError> {
         Ok(paginate(&self.state.lock().unwrap().series, page))
     }
 
-    async fn series_detail(&self, id: &SeriesId) -> Result<Series, CatalogError> {
+    async fn series_detail(
+        &self,
+        _caller: &Principal,
+        id: &SeriesId,
+    ) -> Result<Series, CatalogError> {
         self.state
             .lock()
             .unwrap()
@@ -143,7 +174,11 @@ impl CatalogService for MockCatalogService {
             .ok_or(CatalogError::NotFound)
     }
 
-    async fn seasons(&self, series: &SeriesId) -> Result<Vec<Season>, CatalogError> {
+    async fn seasons(
+        &self,
+        _caller: &Principal,
+        series: &SeriesId,
+    ) -> Result<Vec<Season>, CatalogError> {
         Ok(self
             .state
             .lock()
@@ -155,7 +190,7 @@ impl CatalogService for MockCatalogService {
             .collect())
     }
 
-    async fn season(&self, id: &SeasonId) -> Result<Season, CatalogError> {
+    async fn season(&self, _caller: &Principal, id: &SeasonId) -> Result<Season, CatalogError> {
         self.state
             .lock()
             .unwrap()
@@ -166,7 +201,11 @@ impl CatalogService for MockCatalogService {
             .ok_or(CatalogError::NotFound)
     }
 
-    async fn episodes(&self, season: &SeasonId) -> Result<Vec<Episode>, CatalogError> {
+    async fn episodes(
+        &self,
+        _caller: &Principal,
+        season: &SeasonId,
+    ) -> Result<Vec<Episode>, CatalogError> {
         Ok(self
             .state
             .lock()
@@ -178,7 +217,7 @@ impl CatalogService for MockCatalogService {
             .collect())
     }
 
-    async fn episode(&self, id: &EpisodeId) -> Result<Episode, CatalogError> {
+    async fn episode(&self, _caller: &Principal, id: &EpisodeId) -> Result<Episode, CatalogError> {
         self.state
             .lock()
             .unwrap()
@@ -189,8 +228,13 @@ impl CatalogService for MockCatalogService {
             .ok_or(CatalogError::NotFound)
     }
 
-    async fn versions(&self, title: &TitleId) -> Result<Vec<Version>, CatalogError> {
-        Ok(self
+    async fn versions(
+        &self,
+        _caller: &Principal,
+        title: &TitleId,
+        page: PageRequest,
+    ) -> Result<Page<Version>, CatalogError> {
+        let matched: Vec<Version> = self
             .state
             .lock()
             .unwrap()
@@ -198,11 +242,17 @@ impl CatalogService for MockCatalogService {
             .iter()
             .filter(|v| &v.title == title)
             .cloned()
-            .collect())
+            .collect();
+        Ok(paginate(&matched, page))
     }
 
-    async fn library_versions(&self, library: &LibraryId) -> Result<Vec<Version>, CatalogError> {
-        Ok(self
+    async fn library_versions(
+        &self,
+        _caller: &Principal,
+        library: &LibraryId,
+        page: PageRequest,
+    ) -> Result<Page<Version>, CatalogError> {
+        let matched: Vec<Version> = self
             .state
             .lock()
             .unwrap()
@@ -210,7 +260,33 @@ impl CatalogService for MockCatalogService {
             .iter()
             .filter(|v| &v.library == library)
             .cloned()
-            .collect())
+            .collect();
+        Ok(paginate(&matched, page))
+    }
+
+    async fn version(
+        &self,
+        _caller: &Principal,
+        id: &VersionId,
+    ) -> Result<VersionDetail, CatalogError> {
+        let version = self
+            .state
+            .lock()
+            .unwrap()
+            .versions
+            .iter()
+            .find(|v| &v.id == id)
+            .cloned()
+            .ok_or(CatalogError::NotFound)?;
+        Ok(VersionDetail {
+            version,
+            video: Vec::new(),
+            audio: Vec::new(),
+            subtitles: Vec::new(),
+            chapters: Vec::new(),
+            markers: DetectedMarkers::default(),
+            trickplay: Vec::new(),
+        })
     }
 }
 
@@ -218,7 +294,15 @@ impl CatalogService for MockCatalogService {
 mod tests {
     use super::*;
     use domain::common::Quality;
+    use domain::user::{Role, UserId};
     use jiff::Timestamp;
+
+    fn principal() -> Principal {
+        Principal {
+            user: UserId("u1".into()),
+            role: Role::Admin,
+        }
+    }
 
     fn movie(id: &str) -> Movie {
         Movie {
@@ -268,13 +352,22 @@ mod tests {
 
     fn version(id: &str, movie: &str) -> Version {
         Version {
-            id: domain::catalog::VersionId(id.to_string()),
+            id: VersionId(id.to_string()),
             title: TitleId::Movie(MovieId(movie.to_string())),
             library: LibraryId("lib1".to_string()),
             quality: Quality::Hd,
             container: "mkv".to_string(),
             path: format!("/media/{id}.mkv"),
             size_bytes: 1024,
+            duration_ms: 1000,
+            edition: None,
+        }
+    }
+
+    fn page() -> PageRequest {
+        PageRequest {
+            offset: 0,
+            limit: 10,
         }
     }
 
@@ -284,24 +377,24 @@ mod tests {
         svc.add_movie(movie("m1"));
         svc.add_movie(movie("m2"));
 
-        let page = svc
-            .movies(PageRequest {
-                offset: 0,
-                limit: 10,
-            })
-            .await
-            .unwrap();
+        let page = svc.movies(&principal(), page()).await.unwrap();
         assert_eq!(page.total, 2);
         assert_eq!(page.items.len(), 2);
 
-        let found = svc.movie(&MovieId("m1".into())).await.unwrap();
+        let found = svc
+            .movie(&principal(), &MovieId("m1".into()))
+            .await
+            .unwrap();
         assert_eq!(found.id, MovieId("m1".into()));
     }
 
     #[tokio::test]
     async fn movie_missing_is_not_found() {
         let svc = MockCatalogService::new();
-        let err = svc.movie(&MovieId("nope".into())).await.unwrap_err();
+        let err = svc
+            .movie(&principal(), &MovieId("nope".into()))
+            .await
+            .unwrap_err();
         assert!(matches!(err, CatalogError::NotFound));
     }
 
@@ -315,17 +408,17 @@ mod tests {
             movies: vec![MovieId("m1".into())],
         });
 
-        let page = svc
-            .collections(PageRequest {
-                offset: 0,
-                limit: 10,
-            })
-            .await
-            .unwrap();
+        let page = svc.collections(&principal(), page()).await.unwrap();
         assert_eq!(page.total, 1);
-        assert!(svc.collection(&CollectionId("c1".into())).await.is_ok());
+        assert!(
+            svc.collection(&principal(), &CollectionId("c1".into()))
+                .await
+                .is_ok()
+        );
         assert!(matches!(
-            svc.collection(&CollectionId("x".into())).await.unwrap_err(),
+            svc.collection(&principal(), &CollectionId("x".into()))
+                .await
+                .unwrap_err(),
             CatalogError::NotFound
         ));
     }
@@ -338,28 +431,40 @@ mod tests {
         svc.add_season(season("se2", "other"));
         svc.add_episode(episode("e1", "se1"));
 
-        let page = svc
-            .series(PageRequest {
-                offset: 0,
-                limit: 10,
-            })
-            .await
-            .unwrap();
+        let page = svc.series(&principal(), page()).await.unwrap();
         assert_eq!(page.total, 1);
-        assert!(svc.series_detail(&SeriesId("s1".into())).await.is_ok());
+        assert!(
+            svc.series_detail(&principal(), &SeriesId("s1".into()))
+                .await
+                .is_ok()
+        );
         assert!(matches!(
-            svc.series_detail(&SeriesId("x".into())).await.unwrap_err(),
+            svc.series_detail(&principal(), &SeriesId("x".into()))
+                .await
+                .unwrap_err(),
             CatalogError::NotFound
         ));
 
-        let seasons = svc.seasons(&SeriesId("s1".into())).await.unwrap();
+        let seasons = svc
+            .seasons(&principal(), &SeriesId("s1".into()))
+            .await
+            .unwrap();
         assert_eq!(seasons.len(), 1);
 
-        let episodes = svc.episodes(&SeasonId("se1".into())).await.unwrap();
+        let episodes = svc
+            .episodes(&principal(), &SeasonId("se1".into()))
+            .await
+            .unwrap();
         assert_eq!(episodes.len(), 1);
-        assert!(svc.episode(&EpisodeId("e1".into())).await.is_ok());
+        assert!(
+            svc.episode(&principal(), &EpisodeId("e1".into()))
+                .await
+                .is_ok()
+        );
         assert!(matches!(
-            svc.episode(&EpisodeId("x".into())).await.unwrap_err(),
+            svc.episode(&principal(), &EpisodeId("x".into()))
+                .await
+                .unwrap_err(),
             CatalogError::NotFound
         ));
     }
@@ -371,19 +476,45 @@ mod tests {
         svc.add_version(version("v2", "m2"));
 
         let versions = svc
-            .versions(&TitleId::Movie(MovieId("m1".into())))
+            .versions(&principal(), &TitleId::Movie(MovieId("m1".into())), page())
             .await
             .unwrap();
-        assert_eq!(versions.len(), 1);
+        assert_eq!(versions.total, 1);
+        assert_eq!(versions.items.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn version_detail_by_id() {
+        let svc = MockCatalogService::new();
+        svc.add_version(version("v1", "m1"));
+
+        let detail = svc
+            .version(&principal(), &VersionId("v1".into()))
+            .await
+            .unwrap();
+        assert_eq!(detail.version.id, VersionId("v1".into()));
+        assert!(detail.video.is_empty());
+        assert!(matches!(
+            svc.version(&principal(), &VersionId("nope".into()))
+                .await
+                .unwrap_err(),
+            CatalogError::NotFound
+        ));
     }
 
     #[tokio::test]
     async fn season_detail() {
         let svc = MockCatalogService::new();
         svc.add_season(season("se1", "s1"));
-        assert!(svc.season(&SeasonId("se1".into())).await.is_ok());
+        assert!(
+            svc.season(&principal(), &SeasonId("se1".into()))
+                .await
+                .is_ok()
+        );
         assert!(matches!(
-            svc.season(&SeasonId("x".into())).await.unwrap_err(),
+            svc.season(&principal(), &SeasonId("x".into()))
+                .await
+                .unwrap_err(),
             CatalogError::NotFound
         ));
     }
@@ -392,18 +523,29 @@ mod tests {
     async fn collection_create_update_delete() {
         let svc = MockCatalogService::new();
         let created = svc
-            .create_collection(NewCollection {
-                name: "Saga".into(),
-                overview: Some("epic".into()),
-                movies: vec![MovieId("m1".into())],
-            })
+            .create_collection(
+                &principal(),
+                NewCollection {
+                    name: "Saga".into(),
+                    overview: Some("epic".into()),
+                    movies: vec![MovieId("m1".into())],
+                },
+            )
             .await
             .unwrap();
         assert_eq!(created.name, "Saga");
-        assert_eq!(svc.collection(&created.id).await.unwrap().movies.len(), 1);
+        assert_eq!(
+            svc.collection(&principal(), &created.id)
+                .await
+                .unwrap()
+                .movies
+                .len(),
+            1
+        );
 
         let updated = svc
             .update_collection(
+                &principal(),
                 &created.id,
                 CollectionUpdate {
                     name: "Saga II".into(),
@@ -417,6 +559,7 @@ mod tests {
         assert!(updated.movies.is_empty());
         assert!(matches!(
             svc.update_collection(
+                &principal(),
                 &CollectionId("nope".into()),
                 CollectionUpdate {
                     name: "x".into(),
@@ -429,9 +572,13 @@ mod tests {
             CatalogError::NotFound
         ));
 
-        svc.delete_collection(&created.id).await.unwrap();
+        svc.delete_collection(&principal(), &created.id)
+            .await
+            .unwrap();
         assert!(matches!(
-            svc.delete_collection(&created.id).await.unwrap_err(),
+            svc.delete_collection(&principal(), &created.id)
+                .await
+                .unwrap_err(),
             CatalogError::NotFound
         ));
     }
@@ -441,19 +588,22 @@ mod tests {
         let svc = MockCatalogService::new();
         for (vid, lib) in [("v1", "lib1"), ("v2", "lib2")] {
             svc.add_version(Version {
-                id: domain::catalog::VersionId(vid.into()),
+                id: VersionId(vid.into()),
                 title: TitleId::Movie(MovieId("m1".into())),
                 library: LibraryId(lib.into()),
                 quality: Quality::Hd,
                 container: "mkv".into(),
                 path: format!("/media/{vid}.mkv"),
                 size_bytes: 1,
+                duration_ms: 1,
+                edition: None,
             });
         }
         let from_lib1 = svc
-            .library_versions(&LibraryId("lib1".into()))
+            .library_versions(&principal(), &LibraryId("lib1".into()), page())
             .await
             .unwrap();
-        assert_eq!(from_lib1.len(), 1);
+        assert_eq!(from_lib1.total, 1);
+        assert_eq!(from_lib1.items.len(), 1);
     }
 }

@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use domain::catalog::VersionId;
 use domain::error::ProbeError;
 use domain::media::{MediaProbe, ProbeResult, SubtitleFormat};
 use media::probe::FfprobeMediaProbe;
@@ -16,7 +15,7 @@ fn fixture(name: &str) -> String {
 
 async fn probe(name: &str) -> ProbeResult {
     FfprobeMediaProbe::default()
-        .probe(&fixture(name), &VersionId("v1".to_owned()))
+        .probe(&fixture(name))
         .await
         .expect("ffprobe should succeed; is ffmpeg installed and on PATH?")
 }
@@ -87,10 +86,7 @@ async fn probes_real_world_file() {
 #[tokio::test]
 async fn probe_reports_backend_error_for_missing_file() {
     let err = FfprobeMediaProbe::default()
-        .probe(
-            "/nonexistent/shadowmask/file.mkv",
-            &VersionId("v1".to_owned()),
-        )
+        .probe("/nonexistent/shadowmask/file.mkv")
         .await
         .expect_err("probing a missing file must fail");
     assert!(matches!(err, ProbeError::Backend(_)));
@@ -99,7 +95,7 @@ async fn probe_reports_backend_error_for_missing_file() {
 #[tokio::test]
 async fn probe_reports_backend_error_when_binary_missing() {
     let err = FfprobeMediaProbe::with_binary("shadowmask-no-such-ffprobe-binary")
-        .probe(&fixture("sample_full.mkv"), &VersionId("v1".to_owned()))
+        .probe(&fixture("sample_full.mkv"))
         .await
         .expect_err("spawning a missing binary must fail");
     assert!(matches!(err, ProbeError::Backend(_)));

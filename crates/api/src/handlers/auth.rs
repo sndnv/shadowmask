@@ -3,8 +3,7 @@ use axum::extract::State;
 use tracing::debug;
 
 use crate::dto::auth::{
-    AccessTokenResponse, IssuedTokenResponse, LinkRequest, LoginRequest, RefreshRequest,
-    TokenPairResponse,
+    IssuedTokenResponse, LinkRequest, LoginRequest, RefreshRequest, TokenPairResponse,
 };
 use crate::error::ApiResult;
 use crate::handlers::log_fail;
@@ -25,13 +24,13 @@ pub async fn login<S: AppServices>(
 pub async fn refresh<S: AppServices>(
     State(state): State<S>,
     Json(req): Json<RefreshRequest>,
-) -> ApiResult<Json<AccessTokenResponse>> {
-    let access = state
+) -> ApiResult<Json<TokenPairResponse>> {
+    let tokens = state
         .refresh(&req.refresh_token)
         .await
         .map_err(log_fail("anonymous", "refresh access token"))?;
     debug!("User [anonymous] successfully refreshed access token");
-    Ok(Json(access.into()))
+    Ok(Json(tokens.into()))
 }
 
 pub async fn link<S: AppServices>(

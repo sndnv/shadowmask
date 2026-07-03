@@ -1,11 +1,15 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use domain::common::{Page, PageRequest};
 use domain::error::LibraryError;
 use domain::library::{
     DuplicateCandidate, Library, LibraryId, ScanState, ScanStatus, UnmatchedFile,
 };
 use domain::service::LibraryService;
+use domain::user::Principal;
+
+use crate::page::paginate;
 
 #[derive(Debug, Default)]
 struct State {
@@ -59,11 +63,11 @@ fn require_library(state: &State, id: &LibraryId) -> Result<(), LibraryError> {
 }
 
 impl LibraryService for MockLibraryService {
-    async fn libraries(&self) -> Result<Vec<Library>, LibraryError> {
+    async fn libraries(&self, _caller: &Principal) -> Result<Vec<Library>, LibraryError> {
         Ok(self.state.lock().unwrap().libraries.clone())
     }
 
-    async fn library(&self, id: &LibraryId) -> Result<Library, LibraryError> {
+    async fn library(&self, _caller: &Principal, id: &LibraryId) -> Result<Library, LibraryError> {
         self.state
             .lock()
             .unwrap()
@@ -74,7 +78,11 @@ impl LibraryService for MockLibraryService {
             .ok_or(LibraryError::NotFound)
     }
 
-    async fn scan_state(&self, id: &LibraryId) -> Result<ScanState, LibraryError> {
+    async fn scan_state(
+        &self,
+        _caller: &Principal,
+        id: &LibraryId,
+    ) -> Result<ScanState, LibraryError> {
         let state = self.state.lock().unwrap();
         require_library(&state, id)?;
         Ok(state.scans.get(id).cloned().unwrap_or(ScanState {
@@ -86,7 +94,7 @@ impl LibraryService for MockLibraryService {
         }))
     }
 
-    async fn trigger_scan(&self, id: &LibraryId) -> Result<(), LibraryError> {
+    async fn trigger_scan(&self, _caller: &Principal, id: &LibraryId) -> Result<(), LibraryError> {
         let mut state = self.state.lock().unwrap();
         require_library(&state, id)?;
         if matches!(state.scans.get(id), Some(s) if s.status == ScanStatus::Running) {
@@ -105,16 +113,28 @@ impl LibraryService for MockLibraryService {
         Ok(())
     }
 
-    async fn unmatched(&self, id: &LibraryId) -> Result<Vec<UnmatchedFile>, LibraryError> {
+    async fn unmatched(
+        &self,
+        _caller: &Principal,
+        id: &LibraryId,
+        page: PageRequest,
+    ) -> Result<Page<UnmatchedFile>, LibraryError> {
         let state = self.state.lock().unwrap();
         require_library(&state, id)?;
-        Ok(state.unmatched.get(id).cloned().unwrap_or_default())
+        let all = state.unmatched.get(id).cloned().unwrap_or_default();
+        Ok(paginate(&all, page))
     }
 
-    async fn duplicates(&self, id: &LibraryId) -> Result<Vec<DuplicateCandidate>, LibraryError> {
+    async fn duplicates(
+        &self,
+        _caller: &Principal,
+        id: &LibraryId,
+        page: PageRequest,
+    ) -> Result<Page<DuplicateCandidate>, LibraryError> {
         let state = self.state.lock().unwrap();
         require_library(&state, id)?;
-        Ok(state.duplicates.get(id).cloned().unwrap_or_default())
+        let all = state.duplicates.get(id).cloned().unwrap_or_default();
+        Ok(paginate(&all, page))
     }
 }
 
@@ -123,6 +143,21 @@ mod tests {
     use super::*;
     use domain::catalog::{MovieId, TitleId};
     use domain::library::{DuplicateCandidateId, LibraryKind, UnmatchedFileId, WatcherStrategy};
+    use domain::user::{Role, UserId};
+
+    fn principal() -> Principal {
+        Principal {
+            user: UserId("u1".into()),
+            role: Role::Admin,
+        }
+    }
+
+    fn page() -> PageRequest {
+        PageRequest {
+            offset: 0,
+            limit: 10,
+        }
+    }
 
     fn library(id: &str) -> Library {
         Library {
@@ -140,10 +175,16 @@ mod tests {
     async fn list_and_detail() {
         let svc = MockLibraryService::new();
         svc.add_library(library("l1"));
-        assert_eq!(svc.libraries().await.unwrap().len(), 1);
-        assert!(svc.library(&LibraryId("l1".into())).await.is_ok());
+        assert_eq!(svc.libraries(&principal()).await.unwrap().len(), 1);
+        assert!(
+            svc.library(&principal(), &LibraryId("l1".into()))
+                .await
+                .is_ok()
+        );
         assert!(matches!(
-            svc.library(&LibraryId("x".into())).await.unwrap_err(),
+            svc.library(&principal(), &LibraryId("x".into()))
+                .await
+                .unwrap_err(),
             LibraryError::NotFound
         ));
     }
@@ -152,10 +193,15 @@ mod tests {
     async fn scan_state_defaults_to_idle() {
         let svc = MockLibraryService::new();
         svc.add_library(library("l1"));
-        let state = svc.scan_state(&LibraryId("l1".into())).await.unwrap();
+        let state = svc
+            .scan_state(&principal(), &LibraryId("l1".into()))
+            .await
+            .unwrap();
         assert_eq!(state.status, ScanStatus::Idle);
         assert!(matches!(
-            svc.scan_state(&LibraryId("x".into())).await.unwrap_err(),
+            svc.scan_state(&principal(), &LibraryId("x".into()))
+                .await
+                .unwrap_err(),
             LibraryError::NotFound
         ));
     }
@@ -164,16 +210,25 @@ mod tests {
     async fn trigger_scan_sets_running_then_conflicts() {
         let svc = MockLibraryService::new();
         svc.add_library(library("l1"));
-        svc.trigger_scan(&LibraryId("l1".into())).await.unwrap();
-        let state = svc.scan_state(&LibraryId("l1".into())).await.unwrap();
+        svc.trigger_scan(&principal(), &LibraryId("l1".into()))
+            .await
+            .unwrap();
+        let state = svc
+            .scan_state(&principal(), &LibraryId("l1".into()))
+            .await
+            .unwrap();
         assert_eq!(state.status, ScanStatus::Running);
 
         assert!(matches!(
-            svc.trigger_scan(&LibraryId("l1".into())).await.unwrap_err(),
+            svc.trigger_scan(&principal(), &LibraryId("l1".into()))
+                .await
+                .unwrap_err(),
             LibraryError::ScanInProgress
         ));
         assert!(matches!(
-            svc.trigger_scan(&LibraryId("x".into())).await.unwrap_err(),
+            svc.trigger_scan(&principal(), &LibraryId("x".into()))
+                .await
+                .unwrap_err(),
             LibraryError::NotFound
         ));
     }
@@ -183,8 +238,20 @@ mod tests {
         let svc = MockLibraryService::new();
         let id = LibraryId("l1".into());
         svc.add_library(library("l1"));
-        assert!(svc.unmatched(&id).await.unwrap().is_empty());
-        assert!(svc.duplicates(&id).await.unwrap().is_empty());
+        assert!(
+            svc.unmatched(&principal(), &id, page())
+                .await
+                .unwrap()
+                .items
+                .is_empty()
+        );
+        assert!(
+            svc.duplicates(&principal(), &id, page())
+                .await
+                .unwrap()
+                .items
+                .is_empty()
+        );
 
         svc.add_unmatched(
             &id,
@@ -203,15 +270,31 @@ mod tests {
                 paths: vec!["/a.mkv".into(), "/b.mkv".into()],
             },
         );
-        assert_eq!(svc.unmatched(&id).await.unwrap().len(), 1);
-        assert_eq!(svc.duplicates(&id).await.unwrap().len(), 1);
+        assert_eq!(
+            svc.unmatched(&principal(), &id, page())
+                .await
+                .unwrap()
+                .total,
+            1
+        );
+        assert_eq!(
+            svc.duplicates(&principal(), &id, page())
+                .await
+                .unwrap()
+                .total,
+            1
+        );
 
         assert!(matches!(
-            svc.unmatched(&LibraryId("x".into())).await.unwrap_err(),
+            svc.unmatched(&principal(), &LibraryId("x".into()), page())
+                .await
+                .unwrap_err(),
             LibraryError::NotFound
         ));
         assert!(matches!(
-            svc.duplicates(&LibraryId("x".into())).await.unwrap_err(),
+            svc.duplicates(&principal(), &LibraryId("x".into()), page())
+                .await
+                .unwrap_err(),
             LibraryError::NotFound
         ));
     }
