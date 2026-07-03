@@ -1,0 +1,13 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "error": {
+      "code": "username_taken",
+      "message": "username already taken"
+    }
+  },
+  "status": 409
+}

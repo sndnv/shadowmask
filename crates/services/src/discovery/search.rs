@@ -164,3 +164,80 @@ mod tests {
         assert_eq!(titles(&page), vec!["Matrix Reloaded", "The Matrix"]);
     }
 }
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use domain::catalog::{Movie, MovieId};
+    use jiff::Timestamp;
+    use proptest::prelude::*;
+
+    fn movie(title: &str) -> SearchResult {
+        SearchResult::Movie(Movie {
+            id: MovieId(title.to_owned()),
+            title: title.to_owned(),
+            year: None,
+            overview: None,
+            runtime_minutes: None,
+            content_rating: None,
+            added_at: Timestamp::UNIX_EPOCH,
+        })
+    }
+
+    fn all_pages() -> PageRequest {
+        PageRequest {
+            offset: 0,
+            limit: 1000,
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn whitespace_query_matches_nothing(
+            titles in prop::collection::vec("[a-z ]{0,10}", 0..16),
+            blank in r"[ \t]{0,5}",
+        ) {
+            let candidates: Vec<SearchResult> = titles.iter().map(|t| movie(t)).collect();
+            let hits = search(&candidates, &blank, all_pages());
+            prop_assert!(hits.items.is_empty());
+            prop_assert_eq!(hits.total, 0);
+        }
+
+        #[test]
+        fn every_hit_contains_query(
+            titles in prop::collection::vec("[a-z ]{0,10}", 0..16),
+            query in "[a-z ]{1,6}",
+        ) {
+            let candidates: Vec<SearchResult> = titles.iter().map(|t| movie(t)).collect();
+            let needle = normalize_title(&query);
+            let hits = search(&candidates, &query, all_pages());
+            prop_assert!(hits.total as usize <= candidates.len());
+            for item in &hits.items {
+                let hay = normalize_title(searchable(item));
+                prop_assert!(needle.is_empty() || hay.contains(&needle));
+            }
+        }
+
+        #[test]
+        fn total_is_case_insensitive(
+            titles in prop::collection::vec("[a-z ]{0,10}", 0..16),
+            query in "[a-z ]{1,6}",
+        ) {
+            let candidates: Vec<SearchResult> = titles.iter().map(|t| movie(t)).collect();
+            let lower = search(&candidates, &query, all_pages()).total;
+            let upper = search(&candidates, &query.to_uppercase(), all_pages()).total;
+            prop_assert_eq!(lower, upper);
+        }
+
+        #[test]
+        fn respects_page_limit(
+            titles in prop::collection::vec("[a-z ]{0,10}", 0..16),
+            query in "[a-z ]{1,6}",
+            limit in 0u32..8,
+        ) {
+            let candidates: Vec<SearchResult> = titles.iter().map(|t| movie(t)).collect();
+            let hits = search(&candidates, &query, PageRequest { offset: 0, limit });
+            prop_assert!(hits.items.len() as u64 <= u64::from(limit));
+        }
+    }
+}

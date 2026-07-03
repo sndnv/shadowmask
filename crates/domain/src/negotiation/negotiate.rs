@@ -384,3 +384,134 @@ mod tests {
         assert_eq!(out.selected.audio_track, Some(1));
     }
 }
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use crate::profile::{AudioCodecCap, Container, VideoCodecCap};
+    use proptest::prelude::*;
+
+    fn profile() -> CapabilityProfile {
+        CapabilityProfile {
+            containers: vec![Container::Mp4, Container::Hls],
+            video: vec![VideoCodecCap {
+                codec: "h264".to_owned(),
+                max_level: None,
+                max_bit_depth: 8,
+            }],
+            audio: vec![AudioCodecCap {
+                codec: "aac".to_owned(),
+                max_channels: 2,
+            }],
+            hdr: vec![],
+            max_width: 1920,
+            max_height: 1080,
+            max_bitrate: 10_000_000,
+        }
+    }
+
+    prop_compose! {
+        fn inputs()(
+            container in prop_oneof![Just(Container::Mp4), Just(Container::Hls), Just(Container::Mkv)],
+            vcodec in prop_oneof![Just("h264"), Just("vp9")],
+            width in prop_oneof![Just(1280u32), Just(1920u32), Just(3840u32)],
+            bit_depth in prop_oneof![Just(8u8), Just(10u8)],
+            bitrate in prop::option::of(1_000_000u64..=30_000_000u64),
+            acodec in prop_oneof![Just("aac"), Just("eac3")],
+            channels in prop_oneof![Just(2u8), Just(6u8)],
+            requested_audio in prop::option::of(1u32..=2),
+            subtitle in prop::option::of(prop_oneof![Just(SubtitleFormat::Srt), Just(SubtitleFormat::Pgs)]),
+        ) -> NegotiationInput {
+            let height = if width >= 3840 { 2160 } else { 1080 };
+            let subtitles = subtitle
+                .map(|format| {
+                    vec![EmbeddedSubtitleTrack {
+                        index: 0,
+                        language: None,
+                        format,
+                        forced: false,
+                        default: false,
+                    }]
+                })
+                .unwrap_or_default();
+            let requested_subtitle = subtitle.map(|_| SubtitleSelection {
+                track: SubtitleTrackRef::Embedded(0),
+                offset_ms: None,
+            });
+            NegotiationInput {
+                container,
+                video: vec![VideoTrack {
+                    index: 0,
+                    codec: vcodec.to_owned(),
+                    width,
+                    height,
+                    bit_depth,
+                    hdr: None,
+                    frame_rate: 24.0,
+                    bitrate,
+                }],
+                audio: vec![AudioTrack {
+                    index: 1,
+                    codec: acodec.to_owned(),
+                    channels,
+                    language: None,
+                    bitrate: None,
+                }],
+                subtitles,
+                requested_audio,
+                requested_subtitle,
+                max_bitrate: None,
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn always_produces_a_delivery_mode(input in inputs()) {
+            let out = negotiate(&input, &profile());
+            prop_assert!(matches!(
+                out.mode,
+                DeliveryMode::Direct | DeliveryMode::Remux | DeliveryMode::Transcode
+            ));
+        }
+
+        #[test]
+        fn burned_subtitle_forces_transcode(input in inputs()) {
+            let out = negotiate(&input, &profile());
+            if out.selected.subtitle_delivery == Some(SubtitleDelivery::Burned) {
+                prop_assert_eq!(out.mode, DeliveryMode::Transcode);
+            }
+        }
+
+        #[test]
+        fn direct_implies_container_supported_and_not_burned(input in inputs()) {
+            let profile = profile();
+            let out = negotiate(&input, &profile);
+            if out.mode == DeliveryMode::Direct {
+                prop_assert!(profile.containers.contains(&input.container));
+                prop_assert_ne!(
+                    out.selected.subtitle_delivery,
+                    Some(SubtitleDelivery::Burned)
+                );
+            }
+        }
+
+        #[test]
+        fn remux_implies_unsupported_container(input in inputs()) {
+            let profile = profile();
+            let out = negotiate(&input, &profile);
+            if out.mode == DeliveryMode::Remux {
+                prop_assert!(!profile.containers.contains(&input.container));
+            }
+        }
+
+        #[test]
+        fn audio_selection_is_consistent(input in inputs()) {
+            let out = negotiate(&input, &profile());
+            prop_assert_eq!(
+                out.selected.audio_track,
+                selected_audio(&input).map(|a| a.index)
+            );
+        }
+    }
+}

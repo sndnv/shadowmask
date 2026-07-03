@@ -16,6 +16,7 @@ metadata = { path = "crates/metadata", version = "0.1.0" }
 services = { path = "crates/services", version = "0.1.0" }
 jobs = { path = "crates/jobs", version = "0.1.0" }
 api = { path = "crates/api", version = "0.1.0" }
+contracts = { path = "crates/contracts", version = "0.1.0" }
 
 tokio = "1"
 axum = "0.8"
@@ -40,6 +41,8 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 wiremock = "0.6"
 uuid = { version = "1", features = ["v4"] }
+proptest = "1"
+insta = { version = "1", features = ["json", "redactions"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

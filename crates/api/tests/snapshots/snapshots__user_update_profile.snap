@@ -1,0 +1,25 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "bitrate_cap": 8000000,
+    "concurrent_stream_limit": 2,
+    "created_at": "[created_at]",
+    "id": "user-1",
+    "max_content_rating": {
+      "code": "R",
+      "system": "MPAA"
+    },
+    "preferred_audio": [
+      "en"
+    ],
+    "preferred_subtitle": [
+      "fr"
+    ],
+    "role": "user",
+    "username": "minted"
+  },
+  "status": 200
+}

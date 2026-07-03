@@ -1,0 +1,10 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "heartbeat_interval_s": 10
+  },
+  "status": 200
+}

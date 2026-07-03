@@ -1,0 +1,11 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "expires_at": null,
+    "token": "player-token"
+  },
+  "status": 200
+}

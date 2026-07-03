@@ -9,12 +9,12 @@ const CONF_WEAK: f32 = 0.4;
 const CONF_NONE: f32 = 0.0;
 
 static SEASON_EPISODE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\bs(\d{1,2})e(\d{1,3})").unwrap());
+    LazyLock::new(|| Regex::new(r"(?i)\bs([0-9]{1,2})e([0-9]{1,3})").unwrap());
 static SEASON_EPISODE_X: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\b(\d{1,2})x(\d{1,3})\b").unwrap());
+    LazyLock::new(|| Regex::new(r"(?i)\b([0-9]{1,2})x([0-9]{1,3})\b").unwrap());
 static YEAR_PAREN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[(\[]((?:19|20)\d{2})[)\]]").unwrap());
-static YEAR_BARE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(?:19|20)\d{2}\b").unwrap());
+    LazyLock::new(|| Regex::new(r"[(\[]((?:19|20)[0-9]{2})[)\]]").unwrap());
+static YEAR_BARE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(?:19|20)[0-9]{2}\b").unwrap());
 static JUNK: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?i)\b(480p|576p|720p|1080p|2160p|4k|bluray|blu-ray|bdrip|brrip|webrip|web-dl|webdl|hdtv|dvdrip|x264|x265|h264|h265|hevc|aac|ac3|dts|xvid|remux)\b",
@@ -261,5 +261,52 @@ mod tests {
         assert_eq!(confidence(&movie_year), CONF_STRONG);
         assert_eq!(confidence(&movie_bare), CONF_WEAK);
         assert_eq!(confidence(&empty), CONF_NONE);
+    }
+}
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn never_panics_on_arbitrary_input(input in "\\PC*") {
+            let _ = parse_filename(&input);
+        }
+
+        #[test]
+        fn season_and_episode_are_paired(input in "\\PC*") {
+            let parsed = parse_filename(&input);
+            prop_assert_eq!(parsed.season.is_some(), parsed.episode.is_some());
+        }
+
+        #[test]
+        fn year_within_supported_range(input in "\\PC*") {
+            if let Some(year) = parse_filename(&input).year {
+                prop_assert!((1900..=2099).contains(&year));
+            }
+        }
+
+        #[test]
+        fn title_has_no_edge_dashes_or_spaces(input in "\\PC*") {
+            let title = parse_filename(&input).title;
+            prop_assert_eq!(
+                title.trim_matches(|c: char| c == '-' || c == ' '),
+                title.as_str()
+            );
+        }
+
+        #[test]
+        fn directory_prefix_is_ignored(name in "[^/\\\\]{0,40}", dir in "[a-z0-9/]{0,20}") {
+            let path = format!("/{dir}/{name}");
+            prop_assert_eq!(parse_filename(&path), parse_filename(&name));
+        }
+
+        #[test]
+        fn normalize_title_is_idempotent(input in "\\PC*") {
+            let once = normalize_title(&input);
+            prop_assert_eq!(normalize_title(&once), once);
+        }
     }
 }

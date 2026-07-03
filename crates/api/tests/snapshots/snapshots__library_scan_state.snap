@@ -1,0 +1,14 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "error": null,
+    "last_scanned_at": null,
+    "library_id": "lib1",
+    "progress": 0.0,
+    "status": "idle"
+  },
+  "status": 200
+}

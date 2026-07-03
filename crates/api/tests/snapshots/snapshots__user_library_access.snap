@@ -1,0 +1,8 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": [],
+  "status": 200
+}

@@ -1,0 +1,11 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "access_token": "access:admin",
+    "refresh_token": "refresh:admin"
+  },
+  "status": 200
+}
