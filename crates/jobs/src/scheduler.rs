@@ -1,6 +1,10 @@
+use std::future::Future;
+use std::time::Duration;
+
 use domain::error::RepositoryError;
 use domain::repository::JobRepository;
 use jiff::Timestamp;
+use tokio::time::interval;
 
 use crate::queue::JobQueue;
 use crate::schedule::Schedule;
@@ -43,6 +47,25 @@ impl Scheduler {
             }
         }
         Ok(fired)
+    }
+
+    pub async fn run<R: JobRepository>(
+        &mut self,
+        period: Duration,
+        queue: &JobQueue<R>,
+        shutdown: impl Future<Output = ()>,
+    ) -> Result<(), RepositoryError> {
+        let mut ticker = interval(period);
+        tokio::pin!(shutdown);
+        loop {
+            tokio::select! {
+                biased;
+                () = &mut shutdown => return Ok(()),
+                _ = ticker.tick() => {
+                    self.tick(Timestamp::now(), queue).await?;
+                }
+            }
+        }
     }
 }
 
@@ -87,5 +110,28 @@ mod tests {
 
         assert_eq!(scheduler.tick(now, &queue).await.unwrap(), 0);
         assert!(queue.list().await.unwrap().is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn run_ticks_until_shutdown() {
+        use std::time::Duration;
+        use tokio::sync::oneshot;
+
+        let queue = JobQueue::new(MockJobStore::new());
+        let mut scheduler = Scheduler::new();
+        scheduler.register(schedule(60, Timestamp::now()));
+
+        let (tx, rx) = oneshot::channel::<()>();
+        let driver = scheduler.run(Duration::from_millis(10), &queue, async move {
+            let _ = rx.await;
+        });
+        let control = async {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            let _ = tx.send(());
+        };
+        let (result, ()) = tokio::join!(driver, control);
+        result.unwrap();
+
+        assert!(!queue.list().await.unwrap().is_empty());
     }
 }

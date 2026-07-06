@@ -1,0 +1,21 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "heartbeat_interval_s": 10,
+    "manifest_url": "[manifest_url]",
+    "mode": "direct",
+    "selected": {
+      "audio_track": null,
+      "subtitle_delivery": "hls_vtt",
+      "subtitle_track": {
+        "index": 1,
+        "type": "embedded"
+      }
+    },
+    "session_id": "[session_id]"
+  },
+  "status": 201
+}

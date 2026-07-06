@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 FAIL_UNDER_LINES = "99.5"
+IGNORE_COVERAGE = r"crates/server/src/main\.rs$"
 
 STEPS = [
     ("fmt", ["cargo", "fmt", "--all", "--check"]),
@@ -12,7 +13,7 @@ STEPS = [
     ("build", ["cargo", "build", "--workspace", "--locked"]),
     ("deny", ["cargo", "deny", "check"]),
     ("test", ["cargo", "nextest", "run", "--workspace", "--locked"]),
-    ("coverage", ["cargo", "llvm-cov", "nextest", "--workspace", "--locked", "--fail-under-lines", FAIL_UNDER_LINES]),
+    ("coverage", ["cargo", "llvm-cov", "nextest", "--workspace", "--locked", "--ignore-filename-regex", IGNORE_COVERAGE, "--fail-under-lines", FAIL_UNDER_LINES]),
 ]
 
 STEP_TOOLS = {

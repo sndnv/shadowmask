@@ -1,0 +1,59 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": [
+    {
+      "id": "recently_added",
+      "items": [
+        {
+          "added_at": "2023-11-14T22:13:22Z",
+          "content_rating": {
+            "code": "TV-14",
+            "system": "TV"
+          },
+          "id": "s1",
+          "overview": null,
+          "title": "Alpha s1",
+          "type": "series",
+          "year": 2019
+        },
+        {
+          "added_at": "2023-11-14T22:13:21Z",
+          "content_rating": {
+            "code": "PG-13",
+            "system": "MPAA"
+          },
+          "id": "m1",
+          "overview": "overview",
+          "runtime_minutes": 100,
+          "title": "Alpha m1",
+          "type": "movie",
+          "year": 2020
+        }
+      ],
+      "title": "Recently Added"
+    },
+    {
+      "id": "continue_watching",
+      "items": [
+        {
+          "added_at": "2023-11-14T22:13:21Z",
+          "content_rating": {
+            "code": "PG-13",
+            "system": "MPAA"
+          },
+          "id": "m1",
+          "overview": "overview",
+          "runtime_minutes": 100,
+          "title": "Alpha m1",
+          "type": "movie",
+          "year": 2020
+        }
+      ],
+      "title": "Continue Watching"
+    }
+  ],
+  "status": 200
+}

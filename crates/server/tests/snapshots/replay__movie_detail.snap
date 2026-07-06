@@ -1,0 +1,19 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "added_at": "2023-11-14T22:13:21Z",
+    "content_rating": {
+      "code": "PG-13",
+      "system": "MPAA"
+    },
+    "id": "[id]",
+    "overview": "overview",
+    "runtime_minutes": 100,
+    "title": "Alpha m1",
+    "year": 2020
+  },
+  "status": 200
+}

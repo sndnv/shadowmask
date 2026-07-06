@@ -1,0 +1,13 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "items": [],
+    "limit": 50,
+    "offset": 0,
+    "total": 0
+  },
+  "status": 200
+}

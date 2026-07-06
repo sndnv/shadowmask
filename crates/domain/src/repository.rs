@@ -7,6 +7,7 @@ use crate::catalog::{
     SeriesId, TitleId, Version, VersionDetail, VersionId,
 };
 use crate::common::{Page, PageRequest};
+use crate::discovery::SearchResult;
 use crate::error::RepositoryError;
 use crate::job::{Job, JobId};
 use crate::library::{DuplicateCandidate, Library, LibraryId, ScanState, UnmatchedFile};
@@ -14,7 +15,7 @@ use crate::playback::{
     Favorite, PlaybackProgress, SubtitleTrackRef, UserSubtitleOffset, WatchHistory, WatchlistItem,
 };
 use crate::session::{PlaybackSession, SessionId};
-use crate::user::{LibraryAccess, User, UserId};
+use crate::user::{AuthSession, AuthSessionId, LibraryAccess, PendingLink, User, UserId};
 
 pub trait CatalogRepository {
     fn list_movies(
@@ -53,6 +54,18 @@ pub trait CatalogRepository {
         &self,
         id: &CollectionId,
     ) -> impl Future<Output = Result<Option<Collection>, RepositoryError>> + Send;
+    fn upsert_collection(
+        &self,
+        collection: Collection,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn delete_collection(
+        &self,
+        id: &CollectionId,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn get_season(
+        &self,
+        id: &SeasonId,
+    ) -> impl Future<Output = Result<Option<Season>, RepositoryError>> + Send;
     fn list_versions(
         &self,
         title: &TitleId,
@@ -67,6 +80,22 @@ pub trait CatalogRepository {
         &self,
         id: &VersionId,
     ) -> impl Future<Output = Result<Option<VersionDetail>, RepositoryError>> + Send;
+}
+
+pub trait VersionCatalog {
+    fn version_detail(
+        &self,
+        id: &VersionId,
+    ) -> impl Future<Output = Result<Option<VersionDetail>, RepositoryError>> + Send;
+}
+
+impl<T: CatalogRepository + Send + Sync> VersionCatalog for T {
+    async fn version_detail(
+        &self,
+        id: &VersionId,
+    ) -> Result<Option<VersionDetail>, RepositoryError> {
+        CatalogRepository::version_detail(self, id).await
+    }
 }
 
 pub trait LibraryRepository {
@@ -186,6 +215,15 @@ pub trait PreferencesRepository {
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }
 
+pub trait SearchIndex {
+    fn search(
+        &self,
+        query: &str,
+        page: PageRequest,
+    ) -> impl Future<Output = Result<Page<SearchResult>, RepositoryError>> + Send;
+    fn rebuild(&self) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+}
+
 pub trait SessionRegistry {
     fn insert(
         &self,
@@ -216,4 +254,32 @@ pub trait JobRepository {
     fn update(&self, job: Job) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     fn get(&self, id: &JobId) -> impl Future<Output = Result<Option<Job>, RepositoryError>> + Send;
     fn list(&self) -> impl Future<Output = Result<Vec<Job>, RepositoryError>> + Send;
+}
+
+pub trait AuthTokenRepository {
+    fn store_refresh(
+        &self,
+        session: AuthSession,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn find_refresh(
+        &self,
+        jti: &AuthSessionId,
+    ) -> impl Future<Output = Result<Option<AuthSession>, RepositoryError>> + Send;
+    fn revoke_refresh(
+        &self,
+        jti: &AuthSessionId,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn revoke_all_for_user(
+        &self,
+        user: &UserId,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn store_link_code(
+        &self,
+        link: PendingLink,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn redeem_link_code(
+        &self,
+        code: &str,
+        now: Timestamp,
+    ) -> impl Future<Output = Result<Option<PendingLink>, RepositoryError>> + Send;
 }

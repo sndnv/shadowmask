@@ -1,0 +1,343 @@
+use std::path::Path;
+
+use axum::Router;
+use axum::body::{Body, to_bytes};
+use axum::http::{Method, Request, StatusCode, header};
+use jiff::Timestamp;
+use serde_json::{Value, json};
+use tower::ServiceExt;
+
+use contracts::{Token, fixture, requests};
+use domain::catalog::{MovieId, TitleId, Version, VersionDetail, VersionId};
+use domain::common::{LanguageCode, Quality};
+use domain::library::LibraryId;
+use domain::media::{
+    AudioTrack, DetectedMarkers, EmbeddedSubtitleTrack, SubtitleFormat, VideoTrack,
+};
+use domain::playback::PlaybackProgress;
+use domain::repository::{AuthTokenRepository, ProgressRepository, SearchIndex, UserRepository};
+use domain::user::{PendingLink, Role, User, UserId};
+use server::{Built, Repos, WireConfig, app, build_state};
+use services::password;
+
+const LINK_EXPIRES_AT: i64 = 4_102_444_800;
+
+fn config(root: &Path) -> WireConfig {
+    WireConfig {
+        jwt_secret: b"replay-jwt-secret-key".to_vec(),
+        stream_secret: b"replay-stream-secret-key".to_vec(),
+        access_ttl_secs: 3600,
+        refresh_ttl_secs: 86_400,
+        transcode_cache: root.join("transcode"),
+    }
+}
+
+fn user(id: &str, username: &str, role: Role, hash: &str) -> User {
+    User {
+        id: UserId(id.into()),
+        username: username.into(),
+        password_hash: hash.to_owned(),
+        role,
+        max_content_rating: None,
+        preferred_audio: Vec::new(),
+        preferred_subtitle: Vec::new(),
+        concurrent_stream_limit: None,
+        bitrate_cap: None,
+        created_at: fixture::ts(0),
+    }
+}
+
+fn direct_v1_detail() -> VersionDetail {
+    VersionDetail {
+        version: Version {
+            id: VersionId("v1".into()),
+            title: TitleId::Movie(MovieId("m1".into())),
+            library: LibraryId("lib1".into()),
+            quality: Quality::Sd,
+            container: "mp4".into(),
+            path: "/media/v1.mp4".into(),
+            size_bytes: 1,
+            duration_ms: 100_000,
+            edition: None,
+        },
+        video: vec![VideoTrack {
+            index: 0,
+            codec: "h264".into(),
+            width: 1920,
+            height: 1080,
+            bit_depth: 8,
+            hdr: None,
+            frame_rate: 24.0,
+            bitrate: Some(4_000_000),
+        }],
+        audio: vec![AudioTrack {
+            index: 1,
+            codec: "aac".into(),
+            channels: 2,
+            language: Some(LanguageCode("en".into())),
+            bitrate: Some(128_000),
+        }],
+        subtitles: vec![EmbeddedSubtitleTrack {
+            index: 1,
+            language: Some(LanguageCode("en".into())),
+            format: SubtitleFormat::Srt,
+            forced: false,
+            default: true,
+        }],
+        chapters: Vec::new(),
+        markers: DetectedMarkers {
+            intros: Vec::new(),
+            credits: Vec::new(),
+        },
+        trickplay: Vec::new(),
+    }
+}
+
+async fn seed(repos: &Repos, hash: &str) {
+    repos
+        .catalog
+        .insert_movie(fixture::movie("m1"))
+        .await
+        .unwrap();
+    repos
+        .catalog
+        .insert_series(fixture::series("s1"))
+        .await
+        .unwrap();
+    repos
+        .catalog
+        .insert_season(fixture::season("se1", "s1"))
+        .await
+        .unwrap();
+    repos
+        .catalog
+        .insert_episode(fixture::episode("e1", "se1"))
+        .await
+        .unwrap();
+    repos
+        .catalog
+        .insert_collection(fixture::saga_collection())
+        .await
+        .unwrap();
+    repos
+        .catalog
+        .insert_version_detail(direct_v1_detail())
+        .await
+        .unwrap();
+    for version in fixture::catalog_versions()
+        .into_iter()
+        .filter(|v| v.id.0 != "v1")
+    {
+        repos.catalog.insert_version(version).await.unwrap();
+    }
+    repos.catalog.rebuild().await.unwrap();
+
+    repos
+        .library
+        .insert_library(fixture::library("lib1"))
+        .await
+        .unwrap();
+
+    repos
+        .users
+        .create(user("admin", "admin", Role::Admin, hash))
+        .await
+        .unwrap();
+    repos
+        .users
+        .create(user("u1", "user", Role::User, hash))
+        .await
+        .unwrap();
+    repos
+        .users
+        .set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())])
+        .await
+        .unwrap();
+
+    repos
+        .progress
+        .upsert(PlaybackProgress {
+            user: UserId("u1".into()),
+            version: VersionId("v1".into()),
+            position_ms: 1234,
+            updated_at: fixture::ts(20),
+        })
+        .await
+        .unwrap();
+
+    repos
+        .auth_tokens
+        .store_link_code(PendingLink {
+            code: fixture::LINK_CODE.into(),
+            user: UserId("u1".into()),
+            role: Role::Player,
+            expires_at: Timestamp::from_second(LINK_EXPIRES_AT).unwrap(),
+        })
+        .await
+        .unwrap();
+}
+
+async fn seeded(db_root: &Path, hash: &str) -> (Repos, Router) {
+    let repos = Repos::connect(db_root).await.unwrap();
+    seed(&repos, hash).await;
+    let Built { state, stream, .. } = build_state(&repos, &config(db_root)).unwrap();
+    (repos, app(state, stream))
+}
+
+fn method(name: &str) -> Method {
+    match name {
+        "GET" => Method::GET,
+        "POST" => Method::POST,
+        "PUT" => Method::PUT,
+        "DELETE" => Method::DELETE,
+        other => panic!("unsupported method {other}"),
+    }
+}
+
+async fn call(
+    router: Router,
+    method: Method,
+    uri: &str,
+    token: Option<&str>,
+    body: Option<Value>,
+) -> (StatusCode, Value) {
+    let mut builder = Request::builder().method(method).uri(uri);
+    if let Some(token) = token {
+        builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    let request = match body {
+        Some(body) => builder
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap(),
+        None => builder.body(Body::empty()).unwrap(),
+    };
+    let response = router.oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let value = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap()
+    };
+    (status, value)
+}
+
+async fn login(router: &Router, username: &str) -> (String, String) {
+    let (status, body) = call(
+        router.clone(),
+        Method::POST,
+        "/api/v1/auth/login",
+        None,
+        Some(json!({"username": username, "password": "pw"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    (
+        body["access_token"].as_str().unwrap().to_owned(),
+        body["refresh_token"].as_str().unwrap().to_owned(),
+    )
+}
+
+async fn mint_session(router: &Router, token: &str) -> String {
+    let (status, body) = call(
+        router.clone(),
+        Method::POST,
+        "/api/v1/sessions",
+        Some(token),
+        Some(json!({
+            "version_id": "v1",
+            "capabilities": {"platform": "web", "profile_version": 1, "max_bitrate": null},
+            "audio_track": 0,
+            "subtitle": null
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    body["session_id"].as_str().unwrap().to_owned()
+}
+
+async fn mint_user(router: &Router, token: &str) -> String {
+    let (status, body) = call(
+        router.clone(),
+        Method::POST,
+        "/api/v1/users",
+        Some(token),
+        Some(json!({"username": "minted", "password": "pw", "role": "user"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    body["id"].as_str().unwrap().to_owned()
+}
+
+fn snapshot(name: &str, status: StatusCode, body: Value) {
+    let value = json!({"status": status.as_u16(), "body": body});
+    insta::assert_json_snapshot!(name, value, {
+        ".body.access_token" => "[access_token]",
+        ".body.refresh_token" => "[refresh_token]",
+        ".body.token" => "[token]",
+        ".body.expires_at" => "[expires_at]",
+        ".body.id" => "[id]",
+        ".body.created_at" => "[created_at]",
+        ".body.session_id" => "[session_id]",
+        ".body.manifest_url" => "[manifest_url]",
+        ".body.active[].session_id" => "[session_id]",
+        ".body.active[].started_at" => "[started_at]",
+        ".body.active[].last_heartbeat_at" => "[last_heartbeat_at]",
+    });
+}
+
+#[tokio::test]
+async fn replay_request_battery() {
+    let hash = password::hash("pw").unwrap();
+
+    let setup_dir = tempfile::tempdir().unwrap();
+    let (_setup, setup_app) = seeded(setup_dir.path(), &hash).await;
+    let admin_access = login(&setup_app, "admin").await.0;
+    let user_access = login(&setup_app, "user").await.0;
+
+    for endpoint in requests() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_repos, router) = seeded(dir.path(), &hash).await;
+
+        let mut path = endpoint.path.to_owned();
+        if path.contains("{session}") {
+            let session = mint_session(&router, &user_access).await;
+            path = path.replace("{session}", &session);
+        }
+        if path.contains("{user}") {
+            let minted = mint_user(&router, &admin_access).await;
+            path = path.replace("{user}", &minted);
+        }
+
+        let token = match endpoint.token {
+            Token::Admin => Some(admin_access.as_str()),
+            Token::User => Some(user_access.as_str()),
+            Token::Anon => None,
+        };
+
+        let body = if endpoint.name == "auth_refresh" {
+            let refresh = login(&router, "user").await.1;
+            Some(json!({ "refresh_token": refresh }))
+        } else {
+            endpoint.body.clone()
+        };
+
+        let (status, response) = call(router, method(endpoint.method), &path, token, body).await;
+        snapshot(endpoint.name, status, response);
+    }
+}
+
+#[tokio::test]
+async fn closed_pool_maps_to_internal_error() {
+    let hash = password::hash("pw").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let (repos, router) = seeded(dir.path(), &hash).await;
+    let token = login(&router, "user").await.0;
+
+    repos.close().await;
+
+    let (status, body) = call(router, Method::GET, "/api/v1/movies", Some(&token), None).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    snapshot("err_internal", status, body);
+}

@@ -13,6 +13,11 @@ metadata.workspace = true
 services.workspace = true
 jobs.workspace = true
 api.workspace = true
+axum.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "signal", "time"] }
+jiff.workspace = true
+serde = { workspace = true, features = ["derive"] }
+figment = { workspace = true, features = ["toml", "env"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
@@ -20,6 +25,10 @@ tower = { workspace = true, features = ["util"] }
 axum = { workspace = true }
 jiff = { workspace = true }
 tempfile = { workspace = true }
+contracts = { workspace = true }
+serde_json = { workspace = true }
+insta = { workspace = true }
+figment = { workspace = true, features = ["test"] }
 
 [lints]
 workspace = true

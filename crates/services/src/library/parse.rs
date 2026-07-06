@@ -52,20 +52,6 @@ pub fn parse_filename(path: &str) -> ParsedMedia {
     }
 }
 
-pub fn normalize_title(title: &str) -> String {
-    let mapped: String = title
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_lowercase()
-            } else {
-                ' '
-            }
-        })
-        .collect();
-    mapped.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 pub fn confidence(parsed: &ParsedMedia) -> f32 {
     if parsed.title.is_empty() {
         CONF_NONE
@@ -221,13 +207,6 @@ mod tests {
     }
 
     #[test]
-    fn normalize_collapses_case_and_punctuation() {
-        assert_eq!(normalize_title("The Matrix"), "the matrix");
-        assert_eq!(normalize_title("The.Matrix!!"), "the matrix");
-        assert_eq!(normalize_title("  Spider-Man  "), "spider man");
-    }
-
-    #[test]
     fn confidence_tiers() {
         let episodic = ParsedMedia {
             title: "Show".into(),
@@ -303,10 +282,5 @@ mod prop_tests {
             prop_assert_eq!(parse_filename(&path), parse_filename(&name));
         }
 
-        #[test]
-        fn normalize_title_is_idempotent(input in "\\PC*") {
-            let once = normalize_title(&input);
-            prop_assert_eq!(normalize_title(&once), once);
-        }
     }
 }

@@ -5,7 +5,8 @@ use domain::library::{
     UnmatchedFileId,
 };
 
-use crate::library::parse::{confidence, normalize_title, parse_filename};
+use crate::library::normalize_title;
+use crate::library::parse::{confidence, parse_filename};
 
 const DEFAULT_THRESHOLD: f32 = 0.5;
 

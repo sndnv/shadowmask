@@ -1,0 +1,25 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "items": [
+      {
+        "added_at": "2023-11-14T22:13:22Z",
+        "content_rating": {
+          "code": "TV-14",
+          "system": "TV"
+        },
+        "id": "s1",
+        "overview": null,
+        "title": "Alpha s1",
+        "year": 2019
+      }
+    ],
+    "limit": 50,
+    "offset": 0,
+    "total": 1
+  },
+  "status": 200
+}

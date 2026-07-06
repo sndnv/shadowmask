@@ -1,0 +1,17 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "manifest_url": "[manifest_url]",
+    "mode": "direct",
+    "selected": {
+      "audio_track": null,
+      "subtitle_delivery": null,
+      "subtitle_track": null
+    },
+    "session_id": "[session_id]"
+  },
+  "status": 200
+}

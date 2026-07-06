@@ -8,7 +8,7 @@ pub mod scheduler;
 pub mod worker;
 
 pub use error::JobError;
-pub use handlers::LibraryScanHandler;
+pub use handlers::{CompositeJobHandler, LibraryScanHandler, SearchReindexHandler};
 pub use job_handler::JobHandler;
 pub use queue::JobQueue;
 pub use retry::{RetryPolicy, apply_outcome, backoff};

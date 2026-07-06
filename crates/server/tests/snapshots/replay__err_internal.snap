@@ -1,0 +1,13 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "error": {
+      "code": "internal",
+      "message": "internal server error"
+    }
+  },
+  "status": 500
+}

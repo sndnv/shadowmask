@@ -28,7 +28,7 @@ fn page() -> PageRequest {
 
 pub async fn library_repository_contract<R: LibraryRepository>(
     repo: R,
-    insert: impl Fn(&R, Library),
+    insert: impl AsyncFn(&R, Library),
 ) {
     let id = LibraryId("lib1".into());
 
@@ -49,7 +49,7 @@ pub async fn library_repository_contract<R: LibraryRepository>(
             .is_empty()
     );
 
-    insert(&repo, library("lib1"));
+    insert(&repo, library("lib1")).await;
     assert_eq!(repo.list().await.unwrap().len(), 1);
     assert!(repo.get(&id).await.unwrap().is_some());
     assert!(repo.get(&LibraryId("nope".into())).await.unwrap().is_none());

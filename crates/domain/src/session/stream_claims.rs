@@ -10,4 +10,5 @@ pub struct StreamClaims {
     pub user: UserId,
     pub version: VersionId,
     pub expires_at: Timestamp,
+    pub nonce: String,
 }

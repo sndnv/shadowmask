@@ -1,43 +1,34 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use domain::error::StreamError;
-use domain::session::{DeliveryMode, SessionId, StreamClaims, StreamSource};
+use domain::session::{
+    DeliveryMode, SessionId, StreamClaims, StreamRegistration, StreamRegistry, StreamSource,
+};
 
 pub(crate) const VARIANT: &str = "v0";
 const MEDIA_PLAYLIST: &str = "index.m3u8";
 const SUBTITLE_GROUP: &str = "subs";
 const SUBTITLE_VARIANT: &str = "subs";
 
-pub struct SubtitleRendition {
-    pub name: String,
-    pub language: String,
-}
-
-pub struct StreamEntry {
-    pub mode: DeliveryMode,
-    pub output_dir: PathBuf,
-    pub direct_path: Option<PathBuf>,
-    pub bandwidth: u64,
-    pub subtitle: Option<SubtitleRendition>,
-}
-
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct HlsStreamSource {
-    sessions: RwLock<HashMap<SessionId, StreamEntry>>,
+    sessions: Arc<RwLock<HashMap<SessionId, StreamRegistration>>>,
 }
 
 impl HlsStreamSource {
     pub fn new() -> Self {
         Self::default()
     }
+}
 
-    pub fn register(&self, session: SessionId, entry: StreamEntry) {
+impl StreamRegistry for HlsStreamSource {
+    fn register(&self, session: SessionId, entry: StreamRegistration) {
         self.sessions.write().unwrap().insert(session, entry);
     }
 
-    pub fn remove(&self, session: &SessionId) {
+    fn remove(&self, session: &SessionId) {
         self.sessions.write().unwrap().remove(session);
     }
 }
@@ -110,6 +101,7 @@ mod tests {
     use jiff::Timestamp;
 
     use domain::catalog::VersionId;
+    use domain::session::SubtitleRendition;
     use domain::user::UserId;
 
     fn claims(session: &str) -> StreamClaims {
@@ -118,11 +110,12 @@ mod tests {
             user: UserId("u1".to_owned()),
             version: VersionId("ver-1".to_owned()),
             expires_at: Timestamp::now(),
+            nonce: String::new(),
         }
     }
 
-    fn transcode_entry() -> StreamEntry {
-        StreamEntry {
+    fn transcode_entry() -> StreamRegistration {
+        StreamRegistration {
             mode: DeliveryMode::Transcode,
             output_dir: PathBuf::from("/cache/s1"),
             direct_path: None,
@@ -147,7 +140,7 @@ mod tests {
         let source = HlsStreamSource::default();
         source.register(
             SessionId("s1".to_owned()),
-            StreamEntry {
+            StreamRegistration {
                 subtitle: Some(SubtitleRendition {
                     name: "English".to_owned(),
                     language: "en".to_owned(),
@@ -168,7 +161,7 @@ mod tests {
         let source = HlsStreamSource::new();
         source.register(
             SessionId("s1".to_owned()),
-            StreamEntry {
+            StreamRegistration {
                 mode: DeliveryMode::Direct,
                 direct_path: Some(PathBuf::from("/media/movie.mkv")),
                 ..transcode_entry()
@@ -189,8 +182,8 @@ mod tests {
         ));
     }
 
-    fn entry_at(dir: PathBuf) -> StreamEntry {
-        StreamEntry {
+    fn entry_at(dir: PathBuf) -> StreamRegistration {
+        StreamRegistration {
             output_dir: dir,
             ..transcode_entry()
         }
@@ -317,7 +310,7 @@ mod tests {
         let source = HlsStreamSource::new();
         source.register(
             SessionId("s1".to_owned()),
-            StreamEntry {
+            StreamRegistration {
                 mode: DeliveryMode::Direct,
                 direct_path: Some(PathBuf::from("/media/movie.mkv")),
                 ..transcode_entry()

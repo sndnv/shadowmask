@@ -11,10 +11,11 @@ use api::{StreamState, stream_router};
 use domain::catalog::VersionId;
 use domain::media::MediaProbe;
 use domain::session::{
-    DeliveryMode, SessionId, StreamClaims, StreamTokens, TranscodeManager, TranscodeSpec,
+    DeliveryMode, SessionId, StreamClaims, StreamRegistration, StreamRegistry, StreamTokens,
+    TranscodeManager, TranscodeSpec,
 };
 use domain::user::UserId;
-use media::hls::{HlsStreamSource, StreamEntry};
+use media::hls::HlsStreamSource;
 use media::probe::FfprobeMediaProbe;
 use media::stream_token::HmacStreamTokens;
 use media::transcode::FfmpegTranscodeManager;
@@ -110,7 +111,7 @@ async fn transcodes_fixture_and_serves_a_segment_end_to_end() {
     let source = HlsStreamSource::new();
     source.register(
         session.clone(),
-        StreamEntry {
+        StreamRegistration {
             mode: DeliveryMode::Transcode,
             output_dir,
             direct_path: None,
@@ -126,6 +127,7 @@ async fn transcodes_fixture_and_serves_a_segment_end_to_end() {
             user: UserId("smoke-user".to_owned()),
             version: VersionId("smoke".to_owned()),
             expires_at: Timestamp::from_second(Timestamp::now().as_second() + 3600).unwrap(),
+            nonce: String::new(),
         })
         .expect("token mint should succeed")
         .0;

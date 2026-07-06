@@ -14,6 +14,7 @@ pub mod profile;
 pub mod repository;
 pub mod service;
 pub mod session;
+pub mod text;
 pub mod user;
 
 pub use common::{Page, PageRequest};
