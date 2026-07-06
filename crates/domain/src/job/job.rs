@@ -13,6 +13,7 @@ pub enum JobKind {
     Fingerprint,
     Dedup,
     CacheEviction,
+    SearchReindex,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

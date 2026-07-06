@@ -1,0 +1,22 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "in_progress": [
+      {
+        "progress": {
+          "position_ms": 1234,
+          "updated_at": "2023-11-14T22:13:40Z",
+          "user_id": "u1",
+          "version_id": "v1"
+        }
+      }
+    ],
+    "next_episodes": [],
+    "next_movies": [],
+    "now_playing": []
+  },
+  "status": 200
+}

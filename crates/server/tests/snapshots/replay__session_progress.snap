@@ -1,0 +1,10 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "heartbeat_interval_s": 10
+  },
+  "status": 200
+}

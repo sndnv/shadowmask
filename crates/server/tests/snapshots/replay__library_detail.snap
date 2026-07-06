@@ -1,0 +1,20 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "id": "[id]",
+    "kind": "movie",
+    "metadata_sources": [
+      "tmdb"
+    ],
+    "name": "Lib lib1",
+    "roots": [
+      "/media"
+    ],
+    "scan_schedule": "0 0 * * *",
+    "watcher": "manual"
+  },
+  "status": 200
+}

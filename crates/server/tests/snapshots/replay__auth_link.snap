@@ -1,0 +1,11 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "expires_at": "[expires_at]",
+    "token": "[token]"
+  },
+  "status": 200
+}

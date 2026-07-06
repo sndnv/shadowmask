@@ -1,28 +1,18 @@
-use jiff::Timestamp;
-
-use domain::catalog::{
-    Collection, CollectionId, Episode, EpisodeId, Movie, MovieId, Season, SeasonId, Series,
-    SeriesId, TitleId, Version, VersionId,
-};
-use domain::common::Quality;
+use domain::catalog::{EpisodeId, MovieId, TitleId, VersionId};
 use domain::discovery::{ContinueWatchingItem, Hub, HubItem, SearchResult};
 use domain::library::{
-    DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryKind, MatchCandidate,
-    UnmatchedFile, UnmatchedFileId, WatcherStrategy,
+    DuplicateCandidate, DuplicateCandidateId, LibraryId, MatchCandidate, UnmatchedFile,
+    UnmatchedFileId,
 };
-use domain::metadata::{ContentRating, Person, PersonId};
+use domain::metadata::{Person, PersonId};
 use domain::playback::{PlaybackProgress, WatchHistory};
-use domain::user::{IssuedToken, Role, UserId};
+use domain::user::UserId;
 use services::mock::{
     MockAuthService, MockCatalogService, MockDiscoveryService, MockLibraryService,
     MockSessionService, MockUserLibraryService, MockUserService,
 };
 
-const EPOCH: i64 = 1_700_000_000;
-
-fn ts(offset: i64) -> Timestamp {
-    Timestamp::from_second(EPOCH + offset).expect("valid fixture timestamp")
-}
+use crate::fixture::{self, episode, library, movie, saga_collection, season, series, ts};
 
 pub struct Generator {
     pub auth: MockAuthService,
@@ -67,31 +57,10 @@ impl Generator {
         self.catalog.add_series(series("s1"));
         self.catalog.add_season(season("se1", "s1"));
         self.catalog.add_episode(episode("e1", "se1"));
-        self.catalog.add_collection(Collection {
-            id: CollectionId("c1".into()),
-            name: "Saga".into(),
-            overview: Some("epic".into()),
-            movies: vec![MovieId("m1".into())],
-        });
-        for (vid, quality) in [
-            ("v1", Quality::Sd),
-            ("v2", Quality::Hd),
-            ("v3", Quality::Fhd),
-            ("v4", Quality::Uhd),
-        ] {
-            self.catalog.add_version(version(
-                vid,
-                TitleId::Movie(MovieId("m1".into())),
-                "lib1",
-                quality,
-            ));
+        self.catalog.add_collection(saga_collection());
+        for version in fixture::catalog_versions() {
+            self.catalog.add_version(version);
         }
-        self.catalog.add_version(version(
-            "ev1",
-            TitleId::Episode(EpisodeId("e1".into())),
-            "lib1",
-            Quality::Hd,
-        ));
     }
 
     fn generate_library(&self) {
@@ -174,92 +143,14 @@ impl Generator {
 
 fn seeded_auth() -> MockAuthService {
     let auth = MockAuthService::new();
-    auth.add_account("admin", "pw", UserId("admin".into()), Role::Admin);
-    auth.add_account("user", "pw", UserId("u1".into()), Role::User);
-    auth.add_link_code(
-        "CODE",
-        IssuedToken {
-            token: "player-token".into(),
-            expires_at: None,
-        },
-    );
+    for account in fixture::accounts() {
+        auth.add_account(
+            account.username,
+            account.password,
+            account.user_id,
+            account.role,
+        );
+    }
+    auth.add_link_code(fixture::LINK_CODE, fixture::link_token());
     auth
-}
-
-fn movie(id: &str) -> Movie {
-    Movie {
-        id: MovieId(id.into()),
-        title: format!("Alpha {id}"),
-        year: Some(2020),
-        overview: Some("overview".into()),
-        runtime_minutes: Some(100),
-        content_rating: Some(ContentRating {
-            system: "MPAA".into(),
-            code: "PG-13".into(),
-        }),
-        added_at: ts(1),
-    }
-}
-
-fn series(id: &str) -> Series {
-    Series {
-        id: SeriesId(id.into()),
-        title: format!("Alpha {id}"),
-        year: Some(2019),
-        overview: None,
-        content_rating: Some(ContentRating {
-            system: "TV".into(),
-            code: "TV-14".into(),
-        }),
-        added_at: ts(2),
-    }
-}
-
-fn season(id: &str, series: &str) -> Season {
-    Season {
-        id: SeasonId(id.into()),
-        series: SeriesId(series.into()),
-        number: 1,
-        title: Some("Season 1".into()),
-        overview: None,
-    }
-}
-
-fn episode(id: &str, season: &str) -> Episode {
-    Episode {
-        id: EpisodeId(id.into()),
-        season: SeasonId(season.into()),
-        number: 1,
-        title: format!("Alpha {id}"),
-        overview: None,
-        runtime_minutes: Some(42),
-        air_date: Some(ts(3)),
-        added_at: ts(4),
-    }
-}
-
-fn version(id: &str, title: TitleId, lib: &str, quality: Quality) -> Version {
-    Version {
-        id: VersionId(id.into()),
-        title,
-        library: LibraryId(lib.into()),
-        quality,
-        container: "mkv".into(),
-        path: format!("/media/{id}.mkv"),
-        size_bytes: 1,
-        duration_ms: 1000,
-        edition: None,
-    }
-}
-
-fn library(id: &str) -> Library {
-    Library {
-        id: LibraryId(id.into()),
-        name: format!("Lib {id}"),
-        kind: LibraryKind::Movie,
-        roots: vec!["/media".into()],
-        watcher: WatcherStrategy::Manual,
-        scan_schedule: Some("0 0 * * *".into()),
-        metadata_sources: vec!["tmdb".into()],
-    }
 }

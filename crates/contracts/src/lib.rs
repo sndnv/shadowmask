@@ -1,4 +1,5 @@
 pub mod battery;
+pub mod fixture;
 pub mod generator;
 pub mod repo;
 

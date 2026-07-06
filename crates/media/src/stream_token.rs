@@ -39,6 +39,7 @@ struct RawClaims {
     aud: String,
     typ: String,
     exp: i64,
+    nnc: String,
 }
 
 impl StreamTokens for HmacStreamTokens {
@@ -50,6 +51,7 @@ impl StreamTokens for HmacStreamTokens {
             aud: STREAM_AUDIENCE.to_owned(),
             typ: STREAM_TOKEN_TYPE.to_owned(),
             exp: claims.expires_at.as_second(),
+            nnc: claims.nonce.clone(),
         };
         encode(&self.header, &raw, &self.encoding_key)
             .map(StreamToken)
@@ -72,6 +74,7 @@ impl StreamTokens for HmacStreamTokens {
             user: UserId(raw.sub),
             version: VersionId(raw.vid),
             expires_at,
+            nonce: raw.nnc,
         })
     }
 }
@@ -88,6 +91,7 @@ mod tests {
             user: UserId("user-1".into()),
             version: VersionId("version-1".into()),
             expires_at: Timestamp::from_second(Timestamp::now().as_second() + secs).unwrap(),
+            nonce: "nonce-1".into(),
         }
     }
 
@@ -157,6 +161,7 @@ mod tests {
             aud: STREAM_AUDIENCE.into(),
             typ: STREAM_TOKEN_TYPE.into(),
             exp: i64::MAX,
+            nnc: String::new(),
         };
         let token = encode(
             &Header::new(Algorithm::HS256),
@@ -189,6 +194,7 @@ mod tests {
             aud: "shadowmask-rest".into(),
             typ: STREAM_TOKEN_TYPE.into(),
             exp: Timestamp::now().as_second() + 3600,
+            nnc: String::new(),
         });
         assert!(matches!(
             codec.verify(&token),
@@ -206,6 +212,7 @@ mod tests {
             aud: STREAM_AUDIENCE.into(),
             typ: "access".into(),
             exp: Timestamp::now().as_second() + 3600,
+            nnc: String::new(),
         });
         assert!(matches!(
             codec.verify(&token),
@@ -224,6 +231,7 @@ mod prop_tests {
             sub in "\\PC{0,20}",
             sid in "\\PC{0,20}",
             vid in "\\PC{0,20}",
+            nnc in "\\PC{0,20}",
             offset in 3600i64..=1_000_000,
         ) -> StreamClaims {
             StreamClaims {
@@ -231,6 +239,7 @@ mod prop_tests {
                 user: UserId(sub),
                 version: VersionId(vid),
                 expires_at: Timestamp::from_second(Timestamp::now().as_second() + offset).unwrap(),
+                nonce: nnc,
             }
         }
     }
@@ -267,6 +276,7 @@ mod prop_tests {
                 user: UserId(sub),
                 version: VersionId(vid),
                 expires_at: Timestamp::from_second(Timestamp::now().as_second() - ago).unwrap(),
+                nonce: String::new(),
             };
             let token = codec.create(&claims).unwrap();
             prop_assert!(matches!(

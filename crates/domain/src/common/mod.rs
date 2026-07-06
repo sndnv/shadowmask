@@ -4,6 +4,6 @@ mod page_request;
 mod quality;
 
 pub use language_code::LanguageCode;
-pub use page::Page;
+pub use page::{Page, paginate};
 pub use page_request::PageRequest;
 pub use quality::Quality;

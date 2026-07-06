@@ -1,0 +1,15 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "id": "[id]",
+    "movies": [
+      "m1"
+    ],
+    "name": "New",
+    "overview": null
+  },
+  "status": 201
+}

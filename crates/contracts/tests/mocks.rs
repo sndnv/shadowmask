@@ -8,7 +8,7 @@ async fn job_repository_contract_holds_for_mock() {
 
 #[tokio::test]
 async fn library_repository_contract_holds_for_mock() {
-    library_repository_contract(MockLibraryRepo::new(), |repo, library| {
+    library_repository_contract(MockLibraryRepo::new(), async |repo, library| {
         repo.insert_library(library);
     })
     .await;

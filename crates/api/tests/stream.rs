@@ -18,6 +18,7 @@ fn claims(session: &str) -> StreamClaims {
         user: UserId("u1".to_owned()),
         version: VersionId("ver-1".to_owned()),
         expires_at: Timestamp::now(),
+        nonce: String::new(),
     }
 }
 

@@ -1,21 +1,24 @@
-use domain::common::{Page, PageRequest};
-use domain::discovery::SearchResult;
-
-use crate::library::normalize_title;
-use crate::page::paginate;
+use crate::common::{Page, PageRequest, paginate};
+use crate::discovery::SearchResult;
+use crate::text::normalize_title;
 
 pub fn search(candidates: &[SearchResult], query: &str, page: PageRequest) -> Page<SearchResult> {
     let needle = normalize_title(query);
-    let mut ranked: Vec<(u8, usize, &SearchResult)> = Vec::new();
+    let mut ranked: Vec<(u8, String, &str, &SearchResult)> = Vec::new();
     if !needle.is_empty() {
-        for (index, candidate) in candidates.iter().enumerate() {
-            if let Some(tier) = rank(&needle, &normalize_title(searchable(candidate))) {
-                ranked.push((tier, index, candidate));
+        for candidate in candidates {
+            let haystack = normalize_title(searchable(candidate));
+            if let Some(tier) = rank(&needle, &haystack) {
+                ranked.push((tier, haystack, id(candidate), candidate));
             }
         }
-        ranked.sort_by_key(|&(tier, index, _)| (tier, index));
+        ranked.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| a.1.cmp(&b.1))
+                .then_with(|| a.2.cmp(b.2))
+        });
     }
-    let matches: Vec<SearchResult> = ranked.into_iter().map(|(_, _, c)| c.clone()).collect();
+    let matches: Vec<SearchResult> = ranked.into_iter().map(|(_, _, _, c)| c.clone()).collect();
     paginate(&matches, page)
 }
 
@@ -26,8 +29,6 @@ fn rank(needle: &str, haystack: &str) -> Option<u8> {
         Some(1)
     } else if haystack.split(' ').any(|word| word == needle) {
         Some(2)
-    } else if haystack.contains(needle) {
-        Some(3)
     } else {
         None
     }
@@ -42,12 +43,22 @@ fn searchable(result: &SearchResult) -> &str {
     }
 }
 
+fn id(result: &SearchResult) -> &str {
+    match result {
+        SearchResult::Movie(m) => &m.id.0,
+        SearchResult::Series(s) => &s.id.0,
+        SearchResult::Episode(e) => &e.id.0,
+        SearchResult::Person(p) => &p.id.0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use domain::catalog::{EpisodeId, Movie, MovieId, SeasonId, Series, SeriesId};
-    use domain::metadata::{Person, PersonId};
     use jiff::Timestamp;
+
+    use super::*;
+    use crate::catalog::{Episode, EpisodeId, Movie, MovieId, SeasonId, Series, SeriesId};
+    use crate::metadata::{Person, PersonId};
 
     fn movie(title: &str) -> SearchResult {
         SearchResult::Movie(Movie {
@@ -80,7 +91,7 @@ mod tests {
     }
 
     fn episode(title: &str) -> SearchResult {
-        SearchResult::Episode(domain::catalog::Episode {
+        SearchResult::Episode(Episode {
             id: EpisodeId(title.to_owned()),
             season: SeasonId("s".to_owned()),
             number: 1,
@@ -107,7 +118,7 @@ mod tests {
     }
 
     #[test]
-    fn ranks_exact_prefix_token_then_substring() {
+    fn ranks_exact_then_prefix_then_token() {
         let candidates = [
             series("The Matrix"),
             movie("Matrix"),
@@ -116,11 +127,19 @@ mod tests {
             movie("Inception"),
         ];
         let hits = search(&candidates, "matrix", all());
-        assert_eq!(hits.total, 4);
+        assert_eq!(hits.total, 3);
         assert_eq!(
             titles(&hits),
-            vec!["Matrix", "Matrix Reloaded", "The Matrix", "Rematrix"]
+            vec!["Matrix", "Matrix Reloaded", "The Matrix"]
         );
+    }
+
+    #[test]
+    fn excludes_substring_only_matches() {
+        let candidates = [movie("Rematrix"), movie("Matrix")];
+        let hits = search(&candidates, "matrix", all());
+        assert_eq!(hits.total, 1);
+        assert_eq!(titles(&hits), vec!["Matrix"]);
     }
 
     #[test]
@@ -160,17 +179,18 @@ mod tests {
                 limit: 2,
             },
         );
-        assert_eq!(page.total, 4);
+        assert_eq!(page.total, 3);
         assert_eq!(titles(&page), vec!["Matrix Reloaded", "The Matrix"]);
     }
 }
 
 #[cfg(test)]
 mod prop_tests {
-    use super::*;
-    use domain::catalog::{Movie, MovieId};
     use jiff::Timestamp;
     use proptest::prelude::*;
+
+    use super::*;
+    use crate::catalog::{Movie, MovieId};
 
     fn movie(title: &str) -> SearchResult {
         SearchResult::Movie(Movie {

@@ -1,0 +1,16 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": [
+    {
+      "id": "se1",
+      "number": 1,
+      "overview": null,
+      "series_id": "s1",
+      "title": "Season 1"
+    }
+  ],
+  "status": 200
+}
