@@ -1,8 +1,9 @@
 use serde::Serialize;
 
-use domain::session::PlaybackSession;
+use domain::session::{NowPlaying, PlaybackSession};
 
 use super::{DeliveryModeDto, PlaybackStateDto, SelectedTracksResponse};
+use crate::dto::common::ResumeCardDto;
 
 #[derive(Debug, Serialize)]
 pub struct PlaybackSessionResponse {
@@ -16,6 +17,8 @@ pub struct PlaybackSessionResponse {
     pub selected: SelectedTracksResponse,
     pub started_at: String,
     pub last_heartbeat_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub card: Option<ResumeCardDto>,
 }
 
 impl From<PlaybackSession> for PlaybackSessionResponse {
@@ -31,6 +34,15 @@ impl From<PlaybackSession> for PlaybackSessionResponse {
             selected: s.selected.into(),
             started_at: s.started_at.to_string(),
             last_heartbeat_at: s.last_heartbeat_at.to_string(),
+            card: None,
         }
+    }
+}
+
+impl From<NowPlaying> for PlaybackSessionResponse {
+    fn from(n: NowPlaying) -> Self {
+        let mut response = PlaybackSessionResponse::from(n.session);
+        response.card = Some(n.card.into());
+        response
     }
 }

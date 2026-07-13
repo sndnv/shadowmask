@@ -1,28 +1,69 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use serde::Deserialize;
 use tracing::debug;
 
-use domain::catalog::{CollectionId, EpisodeId, MovieId, SeasonId, SeriesId, TitleId};
+use domain::catalog::{
+    CollectionId, EpisodeId, MovieId, SeasonId, SeriesId, SortOrder, TitleId, TitleListQuery,
+    TitleRef, TitleSort, VersionId,
+};
+use domain::library::LibraryId;
+use domain::metadata::{GenreId, PersonId};
 
 use crate::dto::catalog::{
-    CollectionResponse, CreateCollectionRequest, EpisodeResponse, MovieResponse, SeasonResponse,
-    SeriesResponse, UpdateCollectionRequest, VersionResponse,
+    CollectionResponse, CreateCollectionRequest, EpisodeResponse, GenreDto, MovieDetailResponse,
+    MovieResponse, PersonProfileResponse, RefreshRequest, SeasonResponse, SeriesDetailResponse,
+    SeriesResponse, TitleBatchRequest, TitleCardResponse, UpdateCollectionRequest,
+    VersionDetailResponse, VersionResponse,
 };
-use crate::error::ApiResult;
+use crate::error::{ApiError, ApiResult};
 use crate::extract::{AuthUser, RequireAdmin};
 use crate::handlers::log_fail;
 use crate::pagination::{PageParams, PageResponse};
 use crate::state::AppServices;
 
+const MAX_BATCH: usize = 200;
+
+#[derive(Debug, Deserialize)]
+pub struct CatalogListParams {
+    pub genre: Option<String>,
+    pub library: Option<String>,
+    pub sort: Option<String>,
+    pub order: Option<String>,
+}
+
+impl CatalogListParams {
+    fn into_query(self) -> ApiResult<TitleListQuery> {
+        let sort = match self.sort.as_deref() {
+            Some(value) => TitleSort::parse(value)
+                .ok_or_else(|| ApiError::bad_request(format!("unknown sort: {value}")))?,
+            None => TitleSort::default(),
+        };
+        let order = match self.order.as_deref() {
+            Some(value) => SortOrder::parse(value)
+                .ok_or_else(|| ApiError::bad_request(format!("unknown order: {value}")))?,
+            None => SortOrder::default(),
+        };
+        Ok(TitleListQuery {
+            genre: self.genre.map(GenreId),
+            library: self.library.map(LibraryId),
+            sort,
+            order,
+        })
+    }
+}
+
 pub async fn movies<S: AppServices>(
     State(state): State<S>,
     AuthUser(principal): AuthUser,
     Query(page): Query<PageParams>,
+    Query(params): Query<CatalogListParams>,
 ) -> ApiResult<Json<PageResponse<MovieResponse>>> {
     let actor = &principal.user.0;
+    let query = params.into_query()?;
     let page = state
-        .movies(&principal, page.to_request())
+        .movies(&principal, &query, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve movies"))?;
     debug!(
@@ -32,11 +73,35 @@ pub async fn movies<S: AppServices>(
     Ok(Json(PageResponse::from_page(page, MovieResponse::from)))
 }
 
+pub async fn title_cards<S: AppServices>(
+    State(state): State<S>,
+    AuthUser(principal): AuthUser,
+    Json(req): Json<TitleBatchRequest>,
+) -> ApiResult<Json<Vec<TitleCardResponse>>> {
+    let actor = &principal.user.0;
+    if req.titles.len() > MAX_BATCH {
+        return Err(ApiError::bad_request(format!(
+            "too many titles: {} exceeds maximum of {MAX_BATCH}",
+            req.titles.len()
+        )));
+    }
+    let ids: Vec<TitleId> = req.titles.into_iter().map(Into::into).collect();
+    let cards = state
+        .title_cards(&principal, &ids)
+        .await
+        .map_err(log_fail(actor, "resolve title cards"))?;
+    debug!(
+        "User [{actor}] successfully resolved {} title cards",
+        cards.len()
+    );
+    Ok(Json(cards.into_iter().map(Into::into).collect()))
+}
+
 pub async fn movie<S: AppServices>(
     State(state): State<S>,
     AuthUser(principal): AuthUser,
     Path(id): Path<String>,
-) -> ApiResult<Json<MovieResponse>> {
+) -> ApiResult<Json<MovieDetailResponse>> {
     let actor = &principal.user.0;
     let id = MovieId(id);
     let movie = state
@@ -68,6 +133,53 @@ pub async fn movie_versions<S: AppServices>(
         versions,
         VersionResponse::from,
     )))
+}
+
+pub async fn refresh_movie<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Path(id): Path<String>,
+    body: Option<Json<RefreshRequest>>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    let external_id = body.and_then(|Json(req)| req.external_id).map(Into::into);
+    state
+        .reidentify(&principal, TitleRef::Movie(MovieId(id)), external_id)
+        .await
+        .map_err(log_fail(actor, "refresh movie"))?;
+    debug!("User [{actor}] successfully queued a metadata refresh for a movie");
+    Ok(StatusCode::ACCEPTED)
+}
+
+pub async fn refresh_series<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Path(id): Path<String>,
+    body: Option<Json<RefreshRequest>>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    let external_id = body.and_then(|Json(req)| req.external_id).map(Into::into);
+    state
+        .reidentify(&principal, TitleRef::Series(SeriesId(id)), external_id)
+        .await
+        .map_err(log_fail(actor, "refresh series"))?;
+    debug!("User [{actor}] successfully queued a metadata refresh for a series");
+    Ok(StatusCode::ACCEPTED)
+}
+
+pub async fn version_detail<S: AppServices>(
+    State(state): State<S>,
+    AuthUser(principal): AuthUser,
+    Path(id): Path<String>,
+) -> ApiResult<Json<VersionDetailResponse>> {
+    let actor = &principal.user.0;
+    let id = VersionId(id);
+    let detail = state
+        .version(&principal, &id)
+        .await
+        .map_err(log_fail(actor, "retrieve version"))?;
+    debug!("User [{actor}] successfully retrieved version [{}]", id.0);
+    Ok(Json(detail.into()))
 }
 
 pub async fn collections<S: AppServices>(
@@ -160,10 +272,12 @@ pub async fn series<S: AppServices>(
     State(state): State<S>,
     AuthUser(principal): AuthUser,
     Query(page): Query<PageParams>,
+    Query(params): Query<CatalogListParams>,
 ) -> ApiResult<Json<PageResponse<SeriesResponse>>> {
     let actor = &principal.user.0;
+    let query = params.into_query()?;
     let page = state
-        .series(&principal, page.to_request())
+        .series(&principal, &query, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve series"))?;
     debug!(
@@ -177,7 +291,7 @@ pub async fn series_detail<S: AppServices>(
     State(state): State<S>,
     AuthUser(principal): AuthUser,
     Path(id): Path<String>,
-) -> ApiResult<Json<SeriesResponse>> {
+) -> ApiResult<Json<SeriesDetailResponse>> {
     let actor = &principal.user.0;
     let id = SeriesId(id);
     let series = state
@@ -186,6 +300,37 @@ pub async fn series_detail<S: AppServices>(
         .map_err(log_fail(actor, "retrieve series"))?;
     debug!("User [{actor}] successfully retrieved series [{}]", id.0);
     Ok(Json(series.into()))
+}
+
+pub async fn person<S: AppServices>(
+    State(state): State<S>,
+    AuthUser(principal): AuthUser,
+    Path(id): Path<String>,
+) -> ApiResult<Json<PersonProfileResponse>> {
+    let actor = &principal.user.0;
+    let id = PersonId(id);
+    let profile = state
+        .person(&principal, &id)
+        .await
+        .map_err(log_fail(actor, "retrieve person"))?;
+    debug!("User [{actor}] successfully retrieved person [{}]", id.0);
+    Ok(Json(profile.into()))
+}
+
+pub async fn genres<S: AppServices>(
+    State(state): State<S>,
+    AuthUser(principal): AuthUser,
+) -> ApiResult<Json<Vec<GenreDto>>> {
+    let actor = &principal.user.0;
+    let genres = state
+        .genres(&principal)
+        .await
+        .map_err(log_fail(actor, "retrieve genres"))?;
+    debug!(
+        "User [{actor}] successfully retrieved {} genres",
+        genres.len()
+    );
+    Ok(Json(genres.into_iter().map(Into::into).collect()))
 }
 
 pub async fn seasons<S: AppServices>(

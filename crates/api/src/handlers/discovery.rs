@@ -4,10 +4,12 @@ use serde::Deserialize;
 use tracing::debug;
 
 use domain::common::PageRequest;
+use domain::discovery::SearchKind;
+use domain::session::PlaybackSession;
 use domain::user::UserId;
 
 use crate::dto::discovery::{ContinueResponse, HubResponse, SearchResultResponse};
-use crate::error::ApiResult;
+use crate::error::{ApiError, ApiResult};
 use crate::extract::AuthUser;
 use crate::handlers::{log_fail, require_admin_or_self};
 use crate::pagination::PageResponse;
@@ -23,6 +25,7 @@ pub struct SearchParams {
     #[serde(default)]
     pub offset: u32,
     pub limit: Option<u32>,
+    pub r#type: Option<String>,
 }
 
 pub async fn search<S: AppServices>(
@@ -35,8 +38,15 @@ pub async fn search<S: AppServices>(
         offset: params.offset,
         limit: params.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT),
     };
+    let types = match &params.r#type {
+        Some(value) => vec![
+            SearchKind::parse(value)
+                .ok_or_else(|| ApiError::bad_request(format!("unknown search type: {value}")))?,
+        ],
+        None => Vec::new(),
+    };
     let results = state
-        .search(&principal.user, &params.q, page)
+        .search(&principal.user, &params.q, &types, page)
         .await
         .map_err(log_fail(actor, "search"))?;
     debug!(
@@ -68,6 +78,15 @@ pub async fn continue_watching<S: AppServices>(
         )
         .await
         .map_err(log_fail(actor, "retrieve continue data"))?;
+    let mine: Vec<PlaybackSession> = sessions
+        .items
+        .into_iter()
+        .filter(|s| s.user == target)
+        .collect();
+    let now_playing = state
+        .now_playing(mine)
+        .await
+        .map_err(log_fail(actor, "retrieve continue data"))?;
     let in_progress = state
         .continue_watching(&target)
         .await
@@ -86,12 +105,7 @@ pub async fn continue_watching<S: AppServices>(
         target.0
     );
     Ok(Json(ContinueResponse {
-        now_playing: sessions
-            .items
-            .into_iter()
-            .filter(|s| s.user == target)
-            .map(Into::into)
-            .collect(),
+        now_playing: now_playing.into_iter().map(Into::into).collect(),
         in_progress: in_progress.into_iter().map(Into::into).collect(),
         next_episodes: next_episodes.into_iter().map(Into::into).collect(),
         next_movies: next_movies.into_iter().map(Into::into).collect(),

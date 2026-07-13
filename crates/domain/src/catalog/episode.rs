@@ -1,6 +1,6 @@
 use jiff::Timestamp;
 
-use crate::catalog::SeasonId;
+use crate::catalog::{ArtworkRef, SeasonId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EpisodeId(pub String);
@@ -15,4 +15,5 @@ pub struct Episode {
     pub runtime_minutes: Option<u32>,
     pub air_date: Option<Timestamp>,
     pub added_at: Timestamp,
+    pub artwork: Vec<ArtworkRef>,
 }

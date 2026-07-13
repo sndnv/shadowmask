@@ -12,13 +12,11 @@ STEPS = [
     ("clippy", ["cargo", "clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"]),
     ("build", ["cargo", "build", "--workspace", "--locked"]),
     ("deny", ["cargo", "deny", "check"]),
-    ("test", ["cargo", "nextest", "run", "--workspace", "--locked"]),
     ("coverage", ["cargo", "llvm-cov", "nextest", "--workspace", "--locked", "--ignore-filename-regex", IGNORE_COVERAGE, "--fail-under-lines", FAIL_UNDER_LINES]),
 ]
 
 STEP_TOOLS = {
     "deny": ["cargo-deny"],
-    "test": ["cargo-nextest", "ffmpeg", "ffprobe"],
     "coverage": ["cargo-nextest", "cargo-llvm-cov", "ffmpeg", "ffprobe"],
 }
 

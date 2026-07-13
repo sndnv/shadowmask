@@ -1,4 +1,5 @@
 use contracts::repo::{search_index_contract, search_seed};
+use domain::repository::CatalogRepository;
 use persistence::server::SqliteCatalogRepo;
 
 #[tokio::test]
@@ -20,6 +21,9 @@ async fn search_index_contract_holds_for_sqlite() {
         }
         for episode in seed.episodes {
             repo.insert_episode(episode).await.unwrap();
+        }
+        for person in seed.people {
+            repo.upsert_person(person).await.unwrap();
         }
     })
     .await;

@@ -1,4 +1,5 @@
 use contracts::repo::{catalog_repository_contract, catalog_seed};
+use domain::repository::CatalogRepository;
 use persistence::server::SqliteCatalogRepo;
 
 #[tokio::test]
@@ -28,6 +29,12 @@ async fn catalog_repository_contract_holds_for_sqlite() {
             repo.insert_version(version).await.unwrap();
         }
         repo.insert_version_detail(seed.detail).await.unwrap();
+        for person in seed.people {
+            repo.upsert_person(person).await.unwrap();
+        }
+        for (owner, enrichment) in &seed.enrichment {
+            repo.set_title_enrichment(owner, enrichment).await.unwrap();
+        }
     })
     .await;
 }

@@ -14,6 +14,7 @@ pub enum JobKind {
     Dedup,
     CacheEviction,
     SearchReindex,
+    Ingest,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

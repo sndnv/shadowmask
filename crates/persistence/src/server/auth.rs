@@ -2,7 +2,9 @@ use std::path::Path;
 
 use domain::error::RepositoryError;
 use domain::repository::AuthTokenRepository;
-use domain::user::{AuthSession, AuthSessionId, PendingLink, UserId};
+use domain::user::{
+    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, PendingLink, UserId,
+};
 use jiff::Timestamp;
 use sqlx::SqlitePool;
 use sqlx::migrate::Migrator;
@@ -46,6 +48,29 @@ fn row_to_link(row: &SqliteRow) -> Result<PendingLink, RepositoryError> {
         user: UserId(column(row, "user_id")?),
         role: role_from_str(&column::<String>(row, "role")?)?,
         expires_at: from_millis(column(row, "expires_at")?)?,
+    })
+}
+
+fn row_to_device(row: &SqliteRow) -> Result<Device, RepositoryError> {
+    let last_seen = column::<Option<i64>>(row, "last_seen")?
+        .map(from_millis)
+        .transpose()?;
+    Ok(Device {
+        id: DeviceId(column(row, "id")?),
+        user: UserId(column(row, "user_id")?),
+        name: column(row, "name")?,
+        platform: column(row, "platform")?,
+        last_seen,
+    })
+}
+
+fn row_to_api_token(row: &SqliteRow) -> Result<ApiToken, RepositoryError> {
+    Ok(ApiToken {
+        id: ApiTokenId(column(row, "id")?),
+        user: UserId(column(row, "user_id")?),
+        device: DeviceId(column(row, "device_id")?),
+        token_hash: column(row, "token_hash")?,
+        created_at: from_millis(column(row, "created_at")?)?,
     })
 }
 
@@ -125,6 +150,95 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
                 .map_err(backend)?;
         row.as_ref().map(row_to_link).transpose()
     }
+
+    async fn upsert_device(&self, device: Device) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT OR REPLACE INTO devices (id, user_id, name, platform, last_seen) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(device.id.0.as_str())
+        .bind(device.user.0.as_str())
+        .bind(device.name.as_str())
+        .bind(device.platform.as_str())
+        .bind(device.last_seen.map(to_millis))
+        .execute(&self.pool)
+        .await
+        .map_err(backend)?;
+        Ok(())
+    }
+
+    async fn get_device(&self, id: &DeviceId) -> Result<Option<Device>, RepositoryError> {
+        let row = sqlx::query("SELECT * FROM devices WHERE id = ?")
+            .bind(id.0.as_str())
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(backend)?;
+        row.as_ref().map(row_to_device).transpose()
+    }
+
+    async fn store_api_token(&self, token: ApiToken) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT OR REPLACE INTO api_tokens (id, user_id, device_id, token_hash, created_at) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(token.id.0.as_str())
+        .bind(token.user.0.as_str())
+        .bind(token.device.0.as_str())
+        .bind(token.token_hash.as_str())
+        .bind(to_millis(token.created_at))
+        .execute(&self.pool)
+        .await
+        .map_err(backend)?;
+        Ok(())
+    }
+
+    async fn find_api_token_by_hash(
+        &self,
+        hash: &str,
+    ) -> Result<Option<ApiToken>, RepositoryError> {
+        let row = sqlx::query("SELECT * FROM api_tokens WHERE token_hash = ?")
+            .bind(hash)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(backend)?;
+        row.as_ref().map(row_to_api_token).transpose()
+    }
+
+    async fn list_devices(&self, user: &UserId) -> Result<Vec<Device>, RepositoryError> {
+        let rows = sqlx::query("SELECT * FROM devices WHERE user_id = ? ORDER BY id")
+            .bind(user.0.as_str())
+            .fetch_all(&self.pool)
+            .await
+            .map_err(backend)?;
+        rows.iter().map(row_to_device).collect()
+    }
+
+    async fn list_api_tokens(&self, user: &UserId) -> Result<Vec<ApiToken>, RepositoryError> {
+        let rows = sqlx::query("SELECT * FROM api_tokens WHERE user_id = ? ORDER BY id")
+            .bind(user.0.as_str())
+            .fetch_all(&self.pool)
+            .await
+            .map_err(backend)?;
+        rows.iter().map(row_to_api_token).collect()
+    }
+
+    async fn delete_device(&self, id: &DeviceId) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM devices WHERE id = ?")
+            .bind(id.0.as_str())
+            .execute(&self.pool)
+            .await
+            .map_err(backend)?;
+        Ok(())
+    }
+
+    async fn revoke_api_token(&self, id: &ApiTokenId) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM api_tokens WHERE id = ?")
+            .bind(id.0.as_str())
+            .execute(&self.pool)
+            .await
+            .map_err(backend)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -139,5 +253,13 @@ mod tests {
             .unwrap();
         repo.pool.close().await;
         assert!(repo.find_refresh(&AuthSessionId("x".into())).await.is_err());
+        assert!(repo.list_devices(&UserId("u1".into())).await.is_err());
+        assert!(repo.list_api_tokens(&UserId("u1".into())).await.is_err());
+        assert!(repo.delete_device(&DeviceId("d1".into())).await.is_err());
+        assert!(
+            repo.revoke_api_token(&ApiTokenId("t1".into()))
+                .await
+                .is_err()
+        );
     }
 }

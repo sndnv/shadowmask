@@ -72,6 +72,16 @@ impl ProgressRepository for MockProgressRepo {
         Ok(())
     }
 
+    async fn delete(&self, user: &UserId, version: &VersionId) -> Result<(), RepositoryError> {
+        self.guard()?;
+        self.state
+            .lock()
+            .unwrap()
+            .progress
+            .retain(|p| !(&p.user == user && &p.version == version));
+        Ok(())
+    }
+
     async fn list_in_progress(
         &self,
         user: &UserId,
@@ -180,6 +190,16 @@ mod tests {
             250
         );
         assert_eq!(repo.list_in_progress(&user()).await.unwrap().len(), 1);
+
+        repo.delete(&user(), &VersionId("v1".into())).await.unwrap();
+        assert!(
+            repo.get(&user(), &VersionId("v1".into()))
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(repo.list_in_progress(&user()).await.unwrap().is_empty());
+        repo.delete(&user(), &VersionId("v1".into())).await.unwrap();
     }
 
     #[tokio::test]
@@ -198,6 +218,7 @@ mod tests {
         repo.set_fail();
         assert!(repo.get(&user(), &VersionId("v1".into())).await.is_err());
         assert!(repo.upsert(progress("v1", 1)).await.is_err());
+        assert!(repo.delete(&user(), &VersionId("v1".into())).await.is_err());
         assert!(repo.list_in_progress(&user()).await.is_err());
         assert!(repo.record_history(history(false)).await.is_err());
         assert!(repo.history(&user(), page()).await.is_err());

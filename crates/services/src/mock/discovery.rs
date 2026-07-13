@@ -1,14 +1,18 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use domain::catalog::{Episode, Movie};
+use domain::catalog::{Episode, Movie, MovieId, TitleId};
 use domain::common::{Page, PageRequest};
-use domain::discovery::{ContinueWatchingItem, Hub, SearchResult};
+use domain::discovery::{ContinueWatchingItem, Hub, SearchKind, SearchResult};
 use domain::error::DiscoveryError;
+use domain::playback::{ResumeCard, progress_percent};
 use domain::service::DiscoveryService;
+use domain::session::{NowPlaying, PlaybackSession};
 use domain::user::UserId;
 
 use crate::page::paginate;
+
+const MOCK_DURATION_MS: u64 = 3_600_000;
 
 #[derive(Debug, Default)]
 struct State {
@@ -82,6 +86,7 @@ impl DiscoveryService for MockDiscoveryService {
         &self,
         _user: &UserId,
         query: &str,
+        types: &[SearchKind],
         page: PageRequest,
     ) -> Result<Page<SearchResult>, DiscoveryError> {
         let needle = query.to_lowercase();
@@ -91,6 +96,7 @@ impl DiscoveryService for MockDiscoveryService {
             .unwrap()
             .search_index
             .iter()
+            .filter(|r| types.is_empty() || types.contains(&r.kind()))
             .filter(|r| searchable(r).to_lowercase().contains(&needle))
             .cloned()
             .collect();
@@ -109,6 +115,25 @@ impl DiscoveryService for MockDiscoveryService {
             .get(user)
             .cloned()
             .unwrap_or_default())
+    }
+
+    async fn now_playing(
+        &self,
+        sessions: Vec<PlaybackSession>,
+    ) -> Result<Vec<NowPlaying>, DiscoveryError> {
+        Ok(sessions
+            .into_iter()
+            .map(|session| {
+                let card = ResumeCard {
+                    title: TitleId::Movie(MovieId(session.version.0.clone())),
+                    display_title: format!("Title for {}", session.version.0),
+                    artwork: Vec::new(),
+                    duration_ms: MOCK_DURATION_MS,
+                    progress_percent: progress_percent(session.position_ms, MOCK_DURATION_MS),
+                };
+                NowPlaying { session, card }
+            })
+            .collect())
     }
 
     async fn next_episodes(&self, user: &UserId) -> Result<Vec<Episode>, DiscoveryError> {
@@ -160,6 +185,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::now(),
+            artwork: Vec::new(),
         }
     }
 
@@ -173,6 +199,7 @@ mod tests {
             runtime_minutes: None,
             air_date: None,
             added_at: Timestamp::now(),
+            artwork: Vec::new(),
         }
     }
 
@@ -188,6 +215,7 @@ mod tests {
             overview: None,
             content_rating: None,
             added_at: Timestamp::now(),
+            artwork: Vec::new(),
         }));
         svc.add_search_result(SearchResult::Episode(episode("e1")));
         svc.add_search_result(SearchResult::Person(Person {
@@ -199,6 +227,7 @@ mod tests {
             .search(
                 &user(),
                 "matrix",
+                &[],
                 PageRequest {
                     offset: 0,
                     limit: 10,
@@ -212,6 +241,7 @@ mod tests {
             .search(
                 &user(),
                 "nothing",
+                &[],
                 PageRequest {
                     offset: 0,
                     limit: 10,
@@ -220,6 +250,21 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(none.total, 0);
+
+        let page = PageRequest {
+            offset: 0,
+            limit: 10,
+        };
+        let people = svc
+            .search(&user(), "keanu", &[SearchKind::Person], page)
+            .await
+            .unwrap();
+        assert_eq!(people.total, 1);
+        let wrong_kind = svc
+            .search(&user(), "keanu", &[SearchKind::Movie], page)
+            .await
+            .unwrap();
+        assert_eq!(wrong_kind.total, 0);
     }
 
     #[tokio::test]
@@ -238,6 +283,13 @@ mod tests {
                     position_ms: 100,
                     updated_at: Timestamp::now(),
                 },
+                card: ResumeCard {
+                    title: TitleId::Movie(MovieId("m1".into())),
+                    display_title: "Alpha".into(),
+                    artwork: Vec::new(),
+                    duration_ms: 1000,
+                    progress_percent: 10,
+                },
             },
         );
         svc.add_next_episode(&user(), episode("e1"));
@@ -246,6 +298,35 @@ mod tests {
         assert_eq!(svc.continue_watching(&user()).await.unwrap().len(), 1);
         assert_eq!(svc.next_episodes(&user()).await.unwrap().len(), 1);
         assert_eq!(svc.next_movies(&user()).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn now_playing_fabricates_representative_cards() {
+        use domain::session::{DeliveryMode, PlaybackState, SelectedTracks, SessionId};
+
+        let svc = MockDiscoveryService::new();
+        assert!(svc.now_playing(Vec::new()).await.unwrap().is_empty());
+
+        let session = PlaybackSession {
+            id: SessionId("s1".into()),
+            user: user(),
+            device: None,
+            version: VersionId("v1".into()),
+            mode: DeliveryMode::Direct,
+            position_ms: 1_800_000,
+            state: PlaybackState::Playing,
+            selected: SelectedTracks {
+                audio_track: None,
+                subtitle_track: None,
+                subtitle_delivery: None,
+            },
+            started_at: Timestamp::now(),
+            last_heartbeat_at: Timestamp::now(),
+        };
+        let now = svc.now_playing(vec![session]).await.unwrap();
+        assert_eq!(now.len(), 1);
+        assert_eq!(now[0].card.display_title, "Title for v1");
+        assert_eq!(now[0].card.progress_percent, 50);
     }
 
     #[tokio::test]

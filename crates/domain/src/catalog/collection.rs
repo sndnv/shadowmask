@@ -1,4 +1,4 @@
-use crate::catalog::MovieId;
+use crate::catalog::{ArtworkRef, MovieId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CollectionId(pub String);
@@ -9,4 +9,5 @@ pub struct Collection {
     pub name: String,
     pub overview: Option<String>,
     pub movies: Vec<MovieId>,
+    pub artwork: Vec<ArtworkRef>,
 }

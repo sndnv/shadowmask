@@ -71,6 +71,7 @@ mod tests {
             number,
             title: None,
             overview: None,
+            artwork: Vec::new(),
         }
     }
 
@@ -84,6 +85,7 @@ mod tests {
             runtime_minutes: None,
             air_date: None,
             added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
         }
     }
 
@@ -96,6 +98,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
         }
     }
 
@@ -162,6 +165,7 @@ mod tests {
                 MovieId("m2".to_owned()),
                 MovieId("m3".to_owned()),
             ],
+            artwork: Vec::new(),
         }];
         let movies = [movie("m1"), movie("m2"), movie("m3")];
         let watched = HashSet::from([MovieId("m1".to_owned())]);
@@ -179,6 +183,7 @@ mod tests {
             name: "A".to_owned(),
             overview: None,
             movies: vec![MovieId("m1".to_owned())],
+            artwork: Vec::new(),
         }];
         let movies = [movie("m1")];
         assert!(next_movies(&unstarted, &movies, &HashSet::new()).is_empty());
@@ -191,6 +196,7 @@ mod tests {
             name: "B".to_owned(),
             overview: None,
             movies: vec![MovieId("m1".to_owned()), MovieId("gone".to_owned())],
+            artwork: Vec::new(),
         }];
         assert!(next_movies(&missing_next, &movies, &finished).is_empty());
     }

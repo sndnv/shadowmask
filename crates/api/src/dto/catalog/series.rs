@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use domain::catalog::Series;
 
-use crate::dto::common::ContentRatingDto;
+use crate::dto::common::{ArtworkDto, ContentRatingDto};
 
 #[derive(Debug, Serialize)]
 pub struct SeriesResponse {
@@ -12,6 +12,7 @@ pub struct SeriesResponse {
     pub overview: Option<String>,
     pub content_rating: Option<ContentRatingDto>,
     pub added_at: String,
+    pub artwork: ArtworkDto,
 }
 
 impl From<Series> for SeriesResponse {
@@ -23,6 +24,7 @@ impl From<Series> for SeriesResponse {
             overview: s.overview,
             content_rating: s.content_rating.map(Into::into),
             added_at: s.added_at.to_string(),
+            artwork: ArtworkDto::from_refs(s.artwork),
         }
     }
 }

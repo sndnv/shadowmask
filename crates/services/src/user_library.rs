@@ -1,41 +1,53 @@
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use domain::catalog::{TitleId, VersionId};
 use domain::common::{Page, PageRequest};
 use domain::error::UserError;
-use domain::playback::{Favorite, PlaybackProgress, WatchHistory, WatchlistItem};
-use domain::repository::{PreferencesRepository, ProgressRepository};
+use domain::playback::{
+    Favorite, PlaybackProgress, TitleState, WatchHistory, WatchTarget, WatchlistItem,
+};
+use domain::repository::{CatalogRepository, PreferencesRepository, ProgressRepository};
 use domain::service::UserLibraryService;
 use domain::user::UserId;
 use jiff::Timestamp;
 
-pub struct UserLibraryServiceImpl<Pr, Pf> {
+const ALL: PageRequest = PageRequest {
+    offset: 0,
+    limit: u32::MAX,
+};
+
+pub struct UserLibraryServiceImpl<Pr, Pf, C> {
     progress: Arc<Pr>,
     preferences: Arc<Pf>,
+    catalog: Arc<C>,
 }
 
-impl<Pr, Pf> UserLibraryServiceImpl<Pr, Pf> {
-    pub fn new(progress: Arc<Pr>, preferences: Arc<Pf>) -> Self {
+impl<Pr, Pf, C> UserLibraryServiceImpl<Pr, Pf, C> {
+    pub fn new(progress: Arc<Pr>, preferences: Arc<Pf>, catalog: Arc<C>) -> Self {
         Self {
             progress,
             preferences,
+            catalog,
         }
     }
 }
 
-impl<Pr, Pf> Clone for UserLibraryServiceImpl<Pr, Pf> {
+impl<Pr, Pf, C> Clone for UserLibraryServiceImpl<Pr, Pf, C> {
     fn clone(&self) -> Self {
         Self {
             progress: Arc::clone(&self.progress),
             preferences: Arc::clone(&self.preferences),
+            catalog: Arc::clone(&self.catalog),
         }
     }
 }
 
-impl<Pr, Pf> UserLibraryService for UserLibraryServiceImpl<Pr, Pf>
+impl<Pr, Pf, C> UserLibraryService for UserLibraryServiceImpl<Pr, Pf, C>
 where
     Pr: ProgressRepository + Send + Sync,
     Pf: PreferencesRepository + Send + Sync,
+    C: CatalogRepository + Send + Sync,
 {
     async fn watchlist(&self, user: &UserId) -> Result<Vec<WatchlistItem>, UserError> {
         Ok(self.preferences.list_watchlist(user).await?)
@@ -92,18 +104,110 @@ where
     ) -> Result<Option<PlaybackProgress>, UserError> {
         Ok(self.progress.get(user, version).await?)
     }
+
+    async fn clear_progress(&self, user: &UserId, version: &VersionId) -> Result<(), UserError> {
+        self.progress.delete(user, version).await?;
+        Ok(())
+    }
+
+    async fn set_watched(
+        &self,
+        user: &UserId,
+        target: &WatchTarget,
+        watched: bool,
+    ) -> Result<(), UserError> {
+        let last_watched_at = watched.then(Timestamp::now);
+        let make = |title: TitleId| WatchHistory {
+            user: user.clone(),
+            title,
+            watched,
+            play_count: u32::from(watched),
+            last_watched_at,
+            completed: watched,
+        };
+        let titles: Vec<TitleId> = match target {
+            WatchTarget::Movie(id) => vec![TitleId::Movie(id.clone())],
+            WatchTarget::Episode(id) => vec![TitleId::Episode(id.clone())],
+            WatchTarget::Season(id) => self
+                .catalog
+                .list_episodes(id)
+                .await?
+                .into_iter()
+                .map(|episode| TitleId::Episode(episode.id))
+                .collect(),
+            WatchTarget::Series(id) => {
+                let mut titles = Vec::new();
+                for season in self.catalog.list_seasons(id).await? {
+                    for episode in self.catalog.list_episodes(&season.id).await? {
+                        titles.push(TitleId::Episode(episode.id));
+                    }
+                }
+                titles
+            }
+        };
+        for title in titles {
+            self.progress.record_history(make(title)).await?;
+        }
+        Ok(())
+    }
+
+    async fn title_states(
+        &self,
+        user: &UserId,
+        titles: &[TitleId],
+    ) -> Result<Vec<TitleState>, UserError> {
+        let favorites: HashSet<TitleId> = self
+            .preferences
+            .list_favorites(user)
+            .await?
+            .into_iter()
+            .map(|f| f.title)
+            .collect();
+        let watchlisted: HashSet<TitleId> = self
+            .preferences
+            .list_watchlist(user)
+            .await?
+            .into_iter()
+            .map(|w| w.title)
+            .collect();
+        let history: HashMap<TitleId, (bool, bool)> = self
+            .progress
+            .history(user, ALL)
+            .await?
+            .items
+            .into_iter()
+            .map(|h| (h.title, (h.watched, h.completed)))
+            .collect();
+        Ok(titles
+            .iter()
+            .map(|title| {
+                let (watched, completed) = history.get(title).copied().unwrap_or((false, false));
+                TitleState {
+                    title: title.clone(),
+                    favorite: favorites.contains(title),
+                    watchlisted: watchlisted.contains(title),
+                    watched,
+                    completed,
+                }
+            })
+            .collect())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mock::{MockPreferencesRepo, MockProgressRepo};
-    use domain::catalog::MovieId;
+    use crate::mock::{MockCatalogRepo, MockPreferencesRepo, MockProgressRepo};
+    use domain::catalog::{Episode, EpisodeId, MovieId, Season, SeasonId, Series, SeriesId};
+    use std::collections::HashSet;
 
-    fn service() -> UserLibraryServiceImpl<MockProgressRepo, MockPreferencesRepo> {
+    type Svc = UserLibraryServiceImpl<MockProgressRepo, MockPreferencesRepo, MockCatalogRepo>;
+
+    fn service() -> Svc {
         UserLibraryServiceImpl::new(
             Arc::new(MockProgressRepo::new()),
             Arc::new(MockPreferencesRepo::new()),
+            Arc::new(MockCatalogRepo::new()),
         )
     }
 
@@ -118,8 +222,55 @@ mod tests {
     fn page() -> PageRequest {
         PageRequest {
             offset: 0,
-            limit: 10,
+            limit: 100,
         }
+    }
+
+    fn series(id: &str) -> Series {
+        Series {
+            id: SeriesId(id.into()),
+            title: id.into(),
+            year: None,
+            overview: None,
+            content_rating: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        }
+    }
+
+    fn season(id: &str, series: &str) -> Season {
+        Season {
+            id: SeasonId(id.into()),
+            series: SeriesId(series.into()),
+            number: 1,
+            title: None,
+            overview: None,
+            artwork: Vec::new(),
+        }
+    }
+
+    fn episode(id: &str, season: &str) -> Episode {
+        Episode {
+            id: EpisodeId(id.into()),
+            season: SeasonId(season.into()),
+            number: 1,
+            title: id.into(),
+            overview: None,
+            runtime_minutes: None,
+            air_date: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        }
+    }
+
+    async fn watched_ids(svc: &Svc) -> HashSet<String> {
+        svc.history(&user(), page())
+            .await
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|h| h.title.id().to_owned())
+            .collect()
     }
 
     #[tokio::test]
@@ -143,6 +294,7 @@ mod tests {
         let svc = UserLibraryServiceImpl::new(
             Arc::clone(&progress),
             Arc::new(MockPreferencesRepo::new()),
+            Arc::new(MockCatalogRepo::new()),
         );
         progress
             .upsert(PlaybackProgress {
@@ -174,6 +326,16 @@ mod tests {
                 .position_ms,
             1234
         );
+
+        svc.clear_progress(&user(), &VersionId("v1".into()))
+            .await
+            .unwrap();
+        assert!(
+            svc.progress(&user(), &VersionId("v1".into()))
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -190,7 +352,13 @@ mod tests {
         preferences.set_fail();
         let progress = MockProgressRepo::new();
         progress.set_fail();
-        let svc = UserLibraryServiceImpl::new(Arc::new(progress), Arc::new(preferences));
+        let catalog = MockCatalogRepo::new();
+        catalog.set_fail();
+        let svc = UserLibraryServiceImpl::new(
+            Arc::new(progress),
+            Arc::new(preferences),
+            Arc::new(catalog),
+        );
 
         assert!(svc.watchlist(&user()).await.is_err());
         assert!(svc.add_to_watchlist(&user(), &title()).await.is_err());
@@ -204,5 +372,154 @@ mod tests {
                 .await
                 .is_err()
         );
+        assert!(
+            svc.clear_progress(&user(), &VersionId("v1".into()))
+                .await
+                .is_err()
+        );
+        assert!(
+            svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), true)
+                .await
+                .is_err()
+        );
+        assert!(
+            svc.set_watched(&user(), &WatchTarget::Season(SeasonId("se1".into())), true)
+                .await
+                .is_err()
+        );
+        assert!(
+            svc.set_watched(&user(), &WatchTarget::Series(SeriesId("sr1".into())), true)
+                .await
+                .is_err()
+        );
+        assert!(svc.title_states(&user(), &[title()]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn title_states_reflects_favorites_watchlist_and_history() {
+        let svc = service();
+        let m1 = TitleId::Movie(MovieId("m1".into()));
+        let m2 = TitleId::Movie(MovieId("m2".into()));
+        let m3 = TitleId::Movie(MovieId("m3".into()));
+        let m4 = TitleId::Movie(MovieId("m4".into()));
+        svc.add_favorite(&user(), &m1).await.unwrap();
+        svc.add_to_watchlist(&user(), &m2).await.unwrap();
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m3".into())), true)
+            .await
+            .unwrap();
+
+        let states = svc
+            .title_states(&user(), &[m3.clone(), m2.clone(), m1.clone(), m4.clone()])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            states,
+            vec![
+                TitleState {
+                    title: m3,
+                    favorite: false,
+                    watchlisted: false,
+                    watched: true,
+                    completed: true,
+                },
+                TitleState {
+                    title: m2,
+                    favorite: false,
+                    watchlisted: true,
+                    watched: false,
+                    completed: false,
+                },
+                TitleState {
+                    title: m1,
+                    favorite: true,
+                    watchlisted: false,
+                    watched: false,
+                    completed: false,
+                },
+                TitleState {
+                    title: m4,
+                    favorite: false,
+                    watchlisted: false,
+                    watched: false,
+                    completed: false,
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn title_states_empty_list_is_empty() {
+        let svc = service();
+        assert!(svc.title_states(&user(), &[]).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn set_watched_fans_out_to_episodes() {
+        let progress = Arc::new(MockProgressRepo::new());
+        let catalog = Arc::new(MockCatalogRepo::new());
+        catalog.add_series(series("sr1"));
+        catalog.add_season(season("se1", "sr1"));
+        catalog.add_season(season("se2", "sr1"));
+        catalog.add_episode(episode("e1", "se1"));
+        catalog.add_episode(episode("e2", "se1"));
+        catalog.add_episode(episode("e3", "se2"));
+        let svc = UserLibraryServiceImpl::new(
+            Arc::clone(&progress),
+            Arc::new(MockPreferencesRepo::new()),
+            Arc::clone(&catalog),
+        );
+
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), true)
+            .await
+            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Episode(EpisodeId("e9".into())), true)
+            .await
+            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Season(SeasonId("se1".into())), true)
+            .await
+            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Series(SeriesId("sr1".into())), true)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            watched_ids(&svc).await,
+            HashSet::from(["m1", "e9", "e1", "e2", "e3"].map(String::from))
+        );
+        let history = svc.history(&user(), page()).await.unwrap();
+        assert!(history.items.iter().all(|h| h.completed && h.watched));
+        assert!(history.items.iter().all(|h| h.play_count == 1));
+        assert!(history.items.iter().all(|h| h.last_watched_at.is_some()));
+    }
+
+    #[tokio::test]
+    async fn set_unwatched_clears_flags() {
+        let svc = service();
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), true)
+            .await
+            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), false)
+            .await
+            .unwrap();
+        let history = svc.history(&user(), page()).await.unwrap();
+        assert_eq!(history.total, 1);
+        let entry = &history.items[0];
+        assert!(!entry.watched);
+        assert!(!entry.completed);
+        assert_eq!(entry.play_count, 0);
+        assert!(entry.last_watched_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn set_watched_empty_season_and_series_are_noops() {
+        let svc = service();
+        svc.set_watched(&user(), &WatchTarget::Season(SeasonId("se1".into())), true)
+            .await
+            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Series(SeriesId("sr1".into())), true)
+            .await
+            .unwrap();
+        assert!(svc.history(&user(), page()).await.unwrap().items.is_empty());
     }
 }

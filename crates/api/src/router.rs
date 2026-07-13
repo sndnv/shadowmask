@@ -4,17 +4,22 @@ use axum::routing::{delete, get, post, put};
 
 use domain::session::{StreamSource, StreamTokens};
 
-use crate::handlers::{auth, catalog, discovery, library, sessions, stream, user_library, users};
+use crate::handlers::{
+    admin, auth, catalog, discovery, image, library, server, sessions, stream, trickplay,
+    user_library, users,
+};
 use crate::middleware::jwt;
-use crate::state::{AppServices, StreamState};
+use crate::state::{AppServices, ImageState, StreamState, TrickplayState};
 
 pub fn router<S: AppServices>(state: S) -> Router {
     let public = Router::<S>::new()
         .route("/auth/login", post(auth::login::<S>))
         .route("/auth/refresh", post(auth::refresh::<S>))
+        .route("/auth/logout", post(auth::logout::<S>))
         .route("/auth/link", post(auth::link::<S>));
 
     let protected = Router::<S>::new()
+        .route("/auth/link/create", post(auth::create_link::<S>))
         .route("/movies", get(catalog::movies::<S>))
         .route(
             "/movies/collections",
@@ -28,8 +33,10 @@ pub fn router<S: AppServices>(state: S) -> Router {
         )
         .route("/movies/{id}", get(catalog::movie::<S>))
         .route("/movies/{id}/versions", get(catalog::movie_versions::<S>))
+        .route("/movies/{id}/refresh", post(catalog::refresh_movie::<S>))
         .route("/series", get(catalog::series::<S>))
         .route("/series/{id}", get(catalog::series_detail::<S>))
+        .route("/series/{id}/refresh", post(catalog::refresh_series::<S>))
         .route("/series/{id}/seasons", get(catalog::seasons::<S>))
         .route(
             "/series/{id}/seasons/{season_id}",
@@ -47,15 +54,45 @@ pub fn router<S: AppServices>(state: S) -> Router {
             "/series/{id}/seasons/{season_id}/episodes/{episode_id}/versions",
             get(catalog::episode_versions::<S>),
         )
-        .route("/libraries", get(library::libraries::<S>))
-        .route("/libraries/{id}", get(library::library::<S>))
+        .route("/versions/{id}", get(catalog::version_detail::<S>))
+        .route("/titles/batch", post(catalog::title_cards::<S>))
+        .route("/people/{id}", get(catalog::person::<S>))
+        .route("/genres", get(catalog::genres::<S>))
+        .route("/server/info", get(server::info))
+        .route(
+            "/libraries",
+            get(library::libraries::<S>).post(library::create_library::<S>),
+        )
+        .route(
+            "/libraries/{id}",
+            get(library::library::<S>)
+                .put(library::update_library::<S>)
+                .delete(library::delete_library::<S>),
+        )
         .route("/libraries/{id}/duplicates", get(library::duplicates::<S>))
+        .route(
+            "/libraries/{id}/duplicates/{did}/dismiss",
+            post(library::dismiss_duplicate::<S>),
+        )
+        .route(
+            "/libraries/{id}/duplicates/{did}/resolve",
+            post(library::resolve_duplicate::<S>),
+        )
         .route(
             "/libraries/{id}/scan",
             get(library::scan_state::<S>).post(library::trigger_scan::<S>),
         )
         .route("/libraries/{id}/unmatched", get(library::unmatched::<S>))
+        .route(
+            "/libraries/{id}/unmatched/{uid}/candidates",
+            get(library::unmatched_candidates::<S>),
+        )
+        .route(
+            "/libraries/{id}/unmatched/{uid}/resolve",
+            post(library::resolve_unmatched::<S>),
+        )
         .route("/libraries/{id}/versions", get(library::versions::<S>))
+        .route("/admin/jobs", get(admin::jobs::<S>))
         .route("/search", get(discovery::search::<S>))
         .route("/sessions", post(sessions::start::<S>))
         .route("/sessions/{id}", delete(sessions::end::<S>))
@@ -64,6 +101,7 @@ pub fn router<S: AppServices>(state: S) -> Router {
         .route("/sessions/{id}/update", post(sessions::update::<S>))
         .route("/users", get(users::list::<S>).post(users::create::<S>))
         .route("/users/activity", get(users::activity::<S>))
+        .route("/users/self", get(users::current::<S>))
         .route(
             "/users/{id}",
             get(users::get::<S>)
@@ -87,7 +125,24 @@ pub fn router<S: AppServices>(state: S) -> Router {
         )
         .route(
             "/users/{id}/progress/{version}",
-            get(user_library::progress::<S>),
+            get(user_library::progress::<S>).delete(user_library::clear_progress::<S>),
+        )
+        .route("/users/{id}/password", put(users::change_password::<S>))
+        .route(
+            "/users/{id}/state/batch",
+            post(user_library::state_batch::<S>),
+        )
+        .route("/users/{id}/sessions", delete(auth::logout_all::<S>))
+        .route("/users/{id}/devices", get(auth::devices::<S>))
+        .route(
+            "/users/{id}/devices/{did}",
+            delete(auth::revoke_device::<S>),
+        )
+        .route("/users/{id}/tokens", get(auth::tokens::<S>))
+        .route("/users/{id}/tokens/{tid}", delete(auth::revoke_token::<S>))
+        .route(
+            "/users/{id}/watched/{reference}",
+            put(user_library::set_watched::<S>),
         )
         .route("/users/{id}/watchlist", get(user_library::watchlist::<S>))
         .route(
@@ -114,5 +169,21 @@ where
             "/stream/{token}/{variant}/{file}",
             get(stream::media::<T, G>),
         )
+        .with_state(state)
+}
+
+pub fn image_router(state: ImageState) -> Router {
+    Router::new()
+        .route("/images/{artwork_id}/{width}", get(image::image))
+        .with_state(state)
+}
+
+pub fn trickplay_router<S: AppServices>(auth: S, state: TrickplayState) -> Router {
+    Router::new()
+        .route(
+            "/api/v1/trickplay/{version_id}/{sheet}",
+            get(trickplay::trickplay),
+        )
+        .route_layer(from_fn_with_state(auth, jwt::<S>))
         .with_state(state)
 }

@@ -6,6 +6,10 @@ expression: value
   "body": {
     "heartbeat_interval_s": 10,
     "manifest_url": "[manifest_url]",
+    "markers": {
+      "credits": [],
+      "intro": []
+    },
     "mode": "direct",
     "selected": {
       "audio_track": null,
@@ -15,7 +19,8 @@ expression: value
         "type": "embedded"
       }
     },
-    "session_id": "[session_id]"
+    "session_id": "[session_id]",
+    "trickplay": []
   },
   "status": 201
 }

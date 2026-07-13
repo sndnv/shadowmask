@@ -9,21 +9,41 @@ use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
 use jiff::{SignedDuration, Timestamp};
 use jobs::{
-    CompositeJobHandler, JobQueue, LibraryScanHandler, RetryPolicy, Schedule, Scheduler,
-    SearchReindexHandler, Worker,
+    ArtworkJobHandler, CompositeJobHandler, IngestJobHandler, JobQueue, LibraryScanHandler,
+    MetadataJobHandler, RetryPolicy, Schedule, Scheduler, SearchReindexHandler,
+    TrickplayJobHandler, Worker,
 };
+use media::artwork::FsArtworkStore;
 use media::probe::FfprobeMediaProbe;
 use media::scan::WalkdirSourceWalker;
+use media::trickplay::FfmpegTrickplayGenerator;
+use metadata::{ImageArtworkPipeline, TmdbClient};
 use persistence::server::{SqliteCatalogRepo, SqliteJobRepo, SqliteLibraryRepo};
 use serde::{Deserialize, Serialize};
-use services::library::Scanner;
+use services::library::{Enricher, Scanner};
 use tokio::net::TcpListener;
 
 use crate::api::{Built, Repos, SessionSvc, WireConfig, app, build_state};
 
-type ScanHandler = LibraryScanHandler<SqliteLibraryRepo, WalkdirSourceWalker, FfprobeMediaProbe>;
+type ServerEnricher = Enricher<SqliteCatalogRepo, TmdbClient, SqliteJobRepo, SqliteLibraryRepo>;
+type ScanHandler =
+    LibraryScanHandler<SqliteLibraryRepo, WalkdirSourceWalker, FfprobeMediaProbe, ServerEnricher>;
 type ReindexHandler = SearchReindexHandler<SqliteCatalogRepo>;
-type JobWorker = Worker<SqliteJobRepo, CompositeJobHandler<ScanHandler, ReindexHandler>>;
+type ArtworkHandler = ArtworkJobHandler<SqliteCatalogRepo, ImageArtworkPipeline, FsArtworkStore>;
+type TrickplayHandler = TrickplayJobHandler<SqliteCatalogRepo, FfmpegTrickplayGenerator>;
+type IngestHandler = IngestJobHandler<SqliteLibraryRepo, FfprobeMediaProbe, ServerEnricher>;
+type MetadataHandler = MetadataJobHandler<ServerEnricher>;
+type JobWorker = Worker<
+    SqliteJobRepo,
+    CompositeJobHandler<
+        ScanHandler,
+        ReindexHandler,
+        ArtworkHandler,
+        TrickplayHandler,
+        IngestHandler,
+        MetadataHandler,
+    >,
+>;
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +56,9 @@ pub struct Config {
     pub access_ttl_secs: i64,
     pub refresh_ttl_secs: i64,
     pub transcode_cache: PathBuf,
+    pub artwork_cache: PathBuf,
+    pub trickplay_cache: PathBuf,
+    pub tmdb_api_key: Option<String>,
     pub worker_concurrency: usize,
     pub worker_period_secs: u64,
     pub scheduler_period_secs: u64,
@@ -53,6 +76,9 @@ impl Default for Config {
             access_ttl_secs: 3600,
             refresh_ttl_secs: 86_400,
             transcode_cache: PathBuf::from("data/transcode"),
+            artwork_cache: PathBuf::from("data/artwork"),
+            trickplay_cache: PathBuf::from("data/trickplay"),
+            tmdb_api_key: None,
             worker_concurrency: 4,
             worker_period_secs: 5,
             scheduler_period_secs: 30,
@@ -96,22 +122,63 @@ impl Runtime {
             access_ttl_secs: config.access_ttl_secs,
             refresh_ttl_secs: config.refresh_ttl_secs,
             transcode_cache: config.transcode_cache,
+            artwork_cache: config.artwork_cache,
+            trickplay_cache: config.trickplay_cache.clone(),
+            tmdb_api_key: config.tmdb_api_key.clone(),
         };
         let Built {
             state,
             stream,
             session,
+            artwork_store,
+            images,
+            trickplay,
         } = build_state(&repos, &wire)?;
-        let router = app(state, stream);
+        let router = app(state, stream, images, trickplay);
 
+        let provider = config.tmdb_api_key.map(TmdbClient::new);
+        let scan_enricher = Enricher::new(
+            repos.catalog.clone(),
+            provider.clone(),
+            repos.jobs.clone(),
+            repos.library.clone(),
+        );
+        let ingest_enricher = Enricher::new(
+            repos.catalog.clone(),
+            provider.clone(),
+            repos.jobs.clone(),
+            repos.library.clone(),
+        );
+        let metadata_enricher = Enricher::new(
+            repos.catalog.clone(),
+            provider,
+            repos.jobs.clone(),
+            repos.library.clone(),
+        );
         let scan = LibraryScanHandler::new(
             repos.library.clone(),
             Scanner::new(WalkdirSourceWalker, FfprobeMediaProbe::default()),
+            scan_enricher,
         );
         let reindex = SearchReindexHandler::new(repos.catalog.clone());
+        let artwork = ArtworkJobHandler::new(
+            repos.catalog.clone(),
+            ImageArtworkPipeline::new(),
+            artwork_store,
+        );
+        let trickplay = TrickplayJobHandler::new(
+            repos.catalog.clone(),
+            FfmpegTrickplayGenerator::new(&config.trickplay_cache),
+        );
+        let ingest = IngestJobHandler::new(
+            repos.library.clone(),
+            FfprobeMediaProbe::default(),
+            ingest_enricher,
+        );
+        let metadata = MetadataJobHandler::new(metadata_enricher);
         let worker = Worker::new(
             repos.jobs.clone(),
-            CompositeJobHandler::new(scan, reindex),
+            CompositeJobHandler::new(scan, reindex, artwork, trickplay, ingest, metadata),
             config.worker_concurrency,
             RetryPolicy::default(),
         );

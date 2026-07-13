@@ -8,14 +8,20 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 use contracts::{Token, fixture, requests};
-use domain::catalog::{MovieId, TitleId, Version, VersionDetail, VersionId};
+use domain::catalog::{
+    ArtworkOwner, CollectionId, EpisodeId, MovieId, SeasonId, SeriesId, TitleId, TitleRef, Version,
+    VersionDetail, VersionId,
+};
 use domain::common::{LanguageCode, Quality};
-use domain::library::LibraryId;
+use domain::library::{LibraryId, MatchCandidate, UnmatchedFile, UnmatchedFileId};
 use domain::media::{
     AudioTrack, DetectedMarkers, EmbeddedSubtitleTrack, SubtitleFormat, VideoTrack,
 };
 use domain::playback::PlaybackProgress;
-use domain::repository::{AuthTokenRepository, ProgressRepository, SearchIndex, UserRepository};
+use domain::repository::{
+    AuthTokenRepository, CatalogRepository, JobRepository, LibraryRepository, ProgressRepository,
+    SearchIndex, UserRepository,
+};
 use domain::user::{PendingLink, Role, User, UserId};
 use server::{Built, Repos, WireConfig, app, build_state};
 use services::password;
@@ -29,6 +35,9 @@ fn config(root: &Path) -> WireConfig {
         access_ttl_secs: 3600,
         refresh_ttl_secs: 86_400,
         transcode_cache: root.join("transcode"),
+        artwork_cache: root.join("artwork"),
+        trickplay_cache: root.join("trickplay"),
+        tmdb_api_key: None,
     }
 }
 
@@ -119,6 +128,21 @@ async fn seed(repos: &Repos, hash: &str) {
         .insert_collection(fixture::saga_collection())
         .await
         .unwrap();
+
+    for (owner, id) in [
+        (ArtworkOwner::Movie(MovieId("m1".into())), "m1"),
+        (ArtworkOwner::Series(SeriesId("s1".into())), "s1"),
+        (ArtworkOwner::Season(SeasonId("se1".into())), "se1"),
+        (ArtworkOwner::Episode(EpisodeId("e1".into())), "e1"),
+        (ArtworkOwner::Collection(CollectionId("c1".into())), "c1"),
+    ] {
+        repos
+            .catalog
+            .set_artwork(&owner, &fixture::artwork_set(id))
+            .await
+            .unwrap();
+    }
+
     repos
         .catalog
         .insert_version_detail(direct_v1_detail())
@@ -130,11 +154,45 @@ async fn seed(repos: &Repos, hash: &str) {
     {
         repos.catalog.insert_version(version).await.unwrap();
     }
+
+    for person in fixture::people() {
+        repos.catalog.upsert_person(person).await.unwrap();
+    }
+    repos
+        .catalog
+        .set_title_enrichment(
+            &TitleRef::Movie(MovieId("m1".into())),
+            &fixture::movie_enrichment(),
+        )
+        .await
+        .unwrap();
+    repos
+        .catalog
+        .set_title_enrichment(
+            &TitleRef::Series(SeriesId("s1".into())),
+            &fixture::series_enrichment(),
+        )
+        .await
+        .unwrap();
     repos.catalog.rebuild().await.unwrap();
 
     repos
         .library
         .insert_library(fixture::library("lib1"))
+        .await
+        .unwrap();
+    repos
+        .library
+        .insert_unmatched(UnmatchedFile {
+            id: UnmatchedFileId("uf1".into()),
+            library: LibraryId("lib1".into()),
+            path: "/media/unmatched.mkv".into(),
+            candidates: vec![MatchCandidate {
+                title: TitleId::Movie(MovieId("m1".into())),
+                confidence: 0.9,
+                label: "Alpha".into(),
+            }],
+        })
         .await
         .unwrap();
 
@@ -175,13 +233,21 @@ async fn seed(repos: &Repos, hash: &str) {
         })
         .await
         .unwrap();
+
+    repos.jobs.enqueue(fixture::admin_job()).await.unwrap();
 }
 
 async fn seeded(db_root: &Path, hash: &str) -> (Repos, Router) {
     let repos = Repos::connect(db_root).await.unwrap();
     seed(&repos, hash).await;
-    let Built { state, stream, .. } = build_state(&repos, &config(db_root)).unwrap();
-    (repos, app(state, stream))
+    let Built {
+        state,
+        stream,
+        images,
+        trickplay,
+        ..
+    } = build_state(&repos, &config(db_root)).unwrap();
+    (repos, app(state, stream, images, trickplay))
 }
 
 fn method(name: &str) -> Method {
@@ -239,7 +305,7 @@ async fn login(router: &Router, username: &str) -> (String, String) {
     )
 }
 
-async fn mint_session(router: &Router, token: &str) -> String {
+async fn create_session(router: &Router, token: &str) -> String {
     let (status, body) = call(
         router.clone(),
         Method::POST,
@@ -257,7 +323,7 @@ async fn mint_session(router: &Router, token: &str) -> String {
     body["session_id"].as_str().unwrap().to_owned()
 }
 
-async fn mint_user(router: &Router, token: &str) -> String {
+async fn create_user(router: &Router, token: &str) -> String {
     let (status, body) = call(
         router.clone(),
         Method::POST,
@@ -277,10 +343,12 @@ fn snapshot(name: &str, status: StatusCode, body: Value) {
         ".body.refresh_token" => "[refresh_token]",
         ".body.token" => "[token]",
         ".body.expires_at" => "[expires_at]",
+        ".body.code" => "[code]",
         ".body.id" => "[id]",
         ".body.created_at" => "[created_at]",
         ".body.session_id" => "[session_id]",
         ".body.manifest_url" => "[manifest_url]",
+        ".body.version" => "[version]",
         ".body.active[].session_id" => "[session_id]",
         ".body.active[].started_at" => "[started_at]",
         ".body.active[].last_heartbeat_at" => "[last_heartbeat_at]",
@@ -302,11 +370,11 @@ async fn replay_request_battery() {
 
         let mut path = endpoint.path.to_owned();
         if path.contains("{session}") {
-            let session = mint_session(&router, &user_access).await;
+            let session = create_session(&router, &user_access).await;
             path = path.replace("{session}", &session);
         }
         if path.contains("{user}") {
-            let minted = mint_user(&router, &admin_access).await;
+            let minted = create_user(&router, &admin_access).await;
             path = path.replace("{user}", &minted);
         }
 
@@ -316,7 +384,7 @@ async fn replay_request_battery() {
             Token::Anon => None,
         };
 
-        let body = if endpoint.name == "auth_refresh" {
+        let body = if matches!(endpoint.name, "auth_refresh" | "auth_logout") {
             let refresh = login(&router, "user").await.1;
             Some(json!({ "refresh_token": refresh }))
         } else {

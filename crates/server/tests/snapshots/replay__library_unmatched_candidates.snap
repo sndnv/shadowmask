@@ -1,0 +1,22 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": [
+    {
+      "kind": "movie",
+      "source": "catalog",
+      "target": {
+        "kind": "existing",
+        "title": {
+          "id": "m1",
+          "type": "movie"
+        }
+      },
+      "title": "Alpha m1",
+      "year": 2020
+    }
+  ],
+  "status": 200
+}

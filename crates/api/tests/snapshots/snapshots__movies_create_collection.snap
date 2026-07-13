@@ -4,6 +4,7 @@ expression: value
 ---
 {
   "body": {
+    "artwork": {},
     "id": "col-1",
     "movies": [
       "m1"

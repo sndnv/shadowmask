@@ -3,18 +3,20 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use tracing::debug;
 
-use domain::catalog::VersionId;
+use domain::catalog::{TitleId, VersionId};
 use domain::user::UserId;
 
 use crate::dto::user_library::{
-    AddTitleRequest, FavoriteResponse, PlaybackProgressResponse, WatchHistoryResponse,
-    WatchlistItemResponse,
+    AddTitleRequest, FavoriteResponse, PlaybackProgressResponse, TitleStateBatchRequest,
+    TitleStateResponse, WatchHistoryResponse, WatchTargetRequest, WatchlistItemResponse,
 };
-use crate::error::ApiResult;
+use crate::error::{ApiError, ApiResult};
 use crate::extract::AuthUser;
 use crate::handlers::{log_fail, require_admin_or_self};
 use crate::pagination::{PageParams, PageResponse};
 use crate::state::AppServices;
+
+const MAX_BATCH: usize = 200;
 
 pub async fn watchlist<S: AppServices>(
     State(state): State<S>,
@@ -180,4 +182,74 @@ pub async fn progress<S: AppServices>(
         version.0, target.0
     );
     Ok(Json(progress.map(Into::into)))
+}
+
+pub async fn clear_progress<S: AppServices>(
+    State(state): State<S>,
+    AuthUser(principal): AuthUser,
+    Path((user_id, version)): Path<(String, String)>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    let target = UserId(user_id);
+    require_admin_or_self(&principal, &target)?;
+    let version = VersionId(version);
+    state
+        .clear_progress(&target, &version)
+        .await
+        .map_err(log_fail(actor, "clear progress"))?;
+    debug!(
+        "User [{actor}] successfully cleared progress for version [{}] of user [{}]",
+        version.0, target.0
+    );
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn set_watched<S: AppServices>(
+    State(state): State<S>,
+    AuthUser(principal): AuthUser,
+    Path((user_id, reference)): Path<(String, String)>,
+    Json(req): Json<WatchTargetRequest>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    let target = UserId(user_id);
+    require_admin_or_self(&principal, &target)?;
+    let watched = req.watched;
+    let watch_target = req.into_target(reference);
+    state
+        .set_watched(&target, &watch_target, watched)
+        .await
+        .map_err(log_fail(actor, "set watched state"))?;
+    debug!(
+        "User [{actor}] successfully set watched={watched} for user [{}]",
+        target.0
+    );
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn state_batch<S: AppServices>(
+    State(state): State<S>,
+    AuthUser(principal): AuthUser,
+    Path(user_id): Path<String>,
+    Json(req): Json<TitleStateBatchRequest>,
+) -> ApiResult<Json<Vec<TitleStateResponse>>> {
+    let actor = &principal.user.0;
+    let target = UserId(user_id);
+    require_admin_or_self(&principal, &target)?;
+    if req.titles.len() > MAX_BATCH {
+        return Err(ApiError::bad_request(format!(
+            "too many titles: {} exceeds maximum of {MAX_BATCH}",
+            req.titles.len()
+        )));
+    }
+    let titles: Vec<TitleId> = req.titles.into_iter().map(Into::into).collect();
+    let states = state
+        .title_states(&target, &titles)
+        .await
+        .map_err(log_fail(actor, "retrieve title states"))?;
+    debug!(
+        "User [{actor}] successfully retrieved {} title states for user [{}]",
+        states.len(),
+        target.0
+    );
+    Ok(Json(states.into_iter().map(Into::into).collect()))
 }

@@ -3,7 +3,11 @@ use std::sync::{Arc, Mutex};
 
 use domain::error::AuthError;
 use domain::service::AuthService;
-use domain::user::{DeviceRegistration, IssuedToken, Principal, Role, TokenPair, UserId};
+use domain::user::{
+    ApiToken, ApiTokenId, Device, DeviceId, DeviceRegistration, IssuedToken, PendingLink,
+    Principal, Role, TokenPair, UserId,
+};
+use jiff::Timestamp;
 
 use crate::password;
 
@@ -110,6 +114,51 @@ impl AuthService for MockAuthService {
             role: account.role,
         })
     }
+
+    async fn create_link_code(
+        &self,
+        _caller: &Principal,
+        user: Option<UserId>,
+        _ttl_secs: Option<i64>,
+    ) -> Result<PendingLink, AuthError> {
+        Ok(PendingLink {
+            code: "link-code".into(),
+            user: user.unwrap_or(UserId("u1".into())),
+            role: Role::Player,
+            expires_at: Timestamp::from_second(4_102_444_800).unwrap(),
+        })
+    }
+
+    async fn logout(&self, refresh_token: &str) -> Result<(), AuthError> {
+        let id = refresh_token
+            .strip_prefix("refresh:")
+            .ok_or(AuthError::InvalidToken)?;
+        let state = self.state.lock().unwrap();
+        if !state.accounts.iter().any(|a| a.user.0 == id) {
+            return Err(AuthError::InvalidToken);
+        }
+        Ok(())
+    }
+
+    async fn logout_all(&self, _user: &UserId) -> Result<(), AuthError> {
+        Ok(())
+    }
+
+    async fn list_devices(&self, _user: &UserId) -> Result<Vec<Device>, AuthError> {
+        Ok(Vec::new())
+    }
+
+    async fn list_api_tokens(&self, _user: &UserId) -> Result<Vec<ApiToken>, AuthError> {
+        Ok(Vec::new())
+    }
+
+    async fn revoke_device(&self, _user: &UserId, _device: &DeviceId) -> Result<(), AuthError> {
+        Ok(())
+    }
+
+    async fn revoke_api_token(&self, _user: &UserId, _token: &ApiTokenId) -> Result<(), AuthError> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -194,5 +243,46 @@ mod tests {
             svc.redeem_link_code("ZZZZ", device).await.unwrap_err(),
             AuthError::UnknownLinkCode
         ));
+    }
+
+    #[tokio::test]
+    async fn logout_and_logout_all() {
+        let svc = service();
+        svc.logout("refresh:u1").await.unwrap();
+        svc.logout_all(&UserId("u1".into())).await.unwrap();
+        assert!(matches!(
+            svc.logout("garbage").await.unwrap_err(),
+            AuthError::InvalidToken
+        ));
+        assert!(matches!(
+            svc.logout("refresh:ghost").await.unwrap_err(),
+            AuthError::InvalidToken
+        ));
+    }
+
+    #[tokio::test]
+    async fn device_and_token_endpoints_are_empty_and_ok() {
+        let svc = service();
+        let user = UserId("u1".into());
+        assert!(svc.list_devices(&user).await.unwrap().is_empty());
+        assert!(svc.list_api_tokens(&user).await.unwrap().is_empty());
+        svc.revoke_device(&user, &DeviceId("d1".into()))
+            .await
+            .unwrap();
+        svc.revoke_api_token(&user, &ApiTokenId("t1".into()))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn create_link_code_returns_code() {
+        let svc = service();
+        let caller = Principal {
+            user: UserId("admin".into()),
+            role: Role::Admin,
+        };
+        let link = svc.create_link_code(&caller, None, None).await.unwrap();
+        assert_eq!(link.code, "link-code");
+        assert_eq!(link.role, Role::Player);
     }
 }

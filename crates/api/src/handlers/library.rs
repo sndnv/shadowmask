@@ -1,13 +1,15 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use serde::Deserialize;
 use tracing::debug;
 
-use domain::library::LibraryId;
+use domain::library::{DuplicateCandidateId, LibraryId, UnmatchedFileId};
 
 use crate::dto::catalog::VersionResponse;
 use crate::dto::library::{
-    DuplicateCandidateResponse, LibraryResponse, ScanStateResponse, UnmatchedFileResponse,
+    CreateLibraryRequest, DuplicateCandidateResponse, LibraryResponse, ResolveCandidateResponse,
+    ResolveUnmatchedRequest, ScanStateResponse, UnmatchedFileResponse, UpdateLibraryRequest,
 };
 use crate::error::ApiResult;
 use crate::extract::{AuthUser, RequireAdmin};
@@ -44,6 +46,54 @@ pub async fn library<S: AppServices>(
         .map_err(log_fail(actor, "retrieve library"))?;
     debug!("User [{actor}] successfully retrieved library [{}]", id.0);
     Ok(Json(library.into()))
+}
+
+pub async fn create_library<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Json(req): Json<CreateLibraryRequest>,
+) -> ApiResult<(StatusCode, Json<LibraryResponse>)> {
+    let actor = &principal.user.0;
+    let library = state
+        .create_library(&principal, req.into())
+        .await
+        .map_err(log_fail(actor, "create library"))?;
+    debug!(
+        "User [{actor}] successfully created library [{}]",
+        library.id.0
+    );
+    Ok((StatusCode::CREATED, Json(library.into())))
+}
+
+pub async fn update_library<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateLibraryRequest>,
+) -> ApiResult<Json<LibraryResponse>> {
+    let actor = &principal.user.0;
+    let id = LibraryId(id);
+    let library = state
+        .update_library(&principal, &id, req.into())
+        .await
+        .map_err(log_fail(actor, "update library"))?;
+    debug!("User [{actor}] successfully updated library [{}]", id.0);
+    Ok(Json(library.into()))
+}
+
+pub async fn delete_library<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Path(id): Path<String>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    let id = LibraryId(id);
+    state
+        .delete_library(&principal, &id)
+        .await
+        .map_err(log_fail(actor, "delete library"))?;
+    debug!("User [{actor}] successfully deleted library [{}]", id.0);
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn scan_state<S: AppServices>(
@@ -126,6 +176,77 @@ pub async fn duplicates<S: AppServices>(
         duplicates,
         DuplicateCandidateResponse::from,
     )))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CandidateParams {
+    pub q: Option<String>,
+}
+
+pub async fn unmatched_candidates<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Path((id, uid)): Path<(String, String)>,
+    Query(params): Query<CandidateParams>,
+) -> ApiResult<Json<Vec<ResolveCandidateResponse>>> {
+    let actor = &principal.user.0;
+    let candidates = state
+        .unmatched_candidates(&principal, &LibraryId(id), &UnmatchedFileId(uid), params.q)
+        .await
+        .map_err(log_fail(actor, "retrieve unmatched candidates"))?;
+    debug!(
+        "User [{actor}] successfully retrieved {} candidates for an unmatched file",
+        candidates.len()
+    );
+    Ok(Json(candidates.into_iter().map(Into::into).collect()))
+}
+
+pub async fn resolve_unmatched<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Path((id, uid)): Path<(String, String)>,
+    Json(req): Json<ResolveUnmatchedRequest>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    state
+        .resolve_unmatched(
+            &principal,
+            &LibraryId(id),
+            &UnmatchedFileId(uid),
+            req.target.into(),
+        )
+        .await
+        .map_err(log_fail(actor, "resolve unmatched file"))?;
+    debug!("User [{actor}] successfully resolved an unmatched file");
+    Ok(StatusCode::ACCEPTED)
+}
+
+pub async fn dismiss_duplicate<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Path((id, did)): Path<(String, String)>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    state
+        .dismiss_duplicate(&principal, &LibraryId(id), &DuplicateCandidateId(did))
+        .await
+        .map_err(log_fail(actor, "dismiss duplicate candidate"))?;
+    debug!("User [{actor}] successfully dismissed a duplicate candidate");
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn resolve_duplicate<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Path((id, did)): Path<(String, String)>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    state
+        .resolve_duplicate(&principal, &LibraryId(id), &DuplicateCandidateId(did))
+        .await
+        .map_err(log_fail(actor, "resolve duplicate candidate"))?;
+    debug!("User [{actor}] successfully resolved a duplicate candidate");
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn versions<S: AppServices>(

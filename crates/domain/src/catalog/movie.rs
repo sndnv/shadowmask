@@ -1,5 +1,6 @@
 use jiff::Timestamp;
 
+use crate::catalog::ArtworkRef;
 use crate::metadata::ContentRating;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -14,4 +15,5 @@ pub struct Movie {
     pub runtime_minutes: Option<u32>,
     pub content_rating: Option<ContentRating>,
     pub added_at: Timestamp,
+    pub artwork: Vec<ArtworkRef>,
 }

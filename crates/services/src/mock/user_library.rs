@@ -1,10 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use domain::catalog::{TitleId, VersionId};
 use domain::common::{Page, PageRequest};
 use domain::error::UserError;
-use domain::playback::{Favorite, PlaybackProgress, WatchHistory, WatchlistItem};
+use domain::playback::{
+    Favorite, PlaybackProgress, TitleState, WatchHistory, WatchTarget, WatchlistItem,
+};
 use domain::service::UserLibraryService;
 use domain::user::UserId;
 use jiff::Timestamp;
@@ -134,12 +136,90 @@ impl UserLibraryService for MockUserLibraryService {
             .get(&(user.clone(), version.clone()))
             .cloned())
     }
+
+    async fn clear_progress(&self, user: &UserId, version: &VersionId) -> Result<(), UserError> {
+        self.state
+            .lock()
+            .unwrap()
+            .progress
+            .remove(&(user.clone(), version.clone()));
+        Ok(())
+    }
+
+    async fn set_watched(
+        &self,
+        user: &UserId,
+        target: &WatchTarget,
+        watched: bool,
+    ) -> Result<(), UserError> {
+        let title = match target {
+            WatchTarget::Movie(id) => Some(TitleId::Movie(id.clone())),
+            WatchTarget::Episode(id) => Some(TitleId::Episode(id.clone())),
+            WatchTarget::Season(_) | WatchTarget::Series(_) => None,
+        };
+        if let Some(title) = title {
+            let mut state = self.state.lock().unwrap();
+            let entries = state.history.entry(user.clone()).or_default();
+            entries.retain(|h| h.title != title);
+            entries.push(WatchHistory {
+                user: user.clone(),
+                title,
+                watched,
+                play_count: u32::from(watched),
+                last_watched_at: watched.then(Timestamp::now),
+                completed: watched,
+            });
+        }
+        Ok(())
+    }
+
+    async fn title_states(
+        &self,
+        user: &UserId,
+        titles: &[TitleId],
+    ) -> Result<Vec<TitleState>, UserError> {
+        let state = self.state.lock().unwrap();
+        let favorites: HashSet<TitleId> = state
+            .favorites
+            .get(user)
+            .into_iter()
+            .flatten()
+            .map(|f| f.title.clone())
+            .collect();
+        let watchlisted: HashSet<TitleId> = state
+            .watchlist
+            .get(user)
+            .into_iter()
+            .flatten()
+            .map(|w| w.title.clone())
+            .collect();
+        let history: HashMap<TitleId, (bool, bool)> = state
+            .history
+            .get(user)
+            .into_iter()
+            .flatten()
+            .map(|h| (h.title.clone(), (h.watched, h.completed)))
+            .collect();
+        Ok(titles
+            .iter()
+            .map(|title| {
+                let (watched, completed) = history.get(title).copied().unwrap_or((false, false));
+                TitleState {
+                    title: title.clone(),
+                    favorite: favorites.contains(title),
+                    watchlisted: watchlisted.contains(title),
+                    watched,
+                    completed,
+                }
+            })
+            .collect())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::catalog::MovieId;
+    use domain::catalog::{EpisodeId, MovieId, SeasonId, SeriesId};
 
     fn user() -> UserId {
         UserId("u1".into())
@@ -147,6 +227,10 @@ mod tests {
 
     fn title() -> TitleId {
         TitleId::Movie(MovieId("m1".into()))
+    }
+
+    fn page(limit: u32) -> PageRequest {
+        PageRequest { offset: 0, limit }
     }
 
     #[tokio::test]
@@ -220,5 +304,97 @@ mod tests {
         });
         let progress = svc.progress(&user(), &version).await.unwrap().unwrap();
         assert_eq!(progress.position_ms, 1000);
+
+        svc.clear_progress(&user(), &version).await.unwrap();
+        assert!(svc.progress(&user(), &version).await.unwrap().is_none());
+        svc.clear_progress(&user(), &version).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn set_watched_records_titles_and_ignores_containers() {
+        let svc = MockUserLibraryService::new();
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), true)
+            .await
+            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Episode(EpisodeId("e1".into())), true)
+            .await
+            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Season(SeasonId("se1".into())), true)
+            .await
+            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Series(SeriesId("sr1".into())), true)
+            .await
+            .unwrap();
+        let listed = svc.history(&user(), page(10)).await.unwrap();
+        assert_eq!(listed.total, 2);
+        assert!(
+            listed
+                .items
+                .iter()
+                .all(|h| h.completed && h.play_count == 1)
+        );
+
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), false)
+            .await
+            .unwrap();
+        let listed = svc.history(&user(), page(10)).await.unwrap();
+        assert_eq!(listed.total, 2);
+        let movie = listed.items.iter().find(|h| h.title.id() == "m1").unwrap();
+        assert!(!movie.watched && !movie.completed && movie.play_count == 0);
+        assert!(movie.last_watched_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn title_states_reflects_flags_and_preserves_order() {
+        let svc = MockUserLibraryService::new();
+        let m1 = TitleId::Movie(MovieId("m1".into()));
+        let m2 = TitleId::Movie(MovieId("m2".into()));
+        let m3 = TitleId::Movie(MovieId("m3".into()));
+        let m4 = TitleId::Movie(MovieId("m4".into()));
+        svc.add_favorite(&user(), &m1).await.unwrap();
+        svc.add_to_watchlist(&user(), &m2).await.unwrap();
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m3".into())), true)
+            .await
+            .unwrap();
+
+        let states = svc
+            .title_states(&user(), &[m3.clone(), m2.clone(), m1.clone(), m4.clone()])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            states,
+            vec![
+                TitleState {
+                    title: m3,
+                    favorite: false,
+                    watchlisted: false,
+                    watched: true,
+                    completed: true,
+                },
+                TitleState {
+                    title: m2,
+                    favorite: false,
+                    watchlisted: true,
+                    watched: false,
+                    completed: false,
+                },
+                TitleState {
+                    title: m1,
+                    favorite: true,
+                    watchlisted: false,
+                    watched: false,
+                    completed: false,
+                },
+                TitleState {
+                    title: m4,
+                    favorite: false,
+                    watchlisted: false,
+                    watched: false,
+                    completed: false,
+                },
+            ]
+        );
+        assert!(svc.title_states(&user(), &[]).await.unwrap().is_empty());
     }
 }

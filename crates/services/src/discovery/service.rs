@@ -2,13 +2,16 @@ use std::collections::HashSet;
 
 use domain::catalog::{Episode, EpisodeId, Movie, MovieId, Season, Series, TitleId, VersionId};
 use domain::common::{Page, PageRequest};
-use domain::discovery::{ContinueWatchingItem, Hub, HubItem, SearchResult};
+use domain::discovery::{ContinueWatchingItem, Hub, HubItem, SearchKind, SearchResult};
 use domain::error::{DiscoveryError, RepositoryError};
 use domain::repository::{CatalogRepository, ProgressRepository, SearchIndex};
 use domain::service::DiscoveryService;
+use domain::session::{NowPlaying, PlaybackSession};
 use domain::user::UserId;
 
-use crate::discovery::{continue_watching, home_hubs, next_episodes, next_movies, recently_added};
+use crate::discovery::{
+    continue_watching, home_hubs, next_episodes, next_movies, recently_added, resume_card,
+};
 
 const ALL: PageRequest = PageRequest {
     offset: 0,
@@ -108,15 +111,9 @@ where
             .collect())
     }
 
-    async fn version_hub_item(
-        &self,
-        version: &VersionId,
-    ) -> Result<Option<HubItem>, RepositoryError> {
-        let Some(detail) = self.catalog.version_detail(version).await? else {
-            return Ok(None);
-        };
-        match detail.version.title {
-            TitleId::Movie(id) => Ok(self.catalog.get_movie(&id).await?.map(HubItem::Movie)),
+    async fn title_hub_item(&self, title: &TitleId) -> Result<Option<HubItem>, RepositoryError> {
+        match title {
+            TitleId::Movie(id) => Ok(self.catalog.get_movie(id).await?.map(HubItem::Movie)),
             TitleId::Episode(_) => Ok(None),
         }
     }
@@ -132,9 +129,10 @@ where
         &self,
         _user: &UserId,
         query: &str,
+        types: &[SearchKind],
         page: PageRequest,
     ) -> Result<Page<SearchResult>, DiscoveryError> {
-        Ok(self.search_index.search(query, page).await?)
+        Ok(self.search_index.search(query, types, page).await?)
     }
 
     async fn continue_watching(
@@ -143,7 +141,33 @@ where
     ) -> Result<Vec<ContinueWatchingItem>, DiscoveryError> {
         let progress = self.progress.list_in_progress(user).await?;
         let completed = self.completed_versions(user).await?;
-        Ok(continue_watching(&progress, &completed))
+        let mut items = Vec::new();
+        for entry in continue_watching(&progress, &completed) {
+            if let Some(card) =
+                resume_card(&self.catalog, &entry.version, entry.position_ms).await?
+            {
+                items.push(ContinueWatchingItem {
+                    progress: entry,
+                    card,
+                });
+            }
+        }
+        Ok(items)
+    }
+
+    async fn now_playing(
+        &self,
+        sessions: Vec<PlaybackSession>,
+    ) -> Result<Vec<NowPlaying>, DiscoveryError> {
+        let mut items = Vec::with_capacity(sessions.len());
+        for session in sessions {
+            if let Some(card) =
+                resume_card(&self.catalog, &session.version, session.position_ms).await?
+            {
+                items.push(NowPlaying { session, card });
+            }
+        }
+        Ok(items)
     }
 
     async fn next_episodes(&self, user: &UserId) -> Result<Vec<Episode>, DiscoveryError> {
@@ -174,7 +198,7 @@ where
             .collect();
         let mut continue_row = Vec::new();
         for item in self.continue_watching(user).await? {
-            if let Some(hub) = self.version_hub_item(&item.progress.version).await? {
+            if let Some(hub) = self.title_hub_item(&item.card.title).await? {
                 continue_row.push(hub);
             }
         }
@@ -191,6 +215,9 @@ mod tests {
     use domain::common::Quality;
     use domain::library::LibraryId;
     use domain::playback::{PlaybackProgress, WatchHistory};
+    use domain::session::{
+        DeliveryMode, PlaybackSession, PlaybackState, SelectedTracks, SessionId,
+    };
     use jiff::{SignedDuration, Timestamp};
 
     type Svc = DiscoveryServiceImpl<MockCatalogRepo, MockSearchIndex, MockProgressRepo>;
@@ -215,6 +242,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH + SignedDuration::from_secs(seconds),
+            artwork: Vec::new(),
         }
     }
 
@@ -226,6 +254,7 @@ mod tests {
             overview: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
         }
     }
 
@@ -236,6 +265,7 @@ mod tests {
             number: 1,
             title: None,
             overview: None,
+            artwork: Vec::new(),
         }
     }
 
@@ -249,6 +279,7 @@ mod tests {
             runtime_minutes: None,
             air_date: None,
             added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
         }
     }
 
@@ -290,6 +321,7 @@ mod tests {
             name: "Saga".into(),
             overview: None,
             movies: vec![MovieId("m1".into()), MovieId("m2".into())],
+            artwork: Vec::new(),
         });
         catalog.add_version(version("v1", TitleId::Movie(MovieId("m1".into()))));
         catalog.add_version(version("ev1", TitleId::Episode(EpisodeId("e1".into()))));
@@ -326,8 +358,52 @@ mod tests {
     #[tokio::test]
     async fn search_delegates_to_index() {
         let svc = seeded().await;
-        let hits = svc.search(&user(), "m1", page()).await.unwrap();
+        let hits = svc.search(&user(), "m1", &[], page()).await.unwrap();
         assert_eq!(hits.total, 1);
+    }
+
+    fn session(id: &str, version: &str, position_ms: u64) -> PlaybackSession {
+        PlaybackSession {
+            id: SessionId(id.into()),
+            user: user(),
+            device: None,
+            version: VersionId(version.into()),
+            mode: DeliveryMode::Direct,
+            position_ms,
+            state: PlaybackState::Playing,
+            selected: SelectedTracks {
+                audio_track: None,
+                subtitle_track: None,
+                subtitle_delivery: None,
+            },
+            started_at: Timestamp::UNIX_EPOCH,
+            last_heartbeat_at: Timestamp::UNIX_EPOCH,
+        }
+    }
+
+    #[tokio::test]
+    async fn continue_watching_enriches_with_card() {
+        let svc = seeded().await;
+        let items = svc.continue_watching(&user()).await.unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].progress.version, VersionId("v1".into()));
+        assert_eq!(items[0].card.display_title, "m1");
+        assert_eq!(items[0].card.duration_ms, 1000);
+        assert_eq!(items[0].card.progress_percent, 100);
+    }
+
+    #[tokio::test]
+    async fn now_playing_enriches_and_skips_dangling_versions() {
+        let svc = seeded().await;
+        let now = svc
+            .now_playing(vec![session("s1", "v1", 500), session("s2", "ghost", 10)])
+            .await
+            .unwrap();
+        assert_eq!(now.len(), 1);
+        assert_eq!(now[0].session.id, SessionId("s1".into()));
+        assert_eq!(now[0].card.display_title, "m1");
+        assert_eq!(now[0].card.duration_ms, 1000);
+        assert_eq!(now[0].card.progress_percent, 50);
     }
 
     #[tokio::test]
@@ -421,8 +497,9 @@ mod tests {
         let search = MockSearchIndex::new();
         search.set_fail();
         let svc = DiscoveryServiceImpl::new(catalog, search, progress);
-        assert!(svc.search(&user(), "x", page()).await.is_err());
+        assert!(svc.search(&user(), "x", &[], page()).await.is_err());
         assert!(svc.continue_watching(&user()).await.is_err());
+        assert!(svc.now_playing(vec![session("s1", "v1", 1)]).await.is_err());
         assert!(svc.next_episodes(&user()).await.is_err());
         assert!(svc.next_movies(&user()).await.is_err());
         assert!(svc.home_hubs(&user()).await.is_err());

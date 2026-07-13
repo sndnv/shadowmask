@@ -98,6 +98,7 @@ fn movie(id: &str) -> Movie {
             code: "PG-13".into(),
         }),
         added_at: Timestamp::now(),
+        artwork: Vec::new(),
     }
 }
 
@@ -112,6 +113,7 @@ fn series(id: &str) -> Series {
             code: "TV-14".into(),
         }),
         added_at: Timestamp::now(),
+        artwork: Vec::new(),
     }
 }
 
@@ -122,6 +124,7 @@ fn season(id: &str, series: &str) -> Season {
         number: 1,
         title: Some("Season 1".into()),
         overview: None,
+        artwork: Vec::new(),
     }
 }
 
@@ -135,6 +138,7 @@ fn episode(id: &str, season: &str) -> Episode {
         runtime_minutes: Some(42),
         air_date: Some(Timestamp::now()),
         added_at: Timestamp::now(),
+        artwork: Vec::new(),
     }
 }
 
@@ -280,6 +284,7 @@ async fn catalog_routes() {
         name: "Saga".into(),
         overview: Some("epic".into()),
         movies: vec![MovieId("m1".into())],
+        artwork: Vec::new(),
     });
     for (vid, q) in [
         ("v1", Quality::Sd),
@@ -839,6 +844,13 @@ async fn discovery_routes() {
                 version: VersionId("v1".into()),
                 position_ms: 10,
                 updated_at: Timestamp::now(),
+            },
+            card: ResumeCard {
+                title: TitleId::Movie(MovieId("m1".into())),
+                display_title: "Alpha m1".into(),
+                artwork: Vec::new(),
+                duration_ms: 1000,
+                progress_percent: 1,
             },
         },
     );

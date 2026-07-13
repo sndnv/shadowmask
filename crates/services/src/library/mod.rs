@@ -1,18 +1,28 @@
+mod artwork_job;
 mod cron;
 mod debouncer;
 mod dedup;
+mod enricher;
 mod external_subtitles;
+mod ingest_job;
 mod matcher;
+mod metadata_job;
 mod parse;
 mod scanner;
 mod service;
+mod trickplay_job;
 
+pub use artwork_job::{ArtworkJobItem, ArtworkJobPayload};
 pub use cron::next_fire_after;
 pub use debouncer::Debouncer;
 pub use dedup::find_duplicates;
 pub use domain::text::normalize_title;
+pub use enricher::{Enricher, MetadataRefresher, NoopEnricher, ResolveIngester, ScanEnricher};
 pub use external_subtitles::discover_subtitles;
+pub use ingest_job::IngestJobPayload;
 pub use matcher::Matcher;
+pub use metadata_job::MetadataJobPayload;
 pub use parse::{confidence, parse_filename};
 pub use scanner::Scanner;
 pub use service::LibraryServiceImpl;
+pub use trickplay_job::TrickplayJobPayload;

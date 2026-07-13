@@ -4,27 +4,33 @@ use domain::library::{LibraryId, ScanState, ScanStatus, SourceWalker};
 use domain::media::MediaProbe;
 use domain::repository::LibraryRepository;
 use jiff::Timestamp;
-use services::library::Scanner;
+use services::library::{ScanEnricher, Scanner};
 
 use crate::error::JobError;
 use crate::job_handler::JobHandler;
 
-pub struct LibraryScanHandler<R, W, P> {
+pub struct LibraryScanHandler<R, W, P, E> {
     repo: R,
     scanner: Scanner<W, P>,
+    enricher: E,
 }
 
-impl<R, W, P> LibraryScanHandler<R, W, P> {
-    pub fn new(repo: R, scanner: Scanner<W, P>) -> Self {
-        Self { repo, scanner }
+impl<R, W, P, E> LibraryScanHandler<R, W, P, E> {
+    pub fn new(repo: R, scanner: Scanner<W, P>, enricher: E) -> Self {
+        Self {
+            repo,
+            scanner,
+            enricher,
+        }
     }
 }
 
-impl<R, W, P> JobHandler for LibraryScanHandler<R, W, P>
+impl<R, W, P, E> JobHandler for LibraryScanHandler<R, W, P, E>
 where
     R: LibraryRepository + Send + Sync,
     W: SourceWalker + Send + Sync,
     P: MediaProbe + Send + Sync,
+    E: ScanEnricher + Send + Sync,
 {
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         if job.payload.is_empty() {
@@ -53,11 +59,12 @@ where
             .map_err(retryable)?;
 
         match self.scanner.scan(&library).await {
-            Ok(_report) => {
+            Ok(report) => {
                 self.repo
                     .save_scan_state(idle(&id, Timestamp::now()))
                     .await
                     .map_err(retryable)?;
+                self.enricher.enrich(&library, &report).await;
                 Ok(())
             }
             Err(err) => {
@@ -111,10 +118,25 @@ fn failed(id: &LibraryId, err: &WalkError) -> ScanState {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use super::*;
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
-    use domain::library::{Library, LibraryKind, WalkedEntry, WatcherStrategy};
+    use domain::library::{Library, LibraryKind, ScanReport, WalkedEntry, WatcherStrategy};
+    use services::library::NoopEnricher;
     use services::mock::{MockLibraryRepo, MockMediaProbe, MockSourceWalker};
+
+    #[derive(Clone)]
+    struct SpyEnricher {
+        called: Arc<AtomicBool>,
+    }
+
+    impl ScanEnricher for SpyEnricher {
+        async fn enrich(&self, _library: &Library, _report: &ScanReport) {
+            self.called.store(true, Ordering::Relaxed);
+        }
+    }
 
     fn library(roots: &[&str]) -> Library {
         Library {
@@ -149,8 +171,8 @@ mod tests {
         repo: MockLibraryRepo,
         walker: MockSourceWalker,
         probe: MockMediaProbe,
-    ) -> LibraryScanHandler<MockLibraryRepo, MockSourceWalker, MockMediaProbe> {
-        LibraryScanHandler::new(repo, Scanner::new(walker, probe))
+    ) -> LibraryScanHandler<MockLibraryRepo, MockSourceWalker, MockMediaProbe, NoopEnricher> {
+        LibraryScanHandler::new(repo, Scanner::new(walker, probe), NoopEnricher)
     }
 
     #[tokio::test]
@@ -176,6 +198,30 @@ mod tests {
         assert_eq!(state.status, ScanStatus::Idle);
         assert_eq!(state.progress, 1.0);
         assert!(state.last_scanned_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn enricher_runs_after_successful_scan() {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(library(&["/m"]));
+        let called = Arc::new(AtomicBool::new(false));
+        let handler = LibraryScanHandler::new(
+            repo.clone(),
+            Scanner::new(MockSourceWalker::new(), MockMediaProbe::new()),
+            SpyEnricher {
+                called: Arc::clone(&called),
+            },
+        );
+
+        handler.handle(&scan_job("lib")).await.unwrap();
+
+        assert!(called.load(Ordering::Relaxed));
+        let state = repo
+            .scan_state(&LibraryId("lib".into()))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.status, ScanStatus::Idle);
     }
 
     #[tokio::test]

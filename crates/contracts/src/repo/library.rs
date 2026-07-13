@@ -1,5 +1,9 @@
+use domain::catalog::{MovieId, TitleId};
 use domain::common::PageRequest;
-use domain::library::{Library, LibraryId, LibraryKind, ScanState, ScanStatus, WatcherStrategy};
+use domain::library::{
+    DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryKind, MatchCandidate,
+    ResolutionStatus, ScanState, ScanStatus, UnmatchedFile, UnmatchedFileId, WatcherStrategy,
+};
 use domain::repository::LibraryRepository;
 use jiff::Timestamp;
 
@@ -26,10 +30,7 @@ fn page() -> PageRequest {
     }
 }
 
-pub async fn library_repository_contract<R: LibraryRepository>(
-    repo: R,
-    insert: impl AsyncFn(&R, Library),
-) {
+pub async fn library_repository_contract<R: LibraryRepository>(repo: R) {
     let id = LibraryId("lib1".into());
 
     assert!(repo.list().await.unwrap().is_empty());
@@ -49,10 +50,98 @@ pub async fn library_repository_contract<R: LibraryRepository>(
             .is_empty()
     );
 
-    insert(&repo, library("lib1")).await;
+    repo.upsert(library("lib1")).await.unwrap();
     assert_eq!(repo.list().await.unwrap().len(), 1);
     assert!(repo.get(&id).await.unwrap().is_some());
     assert!(repo.get(&LibraryId("nope".into())).await.unwrap().is_none());
+
+    let mut renamed = library("lib1");
+    renamed.name = "Renamed".to_owned();
+    repo.upsert(renamed).await.unwrap();
+    assert_eq!(repo.get(&id).await.unwrap().unwrap().name, "Renamed");
+    assert_eq!(repo.list().await.unwrap().len(), 1);
+
+    let unmatched_id = UnmatchedFileId("uf1".into());
+    let dup_id = DuplicateCandidateId("d1".into());
+    let unmatched = |candidates| UnmatchedFile {
+        id: unmatched_id.clone(),
+        library: id.clone(),
+        path: "/media/x.mkv".into(),
+        candidates,
+    };
+    let duplicate = || DuplicateCandidate {
+        id: dup_id.clone(),
+        title: TitleId::Movie(MovieId("m1".into())),
+        paths: vec!["/a.mkv".into(), "/b.mkv".into()],
+    };
+    repo.insert_unmatched(unmatched(vec![MatchCandidate {
+        title: TitleId::Movie(MovieId("m1".into())),
+        confidence: 0.9,
+        label: "Alpha".into(),
+    }]))
+    .await
+    .unwrap();
+    repo.insert_duplicate(&id, duplicate()).await.unwrap();
+    assert_eq!(repo.list_unmatched(&id, page()).await.unwrap().total, 1);
+    assert_eq!(repo.list_duplicates(&id, page()).await.unwrap().total, 1);
+
+    let fetched = repo.get_unmatched(&unmatched_id).await.unwrap().unwrap();
+    assert_eq!(fetched.path, "/media/x.mkv");
+    assert_eq!(fetched.candidates.len(), 1);
+    assert_eq!(fetched.candidates[0].label, "Alpha");
+    assert!(
+        repo.get_unmatched(&UnmatchedFileId("ghost".into()))
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    repo.set_unmatched_status(&unmatched_id, ResolutionStatus::Resolved)
+        .await
+        .unwrap();
+    repo.set_duplicate_status(&dup_id, ResolutionStatus::Dismissed)
+        .await
+        .unwrap();
+    assert!(
+        repo.list_unmatched(&id, page())
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    assert!(
+        repo.list_duplicates(&id, page())
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+
+    repo.insert_unmatched(unmatched(Vec::new())).await.unwrap();
+    repo.insert_duplicate(&id, duplicate()).await.unwrap();
+    assert!(
+        repo.list_unmatched(&id, page())
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    assert!(
+        repo.list_duplicates(&id, page())
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+
+    repo.set_unmatched_status(&unmatched_id, ResolutionStatus::Active)
+        .await
+        .unwrap();
+    repo.set_duplicate_status(&dup_id, ResolutionStatus::Active)
+        .await
+        .unwrap();
+    assert_eq!(repo.list_unmatched(&id, page()).await.unwrap().total, 1);
+    assert_eq!(repo.list_duplicates(&id, page()).await.unwrap().total, 1);
 
     let state = ScanState {
         library: id.clone(),
@@ -66,4 +155,23 @@ pub async fn library_repository_contract<R: LibraryRepository>(
     assert_eq!(loaded.status, ScanStatus::Running);
     assert_eq!(loaded.last_scanned_at, Some(at(1_700_000_000)));
     assert_eq!(loaded.progress, 0.5);
+
+    repo.delete(&id).await.unwrap();
+    assert!(repo.get(&id).await.unwrap().is_none());
+    assert!(repo.list().await.unwrap().is_empty());
+    assert!(repo.scan_state(&id).await.unwrap().is_none());
+    assert!(
+        repo.list_unmatched(&id, page())
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    assert!(
+        repo.list_duplicates(&id, page())
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
 }

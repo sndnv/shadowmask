@@ -1,6 +1,7 @@
 mod client_capabilities;
 mod delivery_mode;
 mod heartbeat_ack;
+mod now_playing;
 mod playback_session;
 mod playback_state;
 mod renegotiated;
@@ -24,6 +25,7 @@ mod transcode_started;
 pub use client_capabilities::ClientCapabilities;
 pub use delivery_mode::DeliveryMode;
 pub use heartbeat_ack::HeartbeatAck;
+pub use now_playing::NowPlaying;
 pub use playback_session::{PlaybackSession, SessionId};
 pub use playback_state::PlaybackState;
 pub use renegotiated::Renegotiated;
@@ -43,3 +45,5 @@ pub use subtitle_selection::SubtitleSelection;
 pub use transcode_manager::TranscodeManager;
 pub use transcode_spec::TranscodeSpec;
 pub use transcode_started::TranscodeStarted;
+
+pub const PROFILE_VERSION: u32 = 1;

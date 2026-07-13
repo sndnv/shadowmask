@@ -9,6 +9,23 @@ expression: value
       "items": [
         {
           "added_at": "2023-11-14T22:13:21Z",
+          "artwork": {
+            "backdrop": {
+              "base": "/images/m1-backdrop",
+              "widths": [
+                480,
+                960
+              ]
+            },
+            "poster": {
+              "base": "/images/m1-poster",
+              "widths": [
+                180,
+                480,
+                960
+              ]
+            }
+          },
           "content_rating": {
             "code": "PG-13",
             "system": "MPAA"
@@ -22,6 +39,23 @@ expression: value
         },
         {
           "added_at": "2023-11-14T22:13:22Z",
+          "artwork": {
+            "backdrop": {
+              "base": "/images/s1-backdrop",
+              "widths": [
+                480,
+                960
+              ]
+            },
+            "poster": {
+              "base": "/images/s1-poster",
+              "widths": [
+                180,
+                480,
+                960
+              ]
+            }
+          },
           "content_rating": {
             "code": "TV-14",
             "system": "TV"

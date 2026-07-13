@@ -8,6 +8,7 @@ expression: value
       {
         "added_at": "2023-11-14T22:13:24Z",
         "air_date": "2023-11-14T22:13:23Z",
+        "artwork": {},
         "id": "e1",
         "number": 1,
         "overview": null,
@@ -18,6 +19,7 @@ expression: value
       },
       {
         "added_at": "2023-11-14T22:13:21Z",
+        "artwork": {},
         "content_rating": {
           "code": "PG-13",
           "system": "MPAA"
@@ -31,6 +33,7 @@ expression: value
       },
       {
         "added_at": "2023-11-14T22:13:22Z",
+        "artwork": {},
         "content_rating": {
           "code": "TV-14",
           "system": "TV"

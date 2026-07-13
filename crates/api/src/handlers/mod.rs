@@ -1,9 +1,13 @@
+pub mod admin;
 pub mod auth;
 pub mod catalog;
 pub mod discovery;
+pub mod image;
 pub mod library;
+pub mod server;
 pub mod sessions;
 pub mod stream;
+pub mod trickplay;
 pub mod user_library;
 pub mod users;
 

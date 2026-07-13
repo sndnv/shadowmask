@@ -6,13 +6,16 @@ use domain::library::{
 };
 use domain::metadata::{Person, PersonId};
 use domain::playback::{PlaybackProgress, WatchHistory};
-use domain::user::UserId;
+use domain::user::{User, UserId};
 use services::mock::{
     MockAuthService, MockCatalogService, MockDiscoveryService, MockLibraryService,
     MockSessionService, MockUserLibraryService, MockUserService,
 };
 
-use crate::fixture::{self, episode, library, movie, saga_collection, season, series, ts};
+use crate::fixture::{
+    self, collection_art, episode, episode_art, library, movie, movie_art, season_art, series,
+    series_art, ts,
+};
 
 pub struct Generator {
     pub auth: MockAuthService,
@@ -47,20 +50,46 @@ impl Generator {
         };
         generator.generate_catalog();
         generator.generate_library();
+        generator.generate_users();
         generator.generate_user_library();
         generator.generate_discovery();
         generator
     }
 
+    fn generate_users(&self) {
+        for account in fixture::accounts() {
+            self.user.add_user(User {
+                id: account.user_id,
+                username: account.username.into(),
+                password_hash: account.password.into(),
+                role: account.role,
+                max_content_rating: None,
+                preferred_audio: Vec::new(),
+                preferred_subtitle: Vec::new(),
+                concurrent_stream_limit: None,
+                bitrate_cap: None,
+                created_at: ts(0),
+            });
+        }
+    }
+
     fn generate_catalog(&self) {
-        self.catalog.add_movie(movie("m1"));
-        self.catalog.add_series(series("s1"));
-        self.catalog.add_season(season("se1", "s1"));
-        self.catalog.add_episode(episode("e1", "se1"));
-        self.catalog.add_collection(saga_collection());
+        self.catalog.seed_movie_detail(fixture::movie_detail());
+        self.catalog
+            .seed_series_detail(fixture::series_detail_aggregate());
+        self.catalog.add_season(season_art("se1", "s1"));
+        self.catalog.add_episode(episode_art("e1", "se1"));
+        self.catalog.add_collection(collection_art());
+        for person in fixture::people() {
+            self.catalog.add_person(person);
+        }
+        self.catalog
+            .seed_filmography(&PersonId("p1".into()), fixture::p1_filmography());
         for version in fixture::catalog_versions() {
             self.catalog.add_version(version);
         }
+        self.catalog
+            .seed_version_detail(fixture::version_detail("v1"));
     }
 
     fn generate_library(&self) {
@@ -87,6 +116,7 @@ impl Generator {
                 paths: vec!["/a.mkv".into(), "/b.mkv".into()],
             },
         );
+        self.library.add_job(fixture::admin_job());
     }
 
     fn generate_user_library(&self) {
@@ -129,14 +159,19 @@ impl Generator {
                     position_ms: 10,
                     updated_at: ts(30),
                 },
+                card: fixture::resume_card(),
             },
         );
-        self.discovery.add_next_episode(&u1, episode("e1", "se1"));
-        self.discovery.add_next_movie(&u1, movie("m2"));
+        self.discovery
+            .add_next_episode(&u1, episode_art("e1", "se1"));
+        self.discovery.add_next_movie(&u1, movie_art("m2"));
         self.discovery.add_hub(Hub {
             id: "recent".into(),
             title: "Recently Added".into(),
-            items: vec![HubItem::Movie(movie("m1")), HubItem::Series(series("s1"))],
+            items: vec![
+                HubItem::Movie(movie_art("m1")),
+                HubItem::Series(series_art("s1")),
+            ],
         });
     }
 }

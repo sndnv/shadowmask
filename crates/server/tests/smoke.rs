@@ -129,7 +129,7 @@ async fn transcodes_fixture_and_serves_a_segment_end_to_end() {
             expires_at: Timestamp::from_second(Timestamp::now().as_second() + 3600).unwrap(),
             nonce: String::new(),
         })
-        .expect("token mint should succeed")
+        .expect("token creation should succeed")
         .0;
 
     let app = stream_router(StreamState::new(tokens, source));

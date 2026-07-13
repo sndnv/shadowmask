@@ -1,20 +1,18 @@
 use std::collections::HashSet;
 
 use domain::catalog::VersionId;
-use domain::discovery::ContinueWatchingItem;
 use domain::playback::PlaybackProgress;
 
 pub fn continue_watching(
     progress: &[PlaybackProgress],
     completed: &HashSet<VersionId>,
-) -> Vec<ContinueWatchingItem> {
-    let mut items: Vec<ContinueWatchingItem> = progress
+) -> Vec<PlaybackProgress> {
+    let mut items: Vec<PlaybackProgress> = progress
         .iter()
         .filter(|p| p.position_ms > 0 && !completed.contains(&p.version))
         .cloned()
-        .map(|progress| ContinueWatchingItem { progress })
         .collect();
-    items.sort_by_key(|item| std::cmp::Reverse(item.progress.updated_at));
+    items.sort_by_key(|p| std::cmp::Reverse(p.updated_at));
     items
 }
 
@@ -33,8 +31,8 @@ mod tests {
         }
     }
 
-    fn versions(items: &[ContinueWatchingItem]) -> Vec<String> {
-        items.iter().map(|i| i.progress.version.0.clone()).collect()
+    fn versions(items: &[PlaybackProgress]) -> Vec<String> {
+        items.iter().map(|p| p.version.0.clone()).collect()
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use jiff::Timestamp;
 
+use crate::catalog::ArtworkRef;
 use crate::metadata::ContentRating;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -13,4 +14,5 @@ pub struct Series {
     pub overview: Option<String>,
     pub content_rating: Option<ContentRating>,
     pub added_at: Timestamp,
+    pub artwork: Vec<ArtworkRef>,
 }

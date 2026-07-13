@@ -1,0 +1,18 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "features": [
+      "hls",
+      "trickplay",
+      "transcoding",
+      "link_codes",
+      "api_tokens"
+    ],
+    "profile_version": 1,
+    "version": "[version]"
+  },
+  "status": 200
+}

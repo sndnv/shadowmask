@@ -5,13 +5,88 @@ expression: value
 {
   "body": {
     "added_at": "2023-11-14T22:13:21Z",
+    "artwork": {
+      "backdrop": {
+        "base": "/images/m1-backdrop",
+        "widths": [
+          480,
+          960
+        ]
+      },
+      "poster": {
+        "base": "/images/m1-poster",
+        "widths": [
+          180,
+          480,
+          960
+        ]
+      }
+    },
     "content_rating": {
       "code": "PG-13",
       "system": "MPAA"
     },
+    "credits": [
+      {
+        "character": "Hero",
+        "order": 0,
+        "person": {
+          "id": "p1",
+          "name": "Ada Lovelace"
+        },
+        "role": "actor"
+      },
+      {
+        "character": null,
+        "order": 1,
+        "person": {
+          "id": "p2",
+          "name": "Bob Director"
+        },
+        "role": "director"
+      }
+    ],
+    "external_ids": [
+      {
+        "source": "tmdb",
+        "value": "603"
+      },
+      {
+        "source": "imdb",
+        "value": "tt0133093"
+      }
+    ],
+    "extras": [
+      {
+        "kind": "trailer",
+        "title": "Teaser"
+      }
+    ],
+    "genres": [
+      {
+        "id": "g-action",
+        "name": "Action"
+      },
+      {
+        "id": "g-drama",
+        "name": "Drama"
+      }
+    ],
     "id": "m1",
     "overview": "overview",
+    "ratings": [
+      {
+        "source": "tmdb",
+        "value": 8.5
+      }
+    ],
     "runtime_minutes": 100,
+    "studios": [
+      {
+        "id": "st-acme",
+        "name": "Acme Studios"
+      }
+    ],
     "title": "Alpha m1",
     "year": 2020
   },

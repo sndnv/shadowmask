@@ -1,27 +1,36 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use domain::catalog::{
-    Collection, CollectionId, CollectionUpdate, Episode, EpisodeId, Movie, MovieId, NewCollection,
-    Season, SeasonId, Series, SeriesId, TitleId, Version, VersionDetail, VersionId,
+    Collection, CollectionId, CollectionUpdate, Episode, EpisodeId, Movie, MovieDetail, MovieId,
+    NewCollection, PersonProfile, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleCard,
+    TitleId, TitleListQuery, TitleRef, Version, VersionDetail, VersionId,
 };
 use domain::common::{Page, PageRequest};
-use domain::discovery::{ContinueWatchingItem, Hub, SearchResult};
+use domain::discovery::{ContinueWatchingItem, Hub, SearchKind, SearchResult};
 use domain::error::{
     AuthError, CatalogError, DiscoveryError, LibraryError, SessionError, UserError,
 };
-use domain::library::{DuplicateCandidate, Library, LibraryId, ScanState, UnmatchedFile};
-use domain::playback::{Favorite, PlaybackProgress, WatchHistory, WatchlistItem};
+use domain::job::Job;
+use domain::library::{
+    DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryUpdate, NewLibrary,
+    ResolveCandidate, ResolveTarget, ScanState, UnmatchedFile, UnmatchedFileId,
+};
+use domain::metadata::{ExternalId, Genre, PersonId};
+use domain::playback::{
+    Favorite, PlaybackProgress, TitleState, WatchHistory, WatchTarget, WatchlistItem,
+};
 use domain::service::{
     AuthService, CatalogService, DiscoveryService, LibraryService, SessionService,
     UserLibraryService, UserService,
 };
 use domain::session::{
-    HeartbeatAck, PlaybackSession, PlaybackState, Renegotiated, SessionId, SessionStarted,
-    SessionUpdate, StartSessionRequest,
+    HeartbeatAck, NowPlaying, PlaybackSession, PlaybackState, Renegotiated, SessionId,
+    SessionStarted, SessionUpdate, StartSessionRequest,
 };
 use domain::user::{
-    DeviceRegistration, IssuedToken, LibraryAccess, NewUser, Principal, TokenPair, User, UserId,
-    UserProfileUpdate,
+    ApiToken, ApiTokenId, Device, DeviceId, DeviceRegistration, IssuedToken, LibraryAccess,
+    NewUser, PendingLink, Principal, TokenPair, User, UserId, UserProfileUpdate,
 };
 
 #[derive(Clone)]
@@ -81,6 +90,32 @@ impl<T, G> Clone for StreamState<T, G> {
     }
 }
 
+#[derive(Clone)]
+pub struct ImageState {
+    pub root: Arc<PathBuf>,
+}
+
+impl ImageState {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self {
+            root: Arc::new(root.into()),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct TrickplayState {
+    pub root: Arc<PathBuf>,
+}
+
+impl TrickplayState {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self {
+            root: Arc::new(root.into()),
+        }
+    }
+}
+
 impl<A, C, Se, L, U, Ul, D> AuthService for AppState<A, C, Se, L, U, Ul, D>
 where
     A: AuthService + Sync,
@@ -109,6 +144,39 @@ where
 
     async fn authenticate(&self, access_token: &str) -> Result<Principal, AuthError> {
         self.auth.authenticate(access_token).await
+    }
+
+    async fn create_link_code(
+        &self,
+        caller: &Principal,
+        user: Option<UserId>,
+        ttl_secs: Option<i64>,
+    ) -> Result<PendingLink, AuthError> {
+        self.auth.create_link_code(caller, user, ttl_secs).await
+    }
+
+    async fn logout(&self, refresh_token: &str) -> Result<(), AuthError> {
+        self.auth.logout(refresh_token).await
+    }
+
+    async fn logout_all(&self, user: &UserId) -> Result<(), AuthError> {
+        self.auth.logout_all(user).await
+    }
+
+    async fn list_devices(&self, user: &UserId) -> Result<Vec<Device>, AuthError> {
+        self.auth.list_devices(user).await
+    }
+
+    async fn list_api_tokens(&self, user: &UserId) -> Result<Vec<ApiToken>, AuthError> {
+        self.auth.list_api_tokens(user).await
+    }
+
+    async fn revoke_device(&self, user: &UserId, device: &DeviceId) -> Result<(), AuthError> {
+        self.auth.revoke_device(user, device).await
+    }
+
+    async fn revoke_api_token(&self, user: &UserId, token: &ApiTokenId) -> Result<(), AuthError> {
+        self.auth.revoke_api_token(user, token).await
     }
 }
 
@@ -166,28 +234,30 @@ where
     async fn movies(
         &self,
         caller: &Principal,
+        query: &TitleListQuery,
         page: PageRequest,
     ) -> Result<Page<Movie>, CatalogError> {
-        self.catalog.movies(caller, page).await
+        self.catalog.movies(caller, query, page).await
     }
 
-    async fn movie(&self, caller: &Principal, id: &MovieId) -> Result<Movie, CatalogError> {
+    async fn movie(&self, caller: &Principal, id: &MovieId) -> Result<MovieDetail, CatalogError> {
         self.catalog.movie(caller, id).await
     }
 
     async fn series(
         &self,
         caller: &Principal,
+        query: &TitleListQuery,
         page: PageRequest,
     ) -> Result<Page<Series>, CatalogError> {
-        self.catalog.series(caller, page).await
+        self.catalog.series(caller, query, page).await
     }
 
     async fn series_detail(
         &self,
         caller: &Principal,
         id: &SeriesId,
-    ) -> Result<Series, CatalogError> {
+    ) -> Result<SeriesDetail, CatalogError> {
         self.catalog.series_detail(caller, id).await
     }
 
@@ -239,6 +309,26 @@ where
         id: &VersionId,
     ) -> Result<VersionDetail, CatalogError> {
         self.catalog.version(caller, id).await
+    }
+
+    async fn person(
+        &self,
+        caller: &Principal,
+        id: &PersonId,
+    ) -> Result<PersonProfile, CatalogError> {
+        self.catalog.person(caller, id).await
+    }
+
+    async fn genres(&self, caller: &Principal) -> Result<Vec<Genre>, CatalogError> {
+        self.catalog.genres(caller).await
+    }
+
+    async fn title_cards(
+        &self,
+        caller: &Principal,
+        ids: &[TitleId],
+    ) -> Result<Vec<TitleCard>, CatalogError> {
+        self.catalog.title_cards(caller, ids).await
     }
 }
 
@@ -321,6 +411,27 @@ where
         self.library.library(caller, id).await
     }
 
+    async fn create_library(
+        &self,
+        caller: &Principal,
+        input: NewLibrary,
+    ) -> Result<Library, LibraryError> {
+        self.library.create_library(caller, input).await
+    }
+
+    async fn update_library(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+        update: LibraryUpdate,
+    ) -> Result<Library, LibraryError> {
+        self.library.update_library(caller, id, update).await
+    }
+
+    async fn delete_library(&self, caller: &Principal, id: &LibraryId) -> Result<(), LibraryError> {
+        self.library.delete_library(caller, id).await
+    }
+
     async fn scan_state(
         &self,
         caller: &Principal,
@@ -349,6 +460,61 @@ where
         page: PageRequest,
     ) -> Result<Page<DuplicateCandidate>, LibraryError> {
         self.library.duplicates(caller, id, page).await
+    }
+
+    async fn unmatched_candidates(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+        unmatched: &UnmatchedFileId,
+        query: Option<String>,
+    ) -> Result<Vec<ResolveCandidate>, LibraryError> {
+        self.library
+            .unmatched_candidates(caller, id, unmatched, query)
+            .await
+    }
+
+    async fn resolve_unmatched(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+        unmatched: &UnmatchedFileId,
+        target: ResolveTarget,
+    ) -> Result<(), LibraryError> {
+        self.library
+            .resolve_unmatched(caller, id, unmatched, target)
+            .await
+    }
+
+    async fn dismiss_duplicate(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+        duplicate: &DuplicateCandidateId,
+    ) -> Result<(), LibraryError> {
+        self.library.dismiss_duplicate(caller, id, duplicate).await
+    }
+
+    async fn resolve_duplicate(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+        duplicate: &DuplicateCandidateId,
+    ) -> Result<(), LibraryError> {
+        self.library.resolve_duplicate(caller, id, duplicate).await
+    }
+
+    async fn reidentify(
+        &self,
+        caller: &Principal,
+        title: TitleRef,
+        external_id: Option<ExternalId>,
+    ) -> Result<(), LibraryError> {
+        self.library.reidentify(caller, title, external_id).await
+    }
+
+    async fn jobs(&self, caller: &Principal) -> Result<Vec<Job>, LibraryError> {
+        self.library.jobs(caller).await
     }
 }
 
@@ -396,6 +562,18 @@ where
         libraries: &[LibraryId],
     ) -> Result<(), UserError> {
         self.user.set_library_access(id, libraries).await
+    }
+
+    async fn change_password(
+        &self,
+        actor: &Principal,
+        target: &UserId,
+        current: Option<&str>,
+        new_password: &str,
+    ) -> Result<(), UserError> {
+        self.user
+            .change_password(actor, target, current, new_password)
+            .await
     }
 }
 
@@ -450,6 +628,27 @@ where
     ) -> Result<Option<PlaybackProgress>, UserError> {
         self.user_library.progress(user, version).await
     }
+
+    async fn clear_progress(&self, user: &UserId, version: &VersionId) -> Result<(), UserError> {
+        self.user_library.clear_progress(user, version).await
+    }
+
+    async fn set_watched(
+        &self,
+        user: &UserId,
+        target: &WatchTarget,
+        watched: bool,
+    ) -> Result<(), UserError> {
+        self.user_library.set_watched(user, target, watched).await
+    }
+
+    async fn title_states(
+        &self,
+        user: &UserId,
+        titles: &[TitleId],
+    ) -> Result<Vec<TitleState>, UserError> {
+        self.user_library.title_states(user, titles).await
+    }
 }
 
 impl<A, C, Se, L, U, Ul, D> DiscoveryService for AppState<A, C, Se, L, U, Ul, D>
@@ -466,9 +665,10 @@ where
         &self,
         user: &UserId,
         query: &str,
+        types: &[SearchKind],
         page: PageRequest,
     ) -> Result<Page<SearchResult>, DiscoveryError> {
-        self.discovery.search(user, query, page).await
+        self.discovery.search(user, query, types, page).await
     }
 
     async fn continue_watching(
@@ -476,6 +676,13 @@ where
         user: &UserId,
     ) -> Result<Vec<ContinueWatchingItem>, DiscoveryError> {
         self.discovery.continue_watching(user).await
+    }
+
+    async fn now_playing(
+        &self,
+        sessions: Vec<PlaybackSession>,
+    ) -> Result<Vec<NowPlaying>, DiscoveryError> {
+        self.discovery.now_playing(sessions).await
     }
 
     async fn next_episodes(&self, user: &UserId) -> Result<Vec<Episode>, DiscoveryError> {

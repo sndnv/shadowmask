@@ -1,0 +1,17 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": [
+    {
+      "id": "g-action",
+      "name": "Action"
+    },
+    {
+      "id": "g-drama",
+      "name": "Drama"
+    }
+  ],
+  "status": 200
+}

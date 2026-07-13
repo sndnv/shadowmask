@@ -111,6 +111,8 @@ fn plan_trickplay(
     let asset = TrickplayAsset {
         version: version.clone(),
         interval_ms: config.interval_ms,
+        columns: config.columns,
+        rows: config.rows,
         tile_width: config.tile_width,
         tile_height: config.tile_height,
         sheet_paths,
@@ -183,6 +185,8 @@ mod tests {
             ]
         );
         assert_eq!(asset.interval_ms, 5_000);
+        assert_eq!(asset.columns, 4);
+        assert_eq!(asset.rows, 4);
         assert_eq!(asset.tile_width, 320);
         assert_eq!(asset.tile_height, 180);
         assert_eq!(asset.version, version());

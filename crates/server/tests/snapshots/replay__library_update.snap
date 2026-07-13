@@ -1,0 +1,18 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "id": "[id]",
+    "kind": "tv",
+    "metadata_sources": [],
+    "name": "Renamed Library",
+    "roots": [
+      "/media/renamed"
+    ],
+    "scan_schedule": "0 0 * * *",
+    "watcher": "scheduled"
+  },
+  "status": 200
+}

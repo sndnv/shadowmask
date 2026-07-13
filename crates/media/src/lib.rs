@@ -1,3 +1,4 @@
+pub mod artwork;
 pub mod cache;
 pub mod hls;
 pub mod probe;
