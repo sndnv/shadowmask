@@ -1,0 +1,18 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "id": "lib1",
+    "kind": "tv",
+    "metadata_sources": [],
+    "name": "Renamed Library",
+    "roots": [
+      "/media/renamed"
+    ],
+    "scan_schedule": "0 0 * * *",
+    "watcher": "scheduled"
+  },
+  "status": 200
+}

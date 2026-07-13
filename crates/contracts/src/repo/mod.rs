@@ -1,3 +1,4 @@
+mod auth;
 mod catalog;
 mod job;
 mod library;
@@ -6,6 +7,7 @@ mod progress;
 mod search;
 mod user;
 
+pub use auth::auth_token_repository_contract;
 pub use catalog::{CatalogSeed, catalog_repository_contract, catalog_seed};
 pub use job::job_repository_contract;
 pub use library::library_repository_contract;

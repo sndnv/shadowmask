@@ -1,8 +1,8 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use domain::library::{Library, LibraryKind, WatcherStrategy};
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LibraryKindDto {
     Movie,
@@ -18,7 +18,16 @@ impl From<LibraryKind> for LibraryKindDto {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+impl From<LibraryKindDto> for LibraryKind {
+    fn from(k: LibraryKindDto) -> Self {
+        match k {
+            LibraryKindDto::Movie => LibraryKind::Movie,
+            LibraryKindDto::Tv => LibraryKind::Tv,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WatcherStrategyDto {
     Local,
@@ -34,6 +43,17 @@ impl From<WatcherStrategy> for WatcherStrategyDto {
             WatcherStrategy::Polling => WatcherStrategyDto::Polling,
             WatcherStrategy::Scheduled => WatcherStrategyDto::Scheduled,
             WatcherStrategy::Manual => WatcherStrategyDto::Manual,
+        }
+    }
+}
+
+impl From<WatcherStrategyDto> for WatcherStrategy {
+    fn from(w: WatcherStrategyDto) -> Self {
+        match w {
+            WatcherStrategyDto::Local => WatcherStrategy::Local,
+            WatcherStrategyDto::Polling => WatcherStrategy::Polling,
+            WatcherStrategyDto::Scheduled => WatcherStrategy::Scheduled,
+            WatcherStrategyDto::Manual => WatcherStrategy::Manual,
         }
     }
 }
@@ -93,5 +113,27 @@ mod tests {
             WatcherStrategyDto::from(WatcherStrategy::Manual),
             WatcherStrategyDto::Manual
         ));
+    }
+
+    #[test]
+    fn maps_dto_kinds_and_watchers_back() {
+        assert_eq!(LibraryKind::from(LibraryKindDto::Movie), LibraryKind::Movie);
+        assert_eq!(LibraryKind::from(LibraryKindDto::Tv), LibraryKind::Tv);
+        assert_eq!(
+            WatcherStrategy::from(WatcherStrategyDto::Local),
+            WatcherStrategy::Local
+        );
+        assert_eq!(
+            WatcherStrategy::from(WatcherStrategyDto::Polling),
+            WatcherStrategy::Polling
+        );
+        assert_eq!(
+            WatcherStrategy::from(WatcherStrategyDto::Scheduled),
+            WatcherStrategy::Scheduled
+        );
+        assert_eq!(
+            WatcherStrategy::from(WatcherStrategyDto::Manual),
+            WatcherStrategy::Manual
+        );
     }
 }

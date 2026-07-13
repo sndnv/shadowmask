@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use domain::common::{Page, PageRequest};
 use domain::error::SessionError;
+use domain::media::{CreditsMarker, DetectedMarkers, IntroMarker, TrickplayAsset};
 use domain::service::SessionService;
 use domain::session::{
     DeliveryMode, HeartbeatAck, PlaybackSession, PlaybackState, Renegotiated, SelectedTracks,
@@ -77,6 +78,7 @@ impl SessionService for MockSessionService {
             subtitle_track: request.subtitle.as_ref().map(|s| s.track.clone()),
             subtitle_delivery: request.subtitle.as_ref().map(|_| SubtitleDelivery::HlsVtt),
         };
+        let version = request.version.clone();
         let session = PlaybackSession {
             id: id.clone(),
             user: user.clone(),
@@ -96,6 +98,27 @@ impl SessionService for MockSessionService {
             manifest_url: manifest_url(&id),
             selected,
             heartbeat_interval_s: HEARTBEAT_INTERVAL_S,
+            markers: DetectedMarkers {
+                intros: vec![IntroMarker {
+                    version: version.clone(),
+                    start_ms: 60_000,
+                    end_ms: 90_000,
+                }],
+                credits: vec![CreditsMarker {
+                    version: version.clone(),
+                    start_ms: 900_000,
+                    end_ms: 960_000,
+                }],
+            },
+            trickplay: vec![TrickplayAsset {
+                version,
+                interval_ms: 10_000,
+                columns: 5,
+                rows: 5,
+                tile_width: 320,
+                tile_height: 180,
+                sheet_paths: vec!["sheet-000.jpg".into(), "sheet-001.jpg".into()],
+            }],
         })
     }
 

@@ -24,10 +24,7 @@ fn page(offset: u32, limit: u32) -> PageRequest {
 #[tokio::test]
 async fn library_repository_contract_holds_for_sqlite() {
     let (_dir, repo) = repo().await;
-    library_repository_contract(repo, async |repo: &SqliteLibraryRepo, library| {
-        repo.insert_library(library).await.unwrap();
-    })
-    .await;
+    library_repository_contract(repo).await;
 }
 
 #[tokio::test]

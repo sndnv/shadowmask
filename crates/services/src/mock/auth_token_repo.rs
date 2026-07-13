@@ -4,13 +4,17 @@ use std::sync::{Arc, Mutex};
 
 use domain::error::RepositoryError;
 use domain::repository::AuthTokenRepository;
-use domain::user::{AuthSession, AuthSessionId, PendingLink, UserId};
+use domain::user::{
+    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, PendingLink, UserId,
+};
 use jiff::Timestamp;
 
 #[derive(Default)]
 struct State {
     refresh: HashMap<AuthSessionId, AuthSession>,
     links: HashMap<String, PendingLink>,
+    devices: HashMap<DeviceId, Device>,
+    api_tokens: HashMap<String, ApiToken>,
 }
 
 #[derive(Clone, Default)]
@@ -96,6 +100,85 @@ impl AuthTokenRepository for MockAuthTokenRepo {
             _ => Ok(None),
         }
     }
+
+    async fn upsert_device(&self, device: Device) -> Result<(), RepositoryError> {
+        self.guard()?;
+        self.state
+            .lock()
+            .unwrap()
+            .devices
+            .insert(device.id.clone(), device);
+        Ok(())
+    }
+
+    async fn get_device(&self, id: &DeviceId) -> Result<Option<Device>, RepositoryError> {
+        self.guard()?;
+        Ok(self.state.lock().unwrap().devices.get(id).cloned())
+    }
+
+    async fn store_api_token(&self, token: ApiToken) -> Result<(), RepositoryError> {
+        self.guard()?;
+        self.state
+            .lock()
+            .unwrap()
+            .api_tokens
+            .insert(token.token_hash.clone(), token);
+        Ok(())
+    }
+
+    async fn find_api_token_by_hash(
+        &self,
+        hash: &str,
+    ) -> Result<Option<ApiToken>, RepositoryError> {
+        self.guard()?;
+        Ok(self.state.lock().unwrap().api_tokens.get(hash).cloned())
+    }
+
+    async fn list_devices(&self, user: &UserId) -> Result<Vec<Device>, RepositoryError> {
+        self.guard()?;
+        let mut devices: Vec<Device> = self
+            .state
+            .lock()
+            .unwrap()
+            .devices
+            .values()
+            .filter(|device| &device.user == user)
+            .cloned()
+            .collect();
+        devices.sort_by(|a, b| a.id.0.cmp(&b.id.0));
+        Ok(devices)
+    }
+
+    async fn list_api_tokens(&self, user: &UserId) -> Result<Vec<ApiToken>, RepositoryError> {
+        self.guard()?;
+        let mut tokens: Vec<ApiToken> = self
+            .state
+            .lock()
+            .unwrap()
+            .api_tokens
+            .values()
+            .filter(|token| &token.user == user)
+            .cloned()
+            .collect();
+        tokens.sort_by(|a, b| a.id.0.cmp(&b.id.0));
+        Ok(tokens)
+    }
+
+    async fn delete_device(&self, id: &DeviceId) -> Result<(), RepositoryError> {
+        self.guard()?;
+        self.state.lock().unwrap().devices.remove(id);
+        Ok(())
+    }
+
+    async fn revoke_api_token(&self, id: &ApiTokenId) -> Result<(), RepositoryError> {
+        self.guard()?;
+        self.state
+            .lock()
+            .unwrap()
+            .api_tokens
+            .retain(|_, token| &token.id != id);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -120,6 +203,101 @@ mod tests {
             role: Role::Player,
             expires_at,
         }
+    }
+
+    fn device(id: &str) -> Device {
+        Device {
+            id: DeviceId(id.to_owned()),
+            user: UserId("u1".to_owned()),
+            name: "Roku".to_owned(),
+            platform: "roku".to_owned(),
+            last_seen: Some(Timestamp::UNIX_EPOCH),
+        }
+    }
+
+    fn api_token(id: &str, hash: &str) -> ApiToken {
+        ApiToken {
+            id: ApiTokenId(id.to_owned()),
+            user: UserId("u1".to_owned()),
+            device: DeviceId("d1".to_owned()),
+            token_hash: hash.to_owned(),
+            created_at: Timestamp::UNIX_EPOCH,
+        }
+    }
+
+    #[tokio::test]
+    async fn list_and_revoke_scoped_by_user() {
+        let repo = MockAuthTokenRepo::new();
+        repo.upsert_device(device("d1")).await.unwrap();
+        repo.upsert_device(Device {
+            user: UserId("u2".into()),
+            ..device("d2")
+        })
+        .await
+        .unwrap();
+        repo.store_api_token(api_token("t1", "h1")).await.unwrap();
+        repo.store_api_token(ApiToken {
+            user: UserId("u2".into()),
+            ..api_token("t2", "h2")
+        })
+        .await
+        .unwrap();
+
+        let u1 = UserId("u1".into());
+        assert_eq!(repo.list_devices(&u1).await.unwrap().len(), 1);
+        let tokens = repo.list_api_tokens(&u1).await.unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].id, ApiTokenId("t1".into()));
+
+        repo.revoke_api_token(&ApiTokenId("t1".into()))
+            .await
+            .unwrap();
+        assert!(repo.list_api_tokens(&u1).await.unwrap().is_empty());
+        repo.revoke_api_token(&ApiTokenId("t1".into()))
+            .await
+            .unwrap();
+
+        repo.delete_device(&DeviceId("d1".into())).await.unwrap();
+        assert!(repo.list_devices(&u1).await.unwrap().is_empty());
+        repo.delete_device(&DeviceId("d1".into())).await.unwrap();
+
+        let u2 = UserId("u2".into());
+        assert_eq!(repo.list_devices(&u2).await.unwrap().len(), 1);
+        assert_eq!(repo.list_api_tokens(&u2).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn device_and_api_token_round_trip() {
+        let repo = MockAuthTokenRepo::new();
+        repo.upsert_device(device("d1")).await.unwrap();
+        assert_eq!(
+            repo.get_device(&DeviceId("d1".into()))
+                .await
+                .unwrap()
+                .unwrap()
+                .name,
+            "Roku"
+        );
+        assert!(
+            repo.get_device(&DeviceId("missing".into()))
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        repo.store_api_token(api_token("t1", "hash-1"))
+            .await
+            .unwrap();
+        assert_eq!(
+            repo.find_api_token_by_hash("hash-1")
+                .await
+                .unwrap()
+                .unwrap()
+                .id
+                .0,
+            "t1"
+        );
+        assert!(repo.find_api_token_by_hash("nope").await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -210,6 +388,18 @@ mod tests {
         );
         assert!(
             repo.redeem_link_code("X", Timestamp::UNIX_EPOCH)
+                .await
+                .is_err()
+        );
+        assert!(repo.upsert_device(device("d1")).await.is_err());
+        assert!(repo.get_device(&DeviceId("d1".into())).await.is_err());
+        assert!(repo.store_api_token(api_token("t1", "h")).await.is_err());
+        assert!(repo.find_api_token_by_hash("h").await.is_err());
+        assert!(repo.list_devices(&UserId("u1".into())).await.is_err());
+        assert!(repo.list_api_tokens(&UserId("u1".into())).await.is_err());
+        assert!(repo.delete_device(&DeviceId("d1".into())).await.is_err());
+        assert!(
+            repo.revoke_api_token(&ApiTokenId("t1".into()))
                 .await
                 .is_err()
         );

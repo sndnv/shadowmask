@@ -4,6 +4,23 @@ expression: value
 ---
 {
   "body": {
+    "artwork": {
+      "backdrop": {
+        "base": "/images/c1-backdrop",
+        "widths": [
+          480,
+          960
+        ]
+      },
+      "poster": {
+        "base": "/images/c1-poster",
+        "widths": [
+          180,
+          480,
+          960
+        ]
+      }
+    },
     "id": "[id]",
     "movies": [
       "m1"

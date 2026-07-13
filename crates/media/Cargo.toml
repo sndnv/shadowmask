@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 domain.workspace = true
-tokio = { workspace = true, features = ["process", "sync", "rt"] }
+tokio = { workspace = true, features = ["process", "sync", "rt", "fs"] }
 serde = { workspace = true }
 serde_json.workspace = true
 jiff.workspace = true

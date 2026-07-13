@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use domain::catalog::Movie;
 
-use crate::dto::common::ContentRatingDto;
+use crate::dto::common::{ArtworkDto, ContentRatingDto};
 
 #[derive(Debug, Serialize)]
 pub struct MovieResponse {
@@ -13,6 +13,7 @@ pub struct MovieResponse {
     pub runtime_minutes: Option<u32>,
     pub content_rating: Option<ContentRatingDto>,
     pub added_at: String,
+    pub artwork: ArtworkDto,
 }
 
 impl From<Movie> for MovieResponse {
@@ -25,6 +26,7 @@ impl From<Movie> for MovieResponse {
             runtime_minutes: m.runtime_minutes,
             content_rating: m.content_rating.map(Into::into),
             added_at: m.added_at.to_string(),
+            artwork: ArtworkDto::from_refs(m.artwork),
         }
     }
 }

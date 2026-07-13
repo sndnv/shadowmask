@@ -40,6 +40,7 @@ fn kind_to_str(kind: JobKind) -> &'static str {
         JobKind::Dedup => "dedup",
         JobKind::CacheEviction => "cache_eviction",
         JobKind::SearchReindex => "search_reindex",
+        JobKind::Ingest => "ingest",
     }
 }
 
@@ -54,6 +55,7 @@ fn kind_from_str(value: &str) -> Result<JobKind, RepositoryError> {
         "dedup" => Ok(JobKind::Dedup),
         "cache_eviction" => Ok(JobKind::CacheEviction),
         "search_reindex" => Ok(JobKind::SearchReindex),
+        "ingest" => Ok(JobKind::Ingest),
         other => Err(backend(format!("unknown job kind: {other}"))),
     }
 }
@@ -209,6 +211,7 @@ mod tests {
             JobKind::Dedup,
             JobKind::CacheEviction,
             JobKind::SearchReindex,
+            JobKind::Ingest,
         ] {
             assert_eq!(kind_from_str(kind_to_str(kind)).unwrap(), kind);
         }

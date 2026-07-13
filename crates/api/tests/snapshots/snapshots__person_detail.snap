@@ -1,0 +1,63 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "filmography": [
+      {
+        "artwork": {
+          "backdrop": {
+            "base": "/images/m1-backdrop",
+            "widths": [
+              480,
+              960
+            ]
+          },
+          "poster": {
+            "base": "/images/m1-poster",
+            "widths": [
+              180,
+              480,
+              960
+            ]
+          }
+        },
+        "character": "Hero",
+        "display_title": "Alpha m1",
+        "kind": "movie",
+        "role": "actor",
+        "title_id": "m1",
+        "year": 2020
+      },
+      {
+        "artwork": {
+          "backdrop": {
+            "base": "/images/s1-backdrop",
+            "widths": [
+              480,
+              960
+            ]
+          },
+          "poster": {
+            "base": "/images/s1-poster",
+            "widths": [
+              180,
+              480,
+              960
+            ]
+          }
+        },
+        "character": "Lead",
+        "display_title": "Alpha s1",
+        "kind": "series",
+        "role": "actor",
+        "title_id": "s1",
+        "year": 2019
+      }
+    ],
+    "id": "p1",
+    "name": "Ada Lovelace"
+  },
+  "status": 200
+}

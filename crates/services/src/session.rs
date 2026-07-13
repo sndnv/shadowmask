@@ -154,7 +154,7 @@ where
     U: UserRepository + Send + Sync,
     Pg: ProgressRepository + Send + Sync,
 {
-    fn mint_token(
+    fn create_token(
         &self,
         session: &SessionId,
         user: &UserId,
@@ -278,7 +278,7 @@ where
 
         let session_id = SessionId(Uuid::new_v4().to_string());
         let now = Timestamp::now();
-        let token = self.mint_token(&session_id, &caller.user, &request.version)?;
+        let token = self.create_token(&session_id, &caller.user, &request.version)?;
         let ctx = LaunchContext {
             capabilities: request.capabilities.clone(),
             requested_audio: request.audio_track,
@@ -317,6 +317,8 @@ where
             manifest_url,
             selected,
             heartbeat_interval_s: HEARTBEAT_INTERVAL_S,
+            markers: detail.markers,
+            trickplay: detail.trickplay,
         })
     }
 
@@ -400,7 +402,7 @@ where
             .await?
             .ok_or(SessionError::VersionNotFound)?;
 
-        let token = self.mint_token(session, &playback.user, &playback.version)?;
+        let token = self.create_token(session, &playback.user, &playback.version)?;
         let (mode, selected) = self.launch(session, &detail, &ctx, position_ms).await?;
         let manifest_url = manifest_path(mode, &token);
 
@@ -455,7 +457,7 @@ where
             .await?
             .ok_or(SessionError::VersionNotFound)?;
 
-        let token = self.mint_token(session, &playback.user, &playback.version)?;
+        let token = self.create_token(session, &playback.user, &playback.version)?;
         let (mode, selected) = self
             .launch(session, &detail, &ctx, playback.position_ms)
             .await?;

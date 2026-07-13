@@ -98,6 +98,16 @@ impl ProgressRepository for SqliteProgressRepo {
         Ok(())
     }
 
+    async fn delete(&self, user: &UserId, version: &VersionId) -> Result<(), RepositoryError> {
+        let pool = self.pools.get(user).await?;
+        sqlx::query("DELETE FROM playback_progress WHERE version_id = ?")
+            .bind(version.0.as_str())
+            .execute(&pool)
+            .await
+            .map_err(backend)?;
+        Ok(())
+    }
+
     async fn list_in_progress(
         &self,
         user: &UserId,
@@ -178,5 +188,6 @@ mod tests {
         repo.list_in_progress(&user).await.unwrap();
         repo.pools.close_cached().await;
         assert!(repo.list_in_progress(&user).await.is_err());
+        assert!(repo.delete(&user, &VersionId("v1".into())).await.is_err());
     }
 }

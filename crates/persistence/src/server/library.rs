@@ -4,7 +4,7 @@ use domain::common::{Page, PageRequest};
 use domain::error::RepositoryError;
 use domain::library::{
     DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryKind, MatchCandidate,
-    ScanState, ScanStatus, UnmatchedFile, UnmatchedFileId, WatcherStrategy,
+    ResolutionStatus, ScanState, ScanStatus, UnmatchedFile, UnmatchedFileId, WatcherStrategy,
 };
 use domain::repository::LibraryRepository;
 use sqlx::SqlitePool;
@@ -74,81 +74,6 @@ impl SqliteLibraryRepo {
             .bind(id)
             .bind(ordinal as i64)
             .bind(source.as_str())
-            .execute(&mut *tx)
-            .await
-            .map_err(backend)?;
-        }
-        tx.commit().await.map_err(backend)?;
-        Ok(())
-    }
-
-    pub async fn insert_unmatched(&self, file: UnmatchedFile) -> Result<(), RepositoryError> {
-        let mut tx = self.pool.begin().await.map_err(backend)?;
-        let id = file.id.0.as_str();
-        sqlx::query(
-            "INSERT OR REPLACE INTO unmatched_files (id, library_id, path) VALUES (?, ?, ?)",
-        )
-        .bind(id)
-        .bind(file.library.0.as_str())
-        .bind(file.path.as_str())
-        .execute(&mut *tx)
-        .await
-        .map_err(backend)?;
-        sqlx::query("DELETE FROM unmatched_candidates WHERE unmatched_id = ?")
-            .bind(id)
-            .execute(&mut *tx)
-            .await
-            .map_err(backend)?;
-        for (ordinal, candidate) in file.candidates.iter().enumerate() {
-            sqlx::query(
-                "INSERT INTO unmatched_candidates \
-                 (unmatched_id, ordinal, title_kind, title_id, confidence, label) \
-                 VALUES (?, ?, ?, ?, ?, ?)",
-            )
-            .bind(id)
-            .bind(ordinal as i64)
-            .bind(title_kind(&candidate.title))
-            .bind(candidate.title.id())
-            .bind(f64::from(candidate.confidence))
-            .bind(candidate.label.as_str())
-            .execute(&mut *tx)
-            .await
-            .map_err(backend)?;
-        }
-        tx.commit().await.map_err(backend)?;
-        Ok(())
-    }
-
-    pub async fn insert_duplicate(
-        &self,
-        library: &LibraryId,
-        duplicate: DuplicateCandidate,
-    ) -> Result<(), RepositoryError> {
-        let mut tx = self.pool.begin().await.map_err(backend)?;
-        let id = duplicate.id.0.as_str();
-        sqlx::query(
-            "INSERT OR REPLACE INTO duplicate_candidates (id, library_id, title_kind, title_id) \
-             VALUES (?, ?, ?, ?)",
-        )
-        .bind(id)
-        .bind(library.0.as_str())
-        .bind(title_kind(&duplicate.title))
-        .bind(duplicate.title.id())
-        .execute(&mut *tx)
-        .await
-        .map_err(backend)?;
-        sqlx::query("DELETE FROM duplicate_paths WHERE duplicate_id = ?")
-            .bind(id)
-            .execute(&mut *tx)
-            .await
-            .map_err(backend)?;
-        for (ordinal, path) in duplicate.paths.iter().enumerate() {
-            sqlx::query(
-                "INSERT INTO duplicate_paths (duplicate_id, ordinal, path) VALUES (?, ?, ?)",
-            )
-            .bind(id)
-            .bind(ordinal as i64)
-            .bind(path.as_str())
             .execute(&mut *tx)
             .await
             .map_err(backend)?;
@@ -269,6 +194,14 @@ fn scan_status_from_str(value: &str) -> Result<ScanStatus, RepositoryError> {
     }
 }
 
+fn resolution_status_to_str(status: ResolutionStatus) -> &'static str {
+    match status {
+        ResolutionStatus::Active => "active",
+        ResolutionStatus::Resolved => "resolved",
+        ResolutionStatus::Dismissed => "dismissed",
+    }
+}
+
 fn row_to_candidate(row: &SqliteRow) -> Result<MatchCandidate, RepositoryError> {
     Ok(MatchCandidate {
         title: title_from_parts(
@@ -351,6 +284,37 @@ impl LibraryRepository for SqliteLibraryRepo {
         Ok(())
     }
 
+    async fn upsert(&self, library: Library) -> Result<(), RepositoryError> {
+        self.insert_library(library).await
+    }
+
+    async fn delete(&self, id: &LibraryId) -> Result<(), RepositoryError> {
+        let mut tx = self.pool.begin().await.map_err(backend)?;
+        let key = id.0.as_str();
+        sqlx::query("DELETE FROM scan_state WHERE library_id = ?")
+            .bind(key)
+            .execute(&mut *tx)
+            .await
+            .map_err(backend)?;
+        sqlx::query("DELETE FROM unmatched_files WHERE library_id = ?")
+            .bind(key)
+            .execute(&mut *tx)
+            .await
+            .map_err(backend)?;
+        sqlx::query("DELETE FROM duplicate_candidates WHERE library_id = ?")
+            .bind(key)
+            .execute(&mut *tx)
+            .await
+            .map_err(backend)?;
+        sqlx::query("DELETE FROM libraries WHERE id = ?")
+            .bind(key)
+            .execute(&mut *tx)
+            .await
+            .map_err(backend)?;
+        tx.commit().await.map_err(backend)?;
+        Ok(())
+    }
+
     async fn list_unmatched(
         &self,
         id: &LibraryId,
@@ -358,12 +322,13 @@ impl LibraryRepository for SqliteLibraryRepo {
     ) -> Result<Page<UnmatchedFile>, RepositoryError> {
         let total = count(
             &self.pool,
-            "SELECT COUNT(*) AS n FROM unmatched_files WHERE library_id = ?",
+            "SELECT COUNT(*) AS n FROM unmatched_files WHERE library_id = ? AND status = 'active'",
             id.0.as_str(),
         )
         .await?;
         let rows = sqlx::query(
-            "SELECT * FROM unmatched_files WHERE library_id = ? ORDER BY id LIMIT ? OFFSET ?",
+            "SELECT * FROM unmatched_files WHERE library_id = ? AND status = 'active' \
+             ORDER BY id LIMIT ? OFFSET ?",
         )
         .bind(id.0.as_str())
         .bind(i64::from(page.limit))
@@ -397,12 +362,14 @@ impl LibraryRepository for SqliteLibraryRepo {
     ) -> Result<Page<DuplicateCandidate>, RepositoryError> {
         let total = count(
             &self.pool,
-            "SELECT COUNT(*) AS n FROM duplicate_candidates WHERE library_id = ?",
+            "SELECT COUNT(*) AS n FROM duplicate_candidates \
+             WHERE library_id = ? AND status = 'active'",
             id.0.as_str(),
         )
         .await?;
         let rows = sqlx::query(
-            "SELECT * FROM duplicate_candidates WHERE library_id = ? ORDER BY id LIMIT ? OFFSET ?",
+            "SELECT * FROM duplicate_candidates WHERE library_id = ? AND status = 'active' \
+             ORDER BY id LIMIT ? OFFSET ?",
         )
         .bind(id.0.as_str())
         .bind(i64::from(page.limit))
@@ -429,6 +396,136 @@ impl LibraryRepository for SqliteLibraryRepo {
             offset: page.offset,
             limit: page.limit,
         })
+    }
+
+    async fn get_unmatched(
+        &self,
+        id: &UnmatchedFileId,
+    ) -> Result<Option<UnmatchedFile>, RepositoryError> {
+        let row = sqlx::query("SELECT * FROM unmatched_files WHERE id = ?")
+            .bind(id.0.as_str())
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(backend)?;
+        match row {
+            Some(row) => {
+                let uid: String = column(&row, "id")?;
+                let candidates = self.load_candidates(&uid).await?;
+                Ok(Some(UnmatchedFile {
+                    library: LibraryId(column(&row, "library_id")?),
+                    path: column(&row, "path")?,
+                    candidates,
+                    id: UnmatchedFileId(uid),
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn insert_unmatched(&self, file: UnmatchedFile) -> Result<(), RepositoryError> {
+        let mut tx = self.pool.begin().await.map_err(backend)?;
+        let id = file.id.0.as_str();
+        sqlx::query(
+            "INSERT INTO unmatched_files (id, library_id, path) VALUES (?, ?, ?) \
+             ON CONFLICT(id) DO UPDATE SET library_id = excluded.library_id, path = excluded.path",
+        )
+        .bind(id)
+        .bind(file.library.0.as_str())
+        .bind(file.path.as_str())
+        .execute(&mut *tx)
+        .await
+        .map_err(backend)?;
+        sqlx::query("DELETE FROM unmatched_candidates WHERE unmatched_id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(backend)?;
+        for (ordinal, candidate) in file.candidates.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO unmatched_candidates \
+                 (unmatched_id, ordinal, title_kind, title_id, confidence, label) \
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(ordinal as i64)
+            .bind(title_kind(&candidate.title))
+            .bind(candidate.title.id())
+            .bind(f64::from(candidate.confidence))
+            .bind(candidate.label.as_str())
+            .execute(&mut *tx)
+            .await
+            .map_err(backend)?;
+        }
+        tx.commit().await.map_err(backend)?;
+        Ok(())
+    }
+
+    async fn insert_duplicate(
+        &self,
+        library: &LibraryId,
+        duplicate: DuplicateCandidate,
+    ) -> Result<(), RepositoryError> {
+        let mut tx = self.pool.begin().await.map_err(backend)?;
+        let id = duplicate.id.0.as_str();
+        sqlx::query(
+            "INSERT INTO duplicate_candidates (id, library_id, title_kind, title_id) \
+             VALUES (?, ?, ?, ?) \
+             ON CONFLICT(id) DO UPDATE SET library_id = excluded.library_id, \
+             title_kind = excluded.title_kind, title_id = excluded.title_id",
+        )
+        .bind(id)
+        .bind(library.0.as_str())
+        .bind(title_kind(&duplicate.title))
+        .bind(duplicate.title.id())
+        .execute(&mut *tx)
+        .await
+        .map_err(backend)?;
+        sqlx::query("DELETE FROM duplicate_paths WHERE duplicate_id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(backend)?;
+        for (ordinal, path) in duplicate.paths.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO duplicate_paths (duplicate_id, ordinal, path) VALUES (?, ?, ?)",
+            )
+            .bind(id)
+            .bind(ordinal as i64)
+            .bind(path.as_str())
+            .execute(&mut *tx)
+            .await
+            .map_err(backend)?;
+        }
+        tx.commit().await.map_err(backend)?;
+        Ok(())
+    }
+
+    async fn set_unmatched_status(
+        &self,
+        id: &UnmatchedFileId,
+        status: ResolutionStatus,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE unmatched_files SET status = ? WHERE id = ?")
+            .bind(resolution_status_to_str(status))
+            .bind(id.0.as_str())
+            .execute(&self.pool)
+            .await
+            .map_err(backend)?;
+        Ok(())
+    }
+
+    async fn set_duplicate_status(
+        &self,
+        id: &DuplicateCandidateId,
+        status: ResolutionStatus,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE duplicate_candidates SET status = ? WHERE id = ?")
+            .bind(resolution_status_to_str(status))
+            .bind(id.0.as_str())
+            .execute(&self.pool)
+            .await
+            .map_err(backend)?;
+        Ok(())
     }
 }
 

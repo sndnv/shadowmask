@@ -3,19 +3,28 @@ use std::future::Future;
 use jiff::Timestamp;
 
 use crate::catalog::{
-    Collection, CollectionId, Episode, EpisodeId, Movie, MovieId, Season, SeasonId, Series,
-    SeriesId, TitleId, Version, VersionDetail, VersionId,
+    ArtworkOwner, ArtworkRef, Collection, CollectionId, Episode, EpisodeId, Movie, MovieDetail,
+    MovieId, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId, TitleKind, TitleRef,
+    Version, VersionDetail, VersionId,
 };
 use crate::common::{Page, PageRequest};
-use crate::discovery::SearchResult;
+use crate::discovery::{SearchKind, SearchResult};
 use crate::error::RepositoryError;
 use crate::job::{Job, JobId};
-use crate::library::{DuplicateCandidate, Library, LibraryId, ScanState, UnmatchedFile};
+use crate::library::{
+    DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, ResolutionStatus, ScanState,
+    UnmatchedFile, UnmatchedFileId,
+};
+use crate::media::{AudioTrack, Chapter, EmbeddedSubtitleTrack, TrickplayAsset, VideoTrack};
+use crate::metadata::{Credit, Genre, GenreId, Person, PersonId, TitleEnrichment};
 use crate::playback::{
     Favorite, PlaybackProgress, SubtitleTrackRef, UserSubtitleOffset, WatchHistory, WatchlistItem,
 };
 use crate::session::{PlaybackSession, SessionId};
-use crate::user::{AuthSession, AuthSessionId, LibraryAccess, PendingLink, User, UserId};
+use crate::user::{
+    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, LibraryAccess, PendingLink,
+    User, UserId,
+};
 
 pub trait CatalogRepository {
     fn list_movies(
@@ -80,6 +89,89 @@ pub trait CatalogRepository {
         &self,
         id: &VersionId,
     ) -> impl Future<Output = Result<Option<VersionDetail>, RepositoryError>> + Send;
+    fn upsert_movie(
+        &self,
+        movie: Movie,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn upsert_series(
+        &self,
+        series: Series,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn upsert_season(
+        &self,
+        season: Season,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn upsert_episode(
+        &self,
+        episode: Episode,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn upsert_version(
+        &self,
+        version: Version,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn set_artwork(
+        &self,
+        owner: &ArtworkOwner,
+        refs: &[ArtworkRef],
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn list_artwork(
+        &self,
+        owner: &ArtworkOwner,
+    ) -> impl Future<Output = Result<Vec<ArtworkRef>, RepositoryError>> + Send;
+    fn set_version_tracks(
+        &self,
+        version: &VersionId,
+        video: &[VideoTrack],
+        audio: &[AudioTrack],
+        subtitles: &[EmbeddedSubtitleTrack],
+        chapters: &[Chapter],
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn set_trickplay(
+        &self,
+        version: &VersionId,
+        assets: &[TrickplayAsset],
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn upsert_person(
+        &self,
+        person: Person,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn get_person(
+        &self,
+        id: &PersonId,
+    ) -> impl Future<Output = Result<Option<Person>, RepositoryError>> + Send;
+    fn set_title_enrichment(
+        &self,
+        owner: &TitleRef,
+        enrichment: &TitleEnrichment,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn movie_detail(
+        &self,
+        id: &MovieId,
+    ) -> impl Future<Output = Result<Option<MovieDetail>, RepositoryError>> + Send;
+    fn series_detail(
+        &self,
+        id: &SeriesId,
+    ) -> impl Future<Output = Result<Option<SeriesDetail>, RepositoryError>> + Send;
+    fn filmography(
+        &self,
+        id: &PersonId,
+    ) -> impl Future<Output = Result<Vec<Credit>, RepositoryError>> + Send;
+    fn list_genres(&self) -> impl Future<Output = Result<Vec<Genre>, RepositoryError>> + Send;
+    fn list_movies_by_genre(
+        &self,
+        genre: &GenreId,
+        page: PageRequest,
+    ) -> impl Future<Output = Result<Page<Movie>, RepositoryError>> + Send;
+    fn list_series_by_genre(
+        &self,
+        genre: &GenreId,
+        page: PageRequest,
+    ) -> impl Future<Output = Result<Page<Series>, RepositoryError>> + Send;
+    fn titles_in_library(
+        &self,
+        kind: TitleKind,
+        library: &LibraryId,
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 }
 
 pub trait VersionCatalog {
@@ -112,6 +204,8 @@ pub trait LibraryRepository {
         &self,
         state: ScanState,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn upsert(&self, library: Library) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn delete(&self, id: &LibraryId) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     fn list_unmatched(
         &self,
         id: &LibraryId,
@@ -122,6 +216,29 @@ pub trait LibraryRepository {
         id: &LibraryId,
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<DuplicateCandidate>, RepositoryError>> + Send;
+    fn get_unmatched(
+        &self,
+        id: &UnmatchedFileId,
+    ) -> impl Future<Output = Result<Option<UnmatchedFile>, RepositoryError>> + Send;
+    fn insert_unmatched(
+        &self,
+        file: UnmatchedFile,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn insert_duplicate(
+        &self,
+        library: &LibraryId,
+        duplicate: DuplicateCandidate,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn set_unmatched_status(
+        &self,
+        id: &UnmatchedFileId,
+        status: ResolutionStatus,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn set_duplicate_status(
+        &self,
+        id: &DuplicateCandidateId,
+        status: ResolutionStatus,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }
 
 pub trait UserRepository {
@@ -160,6 +277,11 @@ pub trait ProgressRepository {
     fn upsert(
         &self,
         progress: PlaybackProgress,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn delete(
+        &self,
+        user: &UserId,
+        version: &VersionId,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     fn list_in_progress(
         &self,
@@ -219,6 +341,7 @@ pub trait SearchIndex {
     fn search(
         &self,
         query: &str,
+        types: &[SearchKind],
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<SearchResult>, RepositoryError>> + Send;
     fn rebuild(&self) -> impl Future<Output = Result<(), RepositoryError>> + Send;
@@ -282,4 +405,36 @@ pub trait AuthTokenRepository {
         code: &str,
         now: Timestamp,
     ) -> impl Future<Output = Result<Option<PendingLink>, RepositoryError>> + Send;
+    fn upsert_device(
+        &self,
+        device: Device,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn get_device(
+        &self,
+        id: &DeviceId,
+    ) -> impl Future<Output = Result<Option<Device>, RepositoryError>> + Send;
+    fn store_api_token(
+        &self,
+        token: ApiToken,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn find_api_token_by_hash(
+        &self,
+        hash: &str,
+    ) -> impl Future<Output = Result<Option<ApiToken>, RepositoryError>> + Send;
+    fn list_devices(
+        &self,
+        user: &UserId,
+    ) -> impl Future<Output = Result<Vec<Device>, RepositoryError>> + Send;
+    fn list_api_tokens(
+        &self,
+        user: &UserId,
+    ) -> impl Future<Output = Result<Vec<ApiToken>, RepositoryError>> + Send;
+    fn delete_device(
+        &self,
+        id: &DeviceId,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn revoke_api_token(
+        &self,
+        id: &ApiTokenId,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }

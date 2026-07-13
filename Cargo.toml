@@ -42,6 +42,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 wiremock = "0.6"
 uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
 proptest = "1"
 insta = { version = "1", features = ["json", "redactions"] }
 
@@ -50,3 +51,6 @@ unsafe_code = "deny"
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
+
+[profile.dev]
+debug = "line-tables-only"

@@ -8,8 +8,8 @@ use domain::user::UserId;
 
 use crate::dto::session::PlaybackSessionResponse;
 use crate::dto::user::{
-    CreateUserRequest, LibraryAccessResponse, SetLibraryAccessRequest, UpdateProfileRequest,
-    UserResponse,
+    ChangePasswordRequest, CreateUserRequest, LibraryAccessResponse, SetLibraryAccessRequest,
+    UpdateProfileRequest, UserResponse,
 };
 use crate::error::ApiResult;
 use crate::extract::{AuthUser, RequireAdmin};
@@ -58,14 +58,26 @@ pub async fn activity<S: AppServices>(
         .active_sessions(&principal, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve active sessions"))?;
+    let total = sessions.total;
+    let offset = sessions.offset;
+    let limit = sessions.limit;
+    let now_playing = state
+        .now_playing(sessions.items)
+        .await
+        .map_err(log_fail(actor, "retrieve active sessions"))?;
     debug!(
         "User [{actor}] successfully retrieved {} active sessions",
-        sessions.items.len()
+        now_playing.len()
     );
-    Ok(Json(PageResponse::from_page(
-        sessions,
-        PlaybackSessionResponse::from,
-    )))
+    Ok(Json(PageResponse {
+        items: now_playing
+            .into_iter()
+            .map(PlaybackSessionResponse::from)
+            .collect(),
+        total,
+        offset,
+        limit,
+    }))
 }
 
 pub async fn get<S: AppServices>(
@@ -81,6 +93,19 @@ pub async fn get<S: AppServices>(
         .await
         .map_err(log_fail(actor, "retrieve a user"))?;
     debug!("User [{actor}] successfully retrieved user [{}]", target.0);
+    Ok(Json(user.into()))
+}
+
+pub async fn current<S: AppServices>(
+    State(state): State<S>,
+    AuthUser(principal): AuthUser,
+) -> ApiResult<Json<UserResponse>> {
+    let actor = &principal.user.0;
+    let user = state
+        .get(&principal.user)
+        .await
+        .map_err(log_fail(actor, "retrieve current user"))?;
+    debug!("User [{actor}] successfully retrieved self");
     Ok(Json(user.into()))
 }
 
@@ -133,6 +158,35 @@ pub async fn library_access<S: AppServices>(
         target.0
     );
     Ok(Json(access.into_iter().map(Into::into).collect()))
+}
+
+pub async fn change_password<S: AppServices>(
+    State(state): State<S>,
+    AuthUser(principal): AuthUser,
+    Path(id): Path<String>,
+    Json(req): Json<ChangePasswordRequest>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    let target = UserId(id);
+    require_admin_or_self(&principal, &target)?;
+    state
+        .change_password(
+            &principal,
+            &target,
+            req.current_password.as_deref(),
+            &req.new_password,
+        )
+        .await
+        .map_err(log_fail(actor, "change password"))?;
+    state
+        .logout_all(&target)
+        .await
+        .map_err(log_fail(actor, "revoke sessions after password change"))?;
+    debug!(
+        "User [{actor}] successfully changed password for user [{}]",
+        target.0
+    );
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn set_library_access<S: AppServices>(

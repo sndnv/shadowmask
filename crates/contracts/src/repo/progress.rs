@@ -130,4 +130,17 @@ pub async fn progress_repository_contract<R: ProgressRepository>(repo: R) {
     repo.upsert(progress("u2", "v1", 42, 5)).await.unwrap();
     assert_eq!(repo.get(&u2, &v1).await.unwrap().unwrap().position_ms, 42);
     assert_eq!(repo.get(&u1, &v1).await.unwrap().unwrap().position_ms, 2500);
+
+    repo.delete(&u1, &v1).await.unwrap();
+    assert!(repo.get(&u1, &v1).await.unwrap().is_none());
+    let remaining: Vec<_> = repo
+        .list_in_progress(&u1)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|p| p.version.0)
+        .collect();
+    assert_eq!(remaining, ["v2", "v3"]);
+    assert_eq!(repo.get(&u2, &v1).await.unwrap().unwrap().position_ms, 42);
+    repo.delete(&u1, &v1).await.unwrap();
 }

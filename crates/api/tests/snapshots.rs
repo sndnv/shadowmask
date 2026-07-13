@@ -58,7 +58,7 @@ async fn call(
     (status, value)
 }
 
-async fn mint_session(app: &Router) -> String {
+async fn create_session(app: &Router) -> String {
     let (status, body) = call(
         app.clone(),
         Method::POST,
@@ -76,7 +76,7 @@ async fn mint_session(app: &Router) -> String {
     body["session_id"].as_str().unwrap().to_owned()
 }
 
-async fn mint_user(app: &Router) -> String {
+async fn create_user(app: &Router) -> String {
     let (status, body) = call(
         app.clone(),
         Method::POST,
@@ -95,6 +95,7 @@ fn snapshot(name: &str, status: StatusCode, body: Value) {
         ".body.session_id" => "[session_id]",
         ".body.manifest_url" => "[manifest_url]",
         ".body.created_at" => "[created_at]",
+        ".body.version" => "[version]",
         ".body.active[].session_id" => "[session_id]",
         ".body.active[].started_at" => "[started_at]",
         ".body.active[].last_heartbeat_at" => "[last_heartbeat_at]",
@@ -109,11 +110,11 @@ async fn endpoint_success_snapshots() {
         let app = build_app(&generator);
         let mut path = endpoint.path.to_owned();
         if path.contains("{session}") {
-            let session = mint_session(&app).await;
+            let session = create_session(&app).await;
             path = path.replace("{session}", &session);
         }
         if path.contains("{user}") {
-            let user = mint_user(&app).await;
+            let user = create_user(&app).await;
             path = path.replace("{user}", &user);
         }
         let (status, body) = call(
@@ -194,6 +195,16 @@ async fn endpoint_error_snapshots() {
 
     let (status, body) = call(
         build_app(&generator),
+        Method::GET,
+        "/api/v1/versions/ghost",
+        Some("access:u1"),
+        None,
+    )
+    .await;
+    snapshot("err_version_not_found", status, body);
+
+    let (status, body) = call(
+        build_app(&generator),
         Method::POST,
         "/api/v1/sessions/does-not-exist/seek",
         Some("access:u1"),
@@ -269,4 +280,27 @@ async fn endpoint_error_snapshots() {
     )
     .await;
     snapshot("err_concurrent_limit", status, body);
+
+    let titles: Vec<Value> = (0..201)
+        .map(|i| json!({"type": "movie", "id": format!("m{i}")}))
+        .collect();
+    let (status, body) = call(
+        build_app(&generator),
+        Method::POST,
+        "/api/v1/users/u1/state/batch",
+        Some("access:u1"),
+        Some(json!({"titles": titles.clone()})),
+    )
+    .await;
+    snapshot("err_batch_too_large", status, body);
+
+    let (status, body) = call(
+        build_app(&generator),
+        Method::POST,
+        "/api/v1/titles/batch",
+        Some("access:u1"),
+        Some(json!({"titles": titles})),
+    )
+    .await;
+    snapshot("err_titles_batch_too_large", status, body);
 }

@@ -1,0 +1,19 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "items": [
+      {
+        "id": "p1",
+        "name": "Alpha Person",
+        "type": "person"
+      }
+    ],
+    "limit": 50,
+    "offset": 0,
+    "total": 1
+  },
+  "status": 200
+}

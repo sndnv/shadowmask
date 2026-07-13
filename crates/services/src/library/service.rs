@@ -1,39 +1,50 @@
+use domain::catalog::{TitleId, TitleRef};
 use domain::common::{Page, PageRequest};
 use domain::error::LibraryError;
 use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
 use domain::library::{
-    DuplicateCandidate, Library, LibraryId, ScanState, ScanStatus, UnmatchedFile,
+    DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryKind, LibraryUpdate,
+    NewLibrary, ResolutionStatus, ResolveCandidate, ResolveTarget, ScanState, ScanStatus,
+    UnmatchedFile, UnmatchedFileId,
 };
-use domain::repository::{JobRepository, LibraryRepository, UserRepository};
+use domain::metadata::{ExternalId, MediaKind, MetadataProvider, MetadataQuery};
+use domain::repository::{CatalogRepository, JobRepository, LibraryRepository, UserRepository};
 use domain::service::LibraryService;
 use domain::user::Principal;
 use jiff::Timestamp;
 use uuid::Uuid;
 
+use super::{IngestJobPayload, MetadataJobPayload, parse_filename};
 use crate::acl;
 
 #[derive(Clone)]
-pub struct LibraryServiceImpl<L, U, J> {
+pub struct LibraryServiceImpl<L, U, J, C, M> {
     libraries: L,
     users: U,
     jobs: J,
+    catalog: C,
+    provider: Option<M>,
 }
 
-impl<L, U, J> LibraryServiceImpl<L, U, J> {
-    pub fn new(libraries: L, users: U, jobs: J) -> Self {
+impl<L, U, J, C, M> LibraryServiceImpl<L, U, J, C, M> {
+    pub fn new(libraries: L, users: U, jobs: J, catalog: C, provider: Option<M>) -> Self {
         Self {
             libraries,
             users,
             jobs,
+            catalog,
+            provider,
         }
     }
 }
 
-impl<L, U, J> LibraryServiceImpl<L, U, J>
+impl<L, U, J, C, M> LibraryServiceImpl<L, U, J, C, M>
 where
     L: LibraryRepository + Sync,
     U: UserRepository + Sync,
     J: JobRepository + Sync,
+    C: CatalogRepository + Sync,
+    M: MetadataProvider + Sync,
 {
     async fn visible_to(&self, caller: &Principal, id: &LibraryId) -> Result<bool, LibraryError> {
         if acl::is_admin(caller) {
@@ -65,13 +76,33 @@ where
             Err(LibraryError::NotFound)
         }
     }
+
+    async fn title_display(
+        &self,
+        title: &TitleId,
+    ) -> Result<Option<(String, Option<u16>, MediaKind)>, LibraryError> {
+        Ok(match title {
+            TitleId::Movie(id) => self
+                .catalog
+                .get_movie(id)
+                .await?
+                .map(|m| (m.title, m.year, MediaKind::Movie)),
+            TitleId::Episode(id) => self
+                .catalog
+                .get_episode(id)
+                .await?
+                .map(|e| (e.title, None, MediaKind::Series)),
+        })
+    }
 }
 
-impl<L, U, J> LibraryService for LibraryServiceImpl<L, U, J>
+impl<L, U, J, C, M> LibraryService for LibraryServiceImpl<L, U, J, C, M>
 where
     L: LibraryRepository + Sync,
     U: UserRepository + Sync,
     J: JobRepository + Sync,
+    C: CatalogRepository + Sync,
+    M: MetadataProvider + Sync,
 {
     async fn libraries(&self, caller: &Principal) -> Result<Vec<Library>, LibraryError> {
         let all = self.libraries.list().await?;
@@ -93,6 +124,65 @@ where
 
     async fn library(&self, caller: &Principal, id: &LibraryId) -> Result<Library, LibraryError> {
         self.require_library(caller, id).await
+    }
+
+    async fn create_library(
+        &self,
+        caller: &Principal,
+        input: NewLibrary,
+    ) -> Result<Library, LibraryError> {
+        if !acl::is_admin(caller) {
+            return Err(LibraryError::Forbidden);
+        }
+        let library = Library {
+            id: LibraryId(Uuid::new_v4().to_string()),
+            name: input.name,
+            kind: input.kind,
+            roots: input.roots,
+            watcher: input.watcher,
+            scan_schedule: input.scan_schedule,
+            metadata_sources: input.metadata_sources,
+        };
+        self.libraries.upsert(library.clone()).await?;
+        Ok(library)
+    }
+
+    async fn update_library(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+        update: LibraryUpdate,
+    ) -> Result<Library, LibraryError> {
+        if !acl::is_admin(caller) {
+            return Err(LibraryError::Forbidden);
+        }
+        self.libraries
+            .get(id)
+            .await?
+            .ok_or(LibraryError::NotFound)?;
+        let library = Library {
+            id: id.clone(),
+            name: update.name,
+            kind: update.kind,
+            roots: update.roots,
+            watcher: update.watcher,
+            scan_schedule: update.scan_schedule,
+            metadata_sources: update.metadata_sources,
+        };
+        self.libraries.upsert(library.clone()).await?;
+        Ok(library)
+    }
+
+    async fn delete_library(&self, caller: &Principal, id: &LibraryId) -> Result<(), LibraryError> {
+        if !acl::is_admin(caller) {
+            return Err(LibraryError::Forbidden);
+        }
+        self.libraries
+            .get(id)
+            .await?
+            .ok_or(LibraryError::NotFound)?;
+        self.libraries.delete(id).await?;
+        Ok(())
     }
 
     async fn scan_state(
@@ -165,18 +255,181 @@ where
         self.require_library(caller, id).await?;
         Ok(self.libraries.list_duplicates(id, page).await?)
     }
+
+    async fn unmatched_candidates(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+        unmatched: &UnmatchedFileId,
+        query: Option<String>,
+    ) -> Result<Vec<ResolveCandidate>, LibraryError> {
+        let library = self.require_library(caller, id).await?;
+        let file = self
+            .libraries
+            .get_unmatched(unmatched)
+            .await?
+            .filter(|file| file.library == *id)
+            .ok_or(LibraryError::NotFound)?;
+        let mut candidates = Vec::new();
+        for candidate in &file.candidates {
+            if let Some((title, year, kind)) = self.title_display(&candidate.title).await? {
+                candidates.push(ResolveCandidate {
+                    target: ResolveTarget::Existing(candidate.title.clone()),
+                    title,
+                    year,
+                    kind,
+                });
+            }
+        }
+        if let Some(provider) = &self.provider {
+            let parsed = parse_filename(&file.path);
+            let kind = match library.kind {
+                LibraryKind::Movie => MediaKind::Movie,
+                LibraryKind::Tv => MediaKind::Series,
+            };
+            let search = MetadataQuery {
+                title: query.unwrap_or(parsed.title),
+                year: parsed.year,
+                kind,
+            };
+            if let Ok(matches) = provider.search(&search).await {
+                for candidate in matches {
+                    candidates.push(ResolveCandidate {
+                        target: ResolveTarget::Provider(candidate.external_id),
+                        title: candidate.title,
+                        year: candidate.year,
+                        kind: candidate.kind,
+                    });
+                }
+            }
+        }
+        Ok(candidates)
+    }
+
+    async fn resolve_unmatched(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+        unmatched: &UnmatchedFileId,
+        target: ResolveTarget,
+    ) -> Result<(), LibraryError> {
+        self.require_library(caller, id).await?;
+        let file = self
+            .libraries
+            .get_unmatched(unmatched)
+            .await?
+            .filter(|file| file.library == *id)
+            .ok_or(LibraryError::NotFound)?;
+        let payload = IngestJobPayload {
+            library: id.clone(),
+            unmatched: unmatched.clone(),
+            path: file.path,
+            target,
+        }
+        .encode()
+        .expect("ingest job payload serializes");
+        let now = Timestamp::now();
+        self.jobs
+            .enqueue(Job {
+                id: JobId(Uuid::new_v4().to_string()),
+                kind: JobKind::Ingest,
+                status: JobStatus::Queued,
+                priority: JobPriority::Normal,
+                payload,
+                attempts: 0,
+                progress: 0.0,
+                available_at: now,
+                last_error: None,
+                created_at: now,
+                updated_at: now,
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn dismiss_duplicate(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+        duplicate: &DuplicateCandidateId,
+    ) -> Result<(), LibraryError> {
+        self.require_library(caller, id).await?;
+        self.libraries
+            .set_duplicate_status(duplicate, ResolutionStatus::Dismissed)
+            .await?;
+        Ok(())
+    }
+
+    async fn resolve_duplicate(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+        duplicate: &DuplicateCandidateId,
+    ) -> Result<(), LibraryError> {
+        self.require_library(caller, id).await?;
+        self.libraries
+            .set_duplicate_status(duplicate, ResolutionStatus::Resolved)
+            .await?;
+        Ok(())
+    }
+
+    async fn reidentify(
+        &self,
+        caller: &Principal,
+        title: TitleRef,
+        external_id: Option<ExternalId>,
+    ) -> Result<(), LibraryError> {
+        if !acl::is_admin(caller) {
+            return Err(LibraryError::Forbidden);
+        }
+        let payload = MetadataJobPayload { title, external_id }
+            .encode()
+            .expect("metadata job payload serializes");
+        let now = Timestamp::now();
+        self.jobs
+            .enqueue(Job {
+                id: JobId(Uuid::new_v4().to_string()),
+                kind: JobKind::Metadata,
+                status: JobStatus::Queued,
+                priority: JobPriority::Normal,
+                payload,
+                attempts: 0,
+                progress: 0.0,
+                available_at: now,
+                last_error: None,
+                created_at: now,
+                updated_at: now,
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn jobs(&self, caller: &Principal) -> Result<Vec<Job>, LibraryError> {
+        if !acl::is_admin(caller) {
+            return Err(LibraryError::Forbidden);
+        }
+        Ok(self.jobs.list().await?)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mock::{MockJobStore, MockLibraryRepo, MockUserRepo};
-    use domain::library::{LibraryKind, WatcherStrategy};
+    use crate::mock::{
+        MockCatalogRepo, MockJobStore, MockLibraryRepo, MockMetadataProvider, MockUserRepo,
+    };
+    use domain::library::WatcherStrategy;
     use domain::repository::JobRepository;
     use domain::user::{Role, User, UserId};
     use jiff::Timestamp;
 
-    type Svc = LibraryServiceImpl<MockLibraryRepo, MockUserRepo, MockJobStore>;
+    type Svc = LibraryServiceImpl<
+        MockLibraryRepo,
+        MockUserRepo,
+        MockJobStore,
+        MockCatalogRepo,
+        MockMetadataProvider,
+    >;
 
     fn library(id: &str) -> Library {
         Library {
@@ -236,7 +489,13 @@ mod tests {
             .set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())])
             .await
             .unwrap();
-        LibraryServiceImpl::new(libraries, users, MockJobStore::new())
+        LibraryServiceImpl::new(
+            libraries,
+            users,
+            MockJobStore::new(),
+            MockCatalogRepo::new(),
+            None,
+        )
     }
 
     #[tokio::test]
@@ -327,12 +586,358 @@ mod tests {
         let libraries = MockLibraryRepo::new();
         libraries.insert_library(library("lib1"));
         libraries.set_fail_get();
-        let svc = LibraryServiceImpl::new(libraries, MockUserRepo::new(), MockJobStore::new());
+        let svc = LibraryServiceImpl::new(
+            libraries,
+            MockUserRepo::new(),
+            MockJobStore::new(),
+            MockCatalogRepo::new(),
+            None::<MockMetadataProvider>,
+        );
         assert!(matches!(
             svc.library(&admin(), &LibraryId("lib1".into()))
                 .await
                 .unwrap_err(),
             LibraryError::Repository(_)
+        ));
+    }
+
+    fn new_library() -> NewLibrary {
+        NewLibrary {
+            name: "New".into(),
+            kind: LibraryKind::Movie,
+            roots: vec!["/n".into()],
+            watcher: WatcherStrategy::Manual,
+            scan_schedule: None,
+            metadata_sources: vec!["tmdb".into()],
+        }
+    }
+
+    fn library_update() -> LibraryUpdate {
+        LibraryUpdate {
+            name: "Renamed".into(),
+            kind: LibraryKind::Tv,
+            roots: vec!["/n".into()],
+            watcher: WatcherStrategy::Manual,
+            scan_schedule: None,
+            metadata_sources: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_update_delete_library() {
+        let svc = seeded().await;
+
+        let created = svc.create_library(&admin(), new_library()).await.unwrap();
+        assert!(svc.library(&admin(), &created.id).await.is_ok());
+        assert!(matches!(
+            svc.create_library(&member(), new_library())
+                .await
+                .unwrap_err(),
+            LibraryError::Forbidden
+        ));
+
+        let updated = svc
+            .update_library(&admin(), &created.id, library_update())
+            .await
+            .unwrap();
+        assert_eq!(updated.name, "Renamed");
+        assert_eq!(updated.kind, LibraryKind::Tv);
+        assert!(matches!(
+            svc.update_library(&admin(), &LibraryId("ghost".into()), library_update())
+                .await
+                .unwrap_err(),
+            LibraryError::NotFound
+        ));
+        assert!(matches!(
+            svc.update_library(&member(), &created.id, library_update())
+                .await
+                .unwrap_err(),
+            LibraryError::Forbidden
+        ));
+
+        svc.delete_library(&admin(), &created.id).await.unwrap();
+        assert!(matches!(
+            svc.library(&admin(), &created.id).await.unwrap_err(),
+            LibraryError::NotFound
+        ));
+        assert!(matches!(
+            svc.delete_library(&admin(), &created.id).await.unwrap_err(),
+            LibraryError::NotFound
+        ));
+        assert!(matches!(
+            svc.delete_library(&member(), &LibraryId("lib1".into()))
+                .await
+                .unwrap_err(),
+            LibraryError::Forbidden
+        ));
+    }
+
+    #[tokio::test]
+    async fn jobs_admin_only() {
+        let svc = seeded().await;
+        let now = Timestamp::now();
+        svc.jobs
+            .enqueue(Job {
+                id: JobId("j1".into()),
+                kind: JobKind::LibraryScan,
+                status: JobStatus::Queued,
+                priority: JobPriority::Normal,
+                payload: "lib1".into(),
+                attempts: 0,
+                progress: 0.0,
+                available_at: now,
+                last_error: None,
+                created_at: now,
+                updated_at: now,
+            })
+            .await
+            .unwrap();
+        assert_eq!(svc.jobs(&admin()).await.unwrap().len(), 1);
+        assert!(matches!(
+            svc.jobs(&member()).await.unwrap_err(),
+            LibraryError::Forbidden
+        ));
+    }
+
+    #[tokio::test]
+    async fn library_writes_propagate_backend_errors() {
+        let libraries = MockLibraryRepo::new();
+        libraries.insert_library(library("lib1"));
+        libraries.set_fail_save();
+        let svc = LibraryServiceImpl::new(
+            libraries,
+            MockUserRepo::new(),
+            MockJobStore::new(),
+            MockCatalogRepo::new(),
+            None::<MockMetadataProvider>,
+        );
+        assert!(matches!(
+            svc.create_library(&admin(), new_library())
+                .await
+                .unwrap_err(),
+            LibraryError::Repository(_)
+        ));
+        assert!(matches!(
+            svc.delete_library(&admin(), &LibraryId("lib1".into()))
+                .await
+                .unwrap_err(),
+            LibraryError::Repository(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn unmatched_candidates_lists_catalog_and_provider() {
+        use domain::catalog::{Episode, EpisodeId, Movie, MovieId, SeasonId};
+        use domain::library::{MatchCandidate, UnmatchedFileId};
+        use domain::metadata::{ExternalId, MetadataMatch};
+
+        let libraries = MockLibraryRepo::new();
+        libraries.insert_library(library("lib1"));
+        let uid = UnmatchedFileId("uf1".into());
+        libraries
+            .insert_unmatched(UnmatchedFile {
+                id: uid.clone(),
+                library: LibraryId("lib1".into()),
+                path: "/media/The Matrix (1999).mkv".into(),
+                candidates: vec![
+                    MatchCandidate {
+                        title: TitleId::Movie(MovieId("m1".into())),
+                        confidence: 0.9,
+                        label: "Alpha".into(),
+                    },
+                    MatchCandidate {
+                        title: TitleId::Episode(EpisodeId("e1".into())),
+                        confidence: 0.5,
+                        label: "Beta".into(),
+                    },
+                ],
+            })
+            .await
+            .unwrap();
+
+        let catalog = MockCatalogRepo::new();
+        catalog.add_movie(Movie {
+            id: MovieId("m1".into()),
+            title: "The Matrix".into(),
+            year: Some(1999),
+            overview: None,
+            runtime_minutes: None,
+            content_rating: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        });
+        catalog.add_episode(Episode {
+            id: EpisodeId("e1".into()),
+            season: SeasonId("se1".into()),
+            number: 1,
+            title: "Pilot".into(),
+            overview: None,
+            runtime_minutes: None,
+            air_date: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        });
+        let provider = MockMetadataProvider::with_matches(vec![MetadataMatch {
+            external_id: ExternalId {
+                source: "tmdb".into(),
+                value: "movie/603".into(),
+            },
+            title: "The Matrix".into(),
+            year: Some(1999),
+            kind: MediaKind::Movie,
+        }]);
+
+        let svc = LibraryServiceImpl::new(
+            libraries,
+            MockUserRepo::new(),
+            MockJobStore::new(),
+            catalog,
+            Some(provider),
+        );
+        let id = LibraryId("lib1".into());
+        let candidates = svc
+            .unmatched_candidates(&admin(), &id, &uid, None)
+            .await
+            .unwrap();
+        assert_eq!(candidates.len(), 3);
+        assert!(matches!(candidates[0].target, ResolveTarget::Existing(_)));
+        assert_eq!(candidates[0].title, "The Matrix");
+        assert_eq!(candidates[0].kind, MediaKind::Movie);
+        assert_eq!(candidates[1].kind, MediaKind::Series);
+        assert!(matches!(candidates[2].target, ResolveTarget::Provider(_)));
+
+        assert!(matches!(
+            svc.unmatched_candidates(&admin(), &id, &UnmatchedFileId("ghost".into()), None)
+                .await
+                .unwrap_err(),
+            LibraryError::NotFound
+        ));
+    }
+
+    #[tokio::test]
+    async fn resolve_unmatched_enqueues_ingest_job() {
+        use domain::catalog::MovieId;
+        use domain::library::{UnmatchedFile, UnmatchedFileId};
+
+        let libraries = MockLibraryRepo::new();
+        libraries.insert_library(library("lib1"));
+        let uid = UnmatchedFileId("uf1".into());
+        libraries
+            .insert_unmatched(UnmatchedFile {
+                id: uid.clone(),
+                library: LibraryId("lib1".into()),
+                path: "/m/x.mkv".into(),
+                candidates: Vec::new(),
+            })
+            .await
+            .unwrap();
+        let jobs = MockJobStore::new();
+        let svc = LibraryServiceImpl::new(
+            libraries,
+            MockUserRepo::new(),
+            jobs.clone(),
+            MockCatalogRepo::new(),
+            None::<MockMetadataProvider>,
+        );
+        let id = LibraryId("lib1".into());
+        let target = ResolveTarget::Existing(TitleId::Movie(MovieId("m1".into())));
+
+        svc.resolve_unmatched(&admin(), &id, &uid, target.clone())
+            .await
+            .unwrap();
+        let enqueued = jobs.list().await.unwrap();
+        assert_eq!(enqueued.len(), 1);
+        assert_eq!(enqueued[0].kind, JobKind::Ingest);
+
+        assert!(matches!(
+            svc.resolve_unmatched(&admin(), &id, &UnmatchedFileId("ghost".into()), target)
+                .await
+                .unwrap_err(),
+            LibraryError::NotFound
+        ));
+    }
+
+    #[tokio::test]
+    async fn dismiss_and_resolve_duplicates_hide_them() {
+        use domain::catalog::MovieId;
+        use domain::library::{DuplicateCandidate, DuplicateCandidateId};
+
+        let libraries = MockLibraryRepo::new();
+        libraries.insert_library(library("lib1"));
+        let id = LibraryId("lib1".into());
+        let dup = |d: &str| DuplicateCandidate {
+            id: DuplicateCandidateId(d.into()),
+            title: TitleId::Movie(MovieId("m1".into())),
+            paths: vec!["/a.mkv".into()],
+        };
+        libraries.insert_duplicate(&id, dup("d1")).await.unwrap();
+        libraries.insert_duplicate(&id, dup("d2")).await.unwrap();
+        let svc = LibraryServiceImpl::new(
+            libraries,
+            MockUserRepo::new(),
+            MockJobStore::new(),
+            MockCatalogRepo::new(),
+            None::<MockMetadataProvider>,
+        );
+
+        svc.dismiss_duplicate(&admin(), &id, &DuplicateCandidateId("d1".into()))
+            .await
+            .unwrap();
+        svc.resolve_duplicate(&admin(), &id, &DuplicateCandidateId("d2".into()))
+            .await
+            .unwrap();
+        assert!(
+            svc.duplicates(&admin(), &id, page())
+                .await
+                .unwrap()
+                .items
+                .is_empty()
+        );
+
+        assert!(matches!(
+            svc.dismiss_duplicate(
+                &admin(),
+                &LibraryId("ghost".into()),
+                &DuplicateCandidateId("d1".into())
+            )
+            .await
+            .unwrap_err(),
+            LibraryError::NotFound
+        ));
+    }
+
+    #[tokio::test]
+    async fn reidentify_enqueues_metadata_job_admin_only() {
+        use domain::catalog::MovieId;
+        use domain::metadata::ExternalId;
+
+        let jobs = MockJobStore::new();
+        let svc = LibraryServiceImpl::new(
+            MockLibraryRepo::new(),
+            MockUserRepo::new(),
+            jobs.clone(),
+            MockCatalogRepo::new(),
+            None::<MockMetadataProvider>,
+        );
+        let title = TitleRef::Movie(MovieId("m1".into()));
+
+        svc.reidentify(
+            &admin(),
+            title.clone(),
+            Some(ExternalId {
+                source: "tmdb".into(),
+                value: "movie/603".into(),
+            }),
+        )
+        .await
+        .unwrap();
+        let enqueued = jobs.list().await.unwrap();
+        assert_eq!(enqueued.len(), 1);
+        assert_eq!(enqueued[0].kind, JobKind::Metadata);
+
+        assert!(matches!(
+            svc.reidentify(&member(), title, None).await.unwrap_err(),
+            LibraryError::Forbidden
         ));
     }
 }

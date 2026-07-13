@@ -2,6 +2,8 @@ use serde::Serialize;
 
 use domain::catalog::Season;
 
+use crate::dto::common::ArtworkDto;
+
 #[derive(Debug, Serialize)]
 pub struct SeasonResponse {
     pub id: String,
@@ -9,6 +11,7 @@ pub struct SeasonResponse {
     pub number: u16,
     pub title: Option<String>,
     pub overview: Option<String>,
+    pub artwork: ArtworkDto,
 }
 
 impl From<Season> for SeasonResponse {
@@ -19,6 +22,7 @@ impl From<Season> for SeasonResponse {
             number: s.number,
             title: s.title,
             overview: s.overview,
+            artwork: ArtworkDto::from_refs(s.artwork),
         }
     }
 }

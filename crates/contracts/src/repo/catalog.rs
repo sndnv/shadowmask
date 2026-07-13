@@ -1,6 +1,7 @@
 use domain::catalog::{
-    Collection, CollectionId, Episode, EpisodeId, Movie, MovieId, Season, SeasonId, Series,
-    SeriesId, TitleId, Version, VersionDetail, VersionId,
+    ArtworkId, ArtworkOwner, ArtworkRef, Collection, CollectionId, Episode, EpisodeId, Movie,
+    MovieId, Season, SeasonId, Series, SeriesId, TitleId, TitleKind, TitleRef, Version,
+    VersionDetail, VersionId,
 };
 use domain::common::{LanguageCode, PageRequest, Quality};
 use domain::library::LibraryId;
@@ -8,7 +9,10 @@ use domain::media::{
     AudioTrack, Chapter, CreditsMarker, DetectedMarkers, EmbeddedSubtitleTrack, HdrFormat,
     IntroMarker, SubtitleFormat, TrickplayAsset, VideoTrack,
 };
-use domain::metadata::ContentRating;
+use domain::metadata::{
+    ArtworkKind, ContentRating, Credit, CreditRole, ExternalId, Extra, ExtraKind, Genre, GenreId,
+    Person, PersonId, Rating, Studio, StudioId, TitleEnrichment,
+};
 use domain::repository::CatalogRepository;
 use jiff::Timestamp;
 
@@ -30,6 +34,8 @@ pub struct CatalogSeed {
     pub collections: Vec<Collection>,
     pub versions: Vec<Version>,
     pub detail: VersionDetail,
+    pub people: Vec<Person>,
+    pub enrichment: Vec<(TitleRef, TitleEnrichment)>,
 }
 
 pub fn catalog_seed() -> CatalogSeed {
@@ -88,6 +94,8 @@ pub fn catalog_seed() -> CatalogSeed {
         trickplay: vec![TrickplayAsset {
             version: VersionId("v1".into()),
             interval_ms: 10_000,
+            columns: 10,
+            rows: 10,
             tile_width: 320,
             tile_height: 180,
             sheet_paths: vec!["/tp/1.jpg".into(), "/tp/2.jpg".into()],
@@ -106,6 +114,7 @@ pub fn catalog_seed() -> CatalogSeed {
                     code: "PG-13".into(),
                 }),
                 added_at: ts(1),
+                artwork: Vec::new(),
             },
             Movie {
                 id: MovieId("m2".into()),
@@ -115,6 +124,7 @@ pub fn catalog_seed() -> CatalogSeed {
                 runtime_minutes: None,
                 content_rating: None,
                 added_at: ts(2),
+                artwork: Vec::new(),
             },
         ],
         series: vec![Series {
@@ -124,6 +134,7 @@ pub fn catalog_seed() -> CatalogSeed {
             overview: None,
             content_rating: None,
             added_at: ts(3),
+            artwork: Vec::new(),
         }],
         seasons: vec![Season {
             id: SeasonId("se1".into()),
@@ -131,6 +142,7 @@ pub fn catalog_seed() -> CatalogSeed {
             number: 1,
             title: Some("Season 1".into()),
             overview: None,
+            artwork: Vec::new(),
         }],
         episodes: vec![
             Episode {
@@ -142,6 +154,7 @@ pub fn catalog_seed() -> CatalogSeed {
                 runtime_minutes: Some(42),
                 air_date: Some(ts(4)),
                 added_at: ts(5),
+                artwork: Vec::new(),
             },
             Episode {
                 id: EpisodeId("e2".into()),
@@ -152,6 +165,7 @@ pub fn catalog_seed() -> CatalogSeed {
                 runtime_minutes: None,
                 air_date: None,
                 added_at: ts(6),
+                artwork: Vec::new(),
             },
         ],
         collections: vec![Collection {
@@ -159,6 +173,7 @@ pub fn catalog_seed() -> CatalogSeed {
             name: "Saga".into(),
             overview: Some("epic".into()),
             movies: vec![MovieId("m1".into()), MovieId("m2".into())],
+            artwork: Vec::new(),
         }],
         versions: vec![
             Version {
@@ -185,6 +200,97 @@ pub fn catalog_seed() -> CatalogSeed {
             },
         ],
         detail,
+        people: vec![
+            Person {
+                id: PersonId("p1".into()),
+                name: "Ada".into(),
+            },
+            Person {
+                id: PersonId("p2".into()),
+                name: "Bob".into(),
+            },
+        ],
+        enrichment: vec![
+            (
+                TitleRef::Movie(MovieId("m1".into())),
+                TitleEnrichment {
+                    genres: vec![
+                        Genre {
+                            id: GenreId("g-action".into()),
+                            name: "Action".into(),
+                        },
+                        Genre {
+                            id: GenreId("g-drama".into()),
+                            name: "Drama".into(),
+                        },
+                    ],
+                    credits: vec![
+                        Credit {
+                            person: PersonId("p1".into()),
+                            title: TitleRef::Movie(MovieId("m1".into())),
+                            role: CreditRole::Actor,
+                            character: Some("Hero".into()),
+                            order: 0,
+                        },
+                        Credit {
+                            person: PersonId("p2".into()),
+                            title: TitleRef::Movie(MovieId("m1".into())),
+                            role: CreditRole::Director,
+                            character: None,
+                            order: 1,
+                        },
+                    ],
+                    studios: vec![Studio {
+                        id: StudioId("st-acme".into()),
+                        name: "Acme Studios".into(),
+                    }],
+                    ratings: vec![Rating {
+                        source: "tmdb".into(),
+                        value: 8.5,
+                    }],
+                    external_ids: vec![
+                        ExternalId {
+                            source: "tmdb".into(),
+                            value: "603".into(),
+                        },
+                        ExternalId {
+                            source: "imdb".into(),
+                            value: "tt0133093".into(),
+                        },
+                    ],
+                    extras: vec![Extra {
+                        kind: ExtraKind::Trailer,
+                        title: "Teaser".into(),
+                        path: "/extras/m1/teaser.mkv".into(),
+                    }],
+                },
+            ),
+            (
+                TitleRef::Series(SeriesId("s1".into())),
+                TitleEnrichment {
+                    genres: vec![Genre {
+                        id: GenreId("g-action".into()),
+                        name: "Action".into(),
+                    }],
+                    credits: vec![Credit {
+                        person: PersonId("p1".into()),
+                        title: TitleRef::Series(SeriesId("s1".into())),
+                        role: CreditRole::Actor,
+                        character: Some("Lead".into()),
+                        order: 0,
+                    }],
+                    ratings: vec![Rating {
+                        source: "tmdb".into(),
+                        value: 9.0,
+                    }],
+                    external_ids: vec![ExternalId {
+                        source: "tvdb".into(),
+                        value: "81189".into(),
+                    }],
+                    ..TitleEnrichment::default()
+                },
+            ),
+        ],
     }
 }
 
@@ -339,6 +445,37 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     assert_eq!(lib2_versions.items[0].id, VersionId("v3".into()));
     assert_eq!(lib2_versions.items[0].edition, None);
 
+    assert_eq!(
+        repo.titles_in_library(TitleKind::Movie, &LibraryId("lib1".into()))
+            .await
+            .unwrap(),
+        vec!["m1".to_owned()]
+    );
+    assert!(
+        repo.titles_in_library(TitleKind::Movie, &LibraryId("lib2".into()))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        repo.titles_in_library(TitleKind::Series, &LibraryId("lib2".into()))
+            .await
+            .unwrap(),
+        vec!["s1".to_owned()]
+    );
+    assert!(
+        repo.titles_in_library(TitleKind::Series, &LibraryId("lib1".into()))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        repo.titles_in_library(TitleKind::Movie, &LibraryId("ghost".into()))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
     let detail = repo
         .version_detail(&VersionId("v1".into()))
         .await
@@ -400,6 +537,7 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         name: "Saga Remastered".into(),
         overview: None,
         movies: vec![MovieId("m2".into())],
+        artwork: Vec::new(),
     })
     .await
     .unwrap();
@@ -416,6 +554,7 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         name: "New".into(),
         overview: None,
         movies: Vec::new(),
+        artwork: Vec::new(),
     })
     .await
     .unwrap();
@@ -434,4 +573,457 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     repo.delete_collection(&CollectionId("missing".into()))
         .await
         .unwrap();
+
+    let poster = ArtworkRef {
+        id: ArtworkId("art-poster-m1".into()),
+        kind: ArtworkKind::Poster,
+        widths: vec![180, 480, 960],
+    };
+    let backdrop = ArtworkRef {
+        id: ArtworkId("art-backdrop-m1".into()),
+        kind: ArtworkKind::Backdrop,
+        widths: vec![480, 960],
+    };
+    repo.set_artwork(
+        &ArtworkOwner::Movie(MovieId("m1".into())),
+        &[poster.clone(), backdrop.clone()],
+    )
+    .await
+    .unwrap();
+    repo.set_artwork(
+        &ArtworkOwner::Series(SeriesId("s1".into())),
+        &[ArtworkRef {
+            id: ArtworkId("art-poster-s1".into()),
+            kind: ArtworkKind::Poster,
+            widths: vec![180],
+        }],
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        repo.list_artwork(&ArtworkOwner::Movie(MovieId("m1".into())))
+            .await
+            .unwrap(),
+        vec![poster.clone(), backdrop.clone()]
+    );
+    let hydrated_movie = repo
+        .get_movie(&MovieId("m1".into()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        hydrated_movie.artwork,
+        vec![poster.clone(), backdrop.clone()]
+    );
+    let listed_movies = repo.list_movies(page(0, 10)).await.unwrap();
+    assert_eq!(
+        listed_movies.items[0].artwork,
+        vec![poster.clone(), backdrop.clone()]
+    );
+    assert!(listed_movies.items[1].artwork.is_empty());
+
+    let hydrated_series = repo
+        .get_series(&SeriesId("s1".into()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(hydrated_series.artwork.len(), 1);
+    assert_eq!(hydrated_series.artwork[0].kind, ArtworkKind::Poster);
+    assert_eq!(hydrated_series.artwork[0].widths, vec![180]);
+
+    repo.set_artwork(
+        &ArtworkOwner::Movie(MovieId("m1".into())),
+        std::slice::from_ref(&backdrop),
+    )
+    .await
+    .unwrap();
+    let replaced = repo
+        .get_movie(&MovieId("m1".into()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(replaced.artwork, vec![backdrop]);
+
+    assert!(
+        repo.list_artwork(&ArtworkOwner::Movie(MovieId("m2".into())))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    repo.upsert_movie(Movie {
+        id: MovieId("um1".into()),
+        title: "Ingested".into(),
+        year: Some(2001),
+        overview: None,
+        runtime_minutes: None,
+        content_rating: None,
+        added_at: ts(7),
+        artwork: Vec::new(),
+    })
+    .await
+    .unwrap();
+    repo.upsert_movie(Movie {
+        id: MovieId("um1".into()),
+        title: "Ingested Remux".into(),
+        year: Some(2001),
+        overview: None,
+        runtime_minutes: None,
+        content_rating: None,
+        added_at: ts(7),
+        artwork: Vec::new(),
+    })
+    .await
+    .unwrap();
+    let ingested = repo
+        .get_movie(&MovieId("um1".into()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(ingested.title, "Ingested Remux");
+
+    repo.upsert_series(Series {
+        id: SeriesId("us1".into()),
+        title: "Ingested Show".into(),
+        year: Some(2002),
+        overview: None,
+        content_rating: None,
+        added_at: ts(8),
+        artwork: Vec::new(),
+    })
+    .await
+    .unwrap();
+    repo.upsert_season(Season {
+        id: SeasonId("use1".into()),
+        series: SeriesId("us1".into()),
+        number: 1,
+        title: Some("Season 1".into()),
+        overview: None,
+        artwork: Vec::new(),
+    })
+    .await
+    .unwrap();
+    repo.upsert_episode(Episode {
+        id: EpisodeId("ue1".into()),
+        season: SeasonId("use1".into()),
+        number: 1,
+        title: "Episode 1".into(),
+        overview: None,
+        runtime_minutes: None,
+        air_date: None,
+        added_at: ts(9),
+        artwork: Vec::new(),
+    })
+    .await
+    .unwrap();
+    repo.upsert_version(Version {
+        id: VersionId("uv1".into()),
+        title: TitleId::Episode(EpisodeId("ue1".into())),
+        library: LibraryId("lib1".into()),
+        quality: Quality::Hd,
+        container: "mkv".into(),
+        path: "/media/uv1.mkv".into(),
+        size_bytes: 4_000_000,
+        duration_ms: 1_500_000,
+        edition: None,
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        repo.get_series(&SeriesId("us1".into()))
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        repo.list_seasons(&SeriesId("us1".into()))
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        repo.get_episode(&EpisodeId("ue1".into()))
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        repo.list_versions(&TitleId::Episode(EpisodeId("ue1".into())), page(0, 10))
+            .await
+            .unwrap()
+            .total,
+        1
+    );
+
+    let uv1 = VersionId("uv1".into());
+    repo.set_version_tracks(
+        &uv1,
+        &[VideoTrack {
+            index: 0,
+            codec: "hevc".into(),
+            width: 3840,
+            height: 2160,
+            bit_depth: 10,
+            hdr: Some(HdrFormat::DolbyVision),
+            frame_rate: 24.0,
+            bitrate: Some(20_000_000),
+        }],
+        &[AudioTrack {
+            index: 1,
+            codec: "eac3".into(),
+            channels: 8,
+            language: Some(LanguageCode("de".into())),
+            bitrate: Some(768_000),
+        }],
+        &[
+            EmbeddedSubtitleTrack {
+                index: 2,
+                language: Some(LanguageCode("en".into())),
+                format: SubtitleFormat::Ass,
+                forced: true,
+                default: false,
+            },
+            EmbeddedSubtitleTrack {
+                index: 3,
+                language: Some(LanguageCode("de".into())),
+                format: SubtitleFormat::Srt,
+                forced: false,
+                default: true,
+            },
+        ],
+        &[Chapter {
+            title: "Cold Open".into(),
+            start_ms: 0,
+        }],
+    )
+    .await
+    .unwrap();
+    repo.set_trickplay(
+        &uv1,
+        &[TrickplayAsset {
+            version: uv1.clone(),
+            interval_ms: 5_000,
+            columns: 8,
+            rows: 8,
+            tile_width: 320,
+            tile_height: 180,
+            sheet_paths: vec!["/tp/uv1/sheet-001.jpg".into()],
+        }],
+    )
+    .await
+    .unwrap();
+
+    let uv1_detail = repo.version_detail(&uv1).await.unwrap().unwrap();
+    assert_eq!(uv1_detail.video.len(), 1);
+    assert_eq!(uv1_detail.video[0].codec, "hevc");
+    assert_eq!(uv1_detail.video[0].hdr, Some(HdrFormat::DolbyVision));
+    assert_eq!(uv1_detail.audio.len(), 1);
+    assert_eq!(uv1_detail.audio[0].channels, 8);
+    assert_eq!(uv1_detail.subtitles.len(), 2);
+    assert!(uv1_detail.subtitles[0].forced);
+    assert_eq!(uv1_detail.chapters.len(), 1);
+    assert_eq!(uv1_detail.trickplay.len(), 1);
+    assert_eq!(uv1_detail.trickplay[0].columns, 8);
+    assert_eq!(uv1_detail.trickplay[0].rows, 8);
+    assert_eq!(uv1_detail.trickplay[0].sheet_paths.len(), 1);
+
+    repo.set_version_tracks(&uv1, &[], &[], &[], &[])
+        .await
+        .unwrap();
+    repo.set_trickplay(&uv1, &[]).await.unwrap();
+    let uv1_cleared = repo.version_detail(&uv1).await.unwrap().unwrap();
+    assert!(uv1_cleared.video.is_empty());
+    assert!(uv1_cleared.audio.is_empty());
+    assert!(uv1_cleared.subtitles.is_empty());
+    assert!(uv1_cleared.chapters.is_empty());
+    assert!(uv1_cleared.trickplay.is_empty());
+
+    let m1_detail = repo
+        .movie_detail(&MovieId("m1".into()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(m1_detail.movie.title, "Alpha");
+    assert_eq!(
+        m1_detail
+            .genres
+            .iter()
+            .map(|g| g.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Action", "Drama"]
+    );
+    assert_eq!(m1_detail.credits.len(), 2);
+    assert_eq!(m1_detail.credits[0].person.name, "Ada");
+    assert_eq!(m1_detail.credits[0].role, CreditRole::Actor);
+    assert_eq!(m1_detail.credits[0].character, Some("Hero".to_owned()));
+    assert_eq!(m1_detail.credits[0].order, 0);
+    assert_eq!(m1_detail.credits[1].person.name, "Bob");
+    assert_eq!(m1_detail.credits[1].role, CreditRole::Director);
+    assert_eq!(m1_detail.credits[1].character, None);
+    assert_eq!(
+        m1_detail
+            .studios
+            .iter()
+            .map(|s| s.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Acme Studios"]
+    );
+    assert_eq!(
+        m1_detail.ratings,
+        vec![Rating {
+            source: "tmdb".into(),
+            value: 8.5,
+        }]
+    );
+    assert_eq!(
+        m1_detail
+            .external_ids
+            .iter()
+            .map(|e| (e.source.as_str(), e.value.as_str()))
+            .collect::<Vec<_>>(),
+        [("tmdb", "603"), ("imdb", "tt0133093")]
+    );
+    assert_eq!(m1_detail.extras.len(), 1);
+    assert_eq!(m1_detail.extras[0].kind, ExtraKind::Trailer);
+    assert_eq!(m1_detail.extras[0].title, "Teaser");
+    assert!(
+        repo.movie_detail(&MovieId("missing".into()))
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    let s1_detail = repo
+        .series_detail(&SeriesId("s1".into()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(s1_detail.series.title, "Gamma");
+    assert_eq!(s1_detail.genres.len(), 1);
+    assert_eq!(s1_detail.credits.len(), 1);
+    assert_eq!(s1_detail.credits[0].person.name, "Ada");
+    assert_eq!(s1_detail.credits[0].character, Some("Lead".to_owned()));
+    assert_eq!(s1_detail.ratings[0].value, 9.0);
+    assert_eq!(s1_detail.external_ids[0].source, "tvdb");
+    assert!(
+        repo.series_detail(&SeriesId("missing".into()))
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    assert_eq!(
+        repo.get_person(&PersonId("p1".into()))
+            .await
+            .unwrap()
+            .unwrap()
+            .name,
+        "Ada"
+    );
+    assert!(
+        repo.get_person(&PersonId("missing".into()))
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    let p1_film = repo.filmography(&PersonId("p1".into())).await.unwrap();
+    assert_eq!(p1_film.len(), 2);
+    assert_eq!(p1_film[0].title, TitleRef::Movie(MovieId("m1".into())));
+    assert_eq!(p1_film[0].role, CreditRole::Actor);
+    assert_eq!(p1_film[1].title, TitleRef::Series(SeriesId("s1".into())));
+    let p2_film = repo.filmography(&PersonId("p2".into())).await.unwrap();
+    assert_eq!(p2_film.len(), 1);
+    assert_eq!(p2_film[0].role, CreditRole::Director);
+    assert!(
+        repo.filmography(&PersonId("missing".into()))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    assert_eq!(
+        repo.list_genres()
+            .await
+            .unwrap()
+            .iter()
+            .map(|g| g.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Action", "Drama"]
+    );
+
+    let by_action = repo
+        .list_movies_by_genre(&GenreId("g-action".into()), page(0, 10))
+        .await
+        .unwrap();
+    assert_eq!(
+        by_action
+            .items
+            .iter()
+            .map(|m| m.id.0.as_str())
+            .collect::<Vec<_>>(),
+        ["m1"]
+    );
+    assert_eq!(
+        repo.list_movies_by_genre(&GenreId("g-drama".into()), page(0, 10))
+            .await
+            .unwrap()
+            .total,
+        1
+    );
+    assert!(
+        repo.list_movies_by_genre(&GenreId("missing".into()), page(0, 10))
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    assert_eq!(
+        repo.list_series_by_genre(&GenreId("g-action".into()), page(0, 10))
+            .await
+            .unwrap()
+            .items
+            .iter()
+            .map(|s| s.id.0.as_str())
+            .collect::<Vec<_>>(),
+        ["s1"]
+    );
+    assert!(
+        repo.list_series_by_genre(&GenreId("g-drama".into()), page(0, 10))
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+
+    repo.set_title_enrichment(
+        &TitleRef::Movie(MovieId("m1".into())),
+        &TitleEnrichment::default(),
+    )
+    .await
+    .unwrap();
+    let cleared = repo
+        .movie_detail(&MovieId("m1".into()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(cleared.genres.is_empty());
+    assert!(cleared.credits.is_empty());
+    assert!(cleared.studios.is_empty());
+    assert!(cleared.ratings.is_empty());
+    assert!(cleared.external_ids.is_empty());
+    assert!(cleared.extras.is_empty());
+
+    let p1_after = repo.filmography(&PersonId("p1".into())).await.unwrap();
+    assert_eq!(p1_after.len(), 1);
+    assert_eq!(p1_after[0].title, TitleRef::Series(SeriesId("s1".into())));
+    assert!(
+        repo.filmography(&PersonId("p2".into()))
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }

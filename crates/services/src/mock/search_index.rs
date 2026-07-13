@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use domain::common::{Page, PageRequest};
-use domain::discovery::{SearchResult, search};
+use domain::discovery::{SearchKind, SearchResult, search};
 use domain::error::RepositoryError;
 use domain::repository::SearchIndex;
 
@@ -39,13 +39,14 @@ impl SearchIndex for MockSearchIndex {
     async fn search(
         &self,
         query: &str,
+        types: &[SearchKind],
         page: PageRequest,
     ) -> Result<Page<SearchResult>, RepositoryError> {
         let state = self.state.lock().unwrap();
         if state.fail {
             return Err(RepositoryError::Backend("mock search failure".to_owned()));
         }
-        Ok(search(&state.entries, query, page))
+        Ok(search(&state.entries, query, types, page))
     }
 
     async fn rebuild(&self) -> Result<(), RepositoryError> {
@@ -74,6 +75,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
         })
     }
 
@@ -90,7 +92,7 @@ mod tests {
         index.add(movie("Matrix"));
         index.add(movie("Inception"));
 
-        let hits = index.search("matrix", page()).await.unwrap();
+        let hits = index.search("matrix", &[], page()).await.unwrap();
         assert_eq!(hits.total, 1);
 
         assert_eq!(index.rebuild_count(), 0);
@@ -102,7 +104,7 @@ mod tests {
     async fn surfaces_failures() {
         let index = MockSearchIndex::new();
         index.set_fail();
-        assert!(index.search("x", page()).await.is_err());
+        assert!(index.search("x", &[], page()).await.is_err());
         assert!(index.rebuild().await.is_err());
     }
 }

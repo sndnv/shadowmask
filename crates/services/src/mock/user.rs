@@ -5,7 +5,7 @@ use domain::common::{Page, PageRequest};
 use domain::error::UserError;
 use domain::library::LibraryId;
 use domain::service::UserService;
-use domain::user::{LibraryAccess, NewUser, User, UserId, UserProfileUpdate};
+use domain::user::{LibraryAccess, NewUser, Principal, Role, User, UserId, UserProfileUpdate};
 use jiff::Timestamp;
 
 use crate::page::paginate;
@@ -25,6 +25,10 @@ pub struct MockUserService {
 impl MockUserService {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn add_user(&self, user: User) {
+        self.state.lock().unwrap().users.push(user);
     }
 }
 
@@ -135,6 +139,27 @@ impl UserService for MockUserService {
         state.access.insert(id.clone(), libraries.to_vec());
         Ok(())
     }
+
+    async fn change_password(
+        &self,
+        actor: &Principal,
+        target: &UserId,
+        current: Option<&str>,
+        new_password: &str,
+    ) -> Result<(), UserError> {
+        let mut state = self.state.lock().unwrap();
+        let user = state
+            .users
+            .iter_mut()
+            .find(|u| &u.id == target)
+            .ok_or(UserError::NotFound)?;
+        let admin_reset = actor.role == Role::Admin && &actor.user != target;
+        if !admin_reset && current.unwrap_or("") != user.password_hash {
+            return Err(UserError::InvalidPassword);
+        }
+        user.password_hash = new_password.to_owned();
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -232,6 +257,41 @@ mod tests {
         assert!(svc.list(page()).await.unwrap().items.is_empty());
         assert!(matches!(
             svc.delete(&user.id).await.unwrap_err(),
+            UserError::NotFound
+        ));
+    }
+
+    #[tokio::test]
+    async fn change_password_self_and_admin_reset() {
+        let svc = MockUserService::new();
+        let user = svc.create(new_user("frank")).await.unwrap();
+        let self_actor = Principal {
+            user: user.id.clone(),
+            role: Role::User,
+        };
+        assert!(matches!(
+            svc.change_password(&self_actor, &user.id, Some("wrong"), "fresh")
+                .await
+                .unwrap_err(),
+            UserError::InvalidPassword
+        ));
+        svc.change_password(&self_actor, &user.id, Some("secret"), "fresh")
+            .await
+            .unwrap();
+        assert_eq!(svc.get(&user.id).await.unwrap().password_hash, "fresh");
+
+        let admin = Principal {
+            user: UserId("admin".into()),
+            role: Role::Admin,
+        };
+        svc.change_password(&admin, &user.id, None, "reset")
+            .await
+            .unwrap();
+        assert_eq!(svc.get(&user.id).await.unwrap().password_hash, "reset");
+        assert!(matches!(
+            svc.change_password(&admin, &UserId("nope".into()), None, "x")
+                .await
+                .unwrap_err(),
             UserError::NotFound
         ));
     }

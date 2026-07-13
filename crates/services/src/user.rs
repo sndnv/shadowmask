@@ -3,7 +3,7 @@ use domain::error::{RepositoryError, UserError};
 use domain::library::LibraryId;
 use domain::repository::UserRepository;
 use domain::service::UserService;
-use domain::user::{LibraryAccess, NewUser, User, UserId, UserProfileUpdate};
+use domain::user::{LibraryAccess, NewUser, Principal, Role, User, UserId, UserProfileUpdate};
 use jiff::Timestamp;
 use uuid::Uuid;
 
@@ -100,6 +100,25 @@ where
     ) -> Result<(), UserError> {
         self.users.get(id).await?.ok_or(UserError::NotFound)?;
         self.users.set_library_access(id, libraries).await?;
+        Ok(())
+    }
+
+    async fn change_password(
+        &self,
+        actor: &Principal,
+        target: &UserId,
+        current: Option<&str>,
+        new_password: &str,
+    ) -> Result<(), UserError> {
+        let mut user = self.users.get(target).await?.ok_or(UserError::NotFound)?;
+        let admin_reset = actor.role == Role::Admin && &actor.user != target;
+        if !admin_reset
+            && !password::verify(current.unwrap_or(""), &user.password_hash).map_err(backend)?
+        {
+            return Err(UserError::InvalidPassword);
+        }
+        user.password_hash = password::hash(new_password).map_err(backend)?;
+        self.users.update(user).await?;
         Ok(())
     }
 }
@@ -221,6 +240,84 @@ mod tests {
         assert_eq!(svc.library_access(&user.id).await.unwrap().len(), 1);
     }
 
+    fn principal(id: &str, role: Role) -> Principal {
+        Principal {
+            user: UserId(id.into()),
+            role,
+        }
+    }
+
+    #[tokio::test]
+    async fn self_change_password_verifies_current() {
+        let svc = service();
+        let user = svc.create(new_user("frank")).await.unwrap();
+        let actor = principal(&user.id.0, Role::User);
+        svc.change_password(&actor, &user.id, Some("secret"), "fresh")
+            .await
+            .unwrap();
+        let stored = svc.get(&user.id).await.unwrap();
+        assert!(password::verify("fresh", &stored.password_hash).unwrap());
+    }
+
+    #[tokio::test]
+    async fn self_change_password_rejects_wrong_or_missing_current() {
+        let svc = service();
+        let user = svc.create(new_user("grace")).await.unwrap();
+        let actor = principal(&user.id.0, Role::User);
+        assert!(matches!(
+            svc.change_password(&actor, &user.id, Some("nope"), "fresh")
+                .await
+                .unwrap_err(),
+            UserError::InvalidPassword
+        ));
+        assert!(matches!(
+            svc.change_password(&actor, &user.id, None, "fresh")
+                .await
+                .unwrap_err(),
+            UserError::InvalidPassword
+        ));
+    }
+
+    #[tokio::test]
+    async fn admin_reset_skips_current_password() {
+        let svc = service();
+        let user = svc.create(new_user("heidi")).await.unwrap();
+        let admin = principal("admin", Role::Admin);
+        svc.change_password(&admin, &user.id, None, "reset")
+            .await
+            .unwrap();
+        let stored = svc.get(&user.id).await.unwrap();
+        assert!(password::verify("reset", &stored.password_hash).unwrap());
+    }
+
+    #[tokio::test]
+    async fn admin_changing_own_password_still_verifies() {
+        let svc = service();
+        let admin_user = svc.create(new_user("ivan")).await.unwrap();
+        let admin = principal(&admin_user.id.0, Role::Admin);
+        assert!(matches!(
+            svc.change_password(&admin, &admin_user.id, Some("wrong"), "fresh")
+                .await
+                .unwrap_err(),
+            UserError::InvalidPassword
+        ));
+        svc.change_password(&admin, &admin_user.id, Some("secret"), "fresh")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn change_password_missing_user_is_not_found() {
+        let svc = service();
+        let admin = principal("admin", Role::Admin);
+        assert!(matches!(
+            svc.change_password(&admin, &UserId("nope".into()), None, "x")
+                .await
+                .unwrap_err(),
+            UserError::NotFound
+        ));
+    }
+
     #[test]
     fn backend_maps_to_repository_error() {
         assert!(matches!(
@@ -244,6 +341,17 @@ mod tests {
         ));
         assert!(matches!(
             svc.get(&UserId("x".into())).await.unwrap_err(),
+            UserError::Repository(_)
+        ));
+        assert!(matches!(
+            svc.change_password(
+                &principal("admin", Role::Admin),
+                &UserId("x".into()),
+                None,
+                "new"
+            )
+            .await
+            .unwrap_err(),
             UserError::Repository(_)
         ));
     }

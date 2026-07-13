@@ -1,12 +1,20 @@
 use crate::common::{Page, PageRequest, paginate};
-use crate::discovery::SearchResult;
+use crate::discovery::{SearchKind, SearchResult};
 use crate::text::normalize_title;
 
-pub fn search(candidates: &[SearchResult], query: &str, page: PageRequest) -> Page<SearchResult> {
+pub fn search(
+    candidates: &[SearchResult],
+    query: &str,
+    types: &[SearchKind],
+    page: PageRequest,
+) -> Page<SearchResult> {
     let needle = normalize_title(query);
     let mut ranked: Vec<(u8, String, &str, &SearchResult)> = Vec::new();
     if !needle.is_empty() {
         for candidate in candidates {
+            if !types.is_empty() && !types.contains(&candidate.kind()) {
+                continue;
+            }
             let haystack = normalize_title(searchable(candidate));
             if let Some(tier) = rank(&needle, &haystack) {
                 ranked.push((tier, haystack, id(candidate), candidate));
@@ -69,6 +77,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
         })
     }
 
@@ -80,6 +89,7 @@ mod tests {
             overview: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
         })
     }
 
@@ -100,6 +110,7 @@ mod tests {
             runtime_minutes: None,
             air_date: None,
             added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
         })
     }
 
@@ -115,6 +126,36 @@ mod tests {
             offset: 0,
             limit: 100,
         }
+    }
+
+    fn search(candidates: &[SearchResult], query: &str, page: PageRequest) -> Page<SearchResult> {
+        super::search(candidates, query, &[], page)
+    }
+
+    #[test]
+    fn filters_by_kind() {
+        let candidates = [
+            movie("Matrix"),
+            series("The Matrix"),
+            episode("Matrix Origins"),
+            person("Matrix Guy"),
+        ];
+        let movies = super::search(&candidates, "matrix", &[SearchKind::Movie], all());
+        assert_eq!(titles(&movies), vec!["Matrix"]);
+
+        let people = super::search(&candidates, "matrix", &[SearchKind::Person], all());
+        assert_eq!(titles(&people), vec!["Matrix Guy"]);
+
+        let two = super::search(
+            &candidates,
+            "matrix",
+            &[SearchKind::Series, SearchKind::Episode],
+            all(),
+        );
+        assert_eq!(two.total, 2);
+
+        let unfiltered = super::search(&candidates, "matrix", &[], all());
+        assert_eq!(unfiltered.total, 4);
     }
 
     #[test]
@@ -201,6 +242,7 @@ mod prop_tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
         })
     }
 
@@ -209,6 +251,10 @@ mod prop_tests {
             offset: 0,
             limit: 1000,
         }
+    }
+
+    fn search(candidates: &[SearchResult], query: &str, page: PageRequest) -> Page<SearchResult> {
+        super::search(candidates, query, &[], page)
     }
 
     proptest! {

@@ -1,7 +1,7 @@
 use domain::error::MetadataError;
 use domain::metadata::{
-    Artwork, ArtworkKind, ExternalId, MediaKind, MetadataMatch, MetadataProvider, MetadataQuery,
-    TitleMetadata,
+    Artwork, ArtworkKind, CreditInfo, CreditRole, ExternalId, MediaKind, MetadataMatch,
+    MetadataProvider, MetadataQuery, TitleMetadata,
 };
 use serde::Deserialize;
 
@@ -11,6 +11,7 @@ use crate::util::{non_empty, parse_year};
 const DEFAULT_BASE_URL: &str = "https://api.themoviedb.org/3";
 const DEFAULT_IMAGE_BASE_URL: &str = "https://image.tmdb.org/t/p/original";
 
+#[derive(Clone)]
 pub struct TmdbClient {
     client: reqwest::Client,
     base_url: String,
@@ -45,6 +46,21 @@ fn tmdb_endpoint(kind: MediaKind) -> &'static str {
     match kind {
         MediaKind::Movie => "movie",
         MediaKind::Series => "tv",
+    }
+}
+
+fn person_external_id(id: u64) -> ExternalId {
+    ExternalId {
+        source: "tmdb".to_owned(),
+        value: format!("person/{id}"),
+    }
+}
+
+fn crew_role(job: &str) -> Option<CreditRole> {
+    match job {
+        "Director" => Some(CreditRole::Director),
+        "Writer" | "Screenplay" | "Story" => Some(CreditRole::Writer),
+        _ => None,
     }
 }
 
@@ -93,7 +109,10 @@ impl MetadataProvider for TmdbClient {
     async fn fetch(&self, id: &ExternalId) -> Result<TitleMetadata, MetadataError> {
         let (endpoint, tmdb_id) = id.value.split_once('/').unwrap_or(("movie", &id.value));
         let url = format!("{}/{}/{}", self.base_url, endpoint, tmdb_id);
-        let params = [("api_key", self.api_key.as_str())];
+        let params = [
+            ("api_key", self.api_key.as_str()),
+            ("append_to_response", "credits"),
+        ];
         let detail: RawDetail = get_json(self.client.get(url.as_str()).query(&params)).await?;
 
         let mut artwork = Vec::new();
@@ -116,6 +135,27 @@ impl MetadataProvider for TmdbClient {
         let runtime_minutes = detail
             .runtime
             .or_else(|| detail.episode_run_time.first().copied());
+        let credits = detail.credits.unwrap_or_default();
+        let mut cast: Vec<CreditInfo> = credits
+            .cast
+            .into_iter()
+            .map(|member| CreditInfo {
+                external_person_id: person_external_id(member.id),
+                name: member.name,
+                role: CreditRole::Actor,
+                character: member.character.and_then(|c| non_empty(&c)),
+                order: member.order,
+            })
+            .collect();
+        cast.extend(credits.crew.into_iter().filter_map(|member| {
+            crew_role(&member.job).map(|role| CreditInfo {
+                external_person_id: person_external_id(member.id),
+                name: member.name,
+                role,
+                character: None,
+                order: 0,
+            })
+        }));
         Ok(TitleMetadata {
             title: detail.title.or(detail.name).unwrap_or_default(),
             year: detail
@@ -128,6 +168,12 @@ impl MetadataProvider for TmdbClient {
             content_rating: None,
             ratings: Vec::new(),
             genres: detail.genres.into_iter().map(|g| g.name).collect(),
+            cast,
+            studios: detail
+                .production_companies
+                .into_iter()
+                .map(|c| c.name)
+                .collect(),
             artwork,
             external_ids: vec![ExternalId {
                 source: "tmdb".to_owned(),
@@ -178,11 +224,49 @@ struct RawDetail {
     backdrop_path: Option<String>,
     #[serde(default)]
     genres: Vec<RawGenre>,
+    #[serde(default)]
+    production_companies: Vec<RawCompany>,
+    #[serde(default)]
+    credits: Option<RawCredits>,
 }
 
 #[derive(Deserialize)]
 struct RawGenre {
     name: String,
+}
+
+#[derive(Deserialize)]
+struct RawCompany {
+    #[serde(default)]
+    name: String,
+}
+
+#[derive(Deserialize, Default)]
+struct RawCredits {
+    #[serde(default)]
+    cast: Vec<RawCast>,
+    #[serde(default)]
+    crew: Vec<RawCrew>,
+}
+
+#[derive(Deserialize)]
+struct RawCast {
+    id: u64,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    character: Option<String>,
+    #[serde(default)]
+    order: u32,
+}
+
+#[derive(Deserialize)]
+struct RawCrew {
+    id: u64,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    job: String,
 }
 
 #[cfg(test)]
@@ -302,6 +386,67 @@ mod tests {
         assert_eq!(meta.artwork[1].kind, ArtworkKind::Backdrop);
         assert_eq!(meta.artwork[1].url, "http://img.test/back.jpg");
         assert_eq!(meta.external_ids[0].value, "movie/603");
+    }
+
+    #[tokio::test]
+    async fn fetch_movie_maps_credits_and_studios() {
+        let server = mock_path(
+            "/movie/603",
+            ResponseTemplate::new(200).set_body_json(json!({
+                "title": "The Matrix",
+                "production_companies": [
+                    {"id": 1, "name": "Warner Bros."},
+                    {"id": 2, "name": "Village Roadshow"}
+                ],
+                "credits": {
+                    "cast": [
+                        {"id": 6384, "name": "Keanu Reeves", "character": "Neo", "order": 0},
+                        {"id": 2975, "name": "Laurence Fishburne", "character": "", "order": 1}
+                    ],
+                    "crew": [
+                        {"id": 9339, "name": "Lana Wachowski", "job": "Director"},
+                        {"id": 9340, "name": "Lilly Wachowski", "job": "Writer"},
+                        {"id": 9341, "name": "Someone", "job": "Screenplay"},
+                        {"id": 9342, "name": "Producer Person", "job": "Producer"}
+                    ]
+                }
+            })),
+        )
+        .await;
+        let id = ExternalId {
+            source: "tmdb".to_owned(),
+            value: "movie/603".to_owned(),
+        };
+        let meta = client(&server).fetch(&id).await.unwrap();
+        assert_eq!(meta.studios, vec!["Warner Bros.", "Village Roadshow"]);
+        assert_eq!(meta.cast.len(), 5);
+        assert_eq!(meta.cast[0].name, "Keanu Reeves");
+        assert_eq!(meta.cast[0].role, CreditRole::Actor);
+        assert_eq!(meta.cast[0].character.as_deref(), Some("Neo"));
+        assert_eq!(meta.cast[0].order, 0);
+        assert_eq!(meta.cast[0].external_person_id.value, "person/6384");
+        assert_eq!(meta.cast[1].character, None);
+        assert_eq!(meta.cast[2].role, CreditRole::Director);
+        assert_eq!(meta.cast[2].character, None);
+        assert_eq!(meta.cast[3].role, CreditRole::Writer);
+        assert_eq!(meta.cast[4].role, CreditRole::Writer);
+        assert!(meta.cast.iter().all(|c| c.name != "Producer Person"));
+    }
+
+    #[tokio::test]
+    async fn fetch_missing_credits_yields_empty_cast_and_studios() {
+        let server = mock_path(
+            "/movie/1",
+            ResponseTemplate::new(200).set_body_json(json!({"title": "Bare"})),
+        )
+        .await;
+        let id = ExternalId {
+            source: "tmdb".to_owned(),
+            value: "movie/1".to_owned(),
+        };
+        let meta = client(&server).fetch(&id).await.unwrap();
+        assert!(meta.cast.is_empty());
+        assert!(meta.studios.is_empty());
     }
 
     #[tokio::test]

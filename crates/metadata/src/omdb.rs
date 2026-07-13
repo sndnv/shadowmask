@@ -126,6 +126,8 @@ impl MetadataProvider for OmdbClient {
             content_rating,
             ratings,
             genres,
+            cast: Vec::new(),
+            studios: Vec::new(),
             artwork,
             external_ids: vec![ExternalId {
                 source: "imdb".to_owned(),

@@ -1,3 +1,4 @@
+use crate::media::{DetectedMarkers, TrickplayAsset};
 use crate::session::{DeliveryMode, SelectedTracks, SessionId};
 
 #[derive(Debug, Clone)]
@@ -7,4 +8,6 @@ pub struct SessionStarted {
     pub manifest_url: String,
     pub selected: SelectedTracks,
     pub heartbeat_interval_s: u32,
+    pub markers: DetectedMarkers,
+    pub trickplay: Vec<TrickplayAsset>,
 }

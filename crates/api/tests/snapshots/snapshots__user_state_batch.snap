@@ -1,0 +1,19 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": [
+    {
+      "completed": false,
+      "favorite": false,
+      "title": {
+        "id": "m1",
+        "type": "movie"
+      },
+      "watched": true,
+      "watchlisted": false
+    }
+  ],
+  "status": 200
+}

@@ -1,4 +1,4 @@
-use crate::catalog::SeriesId;
+use crate::catalog::{ArtworkRef, SeriesId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SeasonId(pub String);
@@ -10,4 +10,5 @@ pub struct Season {
     pub number: u16,
     pub title: Option<String>,
     pub overview: Option<String>,
+    pub artwork: Vec<ArtworkRef>,
 }

@@ -3,12 +3,14 @@ use std::sync::Arc;
 
 use axum::Router;
 
-use ::api::{AppState, StreamState};
+use ::api::{AppState, ImageState, StreamState, TrickplayState};
 use domain::error::{ProfileError, RepositoryError};
+use media::artwork::FsArtworkStore;
 use media::hls::HlsStreamSource;
 use media::profile::BuiltinProfiles;
 use media::stream_token::HmacStreamTokens;
 use media::transcode::FfmpegTranscodeManager;
+use metadata::TmdbClient;
 use persistence::migrate::migrate_all;
 use persistence::server::{
     SqliteAuthTokenRepo, SqliteCatalogRepo, SqliteJobRepo, SqliteLibraryRepo, SqliteUserRepo,
@@ -35,9 +37,16 @@ pub type SessionSvc = DefaultSessionService<
     SqliteUserRepo,
     SqliteProgressRepo,
 >;
-pub type LibrarySvc = LibraryServiceImpl<SqliteLibraryRepo, SqliteUserRepo, SqliteJobRepo>;
+pub type LibrarySvc = LibraryServiceImpl<
+    SqliteLibraryRepo,
+    SqliteUserRepo,
+    SqliteJobRepo,
+    SqliteCatalogRepo,
+    TmdbClient,
+>;
 pub type UserSvc = UserServiceImpl<SqliteUserRepo>;
-pub type UserLibrarySvc = UserLibraryServiceImpl<SqliteProgressRepo, SqlitePreferencesRepo>;
+pub type UserLibrarySvc =
+    UserLibraryServiceImpl<SqliteProgressRepo, SqlitePreferencesRepo, SqliteCatalogRepo>;
 pub type DiscoverySvc =
     DiscoveryServiceImpl<SqliteCatalogRepo, SqliteCatalogRepo, SqliteProgressRepo>;
 
@@ -51,6 +60,9 @@ pub struct WireConfig {
     pub access_ttl_secs: i64,
     pub refresh_ttl_secs: i64,
     pub transcode_cache: PathBuf,
+    pub artwork_cache: PathBuf,
+    pub trickplay_cache: PathBuf,
+    pub tmdb_api_key: Option<String>,
 }
 
 pub struct Repos {
@@ -92,12 +104,18 @@ pub struct Built {
     pub state: DefaultState,
     pub stream: DefaultStreamState,
     pub session: SessionSvc,
+    pub artwork_store: FsArtworkStore,
+    pub images: ImageState,
+    pub trickplay: TrickplayState,
 }
 
 pub fn build_state(repos: &Repos, cfg: &WireConfig) -> Result<Built, ProfileError> {
     let profiles = BuiltinProfiles::load()?;
     let transcode = FfmpegTranscodeManager::new(&cfg.transcode_cache);
     let hls = HlsStreamSource::new();
+    let artwork_store = FsArtworkStore::new(&cfg.artwork_cache);
+    let images = ImageState::new(&cfg.artwork_cache);
+    let trickplay = TrickplayState::new(&cfg.trickplay_cache);
 
     let auth = DefaultAuthService::new(
         repos.users.clone(),
@@ -117,15 +135,19 @@ pub fn build_state(repos: &Repos, cfg: &WireConfig) -> Result<Built, ProfileErro
         repos.users.clone(),
         repos.progress.clone(),
     );
+    let provider = cfg.tmdb_api_key.clone().map(TmdbClient::new);
     let library = LibraryServiceImpl::new(
         repos.library.clone(),
         repos.users.clone(),
         repos.jobs.clone(),
+        repos.catalog.clone(),
+        provider,
     );
     let user = UserServiceImpl::new(repos.users.clone());
     let user_library = UserLibraryServiceImpl::new(
         Arc::new(repos.progress.clone()),
         Arc::new(repos.preferences.clone()),
+        Arc::new(repos.catalog.clone()),
     );
     let discovery = DiscoveryServiceImpl::new(
         repos.catalog.clone(),
@@ -147,9 +169,20 @@ pub fn build_state(repos: &Repos, cfg: &WireConfig) -> Result<Built, ProfileErro
         state,
         stream,
         session,
+        artwork_store,
+        images,
+        trickplay,
     })
 }
 
-pub fn app(state: DefaultState, stream: DefaultStreamState) -> Router {
-    ::api::router(state).merge(::api::stream_router(stream))
+pub fn app(
+    state: DefaultState,
+    stream: DefaultStreamState,
+    images: ImageState,
+    trickplay: TrickplayState,
+) -> Router {
+    ::api::router(state.clone())
+        .merge(::api::stream_router(stream))
+        .merge(::api::image_router(images))
+        .merge(::api::trickplay_router(state, trickplay))
 }

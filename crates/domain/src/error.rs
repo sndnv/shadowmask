@@ -90,6 +90,8 @@ pub enum UserError {
     UsernameTaken,
     #[error("access denied")]
     AccessDenied,
+    #[error("current password is incorrect")]
+    InvalidPassword,
     #[error(transparent)]
     Repository(#[from] RepositoryError),
 }
@@ -124,6 +126,8 @@ pub enum ArtworkError {
     Download(String),
     #[error("failed to decode artwork: {0}")]
     Decode(String),
+    #[error("failed to store artwork: {0}")]
+    Store(String),
 }
 
 #[derive(Debug, Error)]

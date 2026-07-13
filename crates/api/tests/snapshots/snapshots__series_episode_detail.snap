@@ -6,6 +6,23 @@ expression: value
   "body": {
     "added_at": "2023-11-14T22:13:24Z",
     "air_date": "2023-11-14T22:13:23Z",
+    "artwork": {
+      "backdrop": {
+        "base": "/images/e1-backdrop",
+        "widths": [
+          480,
+          960
+        ]
+      },
+      "poster": {
+        "base": "/images/e1-poster",
+        "widths": [
+          180,
+          480,
+          960
+        ]
+      }
+    },
     "id": "e1",
     "number": 1,
     "overview": null,

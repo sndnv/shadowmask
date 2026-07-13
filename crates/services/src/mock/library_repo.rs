@@ -4,15 +4,23 @@ use std::sync::{Arc, Mutex};
 
 use domain::common::{Page, PageRequest};
 use domain::error::RepositoryError;
-use domain::library::{DuplicateCandidate, Library, LibraryId, ScanState, UnmatchedFile};
+use domain::library::{
+    DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, ResolutionStatus, ScanState,
+    UnmatchedFile, UnmatchedFileId,
+};
 use domain::repository::LibraryRepository;
 
 use crate::page::paginate;
+
+type UnmatchedEntry = (UnmatchedFile, ResolutionStatus);
+type DuplicateEntry = (LibraryId, DuplicateCandidate, ResolutionStatus);
 
 #[derive(Clone, Default)]
 pub struct MockLibraryRepo {
     libraries: Arc<Mutex<HashMap<LibraryId, Library>>>,
     scan_states: Arc<Mutex<HashMap<LibraryId, ScanState>>>,
+    unmatched: Arc<Mutex<HashMap<UnmatchedFileId, UnmatchedEntry>>>,
+    duplicates: Arc<Mutex<HashMap<DuplicateCandidateId, DuplicateEntry>>>,
     fail_get: Arc<AtomicBool>,
     fail_save: Arc<AtomicBool>,
 }
@@ -65,20 +73,133 @@ impl LibraryRepository for MockLibraryRepo {
         Ok(())
     }
 
+    async fn upsert(&self, library: Library) -> Result<(), RepositoryError> {
+        if self.fail_save.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend("mock save failure".to_owned()));
+        }
+        self.libraries
+            .lock()
+            .unwrap()
+            .insert(library.id.clone(), library);
+        Ok(())
+    }
+
+    async fn delete(&self, id: &LibraryId) -> Result<(), RepositoryError> {
+        if self.fail_save.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend("mock save failure".to_owned()));
+        }
+        self.libraries.lock().unwrap().remove(id);
+        self.scan_states.lock().unwrap().remove(id);
+        self.unmatched
+            .lock()
+            .unwrap()
+            .retain(|_, (file, _)| file.library != *id);
+        self.duplicates
+            .lock()
+            .unwrap()
+            .retain(|_, (library, _, _)| library != id);
+        Ok(())
+    }
+
     async fn list_unmatched(
         &self,
-        _id: &LibraryId,
+        id: &LibraryId,
         page: PageRequest,
     ) -> Result<Page<UnmatchedFile>, RepositoryError> {
-        Ok(paginate(&Vec::<UnmatchedFile>::new(), page))
+        let mut items: Vec<UnmatchedFile> = self
+            .unmatched
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|(file, status)| file.library == *id && *status == ResolutionStatus::Active)
+            .map(|(file, _)| file.clone())
+            .collect();
+        items.sort_by(|a, b| a.id.0.cmp(&b.id.0));
+        Ok(paginate(&items, page))
     }
 
     async fn list_duplicates(
         &self,
-        _id: &LibraryId,
+        id: &LibraryId,
         page: PageRequest,
     ) -> Result<Page<DuplicateCandidate>, RepositoryError> {
-        Ok(paginate(&Vec::<DuplicateCandidate>::new(), page))
+        let mut items: Vec<DuplicateCandidate> = self
+            .duplicates
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|(library, _, status)| library == id && *status == ResolutionStatus::Active)
+            .map(|(_, duplicate, _)| duplicate.clone())
+            .collect();
+        items.sort_by(|a, b| a.id.0.cmp(&b.id.0));
+        Ok(paginate(&items, page))
+    }
+
+    async fn get_unmatched(
+        &self,
+        id: &UnmatchedFileId,
+    ) -> Result<Option<UnmatchedFile>, RepositoryError> {
+        if self.fail_get.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend("mock get failure".to_owned()));
+        }
+        Ok(self
+            .unmatched
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|(file, _)| file.clone()))
+    }
+
+    async fn insert_unmatched(&self, file: UnmatchedFile) -> Result<(), RepositoryError> {
+        if self.fail_save.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend("mock save failure".to_owned()));
+        }
+        let mut map = self.unmatched.lock().unwrap();
+        let status = map
+            .get(&file.id)
+            .map(|(_, status)| *status)
+            .unwrap_or(ResolutionStatus::Active);
+        map.insert(file.id.clone(), (file, status));
+        Ok(())
+    }
+
+    async fn insert_duplicate(
+        &self,
+        library: &LibraryId,
+        duplicate: DuplicateCandidate,
+    ) -> Result<(), RepositoryError> {
+        if self.fail_save.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend("mock save failure".to_owned()));
+        }
+        let mut map = self.duplicates.lock().unwrap();
+        let status = map
+            .get(&duplicate.id)
+            .map(|(_, _, status)| *status)
+            .unwrap_or(ResolutionStatus::Active);
+        map.insert(duplicate.id.clone(), (library.clone(), duplicate, status));
+        Ok(())
+    }
+
+    async fn set_unmatched_status(
+        &self,
+        id: &UnmatchedFileId,
+        status: ResolutionStatus,
+    ) -> Result<(), RepositoryError> {
+        if let Some(entry) = self.unmatched.lock().unwrap().get_mut(id) {
+            entry.1 = status;
+        }
+        Ok(())
+    }
+
+    async fn set_duplicate_status(
+        &self,
+        id: &DuplicateCandidateId,
+        status: ResolutionStatus,
+    ) -> Result<(), RepositoryError> {
+        if let Some(entry) = self.duplicates.lock().unwrap().get_mut(id) {
+            entry.2 = status;
+        }
+        Ok(())
     }
 }
 

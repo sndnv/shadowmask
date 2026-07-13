@@ -156,6 +156,9 @@ impl From<UserError> for ApiError {
             UserError::NotFound => ApiError::new(StatusCode::NOT_FOUND, "not_found", msg),
             UserError::UsernameTaken => ApiError::new(StatusCode::CONFLICT, "username_taken", msg),
             UserError::AccessDenied => ApiError::new(StatusCode::FORBIDDEN, "access_denied", msg),
+            UserError::InvalidPassword => {
+                ApiError::new(StatusCode::UNAUTHORIZED, "invalid_password", msg)
+            }
             UserError::Repository(_) => ApiError::internal(),
         }
     }
@@ -330,6 +333,9 @@ mod tests {
         let denied = ApiError::from(UserError::AccessDenied);
         assert_eq!(denied.status, StatusCode::FORBIDDEN);
         assert_eq!(denied.code, "access_denied");
+        let invalid = ApiError::from(UserError::InvalidPassword);
+        assert_eq!(invalid.status, StatusCode::UNAUTHORIZED);
+        assert_eq!(invalid.code, "invalid_password");
         assert_eq!(
             ApiError::from(UserError::Repository(repo())).status,
             StatusCode::INTERNAL_SERVER_ERROR

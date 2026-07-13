@@ -1,3 +1,4 @@
+use contracts::repo::auth_token_repository_contract;
 use domain::repository::AuthTokenRepository;
 use domain::user::{AuthSession, AuthSessionId, PendingLink, Role, UserId};
 use jiff::Timestamp;
@@ -128,4 +129,10 @@ async fn link_code_redeemed_once_and_respects_expiry() {
             .unwrap()
             .is_none()
     );
+}
+
+#[tokio::test]
+async fn device_and_api_token_contract_holds_for_sqlite() {
+    let (_dir, repo) = repo().await;
+    auth_token_repository_contract(repo).await;
 }

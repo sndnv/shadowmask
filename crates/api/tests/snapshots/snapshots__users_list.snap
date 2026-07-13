@@ -4,10 +4,33 @@ expression: value
 ---
 {
   "body": {
-    "items": [],
+    "items": [
+      {
+        "bitrate_cap": null,
+        "concurrent_stream_limit": null,
+        "created_at": "2023-11-14T22:13:20Z",
+        "id": "admin",
+        "max_content_rating": null,
+        "preferred_audio": [],
+        "preferred_subtitle": [],
+        "role": "admin",
+        "username": "admin"
+      },
+      {
+        "bitrate_cap": null,
+        "concurrent_stream_limit": null,
+        "created_at": "2023-11-14T22:13:20Z",
+        "id": "u1",
+        "max_content_rating": null,
+        "preferred_audio": [],
+        "preferred_subtitle": [],
+        "role": "user",
+        "username": "user"
+      }
+    ],
     "limit": 50,
     "offset": 0,
-    "total": 0
+    "total": 2
   },
   "status": 200
 }

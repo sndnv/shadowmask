@@ -6,6 +6,20 @@ expression: value
   "body": {
     "heartbeat_interval_s": 10,
     "manifest_url": "[manifest_url]",
+    "markers": {
+      "credits": [
+        {
+          "end_ms": 960000,
+          "start_ms": 900000
+        }
+      ],
+      "intro": [
+        {
+          "end_ms": 90000,
+          "start_ms": 60000
+        }
+      ]
+    },
     "mode": "direct",
     "selected": {
       "audio_track": 0,
@@ -15,7 +29,17 @@ expression: value
         "type": "embedded"
       }
     },
-    "session_id": "[session_id]"
+    "session_id": "[session_id]",
+    "trickplay": [
+      {
+        "columns": 5,
+        "interval_ms": 10000,
+        "rows": 5,
+        "sheets": 2,
+        "tile_height": 180,
+        "tile_width": 320
+      }
+    ]
   },
   "status": 201
 }

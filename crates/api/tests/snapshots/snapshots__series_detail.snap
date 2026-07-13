@@ -5,12 +5,60 @@ expression: value
 {
   "body": {
     "added_at": "2023-11-14T22:13:22Z",
+    "artwork": {
+      "backdrop": {
+        "base": "/images/s1-backdrop",
+        "widths": [
+          480,
+          960
+        ]
+      },
+      "poster": {
+        "base": "/images/s1-poster",
+        "widths": [
+          180,
+          480,
+          960
+        ]
+      }
+    },
     "content_rating": {
       "code": "TV-14",
       "system": "TV"
     },
+    "credits": [
+      {
+        "character": "Lead",
+        "order": 0,
+        "person": {
+          "id": "p1",
+          "name": "Ada Lovelace"
+        },
+        "role": "actor"
+      }
+    ],
+    "external_ids": [
+      {
+        "source": "tvdb",
+        "value": "81189"
+      }
+    ],
+    "extras": [],
+    "genres": [
+      {
+        "id": "g-action",
+        "name": "Action"
+      }
+    ],
     "id": "s1",
     "overview": null,
+    "ratings": [
+      {
+        "source": "tmdb",
+        "value": 9.0
+      }
+    ],
+    "studios": [],
     "title": "Alpha s1",
     "year": 2019
   },

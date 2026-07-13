@@ -1,0 +1,20 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "id": "lib-1",
+    "kind": "movie",
+    "metadata_sources": [
+      "tmdb"
+    ],
+    "name": "New Library",
+    "roots": [
+      "/media/new"
+    ],
+    "scan_schedule": null,
+    "watcher": "manual"
+  },
+  "status": 201
+}

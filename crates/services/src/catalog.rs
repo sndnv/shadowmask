@@ -1,11 +1,15 @@
+use std::collections::HashSet;
+
 use domain::catalog::{
-    Collection, CollectionId, CollectionUpdate, Episode, EpisodeId, Movie, MovieId, NewCollection,
-    Season, SeasonId, Series, SeriesId, TitleId, Version, VersionDetail, VersionId,
+    Collection, CollectionId, CollectionUpdate, Episode, EpisodeId, FilmographyEntry, Movie,
+    MovieDetail, MovieId, NewCollection, PersonProfile, Season, SeasonId, Series, SeriesDetail,
+    SeriesId, TitleCard, TitleId, TitleKind, TitleListQuery, TitleRef, Version, VersionDetail,
+    VersionId, sort_titles,
 };
 use domain::common::{Page, PageRequest};
 use domain::error::CatalogError;
 use domain::library::LibraryId;
-use domain::metadata::ContentRating;
+use domain::metadata::{ContentRating, Genre, GenreId, PersonId};
 use domain::repository::{CatalogRepository, UserRepository};
 use domain::service::CatalogService;
 use domain::user::Principal;
@@ -53,6 +57,59 @@ where
             .map(|entry| entry.library)
             .collect())
     }
+
+    async fn list_movies(
+        &self,
+        genre: Option<&GenreId>,
+        page: PageRequest,
+    ) -> Result<Page<Movie>, CatalogError> {
+        Ok(match genre {
+            Some(genre) => self.catalog.list_movies_by_genre(genre, page).await?,
+            None => self.catalog.list_movies(page).await?,
+        })
+    }
+
+    async fn list_series(
+        &self,
+        genre: Option<&GenreId>,
+        page: PageRequest,
+    ) -> Result<Page<Series>, CatalogError> {
+        Ok(match genre {
+            Some(genre) => self.catalog.list_series_by_genre(genre, page).await?,
+            None => self.catalog.list_series(page).await?,
+        })
+    }
+
+    async fn allowed_ids(
+        &self,
+        caller: &Principal,
+        kind: TitleKind,
+        library: Option<&LibraryId>,
+    ) -> Result<Option<HashSet<String>>, CatalogError> {
+        if acl::is_admin(caller) {
+            return match library {
+                Some(lib) => Ok(Some(
+                    self.catalog
+                        .titles_in_library(kind, lib)
+                        .await?
+                        .into_iter()
+                        .collect(),
+                )),
+                None => Ok(None),
+            };
+        }
+        let access = self.access_set(caller).await?;
+        let libraries: Vec<LibraryId> = match library {
+            Some(lib) if acl::can_access_library(&access, lib) => vec![lib.clone()],
+            Some(_) => return Ok(Some(HashSet::new())),
+            None => access,
+        };
+        let mut ids = HashSet::new();
+        for lib in &libraries {
+            ids.extend(self.catalog.titles_in_library(kind, lib).await?);
+        }
+        Ok(Some(ids))
+    }
 }
 
 impl<C, U> CatalogService for CatalogServiceImpl<C, U>
@@ -89,6 +146,7 @@ where
             name: input.name,
             overview: input.overview,
             movies: input.movies,
+            artwork: Vec::new(),
         };
         self.catalog.upsert_collection(collection.clone()).await?;
         Ok(collection)
@@ -109,6 +167,7 @@ where
             name: update.name,
             overview: update.overview,
             movies: update.movies,
+            artwork: Vec::new(),
         };
         self.catalog.upsert_collection(collection.clone()).await?;
         Ok(collection)
@@ -130,75 +189,97 @@ where
     async fn movies(
         &self,
         caller: &Principal,
+        query: &TitleListQuery,
         page: PageRequest,
     ) -> Result<Page<Movie>, CatalogError> {
-        if acl::is_admin(caller) {
-            return Ok(self.catalog.list_movies(page).await?);
-        }
-        let cap = self.rating_cap(caller).await?;
-        let filtered: Vec<Movie> = self
-            .catalog
-            .list_movies(ALL)
+        let admin = acl::is_admin(caller);
+        let allowed = self
+            .allowed_ids(caller, TitleKind::Movie, query.library.as_ref())
+            .await?;
+        let cap = if admin {
+            None
+        } else {
+            self.rating_cap(caller).await?
+        };
+        let mut items: Vec<Movie> = self
+            .list_movies(query.genre.as_ref(), ALL)
             .await?
             .items
             .into_iter()
-            .filter(|movie| acl::rating_permits(cap.as_ref(), movie.content_rating.as_ref()))
+            .filter(|movie| {
+                admin || acl::rating_permits(cap.as_ref(), movie.content_rating.as_ref())
+            })
+            .filter(|movie| allowed.as_ref().is_none_or(|ids| ids.contains(&movie.id.0)))
             .collect();
-        Ok(paginate(&filtered, page))
+        sort_titles(&mut items, query.sort, query.order);
+        Ok(paginate(&items, page))
     }
 
-    async fn movie(&self, caller: &Principal, id: &MovieId) -> Result<Movie, CatalogError> {
-        let movie = self
+    async fn movie(&self, caller: &Principal, id: &MovieId) -> Result<MovieDetail, CatalogError> {
+        let detail = self
             .catalog
-            .get_movie(id)
+            .movie_detail(id)
             .await?
             .ok_or(CatalogError::NotFound)?;
         if !acl::is_admin(caller) {
             let cap = self.rating_cap(caller).await?;
-            if !acl::rating_permits(cap.as_ref(), movie.content_rating.as_ref()) {
+            if !acl::rating_permits(cap.as_ref(), detail.movie.content_rating.as_ref()) {
                 return Err(CatalogError::NotFound);
             }
         }
-        Ok(movie)
+        Ok(detail)
     }
 
     async fn series(
         &self,
         caller: &Principal,
+        query: &TitleListQuery,
         page: PageRequest,
     ) -> Result<Page<Series>, CatalogError> {
-        if acl::is_admin(caller) {
-            return Ok(self.catalog.list_series(page).await?);
-        }
-        let cap = self.rating_cap(caller).await?;
-        let filtered: Vec<Series> = self
-            .catalog
-            .list_series(ALL)
+        let admin = acl::is_admin(caller);
+        let allowed = self
+            .allowed_ids(caller, TitleKind::Series, query.library.as_ref())
+            .await?;
+        let cap = if admin {
+            None
+        } else {
+            self.rating_cap(caller).await?
+        };
+        let mut items: Vec<Series> = self
+            .list_series(query.genre.as_ref(), ALL)
             .await?
             .items
             .into_iter()
-            .filter(|series| acl::rating_permits(cap.as_ref(), series.content_rating.as_ref()))
+            .filter(|series| {
+                admin || acl::rating_permits(cap.as_ref(), series.content_rating.as_ref())
+            })
+            .filter(|series| {
+                allowed
+                    .as_ref()
+                    .is_none_or(|ids| ids.contains(&series.id.0))
+            })
             .collect();
-        Ok(paginate(&filtered, page))
+        sort_titles(&mut items, query.sort, query.order);
+        Ok(paginate(&items, page))
     }
 
     async fn series_detail(
         &self,
         caller: &Principal,
         id: &SeriesId,
-    ) -> Result<Series, CatalogError> {
-        let series = self
+    ) -> Result<SeriesDetail, CatalogError> {
+        let detail = self
             .catalog
-            .get_series(id)
+            .series_detail(id)
             .await?
             .ok_or(CatalogError::NotFound)?;
         if !acl::is_admin(caller) {
             let cap = self.rating_cap(caller).await?;
-            if !acl::rating_permits(cap.as_ref(), series.content_rating.as_ref()) {
+            if !acl::rating_permits(cap.as_ref(), detail.series.content_rating.as_ref()) {
                 return Err(CatalogError::NotFound);
             }
         }
-        Ok(series)
+        Ok(detail)
     }
 
     async fn seasons(
@@ -285,15 +366,129 @@ where
         }
         Ok(detail)
     }
+
+    async fn person(
+        &self,
+        caller: &Principal,
+        id: &PersonId,
+    ) -> Result<PersonProfile, CatalogError> {
+        let person = self
+            .catalog
+            .get_person(id)
+            .await?
+            .ok_or(CatalogError::NotFound)?;
+        let admin = acl::is_admin(caller);
+        let cap = if admin {
+            None
+        } else {
+            self.rating_cap(caller).await?
+        };
+        let mut filmography = Vec::new();
+        for credit in self.catalog.filmography(id).await? {
+            let resolved = match &credit.title {
+                TitleRef::Movie(movie) => self
+                    .catalog
+                    .get_movie(movie)
+                    .await?
+                    .map(|m| (m.title, m.year, m.artwork, m.content_rating)),
+                TitleRef::Series(series) => self
+                    .catalog
+                    .get_series(series)
+                    .await?
+                    .map(|s| (s.title, s.year, s.artwork, s.content_rating)),
+            };
+            let Some((display_title, year, artwork, content_rating)) = resolved else {
+                continue;
+            };
+            if !admin && !acl::rating_permits(cap.as_ref(), content_rating.as_ref()) {
+                continue;
+            }
+            filmography.push(FilmographyEntry {
+                title: credit.title,
+                display_title,
+                year,
+                artwork,
+                role: credit.role,
+                character: credit.character,
+            });
+        }
+        Ok(PersonProfile {
+            person,
+            filmography,
+        })
+    }
+
+    async fn genres(&self, _caller: &Principal) -> Result<Vec<Genre>, CatalogError> {
+        Ok(self.catalog.list_genres().await?)
+    }
+
+    async fn title_cards(
+        &self,
+        caller: &Principal,
+        ids: &[TitleId],
+    ) -> Result<Vec<TitleCard>, CatalogError> {
+        let admin = acl::is_admin(caller);
+        let cap = if admin {
+            None
+        } else {
+            self.rating_cap(caller).await?
+        };
+        let mut cards = Vec::new();
+        for id in ids {
+            match id {
+                TitleId::Movie(movie_id) => {
+                    let Some(movie) = self.catalog.get_movie(movie_id).await? else {
+                        continue;
+                    };
+                    if !admin && !acl::rating_permits(cap.as_ref(), movie.content_rating.as_ref()) {
+                        continue;
+                    }
+                    cards.push(TitleCard::Movie(movie));
+                }
+                TitleId::Episode(episode_id) => {
+                    let Some(episode) = self.catalog.get_episode(episode_id).await? else {
+                        continue;
+                    };
+                    cards.push(TitleCard::Episode(episode));
+                }
+            }
+        }
+        Ok(cards)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mock::{MockCatalogRepo, MockUserRepo};
+    use domain::catalog::{SortOrder, TitleSort};
     use domain::common::Quality;
+    use domain::metadata::{Credit, CreditRole, Person, TitleEnrichment};
     use domain::user::{Role, User, UserId};
     use jiff::Timestamp;
+
+    fn genre(id: &str, name: &str) -> Genre {
+        Genre {
+            id: GenreId(id.into()),
+            name: name.into(),
+        }
+    }
+
+    fn credit(
+        person: &str,
+        title: TitleRef,
+        role: CreditRole,
+        character: Option<&str>,
+        order: u32,
+    ) -> Credit {
+        Credit {
+            person: PersonId(person.into()),
+            title,
+            role,
+            character: character.map(Into::into),
+            order,
+        }
+    }
 
     fn admin() -> Principal {
         Principal {
@@ -316,11 +511,39 @@ mod tests {
         }
     }
 
+    fn query() -> TitleListQuery {
+        TitleListQuery::default()
+    }
+
+    fn genre_query(genre: &GenreId) -> TitleListQuery {
+        TitleListQuery {
+            genre: Some(genre.clone()),
+            ..TitleListQuery::default()
+        }
+    }
+
+    fn library_query(library: &str) -> TitleListQuery {
+        TitleListQuery {
+            library: Some(LibraryId(library.into())),
+            ..TitleListQuery::default()
+        }
+    }
+
     fn rating(code: &str) -> ContentRating {
         ContentRating {
             system: "MPAA".into(),
             code: code.into(),
         }
+    }
+
+    fn card_ids(cards: &[TitleCard]) -> Vec<&str> {
+        cards
+            .iter()
+            .map(|card| match card {
+                TitleCard::Movie(m) => m.id.0.as_str(),
+                TitleCard::Episode(e) => e.id.0.as_str(),
+            })
+            .collect()
     }
 
     fn movie(id: &str, code: Option<&str>) -> Movie {
@@ -332,6 +555,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: code.map(rating),
             added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
         }
     }
 
@@ -378,6 +602,7 @@ mod tests {
                 code: "TV-MA".into(),
             }),
             added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
         });
         catalog.add_series(Series {
             id: SeriesId("s2".into()),
@@ -386,6 +611,7 @@ mod tests {
             overview: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
         });
         catalog.add_season(Season {
             id: SeasonId("se1".into()),
@@ -393,6 +619,7 @@ mod tests {
             number: 1,
             title: None,
             overview: None,
+            artwork: Vec::new(),
         });
         catalog.add_episode(Episode {
             id: EpisodeId("e1".into()),
@@ -403,9 +630,105 @@ mod tests {
             runtime_minutes: None,
             air_date: None,
             added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        });
+        catalog.add_season(Season {
+            id: SeasonId("se2".into()),
+            series: SeriesId("s2".into()),
+            number: 1,
+            title: None,
+            overview: None,
+            artwork: Vec::new(),
+        });
+        catalog.add_episode(Episode {
+            id: EpisodeId("e2".into()),
+            season: SeasonId("se2".into()),
+            number: 1,
+            title: "e2".into(),
+            overview: None,
+            runtime_minutes: None,
+            air_date: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
         });
         catalog.add_version(version("v1", "lib1"));
         catalog.add_version(version("v2", "lib2"));
+        catalog.add_version(Version {
+            id: VersionId("ev2".into()),
+            title: TitleId::Episode(EpisodeId("e2".into())),
+            library: LibraryId("lib1".into()),
+            quality: Quality::Hd,
+            container: "mkv".into(),
+            path: "/media/ev2.mkv".into(),
+            size_bytes: 1,
+            duration_ms: 1000,
+            edition: None,
+        });
+
+        catalog
+            .upsert_person(Person {
+                id: PersonId("p1".into()),
+                name: "Ada".into(),
+            })
+            .await
+            .unwrap();
+        catalog
+            .upsert_person(Person {
+                id: PersonId("p2".into()),
+                name: "Bob".into(),
+            })
+            .await
+            .unwrap();
+        let m1 = TitleRef::Movie(MovieId("m1".into()));
+        catalog
+            .set_title_enrichment(
+                &m1,
+                &TitleEnrichment {
+                    genres: vec![genre("g-action", "Action")],
+                    credits: vec![
+                        credit("p1", m1.clone(), CreditRole::Actor, Some("Hero"), 0),
+                        credit("p2", m1.clone(), CreditRole::Director, None, 1),
+                    ],
+                    ..TitleEnrichment::default()
+                },
+            )
+            .await
+            .unwrap();
+        let m2 = TitleRef::Movie(MovieId("m2".into()));
+        catalog
+            .set_title_enrichment(
+                &m2,
+                &TitleEnrichment {
+                    genres: vec![genre("g-action", "Action"), genre("g-drama", "Drama")],
+                    credits: vec![credit("p1", m2.clone(), CreditRole::Actor, None, 0)],
+                    ..TitleEnrichment::default()
+                },
+            )
+            .await
+            .unwrap();
+        let s1 = TitleRef::Series(SeriesId("s1".into()));
+        catalog
+            .set_title_enrichment(
+                &s1,
+                &TitleEnrichment {
+                    genres: vec![genre("g-action", "Action")],
+                    credits: vec![credit("p1", s1.clone(), CreditRole::Actor, Some("Lead"), 0)],
+                    ..TitleEnrichment::default()
+                },
+            )
+            .await
+            .unwrap();
+        let ghost = TitleRef::Movie(MovieId("ghost".into()));
+        catalog
+            .set_title_enrichment(
+                &ghost,
+                &TitleEnrichment {
+                    credits: vec![credit("p1", ghost.clone(), CreditRole::Actor, None, 0)],
+                    ..TitleEnrichment::default()
+                },
+            )
+            .await
+            .unwrap();
 
         let users = MockUserRepo::new();
         users.insert(capped_user());
@@ -419,9 +742,15 @@ mod tests {
     #[tokio::test]
     async fn admin_bypasses_rating_and_library_gates() {
         let svc = seeded().await;
-        assert_eq!(svc.movies(&admin(), page()).await.unwrap().total, 2);
+        assert_eq!(
+            svc.movies(&admin(), &query(), page()).await.unwrap().total,
+            2
+        );
         assert!(svc.movie(&admin(), &MovieId("m2".into())).await.is_ok());
-        assert_eq!(svc.series(&admin(), page()).await.unwrap().total, 2);
+        assert_eq!(
+            svc.series(&admin(), &query(), page()).await.unwrap().total,
+            2
+        );
         assert!(
             svc.series_detail(&admin(), &SeriesId("s1".into()))
                 .await
@@ -447,7 +776,7 @@ mod tests {
     #[tokio::test]
     async fn member_rating_gate_filters_and_hides() {
         let svc = seeded().await;
-        let movies = svc.movies(&member(), page()).await.unwrap();
+        let movies = svc.movies(&member(), &query(), page()).await.unwrap();
         assert_eq!(movies.total, 1);
         assert_eq!(movies.items[0].id, MovieId("m1".into()));
         assert!(svc.movie(&member(), &MovieId("m1".into())).await.is_ok());
@@ -458,7 +787,7 @@ mod tests {
             CatalogError::NotFound
         ));
 
-        let series = svc.series(&member(), page()).await.unwrap();
+        let series = svc.series(&member(), &query(), page()).await.unwrap();
         assert_eq!(series.total, 1);
         assert_eq!(series.items[0].id, SeriesId("s2".into()));
         assert!(
@@ -475,6 +804,90 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_scoping_and_sort() {
+        let svc = seeded().await;
+
+        let admin_lib1 = svc
+            .movies(&admin(), &library_query("lib1"), page())
+            .await
+            .unwrap();
+        assert_eq!(
+            admin_lib1
+                .items
+                .iter()
+                .map(|m| m.id.0.as_str())
+                .collect::<Vec<_>>(),
+            ["m1"]
+        );
+        let admin_series_lib1 = svc
+            .series(&admin(), &library_query("lib1"), page())
+            .await
+            .unwrap();
+        assert_eq!(
+            admin_series_lib1
+                .items
+                .iter()
+                .map(|s| s.id.0.as_str())
+                .collect::<Vec<_>>(),
+            ["s2"]
+        );
+        assert!(
+            svc.movies(&admin(), &library_query("ghost"), page())
+                .await
+                .unwrap()
+                .items
+                .is_empty()
+        );
+
+        assert!(
+            svc.movies(&member(), &library_query("lib2"), page())
+                .await
+                .unwrap()
+                .items
+                .is_empty()
+        );
+        let member_lib1 = svc
+            .movies(&member(), &library_query("lib1"), page())
+            .await
+            .unwrap();
+        assert_eq!(
+            member_lib1
+                .items
+                .iter()
+                .map(|m| m.id.0.as_str())
+                .collect::<Vec<_>>(),
+            ["m1"]
+        );
+        let member_series_lib1 = svc
+            .series(&member(), &library_query("lib1"), page())
+            .await
+            .unwrap();
+        assert_eq!(
+            member_series_lib1
+                .items
+                .iter()
+                .map(|s| s.id.0.as_str())
+                .collect::<Vec<_>>(),
+            ["s2"]
+        );
+
+        let by_title_desc = TitleListQuery {
+            sort: TitleSort::Title,
+            order: SortOrder::Desc,
+            ..TitleListQuery::default()
+        };
+        let sorted = svc.movies(&admin(), &by_title_desc, page()).await.unwrap();
+        assert_eq!(
+            sorted
+                .items
+                .iter()
+                .map(|m| m.id.0.as_str())
+                .collect::<Vec<_>>(),
+            ["m2", "m1"]
+        );
+    }
+
+    #[tokio::test]
     async fn member_library_gate_filters_versions() {
         let svc = seeded().await;
         let title = TitleId::Movie(MovieId("m1".into()));
@@ -487,7 +900,7 @@ mod tests {
                 .await
                 .unwrap()
                 .total,
-            1
+            2
         );
         assert_eq!(
             svc.library_versions(&member(), &LibraryId("lib2".into()), page())
@@ -626,12 +1039,140 @@ mod tests {
         catalog.set_fail();
         let svc = CatalogServiceImpl::new(catalog, MockUserRepo::new());
         assert!(matches!(
-            svc.movies(&admin(), page()).await.unwrap_err(),
+            svc.movies(&admin(), &query(), page()).await.unwrap_err(),
             CatalogError::Repository(_)
         ));
         assert!(matches!(
             svc.collections(&admin(), page()).await.unwrap_err(),
             CatalogError::Repository(_)
         ));
+        assert!(matches!(
+            svc.title_cards(&admin(), &[TitleId::Movie(MovieId("m1".into()))])
+                .await
+                .unwrap_err(),
+            CatalogError::Repository(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn title_cards_resolves_skips_missing_and_rating_gates() {
+        let svc = seeded().await;
+        let ids = vec![
+            TitleId::Movie(MovieId("m1".into())),
+            TitleId::Movie(MovieId("ghost".into())),
+            TitleId::Episode(EpisodeId("e1".into())),
+            TitleId::Movie(MovieId("m2".into())),
+        ];
+
+        let admin_cards = svc.title_cards(&admin(), &ids).await.unwrap();
+        assert_eq!(card_ids(&admin_cards), ["m1", "e1", "m2"]);
+
+        let member_cards = svc.title_cards(&member(), &ids).await.unwrap();
+        assert_eq!(card_ids(&member_cards), ["m1", "e1"]);
+
+        assert!(svc.title_cards(&member(), &[]).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn person_filmography_genres_and_genre_filter() {
+        let svc = seeded().await;
+
+        // Admin sees the full filmography; the ghost-title credit is dropped.
+        let admin_profile = svc.person(&admin(), &PersonId("p1".into())).await.unwrap();
+        assert_eq!(admin_profile.person.name, "Ada");
+        assert_eq!(
+            admin_profile
+                .filmography
+                .iter()
+                .map(|e| e.title.id())
+                .collect::<Vec<_>>(),
+            ["m1", "m2", "s1"]
+        );
+        assert_eq!(admin_profile.filmography[0].display_title, "m1");
+        assert_eq!(
+            admin_profile.filmography[0].character,
+            Some("Hero".to_owned())
+        );
+
+        // Member (PG-13 cap) keeps only the PG-13 movie; R and TV-MA drop out.
+        let member_profile = svc.person(&member(), &PersonId("p1".into())).await.unwrap();
+        assert_eq!(
+            member_profile
+                .filmography
+                .iter()
+                .map(|e| e.title.id())
+                .collect::<Vec<_>>(),
+            ["m1"]
+        );
+
+        // p2 only directed m1.
+        let p2 = svc.person(&admin(), &PersonId("p2".into())).await.unwrap();
+        assert_eq!(p2.filmography.len(), 1);
+        assert_eq!(p2.filmography[0].role, CreditRole::Director);
+
+        assert!(matches!(
+            svc.person(&admin(), &PersonId("nope".into()))
+                .await
+                .unwrap_err(),
+            CatalogError::NotFound
+        ));
+
+        // Genres (deduped, name-sorted by the mock).
+        let genres = svc.genres(&admin()).await.unwrap();
+        assert_eq!(
+            genres.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(),
+            ["Action", "Drama"]
+        );
+
+        // Genre filter: admin sees both action movies; the member loses the R one.
+        let action = GenreId("g-action".into());
+        let admin_action = svc
+            .movies(&admin(), &genre_query(&action), page())
+            .await
+            .unwrap();
+        assert_eq!(
+            admin_action
+                .items
+                .iter()
+                .map(|m| m.id.0.as_str())
+                .collect::<Vec<_>>(),
+            ["m1", "m2"]
+        );
+        let member_action = svc
+            .movies(&member(), &genre_query(&action), page())
+            .await
+            .unwrap();
+        assert_eq!(
+            member_action
+                .items
+                .iter()
+                .map(|m| m.id.0.as_str())
+                .collect::<Vec<_>>(),
+            ["m1"]
+        );
+
+        // Genre filter on series.
+        let series_action = svc
+            .series(&admin(), &genre_query(&action), page())
+            .await
+            .unwrap();
+        assert_eq!(
+            series_action
+                .items
+                .iter()
+                .map(|s| s.id.0.as_str())
+                .collect::<Vec<_>>(),
+            ["s1"]
+        );
+
+        // Detail aggregates carry enrichment.
+        let detail = svc.movie(&admin(), &MovieId("m1".into())).await.unwrap();
+        assert_eq!(detail.genres.len(), 1);
+        assert_eq!(detail.credits.len(), 2);
+        let series_detail = svc
+            .series_detail(&admin(), &SeriesId("s1".into()))
+            .await
+            .unwrap();
+        assert_eq!(series_detail.credits.len(), 1);
     }
 }

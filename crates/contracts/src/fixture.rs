@@ -1,12 +1,22 @@
 use jiff::Timestamp;
 
 use domain::catalog::{
-    Collection, CollectionId, Episode, EpisodeId, Movie, MovieId, Season, SeasonId, Series,
-    SeriesId, TitleId, Version, VersionId,
+    ArtworkId, ArtworkRef, Collection, CollectionId, Episode, EpisodeId, FilmographyEntry, Movie,
+    MovieDetail, MovieId, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId, TitleRef,
+    Version, VersionDetail, VersionId,
 };
-use domain::common::Quality;
+use domain::common::{LanguageCode, Quality};
+use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
 use domain::library::{Library, LibraryId, LibraryKind, WatcherStrategy};
-use domain::metadata::ContentRating;
+use domain::media::{
+    AudioTrack, Chapter, CreditsMarker, DetectedMarkers, EmbeddedSubtitleTrack, HdrFormat,
+    IntroMarker, SubtitleFormat, TrickplayAsset, VideoTrack,
+};
+use domain::metadata::{
+    ArtworkKind, ContentRating, Credit, CreditRole, CreditedPerson, ExternalId, Extra, ExtraKind,
+    Genre, GenreId, Person, PersonId, Rating, Studio, StudioId, TitleEnrichment,
+};
+use domain::playback::ResumeCard;
 use domain::user::{IssuedToken, Role, UserId};
 
 pub const EPOCH: i64 = 1_700_000_000;
@@ -15,6 +25,22 @@ pub const LINK_CODE: &str = "CODE";
 
 pub fn ts(offset: i64) -> Timestamp {
     Timestamp::from_second(EPOCH + offset).expect("valid fixture timestamp")
+}
+
+pub fn admin_job() -> Job {
+    Job {
+        id: JobId("job-scan".into()),
+        kind: JobKind::LibraryScan,
+        status: JobStatus::Succeeded,
+        priority: JobPriority::Normal,
+        payload: "lib1".into(),
+        attempts: 1,
+        progress: 1.0,
+        available_at: ts(40),
+        last_error: None,
+        created_at: ts(40),
+        updated_at: ts(41),
+    }
 }
 
 pub fn movie(id: &str) -> Movie {
@@ -29,6 +55,7 @@ pub fn movie(id: &str) -> Movie {
             code: "PG-13".into(),
         }),
         added_at: ts(1),
+        artwork: Vec::new(),
     }
 }
 
@@ -43,6 +70,7 @@ pub fn series(id: &str) -> Series {
             code: "TV-14".into(),
         }),
         added_at: ts(2),
+        artwork: Vec::new(),
     }
 }
 
@@ -53,6 +81,7 @@ pub fn season(id: &str, series: &str) -> Season {
         number: 1,
         title: Some("Season 1".into()),
         overview: None,
+        artwork: Vec::new(),
     }
 }
 
@@ -66,6 +95,7 @@ pub fn episode(id: &str, season: &str) -> Episode {
         runtime_minutes: Some(42),
         air_date: Some(ts(3)),
         added_at: ts(4),
+        artwork: Vec::new(),
     }
 }
 
@@ -101,6 +131,67 @@ pub fn saga_collection() -> Collection {
         name: "Saga".into(),
         overview: Some("epic".into()),
         movies: vec![MovieId("m1".into())],
+        artwork: Vec::new(),
+    }
+}
+
+pub fn artwork_set(owner_id: &str) -> Vec<ArtworkRef> {
+    vec![
+        ArtworkRef {
+            id: ArtworkId(format!("{owner_id}-poster")),
+            kind: ArtworkKind::Poster,
+            widths: vec![180, 480, 960],
+        },
+        ArtworkRef {
+            id: ArtworkId(format!("{owner_id}-backdrop")),
+            kind: ArtworkKind::Backdrop,
+            widths: vec![480, 960],
+        },
+    ]
+}
+
+pub fn movie_art(id: &str) -> Movie {
+    Movie {
+        artwork: artwork_set(id),
+        ..movie(id)
+    }
+}
+
+pub fn series_art(id: &str) -> Series {
+    Series {
+        artwork: artwork_set(id),
+        ..series(id)
+    }
+}
+
+pub fn season_art(id: &str, series: &str) -> Season {
+    Season {
+        artwork: artwork_set(id),
+        ..season(id, series)
+    }
+}
+
+pub fn episode_art(id: &str, season: &str) -> Episode {
+    Episode {
+        artwork: artwork_set(id),
+        ..episode(id, season)
+    }
+}
+
+pub fn collection_art() -> Collection {
+    Collection {
+        artwork: artwork_set("c1"),
+        ..saga_collection()
+    }
+}
+
+pub fn resume_card() -> ResumeCard {
+    ResumeCard {
+        title: TitleId::Movie(MovieId("m1".into())),
+        display_title: "Alpha m1".into(),
+        artwork: artwork_set("m1"),
+        duration_ms: 1000,
+        progress_percent: 1,
     }
 }
 
@@ -121,6 +212,242 @@ pub fn catalog_versions() -> Vec<Version> {
         Quality::Hd,
     ));
     versions
+}
+
+pub fn version_detail(id: &str) -> VersionDetail {
+    let vid = VersionId(id.into());
+    VersionDetail {
+        version: version(
+            id,
+            TitleId::Movie(MovieId("m1".into())),
+            "lib1",
+            Quality::Sd,
+        ),
+        video: vec![VideoTrack {
+            index: 0,
+            codec: "hevc".into(),
+            width: 3840,
+            height: 2160,
+            bit_depth: 10,
+            hdr: Some(HdrFormat::DolbyVision),
+            frame_rate: 24.0,
+            bitrate: Some(48_000_000),
+        }],
+        audio: vec![
+            AudioTrack {
+                index: 1,
+                codec: "eac3".into(),
+                channels: 6,
+                language: Some(LanguageCode("en".into())),
+                bitrate: Some(768_000),
+            },
+            AudioTrack {
+                index: 2,
+                codec: "aac".into(),
+                channels: 2,
+                language: Some(LanguageCode("fr".into())),
+                bitrate: None,
+            },
+        ],
+        subtitles: vec![
+            EmbeddedSubtitleTrack {
+                index: 3,
+                language: Some(LanguageCode("en".into())),
+                format: SubtitleFormat::Srt,
+                forced: false,
+                default: true,
+            },
+            EmbeddedSubtitleTrack {
+                index: 4,
+                language: Some(LanguageCode("es".into())),
+                format: SubtitleFormat::Pgs,
+                forced: true,
+                default: false,
+            },
+        ],
+        chapters: vec![
+            Chapter {
+                title: "Cold Open".into(),
+                start_ms: 0,
+            },
+            Chapter {
+                title: "Main Title".into(),
+                start_ms: 60_000,
+            },
+        ],
+        markers: DetectedMarkers {
+            intros: vec![IntroMarker {
+                version: vid.clone(),
+                start_ms: 60_000,
+                end_ms: 90_000,
+            }],
+            credits: vec![CreditsMarker {
+                version: vid.clone(),
+                start_ms: 900_000,
+                end_ms: 960_000,
+            }],
+        },
+        trickplay: vec![TrickplayAsset {
+            version: vid,
+            interval_ms: 10_000,
+            columns: 5,
+            rows: 5,
+            tile_width: 320,
+            tile_height: 180,
+            sheet_paths: vec!["sheet-000.jpg".into(), "sheet-001.jpg".into()],
+        }],
+    }
+}
+
+pub fn people() -> Vec<Person> {
+    vec![
+        Person {
+            id: PersonId("p1".into()),
+            name: "Ada Lovelace".into(),
+        },
+        Person {
+            id: PersonId("p2".into()),
+            name: "Bob Director".into(),
+        },
+    ]
+}
+
+fn genre(id: &str, name: &str) -> Genre {
+    Genre {
+        id: GenreId(id.into()),
+        name: name.into(),
+    }
+}
+
+fn credited(credits: &[Credit]) -> Vec<CreditedPerson> {
+    let people = people();
+    credits
+        .iter()
+        .filter_map(|credit| {
+            let person = people.iter().find(|p| p.id == credit.person)?.clone();
+            Some(CreditedPerson {
+                person,
+                role: credit.role,
+                character: credit.character.clone(),
+                order: credit.order,
+            })
+        })
+        .collect()
+}
+
+pub fn movie_enrichment() -> TitleEnrichment {
+    let m1 = TitleRef::Movie(MovieId("m1".into()));
+    TitleEnrichment {
+        genres: vec![genre("g-action", "Action"), genre("g-drama", "Drama")],
+        credits: vec![
+            Credit {
+                person: PersonId("p1".into()),
+                title: m1.clone(),
+                role: CreditRole::Actor,
+                character: Some("Hero".into()),
+                order: 0,
+            },
+            Credit {
+                person: PersonId("p2".into()),
+                title: m1,
+                role: CreditRole::Director,
+                character: None,
+                order: 1,
+            },
+        ],
+        studios: vec![Studio {
+            id: StudioId("st-acme".into()),
+            name: "Acme Studios".into(),
+        }],
+        ratings: vec![Rating {
+            source: "tmdb".into(),
+            value: 8.5,
+        }],
+        external_ids: vec![
+            ExternalId {
+                source: "tmdb".into(),
+                value: "603".into(),
+            },
+            ExternalId {
+                source: "imdb".into(),
+                value: "tt0133093".into(),
+            },
+        ],
+        extras: vec![Extra {
+            kind: ExtraKind::Trailer,
+            title: "Teaser".into(),
+            path: "/extras/m1/teaser.mkv".into(),
+        }],
+    }
+}
+
+pub fn series_enrichment() -> TitleEnrichment {
+    TitleEnrichment {
+        genres: vec![genre("g-action", "Action")],
+        credits: vec![Credit {
+            person: PersonId("p1".into()),
+            title: TitleRef::Series(SeriesId("s1".into())),
+            role: CreditRole::Actor,
+            character: Some("Lead".into()),
+            order: 0,
+        }],
+        ratings: vec![Rating {
+            source: "tmdb".into(),
+            value: 9.0,
+        }],
+        external_ids: vec![ExternalId {
+            source: "tvdb".into(),
+            value: "81189".into(),
+        }],
+        ..TitleEnrichment::default()
+    }
+}
+
+pub fn movie_detail() -> MovieDetail {
+    let enrichment = movie_enrichment();
+    MovieDetail {
+        movie: movie_art("m1"),
+        genres: enrichment.genres,
+        credits: credited(&enrichment.credits),
+        studios: enrichment.studios,
+        ratings: enrichment.ratings,
+        external_ids: enrichment.external_ids,
+        extras: enrichment.extras,
+    }
+}
+
+pub fn series_detail_aggregate() -> SeriesDetail {
+    let enrichment = series_enrichment();
+    SeriesDetail {
+        series: series_art("s1"),
+        genres: enrichment.genres,
+        credits: credited(&enrichment.credits),
+        studios: enrichment.studios,
+        ratings: enrichment.ratings,
+        external_ids: enrichment.external_ids,
+        extras: enrichment.extras,
+    }
+}
+
+pub fn p1_filmography() -> Vec<FilmographyEntry> {
+    vec![
+        FilmographyEntry {
+            title: TitleRef::Movie(MovieId("m1".into())),
+            display_title: "Alpha m1".into(),
+            year: Some(2020),
+            artwork: artwork_set("m1"),
+            role: CreditRole::Actor,
+            character: Some("Hero".into()),
+        },
+        FilmographyEntry {
+            title: TitleRef::Series(SeriesId("s1".into())),
+            display_title: "Alpha s1".into(),
+            year: Some(2019),
+            artwork: artwork_set("s1"),
+            role: CreditRole::Actor,
+            character: Some("Lead".into()),
+        },
+    ]
 }
 
 pub struct SeedAccount {

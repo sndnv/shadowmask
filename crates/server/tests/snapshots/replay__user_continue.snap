@@ -6,6 +6,32 @@ expression: value
   "body": {
     "in_progress": [
       {
+        "card": {
+          "artwork": {
+            "backdrop": {
+              "base": "/images/m1-backdrop",
+              "widths": [
+                480,
+                960
+              ]
+            },
+            "poster": {
+              "base": "/images/m1-poster",
+              "widths": [
+                180,
+                480,
+                960
+              ]
+            }
+          },
+          "display_title": "Alpha m1",
+          "duration_ms": 100000,
+          "progress_percent": 1,
+          "title": {
+            "id": "m1",
+            "type": "movie"
+          }
+        },
         "progress": {
           "position_ms": 1234,
           "updated_at": "2023-11-14T22:13:40Z",
