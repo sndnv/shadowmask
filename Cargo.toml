@@ -33,7 +33,7 @@ anyhow = "1"
 argon2 = { version = "0.5", features = ["std"] }
 jiff = "0.2"
 jiff-cron = "0.3"
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 metrics = "0.24"
