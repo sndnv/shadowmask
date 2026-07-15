@@ -73,6 +73,7 @@ mod tests {
                 size_bytes: 1,
                 duration_ms: 1000,
                 edition: None,
+                available: true,
             },
             video: Vec::new(),
             audio: Vec::new(),

@@ -162,14 +162,15 @@ impl LibraryService for MockLibraryService {
     async fn trigger_scan(&self, _caller: &Principal, id: &LibraryId) -> Result<(), LibraryError> {
         let mut state = self.state.lock().unwrap();
         require_library(&state, id)?;
-        if matches!(state.scans.get(id), Some(s) if s.status == ScanStatus::Running) {
+        if matches!(state.scans.get(id), Some(s) if matches!(s.status, ScanStatus::Queued | ScanStatus::Running))
+        {
             return Err(LibraryError::ScanInProgress);
         }
         state.scans.insert(
             id.clone(),
             ScanState {
                 library: id.clone(),
-                status: ScanStatus::Running,
+                status: ScanStatus::Queued,
                 progress: 0.0,
                 last_scanned_at: None,
                 error: None,
@@ -449,7 +450,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn trigger_scan_sets_running_then_conflicts() {
+    async fn trigger_scan_sets_queued_then_conflicts() {
         let svc = MockLibraryService::new();
         svc.add_library(library("l1"));
         svc.trigger_scan(&principal(), &LibraryId("l1".into()))
@@ -459,7 +460,7 @@ mod tests {
             .scan_state(&principal(), &LibraryId("l1".into()))
             .await
             .unwrap();
-        assert_eq!(state.status, ScanStatus::Running);
+        assert_eq!(state.status, ScanStatus::Queued);
 
         assert!(matches!(
             svc.trigger_scan(&principal(), &LibraryId("l1".into()))

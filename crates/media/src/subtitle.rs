@@ -14,7 +14,7 @@ pub fn shift(content: &str, offset_ms: i64) -> String {
             let separator = &caps[4];
             let millis: i64 = caps[5].parse().unwrap();
             let total = hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + millis;
-            let shifted = (total + offset_ms).max(0);
+            let shifted = total.saturating_add(offset_ms).max(0);
             format!(
                 "{:02}:{:02}:{:02}{}{:03}",
                 shifted / 3_600_000,
@@ -118,6 +118,14 @@ mod prop_tests {
             offset in -10_000i64..=10_000,
         ) {
             prop_assert_eq!(shift(&text, offset), text);
+        }
+
+        #[test]
+        fn never_panics_on_arbitrary_content_and_offset(
+            content in "\\PC*",
+            offset in any::<i64>(),
+        ) {
+            let _ = shift(&content, offset);
         }
     }
 }

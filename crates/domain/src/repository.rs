@@ -109,6 +109,11 @@ pub trait CatalogRepository {
         &self,
         version: Version,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn reconcile_library_versions(
+        &self,
+        library: &LibraryId,
+        present_paths: &[String],
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     fn set_artwork(
         &self,
         owner: &ArtworkOwner,
@@ -374,6 +379,10 @@ pub trait JobRepository {
         now: Timestamp,
         limit: usize,
     ) -> impl Future<Output = Result<Vec<Job>, RepositoryError>> + Send;
+    fn reclaim_running(
+        &self,
+        now: Timestamp,
+    ) -> impl Future<Output = Result<usize, RepositoryError>> + Send;
     fn update(&self, job: Job) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     fn get(&self, id: &JobId) -> impl Future<Output = Result<Option<Job>, RepositoryError>> + Send;
     fn list(&self) -> impl Future<Output = Result<Vec<Job>, RepositoryError>> + Send;

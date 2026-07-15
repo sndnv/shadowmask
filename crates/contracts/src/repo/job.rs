@@ -92,4 +92,20 @@ pub async fn job_repository_contract<R: JobRepository>(repo: R) {
     let reloaded = repo.get(&JobId("high".into())).await.unwrap().unwrap();
     assert_eq!(reloaded.status, JobStatus::Succeeded);
     assert_eq!(reloaded.progress, 1.0);
+
+    let reclaimed = repo.reclaim_running(now).await.unwrap();
+    assert_eq!(reclaimed, 4);
+    assert_eq!(
+        repo.get(&JobId("high".into()))
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        JobStatus::Succeeded
+    );
+    let reclaimed_jobs = repo.claim_ready(now, 10).await.unwrap();
+    assert_eq!(
+        ids(&reclaimed_jobs),
+        ["running", "normal-old", "normal-new", "low"]
+    );
 }

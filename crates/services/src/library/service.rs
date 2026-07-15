@@ -47,7 +47,7 @@ where
     M: MetadataProvider + Sync,
 {
     async fn visible_to(&self, caller: &Principal, id: &LibraryId) -> Result<bool, LibraryError> {
-        if acl::is_admin(caller) {
+        if acl::is_admin(caller) || acl::is_automation(caller) {
             return Ok(true);
         }
         let access: Vec<LibraryId> = self
@@ -204,7 +204,7 @@ where
         self.require_library(caller, id).await?;
         if matches!(
             self.libraries.scan_state(id).await?,
-            Some(state) if state.status == ScanStatus::Running
+            Some(state) if matches!(state.status, ScanStatus::Queued | ScanStatus::Running)
         ) {
             return Err(LibraryError::ScanInProgress);
         }
@@ -212,7 +212,7 @@ where
         self.libraries
             .save_scan_state(ScanState {
                 library: id.clone(),
-                status: ScanStatus::Running,
+                status: ScanStatus::Queued,
                 progress: 0.0,
                 last_scanned_at: None,
                 error: None,
@@ -472,6 +472,13 @@ mod tests {
         }
     }
 
+    fn automation() -> Principal {
+        Principal {
+            user: UserId("webhook".into()),
+            role: Role::Automation,
+        }
+    }
+
     fn page() -> PageRequest {
         PageRequest {
             offset: 0,
@@ -541,12 +548,23 @@ mod tests {
         assert_eq!(svc.jobs.list().await.unwrap()[0].kind, JobKind::LibraryScan);
         assert_eq!(
             svc.scan_state(&admin(), &id).await.unwrap().status,
-            ScanStatus::Running
+            ScanStatus::Queued
         );
         assert!(matches!(
             svc.trigger_scan(&admin(), &id).await.unwrap_err(),
             LibraryError::ScanInProgress
         ));
+    }
+
+    #[tokio::test]
+    async fn automation_bypasses_acl_for_scan() {
+        let svc = seeded().await;
+        let id = LibraryId("lib2".into());
+        svc.trigger_scan(&automation(), &id).await.unwrap();
+        assert_eq!(
+            svc.scan_state(&automation(), &id).await.unwrap().status,
+            ScanStatus::Queued
+        );
     }
 
     #[tokio::test]

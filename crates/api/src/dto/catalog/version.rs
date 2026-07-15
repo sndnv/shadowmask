@@ -14,6 +14,7 @@ pub struct VersionResponse {
     pub size_bytes: u64,
     pub duration_ms: u64,
     pub edition: Option<String>,
+    pub available: bool,
 }
 
 impl From<Version> for VersionResponse {
@@ -27,6 +28,7 @@ impl From<Version> for VersionResponse {
             size_bytes: v.size_bytes,
             duration_ms: v.duration_ms,
             edition: v.edition,
+            available: v.available,
         }
     }
 }

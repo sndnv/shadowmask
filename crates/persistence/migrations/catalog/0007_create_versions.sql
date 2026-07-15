@@ -8,5 +8,6 @@ CREATE TABLE versions (
     path TEXT NOT NULL,
     size_bytes INTEGER NOT NULL,
     duration_ms INTEGER NOT NULL,
-    edition TEXT
+    edition TEXT,
+    available INTEGER NOT NULL DEFAULT 1
 );

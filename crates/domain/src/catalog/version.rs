@@ -16,4 +16,5 @@ pub struct Version {
     pub size_bytes: u64,
     pub duration_ms: u64,
     pub edition: Option<String>,
+    pub available: bool,
 }

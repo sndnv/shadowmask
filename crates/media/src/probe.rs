@@ -374,3 +374,21 @@ mod tests {
         assert!(matches!(err, ProbeError::Parse(_)));
     }
 }
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn never_panics_on_arbitrary_bytes(bytes in proptest::collection::vec(any::<u8>(), 0..512)) {
+            let _ = parse_probe(&bytes);
+        }
+
+        #[test]
+        fn never_panics_on_arbitrary_json_text(text in "\\PC*") {
+            let _ = parse_probe(text.as_bytes());
+        }
+    }
+}

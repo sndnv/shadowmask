@@ -11,7 +11,8 @@ use sqlx::sqlite::SqliteRow;
 use sqlx::{SqliteConnection, SqlitePool};
 
 use crate::codec::{role_from_str, role_to_str};
-use crate::pool::{backend, column, from_millis, open, to_millis};
+use crate::metrics::DbOpGuard;
+use crate::pool::{backend, checkpoint, column, from_millis, open, ping, to_millis};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations/users");
 
@@ -27,7 +28,12 @@ impl SqliteUserRepo {
         })
     }
 
+    pub async fn ping(&self) -> Result<(), RepositoryError> {
+        ping(&self.pool).await
+    }
+
     pub async fn close(&self) {
+        checkpoint(&self.pool).await;
         self.pool.close().await;
     }
 
@@ -128,6 +134,7 @@ async fn replace_prefs(conn: &mut SqliteConnection, user: &User) -> Result<(), R
 
 impl UserRepository for SqliteUserRepo {
     async fn create(&self, user: User) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("users", "create");
         let mut tx = self.pool.begin().await.map_err(backend)?;
         sqlx::query(
             "INSERT INTO users \
@@ -153,6 +160,7 @@ impl UserRepository for SqliteUserRepo {
     }
 
     async fn get(&self, id: &UserId) -> Result<Option<User>, RepositoryError> {
+        let _op = DbOpGuard::new("users", "get");
         let row = sqlx::query("SELECT * FROM users WHERE id = ?")
             .bind(id.0.as_str())
             .fetch_optional(&self.pool)
@@ -165,6 +173,7 @@ impl UserRepository for SqliteUserRepo {
     }
 
     async fn find_by_username(&self, username: &str) -> Result<Option<User>, RepositoryError> {
+        let _op = DbOpGuard::new("users", "find_by_username");
         let row = sqlx::query("SELECT * FROM users WHERE username = ?")
             .bind(username)
             .fetch_optional(&self.pool)
@@ -177,6 +186,7 @@ impl UserRepository for SqliteUserRepo {
     }
 
     async fn list(&self, page: PageRequest) -> Result<Page<User>, RepositoryError> {
+        let _op = DbOpGuard::new("users", "list");
         let count_row = sqlx::query("SELECT COUNT(*) AS n FROM users")
             .fetch_one(&self.pool)
             .await
@@ -202,6 +212,7 @@ impl UserRepository for SqliteUserRepo {
     }
 
     async fn update(&self, user: User) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("users", "update");
         let mut tx = self.pool.begin().await.map_err(backend)?;
         sqlx::query(
             "UPDATE users SET \
@@ -227,6 +238,7 @@ impl UserRepository for SqliteUserRepo {
     }
 
     async fn delete(&self, id: &UserId) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("users", "delete");
         sqlx::query("DELETE FROM users WHERE id = ?")
             .bind(id.0.as_str())
             .execute(&self.pool)
@@ -239,6 +251,7 @@ impl UserRepository for SqliteUserRepo {
         &self,
         id: &UserId,
     ) -> Result<Vec<LibraryAccess>, RepositoryError> {
+        let _op = DbOpGuard::new("users", "list_library_access");
         let rows = sqlx::query(
             "SELECT library_id FROM user_library_access WHERE user_id = ? ORDER BY library_id",
         )
@@ -261,6 +274,7 @@ impl UserRepository for SqliteUserRepo {
         id: &UserId,
         libraries: &[LibraryId],
     ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("users", "set_library_access");
         let mut tx = self.pool.begin().await.map_err(backend)?;
         sqlx::query("DELETE FROM user_library_access WHERE user_id = ?")
             .bind(id.0.as_str())

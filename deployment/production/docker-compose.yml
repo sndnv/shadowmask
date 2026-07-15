@@ -1,0 +1,39 @@
+name: shadowmask
+
+services:
+  shadowmask:
+    image: ghcr.io/sndnv/shadowmask/server:${SHADOWMASK_VERSION:-latest}
+    restart: always
+    init: true
+    stop_grace_period: 40s
+    ports:
+      - "${SHADOWMASK_PORT:-8080}:8080"
+    env_file:
+      - ./secrets/shadowmask.env
+    environment:
+      SHADOWMASK_LOG_LEVEL: "info"
+      SHADOWMASK_SQLX_LOG_LEVEL: "warn"
+      SHADOWMASK_BOOTSTRAP_MODE: "off"
+    volumes:
+      - ./local/data:/data
+      - ./bootstrap:/config/bootstrap:ro
+      - "${SHADOWMASK_MOVIES_DIR:?set SHADOWMASK_MOVIES_DIR to your movies library path}:/media/movies:ro"
+      - "${SHADOWMASK_TV_DIR:?set SHADOWMASK_TV_DIR to your tv library path}:/media/tv:ro"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    # Hardware-accelerated transcoding (VAAPI / Intel QuickSync) via the host GPU.
+    # Uncomment and make sure the container user (uid 1001) can read the render node.
+    # devices:
+    #   - "/dev/dri:/dev/dri"
+    # NVIDIA NVENC needs the nvidia-container-toolkit installed on the host; then uncomment:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: ["gpu"]

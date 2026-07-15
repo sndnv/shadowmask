@@ -5,6 +5,7 @@ use crate::library::LibraryId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScanStatus {
     Idle,
+    Queued,
     Running,
     Failed,
 }

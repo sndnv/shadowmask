@@ -11,7 +11,8 @@ use sqlx::migrate::Migrator;
 use sqlx::sqlite::SqliteRow;
 
 use crate::codec::{role_from_str, role_to_str};
-use crate::pool::{backend, column, from_millis, open, to_millis};
+use crate::metrics::DbOpGuard;
+use crate::pool::{backend, checkpoint, column, from_millis, open, ping, to_millis};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations/auth");
 
@@ -27,7 +28,12 @@ impl SqliteAuthTokenRepo {
         })
     }
 
+    pub async fn ping(&self) -> Result<(), RepositoryError> {
+        ping(&self.pool).await
+    }
+
     pub async fn close(&self) {
+        checkpoint(&self.pool).await;
         self.pool.close().await;
     }
 }
@@ -76,6 +82,7 @@ fn row_to_api_token(row: &SqliteRow) -> Result<ApiToken, RepositoryError> {
 
 impl AuthTokenRepository for SqliteAuthTokenRepo {
     async fn store_refresh(&self, session: AuthSession) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("auth", "store_refresh");
         sqlx::query(
             "INSERT OR REPLACE INTO refresh_tokens \
              (jti, user_id, token_hash, issued_at, expires_at) VALUES (?, ?, ?, ?, ?)",
@@ -95,6 +102,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
         &self,
         jti: &AuthSessionId,
     ) -> Result<Option<AuthSession>, RepositoryError> {
+        let _op = DbOpGuard::new("auth", "find_refresh");
         let row = sqlx::query("SELECT * FROM refresh_tokens WHERE jti = ?")
             .bind(jti.0.as_str())
             .fetch_optional(&self.pool)
@@ -104,6 +112,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
     }
 
     async fn revoke_refresh(&self, jti: &AuthSessionId) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("auth", "revoke_refresh");
         sqlx::query("DELETE FROM refresh_tokens WHERE jti = ?")
             .bind(jti.0.as_str())
             .execute(&self.pool)
@@ -113,6 +122,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
     }
 
     async fn revoke_all_for_user(&self, user: &UserId) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("auth", "revoke_all_for_user");
         sqlx::query("DELETE FROM refresh_tokens WHERE user_id = ?")
             .bind(user.0.as_str())
             .execute(&self.pool)
@@ -122,6 +132,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
     }
 
     async fn store_link_code(&self, link: PendingLink) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("auth", "store_link_code");
         sqlx::query(
             "INSERT OR REPLACE INTO link_codes (code, user_id, role, expires_at) \
              VALUES (?, ?, ?, ?)",
@@ -141,6 +152,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
         code: &str,
         now: Timestamp,
     ) -> Result<Option<PendingLink>, RepositoryError> {
+        let _op = DbOpGuard::new("auth", "redeem_link_code");
         let row =
             sqlx::query("DELETE FROM link_codes WHERE code = ? AND expires_at > ? RETURNING *")
                 .bind(code)
@@ -152,6 +164,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
     }
 
     async fn upsert_device(&self, device: Device) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("auth", "upsert_device");
         sqlx::query(
             "INSERT OR REPLACE INTO devices (id, user_id, name, platform, last_seen) \
              VALUES (?, ?, ?, ?, ?)",
@@ -168,6 +181,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
     }
 
     async fn get_device(&self, id: &DeviceId) -> Result<Option<Device>, RepositoryError> {
+        let _op = DbOpGuard::new("auth", "get_device");
         let row = sqlx::query("SELECT * FROM devices WHERE id = ?")
             .bind(id.0.as_str())
             .fetch_optional(&self.pool)
@@ -177,6 +191,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
     }
 
     async fn store_api_token(&self, token: ApiToken) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("auth", "store_api_token");
         sqlx::query(
             "INSERT OR REPLACE INTO api_tokens (id, user_id, device_id, token_hash, created_at) \
              VALUES (?, ?, ?, ?, ?)",
@@ -196,6 +211,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
         &self,
         hash: &str,
     ) -> Result<Option<ApiToken>, RepositoryError> {
+        let _op = DbOpGuard::new("auth", "find_api_token_by_hash");
         let row = sqlx::query("SELECT * FROM api_tokens WHERE token_hash = ?")
             .bind(hash)
             .fetch_optional(&self.pool)
@@ -205,6 +221,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
     }
 
     async fn list_devices(&self, user: &UserId) -> Result<Vec<Device>, RepositoryError> {
+        let _op = DbOpGuard::new("auth", "list_devices");
         let rows = sqlx::query("SELECT * FROM devices WHERE user_id = ? ORDER BY id")
             .bind(user.0.as_str())
             .fetch_all(&self.pool)
@@ -214,6 +231,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
     }
 
     async fn list_api_tokens(&self, user: &UserId) -> Result<Vec<ApiToken>, RepositoryError> {
+        let _op = DbOpGuard::new("auth", "list_api_tokens");
         let rows = sqlx::query("SELECT * FROM api_tokens WHERE user_id = ? ORDER BY id")
             .bind(user.0.as_str())
             .fetch_all(&self.pool)
@@ -223,6 +241,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
     }
 
     async fn delete_device(&self, id: &DeviceId) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("auth", "delete_device");
         sqlx::query("DELETE FROM devices WHERE id = ?")
             .bind(id.0.as_str())
             .execute(&self.pool)
@@ -232,6 +251,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
     }
 
     async fn revoke_api_token(&self, id: &ApiTokenId) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("auth", "revoke_api_token");
         sqlx::query("DELETE FROM api_tokens WHERE id = ?")
             .bind(id.0.as_str())
             .execute(&self.pool)

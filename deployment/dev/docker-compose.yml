@@ -1,0 +1,36 @@
+name: shadowmask-dev
+
+services:
+  shadowmask:
+    image: ghcr.io/sndnv/shadowmask/server:dev-latest
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 40s
+    ports:
+      - "${SHADOWMASK_PORT:-8080}:8080"
+    environment:
+      SHADOWMASK_LOG_LEVEL: "debug"
+      SHADOWMASK_SQLX_LOG_LEVEL: "warn"
+      SHADOWMASK_JWT_SECRET: "dev-jwt-secret"
+      SHADOWMASK_STREAM_SECRET: "dev-stream-secret"
+      SHADOWMASK_TMDB_API_KEY: "${SHADOWMASK_TMDB_API_KEY:-}"
+      SHADOWMASK_BOOTSTRAP_MODE: "init-and-start"
+      SHADOWMASK_ADMIN_USERNAME: "admin"
+      SHADOWMASK_ADMIN_PASSWORD: "${SHADOWMASK_ADMIN_PASSWORD:-passw0rd}"
+    volumes:
+      - shadowmask-data:/data
+      - ./config/bootstrap:/config/bootstrap:ro
+      - "${SHADOWMASK_MOVIES_DIR:-./media/movies}:/media/movies:ro"
+      - "${SHADOWMASK_TV_DIR:-./media/tv}:/media/tv:ro"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+
+volumes:
+  shadowmask-data:

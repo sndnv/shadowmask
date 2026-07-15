@@ -6,6 +6,10 @@ pub fn is_admin(caller: &Principal) -> bool {
     caller.role == Role::Admin
 }
 
+pub fn is_automation(caller: &Principal) -> bool {
+    caller.role == Role::Automation
+}
+
 pub fn can_access_library(access: &[LibraryId], library: &LibraryId) -> bool {
     access.iter().any(|granted| granted == library)
 }
@@ -44,6 +48,15 @@ mod tests {
         assert!(is_admin(&principal(Role::Admin)));
         assert!(!is_admin(&principal(Role::User)));
         assert!(!is_admin(&principal(Role::Player)));
+        assert!(!is_admin(&principal(Role::Automation)));
+    }
+
+    #[test]
+    fn automation_detection() {
+        assert!(is_automation(&principal(Role::Automation)));
+        assert!(!is_automation(&principal(Role::Admin)));
+        assert!(!is_automation(&principal(Role::User)));
+        assert!(!is_automation(&principal(Role::Player)));
     }
 
     #[test]

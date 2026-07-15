@@ -81,6 +81,12 @@ where
     L: LibraryRepository + Send + Sync,
 {
     async fn enrich(&self, library: &Library, report: &ScanReport) {
+        let present: Vec<String> = report
+            .discovered
+            .iter()
+            .map(|file| file.path.clone())
+            .chain(report.skipped.iter().map(|file| file.path.clone()))
+            .collect();
         let report = self.matcher.match_files(&report.discovered);
         for group in &report.matched {
             if let Err(err) = self.ingest_group(library, group).await {
@@ -100,6 +106,13 @@ where
             if let Err(err) = self.libraries.insert_unmatched(file).await {
                 warn!(library = %library.id.0, "persisting unmatched file failed: {err}");
             }
+        }
+        if let Err(err) = self
+            .catalog
+            .reconcile_library_versions(&library.id, &present)
+            .await
+        {
+            warn!(library = %library.id.0, "reconciling library versions failed: {err}");
         }
     }
 }
@@ -277,6 +290,7 @@ where
                 size_bytes: file.size_bytes,
                 duration_ms: file.probe.duration_ms,
                 edition: None,
+                available: true,
             })
             .await?;
         self.catalog
@@ -912,6 +926,50 @@ mod tests {
                 .total,
             1
         );
+    }
+
+    #[tokio::test]
+    async fn rescan_marks_vanished_version_unavailable_but_keeps_the_title() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        let lib = library(LibraryKind::Movie);
+
+        svc.enrich(
+            &lib,
+            &report(&[
+                "/m/The Matrix (1999) 1080p.mkv",
+                "/m/Alien (1979) 1080p.mkv",
+            ]),
+        )
+        .await;
+        let seeded = catalog
+            .list_library_versions(&LibraryId("lib".into()), page())
+            .await
+            .unwrap();
+        assert_eq!(seeded.total, 2);
+        assert!(seeded.items.iter().all(|v| v.available));
+
+        svc.enrich(&lib, &report(&["/m/The Matrix (1999) 1080p.mkv"]))
+            .await;
+
+        let after = catalog
+            .list_library_versions(&LibraryId("lib".into()), page())
+            .await
+            .unwrap();
+        assert_eq!(after.total, 2);
+        assert_eq!(catalog.list_movies(page()).await.unwrap().total, 2);
+        let matrix = after
+            .items
+            .iter()
+            .find(|v| v.path == "/m/The Matrix (1999) 1080p.mkv")
+            .unwrap();
+        let alien = after
+            .items
+            .iter()
+            .find(|v| v.path == "/m/Alien (1979) 1080p.mkv")
+            .unwrap();
+        assert!(matrix.available);
+        assert!(!alien.available);
     }
 
     #[tokio::test]

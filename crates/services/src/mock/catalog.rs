@@ -622,6 +622,7 @@ mod tests {
             size_bytes: 1024,
             duration_ms: 1000,
             edition: None,
+            available: true,
         }
     }
 
@@ -1021,6 +1022,7 @@ mod tests {
                 size_bytes: 1,
                 duration_ms: 1,
                 edition: None,
+                available: true,
             });
         }
         let from_lib1 = svc

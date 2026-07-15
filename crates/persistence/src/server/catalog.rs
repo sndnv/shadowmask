@@ -28,7 +28,8 @@ use crate::codec::{
     credit_role_to_str, extra_kind_from_str, extra_kind_to_str, title_from_parts, title_kind,
     title_kind_to_str, title_ref_from_parts,
 };
-use crate::pool::{backend, column, from_millis, open, to_millis};
+use crate::metrics::DbOpGuard;
+use crate::pool::{backend, checkpoint, column, from_millis, open, ping, to_millis};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations/catalog");
 
@@ -44,7 +45,12 @@ impl SqliteCatalogRepo {
         })
     }
 
+    pub async fn ping(&self) -> Result<(), RepositoryError> {
+        ping(&self.pool).await
+    }
+
     pub async fn close(&self) {
+        checkpoint(&self.pool).await;
         self.pool.close().await;
     }
 
@@ -702,6 +708,7 @@ impl SearchIndex for SqliteCatalogRepo {
         types: &[SearchKind],
         page: PageRequest,
     ) -> Result<Page<SearchResult>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "search");
         let needle = normalize_title(query);
         let mut candidates: Vec<SearchResult> = Vec::new();
         if !needle.is_empty() {
@@ -767,6 +774,7 @@ impl SearchIndex for SqliteCatalogRepo {
     }
 
     async fn rebuild(&self) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "rebuild");
         let mut tx = self.pool.begin().await.map_err(backend)?;
         sqlx::query("DELETE FROM search_index")
             .execute(&mut *tx)
@@ -900,6 +908,7 @@ fn row_to_version(row: &SqliteRow) -> Result<Version, RepositoryError> {
         size_bytes: column::<i64>(row, "size_bytes")? as u64,
         duration_ms: column::<i64>(row, "duration_ms")? as u64,
         edition: column(row, "edition")?,
+        available: column(row, "available")?,
     })
 }
 
@@ -952,8 +961,8 @@ where
     sqlx::query(
         "INSERT OR REPLACE INTO versions \
          (id, title_kind, title_id, library_id, quality, container, path, size_bytes, \
-          duration_ms, edition) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          duration_ms, edition, available) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(version.id.0.as_str())
     .bind(title_kind(&version.title))
@@ -965,6 +974,7 @@ where
     .bind(version.size_bytes as i64)
     .bind(version.duration_ms as i64)
     .bind(version.edition.as_deref())
+    .bind(version.available)
     .execute(executor)
     .await
     .map_err(backend)?;
@@ -978,6 +988,7 @@ async fn count_all(pool: &SqlitePool, query: &str) -> Result<u64, RepositoryErro
 
 impl CatalogRepository for SqliteCatalogRepo {
     async fn list_movies(&self, page: PageRequest) -> Result<Page<Movie>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "list_movies");
         let total = count_all(&self.pool, "SELECT COUNT(*) AS n FROM movies").await?;
         let rows =
             sqlx::query("SELECT * FROM movies ORDER BY added_at ASC, id ASC LIMIT ? OFFSET ?")
@@ -1002,6 +1013,7 @@ impl CatalogRepository for SqliteCatalogRepo {
     }
 
     async fn get_movie(&self, id: &MovieId) -> Result<Option<Movie>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "get_movie");
         let row = sqlx::query("SELECT * FROM movies WHERE id = ?")
             .bind(id.0.as_str())
             .fetch_optional(&self.pool)
@@ -1014,6 +1026,7 @@ impl CatalogRepository for SqliteCatalogRepo {
     }
 
     async fn list_series(&self, page: PageRequest) -> Result<Page<Series>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "list_series");
         let total = count_all(&self.pool, "SELECT COUNT(*) AS n FROM series").await?;
         let rows =
             sqlx::query("SELECT * FROM series ORDER BY added_at ASC, id ASC LIMIT ? OFFSET ?")
@@ -1038,6 +1051,7 @@ impl CatalogRepository for SqliteCatalogRepo {
     }
 
     async fn get_series(&self, id: &SeriesId) -> Result<Option<Series>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "get_series");
         let row = sqlx::query("SELECT * FROM series WHERE id = ?")
             .bind(id.0.as_str())
             .fetch_optional(&self.pool)
@@ -1050,6 +1064,7 @@ impl CatalogRepository for SqliteCatalogRepo {
     }
 
     async fn list_seasons(&self, series: &SeriesId) -> Result<Vec<Season>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "list_seasons");
         let rows = sqlx::query("SELECT * FROM seasons WHERE series_id = ? ORDER BY number, id")
             .bind(series.0.as_str())
             .fetch_all(&self.pool)
@@ -1066,6 +1081,7 @@ impl CatalogRepository for SqliteCatalogRepo {
     }
 
     async fn list_episodes(&self, season: &SeasonId) -> Result<Vec<Episode>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "list_episodes");
         let rows = sqlx::query("SELECT * FROM episodes WHERE season_id = ? ORDER BY number, id")
             .bind(season.0.as_str())
             .fetch_all(&self.pool)
@@ -1082,6 +1098,7 @@ impl CatalogRepository for SqliteCatalogRepo {
     }
 
     async fn get_episode(&self, id: &EpisodeId) -> Result<Option<Episode>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "get_episode");
         let row = sqlx::query("SELECT * FROM episodes WHERE id = ?")
             .bind(id.0.as_str())
             .fetch_optional(&self.pool)
@@ -1097,6 +1114,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         &self,
         page: PageRequest,
     ) -> Result<Page<Collection>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "list_collections");
         let total = count_all(&self.pool, "SELECT COUNT(*) AS n FROM collections").await?;
         let rows = sqlx::query("SELECT * FROM collections ORDER BY id LIMIT ? OFFSET ?")
             .bind(i64::from(page.limit))
@@ -1120,6 +1138,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         &self,
         id: &CollectionId,
     ) -> Result<Option<Collection>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "get_collection");
         let row = sqlx::query("SELECT * FROM collections WHERE id = ?")
             .bind(id.0.as_str())
             .fetch_optional(&self.pool)
@@ -1132,10 +1151,12 @@ impl CatalogRepository for SqliteCatalogRepo {
     }
 
     async fn upsert_collection(&self, collection: Collection) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "upsert_collection");
         self.insert_collection(collection).await
     }
 
     async fn delete_collection(&self, id: &CollectionId) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "delete_collection");
         sqlx::query("DELETE FROM collections WHERE id = ?")
             .bind(id.0.as_str())
             .execute(&self.pool)
@@ -1145,6 +1166,7 @@ impl CatalogRepository for SqliteCatalogRepo {
     }
 
     async fn get_season(&self, id: &SeasonId) -> Result<Option<Season>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "get_season");
         let row = sqlx::query("SELECT * FROM seasons WHERE id = ?")
             .bind(id.0.as_str())
             .fetch_optional(&self.pool)
@@ -1161,6 +1183,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         title: &TitleId,
         page: PageRequest,
     ) -> Result<Page<Version>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "list_versions");
         let count_row =
             sqlx::query("SELECT COUNT(*) AS n FROM versions WHERE title_kind = ? AND title_id = ?")
                 .bind(title_kind(title))
@@ -1197,6 +1220,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         library: &LibraryId,
         page: PageRequest,
     ) -> Result<Page<Version>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "list_library_versions");
         let count_row = sqlx::query("SELECT COUNT(*) AS n FROM versions WHERE library_id = ?")
             .bind(library.0.as_str())
             .fetch_one(&self.pool)
@@ -1227,6 +1251,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         &self,
         id: &VersionId,
     ) -> Result<Option<VersionDetail>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "version_detail");
         let row = sqlx::query("SELECT * FROM versions WHERE id = ?")
             .bind(id.0.as_str())
             .fetch_optional(&self.pool)
@@ -1255,23 +1280,52 @@ impl CatalogRepository for SqliteCatalogRepo {
     }
 
     async fn upsert_movie(&self, movie: Movie) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "upsert_movie");
         self.insert_movie(movie).await
     }
 
     async fn upsert_series(&self, series: Series) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "upsert_series");
         self.insert_series(series).await
     }
 
     async fn upsert_season(&self, season: Season) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "upsert_season");
         self.insert_season(season).await
     }
 
     async fn upsert_episode(&self, episode: Episode) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "upsert_episode");
         self.insert_episode(episode).await
     }
 
     async fn upsert_version(&self, version: Version) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "upsert_version");
         self.insert_version(version).await
+    }
+
+    async fn reconcile_library_versions(
+        &self,
+        library: &LibraryId,
+        present_paths: &[String],
+    ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "reconcile_library_versions");
+        let mut tx = self.pool.begin().await.map_err(backend)?;
+        sqlx::query("UPDATE versions SET available = 0 WHERE library_id = ?")
+            .bind(library.0.as_str())
+            .execute(&mut *tx)
+            .await
+            .map_err(backend)?;
+        for path in present_paths {
+            sqlx::query("UPDATE versions SET available = 1 WHERE library_id = ? AND path = ?")
+                .bind(library.0.as_str())
+                .bind(path.as_str())
+                .execute(&mut *tx)
+                .await
+                .map_err(backend)?;
+        }
+        tx.commit().await.map_err(backend)?;
+        Ok(())
     }
 
     async fn set_artwork(
@@ -1279,6 +1333,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         owner: &ArtworkOwner,
         refs: &[ArtworkRef],
     ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "set_artwork");
         let (title_kind, title_id) = artwork_owner_parts(owner);
         let mut tx = self.pool.begin().await.map_err(backend)?;
         sqlx::query("DELETE FROM artwork WHERE title_kind = ? AND title_id = ?")
@@ -1317,6 +1372,7 @@ impl CatalogRepository for SqliteCatalogRepo {
     }
 
     async fn list_artwork(&self, owner: &ArtworkOwner) -> Result<Vec<ArtworkRef>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "list_artwork");
         let (title_kind, title_id) = artwork_owner_parts(owner);
         self.load_artwork(title_kind, title_id).await
     }
@@ -1329,6 +1385,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         subtitles: &[EmbeddedSubtitleTrack],
         chapters: &[Chapter],
     ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "set_version_tracks");
         let vid = version.0.as_str();
         let mut tx = self.pool.begin().await.map_err(backend)?;
         for table in [
@@ -1419,6 +1476,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         version: &VersionId,
         assets: &[TrickplayAsset],
     ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "set_trickplay");
         let vid = version.0.as_str();
         let mut tx = self.pool.begin().await.map_err(backend)?;
         for table in ["trickplay_sheets", "trickplay_assets"] {
@@ -1464,6 +1522,7 @@ impl CatalogRepository for SqliteCatalogRepo {
     }
 
     async fn upsert_person(&self, person: Person) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "upsert_person");
         let mut tx = self.pool.begin().await.map_err(backend)?;
         sqlx::query(
             "INSERT INTO people (id, name) VALUES (?, ?) \
@@ -1486,6 +1545,7 @@ impl CatalogRepository for SqliteCatalogRepo {
     }
 
     async fn get_person(&self, id: &PersonId) -> Result<Option<Person>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "get_person");
         let row = sqlx::query("SELECT id, name FROM people WHERE id = ?")
             .bind(id.0.as_str())
             .fetch_optional(&self.pool)
@@ -1503,6 +1563,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         owner: &TitleRef,
         enrichment: &TitleEnrichment,
     ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "set_title_enrichment");
         let kind = title_kind_to_str(owner.kind());
         let id = owner.id();
         let mut tx = self.pool.begin().await.map_err(backend)?;
@@ -1632,6 +1693,7 @@ impl CatalogRepository for SqliteCatalogRepo {
     }
 
     async fn movie_detail(&self, id: &MovieId) -> Result<Option<MovieDetail>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "movie_detail");
         let Some(movie) = self.get_movie(id).await? else {
             return Ok(None);
         };
@@ -1648,6 +1710,7 @@ impl CatalogRepository for SqliteCatalogRepo {
     }
 
     async fn series_detail(&self, id: &SeriesId) -> Result<Option<SeriesDetail>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "series_detail");
         let Some(series) = self.get_series(id).await? else {
             return Ok(None);
         };
@@ -1664,6 +1727,7 @@ impl CatalogRepository for SqliteCatalogRepo {
     }
 
     async fn filmography(&self, id: &PersonId) -> Result<Vec<Credit>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "filmography");
         let rows = sqlx::query(
             "SELECT title_kind, title_id, role, character, credit_order FROM credits \
              WHERE person_id = ? ORDER BY title_kind, title_id, ordinal",
@@ -1689,6 +1753,7 @@ impl CatalogRepository for SqliteCatalogRepo {
     }
 
     async fn list_genres(&self) -> Result<Vec<Genre>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "list_genres");
         let rows = sqlx::query("SELECT id, name FROM genres ORDER BY name, id")
             .fetch_all(&self.pool)
             .await
@@ -1708,6 +1773,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         genre: &GenreId,
         page: PageRequest,
     ) -> Result<Page<Movie>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "list_movies_by_genre");
         let count_row = sqlx::query(
             "SELECT COUNT(*) AS n FROM movies m JOIN title_genres tg ON tg.title_id = m.id \
              WHERE tg.title_kind = 'movie' AND tg.genre_id = ?",
@@ -1748,6 +1814,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         genre: &GenreId,
         page: PageRequest,
     ) -> Result<Page<Series>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "list_series_by_genre");
         let count_row = sqlx::query(
             "SELECT COUNT(*) AS n FROM series e JOIN title_genres tg ON tg.title_id = e.id \
              WHERE tg.title_kind = 'series' AND tg.genre_id = ?",
@@ -1788,6 +1855,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         kind: TitleKind,
         library: &LibraryId,
     ) -> Result<Vec<String>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "titles_in_library");
         let rows = match kind {
             TitleKind::Movie => sqlx::query(
                 "SELECT DISTINCT title_id AS value FROM versions \

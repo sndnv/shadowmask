@@ -68,6 +68,7 @@ fn direct_v1_detail() -> VersionDetail {
             size_bytes: 1,
             duration_ms: 100_000,
             edition: None,
+            available: true,
         },
         video: vec![VideoTrack {
             index: 0,
@@ -247,7 +248,7 @@ async fn seeded(db_root: &Path, hash: &str) -> (Repos, Router) {
         trickplay,
         ..
     } = build_state(&repos, &config(db_root)).unwrap();
-    (repos, app(state, stream, images, trickplay))
+    (repos, app(state, stream, images, trickplay, Vec::new()))
 }
 
 fn method(name: &str) -> Method {

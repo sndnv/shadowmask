@@ -2,8 +2,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::Router;
+use axum::middleware::from_fn;
 
-use ::api::{AppState, ImageState, StreamState, TrickplayState};
+use ::api::{AppState, ImageState, StreamState, TrickplayState, WebhookClient};
 use domain::error::{ProfileError, RepositoryError};
 use media::artwork::FsArtworkStore;
 use media::hls::HlsStreamSource;
@@ -65,6 +66,7 @@ pub struct WireConfig {
     pub tmdb_api_key: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct Repos {
     pub catalog: SqliteCatalogRepo,
     pub library: SqliteLibraryRepo,
@@ -91,12 +93,22 @@ impl Repos {
         })
     }
 
+    pub async fn ready(&self) -> bool {
+        self.catalog.ping().await.is_ok()
+            && self.library.ping().await.is_ok()
+            && self.users.ping().await.is_ok()
+            && self.jobs.ping().await.is_ok()
+            && self.auth_tokens.ping().await.is_ok()
+    }
+
     pub async fn close(&self) {
         self.catalog.close().await;
         self.library.close().await;
         self.users.close().await;
         self.jobs.close().await;
         self.auth_tokens.close().await;
+        self.progress.close().await;
+        self.preferences.close().await;
     }
 }
 
@@ -180,9 +192,12 @@ pub fn app(
     stream: DefaultStreamState,
     images: ImageState,
     trickplay: TrickplayState,
+    webhook_clients: Vec<WebhookClient>,
 ) -> Router {
     ::api::router(state.clone())
         .merge(::api::stream_router(stream))
         .merge(::api::image_router(images))
+        .merge(::api::webhook_router(state.clone(), webhook_clients))
         .merge(::api::trickplay_router(state, trickplay))
+        .layer(from_fn(::api::middleware::track_http))
 }

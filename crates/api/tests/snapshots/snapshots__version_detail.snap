@@ -20,6 +20,7 @@ expression: value
         "language": "fr"
       }
     ],
+    "available": true,
     "chapters": [
       {
         "start_ms": 0,

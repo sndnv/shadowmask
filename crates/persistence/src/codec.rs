@@ -11,6 +11,7 @@ pub(crate) fn role_to_str(role: Role) -> &'static str {
         Role::Admin => "admin",
         Role::User => "user",
         Role::Player => "player",
+        Role::Automation => "automation",
     }
 }
 
@@ -19,6 +20,7 @@ pub(crate) fn role_from_str(value: &str) -> Result<Role, RepositoryError> {
         "admin" => Ok(Role::Admin),
         "user" => Ok(Role::User),
         "player" => Ok(Role::Player),
+        "automation" => Ok(Role::Automation),
         other => Err(backend(format!("unknown role: {other}"))),
     }
 }
@@ -140,7 +142,7 @@ mod tests {
 
     #[test]
     fn role_round_trips_and_rejects_unknown() {
-        for role in [Role::Admin, Role::User, Role::Player] {
+        for role in [Role::Admin, Role::User, Role::Player, Role::Automation] {
             assert_eq!(role_from_str(role_to_str(role)).unwrap(), role);
         }
         assert!(role_from_str("nope").is_err());

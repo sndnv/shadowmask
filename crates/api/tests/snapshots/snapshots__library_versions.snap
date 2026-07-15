@@ -6,6 +6,7 @@ expression: value
   "body": {
     "items": [
       {
+        "available": true,
         "container": "mkv",
         "duration_ms": 1000,
         "edition": null,
@@ -19,6 +20,7 @@ expression: value
         }
       },
       {
+        "available": true,
         "container": "mkv",
         "duration_ms": 1000,
         "edition": null,
@@ -32,6 +34,7 @@ expression: value
         }
       },
       {
+        "available": true,
         "container": "mkv",
         "duration_ms": 1000,
         "edition": null,
@@ -45,6 +48,7 @@ expression: value
         }
       },
       {
+        "available": true,
         "container": "mkv",
         "duration_ms": 1000,
         "edition": null,
@@ -58,6 +62,7 @@ expression: value
         }
       },
       {
+        "available": true,
         "container": "mkv",
         "duration_ms": 1000,
         "edition": null,

@@ -8,10 +8,10 @@ use domain::user::UserId;
 
 use crate::dto::session::PlaybackSessionResponse;
 use crate::dto::user::{
-    ChangePasswordRequest, CreateUserRequest, LibraryAccessResponse, SetLibraryAccessRequest,
-    UpdateProfileRequest, UserResponse,
+    ChangePasswordRequest, CreateUserRequest, LibraryAccessResponse, RoleDto,
+    SetLibraryAccessRequest, UpdateProfileRequest, UserResponse,
 };
-use crate::error::ApiResult;
+use crate::error::{ApiError, ApiResult};
 use crate::extract::{AuthUser, RequireAdmin};
 use crate::handlers::{log_fail, require_admin_or_self};
 use crate::pagination::{PageParams, PageResponse};
@@ -40,6 +40,11 @@ pub async fn create<S: AppServices>(
     Json(req): Json<CreateUserRequest>,
 ) -> ApiResult<(StatusCode, Json<UserResponse>)> {
     let actor = &principal.user.0;
+    if matches!(req.role, RoleDto::Automation) {
+        return Err(ApiError::bad_request(
+            "the automation role cannot be assigned to a user",
+        ));
+    }
     let user = state
         .create(req.into())
         .await

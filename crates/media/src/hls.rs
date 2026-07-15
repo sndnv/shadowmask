@@ -99,6 +99,7 @@ fn is_safe_segment(segment: &str) -> bool {
 mod tests {
     use super::*;
     use jiff::Timestamp;
+    use proptest::prelude::*;
 
     use domain::catalog::VersionId;
     use domain::session::SubtitleRendition;
@@ -350,5 +351,37 @@ mod tests {
             source.master_playlist(&claims("s1")),
             Err(StreamError::NotLive)
         ));
+    }
+
+    proptest! {
+        #[test]
+        fn safe_segment_is_a_single_non_escaping_component(segment in "\\PC*") {
+            if is_safe_segment(&segment) {
+                let components: Vec<_> = std::path::Path::new(&segment).components().collect();
+                prop_assert_eq!(components.len(), 1);
+                prop_assert!(matches!(
+                    components[0],
+                    std::path::Component::Normal(_) | std::path::Component::CurDir
+                ));
+            }
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+        #[test]
+        fn media_path_never_escapes_output_dir(variant in "\\PC*", file in "\\PC*") {
+            let dir = tempfile::tempdir().unwrap();
+            let base = dir.path().canonicalize().unwrap();
+            let source = HlsStreamSource::new();
+            let entry = StreamRegistration {
+                output_dir: base.clone(),
+                ..transcode_entry()
+            };
+            source.register(SessionId("s1".to_owned()), entry);
+            if let Ok(path) = source.media_path(&claims("s1"), &variant, &file) {
+                prop_assert!(path.starts_with(&base));
+            }
+        }
     }
 }

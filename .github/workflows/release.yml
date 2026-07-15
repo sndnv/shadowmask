@@ -1,0 +1,50 @@
+name: Shadowmask Release
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      next_version:
+        description: 'Next release version'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      verbose:
+        description: 'Enable debug logging during release'
+        required: false
+        type: boolean
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ssh-key: ${{ secrets.RELEASE_KEY }}
+          ref: main
+
+      - name: Setup Python 3
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.14'
+
+      - name: Release project
+        run: |
+          pip install semver
+          git config --global user.name ${{ github.actor }}
+          git config --global user.email ${{ github.actor }}@users.noreply.github.com
+          ./release.py $VERBOSE --next $NEXT_VERSION
+          git push
+          git push --tags
+        env:
+          NEXT_VERSION: ${{ inputs.next_version }}
+          VERBOSE: ${{ inputs.verbose && '--verbose' || '' }}

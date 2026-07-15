@@ -3,6 +3,7 @@ name = "jobs"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+publish.workspace = true
 license.workspace = true
 
 [dependencies]
@@ -11,10 +12,12 @@ services.workspace = true
 jiff.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
+metrics.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time", "test-util"] }
 proptest.workspace = true
+metrics-exporter-prometheus = { workspace = true }
 
 [lints]
 workspace = true

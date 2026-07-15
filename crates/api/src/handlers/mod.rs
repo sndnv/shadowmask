@@ -10,6 +10,7 @@ pub mod stream;
 pub mod trickplay;
 pub mod user_library;
 pub mod users;
+pub mod webhook;
 
 use std::fmt::Display;
 

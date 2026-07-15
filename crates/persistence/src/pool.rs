@@ -48,8 +48,50 @@ async fn open_with(
         .connect_with(connect_options(path))
         .await
         .map_err(backend)?;
+    let applied_before = applied_migration_count(&pool).await;
     migrator.run(&pool).await.map_err(backend)?;
+    let found = migrator.iter().count();
+    let newly_applied = found.saturating_sub(applied_before);
+    let store = store_label(path);
+    if newly_applied > 0 {
+        tracing::info!(
+            store = %store,
+            found = found as u64,
+            applied = newly_applied as u64,
+            "migrations applied"
+        );
+    } else {
+        tracing::debug!(store = %store, found = found as u64, "migrations up to date");
+    }
     Ok(pool)
+}
+
+async fn applied_migration_count(pool: &SqlitePool) -> usize {
+    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM _sqlx_migrations")
+        .fetch_one(pool)
+        .await
+        .map(|count| count as usize)
+        .unwrap_or(0)
+}
+
+fn store_label(path: &Path) -> String {
+    path.file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+pub(crate) async fn ping(pool: &SqlitePool) -> Result<(), RepositoryError> {
+    sqlx::query("SELECT 1")
+        .execute(pool)
+        .await
+        .map_err(backend)?;
+    Ok(())
+}
+
+pub(crate) async fn checkpoint(pool: &SqlitePool) {
+    let _ = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        .execute(pool)
+        .await;
 }
 
 #[derive(Clone)]
@@ -92,6 +134,15 @@ impl UserPools {
         Ok(pool)
     }
 
+    pub(crate) async fn close_all(&self) {
+        let mut cache = self.cache.lock().await;
+        for (_, pool) in cache.iter() {
+            checkpoint(pool).await;
+            pool.close().await;
+        }
+        cache.clear();
+    }
+
     #[cfg(test)]
     pub(crate) async fn close_cached(&self) {
         let cache = self.cache.lock().await;
@@ -131,6 +182,28 @@ mod tests {
         assert!(!inner.contains(&UserId("u1".into())));
         assert!(inner.contains(&UserId("u2".into())));
         assert!(inner.contains(&UserId("u3".into())));
+    }
+
+    #[tokio::test]
+    async fn checkpoint_completes_on_open_pool() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = pools(dir.path(), DEFAULT_USER_POOL_CAPACITY);
+        let pool = cache.get(&UserId("u1".into())).await.unwrap();
+        checkpoint(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn close_all_closes_and_clears_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = pools(dir.path(), DEFAULT_USER_POOL_CAPACITY);
+        for id in ["u1", "u2"] {
+            cache.get(&UserId(id.into())).await.unwrap();
+        }
+        assert_eq!(cache.cache.lock().await.len(), 2);
+        cache.close_all().await;
+        assert_eq!(cache.cache.lock().await.len(), 0);
+        cache.get(&UserId("u1".into())).await.unwrap();
+        assert_eq!(cache.cache.lock().await.len(), 1);
     }
 
     #[tokio::test]
