@@ -1,0 +1,19 @@
+# Bootstrap library definitions for production. Edit for your deployment, then enable
+# bootstrap once by setting SHADOWMASK_BOOTSTRAP_MODE=init-and-start (set back to off after).
+# kind: movie | tv
+# watcher: local | polling | scheduled | manual
+# roots must point at directories the server can read (mounted into the container).
+
+[[libraries]]
+name = "Movies"
+kind = "movie"
+roots = ["/media/movies"]
+watcher = "local"
+metadata_sources = ["tmdb"]
+
+[[libraries]]
+name = "TV"
+kind = "tv"
+roots = ["/media/tv"]
+watcher = "local"
+metadata_sources = ["tmdb"]

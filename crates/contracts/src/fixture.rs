@@ -110,6 +110,7 @@ pub fn version(id: &str, title: TitleId, lib: &str, quality: Quality) -> Version
         size_bytes: 1,
         duration_ms: 1000,
         edition: None,
+        available: true,
     }
 }
 

@@ -270,6 +270,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn triggered_scan_is_completed_by_the_worker() {
+        use domain::repository::JobRepository;
+        use domain::service::LibraryService;
+        use domain::user::{Principal, Role, UserId};
+        use services::library::LibraryServiceImpl;
+        use services::mock::{MockCatalogRepo, MockJobStore, MockMetadataProvider, MockUserRepo};
+
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(library(&["/m"]));
+        let jobs = MockJobStore::new();
+        let svc = LibraryServiceImpl::new(
+            repo.clone(),
+            MockUserRepo::new(),
+            jobs.clone(),
+            MockCatalogRepo::new(),
+            None::<MockMetadataProvider>,
+        );
+        let admin = Principal {
+            user: UserId("admin".into()),
+            role: Role::Admin,
+        };
+        let id = LibraryId("lib".into());
+
+        svc.trigger_scan(&admin, &id).await.unwrap();
+        let job = jobs.list().await.unwrap().into_iter().next().unwrap();
+
+        let walker = MockSourceWalker::new().with_entries(
+            "/m",
+            vec![WalkedEntry {
+                path: "/m/a.mkv".into(),
+                size_bytes: 1,
+            }],
+        );
+        let handler = handler(repo.clone(), walker, MockMediaProbe::new());
+        handler.handle(&job).await.unwrap();
+
+        let state = repo.scan_state(&id).await.unwrap().unwrap();
+        assert_eq!(state.status, ScanStatus::Idle);
+        assert!(state.last_scanned_at.is_some());
+    }
+
+    #[tokio::test]
     async fn root_not_found_fails_permanently() {
         let repo = MockLibraryRepo::new();
         repo.insert_library(library(&["/missing"]));

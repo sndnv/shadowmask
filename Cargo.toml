@@ -3,20 +3,21 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0-SNAPSHOT"
 edition = "2024"
 rust-version = "1.96"
 license = "Apache-2.0"
+publish = false
 
 [workspace.dependencies]
-domain = { path = "crates/domain", version = "0.1.0" }
-persistence = { path = "crates/persistence", version = "0.1.0" }
-media = { path = "crates/media", version = "0.1.0" }
-metadata = { path = "crates/metadata", version = "0.1.0" }
-services = { path = "crates/services", version = "0.1.0" }
-jobs = { path = "crates/jobs", version = "0.1.0" }
-api = { path = "crates/api", version = "0.1.0" }
-contracts = { path = "crates/contracts", version = "0.1.0" }
+domain = { path = "crates/domain" }
+persistence = { path = "crates/persistence" }
+media = { path = "crates/media" }
+metadata = { path = "crates/metadata" }
+services = { path = "crates/services" }
+jobs = { path = "crates/jobs" }
+api = { path = "crates/api" }
+contracts = { path = "crates/contracts" }
 
 tokio = "1"
 lru = "0.16"
@@ -34,6 +35,9 @@ jiff = "0.2"
 jiff-cron = "0.3"
 jsonwebtoken = "9"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
 regex = "1"
 walkdir = "2"
 notify = "8"
@@ -43,8 +47,12 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 wiremock = "0.6"
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
+subst = "0.3"
+toml = "1"
 proptest = "1"
 insta = { version = "1", features = ["json", "redactions"] }
+clap = { version = "4", features = ["derive"] }
+tar = { version = "0.4", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

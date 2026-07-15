@@ -8,3 +8,4 @@
 .bsp
 .DS_Store
 /target
+__pycache__

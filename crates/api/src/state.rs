@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
 use domain::catalog::{
     Collection, CollectionId, CollectionUpdate, Episode, EpisodeId, Movie, MovieDetail, MovieId,
     NewCollection, PersonProfile, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleCard,
@@ -114,6 +116,20 @@ impl TrickplayState {
             root: Arc::new(root.into()),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookClient {
+    pub name: String,
+    pub secret: String,
+    #[serde(default)]
+    pub libraries: Vec<String>,
+}
+
+#[derive(Clone)]
+pub struct WebhookState<S> {
+    pub services: S,
+    pub clients: Vec<WebhookClient>,
 }
 
 impl<A, C, Se, L, U, Ul, D> AuthService for AppState<A, C, Se, L, U, Ul, D>

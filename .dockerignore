@@ -1,0 +1,13 @@
+target/
+.git
+.gitignore
+.github/
+.local/
+.idea/
+.idea_modules/
+**/*.local.json
+.config/
+assets/
+deployment/
+*.md
+.DS_Store

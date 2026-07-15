@@ -8,7 +8,8 @@ use sqlx::migrate::Migrator;
 use sqlx::sqlite::SqliteRow;
 use sqlx::{Executor, Sqlite, SqlitePool};
 
-use crate::pool::{backend, column, from_millis, open, to_millis};
+use crate::metrics::DbOpGuard;
+use crate::pool::{backend, checkpoint, column, from_millis, open, ping, to_millis};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations/jobs");
 
@@ -24,7 +25,12 @@ impl SqliteJobRepo {
         })
     }
 
+    pub async fn ping(&self) -> Result<(), RepositoryError> {
+        ping(&self.pool).await
+    }
+
     pub async fn close(&self) {
+        checkpoint(&self.pool).await;
         self.pool.close().await;
     }
 }
@@ -142,10 +148,12 @@ where
 
 impl JobRepository for SqliteJobRepo {
     async fn enqueue(&self, job: Job) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("jobs", "enqueue");
         upsert(&self.pool, &job).await
     }
 
     async fn claim_ready(&self, now: Timestamp, limit: usize) -> Result<Vec<Job>, RepositoryError> {
+        let _op = DbOpGuard::new("jobs", "claim_ready");
         let rows = sqlx::query(
             "UPDATE jobs SET status = ? \
              WHERE id IN ( \
@@ -173,11 +181,25 @@ impl JobRepository for SqliteJobRepo {
         Ok(jobs)
     }
 
+    async fn reclaim_running(&self, now: Timestamp) -> Result<usize, RepositoryError> {
+        let _op = DbOpGuard::new("jobs", "reclaim_running");
+        let result = sqlx::query("UPDATE jobs SET status = ?, available_at = ? WHERE status = ?")
+            .bind(status_to_str(JobStatus::Queued))
+            .bind(to_millis(now))
+            .bind(status_to_str(JobStatus::Running))
+            .execute(&self.pool)
+            .await
+            .map_err(backend)?;
+        Ok(result.rows_affected() as usize)
+    }
+
     async fn update(&self, job: Job) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("jobs", "update");
         upsert(&self.pool, &job).await
     }
 
     async fn get(&self, id: &JobId) -> Result<Option<Job>, RepositoryError> {
+        let _op = DbOpGuard::new("jobs", "get");
         let row = sqlx::query("SELECT * FROM jobs WHERE id = ?")
             .bind(id.0.as_str())
             .fetch_optional(&self.pool)
@@ -187,6 +209,7 @@ impl JobRepository for SqliteJobRepo {
     }
 
     async fn list(&self) -> Result<Vec<Job>, RepositoryError> {
+        let _op = DbOpGuard::new("jobs", "list");
         let rows = sqlx::query("SELECT * FROM jobs ORDER BY created_at ASC, id ASC")
             .fetch_all(&self.pool)
             .await

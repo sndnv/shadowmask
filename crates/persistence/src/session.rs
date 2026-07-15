@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 
 use domain::common::{Page, PageRequest, paginate};
 use domain::error::RepositoryError;
 use domain::repository::SessionRegistry;
-use domain::session::{PlaybackSession, SessionId};
-use domain::user::UserId;
+use domain::session::{DeliveryMode, PlaybackSession, SessionId};
+use domain::user::{DeviceId, UserId};
 
 #[derive(Default)]
 pub struct InMemorySessionRegistry {
@@ -29,12 +29,35 @@ impl InMemorySessionRegistry {
     }
 }
 
+fn record_gauges(sessions: &HashMap<SessionId, PlaybackSession>) {
+    let mut direct = 0u64;
+    let mut remux = 0u64;
+    let mut transcode = 0u64;
+    let mut users: HashSet<&UserId> = HashSet::new();
+    let mut devices: HashSet<&DeviceId> = HashSet::new();
+    for session in sessions.values() {
+        match session.mode {
+            DeliveryMode::Direct => direct += 1,
+            DeliveryMode::Remux => remux += 1,
+            DeliveryMode::Transcode => transcode += 1,
+        }
+        users.insert(&session.user);
+        if let Some(device) = &session.device {
+            devices.insert(device);
+        }
+    }
+    metrics::gauge!("sessions_active", "mode" => "direct").set(direct as f64);
+    metrics::gauge!("sessions_active", "mode" => "remux").set(remux as f64);
+    metrics::gauge!("sessions_active", "mode" => "transcode").set(transcode as f64);
+    metrics::gauge!("active_users").set(users.len() as f64);
+    metrics::gauge!("active_devices").set(devices.len() as f64);
+}
+
 impl SessionRegistry for InMemorySessionRegistry {
     async fn insert(&self, session: PlaybackSession) -> Result<(), RepositoryError> {
-        self.sessions
-            .write()
-            .unwrap()
-            .insert(session.id.clone(), session);
+        let mut sessions = self.sessions.write().unwrap();
+        sessions.insert(session.id.clone(), session);
+        record_gauges(&sessions);
         Ok(())
     }
 
@@ -55,7 +78,9 @@ impl SessionRegistry for InMemorySessionRegistry {
     }
 
     async fn remove(&self, id: &SessionId) -> Result<(), RepositoryError> {
-        self.sessions.write().unwrap().remove(id);
+        let mut sessions = self.sessions.write().unwrap();
+        sessions.remove(id);
+        record_gauges(&sessions);
         Ok(())
     }
 }
@@ -64,8 +89,9 @@ impl SessionRegistry for InMemorySessionRegistry {
 mod tests {
     use super::*;
     use domain::catalog::VersionId;
-    use domain::session::{DeliveryMode, PlaybackState, SelectedTracks};
+    use domain::session::{PlaybackState, SelectedTracks};
     use jiff::Timestamp;
+    use metrics_exporter_prometheus::PrometheusBuilder;
 
     fn session(id: &str, user: &str, started_offset: i64) -> PlaybackSession {
         PlaybackSession {
@@ -83,6 +109,19 @@ mod tests {
             },
             started_at: Timestamp::from_second(1_700_000_000 + started_offset).unwrap(),
             last_heartbeat_at: Timestamp::from_second(1_700_000_000 + started_offset).unwrap(),
+        }
+    }
+
+    fn session_mode(
+        id: &str,
+        user: &str,
+        mode: DeliveryMode,
+        device: Option<&str>,
+    ) -> PlaybackSession {
+        PlaybackSession {
+            device: device.map(|d| DeviceId(d.into())),
+            mode,
+            ..session(id, user, 0)
         }
     }
 
@@ -135,5 +174,64 @@ mod tests {
         let second = registry.list_all(page(1, 1)).await.unwrap();
         assert_eq!(second.total, 3);
         assert_eq!(second.items[0].id, SessionId("s2".into()));
+    }
+
+    fn recorded<F, Fut>(work: F) -> String
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+            rt.block_on(work());
+        });
+        handle.render()
+    }
+
+    #[test]
+    fn insert_records_session_gauges() {
+        let rendered = recorded(|| async {
+            let registry = InMemorySessionRegistry::new();
+            registry
+                .insert(session_mode("s1", "u1", DeliveryMode::Direct, None))
+                .await
+                .unwrap();
+            registry
+                .insert(session_mode("s2", "u1", DeliveryMode::Remux, Some("d1")))
+                .await
+                .unwrap();
+            registry
+                .insert(session_mode(
+                    "s3",
+                    "u2",
+                    DeliveryMode::Transcode,
+                    Some("d1"),
+                ))
+                .await
+                .unwrap();
+        });
+        assert!(rendered.contains("sessions_active{mode=\"direct\"} 1"));
+        assert!(rendered.contains("sessions_active{mode=\"remux\"} 1"));
+        assert!(rendered.contains("sessions_active{mode=\"transcode\"} 1"));
+        assert!(rendered.contains("active_users 2"));
+        assert!(rendered.contains("active_devices 1"));
+    }
+
+    #[test]
+    fn remove_updates_session_gauges() {
+        let rendered = recorded(|| async {
+            let registry = InMemorySessionRegistry::new();
+            registry
+                .insert(session_mode("s1", "u1", DeliveryMode::Direct, None))
+                .await
+                .unwrap();
+            registry.remove(&SessionId("s1".into())).await.unwrap();
+        });
+        assert!(rendered.contains("sessions_active{mode=\"direct\"} 0"));
+        assert!(rendered.contains("active_users 0"));
     }
 }

@@ -10,6 +10,7 @@ use sqlx::migrate::Migrator;
 use sqlx::sqlite::SqliteRow;
 
 use crate::codec::{title_from_parts, title_kind};
+use crate::metrics::DbOpGuard;
 use crate::pool::{DEFAULT_USER_POOL_CAPACITY, UserPools, backend, column, from_millis, to_millis};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations/progress");
@@ -34,6 +35,10 @@ impl SqliteProgressRepo {
     pub async fn ensure_migrated(&self, user: &UserId) -> Result<(), RepositoryError> {
         self.pools.get(user).await?;
         Ok(())
+    }
+
+    pub async fn close(&self) {
+        self.pools.close_all().await;
     }
 }
 
@@ -70,6 +75,7 @@ impl ProgressRepository for SqliteProgressRepo {
         user: &UserId,
         version: &VersionId,
     ) -> Result<Option<PlaybackProgress>, RepositoryError> {
+        let _op = DbOpGuard::new("progress", "get");
         let pool = self.pools.get(user).await?;
         let row = sqlx::query(
             "SELECT version_id, position_ms, updated_at FROM playback_progress WHERE version_id = ?",
@@ -84,6 +90,7 @@ impl ProgressRepository for SqliteProgressRepo {
     }
 
     async fn upsert(&self, progress: PlaybackProgress) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("progress", "upsert");
         let pool = self.pools.get(&progress.user).await?;
         sqlx::query(
             "INSERT OR REPLACE INTO playback_progress (version_id, position_ms, updated_at) \
@@ -99,6 +106,7 @@ impl ProgressRepository for SqliteProgressRepo {
     }
 
     async fn delete(&self, user: &UserId, version: &VersionId) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("progress", "delete");
         let pool = self.pools.get(user).await?;
         sqlx::query("DELETE FROM playback_progress WHERE version_id = ?")
             .bind(version.0.as_str())
@@ -112,6 +120,7 @@ impl ProgressRepository for SqliteProgressRepo {
         &self,
         user: &UserId,
     ) -> Result<Vec<PlaybackProgress>, RepositoryError> {
+        let _op = DbOpGuard::new("progress", "list_in_progress");
         let pool = self.pools.get(user).await?;
         let rows = sqlx::query(
             "SELECT version_id, position_ms, updated_at FROM playback_progress \
@@ -124,6 +133,7 @@ impl ProgressRepository for SqliteProgressRepo {
     }
 
     async fn record_history(&self, history: WatchHistory) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("progress", "record_history");
         let pool = self.pools.get(&history.user).await?;
         sqlx::query(
             "INSERT OR REPLACE INTO watch_history \
@@ -147,6 +157,7 @@ impl ProgressRepository for SqliteProgressRepo {
         user: &UserId,
         page: PageRequest,
     ) -> Result<Page<WatchHistory>, RepositoryError> {
+        let _op = DbOpGuard::new("progress", "history");
         let pool = self.pools.get(user).await?;
         let count_row = sqlx::query("SELECT COUNT(*) AS n FROM watch_history")
             .fetch_one(&pool)

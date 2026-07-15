@@ -3,4 +3,5 @@ pub enum Role {
     Admin,
     User,
     Player,
+    Automation,
 }

@@ -50,6 +50,7 @@ pub fn catalog_seed() -> CatalogSeed {
             size_bytes: 1_000_000,
             duration_ms: 120_000,
             edition: Some("Director's Cut".into()),
+            available: true,
         },
         video: vec![VideoTrack {
             index: 0,
@@ -186,6 +187,7 @@ pub fn catalog_seed() -> CatalogSeed {
                 size_bytes: 2_000_000,
                 duration_ms: 120_000,
                 edition: None,
+                available: true,
             },
             Version {
                 id: VersionId("v3".into()),
@@ -197,6 +199,7 @@ pub fn catalog_seed() -> CatalogSeed {
                 size_bytes: 3_000_000,
                 duration_ms: 2_520_000,
                 edition: None,
+                available: true,
             },
         ],
         detail,
@@ -727,6 +730,7 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         size_bytes: 4_000_000,
         duration_ms: 1_500_000,
         edition: None,
+        available: true,
     })
     .await
     .unwrap();
@@ -1026,4 +1030,51 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
             .unwrap()
             .is_empty()
     );
+
+    let available = async |repo: &R, id: &str| -> bool {
+        repo.version_detail(&VersionId(id.into()))
+            .await
+            .unwrap()
+            .unwrap()
+            .version
+            .available
+    };
+
+    repo.reconcile_library_versions(
+        &LibraryId("lib1".into()),
+        &["/media/v1.mkv".to_owned(), "/media/uv1.mkv".to_owned()],
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        repo.list_library_versions(&LibraryId("lib1".into()), page(0, 10))
+            .await
+            .unwrap()
+            .total,
+        3
+    );
+    assert!(available(&repo, "v1").await);
+    assert!(available(&repo, "uv1").await);
+    assert!(!available(&repo, "v2").await);
+    assert!(available(&repo, "v3").await);
+
+    repo.reconcile_library_versions(
+        &LibraryId("lib1".into()),
+        &[
+            "/media/v1.mkv".to_owned(),
+            "/media/v2.mp4".to_owned(),
+            "/media/uv1.mkv".to_owned(),
+        ],
+    )
+    .await
+    .unwrap();
+    assert!(available(&repo, "v2").await);
+
+    repo.reconcile_library_versions(&LibraryId("lib1".into()), &[])
+        .await
+        .unwrap();
+    assert!(!available(&repo, "v1").await);
+    assert!(!available(&repo, "v2").await);
+    assert!(!available(&repo, "uv1").await);
+    assert!(available(&repo, "v3").await);
 }

@@ -45,6 +45,19 @@ impl JobRepository for MockJobStore {
         Ok(ready)
     }
 
+    async fn reclaim_running(&self, now: Timestamp) -> Result<usize, RepositoryError> {
+        let mut guard = self.jobs.lock().unwrap();
+        let mut count = 0;
+        for job in guard.values_mut() {
+            if job.status == JobStatus::Running {
+                job.status = JobStatus::Queued;
+                job.available_at = now;
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
     async fn update(&self, job: Job) -> Result<(), RepositoryError> {
         self.jobs.lock().unwrap().insert(job.id.clone(), job);
         Ok(())

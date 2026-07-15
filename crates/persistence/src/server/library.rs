@@ -12,7 +12,8 @@ use sqlx::migrate::Migrator;
 use sqlx::sqlite::SqliteRow;
 
 use crate::codec::{title_from_parts, title_kind};
-use crate::pool::{backend, column, from_millis, open, to_millis};
+use crate::metrics::DbOpGuard;
+use crate::pool::{backend, checkpoint, column, from_millis, open, ping, to_millis};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations/libraries");
 
@@ -28,7 +29,12 @@ impl SqliteLibraryRepo {
         })
     }
 
+    pub async fn ping(&self) -> Result<(), RepositoryError> {
+        ping(&self.pool).await
+    }
+
     pub async fn close(&self) {
+        checkpoint(&self.pool).await;
         self.pool.close().await;
     }
 
@@ -180,6 +186,7 @@ fn watcher_from_str(value: &str) -> Result<WatcherStrategy, RepositoryError> {
 fn scan_status_to_str(status: ScanStatus) -> &'static str {
     match status {
         ScanStatus::Idle => "idle",
+        ScanStatus::Queued => "queued",
         ScanStatus::Running => "running",
         ScanStatus::Failed => "failed",
     }
@@ -188,6 +195,7 @@ fn scan_status_to_str(status: ScanStatus) -> &'static str {
 fn scan_status_from_str(value: &str) -> Result<ScanStatus, RepositoryError> {
     match value {
         "idle" => Ok(ScanStatus::Idle),
+        "queued" => Ok(ScanStatus::Queued),
         "running" => Ok(ScanStatus::Running),
         "failed" => Ok(ScanStatus::Failed),
         other => Err(backend(format!("unknown scan status: {other}"))),
@@ -236,6 +244,7 @@ async fn count(pool: &SqlitePool, query: &str, key: &str) -> Result<u64, Reposit
 
 impl LibraryRepository for SqliteLibraryRepo {
     async fn list(&self) -> Result<Vec<Library>, RepositoryError> {
+        let _op = DbOpGuard::new("library", "list");
         let rows = sqlx::query("SELECT * FROM libraries ORDER BY id")
             .fetch_all(&self.pool)
             .await
@@ -248,6 +257,7 @@ impl LibraryRepository for SqliteLibraryRepo {
     }
 
     async fn get(&self, id: &LibraryId) -> Result<Option<Library>, RepositoryError> {
+        let _op = DbOpGuard::new("library", "get");
         let row = sqlx::query("SELECT * FROM libraries WHERE id = ?")
             .bind(id.0.as_str())
             .fetch_optional(&self.pool)
@@ -260,6 +270,7 @@ impl LibraryRepository for SqliteLibraryRepo {
     }
 
     async fn scan_state(&self, id: &LibraryId) -> Result<Option<ScanState>, RepositoryError> {
+        let _op = DbOpGuard::new("library", "scan_state");
         let row = sqlx::query("SELECT * FROM scan_state WHERE library_id = ?")
             .bind(id.0.as_str())
             .fetch_optional(&self.pool)
@@ -269,6 +280,7 @@ impl LibraryRepository for SqliteLibraryRepo {
     }
 
     async fn save_scan_state(&self, state: ScanState) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("library", "save_scan_state");
         sqlx::query(
             "INSERT OR REPLACE INTO scan_state (library_id, status, progress, last_scanned_at, error) \
              VALUES (?, ?, ?, ?, ?)",
@@ -285,10 +297,12 @@ impl LibraryRepository for SqliteLibraryRepo {
     }
 
     async fn upsert(&self, library: Library) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("library", "upsert");
         self.insert_library(library).await
     }
 
     async fn delete(&self, id: &LibraryId) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("library", "delete");
         let mut tx = self.pool.begin().await.map_err(backend)?;
         let key = id.0.as_str();
         sqlx::query("DELETE FROM scan_state WHERE library_id = ?")
@@ -320,6 +334,7 @@ impl LibraryRepository for SqliteLibraryRepo {
         id: &LibraryId,
         page: PageRequest,
     ) -> Result<Page<UnmatchedFile>, RepositoryError> {
+        let _op = DbOpGuard::new("library", "list_unmatched");
         let total = count(
             &self.pool,
             "SELECT COUNT(*) AS n FROM unmatched_files WHERE library_id = ? AND status = 'active'",
@@ -360,6 +375,7 @@ impl LibraryRepository for SqliteLibraryRepo {
         id: &LibraryId,
         page: PageRequest,
     ) -> Result<Page<DuplicateCandidate>, RepositoryError> {
+        let _op = DbOpGuard::new("library", "list_duplicates");
         let total = count(
             &self.pool,
             "SELECT COUNT(*) AS n FROM duplicate_candidates \
@@ -402,6 +418,7 @@ impl LibraryRepository for SqliteLibraryRepo {
         &self,
         id: &UnmatchedFileId,
     ) -> Result<Option<UnmatchedFile>, RepositoryError> {
+        let _op = DbOpGuard::new("library", "get_unmatched");
         let row = sqlx::query("SELECT * FROM unmatched_files WHERE id = ?")
             .bind(id.0.as_str())
             .fetch_optional(&self.pool)
@@ -423,6 +440,7 @@ impl LibraryRepository for SqliteLibraryRepo {
     }
 
     async fn insert_unmatched(&self, file: UnmatchedFile) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("library", "insert_unmatched");
         let mut tx = self.pool.begin().await.map_err(backend)?;
         let id = file.id.0.as_str();
         sqlx::query(
@@ -465,6 +483,7 @@ impl LibraryRepository for SqliteLibraryRepo {
         library: &LibraryId,
         duplicate: DuplicateCandidate,
     ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("library", "insert_duplicate");
         let mut tx = self.pool.begin().await.map_err(backend)?;
         let id = duplicate.id.0.as_str();
         sqlx::query(
@@ -505,6 +524,7 @@ impl LibraryRepository for SqliteLibraryRepo {
         id: &UnmatchedFileId,
         status: ResolutionStatus,
     ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("library", "set_unmatched_status");
         sqlx::query("UPDATE unmatched_files SET status = ? WHERE id = ?")
             .bind(resolution_status_to_str(status))
             .bind(id.0.as_str())
@@ -519,6 +539,7 @@ impl LibraryRepository for SqliteLibraryRepo {
         id: &DuplicateCandidateId,
         status: ResolutionStatus,
     ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("library", "set_duplicate_status");
         sqlx::query("UPDATE duplicate_candidates SET status = ? WHERE id = ?")
             .bind(resolution_status_to_str(status))
             .bind(id.0.as_str())
@@ -546,7 +567,12 @@ mod tests {
         ] {
             assert_eq!(watcher_from_str(watcher_to_str(watcher)).unwrap(), watcher);
         }
-        for status in [ScanStatus::Idle, ScanStatus::Running, ScanStatus::Failed] {
+        for status in [
+            ScanStatus::Idle,
+            ScanStatus::Queued,
+            ScanStatus::Running,
+            ScanStatus::Failed,
+        ] {
             assert_eq!(
                 scan_status_from_str(scan_status_to_str(status)).unwrap(),
                 status

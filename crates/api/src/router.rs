@@ -1,15 +1,17 @@
 use axum::Router;
-use axum::middleware::from_fn_with_state;
+use axum::middleware::{from_fn, from_fn_with_state};
 use axum::routing::{delete, get, post, put};
 
 use domain::session::{StreamSource, StreamTokens};
 
 use crate::handlers::{
     admin, auth, catalog, discovery, image, library, server, sessions, stream, trickplay,
-    user_library, users,
+    user_library, users, webhook,
 };
-use crate::middleware::jwt;
-use crate::state::{AppServices, ImageState, StreamState, TrickplayState};
+use crate::middleware::{jwt, track_stream_bytes};
+use crate::state::{
+    AppServices, ImageState, StreamState, TrickplayState, WebhookClient, WebhookState,
+};
 
 pub fn router<S: AppServices>(state: S) -> Router {
     let public = Router::<S>::new()
@@ -170,12 +172,25 @@ where
             get(stream::media::<T, G>),
         )
         .with_state(state)
+        .layer(from_fn(track_stream_bytes))
 }
 
 pub fn image_router(state: ImageState) -> Router {
     Router::new()
         .route("/images/{artwork_id}/{width}", get(image::image))
         .with_state(state)
+}
+
+pub fn webhook_router<S: AppServices>(services: S, clients: Vec<WebhookClient>) -> Router {
+    if clients.is_empty() {
+        return Router::new();
+    }
+    Router::new()
+        .route(
+            "/api/v1/webhooks/libraries/{id}/scan",
+            post(webhook::scan::<S>),
+        )
+        .with_state(WebhookState { services, clients })
 }
 
 pub fn trickplay_router<S: AppServices>(auth: S, state: TrickplayState) -> Router {

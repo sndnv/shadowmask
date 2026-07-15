@@ -410,6 +410,21 @@ impl CatalogRepository for MockCatalogRepo {
         Ok(())
     }
 
+    async fn reconcile_library_versions(
+        &self,
+        library: &LibraryId,
+        present_paths: &[String],
+    ) -> Result<(), RepositoryError> {
+        self.guard()?;
+        let mut state = self.state.lock().unwrap();
+        for version in state.versions.iter_mut() {
+            if version.library == *library {
+                version.available = present_paths.contains(&version.path);
+            }
+        }
+        Ok(())
+    }
+
     async fn set_artwork(
         &self,
         owner: &ArtworkOwner,
@@ -748,6 +763,7 @@ mod tests {
             size_bytes: 1,
             duration_ms: 1000,
             edition: None,
+            available: true,
         }
     }
 

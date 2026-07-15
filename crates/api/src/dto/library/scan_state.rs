@@ -6,6 +6,7 @@ use domain::library::{ScanState, ScanStatus};
 #[serde(rename_all = "snake_case")]
 pub enum ScanStatusDto {
     Idle,
+    Queued,
     Running,
     Failed,
 }
@@ -14,6 +15,7 @@ impl From<ScanStatus> for ScanStatusDto {
     fn from(s: ScanStatus) -> Self {
         match s {
             ScanStatus::Idle => ScanStatusDto::Idle,
+            ScanStatus::Queued => ScanStatusDto::Queued,
             ScanStatus::Running => ScanStatusDto::Running,
             ScanStatus::Failed => ScanStatusDto::Failed,
         }
@@ -50,6 +52,10 @@ mod tests {
         assert!(matches!(
             ScanStatusDto::from(ScanStatus::Idle),
             ScanStatusDto::Idle
+        ));
+        assert!(matches!(
+            ScanStatusDto::from(ScanStatus::Queued),
+            ScanStatusDto::Queued
         ));
         assert!(matches!(
             ScanStatusDto::from(ScanStatus::Running),

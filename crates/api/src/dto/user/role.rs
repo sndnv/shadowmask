@@ -8,6 +8,7 @@ pub enum RoleDto {
     Admin,
     User,
     Player,
+    Automation,
 }
 
 impl From<Role> for RoleDto {
@@ -16,6 +17,7 @@ impl From<Role> for RoleDto {
             Role::Admin => RoleDto::Admin,
             Role::User => RoleDto::User,
             Role::Player => RoleDto::Player,
+            Role::Automation => RoleDto::Automation,
         }
     }
 }
@@ -26,6 +28,7 @@ impl From<RoleDto> for Role {
             RoleDto::Admin => Role::Admin,
             RoleDto::User => Role::User,
             RoleDto::Player => Role::Player,
+            RoleDto::Automation => Role::Automation,
         }
     }
 }
@@ -39,8 +42,13 @@ mod tests {
         assert!(matches!(RoleDto::from(Role::Admin), RoleDto::Admin));
         assert!(matches!(RoleDto::from(Role::User), RoleDto::User));
         assert!(matches!(RoleDto::from(Role::Player), RoleDto::Player));
+        assert!(matches!(
+            RoleDto::from(Role::Automation),
+            RoleDto::Automation
+        ));
         assert!(matches!(Role::from(RoleDto::Admin), Role::Admin));
         assert!(matches!(Role::from(RoleDto::User), Role::User));
         assert!(matches!(Role::from(RoleDto::Player), Role::Player));
+        assert!(matches!(Role::from(RoleDto::Automation), Role::Automation));
     }
 }

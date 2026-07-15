@@ -5,7 +5,7 @@ use jiff::Timestamp;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use api::{AppState, router};
+use api::{AppState, WebhookClient, router, webhook_router};
 use domain::catalog::*;
 use domain::common::Quality;
 use domain::discovery::*;
@@ -45,7 +45,25 @@ impl Ctx {
     }
 
     fn app(&self) -> Router {
-        router(AppState::new(
+        router(self.state())
+    }
+
+    fn webhook_app(&self, clients: Vec<WebhookClient>) -> Router {
+        webhook_router(self.state(), clients)
+    }
+
+    fn state(
+        &self,
+    ) -> AppState<
+        MockAuthService,
+        MockCatalogService,
+        MockSessionService,
+        MockLibraryService,
+        MockUserService,
+        MockUserLibraryService,
+        MockDiscoveryService,
+    > {
+        AppState::new(
             self.auth.clone(),
             self.catalog.clone(),
             self.session.clone(),
@@ -53,7 +71,7 @@ impl Ctx {
             self.user.clone(),
             self.user_library.clone(),
             self.discovery.clone(),
-        ))
+        )
     }
 }
 
@@ -153,6 +171,7 @@ fn version(id: &str, title: TitleId, lib: &str, quality: Quality) -> Version {
         size_bytes: 1,
         duration_ms: 1000,
         edition: None,
+        available: true,
     }
 }
 
@@ -447,7 +466,7 @@ async fn library_routes() {
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 
-    // Trigger a scan, then confirm the state flips to running.
+    // Trigger a scan, then confirm the state flips to queued.
     let (status, _) = call(
         ctx.app(),
         Method::POST,
@@ -466,7 +485,154 @@ async fn library_routes() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["status"], "running");
+    assert_eq!(body["status"], "queued");
+}
+
+#[tokio::test]
+async fn webhook_routes() {
+    let clients = || {
+        vec![WebhookClient {
+            name: "sonarr".into(),
+            secret: "sec".into(),
+            libraries: vec!["lib1".into(), "missing".into()],
+        }]
+    };
+
+    let ctx = Ctx::new();
+    ctx.library.add_library(library("lib1"));
+    let (status, _) = call(
+        ctx.webhook_app(clients()),
+        Method::POST,
+        "/api/v1/webhooks/libraries/lib1/scan?token=sec",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let (_, body) = call(
+        ctx.app(),
+        Method::GET,
+        "/api/v1/libraries/lib1/scan",
+        Some(ADMIN),
+        None,
+    )
+    .await;
+    assert_eq!(body["status"], "queued");
+
+    let ctx = Ctx::new();
+    ctx.library.add_library(library("lib1"));
+    let (status, _) = call(
+        ctx.webhook_app(clients()),
+        Method::POST,
+        "/api/v1/webhooks/libraries/lib1/scan",
+        Some("sec"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    let ctx = Ctx::new();
+    ctx.library.add_library(library("lib1"));
+    for uri in [
+        "/api/v1/webhooks/libraries/lib1/scan?token=wrong",
+        "/api/v1/webhooks/libraries/lib1/scan",
+    ] {
+        let (status, _) = call(ctx.webhook_app(clients()), Method::POST, uri, None, None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "POST {uri}");
+    }
+
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/api/v1/webhooks/libraries/lib1/scan")
+        .header(header::AUTHORIZATION, "Basic Zm9v")
+        .body(Body::empty())
+        .unwrap();
+    let response = ctx.webhook_app(clients()).oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let (status, _) = call(
+        ctx.webhook_app(clients()),
+        Method::POST,
+        "/api/v1/webhooks/libraries/lib2/scan?token=sec",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, _) = call(
+        ctx.webhook_app(clients()),
+        Method::POST,
+        "/api/v1/webhooks/libraries/missing/scan?token=sec",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, _) = call(
+        ctx.webhook_app(Vec::new()),
+        Method::POST,
+        "/api/v1/webhooks/libraries/lib1/scan?token=sec",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let ctx = Ctx::new();
+    ctx.library.add_library(library("lib1"));
+    for _ in 0..2 {
+        let (status, _) = call(
+            ctx.webhook_app(clients()),
+            Method::POST,
+            "/api/v1/webhooks/libraries/lib1/scan?token=sec",
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+    }
+
+    let ctx = Ctx::new();
+    ctx.library.add_library(library("lib1"));
+    let (status, _) = call(
+        ctx.webhook_app(clients()),
+        Method::POST,
+        "/api/v1/webhooks/libraries/lib1/scan?token=sec",
+        None,
+        Some(json!({"eventType": "Test"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, body) = call(
+        ctx.app(),
+        Method::GET,
+        "/api/v1/libraries/lib1/scan",
+        Some(ADMIN),
+        None,
+    )
+    .await;
+    assert_eq!(body["status"], "idle");
+
+    let (status, _) = call(
+        ctx.webhook_app(clients()),
+        Method::POST,
+        "/api/v1/webhooks/libraries/lib1/scan?token=sec",
+        None,
+        Some(json!({"eventType": "Download"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let (_, body) = call(
+        ctx.app(),
+        Method::GET,
+        "/api/v1/libraries/lib1/scan",
+        Some(ADMIN),
+        None,
+    )
+    .await;
+    assert_eq!(body["status"], "queued");
 }
 
 #[tokio::test]
@@ -633,6 +799,16 @@ async fn user_routes() {
     .await;
     assert_eq!(status, StatusCode::CREATED);
     let uid = body["id"].as_str().unwrap().to_string();
+
+    let (status, _) = call(
+        ctx.app(),
+        Method::POST,
+        "/api/v1/users",
+        Some(ADMIN),
+        Some(json!({"username": "robot", "password": "pw", "role": "automation"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 
     let (status, _) = call(ctx.app(), Method::GET, "/api/v1/users", Some(ADMIN), None).await;
     assert_eq!(status, StatusCode::OK);

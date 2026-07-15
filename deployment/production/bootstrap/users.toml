@@ -1,0 +1,11 @@
+# Bootstrap user definitions for production. Secrets come from the environment, never this file.
+# Export SHADOWMASK_ADMIN_PASSWORD (see secrets/shadowmask.env) before enabling bootstrap.
+# A missing required variable aborts that entry rather than creating a blank credential.
+# role: admin | user | player
+# libraries reference names from libraries.toml (resolved to ids at creation time).
+
+[[users]]
+username = "${SHADOWMASK_ADMIN_USERNAME:admin}"
+password = "${SHADOWMASK_ADMIN_PASSWORD}"
+role = "admin"
+libraries = ["Movies", "TV"]

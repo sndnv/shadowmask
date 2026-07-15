@@ -53,6 +53,7 @@ mod tests {
             size_bytes: 1,
             duration_ms,
             edition: None,
+            available: true,
         }
     }
 

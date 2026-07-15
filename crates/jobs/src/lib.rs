@@ -1,6 +1,7 @@
 pub mod error;
 pub mod handlers;
 pub mod job_handler;
+mod metrics;
 pub mod queue;
 pub mod retry;
 pub mod schedule;

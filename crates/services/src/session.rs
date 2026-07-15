@@ -267,6 +267,9 @@ where
             .version_detail(&request.version)
             .await?
             .ok_or(SessionError::VersionNotFound)?;
+        if !detail.version.available {
+            return Err(SessionError::VersionNotFound);
+        }
         let user = self.inner.users.get(&caller.user).await?;
 
         if let Some(limit) = user.as_ref().and_then(|u| u.concurrent_stream_limit) {
@@ -648,6 +651,7 @@ mod tests {
                 size_bytes: 1,
                 duration_ms,
                 edition: None,
+                available: true,
             },
             video,
             audio,
@@ -1096,6 +1100,18 @@ mod tests {
     #[tokio::test]
     async fn start_version_not_found() {
         let harness = Harness::new();
+        assert!(matches!(
+            harness.service.start(&principal(), start_request(0)).await,
+            Err(SessionError::VersionNotFound)
+        ));
+    }
+
+    #[tokio::test]
+    async fn start_rejects_unavailable_version() {
+        let harness = Harness::new();
+        let mut detail = direct_detail();
+        detail.version.available = false;
+        harness.catalog.insert(detail);
         assert!(matches!(
             harness.service.start(&principal(), start_request(0)).await,
             Err(SessionError::VersionNotFound)

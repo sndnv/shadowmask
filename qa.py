@@ -15,6 +15,8 @@ STEPS = [
     ("coverage", ["cargo", "llvm-cov", "nextest", "--workspace", "--locked", "--ignore-filename-regex", IGNORE_COVERAGE, "--fail-under-lines", FAIL_UNDER_LINES]),
 ]
 
+DEPS_CMD = ["cargo", "update", "--dry-run"]
+
 STEP_TOOLS = {
     "deny": ["cargo-deny"],
     "coverage": ["cargo-nextest", "cargo-llvm-cov", "ffmpeg", "ffprobe"],
@@ -38,15 +40,40 @@ def missing_for(steps):
     return needed
 
 
+def report_dependencies(root):
+    print(f"\n=== deps: {' '.join(DEPS_CMD)} (report-only, never fails the run) ===", flush=True)
+    try:
+        result = subprocess.run(DEPS_CMD, cwd=root, capture_output=True, text=True)
+    except OSError as err:
+        print(f"dependency updates report skipped: {err}")
+        return
+    if result.returncode != 0:
+        print("dependency updates report unavailable (offline or registry error); continuing")
+        return
+    updates = [
+        line.strip()[len("Updating"):].strip()
+        for line in (result.stdout + result.stderr).splitlines()
+        if line.strip().startswith("Updating") and " -> " in line
+    ]
+    if updates:
+        print("outdated dependencies found:")
+        for update in updates:
+            print(f"  {update}")
+    else:
+        print("all dependencies are up to date")
+
+
 def main(argv):
     root = Path(__file__).resolve().parent
     selected = argv[1:]
-    names = [name for name, _ in STEPS]
-    unknown = [s for s in selected if s not in names]
+    gate_names = [name for name, _ in STEPS]
+    known = gate_names + ["deps"]
+    unknown = [s for s in selected if s not in known]
     if unknown:
         print(f"unknown steps: {', '.join(unknown)}")
-        print(f"available: {', '.join(names)}")
+        print(f"available: {', '.join(known)}")
         return 2
+    run_deps = not selected or "deps" in selected
     steps = [step for step in STEPS if not selected or step[0] in selected]
     missing = missing_for(steps)
     if missing:
@@ -60,7 +87,10 @@ def main(argv):
         if result.returncode != 0:
             print(f"\n{name} failed (exit {result.returncode})")
             return result.returncode
-    print("\nall qa steps passed")
+    if steps:
+        print("\nall qa steps passed")
+    if run_deps:
+        report_dependencies(root)
     return 0
 
 

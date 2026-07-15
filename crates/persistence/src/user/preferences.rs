@@ -9,6 +9,7 @@ use sqlx::migrate::Migrator;
 use sqlx::sqlite::SqliteRow;
 
 use crate::codec::{subtitle_ref_parts, title_from_parts, title_kind};
+use crate::metrics::DbOpGuard;
 use crate::pool::{DEFAULT_USER_POOL_CAPACITY, UserPools, backend, column, from_millis, to_millis};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations/prefs");
@@ -28,6 +29,10 @@ impl SqlitePreferencesRepo {
     pub async fn ensure_migrated(&self, user: &UserId) -> Result<(), RepositoryError> {
         self.pools.get(user).await?;
         Ok(())
+    }
+
+    pub async fn close(&self) {
+        self.pools.close_all().await;
     }
 }
 
@@ -69,6 +74,7 @@ fn row_to_offset(
 
 impl PreferencesRepository for SqlitePreferencesRepo {
     async fn list_watchlist(&self, user: &UserId) -> Result<Vec<WatchlistItem>, RepositoryError> {
+        let _op = DbOpGuard::new("preferences", "list_watchlist");
         let pool = self.pools.get(user).await?;
         let rows = sqlx::query(
             "SELECT title_kind, title_id, added_at FROM watchlist \
@@ -81,6 +87,7 @@ impl PreferencesRepository for SqlitePreferencesRepo {
     }
 
     async fn add_watchlist(&self, item: WatchlistItem) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("preferences", "add_watchlist");
         let pool = self.pools.get(&item.user).await?;
         sqlx::query(
             "INSERT OR REPLACE INTO watchlist (title_kind, title_id, added_at) VALUES (?, ?, ?)",
@@ -95,6 +102,7 @@ impl PreferencesRepository for SqlitePreferencesRepo {
     }
 
     async fn remove_watchlist(&self, user: &UserId, title_id: &str) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("preferences", "remove_watchlist");
         let pool = self.pools.get(user).await?;
         sqlx::query("DELETE FROM watchlist WHERE title_id = ?")
             .bind(title_id)
@@ -105,6 +113,7 @@ impl PreferencesRepository for SqlitePreferencesRepo {
     }
 
     async fn list_favorites(&self, user: &UserId) -> Result<Vec<Favorite>, RepositoryError> {
+        let _op = DbOpGuard::new("preferences", "list_favorites");
         let pool = self.pools.get(user).await?;
         let rows = sqlx::query(
             "SELECT title_kind, title_id, added_at FROM favorites \
@@ -117,6 +126,7 @@ impl PreferencesRepository for SqlitePreferencesRepo {
     }
 
     async fn add_favorite(&self, item: Favorite) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("preferences", "add_favorite");
         let pool = self.pools.get(&item.user).await?;
         sqlx::query(
             "INSERT OR REPLACE INTO favorites (title_kind, title_id, added_at) VALUES (?, ?, ?)",
@@ -131,6 +141,7 @@ impl PreferencesRepository for SqlitePreferencesRepo {
     }
 
     async fn remove_favorite(&self, user: &UserId, title_id: &str) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("preferences", "remove_favorite");
         let pool = self.pools.get(user).await?;
         sqlx::query("DELETE FROM favorites WHERE title_id = ?")
             .bind(title_id)
@@ -146,6 +157,7 @@ impl PreferencesRepository for SqlitePreferencesRepo {
         version: &VersionId,
         subtitle: &SubtitleTrackRef,
     ) -> Result<Option<UserSubtitleOffset>, RepositoryError> {
+        let _op = DbOpGuard::new("preferences", "get_subtitle_offset");
         let pool = self.pools.get(user).await?;
         let (kind, value) = subtitle_ref_parts(subtitle);
         let row = sqlx::query(
@@ -164,6 +176,7 @@ impl PreferencesRepository for SqlitePreferencesRepo {
     }
 
     async fn set_subtitle_offset(&self, offset: UserSubtitleOffset) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("preferences", "set_subtitle_offset");
         let pool = self.pools.get(&offset.user).await?;
         let (kind, value) = subtitle_ref_parts(&offset.subtitle);
         sqlx::query(

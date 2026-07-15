@@ -12,6 +12,7 @@ use tokio::time::interval;
 
 use crate::error::JobError;
 use crate::job_handler::JobHandler;
+use crate::metrics::ActiveJob;
 use crate::retry::{RetryPolicy, apply_outcome};
 
 pub struct Worker<R, H> {
@@ -47,7 +48,9 @@ where
             let handler = Arc::clone(&self.handler);
             tasks.spawn(async move {
                 let _permit = permit;
+                let active = ActiveJob::start(job.kind);
                 let result = handler.handle(&job).await;
+                active.finish(result.is_ok());
                 (job, result)
             });
         }
@@ -219,5 +222,56 @@ mod tests {
 
         let stored = store.get(&JobId("a".into())).await.unwrap().unwrap();
         assert_eq!(stored.status, JobStatus::Succeeded);
+    }
+
+    fn recorded<F, Fut>(work: F) -> String
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+            rt.block_on(work());
+        });
+        handle.render()
+    }
+
+    #[test]
+    fn records_success_metrics() {
+        let rendered = recorded(|| async {
+            let now = Timestamp::now();
+            let store = MockJobStore::new();
+            store
+                .enqueue(job("a", JobPriority::Normal, now))
+                .await
+                .unwrap();
+            let worker = Worker::new(store, OkHandler, 4, RetryPolicy::default());
+            worker.run_once(now).await.unwrap();
+        });
+        assert!(rendered.contains("jobs_total"));
+        assert!(rendered.contains("job=\"library_scan\""));
+        assert!(rendered.contains("outcome=\"succeeded\""));
+        assert!(rendered.contains("job_duration_milliseconds"));
+        assert!(rendered.contains("jobs_active 0"));
+    }
+
+    #[test]
+    fn records_failure_metrics() {
+        let rendered = recorded(|| async {
+            let now = Timestamp::now();
+            let store = MockJobStore::new();
+            store
+                .enqueue(job("a", JobPriority::Normal, now))
+                .await
+                .unwrap();
+            let worker = Worker::new(store, PermanentHandler, 4, RetryPolicy::default());
+            worker.run_once(now).await.unwrap();
+        });
+        assert!(rendered.contains("outcome=\"failed\""));
+        assert!(rendered.contains("jobs_active 0"));
     }
 }

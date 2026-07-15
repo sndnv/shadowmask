@@ -91,6 +91,7 @@ fn role_to_claim(role: Role) -> &'static str {
         Role::Admin => "admin",
         Role::User => "user",
         Role::Player => "player",
+        Role::Automation => "automation",
     }
 }
 
@@ -99,6 +100,7 @@ fn role_from_claim(value: &str) -> Result<Role, AuthError> {
         "admin" => Ok(Role::Admin),
         "user" => Ok(Role::User),
         "player" => Ok(Role::Player),
+        "automation" => Ok(Role::Automation),
         _ => Err(AuthError::InvalidToken),
     }
 }
@@ -387,6 +389,17 @@ mod tests {
         let svc = service(3600, 86_400);
         svc.users.insert(user("u1", "alice", Role::Admin));
         svc
+    }
+
+    #[test]
+    fn role_claims_round_trip() {
+        for role in [Role::Admin, Role::User, Role::Player, Role::Automation] {
+            assert_eq!(role_from_claim(role_to_claim(role)).unwrap(), role);
+        }
+        assert!(matches!(
+            role_from_claim("nope"),
+            Err(AuthError::InvalidToken)
+        ));
     }
 
     #[tokio::test]
