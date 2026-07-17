@@ -16,9 +16,11 @@ expression: value
             }
           }
         ],
+        "created_at": "1970-01-01T00:00:00Z",
         "id": "uf1",
         "library_id": "lib1",
-        "path": "/media/unmatched.mkv"
+        "path": "/media/unmatched.mkv",
+        "updated_at": "1970-01-01T00:00:00Z"
       }
     ],
     "limit": 50,

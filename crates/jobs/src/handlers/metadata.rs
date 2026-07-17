@@ -21,6 +21,7 @@ where
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         let payload = MetadataJobPayload::decode(&job.payload)
             .map_err(|e| JobError::Permanent(format!("invalid metadata payload: {e}")))?;
+        tracing::info!("refreshing metadata");
         self.refresher
             .refresh(&payload.title, payload.external_id.as_ref())
             .await
@@ -66,6 +67,8 @@ mod tests {
             last_error: None,
             created_at: now,
             updated_at: now,
+            started_at: None,
+            finished_at: None,
         }
     }
 
@@ -80,6 +83,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
         let provider = MockMetadataProvider::with_matches(vec![MetadataMatch {

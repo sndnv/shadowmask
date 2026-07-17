@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Movies</title>
+  </head>
+  <body>
+    <h1>Movies</h1>
+    <nav id="nav"></nav>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      if (sm.requireAuth()) load();
+
+      async function load() {
+        const main = document.getElementById("main");
+        const params = new URLSearchParams(location.search);
+        try {
+          const page = await sm.json("/api/v1/movies?" + params.toString());
+          main.textContent = "";
+          main.appendChild(sm.breadcrumbs([{ label: "Movies (" + page.total + ")" }]));
+          main.appendChild(controls(params));
+          if (params.get("genre")) {
+            main.appendChild(sm.el("p", { text: "Genre filter: " + params.get("genre") }));
+          }
+          if (params.get("library")) {
+            main.appendChild(sm.el("p", { text: "Library filter: " + params.get("library") }));
+          }
+          if (!page.items.length) {
+            main.appendChild(await sm.accessAwareEmpty("movies"));
+          } else {
+            main.appendChild(
+              sm.grid(
+                page.items.map((m) => ({
+                  href: sm.href.movie(m.id),
+                  artwork: m.artwork,
+                  title: m.title,
+                  subtitle: m.year ? String(m.year) : null,
+                  ref: { type: "movie", id: m.id },
+                })),
+              ),
+            );
+          }
+          if (page.total) {
+            main.appendChild(sm.pager(page.total, page.offset, page.limit));
+          }
+        } catch (err) {
+          main.textContent = "Could not load movies.";
+        }
+      }
+
+      function controls(params) {
+        const option = (value, current) =>
+          sm.el(
+            "option",
+            Object.assign({ value: value }, value === current ? { selected: "selected" } : {}),
+            value,
+          );
+        const sort = sm.el("select", { name: "sort" }, [
+          option("added_at", params.get("sort") || "added_at"),
+          option("title", params.get("sort") || "added_at"),
+          option("year", params.get("sort") || "added_at"),
+        ]);
+        const order = sm.el("select", { name: "order" }, [
+          option("asc", params.get("order") || "asc"),
+          option("desc", params.get("order") || "asc"),
+        ]);
+        const form = sm.el("form", null, [
+          sm.el("label", null, ["Sort ", sort]),
+          " ",
+          sm.el("label", null, ["Order ", order]),
+          " ",
+          sm.el("button", { type: "submit" }, "Apply"),
+        ]);
+        form.addEventListener("submit", (e) => {
+          e.preventDefault();
+          const next = new URLSearchParams(params);
+          next.set("sort", sort.value);
+          next.set("order", order.value);
+          next.delete("offset");
+          location.search = next.toString();
+        });
+        return form;
+      }
+    </script>
+  </body>
+</html>

@@ -170,6 +170,8 @@ populate_media() {
     gen_fixture "$MEDIA_DIR/movies/Sample Movie (2011).mkv"
     gen_fixture "$MEDIA_DIR/movies/Sample Movie (2011).mp4"
     gen_fixture "$MEDIA_DIR/tv/Sample Show S01E01.mkv"
+    printf '1\n00:00:01,000 --> 00:00:02,000\nSmoke subtitle line.\n' \
+        >"$MEDIA_DIR/movies/Sample Movie (2011).en.srt"
 }
 
 server_stop() { compose stop "$SERVICE" >/dev/null 2>&1 || die "failed to stop [$SERVICE]"; }
@@ -219,6 +221,15 @@ expect_code 200 GET "$BASE_URL/health/ready"
 metrics=$(call_ok GET "$BASE_URL/metrics" "" "" 200 "GET /metrics")
 grep -q '# TYPE' <<<"$metrics" || die "/metrics is not Prometheus text format"
 ok "/metrics is Prometheus format"
+
+section "basic web UI (static assets served)"
+expect_code 307 GET "$BASE_URL/" "" "" "GET / (redirect to /ui/basic/)"
+ui_index=$(call_ok GET "$BASE_URL/ui/basic/" "" "" 200 "GET /ui/basic/ (sign-in shell)")
+grep -q '<title>Shadowmask' <<<"$ui_index" || die "/ui/basic/ is missing the app title marker"
+grep -q 'id="login"' <<<"$ui_index" || die "/ui/basic/ is missing the sign-in form"
+ui_js=$(call_ok GET "$BASE_URL/ui/basic/app.js" "" "" 200 "GET /ui/basic/app.js")
+grep -q 'const sm' <<<"$ui_js" || die "/ui/basic/app.js is missing the sm client global"
+ok "basic web UI is served (entry shell + app.js present)"
 
 section "admin auth + users"
 adm=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$ADMIN_USER" --arg p "$ADMIN_PASS" '{username:$u,password:$p}')" 200 "admin login")
@@ -334,6 +345,22 @@ call_ok POST "$API/sessions/$SESSION_ID/progress" "$USER_TOKEN" "$(jq -nc '{posi
 act=$(call_ok GET "$API/users/activity" "$ADMIN_TOKEN")
 jq -e --arg s "$SESSION_ID" 'any(.items[]?; .session_id==$s)' <<<"$act" >/dev/null || die "session not in admin now-playing"
 ok "session visible in admin now-playing"
+
+section "playback: soft subtitle (sidecar VTT)"
+det=$(call_ok GET "$API/versions/$MKV_VER" "$USER_TOKEN")
+SUB_ID=$(jq -r '.subtitle_files[0].id // empty' <<<"$det")
+[[ -n "$SUB_ID" ]] || die "mkv version has no discovered subtitle_files"
+note "selecting sidecar subtitle [$SUB_ID]"
+upd=$(call_ok POST "$API/sessions/$SESSION_ID/update" "$USER_TOKEN" \
+    "$(jq -nc --arg id "$SUB_ID" '{audio_track:null,subtitle:{action:"set",track:{type:"file",id:$id},offset_ms:null}}')" 200 "select sidecar subtitle")
+SUB_MANIFEST=$(jq -r '.manifest_url' <<<"$upd")
+poll_until "subtitle master playlist ready" 60 http_get_ok "$BASE_URL$SUB_MANIFEST"
+grep -q 'TYPE=SUBTITLES' <<<"$(curl -sS "$BASE_URL$SUB_MANIFEST")" || die "master missing SUBTITLES rendition"
+STREAM_BASE="${SUB_MANIFEST%/master.m3u8}"
+poll_until "subtitle vtt ready" 60 http_get_ok "$BASE_URL$STREAM_BASE/subs/subs.vtt"
+grep -q 'WEBVTT' <<<"$(curl -sS "$BASE_URL$STREAM_BASE/subs/subs.vtt")" || die "subs.vtt is not WEBVTT"
+ok "sidecar subtitle served as WEBVTT"
+
 call_ok POST "$API/sessions/$SESSION_ID/seek" "$USER_TOKEN" "$(jq -nc '{position_ms:10000}')" 200 "seek" >/dev/null
 call_ok POST "$API/sessions/$SESSION_ID/update" "$USER_TOKEN" "$(jq -nc '{audio_track:null,subtitle:{action:"keep"}}')" 200 "update tracks" >/dev/null
 pr=$(call_ok GET "$API/users/$SMOKE_UID/progress/$MKV_VER" "$USER_TOKEN")
@@ -363,6 +390,32 @@ pr2=$(call_ok GET "$API/users/$SMOKE_UID/progress/$MKV_VER" "$USER_TOKEN")
 call_ok GET "$API/users/$SMOKE_UID/history" "$USER_TOKEN" >/dev/null
 sb=$(call_ok POST "$API/users/$SMOKE_UID/state/batch" "$USER_TOKEN" "$(jq -nc --arg id "$MOVIE_ID" '{titles:[{type:"movie",id:$id}]}')" 200 "state batch")
 jq -e '.[0].watched==true and .[0].watchlisted==true' <<<"$sb" >/dev/null || die "batch state incorrect"
+
+section "device link codes (as [$SMOKE_USER])"
+lc=$(call_ok POST "$API/auth/link/create" "$USER_TOKEN" "$(jq -nc '{}')" 200 "create link code")
+LINK_CODE=$(jq -r '.code' <<<"$lc")
+[[ -n "$LINK_CODE" && "$LINK_CODE" != null ]] || die "no link code returned"
+pend=$(call_ok GET "$API/users/$SMOKE_UID/link-codes" "$USER_TOKEN")
+jq -e --arg c "$LINK_CODE" 'any(.[]?; .code==$c)' <<<"$pend" >/dev/null || die "code [$LINK_CODE] not listed as pending"
+ok "link code [$LINK_CODE] created and listed as pending"
+TYPED="${LINK_CODE:0:4}-${LINK_CODE:4}"
+red=$(call_ok POST "$API/auth/link" "" "$(jq -nc --arg c "$TYPED" '{code:$c,device:{name:"Smoke Roku",platform:"roku"}}')" 200 "redeem link code [$TYPED]")
+DEVICE_TOKEN=$(jq -r '.token' <<<"$red")
+[[ "$DEVICE_TOKEN" == smk_* ]] || die "redeemed token is not a device token: [${DEVICE_TOKEN:0:8}...]"
+ok "link code redeemed in its displayed form -> device token"
+call_ok GET "$API/movies" "$DEVICE_TOKEN" >/dev/null
+dv=$(call_ok GET "$API/users/$SMOKE_UID/devices" "$USER_TOKEN")
+jq -e 'any(.[]?; .platform=="roku")' <<<"$dv" >/dev/null || die "redeemed device not registered on the account"
+ok "device token authenticates and the device is registered"
+expect_code 404 POST "$API/auth/link" "" "$(jq -nc --arg c "$LINK_CODE" '{code:$c,device:{name:"Dup",platform:"roku"}}')"
+ok "link code is single-use (second redemption rejected)"
+lc2=$(call_ok POST "$API/auth/link/create" "$USER_TOKEN" "$(jq -nc '{}')" 200 "create second link code")
+CODE2=$(jq -r '.code' <<<"$lc2")
+[[ -n "$CODE2" && "$CODE2" != null ]] || die "no second link code returned"
+expect_code 204 DELETE "$API/users/$SMOKE_UID/link-codes/$CODE2" "$USER_TOKEN"
+expect_code 404 POST "$API/auth/link" "" "$(jq -nc --arg c "$CODE2" '{code:$c,device:{name:"Revoked",platform:"roku"}}')"
+ok "revoked link code [$CODE2] cannot be redeemed"
+
 expect_code 204 POST "$API/auth/logout" "" "$(jq -nc --arg r "$USER_REFRESH" '{refresh_token:$r}')"
 expect_code 401 POST "$API/auth/refresh" "" "$(jq -nc --arg r "$USER_REFRESH" '{refresh_token:$r}')"
 ok "refresh token revoked after logout"

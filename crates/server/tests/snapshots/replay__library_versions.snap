@@ -6,74 +6,89 @@ expression: value
   "body": {
     "items": [
       {
+        "added_at": "2023-11-14T22:13:26Z",
         "available": true,
         "container": "mkv",
         "duration_ms": 1000,
         "edition": null,
         "id": "ev1",
         "library_id": "lib1",
+        "path": "/media/ev1.mkv",
         "quality": "hd",
         "size_bytes": 1,
         "title": {
           "id": "e1",
           "type": "episode"
-        }
+        },
+        "updated_at": "2023-11-14T22:13:26Z"
       },
       {
+        "added_at": "2023-11-14T22:13:20Z",
         "available": true,
         "container": "mp4",
         "duration_ms": 100000,
         "edition": null,
         "id": "v1",
         "library_id": "lib1",
+        "path": "/media/v1.mp4",
         "quality": "sd",
         "size_bytes": 1,
         "title": {
           "id": "m1",
           "type": "movie"
-        }
+        },
+        "updated_at": "2023-11-14T22:13:20Z"
       },
       {
+        "added_at": "2023-11-14T22:13:26Z",
         "available": true,
         "container": "mkv",
         "duration_ms": 1000,
         "edition": null,
         "id": "v2",
         "library_id": "lib1",
+        "path": "/media/v2.mkv",
         "quality": "hd",
         "size_bytes": 1,
         "title": {
           "id": "m1",
           "type": "movie"
-        }
+        },
+        "updated_at": "2023-11-14T22:13:26Z"
       },
       {
+        "added_at": "2023-11-14T22:13:26Z",
         "available": true,
         "container": "mkv",
         "duration_ms": 1000,
         "edition": null,
         "id": "v3",
         "library_id": "lib1",
+        "path": "/media/v3.mkv",
         "quality": "fhd",
         "size_bytes": 1,
         "title": {
           "id": "m1",
           "type": "movie"
-        }
+        },
+        "updated_at": "2023-11-14T22:13:26Z"
       },
       {
+        "added_at": "2023-11-14T22:13:26Z",
         "available": true,
         "container": "mkv",
         "duration_ms": 1000,
         "edition": null,
         "id": "v4",
         "library_id": "lib1",
+        "path": "/media/v4.mkv",
         "quality": "uhd",
         "size_bytes": 1,
         "title": {
           "id": "m1",
           "type": "movie"
-        }
+        },
+        "updated_at": "2023-11-14T22:13:26Z"
       }
     ],
     "limit": 50,

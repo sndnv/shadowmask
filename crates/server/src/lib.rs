@@ -2,6 +2,7 @@ pub mod api;
 pub mod backup;
 pub mod bootstrap;
 pub mod cli;
+mod job_log_layer;
 pub mod lockfile;
 pub mod observability;
 pub mod service;

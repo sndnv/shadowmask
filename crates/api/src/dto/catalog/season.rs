@@ -11,6 +11,8 @@ pub struct SeasonResponse {
     pub number: u16,
     pub title: Option<String>,
     pub overview: Option<String>,
+    pub added_at: String,
+    pub updated_at: String,
     pub artwork: ArtworkDto,
 }
 
@@ -22,6 +24,8 @@ impl From<Season> for SeasonResponse {
             number: s.number,
             title: s.title,
             overview: s.overview,
+            added_at: s.added_at.to_string(),
+            updated_at: s.updated_at.to_string(),
             artwork: ArtworkDto::from_refs(s.artwork),
         }
     }

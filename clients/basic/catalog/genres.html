@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Genres</title>
+  </head>
+  <body>
+    <h1>Genres</h1>
+    <nav id="nav"></nav>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      if (sm.requireAuth()) load();
+
+      async function load() {
+        const main = document.getElementById("main");
+        try {
+          const genres = await sm.json("/api/v1/genres");
+          main.textContent = "";
+          main.appendChild(sm.breadcrumbs([{ label: "Genres (" + genres.length + ")" }]));
+          if (!genres.length) {
+            main.appendChild(sm.el("p", { text: "No genres." }));
+            return;
+          }
+          main.appendChild(
+            sm.el(
+              "ul",
+              null,
+              genres.map((g) =>
+                sm.el("li", null, [
+                  sm.el("span", { text: g.name + " " }),
+                  sm.el(
+                    "a",
+                    { href: sm.url("catalog/movies.html?genre=" + encodeURIComponent(g.id)) },
+                    "Movies",
+                  ),
+                  sm.el("span", { text: " " }),
+                  sm.el(
+                    "a",
+                    { href: sm.url("catalog/series.html?genre=" + encodeURIComponent(g.id)) },
+                    "Series",
+                  ),
+                ]),
+              ),
+            ),
+          );
+        } catch (err) {
+          main.textContent = "Could not load genres.";
+        }
+      }
+    </script>
+  </body>
+</html>

@@ -23,6 +23,7 @@ struct Account {
 struct State {
     accounts: Vec<Account>,
     link_codes: HashMap<String, IssuedToken>,
+    pending: HashMap<String, PendingLink>,
 }
 
 #[derive(Clone, Default)]
@@ -121,12 +122,41 @@ impl AuthService for MockAuthService {
         user: Option<UserId>,
         _ttl_secs: Option<i64>,
     ) -> Result<PendingLink, AuthError> {
-        Ok(PendingLink {
+        let link = PendingLink {
             code: "link-code".into(),
             user: user.unwrap_or(UserId("u1".into())),
             role: Role::Player,
             expires_at: Timestamp::from_second(4_102_444_800).unwrap(),
-        })
+        };
+        self.state
+            .lock()
+            .unwrap()
+            .pending
+            .insert(link.code.clone(), link.clone());
+        Ok(link)
+    }
+
+    async fn list_link_codes(&self, user: &UserId) -> Result<Vec<PendingLink>, AuthError> {
+        let mut links: Vec<PendingLink> = self
+            .state
+            .lock()
+            .unwrap()
+            .pending
+            .values()
+            .filter(|link| &link.user == user)
+            .cloned()
+            .collect();
+        links.sort_by(|a, b| a.code.cmp(&b.code));
+        Ok(links)
+    }
+
+    async fn revoke_link_code(&self, user: &UserId, code: &str) -> Result<(), AuthError> {
+        self.state
+            .lock()
+            .unwrap()
+            .pending
+            .retain(|_, link| !(link.code == code && &link.user == user));
+        Ok(())
     }
 
     async fn logout(&self, refresh_token: &str) -> Result<(), AuthError> {
@@ -284,5 +314,22 @@ mod tests {
         let link = svc.create_link_code(&caller, None, None).await.unwrap();
         assert_eq!(link.code, "link-code");
         assert_eq!(link.role, Role::Player);
+    }
+
+    #[tokio::test]
+    async fn create_lists_then_revokes_link_code() {
+        let svc = service();
+        let caller = Principal {
+            user: UserId("u1".into()),
+            role: Role::Admin,
+        };
+        svc.create_link_code(&caller, None, None).await.unwrap();
+        let user = UserId("u1".into());
+        let listed = svc.list_link_codes(&user).await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].code, "link-code");
+
+        svc.revoke_link_code(&user, "link-code").await.unwrap();
+        assert!(svc.list_link_codes(&user).await.unwrap().is_empty());
     }
 }

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Episode</title>
+  </head>
+  <body>
+    <nav id="nav"></nav>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      if (sm.requireAuth()) load();
+
+      async function load() {
+        const main = document.getElementById("main");
+        const id = sm.qs("id");
+        const season = sm.qs("season") || "-";
+        const series = sm.qs("series") || "-";
+        if (!id) {
+          main.textContent = "Unknown episode.";
+          return;
+        }
+        const base =
+          "/api/v1/series/" +
+          encodeURIComponent(series) +
+          "/seasons/" +
+          encodeURIComponent(season) +
+          "/episodes/" +
+          encodeURIComponent(id);
+        try {
+          const episode = await sm.json(base);
+          const versions = await sm.json(base + "/versions").catch(() => null);
+          const seasonObj = await sm
+            .json("/api/v1/series/-/seasons/" + encodeURIComponent(episode.season_id))
+            .catch(() => null);
+          const seriesObj = seasonObj
+            ? await sm
+                .json("/api/v1/series/" + encodeURIComponent(seasonObj.series_id))
+                .catch(() => null)
+            : null;
+          main.textContent = "";
+          const crumbs = [{ label: "Series", href: sm.url("catalog/series.html") }];
+          if (seriesObj) {
+            crumbs.push({ label: seriesObj.title, href: sm.href.series(seasonObj.series_id) });
+          }
+          if (seasonObj) {
+            crumbs.push({
+              label: seasonObj.title || "Season " + seasonObj.number,
+              href: sm.href.season(seasonObj.id, seasonObj.series_id),
+            });
+          }
+          crumbs.push({ label: episode.title || "Episode " + episode.number });
+          main.appendChild(sm.breadcrumbs(crumbs));
+          const me = await sm.self().catch(() => null);
+          const picker = await sm.versionPicker(me && me.id, (versions && versions.items) || []);
+          const posterNode = sm.poster(episode.artwork, 480);
+          const posterEl = picker.single
+            ? sm.el("a", { href: sm.href.watch(picker.single), title: "Play" }, posterNode)
+            : posterNode;
+          const dl = sm.el("dl");
+          const add = (key, value) => {
+            if (!value) return;
+            dl.appendChild(sm.el("dt", { text: key }));
+            dl.appendChild(sm.el("dd", { text: String(value) }));
+          };
+          add("Air date", episode.air_date);
+          add("Runtime", episode.runtime_minutes ? episode.runtime_minutes + " min" : null);
+          add("Added", sm.time(episode.added_at));
+          add("Updated", sm.time(episode.updated_at));
+          const info = sm.el("div", { class: "sm-detail-info" }, [
+            sm.el("h1", { text: "Episode " + episode.number + ": " + episode.title }),
+            dl,
+            episode.overview ? sm.el("p", { text: episode.overview }) : null,
+          ]);
+          main.appendChild(sm.el("div", { class: "sm-detail" }, [posterEl, info]));
+          main.appendChild(await sm.libraryControls("episode", episode.id));
+          main.appendChild(picker.node);
+        } catch (err) {
+          main.textContent = "Could not load this episode.";
+        }
+      }
+    </script>
+  </body>
+</html>

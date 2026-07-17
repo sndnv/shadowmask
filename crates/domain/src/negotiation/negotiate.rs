@@ -10,16 +10,19 @@ pub fn negotiate(input: &NegotiationInput, profile: &CapabilityProfile) -> Negot
     let subtitle_delivery = input
         .requested_subtitle
         .as_ref()
-        .map(|sel| subtitle_delivery_for(sel, &input.subtitles));
+        .map(|sel| subtitle_delivery_for(sel, &input.subtitles, input.force_burn));
 
-    let video_ok = video.is_none_or(|v| video_supported(v, profile, input.max_bitrate));
+    let max_height = effective_max_height(profile.max_height, input.target_height);
+    let video_ok = video.is_none_or(|v| video_supported(v, profile, max_height, input.max_bitrate));
     let audio_ok = audio.is_none_or(|a| audio_supported(a, profile));
+    let downmix = input.downmix_stereo && audio.is_some_and(|a| a.channels > 2);
     let subtitle_burn = subtitle_delivery == Some(SubtitleDelivery::Burned);
+    let subtitle_hls = subtitle_delivery == Some(SubtitleDelivery::HlsVtt);
     let container_ok = profile.containers.contains(&input.container);
 
-    let mode = if !video_ok || !audio_ok || subtitle_burn {
+    let mode = if !video_ok || !audio_ok || subtitle_burn || downmix {
         DeliveryMode::Transcode
-    } else if !container_ok {
+    } else if !container_ok || subtitle_hls {
         DeliveryMode::Remux
     } else {
         DeliveryMode::Direct
@@ -35,6 +38,13 @@ pub fn negotiate(input: &NegotiationInput, profile: &CapabilityProfile) -> Negot
     }
 }
 
+pub fn effective_max_height(profile_max: u32, target: Option<u32>) -> u32 {
+    match target {
+        Some(target) => profile_max.min(target),
+        None => profile_max,
+    }
+}
+
 fn selected_audio(input: &NegotiationInput) -> Option<&AudioTrack> {
     match input.requested_audio {
         Some(idx) => input.audio.iter().find(|a| a.index == idx),
@@ -42,7 +52,12 @@ fn selected_audio(input: &NegotiationInput) -> Option<&AudioTrack> {
     }
 }
 
-fn video_supported(v: &VideoTrack, profile: &CapabilityProfile, user_cap: Option<u64>) -> bool {
+fn video_supported(
+    v: &VideoTrack,
+    profile: &CapabilityProfile,
+    max_height: u32,
+    user_cap: Option<u64>,
+) -> bool {
     let Some(cap) = profile.video.iter().find(|c| c.codec == v.codec) else {
         return false;
     };
@@ -51,7 +66,7 @@ fn video_supported(v: &VideoTrack, profile: &CapabilityProfile, user_cap: Option
         .is_none_or(|b| b <= effective_cap(profile.max_bitrate, user_cap));
     cap.max_bit_depth >= v.bit_depth
         && v.width <= profile.max_width
-        && v.height <= profile.max_height
+        && v.height <= max_height
         && v.hdr.is_none_or(|h| profile.hdr.contains(&h))
         && bitrate_ok
 }
@@ -73,7 +88,11 @@ fn effective_cap(profile_cap: u64, user_cap: Option<u64>) -> u64 {
 fn subtitle_delivery_for(
     sel: &SubtitleSelection,
     subtitles: &[EmbeddedSubtitleTrack],
+    force_burn: bool,
 ) -> SubtitleDelivery {
+    if force_burn {
+        return SubtitleDelivery::Burned;
+    }
     match &sel.track {
         SubtitleTrackRef::Embedded(idx) => {
             let image = subtitles
@@ -164,6 +183,9 @@ mod tests {
             requested_audio: None,
             requested_subtitle: None,
             max_bitrate: None,
+            target_height: None,
+            force_burn: false,
+            downmix_stereo: false,
         }
     }
 
@@ -307,7 +329,7 @@ mod tests {
             ..input()
         };
         let out = negotiate(&i, &profile());
-        assert_eq!(out.mode, DeliveryMode::Direct);
+        assert_eq!(out.mode, DeliveryMode::Remux);
         assert_eq!(
             out.selected.subtitle_track,
             Some(SubtitleTrackRef::Embedded(2))
@@ -343,7 +365,7 @@ mod tests {
             ..input()
         };
         let out = negotiate(&i, &profile());
-        assert_eq!(out.mode, DeliveryMode::Direct);
+        assert_eq!(out.mode, DeliveryMode::Remux);
         assert_eq!(
             out.selected.subtitle_delivery,
             Some(SubtitleDelivery::HlsVtt)
@@ -383,6 +405,78 @@ mod tests {
         assert_eq!(out.mode, DeliveryMode::Direct);
         assert_eq!(out.selected.audio_track, Some(1));
     }
+
+    #[test]
+    fn target_rung_below_source_forces_transcode() {
+        let i = NegotiationInput {
+            target_height: Some(720),
+            ..input()
+        };
+        assert_eq!(negotiate(&i, &profile()).mode, DeliveryMode::Transcode);
+    }
+
+    #[test]
+    fn original_or_higher_rung_stays_direct() {
+        for target in [None, Some(1080), Some(2160)] {
+            let i = NegotiationInput {
+                target_height: target,
+                ..input()
+            };
+            assert_eq!(negotiate(&i, &profile()).mode, DeliveryMode::Direct);
+        }
+    }
+
+    #[test]
+    fn effective_max_height_takes_smaller_of_profile_and_target() {
+        assert_eq!(effective_max_height(1080, None), 1080);
+        assert_eq!(effective_max_height(1080, Some(720)), 720);
+        assert_eq!(effective_max_height(720, Some(1080)), 720);
+    }
+
+    #[test]
+    fn force_burn_burns_text_subtitle_and_transcodes() {
+        let i = NegotiationInput {
+            subtitles: vec![subtitle(2, SubtitleFormat::Srt)],
+            requested_subtitle: Some(embedded(2)),
+            force_burn: true,
+            ..input()
+        };
+        let out = negotiate(&i, &profile());
+        assert_eq!(out.mode, DeliveryMode::Transcode);
+        assert_eq!(
+            out.selected.subtitle_delivery,
+            Some(SubtitleDelivery::Burned)
+        );
+    }
+
+    #[test]
+    fn downmix_forces_transcode_only_for_multichannel_audio() {
+        let surround_profile = CapabilityProfile {
+            audio: vec![AudioCodecCap {
+                codec: "aac".to_owned(),
+                max_channels: 8,
+            }],
+            ..profile()
+        };
+        let surround = NegotiationInput {
+            audio: vec![audio_track("aac", 6, 1)],
+            downmix_stereo: true,
+            ..input()
+        };
+        assert_eq!(
+            negotiate(&surround, &surround_profile).mode,
+            DeliveryMode::Transcode
+        );
+
+        let already_stereo = NegotiationInput {
+            downmix_stereo: true,
+            ..input()
+        };
+        assert_eq!(
+            negotiate(&already_stereo, &surround_profile).mode,
+            DeliveryMode::Direct
+        );
+    }
 }
 
 #[cfg(test)]
@@ -421,6 +515,9 @@ mod prop_tests {
             channels in prop_oneof![Just(2u8), Just(6u8)],
             requested_audio in prop::option::of(1u32..=2),
             subtitle in prop::option::of(prop_oneof![Just(SubtitleFormat::Srt), Just(SubtitleFormat::Pgs)]),
+            target_height in prop::option::of(prop_oneof![Just(480u32), Just(720u32), Just(1080u32)]),
+            force_burn in any::<bool>(),
+            downmix_stereo in any::<bool>(),
         ) -> NegotiationInput {
             let height = if width >= 3840 { 2160 } else { 1080 };
             let subtitles = subtitle
@@ -461,6 +558,9 @@ mod prop_tests {
                 requested_audio,
                 requested_subtitle,
                 max_bitrate: None,
+                target_height,
+                force_burn,
+                downmix_stereo,
             }
         }
     }
@@ -493,15 +593,22 @@ mod prop_tests {
                     out.selected.subtitle_delivery,
                     Some(SubtitleDelivery::Burned)
                 );
+                prop_assert_ne!(
+                    out.selected.subtitle_delivery,
+                    Some(SubtitleDelivery::HlsVtt)
+                );
             }
         }
 
         #[test]
-        fn remux_implies_unsupported_container(input in inputs()) {
+        fn remux_implies_unsupported_container_or_soft_subtitle(input in inputs()) {
             let profile = profile();
             let out = negotiate(&input, &profile);
             if out.mode == DeliveryMode::Remux {
-                prop_assert!(!profile.containers.contains(&input.container));
+                prop_assert!(
+                    !profile.containers.contains(&input.container)
+                        || out.selected.subtitle_delivery == Some(SubtitleDelivery::HlsVtt)
+                );
             }
         }
 

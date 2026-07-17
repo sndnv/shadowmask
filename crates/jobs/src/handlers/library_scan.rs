@@ -45,6 +45,7 @@ where
             .await
             .map_err(retryable)?
             .ok_or_else(|| JobError::Permanent(format!("library not found: {}", id.0)))?;
+        tracing::info!("scanning library");
 
         if matches!(
             self.repo.scan_state(&id).await.map_err(retryable)?,
@@ -53,15 +54,16 @@ where
             return Ok(());
         }
 
+        let started = Timestamp::now();
         self.repo
-            .save_scan_state(running(&id))
+            .save_scan_state(running(&id, started))
             .await
             .map_err(retryable)?;
 
         match self.scanner.scan(&library).await {
             Ok(report) => {
                 self.repo
-                    .save_scan_state(idle(&id, Timestamp::now()))
+                    .save_scan_state(idle(&id, started, Timestamp::now()))
                     .await
                     .map_err(retryable)?;
                 self.enricher.enrich(&library, &report).await;
@@ -69,7 +71,7 @@ where
             }
             Err(err) => {
                 self.repo
-                    .save_scan_state(failed(&id, &err))
+                    .save_scan_state(failed(&id, started, &err))
                     .await
                     .map_err(retryable)?;
                 let message = err.to_string();
@@ -86,31 +88,34 @@ fn retryable(err: RepositoryError) -> JobError {
     JobError::Retryable(err.to_string())
 }
 
-fn running(id: &LibraryId) -> ScanState {
+fn running(id: &LibraryId, started: Timestamp) -> ScanState {
     ScanState {
         library: id.clone(),
         status: ScanStatus::Running,
         progress: 0.0,
+        started_at: Some(started),
         last_scanned_at: None,
         error: None,
     }
 }
 
-fn idle(id: &LibraryId, now: Timestamp) -> ScanState {
+fn idle(id: &LibraryId, started: Timestamp, now: Timestamp) -> ScanState {
     ScanState {
         library: id.clone(),
         status: ScanStatus::Idle,
         progress: 1.0,
+        started_at: Some(started),
         last_scanned_at: Some(now),
         error: None,
     }
 }
 
-fn failed(id: &LibraryId, err: &WalkError) -> ScanState {
+fn failed(id: &LibraryId, started: Timestamp, err: &WalkError) -> ScanState {
     ScanState {
         library: id.clone(),
         status: ScanStatus::Failed,
         progress: 0.0,
+        started_at: Some(started),
         last_scanned_at: None,
         error: Some(err.to_string()),
     }
@@ -147,6 +152,8 @@ mod tests {
             watcher: WatcherStrategy::Manual,
             scan_schedule: None,
             metadata_sources: Vec::new(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         }
     }
 
@@ -164,6 +171,8 @@ mod tests {
             last_error: None,
             created_at: now,
             updated_at: now,
+            started_at: None,
+            finished_at: None,
         }
     }
 
@@ -197,6 +206,7 @@ mod tests {
             .unwrap();
         assert_eq!(state.status, ScanStatus::Idle);
         assert_eq!(state.progress, 1.0);
+        assert!(state.started_at.is_some());
         assert!(state.last_scanned_at.is_some());
     }
 
@@ -254,7 +264,7 @@ mod tests {
     async fn already_running_is_a_benign_skip() {
         let repo = MockLibraryRepo::new();
         repo.insert_library(library(&["/m"]));
-        repo.save_scan_state(running(&LibraryId("lib".into())))
+        repo.save_scan_state(running(&LibraryId("lib".into()), Timestamp::now()))
             .await
             .unwrap();
         let handler = handler(repo.clone(), MockSourceWalker::new(), MockMediaProbe::new());

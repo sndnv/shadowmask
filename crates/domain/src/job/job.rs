@@ -15,6 +15,7 @@ pub enum JobKind {
     CacheEviction,
     SearchReindex,
     Ingest,
+    Relink,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,4 +47,6 @@ pub struct Job {
     pub last_error: Option<String>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
+    pub started_at: Option<Timestamp>,
+    pub finished_at: Option<Timestamp>,
 }

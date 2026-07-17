@@ -1,21 +1,16 @@
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use domain::error::RepositoryError;
 use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
 use domain::repository::JobRepository;
 use jiff::Timestamp;
+use uuid::Uuid;
 
 pub struct JobQueue<R> {
     repo: R,
-    counter: AtomicU64,
 }
 
 impl<R: JobRepository> JobQueue<R> {
     pub fn new(repo: R) -> Self {
-        Self {
-            repo,
-            counter: AtomicU64::new(0),
-        }
+        Self { repo }
     }
 
     pub async fn enqueue(
@@ -25,8 +20,7 @@ impl<R: JobRepository> JobQueue<R> {
         payload: String,
         now: Timestamp,
     ) -> Result<JobId, RepositoryError> {
-        let sequence = self.counter.fetch_add(1, Ordering::Relaxed) + 1;
-        let id = JobId(format!("job-{sequence}"));
+        let id = JobId(Uuid::new_v4().to_string());
         let job = Job {
             id: id.clone(),
             kind,
@@ -39,6 +33,8 @@ impl<R: JobRepository> JobQueue<R> {
             last_error: None,
             created_at: now,
             updated_at: now,
+            started_at: None,
+            finished_at: None,
         };
         self.repo.enqueue(job).await?;
         Ok(id)
@@ -67,7 +63,7 @@ mod tests {
             .enqueue(JobKind::LibraryScan, JobPriority::Normal, "p".into(), now)
             .await
             .unwrap();
-        assert_eq!(id, JobId("job-1".into()));
+        assert!(!id.0.is_empty());
 
         let job = queue.status(&id).await.unwrap().unwrap();
         assert_eq!(job.status, JobStatus::Queued);
@@ -78,7 +74,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn enqueue_increments_ids_and_lists() {
+    async fn enqueue_generates_unique_ids_and_lists() {
         let now = Timestamp::now();
         let queue = JobQueue::new(MockJobStore::new());
 
@@ -90,8 +86,8 @@ mod tests {
             .enqueue(JobKind::Artwork, JobPriority::High, String::new(), now)
             .await
             .unwrap();
-        assert_eq!(first, JobId("job-1".into()));
-        assert_eq!(second, JobId("job-2".into()));
+        assert_ne!(first, second);
+        assert!(!first.0.is_empty() && !second.0.is_empty());
         assert_eq!(queue.list().await.unwrap().len(), 2);
     }
 

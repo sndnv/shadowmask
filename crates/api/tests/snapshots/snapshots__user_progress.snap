@@ -5,7 +5,7 @@ expression: value
 {
   "body": {
     "position_ms": 1234,
-    "updated_at": "2023-11-14T22:13:40Z",
+    "updated_at": "[updated_at]",
     "user_id": "u1",
     "version_id": "v1"
   },

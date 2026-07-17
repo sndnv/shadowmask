@@ -1,4 +1,4 @@
-use domain::catalog::{TitleId, TitleRef};
+use domain::catalog::{TitleId, TitleRef, VersionId};
 use domain::common::{Page, PageRequest};
 use domain::error::LibraryError;
 use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
@@ -14,7 +14,7 @@ use domain::user::Principal;
 use jiff::Timestamp;
 use uuid::Uuid;
 
-use super::{IngestJobPayload, MetadataJobPayload, parse_filename};
+use super::{IngestJobPayload, MetadataJobPayload, RelinkJobPayload, parse_filename};
 use crate::acl;
 
 #[derive(Clone)]
@@ -134,6 +134,7 @@ where
         if !acl::is_admin(caller) {
             return Err(LibraryError::Forbidden);
         }
+        let now = Timestamp::now();
         let library = Library {
             id: LibraryId(Uuid::new_v4().to_string()),
             name: input.name,
@@ -142,6 +143,8 @@ where
             watcher: input.watcher,
             scan_schedule: input.scan_schedule,
             metadata_sources: input.metadata_sources,
+            created_at: now,
+            updated_at: now,
         };
         self.libraries.upsert(library.clone()).await?;
         Ok(library)
@@ -160,6 +163,7 @@ where
             .get(id)
             .await?
             .ok_or(LibraryError::NotFound)?;
+        let now = Timestamp::now();
         let library = Library {
             id: id.clone(),
             name: update.name,
@@ -168,6 +172,8 @@ where
             watcher: update.watcher,
             scan_schedule: update.scan_schedule,
             metadata_sources: update.metadata_sources,
+            created_at: now,
+            updated_at: now,
         };
         self.libraries.upsert(library.clone()).await?;
         Ok(library)
@@ -195,6 +201,7 @@ where
             library: id.clone(),
             status: ScanStatus::Idle,
             progress: 0.0,
+            started_at: None,
             last_scanned_at: None,
             error: None,
         }))
@@ -214,6 +221,7 @@ where
                 library: id.clone(),
                 status: ScanStatus::Queued,
                 progress: 0.0,
+                started_at: None,
                 last_scanned_at: None,
                 error: None,
             })
@@ -231,6 +239,8 @@ where
                 last_error: None,
                 created_at: now,
                 updated_at: now,
+                started_at: None,
+                finished_at: None,
             })
             .await?;
         Ok(())
@@ -342,6 +352,8 @@ where
                 last_error: None,
                 created_at: now,
                 updated_at: now,
+                started_at: None,
+                finished_at: None,
             })
             .await?;
         Ok(())
@@ -399,6 +411,60 @@ where
                 last_error: None,
                 created_at: now,
                 updated_at: now,
+                started_at: None,
+                finished_at: None,
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn relink_version(
+        &self,
+        caller: &Principal,
+        version: &VersionId,
+        target: ResolveTarget,
+    ) -> Result<(), LibraryError> {
+        if !acl::is_admin(caller) {
+            return Err(LibraryError::Forbidden);
+        }
+        let detail = self
+            .catalog
+            .version_detail(version)
+            .await?
+            .ok_or(LibraryError::NotFound)?;
+        if let ResolveTarget::Existing(title) = &target {
+            let exists = match title {
+                TitleId::Movie(id) => self.catalog.get_movie(id).await?.is_some(),
+                TitleId::Episode(id) => self.catalog.get_episode(id).await?.is_some(),
+            };
+            if !exists {
+                return Err(LibraryError::NotFound);
+            }
+        }
+        let payload = RelinkJobPayload {
+            version: version.clone(),
+            library: detail.version.library.clone(),
+            path: detail.version.path.clone(),
+            target,
+        }
+        .encode()
+        .expect("relink job payload serializes");
+        let now = Timestamp::now();
+        self.jobs
+            .enqueue(Job {
+                id: JobId(Uuid::new_v4().to_string()),
+                kind: JobKind::Relink,
+                status: JobStatus::Queued,
+                priority: JobPriority::Normal,
+                payload,
+                attempts: 0,
+                progress: 0.0,
+                available_at: now,
+                last_error: None,
+                created_at: now,
+                updated_at: now,
+                started_at: None,
+                finished_at: None,
             })
             .await?;
         Ok(())
@@ -440,6 +506,8 @@ mod tests {
             watcher: WatcherStrategy::Manual,
             scan_schedule: None,
             metadata_sources: Vec::new(),
+            created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 
@@ -455,6 +523,7 @@ mod tests {
             concurrent_stream_limit: None,
             bitrate_cap: None,
             created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 
@@ -707,6 +776,8 @@ mod tests {
                 last_error: None,
                 created_at: now,
                 updated_at: now,
+                started_at: None,
+                finished_at: None,
             })
             .await
             .unwrap();
@@ -769,6 +840,8 @@ mod tests {
                         label: "Beta".into(),
                     },
                 ],
+                created_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
             })
             .await
             .unwrap();
@@ -782,6 +855,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
         catalog.add_episode(Episode {
@@ -793,6 +867,7 @@ mod tests {
             runtime_minutes: None,
             air_date: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
         let provider = MockMetadataProvider::with_matches(vec![MetadataMatch {
@@ -846,6 +921,8 @@ mod tests {
                 library: LibraryId("lib1".into()),
                 path: "/m/x.mkv".into(),
                 candidates: Vec::new(),
+                created_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
             })
             .await
             .unwrap();
@@ -956,6 +1033,146 @@ mod tests {
         assert!(matches!(
             svc.reidentify(&member(), title, None).await.unwrap_err(),
             LibraryError::Forbidden
+        ));
+    }
+
+    fn seeded_version_catalog() -> MockCatalogRepo {
+        use domain::catalog::{Movie, MovieId, TitleId, Version, VersionId};
+        use domain::common::Quality;
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(Version {
+            id: VersionId("v1".into()),
+            title: TitleId::Movie(MovieId("m-old".into())),
+            library: LibraryId("lib1".into()),
+            quality: Quality::Fhd,
+            container: "mkv".into(),
+            path: "/media/v1.mkv".into(),
+            size_bytes: 1,
+            duration_ms: 1000,
+            edition: None,
+            available: true,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+        });
+        catalog.add_movie(Movie {
+            id: MovieId("m-new".into()),
+            title: "New".into(),
+            year: None,
+            overview: None,
+            runtime_minutes: None,
+            content_rating: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        });
+        catalog
+    }
+
+    fn relink_svc(catalog: MockCatalogRepo) -> (Svc, MockJobStore) {
+        let jobs = MockJobStore::new();
+        let svc = LibraryServiceImpl::new(
+            MockLibraryRepo::new(),
+            MockUserRepo::new(),
+            jobs.clone(),
+            catalog,
+            None::<MockMetadataProvider>,
+        );
+        (svc, jobs)
+    }
+
+    #[tokio::test]
+    async fn relink_existing_movie_enqueues_job_admin_only() {
+        use domain::catalog::{MovieId, TitleId, VersionId};
+        let (svc, jobs) = relink_svc(seeded_version_catalog());
+        let target = ResolveTarget::Existing(TitleId::Movie(MovieId("m-new".into())));
+        svc.relink_version(&admin(), &VersionId("v1".into()), target.clone())
+            .await
+            .unwrap();
+        let enqueued = jobs.list().await.unwrap();
+        assert_eq!(enqueued.len(), 1);
+        assert_eq!(enqueued[0].kind, JobKind::Relink);
+        assert!(matches!(
+            svc.relink_version(&member(), &VersionId("v1".into()), target)
+                .await
+                .unwrap_err(),
+            LibraryError::Forbidden
+        ));
+    }
+
+    #[tokio::test]
+    async fn relink_to_existing_episode_enqueues() {
+        use domain::catalog::{Episode, EpisodeId, SeasonId, TitleId, VersionId};
+        let catalog = seeded_version_catalog();
+        catalog.add_episode(Episode {
+            id: EpisodeId("e-new".into()),
+            season: SeasonId("s1".into()),
+            number: 1,
+            title: "Ep".into(),
+            overview: None,
+            runtime_minutes: None,
+            air_date: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        });
+        let (svc, jobs) = relink_svc(catalog);
+        svc.relink_version(
+            &admin(),
+            &VersionId("v1".into()),
+            ResolveTarget::Existing(TitleId::Episode(EpisodeId("e-new".into()))),
+        )
+        .await
+        .unwrap();
+        assert_eq!(jobs.list().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn relink_provider_target_enqueues() {
+        use domain::catalog::VersionId;
+        use domain::metadata::ExternalId;
+        let (svc, jobs) = relink_svc(seeded_version_catalog());
+        svc.relink_version(
+            &admin(),
+            &VersionId("v1".into()),
+            ResolveTarget::Provider(ExternalId {
+                source: "tmdb".into(),
+                value: "movie/603".into(),
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(jobs.list().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn relink_unknown_version_is_not_found() {
+        use domain::catalog::{MovieId, TitleId, VersionId};
+        let (svc, _jobs) = relink_svc(MockCatalogRepo::new());
+        assert!(matches!(
+            svc.relink_version(
+                &admin(),
+                &VersionId("ghost".into()),
+                ResolveTarget::Existing(TitleId::Movie(MovieId("m-new".into()))),
+            )
+            .await
+            .unwrap_err(),
+            LibraryError::NotFound
+        ));
+    }
+
+    #[tokio::test]
+    async fn relink_unknown_target_is_not_found() {
+        use domain::catalog::{MovieId, TitleId, VersionId};
+        let (svc, _jobs) = relink_svc(seeded_version_catalog());
+        assert!(matches!(
+            svc.relink_version(
+                &admin(),
+                &VersionId("v1".into()),
+                ResolveTarget::Existing(TitleId::Movie(MovieId("m-missing".into()))),
+            )
+            .await
+            .unwrap_err(),
+            LibraryError::NotFound
         ));
     }
 }

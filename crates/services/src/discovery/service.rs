@@ -242,6 +242,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH + SignedDuration::from_secs(seconds),
+            updated_at: Timestamp::UNIX_EPOCH + SignedDuration::from_secs(seconds),
             artwork: Vec::new(),
         }
     }
@@ -254,6 +255,7 @@ mod tests {
             overview: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         }
     }
@@ -265,6 +267,8 @@ mod tests {
             number: 1,
             title: None,
             overview: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         }
     }
@@ -279,6 +283,7 @@ mod tests {
             runtime_minutes: None,
             air_date: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         }
     }
@@ -295,6 +300,8 @@ mod tests {
             duration_ms: 1000,
             edition: None,
             available: true,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 
@@ -322,6 +329,8 @@ mod tests {
             name: "Saga".into(),
             overview: None,
             movies: vec![MovieId("m1".into()), MovieId("m2".into())],
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
         catalog.add_version(version("v1", TitleId::Movie(MovieId("m1".into()))));

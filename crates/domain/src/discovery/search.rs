@@ -77,6 +77,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         })
     }
@@ -89,6 +90,7 @@ mod tests {
             overview: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         })
     }
@@ -110,6 +112,7 @@ mod tests {
             runtime_minutes: None,
             air_date: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         })
     }
@@ -242,6 +245,7 @@ mod prop_tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         })
     }

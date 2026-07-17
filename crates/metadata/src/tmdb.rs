@@ -1,7 +1,7 @@
 use domain::error::MetadataError;
 use domain::metadata::{
-    Artwork, ArtworkKind, CreditInfo, CreditRole, ExternalId, MediaKind, MetadataMatch,
-    MetadataProvider, MetadataQuery, TitleMetadata,
+    Artwork, ArtworkKind, CollectionMeta, CreditInfo, CreditRole, ExternalId, MediaKind,
+    MetadataMatch, MetadataProvider, MetadataQuery, TitleMetadata,
 };
 use serde::Deserialize;
 
@@ -156,6 +156,33 @@ impl MetadataProvider for TmdbClient {
                 order: 0,
             })
         }));
+        let collection = detail.belongs_to_collection.map(|c| {
+            let mut artwork = Vec::new();
+            if let Some(path) = c.poster_path.as_deref() {
+                artwork.push(Artwork {
+                    kind: ArtworkKind::Poster,
+                    language: None,
+                    source: "tmdb".to_owned(),
+                    url: self.image_url(path),
+                });
+            }
+            if let Some(path) = c.backdrop_path.as_deref() {
+                artwork.push(Artwork {
+                    kind: ArtworkKind::Backdrop,
+                    language: None,
+                    source: "tmdb".to_owned(),
+                    url: self.image_url(path),
+                });
+            }
+            CollectionMeta {
+                external_id: ExternalId {
+                    source: "tmdb".to_owned(),
+                    value: format!("collection/{}", c.id),
+                },
+                name: c.name,
+                artwork,
+            }
+        });
         Ok(TitleMetadata {
             title: detail.title.or(detail.name).unwrap_or_default(),
             year: detail
@@ -179,6 +206,7 @@ impl MetadataProvider for TmdbClient {
                 source: "tmdb".to_owned(),
                 value: id.value.clone(),
             }],
+            collection,
         })
     }
 }
@@ -228,6 +256,19 @@ struct RawDetail {
     production_companies: Vec<RawCompany>,
     #[serde(default)]
     credits: Option<RawCredits>,
+    #[serde(default)]
+    belongs_to_collection: Option<RawCollection>,
+}
+
+#[derive(Deserialize)]
+struct RawCollection {
+    id: u64,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    poster_path: Option<String>,
+    #[serde(default)]
+    backdrop_path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -386,6 +427,38 @@ mod tests {
         assert_eq!(meta.artwork[1].kind, ArtworkKind::Backdrop);
         assert_eq!(meta.artwork[1].url, "http://img.test/back.jpg");
         assert_eq!(meta.external_ids[0].value, "movie/603");
+        assert!(meta.collection.is_none());
+    }
+
+    #[tokio::test]
+    async fn fetch_movie_maps_belongs_to_collection() {
+        let server = mock_path(
+            "/movie/603",
+            ResponseTemplate::new(200).set_body_json(json!({
+                "title": "The Matrix",
+                "belongs_to_collection": {
+                    "id": 2344,
+                    "name": "The Matrix Collection",
+                    "poster_path": "/coll-poster.jpg",
+                    "backdrop_path": "/coll-back.jpg"
+                }
+            })),
+        )
+        .await;
+        let id = ExternalId {
+            source: "tmdb".to_owned(),
+            value: "movie/603".to_owned(),
+        };
+        let meta = client(&server).fetch(&id).await.unwrap();
+        let collection = meta.collection.expect("collection");
+        assert_eq!(collection.name, "The Matrix Collection");
+        assert_eq!(collection.external_id.source, "tmdb");
+        assert_eq!(collection.external_id.value, "collection/2344");
+        assert_eq!(collection.artwork.len(), 2);
+        assert_eq!(collection.artwork[0].kind, ArtworkKind::Poster);
+        assert_eq!(collection.artwork[0].url, "http://img.test/coll-poster.jpg");
+        assert_eq!(collection.artwork[1].kind, ArtworkKind::Backdrop);
+        assert_eq!(collection.artwork[1].url, "http://img.test/coll-back.jpg");
     }
 
     #[tokio::test]

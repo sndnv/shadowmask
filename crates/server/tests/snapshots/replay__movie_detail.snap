@@ -4,7 +4,7 @@ expression: value
 ---
 {
   "body": {
-    "added_at": "2023-11-14T22:13:21Z",
+    "added_at": "[added_at]",
     "artwork": {
       "backdrop": {
         "base": "/images/m1-backdrop",
@@ -88,6 +88,7 @@ expression: value
       }
     ],
     "title": "Alpha m1",
+    "updated_at": "[updated_at]",
     "year": 2020
   },
   "status": 200

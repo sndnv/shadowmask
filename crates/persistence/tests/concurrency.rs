@@ -26,6 +26,8 @@ fn job(id: &str, now: Timestamp) -> Job {
         last_error: None,
         created_at: now,
         updated_at: now,
+        started_at: None,
+        finished_at: None,
     }
 }
 

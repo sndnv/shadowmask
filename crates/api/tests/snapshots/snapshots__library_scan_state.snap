@@ -8,6 +8,7 @@ expression: value
     "last_scanned_at": null,
     "library_id": "lib1",
     "progress": 0.0,
+    "started_at": null,
     "status": "idle"
   },
   "status": 200

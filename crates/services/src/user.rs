@@ -30,6 +30,7 @@ where
 {
     async fn create(&self, input: NewUser) -> Result<User, UserError> {
         let password_hash = password::hash(&input.password).map_err(backend)?;
+        let now = Timestamp::now();
         let user = User {
             id: UserId(Uuid::new_v4().to_string()),
             username: input.username,
@@ -40,7 +41,8 @@ where
             preferred_subtitle: Vec::new(),
             concurrent_stream_limit: None,
             bitrate_cap: None,
-            created_at: Timestamp::now(),
+            created_at: now,
+            updated_at: now,
         };
         match self.users.create(user.clone()).await {
             Ok(()) => Ok(user),
@@ -78,6 +80,7 @@ where
         if let Some(v) = update.bitrate_cap {
             user.bitrate_cap = Some(v);
         }
+        user.updated_at = Timestamp::now();
         self.users.update(user.clone()).await?;
         Ok(user)
     }
@@ -112,12 +115,14 @@ where
     ) -> Result<(), UserError> {
         let mut user = self.users.get(target).await?.ok_or(UserError::NotFound)?;
         let admin_reset = actor.role == Role::Admin && &actor.user != target;
-        if !admin_reset
-            && !password::verify(current.unwrap_or(""), &user.password_hash).map_err(backend)?
-        {
-            return Err(UserError::InvalidPassword);
+        if !admin_reset {
+            let current = current.ok_or(UserError::InvalidPassword)?;
+            if !password::verify(current, &user.password_hash).map_err(backend)? {
+                return Err(UserError::InvalidPassword);
+            }
         }
         user.password_hash = password::hash(new_password).map_err(backend)?;
+        user.updated_at = Timestamp::now();
         self.users.update(user).await?;
         Ok(())
     }

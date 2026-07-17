@@ -62,6 +62,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH + SignedDuration::from_secs(seconds),
+            updated_at: Timestamp::UNIX_EPOCH + SignedDuration::from_secs(seconds),
             artwork: Vec::new(),
         }
     }
@@ -74,6 +75,7 @@ mod tests {
             overview: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH + SignedDuration::from_secs(seconds),
+            updated_at: Timestamp::UNIX_EPOCH + SignedDuration::from_secs(seconds),
             artwork: Vec::new(),
         }
     }

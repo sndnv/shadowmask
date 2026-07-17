@@ -1,50 +1,123 @@
-use std::path::Path;
+use domain::session::{Segment, SegmentPlan, SoftSubtitleSource, TranscodeSpec};
 
-use domain::session::TranscodeSpec;
+pub(crate) const TARGET_MS: u64 = 4_000;
 
-const HLS_SEGMENT_SECONDS: &str = "4";
-const SEGMENT_PATTERN: &str = "seg_%05d.ts";
-const PLAYLIST_NAME: &str = "index.m3u8";
-
-pub(crate) fn build_hls_args(spec: &TranscodeSpec, output_dir: &Path) -> Vec<String> {
-    let mut args = vec!["-y".to_owned()];
-    if let Some(ms) = spec.seek_ms {
-        args.push("-ss".to_owned());
-        args.push(format!("{:.3}", ms as f64 / 1000.0));
+pub(crate) fn media_playlist(plan: &SegmentPlan) -> String {
+    let target = plan
+        .segments
+        .iter()
+        .map(|s| s.duration_ms.div_ceil(1000))
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let mut out = format!(
+        "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:{target}\n\
+         #EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n"
+    );
+    for (index, segment) in plan.segments.iter().enumerate() {
+        let seconds = segment.duration_ms as f64 / 1000.0;
+        out.push_str(&format!(
+            "#EXTINF:{seconds:.3},\n{}\n",
+            segment_file_name(index)
+        ));
     }
-    args.push("-i".to_owned());
-    args.push(spec.input_path.clone());
+    out.push_str("#EXT-X-ENDLIST\n");
+    out
+}
+
+pub(crate) fn segment_file_name(index: usize) -> String {
+    format!("seg_{index:05}.ts")
+}
+
+pub(crate) fn build_segment_args(
+    spec: &TranscodeSpec,
+    segment: &Segment,
+    out_path: &str,
+) -> Vec<String> {
+    let start = segment.start_ms as f64 / 1000.0;
+    let duration = segment.duration_ms as f64 / 1000.0;
+    let mut args = vec![
+        "-y".to_owned(),
+        "-ss".to_owned(),
+        format!("{start:.3}"),
+        "-i".to_owned(),
+        spec.input_path.clone(),
+        "-t".to_owned(),
+        format!("{duration:.3}"),
+    ];
     if let Some(idx) = spec.audio_track {
         args.push("-map".to_owned());
         args.push("0:v:0".to_owned());
         args.push("-map".to_owned());
         args.push(format!("0:{idx}"));
     }
-    if let Some(filter) = video_filter(spec) {
-        args.push("-vf".to_owned());
-        args.push(filter);
+    if spec.copy {
+        args.push("-c".to_owned());
+        args.push("copy".to_owned());
+    } else {
+        if let Some(filter) = video_filter(spec) {
+            args.push("-vf".to_owned());
+            args.push(filter);
+        }
+        args.push("-c:v".to_owned());
+        args.push("libx264".to_owned());
+        args.push("-preset".to_owned());
+        args.push("veryfast".to_owned());
+        args.push("-pix_fmt".to_owned());
+        args.push("yuv420p".to_owned());
+        args.push("-c:a".to_owned());
+        args.push("aac".to_owned());
+        if spec.downmix_stereo {
+            args.push("-ac".to_owned());
+            args.push("2".to_owned());
+        }
+        if let Some(bitrate) = spec.max_bitrate {
+            args.push("-maxrate".to_owned());
+            args.push(bitrate.to_string());
+            args.push("-bufsize".to_owned());
+            args.push((bitrate * 2).to_string());
+        }
     }
-    if let Some(bitrate) = spec.max_bitrate {
-        args.push("-maxrate".to_owned());
-        args.push(bitrate.to_string());
-        args.push("-bufsize".to_owned());
-        args.push((bitrate * 2).to_string());
-    }
-    args.push("-force_key_frames".to_owned());
-    args.push(format!("expr:gte(t,n_forced*{HLS_SEGMENT_SECONDS})"));
-    args.push("-f".to_owned());
-    args.push("hls".to_owned());
-    args.push("-hls_time".to_owned());
-    args.push(HLS_SEGMENT_SECONDS.to_owned());
-    args.push("-hls_list_size".to_owned());
+    args.push("-output_ts_offset".to_owned());
+    args.push(format!("{start:.3}"));
+    args.push("-muxdelay".to_owned());
     args.push("0".to_owned());
-    args.push("-hls_playlist_type".to_owned());
-    args.push("event".to_owned());
-    let variant_dir = output_dir.join(crate::hls::VARIANT);
-    args.push("-hls_segment_filename".to_owned());
-    args.push(path_in(&variant_dir, SEGMENT_PATTERN));
-    args.push(path_in(&variant_dir, PLAYLIST_NAME));
+    args.push("-f".to_owned());
+    args.push("mpegts".to_owned());
+    args.push(out_path.to_owned());
     args
+}
+
+pub(crate) fn build_subtitle_extract_args(
+    video_input: &str,
+    source: &SoftSubtitleSource,
+    out_vtt: &str,
+) -> Vec<String> {
+    let mut args = vec!["-y".to_owned(), "-i".to_owned()];
+    match source {
+        SoftSubtitleSource::Embedded(index) => {
+            args.push(video_input.to_owned());
+            args.push("-map".to_owned());
+            args.push(format!("0:{index}"));
+        }
+        SoftSubtitleSource::File(path) => {
+            args.push(path.clone());
+        }
+    }
+    args.push("-f".to_owned());
+    args.push("webvtt".to_owned());
+    args.push(out_vtt.to_owned());
+    args
+}
+
+pub(crate) fn subtitle_media_playlist(duration_ms: u64, vtt_name: &str) -> String {
+    let seconds = duration_ms as f64 / 1000.0;
+    let target = duration_ms.div_ceil(1000).max(1);
+    format!(
+        "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:{target}\n\
+         #EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n\
+         #EXTINF:{seconds:.3},\n{vtt_name}\n#EXT-X-ENDLIST\n"
+    )
 }
 
 fn video_filter(spec: &TranscodeSpec) -> Option<String> {
@@ -71,29 +144,36 @@ fn escape_subtitle_path(path: &str) -> String {
         .replace('\'', "'\\''")
 }
 
-fn path_in(dir: &Path, name: &str) -> String {
-    dir.join(name).to_string_lossy().into_owned()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::session::SessionId;
+    use domain::session::{SessionId, plan_segments};
 
     fn base_spec() -> TranscodeSpec {
         TranscodeSpec {
             session: SessionId("s1".to_owned()),
             input_path: "/media/movie.mkv".to_owned(),
+            duration_ms: 120_000,
+            copy: false,
             seek_ms: None,
             audio_track: None,
             max_height: None,
             max_bitrate: None,
             burn_subtitle_path: None,
+            soft_subtitle: None,
+            downmix_stereo: false,
+        }
+    }
+
+    fn segment() -> Segment {
+        Segment {
+            start_ms: 8_000,
+            duration_ms: 4_000,
         }
     }
 
     fn args_for(spec: &TranscodeSpec) -> Vec<String> {
-        build_hls_args(spec, Path::new("/cache/s1"))
+        build_segment_args(spec, &segment(), "/cache/s1/v0/seg_00002.ts")
     }
 
     fn pair_after(args: &[String], flag: &str) -> Option<String> {
@@ -103,49 +183,53 @@ mod tests {
     }
 
     #[test]
-    fn base_has_input_and_hls_output_only() {
+    fn segment_base_seeks_and_writes_mpegts() {
         let args = args_for(&base_spec());
         assert_eq!(args.first().map(String::as_str), Some("-y"));
+        assert_eq!(pair_after(&args, "-ss").as_deref(), Some("8.000"));
         assert_eq!(pair_after(&args, "-i").as_deref(), Some("/media/movie.mkv"));
-        assert_eq!(pair_after(&args, "-f").as_deref(), Some("hls"));
-        assert_eq!(pair_after(&args, "-hls_time").as_deref(), Some("4"));
-        assert_eq!(pair_after(&args, "-hls_list_size").as_deref(), Some("0"));
+        assert_eq!(pair_after(&args, "-t").as_deref(), Some("4.000"));
+        assert_eq!(pair_after(&args, "-f").as_deref(), Some("mpegts"));
+        assert_eq!(pair_after(&args, "-c:v").as_deref(), Some("libx264"));
+        assert_eq!(pair_after(&args, "-c:a").as_deref(), Some("aac"));
+        assert_eq!(pair_after(&args, "-pix_fmt").as_deref(), Some("yuv420p"));
         assert_eq!(
-            pair_after(&args, "-hls_playlist_type").as_deref(),
-            Some("event")
-        );
-        assert_eq!(
-            pair_after(&args, "-force_key_frames").as_deref(),
-            Some("expr:gte(t,n_forced*4)")
-        );
-        assert_eq!(
-            pair_after(&args, "-hls_segment_filename").as_deref(),
-            Some("/cache/s1/v0/seg_%05d.ts")
+            pair_after(&args, "-output_ts_offset").as_deref(),
+            Some("8.000")
         );
         assert_eq!(
             args.last().map(String::as_str),
-            Some("/cache/s1/v0/index.m3u8")
+            Some("/cache/s1/v0/seg_00002.ts")
         );
-        assert!(!args.iter().any(|a| a == "-ss"));
+        assert!(!args.iter().any(|a| a == "-force_key_frames"));
         assert!(!args.iter().any(|a| a == "-map"));
         assert!(!args.iter().any(|a| a == "-vf"));
         assert!(!args.iter().any(|a| a == "-maxrate"));
     }
 
     #[test]
-    fn seek_adds_ss_in_seconds() {
+    fn segment_copy_streams_without_reencode_or_filters() {
         let spec = TranscodeSpec {
-            seek_ms: Some(12_500),
+            copy: true,
+            max_height: Some(720),
+            max_bitrate: Some(4_000_000),
             ..base_spec()
         };
+        let args = args_for(&spec);
+        assert_eq!(pair_after(&args, "-c").as_deref(), Some("copy"));
+        assert!(!args.iter().any(|a| a == "-c:v"));
+        assert!(!args.iter().any(|a| a == "-c:a"));
+        assert!(!args.iter().any(|a| a == "-vf"));
+        assert!(!args.iter().any(|a| a == "-maxrate"));
+        assert_eq!(pair_after(&args, "-f").as_deref(), Some("mpegts"));
         assert_eq!(
-            pair_after(&args_for(&spec), "-ss").as_deref(),
-            Some("12.500")
+            pair_after(&args, "-output_ts_offset").as_deref(),
+            Some("8.000")
         );
     }
 
     #[test]
-    fn audio_track_maps_video_and_audio() {
+    fn segment_audio_track_maps_video_and_audio() {
         let spec = TranscodeSpec {
             audio_track: Some(2),
             ..base_spec()
@@ -161,7 +245,7 @@ mod tests {
     }
 
     #[test]
-    fn max_height_adds_scale_filter() {
+    fn segment_max_height_adds_scale_filter() {
         let spec = TranscodeSpec {
             max_height: Some(720),
             ..base_spec()
@@ -173,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn burn_subtitle_adds_subtitles_filter() {
+    fn segment_burn_adds_subtitles_filter() {
         let spec = TranscodeSpec {
             burn_subtitle_path: Some("/media/movie.srt".to_owned()),
             ..base_spec()
@@ -185,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    fn burn_and_scale_combine_into_one_filter() {
+    fn segment_burn_and_scale_combine_into_one_filter() {
         let spec = TranscodeSpec {
             burn_subtitle_path: Some("/media/movie.srt".to_owned()),
             max_height: Some(480),
@@ -198,7 +282,7 @@ mod tests {
     }
 
     #[test]
-    fn burn_subtitle_escapes_hostile_paths() {
+    fn segment_burn_escapes_hostile_paths() {
         let vf = |name: &str| {
             let spec = TranscodeSpec {
                 burn_subtitle_path: Some(name.to_owned()),
@@ -219,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn max_bitrate_adds_maxrate_and_bufsize() {
+    fn segment_max_bitrate_adds_maxrate_and_bufsize() {
         let spec = TranscodeSpec {
             max_bitrate: Some(4_000_000),
             ..base_spec()
@@ -227,5 +311,106 @@ mod tests {
         let args = args_for(&spec);
         assert_eq!(pair_after(&args, "-maxrate").as_deref(), Some("4000000"));
         assert_eq!(pair_after(&args, "-bufsize").as_deref(), Some("8000000"));
+    }
+
+    #[test]
+    fn segment_downmix_adds_ac_two() {
+        let spec = TranscodeSpec {
+            downmix_stereo: true,
+            ..base_spec()
+        };
+        assert_eq!(pair_after(&args_for(&spec), "-ac").as_deref(), Some("2"));
+    }
+
+    #[test]
+    fn segment_copy_ignores_downmix() {
+        let spec = TranscodeSpec {
+            copy: true,
+            downmix_stereo: true,
+            ..base_spec()
+        };
+        assert!(!args_for(&spec).iter().any(|a| a == "-ac"));
+    }
+
+    #[test]
+    fn media_playlist_is_vod_with_endlist_and_segments() {
+        let plan = plan_segments(&[4_000, 8_000], 10_000, 4_000);
+        let playlist = media_playlist(&plan);
+        assert!(playlist.starts_with("#EXTM3U\n"));
+        assert!(playlist.contains("#EXT-X-PLAYLIST-TYPE:VOD"));
+        assert!(playlist.contains("#EXT-X-TARGETDURATION:"));
+        assert!(playlist.contains("#EXTINF:4.000,\nseg_00000.ts\n"));
+        assert!(playlist.contains("seg_00001.ts"));
+        assert!(playlist.contains("seg_00002.ts"));
+        assert!(playlist.trim_end().ends_with("#EXT-X-ENDLIST"));
+    }
+
+    #[test]
+    fn media_playlist_empty_plan_targets_one() {
+        let plan = SegmentPlan {
+            segments: Vec::new(),
+        };
+        let playlist = media_playlist(&plan);
+        assert!(playlist.contains("#EXT-X-TARGETDURATION:1"));
+        assert!(playlist.trim_end().ends_with("#EXT-X-ENDLIST"));
+    }
+
+    #[test]
+    fn segment_file_name_is_zero_padded() {
+        assert_eq!(segment_file_name(0), "seg_00000.ts");
+        assert_eq!(segment_file_name(42), "seg_00042.ts");
+    }
+
+    #[test]
+    fn subtitle_extract_embedded_maps_stream() {
+        let args = build_subtitle_extract_args(
+            "/media/movie.mkv",
+            &SoftSubtitleSource::Embedded(3),
+            "/cache/s1/subs/subs.vtt",
+        );
+        assert_eq!(
+            args,
+            vec![
+                "-y",
+                "-i",
+                "/media/movie.mkv",
+                "-map",
+                "0:3",
+                "-f",
+                "webvtt",
+                "/cache/s1/subs/subs.vtt",
+            ]
+        );
+    }
+
+    #[test]
+    fn subtitle_extract_file_reads_sidecar() {
+        let args = build_subtitle_extract_args(
+            "/media/movie.mkv",
+            &SoftSubtitleSource::File("/media/movie.en.srt".to_owned()),
+            "/cache/s1/subs/subs.vtt",
+        );
+        assert_eq!(
+            args,
+            vec![
+                "-y",
+                "-i",
+                "/media/movie.en.srt",
+                "-f",
+                "webvtt",
+                "/cache/s1/subs/subs.vtt",
+            ]
+        );
+        assert!(!args.iter().any(|a| a == "-map"));
+    }
+
+    #[test]
+    fn subtitle_playlist_is_single_segment_vod() {
+        let playlist = subtitle_media_playlist(125_500, "subs.vtt");
+        assert!(playlist.starts_with("#EXTM3U\n"));
+        assert!(playlist.contains("#EXT-X-PLAYLIST-TYPE:VOD"));
+        assert!(playlist.contains("#EXT-X-TARGETDURATION:126"));
+        assert!(playlist.contains("#EXTINF:125.500,\nsubs.vtt\n"));
+        assert!(playlist.trim_end().ends_with("#EXT-X-ENDLIST"));
     }
 }

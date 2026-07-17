@@ -54,6 +54,8 @@ mod tests {
             duration_ms,
             edition: None,
             available: true,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 
@@ -76,6 +78,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
         repo.set_artwork(
@@ -113,6 +116,7 @@ mod tests {
             runtime_minutes: None,
             air_date: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
         repo.add_version(version(

@@ -12,6 +12,7 @@ pub struct SeriesResponse {
     pub overview: Option<String>,
     pub content_rating: Option<ContentRatingDto>,
     pub added_at: String,
+    pub updated_at: String,
     pub artwork: ArtworkDto,
 }
 
@@ -24,6 +25,7 @@ impl From<Series> for SeriesResponse {
             overview: s.overview,
             content_rating: s.content_rating.map(Into::into),
             added_at: s.added_at.to_string(),
+            updated_at: s.updated_at.to_string(),
             artwork: ArtworkDto::from_refs(s.artwork),
         }
     }

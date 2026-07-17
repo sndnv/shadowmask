@@ -19,6 +19,7 @@ where
     S: SearchIndex + Send + Sync,
 {
     async fn handle(&self, _job: &Job) -> Result<(), JobError> {
+        tracing::info!("rebuilding search index");
         self.index
             .rebuild()
             .await
@@ -49,6 +50,8 @@ mod tests {
             last_error: None,
             created_at: now,
             updated_at: now,
+            started_at: None,
+            finished_at: None,
         }
     }
 

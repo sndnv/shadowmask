@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Season</title>
+  </head>
+  <body>
+    <nav id="nav"></nav>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      if (sm.requireAuth()) load();
+
+      async function load() {
+        const main = document.getElementById("main");
+        const id = sm.qs("id");
+        const series = sm.qs("series") || "-";
+        if (!id) {
+          main.textContent = "Unknown season.";
+          return;
+        }
+        const base =
+          "/api/v1/series/" + encodeURIComponent(series) + "/seasons/" + encodeURIComponent(id);
+        try {
+          const season = await sm.json(base);
+          const episodes = await sm.json(base + "/episodes").catch(() => []);
+          const seriesObj = await sm
+            .json("/api/v1/series/" + encodeURIComponent(season.series_id))
+            .catch(() => null);
+          main.textContent = "";
+          main.appendChild(
+            sm.breadcrumbs([
+              { label: "Series", href: sm.url("catalog/series.html") },
+              { label: seriesObj ? seriesObj.title : "Show", href: sm.href.series(season.series_id) },
+              { label: season.title || "Season " + season.number },
+            ]),
+          );
+          const seasonMeta = [];
+          if (season.added_at) seasonMeta.push("Added " + sm.time(season.added_at));
+          if (season.updated_at) seasonMeta.push("Updated " + sm.time(season.updated_at));
+          const me = await sm.self().catch(() => null);
+          const onDeck = await sm.onDeckEpisode(me && me.id, [season.id]);
+          const nextEp =
+            onDeck ||
+            episodes.slice().sort((a, b) => (a.number || 0) - (b.number || 0))[0] ||
+            null;
+          const posterNode = sm.poster(season.artwork, 480);
+          const posterEl = nextEp
+            ? sm.el(
+                "a",
+                {
+                  href: sm.href.episode(nextEp.id, nextEp.season_id || season.id, season.series_id),
+                  title: "Play next episode",
+                },
+                posterNode,
+              )
+            : posterNode;
+          const info = sm.el("div", { class: "sm-detail-info" }, [
+            sm.el("h1", { text: season.title || "Season " + season.number }),
+            season.overview ? sm.el("p", { text: season.overview }) : null,
+            seasonMeta.length ? sm.el("p", { text: seasonMeta.join(", ") }) : null,
+          ]);
+          main.appendChild(sm.el("div", { class: "sm-detail" }, [posterEl, info]));
+          main.appendChild(await sm.watchedControls("season", season.id));
+          main.appendChild(sm.el("h2", { text: "Episodes (" + episodes.length + ")" }));
+          if (!episodes.length) {
+            main.appendChild(sm.el("p", { text: "No episodes." }));
+            return;
+          }
+          main.appendChild(
+            sm.grid(
+              episodes.map((e) => ({
+                href: sm.href.episode(e.id, e.season_id, season.series_id),
+                artwork: e.artwork,
+                title: e.number + ". " + e.title,
+                subtitle: e.air_date || null,
+                ref: { type: "episode", id: e.id },
+              })),
+            ),
+          );
+        } catch (err) {
+          main.textContent = "Could not load this season.";
+        }
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Admin</title>
+  </head>
+  <body>
+    <h1>Admin</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs">Admin</p>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      if (sm.requireAuth()) guard();
+
+      async function guard() {
+        const main = document.getElementById("main");
+        try {
+          const me = await sm.self();
+          if (me.role !== "admin") {
+            main.textContent = "Not Authorized.";
+            return;
+          }
+          main.textContent = "";
+          main.appendChild(
+            sm.el("ul", null, [
+              sm.el("li", null, sm.el("a", { href: "users.html" }, "Users")),
+              sm.el("li", null, sm.el("a", { href: "activity.html" }, "Activity (now playing)")),
+              sm.el("li", null, sm.el("a", { href: "jobs.html" }, "Jobs")),
+              sm.el("li", null, sm.el("a", { href: "libraries.html" }, "Libraries")),
+              sm.el("li", null, sm.el("a", { href: "collections.html" }, "Collections")),
+            ]),
+          );
+        } catch (err) {
+          main.textContent = "Could not load.";
+        }
+      }
+    </script>
+  </body>
+</html>

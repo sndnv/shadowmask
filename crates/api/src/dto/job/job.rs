@@ -15,6 +15,7 @@ pub enum JobKindDto {
     CacheEviction,
     SearchReindex,
     Ingest,
+    Relink,
 }
 
 impl From<JobKind> for JobKindDto {
@@ -30,6 +31,7 @@ impl From<JobKind> for JobKindDto {
             JobKind::CacheEviction => JobKindDto::CacheEviction,
             JobKind::SearchReindex => JobKindDto::SearchReindex,
             JobKind::Ingest => JobKindDto::Ingest,
+            JobKind::Relink => JobKindDto::Relink,
         }
     }
 }
@@ -75,6 +77,11 @@ impl From<JobPriority> for JobPriorityDto {
 }
 
 #[derive(Debug, Serialize)]
+pub struct JobLogResponse {
+    pub lines: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct JobResponse {
     pub id: String,
     pub kind: JobKindDto,
@@ -85,6 +92,8 @@ pub struct JobResponse {
     pub last_error: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
 }
 
 impl From<Job> for JobResponse {
@@ -99,6 +108,8 @@ impl From<Job> for JobResponse {
             last_error: j.last_error,
             created_at: j.created_at.to_string(),
             updated_at: j.updated_at.to_string(),
+            started_at: j.started_at.map(|t| t.to_string()),
+            finished_at: j.finished_at.map(|t| t.to_string()),
         }
     }
 }
@@ -120,6 +131,7 @@ mod tests {
             (JobKind::CacheEviction, "cache_eviction"),
             (JobKind::SearchReindex, "search_reindex"),
             (JobKind::Ingest, "ingest"),
+            (JobKind::Relink, "relink"),
         ] {
             let dto = JobKindDto::from(kind);
             assert_eq!(serde_json::to_value(dto).unwrap(), expected);

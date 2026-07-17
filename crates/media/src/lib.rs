@@ -6,5 +6,6 @@ pub mod profile;
 pub mod scan;
 pub mod stream_token;
 pub mod subtitle;
+pub mod subtitle_store;
 pub mod transcode;
 pub mod trickplay;

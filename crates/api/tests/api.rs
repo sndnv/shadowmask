@@ -116,6 +116,7 @@ fn movie(id: &str) -> Movie {
             code: "PG-13".into(),
         }),
         added_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         artwork: Vec::new(),
     }
 }
@@ -131,6 +132,7 @@ fn series(id: &str) -> Series {
             code: "TV-14".into(),
         }),
         added_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         artwork: Vec::new(),
     }
 }
@@ -142,6 +144,8 @@ fn season(id: &str, series: &str) -> Season {
         number: 1,
         title: Some("Season 1".into()),
         overview: None,
+        added_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         artwork: Vec::new(),
     }
 }
@@ -156,6 +160,7 @@ fn episode(id: &str, season: &str) -> Episode {
         runtime_minutes: Some(42),
         air_date: Some(Timestamp::now()),
         added_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         artwork: Vec::new(),
     }
 }
@@ -172,6 +177,8 @@ fn version(id: &str, title: TitleId, lib: &str, quality: Quality) -> Version {
         duration_ms: 1000,
         edition: None,
         available: true,
+        added_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     }
 }
 
@@ -184,6 +191,8 @@ fn library(id: &str) -> Library {
         watcher: WatcherStrategy::Manual,
         scan_schedule: Some("0 0 * * *".into()),
         metadata_sources: vec!["tmdb".into()],
+        created_at: Timestamp::UNIX_EPOCH,
+        updated_at: Timestamp::UNIX_EPOCH,
     }
 }
 
@@ -191,7 +200,7 @@ fn library(id: &str) -> Library {
 async fn auth_endpoints() {
     let ctx = Ctx::new();
     ctx.auth.add_link_code(
-        "CODE",
+        "7G2K9QMP",
         IssuedToken {
             token: "player-token".into(),
             expires_at: None,
@@ -235,7 +244,7 @@ async fn auth_endpoints() {
         Method::POST,
         "/api/v1/auth/link",
         None,
-        Some(json!({"code": "CODE", "device": {"name": "Roku", "platform": "roku"}})),
+        Some(json!({"code": "7G2K9QMP", "device": {"name": "Roku", "platform": "roku"}})),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -289,6 +298,27 @@ async fn auth_and_rbac_guards() {
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // A non-admin may create a link code only for their own account.
+    let (status, _) = call(
+        ctx.app(),
+        Method::POST,
+        "/api/v1/auth/link/create",
+        Some(USER),
+        Some(json!({"user_id": "admin"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, _) = call(
+        ctx.app(),
+        Method::POST,
+        "/api/v1/auth/link/create",
+        Some(USER),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
 }
 
 #[tokio::test]
@@ -303,6 +333,8 @@ async fn catalog_routes() {
         name: "Saga".into(),
         overview: Some("epic".into()),
         movies: vec![MovieId("m1".into())],
+        added_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         artwork: Vec::new(),
     });
     for (vid, q) in [
@@ -346,6 +378,34 @@ async fn catalog_routes() {
         let (status, _) = call(ctx.app(), Method::GET, uri, Some(USER), None).await;
         assert_eq!(status, expected, "GET {uri}");
     }
+
+    // Batch episode cards carry resolved show context (series id/title + season number).
+    let (status, body) = call(
+        ctx.app(),
+        Method::POST,
+        "/api/v1/titles/batch",
+        Some(USER),
+        Some(json!({"titles": [{"type": "episode", "id": "e1"}]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body[0]["type"], "episode");
+    assert_eq!(body[0]["series_id"], "s1");
+    assert_eq!(body[0]["series_title"], "Alpha s1");
+    assert_eq!(body[0]["season_number"], 1);
+
+    // Collection detail embeds resolved member movie cards alongside the id list.
+    let (status, body) = call(
+        ctx.app(),
+        Method::GET,
+        "/api/v1/movies/collections/c1",
+        Some(USER),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["movies"][0], "m1");
+    assert_eq!(body["items"][0]["id"], "m1");
 
     // A not-found exercises the failure logging path.
     let (status, _) = call(
@@ -407,6 +467,8 @@ async fn library_routes() {
                 confidence: 0.9,
                 label: "Alpha".into(),
             }],
+            created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         },
     );
     ctx.library.add_duplicate(
@@ -996,6 +1058,45 @@ async fn user_library_routes() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, Value::Null);
+
+    // Watched rollup for containers (season/series only).
+    let (status, body) = call(
+        ctx.app(),
+        Method::POST,
+        "/api/v1/users/u1/state/rollup",
+        Some(USER),
+        Some(json!({"targets": [{"type": "series", "id": "s1"}, {"type": "season", "id": "se1"}]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body.as_array().unwrap().len(), 2);
+    assert_eq!(body[0]["target"], json!({"type": "series", "id": "s1"}));
+    assert_eq!(body[0]["total_episodes"], 0);
+
+    // Movie/episode targets are rejected; those use state/batch instead.
+    let (status, _) = call(
+        ctx.app(),
+        Method::POST,
+        "/api/v1/users/u1/state/rollup",
+        Some(USER),
+        Some(json!({"targets": [{"type": "movie", "id": "m1"}]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // Over the batch cap is rejected.
+    let too_many: Vec<Value> = (0..201)
+        .map(|i| json!({"type": "season", "id": format!("se{i}")}))
+        .collect();
+    let (status, _) = call(
+        ctx.app(),
+        Method::POST,
+        "/api/v1/users/u1/state/rollup",
+        Some(USER),
+        Some(json!({"targets": too_many})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]

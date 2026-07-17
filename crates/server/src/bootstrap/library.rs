@@ -77,6 +77,7 @@ where
 #[cfg(test)]
 mod tests {
     use domain::library::{Library, LibraryId, LibraryKind, WatcherStrategy};
+    use jiff::Timestamp;
     use services::mock::MockLibraryService;
 
     use super::super::executor::run_one;
@@ -91,6 +92,8 @@ mod tests {
             watcher: WatcherStrategy::Local,
             scan_schedule: None,
             metadata_sources: Vec::new(),
+            created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 

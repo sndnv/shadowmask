@@ -1,3 +1,5 @@
+use jiff::Timestamp;
+
 use crate::catalog::TitleId;
 use crate::library::LibraryId;
 
@@ -17,4 +19,6 @@ pub struct UnmatchedFile {
     pub library: LibraryId,
     pub path: String,
     pub candidates: Vec<MatchCandidate>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }

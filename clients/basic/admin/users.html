@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Admin users</title>
+  </head>
+  <body>
+    <h1>Users</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs"><a href="index.html">Admin</a> / Users</p>
+    <main id="main">
+      <h2>Create user</h2>
+      <form id="create-user">
+        <label>Username <input name="username" autocomplete="off" /></label>
+        <label>Password <input name="password" type="password" autocomplete="new-password" /></label>
+        <label>Role
+          <select name="role">
+            <option value="user">user</option>
+            <option value="admin">admin</option>
+            <option value="player">player</option>
+          </select>
+        </label>
+        <button type="submit">Create</button>
+        <span id="create-status"></span>
+      </form>
+
+      <h2 id="users-heading">Users</h2>
+      <div id="users"></div>
+      <div id="acl"></div>
+
+      <h2>Create device link code</h2>
+      <form id="link-form">
+        <label>User <select name="user"></select></label>
+        <label>TTL seconds (optional) <input name="ttl" type="number" min="1" /></label>
+        <button type="submit">Create code</button>
+        <span id="link-output"></span>
+      </form>
+      <h2 id="link-codes-heading">Pending codes</h2>
+      <div id="link-codes"></div>
+    </main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      const eu = encodeURIComponent;
+
+      if (sm.requireAuth()) guard();
+
+      async function guard() {
+        const main = document.getElementById("main");
+        try {
+          const me = await sm.self();
+          if (me.role !== "admin") {
+            main.textContent = "Not Authorized.";
+            return;
+          }
+          wireCreateUser();
+          wireLinkForm();
+          await loadUsers();
+        } catch (err) {
+          main.textContent = "Could not load.";
+        }
+      }
+
+      function wireCreateUser() {
+        const f = document.getElementById("create-user");
+        const status = document.getElementById("create-status");
+        f.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          if (!f.elements.username.value || !f.elements.password.value) {
+            status.textContent = "Username and password are required.";
+            return;
+          }
+          try {
+            await sm.json("/api/v1/users", {
+              method: "POST",
+              body: JSON.stringify({
+                username: f.elements.username.value,
+                password: f.elements.password.value,
+                role: f.elements.role.value,
+              }),
+            });
+            status.textContent = "Created.";
+            f.elements.username.value = "";
+            f.elements.password.value = "";
+            await loadUsers();
+          } catch (err) {
+            status.textContent = "Create failed.";
+          }
+        });
+      }
+
+      async function loadUsers() {
+        const container = document.getElementById("users");
+        container.textContent = "Loading...";
+        try {
+          const page = await sm.json("/api/v1/users");
+          document.getElementById("users-heading").textContent = "Users (" + page.total + ")";
+          container.textContent = "";
+          const rows = page.items.map((u) => {
+            const access = sm.el("button", { type: "button" }, "Access");
+            access.addEventListener("click", () => editAccess(u));
+            const del = sm.el("button", { type: "button" }, "Delete");
+            del.addEventListener("click", async () => {
+              if (!confirm("Delete user " + u.username + "?")) return;
+              await sm.json("/api/v1/users/" + eu(u.id), { method: "DELETE" }).catch(() => {});
+              const acl = document.getElementById("acl");
+              if (acl.dataset.user === u.id) {
+                acl.textContent = "";
+                delete acl.dataset.user;
+              }
+              await loadUsers();
+            });
+            return [
+              u.username,
+              u.role,
+              sm.time(u.created_at),
+              sm.time(u.updated_at),
+              [access, " ", del],
+            ];
+          });
+          container.appendChild(sm.table(["Username", "Role", "Created", "Updated", ""], rows));
+        } catch (err) {
+          container.textContent = "Could not load users.";
+        }
+      }
+
+      async function editAccess(user) {
+        const acl = document.getElementById("acl");
+        acl.textContent = "Loading...";
+        try {
+          const [access, libraries] = await Promise.all([
+            sm.json("/api/v1/users/" + eu(user.id) + "/libraries"),
+            sm.json("/api/v1/libraries"),
+          ]);
+          const have = new Set(access.map((a) => a.library_id));
+          acl.textContent = "";
+          acl.dataset.user = user.id;
+          acl.appendChild(sm.el("h3", { text: "Library access for " + user.username }));
+          const checks = libraries.map((l) => {
+            const cb = sm.el("input", { type: "checkbox", value: l.id });
+            if (have.has(l.id)) cb.setAttribute("checked", "checked");
+            acl.appendChild(sm.el("label", null, [cb, " " + l.name]));
+            acl.appendChild(sm.el("br"));
+            return { cb, l };
+          });
+          const status = sm.el("span", null);
+          const save = sm.el("button", { type: "button" }, "Save access");
+          save.addEventListener("click", async () => {
+            const selected = checks.filter(({ cb }) => cb.checked).map(({ l }) => l.id);
+            try {
+              await sm.json("/api/v1/users/" + eu(user.id) + "/libraries", {
+                method: "PUT",
+                body: JSON.stringify({ libraries: selected }),
+              });
+              status.textContent = "Saved.";
+            } catch (err) {
+              status.textContent = "Save failed.";
+            }
+          });
+          acl.appendChild(sm.el("p", null, [save, " ", status]));
+        } catch (err) {
+          acl.textContent = "Could not load access.";
+        }
+      }
+
+      function wireLinkForm() {
+        const f = document.getElementById("link-form");
+        const output = document.getElementById("link-output");
+        f.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          if (!f.elements.user.value) {
+            output.textContent = "Select a user.";
+            return;
+          }
+          const body = { user_id: f.elements.user.value };
+          if (f.elements.ttl.value) body.ttl_secs = parseInt(f.elements.ttl.value, 10);
+          try {
+            const res = await sm.json("/api/v1/auth/link/create", {
+              method: "POST",
+              body: JSON.stringify(body),
+            });
+            output.textContent =
+              "Code " + groupCode(res.code) + " expires " + sm.time(res.expires_at);
+            await reloadLinkCodes(f.elements.user.value);
+          } catch (err) {
+            output.textContent = "Failed.";
+          }
+        });
+        f.elements.user.addEventListener("change", () => reloadLinkCodes(f.elements.user.value));
+        sm.json("/api/v1/users")
+          .then((page) => {
+            page.items.forEach((u) =>
+              f.elements.user.appendChild(
+                sm.el("option", { value: u.id }, u.username + " (" + u.role + ")"),
+              ),
+            );
+            reloadLinkCodes(f.elements.user.value);
+          })
+          .catch(() => {});
+      }
+
+      function groupCode(code) {
+        return code.length === 8 ? code.slice(0, 4) + "-" + code.slice(4) : code;
+      }
+
+      async function reloadLinkCodes(userId) {
+        const container = document.getElementById("link-codes");
+        const h = document.getElementById("link-codes-heading");
+        if (!userId) {
+          container.textContent = "";
+          if (h) h.textContent = "Pending codes";
+          return;
+        }
+        container.textContent = "Loading...";
+        try {
+          const codes = await sm.json("/api/v1/users/" + eu(userId) + "/link-codes");
+          if (h) h.textContent = "Pending codes (" + codes.length + ")";
+          container.textContent = "";
+          if (!codes.length) {
+            container.appendChild(sm.el("p", { text: "No pending codes." }));
+            return;
+          }
+          const rows = codes.map((c) => {
+            const revoke = sm.el("button", { type: "button" }, "Revoke");
+            revoke.addEventListener("click", async () => {
+              await sm
+                .json("/api/v1/users/" + eu(userId) + "/link-codes/" + eu(c.code), {
+                  method: "DELETE",
+                })
+                .catch(() => {});
+              await reloadLinkCodes(userId);
+            });
+            return [groupCode(c.code), sm.time(c.expires_at), revoke];
+          });
+          container.appendChild(sm.table(["Code", "Expires", ""], rows));
+        } catch (err) {
+          container.textContent = "Could not load pending codes.";
+        }
+      }
+    </script>
+  </body>
+</html>

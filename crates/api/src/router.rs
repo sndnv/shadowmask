@@ -1,16 +1,19 @@
 use axum::Router;
 use axum::middleware::{from_fn, from_fn_with_state};
+use axum::response::Redirect;
 use axum::routing::{delete, get, post, put};
 
+use domain::job::JobLogStore;
 use domain::session::{StreamSource, StreamTokens};
+use tower_http::services::ServeDir;
 
 use crate::handlers::{
-    admin, auth, catalog, discovery, image, library, server, sessions, stream, trickplay,
+    admin, auth, catalog, discovery, image, job_log, library, server, sessions, stream, trickplay,
     user_library, users, webhook,
 };
 use crate::middleware::{jwt, track_stream_bytes};
 use crate::state::{
-    AppServices, ImageState, StreamState, TrickplayState, WebhookClient, WebhookState,
+    AppServices, ImageState, JobLogState, StreamState, TrickplayState, WebhookClient, WebhookState,
 };
 
 pub fn router<S: AppServices>(state: S) -> Router {
@@ -57,6 +60,7 @@ pub fn router<S: AppServices>(state: S) -> Router {
             get(catalog::episode_versions::<S>),
         )
         .route("/versions/{id}", get(catalog::version_detail::<S>))
+        .route("/versions/{id}/relink", post(catalog::relink_version::<S>))
         .route("/titles/batch", post(catalog::title_cards::<S>))
         .route("/people/{id}", get(catalog::person::<S>))
         .route("/genres", get(catalog::genres::<S>))
@@ -95,6 +99,7 @@ pub fn router<S: AppServices>(state: S) -> Router {
         )
         .route("/libraries/{id}/versions", get(library::versions::<S>))
         .route("/admin/jobs", get(admin::jobs::<S>))
+        .route("/admin/jobs/{id}", get(admin::job::<S>))
         .route("/search", get(discovery::search::<S>))
         .route("/sessions", post(sessions::start::<S>))
         .route("/sessions/{id}", delete(sessions::end::<S>))
@@ -134,6 +139,10 @@ pub fn router<S: AppServices>(state: S) -> Router {
             "/users/{id}/state/batch",
             post(user_library::state_batch::<S>),
         )
+        .route(
+            "/users/{id}/state/rollup",
+            post(user_library::state_rollup::<S>),
+        )
         .route("/users/{id}/sessions", delete(auth::logout_all::<S>))
         .route("/users/{id}/devices", get(auth::devices::<S>))
         .route(
@@ -142,6 +151,11 @@ pub fn router<S: AppServices>(state: S) -> Router {
         )
         .route("/users/{id}/tokens", get(auth::tokens::<S>))
         .route("/users/{id}/tokens/{tid}", delete(auth::revoke_token::<S>))
+        .route("/users/{id}/link-codes", get(auth::link_codes::<S>))
+        .route(
+            "/users/{id}/link-codes/{code}",
+            delete(auth::revoke_link_code::<S>),
+        )
         .route(
             "/users/{id}/watched/{reference}",
             put(user_library::set_watched::<S>),
@@ -181,6 +195,16 @@ pub fn image_router(state: ImageState) -> Router {
         .with_state(state)
 }
 
+pub fn basic_ui_router(dir: &std::path::Path) -> Router {
+    if !dir.is_dir() {
+        return Router::new();
+    }
+    Router::new()
+        .route("/", get(|| async { Redirect::temporary("/ui/basic/") }))
+        .route("/ui", get(|| async { Redirect::temporary("/ui/basic/") }))
+        .nest_service("/ui/basic", ServeDir::new(dir))
+}
+
 pub fn webhook_router<S: AppServices>(services: S, clients: Vec<WebhookClient>) -> Router {
     if clients.is_empty() {
         return Router::new();
@@ -193,6 +217,19 @@ pub fn webhook_router<S: AppServices>(services: S, clients: Vec<WebhookClient>) 
         .with_state(WebhookState { services, clients })
 }
 
+pub fn job_log_router<S: AppServices, J: JobLogStore + 'static>(
+    auth: S,
+    state: JobLogState<J>,
+) -> Router {
+    Router::new()
+        .route(
+            "/api/v1/admin/jobs/{id}/logs",
+            get(job_log::read::<J>).delete(job_log::wipe::<J>),
+        )
+        .route_layer(from_fn_with_state(auth, jwt::<S>))
+        .with_state(state)
+}
+
 pub fn trickplay_router<S: AppServices>(auth: S, state: TrickplayState) -> Router {
     Router::new()
         .route(
@@ -201,4 +238,54 @@ pub fn trickplay_router<S: AppServices>(auth: S, state: TrickplayState) -> Route
         )
         .route_layer(from_fn_with_state(auth, jwt::<S>))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod basic_ui_tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn serves_the_index_and_redirects_the_roots_to_it() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("index.html"), "<h1>basic</h1>").unwrap();
+        let router = basic_ui_router(dir.path());
+
+        let served = router
+            .clone()
+            .oneshot(Request::get("/ui/basic/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(served.status(), StatusCode::OK);
+
+        for root in ["/", "/ui"] {
+            let redirected = router
+                .clone()
+                .oneshot(Request::get(root).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert!(redirected.status().is_redirection());
+            assert_eq!(
+                redirected
+                    .headers()
+                    .get("location")
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                "/ui/basic/"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn without_a_directory_it_serves_nothing() {
+        let router = basic_ui_router(std::path::Path::new("does-not-exist-shadowmask-basic"));
+        let response = router
+            .oneshot(Request::get("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
 }

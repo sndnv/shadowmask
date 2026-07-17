@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Search</title>
+  </head>
+  <body>
+    <h1>Search</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs">Search</p>
+    <form id="query">
+      <input name="q" placeholder="Search" autocomplete="off" />
+      <select name="type">
+        <option value="">All</option>
+        <option value="movie">Movies</option>
+        <option value="series">Series</option>
+        <option value="episode">Episodes</option>
+        <option value="person">People</option>
+      </select>
+      <button type="submit">Search</button>
+    </form>
+    <main id="main"></main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      if (sm.requireAuth()) init();
+
+      function init() {
+        const form = document.getElementById("query");
+        const queryInput = form.elements["q"];
+        const typeInput = form.elements["type"];
+        const q = sm.qs("q") || "";
+        queryInput.value = q;
+        typeInput.value = sm.qs("type") || "";
+        form.addEventListener("submit", (e) => {
+          e.preventDefault();
+          const params = new URLSearchParams();
+          if (queryInput.value) params.set("q", queryInput.value);
+          if (typeInput.value) params.set("type", typeInput.value);
+          location.search = params.toString();
+        });
+        if (q) run();
+      }
+
+      async function run() {
+        const main = document.getElementById("main");
+        main.textContent = "Loading...";
+        try {
+          const page = await sm.json("/api/v1/search?" + new URLSearchParams(location.search).toString());
+          main.textContent = "";
+          if (!page.items.length) {
+            main.appendChild(sm.el("p", { text: "No results." }));
+            return;
+          }
+          main.appendChild(sm.el("h2", { text: "Results (" + page.total + ")" }));
+          main.appendChild(sm.grid(page.items.map(toCard)));
+          main.appendChild(sm.pager(page.total, page.offset, page.limit));
+        } catch (err) {
+          main.textContent = "Search failed.";
+        }
+      }
+
+      function toCard(r) {
+        if (r.type === "movie") {
+          return {
+            href: sm.href.movie(r.id),
+            artwork: r.artwork,
+            title: r.title,
+            subtitle: r.year ? "Movie, " + r.year : "Movie",
+            ref: { type: "movie", id: r.id },
+          };
+        }
+        if (r.type === "series") {
+          return {
+            href: sm.href.series(r.id),
+            artwork: r.artwork,
+            title: r.title,
+            subtitle: r.year ? "Series, " + r.year : "Series",
+          };
+        }
+        if (r.type === "episode") {
+          return {
+            href: sm.href.episode(r.id, r.season_id),
+            artwork: r.artwork,
+            title: r.title,
+            subtitle: "Episode",
+            ref: { type: "episode", id: r.id },
+          };
+        }
+        return { href: sm.href.person(r.id), artwork: r.artwork, title: r.name, subtitle: "Person" };
+      }
+    </script>
+  </body>
+</html>

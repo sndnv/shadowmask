@@ -29,6 +29,7 @@ fn user(id: &str, username: &str, role: Role, created_at: Timestamp) -> User {
         concurrent_stream_limit: Some(2),
         bitrate_cap: Some(8_000_000),
         created_at,
+        updated_at: created_at,
     }
 }
 
@@ -96,6 +97,7 @@ pub async fn user_repository_contract<R: UserRepository>(repo: R) {
     updated.concurrent_stream_limit = None;
     updated.max_content_rating = None;
     updated.preferred_subtitle = vec![LanguageCode("fr".into())];
+    updated.updated_at = ts(50);
     repo.update(updated).await.unwrap();
     let reloaded = repo.get(&UserId("u1".into())).await.unwrap().unwrap();
     assert_eq!(reloaded.username, "alice2");
@@ -103,6 +105,7 @@ pub async fn user_repository_contract<R: UserRepository>(repo: R) {
     assert_eq!(reloaded.max_content_rating, None);
     assert_eq!(reloaded.preferred_subtitle, vec![LanguageCode("fr".into())]);
     assert_eq!(reloaded.created_at, ts(2));
+    assert_eq!(reloaded.updated_at, ts(50));
 
     repo.set_library_access(
         &UserId("u1".into()),

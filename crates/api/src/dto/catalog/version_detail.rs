@@ -2,8 +2,8 @@ use serde::Serialize;
 
 use domain::catalog::VersionDetail;
 use domain::media::{
-    AudioTrack, Chapter, DetectedMarkers, EmbeddedSubtitleTrack, HdrFormat, SubtitleFormat,
-    TrickplayAsset, VideoTrack,
+    AudioTrack, Chapter, DetectedMarkers, EmbeddedSubtitleTrack, HdrFormat, SubtitleFile,
+    SubtitleFormat, SubtitleSource, TrickplayAsset, VideoTrack,
 };
 
 use crate::dto::common::{QualityDto, TitleRefDto};
@@ -19,9 +19,14 @@ pub struct VersionDetailResponse {
     pub duration_ms: u64,
     pub edition: Option<String>,
     pub available: bool,
+    pub added_at: String,
+    pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     pub video: Vec<VideoTrackDto>,
     pub audio: Vec<AudioTrackDto>,
     pub subtitles: Vec<SubtitleTrackDto>,
+    pub subtitle_files: Vec<SubtitleFileDto>,
     pub chapters: Vec<ChapterDto>,
     pub markers: MarkersDto,
     pub trickplay: Vec<TrickplayRefDto>,
@@ -77,6 +82,21 @@ pub enum SubtitleFormatDto {
 }
 
 #[derive(Debug, Serialize)]
+pub struct SubtitleFileDto {
+    pub id: String,
+    pub language: Option<String>,
+    pub format: SubtitleFormatDto,
+    pub source: SubtitleSourceDto,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubtitleSourceDto {
+    OpenSubtitles,
+    External,
+}
+
+#[derive(Debug, Serialize)]
 pub struct ChapterDto {
     pub title: String,
     pub start_ms: u64,
@@ -104,6 +124,15 @@ pub struct TrickplayRefDto {
     pub sheets: usize,
 }
 
+impl VersionDetailResponse {
+    pub fn with_path(detail: VersionDetail, include_path: bool) -> Self {
+        let path = include_path.then(|| detail.version.path.clone());
+        let mut response = VersionDetailResponse::from(detail);
+        response.path = path;
+        response
+    }
+}
+
 impl From<VersionDetail> for VersionDetailResponse {
     fn from(d: VersionDetail) -> Self {
         VersionDetailResponse {
@@ -116,9 +145,13 @@ impl From<VersionDetail> for VersionDetailResponse {
             duration_ms: d.version.duration_ms,
             edition: d.version.edition,
             available: d.version.available,
+            added_at: d.version.added_at.to_string(),
+            updated_at: d.version.updated_at.to_string(),
+            path: None,
             video: d.video.into_iter().map(Into::into).collect(),
             audio: d.audio.into_iter().map(Into::into).collect(),
             subtitles: d.subtitles.into_iter().map(Into::into).collect(),
+            subtitle_files: d.subtitle_files.into_iter().map(Into::into).collect(),
             chapters: d.chapters.into_iter().map(Into::into).collect(),
             markers: d.markers.into(),
             trickplay: d.trickplay.into_iter().map(Into::into).collect(),
@@ -188,6 +221,26 @@ impl From<SubtitleFormat> for SubtitleFormatDto {
     }
 }
 
+impl From<SubtitleFile> for SubtitleFileDto {
+    fn from(f: SubtitleFile) -> Self {
+        SubtitleFileDto {
+            id: f.id.0,
+            language: f.language.map(|l| l.0),
+            format: f.format.into(),
+            source: f.source.into(),
+        }
+    }
+}
+
+impl From<SubtitleSource> for SubtitleSourceDto {
+    fn from(s: SubtitleSource) -> Self {
+        match s {
+            SubtitleSource::OpenSubtitles => SubtitleSourceDto::OpenSubtitles,
+            SubtitleSource::External => SubtitleSourceDto::External,
+        }
+    }
+}
+
 impl From<Chapter> for ChapterDto {
     fn from(c: Chapter) -> Self {
         ChapterDto {
@@ -236,6 +289,53 @@ impl From<TrickplayAsset> for TrickplayRefDto {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::catalog::{MovieId, TitleId, Version, VersionId};
+    use domain::common::Quality;
+    use domain::library::LibraryId;
+    use jiff::Timestamp;
+
+    fn detail() -> VersionDetail {
+        VersionDetail {
+            version: Version {
+                id: VersionId("v1".into()),
+                title: TitleId::Movie(MovieId("m1".into())),
+                library: LibraryId("lib1".into()),
+                quality: Quality::Fhd,
+                container: "mkv".into(),
+                path: "/media/v1.mkv".into(),
+                size_bytes: 1,
+                duration_ms: 1000,
+                edition: None,
+                available: true,
+                added_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
+            },
+            video: Vec::new(),
+            audio: Vec::new(),
+            subtitles: Vec::new(),
+            subtitle_files: Vec::new(),
+            chapters: Vec::new(),
+            markers: DetectedMarkers {
+                intros: Vec::new(),
+                credits: Vec::new(),
+            },
+            trickplay: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn with_path_gates_path_on_admin() {
+        let hidden = VersionDetailResponse::with_path(detail(), false);
+        assert_eq!(hidden.path, None);
+        assert!(
+            !serde_json::to_string(&hidden)
+                .unwrap()
+                .contains("/media/v1.mkv")
+        );
+
+        let shown = VersionDetailResponse::with_path(detail(), true);
+        assert_eq!(shown.path.as_deref(), Some("/media/v1.mkv"));
+    }
 
     #[test]
     fn hdr_format_maps_every_variant() {
@@ -266,5 +366,41 @@ mod tests {
                 serde_json::to_string(&dto).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn subtitle_source_maps_every_variant() {
+        for (domain, dto) in [
+            (
+                SubtitleSource::OpenSubtitles,
+                SubtitleSourceDto::OpenSubtitles,
+            ),
+            (SubtitleSource::External, SubtitleSourceDto::External),
+        ] {
+            assert_eq!(
+                serde_json::to_string(&SubtitleSourceDto::from(domain)).unwrap(),
+                serde_json::to_string(&dto).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn subtitle_file_maps_to_dto() {
+        use domain::common::LanguageCode;
+        use domain::media::{SubtitleFile, SubtitleFileId};
+
+        let dto = SubtitleFileDto::from(SubtitleFile {
+            id: SubtitleFileId("sf1".into()),
+            version: VersionId("v1".into()),
+            language: Some(LanguageCode("en".into())),
+            format: SubtitleFormat::Srt,
+            source: SubtitleSource::External,
+            path: "/media/v1.en.srt".into(),
+        });
+        assert_eq!(dto.id, "sf1");
+        assert_eq!(dto.language.as_deref(), Some("en"));
+        let json = serde_json::to_string(&dto).unwrap();
+        assert!(json.contains("\"source\":\"external\""));
+        assert!(!json.contains("/media/v1.en.srt"));
     }
 }

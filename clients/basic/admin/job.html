@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Job</title>
+  </head>
+  <body>
+    <h1>Job</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs">
+      <a href="index.html">Admin</a> / <a href="jobs.html">Jobs</a> /
+      <span id="crumb"></span>
+    </p>
+    <p><button type="button" id="refresh">Refresh</button></p>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      const id = sm.qs("id");
+
+      if (sm.requireAuth()) guard();
+
+      async function guard() {
+        const main = document.getElementById("main");
+        if (!id) {
+          main.textContent = "Unknown job.";
+          return;
+        }
+        document.getElementById("crumb").textContent = id;
+        try {
+          const me = await sm.self();
+          if (me.role !== "admin") {
+            main.textContent = "Not Authorized.";
+            return;
+          }
+          document.getElementById("refresh").addEventListener("click", load);
+          await load();
+        } catch (err) {
+          main.textContent = "Could not load.";
+        }
+      }
+
+      async function load() {
+        const main = document.getElementById("main");
+        main.textContent = "Loading...";
+        try {
+          const job = await sm.json("/api/v1/admin/jobs/" + encodeURIComponent(id));
+          main.textContent = "";
+
+          const dl = sm.el("dl");
+          const add = (key, value) => {
+            if (value === null || value === undefined || value === "") return;
+            dl.appendChild(sm.el("dt", { text: key }));
+            dl.appendChild(sm.el("dd", { text: String(value) }));
+          };
+          add("Kind", job.kind);
+          add("Status", job.status);
+          add("Priority", job.priority);
+          add("Progress", Math.round(job.progress * 100) + "%");
+          add("Attempts", job.attempts);
+          add("Created", sm.time(job.created_at));
+          add("Updated", sm.time(job.updated_at));
+          add("Started", sm.time(job.started_at));
+          add("Finished", sm.time(job.finished_at));
+          add("Error", job.last_error);
+          main.appendChild(dl);
+
+          const logHost = sm.el("div");
+          const level = sm.el("select", null, [
+            sm.el("option", { value: "debug" }, "Debug"),
+            sm.el("option", { value: "info" }, "Info"),
+            sm.el("option", { value: "warn" }, "Warn"),
+            sm.el("option", { value: "error" }, "Error"),
+          ]);
+          level.value = "info";
+          level.addEventListener("change", () => loadLogs(logHost, level.value));
+          const wipe = sm.el("button", { type: "button" }, "Wipe logs");
+          wipe.addEventListener("click", async () => {
+            if (!confirm("Wipe all logs for this job? This cannot be undone.")) return;
+            wipe.disabled = true;
+            try {
+              await sm.json("/api/v1/admin/jobs/" + encodeURIComponent(id) + "/logs", {
+                method: "DELETE",
+              });
+              await loadLogs(logHost, level.value);
+            } catch (err) {
+              logHost.textContent = "Could not wipe logs.";
+            } finally {
+              wipe.disabled = false;
+            }
+          });
+
+          main.appendChild(sm.el("h2", { text: "Logs" }));
+          main.appendChild(
+            sm.el("p", null, [sm.el("label", null, ["Min level ", level]), " ", wipe]),
+          );
+          main.appendChild(logHost);
+          await loadLogs(logHost, level.value);
+        } catch (err) {
+          main.textContent = "Could not load this job.";
+        }
+      }
+
+      async function loadLogs(host, level) {
+        host.textContent = "Loading logs...";
+        try {
+          const url =
+            "/api/v1/admin/jobs/" +
+            encodeURIComponent(id) +
+            "/logs" +
+            (level ? "?level=" + encodeURIComponent(level) : "");
+          const res = await sm.json(url);
+          const lines = (res && res.lines) || [];
+          host.textContent = "";
+          if (!lines.length) {
+            host.appendChild(sm.el("p", { text: "No logs." }));
+            return;
+          }
+          host.appendChild(sm.el("pre", { text: lines.join("\n") }));
+        } catch (err) {
+          host.textContent = "Could not load logs.";
+        }
+      }
+    </script>
+  </body>
+</html>

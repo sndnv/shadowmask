@@ -6,6 +6,7 @@ expression: value
   "body": {
     "items": [
       {
+        "added_at": "2023-11-14T22:13:26Z",
         "available": true,
         "container": "mkv",
         "duration_ms": 1000,
@@ -17,7 +18,8 @@ expression: value
         "title": {
           "id": "e1",
           "type": "episode"
-        }
+        },
+        "updated_at": "2023-11-14T22:13:26Z"
       }
     ],
     "limit": 50,

@@ -11,7 +11,8 @@ use domain::error::RepositoryError;
 use domain::library::LibraryId;
 use domain::media::{
     AudioTrack, Chapter, CreditsMarker, DetectedMarkers, EmbeddedSubtitleTrack, HdrFormat,
-    IntroMarker, SubtitleFormat, TrickplayAsset, VideoTrack,
+    IntroMarker, SubtitleFile, SubtitleFileId, SubtitleFormat, SubtitleSource, TrickplayAsset,
+    VideoTrack,
 };
 use domain::metadata::{
     ContentRating, Credit, CreditedPerson, ExternalId, Extra, Genre, GenreId, Person, PersonId,
@@ -21,7 +22,7 @@ use domain::repository::{CatalogRepository, SearchIndex};
 use domain::text::normalize_title;
 use sqlx::migrate::Migrator;
 use sqlx::sqlite::SqliteRow;
-use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
+use sqlx::{AssertSqlSafe, Executor, Sqlite, SqliteConnection, SqlitePool};
 
 use crate::codec::{
     artwork_kind_from_str, artwork_kind_to_str, artwork_owner_parts, credit_role_from_str,
@@ -58,8 +59,10 @@ impl SqliteCatalogRepo {
         let mut tx = self.pool.begin().await.map_err(backend)?;
         sqlx::query(
             "INSERT OR REPLACE INTO movies \
-             (id, title, year, overview, runtime_minutes, rating_system, rating_code, added_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+             (id, title, year, overview, runtime_minutes, rating_system, rating_code, \
+              added_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, \
+                     COALESCE((SELECT added_at FROM movies WHERE id = ?), ?), ?)",
         )
         .bind(movie.id.0.as_str())
         .bind(movie.title.as_str())
@@ -68,7 +71,9 @@ impl SqliteCatalogRepo {
         .bind(movie.runtime_minutes.map(i64::from))
         .bind(movie.content_rating.as_ref().map(|r| r.system.as_str()))
         .bind(movie.content_rating.as_ref().map(|r| r.code.as_str()))
+        .bind(movie.id.0.as_str())
         .bind(to_millis(movie.added_at))
+        .bind(to_millis(movie.updated_at))
         .execute(&mut *tx)
         .await
         .map_err(backend)?;
@@ -81,8 +86,9 @@ impl SqliteCatalogRepo {
         let mut tx = self.pool.begin().await.map_err(backend)?;
         sqlx::query(
             "INSERT OR REPLACE INTO series \
-             (id, title, year, overview, rating_system, rating_code, added_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+             (id, title, year, overview, rating_system, rating_code, added_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, \
+                     COALESCE((SELECT added_at FROM series WHERE id = ?), ?), ?)",
         )
         .bind(series.id.0.as_str())
         .bind(series.title.as_str())
@@ -90,7 +96,9 @@ impl SqliteCatalogRepo {
         .bind(series.overview.as_deref())
         .bind(series.content_rating.as_ref().map(|r| r.system.as_str()))
         .bind(series.content_rating.as_ref().map(|r| r.code.as_str()))
+        .bind(series.id.0.as_str())
         .bind(to_millis(series.added_at))
+        .bind(to_millis(series.updated_at))
         .execute(&mut *tx)
         .await
         .map_err(backend)?;
@@ -107,14 +115,19 @@ impl SqliteCatalogRepo {
 
     pub async fn insert_season(&self, season: Season) -> Result<(), RepositoryError> {
         sqlx::query(
-            "INSERT OR REPLACE INTO seasons (id, series_id, number, title, overview) \
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO seasons \
+             (id, series_id, number, title, overview, added_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, \
+                     COALESCE((SELECT added_at FROM seasons WHERE id = ?), ?), ?)",
         )
         .bind(season.id.0.as_str())
         .bind(season.series.0.as_str())
         .bind(i64::from(season.number))
         .bind(season.title.as_deref())
         .bind(season.overview.as_deref())
+        .bind(season.id.0.as_str())
+        .bind(to_millis(season.added_at))
+        .bind(to_millis(season.updated_at))
         .execute(&self.pool)
         .await
         .map_err(backend)?;
@@ -125,8 +138,10 @@ impl SqliteCatalogRepo {
         let mut tx = self.pool.begin().await.map_err(backend)?;
         sqlx::query(
             "INSERT OR REPLACE INTO episodes \
-             (id, season_id, number, title, overview, runtime_minutes, air_date, added_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+             (id, season_id, number, title, overview, runtime_minutes, air_date, \
+              added_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, \
+                     COALESCE((SELECT added_at FROM episodes WHERE id = ?), ?), ?)",
         )
         .bind(episode.id.0.as_str())
         .bind(episode.season.0.as_str())
@@ -135,7 +150,9 @@ impl SqliteCatalogRepo {
         .bind(episode.overview.as_deref())
         .bind(episode.runtime_minutes.map(i64::from))
         .bind(episode.air_date.map(to_millis))
+        .bind(episode.id.0.as_str())
         .bind(to_millis(episode.added_at))
+        .bind(to_millis(episode.updated_at))
         .execute(&mut *tx)
         .await
         .map_err(backend)?;
@@ -153,13 +170,19 @@ impl SqliteCatalogRepo {
     pub async fn insert_collection(&self, collection: Collection) -> Result<(), RepositoryError> {
         let mut tx = self.pool.begin().await.map_err(backend)?;
         let id = collection.id.0.as_str();
-        sqlx::query("INSERT OR REPLACE INTO collections (id, name, overview) VALUES (?, ?, ?)")
-            .bind(id)
-            .bind(collection.name.as_str())
-            .bind(collection.overview.as_deref())
-            .execute(&mut *tx)
-            .await
-            .map_err(backend)?;
+        sqlx::query(
+            "INSERT OR REPLACE INTO collections (id, name, overview, added_at, updated_at) \
+             VALUES (?, ?, ?, COALESCE((SELECT added_at FROM collections WHERE id = ?), ?), ?)",
+        )
+        .bind(id)
+        .bind(collection.name.as_str())
+        .bind(collection.overview.as_deref())
+        .bind(id)
+        .bind(to_millis(collection.added_at))
+        .bind(to_millis(collection.updated_at))
+        .execute(&mut *tx)
+        .await
+        .map_err(backend)?;
         sqlx::query("DELETE FROM collection_movies WHERE collection_id = ?")
             .bind(id)
             .execute(&mut *tx)
@@ -242,6 +265,23 @@ impl SqliteCatalogRepo {
             .bind(subtitle_format_to_str(track.format))
             .bind(track.forced)
             .bind(track.default)
+            .execute(&mut *tx)
+            .await
+            .map_err(backend)?;
+        }
+        for (ordinal, file) in detail.subtitle_files.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO subtitle_files \
+                 (id, version_id, ordinal, language, format, source, path) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(file.id.0.as_str())
+            .bind(vid.as_str())
+            .bind(ordinal as i64)
+            .bind(file.language.as_ref().map(|l| l.0.as_str()))
+            .bind(subtitle_format_to_str(file.format))
+            .bind(subtitle_source_to_str(file.source))
+            .bind(file.path.as_str())
             .execute(&mut *tx)
             .await
             .map_err(backend)?;
@@ -337,6 +377,8 @@ impl SqliteCatalogRepo {
             name: column(row, "name")?,
             overview: column(row, "overview")?,
             movies,
+            added_at: from_millis(column(row, "added_at")?)?,
+            updated_at: from_millis(column(row, "updated_at")?)?,
             id: CollectionId(id),
             artwork,
         })
@@ -408,6 +450,19 @@ impl SqliteCatalogRepo {
                 .await
                 .map_err(backend)?;
         rows.iter().map(row_to_subtitle).collect()
+    }
+
+    async fn load_subtitle_files(
+        &self,
+        version_id: &str,
+    ) -> Result<Vec<SubtitleFile>, RepositoryError> {
+        let rows =
+            sqlx::query("SELECT * FROM subtitle_files WHERE version_id = ? ORDER BY ordinal")
+                .bind(version_id)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(backend)?;
+        rows.iter().map(row_to_subtitle_file).collect()
     }
 
     async fn load_chapters(&self, version_id: &str) -> Result<Vec<Chapter>, RepositoryError> {
@@ -689,6 +744,21 @@ fn subtitle_format_from_str(value: &str) -> Result<SubtitleFormat, RepositoryErr
     }
 }
 
+fn subtitle_source_to_str(source: SubtitleSource) -> &'static str {
+    match source {
+        SubtitleSource::OpenSubtitles => "opensubtitles",
+        SubtitleSource::External => "external",
+    }
+}
+
+fn subtitle_source_from_str(value: &str) -> Result<SubtitleSource, RepositoryError> {
+    match value {
+        "opensubtitles" => Ok(SubtitleSource::OpenSubtitles),
+        "external" => Ok(SubtitleSource::External),
+        other => Err(backend(format!("unknown subtitle source: {other}"))),
+    }
+}
+
 fn content_rating(row: &SqliteRow) -> Result<Option<ContentRating>, RepositoryError> {
     Ok(
         match (
@@ -814,7 +884,7 @@ async fn sync_search_row(
 async fn reindex_kind(
     conn: &mut SqliteConnection,
     kind: &str,
-    select: &str,
+    select: &'static str,
 ) -> Result<(), RepositoryError> {
     let rows = sqlx::query(select)
         .fetch_all(&mut *conn)
@@ -851,6 +921,7 @@ fn row_to_movie(row: &SqliteRow) -> Result<Movie, RepositoryError> {
         runtime_minutes: column::<Option<i64>>(row, "runtime_minutes")?.map(|v| v as u32),
         content_rating: content_rating(row)?,
         added_at: from_millis(column(row, "added_at")?)?,
+        updated_at: from_millis(column(row, "updated_at")?)?,
         artwork: Vec::new(),
     })
 }
@@ -863,6 +934,7 @@ fn row_to_series(row: &SqliteRow) -> Result<Series, RepositoryError> {
         overview: column(row, "overview")?,
         content_rating: content_rating(row)?,
         added_at: from_millis(column(row, "added_at")?)?,
+        updated_at: from_millis(column(row, "updated_at")?)?,
         artwork: Vec::new(),
     })
 }
@@ -874,6 +946,8 @@ fn row_to_season(row: &SqliteRow) -> Result<Season, RepositoryError> {
         number: column::<i64>(row, "number")? as u16,
         title: column(row, "title")?,
         overview: column(row, "overview")?,
+        added_at: from_millis(column(row, "added_at")?)?,
+        updated_at: from_millis(column(row, "updated_at")?)?,
         artwork: Vec::new(),
     })
 }
@@ -890,6 +964,7 @@ fn row_to_episode(row: &SqliteRow) -> Result<Episode, RepositoryError> {
             .map(from_millis)
             .transpose()?,
         added_at: from_millis(column(row, "added_at")?)?,
+        updated_at: from_millis(column(row, "updated_at")?)?,
         artwork: Vec::new(),
     })
 }
@@ -909,6 +984,8 @@ fn row_to_version(row: &SqliteRow) -> Result<Version, RepositoryError> {
         duration_ms: column::<i64>(row, "duration_ms")? as u64,
         edition: column(row, "edition")?,
         available: column(row, "available")?,
+        added_at: from_millis(column(row, "added_at")?)?,
+        updated_at: from_millis(column(row, "updated_at")?)?,
     })
 }
 
@@ -947,6 +1024,17 @@ fn row_to_subtitle(row: &SqliteRow) -> Result<EmbeddedSubtitleTrack, RepositoryE
     })
 }
 
+fn row_to_subtitle_file(row: &SqliteRow) -> Result<SubtitleFile, RepositoryError> {
+    Ok(SubtitleFile {
+        id: SubtitleFileId(column::<String>(row, "id")?),
+        version: VersionId(column::<String>(row, "version_id")?),
+        language: column::<Option<String>>(row, "language")?.map(LanguageCode),
+        format: subtitle_format_from_str(&column::<String>(row, "format")?)?,
+        source: subtitle_source_from_str(&column::<String>(row, "source")?)?,
+        path: column(row, "path")?,
+    })
+}
+
 fn row_to_chapter(row: &SqliteRow) -> Result<Chapter, RepositoryError> {
     Ok(Chapter {
         title: column(row, "title")?,
@@ -961,8 +1049,9 @@ where
     sqlx::query(
         "INSERT OR REPLACE INTO versions \
          (id, title_kind, title_id, library_id, quality, container, path, size_bytes, \
-          duration_ms, edition, available) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          duration_ms, edition, available, added_at, updated_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
+                 COALESCE((SELECT added_at FROM versions WHERE id = ?), ?), ?)",
     )
     .bind(version.id.0.as_str())
     .bind(title_kind(&version.title))
@@ -975,13 +1064,16 @@ where
     .bind(version.duration_ms as i64)
     .bind(version.edition.as_deref())
     .bind(version.available)
+    .bind(version.id.0.as_str())
+    .bind(to_millis(version.added_at))
+    .bind(to_millis(version.updated_at))
     .execute(executor)
     .await
     .map_err(backend)?;
     Ok(())
 }
 
-async fn count_all(pool: &SqlitePool, query: &str) -> Result<u64, RepositoryError> {
+async fn count_all(pool: &SqlitePool, query: &'static str) -> Result<u64, RepositoryError> {
     let row = sqlx::query(query).fetch_one(pool).await.map_err(backend)?;
     Ok(column::<i64>(&row, "n")? as u64)
 }
@@ -1265,6 +1357,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         let video = self.load_video(&vid).await?;
         let audio = self.load_audio(&vid).await?;
         let subtitles = self.load_subtitles(&vid).await?;
+        let subtitle_files = self.load_subtitle_files(&vid).await?;
         let chapters = self.load_chapters(&vid).await?;
         let markers = self.load_markers(&vid).await?;
         let trickplay = self.load_trickplay(&vid).await?;
@@ -1273,6 +1366,7 @@ impl CatalogRepository for SqliteCatalogRepo {
             video,
             audio,
             subtitles,
+            subtitle_files,
             chapters,
             markers,
             trickplay,
@@ -1394,11 +1488,13 @@ impl CatalogRepository for SqliteCatalogRepo {
             "subtitle_tracks",
             "chapters",
         ] {
-            sqlx::query(&format!("DELETE FROM {table} WHERE version_id = ?"))
-                .bind(vid)
-                .execute(&mut *tx)
-                .await
-                .map_err(backend)?;
+            sqlx::query(AssertSqlSafe(format!(
+                "DELETE FROM {table} WHERE version_id = ?"
+            )))
+            .bind(vid)
+            .execute(&mut *tx)
+            .await
+            .map_err(backend)?;
         }
         for (ordinal, track) in video.iter().enumerate() {
             sqlx::query(
@@ -1480,11 +1576,13 @@ impl CatalogRepository for SqliteCatalogRepo {
         let vid = version.0.as_str();
         let mut tx = self.pool.begin().await.map_err(backend)?;
         for table in ["trickplay_sheets", "trickplay_assets"] {
-            sqlx::query(&format!("DELETE FROM {table} WHERE version_id = ?"))
-                .bind(vid)
-                .execute(&mut *tx)
-                .await
-                .map_err(backend)?;
+            sqlx::query(AssertSqlSafe(format!(
+                "DELETE FROM {table} WHERE version_id = ?"
+            )))
+            .bind(vid)
+            .execute(&mut *tx)
+            .await
+            .map_err(backend)?;
         }
         for (ordinal, asset) in assets.iter().enumerate() {
             sqlx::query(
@@ -1516,6 +1614,40 @@ impl CatalogRepository for SqliteCatalogRepo {
                 .await
                 .map_err(backend)?;
             }
+        }
+        tx.commit().await.map_err(backend)?;
+        Ok(())
+    }
+
+    async fn set_subtitle_files(
+        &self,
+        version: &VersionId,
+        files: &[SubtitleFile],
+    ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "set_subtitle_files");
+        let vid = version.0.as_str();
+        let mut tx = self.pool.begin().await.map_err(backend)?;
+        sqlx::query("DELETE FROM subtitle_files WHERE version_id = ?")
+            .bind(vid)
+            .execute(&mut *tx)
+            .await
+            .map_err(backend)?;
+        for (ordinal, file) in files.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO subtitle_files \
+                 (id, version_id, ordinal, language, format, source, path) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(file.id.0.as_str())
+            .bind(vid)
+            .bind(ordinal as i64)
+            .bind(file.language.as_ref().map(|l| l.0.as_str()))
+            .bind(subtitle_format_to_str(file.format))
+            .bind(subtitle_source_to_str(file.source))
+            .bind(file.path.as_str())
+            .execute(&mut *tx)
+            .await
+            .map_err(backend)?;
         }
         tx.commit().await.map_err(backend)?;
         Ok(())
@@ -1575,9 +1707,9 @@ impl CatalogRepository for SqliteCatalogRepo {
             "title_external_ids",
             "title_extras",
         ] {
-            sqlx::query(&format!(
+            sqlx::query(AssertSqlSafe(format!(
                 "DELETE FROM {table} WHERE title_kind = ? AND title_id = ?"
-            ))
+            )))
             .bind(kind)
             .bind(id)
             .execute(&mut *tx)
@@ -1940,8 +2072,8 @@ mod tests {
         sqlx::query(
             "INSERT INTO versions \
              (id, title_kind, title_id, library_id, quality, container, path, size_bytes, \
-              duration_ms, edition) \
-             VALUES ('vx', 'bogus', 'm1', 'lib1', 'sd', 'mkv', '/x.mkv', 1, 1, NULL)",
+              duration_ms, edition, added_at, updated_at) \
+             VALUES ('vx', 'bogus', 'm1', 'lib1', 'sd', 'mkv', '/x.mkv', 1, 1, NULL, 0, 0)",
         )
         .execute(&repo.pool)
         .await
@@ -2005,6 +2137,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: from_millis(0).unwrap(),
+            updated_at: from_millis(0).unwrap(),
             artwork: Vec::new(),
         })
         .await

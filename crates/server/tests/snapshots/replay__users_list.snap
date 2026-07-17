@@ -14,6 +14,7 @@ expression: value
         "preferred_audio": [],
         "preferred_subtitle": [],
         "role": "admin",
+        "updated_at": "2023-11-14T22:13:20Z",
         "username": "admin"
       },
       {
@@ -25,6 +26,7 @@ expression: value
         "preferred_audio": [],
         "preferred_subtitle": [],
         "role": "user",
+        "updated_at": "2023-11-14T22:13:20Z",
         "username": "user"
       }
     ],

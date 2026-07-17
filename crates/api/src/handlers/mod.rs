@@ -3,6 +3,7 @@ pub mod auth;
 pub mod catalog;
 pub mod discovery;
 pub mod image;
+pub mod job_log;
 pub mod library;
 pub mod server;
 pub mod sessions;
@@ -25,6 +26,16 @@ pub(crate) fn require_admin_or_self(actor: &Principal, target: &UserId) -> ApiRe
         Ok(())
     } else {
         Err(ApiError::forbidden("not permitted for this user"))
+    }
+}
+
+pub(crate) fn deny_player(actor: &Principal) -> ApiResult<()> {
+    if actor.role == Role::Player {
+        Err(ApiError::forbidden(
+            "player sessions can only play; manage your account from a full session",
+        ))
+    } else {
+        Ok(())
     }
 }
 

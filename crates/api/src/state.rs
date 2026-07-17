@@ -4,9 +4,9 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use domain::catalog::{
-    Collection, CollectionId, CollectionUpdate, Episode, EpisodeId, Movie, MovieDetail, MovieId,
-    NewCollection, PersonProfile, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleCard,
-    TitleId, TitleListQuery, TitleRef, Version, VersionDetail, VersionId,
+    Collection, CollectionDetail, CollectionId, CollectionUpdate, Episode, EpisodeId, Movie,
+    MovieDetail, MovieId, NewCollection, PersonProfile, Season, SeasonId, Series, SeriesDetail,
+    SeriesId, TitleCard, TitleId, TitleListQuery, TitleRef, Version, VersionDetail, VersionId,
 };
 use domain::common::{Page, PageRequest};
 use domain::discovery::{ContinueWatchingItem, Hub, SearchKind, SearchResult};
@@ -20,7 +20,7 @@ use domain::library::{
 };
 use domain::metadata::{ExternalId, Genre, PersonId};
 use domain::playback::{
-    Favorite, PlaybackProgress, TitleState, WatchHistory, WatchTarget, WatchlistItem,
+    Favorite, PlaybackProgress, TitleState, WatchHistory, WatchTarget, WatchedRollup, WatchlistItem,
 };
 use domain::service::{
     AuthService, CatalogService, DiscoveryService, LibraryService, SessionService,
@@ -118,6 +118,26 @@ impl TrickplayState {
     }
 }
 
+pub struct JobLogState<J> {
+    pub store: Arc<J>,
+}
+
+impl<J> JobLogState<J> {
+    pub fn new(store: J) -> Self {
+        Self {
+            store: Arc::new(store),
+        }
+    }
+}
+
+impl<J> Clone for JobLogState<J> {
+    fn clone(&self) -> Self {
+        Self {
+            store: Arc::clone(&self.store),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookClient {
     pub name: String,
@@ -171,6 +191,14 @@ where
         self.auth.create_link_code(caller, user, ttl_secs).await
     }
 
+    async fn list_link_codes(&self, user: &UserId) -> Result<Vec<PendingLink>, AuthError> {
+        self.auth.list_link_codes(user).await
+    }
+
+    async fn revoke_link_code(&self, user: &UserId, code: &str) -> Result<(), AuthError> {
+        self.auth.revoke_link_code(user, code).await
+    }
+
     async fn logout(&self, refresh_token: &str) -> Result<(), AuthError> {
         self.auth.logout(refresh_token).await
     }
@@ -218,7 +246,7 @@ where
         &self,
         caller: &Principal,
         id: &CollectionId,
-    ) -> Result<Collection, CatalogError> {
+    ) -> Result<CollectionDetail, CatalogError> {
         self.catalog.collection(caller, id).await
     }
 
@@ -529,6 +557,15 @@ where
         self.library.reidentify(caller, title, external_id).await
     }
 
+    async fn relink_version(
+        &self,
+        caller: &Principal,
+        version: &VersionId,
+        target: ResolveTarget,
+    ) -> Result<(), LibraryError> {
+        self.library.relink_version(caller, version, target).await
+    }
+
     async fn jobs(&self, caller: &Principal) -> Result<Vec<Job>, LibraryError> {
         self.library.jobs(caller).await
     }
@@ -664,6 +701,14 @@ where
         titles: &[TitleId],
     ) -> Result<Vec<TitleState>, UserError> {
         self.user_library.title_states(user, titles).await
+    }
+
+    async fn watched_rollups(
+        &self,
+        user: &UserId,
+        targets: &[WatchTarget],
+    ) -> Result<Vec<WatchedRollup>, UserError> {
+        self.user_library.watched_rollups(user, targets).await
     }
 }
 

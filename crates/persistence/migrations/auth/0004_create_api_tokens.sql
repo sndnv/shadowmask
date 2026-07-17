@@ -3,7 +3,8 @@ CREATE TABLE api_tokens (
     user_id TEXT NOT NULL,
     device_id TEXT NOT NULL,
     token_hash TEXT NOT NULL UNIQUE,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER
 );
 
 CREATE INDEX idx_api_tokens_user ON api_tokens (user_id);

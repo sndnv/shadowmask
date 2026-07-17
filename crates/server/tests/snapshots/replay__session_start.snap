@@ -10,7 +10,7 @@ expression: value
       "credits": [],
       "intro": []
     },
-    "mode": "direct",
+    "mode": "remux",
     "selected": {
       "audio_track": null,
       "subtitle_delivery": "hls_vtt",

@@ -95,11 +95,15 @@ mod tests {
         TranscodeSpec {
             session: SessionId(id.to_owned()),
             input_path: "/media/m1.mkv".to_owned(),
+            duration_ms: 100_000,
+            copy: false,
             seek_ms: None,
             audio_track: None,
             max_height: None,
             max_bitrate: None,
             burn_subtitle_path: None,
+            soft_subtitle: None,
+            downmix_stereo: false,
         }
     }
 

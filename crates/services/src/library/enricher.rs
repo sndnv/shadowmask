@@ -1,8 +1,8 @@
 use std::future::Future;
 
 use domain::catalog::{
-    ArtworkId, ArtworkOwner, Episode, EpisodeId, Movie, MovieId, Season, SeasonId, Series,
-    SeriesId, TitleId, TitleRef, Version, VersionId,
+    ArtworkId, ArtworkOwner, Collection, CollectionId, Episode, EpisodeId, Movie, MovieId, Season,
+    SeasonId, Series, SeriesId, TitleId, TitleRef, Version, VersionId,
 };
 use domain::common::Quality;
 use domain::error::RepositoryError;
@@ -10,9 +10,11 @@ use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
 use domain::library::{
     DiscoveredFile, Library, LibraryKind, MatchedGroup, ParsedMedia, ResolveTarget, ScanReport,
 };
+use domain::media::{SubtitleFile, SubtitleFileId, SubtitleSource};
 use domain::metadata::{
-    Artwork, ArtworkKind, Credit, ExternalId, Genre, GenreId, MediaKind, MetadataProvider,
-    MetadataQuery, Person, PersonId, Studio, StudioId, TitleEnrichment, TitleMetadata,
+    Artwork, ArtworkKind, CollectionMeta, Credit, ExternalId, Genre, GenreId, MediaKind,
+    MetadataProvider, MetadataQuery, Person, PersonId, Studio, StudioId, TitleEnrichment,
+    TitleMetadata,
 };
 use domain::repository::{CatalogRepository, JobRepository, LibraryRepository};
 use jiff::Timestamp;
@@ -20,8 +22,8 @@ use tracing::{debug, warn};
 use uuid::Uuid;
 
 use super::{
-    ArtworkJobItem, ArtworkJobPayload, Matcher, TrickplayJobPayload, find_duplicates,
-    normalize_title, parse_filename,
+    ArtworkJobItem, ArtworkJobPayload, Matcher, SubtitleJobPayload, TrickplayJobPayload,
+    discover_subtitles, find_duplicates, normalize_title, parse_filename,
 };
 
 const ID_NAMESPACE: Uuid = Uuid::NAMESPACE_URL;
@@ -59,6 +61,14 @@ pub struct Enricher<C, M, J, L> {
     jobs: J,
     libraries: L,
     matcher: Matcher,
+    subtitle_languages: Vec<String>,
+}
+
+struct SubtitleContext {
+    imdb_id: Option<String>,
+    title: String,
+    season: Option<u16>,
+    episode: Option<u16>,
 }
 
 impl<C, M, J, L> Enricher<C, M, J, L> {
@@ -69,7 +79,13 @@ impl<C, M, J, L> Enricher<C, M, J, L> {
             jobs,
             libraries,
             matcher: Matcher::new(),
+            subtitle_languages: Vec::new(),
         }
+    }
+
+    pub fn with_subtitle_languages(mut self, languages: Vec<String>) -> Self {
+        self.subtitle_languages = languages;
+        self
     }
 }
 
@@ -158,6 +174,7 @@ where
             "movie",
             &format!("{slug}:{}", parsed.year.unwrap_or(0)),
         ));
+        let now = Timestamp::now();
         self.catalog
             .upsert_movie(Movie {
                 id: movie_id.clone(),
@@ -166,25 +183,69 @@ where
                 overview: metadata.as_ref().and_then(|m| m.overview.clone()),
                 runtime_minutes: metadata.as_ref().and_then(|m| m.runtime_minutes),
                 content_rating: metadata.as_ref().and_then(|m| m.content_rating.clone()),
-                added_at: Timestamp::now(),
+                added_at: now,
+                updated_at: now,
                 artwork: Vec::new(),
             })
             .await?;
+        let subtitle = SubtitleContext {
+            imdb_id: imdb_id(metadata.as_ref()),
+            title: parsed.title.clone(),
+            season: None,
+            episode: None,
+        };
         for file in files {
             self.ingest_file(
                 file,
                 TitleId::Movie(movie_id.clone()),
                 library,
                 parsed.quality,
+                &subtitle,
             )
             .await?;
         }
         if let Some(metadata) = &metadata {
             self.persist_enrichment(&TitleRef::Movie(movie_id.clone()), metadata)
                 .await?;
+            if let Some(collection) = &metadata.collection {
+                self.attach_to_collection(&movie_id, collection).await?;
+            }
         }
         let artwork = metadata.map(|m| m.artwork).unwrap_or_default();
         self.enqueue_artwork(ArtworkOwner::Movie(movie_id), artwork)
+            .await
+    }
+
+    async fn attach_to_collection(
+        &self,
+        movie: &MovieId,
+        meta: &CollectionMeta,
+    ) -> Result<(), RepositoryError> {
+        let id = CollectionId(derive_id(
+            "collection",
+            &format!("{}:{}", meta.external_id.source, meta.external_id.value),
+        ));
+        let now = Timestamp::now();
+        let collection = match self.catalog.get_collection(&id).await? {
+            Some(mut existing) => {
+                if !existing.movies.contains(movie) {
+                    existing.movies.push(movie.clone());
+                }
+                existing.updated_at = now;
+                existing
+            }
+            None => Collection {
+                id: id.clone(),
+                name: meta.name.clone(),
+                overview: None,
+                movies: vec![movie.clone()],
+                added_at: now,
+                updated_at: now,
+                artwork: Vec::new(),
+            },
+        };
+        self.catalog.upsert_collection(collection).await?;
+        self.enqueue_artwork(ArtworkOwner::Collection(id), meta.artwork.clone())
             .await
     }
 
@@ -218,6 +279,7 @@ where
             "episode",
             &format!("{series_key}:{season_no}:{episode_no}"),
         ));
+        let now = Timestamp::now();
 
         self.catalog
             .upsert_series(Series {
@@ -226,7 +288,8 @@ where
                 year: parsed.year,
                 overview: metadata.as_ref().and_then(|m| m.overview.clone()),
                 content_rating: metadata.as_ref().and_then(|m| m.content_rating.clone()),
-                added_at: Timestamp::now(),
+                added_at: now,
+                updated_at: now,
                 artwork: Vec::new(),
             })
             .await?;
@@ -237,6 +300,8 @@ where
                 number: season_no,
                 title: Some(format!("Season {season_no}")),
                 overview: None,
+                added_at: now,
+                updated_at: now,
                 artwork: Vec::new(),
             })
             .await?;
@@ -249,16 +314,24 @@ where
                 overview: None,
                 runtime_minutes: None,
                 air_date: None,
-                added_at: Timestamp::now(),
+                added_at: now,
+                updated_at: now,
                 artwork: Vec::new(),
             })
             .await?;
+        let subtitle = SubtitleContext {
+            imdb_id: imdb_id(metadata.as_ref()),
+            title: parsed.title.clone(),
+            season: Some(season_no),
+            episode: Some(episode_no),
+        };
         for file in files {
             self.ingest_file(
                 file,
                 TitleId::Episode(episode_id.clone()),
                 library,
                 parsed.quality,
+                &subtitle,
             )
             .await?;
         }
@@ -277,8 +350,10 @@ where
         title: TitleId,
         library: &Library,
         quality: Option<Quality>,
+        subtitle: &SubtitleContext,
     ) -> Result<(), RepositoryError> {
         let version_id = VersionId(derive_id("version", &file.path));
+        let now = Timestamp::now();
         self.catalog
             .upsert_version(Version {
                 id: version_id.clone(),
@@ -291,6 +366,8 @@ where
                 duration_ms: file.probe.duration_ms,
                 edition: None,
                 available: true,
+                added_at: now,
+                updated_at: now,
             })
             .await?;
         self.catalog
@@ -302,7 +379,63 @@ where
                 &file.probe.chapters,
             )
             .await?;
+        let subtitle_files: Vec<SubtitleFile> =
+            discover_subtitles(&file.path, &file.subtitle_siblings)
+                .into_iter()
+                .map(|sub| SubtitleFile {
+                    id: SubtitleFileId(derive_id("subtitle", &sub.path)),
+                    version: version_id.clone(),
+                    language: sub.language,
+                    format: sub.format,
+                    source: SubtitleSource::External,
+                    path: sub.path,
+                })
+                .collect();
+        if !subtitle_files.is_empty() {
+            self.catalog
+                .set_subtitle_files(&version_id, &subtitle_files)
+                .await?;
+        }
         self.enqueue_trickplay(&version_id, &file.path, file.probe.duration_ms)
+            .await?;
+        self.enqueue_subtitles(&version_id, subtitle).await
+    }
+
+    async fn enqueue_subtitles(
+        &self,
+        version_id: &VersionId,
+        ctx: &SubtitleContext,
+    ) -> Result<(), RepositoryError> {
+        if self.subtitle_languages.is_empty() {
+            return Ok(());
+        }
+        let raw = SubtitleJobPayload {
+            version_id: version_id.clone(),
+            imdb_id: ctx.imdb_id.clone(),
+            title: Some(ctx.title.clone()),
+            languages: self.subtitle_languages.clone(),
+            season: ctx.season,
+            episode: ctx.episode,
+        }
+        .encode()
+        .expect("subtitle job payload serializes");
+        let now = Timestamp::now();
+        self.jobs
+            .enqueue(Job {
+                id: JobId(Uuid::new_v4().to_string()),
+                kind: JobKind::Subtitles,
+                status: JobStatus::Queued,
+                priority: JobPriority::Normal,
+                payload: raw,
+                attempts: 0,
+                progress: 0.0,
+                available_at: now,
+                last_error: None,
+                created_at: now,
+                updated_at: now,
+                started_at: None,
+                finished_at: None,
+            })
             .await
     }
 
@@ -333,6 +466,8 @@ where
                 last_error: None,
                 created_at: now,
                 updated_at: now,
+                started_at: None,
+                finished_at: None,
             })
             .await
     }
@@ -371,6 +506,8 @@ where
                 last_error: None,
                 created_at: now,
                 updated_at: now,
+                started_at: None,
+                finished_at: None,
             })
             .await
     }
@@ -555,7 +692,13 @@ where
         let parsed = parse_filename(&file.path);
         match target {
             ResolveTarget::Existing(title) => {
-                self.ingest_file(file, title.clone(), library, parsed.quality)
+                let subtitle = SubtitleContext {
+                    imdb_id: None,
+                    title: parsed.title.clone(),
+                    season: parsed.season,
+                    episode: parsed.episode,
+                };
+                self.ingest_file(file, title.clone(), library, parsed.quality, &subtitle)
                     .await
             }
             ResolveTarget::Provider(external_id) => {
@@ -598,6 +741,14 @@ fn container_of(path: &str) -> String {
     base.rsplit_once('.')
         .map(|(_, ext)| ext.to_ascii_lowercase())
         .unwrap_or_else(|| "bin".to_owned())
+}
+
+fn imdb_id(metadata: Option<&TitleMetadata>) -> Option<String> {
+    metadata?
+        .external_ids
+        .iter()
+        .find(|id| id.source == "imdb")
+        .map(|id| id.value.clone())
 }
 
 #[cfg(test)]
@@ -673,6 +824,8 @@ mod tests {
             watcher: WatcherStrategy::Manual,
             scan_schedule: None,
             metadata_sources: Vec::new(),
+            created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 
@@ -681,6 +834,7 @@ mod tests {
             library: LibraryId("lib".into()),
             path: path.into(),
             size_bytes: 10,
+            subtitle_siblings: Vec::new(),
             probe: ProbeResult {
                 duration_ms: 1000,
                 video: Vec::new(),
@@ -769,6 +923,43 @@ mod tests {
         );
         assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 0);
         assert_eq!(count_kind(&jobs, JobKind::Trickplay).await, 1);
+        assert_eq!(count_kind(&jobs, JobKind::Subtitles).await, 0);
+    }
+
+    #[tokio::test]
+    async fn movie_ingest_enqueues_subtitles_when_languages_configured() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog.clone(), None, jobs.clone())
+            .with_subtitle_languages(vec!["en".into()]);
+
+        svc.enrich(
+            &library(LibraryKind::Movie),
+            &report(&["/m/The Matrix (1999) 1080p.mkv"]),
+        )
+        .await;
+
+        assert_eq!(count_kind(&jobs, JobKind::Subtitles).await, 1);
+    }
+
+    #[test]
+    fn imdb_id_extracts_matching_source() {
+        let metadata = TitleMetadata {
+            external_ids: vec![
+                ExternalId {
+                    source: "tmdb".into(),
+                    value: "movie/603".into(),
+                },
+                ExternalId {
+                    source: "imdb".into(),
+                    value: "tt0133093".into(),
+                },
+            ],
+            ..TitleMetadata::default()
+        };
+        assert_eq!(imdb_id(Some(&metadata)), Some("tt0133093".to_owned()));
+        assert_eq!(imdb_id(Some(&TitleMetadata::default())), None);
+        assert_eq!(imdb_id(None), None);
     }
 
     #[tokio::test]
@@ -817,6 +1008,7 @@ mod tests {
                 source: "tmdb".into(),
                 value: "movie/603".into(),
             }],
+            collection: None,
         };
         let svc = enricher(
             catalog.clone(),
@@ -859,6 +1051,163 @@ mod tests {
         assert_eq!(count_kind(&jobs, JobKind::Trickplay).await, 1);
     }
 
+    fn tmdb_collection(name: &str) -> CollectionMeta {
+        CollectionMeta {
+            external_id: ExternalId {
+                source: "tmdb".into(),
+                value: "collection/2344".into(),
+            },
+            name: name.into(),
+            artwork: vec![art(ArtworkKind::Poster), art(ArtworkKind::Backdrop)],
+        }
+    }
+
+    fn movie_with_collection(name: &str) -> TitleMetadata {
+        TitleMetadata {
+            collection: Some(tmdb_collection(name)),
+            ..TitleMetadata::default()
+        }
+    }
+
+    fn matrix_collection_id() -> CollectionId {
+        CollectionId(derive_id("collection", "tmdb:collection/2344"))
+    }
+
+    #[tokio::test]
+    async fn movie_ingest_attaches_to_collection() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider {
+                mode: ProviderMode::Full(Box::new(movie_with_collection("The Matrix Collection"))),
+            }),
+            jobs.clone(),
+        );
+
+        svc.enrich(
+            &library(LibraryKind::Movie),
+            &report(&["/m/The Matrix (1999) 1080p.mkv"]),
+        )
+        .await;
+
+        let movie = catalog.list_movies(page()).await.unwrap().items[0].clone();
+        let collection = catalog
+            .get_collection(&matrix_collection_id())
+            .await
+            .unwrap()
+            .expect("collection created");
+        assert_eq!(collection.name, "The Matrix Collection");
+        assert_eq!(collection.movies, vec![movie.id]);
+
+        assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 1);
+        let artwork = jobs
+            .list()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|j| j.kind == JobKind::Artwork)
+            .unwrap();
+        let payload = ArtworkJobPayload::decode(&artwork.payload).unwrap();
+        assert!(matches!(payload.owner, ArtworkOwner::Collection(_)));
+        assert_eq!(payload.items.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn second_movie_joins_existing_collection() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider {
+                mode: ProviderMode::Full(Box::new(movie_with_collection("Matrix"))),
+            }),
+            jobs.clone(),
+        );
+
+        svc.enrich(
+            &library(LibraryKind::Movie),
+            &report(&[
+                "/m/The Matrix (1999) 1080p.mkv",
+                "/m/The Matrix Reloaded (2003) 1080p.mkv",
+            ]),
+        )
+        .await;
+
+        let collection = catalog
+            .get_collection(&matrix_collection_id())
+            .await
+            .unwrap()
+            .expect("collection created");
+        assert_eq!(collection.movies.len(), 2);
+        let movies = catalog.list_movies(page()).await.unwrap();
+        assert_eq!(movies.total, 2);
+    }
+
+    #[tokio::test]
+    async fn re_ingesting_same_movie_keeps_single_membership() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider {
+                mode: ProviderMode::Full(Box::new(movie_with_collection("Matrix"))),
+            }),
+            jobs.clone(),
+        );
+        let report = report(&["/m/The Matrix (1999) 1080p.mkv"]);
+
+        svc.enrich(&library(LibraryKind::Movie), &report).await;
+        svc.enrich(&library(LibraryKind::Movie), &report).await;
+
+        let collection = catalog
+            .get_collection(&matrix_collection_id())
+            .await
+            .unwrap()
+            .expect("collection created");
+        assert_eq!(collection.movies.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn existing_collection_name_and_overview_are_preserved() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        catalog
+            .upsert_collection(Collection {
+                id: matrix_collection_id(),
+                name: "My Curated Set".into(),
+                overview: Some("hand written".into()),
+                movies: Vec::new(),
+                added_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
+                artwork: Vec::new(),
+            })
+            .await
+            .unwrap();
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider {
+                mode: ProviderMode::Full(Box::new(movie_with_collection("TMDB Name"))),
+            }),
+            jobs.clone(),
+        );
+
+        svc.enrich(
+            &library(LibraryKind::Movie),
+            &report(&["/m/The Matrix (1999) 1080p.mkv"]),
+        )
+        .await;
+
+        let collection = catalog
+            .get_collection(&matrix_collection_id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(collection.name, "My Curated Set");
+        assert_eq!(collection.overview.as_deref(), Some("hand written"));
+        assert_eq!(collection.movies.len(), 1);
+    }
+
     #[tokio::test]
     async fn movie_ingest_persists_probe_tracks_and_trickplay_payload() {
         let catalog = MockCatalogRepo::new();
@@ -869,6 +1218,7 @@ mod tests {
             library: LibraryId("lib".into()),
             path: path.into(),
             size_bytes: 10,
+            subtitle_siblings: Vec::new(),
             probe: ProbeResult {
                 duration_ms: 7_200_000,
                 video: Vec::new(),
@@ -905,6 +1255,53 @@ mod tests {
         assert_eq!(payload.version_id, version_id);
         assert_eq!(payload.source_path, path);
         assert_eq!(payload.duration_ms, 7_200_000);
+    }
+
+    #[tokio::test]
+    async fn movie_ingest_persists_sidecar_subtitles() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        let path = "/m/The Matrix (1999) 1080p.mkv";
+        let file = DiscoveredFile {
+            library: LibraryId("lib".into()),
+            path: path.into(),
+            size_bytes: 10,
+            subtitle_siblings: vec![
+                "/m/The Matrix (1999) 1080p.en.srt".into(),
+                "/m/The Matrix (1999) 1080p.fr.srt".into(),
+            ],
+            probe: ProbeResult {
+                duration_ms: 7_200_000,
+                video: Vec::new(),
+                audio: Vec::new(),
+                subtitles: Vec::new(),
+                chapters: Vec::new(),
+            },
+        };
+        let scan = ScanReport {
+            discovered: vec![file],
+            skipped: Vec::new(),
+            total_candidates: 1,
+        };
+
+        svc.enrich(&library(LibraryKind::Movie), &scan).await;
+
+        let version_id = VersionId(derive_id("version", path));
+        let detail = catalog.version_detail(&version_id).await.unwrap().unwrap();
+        assert_eq!(detail.subtitle_files.len(), 2);
+        assert!(
+            detail
+                .subtitle_files
+                .iter()
+                .all(|s| matches!(s.source, SubtitleSource::External))
+        );
+        let langs: Vec<_> = detail
+            .subtitle_files
+            .iter()
+            .filter_map(|s| s.language.as_ref().map(|l| l.0.clone()))
+            .collect();
+        assert!(langs.contains(&"en".to_owned()));
+        assert!(langs.contains(&"fr".to_owned()));
     }
 
     #[tokio::test]
@@ -1418,6 +1815,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
     }
@@ -1468,6 +1866,7 @@ mod tests {
             overview: Some("Stale".into()),
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
         let svc = enricher(

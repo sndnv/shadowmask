@@ -1,10 +1,10 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use domain::catalog::{
-    Collection, CollectionId, CollectionUpdate, Episode, EpisodeId, FilmographyEntry, Movie,
-    MovieDetail, MovieId, NewCollection, PersonProfile, Season, SeasonId, Series, SeriesDetail,
-    SeriesId, TitleCard, TitleId, TitleKind, TitleListQuery, TitleRef, Version, VersionDetail,
-    VersionId, sort_titles,
+    Collection, CollectionDetail, CollectionId, CollectionUpdate, Episode, EpisodeCard, EpisodeId,
+    FilmographyEntry, Movie, MovieDetail, MovieId, NewCollection, PersonProfile, Season, SeasonId,
+    Series, SeriesDetail, SeriesId, TitleCard, TitleId, TitleKind, TitleListQuery, TitleRef,
+    Version, VersionDetail, VersionId, sort_titles,
 };
 use domain::common::{Page, PageRequest};
 use domain::error::CatalogError;
@@ -13,6 +13,7 @@ use domain::metadata::{ContentRating, Genre, GenreId, PersonId};
 use domain::repository::{CatalogRepository, UserRepository};
 use domain::service::CatalogService;
 use domain::user::Principal;
+use jiff::Timestamp;
 use uuid::Uuid;
 
 use crate::acl;
@@ -129,11 +130,19 @@ where
         &self,
         _caller: &Principal,
         id: &CollectionId,
-    ) -> Result<Collection, CatalogError> {
-        self.catalog
+    ) -> Result<CollectionDetail, CatalogError> {
+        let collection = self
+            .catalog
             .get_collection(id)
             .await?
-            .ok_or(CatalogError::NotFound)
+            .ok_or(CatalogError::NotFound)?;
+        let mut movies = Vec::with_capacity(collection.movies.len());
+        for movie_id in &collection.movies {
+            if let Some(movie) = self.catalog.get_movie(movie_id).await? {
+                movies.push(movie);
+            }
+        }
+        Ok(CollectionDetail { collection, movies })
     }
 
     async fn create_collection(
@@ -141,11 +150,14 @@ where
         _caller: &Principal,
         input: NewCollection,
     ) -> Result<Collection, CatalogError> {
+        let now = Timestamp::now();
         let collection = Collection {
             id: CollectionId(Uuid::new_v4().to_string()),
             name: input.name,
             overview: input.overview,
             movies: input.movies,
+            added_at: now,
+            updated_at: now,
             artwork: Vec::new(),
         };
         self.catalog.upsert_collection(collection.clone()).await?;
@@ -162,11 +174,14 @@ where
             .get_collection(id)
             .await?
             .ok_or(CatalogError::NotFound)?;
+        let now = Timestamp::now();
         let collection = Collection {
             id: id.clone(),
             name: update.name,
             overview: update.overview,
             movies: update.movies,
+            added_at: now,
+            updated_at: now,
             artwork: Vec::new(),
         };
         self.catalog.upsert_collection(collection.clone()).await?;
@@ -433,6 +448,8 @@ where
         } else {
             self.rating_cap(caller).await?
         };
+        let mut seasons: HashMap<SeasonId, Option<Season>> = HashMap::new();
+        let mut series: HashMap<SeriesId, Option<Series>> = HashMap::new();
         let mut cards = Vec::new();
         for id in ids {
             match id {
@@ -449,7 +466,35 @@ where
                     let Some(episode) = self.catalog.get_episode(episode_id).await? else {
                         continue;
                     };
-                    cards.push(TitleCard::Episode(episode));
+                    let season = match seasons.get(&episode.season).cloned() {
+                        Some(cached) => cached,
+                        None => {
+                            let loaded = self.catalog.get_season(&episode.season).await?;
+                            seasons.insert(episode.season.clone(), loaded.clone());
+                            loaded
+                        }
+                    };
+                    let series_id = season.as_ref().map(|s| s.series.clone());
+                    let series_title = match &series_id {
+                        Some(sid) => {
+                            let resolved = match series.get(sid).cloned() {
+                                Some(cached) => cached,
+                                None => {
+                                    let loaded = self.catalog.get_series(sid).await?;
+                                    series.insert(sid.clone(), loaded.clone());
+                                    loaded
+                                }
+                            };
+                            resolved.map(|s| s.title)
+                        }
+                        None => None,
+                    };
+                    cards.push(TitleCard::Episode(EpisodeCard {
+                        season_number: season.as_ref().map(|s| s.number),
+                        series: series_id,
+                        series_title,
+                        episode,
+                    }));
                 }
             }
         }
@@ -541,7 +586,7 @@ mod tests {
             .iter()
             .map(|card| match card {
                 TitleCard::Movie(m) => m.id.0.as_str(),
-                TitleCard::Episode(e) => e.id.0.as_str(),
+                TitleCard::Episode(e) => e.episode.id.0.as_str(),
             })
             .collect()
     }
@@ -555,6 +600,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: code.map(rating),
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         }
     }
@@ -571,6 +617,8 @@ mod tests {
             duration_ms: 1000,
             edition: None,
             available: true,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 
@@ -586,6 +634,7 @@ mod tests {
             concurrent_stream_limit: None,
             bitrate_cap: None,
             created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 
@@ -603,6 +652,7 @@ mod tests {
                 code: "TV-MA".into(),
             }),
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
         catalog.add_series(Series {
@@ -612,6 +662,7 @@ mod tests {
             overview: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
         catalog.add_season(Season {
@@ -620,6 +671,8 @@ mod tests {
             number: 1,
             title: None,
             overview: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
         catalog.add_episode(Episode {
@@ -631,6 +684,7 @@ mod tests {
             runtime_minutes: None,
             air_date: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
         catalog.add_season(Season {
@@ -639,6 +693,8 @@ mod tests {
             number: 1,
             title: None,
             overview: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
         catalog.add_episode(Episode {
@@ -650,6 +706,7 @@ mod tests {
             runtime_minutes: None,
             air_date: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
         catalog.add_version(version("v1", "lib1"));
@@ -665,6 +722,8 @@ mod tests {
             duration_ms: 1000,
             edition: None,
             available: true,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         });
 
         catalog
@@ -1068,11 +1127,82 @@ mod tests {
 
         let admin_cards = svc.title_cards(&admin(), &ids).await.unwrap();
         assert_eq!(card_ids(&admin_cards), ["m1", "e1", "m2"]);
+        let TitleCard::Episode(e1) = &admin_cards[1] else {
+            panic!("expected an episode card");
+        };
+        assert_eq!(e1.series, Some(SeriesId("s1".into())));
+        assert_eq!(e1.series_title.as_deref(), Some("s1"));
+        assert_eq!(e1.season_number, Some(1));
 
         let member_cards = svc.title_cards(&member(), &ids).await.unwrap();
         assert_eq!(card_ids(&member_cards), ["m1", "e1"]);
 
         assert!(svc.title_cards(&member(), &[]).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn title_cards_episode_context_falls_back_when_rows_missing() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_season(Season {
+            id: SeasonId("se-orphan".into()),
+            series: SeriesId("s-missing".into()),
+            number: 4,
+            title: None,
+            overview: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        });
+        catalog.add_episode(Episode {
+            id: EpisodeId("no-series".into()),
+            season: SeasonId("se-orphan".into()),
+            number: 4,
+            title: "no-series".into(),
+            overview: None,
+            runtime_minutes: None,
+            air_date: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        });
+        catalog.add_episode(Episode {
+            id: EpisodeId("no-season".into()),
+            season: SeasonId("gone".into()),
+            number: 7,
+            title: "no-season".into(),
+            overview: None,
+            runtime_minutes: None,
+            air_date: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        });
+        let svc = CatalogServiceImpl::new(catalog, MockUserRepo::new());
+
+        let cards = svc
+            .title_cards(
+                &admin(),
+                &[
+                    TitleId::Episode(EpisodeId("no-series".into())),
+                    TitleId::Episode(EpisodeId("no-season".into())),
+                ],
+            )
+            .await
+            .unwrap();
+
+        let TitleCard::Episode(no_series) = &cards[0] else {
+            panic!("expected an episode card");
+        };
+        assert_eq!(no_series.series, Some(SeriesId("s-missing".into())));
+        assert_eq!(no_series.series_title, None);
+        assert_eq!(no_series.season_number, Some(4));
+
+        let TitleCard::Episode(no_season) = &cards[1] else {
+            panic!("expected an episode card");
+        };
+        assert_eq!(no_season.series, None);
+        assert_eq!(no_season.series_title, None);
+        assert_eq!(no_season.season_number, None);
     }
 
     #[tokio::test]

@@ -4,6 +4,7 @@ expression: value
 ---
 {
   "body": {
+    "added_at": "[added_at]",
     "audio": [
       {
         "bitrate": 128000,
@@ -26,6 +27,14 @@ expression: value
     },
     "quality": "sd",
     "size_bytes": 1,
+    "subtitle_files": [
+      {
+        "format": "srt",
+        "id": "v1-en",
+        "language": "en",
+        "source": "external"
+      }
+    ],
     "subtitles": [
       {
         "default": true,
@@ -40,6 +49,7 @@ expression: value
       "type": "movie"
     },
     "trickplay": [],
+    "updated_at": "[updated_at]",
     "video": [
       {
         "bit_depth": 8,

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Admin activity</title>
+  </head>
+  <body>
+    <h1>Activity</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs"><a href="index.html">Admin</a> / <span id="activity-crumb">Activity</span></p>
+    <p><button type="button" id="refresh">Refresh</button></p>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      if (sm.requireAuth()) guard();
+
+      async function guard() {
+        const main = document.getElementById("main");
+        try {
+          const me = await sm.self();
+          if (me.role !== "admin") {
+            main.textContent = "Not Authorized.";
+            return;
+          }
+          document.getElementById("refresh").addEventListener("click", load);
+          await load();
+        } catch (err) {
+          main.textContent = "Could not load.";
+        }
+      }
+
+      async function load() {
+        const main = document.getElementById("main");
+        main.textContent = "Loading...";
+        try {
+          const page = await sm.json("/api/v1/users/activity");
+          document.getElementById("activity-crumb").textContent =
+            "Activity (" + (page.total != null ? page.total : page.items.length) + ")";
+          main.textContent = "";
+          if (!page.items.length) {
+            main.appendChild(sm.el("p", { text: "Nothing playing." }));
+            return;
+          }
+          const rows = page.items.map((s) => [
+            s.card ? s.card.display_title : "Version " + s.version_id,
+            String(s.user_id),
+            s.state,
+            s.mode,
+            Math.round(s.position_ms / 60000) + " min",
+            s.card ? s.card.progress_percent + "%" : "",
+          ]);
+          main.appendChild(
+            sm.table(["Title", "User", "State", "Mode", "Position", "Progress"], rows),
+          );
+        } catch (err) {
+          main.textContent = "Could not load activity.";
+        }
+      }
+    </script>
+  </body>
+</html>

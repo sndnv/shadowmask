@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Version</title>
+  </head>
+  <body>
+    <nav id="nav"></nav>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      if (sm.requireAuth()) load();
+
+      async function load() {
+        const main = document.getElementById("main");
+        const id = sm.qs("id");
+        if (!id) {
+          main.textContent = "Unknown version.";
+          return;
+        }
+        try {
+          const v = await sm.json("/api/v1/versions/" + encodeURIComponent(id));
+          main.textContent = "";
+          main.appendChild(sm.el("h1", { text: "Version" }));
+          main.appendChild(sm.el("p", null, sm.el("a", { href: sm.href.ref(v.title) }, "Back to title")));
+          if (v.available) {
+            main.appendChild(sm.el("p", null, sm.el("a", { href: sm.href.watch(v.id) }, "Play")));
+          }
+          const dl = sm.el("dl");
+          const add = (key, value) => {
+            if (value === null || value === undefined || value === "") return;
+            dl.appendChild(sm.el("dt", { text: key }));
+            dl.appendChild(sm.el("dd", { text: String(value) }));
+          };
+          add("Quality", v.quality.toUpperCase());
+          add("Container", v.container);
+          add("Edition", v.edition);
+          add("Size", Math.round(v.size_bytes / 1048576) + " MB");
+          add("Duration", Math.round(v.duration_ms / 60000) + " min");
+          add("Available", v.available ? "yes" : "no");
+          add("Added", sm.time(v.added_at));
+          add("Updated", sm.time(v.updated_at));
+          add("Path", v.path);
+          main.appendChild(dl);
+
+          const me = await sm.self().catch(() => null);
+          if (me && me.role === "admin") {
+            const host = sm.el("div", null);
+            const relink = sm.el("button", { type: "button" }, "Relink this version");
+            relink.addEventListener("click", () => {
+              host.textContent = "";
+              host.appendChild(sm.relinkPanel(v.id, "this version"));
+            });
+            main.appendChild(relink);
+            main.appendChild(host);
+          }
+
+          tracks(main, "Video", v.video, (t) =>
+            t.codec +
+            " " +
+            t.width +
+            "x" +
+            t.height +
+            " " +
+            t.bit_depth +
+            "-bit" +
+            (t.hdr ? " " + t.hdr : "") +
+            " " +
+            t.frame_rate +
+            "fps",
+          );
+          tracks(main, "Audio", v.audio, (t) =>
+            t.codec + " " + t.channels + "ch" + (t.language ? " " + t.language : ""),
+          );
+          tracks(main, "Subtitles", v.subtitles, (t) =>
+            t.format +
+            (t.language ? " " + t.language : "") +
+            (t.forced ? " forced" : "") +
+            (t.default ? " default" : ""),
+          );
+
+          if (v.chapters && v.chapters.length) {
+            main.appendChild(sm.el("h2", { text: "Chapters" }));
+            main.appendChild(
+              sm.el(
+                "ol",
+                null,
+                v.chapters.map((c) =>
+                  sm.el("li", { text: c.title + " (" + Math.round(c.start_ms / 1000) + "s)" }),
+                ),
+              ),
+            );
+          }
+
+          const markers = (v.markers.intro || [])
+            .map((m) => "Intro " + Math.round(m.start_ms / 1000) + " to " + Math.round(m.end_ms / 1000) + "s")
+            .concat(
+              (v.markers.credits || []).map(
+                (m) => "Credits " + Math.round(m.start_ms / 1000) + " to " + Math.round(m.end_ms / 1000) + "s",
+              ),
+            );
+          if (markers.length) {
+            main.appendChild(sm.el("h2", { text: "Markers" }));
+            main.appendChild(sm.el("ul", null, markers.map((m) => sm.el("li", { text: m }))));
+          }
+
+          if (v.trickplay && v.trickplay.length) {
+            main.appendChild(sm.el("h2", { text: "Trickplay" }));
+            main.appendChild(
+              sm.el(
+                "ul",
+                null,
+                v.trickplay.map((t) =>
+                  sm.el("li", {
+                    text:
+                      t.columns +
+                      "x" +
+                      t.rows +
+                      " tiles, " +
+                      t.sheets +
+                      " sheet(s), every " +
+                      Math.round(t.interval_ms / 1000) +
+                      "s",
+                  }),
+                ),
+              ),
+            );
+          }
+        } catch (err) {
+          main.textContent = "Could not load this version.";
+        }
+      }
+
+      function tracks(main, label, list, fmt) {
+        if (!list || !list.length) return;
+        main.appendChild(sm.el("h2", { text: label }));
+        main.appendChild(sm.el("ul", null, list.map((t) => sm.el("li", { text: fmt(t) }))));
+      }
+    </script>
+  </body>
+</html>

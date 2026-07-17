@@ -4,13 +4,15 @@ expression: value
 ---
 {
   "body": {
+    "added_at": "[added_at]",
     "artwork": {},
     "id": "col-1",
     "movies": [
       "m1"
     ],
     "name": "New",
-    "overview": null
+    "overview": null,
+    "updated_at": "[updated_at]"
   },
   "status": 201
 }

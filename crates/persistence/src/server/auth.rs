@@ -66,6 +66,7 @@ fn row_to_device(row: &SqliteRow) -> Result<Device, RepositoryError> {
         user: UserId(column(row, "user_id")?),
         name: column(row, "name")?,
         platform: column(row, "platform")?,
+        created_at: from_millis(column(row, "created_at")?)?,
         last_seen,
     })
 }
@@ -77,6 +78,9 @@ fn row_to_api_token(row: &SqliteRow) -> Result<ApiToken, RepositoryError> {
         device: DeviceId(column(row, "device_id")?),
         token_hash: column(row, "token_hash")?,
         created_at: from_millis(column(row, "created_at")?)?,
+        last_used_at: column::<Option<i64>>(row, "last_used_at")?
+            .map(from_millis)
+            .transpose()?,
     })
 }
 
@@ -163,16 +167,46 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
         row.as_ref().map(row_to_link).transpose()
     }
 
+    async fn list_link_codes(
+        &self,
+        user: &UserId,
+        now: Timestamp,
+    ) -> Result<Vec<PendingLink>, RepositoryError> {
+        let _op = DbOpGuard::new("auth", "list_link_codes");
+        let rows = sqlx::query(
+            "SELECT * FROM link_codes WHERE user_id = ? AND expires_at > ? ORDER BY expires_at",
+        )
+        .bind(user.0.as_str())
+        .bind(to_millis(now))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(backend)?;
+        rows.iter().map(row_to_link).collect()
+    }
+
+    async fn delete_link_code(&self, code: &str, user: &UserId) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("auth", "delete_link_code");
+        sqlx::query("DELETE FROM link_codes WHERE code = ? AND user_id = ?")
+            .bind(code)
+            .bind(user.0.as_str())
+            .execute(&self.pool)
+            .await
+            .map_err(backend)?;
+        Ok(())
+    }
+
     async fn upsert_device(&self, device: Device) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("auth", "upsert_device");
         sqlx::query(
-            "INSERT OR REPLACE INTO devices (id, user_id, name, platform, last_seen) \
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO devices (id, user_id, name, platform, created_at, last_seen) \
+             VALUES (?, ?, ?, ?, COALESCE((SELECT created_at FROM devices WHERE id = ?), ?), ?)",
         )
         .bind(device.id.0.as_str())
         .bind(device.user.0.as_str())
         .bind(device.name.as_str())
         .bind(device.platform.as_str())
+        .bind(device.id.0.as_str())
+        .bind(to_millis(device.created_at))
         .bind(device.last_seen.map(to_millis))
         .execute(&self.pool)
         .await
@@ -193,14 +227,16 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
     async fn store_api_token(&self, token: ApiToken) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("auth", "store_api_token");
         sqlx::query(
-            "INSERT OR REPLACE INTO api_tokens (id, user_id, device_id, token_hash, created_at) \
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO api_tokens \
+             (id, user_id, device_id, token_hash, created_at, last_used_at) \
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(token.id.0.as_str())
         .bind(token.user.0.as_str())
         .bind(token.device.0.as_str())
         .bind(token.token_hash.as_str())
         .bind(to_millis(token.created_at))
+        .bind(token.last_used_at.map(to_millis))
         .execute(&self.pool)
         .await
         .map_err(backend)?;
@@ -218,6 +254,21 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
             .await
             .map_err(backend)?;
         row.as_ref().map(row_to_api_token).transpose()
+    }
+
+    async fn touch_api_token(
+        &self,
+        id: &ApiTokenId,
+        now: Timestamp,
+    ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("auth", "touch_api_token");
+        sqlx::query("UPDATE api_tokens SET last_used_at = ? WHERE id = ?")
+            .bind(to_millis(now))
+            .bind(id.0.as_str())
+            .execute(&self.pool)
+            .await
+            .map_err(backend)?;
+        Ok(())
     }
 
     async fn list_devices(&self, user: &UserId) -> Result<Vec<Device>, RepositoryError> {
@@ -273,6 +324,16 @@ mod tests {
             .unwrap();
         repo.pool.close().await;
         assert!(repo.find_refresh(&AuthSessionId("x".into())).await.is_err());
+        assert!(
+            repo.list_link_codes(&UserId("u1".into()), Timestamp::UNIX_EPOCH)
+                .await
+                .is_err()
+        );
+        assert!(
+            repo.delete_link_code("x", &UserId("u1".into()))
+                .await
+                .is_err()
+        );
         assert!(repo.list_devices(&UserId("u1".into())).await.is_err());
         assert!(repo.list_api_tokens(&UserId("u1".into())).await.is_err());
         assert!(repo.delete_device(&DeviceId("d1".into())).await.is_err());

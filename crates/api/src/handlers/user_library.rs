@@ -8,7 +8,8 @@ use domain::user::UserId;
 
 use crate::dto::user_library::{
     AddTitleRequest, FavoriteResponse, PlaybackProgressResponse, TitleStateBatchRequest,
-    TitleStateResponse, WatchHistoryResponse, WatchTargetRequest, WatchlistItemResponse,
+    TitleStateResponse, WatchHistoryResponse, WatchTargetKind, WatchTargetRequest,
+    WatchedRollupBatchRequest, WatchedRollupResponse, WatchlistItemResponse,
 };
 use crate::error::{ApiError, ApiResult};
 use crate::extract::AuthUser;
@@ -252,4 +253,41 @@ pub async fn state_batch<S: AppServices>(
         target.0
     );
     Ok(Json(states.into_iter().map(Into::into).collect()))
+}
+
+pub async fn state_rollup<S: AppServices>(
+    State(state): State<S>,
+    AuthUser(principal): AuthUser,
+    Path(user_id): Path<String>,
+    Json(req): Json<WatchedRollupBatchRequest>,
+) -> ApiResult<Json<Vec<WatchedRollupResponse>>> {
+    let actor = &principal.user.0;
+    let target = UserId(user_id);
+    require_admin_or_self(&principal, &target)?;
+    if req.targets.len() > MAX_BATCH {
+        return Err(ApiError::bad_request(format!(
+            "too many targets: {} exceeds maximum of {MAX_BATCH}",
+            req.targets.len()
+        )));
+    }
+    if req
+        .targets
+        .iter()
+        .any(|t| matches!(t.kind, WatchTargetKind::Movie | WatchTargetKind::Episode))
+    {
+        return Err(ApiError::bad_request(
+            "rollup targets must be a season or series",
+        ));
+    }
+    let targets: Vec<_> = req.targets.into_iter().map(|t| t.into_target()).collect();
+    let rollups = state
+        .watched_rollups(&target, &targets)
+        .await
+        .map_err(log_fail(actor, "retrieve watched rollups"))?;
+    debug!(
+        "User [{actor}] successfully retrieved {} watched rollups for user [{}]",
+        rollups.len(),
+        target.0
+    );
+    Ok(Json(rollups.into_iter().map(Into::into).collect()))
 }

@@ -69,13 +69,22 @@ pub fn requests() -> Vec<EndpointCase> {
             "POST",
             "/api/v1/auth/link",
             Token::Anon,
-            Some(json!({"code": "CODE", "device": {"name": "Roku", "platform": "roku"}})),
+            Some(
+                json!({"code": crate::fixture::LINK_CODE, "device": {"name": "Roku", "platform": "roku"}}),
+            ),
         ),
         case(
             "auth_create_link",
             "POST",
             "/api/v1/auth/link/create",
             Token::Admin,
+            Some(json!({})),
+        ),
+        case(
+            "auth_create_link_self",
+            "POST",
+            "/api/v1/auth/link/create",
+            Token::User,
             Some(json!({})),
         ),
         case("movies_list", "GET", "/api/v1/movies", Token::User, None),
@@ -143,11 +152,27 @@ pub fn requests() -> Vec<EndpointCase> {
             None,
         ),
         case(
+            "version_detail_admin",
+            "GET",
+            "/api/v1/versions/v1",
+            Token::Admin,
+            None,
+        ),
+        case(
+            "version_relink",
+            "POST",
+            "/api/v1/versions/v1/relink",
+            Token::Admin,
+            Some(json!({"target": {"kind": "existing", "title": {"type": "movie", "id": "m1"}}})),
+        ),
+        case(
             "titles_batch",
             "POST",
             "/api/v1/titles/batch",
             Token::User,
-            Some(json!({"titles": [{"type": "movie", "id": "m1"}]})),
+            Some(
+                json!({"titles": [{"type": "movie", "id": "m1"}, {"type": "episode", "id": "e1"}]}),
+            ),
         ),
         case("series_list", "GET", "/api/v1/series", Token::User, None),
         case(
@@ -354,6 +379,20 @@ pub fn requests() -> Vec<EndpointCase> {
             Token::Admin,
             None,
         ),
+        case(
+            "admin_job_detail",
+            "GET",
+            "/api/v1/admin/jobs/job-scan",
+            Token::Admin,
+            None,
+        ),
+        case(
+            "admin_job_missing",
+            "GET",
+            "/api/v1/admin/jobs/does-not-exist",
+            Token::Admin,
+            None,
+        ),
         case("search", "GET", "/api/v1/search?q=alpha", Token::User, None),
         case(
             "search_by_type",
@@ -543,6 +582,15 @@ pub fn requests() -> Vec<EndpointCase> {
             "/api/v1/users/admin/state/batch",
             Token::User,
             Some(json!({"titles": [{"type": "movie", "id": "m1"}]})),
+        ),
+        case(
+            "user_state_rollup",
+            "POST",
+            "/api/v1/users/u1/state/rollup",
+            Token::User,
+            Some(
+                json!({"targets": [{"type": "series", "id": "s1"}, {"type": "season", "id": "se1"}]}),
+            ),
         ),
         case(
             "user_change_password",

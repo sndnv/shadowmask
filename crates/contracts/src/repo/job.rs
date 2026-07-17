@@ -19,6 +19,8 @@ fn job(id: &str, priority: JobPriority, available_at: Timestamp, created_at: Tim
         last_error: None,
         created_at,
         updated_at: created_at,
+        started_at: None,
+        finished_at: None,
     }
 }
 
@@ -78,23 +80,35 @@ pub async fn job_repository_contract<R: JobRepository>(repo: R) {
     let first = repo.claim_ready(now, 1).await.unwrap();
     assert_eq!(ids(&first), ["high"]);
     assert!(first.iter().all(|j| j.status == JobStatus::Running));
+    assert!(first.iter().all(|j| j.started_at == Some(now)));
 
     let rest = repo.claim_ready(now, 10).await.unwrap();
     assert_eq!(ids(&rest), ["normal-old", "normal-new", "low"]);
     assert!(rest.iter().all(|j| j.status == JobStatus::Running));
+    assert!(rest.iter().all(|j| j.started_at == Some(now)));
 
     assert!(repo.claim_ready(now, 10).await.unwrap().is_empty());
 
     let mut done = repo.get(&JobId("high".into())).await.unwrap().unwrap();
     done.status = JobStatus::Succeeded;
     done.progress = 1.0;
+    done.finished_at = Some(future);
     repo.update(done).await.unwrap();
     let reloaded = repo.get(&JobId("high".into())).await.unwrap().unwrap();
     assert_eq!(reloaded.status, JobStatus::Succeeded);
     assert_eq!(reloaded.progress, 1.0);
+    assert_eq!(reloaded.started_at, Some(now));
+    assert_eq!(reloaded.finished_at, Some(future));
 
     let reclaimed = repo.reclaim_running(now).await.unwrap();
     assert_eq!(reclaimed, 4);
+    let reclaimed_old = repo
+        .get(&JobId("normal-old".into()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reclaimed_old.status, JobStatus::Queued);
+    assert!(reclaimed_old.started_at.is_none());
     assert_eq!(
         repo.get(&JobId("high".into()))
             .await

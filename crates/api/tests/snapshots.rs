@@ -6,6 +6,7 @@ use tower::ServiceExt;
 
 use api::{AppState, router};
 use contracts::{Generator, requests};
+use domain::user::{Role, UserId};
 
 fn build_app(generator: &Generator) -> Router {
     router(AppState::new(
@@ -95,6 +96,8 @@ fn snapshot(name: &str, status: StatusCode, body: Value) {
         ".body.session_id" => "[session_id]",
         ".body.manifest_url" => "[manifest_url]",
         ".body.created_at" => "[created_at]",
+        ".body.added_at" => "[added_at]",
+        ".body.updated_at" => "[updated_at]",
         ".body.version" => "[version]",
         ".body.active[].session_id" => "[session_id]",
         ".body.active[].started_at" => "[started_at]",
@@ -303,4 +306,92 @@ async fn endpoint_error_snapshots() {
     )
     .await;
     snapshot("err_titles_batch_too_large", status, body);
+}
+
+#[tokio::test]
+async fn player_sessions_cannot_manage_account() {
+    let generator = Generator::new();
+    generator
+        .auth
+        .add_account("player", "pw", UserId("pl".into()), Role::Player);
+    let app = build_app(&generator);
+
+    let cases = [
+        (
+            Method::PUT,
+            "/api/v1/users/pl/password".to_owned(),
+            Some(json!({"current_password": "pw", "new_password": "fresh"})),
+        ),
+        (
+            Method::POST,
+            "/api/v1/auth/link/create".to_owned(),
+            Some(json!({})),
+        ),
+        (
+            Method::PUT,
+            "/api/v1/users/pl".to_owned(),
+            Some(json!({"preferred_audio": [], "preferred_subtitle": []})),
+        ),
+        (Method::GET, "/api/v1/users/pl/link-codes".to_owned(), None),
+        (
+            Method::DELETE,
+            "/api/v1/users/pl/link-codes/ABCD".to_owned(),
+            None,
+        ),
+    ];
+
+    for (method, path, body) in cases {
+        let (status, _) = call(app.clone(), method, &path, Some("access:pl"), body).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path}");
+    }
+}
+
+#[tokio::test]
+async fn link_codes_listed_and_revoked_for_self() {
+    let generator = Generator::new();
+    let app = build_app(&generator);
+
+    let (created, _) = call(
+        app.clone(),
+        Method::POST,
+        "/api/v1/auth/link/create",
+        Some("access:u1"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(created, StatusCode::OK);
+
+    let (status, body) = call(
+        app.clone(),
+        Method::GET,
+        "/api/v1/users/u1/link-codes",
+        Some("access:u1"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body.as_array().unwrap().len(), 1);
+    let code = body[0]["code"].as_str().unwrap().to_owned();
+    assert!(body[0]["expires_at"].is_string());
+
+    let (revoked, _) = call(
+        app.clone(),
+        Method::DELETE,
+        &format!("/api/v1/users/u1/link-codes/{code}"),
+        Some("access:u1"),
+        None,
+    )
+    .await;
+    assert_eq!(revoked, StatusCode::NO_CONTENT);
+
+    let (status, body) = call(
+        app.clone(),
+        Method::GET,
+        "/api/v1/users/u1/link-codes",
+        Some("access:u1"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.as_array().unwrap().is_empty());
 }

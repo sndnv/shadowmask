@@ -1,5 +1,4 @@
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::path::PathBuf;
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
@@ -18,7 +17,6 @@ use domain::user::UserId;
 use media::hls::HlsStreamSource;
 use media::probe::FfprobeMediaProbe;
 use media::stream_token::HmacStreamTokens;
-use media::transcode::FfmpegTranscodeManager;
 
 const SECRET: &[u8] = b"shadowmask-smoke-secret";
 const SESSION: &str = "smoke-session";
@@ -28,35 +26,6 @@ fn fixture() -> PathBuf {
         .join("../media/tests/fixtures/sample_real_bbb.mp4")
         .canonicalize()
         .expect("fixture sample_real_bbb.mp4 should exist")
-}
-
-fn first_segment(variant_dir: &Path) -> Option<String> {
-    let mut names: Vec<String> = std::fs::read_dir(variant_dir)
-        .ok()?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|name| name.starts_with("seg_") && name.ends_with(".ts"))
-        .collect();
-    names.sort();
-    names.into_iter().find(|name| {
-        std::fs::metadata(variant_dir.join(name))
-            .map(|meta| meta.len() > 0)
-            .unwrap_or(false)
-    })
-}
-
-async fn wait_for_completed_segment(variant_dir: &Path) -> String {
-    let playlist = variant_dir.join("index.m3u8");
-    for _ in 0..300 {
-        let finalized = std::fs::read_to_string(&playlist)
-            .map(|text| text.contains("#EXT-X-ENDLIST"))
-            .unwrap_or(false);
-        if finalized && let Some(name) = first_segment(variant_dir) {
-            return name;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    panic!("ffmpeg did not finalize an HLS segment within the timeout");
 }
 
 async fn get(app: Router, uri: &str, range: Option<&str>) -> (StatusCode, HeaderMap, Vec<u8>) {
@@ -78,7 +47,7 @@ async fn get(app: Router, uri: &str, range: Option<&str>) -> (StatusCode, Header
 }
 
 #[tokio::test]
-async fn transcodes_fixture_and_serves_a_segment_end_to_end() {
+async fn serves_a_jit_segment_end_to_end() {
     let input = fixture();
     let input_path = input.to_string_lossy().into_owned();
 
@@ -91,34 +60,46 @@ async fn transcodes_fixture_and_serves_a_segment_end_to_end() {
 
     let cache = tempfile::tempdir().unwrap();
     let session = SessionId(SESSION.to_owned());
-    let manager = FfmpegTranscodeManager::new(cache.path());
-    let started = manager
+    let engine = HlsStreamSource::new(cache.path());
+    let started = engine
         .start(TranscodeSpec {
             session: session.clone(),
             input_path,
+            duration_ms: probe.duration_ms,
+            copy: true,
             seek_ms: None,
             audio_track: None,
-            max_height: Some(180),
+            max_height: None,
             max_bitrate: None,
             burn_subtitle_path: None,
+            soft_subtitle: None,
+            downmix_stereo: false,
         })
         .await
-        .expect("ffmpeg transcode should start");
+        .expect("session start should succeed");
 
     let output_dir = PathBuf::from(&started.output_dir);
-    let segment = wait_for_completed_segment(&output_dir.join("v0")).await;
-
-    let source = HlsStreamSource::new();
-    source.register(
+    engine.register(
         session.clone(),
         StreamRegistration {
             mode: DeliveryMode::Transcode,
-            output_dir,
+            output_dir: output_dir.clone(),
             direct_path: None,
             bandwidth: 1_000_000,
             subtitle: None,
         },
     );
+
+    let playlist = std::fs::read_to_string(output_dir.join("v0").join("index.m3u8")).unwrap();
+    assert!(
+        playlist.contains("#EXT-X-ENDLIST"),
+        "playlist must be a finished VOD from the start"
+    );
+    let segment = playlist
+        .lines()
+        .rfind(|line| line.starts_with("seg_") && line.ends_with(".ts"))
+        .expect("playlist must list at least one segment")
+        .to_owned();
 
     let tokens = HmacStreamTokens::new(SECRET);
     let token = tokens
@@ -132,7 +113,7 @@ async fn transcodes_fixture_and_serves_a_segment_end_to_end() {
         .expect("token creation should succeed")
         .0;
 
-    let app = stream_router(StreamState::new(tokens, source));
+    let app = stream_router(StreamState::new(tokens, engine));
 
     let (status, headers, body) =
         get(app.clone(), &format!("/stream/{token}/master.m3u8"), None).await;
@@ -144,8 +125,9 @@ async fn transcodes_fixture_and_serves_a_segment_end_to_end() {
     assert!(body.starts_with(b"#EXTM3U"));
     assert!(String::from_utf8_lossy(&body).contains("v0/index.m3u8"));
 
-    let (status, _, _) = get(app.clone(), &format!("/stream/{token}/v0/index.m3u8"), None).await;
+    let (status, _, body) = get(app.clone(), &format!("/stream/{token}/v0/index.m3u8"), None).await;
     assert_eq!(status, StatusCode::OK);
+    assert!(String::from_utf8_lossy(&body).contains("#EXT-X-ENDLIST"));
 
     let segment_uri = format!("/stream/{token}/v0/{segment}");
     let (status, headers, body) = get(app.clone(), &segment_uri, None).await;

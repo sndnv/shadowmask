@@ -8,16 +8,19 @@ use uuid::Uuid;
 use domain::catalog::{VersionDetail, VersionId};
 use domain::common::{Page, PageRequest};
 use domain::error::SessionError;
-use domain::negotiation::{NegotiationInput, negotiate};
-use domain::playback::{PlaybackProgress, SubtitleTrackRef, WatchHistory};
+use domain::negotiation::{NegotiationInput, effective_max_height, negotiate};
+use domain::playback::{PlaybackProgress, SubtitleTrackRef, UserSubtitleOffset, WatchHistory};
 use domain::profile::{Container, ProfileRegistry};
-use domain::repository::{ProgressRepository, SessionRegistry, UserRepository, VersionCatalog};
+use domain::repository::{
+    PreferencesRepository, ProgressRepository, SessionRegistry, UserRepository, VersionCatalog,
+};
 use domain::service::SessionService;
 use domain::session::{
     ClientCapabilities, DeliveryMode, HeartbeatAck, PlaybackSession, PlaybackState, Renegotiated,
-    SelectedTracks, SessionId, SessionStarted, SessionUpdate, StartSessionRequest, StreamClaims,
-    StreamRegistration, StreamRegistry, StreamTokens, SubtitleChange, SubtitleDelivery,
-    SubtitleRendition, SubtitleSelection, TranscodeManager, TranscodeSpec,
+    SelectedTracks, SessionId, SessionStarted, SessionUpdate, SoftSubtitle, SoftSubtitleSource,
+    StartSessionRequest, StreamClaims, StreamRegistration, StreamRegistry, StreamTokens,
+    SubtitleChange, SubtitleDelivery, SubtitleRendition, SubtitleSelection, TranscodeManager,
+    TranscodeSpec,
 };
 use domain::user::{Principal, UserId};
 
@@ -27,13 +30,18 @@ const TOKEN_TTL_SECS: i64 = 3600;
 
 #[derive(Clone)]
 struct LaunchContext {
+    user: UserId,
+    version: VersionId,
     capabilities: ClientCapabilities,
     requested_audio: Option<u32>,
     requested_subtitle: Option<SubtitleSelection>,
     bitrate_cap: Option<u64>,
+    target_height: Option<u32>,
+    force_burn: bool,
+    downmix_stereo: bool,
 }
 
-struct Inner<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg> {
+struct Inner<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> {
     catalog: Vc,
     profiles: Pr,
     transcode: Tm,
@@ -42,16 +50,17 @@ struct Inner<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg> {
     sessions: Reg,
     users: U,
     progress: Pg,
+    preferences: Pf,
     contexts: RwLock<HashMap<SessionId, LaunchContext>>,
 }
 
-pub struct DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg> {
+pub struct DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> {
     #[allow(clippy::type_complexity)]
-    inner: Arc<Inner<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg>>,
+    inner: Arc<Inner<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf>>,
 }
 
-impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg> Clone
-    for DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg>
+impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> Clone
+    for DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf>
 {
     fn clone(&self) -> Self {
         Self {
@@ -60,7 +69,7 @@ impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg> Clone
     }
 }
 
-impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg> DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg> {
+impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         catalog: Vc,
@@ -71,6 +80,7 @@ impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg> DefaultSessionService<Vc, Pr, Tm, Tk, Sr, R
         sessions: Reg,
         users: U,
         progress: Pg,
+        preferences: Pf,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -82,13 +92,14 @@ impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg> DefaultSessionService<Vc, Pr, Tm, Tk, Sr, R
                 sessions,
                 users,
                 progress,
+                preferences,
                 contexts: RwLock::new(HashMap::new()),
             }),
         }
     }
 }
 
-impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg> DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg>
+impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf>
 where
     Tm: TranscodeManager,
 {
@@ -134,7 +145,12 @@ fn subtitle_rendition(
             .find(|s| s.index == *idx)
             .and_then(|s| s.language.as_ref())
             .map(|l| l.0.clone()),
-        SubtitleTrackRef::File(_) => None,
+        SubtitleTrackRef::File(id) => detail
+            .subtitle_files
+            .iter()
+            .find(|s| &s.id == id)
+            .and_then(|s| s.language.as_ref())
+            .map(|l| l.0.clone()),
     };
     let language = language.unwrap_or_else(|| "und".to_owned());
     Some(SubtitleRendition {
@@ -143,7 +159,21 @@ fn subtitle_rendition(
     })
 }
 
-impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg> DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg>
+fn burn_path_for(selected: &SelectedTracks, detail: &VersionDetail) -> Option<String> {
+    if selected.subtitle_delivery != Some(SubtitleDelivery::Burned) {
+        return None;
+    }
+    match selected.subtitle_track.as_ref()? {
+        SubtitleTrackRef::Embedded(_) => Some(detail.version.path.clone()),
+        SubtitleTrackRef::File(id) => detail
+            .subtitle_files
+            .iter()
+            .find(|f| &f.id == id)
+            .map(|f| f.path.clone()),
+    }
+}
+
+impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf>
 where
     Vc: VersionCatalog + Send + Sync,
     Pr: ProfileRegistry + Send + Sync,
@@ -153,7 +183,51 @@ where
     Reg: SessionRegistry + Send + Sync,
     U: UserRepository + Send + Sync,
     Pg: ProgressRepository + Send + Sync,
+    Pf: PreferencesRepository + Send + Sync,
 {
+    async fn soft_subtitle_for(
+        &self,
+        selected: &SelectedTracks,
+        detail: &VersionDetail,
+        ctx: &LaunchContext,
+    ) -> Option<SoftSubtitle> {
+        if selected.subtitle_delivery != Some(SubtitleDelivery::HlsVtt) {
+            return None;
+        }
+        let track = selected.subtitle_track.as_ref()?;
+        let source = match track {
+            SubtitleTrackRef::Embedded(idx) => SoftSubtitleSource::Embedded(*idx),
+            SubtitleTrackRef::File(id) => {
+                let path = detail
+                    .subtitle_files
+                    .iter()
+                    .find(|f| &f.id == id)?
+                    .path
+                    .clone();
+                SoftSubtitleSource::File(path)
+            }
+        };
+        Some(SoftSubtitle {
+            source,
+            offset_ms: self.resolve_offset(ctx, track).await,
+            duration_ms: detail.version.duration_ms,
+        })
+    }
+
+    async fn resolve_offset(&self, ctx: &LaunchContext, track: &SubtitleTrackRef) -> i64 {
+        if let Some(offset) = ctx.requested_subtitle.as_ref().and_then(|s| s.offset_ms) {
+            return offset;
+        }
+        self.inner
+            .preferences
+            .get_subtitle_offset(&ctx.user, &ctx.version, track)
+            .await
+            .ok()
+            .flatten()
+            .map(|o| o.offset_ms)
+            .unwrap_or(0)
+    }
+
     fn create_token(
         &self,
         session: &SessionId,
@@ -195,9 +269,19 @@ where
             requested_audio: ctx.requested_audio,
             requested_subtitle: ctx.requested_subtitle.clone(),
             max_bitrate,
+            target_height: ctx.target_height,
+            force_burn: ctx.force_burn,
+            downmix_stereo: ctx.downmix_stereo,
         };
         let outcome = negotiate(&input, &profile);
         let bandwidth = bandwidth_of(detail);
+        let cap = effective_max_height(profile.max_height, ctx.target_height);
+        let scale_to = detail
+            .video
+            .first()
+            .map(|v| v.height)
+            .filter(|height| *height > cap)
+            .map(|_| cap);
 
         if outcome.mode == DeliveryMode::Direct {
             let _ = self.inner.transcode.stop(session_id).await;
@@ -212,20 +296,24 @@ where
                 },
             );
         } else {
-            let burn_subtitle_path = (outcome.selected.subtitle_delivery
-                == Some(SubtitleDelivery::Burned))
-            .then(|| detail.version.path.clone());
+            let burn_subtitle_path = burn_path_for(&outcome.selected, detail);
+            let soft_subtitle = self.soft_subtitle_for(&outcome.selected, detail, ctx).await;
+            let remux = outcome.mode == DeliveryMode::Remux;
             let started = self
                 .inner
                 .transcode
                 .start(TranscodeSpec {
                     session: session_id.clone(),
                     input_path: detail.version.path.clone(),
+                    duration_ms: detail.version.duration_ms,
+                    copy: remux,
                     seek_ms: (position_ms > 0).then_some(position_ms),
                     audio_track: outcome.selected.audio_track,
-                    max_height: Some(profile.max_height),
+                    max_height: if remux { None } else { scale_to },
                     max_bitrate,
                     burn_subtitle_path,
+                    soft_subtitle,
+                    downmix_stereo: ctx.downmix_stereo,
                 })
                 .await
                 .map_err(|_| SessionError::NegotiationFailed)?;
@@ -244,8 +332,8 @@ where
     }
 }
 
-impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg> SessionService
-    for DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg>
+impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> SessionService
+    for DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf>
 where
     Vc: VersionCatalog + Send + Sync,
     Pr: ProfileRegistry + Send + Sync,
@@ -255,6 +343,7 @@ where
     Reg: SessionRegistry + Send + Sync,
     U: UserRepository + Send + Sync,
     Pg: ProgressRepository + Send + Sync,
+    Pf: PreferencesRepository + Send + Sync,
 {
     async fn start(
         &self,
@@ -279,14 +368,38 @@ where
             }
         }
 
+        let started_title = detail.version.title.clone();
+        for row in self.inner.progress.list_in_progress(&caller.user).await? {
+            if row.version == request.version {
+                continue;
+            }
+            let same_title = self
+                .inner
+                .catalog
+                .version_detail(&row.version)
+                .await?
+                .is_some_and(|other| other.version.title == started_title);
+            if same_title {
+                self.inner
+                    .progress
+                    .delete(&caller.user, &row.version)
+                    .await?;
+            }
+        }
+
         let session_id = SessionId(Uuid::new_v4().to_string());
         let now = Timestamp::now();
         let token = self.create_token(&session_id, &caller.user, &request.version)?;
         let ctx = LaunchContext {
+            user: caller.user.clone(),
+            version: request.version.clone(),
             capabilities: request.capabilities.clone(),
             requested_audio: request.audio_track,
             requested_subtitle: request.subtitle.clone(),
             bitrate_cap: user.as_ref().and_then(|u| u.bitrate_cap),
+            target_height: request.target_height,
+            force_burn: request.force_burn,
+            downmix_stereo: request.downmix_stereo,
         };
         let (mode, selected) = self
             .launch(&session_id, &detail, &ctx, request.start_position_ms)
@@ -447,10 +560,26 @@ where
         if let Some(audio) = update.audio_track {
             ctx.requested_audio = Some(audio);
         }
+        ctx.target_height = update.target_height;
+        ctx.force_burn = update.force_burn;
+        ctx.downmix_stereo = update.downmix_stereo;
         match update.subtitle {
             SubtitleChange::Keep => {}
             SubtitleChange::Disable => ctx.requested_subtitle = None,
-            SubtitleChange::Set(selection) => ctx.requested_subtitle = Some(selection),
+            SubtitleChange::Set(selection) => {
+                if let Some(offset_ms) = selection.offset_ms {
+                    self.inner
+                        .preferences
+                        .set_subtitle_offset(UserSubtitleOffset {
+                            user: playback.user.clone(),
+                            version: playback.version.clone(),
+                            subtitle: selection.track.clone(),
+                            offset_ms,
+                        })
+                        .await?;
+                }
+                ctx.requested_subtitle = Some(selection);
+            }
         }
 
         let detail = self
@@ -512,15 +641,16 @@ mod tests {
     use domain::common::{LanguageCode, Quality};
     use domain::library::LibraryId;
     use domain::media::{
-        AudioTrack, DetectedMarkers, EmbeddedSubtitleTrack, SubtitleFileId, SubtitleFormat,
-        VideoTrack,
+        AudioTrack, DetectedMarkers, EmbeddedSubtitleTrack, SubtitleFile, SubtitleFileId,
+        SubtitleFormat, SubtitleSource, VideoTrack,
     };
     use domain::profile::{AudioCodecCap, CapabilityProfile, VideoCodecCap};
     use domain::user::{Role, User};
 
     use crate::mock::{
-        MockProfileRegistry, MockProgressRepo, MockSessionRegistry, MockStreamRegistry,
-        MockStreamTokens, MockTranscodeManager, MockUserRepo, MockVersionCatalog,
+        MockPreferencesRepo, MockProfileRegistry, MockProgressRepo, MockSessionRegistry,
+        MockStreamRegistry, MockStreamTokens, MockTranscodeManager, MockUserRepo,
+        MockVersionCatalog,
     };
 
     type Service = DefaultSessionService<
@@ -532,6 +662,7 @@ mod tests {
         MockSessionRegistry,
         MockUserRepo,
         MockProgressRepo,
+        MockPreferencesRepo,
     >;
 
     struct Harness {
@@ -543,6 +674,7 @@ mod tests {
         users: MockUserRepo,
         progress: MockProgressRepo,
         tokens: MockStreamTokens,
+        preferences: MockPreferencesRepo,
     }
 
     impl Harness {
@@ -554,6 +686,7 @@ mod tests {
             let users = MockUserRepo::new();
             let progress = MockProgressRepo::new();
             let tokens = MockStreamTokens::new();
+            let preferences = MockPreferencesRepo::new();
             let service = DefaultSessionService::new(
                 catalog.clone(),
                 MockProfileRegistry::new(profile()),
@@ -563,6 +696,7 @@ mod tests {
                 sessions.clone(),
                 users.clone(),
                 progress.clone(),
+                preferences.clone(),
             );
             Self {
                 service,
@@ -573,6 +707,7 @@ mod tests {
                 users,
                 progress,
                 tokens,
+                preferences,
             }
         }
     }
@@ -652,10 +787,13 @@ mod tests {
                 duration_ms,
                 edition: None,
                 available: true,
+                added_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
             },
             video,
             audio,
             subtitles,
+            subtitle_files: Vec::new(),
             chapters: Vec::new(),
             markers: DetectedMarkers::default(),
             trickplay: Vec::new(),
@@ -694,6 +832,7 @@ mod tests {
             concurrent_stream_limit: limit,
             bitrate_cap,
             created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 
@@ -719,6 +858,9 @@ mod tests {
             capabilities: caps(None),
             audio_track: None,
             subtitle: None,
+            target_height: None,
+            force_burn: false,
+            downmix_stereo: false,
         }
     }
 
@@ -923,6 +1065,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn starting_a_version_drops_progress_on_sibling_versions() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let mut sibling = direct_detail();
+        sibling.version.id = VersionId("v2".to_owned());
+        harness.catalog.insert(sibling);
+        harness
+            .progress
+            .upsert(PlaybackProgress {
+                user: UserId("u1".to_owned()),
+                version: VersionId("v1".to_owned()),
+                position_ms: 5_000,
+                updated_at: Timestamp::UNIX_EPOCH,
+            })
+            .await
+            .unwrap();
+
+        let request = StartSessionRequest {
+            version: VersionId("v2".to_owned()),
+            start_position_ms: 0,
+            capabilities: caps(None),
+            audio_track: None,
+            subtitle: None,
+            target_height: None,
+            force_burn: false,
+            downmix_stereo: false,
+        };
+        harness.service.start(&principal(), request).await.unwrap();
+
+        assert!(
+            harness
+                .progress
+                .get(&UserId("u1".to_owned()), &VersionId("v1".to_owned()))
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
     async fn start_transcode() {
         let harness = Harness::new();
         harness.catalog.insert(transcode_detail());
@@ -936,7 +1118,7 @@ mod tests {
         let specs = harness.transcode.started();
         assert_eq!(specs.len(), 1);
         assert_eq!(specs[0].seek_ms, None);
-        assert_eq!(specs[0].max_height, Some(1080));
+        assert_eq!(specs[0].max_height, None);
         assert!(specs[0].burn_subtitle_path.is_none());
         let registration = harness.streams.registration(&started.session_id).unwrap();
         assert_eq!(registration.mode, DeliveryMode::Transcode);
@@ -1011,6 +1193,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn start_burns_file_subtitle_from_sidecar_path() {
+        let harness = Harness::new();
+        let mut detail = detail_with(
+            "mp4",
+            100_000,
+            vec![video("h264", Some(5_000_000))],
+            vec![audio(1)],
+            vec![],
+        );
+        detail.subtitle_files = vec![SubtitleFile {
+            id: SubtitleFileId("sf1".into()),
+            version: VersionId("v1".into()),
+            language: Some(LanguageCode("eng".into())),
+            format: SubtitleFormat::Srt,
+            source: SubtitleSource::External,
+            path: "/media/m1.en.srt".into(),
+        }];
+        harness.catalog.insert(detail);
+        let mut request = start_request(0);
+        request.force_burn = true;
+        request.subtitle = Some(SubtitleSelection {
+            track: SubtitleTrackRef::File(SubtitleFileId("sf1".into())),
+            offset_ms: None,
+        });
+        let started = harness.service.start(&principal(), request).await.unwrap();
+        assert_eq!(started.mode, DeliveryMode::Transcode);
+        assert_eq!(
+            harness.transcode.started()[0].burn_subtitle_path,
+            Some("/media/m1.en.srt".to_owned())
+        );
+    }
+
+    #[tokio::test]
     async fn start_registers_text_subtitle_rendition() {
         let harness = Harness::new();
         harness.catalog.insert(detail_with(
@@ -1029,6 +1244,77 @@ mod tests {
         assert_eq!(started.mode, DeliveryMode::Transcode);
         let registration = harness.streams.registration(&started.session_id).unwrap();
         assert_eq!(registration.subtitle.unwrap().language, "fra");
+    }
+
+    #[tokio::test]
+    async fn start_soft_subtitle_from_file_then_offset_persists() {
+        let harness = Harness::new();
+        let mut detail = detail_with(
+            "mp4",
+            100_000,
+            vec![video("vp9", Some(5_000_000))],
+            vec![audio(1)],
+            vec![],
+        );
+        detail.subtitle_files = vec![SubtitleFile {
+            id: SubtitleFileId("sf1".into()),
+            version: VersionId("v1".into()),
+            language: Some(LanguageCode("eng".into())),
+            format: SubtitleFormat::Srt,
+            source: SubtitleSource::External,
+            path: "/media/m1.en.srt".into(),
+        }];
+        harness.catalog.insert(detail);
+        let mut request = start_request(0);
+        request.subtitle = Some(SubtitleSelection {
+            track: SubtitleTrackRef::File(SubtitleFileId("sf1".into())),
+            offset_ms: None,
+        });
+        let started = harness.service.start(&principal(), request).await.unwrap();
+
+        let registration = harness.streams.registration(&started.session_id).unwrap();
+        assert_eq!(registration.subtitle.unwrap().language, "eng");
+        let spec = harness.transcode.started().last().cloned().unwrap();
+        assert_eq!(
+            spec.soft_subtitle,
+            Some(SoftSubtitle {
+                source: SoftSubtitleSource::File("/media/m1.en.srt".into()),
+                offset_ms: 0,
+                duration_ms: 100_000,
+            })
+        );
+
+        harness
+            .service
+            .update(
+                &principal(),
+                &started.session_id,
+                SessionUpdate {
+                    audio_track: None,
+                    subtitle: SubtitleChange::Set(SubtitleSelection {
+                        track: SubtitleTrackRef::File(SubtitleFileId("sf1".into())),
+                        offset_ms: Some(2_000),
+                    }),
+                    target_height: None,
+                    force_burn: false,
+                    downmix_stereo: false,
+                },
+            )
+            .await
+            .unwrap();
+        let spec = harness.transcode.started().last().cloned().unwrap();
+        assert_eq!(spec.soft_subtitle.unwrap().offset_ms, 2_000);
+        let stored = harness
+            .preferences
+            .get_subtitle_offset(
+                &principal().user,
+                &VersionId("v1".into()),
+                &SubtitleTrackRef::File(SubtitleFileId("sf1".into())),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.offset_ms, 2_000);
     }
 
     #[tokio::test]
@@ -1163,6 +1449,96 @@ mod tests {
             .unwrap();
         assert_eq!(started.mode, DeliveryMode::Transcode);
         assert_eq!(harness.transcode.started()[0].max_bitrate, Some(1_000_000));
+    }
+
+    #[tokio::test]
+    async fn start_forces_quality_rung_scales_and_transcodes() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let mut request = start_request(0);
+        request.target_height = Some(720);
+        let started = harness.service.start(&principal(), request).await.unwrap();
+        assert_eq!(started.mode, DeliveryMode::Transcode);
+        assert_eq!(harness.transcode.started()[0].max_height, Some(720));
+    }
+
+    #[tokio::test]
+    async fn update_forces_burn_in_of_selected_subtitle() {
+        let harness = Harness::new();
+        harness.catalog.insert(detail_with(
+            "mp4",
+            100_000,
+            vec![video("h264", Some(5_000_000))],
+            vec![audio(1)],
+            vec![subtitle(2, Some("eng"), SubtitleFormat::Srt)],
+        ));
+        let mut request = start_request(0);
+        request.subtitle = Some(SubtitleSelection {
+            track: SubtitleTrackRef::Embedded(2),
+            offset_ms: None,
+        });
+        let started = harness.service.start(&principal(), request).await.unwrap();
+        assert_eq!(
+            started.selected.subtitle_delivery,
+            Some(SubtitleDelivery::HlsVtt)
+        );
+        let renegotiated = harness
+            .service
+            .update(
+                &principal(),
+                &started.session_id,
+                SessionUpdate {
+                    audio_track: None,
+                    subtitle: SubtitleChange::Keep,
+                    target_height: None,
+                    force_burn: true,
+                    downmix_stereo: false,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(renegotiated.mode, DeliveryMode::Transcode);
+        assert_eq!(
+            renegotiated.selected.subtitle_delivery,
+            Some(SubtitleDelivery::Burned)
+        );
+        assert_eq!(
+            harness
+                .transcode
+                .started()
+                .last()
+                .unwrap()
+                .burn_subtitle_path,
+            Some("/media/m1".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn update_downmix_passes_flag_to_spec() {
+        let harness = Harness::new();
+        harness.catalog.insert(transcode_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        assert!(!harness.transcode.started().last().unwrap().downmix_stereo);
+        harness
+            .service
+            .update(
+                &principal(),
+                &started.session_id,
+                SessionUpdate {
+                    audio_track: None,
+                    subtitle: SubtitleChange::Keep,
+                    target_height: None,
+                    force_burn: false,
+                    downmix_stereo: true,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(harness.transcode.started().last().unwrap().downmix_stereo);
     }
 
     #[tokio::test]
@@ -1442,6 +1818,9 @@ mod tests {
                 SessionUpdate {
                     audio_track: Some(2),
                     subtitle: SubtitleChange::Keep,
+                    target_height: None,
+                    force_burn: false,
+                    downmix_stereo: false,
                 },
             )
             .await
@@ -1475,6 +1854,9 @@ mod tests {
                         track: SubtitleTrackRef::Embedded(2),
                         offset_ms: None,
                     }),
+                    target_height: None,
+                    force_burn: false,
+                    downmix_stereo: false,
                 },
             )
             .await
@@ -1491,6 +1873,9 @@ mod tests {
                 SessionUpdate {
                     audio_track: None,
                     subtitle: SubtitleChange::Disable,
+                    target_height: None,
+                    force_burn: false,
+                    downmix_stereo: false,
                 },
             )
             .await
@@ -1510,6 +1895,9 @@ mod tests {
                     SessionUpdate {
                         audio_track: None,
                         subtitle: SubtitleChange::Keep,
+                        target_height: None,
+                        force_burn: false,
+                        downmix_stereo: false,
                     },
                 )
                 .await,
@@ -1531,6 +1919,9 @@ mod tests {
                     SessionUpdate {
                         audio_track: None,
                         subtitle: SubtitleChange::Keep,
+                        target_height: None,
+                        force_burn: false,
+                        downmix_stereo: false,
                     },
                 )
                 .await,
@@ -1557,6 +1948,9 @@ mod tests {
                     SessionUpdate {
                         audio_track: None,
                         subtitle: SubtitleChange::Keep,
+                        target_height: None,
+                        force_burn: false,
+                        downmix_stereo: false,
                     },
                 )
                 .await,

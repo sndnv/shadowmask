@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <title>Shadowmask (basic) - Home</title>
+  </head>
+  <body>
+    <h1>Shadowmask</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs">Home</p>
+    <main id="main"></main>
+    <script src="app.js"></script>
+    <script>
+      sm.chrome();
+      let uid = null;
+      if (sm.requireAuth()) {
+        const main = document.getElementById("main");
+        sm.self()
+          .then((u) => {
+            uid = u.id;
+            const enc = encodeURIComponent(u.id);
+            return Promise.all([
+              sm.json("/api/v1/users/" + enc + "/hub").catch(() => []),
+              sm.json("/api/v1/users/" + enc + "/continue").catch(() => null),
+            ]);
+          })
+          .then(([hubs, cont]) => {
+            main.textContent = "";
+            renderContinue(main, cont);
+            renderHubs(main, hubs);
+            if (!main.hasChildNodes()) {
+              main.appendChild(sm.el("p", { text: "Nothing to show yet." }));
+            }
+          })
+          .catch(() => {
+            main.textContent = "Could not load your home screen.";
+          });
+      }
+
+      function itemHref(item) {
+        return item.type === "series" ? sm.href.series(item.id) : sm.href.movie(item.id);
+      }
+
+      const CONTINUE_COVERED = new Set(["continue_watching", "on_deck"]);
+
+      function renderHubs(main, hubs) {
+        for (const hub of hubs || []) {
+          if (CONTINUE_COVERED.has(hub.id)) continue;
+          if (!hub.items || !hub.items.length) continue;
+          main.appendChild(sm.el("h2", { text: hub.title }));
+          main.appendChild(
+            sm.grid(
+              hub.items.map((i) => ({
+                href: itemHref(i),
+                artwork: i.artwork,
+                title: i.title,
+                subtitle: i.year ? String(i.year) : null,
+              })),
+            ),
+          );
+        }
+      }
+
+      function renderContinue(main, cont) {
+        if (!cont) return;
+        const cards = [];
+        (cont.now_playing || [])
+          .filter((s) => s.card)
+          .forEach((s) =>
+            cards.push({
+              opts: {
+                href: sm.href.ref(s.card.title),
+                artwork: s.card.artwork,
+                title: s.card.display_title,
+                subtitle: s.card.progress_percent + "% (now playing)",
+              },
+              version: null,
+            }),
+          );
+        (cont.in_progress || [])
+          .filter((p) => p.card)
+          .forEach((p) =>
+            cards.push({
+              opts: {
+                href: sm.href.ref(p.card.title),
+                artwork: p.card.artwork,
+                title: p.card.display_title,
+                subtitle: p.card.progress_percent + "%",
+              },
+              version: p.progress && p.progress.version_id,
+            }),
+          );
+        if (cards.length) {
+          const heading = sm.el("h2", { text: "Continue watching" });
+          main.appendChild(heading);
+          const list = sm.el("ul", { class: "sm-grid" });
+          cards.forEach(({ opts, version }) => {
+            const li = sm.card(opts);
+            if (version && uid) {
+              const dismiss = sm.el("button", { type: "button" }, "Dismiss");
+              dismiss.addEventListener("click", async () => {
+                dismiss.disabled = true;
+                try {
+                  await sm.json(
+                    "/api/v1/users/" +
+                      encodeURIComponent(uid) +
+                      "/progress/" +
+                      encodeURIComponent(version),
+                    { method: "DELETE" },
+                  );
+                  li.remove();
+                  if (!list.children.length) {
+                    heading.remove();
+                    list.remove();
+                  }
+                } catch (e) {
+                  dismiss.disabled = false;
+                }
+              });
+              li.appendChild(dismiss);
+            }
+            list.appendChild(li);
+          });
+          main.appendChild(list);
+        }
+        const nextEpisodes = (cont.next_episodes || []).map((e) => ({
+          href: sm.href.episode(e.id, e.season_id),
+          artwork: e.artwork,
+          title: e.title,
+          subtitle: "Episode " + e.number,
+        }));
+        const nextMovies = (cont.next_movies || []).map((m) => ({
+          href: sm.href.movie(m.id),
+          artwork: m.artwork,
+          title: m.title,
+          subtitle: m.year ? String(m.year) : null,
+        }));
+        const upNext = nextEpisodes.concat(nextMovies);
+        if (upNext.length) {
+          main.appendChild(sm.el("h2", { text: "Up next" }));
+          main.appendChild(sm.grid(upNext));
+        }
+      }
+    </script>
+  </body>
+</html>

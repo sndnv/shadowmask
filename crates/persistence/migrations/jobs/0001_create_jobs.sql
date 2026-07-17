@@ -9,5 +9,7 @@ CREATE TABLE jobs (
     available_at INTEGER NOT NULL,
     last_error TEXT,
     created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    started_at INTEGER,
+    finished_at INTEGER
 );

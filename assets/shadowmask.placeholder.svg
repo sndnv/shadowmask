@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450" role="img" aria-label="Artwork unavailable">
+  <rect width="300" height="450" fill="#0b0d10"/>
+  <rect x="12" y="12" width="276" height="426" rx="14" fill="#11151b" stroke="#2a313c" stroke-width="1"/>
+  <g transform="translate(150 196)">
+    <circle r="52" fill="#161b23" stroke="#2a313c" stroke-width="2"/>
+    <path d="M-16 -26 L-16 26 L28 0 Z" fill="#bfe9ff" opacity="0.85"/>
+  </g>
+  <text x="150" y="312" text-anchor="middle" font-family="system-ui, sans-serif" font-size="20" fill="#8a93a3">Artwork</text>
+  <text x="150" y="338" text-anchor="middle" font-family="system-ui, sans-serif" font-size="20" fill="#8a93a3">unavailable</text>
+</svg>

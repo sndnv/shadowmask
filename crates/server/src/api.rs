@@ -10,7 +10,6 @@ use media::artwork::FsArtworkStore;
 use media::hls::HlsStreamSource;
 use media::profile::BuiltinProfiles;
 use media::stream_token::HmacStreamTokens;
-use media::transcode::FfmpegTranscodeManager;
 use metadata::TmdbClient;
 use persistence::migrate::migrate_all;
 use persistence::server::{
@@ -31,12 +30,13 @@ pub type CatalogSvc = CatalogServiceImpl<SqliteCatalogRepo, SqliteUserRepo>;
 pub type SessionSvc = DefaultSessionService<
     SqliteCatalogRepo,
     BuiltinProfiles,
-    FfmpegTranscodeManager,
+    HlsStreamSource,
     HmacStreamTokens,
     HlsStreamSource,
     InMemorySessionRegistry,
     SqliteUserRepo,
     SqliteProgressRepo,
+    SqlitePreferencesRepo,
 >;
 pub type LibrarySvc = LibraryServiceImpl<
     SqliteLibraryRepo,
@@ -123,8 +123,7 @@ pub struct Built {
 
 pub fn build_state(repos: &Repos, cfg: &WireConfig) -> Result<Built, ProfileError> {
     let profiles = BuiltinProfiles::load()?;
-    let transcode = FfmpegTranscodeManager::new(&cfg.transcode_cache);
-    let hls = HlsStreamSource::new();
+    let hls = HlsStreamSource::new(&cfg.transcode_cache);
     let artwork_store = FsArtworkStore::new(&cfg.artwork_cache);
     let images = ImageState::new(&cfg.artwork_cache);
     let trickplay = TrickplayState::new(&cfg.trickplay_cache);
@@ -140,12 +139,13 @@ pub fn build_state(repos: &Repos, cfg: &WireConfig) -> Result<Built, ProfileErro
     let session = DefaultSessionService::new(
         repos.catalog.clone(),
         profiles,
-        transcode,
+        hls.clone(),
         HmacStreamTokens::new(&cfg.stream_secret),
         hls.clone(),
         InMemorySessionRegistry::new(),
         repos.users.clone(),
         repos.progress.clone(),
+        repos.preferences.clone(),
     );
     let provider = cfg.tmdb_api_key.clone().map(TmdbClient::new);
     let library = LibraryServiceImpl::new(

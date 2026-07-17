@@ -4,6 +4,7 @@ expression: value
 ---
 {
   "body": {
+    "added_at": "[added_at]",
     "artwork": {
       "backdrop": {
         "base": "/images/se1-backdrop",
@@ -25,7 +26,8 @@ expression: value
     "number": 1,
     "overview": null,
     "series_id": "s1",
-    "title": "Season 1"
+    "title": "Season 1",
+    "updated_at": "[updated_at]"
   },
   "status": 200
 }

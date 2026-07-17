@@ -12,7 +12,7 @@ pub use create_library_request::CreateLibraryRequest;
 pub use duplicate_candidate::DuplicateCandidateResponse;
 pub use library::{LibraryKindDto, LibraryResponse, WatcherStrategyDto};
 pub use resolve_candidate::ResolveCandidateResponse;
-pub use resolve_request::ResolveUnmatchedRequest;
+pub use resolve_request::{ResolveTargetInput, ResolveUnmatchedRequest};
 pub use scan_state::ScanStateResponse;
 pub use unmatched_file::UnmatchedFileResponse;
 pub use update_library_request::UpdateLibraryRequest;

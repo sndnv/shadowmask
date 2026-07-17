@@ -34,3 +34,14 @@ The image ships FFmpeg with VAAPI drivers baked in. Uncomment the `devices` bloc
 `/dev/dri` through for Intel or AMD iGPU transcoding. Intel QuickSync additionally needs
 `intel-media-va-driver`; NVIDIA NVENC needs the nvidia-container-toolkit on the host (see the
 commented `deploy` block).
+
+## TLS (optional)
+
+TLS is off by default and the server listens on plaintext HTTP. That is fine on a trusted LAN or
+behind your own reverse proxy (we ship no proxy config, but we do not restrict it either: the
+server is a valid plaintext upstream). To have the server terminate TLS itself, mount a
+certificate and private key (PEM) and set `SHADOWMASK_TLS_CERT` and `SHADOWMASK_TLS_KEY`
+(uncomment the block in `docker-compose.yml`, both must be set together).
+
+When TLS is enabled the server serves HTTPS on the same port, so change the healthcheck to
+`curl -fsSk https://127.0.0.1:8080/health` (the `-k` allows a self-signed cert).

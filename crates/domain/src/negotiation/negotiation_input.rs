@@ -11,4 +11,7 @@ pub struct NegotiationInput {
     pub requested_audio: Option<u32>,
     pub requested_subtitle: Option<SubtitleSelection>,
     pub max_bitrate: Option<u64>,
+    pub target_height: Option<u32>,
+    pub force_burn: bool,
+    pub downmix_stereo: bool,
 }

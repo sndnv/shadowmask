@@ -1,4 +1,4 @@
 #[allow(clippy::module_inception)]
 mod job;
 
-pub use job::JobResponse;
+pub use job::{JobLogResponse, JobResponse};

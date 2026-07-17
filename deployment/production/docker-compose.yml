@@ -14,9 +14,15 @@ services:
       SHADOWMASK_LOG_LEVEL: "info"
       SHADOWMASK_SQLX_LOG_LEVEL: "warn"
       SHADOWMASK_BOOTSTRAP_MODE: "off"
+      # Optional TLS (off by default): point these at a mounted cert + key to serve HTTPS
+      # directly. Leave unset to serve plaintext HTTP (fine on a trusted LAN or behind your
+      # own reverse proxy). When enabled, update the healthcheck below to https (curl -k).
+      # SHADOWMASK_TLS_CERT: "/config/tls/cert.pem"
+      # SHADOWMASK_TLS_KEY: "/config/tls/key.pem"
     volumes:
       - ./local/data:/data
       - ./bootstrap:/config/bootstrap:ro
+      # - ./tls:/config/tls:ro   # mount your cert + key here when using SHADOWMASK_TLS_* above
       - "${SHADOWMASK_MOVIES_DIR:?set SHADOWMASK_MOVIES_DIR to your movies library path}:/media/movies:ro"
       - "${SHADOWMASK_TV_DIR:?set SHADOWMASK_TV_DIR to your tv library path}:/media/tv:ro"
     healthcheck:

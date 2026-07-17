@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Collections</title>
+  </head>
+  <body>
+    <h1>Collections</h1>
+    <nav id="nav"></nav>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      if (sm.requireAuth()) load();
+
+      async function load() {
+        const main = document.getElementById("main");
+        const id = sm.qs("id");
+        try {
+          if (id) await renderOne(main, id);
+          else await renderList(main);
+        } catch (err) {
+          main.textContent = "Could not load collections.";
+        }
+      }
+
+      async function renderList(main) {
+        const params = new URLSearchParams(location.search);
+        const page = await sm.json("/api/v1/movies/collections?" + params.toString());
+        main.textContent = "";
+        main.appendChild(sm.breadcrumbs([{ label: "Collections (" + page.total + ")" }]));
+        if (!page.items.length) {
+          main.appendChild(sm.el("p", { text: "No collections." }));
+          return;
+        }
+        main.appendChild(
+          sm.grid(
+            page.items.map((c) => ({
+              href: sm.href.collection(c.id),
+              artwork: c.artwork,
+              title: c.name,
+              subtitle: c.movies.length + " movies",
+            })),
+          ),
+        );
+        main.appendChild(sm.pager(page.total, page.offset, page.limit));
+      }
+
+      async function renderOne(main, id) {
+        const c = await sm.json("/api/v1/movies/collections/" + encodeURIComponent(id));
+        const items = (c.items || [])
+          .slice()
+          .sort((a, b) => (a.year || Infinity) - (b.year || Infinity));
+        main.textContent = "";
+        main.appendChild(
+          sm.breadcrumbs([
+            { label: "Collections", href: sm.url("catalog/collections.html") },
+            { label: c.name },
+          ]),
+        );
+        const backdrop = sm.img(c.artwork, "backdrop", 960);
+        if (backdrop) {
+          backdrop.setAttribute("class", "sm-backdrop");
+          main.appendChild(backdrop);
+        }
+        const dl = sm.el("dl", null, [
+          sm.el("dt", { text: "Movies" }),
+          sm.el("dd", { text: String(items.length) }),
+          sm.el("dt", { text: "Added" }),
+          sm.el("dd", { text: sm.time(c.added_at) }),
+          sm.el("dt", { text: "Updated" }),
+          sm.el("dd", { text: sm.time(c.updated_at) }),
+        ]);
+        const info = sm.el("div", { class: "sm-detail-info" }, [
+          sm.el("h1", { text: c.name }),
+          dl,
+          c.overview ? sm.el("p", { text: c.overview }) : null,
+        ]);
+        main.appendChild(sm.el("div", { class: "sm-detail" }, [sm.poster(c.artwork, 480), info]));
+
+        if (!items.length) {
+          main.appendChild(sm.el("p", { text: "No movies in this collection." }));
+          return;
+        }
+        main.appendChild(sm.el("h2", { text: "Movies" }));
+        const status = sm.el("p", { class: "sm-status", text: "Checking your progress..." });
+        main.appendChild(status);
+        const list = sm.grid(
+          items.map((m) => ({
+            href: sm.href.movie(m.id),
+            artwork: m.artwork,
+            title: m.title,
+            subtitle: m.year ? String(m.year) : null,
+          })),
+        );
+        main.appendChild(list);
+        await annotateProgress(status, list, items);
+      }
+
+      async function annotateProgress(status, list, items) {
+        let uid;
+        try {
+          uid = (await sm.self()).id;
+        } catch (err) {
+          status.remove();
+          return;
+        }
+        const [states, cont] = await Promise.all([
+          sm
+            .json("/api/v1/users/" + encodeURIComponent(uid) + "/state/batch", {
+              method: "POST",
+              body: JSON.stringify({ titles: items.map((m) => ({ type: "movie", id: m.id })) }),
+            })
+            .catch(() => []),
+          sm.json("/api/v1/users/" + encodeURIComponent(uid) + "/continue").catch(() => null),
+        ]);
+        const watched = new Set();
+        (states || []).forEach((s) => {
+          if (s && s.watched && s.title) watched.add(s.title.id);
+        });
+        const percent = {};
+        const collect = (arr) =>
+          (arr || []).forEach((r) => {
+            if (r && r.card && r.card.title && r.card.title.type === "movie") {
+              percent[r.card.title.id] = r.card.progress_percent;
+            }
+          });
+        if (cont) {
+          collect(cont.now_playing);
+          collect(cont.in_progress);
+        }
+
+        const cards = list.children;
+        let done = 0;
+        let nextIndex = -1;
+        items.forEach((m, i) => {
+          const caption = cards[i] && cards[i].querySelector("figcaption");
+          if (watched.has(m.id)) {
+            done++;
+            if (caption) caption.appendChild(sm.el("span", { class: "sm-badge" }, "Watched"));
+          } else if (percent[m.id] !== undefined) {
+            if (caption) caption.appendChild(sm.el("div", { text: percent[m.id] + "% watched" }));
+            if (nextIndex < 0) nextIndex = i;
+          }
+        });
+        if (nextIndex < 0) nextIndex = items.findIndex((m) => !watched.has(m.id));
+
+        status.textContent = "";
+        status.appendChild(
+          sm.el("progress", { max: String(items.length), value: String(done) }),
+        );
+        status.appendChild(sm.el("span", { text: " " + done + " of " + items.length + " watched" }));
+        if (done === items.length) {
+          status.after(sm.el("p", { text: "You have watched everything in this collection." }));
+        } else if (nextIndex >= 0) {
+          const next = items[nextIndex];
+          const label = percent[next.id] !== undefined ? "Continue with " : "Up next: ";
+          status.after(
+            sm.el("p", null, [
+              label,
+              sm.el(
+                "a",
+                { href: sm.href.movie(next.id) },
+                next.title + (next.year ? " (" + next.year + ")" : ""),
+              ),
+            ]),
+          );
+        }
+      }
+    </script>
+  </body>
+</html>

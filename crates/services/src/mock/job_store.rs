@@ -40,6 +40,7 @@ impl JobRepository for MockJobStore {
         ready.truncate(limit);
         for job in &mut ready {
             job.status = JobStatus::Running;
+            job.started_at = Some(now);
             guard.insert(job.id.clone(), job.clone());
         }
         Ok(ready)
@@ -52,6 +53,7 @@ impl JobRepository for MockJobStore {
             if job.status == JobStatus::Running {
                 job.status = JobStatus::Queued;
                 job.available_at = now;
+                job.started_at = None;
                 count += 1;
             }
         }
@@ -93,6 +95,8 @@ mod tests {
             last_error: None,
             created_at,
             updated_at: created_at,
+            started_at: None,
+            finished_at: None,
         }
     }
 

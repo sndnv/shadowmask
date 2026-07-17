@@ -5,5 +5,6 @@ CREATE TABLE series (
     overview TEXT,
     rating_system TEXT,
     rating_code TEXT,
-    added_at INTEGER NOT NULL
+    added_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
 );

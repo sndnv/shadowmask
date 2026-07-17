@@ -14,5 +14,6 @@ pub struct Series {
     pub overview: Option<String>,
     pub content_rating: Option<ContentRating>,
     pub added_at: Timestamp,
+    pub updated_at: Timestamp,
     pub artwork: Vec<ArtworkRef>,
 }

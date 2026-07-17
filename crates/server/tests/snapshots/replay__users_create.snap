@@ -12,6 +12,7 @@ expression: value
     "preferred_audio": [],
     "preferred_subtitle": [],
     "role": "player",
+    "updated_at": "[updated_at]",
     "username": "newbie"
   },
   "status": 201

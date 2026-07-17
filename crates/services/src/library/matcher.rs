@@ -4,6 +4,7 @@ use domain::library::{
     DiscoveredFile, MatchKey, MatchReport, MatchedGroup, ParsedMedia, UnmatchedFile,
     UnmatchedFileId,
 };
+use jiff::Timestamp;
 
 use crate::library::normalize_title;
 use crate::library::parse::{confidence, parse_filename};
@@ -28,6 +29,7 @@ impl Matcher {
     pub fn match_files(&self, discovered: &[DiscoveredFile]) -> MatchReport {
         let mut groups: HashMap<MatchKey, (ParsedMedia, f32, Vec<DiscoveredFile>)> = HashMap::new();
         let mut unmatched = Vec::new();
+        let now = Timestamp::now();
 
         for file in discovered {
             let parsed = parse_filename(&file.path);
@@ -38,6 +40,8 @@ impl Matcher {
                     library: file.library.clone(),
                     path: file.path.clone(),
                     candidates: Vec::new(),
+                    created_at: now,
+                    updated_at: now,
                 });
                 continue;
             }
@@ -90,6 +94,7 @@ mod tests {
             library: LibraryId("lib".into()),
             path: path.to_owned(),
             size_bytes: 1,
+            subtitle_siblings: Vec::new(),
             probe: ProbeResult {
                 duration_ms: 0,
                 video: Vec::new(),

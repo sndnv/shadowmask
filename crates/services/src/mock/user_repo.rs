@@ -154,6 +154,7 @@ mod tests {
             concurrent_stream_limit: None,
             bitrate_cap: None,
             created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 

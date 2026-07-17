@@ -3,6 +3,7 @@ CREATE TABLE devices (
     user_id TEXT NOT NULL,
     name TEXT NOT NULL,
     platform TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
     last_seen INTEGER
 );
 

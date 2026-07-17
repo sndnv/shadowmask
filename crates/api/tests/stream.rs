@@ -61,7 +61,7 @@ impl StreamSource for FakeSource {
         Ok("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv0/index.m3u8\n".to_owned())
     }
 
-    fn media_path(
+    async fn media_path(
         &self,
         claims: &StreamClaims,
         variant: &str,

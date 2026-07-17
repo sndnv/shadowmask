@@ -10,12 +10,13 @@ use domain::catalog::{
 };
 use domain::library::LibraryId;
 use domain::metadata::{GenreId, PersonId};
+use domain::user::Role;
 
 use crate::dto::catalog::{
     CollectionResponse, CreateCollectionRequest, EpisodeResponse, GenreDto, MovieDetailResponse,
-    MovieResponse, PersonProfileResponse, RefreshRequest, SeasonResponse, SeriesDetailResponse,
-    SeriesResponse, TitleBatchRequest, TitleCardResponse, UpdateCollectionRequest,
-    VersionDetailResponse, VersionResponse,
+    MovieResponse, PersonProfileResponse, RefreshRequest, RelinkRequest, SeasonResponse,
+    SeriesDetailResponse, SeriesResponse, TitleBatchRequest, TitleCardResponse,
+    UpdateCollectionRequest, VersionDetailResponse, VersionResponse,
 };
 use crate::error::{ApiError, ApiResult};
 use crate::extract::{AuthUser, RequireAdmin};
@@ -129,10 +130,10 @@ pub async fn movie_versions<S: AppServices>(
         versions.items.len(),
         title.id()
     );
-    Ok(Json(PageResponse::from_page(
-        versions,
-        VersionResponse::from,
-    )))
+    let include_path = principal.role == Role::Admin;
+    Ok(Json(PageResponse::from_page(versions, |v| {
+        VersionResponse::with_path(v, include_path)
+    })))
 }
 
 pub async fn refresh_movie<S: AppServices>(
@@ -179,7 +180,27 @@ pub async fn version_detail<S: AppServices>(
         .await
         .map_err(log_fail(actor, "retrieve version"))?;
     debug!("User [{actor}] successfully retrieved version [{}]", id.0);
-    Ok(Json(detail.into()))
+    let include_path = principal.role == Role::Admin;
+    Ok(Json(VersionDetailResponse::with_path(detail, include_path)))
+}
+
+pub async fn relink_version<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Path(id): Path<String>,
+    Json(req): Json<RelinkRequest>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    let id = VersionId(id);
+    state
+        .relink_version(&principal, &id, req.target.into())
+        .await
+        .map_err(log_fail(actor, "relink version"))?;
+    debug!(
+        "User [{actor}] successfully queued a relink for version [{}]",
+        id.0
+    );
+    Ok(StatusCode::ACCEPTED)
 }
 
 pub async fn collections<S: AppServices>(
@@ -424,8 +445,8 @@ pub async fn episode_versions<S: AppServices>(
         versions.items.len(),
         title.id()
     );
-    Ok(Json(PageResponse::from_page(
-        versions,
-        VersionResponse::from,
-    )))
+    let include_path = principal.role == Role::Admin;
+    Ok(Json(PageResponse::from_page(versions, |v| {
+        VersionResponse::with_path(v, include_path)
+    })))
 }

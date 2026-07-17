@@ -133,6 +133,7 @@ impl MetadataProvider for OmdbClient {
                 source: "imdb".to_owned(),
                 value: detail.imdb_id,
             }],
+            collection: None,
         })
     }
 }

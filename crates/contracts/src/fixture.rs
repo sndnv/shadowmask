@@ -21,7 +21,7 @@ use domain::user::{IssuedToken, Role, UserId};
 
 pub const EPOCH: i64 = 1_700_000_000;
 
-pub const LINK_CODE: &str = "CODE";
+pub const LINK_CODE: &str = "7G2K9QMP";
 
 pub fn ts(offset: i64) -> Timestamp {
     Timestamp::from_second(EPOCH + offset).expect("valid fixture timestamp")
@@ -40,6 +40,8 @@ pub fn admin_job() -> Job {
         last_error: None,
         created_at: ts(40),
         updated_at: ts(41),
+        started_at: Some(ts(40)),
+        finished_at: Some(ts(41)),
     }
 }
 
@@ -55,6 +57,7 @@ pub fn movie(id: &str) -> Movie {
             code: "PG-13".into(),
         }),
         added_at: ts(1),
+        updated_at: ts(1),
         artwork: Vec::new(),
     }
 }
@@ -70,6 +73,7 @@ pub fn series(id: &str) -> Series {
             code: "TV-14".into(),
         }),
         added_at: ts(2),
+        updated_at: ts(2),
         artwork: Vec::new(),
     }
 }
@@ -81,6 +85,8 @@ pub fn season(id: &str, series: &str) -> Season {
         number: 1,
         title: Some("Season 1".into()),
         overview: None,
+        added_at: ts(5),
+        updated_at: ts(5),
         artwork: Vec::new(),
     }
 }
@@ -95,6 +101,7 @@ pub fn episode(id: &str, season: &str) -> Episode {
         runtime_minutes: Some(42),
         air_date: Some(ts(3)),
         added_at: ts(4),
+        updated_at: ts(4),
         artwork: Vec::new(),
     }
 }
@@ -111,6 +118,8 @@ pub fn version(id: &str, title: TitleId, lib: &str, quality: Quality) -> Version
         duration_ms: 1000,
         edition: None,
         available: true,
+        added_at: ts(6),
+        updated_at: ts(6),
     }
 }
 
@@ -123,6 +132,8 @@ pub fn library(id: &str) -> Library {
         watcher: WatcherStrategy::Manual,
         scan_schedule: Some("0 0 * * *".into()),
         metadata_sources: vec!["tmdb".into()],
+        created_at: ts(8),
+        updated_at: ts(8),
     }
 }
 
@@ -132,6 +143,8 @@ pub fn saga_collection() -> Collection {
         name: "Saga".into(),
         overview: Some("epic".into()),
         movies: vec![MovieId("m1".into())],
+        added_at: ts(7),
+        updated_at: ts(7),
         artwork: Vec::new(),
     }
 }
@@ -266,6 +279,7 @@ pub fn version_detail(id: &str) -> VersionDetail {
                 default: false,
             },
         ],
+        subtitle_files: Vec::new(),
         chapters: vec![
             Chapter {
                 title: "Cold Open".into(),

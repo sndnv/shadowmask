@@ -41,6 +41,7 @@ where
             .ok_or_else(|| {
                 JobError::Permanent(format!("library not found: {}", payload.library.0))
             })?;
+        tracing::info!("ingesting resolved file");
         let probe = self
             .probe
             .probe(&payload.path)
@@ -50,6 +51,7 @@ where
             library: payload.library.clone(),
             path: payload.path.clone(),
             size_bytes: 0,
+            subtitle_siblings: Vec::new(),
             probe,
         };
         self.ingester
@@ -94,6 +96,8 @@ mod tests {
             watcher: WatcherStrategy::Manual,
             scan_schedule: None,
             metadata_sources: Vec::new(),
+            created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 
@@ -128,6 +132,8 @@ mod tests {
             last_error: None,
             created_at: now,
             updated_at: now,
+            started_at: None,
+            finished_at: None,
         }
     }
 
@@ -149,6 +155,8 @@ mod tests {
             library: LibraryId("lib".into()),
             path: "/m/x.mkv".into(),
             candidates: Vec::new(),
+            created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         })
         .await
         .unwrap();

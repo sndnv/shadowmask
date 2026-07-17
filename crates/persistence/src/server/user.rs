@@ -37,7 +37,11 @@ impl SqliteUserRepo {
         self.pool.close().await;
     }
 
-    async fn langs(&self, query: &str, key: &str) -> Result<Vec<LanguageCode>, RepositoryError> {
+    async fn langs(
+        &self,
+        query: &'static str,
+        key: &str,
+    ) -> Result<Vec<LanguageCode>, RepositoryError> {
         let rows = sqlx::query(query)
             .bind(key)
             .fetch_all(&self.pool)
@@ -79,6 +83,7 @@ impl SqliteUserRepo {
                 .map(|value| value as u32),
             bitrate_cap: column::<Option<i64>>(row, "bitrate_cap")?.map(|value| value as u64),
             created_at: from_millis(column(row, "created_at")?)?,
+            updated_at: from_millis(column(row, "updated_at")?)?,
             id: UserId(id),
         })
     }
@@ -139,8 +144,8 @@ impl UserRepository for SqliteUserRepo {
         sqlx::query(
             "INSERT INTO users \
              (id, username, password_hash, role, max_rating_system, max_rating_code, \
-              concurrent_stream_limit, bitrate_cap, created_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              concurrent_stream_limit, bitrate_cap, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(user.id.0.as_str())
         .bind(user.username.as_str())
@@ -151,6 +156,7 @@ impl UserRepository for SqliteUserRepo {
         .bind(user.concurrent_stream_limit.map(|value| value as i64))
         .bind(user.bitrate_cap.map(|value| value as i64))
         .bind(to_millis(user.created_at))
+        .bind(to_millis(user.updated_at))
         .execute(&mut *tx)
         .await
         .map_err(insert_error)?;
@@ -217,7 +223,8 @@ impl UserRepository for SqliteUserRepo {
         sqlx::query(
             "UPDATE users SET \
              username = ?, password_hash = ?, role = ?, max_rating_system = ?, \
-             max_rating_code = ?, concurrent_stream_limit = ?, bitrate_cap = ?, created_at = ? \
+             max_rating_code = ?, concurrent_stream_limit = ?, bitrate_cap = ?, created_at = ?, \
+             updated_at = ? \
              WHERE id = ?",
         )
         .bind(user.username.as_str())
@@ -228,6 +235,7 @@ impl UserRepository for SqliteUserRepo {
         .bind(user.concurrent_stream_limit.map(|value| value as i64))
         .bind(user.bitrate_cap.map(|value| value as i64))
         .bind(to_millis(user.created_at))
+        .bind(to_millis(user.updated_at))
         .bind(user.id.0.as_str())
         .execute(&mut *tx)
         .await

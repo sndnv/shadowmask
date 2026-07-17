@@ -29,7 +29,8 @@ expression: value
       "overview": null,
       "runtime_minutes": 42,
       "season_id": "se1",
-      "title": "Alpha e1"
+      "title": "Alpha e1",
+      "updated_at": "2023-11-14T22:13:24Z"
     }
   ],
   "status": 200

@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Admin library</title>
+  </head>
+  <body>
+    <h1>Library</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs"><a href="index.html">Admin</a> / <a href="libraries.html">Libraries</a> / Library</p>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      const eu = encodeURIComponent;
+      const pad2 = (n) => String(n).padStart(2, "0");
+      const libId = sm.qs("id");
+      let unmatchedHeading = null;
+      let duplicatesHeading = null;
+      let versionsHeading = null;
+
+      if (sm.requireAuth()) guard();
+
+      async function guard() {
+        const main = document.getElementById("main");
+        if (!libId) {
+          main.textContent = "No library specified.";
+          return;
+        }
+        try {
+          const me = await sm.self();
+          if (me.role !== "admin") {
+            main.textContent = "Not Authorized.";
+            return;
+          }
+          const library = await sm.json("/api/v1/libraries/" + eu(libId));
+          main.textContent = "";
+          main.appendChild(sm.el("h2", { text: library.name + " (" + library.kind + ")" }));
+          await renderScan(main);
+          await renderUnmatched(main);
+          await renderDuplicates(main);
+          await renderVersions(main);
+        } catch (err) {
+          main.textContent = "Could not load this library.";
+        }
+      }
+
+      async function renderScan(main) {
+        main.appendChild(sm.el("h3", { text: "Scan" }));
+        const container = sm.el("div", null);
+        main.appendChild(container);
+        const trigger = sm.el("button", { type: "button" }, "Trigger scan");
+        trigger.addEventListener("click", async () => {
+          try {
+            await sm.json("/api/v1/libraries/" + eu(libId) + "/scan", { method: "POST" });
+          } catch (err) {}
+          await reloadScan(container);
+        });
+        main.appendChild(trigger);
+        await reloadScan(container);
+      }
+
+      async function reloadScan(container) {
+        container.textContent = "Loading...";
+        try {
+          const scan = await sm.json("/api/v1/libraries/" + eu(libId) + "/scan");
+          container.textContent =
+            "Status " +
+            scan.status +
+            ", progress " +
+            Math.round(scan.progress * 100) +
+            "%" +
+            (scan.started_at ? ", started " + sm.time(scan.started_at) : "") +
+            (scan.last_scanned_at ? ", last scanned " + sm.time(scan.last_scanned_at) : "") +
+            (scan.error ? ", error: " + scan.error : "");
+        } catch (err) {
+          container.textContent = "Could not load scan state.";
+        }
+      }
+
+      async function renderUnmatched(main) {
+        unmatchedHeading = sm.el("h3", { text: "Unmatched files" });
+        main.appendChild(unmatchedHeading);
+        const container = sm.el("div", null);
+        main.appendChild(container);
+        await reloadUnmatched(container);
+      }
+
+      async function reloadUnmatched(container) {
+        container.textContent = "Loading...";
+        try {
+          const page = await sm.json("/api/v1/libraries/" + eu(libId) + "/unmatched");
+          if (unmatchedHeading)
+            unmatchedHeading.textContent = "Unmatched files (" + page.items.length + ")";
+          container.textContent = "";
+          if (!page.items.length) {
+            container.appendChild(sm.el("p", { text: "None." }));
+            return;
+          }
+          const list = sm.el("ul", null);
+          page.items.forEach((file) => {
+            const candidateBox = sm.el("div", null);
+            const find = sm.el("button", { type: "button" }, "Find matches");
+            find.addEventListener("click", () => findCandidates(file, candidateBox, container));
+            list.appendChild(
+              sm.el("li", null, [sm.el("span", { text: file.path + " " }), find, candidateBox]),
+            );
+          });
+          container.appendChild(list);
+        } catch (err) {
+          container.textContent = "Could not load unmatched files.";
+        }
+      }
+
+      async function findCandidates(file, box, unmatchedContainer) {
+        box.textContent = " Loading...";
+        try {
+          const candidates = await sm.json(
+            "/api/v1/libraries/" + eu(libId) + "/unmatched/" + eu(file.id) + "/candidates",
+          );
+          box.textContent = "";
+          if (!candidates.length) {
+            box.appendChild(sm.el("p", { text: "No candidates." }));
+            return;
+          }
+          const rows = candidates.map((c) => {
+            const resolve = sm.el("button", { type: "button" }, "Resolve");
+            resolve.addEventListener("click", async () => {
+              try {
+                await sm.json(
+                  "/api/v1/libraries/" + eu(libId) + "/unmatched/" + eu(file.id) + "/resolve",
+                  { method: "POST", body: JSON.stringify({ target: c.target }) },
+                );
+                await reloadUnmatched(unmatchedContainer);
+              } catch (err) {
+                resolve.textContent = "Failed";
+              }
+            });
+            return [c.title + (c.year ? " (" + c.year + ")" : ""), c.kind, c.source, resolve];
+          });
+          box.appendChild(sm.table(["Match", "Kind", "Source", ""], rows));
+        } catch (err) {
+          box.textContent = " Could not load candidates.";
+        }
+      }
+
+      async function renderDuplicates(main) {
+        duplicatesHeading = sm.el("h3", { text: "Duplicate candidates" });
+        main.appendChild(duplicatesHeading);
+        const container = sm.el("div", null);
+        main.appendChild(container);
+        await reloadDuplicates(container);
+      }
+
+      async function reloadDuplicates(container) {
+        container.textContent = "Loading...";
+        try {
+          const page = await sm.json("/api/v1/libraries/" + eu(libId) + "/duplicates");
+          if (duplicatesHeading)
+            duplicatesHeading.textContent = "Duplicate candidates (" + page.items.length + ")";
+          container.textContent = "";
+          if (!page.items.length) {
+            container.appendChild(sm.el("p", { text: "None." }));
+            return;
+          }
+          const rows = page.items.map((dup) => {
+            const resolve = sm.el("button", { type: "button" }, "Resolve");
+            resolve.addEventListener("click", () => act(dup.id, "resolve", container));
+            const dismiss = sm.el("button", { type: "button" }, "Dismiss");
+            dismiss.addEventListener("click", () => act(dup.id, "dismiss", container));
+            return [dup.paths.join(", "), [resolve, " ", dismiss]];
+          });
+          container.appendChild(sm.table(["Files", ""], rows));
+        } catch (err) {
+          container.textContent = "Could not load duplicates.";
+        }
+      }
+
+      async function act(dupId, action, container) {
+        try {
+          await sm.json(
+            "/api/v1/libraries/" + eu(libId) + "/duplicates/" + eu(dupId) + "/" + action,
+            { method: "POST" },
+          );
+        } catch (err) {}
+        await reloadDuplicates(container);
+      }
+
+      async function renderVersions(main) {
+        versionsHeading = sm.el("h3", { text: "Versions" });
+        main.appendChild(versionsHeading);
+        const container = sm.el("div", null);
+        const panelHost = sm.el("div", null);
+        main.appendChild(container);
+        main.appendChild(panelHost);
+        await reloadVersions(container, panelHost);
+      }
+
+      async function reloadVersions(container, panelHost) {
+        container.textContent = "Loading...";
+        try {
+          const page = await sm.json("/api/v1/libraries/" + eu(libId) + "/versions");
+          if (versionsHeading) versionsHeading.textContent = "Versions (" + page.items.length + ")";
+          container.textContent = "";
+          if (!page.items.length) {
+            container.appendChild(sm.el("p", { text: "None." }));
+            return;
+          }
+          const names = {};
+          try {
+            const cards = await sm.json("/api/v1/titles/batch", {
+              method: "POST",
+              body: JSON.stringify({ titles: page.items.map((v) => v.title) }),
+            });
+            cards.forEach((c) => {
+              const key = c.type + ":" + c.id;
+              if (c.type === "episode") {
+                const code =
+                  c.season_number != null
+                    ? "S" + pad2(c.season_number) + "E" + pad2(c.number)
+                    : "E" + c.number;
+                names[key] = (c.series_title || c.title) + " " + code;
+              } else {
+                names[key] = c.title + (c.year ? " (" + c.year + ")" : "");
+              }
+            });
+          } catch (e) {}
+          const rows = page.items.map((v) => {
+            const name = names[v.title.type + ":" + v.title.id] || v.title.type + " " + v.title.id;
+            const relink = sm.el("button", { type: "button" }, "Relink");
+            relink.addEventListener("click", () => {
+              panelHost.textContent = "";
+              panelHost.appendChild(
+                sm.relinkPanel(v.id, name + " (" + v.quality.toUpperCase() + ")", () =>
+                  reloadVersions(container, panelHost),
+                ),
+              );
+              panelHost.scrollIntoView({ block: "nearest" });
+            });
+            return [
+              sm.el("a", { href: sm.href.version(v.id) }, v.path || "(no path)"),
+              name,
+              v.quality.toUpperCase(),
+              v.container,
+              v.edition || "",
+              Math.round(v.size_bytes / 1048576) + " MB",
+              v.available ? "yes" : "no",
+              relink,
+            ];
+          });
+          container.appendChild(
+            sm.table(
+              ["Path", "Title", "Quality", "Container", "Edition", "Size", "Available", ""],
+              rows,
+            ),
+          );
+        } catch (err) {
+          container.textContent = "Could not load versions.";
+        }
+      }
+    </script>
+  </body>
+</html>

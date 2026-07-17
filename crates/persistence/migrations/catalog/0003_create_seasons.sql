@@ -3,5 +3,7 @@ CREATE TABLE seasons (
     series_id TEXT NOT NULL REFERENCES series (id) ON DELETE CASCADE,
     number INTEGER NOT NULL,
     title TEXT,
-    overview TEXT
+    overview TEXT,
+    added_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
 );

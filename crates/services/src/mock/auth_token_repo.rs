@@ -101,13 +101,43 @@ impl AuthTokenRepository for MockAuthTokenRepo {
         }
     }
 
-    async fn upsert_device(&self, device: Device) -> Result<(), RepositoryError> {
+    async fn list_link_codes(
+        &self,
+        user: &UserId,
+        now: Timestamp,
+    ) -> Result<Vec<PendingLink>, RepositoryError> {
+        self.guard()?;
+        let mut links: Vec<PendingLink> = self
+            .state
+            .lock()
+            .unwrap()
+            .links
+            .values()
+            .filter(|link| &link.user == user && link.expires_at > now)
+            .cloned()
+            .collect();
+        links.sort_by(|a, b| a.code.cmp(&b.code));
+        Ok(links)
+    }
+
+    async fn delete_link_code(&self, code: &str, user: &UserId) -> Result<(), RepositoryError> {
         self.guard()?;
         self.state
             .lock()
             .unwrap()
-            .devices
-            .insert(device.id.clone(), device);
+            .links
+            .retain(|_, link| !(link.code == code && &link.user == user));
+        Ok(())
+    }
+
+    async fn upsert_device(&self, device: Device) -> Result<(), RepositoryError> {
+        self.guard()?;
+        let mut state = self.state.lock().unwrap();
+        let mut device = device;
+        if let Some(existing) = state.devices.get(&device.id) {
+            device.created_at = existing.created_at;
+        }
+        state.devices.insert(device.id.clone(), device);
         Ok(())
     }
 
@@ -132,6 +162,25 @@ impl AuthTokenRepository for MockAuthTokenRepo {
     ) -> Result<Option<ApiToken>, RepositoryError> {
         self.guard()?;
         Ok(self.state.lock().unwrap().api_tokens.get(hash).cloned())
+    }
+
+    async fn touch_api_token(
+        &self,
+        id: &ApiTokenId,
+        now: Timestamp,
+    ) -> Result<(), RepositoryError> {
+        self.guard()?;
+        if let Some(token) = self
+            .state
+            .lock()
+            .unwrap()
+            .api_tokens
+            .values_mut()
+            .find(|token| &token.id == id)
+        {
+            token.last_used_at = Some(now);
+        }
+        Ok(())
     }
 
     async fn list_devices(&self, user: &UserId) -> Result<Vec<Device>, RepositoryError> {
@@ -211,6 +260,7 @@ mod tests {
             user: UserId("u1".to_owned()),
             name: "Roku".to_owned(),
             platform: "roku".to_owned(),
+            created_at: Timestamp::UNIX_EPOCH,
             last_seen: Some(Timestamp::UNIX_EPOCH),
         }
     }
@@ -222,6 +272,7 @@ mod tests {
             device: DeviceId("d1".to_owned()),
             token_hash: hash.to_owned(),
             created_at: Timestamp::UNIX_EPOCH,
+            last_used_at: None,
         }
     }
 
@@ -362,6 +413,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn lists_live_codes_per_user_and_deletes_scoped_to_owner() {
+        let repo = MockAuthTokenRepo::new();
+        let future = Timestamp::from_second(4_000_000_000).unwrap();
+        let past = Timestamp::UNIX_EPOCH;
+        let now = Timestamp::from_second(1_000_000_000).unwrap();
+        repo.store_link_code(link("LIVE", future)).await.unwrap();
+        repo.store_link_code(link("DEAD", past)).await.unwrap();
+        let mut other = link("OTHER", future);
+        other.user = UserId("u2".into());
+        repo.store_link_code(other).await.unwrap();
+
+        let live = repo
+            .list_link_codes(&UserId("u1".into()), now)
+            .await
+            .unwrap();
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].code, "LIVE");
+
+        repo.delete_link_code("LIVE", &UserId("u2".into()))
+            .await
+            .unwrap();
+        assert_eq!(
+            repo.list_link_codes(&UserId("u1".into()), now)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        repo.delete_link_code("LIVE", &UserId("u1".into()))
+            .await
+            .unwrap();
+        assert!(
+            repo.list_link_codes(&UserId("u1".into()), now)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
     async fn surfaces_backend_failure() {
         let repo = MockAuthTokenRepo::new();
         repo.set_fail();
@@ -391,10 +482,25 @@ mod tests {
                 .await
                 .is_err()
         );
+        assert!(
+            repo.list_link_codes(&UserId("u1".into()), Timestamp::UNIX_EPOCH)
+                .await
+                .is_err()
+        );
+        assert!(
+            repo.delete_link_code("X", &UserId("u1".into()))
+                .await
+                .is_err()
+        );
         assert!(repo.upsert_device(device("d1")).await.is_err());
         assert!(repo.get_device(&DeviceId("d1".into())).await.is_err());
         assert!(repo.store_api_token(api_token("t1", "h")).await.is_err());
         assert!(repo.find_api_token_by_hash("h").await.is_err());
+        assert!(
+            repo.touch_api_token(&ApiTokenId("t1".into()), Timestamp::UNIX_EPOCH)
+                .await
+                .is_err()
+        );
         assert!(repo.list_devices(&UserId("u1".into())).await.is_err());
         assert!(repo.list_api_tokens(&UserId("u1".into())).await.is_err());
         assert!(repo.delete_device(&DeviceId("d1".into())).await.is_err());

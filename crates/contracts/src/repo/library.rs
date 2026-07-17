@@ -20,6 +20,8 @@ fn library(id: &str) -> Library {
         watcher: WatcherStrategy::Manual,
         scan_schedule: None,
         metadata_sources: Vec::new(),
+        created_at: at(1_000),
+        updated_at: at(1_000),
     }
 }
 
@@ -57,8 +59,13 @@ pub async fn library_repository_contract<R: LibraryRepository>(repo: R) {
 
     let mut renamed = library("lib1");
     renamed.name = "Renamed".to_owned();
+    renamed.created_at = at(9_999);
+    renamed.updated_at = at(2_000);
     repo.upsert(renamed).await.unwrap();
-    assert_eq!(repo.get(&id).await.unwrap().unwrap().name, "Renamed");
+    let reloaded = repo.get(&id).await.unwrap().unwrap();
+    assert_eq!(reloaded.name, "Renamed");
+    assert_eq!(reloaded.created_at, at(1_000));
+    assert_eq!(reloaded.updated_at, at(2_000));
     assert_eq!(repo.list().await.unwrap().len(), 1);
 
     let unmatched_id = UnmatchedFileId("uf1".into());
@@ -68,6 +75,8 @@ pub async fn library_repository_contract<R: LibraryRepository>(repo: R) {
         library: id.clone(),
         path: "/media/x.mkv".into(),
         candidates,
+        created_at: at(100),
+        updated_at: at(100),
     };
     let duplicate = || DuplicateCandidate {
         id: dup_id.clone(),
@@ -143,16 +152,32 @@ pub async fn library_repository_contract<R: LibraryRepository>(repo: R) {
     assert_eq!(repo.list_unmatched(&id, page()).await.unwrap().total, 1);
     assert_eq!(repo.list_duplicates(&id, page()).await.unwrap().total, 1);
 
+    repo.insert_unmatched(UnmatchedFile {
+        id: unmatched_id.clone(),
+        library: id.clone(),
+        path: "/media/x.mkv".into(),
+        candidates: Vec::new(),
+        created_at: at(9_999),
+        updated_at: at(200),
+    })
+    .await
+    .unwrap();
+    let reinserted = repo.get_unmatched(&unmatched_id).await.unwrap().unwrap();
+    assert_eq!(reinserted.created_at, at(100));
+    assert_eq!(reinserted.updated_at, at(200));
+
     let state = ScanState {
         library: id.clone(),
         status: ScanStatus::Running,
         progress: 0.5,
+        started_at: Some(at(1_699_999_000)),
         last_scanned_at: Some(at(1_700_000_000)),
         error: None,
     };
     repo.save_scan_state(state).await.unwrap();
     let loaded = repo.scan_state(&id).await.unwrap().unwrap();
     assert_eq!(loaded.status, ScanStatus::Running);
+    assert_eq!(loaded.started_at, Some(at(1_699_999_000)));
     assert_eq!(loaded.last_scanned_at, Some(at(1_700_000_000)));
     assert_eq!(loaded.progress, 0.5);
 

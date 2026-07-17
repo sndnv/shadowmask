@@ -19,4 +19,5 @@ pub struct User {
     pub concurrent_stream_limit: Option<u32>,
     pub bitrate_cap: Option<u64>,
     pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }

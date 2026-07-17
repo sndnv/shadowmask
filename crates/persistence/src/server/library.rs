@@ -42,14 +42,17 @@ impl SqliteLibraryRepo {
         let mut tx = self.pool.begin().await.map_err(backend)?;
         let id = library.id.0.as_str();
         sqlx::query(
-            "INSERT OR REPLACE INTO libraries (id, name, kind, watcher, scan_schedule) \
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO libraries (id, name, kind, watcher, scan_schedule, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM libraries WHERE id = ?), ?), ?)",
         )
         .bind(id)
         .bind(library.name.as_str())
         .bind(kind_to_str(library.kind))
         .bind(watcher_to_str(library.watcher))
         .bind(library.scan_schedule.as_deref())
+        .bind(id)
+        .bind(to_millis(library.created_at))
+        .bind(to_millis(library.updated_at))
         .execute(&mut *tx)
         .await
         .map_err(backend)?;
@@ -88,7 +91,11 @@ impl SqliteLibraryRepo {
         Ok(())
     }
 
-    async fn strings(&self, query: &str, key: &str) -> Result<Vec<String>, RepositoryError> {
+    async fn strings(
+        &self,
+        query: &'static str,
+        key: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
         let rows = sqlx::query(query)
             .bind(key)
             .fetch_all(&self.pool)
@@ -121,6 +128,8 @@ impl SqliteLibraryRepo {
             watcher: watcher_from_str(&column::<String>(row, "watcher")?)?,
             scan_schedule: column(row, "scan_schedule")?,
             metadata_sources,
+            created_at: from_millis(column(row, "created_at")?)?,
+            updated_at: from_millis(column(row, "updated_at")?)?,
             id: LibraryId(id),
         })
     }
@@ -226,6 +235,9 @@ fn row_to_scan_state(row: &SqliteRow) -> Result<ScanState, RepositoryError> {
         library: LibraryId(column(row, "library_id")?),
         status: scan_status_from_str(&column::<String>(row, "status")?)?,
         progress: column::<f64>(row, "progress")? as f32,
+        started_at: column::<Option<i64>>(row, "started_at")?
+            .map(from_millis)
+            .transpose()?,
         last_scanned_at: column::<Option<i64>>(row, "last_scanned_at")?
             .map(from_millis)
             .transpose()?,
@@ -233,7 +245,7 @@ fn row_to_scan_state(row: &SqliteRow) -> Result<ScanState, RepositoryError> {
     })
 }
 
-async fn count(pool: &SqlitePool, query: &str, key: &str) -> Result<u64, RepositoryError> {
+async fn count(pool: &SqlitePool, query: &'static str, key: &str) -> Result<u64, RepositoryError> {
     let row = sqlx::query(query)
         .bind(key)
         .fetch_one(pool)
@@ -282,12 +294,13 @@ impl LibraryRepository for SqliteLibraryRepo {
     async fn save_scan_state(&self, state: ScanState) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("library", "save_scan_state");
         sqlx::query(
-            "INSERT OR REPLACE INTO scan_state (library_id, status, progress, last_scanned_at, error) \
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO scan_state (library_id, status, progress, started_at, last_scanned_at, error) \
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(state.library.0.as_str())
         .bind(scan_status_to_str(state.status))
         .bind(f64::from(state.progress))
+        .bind(state.started_at.map(to_millis))
         .bind(state.last_scanned_at.map(to_millis))
         .bind(state.error.as_deref())
         .execute(&self.pool)
@@ -359,6 +372,8 @@ impl LibraryRepository for SqliteLibraryRepo {
                 library: LibraryId(column(row, "library_id")?),
                 path: column(row, "path")?,
                 candidates,
+                created_at: from_millis(column(row, "created_at")?)?,
+                updated_at: from_millis(column(row, "updated_at")?)?,
                 id: UnmatchedFileId(uid),
             });
         }
@@ -432,6 +447,8 @@ impl LibraryRepository for SqliteLibraryRepo {
                     library: LibraryId(column(&row, "library_id")?),
                     path: column(&row, "path")?,
                     candidates,
+                    created_at: from_millis(column(&row, "created_at")?)?,
+                    updated_at: from_millis(column(&row, "updated_at")?)?,
                     id: UnmatchedFileId(uid),
                 }))
             }
@@ -444,12 +461,15 @@ impl LibraryRepository for SqliteLibraryRepo {
         let mut tx = self.pool.begin().await.map_err(backend)?;
         let id = file.id.0.as_str();
         sqlx::query(
-            "INSERT INTO unmatched_files (id, library_id, path) VALUES (?, ?, ?) \
-             ON CONFLICT(id) DO UPDATE SET library_id = excluded.library_id, path = excluded.path",
+            "INSERT INTO unmatched_files (id, library_id, path, created_at, updated_at) VALUES (?, ?, ?, ?, ?) \
+             ON CONFLICT(id) DO UPDATE SET library_id = excluded.library_id, path = excluded.path, \
+             updated_at = excluded.updated_at",
         )
         .bind(id)
         .bind(file.library.0.as_str())
         .bind(file.path.as_str())
+        .bind(to_millis(file.created_at))
+        .bind(to_millis(file.updated_at))
         .execute(&mut *tx)
         .await
         .map_err(backend)?;
@@ -607,6 +627,8 @@ mod tests {
             watcher: WatcherStrategy::Scheduled,
             scan_schedule: Some("0 0 * * *".into()),
             metadata_sources: vec!["tmdb".into(), "omdb".into()],
+            created_at: from_millis(0).unwrap(),
+            updated_at: from_millis(0).unwrap(),
         })
         .await
         .unwrap();
@@ -633,7 +655,8 @@ mod tests {
             limit: 10,
         };
         sqlx::query(
-            "INSERT INTO unmatched_files (id, library_id, path) VALUES ('uf1', 'lib1', '/x.mkv')",
+            "INSERT INTO unmatched_files (id, library_id, path, created_at, updated_at) \
+             VALUES ('uf1', 'lib1', '/x.mkv', 0, 0)",
         )
         .execute(&repo.pool)
         .await

@@ -6,5 +6,6 @@ pub struct DiscoveredFile {
     pub library: LibraryId,
     pub path: String,
     pub size_bytes: u64,
+    pub subtitle_siblings: Vec<String>,
     pub probe: ProbeResult,
 }

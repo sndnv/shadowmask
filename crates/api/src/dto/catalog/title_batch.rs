@@ -29,7 +29,9 @@ impl From<TitleCard> for TitleCardResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::catalog::{Episode, EpisodeId, Movie, MovieId, SeasonId, TitleId};
+    use domain::catalog::{
+        Episode, EpisodeCard, EpisodeId, Movie, MovieId, SeasonId, SeriesId, TitleId,
+    };
     use jiff::Timestamp;
 
     #[test]
@@ -53,6 +55,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         }));
         let value = serde_json::to_value(card).unwrap();
@@ -63,20 +66,29 @@ mod tests {
 
     #[test]
     fn serializes_episode_card_tagged() {
-        let card = TitleCardResponse::from(TitleCard::Episode(Episode {
-            id: EpisodeId("e1".into()),
-            season: SeasonId("se1".into()),
-            number: 3,
-            title: "Pilot".into(),
-            overview: None,
-            runtime_minutes: None,
-            air_date: None,
-            added_at: Timestamp::UNIX_EPOCH,
-            artwork: Vec::new(),
+        let card = TitleCardResponse::from(TitleCard::Episode(EpisodeCard {
+            episode: Episode {
+                id: EpisodeId("e1".into()),
+                season: SeasonId("se1".into()),
+                number: 3,
+                title: "Pilot".into(),
+                overview: None,
+                runtime_minutes: None,
+                air_date: None,
+                added_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
+                artwork: Vec::new(),
+            },
+            series: Some(SeriesId("sr1".into())),
+            series_title: Some("Show ABC".into()),
+            season_number: Some(1),
         }));
         let value = serde_json::to_value(card).unwrap();
         assert_eq!(value["type"], "episode");
         assert_eq!(value["id"], "e1");
         assert_eq!(value["season_id"], "se1");
+        assert_eq!(value["series_id"], "sr1");
+        assert_eq!(value["series_title"], "Show ABC");
+        assert_eq!(value["season_number"], 1);
     }
 }

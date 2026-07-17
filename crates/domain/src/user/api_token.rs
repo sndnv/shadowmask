@@ -12,4 +12,5 @@ pub struct ApiToken {
     pub device: DeviceId,
     pub token_hash: String,
     pub created_at: Timestamp,
+    pub last_used_at: Option<Timestamp>,
 }

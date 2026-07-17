@@ -1,3 +1,5 @@
+use jiff::Timestamp;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LibraryId(pub String);
 
@@ -24,4 +26,6 @@ pub struct Library {
     pub watcher: WatcherStrategy,
     pub scan_schedule: Option<String>,
     pub metadata_sources: Vec<String>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }

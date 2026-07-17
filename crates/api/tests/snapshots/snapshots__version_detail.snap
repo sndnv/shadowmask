@@ -4,6 +4,7 @@ expression: value
 ---
 {
   "body": {
+    "added_at": "[added_at]",
     "audio": [
       {
         "bitrate": 768000,
@@ -52,6 +53,7 @@ expression: value
     },
     "quality": "sd",
     "size_bytes": 1,
+    "subtitle_files": [],
     "subtitles": [
       {
         "default": true,
@@ -82,6 +84,7 @@ expression: value
         "tile_width": 320
       }
     ],
+    "updated_at": "[updated_at]",
     "video": [
       {
         "bit_depth": 10,

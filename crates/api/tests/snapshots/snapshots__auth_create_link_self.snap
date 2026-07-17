@@ -1,0 +1,11 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "code": "link-code",
+    "expires_at": "2100-01-01T00:00:00Z"
+  },
+  "status": 200
+}

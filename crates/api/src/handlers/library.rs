@@ -266,8 +266,7 @@ pub async fn versions<S: AppServices>(
         versions.items.len(),
         id.0
     );
-    Ok(Json(PageResponse::from_page(
-        versions,
-        VersionResponse::from,
-    )))
+    Ok(Json(PageResponse::from_page(versions, |v| {
+        VersionResponse::with_path(v, true)
+    })))
 }

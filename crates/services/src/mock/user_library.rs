@@ -5,7 +5,7 @@ use domain::catalog::{TitleId, VersionId};
 use domain::common::{Page, PageRequest};
 use domain::error::UserError;
 use domain::playback::{
-    Favorite, PlaybackProgress, TitleState, WatchHistory, WatchTarget, WatchlistItem,
+    Favorite, PlaybackProgress, TitleState, WatchHistory, WatchTarget, WatchedRollup, WatchlistItem,
 };
 use domain::service::UserLibraryService;
 use domain::user::UserId;
@@ -214,6 +214,49 @@ impl UserLibraryService for MockUserLibraryService {
             })
             .collect())
     }
+
+    async fn watched_rollups(
+        &self,
+        user: &UserId,
+        targets: &[WatchTarget],
+    ) -> Result<Vec<WatchedRollup>, UserError> {
+        let state = self.state.lock().unwrap();
+        let history: HashMap<TitleId, (bool, bool)> = state
+            .history
+            .get(user)
+            .into_iter()
+            .flatten()
+            .map(|h| (h.title.clone(), (h.watched, h.completed)))
+            .collect();
+        Ok(targets
+            .iter()
+            .map(|target| {
+                let leaves: Vec<TitleId> = match target {
+                    WatchTarget::Movie(id) => vec![TitleId::Movie(id.clone())],
+                    WatchTarget::Episode(id) => vec![TitleId::Episode(id.clone())],
+                    WatchTarget::Season(_) | WatchTarget::Series(_) => Vec::new(),
+                };
+                let total = leaves.len() as u32;
+                let mut watched_episodes = 0;
+                let mut all_completed = true;
+                for title in &leaves {
+                    let (watched, completed) =
+                        history.get(title).copied().unwrap_or((false, false));
+                    if watched {
+                        watched_episodes += 1;
+                    }
+                    all_completed &= completed;
+                }
+                WatchedRollup {
+                    target: target.clone(),
+                    watched: total > 0 && watched_episodes == total,
+                    completed: total > 0 && all_completed,
+                    watched_episodes,
+                    total_episodes: total,
+                }
+            })
+            .collect())
+    }
 }
 
 #[cfg(test)]
@@ -396,5 +439,60 @@ mod tests {
             ]
         );
         assert!(svc.title_states(&user(), &[]).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn watched_rollups_count_leaves_and_skip_containers() {
+        let svc = MockUserLibraryService::new();
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), true)
+            .await
+            .unwrap();
+
+        let rollups = svc
+            .watched_rollups(
+                &user(),
+                &[
+                    WatchTarget::Movie(MovieId("m1".into())),
+                    WatchTarget::Episode(EpisodeId("e1".into())),
+                    WatchTarget::Season(SeasonId("se1".into())),
+                    WatchTarget::Series(SeriesId("sr1".into())),
+                ],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            rollups,
+            vec![
+                WatchedRollup {
+                    target: WatchTarget::Movie(MovieId("m1".into())),
+                    watched: true,
+                    completed: true,
+                    watched_episodes: 1,
+                    total_episodes: 1,
+                },
+                WatchedRollup {
+                    target: WatchTarget::Episode(EpisodeId("e1".into())),
+                    watched: false,
+                    completed: false,
+                    watched_episodes: 0,
+                    total_episodes: 1,
+                },
+                WatchedRollup {
+                    target: WatchTarget::Season(SeasonId("se1".into())),
+                    watched: false,
+                    completed: false,
+                    watched_episodes: 0,
+                    total_episodes: 0,
+                },
+                WatchedRollup {
+                    target: WatchTarget::Series(SeriesId("sr1".into())),
+                    watched: false,
+                    completed: false,
+                    watched_episodes: 0,
+                    total_episodes: 0,
+                },
+            ]
+        );
     }
 }
