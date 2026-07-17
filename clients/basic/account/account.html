@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Account</title>
+  </head>
+  <body>
+    <h1>Account</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs">Account</p>
+    <main id="main">
+      <h2>Profile</h2>
+      <dl id="profile"></dl>
+      <form id="profile-form">
+        <p><label>Preferred audio (comma separated) <input name="audio" /></label></p>
+        <p><label>Preferred subtitles (comma separated) <input name="subs" /></label></p>
+        <p><label>Concurrent stream limit <input name="limit" type="number" min="0" /></label></p>
+        <p><label>Bitrate cap (bps) <input name="bitrate" type="number" min="0" /></label></p>
+        <p><button type="submit">Save profile</button> <span id="profile-status"></span></p>
+      </form>
+
+      <h2>Change password</h2>
+      <form id="password-form">
+        <p>
+          <label>Current password
+            <input name="current" type="password" autocomplete="current-password" />
+          </label>
+        </p>
+        <p>
+          <label>New password
+            <input name="new" type="password" autocomplete="new-password" />
+          </label>
+        </p>
+        <p><button type="submit">Change password</button> <span id="password-status"></span></p>
+      </form>
+
+      <h2 id="watchlist-heading">Watchlist</h2>
+      <div id="watchlist"></div>
+
+      <h2 id="favorites-heading">Favorites</h2>
+      <div id="favorites"></div>
+
+      <h2 id="history-heading">History</h2>
+      <div id="history"></div>
+
+      <h2 id="devices-heading">Devices</h2>
+      <div id="devices"></div>
+
+      <h2>Provision a device</h2>
+      <form id="link-form">
+        <p>Create a link code, then enter it on the new device to sign it in to your account.</p>
+        <p><label>TTL seconds (optional) <input name="ttl" type="number" min="1" /></label></p>
+        <p><button type="submit">Create code</button> <span id="link-output"></span></p>
+      </form>
+      <h2 id="link-codes-heading">Pending codes</h2>
+      <div id="link-codes"></div>
+
+      <h2 id="tokens-heading">API tokens</h2>
+      <div id="tokens"></div>
+
+      <h2>Sessions</h2>
+      <p>
+        <button type="button" id="logout-all">Sign out of all devices</button>
+        <span id="sessions-status"></span>
+      </p>
+    </main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      const eu = encodeURIComponent;
+      let uid = null;
+
+      if (sm.requireAuth()) init();
+
+      async function init() {
+        try {
+          const me = await sm.self();
+          uid = me.id;
+          fillProfile(me);
+          if (me.role === "player") {
+            hideAccountManagement();
+          } else {
+            wireProfileForm();
+            wirePasswordForm();
+            wireProvisionForm();
+            await reloadLinkCodes(document.getElementById("link-codes"));
+          }
+          await reloadList(document.getElementById("watchlist"), "watchlist");
+          await reloadList(document.getElementById("favorites"), "favorites");
+          await reloadHistory(document.getElementById("history"));
+          await reloadDevices(document.getElementById("devices"));
+          await reloadTokens(document.getElementById("tokens"));
+          wireLogoutAll();
+        } catch (err) {
+          document.getElementById("main").textContent = "Could not load your account.";
+        }
+      }
+
+      function splitList(value) {
+        return value
+          .split(",")
+          .map((x) => x.trim())
+          .filter((x) => x.length);
+      }
+
+      function pad2(n) {
+        return String(n).padStart(2, "0");
+      }
+
+      function cardFor(c) {
+        if (c.type === "episode") {
+          const subtitle =
+            c.season_number != null
+              ? "S" + pad2(c.season_number) + "E" + pad2(c.number)
+              : "Episode " + c.number;
+          return {
+            href: sm.href.episode(c.id, c.season_id),
+            artwork: c.artwork,
+            title: c.series_title || c.title,
+            subtitle,
+          };
+        }
+        return {
+          href: sm.href.movie(c.id),
+          artwork: c.artwork,
+          title: c.title,
+          subtitle: c.year ? String(c.year) : null,
+        };
+      }
+
+      async function resolveCards(refs) {
+        if (!refs.length) return [];
+        return sm.json("/api/v1/titles/batch", {
+          method: "POST",
+          body: JSON.stringify({ titles: refs }),
+        });
+      }
+
+      function fillProfile(me) {
+        const dl = document.getElementById("profile");
+        dl.textContent = "";
+        const rating = me.max_content_rating
+          ? me.max_content_rating.system + " " + me.max_content_rating.code
+          : "none";
+        [
+          ["Username", me.username],
+          ["Role", me.role],
+          ["Max content rating", rating],
+        ].forEach(([key, value]) => {
+          dl.appendChild(sm.el("dt", { text: key }));
+          dl.appendChild(sm.el("dd", { text: value }));
+        });
+        const f = document.getElementById("profile-form");
+        f.elements.audio.value = (me.preferred_audio || []).join(", ");
+        f.elements.subs.value = (me.preferred_subtitle || []).join(", ");
+        f.elements.limit.value =
+          me.concurrent_stream_limit != null ? String(me.concurrent_stream_limit) : "";
+        f.elements.bitrate.value = me.bitrate_cap != null ? String(me.bitrate_cap) : "";
+      }
+
+      function wireProfileForm() {
+        const f = document.getElementById("profile-form");
+        const status = document.getElementById("profile-status");
+        f.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const body = {
+            preferred_audio: splitList(f.elements.audio.value),
+            preferred_subtitle: splitList(f.elements.subs.value),
+          };
+          if (f.elements.limit.value !== "") {
+            body.concurrent_stream_limit = parseInt(f.elements.limit.value, 10);
+          }
+          if (f.elements.bitrate.value !== "") {
+            body.bitrate_cap = parseInt(f.elements.bitrate.value, 10);
+          }
+          try {
+            await sm.json("/api/v1/users/" + eu(uid), {
+              method: "PUT",
+              body: JSON.stringify(body),
+            });
+            status.textContent = "Saved.";
+          } catch (err) {
+            status.textContent = "Save failed.";
+          }
+        });
+      }
+
+      function wirePasswordForm() {
+        const f = document.getElementById("password-form");
+        const status = document.getElementById("password-status");
+        f.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          if (!f.elements.current.value) {
+            status.textContent = "Your current password is required.";
+            return;
+          }
+          if (!f.elements.new.value) {
+            status.textContent = "A new password is required.";
+            return;
+          }
+          const body = {
+            current_password: f.elements.current.value,
+            new_password: f.elements.new.value,
+          };
+          try {
+            await sm.json("/api/v1/users/" + eu(uid) + "/password", {
+              method: "PUT",
+              body: JSON.stringify(body),
+            });
+            status.textContent = "Password changed. Signing you out...";
+            setTimeout(() => sm.logout(), 1200);
+          } catch (err) {
+            status.textContent = "Change failed. Check that your current password is correct.";
+          }
+        });
+      }
+
+      function wireProvisionForm() {
+        const f = document.getElementById("link-form");
+        const output = document.getElementById("link-output");
+        f.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const body = {};
+          if (f.elements.ttl.value) body.ttl_secs = parseInt(f.elements.ttl.value, 10);
+          try {
+            const res = await sm.json("/api/v1/auth/link/create", {
+              method: "POST",
+              body: JSON.stringify(body),
+            });
+            output.textContent = "Code " + groupCode(res.code) + " expires " + sm.time(res.expires_at);
+            await reloadLinkCodes(document.getElementById("link-codes"));
+          } catch (err) {
+            output.textContent = "Failed.";
+          }
+        });
+      }
+
+      function groupCode(code) {
+        return code.length === 8 ? code.slice(0, 4) + "-" + code.slice(4) : code;
+      }
+
+      async function reloadLinkCodes(container) {
+        if (!container) return;
+        container.textContent = "Loading...";
+        try {
+          const codes = await sm.json("/api/v1/users/" + eu(uid) + "/link-codes");
+          const h = document.getElementById("link-codes-heading");
+          if (h) h.textContent = "Pending codes (" + codes.length + ")";
+          container.textContent = "";
+          if (!codes.length) {
+            container.appendChild(sm.el("p", { text: "No pending codes." }));
+            return;
+          }
+          const rows = codes.map((c) => {
+            const revoke = sm.el("button", { type: "button" }, "Revoke");
+            revoke.addEventListener("click", async () => {
+              await sm
+                .json("/api/v1/users/" + eu(uid) + "/link-codes/" + eu(c.code), { method: "DELETE" })
+                .catch(() => {});
+              await reloadLinkCodes(container);
+            });
+            return [groupCode(c.code), sm.time(c.expires_at), revoke];
+          });
+          container.appendChild(sm.table(["Code", "Expires", ""], rows));
+        } catch (err) {
+          container.textContent = "Could not load pending codes.";
+        }
+      }
+
+      function hideAccountManagement() {
+        const profileForm = document.getElementById("profile-form");
+        if (profileForm) profileForm.style.display = "none";
+        ["password-form", "link-form"].forEach((id) => {
+          const form = document.getElementById(id);
+          if (!form) return;
+          form.style.display = "none";
+          const heading = form.previousElementSibling;
+          if (heading && heading.tagName === "H2") heading.style.display = "none";
+        });
+        ["link-codes-heading", "link-codes"].forEach((id) => {
+          const node = document.getElementById(id);
+          if (node) node.style.display = "none";
+        });
+      }
+
+      async function reloadList(container, kind) {
+        container.textContent = "Loading...";
+        try {
+          const items = await sm.json("/api/v1/users/" + eu(uid) + "/" + kind);
+          const label = kind.charAt(0).toUpperCase() + kind.slice(1);
+          const heading = document.getElementById(kind + "-heading");
+          if (heading) heading.textContent = label + " (" + items.length + ")";
+          container.textContent = "";
+          if (!items.length) {
+            container.appendChild(sm.el("p", { text: "Empty." }));
+            return;
+          }
+          const cards = await resolveCards(items.map((i) => i.title));
+          const list = sm.el("ul", { class: "sm-grid" });
+          cards.forEach((card) => {
+            const li = sm.card(cardFor(card));
+            const remove = sm.el("button", { type: "button" }, "Remove");
+            remove.addEventListener("click", async () => {
+              await sm
+                .json("/api/v1/users/" + eu(uid) + "/" + kind + "/" + eu(card.id), {
+                  method: "DELETE",
+                })
+                .catch(() => {});
+              await reloadList(container, kind);
+            });
+            li.appendChild(remove);
+            list.appendChild(li);
+          });
+          container.appendChild(list);
+        } catch (err) {
+          container.textContent = "Could not load.";
+        }
+      }
+
+      async function reloadHistory(container) {
+        container.textContent = "Loading...";
+        try {
+          const page = await sm.json("/api/v1/users/" + eu(uid) + "/history");
+          const hh = document.getElementById("history-heading");
+          if (hh)
+            hh.textContent =
+              "History (" + (page.total != null ? page.total : page.items.length) + ")";
+          container.textContent = "";
+          if (!page.items.length) {
+            container.appendChild(sm.el("p", { text: "No history." }));
+            return;
+          }
+          const cards = await resolveCards(page.items.map((h) => h.title));
+          const byId = {};
+          cards.forEach((c) => {
+            byId[c.type + ":" + c.id] = c;
+          });
+          const rows = page.items.map((h) => {
+            const card = byId[h.title.type + ":" + h.title.id];
+            const opts = card
+              ? cardFor(card)
+              : { href: "#", title: h.title.type + " " + h.title.id, subtitle: null };
+            const label = opts.title + (opts.subtitle ? " (" + opts.subtitle + ")" : "");
+            const link = sm.el("a", { href: opts.href }, label);
+            const state = h.completed ? "completed" : h.watched ? "watched" : "in progress";
+            const unwatch = sm.el("button", { type: "button" }, "Mark unwatched");
+            unwatch.addEventListener("click", async () => {
+              await sm
+                .json("/api/v1/users/" + eu(uid) + "/watched/" + eu(h.title.id), {
+                  method: "PUT",
+                  body: JSON.stringify({ type: h.title.type, watched: false }),
+                })
+                .catch(() => {});
+              await reloadHistory(container);
+            });
+            return [link, state, h.last_watched_at || "", unwatch];
+          });
+          container.appendChild(sm.table(["Title", "State", "Watched", ""], rows));
+        } catch (err) {
+          container.textContent = "Could not load history.";
+        }
+      }
+
+      async function reloadDevices(container) {
+        container.textContent = "Loading...";
+        try {
+          const devices = await sm.json("/api/v1/users/" + eu(uid) + "/devices");
+          const dh = document.getElementById("devices-heading");
+          if (dh) dh.textContent = "Devices (" + devices.length + ")";
+          container.textContent = "";
+          if (!devices.length) {
+            container.appendChild(sm.el("p", { text: "No devices." }));
+            return;
+          }
+          const rows = devices.map((d) => {
+            const revoke = sm.el("button", { type: "button" }, "Revoke");
+            revoke.addEventListener("click", async () => {
+              await sm
+                .json("/api/v1/users/" + eu(uid) + "/devices/" + eu(d.id), { method: "DELETE" })
+                .catch(() => {});
+              await reloadDevices(container);
+            });
+            return [d.name, d.platform, d.last_seen ? sm.time(d.last_seen) : "never", revoke];
+          });
+          container.appendChild(sm.table(["Name", "Platform", "Last seen", ""], rows));
+        } catch (err) {
+          container.textContent = "Could not load devices.";
+        }
+      }
+
+      async function reloadTokens(container) {
+        container.textContent = "Loading...";
+        try {
+          const tokens = await sm.json("/api/v1/users/" + eu(uid) + "/tokens");
+          const th = document.getElementById("tokens-heading");
+          if (th) th.textContent = "API tokens (" + tokens.length + ")";
+          container.textContent = "";
+          if (!tokens.length) {
+            container.appendChild(sm.el("p", { text: "No API tokens." }));
+            return;
+          }
+          const rows = tokens.map((t) => {
+            const revoke = sm.el("button", { type: "button" }, "Revoke");
+            revoke.addEventListener("click", async () => {
+              await sm
+                .json("/api/v1/users/" + eu(uid) + "/tokens/" + eu(t.id), { method: "DELETE" })
+                .catch(() => {});
+              await reloadTokens(container);
+            });
+            return [t.device_id, sm.time(t.created_at), revoke];
+          });
+          container.appendChild(sm.table(["Device", "Created", ""], rows));
+        } catch (err) {
+          container.textContent = "Could not load API tokens.";
+        }
+      }
+
+      function wireLogoutAll() {
+        const status = document.getElementById("sessions-status");
+        document.getElementById("logout-all").addEventListener("click", async () => {
+          try {
+            await sm.json("/api/v1/users/" + eu(uid) + "/sessions", { method: "DELETE" });
+            status.textContent = "All sessions revoked.";
+            sm.logout();
+          } catch (err) {
+            status.textContent = "Failed.";
+          }
+        });
+      }
+    </script>
+  </body>
+</html>

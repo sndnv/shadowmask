@@ -16,6 +16,7 @@ pub struct UserResponse {
     pub concurrent_stream_limit: Option<u32>,
     pub bitrate_cap: Option<u64>,
     pub created_at: String,
+    pub updated_at: String,
 }
 
 impl From<User> for UserResponse {
@@ -30,6 +31,7 @@ impl From<User> for UserResponse {
             concurrent_stream_limit: u.concurrent_stream_limit,
             bitrate_cap: u.bitrate_cap,
             created_at: u.created_at.to_string(),
+            updated_at: u.updated_at.to_string(),
         }
     }
 }

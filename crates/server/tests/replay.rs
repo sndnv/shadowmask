@@ -15,7 +15,8 @@ use domain::catalog::{
 use domain::common::{LanguageCode, Quality};
 use domain::library::{LibraryId, MatchCandidate, UnmatchedFile, UnmatchedFileId};
 use domain::media::{
-    AudioTrack, DetectedMarkers, EmbeddedSubtitleTrack, SubtitleFormat, VideoTrack,
+    AudioTrack, DetectedMarkers, EmbeddedSubtitleTrack, SubtitleFile, SubtitleFileId,
+    SubtitleFormat, SubtitleSource, VideoTrack,
 };
 use domain::playback::PlaybackProgress;
 use domain::repository::{
@@ -53,6 +54,7 @@ fn user(id: &str, username: &str, role: Role, hash: &str) -> User {
         concurrent_stream_limit: None,
         bitrate_cap: None,
         created_at: fixture::ts(0),
+        updated_at: fixture::ts(0),
     }
 }
 
@@ -69,6 +71,8 @@ fn direct_v1_detail() -> VersionDetail {
             duration_ms: 100_000,
             edition: None,
             available: true,
+            added_at: fixture::ts(0),
+            updated_at: fixture::ts(0),
         },
         video: vec![VideoTrack {
             index: 0,
@@ -93,6 +97,14 @@ fn direct_v1_detail() -> VersionDetail {
             format: SubtitleFormat::Srt,
             forced: false,
             default: true,
+        }],
+        subtitle_files: vec![SubtitleFile {
+            id: SubtitleFileId("v1-en".into()),
+            version: VersionId("v1".into()),
+            language: Some(LanguageCode("en".into())),
+            format: SubtitleFormat::Srt,
+            source: SubtitleSource::External,
+            path: "/media/v1.en.srt".into(),
         }],
         chapters: Vec::new(),
         markers: DetectedMarkers {
@@ -193,6 +205,8 @@ async fn seed(repos: &Repos, hash: &str) {
                 confidence: 0.9,
                 label: "Alpha".into(),
             }],
+            created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         })
         .await
         .unwrap();
@@ -347,6 +361,8 @@ fn snapshot(name: &str, status: StatusCode, body: Value) {
         ".body.code" => "[code]",
         ".body.id" => "[id]",
         ".body.created_at" => "[created_at]",
+        ".body.added_at" => "[added_at]",
+        ".body.updated_at" => "[updated_at]",
         ".body.session_id" => "[session_id]",
         ".body.manifest_url" => "[manifest_url]",
         ".body.version" => "[version]",
@@ -409,4 +425,103 @@ async fn closed_pool_maps_to_internal_error() {
     let (status, body) = call(router, Method::GET, "/api/v1/movies", Some(&token), None).await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     snapshot("err_internal", status, body);
+}
+
+#[tokio::test]
+async fn link_code_lifecycle_create_list_redeem_revoke() {
+    let hash = password::hash("pw").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let (_repos, router) = seeded(dir.path(), &hash).await;
+    let user_access = login(&router, "user").await.0;
+
+    let (status, body) = call(
+        router.clone(),
+        Method::POST,
+        "/api/v1/auth/link/create",
+        Some(&user_access),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let code = body["code"].as_str().unwrap().to_owned();
+    assert_eq!(code.len(), 8);
+
+    let (status, body) = call(
+        router.clone(),
+        Method::GET,
+        "/api/v1/users/u1/link-codes",
+        Some(&user_access),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["code"].as_str() == Some(code.as_str())),
+        "created code should be listed as pending"
+    );
+
+    let typed = format!("{}-{}", &code[..4], &code[4..]);
+    let (status, body) = call(
+        router.clone(),
+        Method::POST,
+        "/api/v1/auth/link",
+        None,
+        Some(json!({"code": typed, "device": {"name": "Roku", "platform": "roku"}})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let device_token = body["token"].as_str().unwrap().to_owned();
+    assert!(device_token.starts_with("smk_"));
+
+    let (status, _) = call(
+        router.clone(),
+        Method::GET,
+        "/api/v1/movies",
+        Some(&device_token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, _) = call(
+        router.clone(),
+        Method::POST,
+        "/api/v1/auth/link",
+        None,
+        Some(json!({"code": code, "device": {"name": "Dup", "platform": "roku"}})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, body) = call(
+        router.clone(),
+        Method::POST,
+        "/api/v1/auth/link/create",
+        Some(&user_access),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let code2 = body["code"].as_str().unwrap().to_owned();
+    let (status, _) = call(
+        router.clone(),
+        Method::DELETE,
+        &format!("/api/v1/users/u1/link-codes/{code2}"),
+        Some(&user_access),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _) = call(
+        router,
+        Method::POST,
+        "/api/v1/auth/link",
+        None,
+        Some(json!({"code": code2, "device": {"name": "Revoked", "platform": "roku"}})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }

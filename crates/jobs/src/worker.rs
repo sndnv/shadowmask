@@ -3,34 +3,38 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use domain::error::RepositoryError;
-use domain::job::Job;
+use domain::job::{Job, JobLogLevel, JobLogStore};
 use domain::repository::JobRepository;
 use jiff::Timestamp;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tokio::time::interval;
+use tracing::Instrument;
 
 use crate::error::JobError;
 use crate::job_handler::JobHandler;
 use crate::metrics::ActiveJob;
 use crate::retry::{RetryPolicy, apply_outcome};
 
-pub struct Worker<R, H> {
+pub struct Worker<R, H, L> {
     repo: R,
     handler: Arc<H>,
+    log: Arc<L>,
     limit: usize,
     policy: RetryPolicy,
 }
 
-impl<R, H> Worker<R, H>
+impl<R, H, L> Worker<R, H, L>
 where
     R: JobRepository,
     H: JobHandler + Send + Sync + 'static,
+    L: JobLogStore + 'static,
 {
-    pub fn new(repo: R, handler: H, limit: usize, policy: RetryPolicy) -> Self {
+    pub fn new(repo: R, handler: H, log: L, limit: usize, policy: RetryPolicy) -> Self {
         Self {
             repo,
             handler: Arc::new(handler),
+            log: Arc::new(log),
             limit,
             policy,
         }
@@ -46,11 +50,51 @@ where
                 .await
                 .expect("worker semaphore is never closed");
             let handler = Arc::clone(&self.handler);
+            let log = Arc::clone(&self.log);
             tasks.spawn(async move {
                 let _permit = permit;
+                let span = tracing::info_span!("job", job_id = %job.id.0, kind = ?job.kind);
+                let _ = log
+                    .append(
+                        &job.id,
+                        now,
+                        JobLogLevel::Info,
+                        &format!("started {:?}", job.kind),
+                    )
+                    .await;
                 let active = ActiveJob::start(job.kind);
-                let result = handler.handle(&job).await;
+                let result = handler.handle(&job).instrument(span).await;
                 active.finish(result.is_ok());
+                match &result {
+                    Ok(()) => {
+                        let _ = log
+                            .append(&job.id, now, JobLogLevel::Info, "succeeded")
+                            .await;
+                    }
+                    Err(JobError::Retryable(message)) => {
+                        let _ = log
+                            .append(
+                                &job.id,
+                                now,
+                                JobLogLevel::Warn,
+                                &format!(
+                                    "attempt {} failed, will retry: {message}",
+                                    job.attempts + 1
+                                ),
+                            )
+                            .await;
+                    }
+                    Err(JobError::Permanent(message)) => {
+                        let _ = log
+                            .append(
+                                &job.id,
+                                now,
+                                JobLogLevel::Error,
+                                &format!("failed: {message}"),
+                            )
+                            .await;
+                    }
+                }
                 (job, result)
             });
         }
@@ -88,7 +132,7 @@ where
 mod tests {
     use super::*;
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
-    use services::mock::MockJobStore;
+    use services::mock::{MockJobLogStore, MockJobStore};
     use tokio::sync::oneshot;
 
     struct OkHandler;
@@ -125,6 +169,8 @@ mod tests {
             last_error: None,
             created_at: now,
             updated_at: now,
+            started_at: None,
+            finished_at: None,
         }
     }
 
@@ -136,11 +182,23 @@ mod tests {
             .enqueue(job("a", JobPriority::Normal, now))
             .await
             .unwrap();
-        let worker = Worker::new(store.clone(), OkHandler, 4, RetryPolicy::default());
+        let log = MockJobLogStore::new();
+        let worker = Worker::new(
+            store.clone(),
+            OkHandler,
+            log.clone(),
+            4,
+            RetryPolicy::default(),
+        );
 
         assert_eq!(worker.run_once(now).await.unwrap(), 1);
         let stored = store.get(&JobId("a".into())).await.unwrap().unwrap();
         assert_eq!(stored.status, JobStatus::Succeeded);
+
+        let lines = log.lines_for(&JobId("a".into()));
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("INFO started LibraryScan"));
+        assert!(lines[1].contains("INFO succeeded"));
     }
 
     #[tokio::test]
@@ -151,7 +209,14 @@ mod tests {
             .enqueue(job("a", JobPriority::Normal, now))
             .await
             .unwrap();
-        let worker = Worker::new(store.clone(), RetryHandler, 4, RetryPolicy::default());
+        let log = MockJobLogStore::new();
+        let worker = Worker::new(
+            store.clone(),
+            RetryHandler,
+            log.clone(),
+            4,
+            RetryPolicy::default(),
+        );
 
         worker.run_once(now).await.unwrap();
         let stored = store.get(&JobId("a".into())).await.unwrap().unwrap();
@@ -159,6 +224,9 @@ mod tests {
         assert_eq!(stored.attempts, 1);
         assert!(stored.available_at > now);
         assert!(stored.last_error.is_some());
+
+        let lines = log.lines_for(&JobId("a".into()));
+        assert!(lines[1].contains("WARN attempt 1 failed, will retry: boom"));
     }
 
     #[tokio::test]
@@ -169,11 +237,21 @@ mod tests {
             .enqueue(job("a", JobPriority::Normal, now))
             .await
             .unwrap();
-        let worker = Worker::new(store.clone(), PermanentHandler, 4, RetryPolicy::default());
+        let log = MockJobLogStore::new();
+        let worker = Worker::new(
+            store.clone(),
+            PermanentHandler,
+            log.clone(),
+            4,
+            RetryPolicy::default(),
+        );
 
         worker.run_once(now).await.unwrap();
         let stored = store.get(&JobId("a".into())).await.unwrap().unwrap();
         assert_eq!(stored.status, JobStatus::Failed);
+
+        let lines = log.lines_for(&JobId("a".into()));
+        assert!(lines[1].contains("ERROR failed: nope"));
     }
 
     #[tokio::test]
@@ -186,7 +264,13 @@ mod tests {
                 .await
                 .unwrap();
         }
-        let worker = Worker::new(store.clone(), OkHandler, 2, RetryPolicy::default());
+        let worker = Worker::new(
+            store.clone(),
+            OkHandler,
+            MockJobLogStore::new(),
+            2,
+            RetryPolicy::default(),
+        );
 
         assert_eq!(worker.run_once(now).await.unwrap(), 2);
         let queued = store
@@ -207,7 +291,13 @@ mod tests {
             .enqueue(job("a", JobPriority::Normal, now))
             .await
             .unwrap();
-        let worker = Worker::new(store.clone(), OkHandler, 4, RetryPolicy::default());
+        let worker = Worker::new(
+            store.clone(),
+            OkHandler,
+            MockJobLogStore::new(),
+            4,
+            RetryPolicy::default(),
+        );
 
         let (tx, rx) = oneshot::channel::<()>();
         let driver = worker.run(Duration::from_millis(10), async move {
@@ -249,7 +339,13 @@ mod tests {
                 .enqueue(job("a", JobPriority::Normal, now))
                 .await
                 .unwrap();
-            let worker = Worker::new(store, OkHandler, 4, RetryPolicy::default());
+            let worker = Worker::new(
+                store,
+                OkHandler,
+                MockJobLogStore::new(),
+                4,
+                RetryPolicy::default(),
+            );
             worker.run_once(now).await.unwrap();
         });
         assert!(rendered.contains("jobs_total"));
@@ -268,7 +364,13 @@ mod tests {
                 .enqueue(job("a", JobPriority::Normal, now))
                 .await
                 .unwrap();
-            let worker = Worker::new(store, PermanentHandler, 4, RetryPolicy::default());
+            let worker = Worker::new(
+                store,
+                PermanentHandler,
+                MockJobLogStore::new(),
+                4,
+                RetryPolicy::default(),
+            );
             worker.run_once(now).await.unwrap();
         });
         assert!(rendered.contains("outcome=\"failed\""));

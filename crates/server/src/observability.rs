@@ -3,13 +3,20 @@ use axum::body::Body;
 use axum::extract::State;
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
+use std::path::Path;
+
 use axum::routing::get;
 use axum::{Router, http::StatusCode};
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
+use persistence::job_log::FsJobLogStore;
 use serde::Serialize;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::filter::{LevelFilter, Targets};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, Layer};
 
 use crate::api::Repos;
+use crate::job_log_layer::JobLogLayer;
 
 const DURATION_BUCKETS: &[f64] = &[
     10.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0, 300000.0,
@@ -36,10 +43,16 @@ fn log_directives(level: &str, sqlx_level: &str) -> String {
     directives.join(",")
 }
 
-pub fn init_logging(level: &str, sqlx_level: &str) {
-    let filter = EnvFilter::try_from_default_env()
+pub fn init_logging(level: &str, sqlx_level: &str, job_log_dir: &Path) {
+    let console = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(log_directives(level, sqlx_level)));
-    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+    let job_logs = Targets::new()
+        .with_default(LevelFilter::OFF)
+        .with_targets(OWN_CRATES.iter().map(|krate| (*krate, LevelFilter::DEBUG)));
+    let _ = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_filter(console))
+        .with(JobLogLayer::new(FsJobLogStore::new(job_log_dir)).with_filter(job_logs))
+        .try_init();
 }
 
 pub fn install_metrics() -> PrometheusHandle {
@@ -124,8 +137,9 @@ mod tests {
 
     #[test]
     fn init_logging_is_idempotent() {
-        init_logging("debug", "warn");
-        init_logging("info", "warn");
+        let dir = tempfile::tempdir().unwrap();
+        init_logging("debug", "warn", dir.path());
+        init_logging("info", "warn", dir.path());
     }
 
     #[test]

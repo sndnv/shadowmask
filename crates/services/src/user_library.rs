@@ -5,7 +5,7 @@ use domain::catalog::{TitleId, VersionId};
 use domain::common::{Page, PageRequest};
 use domain::error::UserError;
 use domain::playback::{
-    Favorite, PlaybackProgress, TitleState, WatchHistory, WatchTarget, WatchlistItem,
+    Favorite, PlaybackProgress, TitleState, WatchHistory, WatchTarget, WatchedRollup, WatchlistItem,
 };
 use domain::repository::{CatalogRepository, PreferencesRepository, ProgressRepository};
 use domain::service::UserLibraryService;
@@ -40,6 +40,34 @@ impl<Pr, Pf, C> Clone for UserLibraryServiceImpl<Pr, Pf, C> {
             preferences: Arc::clone(&self.preferences),
             catalog: Arc::clone(&self.catalog),
         }
+    }
+}
+
+impl<Pr, Pf, C> UserLibraryServiceImpl<Pr, Pf, C>
+where
+    C: CatalogRepository + Send + Sync,
+{
+    async fn leaf_titles(&self, target: &WatchTarget) -> Result<Vec<TitleId>, UserError> {
+        Ok(match target {
+            WatchTarget::Movie(id) => vec![TitleId::Movie(id.clone())],
+            WatchTarget::Episode(id) => vec![TitleId::Episode(id.clone())],
+            WatchTarget::Season(id) => self
+                .catalog
+                .list_episodes(id)
+                .await?
+                .into_iter()
+                .map(|episode| TitleId::Episode(episode.id))
+                .collect(),
+            WatchTarget::Series(id) => {
+                let mut titles = Vec::new();
+                for season in self.catalog.list_seasons(id).await? {
+                    for episode in self.catalog.list_episodes(&season.id).await? {
+                        titles.push(TitleId::Episode(episode.id));
+                    }
+                }
+                titles
+            }
+        })
     }
 }
 
@@ -125,28 +153,13 @@ where
             last_watched_at,
             completed: watched,
         };
-        let titles: Vec<TitleId> = match target {
-            WatchTarget::Movie(id) => vec![TitleId::Movie(id.clone())],
-            WatchTarget::Episode(id) => vec![TitleId::Episode(id.clone())],
-            WatchTarget::Season(id) => self
-                .catalog
-                .list_episodes(id)
-                .await?
-                .into_iter()
-                .map(|episode| TitleId::Episode(episode.id))
-                .collect(),
-            WatchTarget::Series(id) => {
-                let mut titles = Vec::new();
-                for season in self.catalog.list_seasons(id).await? {
-                    for episode in self.catalog.list_episodes(&season.id).await? {
-                        titles.push(TitleId::Episode(episode.id));
-                    }
+        for title in self.leaf_titles(target).await? {
+            self.progress.record_history(make(title.clone())).await?;
+            if !watched {
+                for version in self.catalog.list_versions(&title, ALL).await?.items {
+                    self.progress.delete(user, &version.id).await?;
                 }
-                titles
             }
-        };
-        for title in titles {
-            self.progress.record_history(make(title)).await?;
         }
         Ok(())
     }
@@ -192,13 +205,54 @@ where
             })
             .collect())
     }
+
+    async fn watched_rollups(
+        &self,
+        user: &UserId,
+        targets: &[WatchTarget],
+    ) -> Result<Vec<WatchedRollup>, UserError> {
+        let history: HashMap<TitleId, (bool, bool)> = self
+            .progress
+            .history(user, ALL)
+            .await?
+            .items
+            .into_iter()
+            .map(|h| (h.title, (h.watched, h.completed)))
+            .collect();
+        let mut rollups = Vec::with_capacity(targets.len());
+        for target in targets {
+            let leaves = self.leaf_titles(target).await?;
+            let total = leaves.len() as u32;
+            let mut watched_episodes = 0;
+            let mut all_completed = true;
+            for title in &leaves {
+                let (watched, completed) = history.get(title).copied().unwrap_or((false, false));
+                if watched {
+                    watched_episodes += 1;
+                }
+                all_completed &= completed;
+            }
+            rollups.push(WatchedRollup {
+                target: target.clone(),
+                watched: total > 0 && watched_episodes == total,
+                completed: total > 0 && all_completed,
+                watched_episodes,
+                total_episodes: total,
+            });
+        }
+        Ok(rollups)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mock::{MockCatalogRepo, MockPreferencesRepo, MockProgressRepo};
-    use domain::catalog::{Episode, EpisodeId, MovieId, Season, SeasonId, Series, SeriesId};
+    use domain::catalog::{
+        Episode, EpisodeId, MovieId, Season, SeasonId, Series, SeriesId, Version,
+    };
+    use domain::common::Quality;
+    use domain::library::LibraryId;
     use std::collections::HashSet;
 
     type Svc = UserLibraryServiceImpl<MockProgressRepo, MockPreferencesRepo, MockCatalogRepo>;
@@ -219,6 +273,23 @@ mod tests {
         TitleId::Movie(MovieId("m1".into()))
     }
 
+    fn version(id: &str) -> Version {
+        Version {
+            id: VersionId(id.into()),
+            title: TitleId::Movie(MovieId("m1".into())),
+            library: LibraryId("lib1".into()),
+            quality: Quality::Hd,
+            container: "mkv".into(),
+            path: format!("/media/{id}.mkv"),
+            size_bytes: 1,
+            duration_ms: 1000,
+            edition: None,
+            available: true,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+        }
+    }
+
     fn page() -> PageRequest {
         PageRequest {
             offset: 0,
@@ -234,6 +305,7 @@ mod tests {
             overview: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         }
     }
@@ -245,6 +317,8 @@ mod tests {
             number: 1,
             title: None,
             overview: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         }
     }
@@ -259,6 +333,7 @@ mod tests {
             runtime_minutes: None,
             air_date: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         }
     }
@@ -339,6 +414,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unwatch_resets_progress_for_the_titles_versions() {
+        let progress = Arc::new(MockProgressRepo::new());
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version("v1"));
+        let svc = UserLibraryServiceImpl::new(
+            Arc::clone(&progress),
+            Arc::new(MockPreferencesRepo::new()),
+            Arc::new(catalog),
+        );
+        progress
+            .upsert(PlaybackProgress {
+                user: user(),
+                version: VersionId("v1".into()),
+                position_ms: 1234,
+                updated_at: Timestamp::UNIX_EPOCH,
+            })
+            .await
+            .unwrap();
+
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), true)
+            .await
+            .unwrap();
+        assert!(
+            svc.progress(&user(), &VersionId("v1".into()))
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), false)
+            .await
+            .unwrap();
+        assert!(
+            svc.progress(&user(), &VersionId("v1".into()))
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
     async fn cloneable_shares_state() {
         let svc = service();
         let clone = svc.clone();
@@ -393,6 +509,11 @@ mod tests {
                 .is_err()
         );
         assert!(svc.title_states(&user(), &[title()]).await.is_err());
+        assert!(
+            svc.watched_rollups(&user(), &[WatchTarget::Movie(MovieId("m1".into()))])
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
@@ -521,5 +642,235 @@ mod tests {
             .await
             .unwrap();
         assert!(svc.history(&user(), page()).await.unwrap().items.is_empty());
+    }
+
+    #[tokio::test]
+    async fn watched_rollup_counts_partially_watched_season() {
+        let catalog = Arc::new(MockCatalogRepo::new());
+        catalog.add_series(series("sr1"));
+        catalog.add_season(season("se1", "sr1"));
+        catalog.add_episode(episode("e1", "se1"));
+        catalog.add_episode(episode("e2", "se1"));
+        catalog.add_episode(episode("e3", "se1"));
+        let svc = UserLibraryServiceImpl::new(
+            Arc::new(MockProgressRepo::new()),
+            Arc::new(MockPreferencesRepo::new()),
+            Arc::clone(&catalog),
+        );
+        svc.set_watched(&user(), &WatchTarget::Episode(EpisodeId("e1".into())), true)
+            .await
+            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Episode(EpisodeId("e2".into())), true)
+            .await
+            .unwrap();
+
+        let rollups = svc
+            .watched_rollups(&user(), &[WatchTarget::Season(SeasonId("se1".into()))])
+            .await
+            .unwrap();
+        assert_eq!(
+            rollups,
+            vec![WatchedRollup {
+                target: WatchTarget::Season(SeasonId("se1".into())),
+                watched: false,
+                completed: false,
+                watched_episodes: 2,
+                total_episodes: 3,
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn watched_rollup_full_season_and_series_roll_up() {
+        let catalog = Arc::new(MockCatalogRepo::new());
+        catalog.add_series(series("sr1"));
+        catalog.add_season(season("se1", "sr1"));
+        catalog.add_season(season("se2", "sr1"));
+        catalog.add_episode(episode("e1", "se1"));
+        catalog.add_episode(episode("e2", "se1"));
+        catalog.add_episode(episode("e3", "se2"));
+        let svc = UserLibraryServiceImpl::new(
+            Arc::new(MockProgressRepo::new()),
+            Arc::new(MockPreferencesRepo::new()),
+            Arc::clone(&catalog),
+        );
+        svc.set_watched(&user(), &WatchTarget::Series(SeriesId("sr1".into())), true)
+            .await
+            .unwrap();
+
+        let rollups = svc
+            .watched_rollups(
+                &user(),
+                &[
+                    WatchTarget::Season(SeasonId("se1".into())),
+                    WatchTarget::Series(SeriesId("sr1".into())),
+                ],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            rollups,
+            vec![
+                WatchedRollup {
+                    target: WatchTarget::Season(SeasonId("se1".into())),
+                    watched: true,
+                    completed: true,
+                    watched_episodes: 2,
+                    total_episodes: 2,
+                },
+                WatchedRollup {
+                    target: WatchTarget::Series(SeriesId("sr1".into())),
+                    watched: true,
+                    completed: true,
+                    watched_episodes: 3,
+                    total_episodes: 3,
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn watched_rollup_watched_without_completed() {
+        let progress = Arc::new(MockProgressRepo::new());
+        let catalog = Arc::new(MockCatalogRepo::new());
+        catalog.add_series(series("sr1"));
+        catalog.add_season(season("se1", "sr1"));
+        catalog.add_episode(episode("e1", "se1"));
+        catalog.add_episode(episode("e2", "se1"));
+        for id in ["e1", "e2"] {
+            progress
+                .record_history(WatchHistory {
+                    user: user(),
+                    title: TitleId::Episode(EpisodeId(id.into())),
+                    watched: true,
+                    play_count: 1,
+                    last_watched_at: None,
+                    completed: false,
+                })
+                .await
+                .unwrap();
+        }
+        let svc = UserLibraryServiceImpl::new(
+            Arc::clone(&progress),
+            Arc::new(MockPreferencesRepo::new()),
+            Arc::clone(&catalog),
+        );
+
+        let rollups = svc
+            .watched_rollups(&user(), &[WatchTarget::Season(SeasonId("se1".into()))])
+            .await
+            .unwrap();
+        assert_eq!(
+            rollups,
+            vec![WatchedRollup {
+                target: WatchTarget::Season(SeasonId("se1".into())),
+                watched: true,
+                completed: false,
+                watched_episodes: 2,
+                total_episodes: 2,
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn watched_rollup_handles_movie_and_episode_targets() {
+        let catalog = Arc::new(MockCatalogRepo::new());
+        catalog.add_series(series("sr1"));
+        catalog.add_season(season("se1", "sr1"));
+        catalog.add_episode(episode("e1", "se1"));
+        let svc = UserLibraryServiceImpl::new(
+            Arc::new(MockProgressRepo::new()),
+            Arc::new(MockPreferencesRepo::new()),
+            Arc::clone(&catalog),
+        );
+        svc.set_watched(&user(), &WatchTarget::Episode(EpisodeId("e1".into())), true)
+            .await
+            .unwrap();
+
+        let rollups = svc
+            .watched_rollups(
+                &user(),
+                &[
+                    WatchTarget::Movie(MovieId("m1".into())),
+                    WatchTarget::Episode(EpisodeId("e1".into())),
+                ],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            rollups,
+            vec![
+                WatchedRollup {
+                    target: WatchTarget::Movie(MovieId("m1".into())),
+                    watched: false,
+                    completed: false,
+                    watched_episodes: 0,
+                    total_episodes: 1,
+                },
+                WatchedRollup {
+                    target: WatchTarget::Episode(EpisodeId("e1".into())),
+                    watched: true,
+                    completed: true,
+                    watched_episodes: 1,
+                    total_episodes: 1,
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn watched_rollup_empty_container_is_false_and_zero() {
+        let svc = service();
+        let rollups = svc
+            .watched_rollups(
+                &user(),
+                &[
+                    WatchTarget::Season(SeasonId("se1".into())),
+                    WatchTarget::Series(SeriesId("sr1".into())),
+                ],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            rollups,
+            vec![
+                WatchedRollup {
+                    target: WatchTarget::Season(SeasonId("se1".into())),
+                    watched: false,
+                    completed: false,
+                    watched_episodes: 0,
+                    total_episodes: 0,
+                },
+                WatchedRollup {
+                    target: WatchTarget::Series(SeriesId("sr1".into())),
+                    watched: false,
+                    completed: false,
+                    watched_episodes: 0,
+                    total_episodes: 0,
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn watched_rollup_empty_targets_is_empty() {
+        let svc = service();
+        assert!(svc.watched_rollups(&user(), &[]).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn watched_rollups_propagate_catalog_errors() {
+        let catalog = MockCatalogRepo::new();
+        catalog.set_fail();
+        let svc = UserLibraryServiceImpl::new(
+            Arc::new(MockProgressRepo::new()),
+            Arc::new(MockPreferencesRepo::new()),
+            Arc::new(catalog),
+        );
+        assert!(
+            svc.watched_rollups(&user(), &[WatchTarget::Season(SeasonId("se1".into()))])
+                .await
+                .is_err()
+        );
     }
 }

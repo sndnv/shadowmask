@@ -47,6 +47,7 @@ fn kind_to_str(kind: JobKind) -> &'static str {
         JobKind::CacheEviction => "cache_eviction",
         JobKind::SearchReindex => "search_reindex",
         JobKind::Ingest => "ingest",
+        JobKind::Relink => "relink",
     }
 }
 
@@ -62,6 +63,7 @@ fn kind_from_str(value: &str) -> Result<JobKind, RepositoryError> {
         "cache_eviction" => Ok(JobKind::CacheEviction),
         "search_reindex" => Ok(JobKind::SearchReindex),
         "ingest" => Ok(JobKind::Ingest),
+        "relink" => Ok(JobKind::Relink),
         other => Err(backend(format!("unknown job kind: {other}"))),
     }
 }
@@ -117,6 +119,12 @@ fn row_to_job(row: &SqliteRow) -> Result<Job, RepositoryError> {
         last_error: column(row, "last_error")?,
         created_at: from_millis(column(row, "created_at")?)?,
         updated_at: from_millis(column(row, "updated_at")?)?,
+        started_at: column::<Option<i64>>(row, "started_at")?
+            .map(from_millis)
+            .transpose()?,
+        finished_at: column::<Option<i64>>(row, "finished_at")?
+            .map(from_millis)
+            .transpose()?,
     })
 }
 
@@ -126,8 +134,8 @@ where
 {
     sqlx::query(
         "INSERT OR REPLACE INTO jobs \
-         (id, kind, status, priority, payload, attempts, progress, available_at, last_error, created_at, updated_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (id, kind, status, priority, payload, attempts, progress, available_at, last_error, created_at, updated_at, started_at, finished_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(job.id.0.as_str())
     .bind(kind_to_str(job.kind))
@@ -140,6 +148,8 @@ where
     .bind(job.last_error.as_deref())
     .bind(to_millis(job.created_at))
     .bind(to_millis(job.updated_at))
+    .bind(job.started_at.map(to_millis))
+    .bind(job.finished_at.map(to_millis))
     .execute(executor)
     .await
     .map_err(backend)?;
@@ -155,7 +165,7 @@ impl JobRepository for SqliteJobRepo {
     async fn claim_ready(&self, now: Timestamp, limit: usize) -> Result<Vec<Job>, RepositoryError> {
         let _op = DbOpGuard::new("jobs", "claim_ready");
         let rows = sqlx::query(
-            "UPDATE jobs SET status = ? \
+            "UPDATE jobs SET status = ?, started_at = ? \
              WHERE id IN ( \
                  SELECT id FROM jobs \
                  WHERE status = ? AND available_at <= ? \
@@ -165,6 +175,7 @@ impl JobRepository for SqliteJobRepo {
              RETURNING *",
         )
         .bind(status_to_str(JobStatus::Running))
+        .bind(to_millis(now))
         .bind(status_to_str(JobStatus::Queued))
         .bind(to_millis(now))
         .bind(limit as i64)
@@ -183,13 +194,15 @@ impl JobRepository for SqliteJobRepo {
 
     async fn reclaim_running(&self, now: Timestamp) -> Result<usize, RepositoryError> {
         let _op = DbOpGuard::new("jobs", "reclaim_running");
-        let result = sqlx::query("UPDATE jobs SET status = ?, available_at = ? WHERE status = ?")
-            .bind(status_to_str(JobStatus::Queued))
-            .bind(to_millis(now))
-            .bind(status_to_str(JobStatus::Running))
-            .execute(&self.pool)
-            .await
-            .map_err(backend)?;
+        let result = sqlx::query(
+            "UPDATE jobs SET status = ?, available_at = ?, started_at = NULL WHERE status = ?",
+        )
+        .bind(status_to_str(JobStatus::Queued))
+        .bind(to_millis(now))
+        .bind(status_to_str(JobStatus::Running))
+        .execute(&self.pool)
+        .await
+        .map_err(backend)?;
         Ok(result.rows_affected() as usize)
     }
 
@@ -235,6 +248,7 @@ mod tests {
             JobKind::CacheEviction,
             JobKind::SearchReindex,
             JobKind::Ingest,
+            JobKind::Relink,
         ] {
             assert_eq!(kind_from_str(kind_to_str(kind)).unwrap(), kind);
         }

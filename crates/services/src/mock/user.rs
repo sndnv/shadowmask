@@ -50,6 +50,7 @@ impl UserService for MockUserService {
             concurrent_stream_limit: None,
             bitrate_cap: None,
             created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         state.users.push(user.clone());
         Ok(user)

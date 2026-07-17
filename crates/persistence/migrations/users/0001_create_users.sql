@@ -7,5 +7,6 @@ CREATE TABLE users (
     max_rating_code TEXT,
     concurrent_stream_limit INTEGER,
     bitrate_cap INTEGER,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
 );

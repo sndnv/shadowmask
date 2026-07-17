@@ -1,6 +1,8 @@
 mod args;
-mod manager;
 mod process;
 
-pub use manager::FfmpegTranscodeManager;
-pub use process::{ProcessSpawner, TokioChild, TokioProcessSpawner, TranscodeChild};
+pub(crate) use args::{
+    TARGET_MS, build_segment_args, build_subtitle_extract_args, media_playlist, segment_file_name,
+    subtitle_media_playlist,
+};
+pub use process::{ProcessSpawner, TokioProcessSpawner};

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use domain::catalog::{TitleId, TitleRef};
+use domain::catalog::{TitleId, TitleRef, VersionId};
 use domain::common::{Page, PageRequest};
 use domain::error::LibraryError;
 use domain::job::Job;
@@ -12,6 +12,7 @@ use domain::library::{
 use domain::metadata::{ExternalId, MediaKind};
 use domain::service::LibraryService;
 use domain::user::Principal;
+use jiff::Timestamp;
 
 use crate::page::paginate;
 
@@ -95,6 +96,7 @@ impl LibraryService for MockLibraryService {
     ) -> Result<Library, LibraryError> {
         let mut state = self.state.lock().unwrap();
         state.library_seq += 1;
+        let now = Timestamp::now();
         let library = Library {
             id: LibraryId(format!("lib-{}", state.library_seq)),
             name: input.name,
@@ -103,6 +105,8 @@ impl LibraryService for MockLibraryService {
             watcher: input.watcher,
             scan_schedule: input.scan_schedule,
             metadata_sources: input.metadata_sources,
+            created_at: now,
+            updated_at: now,
         };
         state.libraries.push(library.clone());
         Ok(library)
@@ -126,6 +130,7 @@ impl LibraryService for MockLibraryService {
         library.watcher = update.watcher;
         library.scan_schedule = update.scan_schedule;
         library.metadata_sources = update.metadata_sources;
+        library.updated_at = Timestamp::now();
         Ok(library.clone())
     }
 
@@ -154,6 +159,7 @@ impl LibraryService for MockLibraryService {
             library: id.clone(),
             status: ScanStatus::Idle,
             progress: 0.0,
+            started_at: None,
             last_scanned_at: None,
             error: None,
         }))
@@ -172,6 +178,7 @@ impl LibraryService for MockLibraryService {
                 library: id.clone(),
                 status: ScanStatus::Queued,
                 progress: 0.0,
+                started_at: None,
                 last_scanned_at: None,
                 error: None,
             },
@@ -289,6 +296,15 @@ impl LibraryService for MockLibraryService {
         Ok(())
     }
 
+    async fn relink_version(
+        &self,
+        _caller: &Principal,
+        _version: &VersionId,
+        _target: ResolveTarget,
+    ) -> Result<(), LibraryError> {
+        Ok(())
+    }
+
     async fn jobs(&self, _caller: &Principal) -> Result<Vec<Job>, LibraryError> {
         Ok(self.state.lock().unwrap().jobs.clone())
     }
@@ -324,6 +340,8 @@ mod tests {
             watcher: WatcherStrategy::Manual,
             scan_schedule: None,
             metadata_sources: Vec::new(),
+            created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 
@@ -428,6 +446,8 @@ mod tests {
             last_error: None,
             created_at: now,
             updated_at: now,
+            started_at: None,
+            finished_at: None,
         });
         assert_eq!(svc.jobs(&principal()).await.unwrap().len(), 1);
     }
@@ -503,6 +523,8 @@ mod tests {
                 library: id.clone(),
                 path: "/media/x.mkv".into(),
                 candidates: Vec::new(),
+                created_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
             },
         );
         svc.add_duplicate(
@@ -567,6 +589,8 @@ mod tests {
                 library: id.clone(),
                 path: "/m/x.mkv".into(),
                 candidates: Vec::new(),
+                created_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
             },
         );
         svc.resolve_unmatched(&principal(), &id, &uid, target())

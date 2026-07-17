@@ -2,22 +2,24 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use domain::catalog::{
-    Collection, CollectionId, CollectionUpdate, Episode, EpisodeId, FilmographyEntry, Movie,
-    MovieDetail, MovieId, NewCollection, PersonProfile, Season, SeasonId, Series, SeriesDetail,
-    SeriesId, TitleCard, TitleId, TitleKind, TitleListQuery, Version, VersionDetail, VersionId,
-    sort_titles,
+    Collection, CollectionDetail, CollectionId, CollectionUpdate, Episode, EpisodeCard, EpisodeId,
+    FilmographyEntry, Movie, MovieDetail, MovieId, NewCollection, PersonProfile, Season, SeasonId,
+    Series, SeriesDetail, SeriesId, TitleCard, TitleId, TitleKind, TitleListQuery, Version,
+    VersionDetail, VersionId, sort_titles,
 };
 use domain::common::{Page, PageRequest};
 use domain::error::CatalogError;
 use domain::library::LibraryId;
 use domain::media::{
-    AudioTrack, Chapter, DetectedMarkers, EmbeddedSubtitleTrack, TrickplayAsset, VideoTrack,
+    AudioTrack, Chapter, DetectedMarkers, EmbeddedSubtitleTrack, SubtitleFile, TrickplayAsset,
+    VideoTrack,
 };
 use domain::metadata::{
     CreditedPerson, ExternalId, Extra, Genre, Person, PersonId, Rating, Studio,
 };
 use domain::service::CatalogService;
 use domain::user::Principal;
+use jiff::Timestamp;
 
 use crate::page::paginate;
 
@@ -26,6 +28,7 @@ struct VersionExtras {
     video: Vec<VideoTrack>,
     audio: Vec<AudioTrack>,
     subtitles: Vec<EmbeddedSubtitleTrack>,
+    subtitle_files: Vec<SubtitleFile>,
     chapters: Vec<Chapter>,
     markers: DetectedMarkers,
     trickplay: Vec<TrickplayAsset>,
@@ -142,6 +145,7 @@ impl MockCatalogService {
                 video: detail.video,
                 audio: detail.audio,
                 subtitles: detail.subtitles,
+                subtitle_files: detail.subtitle_files,
                 chapters: detail.chapters,
                 markers: detail.markers,
                 trickplay: detail.trickplay,
@@ -216,15 +220,20 @@ impl CatalogService for MockCatalogService {
         &self,
         _caller: &Principal,
         id: &CollectionId,
-    ) -> Result<Collection, CatalogError> {
-        self.state
-            .lock()
-            .unwrap()
+    ) -> Result<CollectionDetail, CatalogError> {
+        let state = self.state.lock().unwrap();
+        let collection = state
             .collections
             .iter()
             .find(|c| &c.id == id)
             .cloned()
-            .ok_or(CatalogError::NotFound)
+            .ok_or(CatalogError::NotFound)?;
+        let movies = collection
+            .movies
+            .iter()
+            .filter_map(|movie_id| state.movies.iter().find(|m| &m.id == movie_id).cloned())
+            .collect();
+        Ok(CollectionDetail { collection, movies })
     }
 
     async fn create_collection(
@@ -239,6 +248,8 @@ impl CatalogService for MockCatalogService {
             name: input.name,
             overview: input.overview,
             movies: input.movies,
+            added_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
             artwork: Vec::new(),
         };
         state.collections.push(collection.clone());
@@ -491,6 +502,7 @@ impl CatalogService for MockCatalogService {
             video: extras.video,
             audio: extras.audio,
             subtitles: extras.subtitles,
+            subtitle_files: extras.subtitle_files,
             chapters: extras.chapters,
             markers: extras.markers,
             trickplay: extras.trickplay,
@@ -536,7 +548,15 @@ impl CatalogService for MockCatalogService {
                 }
                 TitleId::Episode(episode_id) => {
                     if let Some(episode) = state.episodes.iter().find(|e| &e.id == episode_id) {
-                        cards.push(TitleCard::Episode(episode.clone()));
+                        let season = state.seasons.iter().find(|s| s.id == episode.season);
+                        let series =
+                            season.and_then(|s| state.series.iter().find(|sr| sr.id == s.series));
+                        cards.push(TitleCard::Episode(EpisodeCard {
+                            episode: episode.clone(),
+                            series: season.map(|s| s.series.clone()),
+                            series_title: series.map(|sr| sr.title.clone()),
+                            season_number: season.map(|s| s.number),
+                        }));
                     }
                 }
             }
@@ -570,6 +590,7 @@ mod tests {
             runtime_minutes: Some(100),
             content_rating: None,
             added_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
             artwork: Vec::new(),
         }
     }
@@ -582,6 +603,7 @@ mod tests {
             overview: None,
             content_rating: None,
             added_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
             artwork: Vec::new(),
         }
     }
@@ -593,6 +615,8 @@ mod tests {
             number: 1,
             title: None,
             overview: None,
+            added_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
             artwork: Vec::new(),
         }
     }
@@ -607,6 +631,7 @@ mod tests {
             runtime_minutes: Some(42),
             air_date: None,
             added_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
             artwork: Vec::new(),
         }
     }
@@ -623,6 +648,8 @@ mod tests {
             duration_ms: 1000,
             edition: None,
             available: true,
+            added_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         }
     }
 
@@ -747,6 +774,8 @@ mod tests {
     async fn title_cards_resolve_in_order_and_skip_missing() {
         let svc = MockCatalogService::new();
         svc.add_movie(movie("m1"));
+        svc.add_series(series("s1"));
+        svc.add_season(season("se1", "s1"));
         svc.add_episode(episode("e1", "se1"));
 
         let ids = vec![
@@ -759,10 +788,16 @@ mod tests {
             .iter()
             .map(|card| match card {
                 TitleCard::Movie(m) => m.id.0.as_str(),
-                TitleCard::Episode(e) => e.id.0.as_str(),
+                TitleCard::Episode(e) => e.episode.id.0.as_str(),
             })
             .collect();
         assert_eq!(got, ["e1", "m1"]);
+        let TitleCard::Episode(e1) = &cards[0] else {
+            panic!("expected an episode card");
+        };
+        assert_eq!(e1.series, Some(SeriesId("s1".into())));
+        assert_eq!(e1.series_title.as_deref(), Some("Series s1"));
+        assert_eq!(e1.season_number, Some(1));
         assert!(svc.title_cards(&principal(), &[]).await.unwrap().is_empty());
     }
 
@@ -784,6 +819,8 @@ mod tests {
             name: "Trilogy".into(),
             overview: None,
             movies: vec![MovieId("m1".into())],
+            added_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
             artwork: Vec::new(),
         });
 
@@ -901,6 +938,7 @@ mod tests {
             }],
             audio: Vec::new(),
             subtitles: Vec::new(),
+            subtitle_files: Vec::new(),
             chapters: Vec::new(),
             markers: DetectedMarkers {
                 intros: vec![IntroMarker {
@@ -963,6 +1001,7 @@ mod tests {
             svc.collection(&principal(), &created.id)
                 .await
                 .unwrap()
+                .collection
                 .movies
                 .len(),
             1
@@ -1023,6 +1062,8 @@ mod tests {
                 duration_ms: 1,
                 edition: None,
                 available: true,
+                added_at: Timestamp::now(),
+                updated_at: Timestamp::now(),
             });
         }
         let from_lib1 = svc

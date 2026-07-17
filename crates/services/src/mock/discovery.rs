@@ -185,6 +185,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
             artwork: Vec::new(),
         }
     }
@@ -199,6 +200,7 @@ mod tests {
             runtime_minutes: None,
             air_date: None,
             added_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
             artwork: Vec::new(),
         }
     }
@@ -215,6 +217,7 @@ mod tests {
             overview: None,
             content_rating: None,
             added_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
             artwork: Vec::new(),
         }));
         svc.add_search_result(SearchResult::Episode(episode("e1")));

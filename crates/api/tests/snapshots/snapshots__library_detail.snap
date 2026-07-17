@@ -4,6 +4,7 @@ expression: value
 ---
 {
   "body": {
+    "created_at": "[created_at]",
     "id": "lib1",
     "kind": "movie",
     "metadata_sources": [
@@ -14,6 +15,7 @@ expression: value
       "/media"
     ],
     "scan_schedule": "0 0 * * *",
+    "updated_at": "[updated_at]",
     "watcher": "manual"
   },
   "status": 200

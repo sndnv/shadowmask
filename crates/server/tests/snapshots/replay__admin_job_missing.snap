@@ -1,0 +1,13 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "error": {
+      "code": "not_found",
+      "message": "job not found"
+    }
+  },
+  "status": 404
+}

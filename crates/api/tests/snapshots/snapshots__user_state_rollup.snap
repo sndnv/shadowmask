@@ -1,0 +1,29 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": [
+    {
+      "completed": false,
+      "target": {
+        "id": "s1",
+        "type": "series"
+      },
+      "total_episodes": 0,
+      "watched": false,
+      "watched_episodes": 0
+    },
+    {
+      "completed": false,
+      "target": {
+        "id": "se1",
+        "type": "season"
+      },
+      "total_episodes": 0,
+      "watched": false,
+      "watched_episodes": 0
+    }
+  ],
+  "status": 200
+}

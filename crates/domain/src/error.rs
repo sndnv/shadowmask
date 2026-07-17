@@ -13,6 +13,14 @@ pub enum RepositoryError {
 }
 
 #[derive(Debug, Error)]
+pub enum JobLogError {
+    #[error("invalid job id")]
+    InvalidId,
+    #[error("job log backend error: {0}")]
+    Backend(String),
+}
+
+#[derive(Debug, Error)]
 pub enum AuthError {
     #[error("invalid credentials")]
     InvalidCredentials,
@@ -138,6 +146,8 @@ pub enum SubtitleError {
     Parse(String),
     #[error("subtitle not found")]
     NotFound,
+    #[error("could not store subtitle: {0}")]
+    Store(String),
 }
 
 #[derive(Debug, Error)]

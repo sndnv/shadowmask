@@ -7,6 +7,7 @@ use domain::library::{
 use domain::metadata::{Person, PersonId};
 use domain::playback::{PlaybackProgress, WatchHistory};
 use domain::user::{User, UserId};
+use jiff::Timestamp;
 use services::mock::{
     MockAuthService, MockCatalogService, MockDiscoveryService, MockLibraryService,
     MockSessionService, MockUserLibraryService, MockUserService,
@@ -69,6 +70,7 @@ impl Generator {
                 concurrent_stream_limit: None,
                 bitrate_cap: None,
                 created_at: ts(0),
+                updated_at: ts(0),
             });
         }
     }
@@ -106,6 +108,8 @@ impl Generator {
                     confidence: 0.9,
                     label: "Alpha".into(),
                 }],
+                created_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
             },
         );
         self.library.add_duplicate(

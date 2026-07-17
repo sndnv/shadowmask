@@ -6,5 +6,6 @@ CREATE TABLE episodes (
     overview TEXT,
     runtime_minutes INTEGER,
     air_date INTEGER,
-    added_at INTEGER NOT NULL
+    added_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
 );

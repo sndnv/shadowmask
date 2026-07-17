@@ -6,6 +6,7 @@ expression: value
   "body": {
     "items": [
       {
+        "added_at": "2023-11-14T22:13:27Z",
         "artwork": {
           "backdrop": {
             "base": "/images/c1-backdrop",
@@ -28,7 +29,8 @@ expression: value
           "m1"
         ],
         "name": "Saga",
-        "overview": "epic"
+        "overview": "epic",
+        "updated_at": "2023-11-14T22:13:27Z"
       }
     ],
     "limit": 50,

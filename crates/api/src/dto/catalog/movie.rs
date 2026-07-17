@@ -13,6 +13,7 @@ pub struct MovieResponse {
     pub runtime_minutes: Option<u32>,
     pub content_rating: Option<ContentRatingDto>,
     pub added_at: String,
+    pub updated_at: String,
     pub artwork: ArtworkDto,
 }
 
@@ -26,6 +27,7 @@ impl From<Movie> for MovieResponse {
             runtime_minutes: m.runtime_minutes,
             content_rating: m.content_rating.map(Into::into),
             added_at: m.added_at.to_string(),
+            updated_at: m.updated_at.to_string(),
             artwork: ArtworkDto::from_refs(m.artwork),
         }
     }

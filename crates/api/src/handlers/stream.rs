@@ -42,7 +42,7 @@ where
     G: StreamSource + Send + Sync + 'static,
 {
     let claims = state.tokens.verify(&token)?;
-    let path = state.source.media_path(&claims, &variant, &file)?;
+    let path = state.source.media_path(&claims, &variant, &file).await?;
     let content_type = content_type_for(&file);
     debug!(
         "User [{}] successfully fetched stream media [{variant}/{file}]",

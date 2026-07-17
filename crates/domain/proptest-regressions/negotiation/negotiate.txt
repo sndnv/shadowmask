@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 48b2a14037e553ec937d394e27130c736bef548bbf3320dab5ab30addbf4ab09 # shrinks to input = NegotiationInput { container: Mp4, video: [VideoTrack { index: 0, codec: "h264", width: 1280, height: 1080, bit_depth: 8, hdr: None, frame_rate: 24.0, bitrate: None }], audio: [AudioTrack { index: 1, codec: "aac", channels: 2, language: None, bitrate: None }], subtitles: [EmbeddedSubtitleTrack { index: 0, language: None, format: Srt, forced: false, default: false }], requested_audio: None, requested_subtitle: Some(SubtitleSelection { track: Embedded(0), offset_ms: None }), max_bitrate: None }

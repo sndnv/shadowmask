@@ -9,5 +9,7 @@ CREATE TABLE versions (
     size_bytes INTEGER NOT NULL,
     duration_ms INTEGER NOT NULL,
     edition TEXT,
-    available INTEGER NOT NULL DEFAULT 1
+    available INTEGER NOT NULL DEFAULT 1,
+    added_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
 );

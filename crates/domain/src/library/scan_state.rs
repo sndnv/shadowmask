@@ -15,6 +15,7 @@ pub struct ScanState {
     pub library: LibraryId,
     pub status: ScanStatus,
     pub progress: f32,
+    pub started_at: Option<Timestamp>,
     pub last_scanned_at: Option<Timestamp>,
     pub error: Option<String>,
 }

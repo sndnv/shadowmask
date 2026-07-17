@@ -15,5 +15,6 @@ pub struct Movie {
     pub runtime_minutes: Option<u32>,
     pub content_rating: Option<ContentRating>,
     pub added_at: Timestamp,
+    pub updated_at: Timestamp,
     pub artwork: Vec<ArtworkRef>,
 }

@@ -17,6 +17,7 @@ expression: value
         "runtime_minutes": 100,
         "title": "Alpha m1",
         "type": "movie",
+        "updated_at": "2023-11-14T22:13:21Z",
         "year": 2020
       },
       {
@@ -30,6 +31,7 @@ expression: value
         "overview": null,
         "title": "Alpha s1",
         "type": "series",
+        "updated_at": "2023-11-14T22:13:22Z",
         "year": 2019
       },
       {
@@ -42,7 +44,8 @@ expression: value
         "runtime_minutes": 42,
         "season_id": "se1",
         "title": "Alpha e1",
-        "type": "episode"
+        "type": "episode",
+        "updated_at": "2023-11-14T22:13:24Z"
       },
       {
         "id": "p1",

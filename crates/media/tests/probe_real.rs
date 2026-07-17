@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use domain::error::ProbeError;
-use domain::media::{MediaProbe, ProbeResult, SubtitleFormat};
+use domain::media::{KeyframeProbe, MediaProbe, ProbeResult, SubtitleFormat};
 use media::probe::FfprobeMediaProbe;
 
 fn fixture(name: &str) -> String {
@@ -81,6 +81,38 @@ async fn probes_real_world_file() {
     assert_eq!(v.codec, "h264");
     assert_eq!(v.width, 640);
     assert_eq!(v.height, 360);
+}
+
+#[tokio::test]
+async fn probes_keyframes_from_real_file() {
+    let keyframes = FfprobeMediaProbe::default()
+        .keyframes(&fixture("sample_real_bbb.mp4"))
+        .await
+        .expect("ffprobe keyframes should succeed; is ffmpeg installed and on PATH?");
+    assert!(!keyframes.is_empty());
+    assert!(keyframes[0] < 1000);
+    assert!(
+        keyframes.windows(2).all(|w| w[0] < w[1]),
+        "keyframes must be strictly increasing: {keyframes:?}"
+    );
+}
+
+#[tokio::test]
+async fn keyframes_report_backend_error_for_missing_file() {
+    let err = FfprobeMediaProbe::default()
+        .keyframes("/nonexistent/shadowmask/file.mkv")
+        .await
+        .expect_err("probing a missing file must fail");
+    assert!(matches!(err, ProbeError::Backend(_)));
+}
+
+#[tokio::test]
+async fn keyframes_report_backend_error_when_binary_missing() {
+    let err = FfprobeMediaProbe::with_binary("shadowmask-no-such-ffprobe-binary")
+        .keyframes(&fixture("sample_real_bbb.mp4"))
+        .await
+        .expect_err("spawning a missing binary must fail");
+    assert!(matches!(err, ProbeError::Backend(_)));
 }
 
 #[tokio::test]

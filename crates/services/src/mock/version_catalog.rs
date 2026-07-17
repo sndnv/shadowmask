@@ -60,6 +60,7 @@ mod tests {
     use domain::common::Quality;
     use domain::library::LibraryId;
     use domain::media::DetectedMarkers;
+    use jiff::Timestamp;
 
     fn detail(id: &str) -> VersionDetail {
         VersionDetail {
@@ -74,10 +75,13 @@ mod tests {
                 duration_ms: 1000,
                 edition: None,
                 available: true,
+                added_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
             },
             video: Vec::new(),
             audio: Vec::new(),
             subtitles: Vec::new(),
+            subtitle_files: Vec::new(),
             chapters: Vec::new(),
             markers: DetectedMarkers::default(),
             trickplay: Vec::new(),

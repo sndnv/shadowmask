@@ -11,7 +11,8 @@ use domain::common::{Page, PageRequest};
 use domain::error::RepositoryError;
 use domain::library::LibraryId;
 use domain::media::{
-    AudioTrack, Chapter, DetectedMarkers, EmbeddedSubtitleTrack, TrickplayAsset, VideoTrack,
+    AudioTrack, Chapter, DetectedMarkers, EmbeddedSubtitleTrack, SubtitleFile, TrickplayAsset,
+    VideoTrack,
 };
 use domain::metadata::{Credit, CreditedPerson, Genre, GenreId, Person, PersonId, TitleEnrichment};
 use domain::repository::CatalogRepository;
@@ -39,6 +40,7 @@ struct State {
     artwork: HashMap<ArtworkOwner, Vec<ArtworkRef>>,
     tracks: HashMap<VersionId, VersionTracks>,
     trickplay: HashMap<VersionId, Vec<TrickplayAsset>>,
+    subtitle_files: HashMap<VersionId, Vec<SubtitleFile>>,
     markers: HashMap<VersionId, DetectedMarkers>,
 }
 
@@ -270,6 +272,8 @@ impl CatalogRepository for MockCatalogRepo {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
         if let Some(existing) = state.collections.iter_mut().find(|c| c.id == collection.id) {
+            let mut collection = collection;
+            collection.added_at = existing.added_at;
             *existing = collection;
         } else {
             state.collections.push(collection);
@@ -349,6 +353,7 @@ impl CatalogRepository for MockCatalogRepo {
             video: tracks.video,
             audio: tracks.audio,
             subtitles: tracks.subtitles,
+            subtitle_files: state.subtitle_files.get(id).cloned().unwrap_or_default(),
             chapters: tracks.chapters,
             markers: state.markers.get(id).cloned().unwrap_or_default(),
             trickplay: state.trickplay.get(id).cloned().unwrap_or_default(),
@@ -359,6 +364,8 @@ impl CatalogRepository for MockCatalogRepo {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
         if let Some(existing) = state.movies.iter_mut().find(|m| m.id == movie.id) {
+            let mut movie = movie;
+            movie.added_at = existing.added_at;
             *existing = movie;
         } else {
             state.movies.push(movie);
@@ -370,6 +377,8 @@ impl CatalogRepository for MockCatalogRepo {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
         if let Some(existing) = state.series.iter_mut().find(|s| s.id == series.id) {
+            let mut series = series;
+            series.added_at = existing.added_at;
             *existing = series;
         } else {
             state.series.push(series);
@@ -381,6 +390,8 @@ impl CatalogRepository for MockCatalogRepo {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
         if let Some(existing) = state.seasons.iter_mut().find(|s| s.id == season.id) {
+            let mut season = season;
+            season.added_at = existing.added_at;
             *existing = season;
         } else {
             state.seasons.push(season);
@@ -392,6 +403,8 @@ impl CatalogRepository for MockCatalogRepo {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
         if let Some(existing) = state.episodes.iter_mut().find(|e| e.id == episode.id) {
+            let mut episode = episode;
+            episode.added_at = existing.added_at;
             *existing = episode;
         } else {
             state.episodes.push(episode);
@@ -403,6 +416,8 @@ impl CatalogRepository for MockCatalogRepo {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
         if let Some(existing) = state.versions.iter_mut().find(|v| v.id == version.id) {
+            let mut version = version;
+            version.added_at = existing.added_at;
             *existing = version;
         } else {
             state.versions.push(version);
@@ -476,6 +491,20 @@ impl CatalogRepository for MockCatalogRepo {
             .unwrap()
             .trickplay
             .insert(version.clone(), assets.to_vec());
+        Ok(())
+    }
+
+    async fn set_subtitle_files(
+        &self,
+        version: &VersionId,
+        files: &[SubtitleFile],
+    ) -> Result<(), RepositoryError> {
+        self.guard()?;
+        self.state
+            .lock()
+            .unwrap()
+            .subtitle_files
+            .insert(version.clone(), files.to_vec());
         Ok(())
     }
 
@@ -711,6 +740,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         }
     }
@@ -723,6 +753,7 @@ mod tests {
             overview: None,
             content_rating: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         }
     }
@@ -734,6 +765,8 @@ mod tests {
             number: 1,
             title: None,
             overview: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         }
     }
@@ -748,6 +781,7 @@ mod tests {
             runtime_minutes: None,
             air_date: None,
             added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         }
     }
@@ -764,6 +798,8 @@ mod tests {
             duration_ms: 1000,
             edition: None,
             available: true,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 
@@ -779,6 +815,8 @@ mod tests {
             name: "Saga".to_owned(),
             overview: None,
             movies: vec![MovieId("m1".to_owned())],
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
         repo.add_version(version("v1"));
@@ -939,6 +977,8 @@ mod tests {
             name: "First".into(),
             overview: None,
             movies: Vec::new(),
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         })
         .await
@@ -948,6 +988,8 @@ mod tests {
             name: "Renamed".into(),
             overview: None,
             movies: Vec::new(),
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         })
         .await
@@ -993,6 +1035,8 @@ mod tests {
                 name: "x".into(),
                 overview: None,
                 movies: Vec::new(),
+                added_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
                 artwork: Vec::new(),
             })
             .await

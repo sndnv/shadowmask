@@ -26,6 +26,7 @@ fn movie(id: &str, title: &str) -> Movie {
         runtime_minutes: None,
         content_rating: None,
         added_at: ts(),
+        updated_at: ts(),
         artwork: Vec::new(),
     }
 }
@@ -38,6 +39,7 @@ fn series(id: &str, title: &str) -> Series {
         overview: None,
         content_rating: None,
         added_at: ts(),
+        updated_at: ts(),
         artwork: Vec::new(),
     }
 }
@@ -49,6 +51,8 @@ fn season(id: &str, series: &str) -> Season {
         number: 1,
         title: None,
         overview: None,
+        added_at: ts(),
+        updated_at: ts(),
         artwork: Vec::new(),
     }
 }
@@ -63,6 +67,7 @@ fn episode(id: &str, season: &str, title: &str) -> Episode {
         runtime_minutes: None,
         air_date: None,
         added_at: ts(),
+        updated_at: ts(),
         artwork: Vec::new(),
     }
 }

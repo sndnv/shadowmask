@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Admin collections</title>
+  </head>
+  <body>
+    <h1>Collections</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs"><a href="index.html">Admin</a> / Collections</p>
+    <main id="main">
+      <h2>Create collection</h2>
+      <form id="create-collection">
+        <label>Name <input name="name" autocomplete="off" /></label>
+        <label>Overview <input name="overview" autocomplete="off" /></label>
+        <button type="submit">Create</button>
+        <span id="create-status"></span>
+      </form>
+
+      <h2 id="collections-heading">Collections</h2>
+      <div id="list"></div>
+      <div id="edit"></div>
+    </main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      const eu = encodeURIComponent;
+
+      if (sm.requireAuth()) guard();
+
+      async function guard() {
+        const main = document.getElementById("main");
+        try {
+          const me = await sm.self();
+          if (me.role !== "admin") {
+            main.textContent = "Not Authorized.";
+            return;
+          }
+          wireCreate();
+          await loadList();
+        } catch (err) {
+          main.textContent = "Could not load.";
+        }
+      }
+
+      function wireCreate() {
+        const f = document.getElementById("create-collection");
+        const status = document.getElementById("create-status");
+        f.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          if (!f.elements.name.value) {
+            status.textContent = "Name is required.";
+            return;
+          }
+          try {
+            await sm.json("/api/v1/movies/collections", {
+              method: "POST",
+              body: JSON.stringify({
+                name: f.elements.name.value,
+                overview: f.elements.overview.value || null,
+                movies: [],
+              }),
+            });
+            status.textContent = "Created.";
+            f.elements.name.value = "";
+            f.elements.overview.value = "";
+            await loadList();
+          } catch (err) {
+            status.textContent = "Create failed.";
+          }
+        });
+      }
+
+      async function loadList() {
+        const listContainer = document.getElementById("list");
+        listContainer.textContent = "Loading...";
+        try {
+          const page = await sm.json("/api/v1/movies/collections");
+          document.getElementById("collections-heading").textContent =
+            "Collections (" + page.total + ")";
+          listContainer.textContent = "";
+          if (!page.items.length) {
+            listContainer.appendChild(sm.el("p", { text: "No collections yet." }));
+            return;
+          }
+          const rows = page.items.map((c) => {
+            const edit = sm.el("button", { type: "button" }, "Edit");
+            edit.addEventListener("click", () => editCollection(c));
+            const view = sm.el("a", { href: sm.href.collection(c.id) }, "View");
+            const del = sm.el("button", { type: "button" }, "Delete");
+            del.addEventListener("click", async () => {
+              if (!confirm("Delete collection " + c.name + "?")) return;
+              await sm
+                .json("/api/v1/movies/collections/" + eu(c.id), { method: "DELETE" })
+                .catch(() => {});
+              document.getElementById("edit").textContent = "";
+              await loadList();
+            });
+            return [c.name, c.overview || "", String(c.movies.length), [edit, " ", view, " ", del]];
+          });
+          listContainer.appendChild(sm.table(["Name", "Overview", "Movies", ""], rows));
+        } catch (err) {
+          listContainer.textContent = "Could not load collections.";
+        }
+      }
+
+      async function editCollection(c) {
+        const editContainer = document.getElementById("edit");
+        let movies = c.movies.slice();
+        const name = sm.el("input", { value: c.name });
+        const overview = sm.el("input", { value: c.overview || "" });
+        const membersBox = sm.el("div", null);
+        const status = sm.el("span", null);
+        const searchInput = sm.el("input", { placeholder: "Search movies", autocomplete: "off" });
+        const searchResults = sm.el("div", null);
+
+        async function persist() {
+          await sm.json("/api/v1/movies/collections/" + eu(c.id), {
+            method: "PUT",
+            body: JSON.stringify({ name: name.value, overview: overview.value || null, movies }),
+          });
+        }
+
+        async function renderMembers() {
+          if (!movies.length) {
+            membersBox.textContent = "";
+            membersBox.appendChild(sm.el("p", { text: "No movies in this collection." }));
+            return;
+          }
+          membersBox.textContent = "Loading...";
+          let cards = [];
+          try {
+            cards = await sm.json("/api/v1/titles/batch", {
+              method: "POST",
+              body: JSON.stringify({ titles: movies.map((id) => ({ type: "movie", id })) }),
+            });
+          } catch (e) {
+            cards = [];
+          }
+          const byId = {};
+          cards.forEach((m) => {
+            byId[m.id] = m;
+          });
+          const rows = movies.map((id) => {
+            const m = byId[id];
+            const label = m ? m.title + (m.year ? " (" + m.year + ")" : "") : id;
+            const remove = sm.el("button", { type: "button" }, "Remove");
+            remove.addEventListener("click", async () => {
+              movies = movies.filter((x) => x !== id);
+              try {
+                await persist();
+                status.textContent = "Removed.";
+              } catch (e) {
+                status.textContent = "Remove failed.";
+              }
+              await renderMembers();
+              await loadList();
+            });
+            return [label, id, remove];
+          });
+          membersBox.textContent = "";
+          membersBox.appendChild(sm.table(["Movie", "Id", ""], rows));
+        }
+
+        const searchForm = sm.el("form", null, [
+          sm.el("label", null, ["Add a movie ", searchInput]),
+          " ",
+          sm.el("button", { type: "submit" }, "Search"),
+        ]);
+        searchForm.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const q = searchInput.value.trim();
+          if (!q) return;
+          searchResults.textContent = "Searching...";
+          try {
+            const page = await sm.json(
+              "/api/v1/search?" + new URLSearchParams({ q, type: "movie" }).toString(),
+            );
+            const results = (page.items || []).filter((r) => r.type === "movie");
+            searchResults.textContent = "";
+            if (!results.length) {
+              searchResults.appendChild(sm.el("p", { text: "No matches." }));
+              return;
+            }
+            const rows = results.map((r) => {
+              const pick = sm.el("button", { type: "button" }, "Add");
+              if (movies.includes(r.id)) {
+                pick.textContent = "Added";
+                pick.setAttribute("disabled", "disabled");
+              }
+              pick.addEventListener("click", async () => {
+                if (movies.includes(r.id)) return;
+                movies.push(r.id);
+                pick.textContent = "Added";
+                pick.setAttribute("disabled", "disabled");
+                try {
+                  await persist();
+                  status.textContent = "Added.";
+                } catch (e) {
+                  status.textContent = "Add failed.";
+                }
+                await renderMembers();
+                await loadList();
+              });
+              return [r.title, r.year ? String(r.year) : "", r.id, pick];
+            });
+            searchResults.appendChild(sm.table(["Match", "Year", "Id", ""], rows));
+          } catch (err) {
+            searchResults.textContent = "Search failed.";
+          }
+        });
+        const save = sm.el("button", { type: "button" }, "Save name and overview");
+        save.addEventListener("click", async () => {
+          try {
+            await persist();
+            status.textContent = "Saved.";
+            await loadList();
+          } catch (err) {
+            status.textContent = "Save failed.";
+          }
+        });
+        const close = sm.el("button", { type: "button" }, "Close");
+        close.addEventListener("click", () => {
+          editContainer.textContent = "";
+        });
+
+        editContainer.textContent = "";
+        editContainer.appendChild(sm.el("h3", { text: "Edit: " + c.name }));
+        editContainer.appendChild(sm.el("p", null, sm.el("label", null, ["Name ", name])));
+        editContainer.appendChild(sm.el("p", null, sm.el("label", null, ["Overview ", overview])));
+        editContainer.appendChild(
+          sm.el("p", null, sm.el("strong", { text: "Movies (added or removed immediately)" })),
+        );
+        editContainer.appendChild(membersBox);
+        editContainer.appendChild(searchForm);
+        editContainer.appendChild(searchResults);
+        editContainer.appendChild(sm.el("p", null, [save, " ", close, " ", status]));
+        await renderMembers();
+      }
+    </script>
+  </body>
+</html>

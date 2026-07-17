@@ -132,6 +132,52 @@ async fn link_code_redeemed_once_and_respects_expiry() {
 }
 
 #[tokio::test]
+async fn list_and_delete_link_codes_scoped_to_owner() {
+    let (_dir, repo) = repo().await;
+    for (code, user, expires) in [
+        ("LIVE", "u1", 1_700_100_000),
+        ("DEAD", "u1", 1_700_000_000),
+        ("OTHER", "u2", 1_700_100_000),
+    ] {
+        repo.store_link_code(PendingLink {
+            code: code.into(),
+            user: UserId(user.into()),
+            role: Role::Player,
+            expires_at: ts(expires),
+        })
+        .await
+        .unwrap();
+    }
+
+    let live = repo
+        .list_link_codes(&UserId("u1".into()), ts(1_700_050_000))
+        .await
+        .unwrap();
+    assert_eq!(live.len(), 1);
+    assert_eq!(live[0].code, "LIVE");
+
+    repo.delete_link_code("LIVE", &UserId("u2".into()))
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.list_link_codes(&UserId("u1".into()), ts(1_700_050_000))
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    repo.delete_link_code("LIVE", &UserId("u1".into()))
+        .await
+        .unwrap();
+    assert!(
+        repo.list_link_codes(&UserId("u1".into()), ts(1_700_050_000))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn device_and_api_token_contract_holds_for_sqlite() {
     let (_dir, repo) = repo().await;
     auth_token_repository_contract(repo).await;

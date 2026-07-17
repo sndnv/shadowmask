@@ -3,18 +3,30 @@ use domain::job::{Job, JobKind};
 use crate::error::JobError;
 use crate::job_handler::JobHandler;
 
-pub struct CompositeJobHandler<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata> {
+pub struct CompositeJobHandler<
+    Scan,
+    Reindex,
+    Artwork,
+    Trickplay,
+    Ingest,
+    Metadata,
+    Relink,
+    Subtitles,
+> {
     scan: Scan,
     reindex: Reindex,
     artwork: Artwork,
     trickplay: Trickplay,
     ingest: Ingest,
     metadata: Metadata,
+    relink: Relink,
+    subtitles: Subtitles,
 }
 
-impl<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata>
-    CompositeJobHandler<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata>
+impl<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata, Relink, Subtitles>
+    CompositeJobHandler<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata, Relink, Subtitles>
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         scan: Scan,
         reindex: Reindex,
@@ -22,6 +34,8 @@ impl<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata>
         trickplay: Trickplay,
         ingest: Ingest,
         metadata: Metadata,
+        relink: Relink,
+        subtitles: Subtitles,
     ) -> Self {
         Self {
             scan,
@@ -30,12 +44,14 @@ impl<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata>
             trickplay,
             ingest,
             metadata,
+            relink,
+            subtitles,
         }
     }
 }
 
-impl<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata> JobHandler
-    for CompositeJobHandler<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata>
+impl<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata, Relink, Subtitles> JobHandler
+    for CompositeJobHandler<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata, Relink, Subtitles>
 where
     Scan: JobHandler + Send + Sync,
     Reindex: JobHandler + Send + Sync,
@@ -43,6 +59,8 @@ where
     Trickplay: JobHandler + Send + Sync,
     Ingest: JobHandler + Send + Sync,
     Metadata: JobHandler + Send + Sync,
+    Relink: JobHandler + Send + Sync,
+    Subtitles: JobHandler + Send + Sync,
 {
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         match job.kind {
@@ -52,6 +70,8 @@ where
             JobKind::Trickplay => self.trickplay.handle(job).await,
             JobKind::Ingest => self.ingest.handle(job).await,
             JobKind::Metadata => self.metadata.handle(job).await,
+            JobKind::Relink => self.relink.handle(job).await,
+            JobKind::Subtitles => self.subtitles.handle(job).await,
             other => Err(JobError::Permanent(format!(
                 "no handler for job kind: {other:?}"
             ))),
@@ -101,12 +121,23 @@ mod tests {
             last_error: None,
             created_at: now,
             updated_at: now,
+            started_at: None,
+            finished_at: None,
         }
     }
 
     fn composite(
         calls: &Arc<Mutex<Vec<&'static str>>>,
-    ) -> CompositeJobHandler<Recorder, Recorder, Recorder, Recorder, Recorder, Recorder> {
+    ) -> CompositeJobHandler<
+        Recorder,
+        Recorder,
+        Recorder,
+        Recorder,
+        Recorder,
+        Recorder,
+        Recorder,
+        Recorder,
+    > {
         CompositeJobHandler::new(
             Recorder::new("scan", Arc::clone(calls)),
             Recorder::new("reindex", Arc::clone(calls)),
@@ -114,6 +145,8 @@ mod tests {
             Recorder::new("trickplay", Arc::clone(calls)),
             Recorder::new("ingest", Arc::clone(calls)),
             Recorder::new("metadata", Arc::clone(calls)),
+            Recorder::new("relink", Arc::clone(calls)),
+            Recorder::new("subtitles", Arc::clone(calls)),
         )
     }
 
@@ -178,10 +211,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn routes_relink_to_relink_handler() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        composite(&calls)
+            .handle(&job(JobKind::Relink))
+            .await
+            .unwrap();
+        assert_eq!(*calls.lock().unwrap(), ["relink"]);
+    }
+
+    #[tokio::test]
+    async fn routes_subtitles_to_subtitles_handler() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        composite(&calls)
+            .handle(&job(JobKind::Subtitles))
+            .await
+            .unwrap();
+        assert_eq!(*calls.lock().unwrap(), ["subtitles"]);
+    }
+
+    #[tokio::test]
     async fn unhandled_kind_is_permanent_and_routes_nowhere() {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let error = composite(&calls)
-            .handle(&job(JobKind::Subtitles))
+            .handle(&job(JobKind::Fingerprint))
             .await
             .unwrap_err();
         assert!(matches!(error, JobError::Permanent(_)));

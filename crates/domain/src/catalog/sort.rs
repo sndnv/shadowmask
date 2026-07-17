@@ -119,6 +119,7 @@ mod tests {
             runtime_minutes: None,
             content_rating: None,
             added_at: Timestamp::from_second(added).unwrap(),
+            updated_at: Timestamp::from_second(added).unwrap(),
             artwork: Vec::new(),
         }
     }
@@ -170,6 +171,35 @@ mod tests {
         assert_eq!(ids(&by_year), ["c", "b", "a"]);
         sort_titles(&mut by_year, TitleSort::Year, SortOrder::Desc);
         assert_eq!(ids(&by_year), ["a", "b", "c"]);
+    }
+
+    fn series(id: &str, title: &str, year: Option<u16>, added: i64) -> Series {
+        Series {
+            id: crate::catalog::SeriesId(id.into()),
+            title: title.into(),
+            year,
+            overview: None,
+            content_rating: None,
+            added_at: Timestamp::from_second(added).unwrap(),
+            updated_at: Timestamp::from_second(added).unwrap(),
+            artwork: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn series_sort_uses_title_and_year() {
+        let mut items = vec![
+            series("b", "Charlie", Some(2001), 30),
+            series("a", "Alpha", Some(2020), 10),
+            series("c", "Bravo", None, 20),
+        ];
+        sort_titles(&mut items, TitleSort::Title, SortOrder::Asc);
+        let by_title: Vec<&str> = items.iter().map(|s| s.id.0.as_str()).collect();
+        assert_eq!(by_title, ["a", "c", "b"]);
+
+        sort_titles(&mut items, TitleSort::Year, SortOrder::Desc);
+        let by_year: Vec<&str> = items.iter().map(|s| s.id.0.as_str()).collect();
+        assert_eq!(by_year, ["a", "b", "c"]);
     }
 
     #[test]

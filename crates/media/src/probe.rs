@@ -4,8 +4,8 @@ use tokio::process::Command;
 use domain::common::LanguageCode;
 use domain::error::ProbeError;
 use domain::media::{
-    AudioTrack, Chapter, EmbeddedSubtitleTrack, HdrFormat, MediaProbe, ProbeResult, SubtitleFormat,
-    VideoTrack,
+    AudioTrack, Chapter, EmbeddedSubtitleTrack, HdrFormat, KeyframeProbe, MediaProbe, ProbeResult,
+    SubtitleFormat, VideoTrack,
 };
 
 #[derive(Debug, Clone)]
@@ -52,6 +52,52 @@ impl MediaProbe for FfprobeMediaProbe {
         }
         parse_probe(&output.stdout)
     }
+}
+
+impl KeyframeProbe for FfprobeMediaProbe {
+    async fn keyframes(&self, path: &str) -> Result<Vec<u64>, ProbeError> {
+        let output = Command::new(&self.binary)
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "packet=pts_time,flags",
+                "-of",
+                "csv=print_section=0",
+            ])
+            .arg(path)
+            .output()
+            .await
+            .map_err(|e| ProbeError::Backend(e.to_string()))?;
+        if !output.status.success() {
+            return Err(ProbeError::Backend(
+                String::from_utf8_lossy(&output.stderr).into_owned(),
+            ));
+        }
+        parse_keyframes(&output.stdout)
+    }
+}
+
+fn parse_keyframes(stdout: &[u8]) -> Result<Vec<u64>, ProbeError> {
+    let text = std::str::from_utf8(stdout).map_err(|e| ProbeError::Parse(e.to_string()))?;
+    let mut keyframes = Vec::new();
+    for line in text.lines() {
+        let fields: Vec<&str> = line.trim().split(',').collect();
+        if !fields.iter().any(|f| f.contains('K')) {
+            continue;
+        }
+        if let Some(secs) = fields.iter().find_map(|f| f.parse::<f64>().ok())
+            && secs.is_finite()
+            && secs >= 0.0
+        {
+            keyframes.push((secs * 1000.0).round() as u64);
+        }
+    }
+    keyframes.sort_unstable();
+    keyframes.dedup();
+    Ok(keyframes)
 }
 
 #[derive(Deserialize)]
@@ -371,6 +417,36 @@ mod tests {
     #[test]
     fn malformed_json_is_parse_error() {
         let err = parse_probe(b"not json").unwrap_err();
+        assert!(matches!(err, ProbeError::Parse(_)));
+    }
+
+    #[test]
+    fn parses_keyframe_packet_times_to_sorted_ms() {
+        let out = parse_keyframes(b"0.000000,K__\n0.041708,___\n4.004000,K__\n").unwrap();
+        assert_eq!(out, vec![0, 4004]);
+    }
+
+    #[test]
+    fn keyframe_parser_skips_non_key_blank_and_unparseable_lines() {
+        let out = parse_keyframes(b"\n1.0,__\nN/A,K__\n2.000000,K__\n").unwrap();
+        assert_eq!(out, vec![2000]);
+    }
+
+    #[test]
+    fn keyframe_parser_sorts_and_dedups() {
+        let out = parse_keyframes(b"4.0,K\n0.0,K\n4.0,K\n").unwrap();
+        assert_eq!(out, vec![0, 4000]);
+    }
+
+    #[test]
+    fn keyframe_parser_skips_negative_and_non_finite_times() {
+        let out = parse_keyframes(b"-1.0,K\ninf,K\nnan,K\n3.0,K\n").unwrap();
+        assert_eq!(out, vec![3000]);
+    }
+
+    #[test]
+    fn keyframe_parser_rejects_invalid_utf8() {
+        let err = parse_keyframes(&[0xff, 0xfe]).unwrap_err();
         assert!(matches!(err, ProbeError::Parse(_)));
     }
 }

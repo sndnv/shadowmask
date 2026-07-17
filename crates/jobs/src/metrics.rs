@@ -42,6 +42,7 @@ fn job_label(kind: JobKind) -> &'static str {
         JobKind::CacheEviction => "cache_eviction",
         JobKind::SearchReindex => "search_reindex",
         JobKind::Ingest => "ingest",
+        JobKind::Relink => "relink",
     }
 }
 
@@ -62,6 +63,7 @@ mod tests {
             JobKind::CacheEviction,
             JobKind::SearchReindex,
             JobKind::Ingest,
+            JobKind::Relink,
         ] {
             assert!(!job_label(kind).is_empty());
         }

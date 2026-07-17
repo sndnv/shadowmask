@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Person</title>
+  </head>
+  <body>
+    <nav id="nav"></nav>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      if (sm.requireAuth()) load();
+
+      async function load() {
+        const main = document.getElementById("main");
+        const id = sm.qs("id");
+        if (!id) {
+          main.textContent = "Unknown person.";
+          return;
+        }
+        try {
+          const person = await sm.json("/api/v1/people/" + encodeURIComponent(id));
+          main.textContent = "";
+          main.appendChild(sm.el("h1", { text: person.name }));
+          main.appendChild(
+            sm.el("h2", { text: "Filmography (" + (person.filmography || []).length + ")" }),
+          );
+          if (!person.filmography || !person.filmography.length) {
+            main.appendChild(sm.el("p", { text: "No known titles." }));
+            return;
+          }
+          main.appendChild(
+            sm.grid(
+              person.filmography.map((f) => ({
+                href: f.kind === "series" ? sm.href.series(f.title_id) : sm.href.movie(f.title_id),
+                artwork: f.artwork,
+                title: f.display_title + (f.year ? " (" + f.year + ")" : ""),
+                subtitle: f.role + (f.character ? " as " + f.character : ""),
+              })),
+            ),
+          );
+        } catch (err) {
+          main.textContent = "Could not load this person.";
+        }
+      }
+    </script>
+  </body>
+</html>

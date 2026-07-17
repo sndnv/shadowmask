@@ -8,4 +8,7 @@ pub struct StartSessionRequest {
     pub capabilities: ClientCapabilities,
     pub audio_track: Option<u32>,
     pub subtitle: Option<SubtitleSelection>,
+    pub target_height: Option<u32>,
+    pub force_burn: bool,
+    pub downmix_stereo: bool,
 }

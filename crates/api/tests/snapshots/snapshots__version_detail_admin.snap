@@ -1,0 +1,103 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "added_at": "[added_at]",
+    "audio": [
+      {
+        "bitrate": 768000,
+        "channels": 6,
+        "codec": "eac3",
+        "index": 1,
+        "language": "en"
+      },
+      {
+        "bitrate": null,
+        "channels": 2,
+        "codec": "aac",
+        "index": 2,
+        "language": "fr"
+      }
+    ],
+    "available": true,
+    "chapters": [
+      {
+        "start_ms": 0,
+        "title": "Cold Open"
+      },
+      {
+        "start_ms": 60000,
+        "title": "Main Title"
+      }
+    ],
+    "container": "mkv",
+    "duration_ms": 1000,
+    "edition": null,
+    "id": "v1",
+    "library_id": "lib1",
+    "markers": {
+      "credits": [
+        {
+          "end_ms": 960000,
+          "start_ms": 900000
+        }
+      ],
+      "intro": [
+        {
+          "end_ms": 90000,
+          "start_ms": 60000
+        }
+      ]
+    },
+    "path": "/media/v1.mkv",
+    "quality": "sd",
+    "size_bytes": 1,
+    "subtitle_files": [],
+    "subtitles": [
+      {
+        "default": true,
+        "forced": false,
+        "format": "srt",
+        "index": 3,
+        "language": "en"
+      },
+      {
+        "default": false,
+        "forced": true,
+        "format": "pgs",
+        "index": 4,
+        "language": "es"
+      }
+    ],
+    "title": {
+      "id": "m1",
+      "type": "movie"
+    },
+    "trickplay": [
+      {
+        "columns": 5,
+        "interval_ms": 10000,
+        "rows": 5,
+        "sheets": 2,
+        "tile_height": 180,
+        "tile_width": 320
+      }
+    ],
+    "updated_at": "[updated_at]",
+    "video": [
+      {
+        "bit_depth": 10,
+        "bitrate": 48000000,
+        "codec": "hevc",
+        "frame_rate": 24.0,
+        "hdr": "dolby_vision",
+        "height": 2160,
+        "index": 0,
+        "width": 3840
+      }
+    ]
+  },
+  "status": 200
+}

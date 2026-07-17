@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use domain::error::WalkError;
 use domain::library::{DiscoveredFile, Library, ScanReport, SkipReason, SkippedFile, SourceWalker};
@@ -30,13 +30,19 @@ impl<W: SourceWalker, P: MediaProbe> Scanner<W, P> {
     pub async fn scan(&self, library: &Library) -> Result<ScanReport, WalkError> {
         let mut seen = HashSet::new();
         let mut candidates = Vec::new();
+        let mut subtitles: HashMap<String, Vec<String>> = HashMap::new();
         for root in &library.roots {
             for entry in self.walker.walk(root).await? {
-                if is_media_candidate(&entry.path, &self.extensions)
-                    && !is_hidden(&entry.path)
-                    && seen.insert(entry.path.clone())
-                {
+                if is_hidden(&entry.path) || !seen.insert(entry.path.clone()) {
+                    continue;
+                }
+                if is_media_candidate(&entry.path, &self.extensions) {
                     candidates.push(entry);
+                } else if is_subtitle_file(&entry.path) {
+                    subtitles
+                        .entry(dir_of(&entry.path).to_owned())
+                        .or_default()
+                        .push(entry.path);
                 }
             }
         }
@@ -48,6 +54,10 @@ impl<W: SourceWalker, P: MediaProbe> Scanner<W, P> {
             match self.probe.probe(&entry.path).await {
                 Ok(probe) => discovered.push(DiscoveredFile {
                     library: library.id.clone(),
+                    subtitle_siblings: subtitles
+                        .get(dir_of(&entry.path))
+                        .cloned()
+                        .unwrap_or_default(),
                     path: entry.path,
                     size_bytes: entry.size_bytes,
                     probe,
@@ -89,6 +99,22 @@ fn is_media_candidate(path: &str, extensions: &[String]) -> bool {
     }
 }
 
+fn is_subtitle_file(path: &str) -> bool {
+    match basename(path).rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => ["srt", "vtt", "ass", "ssa", "sub"]
+            .iter()
+            .any(|allowed| allowed.eq_ignore_ascii_case(ext)),
+        _ => false,
+    }
+}
+
+fn dir_of(path: &str) -> &str {
+    match path.rsplit_once(['/', '\\']) {
+        Some((dir, _)) => dir,
+        None => "",
+    }
+}
+
 fn is_hidden(path: &str) -> bool {
     basename(path).starts_with('.')
 }
@@ -98,6 +124,7 @@ mod tests {
     use super::*;
     use crate::mock::{MockMediaProbe, MockSourceWalker};
     use domain::library::{LibraryId, LibraryKind, WalkedEntry, WatcherStrategy};
+    use jiff::Timestamp;
 
     fn entry(path: &str, size: u64) -> WalkedEntry {
         WalkedEntry {
@@ -115,6 +142,8 @@ mod tests {
             watcher: WatcherStrategy::Manual,
             scan_schedule: None,
             metadata_sources: Vec::new(),
+            created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 
@@ -155,6 +184,55 @@ mod tests {
         assert_eq!(report.discovered[0].size_bytes, 10);
         assert_eq!(report.skipped.len(), 1);
         assert_eq!(report.skipped[0].path, "/m/bad.mp4");
+    }
+
+    #[tokio::test]
+    async fn scan_attaches_subtitle_siblings_by_directory() {
+        let walker = MockSourceWalker::new().with_entries(
+            "/m",
+            vec![
+                entry("/m/a/movie.mkv", 10),
+                entry("/m/a/movie.en.srt", 1),
+                entry("/m/a/movie.fr.srt", 1),
+                entry("/m/b/other.mp4", 10),
+                entry("/m/a/notes.txt", 1),
+            ],
+        );
+        let scanner = Scanner::new(walker, MockMediaProbe::new());
+
+        let report = scanner.scan(&library(&["/m"])).await.unwrap();
+        let movie = report
+            .discovered
+            .iter()
+            .find(|d| d.path == "/m/a/movie.mkv")
+            .unwrap();
+        assert_eq!(movie.subtitle_siblings.len(), 2);
+        assert!(
+            movie
+                .subtitle_siblings
+                .contains(&"/m/a/movie.en.srt".to_owned())
+        );
+        assert!(
+            movie
+                .subtitle_siblings
+                .contains(&"/m/a/movie.fr.srt".to_owned())
+        );
+        let other = report
+            .discovered
+            .iter()
+            .find(|d| d.path == "/m/b/other.mp4")
+            .unwrap();
+        assert!(other.subtitle_siblings.is_empty());
+    }
+
+    #[test]
+    fn subtitle_and_dir_helpers() {
+        assert!(is_subtitle_file("/m/a.SRT"));
+        assert!(is_subtitle_file("/m/a.vtt"));
+        assert!(!is_subtitle_file("/m/a.mkv"));
+        assert!(!is_subtitle_file("/m/.srt"));
+        assert_eq!(dir_of("/m/a/movie.mkv"), "/m/a");
+        assert_eq!(dir_of("movie.mkv"), "");
     }
 
     #[tokio::test]

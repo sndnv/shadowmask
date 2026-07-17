@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <title>Shadowmask (basic) - Sign in</title>
+  </head>
+  <body>
+    <main class="sm-login">
+      <h1>Shadowmask</h1>
+      <h2>Sign in</h2>
+      <form id="login">
+        <label>Username <input name="username" autocomplete="username" required /></label>
+        <label>Password
+          <input name="password" type="password" autocomplete="current-password" required />
+        </label>
+        <p><button type="submit">Sign in</button></p>
+      </form>
+      <p id="error" role="alert"></p>
+    </main>
+    <script src="app.js"></script>
+    <script>
+      if (sm.tokens()) {
+        location.href = "home.html";
+      }
+      document.getElementById("login").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const form = new FormData(e.target);
+        document.getElementById("error").textContent = "";
+        try {
+          await sm.login(form.get("username"), form.get("password"));
+          location.href = "home.html";
+        } catch (err) {
+          document.getElementById("error").textContent = "Sign in failed (" + err.message + ")";
+        }
+      });
+    </script>
+  </body>
+</html>

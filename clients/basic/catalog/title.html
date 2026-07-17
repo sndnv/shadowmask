@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Title</title>
+  </head>
+  <body>
+    <nav id="nav"></nav>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      if (sm.requireAuth()) load();
+
+      async function load() {
+        const main = document.getElementById("main");
+        const type = sm.qs("type");
+        const id = sm.qs("id");
+        if (!id || (type !== "movie" && type !== "series")) {
+          main.textContent = "Unknown title.";
+          return;
+        }
+        try {
+          if (type === "movie") await renderMovie(main, id);
+          else await renderSeries(main, id);
+        } catch (err) {
+          main.textContent = "Could not load this title.";
+        }
+      }
+
+      function ratingLine(cr) {
+        return cr ? cr.system + " " + cr.code : null;
+      }
+
+      function header(main, d, lines, playHref) {
+        const backdrop = sm.img(d.artwork, "backdrop", 960);
+        if (backdrop) {
+          backdrop.setAttribute("class", "sm-backdrop");
+          main.appendChild(backdrop);
+        }
+        const dl = sm.el("dl");
+        for (const [key, value] of lines) {
+          if (value === null || value === undefined || value === "") continue;
+          dl.appendChild(sm.el("dt", { text: key }));
+          dl.appendChild(sm.el("dd", { text: String(value) }));
+        }
+        const info = sm.el("div", { class: "sm-detail-info" }, [
+          sm.el("h1", { text: d.title + (d.year ? " (" + d.year + ")" : "") }),
+          dl,
+          d.overview ? sm.el("p", { text: d.overview }) : null,
+        ]);
+        const posterNode = sm.poster(d.artwork, 480);
+        const posterEl = playHref
+          ? sm.el("a", { href: playHref, title: "Play" }, posterNode)
+          : posterNode;
+        main.appendChild(sm.el("div", { class: "sm-detail" }, [posterEl, info]));
+        arrays(main, d);
+      }
+
+      function arrays(main, d) {
+        if (d.genres && d.genres.length) {
+          main.appendChild(sm.el("h2", { text: "Genres (" + d.genres.length + ")" }));
+          main.appendChild(
+            sm.el(
+              "ul",
+              null,
+              d.genres.map((g) =>
+                sm.el(
+                  "li",
+                  null,
+                  sm.el(
+                    "a",
+                    { href: sm.url("catalog/movies.html?genre=" + encodeURIComponent(g.id)) },
+                    g.name,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+        if (d.credits && d.credits.length) {
+          main.appendChild(sm.el("h2", { text: "Cast and crew (" + d.credits.length + ")" }));
+          main.appendChild(
+            sm.el(
+              "ul",
+              null,
+              d.credits.map((c) =>
+                sm.el("li", null, [
+                  sm.el("a", { href: sm.href.person(c.person.id) }, c.person.name),
+                  " " + c.role + (c.character ? " as " + c.character : ""),
+                ]),
+              ),
+            ),
+          );
+        }
+        listOf(main, "Studios", d.studios, (s) => s.name);
+        listOf(main, "Ratings", d.ratings, (r) => r.source + ": " + r.value);
+        listOf(main, "External ids", d.external_ids, (x) => x.source + ": " + x.value);
+        listOf(main, "Extras", d.extras, (x) => x.kind + ": " + x.title);
+      }
+
+      function listOf(main, label, items, fmt) {
+        if (!items || !items.length) return;
+        main.appendChild(sm.el("h2", { text: label + " (" + items.length + ")" }));
+        main.appendChild(sm.el("ul", null, items.map((i) => sm.el("li", { text: fmt(i) }))));
+      }
+
+      async function renderMovie(main, id) {
+        const d = await sm.json("/api/v1/movies/" + encodeURIComponent(id));
+        const versions = await sm
+          .json("/api/v1/movies/" + encodeURIComponent(id) + "/versions")
+          .catch(() => null);
+        const me = await sm.self().catch(() => null);
+        const picker = await sm.versionPicker(me && me.id, (versions && versions.items) || []);
+        main.textContent = "";
+        main.appendChild(
+          sm.breadcrumbs([
+            { label: "Movies", href: sm.url("catalog/movies.html") },
+            { label: d.title },
+          ]),
+        );
+        header(
+          main,
+          d,
+          [
+            ["Runtime", d.runtime_minutes ? d.runtime_minutes + " min" : null],
+            ["Rating", ratingLine(d.content_rating)],
+            ["Added", sm.time(d.added_at)],
+            ["Updated", sm.time(d.updated_at)],
+          ],
+          picker.single ? sm.href.watch(picker.single) : null,
+        );
+        main.appendChild(await sm.libraryControls("movie", id));
+        main.appendChild(picker.node);
+      }
+
+      async function nextEpisodeHref(seriesId, seasons) {
+        const me = await sm.self().catch(() => null);
+        let ep = await sm.onDeckEpisode(me && me.id, seasons.map((s) => s.id));
+        if (!ep && seasons.length) {
+          const firstSeason = seasons.slice().sort((a, b) => (a.number || 0) - (b.number || 0))[0];
+          const eps = await sm
+            .json(
+              "/api/v1/series/" +
+                encodeURIComponent(seriesId) +
+                "/seasons/" +
+                encodeURIComponent(firstSeason.id) +
+                "/episodes",
+            )
+            .catch(() => []);
+          ep = eps.slice().sort((a, b) => (a.number || 0) - (b.number || 0))[0] || null;
+        }
+        return ep ? sm.href.episode(ep.id, ep.season_id, seriesId) : null;
+      }
+
+      async function renderSeries(main, id) {
+        const d = await sm.json("/api/v1/series/" + encodeURIComponent(id));
+        const seasons = await sm
+          .json("/api/v1/series/" + encodeURIComponent(id) + "/seasons")
+          .catch(() => []);
+        const nextHref = await nextEpisodeHref(id, seasons);
+        main.textContent = "";
+        main.appendChild(
+          sm.breadcrumbs([
+            { label: "Series", href: sm.url("catalog/series.html") },
+            { label: d.title },
+          ]),
+        );
+        header(
+          main,
+          d,
+          [
+            ["Rating", ratingLine(d.content_rating)],
+            ["Added", sm.time(d.added_at)],
+            ["Updated", sm.time(d.updated_at)],
+          ],
+          nextHref,
+        );
+        main.appendChild(await sm.watchedControls("series", id));
+        main.appendChild(sm.el("h2", { text: "Seasons (" + seasons.length + ")" }));
+        if (!seasons.length) {
+          main.appendChild(sm.el("p", { text: "No seasons." }));
+          return;
+        }
+        main.appendChild(
+          sm.grid(
+            seasons.map((s) => ({
+              href: sm.href.season(s.id, id),
+              artwork: s.artwork,
+              title: s.title || "Season " + s.number,
+              subtitle: null,
+            })),
+          ),
+        );
+      }
+
+    </script>
+  </body>
+</html>

@@ -32,7 +32,40 @@ expression: value
       "runtime_minutes": 100,
       "title": "Alpha m1",
       "type": "movie",
+      "updated_at": "2023-11-14T22:13:21Z",
       "year": 2020
+    },
+    {
+      "added_at": "2023-11-14T22:13:24Z",
+      "air_date": "2023-11-14T22:13:23Z",
+      "artwork": {
+        "backdrop": {
+          "base": "/images/e1-backdrop",
+          "widths": [
+            480,
+            960
+          ]
+        },
+        "poster": {
+          "base": "/images/e1-poster",
+          "widths": [
+            180,
+            480,
+            960
+          ]
+        }
+      },
+      "id": "e1",
+      "number": 1,
+      "overview": null,
+      "runtime_minutes": 42,
+      "season_id": "se1",
+      "season_number": 1,
+      "series_id": "s1",
+      "series_title": "Alpha s1",
+      "title": "Alpha e1",
+      "type": "episode",
+      "updated_at": "2023-11-14T22:13:24Z"
     }
   ],
   "status": 200

@@ -27,6 +27,7 @@ pub struct ScanStateResponse {
     pub library_id: String,
     pub status: ScanStatusDto,
     pub progress: f32,
+    pub started_at: Option<String>,
     pub last_scanned_at: Option<String>,
     pub error: Option<String>,
 }
@@ -37,6 +38,7 @@ impl From<ScanState> for ScanStateResponse {
             library_id: s.library.0,
             status: s.status.into(),
             progress: s.progress,
+            started_at: s.started_at.map(|t| t.to_string()),
             last_scanned_at: s.last_scanned_at.map(|t| t.to_string()),
             error: s.error,
         }
@@ -73,14 +75,17 @@ mod tests {
         use jiff::Timestamp;
 
         let ts: Timestamp = "2024-01-01T00:00:00Z".parse().unwrap();
+        let started: Timestamp = "2023-12-31T00:00:00Z".parse().unwrap();
         let resp = ScanStateResponse::from(ScanState {
             library: LibraryId("l1".into()),
             status: ScanStatus::Idle,
             progress: 0.5,
+            started_at: Some(started),
             last_scanned_at: Some(ts),
             error: Some("boom".into()),
         });
         assert_eq!(resp.library_id, "l1");
+        assert_eq!(resp.started_at, Some(started.to_string()));
         assert_eq!(resp.last_scanned_at, Some(ts.to_string()));
         assert_eq!(resp.error.as_deref(), Some("boom"));
     }

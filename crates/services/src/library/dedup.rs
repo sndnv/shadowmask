@@ -73,6 +73,7 @@ mod tests {
             library: LibraryId("lib".to_owned()),
             path: path.to_owned(),
             size_bytes: 1,
+            subtitle_siblings: Vec::new(),
             probe: ProbeResult {
                 duration_ms: 0,
                 video: height.map(|h| vec![video_track(h)]).unwrap_or_default(),

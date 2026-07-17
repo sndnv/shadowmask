@@ -77,10 +77,12 @@ impl LibraryRepository for MockLibraryRepo {
         if self.fail_save.load(Ordering::Relaxed) {
             return Err(RepositoryError::Backend("mock save failure".to_owned()));
         }
-        self.libraries
-            .lock()
-            .unwrap()
-            .insert(library.id.clone(), library);
+        let mut map = self.libraries.lock().unwrap();
+        let mut library = library;
+        if let Some(existing) = map.get(&library.id) {
+            library.created_at = existing.created_at;
+        }
+        map.insert(library.id.clone(), library);
         Ok(())
     }
 
@@ -155,10 +157,14 @@ impl LibraryRepository for MockLibraryRepo {
             return Err(RepositoryError::Backend("mock save failure".to_owned()));
         }
         let mut map = self.unmatched.lock().unwrap();
-        let status = map
-            .get(&file.id)
-            .map(|(_, status)| *status)
-            .unwrap_or(ResolutionStatus::Active);
+        let mut file = file;
+        let status = match map.get(&file.id) {
+            Some((existing, status)) => {
+                file.created_at = existing.created_at;
+                *status
+            }
+            None => ResolutionStatus::Active,
+        };
         map.insert(file.id.clone(), (file, status));
         Ok(())
     }
@@ -207,6 +213,7 @@ impl LibraryRepository for MockLibraryRepo {
 mod tests {
     use super::*;
     use domain::library::{LibraryKind, WatcherStrategy};
+    use jiff::Timestamp;
 
     fn library() -> Library {
         Library {
@@ -217,6 +224,8 @@ mod tests {
             watcher: WatcherStrategy::Manual,
             scan_schedule: None,
             metadata_sources: Vec::new(),
+            created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 

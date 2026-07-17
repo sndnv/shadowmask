@@ -13,7 +13,7 @@ use crate::dto::user::{
 };
 use crate::error::{ApiError, ApiResult};
 use crate::extract::{AuthUser, RequireAdmin};
-use crate::handlers::{log_fail, require_admin_or_self};
+use crate::handlers::{deny_player, log_fail, require_admin_or_self};
 use crate::pagination::{PageParams, PageResponse};
 use crate::state::AppServices;
 
@@ -122,6 +122,7 @@ pub async fn update_profile<S: AppServices>(
 ) -> ApiResult<Json<UserResponse>> {
     let actor = &principal.user.0;
     let target = UserId(id);
+    deny_player(&principal)?;
     require_admin_or_self(&principal, &target)?;
     let user = state
         .update_profile(&target, req.into())
@@ -173,6 +174,7 @@ pub async fn change_password<S: AppServices>(
 ) -> ApiResult<StatusCode> {
     let actor = &principal.user.0;
     let target = UserId(id);
+    deny_player(&principal)?;
     require_admin_or_self(&principal, &target)?;
     state
         .change_password(

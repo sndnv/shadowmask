@@ -23,6 +23,16 @@ impl SubtitleFormat {
             .find(|entry| entry.0 == ext.as_str())
             .map(|entry| entry.1)
     }
+
+    pub fn extension(self) -> &'static str {
+        match self {
+            SubtitleFormat::Srt => "srt",
+            SubtitleFormat::Ass => "ass",
+            SubtitleFormat::Vtt => "vtt",
+            SubtitleFormat::Pgs => "sup",
+            SubtitleFormat::VobSub => "sub",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -52,5 +62,14 @@ mod tests {
     #[test]
     fn unknown_extension_has_no_format() {
         assert_eq!(SubtitleFormat::from_extension("mkv"), None);
+    }
+
+    #[test]
+    fn extension_names_each_format() {
+        assert_eq!(SubtitleFormat::Srt.extension(), "srt");
+        assert_eq!(SubtitleFormat::Ass.extension(), "ass");
+        assert_eq!(SubtitleFormat::Vtt.extension(), "vtt");
+        assert_eq!(SubtitleFormat::Pgs.extension(), "sup");
+        assert_eq!(SubtitleFormat::VobSub.extension(), "sub");
     }
 }

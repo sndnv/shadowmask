@@ -42,6 +42,7 @@ fn require_roots(library: &Library) -> Result<(), WatchPlanError> {
 mod tests {
     use super::*;
     use crate::library::{LibraryId, LibraryKind};
+    use jiff::Timestamp;
 
     fn library(watcher: WatcherStrategy, roots: &[&str], schedule: Option<&str>) -> Library {
         Library {
@@ -52,6 +53,8 @@ mod tests {
             watcher,
             scan_schedule: schedule.map(Into::into),
             metadata_sources: Vec::new(),
+            created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 

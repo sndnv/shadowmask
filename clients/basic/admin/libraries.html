@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Admin libraries</title>
+  </head>
+  <body>
+    <h1>Libraries</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs"><a href="index.html">Admin</a> / Libraries</p>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      const eu = encodeURIComponent;
+      let listContainer = null;
+      let listHeading = null;
+      let editingId = null;
+      let fields = null;
+      let formStatus = null;
+      let formHeading = null;
+
+      if (sm.requireAuth()) guard();
+
+      async function guard() {
+        const main = document.getElementById("main");
+        try {
+          const me = await sm.self();
+          if (me.role !== "admin") {
+            main.textContent = "Not Authorized.";
+            return;
+          }
+          main.textContent = "";
+          renderForm(main);
+          listHeading = sm.el("h2", { text: "Existing libraries" });
+          main.appendChild(listHeading);
+          listContainer = sm.el("div", null);
+          main.appendChild(listContainer);
+          await loadLibraries();
+        } catch (err) {
+          main.textContent = "Could not load.";
+        }
+      }
+
+      function renderForm(main) {
+        formHeading = sm.el("h2", { text: "Create library" });
+        main.appendChild(formHeading);
+        fields = {
+          name: sm.el("input", { autocomplete: "off" }),
+          kind: sm.el("select", null, [
+            sm.el("option", { value: "movie" }, "movie"),
+            sm.el("option", { value: "tv" }, "tv"),
+          ]),
+          watcher: sm.el("select", null, [
+            sm.el("option", { value: "local" }, "local"),
+            sm.el("option", { value: "polling" }, "polling"),
+            sm.el("option", { value: "scheduled" }, "scheduled"),
+            sm.el("option", { value: "manual" }, "manual"),
+          ]),
+          roots: sm.el("textarea", { rows: "3", cols: "50" }),
+          schedule: sm.el("input", { autocomplete: "off" }),
+          sources: sm.el("input", { autocomplete: "off" }),
+        };
+        formStatus = sm.el("span", null);
+        const reset = sm.el("button", { type: "button" }, "Clear");
+        reset.addEventListener("click", () => setEditing(null));
+        const form = sm.el("form", null, [
+          sm.el("label", null, ["Name ", fields.name]),
+          sm.el("br"),
+          sm.el("label", null, ["Kind ", fields.kind]),
+          " ",
+          sm.el("label", null, ["Watcher ", fields.watcher]),
+          sm.el("br"),
+          sm.el("label", null, ["Roots (one path per line) ", sm.el("br"), fields.roots]),
+          sm.el("br"),
+          sm.el("label", null, ["Scan schedule (optional cron) ", fields.schedule]),
+          sm.el("br"),
+          sm.el("label", null, ["Metadata sources (comma separated) ", fields.sources]),
+          sm.el("br"),
+          sm.el("button", { type: "submit" }, "Save"),
+          " ",
+          reset,
+          " ",
+          formStatus,
+        ]);
+        form.addEventListener("submit", onSubmit);
+        main.appendChild(form);
+      }
+
+      function setEditing(library) {
+        editingId = library ? library.id : null;
+        formHeading.textContent = library ? "Edit library" : "Create library";
+        fields.name.value = library ? library.name : "";
+        fields.kind.value = library ? library.kind : "movie";
+        fields.watcher.value = library ? library.watcher : "local";
+        fields.roots.value = library ? (library.roots || []).join("\n") : "";
+        fields.schedule.value = library && library.scan_schedule ? library.scan_schedule : "";
+        fields.sources.value = library ? (library.metadata_sources || []).join(", ") : "";
+        formStatus.textContent = "";
+      }
+
+      function splitLines(value) {
+        return value
+          .split("\n")
+          .map((x) => x.trim())
+          .filter((x) => x.length);
+      }
+
+      function splitCommas(value) {
+        return value
+          .split(",")
+          .map((x) => x.trim())
+          .filter((x) => x.length);
+      }
+
+      async function onSubmit(e) {
+        e.preventDefault();
+        const body = {
+          name: fields.name.value,
+          kind: fields.kind.value,
+          watcher: fields.watcher.value,
+          roots: splitLines(fields.roots.value),
+          scan_schedule: fields.schedule.value ? fields.schedule.value : null,
+          metadata_sources: splitCommas(fields.sources.value),
+        };
+        if (!body.name) {
+          formStatus.textContent = "Name is required.";
+          return;
+        }
+        try {
+          if (editingId) {
+            await sm.json("/api/v1/libraries/" + eu(editingId), {
+              method: "PUT",
+              body: JSON.stringify(body),
+            });
+          } else {
+            await sm.json("/api/v1/libraries", { method: "POST", body: JSON.stringify(body) });
+          }
+          setEditing(null);
+          formStatus.textContent = "Saved.";
+          await loadLibraries();
+        } catch (err) {
+          formStatus.textContent = "Save failed.";
+        }
+      }
+
+      async function loadLibraries() {
+        listContainer.textContent = "Loading...";
+        try {
+          const libraries = await sm.json("/api/v1/libraries");
+          listHeading.textContent = "Existing libraries (" + libraries.length + ")";
+          listContainer.textContent = "";
+          if (!libraries.length) {
+            listContainer.appendChild(sm.el("p", { text: "No libraries." }));
+            return;
+          }
+          listContainer.appendChild(
+            sm.el(
+              "ul",
+              null,
+              libraries.map((l) => {
+                const manage = sm.el("a", { href: "library.html?id=" + eu(l.id) }, "Manage");
+                const edit = sm.el("button", { type: "button" }, "Edit");
+                edit.addEventListener("click", () => setEditing(l));
+                const del = sm.el("button", { type: "button" }, "Delete");
+                del.addEventListener("click", async () => {
+                  if (!confirm("Delete library " + l.name + "?")) return;
+                  await sm
+                    .json("/api/v1/libraries/" + eu(l.id), { method: "DELETE" })
+                    .catch(() => {});
+                  await loadLibraries();
+                });
+                return sm.el("li", null, [
+                  sm.el("strong", { text: l.name }),
+                  sm.el("span", {
+                    text:
+                      " (" +
+                      l.kind +
+                      ", " +
+                      l.watcher +
+                      ")" +
+                      (l.roots && l.roots.length ? " " + l.roots.join(", ") : "") +
+                      " created " +
+                      sm.time(l.created_at) +
+                      ", updated " +
+                      sm.time(l.updated_at) +
+                      " ",
+                  }),
+                  manage,
+                  " ",
+                  edit,
+                  " ",
+                  del,
+                ]);
+              }),
+            ),
+          );
+        } catch (err) {
+          listContainer.textContent = "Could not load libraries.";
+        }
+      }
+    </script>
+  </body>
+</html>

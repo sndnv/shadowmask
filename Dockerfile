@@ -22,6 +22,7 @@ RUN useradd --system --create-home --home-dir /home/shadowmask --uid 1001 --gid 
     && mkdir -p /data /config \
     && chown -R 1001:0 /data /config
 COPY --from=builder /usr/local/bin/shadowmask /usr/local/bin/shadowmask
+COPY clients/basic /usr/share/shadowmask/basic
 LABEL org.opencontainers.image.title="Shadowmask" \
       org.opencontainers.image.description="Self-hosted media library and streaming server" \
       org.opencontainers.image.source="https://github.com/sndnv/shadowmask"
@@ -29,7 +30,8 @@ ENV SHADOWMASK_DB_ROOT=/data \
     SHADOWMASK_TRANSCODE_CACHE=/data/transcode \
     SHADOWMASK_ARTWORK_CACHE=/data/artwork \
     SHADOWMASK_TRICKPLAY_CACHE=/data/trickplay \
-    SHADOWMASK_BOOTSTRAP_DIR=/config/bootstrap
+    SHADOWMASK_BOOTSTRAP_DIR=/config/bootstrap \
+    SHADOWMASK_BASIC_CLIENT_DIR=/usr/share/shadowmask/basic
 WORKDIR /config
 USER 1001:0
 EXPOSE 8080

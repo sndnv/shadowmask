@@ -1,9 +1,9 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use domain::catalog::{EpisodeId, MovieId, SeasonId, SeriesId};
 use domain::playback::WatchTarget;
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WatchTargetKind {
     Movie,

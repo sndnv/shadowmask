@@ -23,6 +23,7 @@ services:
     volumes:
       - shadowmask-data:/data
       - ./config/bootstrap:/config/bootstrap:ro
+      - ../../clients/basic:/usr/share/shadowmask/basic:ro
       - "${SHADOWMASK_MOVIES_DIR:-./media/movies}:/media/movies:ro"
       - "${SHADOWMASK_TV_DIR:-./media/tv}:/media/tv:ro"
     healthcheck:

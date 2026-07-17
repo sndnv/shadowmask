@@ -15,12 +15,14 @@ pub async fn auth_token_repository_contract<R: AuthTokenRepository>(repo: R) {
         user: UserId("u1".into()),
         name: "Living Room".into(),
         platform: "roku".into(),
+        created_at: at(5),
         last_seen: Some(at(10)),
     })
     .await
     .unwrap();
     let stored = repo.get_device(&device_id).await.unwrap().unwrap();
     assert_eq!(stored.name, "Living Room");
+    assert_eq!(stored.created_at, at(5));
     assert_eq!(stored.last_seen, Some(at(10)));
 
     repo.upsert_device(Device {
@@ -28,12 +30,14 @@ pub async fn auth_token_repository_contract<R: AuthTokenRepository>(repo: R) {
         user: UserId("u1".into()),
         name: "Bedroom".into(),
         platform: "roku".into(),
+        created_at: at(999),
         last_seen: None,
     })
     .await
     .unwrap();
     let updated = repo.get_device(&device_id).await.unwrap().unwrap();
     assert_eq!(updated.name, "Bedroom");
+    assert_eq!(updated.created_at, at(5));
     assert!(updated.last_seen.is_none());
 
     assert!(
@@ -48,6 +52,7 @@ pub async fn auth_token_repository_contract<R: AuthTokenRepository>(repo: R) {
         device: device_id.clone(),
         token_hash: "hash-1".into(),
         created_at: at(20),
+        last_used_at: None,
     })
     .await
     .unwrap();
@@ -59,12 +64,25 @@ pub async fn auth_token_repository_contract<R: AuthTokenRepository>(repo: R) {
     assert_eq!(token.id, ApiTokenId("tok1".into()));
     assert_eq!(token.device, device_id);
     assert_eq!(token.created_at, at(20));
+    assert!(token.last_used_at.is_none());
+
+    repo.touch_api_token(&ApiTokenId("tok1".into()), at(40))
+        .await
+        .unwrap();
+    let touched = repo
+        .find_api_token_by_hash("hash-1")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(touched.created_at, at(20));
+    assert_eq!(touched.last_used_at, Some(at(40)));
 
     repo.upsert_device(Device {
         id: DeviceId("dev2".into()),
         user: UserId("u2".into()),
         name: "Other".into(),
         platform: "web".into(),
+        created_at: at(15),
         last_seen: None,
     })
     .await
@@ -75,6 +93,7 @@ pub async fn auth_token_repository_contract<R: AuthTokenRepository>(repo: R) {
         device: DeviceId("dev2".into()),
         token_hash: "hash-2".into(),
         created_at: at(30),
+        last_used_at: None,
     })
     .await
     .unwrap();

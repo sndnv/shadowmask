@@ -1,9 +1,9 @@
 use std::future::Future;
 
 use crate::catalog::{
-    Collection, CollectionId, CollectionUpdate, Episode, EpisodeId, Movie, MovieDetail, MovieId,
-    NewCollection, PersonProfile, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleCard,
-    TitleId, TitleListQuery, TitleRef, Version, VersionDetail, VersionId,
+    Collection, CollectionDetail, CollectionId, CollectionUpdate, Episode, EpisodeId, Movie,
+    MovieDetail, MovieId, NewCollection, PersonProfile, Season, SeasonId, Series, SeriesDetail,
+    SeriesId, TitleCard, TitleId, TitleListQuery, TitleRef, Version, VersionDetail, VersionId,
 };
 use crate::common::{Page, PageRequest};
 use crate::discovery::{ContinueWatchingItem, Hub, SearchKind, SearchResult};
@@ -17,7 +17,7 @@ use crate::library::{
 };
 use crate::metadata::{ExternalId, Genre, PersonId};
 use crate::playback::{
-    Favorite, PlaybackProgress, TitleState, WatchHistory, WatchTarget, WatchlistItem,
+    Favorite, PlaybackProgress, TitleState, WatchHistory, WatchTarget, WatchedRollup, WatchlistItem,
 };
 use crate::session::{
     HeartbeatAck, NowPlaying, PlaybackSession, PlaybackState, Renegotiated, SessionId,
@@ -53,6 +53,15 @@ pub trait AuthService {
         user: Option<UserId>,
         ttl_secs: Option<i64>,
     ) -> impl Future<Output = Result<PendingLink, AuthError>> + Send;
+    fn list_link_codes(
+        &self,
+        user: &UserId,
+    ) -> impl Future<Output = Result<Vec<PendingLink>, AuthError>> + Send;
+    fn revoke_link_code(
+        &self,
+        user: &UserId,
+        code: &str,
+    ) -> impl Future<Output = Result<(), AuthError>> + Send;
     fn logout(&self, refresh_token: &str) -> impl Future<Output = Result<(), AuthError>> + Send;
     fn logout_all(&self, user: &UserId) -> impl Future<Output = Result<(), AuthError>> + Send;
     fn list_devices(
@@ -85,7 +94,7 @@ pub trait CatalogService {
         &self,
         caller: &Principal,
         id: &CollectionId,
-    ) -> impl Future<Output = Result<Collection, CatalogError>> + Send;
+    ) -> impl Future<Output = Result<CollectionDetail, CatalogError>> + Send;
     fn create_collection(
         &self,
         caller: &Principal,
@@ -294,6 +303,12 @@ pub trait LibraryService {
         title: TitleRef,
         external_id: Option<ExternalId>,
     ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    fn relink_version(
+        &self,
+        caller: &Principal,
+        version: &VersionId,
+        target: ResolveTarget,
+    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
     fn jobs(
         &self,
         caller: &Principal,
@@ -384,6 +399,11 @@ pub trait UserLibraryService {
         user: &UserId,
         titles: &[TitleId],
     ) -> impl Future<Output = Result<Vec<TitleState>, UserError>> + Send;
+    fn watched_rollups(
+        &self,
+        user: &UserId,
+        targets: &[WatchTarget],
+    ) -> impl Future<Output = Result<Vec<WatchedRollup>, UserError>> + Send;
 }
 
 pub trait DiscoveryService {

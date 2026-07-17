@@ -7,7 +7,8 @@ use domain::common::{LanguageCode, PageRequest, Quality};
 use domain::library::LibraryId;
 use domain::media::{
     AudioTrack, Chapter, CreditsMarker, DetectedMarkers, EmbeddedSubtitleTrack, HdrFormat,
-    IntroMarker, SubtitleFormat, TrickplayAsset, VideoTrack,
+    IntroMarker, SubtitleFile, SubtitleFileId, SubtitleFormat, SubtitleSource, TrickplayAsset,
+    VideoTrack,
 };
 use domain::metadata::{
     ArtworkKind, ContentRating, Credit, CreditRole, ExternalId, Extra, ExtraKind, Genre, GenreId,
@@ -51,6 +52,8 @@ pub fn catalog_seed() -> CatalogSeed {
             duration_ms: 120_000,
             edition: Some("Director's Cut".into()),
             available: true,
+            added_at: ts(14),
+            updated_at: ts(14),
         },
         video: vec![VideoTrack {
             index: 0,
@@ -75,6 +78,14 @@ pub fn catalog_seed() -> CatalogSeed {
             format: SubtitleFormat::Srt,
             forced: false,
             default: true,
+        }],
+        subtitle_files: vec![SubtitleFile {
+            id: SubtitleFileId("sf1".into()),
+            version: VersionId("v1".into()),
+            language: Some(LanguageCode("en".into())),
+            format: SubtitleFormat::Srt,
+            source: SubtitleSource::External,
+            path: "/media/v1.en.srt".into(),
         }],
         chapters: vec![Chapter {
             title: "Chapter 1".into(),
@@ -115,6 +126,7 @@ pub fn catalog_seed() -> CatalogSeed {
                     code: "PG-13".into(),
                 }),
                 added_at: ts(1),
+                updated_at: ts(1),
                 artwork: Vec::new(),
             },
             Movie {
@@ -125,6 +137,7 @@ pub fn catalog_seed() -> CatalogSeed {
                 runtime_minutes: None,
                 content_rating: None,
                 added_at: ts(2),
+                updated_at: ts(2),
                 artwork: Vec::new(),
             },
         ],
@@ -135,6 +148,7 @@ pub fn catalog_seed() -> CatalogSeed {
             overview: None,
             content_rating: None,
             added_at: ts(3),
+            updated_at: ts(3),
             artwork: Vec::new(),
         }],
         seasons: vec![Season {
@@ -143,6 +157,8 @@ pub fn catalog_seed() -> CatalogSeed {
             number: 1,
             title: Some("Season 1".into()),
             overview: None,
+            added_at: ts(10),
+            updated_at: ts(10),
             artwork: Vec::new(),
         }],
         episodes: vec![
@@ -155,6 +171,7 @@ pub fn catalog_seed() -> CatalogSeed {
                 runtime_minutes: Some(42),
                 air_date: Some(ts(4)),
                 added_at: ts(5),
+                updated_at: ts(5),
                 artwork: Vec::new(),
             },
             Episode {
@@ -166,6 +183,7 @@ pub fn catalog_seed() -> CatalogSeed {
                 runtime_minutes: None,
                 air_date: None,
                 added_at: ts(6),
+                updated_at: ts(6),
                 artwork: Vec::new(),
             },
         ],
@@ -174,6 +192,8 @@ pub fn catalog_seed() -> CatalogSeed {
             name: "Saga".into(),
             overview: Some("epic".into()),
             movies: vec![MovieId("m1".into()), MovieId("m2".into())],
+            added_at: ts(11),
+            updated_at: ts(11),
             artwork: Vec::new(),
         }],
         versions: vec![
@@ -188,6 +208,8 @@ pub fn catalog_seed() -> CatalogSeed {
                 duration_ms: 120_000,
                 edition: None,
                 available: true,
+                added_at: ts(12),
+                updated_at: ts(12),
             },
             Version {
                 id: VersionId("v3".into()),
@@ -200,6 +222,8 @@ pub fn catalog_seed() -> CatalogSeed {
                 duration_ms: 2_520_000,
                 edition: None,
                 available: true,
+                added_at: ts(13),
+                updated_at: ts(13),
             },
         ],
         detail,
@@ -497,6 +521,10 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     assert_eq!(detail.subtitles[0].format, SubtitleFormat::Srt);
     assert!(detail.subtitles[0].default);
     assert!(!detail.subtitles[0].forced);
+    assert_eq!(detail.subtitle_files.len(), 1);
+    assert_eq!(detail.subtitle_files[0].id, SubtitleFileId("sf1".into()));
+    assert_eq!(detail.subtitle_files[0].source, SubtitleSource::External);
+    assert_eq!(detail.subtitle_files[0].format, SubtitleFormat::Srt);
     assert_eq!(detail.chapters.len(), 1);
     assert_eq!(detail.chapters[0].start_ms, 0);
     assert_eq!(detail.markers.intros.len(), 1);
@@ -540,6 +568,8 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         name: "Saga Remastered".into(),
         overview: None,
         movies: vec![MovieId("m2".into())],
+        added_at: ts(999),
+        updated_at: ts(20),
         artwork: Vec::new(),
     })
     .await
@@ -551,12 +581,16 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         .unwrap();
     assert_eq!(updated.name, "Saga Remastered");
     assert_eq!(updated.movies, vec![MovieId("m2".into())]);
+    assert_eq!(updated.added_at, ts(11));
+    assert_eq!(updated.updated_at, ts(20));
 
     repo.upsert_collection(Collection {
         id: CollectionId("c2".into()),
         name: "New".into(),
         overview: None,
         movies: Vec::new(),
+        added_at: ts(21),
+        updated_at: ts(21),
         artwork: Vec::new(),
     })
     .await
@@ -663,6 +697,7 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         runtime_minutes: None,
         content_rating: None,
         added_at: ts(7),
+        updated_at: ts(7),
         artwork: Vec::new(),
     })
     .await
@@ -674,7 +709,8 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         overview: None,
         runtime_minutes: None,
         content_rating: None,
-        added_at: ts(7),
+        added_at: ts(999),
+        updated_at: ts(8),
         artwork: Vec::new(),
     })
     .await
@@ -685,6 +721,8 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         .unwrap()
         .unwrap();
     assert_eq!(ingested.title, "Ingested Remux");
+    assert_eq!(ingested.added_at, ts(7));
+    assert_eq!(ingested.updated_at, ts(8));
 
     repo.upsert_series(Series {
         id: SeriesId("us1".into()),
@@ -693,6 +731,7 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         overview: None,
         content_rating: None,
         added_at: ts(8),
+        updated_at: ts(8),
         artwork: Vec::new(),
     })
     .await
@@ -703,6 +742,8 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         number: 1,
         title: Some("Season 1".into()),
         overview: None,
+        added_at: ts(23),
+        updated_at: ts(23),
         artwork: Vec::new(),
     })
     .await
@@ -716,6 +757,7 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         runtime_minutes: None,
         air_date: None,
         added_at: ts(9),
+        updated_at: ts(9),
         artwork: Vec::new(),
     })
     .await
@@ -731,6 +773,8 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         duration_ms: 1_500_000,
         edition: None,
         available: true,
+        added_at: ts(24),
+        updated_at: ts(24),
     })
     .await
     .unwrap();
@@ -761,6 +805,32 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
             .total,
         1
     );
+
+    repo.upsert_version(Version {
+        id: VersionId("uv1".into()),
+        title: TitleId::Episode(EpisodeId("ue1".into())),
+        library: LibraryId("lib1".into()),
+        quality: Quality::Uhd,
+        container: "mkv".into(),
+        path: "/media/uv1.mkv".into(),
+        size_bytes: 4_000_000,
+        duration_ms: 1_500_000,
+        edition: None,
+        available: true,
+        added_at: ts(999),
+        updated_at: ts(25),
+    })
+    .await
+    .unwrap();
+    let reupserted = repo
+        .version_detail(&VersionId("uv1".into()))
+        .await
+        .unwrap()
+        .unwrap()
+        .version;
+    assert_eq!(reupserted.quality, Quality::Uhd);
+    assert_eq!(reupserted.added_at, ts(24));
+    assert_eq!(reupserted.updated_at, ts(25));
 
     let uv1 = VersionId("uv1".into());
     repo.set_version_tracks(
@@ -819,6 +889,19 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     )
     .await
     .unwrap();
+    repo.set_subtitle_files(
+        &uv1,
+        &[SubtitleFile {
+            id: SubtitleFileId("uv1-sf1".into()),
+            version: uv1.clone(),
+            language: Some(LanguageCode("de".into())),
+            format: SubtitleFormat::Vtt,
+            source: SubtitleSource::OpenSubtitles,
+            path: "/subs/uv1.de.vtt".into(),
+        }],
+    )
+    .await
+    .unwrap();
 
     let uv1_detail = repo.version_detail(&uv1).await.unwrap().unwrap();
     assert_eq!(uv1_detail.video.len(), 1);
@@ -833,15 +916,23 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     assert_eq!(uv1_detail.trickplay[0].columns, 8);
     assert_eq!(uv1_detail.trickplay[0].rows, 8);
     assert_eq!(uv1_detail.trickplay[0].sheet_paths.len(), 1);
+    assert_eq!(uv1_detail.subtitle_files.len(), 1);
+    assert_eq!(
+        uv1_detail.subtitle_files[0].source,
+        SubtitleSource::OpenSubtitles
+    );
+    assert_eq!(uv1_detail.subtitle_files[0].format, SubtitleFormat::Vtt);
 
     repo.set_version_tracks(&uv1, &[], &[], &[], &[])
         .await
         .unwrap();
     repo.set_trickplay(&uv1, &[]).await.unwrap();
+    repo.set_subtitle_files(&uv1, &[]).await.unwrap();
     let uv1_cleared = repo.version_detail(&uv1).await.unwrap().unwrap();
     assert!(uv1_cleared.video.is_empty());
     assert!(uv1_cleared.audio.is_empty());
     assert!(uv1_cleared.subtitles.is_empty());
+    assert!(uv1_cleared.subtitle_files.is_empty());
     assert!(uv1_cleared.chapters.is_empty());
     assert!(uv1_cleared.trickplay.is_empty());
 

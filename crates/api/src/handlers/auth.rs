@@ -7,12 +7,12 @@ use domain::user::{ApiTokenId, DeviceId, UserId};
 
 use crate::dto::auth::{
     ApiTokenResponse, CreateLinkCodeRequest, CreateLinkCodeResponse, DeviceResponse,
-    IssuedTokenResponse, LinkRequest, LoginRequest, LogoutRequest, RefreshRequest,
-    TokenPairResponse,
+    IssuedTokenResponse, LinkCodeResponse, LinkRequest, LoginRequest, LogoutRequest,
+    RefreshRequest, TokenPairResponse,
 };
 use crate::error::ApiResult;
-use crate::extract::{AuthUser, RequireAdmin};
-use crate::handlers::{log_fail, require_admin_or_self};
+use crate::extract::AuthUser;
+use crate::handlers::{deny_player, log_fail, require_admin_or_self};
 use crate::state::AppServices;
 
 pub async fn login<S: AppServices>(
@@ -53,16 +53,66 @@ pub async fn link<S: AppServices>(
 
 pub async fn create_link<S: AppServices>(
     State(state): State<S>,
-    RequireAdmin(principal): RequireAdmin,
+    AuthUser(principal): AuthUser,
     Json(req): Json<CreateLinkCodeRequest>,
 ) -> ApiResult<Json<CreateLinkCodeResponse>> {
     let actor = &principal.user.0;
+    let target = req
+        .user_id
+        .clone()
+        .map(UserId)
+        .unwrap_or_else(|| principal.user.clone());
+    deny_player(&principal)?;
+    require_admin_or_self(&principal, &target)?;
     let link = state
         .create_link_code(&principal, req.user_id.map(UserId), req.ttl_secs)
         .await
         .map_err(log_fail(actor, "create link code"))?;
     debug!("User [{actor}] successfully created a link code");
     Ok(Json(link.into()))
+}
+
+pub async fn link_codes<S: AppServices>(
+    State(state): State<S>,
+    AuthUser(principal): AuthUser,
+    Path(user_id): Path<String>,
+) -> ApiResult<Json<Vec<LinkCodeResponse>>> {
+    let actor = &principal.user.0;
+    let target = UserId(user_id);
+    deny_player(&principal)?;
+    require_admin_or_self(&principal, &target)?;
+    let codes = state
+        .list_link_codes(&target)
+        .await
+        .map_err(log_fail(actor, "list link codes"))?;
+    debug!(
+        "User [{actor}] successfully listed {} link codes for user [{}]",
+        codes.len(),
+        target.0
+    );
+    Ok(Json(
+        codes.into_iter().map(LinkCodeResponse::from).collect(),
+    ))
+}
+
+pub async fn revoke_link_code<S: AppServices>(
+    State(state): State<S>,
+    AuthUser(principal): AuthUser,
+    Path((user_id, code)): Path<(String, String)>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    let target = UserId(user_id);
+    deny_player(&principal)?;
+    require_admin_or_self(&principal, &target)?;
+    state
+        .revoke_link_code(&target, &code)
+        .await
+        .map_err(log_fail(actor, "revoke a link code"))?;
+    debug!(
+        "User [{actor}] successfully revoked a link code for user [{}]",
+        target.0
+    );
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn logout<S: AppServices>(

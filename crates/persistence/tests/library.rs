@@ -6,6 +6,7 @@ use domain::library::{
     UnmatchedFileId,
 };
 use domain::repository::LibraryRepository;
+use jiff::Timestamp;
 use persistence::server::SqliteLibraryRepo;
 use tempfile::TempDir;
 
@@ -48,6 +49,8 @@ async fn unmatched_round_trips_with_candidates_and_paginates() {
                     label: "Beta".into(),
                 },
             ],
+            created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         })
         .await
         .unwrap();

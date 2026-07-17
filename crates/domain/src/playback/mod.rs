@@ -6,6 +6,7 @@ mod title_state;
 mod user_subtitle_offset;
 mod watch_history;
 mod watch_target;
+mod watched_rollup;
 mod watchlist_item;
 
 pub use favorite::Favorite;
@@ -16,4 +17,5 @@ pub use title_state::TitleState;
 pub use user_subtitle_offset::UserSubtitleOffset;
 pub use watch_history::WatchHistory;
 pub use watch_target::WatchTarget;
+pub use watched_rollup::WatchedRollup;
 pub use watchlist_item::WatchlistItem;

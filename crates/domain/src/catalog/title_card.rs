@@ -1,7 +1,7 @@
-use crate::catalog::{Episode, Movie};
+use crate::catalog::{EpisodeCard, Movie};
 
 #[derive(Debug, Clone)]
 pub enum TitleCard {
     Movie(Movie),
-    Episode(Episode),
+    Episode(EpisodeCard),
 }

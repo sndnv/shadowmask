@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Watch</title>
+  </head>
+  <body>
+    <nav id="nav"></nav>
+    <p id="back"></p>
+    <div class="sm-player">
+      <video id="player" controls playsinline width="960"></video>
+      <pre id="diag" class="sm-diag" hidden></pre>
+    </div>
+    <div id="controls"></div>
+    <p id="status">Loading&hellip;</p>
+    <div id="details"></div>
+    <script src="../vendor/hls.min.js"></script>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      let session = null;
+      let hls = null;
+      let heartbeatTimer = null;
+      let ended = false;
+      let uid = null;
+      let versionId = null;
+      let versionDetail = null;
+      let diagTimer = null;
+      const controls = { height: null, burn: false, downmix: false };
+
+      if (sm.requireAuth()) start();
+
+      async function start() {
+        const status = document.getElementById("status");
+        versionId = sm.qs("version");
+        if (!versionId) {
+          status.textContent = "No version specified.";
+          return;
+        }
+        try {
+          const me = await sm.self();
+          uid = me.id;
+          const info = await sm.json("/api/v1/server/info").catch(() => ({ profile_version: 1 }));
+          const resume = await sm
+            .json("/api/v1/users/" + encodeURIComponent(uid) + "/progress/" + encodeURIComponent(versionId))
+            .catch(() => null);
+          const startPos = resume && resume.position_ms ? resume.position_ms : 0;
+          session = await sm.json("/api/v1/sessions", {
+            method: "POST",
+            body: JSON.stringify({
+              version_id: versionId,
+              start_position_ms: startPos,
+              capabilities: { platform: "generic", profile_version: info.profile_version || 1 },
+            }),
+          });
+          status.textContent = "Mode: " + session.mode;
+          await attach(session.manifest_url, session.mode, startPos);
+          startHeartbeat(session.heartbeat_interval_s || 10);
+          wirePlaybackProgress();
+          await buildControls();
+          window.addEventListener("pagehide", endSession);
+        } catch (err) {
+          status.textContent = "Could not start playback (" + err.message + ").";
+        }
+      }
+
+      function autostart(video) {
+        const started = video.play();
+        if (started && started.catch) {
+          started.catch(() => {
+            video.muted = true;
+            video.play().catch(() => {});
+          });
+        }
+      }
+
+      async function attach(url, mode, positionMs) {
+        const video = document.getElementById("player");
+        teardownHls();
+        if (mode === "direct") {
+          video.src = url;
+          seekOnReady(video, positionMs);
+          return;
+        }
+        if (window.Hls && window.Hls.isSupported()) {
+          hls = new window.Hls();
+          hls.loadSource(url);
+          hls.attachMedia(video);
+          hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
+            if (positionMs) video.currentTime = positionMs / 1000;
+            autostart(video);
+          });
+          return;
+        }
+        if (video.canPlayType("application/vnd.apple.mpegurl")) {
+          video.src = url;
+          seekOnReady(video, positionMs);
+          return;
+        }
+        document.getElementById("status").textContent =
+          "This browser needs clients/basic/vendor/hls.min.js for HLS playback, or native HLS support. Mode: " +
+          mode;
+      }
+
+      function seekOnReady(video, positionMs) {
+        const handler = () => {
+          if (positionMs) video.currentTime = positionMs / 1000;
+          autostart(video);
+          video.removeEventListener("loadedmetadata", handler);
+        };
+        video.addEventListener("loadedmetadata", handler);
+      }
+
+      function teardownHls() {
+        if (hls) {
+          hls.destroy();
+          hls = null;
+        }
+      }
+
+      function sendProgress(stateOverride) {
+        if (!session || ended) return;
+        const video = document.getElementById("player");
+        const state = stateOverride || (video.paused ? "paused" : "playing");
+        sm
+          .api("/api/v1/sessions/" + encodeURIComponent(session.session_id) + "/progress", {
+            method: "POST",
+            body: JSON.stringify({
+              position_ms: Math.floor(video.currentTime * 1000),
+              state,
+            }),
+          })
+          .catch(() => {});
+      }
+
+      function wirePlaybackProgress() {
+        const video = document.getElementById("player");
+        video.addEventListener("playing", () => sendProgress("playing"));
+        video.addEventListener("pause", () => sendProgress("paused"));
+        video.addEventListener("ended", () => sendProgress("playing"));
+      }
+
+      function startHeartbeat(intervalS) {
+        stopHeartbeat();
+        heartbeatTimer = setInterval(() => sendProgress(), Math.max(1, intervalS) * 1000);
+      }
+
+      function stopHeartbeat() {
+        if (heartbeatTimer) {
+          clearInterval(heartbeatTimer);
+          heartbeatTimer = null;
+        }
+      }
+
+      function stopDiag() {
+        if (diagTimer) {
+          clearInterval(diagTimer);
+          diagTimer = null;
+        }
+      }
+
+      function bufferedAhead(video) {
+        const ranges = video.buffered;
+        const at = video.currentTime;
+        for (let i = 0; i < ranges.length; i++) {
+          if (at >= ranges.start(i) - 0.5 && at <= ranges.end(i)) {
+            return Math.max(0, ranges.end(i) - at);
+          }
+        }
+        return 0;
+      }
+
+      function renderDiag() {
+        const box = document.getElementById("diag");
+        if (!box) return;
+        const video = document.getElementById("player");
+        const source = versionDetail && versionDetail.video && versionDetail.video[0];
+        const lines = [
+          "mode: " + (session ? session.mode : "-"),
+          source
+            ? "source: " + source.codec + " " + source.width + "x" + source.height + " @ " + source.frame_rate + "fps"
+            : "source: -",
+          "resolution: " + (video.videoWidth || 0) + "x" + (video.videoHeight || 0),
+          "buffer: " + bufferedAhead(video).toFixed(1) + "s",
+        ];
+        if (hls) {
+          lines.push(
+            "bandwidth: " +
+              (hls.bandwidthEstimate ? (hls.bandwidthEstimate / 1e6).toFixed(2) + " Mbps" : "n/a"),
+          );
+          const idx = hls.currentLevel;
+          const level = idx != null && idx >= 0 && hls.levels ? hls.levels[idx] : null;
+          lines.push(
+            "level: " +
+              (level ? level.height + "p " + Math.round(level.bitrate / 1000) + "kbps" : "auto") +
+              (hls.autoLevelEnabled ? " (auto)" : ""),
+          );
+        } else {
+          lines.push("bandwidth: n/a (native)");
+          lines.push("level: native");
+        }
+        if (video.getVideoPlaybackQuality) {
+          const q = video.getVideoPlaybackQuality();
+          lines.push("frames: " + q.droppedVideoFrames + " dropped / " + q.totalVideoFrames);
+        }
+        box.textContent = lines.join("\n");
+      }
+
+      function endSession() {
+        if (ended || !session) return;
+        ended = true;
+        stopHeartbeat();
+        stopDiag();
+        const t = sm.tokens();
+        const token = t && t.access_token;
+        fetch("/api/v1/sessions/" + encodeURIComponent(session.session_id), {
+          method: "DELETE",
+          headers: token ? { Authorization: "Bearer " + token } : {},
+          keepalive: true,
+        }).catch(() => {});
+      }
+
+      function sendUpdate(extra) {
+        return renegotiate(
+          "/update",
+          Object.assign(
+            {
+              target_height: controls.height,
+              force_burn: controls.burn,
+              downmix_stereo: controls.downmix,
+            },
+            extra || {},
+          ),
+        );
+      }
+
+      async function renegotiate(suffix, body, forcedPositionMs) {
+        if (!session || ended) return;
+        const video = document.getElementById("player");
+        const keepPos = forcedPositionMs != null ? forcedPositionMs : Math.floor(video.currentTime * 1000);
+        try {
+          const r = await sm.json(
+            "/api/v1/sessions/" + encodeURIComponent(session.session_id) + suffix,
+            { method: "POST", body: JSON.stringify(body) },
+          );
+          session.manifest_url = r.manifest_url;
+          session.mode = r.mode;
+          session.selected = r.selected;
+          document.getElementById("status").textContent = "Mode: " + r.mode;
+          await attach(r.manifest_url, r.mode, keepPos);
+        } catch (err) {
+          document.getElementById("status").textContent = "Renegotiation failed (" + err.message + ").";
+        }
+      }
+
+      function trackList(box, label, list, fmt) {
+        if (!list || !list.length) return;
+        box.appendChild(sm.el("h3", { text: label }));
+        box.appendChild(sm.el("ul", null, list.map((t) => sm.el("li", { text: fmt(t) }))));
+      }
+
+      async function renderBreadcrumb(v) {
+        const back = document.getElementById("back");
+        back.textContent = "";
+        if (!v || !v.title) return;
+        const ref = v.title;
+        const crumbs = [];
+        if (ref.type === "movie") {
+          crumbs.push({ label: "Movies", href: sm.url("catalog/movies.html") });
+          const m = await sm.json("/api/v1/movies/" + encodeURIComponent(ref.id)).catch(() => null);
+          crumbs.push({
+            label: m ? m.title + (m.year ? " (" + m.year + ")" : "") : "Movie",
+            href: sm.href.movie(ref.id),
+          });
+        } else {
+          crumbs.push({ label: "Series", href: sm.url("catalog/series.html") });
+          const ep = await sm
+            .json("/api/v1/series/-/seasons/-/episodes/" + encodeURIComponent(ref.id))
+            .catch(() => null);
+          if (ep) {
+            const season = await sm
+              .json("/api/v1/series/-/seasons/" + encodeURIComponent(ep.season_id))
+              .catch(() => null);
+            const series = season
+              ? await sm.json("/api/v1/series/" + encodeURIComponent(season.series_id)).catch(() => null)
+              : null;
+            if (series) crumbs.push({ label: series.title, href: sm.href.series(season.series_id) });
+            if (season) {
+              crumbs.push({
+                label: season.title || "Season " + season.number,
+                href: sm.href.season(season.id, season.series_id),
+              });
+            }
+            crumbs.push({
+              label: ep.title || "Episode " + ep.number,
+              href: sm.href.episode(ep.id, ep.season_id, season ? season.series_id : null),
+            });
+          }
+        }
+        crumbs.push({ label: "Watch" });
+        back.appendChild(sm.breadcrumbs(crumbs));
+      }
+
+      function renderDetails(v) {
+        const box = document.getElementById("details");
+        box.textContent = "";
+        if (!v) return;
+        const facts = [
+          v.quality.toUpperCase(),
+          v.container,
+          v.edition || null,
+          Math.round(v.size_bytes / 1048576) + " MB",
+          Math.round(v.duration_ms / 60000) + " min",
+        ].filter(Boolean);
+        box.appendChild(sm.el("h2", { text: "Version details" }));
+        box.appendChild(sm.el("p", { text: facts.join(" · ") }));
+        trackList(box, "Video", v.video, (t) =>
+          t.codec + " " + t.width + "x" + t.height + " " + t.bit_depth + "-bit" +
+          (t.hdr ? " " + t.hdr : "") + " " + t.frame_rate + "fps",
+        );
+        trackList(box, "Audio", v.audio, (t) =>
+          t.codec + " " + t.channels + "ch" + (t.language ? " " + t.language : ""),
+        );
+        trackList(box, "Subtitles", v.subtitles, (t) =>
+          t.format + (t.language ? " " + t.language : "") +
+          (t.forced ? " forced" : "") + (t.default ? " default" : ""),
+        );
+        if (v.chapters && v.chapters.length) {
+          box.appendChild(sm.el("h3", { text: "Chapters" }));
+          box.appendChild(
+            sm.el(
+              "ol",
+              null,
+              v.chapters.map((c) =>
+                sm.el("li", { text: c.title + " (" + Math.round(c.start_ms / 1000) + "s)" }),
+              ),
+            ),
+          );
+        }
+        const markers = ((v.markers && v.markers.intro) || [])
+          .map((m) => "Intro " + Math.round(m.start_ms / 1000) + " to " + Math.round(m.end_ms / 1000) + "s")
+          .concat(
+            ((v.markers && v.markers.credits) || []).map(
+              (m) => "Credits " + Math.round(m.start_ms / 1000) + " to " + Math.round(m.end_ms / 1000) + "s",
+            ),
+          );
+        if (markers.length) {
+          box.appendChild(sm.el("h3", { text: "Markers" }));
+          box.appendChild(sm.el("ul", null, markers.map((m) => sm.el("li", { text: m }))));
+        }
+      }
+
+      async function buildControls() {
+        const box = document.getElementById("controls");
+        box.textContent = "";
+        const version = await sm
+          .json("/api/v1/versions/" + encodeURIComponent(versionId))
+          .catch(() => null);
+        versionDetail = version;
+        renderDetails(version);
+        renderBreadcrumb(version);
+        const row1 = sm.el("div");
+        const row2 = sm.el("div");
+        box.appendChild(row1);
+        box.appendChild(row2);
+        {
+          const rungs = [
+            ["Original", ""],
+            ["1080p", "1080"],
+            ["720p", "720"],
+            ["480p", "480"],
+            ["320p", "320"],
+          ];
+          const select = sm.el(
+            "select",
+            null,
+            rungs.map(([label, value]) => sm.el("option", { value }, label)),
+          );
+          select.value = controls.height == null ? "" : String(controls.height);
+          select.addEventListener("change", () => {
+            controls.height = select.value === "" ? null : parseInt(select.value, 10);
+            sendUpdate({});
+          });
+          row1.appendChild(sm.el("label", null, ["Video Quality ", select]));
+        }
+        {
+          const audio = (version && version.audio) || [];
+          const options = audio.length
+            ? audio.map((a) =>
+                sm.el(
+                  "option",
+                  { value: String(a.index) },
+                  "Audio " + a.index + " " + a.codec + (a.language ? " " + a.language : ""),
+                ),
+              )
+            : [sm.el("option", { value: "" }, "No audio")];
+          const select = sm.el("select", null, options);
+          if (audio.length < 2) select.disabled = true;
+          if (session.selected && session.selected.audio_track != null) {
+            select.value = String(session.selected.audio_track);
+          }
+          select.addEventListener("change", () =>
+            sendUpdate({ audio_track: parseInt(select.value, 10) }),
+          );
+          row1.appendChild(sm.el("label", null, ["Audio Track ", select]));
+        }
+        {
+          const embedded = (version && version.subtitles) || [];
+          const files = (version && version.subtitle_files) || [];
+          const options = [sm.el("option", { value: "" }, "No subtitles")];
+          embedded.forEach((s) => {
+            options.push(
+              sm.el(
+                "option",
+                { value: "embedded:" + s.index },
+                "Sub " + s.index + " " + s.format + (s.language ? " " + s.language : ""),
+              ),
+            );
+          });
+          files.forEach((f) => {
+            options.push(
+              sm.el(
+                "option",
+                { value: "file:" + f.id },
+                (f.language || "und") + " " + f.format + " (" + f.source + ")",
+              ),
+            );
+          });
+          const select = sm.el("select", null, options);
+          if (!embedded.length && !files.length) select.disabled = true;
+          const selected = session.selected && session.selected.subtitle_track;
+          if (selected && selected.type === "embedded") {
+            select.value = "embedded:" + selected.index;
+          } else if (selected && selected.type === "file") {
+            select.value = "file:" + selected.id;
+          }
+          const offsetInput = sm.el("input", {
+            type: "number",
+            step: "100",
+            value: "0",
+            class: "sm-offset",
+          });
+          offsetInput.disabled = !embedded.length && !files.length;
+          const trackOf = () => {
+            const value = select.value;
+            if (value === "") return null;
+            const sep = value.indexOf(":");
+            const kind = value.slice(0, sep);
+            const key = value.slice(sep + 1);
+            return kind === "embedded"
+              ? { type: "embedded", index: parseInt(key, 10) }
+              : { type: "file", id: key };
+          };
+          select.addEventListener("change", () => {
+            const track = trackOf();
+            if (!track) {
+              sendUpdate({ subtitle: { action: "disable" } });
+            } else {
+              sendUpdate({ subtitle: { action: "set", track: track, offset_ms: null } });
+            }
+          });
+          offsetInput.addEventListener("change", () => {
+            const track = trackOf();
+            if (!track) return;
+            sendUpdate({
+              subtitle: {
+                action: "set",
+                track: track,
+                offset_ms: Math.round(parseFloat(offsetInput.value) || 0),
+              },
+            });
+          });
+          row2.appendChild(sm.el("label", null, ["Subtitles ", select]));
+          row2.appendChild(sm.el("label", null, ["Offset ", offsetInput]));
+          const burn = sm.el("input", { type: "checkbox" });
+          burn.checked = controls.burn;
+          burn.addEventListener("change", () => {
+            controls.burn = burn.checked;
+            sendUpdate({});
+          });
+          row2.appendChild(sm.el("label", null, ["Burn in ", burn]));
+        }
+        {
+          const downmix = sm.el("input", { type: "checkbox" });
+          downmix.checked = controls.downmix;
+          downmix.addEventListener("change", () => {
+            controls.downmix = downmix.checked;
+            sendUpdate({});
+          });
+          row1.appendChild(sm.el("label", null, ["Downmix to stereo ", downmix]));
+          const diag = sm.el("input", { type: "checkbox" });
+          diag.addEventListener("change", () => {
+            const panel = document.getElementById("diag");
+            if (diag.checked) {
+              panel.hidden = false;
+              renderDiag();
+              stopDiag();
+              diagTimer = setInterval(renderDiag, 1000);
+            } else {
+              panel.hidden = true;
+              stopDiag();
+            }
+          });
+          row1.appendChild(sm.el("label", null, ["Diagnostics ", diag]));
+        }
+      }
+    </script>
+  </body>
+</html>

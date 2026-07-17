@@ -11,7 +11,8 @@ pub mod worker;
 pub use error::JobError;
 pub use handlers::{
     ArtworkJobHandler, CompositeJobHandler, IngestJobHandler, LibraryScanHandler,
-    MetadataJobHandler, SearchReindexHandler, TrickplayJobHandler,
+    MetadataJobHandler, RelinkJobHandler, SearchReindexHandler, SubtitlesJobHandler,
+    TrickplayJobHandler,
 };
 pub use job_handler::JobHandler;
 pub use queue::JobQueue;

@@ -11,5 +11,6 @@ pub struct Device {
     pub user: UserId,
     pub name: String,
     pub platform: String,
+    pub created_at: Timestamp,
     pub last_seen: Option<Timestamp>,
 }

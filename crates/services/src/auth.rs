@@ -21,6 +21,30 @@ const TYP_ACCESS: &str = "access";
 const TYP_REFRESH: &str = "refresh";
 const API_TOKEN_PREFIX: &str = "smk_";
 const LINK_CODE_TTL_SECS: i64 = 900;
+const LINK_CODE_ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const LINK_CODE_LEN: usize = 8;
+
+fn generate_link_code() -> String {
+    let mut value = Uuid::new_v4().as_u128();
+    let mut code = String::with_capacity(LINK_CODE_LEN);
+    for _ in 0..LINK_CODE_LEN {
+        code.push(LINK_CODE_ALPHABET[(value % 32) as usize] as char);
+        value /= 32;
+    }
+    code
+}
+
+fn normalize_link_code(input: &str) -> String {
+    input
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| match c.to_ascii_uppercase() {
+            'O' => '0',
+            'I' | 'L' => '1',
+            other => other,
+        })
+        .collect()
+}
 
 pub struct DefaultAuthService<U, T> {
     users: U,
@@ -224,7 +248,7 @@ where
         let now = Timestamp::now();
         let link = self
             .tokens
-            .redeem_link_code(code, now)
+            .redeem_link_code(&normalize_link_code(code), now)
             .await?
             .ok_or(AuthError::UnknownLinkCode)?;
         let device = Device {
@@ -232,6 +256,7 @@ where
             user: link.user.clone(),
             name: device.name,
             platform: device.platform,
+            created_at: now,
             last_seen: Some(now),
         };
         self.tokens.upsert_device(device.clone()).await?;
@@ -243,6 +268,7 @@ where
                 device: device.id,
                 token_hash: hash_api_token(&token),
                 created_at: now,
+                last_used_at: None,
             })
             .await?;
         Ok(IssuedToken {
@@ -258,6 +284,9 @@ where
                 .find_api_token_by_hash(&hash_api_token(access_token))
                 .await?
                 .ok_or(AuthError::InvalidToken)?;
+            self.tokens
+                .touch_api_token(&token.id, Timestamp::now())
+                .await?;
             return Ok(Principal {
                 user: token.user,
                 role: Role::Player,
@@ -279,13 +308,24 @@ where
         let now = Timestamp::now().as_second();
         let ttl = ttl_secs.unwrap_or(LINK_CODE_TTL_SECS);
         let link = PendingLink {
-            code: Uuid::new_v4().simple().to_string(),
+            code: generate_link_code(),
             user: user.unwrap_or_else(|| caller.user.clone()),
             role: Role::Player,
             expires_at: Timestamp::from_second(now + ttl).map_err(backend_error)?,
         };
         self.tokens.store_link_code(link.clone()).await?;
         Ok(link)
+    }
+
+    async fn list_link_codes(&self, user: &UserId) -> Result<Vec<PendingLink>, AuthError> {
+        Ok(self.tokens.list_link_codes(user, Timestamp::now()).await?)
+    }
+
+    async fn revoke_link_code(&self, user: &UserId, code: &str) -> Result<(), AuthError> {
+        self.tokens
+            .delete_link_code(&normalize_link_code(code), user)
+            .await?;
+        Ok(())
     }
 
     async fn logout(&self, refresh_token: &str) -> Result<(), AuthError> {
@@ -368,6 +408,7 @@ mod tests {
             concurrent_stream_limit: None,
             bitrate_cap: None,
             created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
         }
     }
 
@@ -475,14 +516,14 @@ mod tests {
         let future = Timestamp::from_second(4_000_000_000).unwrap();
         svc.tokens
             .store_link_code(PendingLink {
-                code: "CODE".into(),
+                code: "7G2K9QMP".into(),
                 user: UserId("u1".into()),
                 role: Role::Player,
                 expires_at: future,
             })
             .await
             .unwrap();
-        let issued = svc.redeem_link_code("CODE", device()).await.unwrap();
+        let issued = svc.redeem_link_code("7G2K9QMP", device()).await.unwrap();
         assert!(issued.token.starts_with("smk_"));
         assert!(issued.expires_at.is_none());
 
@@ -550,6 +591,65 @@ mod tests {
                 .await
                 .unwrap_err(),
             AuthError::Repository(_)
+        ));
+    }
+
+    #[test]
+    fn generated_link_codes_are_short_and_unambiguous() {
+        for _ in 0..64 {
+            let code = generate_link_code();
+            assert_eq!(code.len(), LINK_CODE_LEN);
+            assert!(code.bytes().all(|b| LINK_CODE_ALPHABET.contains(&b)));
+            assert!(!code.contains(['I', 'L', 'O', 'U']));
+        }
+    }
+
+    #[test]
+    fn normalize_maps_ambiguous_characters_and_strips_separators() {
+        assert_eq!(normalize_link_code("7g2k-9qmp"), "7G2K9QMP");
+        assert_eq!(normalize_link_code("oil 7"), "0117");
+        assert_eq!(normalize_link_code(" a-b_c "), "ABC");
+    }
+
+    #[tokio::test]
+    async fn redeem_tolerates_separators_and_case() {
+        let svc = seeded().await;
+        let caller = Principal {
+            user: UserId("u1".into()),
+            role: Role::Admin,
+        };
+        let link = svc.create_link_code(&caller, None, None).await.unwrap();
+        let typed = format!("{}-{}", &link.code[..4], link.code[4..].to_lowercase());
+        let issued = svc.redeem_link_code(&typed, device()).await.unwrap();
+        assert!(issued.token.starts_with("smk_"));
+    }
+
+    #[tokio::test]
+    async fn list_and_revoke_link_codes() {
+        let svc = seeded().await;
+        let caller = Principal {
+            user: UserId("u1".into()),
+            role: Role::Admin,
+        };
+        let a = svc.create_link_code(&caller, None, None).await.unwrap();
+        let b = svc.create_link_code(&caller, None, None).await.unwrap();
+        assert_eq!(
+            svc.list_link_codes(&UserId("u1".into()))
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+
+        svc.revoke_link_code(&UserId("u1".into()), &a.code)
+            .await
+            .unwrap();
+        let after = svc.list_link_codes(&UserId("u1".into())).await.unwrap();
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].code, b.code);
+        assert!(matches!(
+            svc.redeem_link_code(&a.code, device()).await.unwrap_err(),
+            AuthError::UnknownLinkCode
         ));
     }
 
@@ -646,6 +746,7 @@ mod tests {
             user: UserId(user.into()),
             name: "Roku".into(),
             platform: "roku".into(),
+            created_at: Timestamp::UNIX_EPOCH,
             last_seen: None,
         }
     }
@@ -657,6 +758,7 @@ mod tests {
             device: DeviceId(device.into()),
             token_hash: hash.into(),
             created_at: Timestamp::UNIX_EPOCH,
+            last_used_at: None,
         }
     }
 
@@ -782,14 +884,14 @@ mod tests {
         let future = Timestamp::from_second(4_000_000_000).unwrap();
         svc.tokens
             .store_link_code(PendingLink {
-                code: "CODE".into(),
+                code: "7G2K9QMP".into(),
                 user: UserId("u1".into()),
                 role: Role::Player,
                 expires_at: future,
             })
             .await
             .unwrap();
-        let issued = svc.redeem_link_code("CODE", device()).await.unwrap();
+        let issued = svc.redeem_link_code("7G2K9QMP", device()).await.unwrap();
         assert!(svc.authenticate(&issued.token).await.is_ok());
 
         let tokens = svc.list_api_tokens(&UserId("u1".into())).await.unwrap();

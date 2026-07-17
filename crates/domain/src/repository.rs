@@ -15,7 +15,9 @@ use crate::library::{
     DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, ResolutionStatus, ScanState,
     UnmatchedFile, UnmatchedFileId,
 };
-use crate::media::{AudioTrack, Chapter, EmbeddedSubtitleTrack, TrickplayAsset, VideoTrack};
+use crate::media::{
+    AudioTrack, Chapter, EmbeddedSubtitleTrack, SubtitleFile, TrickplayAsset, VideoTrack,
+};
 use crate::metadata::{Credit, Genre, GenreId, Person, PersonId, TitleEnrichment};
 use crate::playback::{
     Favorite, PlaybackProgress, SubtitleTrackRef, UserSubtitleOffset, WatchHistory, WatchlistItem,
@@ -135,6 +137,11 @@ pub trait CatalogRepository {
         &self,
         version: &VersionId,
         assets: &[TrickplayAsset],
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn set_subtitle_files(
+        &self,
+        version: &VersionId,
+        files: &[SubtitleFile],
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     fn upsert_person(
         &self,
@@ -414,6 +421,16 @@ pub trait AuthTokenRepository {
         code: &str,
         now: Timestamp,
     ) -> impl Future<Output = Result<Option<PendingLink>, RepositoryError>> + Send;
+    fn list_link_codes(
+        &self,
+        user: &UserId,
+        now: Timestamp,
+    ) -> impl Future<Output = Result<Vec<PendingLink>, RepositoryError>> + Send;
+    fn delete_link_code(
+        &self,
+        code: &str,
+        user: &UserId,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     fn upsert_device(
         &self,
         device: Device,
@@ -430,6 +447,11 @@ pub trait AuthTokenRepository {
         &self,
         hash: &str,
     ) -> impl Future<Output = Result<Option<ApiToken>, RepositoryError>> + Send;
+    fn touch_api_token(
+        &self,
+        id: &ApiTokenId,
+        now: Timestamp,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     fn list_devices(
         &self,
         user: &UserId,

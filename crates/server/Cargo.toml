@@ -15,6 +15,7 @@ services.workspace = true
 jobs.workspace = true
 api.workspace = true
 axum.workspace = true
+axum-server.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
 jiff.workspace = true
 serde = { workspace = true, features = ["derive"] }

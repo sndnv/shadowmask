@@ -3,12 +3,12 @@ use std::sync::LazyLock;
 use regex::{Captures, Regex};
 
 static TIMESTAMP: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(\d{2}):(\d{2}):(\d{2})([.,])(\d{3})").unwrap());
+    LazyLock::new(|| Regex::new(r"(?:(\d+):)?(\d{2}):(\d{2})([.,])(\d{3})").unwrap());
 
 pub fn shift(content: &str, offset_ms: i64) -> String {
     TIMESTAMP
         .replace_all(content, |caps: &Captures| {
-            let hours: i64 = caps[1].parse().unwrap();
+            let hours: i64 = caps.get(1).map_or(0, |m| m.as_str().parse().unwrap());
             let minutes: i64 = caps[2].parse().unwrap();
             let seconds: i64 = caps[3].parse().unwrap();
             let separator = &caps[4];
@@ -47,6 +47,13 @@ mod tests {
     }
 
     #[test]
+    fn shifts_vtt_short_form_without_hours() {
+        let vtt = "WEBVTT\n\n00:01.000 --> 00:02.000\nHi\n";
+        let out = shift(vtt, 1_000);
+        assert!(out.contains("00:00:02.000 --> 00:00:03.000"));
+    }
+
+    #[test]
     fn negative_offset_clamps_at_zero() {
         let srt = "00:00:01,000 --> 00:00:02,000\n";
         let out = shift(srt, -5_000);
@@ -77,7 +84,7 @@ mod prop_tests {
 
     fn parse_ms(ts: &str) -> i64 {
         let caps = TIMESTAMP.captures(ts).unwrap();
-        let hours: i64 = caps[1].parse().unwrap();
+        let hours: i64 = caps.get(1).map_or(0, |m| m.as_str().parse().unwrap());
         let minutes: i64 = caps[2].parse().unwrap();
         let seconds: i64 = caps[3].parse().unwrap();
         let millis: i64 = caps[5].parse().unwrap();

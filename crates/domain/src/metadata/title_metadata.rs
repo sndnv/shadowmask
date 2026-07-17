@@ -1,4 +1,4 @@
-use crate::metadata::{Artwork, ContentRating, CreditInfo, ExternalId, Rating};
+use crate::metadata::{Artwork, CollectionMeta, ContentRating, CreditInfo, ExternalId, Rating};
 
 #[derive(Debug, Clone, Default)]
 pub struct TitleMetadata {
@@ -13,4 +13,5 @@ pub struct TitleMetadata {
     pub studios: Vec<String>,
     pub artwork: Vec<Artwork>,
     pub external_ids: Vec<ExternalId>,
+    pub collection: Option<CollectionMeta>,
 }

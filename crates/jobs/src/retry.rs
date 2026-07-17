@@ -43,6 +43,7 @@ pub fn apply_outcome(
             job.status = JobStatus::Succeeded;
             job.progress = 1.0;
             job.last_error = None;
+            job.finished_at = Some(now);
         }
         Err(err) => {
             let retryable = matches!(err, JobError::Retryable(_));
@@ -54,6 +55,7 @@ pub fn apply_outcome(
                     .unwrap_or(now);
             } else {
                 job.status = JobStatus::Failed;
+                job.finished_at = Some(now);
             }
         }
     }
@@ -87,6 +89,8 @@ mod tests {
             last_error: None,
             created_at: now,
             updated_at: now,
+            started_at: None,
+            finished_at: None,
         }
     }
 

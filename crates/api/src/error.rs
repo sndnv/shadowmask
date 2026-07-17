@@ -4,7 +4,7 @@ use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
 use domain::error::{
-    AuthError, CatalogError, DiscoveryError, LibraryError, SessionError, StreamError,
+    AuthError, CatalogError, DiscoveryError, JobLogError, LibraryError, SessionError, StreamError,
     StreamTokenError, UserError,
 };
 use domain::session::PlaybackSession;
@@ -40,6 +40,10 @@ impl ApiError {
 
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "bad_request", message)
+    }
+
+    pub fn not_found(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::NOT_FOUND, "not_found", message)
     }
 
     fn internal() -> Self {
@@ -168,6 +172,15 @@ impl From<DiscoveryError> for ApiError {
     fn from(err: DiscoveryError) -> Self {
         match err {
             DiscoveryError::Repository(_) => ApiError::internal(),
+        }
+    }
+}
+
+impl From<JobLogError> for ApiError {
+    fn from(err: JobLogError) -> Self {
+        match err {
+            JobLogError::InvalidId => ApiError::bad_request("invalid job id"),
+            JobLogError::Backend(_) => ApiError::internal(),
         }
     }
 }
@@ -371,6 +384,16 @@ mod tests {
         let invalid = ApiError::from(StreamError::Invalid);
         assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
         assert_eq!(invalid.code, "bad_stream_request");
+    }
+
+    #[test]
+    fn job_log_error_mappings() {
+        let invalid = ApiError::from(JobLogError::InvalidId);
+        assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
+        assert_eq!(invalid.code, "bad_request");
+        let backend = ApiError::from(JobLogError::Backend("disk".into()));
+        assert_eq!(backend.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(backend.code, "internal");
     }
 
     #[test]

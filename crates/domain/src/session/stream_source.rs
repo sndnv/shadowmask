@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::path::PathBuf;
 
 use crate::error::StreamError;
@@ -10,6 +11,6 @@ pub trait StreamSource {
         claims: &StreamClaims,
         variant: &str,
         file: &str,
-    ) -> Result<PathBuf, StreamError>;
+    ) -> impl Future<Output = Result<PathBuf, StreamError>> + Send;
     fn direct_file(&self, claims: &StreamClaims) -> Result<PathBuf, StreamError>;
 }

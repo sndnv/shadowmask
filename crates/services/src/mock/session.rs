@@ -246,6 +246,9 @@ mod tests {
             },
             audio_track: Some(0),
             subtitle: None,
+            target_height: None,
+            force_burn: false,
+            downmix_stereo: false,
         }
     }
 
@@ -342,6 +345,9 @@ mod tests {
             SessionUpdate {
                 audio_track: None,
                 subtitle: SubtitleChange::Keep,
+                target_height: None,
+                force_burn: false,
+                downmix_stereo: false,
             },
         )
         .await
@@ -365,6 +371,9 @@ mod tests {
                     track: SubtitleTrackRef::Embedded(1),
                     offset_ms: None,
                 }),
+                target_height: None,
+                force_burn: false,
+                downmix_stereo: false,
             },
         )
         .await
@@ -386,6 +395,9 @@ mod tests {
             SessionUpdate {
                 audio_track: None,
                 subtitle: SubtitleChange::Disable,
+                target_height: None,
+                force_burn: false,
+                downmix_stereo: false,
             },
         )
         .await
@@ -407,6 +419,9 @@ mod tests {
                 SessionUpdate {
                     audio_track: None,
                     subtitle: SubtitleChange::Keep,
+                    target_height: None,
+                    force_burn: false,
+                    downmix_stereo: false,
                 },
             )
             .await

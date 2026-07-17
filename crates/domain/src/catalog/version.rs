@@ -1,3 +1,5 @@
+use jiff::Timestamp;
+
 use crate::catalog::TitleId;
 use crate::common::Quality;
 use crate::library::LibraryId;
@@ -17,4 +19,6 @@ pub struct Version {
     pub duration_ms: u64,
     pub edition: Option<String>,
     pub available: bool,
+    pub added_at: Timestamp,
+    pub updated_at: Timestamp,
 }

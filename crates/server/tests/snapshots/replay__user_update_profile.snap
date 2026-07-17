@@ -19,6 +19,7 @@ expression: value
       "fr"
     ],
     "role": "user",
+    "updated_at": "[updated_at]",
     "username": "minted"
   },
   "status": 200

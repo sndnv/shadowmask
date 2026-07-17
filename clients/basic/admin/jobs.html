@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Admin jobs</title>
+  </head>
+  <body>
+    <h1>Jobs</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs"><a href="index.html">Admin</a> / <span id="jobs-crumb">Jobs</span></p>
+    <p><button type="button" id="refresh">Refresh</button></p>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      if (sm.requireAuth()) guard();
+
+      async function guard() {
+        const main = document.getElementById("main");
+        try {
+          const me = await sm.self();
+          if (me.role !== "admin") {
+            main.textContent = "Not Authorized.";
+            return;
+          }
+          document.getElementById("refresh").addEventListener("click", load);
+          await load();
+        } catch (err) {
+          main.textContent = "Could not load.";
+        }
+      }
+
+      async function load() {
+        const main = document.getElementById("main");
+        main.textContent = "Loading...";
+        try {
+          const jobs = await sm.json("/api/v1/admin/jobs");
+          document.getElementById("jobs-crumb").textContent = "Jobs (" + jobs.length + ")";
+          main.textContent = "";
+          if (!jobs.length) {
+            main.appendChild(sm.el("p", { text: "No jobs." }));
+            return;
+          }
+          const rows = jobs.map((j) => [
+            sm.el("a", { href: "job.html?id=" + encodeURIComponent(j.id) }, j.id),
+            j.kind,
+            j.status,
+            String(j.priority),
+            Math.round(j.progress * 100) + "%",
+            String(j.attempts),
+            sm.time(j.started_at),
+            sm.time(j.finished_at),
+            j.last_error || "",
+          ]);
+          main.appendChild(
+            sm.table(
+              ["Job", "Kind", "Status", "Priority", "Progress", "Attempts", "Started", "Finished", "Error"],
+              rows,
+            ),
+          );
+        } catch (err) {
+          main.textContent = "Could not load jobs.";
+        }
+      }
+    </script>
+  </body>
+</html>

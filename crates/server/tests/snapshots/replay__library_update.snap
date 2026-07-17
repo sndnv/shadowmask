@@ -4,6 +4,7 @@ expression: value
 ---
 {
   "body": {
+    "created_at": "[created_at]",
     "id": "[id]",
     "kind": "tv",
     "metadata_sources": [],
@@ -12,6 +13,7 @@ expression: value
       "/media/renamed"
     ],
     "scan_schedule": "0 0 * * *",
+    "updated_at": "[updated_at]",
     "watcher": "scheduled"
   },
   "status": 200
