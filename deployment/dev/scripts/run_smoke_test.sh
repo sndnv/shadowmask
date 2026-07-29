@@ -13,11 +13,13 @@ Bring the stack up first, then run this script:
   deployment/dev/scripts/run_smoke_test.sh
 
 Environment overrides:
-  BASE_URL       server base url (default http://localhost:\${SHADOWMASK_PORT:-8080})
-  ADMIN_USER     bootstrap admin username (default admin)
-  ADMIN_PASS     bootstrap admin password (default passw0rd)
-  COMPOSE_FILE   compose file (default deployment/dev/docker-compose.yml)
-  SERVICE        compose service name (default shadowmask)"
+  The transcribe -> translate section runs against the enrichment image only. On the
+  base image it is skipped; on the enrichment image the enrichment features MUST be
+  enabled (with models present) or the test fails. It uses the Elephants Dream speech
+  fixture (CC BY 3.0) from the clip cache; populate the cache first with
+  scripts/generate_media.sh --real.
+  SHADOWMASK_SMOKE_TEST_SKIP_ENRICHMENT_TESTS  set true to skip enrichment (default false)
+  SHADOWMASK_CLIP_CACHE        clip cache dir (default deployment/dev/media/.cache)"
 USAGE="Usage: $0 [-h|--help]"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -35,15 +37,18 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 DEV_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 MEDIA_DIR="$DEV_DIR/media"
+source "$SCRIPT_DIR/clips.sh"
+CLIP_CACHE_DIR=$(clip_cache_dir "$DEV_DIR")
 
-BASE_URL="${BASE_URL:-http://localhost:${SHADOWMASK_PORT:-8080}}"
+BASE_URL="http://localhost:${SHADOWMASK_PORT:-8080}"
 API="$BASE_URL/api/v1"
-ADMIN_USER="${ADMIN_USER:-admin}"
-ADMIN_PASS="${ADMIN_PASS:-passw0rd}"
-SMOKE_USER="${SMOKE_USER:-smoke_user}"
-SMOKE_PASS="${SMOKE_PASS:-smoke-pass-123}"
-COMPOSE_FILE="${COMPOSE_FILE:-$DEV_DIR/docker-compose.yml}"
-SERVICE="${SERVICE:-shadowmask}"
+ADMIN_USER="admin"
+ADMIN_USER_PASS="passw0rd"
+TEST_USER="test-user"
+TEST_USER_PASS="test-pass-123"
+SKIP_ENRICHMENT="${SHADOWMASK_SMOKE_TEST_SKIP_ENRICHMENT_TESTS:-false}"
+COMPOSE_FILE="$DEV_DIR/docker-compose.yml"
+SERVICE="shadowmask"
 SNAPSHOT="/data/snapshot.tar"
 START_TS=$(date +%s)
 SECTION_N=0
@@ -61,6 +66,7 @@ log() { printf '%s %s\n' "$(ts)" "$*" >&2; }
 ok() { printf '%s       %sok:%s %s\n' "$(ts)" "$GREEN" "$C0" "$*" >&2; }
 warn() { printf '%s     %swarn:%s %s\n' "$(ts)" "$YELLOW" "$C0" "$*" >&2; }
 die() { printf '%s     %sFAIL: %s%s\n' "$(ts)" "$RED$BOLD" "$*" "$C0" >&2; exit 1; }
+skip() { printf '%s     %s>>> SKIP: %s <<<%s\n' "$(ts)" "$YELLOW$BOLD" "$*" "$C0" >&2; }
 
 section() {
     SECTION_N=$((SECTION_N + 1))
@@ -145,6 +151,62 @@ version_unavailable() {
     [[ "$(jq -r '.available' <<<"$b" 2>/dev/null)" == false ]]
 }
 
+has_capability() { jq -e --arg c "$1" 'any(.capabilities[]?; .name==$c and .enabled)' <<<"$CAPS_JSON" >/dev/null 2>&1; }
+capability_available() { jq -e --arg c "$1" 'any(.capabilities[]?; .name==$c and .available)' <<<"$CAPS_JSON" >/dev/null 2>&1; }
+
+ts_to_ms() {
+    local t="${1//,/.}" h m s ms
+    IFS=':.' read -r h m s ms <<<"$t"
+    printf '%d' $((10#$h * 3600000 + 10#$m * 60000 + 10#$s * 1000 + 10#$ms))
+}
+
+offset_applied() {
+    local url="$1" want="$2" body ns om
+    body=$(curl -sS "$url") || return 1
+    grep -q ' --> ' <<<"$body" || return 1
+    ns=$(grep -m1 ' --> ' <<<"$body" | sed -E 's/ *--> .*//' | tr -d '[:space:]')
+    om=$(grep -m1 -oE 'ORIG=[0-9]+' <<<"$body" | cut -d= -f2)
+    [[ -n "$ns" && -n "$om" ]] || return 1
+    (( $(ts_to_ms "$ns") == om + want ))
+}
+
+subtitle_of_source() {
+    local b; b=$(_body GET "$API/versions/$1" "$3") || return 1
+    jq -e --arg s "$2" 'any(.subtitle_files[]?; .source==$s)' <<<"$b" >/dev/null 2>&1
+}
+
+subtitle_id_of_source() {
+    local b; b=$(_body GET "$API/versions/$1" "$3") || return 1
+    jq -r --arg s "$2" 'first(.subtitle_files[]? | select(.source==$s) | .id) // empty' <<<"$b"
+}
+
+subtitle_of_lang_source() {
+    local b; b=$(_body GET "$API/versions/$1" "$4") || return 1
+    jq -e --arg l "$2" --arg s "$3" 'any(.subtitle_files[]?; .language==$l and .source==$s)' \
+        <<<"$b" >/dev/null 2>&1
+}
+
+subtitle_id_of_lang_source() {
+    local b; b=$(_body GET "$API/versions/$1" "$4") || return 1
+    jq -r --arg l "$2" --arg s "$3" \
+        'first(.subtitle_files[]? | select(.language==$l and .source==$s) | .id) // empty' <<<"$b"
+}
+
+assert_subtitle_serves() {
+    local ver="$1" sub="$2" token="$3" ss sid upd man base
+    ss=$(call_ok POST "$API/sessions" "$token" \
+        "$(jq -nc --arg v "$ver" '{version_id:$v,capabilities:{platform:"generic",profile_version:1}}')" 201 "start session for [$sub]")
+    sid=$(jq -r '.session_id' <<<"$ss")
+    upd=$(call_ok POST "$API/sessions/$sid/update" "$token" \
+        "$(jq -nc --arg id "$sub" '{audio_track:null,subtitle:{action:"set",track:{type:"file",id:$id},offset_ms:null}}')" 200 "select subtitle [$sub]")
+    man=$(jq -r '.manifest_url' <<<"$upd")
+    base="${man%/master.m3u8}"
+    poll_until "vtt for [$sub] ready" 120 http_get_ok "$BASE_URL$base/subs/subs.vtt"
+    grep -q 'WEBVTT' <<<"$(curl -sS "$BASE_URL$base/subs/subs.vtt")" || die "subtitle [$sub] not served as WEBVTT"
+    expect_code 204 DELETE "$API/sessions/$sid" "$token"
+    ok "subtitle [$sub] serves as valid WEBVTT"
+}
+
 trigger_scan() {
     local code; code=$(_code POST "$API/libraries/$1/scan" "$2" "")
     case "$code" in
@@ -166,12 +228,38 @@ gen_fixture() {
         -c:a aac -ac 2 -shortest "$1"
 }
 
+write_offset_srt() {
+    cat >"$1" <<'SRT'
+1
+00:00:01,000 --> 00:00:03,000
+ORIG=1000
+
+2
+00:00:04,000 --> 00:00:06,000
+ORIG=4000
+
+3
+00:00:07,000 --> 00:00:09,000
+ORIG=7000
+SRT
+}
+
+place_speech_clip() {
+    local dest="$MEDIA_DIR/movies/Elephants Dream (2006).mp4"
+    local cached="$CLIP_CACHE_DIR/elephants_dream_clip.mp4"
+    [[ -s "$cached" ]] || die "the Elephants Dream speech fixture is not cached at [$cached]; populate the cache first with 'scripts/generate_media.sh --real', or set SHADOWMASK_SMOKE_TEST_SKIP_ENRICHMENT_TESTS=true to skip enrichment"
+    place_clip "$cached" "$dest"
+    note "$CLIP_ATTRIBUTION_ED (see deployment/dev/CREDITS.md)"
+}
+
 populate_media() {
     gen_fixture "$MEDIA_DIR/movies/Sample Movie (2011).mkv"
     gen_fixture "$MEDIA_DIR/movies/Sample Movie (2011).mp4"
     gen_fixture "$MEDIA_DIR/tv/Sample Show S01E01.mkv"
-    printf '1\n00:00:01,000 --> 00:00:02,000\nSmoke subtitle line.\n' \
-        >"$MEDIA_DIR/movies/Sample Movie (2011).en.srt"
+    write_offset_srt "$MEDIA_DIR/movies/Sample Movie (2011).en.srt"
+    if [[ "$SKIP_ENRICHMENT" != true ]] && capability_available transcription; then
+        place_speech_clip
+    fi
 }
 
 server_stop() { compose stop "$SERVICE" >/dev/null 2>&1 || die "failed to stop [$SERVICE]"; }
@@ -232,19 +320,21 @@ grep -q 'const sm' <<<"$ui_js" || die "/ui/basic/app.js is missing the sm client
 ok "basic web UI is served (entry shell + app.js present)"
 
 section "admin auth + users"
-adm=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$ADMIN_USER" --arg p "$ADMIN_PASS" '{username:$u,password:$p}')" 200 "admin login")
+adm=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$ADMIN_USER" --arg p "$ADMIN_USER_PASS" '{username:$u,password:$p}')" 200 "admin login")
 ADMIN_TOKEN=$(jq -r '.access_token' <<<"$adm")
 [[ -n "$ADMIN_TOKEN" && "$ADMIN_TOKEN" != null ]] || die "no admin access token"
 self=$(call_ok GET "$API/users/self" "$ADMIN_TOKEN")
 [[ "$(jq -r '.username' <<<"$self")" == "$ADMIN_USER" ]] || die "unexpected /users/self"
 si=$(call_ok GET "$API/server/info" "$ADMIN_TOKEN")
 jq -e '.version and (.profile_version != null)' <<<"$si" >/dev/null || die "server info missing fields"
+CAPS_JSON="$si"
+note "server capabilities: [$(jq -r '[.capabilities[] | "\(.name)=\(if .enabled then "on" elif .available then "available" else "unavailable" end)"] | join(", ")' <<<"$CAPS_JSON")]"
 
 users=$(call_ok GET "$API/users?limit=200" "$ADMIN_TOKEN")
-if jq -e --arg u "$SMOKE_USER" 'any(.items[]?; .username==$u)' <<<"$users" >/dev/null; then
-    die "expected a clean database, but [$SMOKE_USER] already exists"
+if jq -e --arg u "$TEST_USER" 'any(.items[]?; .username==$u)' <<<"$users" >/dev/null; then
+    die "expected a clean database, but [$TEST_USER] already exists"
 fi
-ok "clean database confirmed ([$SMOKE_USER] absent)"
+ok "clean database confirmed ([$TEST_USER] absent)"
 
 libs=$(call_ok GET "$API/libraries" "$ADMIN_TOKEN")
 MOVIE_LIB=$(jq -r '.[] | select(.kind=="movie") | .id' <<<"$libs" | head -1)
@@ -252,28 +342,28 @@ TV_LIB=$(jq -r '.[] | select(.kind=="tv") | .id' <<<"$libs" | head -1)
 [[ -n "$MOVIE_LIB" && -n "$TV_LIB" ]] || die "could not resolve bootstrapped Movies/TV libraries"
 note "movie library=[$MOVIE_LIB] tv library=[$TV_LIB]"
 
-note "creating [$SMOKE_USER]"
-raw=$(_call POST "$API/users" "$ADMIN_TOKEN" "$(jq -nc --arg u "$SMOKE_USER" --arg p "$SMOKE_PASS" '{username:$u,password:$p,role:"user"}')")
+note "creating [$TEST_USER]"
+raw=$(_call POST "$API/users" "$ADMIN_TOKEN" "$(jq -nc --arg u "$TEST_USER" --arg p "$TEST_USER_PASS" '{username:$u,password:$p,role:"user"}')")
 code=${raw##*$'\n'}; out=${raw%$'\n'*}
 case "$code" in
-    201) SMOKE_UID=$(jq -r '.id' <<<"$out"); ok "created [$SMOKE_USER] -> [$SMOKE_UID]" ;;
+    201) TEST_UID=$(jq -r '.id' <<<"$out"); ok "created [$TEST_USER] -> [$TEST_UID]" ;;
     400|409)
         list=$(call_ok GET "$API/users?limit=200" "$ADMIN_TOKEN")
-        SMOKE_UID=$(jq -r --arg u "$SMOKE_USER" '.items[] | select(.username==$u) | .id' <<<"$list" | head -1)
-        [[ -n "$SMOKE_UID" ]] || die "[$SMOKE_USER] exists ([$code]) but not found in list"
-        ok "reusing existing [$SMOKE_USER] -> [$SMOKE_UID]" ;;
+        TEST_UID=$(jq -r --arg u "$TEST_USER" '.items[] | select(.username==$u) | .id' <<<"$list" | head -1)
+        [[ -n "$TEST_UID" ]] || die "[$TEST_USER] exists ([$code]) but not found in list"
+        ok "reusing existing [$TEST_USER] -> [$TEST_UID]" ;;
     *) die "create user -> unexpected [$code]: [$out]" ;;
 esac
 
-expect_code 204 PUT "$API/users/$SMOKE_UID/libraries" "$ADMIN_TOKEN" \
+expect_code 204 PUT "$API/users/$TEST_UID/libraries" "$ADMIN_TOKEN" \
     "$(jq -nc --arg a "$MOVIE_LIB" --arg b "$TV_LIB" '{libraries:[$a,$b]}')"
 
-usr=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$SMOKE_USER" --arg p "$SMOKE_PASS" '{username:$u,password:$p}')" 200 "[$SMOKE_USER] login")
+usr=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$TEST_USER" --arg p "$TEST_USER_PASS" '{username:$u,password:$p}')" 200 "[$TEST_USER] login")
 USER_TOKEN=$(jq -r '.access_token' <<<"$usr")
 USER_REFRESH=$(jq -r '.refresh_token' <<<"$usr")
 [[ -n "$USER_TOKEN" && "$USER_TOKEN" != null ]] || die "no user access token"
 
-section "RBAC negatives (as [$SMOKE_USER])"
+section "RBAC negatives (as [$TEST_USER])"
 expect_code 403 GET "$API/users" "$USER_TOKEN"
 expect_code 403 POST "$API/libraries" "$USER_TOKEN" \
     "$(jq -nc '{name:"x",kind:"movie",roots:["/media/movies"],watcher:"manual",metadata_sources:[]}')"
@@ -297,10 +387,11 @@ poll_until "tv rescan idle" 90 scan_idle "$TV_LIB" "$ADMIN_TOKEN"
 poll_until "movie catalog row appears" 90 total_at_least "$API/movies" "$ADMIN_TOKEN" 1
 poll_until "series catalog row appears" 90 total_at_least "$API/series" "$ADMIN_TOKEN" 1
 
-section "catalog + search (as [$SMOKE_USER])"
-mv=$(call_ok GET "$API/movies" "$USER_TOKEN")
-MOVIE_ID=$(jq -r '.items[0].id' <<<"$mv")
+section "catalog + search (as [$TEST_USER])"
+mv=$(call_ok GET "$API/movies?limit=200" "$USER_TOKEN")
+MOVIE_ID=$(jq -r 'first(.items[]? | select(.title=="Sample Movie") | .id) // empty' <<<"$mv")
 [[ -n "$MOVIE_ID" && "$MOVIE_ID" != null ]] || die "no movie id"
+ED_MOVIE_ID=$(jq -r 'first(.items[]? | select(.title=="Elephants Dream") | .id) // empty' <<<"$mv")
 call_ok GET "$API/movies/$MOVIE_ID" "$USER_TOKEN" >/dev/null
 vers=$(call_ok GET "$API/movies/$MOVIE_ID/versions" "$USER_TOKEN")
 MKV_VER=$(jq -r '.items[] | select(.container=="mkv") | .id' <<<"$vers" | head -1)
@@ -324,8 +415,8 @@ note "skipping /people (no metadata provider configured, no person ids)"
 call_ok GET "$API/admin/jobs" "$ADMIN_TOKEN" >/dev/null
 
 section "watchlist marker (durable recovery proof)"
-expect_code 204 PUT "$API/users/$SMOKE_UID/watchlist/$MOVIE_ID" "$USER_TOKEN" "$(jq -nc '{type:"movie"}')"
-wl=$(call_ok GET "$API/users/$SMOKE_UID/watchlist" "$USER_TOKEN")
+expect_code 204 PUT "$API/users/$TEST_UID/watchlist/$MOVIE_ID" "$USER_TOKEN" "$(jq -nc '{type:"movie"}')"
+wl=$(call_ok GET "$API/users/$TEST_UID/watchlist" "$USER_TOKEN")
 (( $(jq 'length' <<<"$wl") >= 1 )) || die "watchlist empty after add"
 
 section "playback: remux HLS (mkv)"
@@ -361,12 +452,20 @@ poll_until "subtitle vtt ready" 60 http_get_ok "$BASE_URL$STREAM_BASE/subs/subs.
 grep -q 'WEBVTT' <<<"$(curl -sS "$BASE_URL$STREAM_BASE/subs/subs.vtt")" || die "subs.vtt is not WEBVTT"
 ok "sidecar subtitle served as WEBVTT"
 
+step "subtitle offset: shift by 5000ms and verify cue timing"
+upd2=$(call_ok POST "$API/sessions/$SESSION_ID/update" "$USER_TOKEN" \
+    "$(jq -nc --arg id "$SUB_ID" '{audio_track:null,subtitle:{action:"set",track:{type:"file",id:$id},offset_ms:5000}}')" 200 "select sidecar subtitle with offset")
+STREAM_BASE2="$(jq -r '.manifest_url' <<<"$upd2")"
+STREAM_BASE2="${STREAM_BASE2%/master.m3u8}"
+poll_until "subtitle offset applied (+5000ms)" 60 offset_applied "$BASE_URL$STREAM_BASE2/subs/subs.vtt" 5000
+ok "subtitle offset applied: first cue shifted by exactly 5000ms"
+
 call_ok POST "$API/sessions/$SESSION_ID/seek" "$USER_TOKEN" "$(jq -nc '{position_ms:10000}')" 200 "seek" >/dev/null
 call_ok POST "$API/sessions/$SESSION_ID/update" "$USER_TOKEN" "$(jq -nc '{audio_track:null,subtitle:{action:"keep"}}')" 200 "update tracks" >/dev/null
-pr=$(call_ok GET "$API/users/$SMOKE_UID/progress/$MKV_VER" "$USER_TOKEN")
+pr=$(call_ok GET "$API/users/$TEST_UID/progress/$MKV_VER" "$USER_TOKEN")
 [[ "$(jq -r 'if .==null then "null" else "set" end' <<<"$pr")" == "set" ]] || die "no resume progress recorded"
-call_ok GET "$API/users/$SMOKE_UID/continue" "$USER_TOKEN" >/dev/null
-call_ok GET "$API/users/$SMOKE_UID/hub" "$USER_TOKEN" >/dev/null
+call_ok GET "$API/users/$TEST_UID/continue" "$USER_TOKEN" >/dev/null
+call_ok GET "$API/users/$TEST_UID/hub" "$USER_TOKEN" >/dev/null
 expect_code 204 DELETE "$API/sessions/$SESSION_ID" "$USER_TOKEN"
 
 section "playback: direct (mp4)"
@@ -378,24 +477,54 @@ MU2=$(jq -r '.manifest_url' <<<"$ss2")
 poll_until "direct-play file fetch" 30 http_get_ok "$BASE_URL$MU2"
 expect_code 204 DELETE "$API/sessions/$SID2" "$USER_TOKEN"
 
-section "account state (as [$SMOKE_USER])"
-expect_code 204 PUT "$API/users/$SMOKE_UID/favorites/$MOVIE_ID" "$USER_TOKEN" "$(jq -nc '{type:"movie"}')"
-(( $(jq 'length' <<<"$(call_ok GET "$API/users/$SMOKE_UID/favorites" "$USER_TOKEN")") >= 1 )) || die "favorite not added"
-expect_code 204 DELETE "$API/users/$SMOKE_UID/favorites/$MOVIE_ID" "$USER_TOKEN"
-(( $(jq 'length' <<<"$(call_ok GET "$API/users/$SMOKE_UID/favorites" "$USER_TOKEN")") == 0 )) || die "favorite not removed"
-expect_code 204 PUT "$API/users/$SMOKE_UID/watched/$MOVIE_ID" "$USER_TOKEN" "$(jq -nc '{type:"movie",watched:true}')"
-expect_code 204 DELETE "$API/users/$SMOKE_UID/progress/$MKV_VER" "$USER_TOKEN"
-pr2=$(call_ok GET "$API/users/$SMOKE_UID/progress/$MKV_VER" "$USER_TOKEN")
+section "enrichment: transcribe -> translate"
+if [[ "$SKIP_ENRICHMENT" == true ]]; then
+    skip "enrichment: disabled via SHADOWMASK_SMOKE_TEST_SKIP_ENRICHMENT_TESTS"
+elif ! capability_available transcription; then
+    skip "enrichment: base image (transcription/translation not compiled in); run the enrichment image, or leave SHADOWMASK_SMOKE_TEST_SKIP_ENRICHMENT_TESTS=true"
+else
+    has_capability transcription \
+        || die "transcription: the enrichment image is running but transcription is not enabled; set SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED=true and mount a Whisper CT2 model (or set SHADOWMASK_SMOKE_TEST_SKIP_ENRICHMENT_TESTS=true to skip enrichment)"
+    has_capability translation \
+        || die "translation: the enrichment image is running but translation is not enabled; set SHADOWMASK_ENRICHMENT_TRANSLATION_ENABLED=true and mount a translation CT2 model (or set SHADOWMASK_SMOKE_TEST_SKIP_ENRICHMENT_TESTS=true to skip enrichment)"
+    [[ -n "$ED_MOVIE_ID" && "$ED_MOVIE_ID" != null ]] \
+        || die "the Elephants Dream speech fixture is enabled for enrichment but was not ingested; check the fixture placement and library scan"
+    edv=$(call_ok GET "$API/movies/$ED_MOVIE_ID/versions" "$USER_TOKEN")
+    ED_VER=$(jq -r '.items[0].id' <<<"$edv")
+    [[ -n "$ED_VER" && "$ED_VER" != null ]] || die "no Elephants Dream version"
+    call_ok POST "$API/admin/versions/$ED_VER/transcribe" "$ADMIN_TOKEN" "$(jq -nc '{}')" 202 "trigger transcription" >/dev/null
+    poll_until "transcription produced a [generated] subtitle" 900 subtitle_of_source "$ED_VER" generated "$ADMIN_TOKEN"
+    GEN_SUB=$(subtitle_id_of_source "$ED_VER" generated "$ADMIN_TOKEN")
+    [[ -n "$GEN_SUB" ]] || die "no generated subtitle id"
+    assert_subtitle_serves "$ED_VER" "$GEN_SUB" "$USER_TOKEN"
+    call_ok POST "$API/admin/versions/$ED_VER/translate" "$ADMIN_TOKEN" \
+        "$(jq -nc --arg s "$GEN_SUB" '{source_subtitle_id:$s,target_language:"es"}')" 202 "trigger translation (es)" >/dev/null
+    poll_until "translation produced a [machine_translated] es subtitle" 900 \
+        subtitle_of_lang_source "$ED_VER" es machine_translated "$ADMIN_TOKEN"
+    MT_SUB=$(subtitle_id_of_lang_source "$ED_VER" es machine_translated "$ADMIN_TOKEN")
+    [[ -n "$MT_SUB" ]] || die "no machine_translated es subtitle id"
+    assert_subtitle_serves "$ED_VER" "$MT_SUB" "$USER_TOKEN"
+    ok "transcribe -> translate chain verified: [generated] en -> [machine_translated] es"
+fi
+
+section "account state (as [$TEST_USER])"
+expect_code 204 PUT "$API/users/$TEST_UID/favorites/$MOVIE_ID" "$USER_TOKEN" "$(jq -nc '{type:"movie"}')"
+(( $(jq 'length' <<<"$(call_ok GET "$API/users/$TEST_UID/favorites" "$USER_TOKEN")") >= 1 )) || die "favorite not added"
+expect_code 204 DELETE "$API/users/$TEST_UID/favorites/$MOVIE_ID" "$USER_TOKEN"
+(( $(jq 'length' <<<"$(call_ok GET "$API/users/$TEST_UID/favorites" "$USER_TOKEN")") == 0 )) || die "favorite not removed"
+expect_code 204 PUT "$API/users/$TEST_UID/watched/$MOVIE_ID" "$USER_TOKEN" "$(jq -nc '{type:"movie",watched:true}')"
+expect_code 204 DELETE "$API/users/$TEST_UID/progress/$MKV_VER" "$USER_TOKEN"
+pr2=$(call_ok GET "$API/users/$TEST_UID/progress/$MKV_VER" "$USER_TOKEN")
 [[ "$(jq -r 'if .==null then "null" else "set" end' <<<"$pr2")" == "null" ]] || die "progress not cleared"
-call_ok GET "$API/users/$SMOKE_UID/history" "$USER_TOKEN" >/dev/null
-sb=$(call_ok POST "$API/users/$SMOKE_UID/state/batch" "$USER_TOKEN" "$(jq -nc --arg id "$MOVIE_ID" '{titles:[{type:"movie",id:$id}]}')" 200 "state batch")
+call_ok GET "$API/users/$TEST_UID/history" "$USER_TOKEN" >/dev/null
+sb=$(call_ok POST "$API/users/$TEST_UID/state/batch" "$USER_TOKEN" "$(jq -nc --arg id "$MOVIE_ID" '{titles:[{type:"movie",id:$id}]}')" 200 "state batch")
 jq -e '.[0].watched==true and .[0].watchlisted==true' <<<"$sb" >/dev/null || die "batch state incorrect"
 
-section "device link codes (as [$SMOKE_USER])"
+section "device link codes (as [$TEST_USER])"
 lc=$(call_ok POST "$API/auth/link/create" "$USER_TOKEN" "$(jq -nc '{}')" 200 "create link code")
 LINK_CODE=$(jq -r '.code' <<<"$lc")
 [[ -n "$LINK_CODE" && "$LINK_CODE" != null ]] || die "no link code returned"
-pend=$(call_ok GET "$API/users/$SMOKE_UID/link-codes" "$USER_TOKEN")
+pend=$(call_ok GET "$API/users/$TEST_UID/link-codes" "$USER_TOKEN")
 jq -e --arg c "$LINK_CODE" 'any(.[]?; .code==$c)' <<<"$pend" >/dev/null || die "code [$LINK_CODE] not listed as pending"
 ok "link code [$LINK_CODE] created and listed as pending"
 TYPED="${LINK_CODE:0:4}-${LINK_CODE:4}"
@@ -404,7 +533,7 @@ DEVICE_TOKEN=$(jq -r '.token' <<<"$red")
 [[ "$DEVICE_TOKEN" == smk_* ]] || die "redeemed token is not a device token: [${DEVICE_TOKEN:0:8}...]"
 ok "link code redeemed in its displayed form -> device token"
 call_ok GET "$API/movies" "$DEVICE_TOKEN" >/dev/null
-dv=$(call_ok GET "$API/users/$SMOKE_UID/devices" "$USER_TOKEN")
+dv=$(call_ok GET "$API/users/$TEST_UID/devices" "$USER_TOKEN")
 jq -e 'any(.[]?; .platform=="roku")' <<<"$dv" >/dev/null || die "redeemed device not registered on the account"
 ok "device token authenticates and the device is registered"
 expect_code 404 POST "$API/auth/link" "" "$(jq -nc --arg c "$LINK_CODE" '{code:$c,device:{name:"Dup",platform:"roku"}}')"
@@ -412,7 +541,7 @@ ok "link code is single-use (second redemption rejected)"
 lc2=$(call_ok POST "$API/auth/link/create" "$USER_TOKEN" "$(jq -nc '{}')" 200 "create second link code")
 CODE2=$(jq -r '.code' <<<"$lc2")
 [[ -n "$CODE2" && "$CODE2" != null ]] || die "no second link code returned"
-expect_code 204 DELETE "$API/users/$SMOKE_UID/link-codes/$CODE2" "$USER_TOKEN"
+expect_code 204 DELETE "$API/users/$TEST_UID/link-codes/$CODE2" "$USER_TOKEN"
 expect_code 404 POST "$API/auth/link" "" "$(jq -nc --arg c "$CODE2" '{code:$c,device:{name:"Revoked",platform:"roku"}}')"
 ok "revoked link code [$CODE2] cannot be redeemed"
 
@@ -434,26 +563,26 @@ server_stop
 wipe_db
 server_start
 poll_until "server healthy after DB wipe" 120 health_ok
-adm2=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$ADMIN_USER" --arg p "$ADMIN_PASS" '{username:$u,password:$p}')" 200 "admin login after wipe")
+adm2=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$ADMIN_USER" --arg p "$ADMIN_USER_PASS" '{username:$u,password:$p}')" 200 "admin login after wipe")
 ADMIN_TOKEN=$(jq -r '.access_token' <<<"$adm2")
 after_wipe=$(call_ok GET "$API/users?limit=200" "$ADMIN_TOKEN")
-if jq -e --arg u "$SMOKE_USER" 'any(.items[]?; .username==$u)' <<<"$after_wipe" >/dev/null; then
-    die "[$SMOKE_USER] still present after DB wipe (wipe ineffective)"
+if jq -e --arg u "$TEST_USER" 'any(.items[]?; .username==$u)' <<<"$after_wipe" >/dev/null; then
+    die "[$TEST_USER] still present after DB wipe (wipe ineffective)"
 fi
-ok "server started EMPTY after wipe: admin present, [$SMOKE_USER] gone"
+ok "server started EMPTY after wipe: admin present, [$TEST_USER] gone"
 
 server_stop
 compose run --rm "$SERVICE" recover --from "$SNAPSHOT" >/dev/null 2>&1 || die "recover failed"
 ok "recovered from [$SNAPSHOT]"
 server_start
 poll_until "server healthy after recover" 120 health_ok
-adm3=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$ADMIN_USER" --arg p "$ADMIN_PASS" '{username:$u,password:$p}')" 200 "admin login after recover")
+adm3=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$ADMIN_USER" --arg p "$ADMIN_USER_PASS" '{username:$u,password:$p}')" 200 "admin login after recover")
 ADMIN_TOKEN=$(jq -r '.access_token' <<<"$adm3")
 restored=$(call_ok GET "$API/users?limit=200" "$ADMIN_TOKEN")
-jq -e --arg u "$SMOKE_USER" 'any(.items[]?; .username==$u)' <<<"$restored" >/dev/null || die "[$SMOKE_USER] missing after recover"
-wl2=$(call_ok GET "$API/users/$SMOKE_UID/watchlist" "$ADMIN_TOKEN")
+jq -e --arg u "$TEST_USER" 'any(.items[]?; .username==$u)' <<<"$restored" >/dev/null || die "[$TEST_USER] missing after recover"
+wl2=$(call_ok GET "$API/users/$TEST_UID/watchlist" "$ADMIN_TOKEN")
 (( $(jq 'length' <<<"$wl2") >= 1 )) || die "watchlist empty after recover"
-ok "recover restored [$SMOKE_USER] and its watchlist"
+ok "recover restored [$TEST_USER] and its watchlist"
 
 section "media removal handling (soft-delete: version-only, titles preserved)"
 movies_before=$(total_of "$API/movies" "$ADMIN_TOKEN")

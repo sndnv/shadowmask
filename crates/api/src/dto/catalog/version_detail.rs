@@ -94,6 +94,9 @@ pub struct SubtitleFileDto {
 pub enum SubtitleSourceDto {
     OpenSubtitles,
     External,
+    Generated,
+    MachineTranslated,
+    Combined,
 }
 
 #[derive(Debug, Serialize)]
@@ -237,6 +240,9 @@ impl From<SubtitleSource> for SubtitleSourceDto {
         match s {
             SubtitleSource::OpenSubtitles => SubtitleSourceDto::OpenSubtitles,
             SubtitleSource::External => SubtitleSourceDto::External,
+            SubtitleSource::Generated => SubtitleSourceDto::Generated,
+            SubtitleSource::MachineTranslated => SubtitleSourceDto::MachineTranslated,
+            SubtitleSource::Combined => SubtitleSourceDto::Combined,
         }
     }
 }
@@ -376,6 +382,12 @@ mod tests {
                 SubtitleSourceDto::OpenSubtitles,
             ),
             (SubtitleSource::External, SubtitleSourceDto::External),
+            (SubtitleSource::Generated, SubtitleSourceDto::Generated),
+            (
+                SubtitleSource::MachineTranslated,
+                SubtitleSourceDto::MachineTranslated,
+            ),
+            (SubtitleSource::Combined, SubtitleSourceDto::Combined),
         ] {
             assert_eq!(
                 serde_json::to_string(&SubtitleSourceDto::from(domain)).unwrap(),
@@ -396,6 +408,7 @@ mod tests {
             format: SubtitleFormat::Srt,
             source: SubtitleSource::External,
             path: "/media/v1.en.srt".into(),
+            translated_from: None,
         });
         assert_eq!(dto.id, "sf1");
         assert_eq!(dto.language.as_deref(), Some("en"));

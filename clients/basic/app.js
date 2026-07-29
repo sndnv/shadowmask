@@ -121,6 +121,10 @@ const sm = (() => {
     return new URLSearchParams(location.search).get(name);
   }
 
+  function lang(code) {
+    return !code || code === "und" ? "unknown" : code;
+  }
+
   function time(iso) {
     if (!iso) return "";
     const parsed = new Date(iso);
@@ -664,6 +668,7 @@ const sm = (() => {
     requireAuth,
     tokens: load,
     qs,
+    lang,
     time,
     versionPicker,
     onDeckEpisode,

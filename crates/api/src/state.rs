@@ -18,6 +18,7 @@ use domain::library::{
     DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryUpdate, NewLibrary,
     ResolveCandidate, ResolveTarget, ScanState, UnmatchedFile, UnmatchedFileId,
 };
+use domain::media::SubtitleFileId;
 use domain::metadata::{ExternalId, Genre, PersonId};
 use domain::playback::{
     Favorite, PlaybackProgress, TitleState, WatchHistory, WatchTarget, WatchedRollup, WatchlistItem,
@@ -138,6 +139,29 @@ impl<J> Clone for JobLogState<J> {
     }
 }
 
+pub struct SubtitleState<C, S> {
+    pub catalog: Arc<C>,
+    pub subtitles: Arc<S>,
+}
+
+impl<C, S> SubtitleState<C, S> {
+    pub fn new(catalog: C, subtitles: S) -> Self {
+        Self {
+            catalog: Arc::new(catalog),
+            subtitles: Arc::new(subtitles),
+        }
+    }
+}
+
+impl<C, S> Clone for SubtitleState<C, S> {
+    fn clone(&self) -> Self {
+        Self {
+            catalog: Arc::clone(&self.catalog),
+            subtitles: Arc::clone(&self.subtitles),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookClient {
     pub name: String,
@@ -151,6 +175,9 @@ pub struct WebhookState<S> {
     pub services: S,
     pub clients: Vec<WebhookClient>,
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct ServerCapabilities(pub Vec<crate::dto::server::Capability>);
 
 impl<A, C, Se, L, U, Ul, D> AuthService for AppState<A, C, Se, L, U, Ul, D>
 where
@@ -345,6 +372,14 @@ where
         page: PageRequest,
     ) -> Result<Page<Version>, CatalogError> {
         self.catalog.library_versions(caller, library, page).await
+    }
+
+    async fn all_versions(
+        &self,
+        caller: &Principal,
+        page: PageRequest,
+    ) -> Result<Page<Version>, CatalogError> {
+        self.catalog.all_versions(caller, page).await
     }
 
     async fn version(
@@ -564,6 +599,53 @@ where
         target: ResolveTarget,
     ) -> Result<(), LibraryError> {
         self.library.relink_version(caller, version, target).await
+    }
+
+    async fn trigger_transcription(
+        &self,
+        caller: &Principal,
+        version: &VersionId,
+        audio_track_index: Option<u32>,
+        source_language: Option<String>,
+    ) -> Result<(), LibraryError> {
+        self.library
+            .trigger_transcription(caller, version, audio_track_index, source_language)
+            .await
+    }
+
+    async fn trigger_translation(
+        &self,
+        caller: &Principal,
+        version: &VersionId,
+        source_subtitle: &SubtitleFileId,
+        target_language: String,
+    ) -> Result<(), LibraryError> {
+        self.library
+            .trigger_translation(caller, version, source_subtitle, target_language)
+            .await
+    }
+
+    async fn trigger_upscale(
+        &self,
+        caller: &Principal,
+        version: &VersionId,
+        target_height: u32,
+    ) -> Result<(), LibraryError> {
+        self.library
+            .trigger_upscale(caller, version, target_height)
+            .await
+    }
+
+    async fn trigger_combine(
+        &self,
+        caller: &Principal,
+        version: &VersionId,
+        primary: &SubtitleFileId,
+        secondary: &SubtitleFileId,
+    ) -> Result<(), LibraryError> {
+        self.library
+            .trigger_combine(caller, version, primary, secondary)
+            .await
     }
 
     async fn jobs(&self, caller: &Principal) -> Result<Vec<Job>, LibraryError> {

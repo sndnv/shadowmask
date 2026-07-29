@@ -272,8 +272,8 @@ impl SqliteCatalogRepo {
         for (ordinal, file) in detail.subtitle_files.iter().enumerate() {
             sqlx::query(
                 "INSERT INTO subtitle_files \
-                 (id, version_id, ordinal, language, format, source, path) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+                 (id, version_id, ordinal, language, format, source, path, translated_from) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(file.id.0.as_str())
             .bind(vid.as_str())
@@ -282,6 +282,7 @@ impl SqliteCatalogRepo {
             .bind(subtitle_format_to_str(file.format))
             .bind(subtitle_source_to_str(file.source))
             .bind(file.path.as_str())
+            .bind(file.translated_from.as_ref().map(|id| id.0.as_str()))
             .execute(&mut *tx)
             .await
             .map_err(backend)?;
@@ -748,6 +749,9 @@ fn subtitle_source_to_str(source: SubtitleSource) -> &'static str {
     match source {
         SubtitleSource::OpenSubtitles => "opensubtitles",
         SubtitleSource::External => "external",
+        SubtitleSource::Generated => "generated",
+        SubtitleSource::MachineTranslated => "machine_translated",
+        SubtitleSource::Combined => "combined",
     }
 }
 
@@ -755,6 +759,9 @@ fn subtitle_source_from_str(value: &str) -> Result<SubtitleSource, RepositoryErr
     match value {
         "opensubtitles" => Ok(SubtitleSource::OpenSubtitles),
         "external" => Ok(SubtitleSource::External),
+        "generated" => Ok(SubtitleSource::Generated),
+        "machine_translated" => Ok(SubtitleSource::MachineTranslated),
+        "combined" => Ok(SubtitleSource::Combined),
         other => Err(backend(format!("unknown subtitle source: {other}"))),
     }
 }
@@ -1032,6 +1039,7 @@ fn row_to_subtitle_file(row: &SqliteRow) -> Result<SubtitleFile, RepositoryError
         format: subtitle_format_from_str(&column::<String>(row, "format")?)?,
         source: subtitle_source_from_str(&column::<String>(row, "source")?)?,
         path: column(row, "path")?,
+        translated_from: column::<Option<String>>(row, "translated_from")?.map(SubtitleFileId),
     })
 }
 
@@ -1327,6 +1335,31 @@ impl CatalogRepository for SqliteCatalogRepo {
                 .fetch_all(&self.pool)
                 .await
                 .map_err(backend)?;
+        let items = rows
+            .iter()
+            .map(row_to_version)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Page {
+            items,
+            total,
+            offset: page.offset,
+            limit: page.limit,
+        })
+    }
+
+    async fn list_all_versions(&self, page: PageRequest) -> Result<Page<Version>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "list_all_versions");
+        let count_row = sqlx::query("SELECT COUNT(*) AS n FROM versions")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(backend)?;
+        let total = column::<i64>(&count_row, "n")? as u64;
+        let rows = sqlx::query("SELECT * FROM versions ORDER BY id LIMIT ? OFFSET ?")
+            .bind(i64::from(page.limit))
+            .bind(i64::from(page.offset))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(backend)?;
         let items = rows
             .iter()
             .map(row_to_version)
@@ -1635,8 +1668,8 @@ impl CatalogRepository for SqliteCatalogRepo {
         for (ordinal, file) in files.iter().enumerate() {
             sqlx::query(
                 "INSERT INTO subtitle_files \
-                 (id, version_id, ordinal, language, format, source, path) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+                 (id, version_id, ordinal, language, format, source, path, translated_from) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(file.id.0.as_str())
             .bind(vid)
@@ -1645,6 +1678,7 @@ impl CatalogRepository for SqliteCatalogRepo {
             .bind(subtitle_format_to_str(file.format))
             .bind(subtitle_source_to_str(file.source))
             .bind(file.path.as_str())
+            .bind(file.translated_from.as_ref().map(|id| id.0.as_str()))
             .execute(&mut *tx)
             .await
             .map_err(backend)?;

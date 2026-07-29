@@ -10,7 +10,7 @@ use crate::catalog::{
 use crate::common::{Page, PageRequest};
 use crate::discovery::{SearchKind, SearchResult};
 use crate::error::RepositoryError;
-use crate::job::{Job, JobId};
+use crate::job::{Job, JobId, JobKind};
 use crate::library::{
     DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, ResolutionStatus, ScanState,
     UnmatchedFile, UnmatchedFileId,
@@ -85,6 +85,10 @@ pub trait CatalogRepository {
     fn list_library_versions(
         &self,
         library: &LibraryId,
+        page: PageRequest,
+    ) -> impl Future<Output = Result<Page<Version>, RepositoryError>> + Send;
+    fn list_all_versions(
+        &self,
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<Version>, RepositoryError>> + Send;
     fn version_detail(
@@ -385,6 +389,7 @@ pub trait JobRepository {
         &self,
         now: Timestamp,
         limit: usize,
+        kinds: Vec<JobKind>,
     ) -> impl Future<Output = Result<Vec<Job>, RepositoryError>> + Send;
     fn reclaim_running(
         &self,

@@ -41,7 +41,11 @@ where
             .ok_or_else(|| {
                 JobError::Permanent(format!("library not found: {}", payload.library.0))
             })?;
-        tracing::info!("relinking version");
+        tracing::info!(
+            "relinking [{}] in library [{}]",
+            payload.path,
+            payload.library.0
+        );
         let probe = self
             .probe
             .probe(&payload.path)
@@ -55,7 +59,7 @@ where
             probe,
         };
         self.ingester
-            .ingest_resolved(&library, &file, &payload.target)
+            .ingest_resolved(&library, &file, &payload.target, Some(&job.id))
             .await
             .map_err(retryable)?;
         Ok(())
@@ -127,6 +131,7 @@ mod tests {
             updated_at: now,
             started_at: None,
             finished_at: None,
+            parent_id: None,
         }
     }
 

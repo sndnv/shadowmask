@@ -1209,6 +1209,7 @@ mod tests {
             format: SubtitleFormat::Srt,
             source: SubtitleSource::External,
             path: "/media/m1.en.srt".into(),
+            translated_from: None,
         }];
         harness.catalog.insert(detail);
         let mut request = start_request(0);
@@ -1263,6 +1264,7 @@ mod tests {
             format: SubtitleFormat::Srt,
             source: SubtitleSource::External,
             path: "/media/m1.en.srt".into(),
+            translated_from: None,
         }];
         harness.catalog.insert(detail);
         let mut request = start_request(0);

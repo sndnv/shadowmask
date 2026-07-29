@@ -46,7 +46,7 @@ impl ApiError {
         Self::new(StatusCode::NOT_FOUND, "not_found", message)
     }
 
-    fn internal() -> Self {
+    pub fn internal() -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             "internal",
@@ -147,6 +147,7 @@ impl From<LibraryError> for ApiError {
             LibraryError::ScanInProgress => {
                 ApiError::new(StatusCode::CONFLICT, "scan_in_progress", msg)
             }
+            LibraryError::Disabled => ApiError::new(StatusCode::CONFLICT, "feature_disabled", msg),
             LibraryError::Forbidden => ApiError::new(StatusCode::FORBIDDEN, "access_denied", msg),
             LibraryError::Walk(_) | LibraryError::Repository(_) => ApiError::internal(),
         }

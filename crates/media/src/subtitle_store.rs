@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use domain::catalog::VersionId;
 use domain::error::SubtitleError;
-use domain::media::{SubtitleFormat, SubtitleStore};
+use domain::media::{SubtitleFormat, SubtitleReader, SubtitleStore};
 
 #[derive(Debug, Clone)]
 pub struct FsSubtitleStore {
@@ -32,6 +32,22 @@ impl SubtitleStore for FsSubtitleStore {
             .await
             .map_err(|e| SubtitleError::Store(e.to_string()))?;
         Ok(path.to_string_lossy().into_owned())
+    }
+
+    async fn remove(&self, path: &str) -> Result<(), SubtitleError> {
+        match tokio::fs::remove_file(path).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(SubtitleError::Store(e.to_string())),
+        }
+    }
+}
+
+impl SubtitleReader for FsSubtitleStore {
+    async fn load(&self, path: &str) -> Result<String, SubtitleError> {
+        tokio::fs::read_to_string(path)
+            .await
+            .map_err(|e| SubtitleError::Backend(e.to_string()))
     }
 }
 
@@ -74,6 +90,70 @@ mod tests {
             )
             .await
             .expect_err("store under a file path must fail");
+        assert!(matches!(err, SubtitleError::Store(_)));
+    }
+
+    #[tokio::test]
+    async fn load_returns_stored_content() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = FsSubtitleStore::new(dir.path());
+        let path = store
+            .store(
+                &VersionId("v1".to_owned()),
+                "file-42",
+                SubtitleFormat::Vtt,
+                "WEBVTT\n\nhello\n",
+            )
+            .await
+            .expect("store");
+
+        let content = store.load(&path).await.expect("load");
+        assert_eq!(content, "WEBVTT\n\nhello\n");
+    }
+
+    #[tokio::test]
+    async fn load_missing_file_is_backend_error() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = FsSubtitleStore::new(dir.path());
+        let missing = dir.path().join("nope.vtt");
+
+        let err = store
+            .load(&missing.to_string_lossy())
+            .await
+            .expect_err("missing file must fail");
+        assert!(matches!(err, SubtitleError::Backend(_)));
+    }
+
+    #[tokio::test]
+    async fn remove_deletes_the_file_and_missing_is_ok() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = FsSubtitleStore::new(dir.path());
+        let path = store
+            .store(
+                &VersionId("v1".to_owned()),
+                "file-42",
+                SubtitleFormat::Vtt,
+                "WEBVTT\n",
+            )
+            .await
+            .expect("store");
+
+        store.remove(&path).await.expect("remove");
+        assert!(!PathBuf::from(&path).exists());
+        store
+            .remove(&path)
+            .await
+            .expect("removing a missing file is ok");
+    }
+
+    #[tokio::test]
+    async fn remove_on_a_directory_is_store_error() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = FsSubtitleStore::new(dir.path());
+        let err = store
+            .remove(&dir.path().to_string_lossy())
+            .await
+            .expect_err("removing a directory must fail");
         assert!(matches!(err, SubtitleError::Store(_)));
     }
 }

@@ -11,6 +11,7 @@ expression: value
       "id": "job-scan",
       "kind": "library_scan",
       "last_error": null,
+      "parent_id": null,
       "priority": "normal",
       "progress": 1.0,
       "started_at": "2023-11-14T22:14:00Z",

@@ -484,6 +484,15 @@ impl CatalogService for MockCatalogService {
         Ok(paginate(&matched, page))
     }
 
+    async fn all_versions(
+        &self,
+        _caller: &Principal,
+        page: PageRequest,
+    ) -> Result<Page<Version>, CatalogError> {
+        let all: Vec<Version> = self.state.lock().unwrap().versions.to_vec();
+        Ok(paginate(&all, page))
+    }
+
     async fn version(
         &self,
         _caller: &Principal,

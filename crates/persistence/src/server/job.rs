@@ -6,7 +6,7 @@ use domain::repository::JobRepository;
 use jiff::Timestamp;
 use sqlx::migrate::Migrator;
 use sqlx::sqlite::SqliteRow;
-use sqlx::{Executor, Sqlite, SqlitePool};
+use sqlx::{AssertSqlSafe, Executor, Sqlite, SqlitePool};
 
 use crate::metrics::DbOpGuard;
 use crate::pool::{backend, checkpoint, column, from_millis, open, ping, to_millis};
@@ -48,6 +48,10 @@ fn kind_to_str(kind: JobKind) -> &'static str {
         JobKind::SearchReindex => "search_reindex",
         JobKind::Ingest => "ingest",
         JobKind::Relink => "relink",
+        JobKind::Transcription => "transcription",
+        JobKind::Translation => "translation",
+        JobKind::Upscale => "upscale",
+        JobKind::Combine => "combine",
     }
 }
 
@@ -64,6 +68,10 @@ fn kind_from_str(value: &str) -> Result<JobKind, RepositoryError> {
         "search_reindex" => Ok(JobKind::SearchReindex),
         "ingest" => Ok(JobKind::Ingest),
         "relink" => Ok(JobKind::Relink),
+        "transcription" => Ok(JobKind::Transcription),
+        "translation" => Ok(JobKind::Translation),
+        "upscale" => Ok(JobKind::Upscale),
+        "combine" => Ok(JobKind::Combine),
         other => Err(backend(format!("unknown job kind: {other}"))),
     }
 }
@@ -125,6 +133,7 @@ fn row_to_job(row: &SqliteRow) -> Result<Job, RepositoryError> {
         finished_at: column::<Option<i64>>(row, "finished_at")?
             .map(from_millis)
             .transpose()?,
+        parent_id: column::<Option<String>>(row, "parent_id")?.map(JobId),
     })
 }
 
@@ -134,8 +143,8 @@ where
 {
     sqlx::query(
         "INSERT OR REPLACE INTO jobs \
-         (id, kind, status, priority, payload, attempts, progress, available_at, last_error, created_at, updated_at, started_at, finished_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (id, kind, status, priority, payload, attempts, progress, available_at, last_error, created_at, updated_at, started_at, finished_at, parent_id) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(job.id.0.as_str())
     .bind(kind_to_str(job.kind))
@@ -150,6 +159,7 @@ where
     .bind(to_millis(job.updated_at))
     .bind(job.started_at.map(to_millis))
     .bind(job.finished_at.map(to_millis))
+    .bind(job.parent_id.as_ref().map(|id| id.0.as_str()))
     .execute(executor)
     .await
     .map_err(backend)?;
@@ -162,26 +172,40 @@ impl JobRepository for SqliteJobRepo {
         upsert(&self.pool, &job).await
     }
 
-    async fn claim_ready(&self, now: Timestamp, limit: usize) -> Result<Vec<Job>, RepositoryError> {
+    async fn claim_ready(
+        &self,
+        now: Timestamp,
+        limit: usize,
+        kinds: Vec<JobKind>,
+    ) -> Result<Vec<Job>, RepositoryError> {
         let _op = DbOpGuard::new("jobs", "claim_ready");
-        let rows = sqlx::query(
+        if kinds.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = vec!["?"; kinds.len()].join(", ");
+        let sql = format!(
             "UPDATE jobs SET status = ?, started_at = ? \
              WHERE id IN ( \
                  SELECT id FROM jobs \
-                 WHERE status = ? AND available_at <= ? \
+                 WHERE status = ? AND available_at <= ? AND kind IN ({placeholders}) \
                  ORDER BY priority DESC, created_at ASC, id ASC \
                  LIMIT ? \
              ) \
-             RETURNING *",
-        )
-        .bind(status_to_str(JobStatus::Running))
-        .bind(to_millis(now))
-        .bind(status_to_str(JobStatus::Queued))
-        .bind(to_millis(now))
-        .bind(limit as i64)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(backend)?;
+             RETURNING *"
+        );
+        let mut query = sqlx::query(AssertSqlSafe(sql))
+            .bind(status_to_str(JobStatus::Running))
+            .bind(to_millis(now))
+            .bind(status_to_str(JobStatus::Queued))
+            .bind(to_millis(now));
+        for kind in &kinds {
+            query = query.bind(kind_to_str(*kind));
+        }
+        let rows = query
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(backend)?;
         let mut jobs = rows.iter().map(row_to_job).collect::<Result<Vec<_>, _>>()?;
         jobs.sort_by(|a, b| {
             b.priority
@@ -249,6 +273,10 @@ mod tests {
             JobKind::SearchReindex,
             JobKind::Ingest,
             JobKind::Relink,
+            JobKind::Transcription,
+            JobKind::Translation,
+            JobKind::Upscale,
+            JobKind::Combine,
         ] {
             assert_eq!(kind_from_str(kind_to_str(kind)).unwrap(), kind);
         }

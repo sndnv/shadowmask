@@ -1,8 +1,9 @@
 use domain::common::LanguageCode;
 use domain::error::SubtitleError;
-use domain::job::Job;
+use domain::job::{Job, JobId, TranscriptionTrigger, TranslationTrigger};
 use domain::media::{
     SubtitleFile, SubtitleFileId, SubtitleProvider, SubtitleQuery, SubtitleSource, SubtitleStore,
+    prune_orphaned_translations,
 };
 use domain::repository::CatalogRepository;
 use services::library::SubtitleJobPayload;
@@ -10,27 +11,56 @@ use services::library::SubtitleJobPayload;
 use crate::error::JobError;
 use crate::job_handler::JobHandler;
 
-pub struct SubtitlesJobHandler<P, C, S> {
+pub struct SubtitlesJobHandler<P, C, S, T, T2> {
     provider: P,
     catalog: C,
     store: S,
+    trigger: T,
+    transcription: T2,
 }
 
-impl<P, C, S> SubtitlesJobHandler<P, C, S> {
-    pub fn new(provider: P, catalog: C, store: S) -> Self {
+impl<P, C, S, T, T2> SubtitlesJobHandler<P, C, S, T, T2> {
+    pub fn new(provider: P, catalog: C, store: S, trigger: T, transcription: T2) -> Self {
         Self {
             provider,
             catalog,
             store,
+            trigger,
+            transcription,
         }
     }
 }
 
-impl<P, C, S> JobHandler for SubtitlesJobHandler<P, C, S>
+impl<P, C, S, T, T2> SubtitlesJobHandler<P, C, S, T, T2>
+where
+    T2: TranscriptionTrigger + Send + Sync,
+{
+    async fn transcribe_on_miss(
+        &self,
+        payload: &SubtitleJobPayload,
+        parent: &JobId,
+    ) -> Result<(), JobError> {
+        if payload.transcribe_on_miss {
+            tracing::debug!(
+                "no subtitles for version [{}]; falling back to transcription",
+                payload.version_id.0
+            );
+            self.transcription
+                .trigger(&payload.version_id, Some(parent))
+                .await
+                .map_err(|e| JobError::Retryable(e.to_string()))?;
+        }
+        Ok(())
+    }
+}
+
+impl<P, C, S, T, T2> JobHandler for SubtitlesJobHandler<P, C, S, T, T2>
 where
     P: SubtitleProvider + Send + Sync,
     C: CatalogRepository + Send + Sync,
     S: SubtitleStore + Send + Sync,
+    T: TranslationTrigger + Send + Sync,
+    T2: TranscriptionTrigger + Send + Sync,
 {
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         let payload = SubtitleJobPayload::decode(&job.payload)
@@ -47,12 +77,12 @@ where
             season: payload.season,
             episode: payload.episode,
         };
-        tracing::info!("fetching subtitles");
+        tracing::info!("fetching subtitles for version [{}]", payload.version_id.0);
         let candidates = match self.provider.search(&query).await {
             Ok(candidates) => candidates,
             Err(SubtitleError::NotFound) => {
                 tracing::debug!("no subtitles found");
-                return Ok(());
+                return self.transcribe_on_miss(&payload, &job.id).await;
             }
             Err(e) => return Err(JobError::Retryable(e.to_string())),
         };
@@ -90,11 +120,12 @@ where
                 format: subtitle.format,
                 source: SubtitleSource::OpenSubtitles,
                 path,
+                translated_from: None,
             });
         }
 
         if fetched.is_empty() {
-            return Ok(());
+            return self.transcribe_on_miss(&payload, &job.id).await;
         }
 
         let existing = self
@@ -109,8 +140,13 @@ where
             .filter(|file| file.source != SubtitleSource::OpenSubtitles)
             .collect();
         merged.extend(fetched);
+        let merged = prune_orphaned_translations(merged);
         self.catalog
             .set_subtitle_files(&payload.version_id, &merged)
+            .await
+            .map_err(|e| JobError::Retryable(e.to_string()))?;
+        self.trigger
+            .trigger(&payload.version_id, Some(&job.id))
             .await
             .map_err(|e| JobError::Retryable(e.to_string()))
     }
@@ -122,7 +158,7 @@ mod tests {
 
     use domain::catalog::{TitleId, Version, VersionId};
     use domain::common::Quality;
-    use domain::error::SubtitleError;
+    use domain::error::{RepositoryError, SubtitleError};
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
     use domain::media::{
         FetchedSubtitle, SubtitleCandidate, SubtitleFile, SubtitleFileId, SubtitleFormat,
@@ -187,6 +223,48 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Default)]
+    struct MockTrigger {
+        fail: bool,
+        calls: Arc<Mutex<usize>>,
+    }
+
+    impl TranslationTrigger for MockTrigger {
+        async fn trigger(
+            &self,
+            _version_id: &VersionId,
+            _parent: Option<&JobId>,
+        ) -> Result<(), RepositoryError> {
+            *self.calls.lock().unwrap() += 1;
+            if self.fail {
+                Err(RepositoryError::Backend("trigger boom".into()))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct MockTranscription {
+        fail: bool,
+        calls: Arc<Mutex<usize>>,
+    }
+
+    impl TranscriptionTrigger for MockTranscription {
+        async fn trigger(
+            &self,
+            _version_id: &VersionId,
+            _parent: Option<&JobId>,
+        ) -> Result<(), RepositoryError> {
+            *self.calls.lock().unwrap() += 1;
+            if self.fail {
+                Err(RepositoryError::Backend("transcribe boom".into()))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
     fn candidate(file_id: &str, language: &str) -> SubtitleCandidate {
         SubtitleCandidate {
             file_id: file_id.into(),
@@ -229,6 +307,7 @@ mod tests {
             updated_at: now,
             started_at: None,
             finished_at: None,
+            parent_id: None,
         }
     }
 
@@ -240,6 +319,21 @@ mod tests {
             languages: vec!["en".into()],
             season: None,
             episode: None,
+            transcribe_on_miss: false,
+        }
+        .encode()
+        .unwrap()
+    }
+
+    fn payload_with_fallback() -> String {
+        SubtitleJobPayload {
+            version_id: VersionId("v1".into()),
+            imdb_id: Some("tt1".into()),
+            title: Some("The Matrix".into()),
+            languages: vec!["en".into()],
+            season: None,
+            episode: None,
+            transcribe_on_miss: true,
         }
         .encode()
         .unwrap()
@@ -259,21 +353,26 @@ mod tests {
                     format: SubtitleFormat::Srt,
                     source: SubtitleSource::External,
                     path: "/m/v1.en.srt".into(),
+                    translated_from: None,
                 }],
             )
             .await
             .unwrap();
         let store = MockStore::default();
+        let trigger = MockTrigger::default();
         let handler = SubtitlesJobHandler::new(
             MockProvider {
                 mode: ProviderMode::Ok(vec![candidate("42", "en")]),
             },
             catalog.clone(),
             store.clone(),
+            trigger.clone(),
+            MockTranscription::default(),
         );
 
         handler.handle(&job(payload())).await.unwrap();
 
+        assert_eq!(*trigger.calls.lock().unwrap(), 1);
         assert_eq!(store.stored.lock().unwrap().len(), 1);
         let detail = catalog
             .version_detail(&VersionId("v1".into()))
@@ -305,6 +404,8 @@ mod tests {
             },
             catalog.clone(),
             MockStore::default(),
+            MockTrigger::default(),
+            MockTranscription::default(),
         );
 
         handler.handle(&job(payload())).await.unwrap();
@@ -325,6 +426,8 @@ mod tests {
             },
             MockCatalogRepo::new(),
             MockStore::default(),
+            MockTrigger::default(),
+            MockTranscription::default(),
         );
         handler.handle(&job(payload())).await.unwrap();
     }
@@ -337,6 +440,8 @@ mod tests {
             },
             MockCatalogRepo::new(),
             MockStore::default(),
+            MockTrigger::default(),
+            MockTranscription::default(),
         );
         assert!(matches!(
             handler.handle(&job(payload())).await.unwrap_err(),
@@ -355,6 +460,8 @@ mod tests {
                 fail: true,
                 ..MockStore::default()
             },
+            MockTrigger::default(),
+            MockTranscription::default(),
         );
         assert!(matches!(
             handler.handle(&job(payload())).await.unwrap_err(),
@@ -373,6 +480,8 @@ mod tests {
             },
             catalog,
             MockStore::default(),
+            MockTrigger::default(),
+            MockTranscription::default(),
         );
         assert!(matches!(
             handler.handle(&job(payload())).await.unwrap_err(),
@@ -388,10 +497,186 @@ mod tests {
             },
             MockCatalogRepo::new(),
             MockStore::default(),
+            MockTrigger::default(),
+            MockTranscription::default(),
         );
         assert!(matches!(
             handler.handle(&job("garbage".into())).await.unwrap_err(),
             JobError::Permanent(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn translation_trigger_failure_is_retryable() {
+        let handler = SubtitlesJobHandler::new(
+            MockProvider {
+                mode: ProviderMode::Ok(vec![candidate("42", "en")]),
+            },
+            MockCatalogRepo::new(),
+            MockStore::default(),
+            MockTrigger {
+                fail: true,
+                ..MockTrigger::default()
+            },
+            MockTranscription::default(),
+        );
+        assert!(matches!(
+            handler.handle(&job(payload())).await.unwrap_err(),
+            JobError::Retryable(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn not_found_triggers_transcription_when_fallback_enabled() {
+        let transcription = MockTranscription::default();
+        let handler = SubtitlesJobHandler::new(
+            MockProvider {
+                mode: ProviderMode::NotFound,
+            },
+            MockCatalogRepo::new(),
+            MockStore::default(),
+            MockTrigger::default(),
+            transcription.clone(),
+        );
+
+        handler.handle(&job(payload_with_fallback())).await.unwrap();
+
+        assert_eq!(*transcription.calls.lock().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn no_language_match_triggers_transcription_when_fallback_enabled() {
+        let transcription = MockTranscription::default();
+        let handler = SubtitlesJobHandler::new(
+            MockProvider {
+                mode: ProviderMode::Ok(vec![candidate("42", "fr")]),
+            },
+            MockCatalogRepo::new(),
+            MockStore::default(),
+            MockTrigger::default(),
+            transcription.clone(),
+        );
+
+        handler.handle(&job(payload_with_fallback())).await.unwrap();
+
+        assert_eq!(*transcription.calls.lock().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn miss_does_not_transcribe_without_fallback() {
+        let transcription = MockTranscription::default();
+        let handler = SubtitlesJobHandler::new(
+            MockProvider {
+                mode: ProviderMode::NotFound,
+            },
+            MockCatalogRepo::new(),
+            MockStore::default(),
+            MockTrigger::default(),
+            transcription.clone(),
+        );
+
+        handler.handle(&job(payload())).await.unwrap();
+
+        assert_eq!(*transcription.calls.lock().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn successful_fetch_does_not_transcribe() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
+        let transcription = MockTranscription::default();
+        let handler = SubtitlesJobHandler::new(
+            MockProvider {
+                mode: ProviderMode::Ok(vec![candidate("42", "en")]),
+            },
+            catalog,
+            MockStore::default(),
+            MockTrigger::default(),
+            transcription.clone(),
+        );
+
+        handler.handle(&job(payload_with_fallback())).await.unwrap();
+
+        assert_eq!(*transcription.calls.lock().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn transcription_trigger_failure_is_retryable() {
+        let handler = SubtitlesJobHandler::new(
+            MockProvider {
+                mode: ProviderMode::NotFound,
+            },
+            MockCatalogRepo::new(),
+            MockStore::default(),
+            MockTrigger::default(),
+            MockTranscription {
+                fail: true,
+                ..MockTranscription::default()
+            },
+        );
+
+        assert!(matches!(
+            handler
+                .handle(&job(payload_with_fallback()))
+                .await
+                .unwrap_err(),
+            JobError::Retryable(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn re_pull_prunes_translation_orphaned_by_replaced_source() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
+        catalog
+            .set_subtitle_files(
+                &VersionId("v1".into()),
+                &[
+                    SubtitleFile {
+                        id: SubtitleFileId("opensubtitles:v1:old".into()),
+                        version: VersionId("v1".into()),
+                        language: Some(LanguageCode("en".into())),
+                        format: SubtitleFormat::Srt,
+                        source: SubtitleSource::OpenSubtitles,
+                        path: "/subs/old.srt".into(),
+                        translated_from: None,
+                    },
+                    SubtitleFile {
+                        id: SubtitleFileId("machine:v1:fr".into()),
+                        version: VersionId("v1".into()),
+                        language: Some(LanguageCode("fr".into())),
+                        format: SubtitleFormat::Vtt,
+                        source: SubtitleSource::MachineTranslated,
+                        path: "/subs/fr.vtt".into(),
+                        translated_from: Some(SubtitleFileId("opensubtitles:v1:old".into())),
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+        let handler = SubtitlesJobHandler::new(
+            MockProvider {
+                mode: ProviderMode::Ok(vec![candidate("42", "en")]),
+            },
+            catalog.clone(),
+            MockStore::default(),
+            MockTrigger::default(),
+            MockTranscription::default(),
+        );
+
+        handler.handle(&job(payload())).await.unwrap();
+
+        let files = catalog
+            .version_detail(&VersionId("v1".into()))
+            .await
+            .unwrap()
+            .unwrap()
+            .subtitle_files;
+        assert!(
+            files
+                .iter()
+                .all(|f| f.source != SubtitleSource::MachineTranslated)
+        );
+        assert!(files.iter().any(|f| f.id.0 == "opensubtitles:v1:42"));
     }
 }

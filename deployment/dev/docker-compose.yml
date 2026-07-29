@@ -2,10 +2,11 @@ name: shadowmask-dev
 
 services:
   shadowmask:
-    image: ghcr.io/sndnv/shadowmask/server:dev-latest
+    image: ghcr.io/sndnv/shadowmask/server:dev-latest-enrichment
     build:
       context: ../..
       dockerfile: Dockerfile
+      target: runtime-enrichment
     restart: unless-stopped
     init: true
     stop_grace_period: 40s
@@ -20,12 +21,18 @@ services:
       SHADOWMASK_BOOTSTRAP_MODE: "init-and-start"
       SHADOWMASK_ADMIN_USERNAME: "admin"
       SHADOWMASK_ADMIN_PASSWORD: "${SHADOWMASK_ADMIN_PASSWORD:-passw0rd}"
+      SHADOWMASK_ENRICHMENT_MODEL_CACHE: "/models"
+      SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED: "${SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED:-true}"
+      SHADOWMASK_ENRICHMENT_TRANSLATION_ENABLED: "${SHADOWMASK_ENRICHMENT_TRANSLATION_ENABLED:-true}"
+      SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX: "<2{target}>"
+      SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED: "${SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED:-true}"
     volumes:
       - shadowmask-data:/data
       - ./config/bootstrap:/config/bootstrap:ro
       - ../../clients/basic:/usr/share/shadowmask/basic:ro
       - "${SHADOWMASK_MOVIES_DIR:-./media/movies}:/media/movies:ro"
       - "${SHADOWMASK_TV_DIR:-./media/tv}:/media/tv:ro"
+      - "${SHADOWMASK_MODELS_DIR:-./models}:/models:ro"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
       interval: 10s

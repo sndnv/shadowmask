@@ -30,6 +30,8 @@ ENV SHADOWMASK_DB_ROOT=/data \
     SHADOWMASK_TRANSCODE_CACHE=/data/transcode \
     SHADOWMASK_ARTWORK_CACHE=/data/artwork \
     SHADOWMASK_TRICKPLAY_CACHE=/data/trickplay \
+    SHADOWMASK_SUBTITLE_CACHE=/data/subtitles \
+    SHADOWMASK_JOB_LOG_DIR=/data/job-logs \
     SHADOWMASK_BOOTSTRAP_DIR=/config/bootstrap \
     SHADOWMASK_BASIC_CLIENT_DIR=/usr/share/shadowmask/basic
 WORKDIR /config
@@ -40,3 +42,30 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8080/health || exit 1
 ENTRYPOINT ["shadowmask"]
 CMD ["service"]
+
+FROM rust:1.96-slim-bookworm AS builder-enrichment
+WORKDIR /build
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+        cmake \
+        g++ \
+        make \
+        libopenblas-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/build/target \
+    cargo build --release --locked -p server --features enrichment \
+    && cp target/release/server /usr/local/bin/shadowmask
+
+FROM runtime AS runtime-enrichment
+USER root
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+        libopenblas0 \
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder-enrichment /usr/local/bin/shadowmask /usr/local/bin/shadowmask
+COPY licenses/ /usr/share/doc/shadowmask/third-party-licenses/
+USER 1001:0

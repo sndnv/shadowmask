@@ -338,6 +338,12 @@ impl CatalogRepository for MockCatalogRepo {
         Ok(paginate(&matched, page))
     }
 
+    async fn list_all_versions(&self, page: PageRequest) -> Result<Page<Version>, RepositoryError> {
+        self.guard()?;
+        let all: Vec<Version> = self.state.lock().unwrap().versions.to_vec();
+        Ok(paginate(&all, page))
+    }
+
     async fn version_detail(
         &self,
         id: &VersionId,

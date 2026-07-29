@@ -52,6 +52,7 @@ mod tests {
             updated_at: now,
             started_at: None,
             finished_at: None,
+            parent_id: None,
         }
     }
 

@@ -24,7 +24,7 @@ use domain::repository::{
     SearchIndex, UserRepository,
 };
 use domain::user::{PendingLink, Role, User, UserId};
-use server::{Built, Repos, WireConfig, app, build_state};
+use server::{Built, CapabilityInputs, Repos, WireConfig, app, build_state, server_capabilities};
 use services::password;
 
 const LINK_EXPIRES_AT: i64 = 4_102_444_800;
@@ -39,6 +39,10 @@ fn config(root: &Path) -> WireConfig {
         artwork_cache: root.join("artwork"),
         trickplay_cache: root.join("trickplay"),
         tmdb_api_key: None,
+        transcription_enabled: true,
+        translation_enabled: true,
+        upscaling_enabled: true,
+        vaapi_device: None,
     }
 }
 
@@ -105,6 +109,7 @@ fn direct_v1_detail() -> VersionDetail {
             format: SubtitleFormat::Srt,
             source: SubtitleSource::External,
             path: "/media/v1.en.srt".into(),
+            translated_from: None,
         }],
         chapters: Vec::new(),
         markers: DetectedMarkers {
@@ -255,14 +260,29 @@ async fn seed(repos: &Repos, hash: &str) {
 async fn seeded(db_root: &Path, hash: &str) -> (Repos, Router) {
     let repos = Repos::connect(db_root).await.unwrap();
     seed(&repos, hash).await;
+    let cfg = config(db_root);
     let Built {
         state,
         stream,
         images,
         trickplay,
         ..
-    } = build_state(&repos, &config(db_root)).unwrap();
-    (repos, app(state, stream, images, trickplay, Vec::new()))
+    } = build_state(&repos, &cfg).unwrap();
+    let capabilities = server_capabilities(CapabilityInputs {
+        transcription: cfg.transcription_enabled,
+        translation: cfg.translation_enabled,
+        upscaling: cfg.upscaling_enabled,
+        opensubtitles: false,
+        tmdb: cfg.tmdb_api_key.is_some(),
+        tls: false,
+        webhooks: false,
+        hardware_transcode_available: false,
+        hardware_transcode_enabled: false,
+    });
+    (
+        repos,
+        app(state, stream, images, trickplay, Vec::new(), capabilities),
+    )
 }
 
 fn method(name: &str) -> Method {

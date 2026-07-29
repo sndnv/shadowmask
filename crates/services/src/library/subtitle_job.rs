@@ -9,6 +9,7 @@ pub struct SubtitleJobPayload {
     pub languages: Vec<String>,
     pub season: Option<u16>,
     pub episode: Option<u16>,
+    pub transcribe_on_miss: bool,
 }
 
 impl SubtitleJobPayload {
@@ -29,6 +30,8 @@ struct Wire {
     languages: Vec<String>,
     season: Option<u16>,
     episode: Option<u16>,
+    #[serde(default)]
+    transcribe_on_miss: bool,
 }
 
 impl From<&SubtitleJobPayload> for Wire {
@@ -40,6 +43,7 @@ impl From<&SubtitleJobPayload> for Wire {
             languages: payload.languages.clone(),
             season: payload.season,
             episode: payload.episode,
+            transcribe_on_miss: payload.transcribe_on_miss,
         }
     }
 }
@@ -53,6 +57,7 @@ impl From<Wire> for SubtitleJobPayload {
             languages: wire.languages,
             season: wire.season,
             episode: wire.episode,
+            transcribe_on_miss: wire.transcribe_on_miss,
         }
     }
 }
@@ -70,9 +75,20 @@ mod tests {
             languages: vec!["en".into(), "es".into()],
             season: Some(1),
             episode: Some(2),
+            transcribe_on_miss: true,
         };
         let encoded = payload.encode().unwrap();
         assert_eq!(SubtitleJobPayload::decode(&encoded).unwrap(), payload);
+    }
+
+    #[test]
+    fn decode_defaults_missing_transcribe_on_miss_to_false() {
+        let legacy = r#"{"version_id":"v1","imdb_id":null,"title":null,"languages":[],"season":null,"episode":null}"#;
+        assert!(
+            !SubtitleJobPayload::decode(legacy)
+                .unwrap()
+                .transcribe_on_miss
+        );
     }
 
     #[test]

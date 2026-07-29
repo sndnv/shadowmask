@@ -2,6 +2,8 @@ name: shadowmask
 
 services:
   shadowmask:
+    # For local AI (enrichment), use the -enrichment image, e.g.:
+    #   ghcr.io/sndnv/shadowmask/server:${SHADOWMASK_VERSION:-latest}-enrichment
     image: ghcr.io/sndnv/shadowmask/server:${SHADOWMASK_VERSION:-latest}
     restart: always
     init: true
@@ -19,10 +21,24 @@ services:
       # own reverse proxy). When enabled, update the healthcheck below to https (curl -k).
       # SHADOWMASK_TLS_CERT: "/config/tls/cert.pem"
       # SHADOWMASK_TLS_KEY: "/config/tls/key.pem"
+      # Video encoder: auto (default; VAAPI when /dev/dri is passed through, else software), off, or
+      # vaapi. Uncomment the devices block below to give the container the GPU.
+      # SHADOWMASK_HARDWARE_ACCELERATION: "auto"
+      # Optional local AI (enrichment): needs the -enrichment image above and CTranslate2 models
+      # mounted at /models (see deployment/ENRICHMENT.md).
+      # SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED: "true"
+      # SHADOWMASK_ENRICHMENT_TRANSLATION_ENABLED: "true"
+      # SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED: "true"
+      # SHADOWMASK_ENRICHMENT_MODEL_CACHE: "/models"
+      # For a multilingual translation model, set the language-token prefix it expects, e.g.
+      # MADLAD: "<2{target}>" as SOURCE_PREFIX, or Opus-MT multilingual: ">>{target}<<".
+      # SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX: "<2{target}>"
+      # SHADOWMASK_ENRICHMENT_TRANSLATION_TARGET_PREFIX: "{target}"
     volumes:
       - ./local/data:/data
       - ./bootstrap:/config/bootstrap:ro
       # - ./tls:/config/tls:ro   # mount your cert + key here when using SHADOWMASK_TLS_* above
+      # - ./models:/models:ro    # CTranslate2 models for enrichment (see deployment/ENRICHMENT.md)
       - "${SHADOWMASK_MOVIES_DIR:?set SHADOWMASK_MOVIES_DIR to your movies library path}:/media/movies:ro"
       - "${SHADOWMASK_TV_DIR:?set SHADOWMASK_TV_DIR to your tv library path}:/media/tv:ro"
     healthcheck:

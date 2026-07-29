@@ -41,11 +41,24 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          target: runtime
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.REGISTRY }}/server:${{ steps.meta.outputs.version }}
             ${{ env.REGISTRY }}/server:latest
+
+      - name: Build and push enrichment server image
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294
+        with:
+          context: .
+          file: ./Dockerfile
+          target: runtime-enrichment
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.REGISTRY }}/server:${{ steps.meta.outputs.version }}-enrichment
+            ${{ env.REGISTRY }}/server:latest-enrichment
 
   release:
     permissions:

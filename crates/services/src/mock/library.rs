@@ -9,6 +9,7 @@ use domain::library::{
     DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryUpdate, NewLibrary,
     ResolveCandidate, ResolveTarget, ScanState, ScanStatus, UnmatchedFile, UnmatchedFileId,
 };
+use domain::media::SubtitleFileId;
 use domain::metadata::{ExternalId, MediaKind};
 use domain::service::LibraryService;
 use domain::user::Principal;
@@ -305,6 +306,45 @@ impl LibraryService for MockLibraryService {
         Ok(())
     }
 
+    async fn trigger_transcription(
+        &self,
+        _caller: &Principal,
+        _version: &VersionId,
+        _audio_track_index: Option<u32>,
+        _source_language: Option<String>,
+    ) -> Result<(), LibraryError> {
+        Ok(())
+    }
+
+    async fn trigger_translation(
+        &self,
+        _caller: &Principal,
+        _version: &VersionId,
+        _source_subtitle: &SubtitleFileId,
+        _target_language: String,
+    ) -> Result<(), LibraryError> {
+        Ok(())
+    }
+
+    async fn trigger_upscale(
+        &self,
+        _caller: &Principal,
+        _version: &VersionId,
+        _target_height: u32,
+    ) -> Result<(), LibraryError> {
+        Ok(())
+    }
+
+    async fn trigger_combine(
+        &self,
+        _caller: &Principal,
+        _version: &VersionId,
+        _primary: &SubtitleFileId,
+        _secondary: &SubtitleFileId,
+    ) -> Result<(), LibraryError> {
+        Ok(())
+    }
+
     async fn jobs(&self, _caller: &Principal) -> Result<Vec<Job>, LibraryError> {
         Ok(self.state.lock().unwrap().jobs.clone())
     }
@@ -448,6 +488,7 @@ mod tests {
             updated_at: now,
             started_at: None,
             finished_at: None,
+            parent_id: None,
         });
         assert_eq!(svc.jobs(&principal()).await.unwrap().len(), 1);
     }

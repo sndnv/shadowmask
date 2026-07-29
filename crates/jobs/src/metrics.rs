@@ -43,6 +43,10 @@ fn job_label(kind: JobKind) -> &'static str {
         JobKind::SearchReindex => "search_reindex",
         JobKind::Ingest => "ingest",
         JobKind::Relink => "relink",
+        JobKind::Transcription => "transcription",
+        JobKind::Translation => "translation",
+        JobKind::Upscale => "upscale",
+        JobKind::Combine => "combine",
     }
 }
 
@@ -64,6 +68,10 @@ mod tests {
             JobKind::SearchReindex,
             JobKind::Ingest,
             JobKind::Relink,
+            JobKind::Transcription,
+            JobKind::Translation,
+            JobKind::Upscale,
+            JobKind::Combine,
         ] {
             assert!(!job_label(kind).is_empty());
         }

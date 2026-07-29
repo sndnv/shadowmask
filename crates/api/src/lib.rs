@@ -7,10 +7,12 @@ pub mod pagination;
 pub mod router;
 pub mod state;
 
+pub use dto::server::Capability;
 pub use router::{
-    basic_ui_router, image_router, job_log_router, router, stream_router, trickplay_router,
-    webhook_router,
+    basic_ui_router, image_router, job_log_router, router, stream_router, subtitle_router,
+    trickplay_router, webhook_router,
 };
 pub use state::{
-    AppState, ImageState, JobLogState, StreamState, TrickplayState, WebhookClient, WebhookState,
+    AppState, ImageState, JobLogState, ServerCapabilities, StreamState, SubtitleState,
+    TrickplayState, WebhookClient, WebhookState,
 };

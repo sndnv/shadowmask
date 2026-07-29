@@ -4,6 +4,48 @@ expression: value
 ---
 {
   "body": {
+    "capabilities": [
+      {
+        "available": false,
+        "enabled": false,
+        "name": "transcription"
+      },
+      {
+        "available": false,
+        "enabled": false,
+        "name": "translation"
+      },
+      {
+        "available": true,
+        "enabled": true,
+        "name": "upscaling"
+      },
+      {
+        "available": true,
+        "enabled": false,
+        "name": "opensubtitles"
+      },
+      {
+        "available": true,
+        "enabled": false,
+        "name": "tmdb"
+      },
+      {
+        "available": true,
+        "enabled": false,
+        "name": "tls"
+      },
+      {
+        "available": true,
+        "enabled": false,
+        "name": "webhooks"
+      },
+      {
+        "available": false,
+        "enabled": false,
+        "name": "hardware_transcode"
+      }
+    ],
     "features": [
       "hls",
       "trickplay",

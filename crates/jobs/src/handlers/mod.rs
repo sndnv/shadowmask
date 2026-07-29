@@ -1,4 +1,5 @@
 mod artwork;
+mod combine;
 mod composite;
 mod ingest;
 mod library_scan;
@@ -6,9 +7,13 @@ mod metadata;
 mod relink;
 mod search_reindex;
 mod subtitles;
+mod transcription;
+mod translation;
 mod trickplay;
+mod upscale;
 
 pub use artwork::ArtworkJobHandler;
+pub use combine::CombineJobHandler;
 pub use composite::CompositeJobHandler;
 pub use ingest::IngestJobHandler;
 pub use library_scan::LibraryScanHandler;
@@ -16,4 +21,7 @@ pub use metadata::MetadataJobHandler;
 pub use relink::RelinkJobHandler;
 pub use search_reindex::SearchReindexHandler;
 pub use subtitles::SubtitlesJobHandler;
+pub use transcription::TranscriptionJobHandler;
+pub use translation::TranslationJobHandler;
 pub use trickplay::TrickplayJobHandler;
+pub use upscale::UpscaleJobHandler;

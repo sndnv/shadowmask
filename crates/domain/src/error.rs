@@ -68,6 +68,8 @@ pub enum LibraryError {
     ScanInProgress,
     #[error("access denied")]
     Forbidden,
+    #[error("feature disabled")]
+    Disabled,
     #[error(transparent)]
     Walk(#[from] WalkError),
     #[error(transparent)]
@@ -170,6 +172,32 @@ pub enum TranscodeError {
 pub enum TrickplayError {
     #[error("trickplay generation failed: {0}")]
     Backend(String),
+}
+
+#[derive(Debug, Error)]
+pub enum TranscriptionError {
+    #[error("transcription backend error: {0}")]
+    Backend(String),
+    #[error("unsupported transcription request: {0}")]
+    Unsupported(String),
+}
+
+#[derive(Debug, Error)]
+pub enum TranslationError {
+    #[error("translation backend error: {0}")]
+    Backend(String),
+    #[error("unsupported translation request: {0}")]
+    Unsupported(String),
+}
+
+#[derive(Debug, Error)]
+pub enum UpscaleError {
+    #[error("upscale backend error: {0}")]
+    Backend(String),
+    #[error("unsupported upscale request: {0}")]
+    Unsupported(String),
+    #[error("upscale precondition failed: {0}")]
+    Precondition(String),
 }
 
 #[derive(Debug, Error)]

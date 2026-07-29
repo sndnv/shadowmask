@@ -1,5 +1,7 @@
 use domain::session::{Segment, SegmentPlan, SoftSubtitleSource, TranscodeSpec};
 
+use crate::transcode::VideoEncoder;
+
 pub(crate) const TARGET_MS: u64 = 4_000;
 
 pub(crate) fn media_playlist(plan: &SegmentPlan) -> String {
@@ -33,18 +35,23 @@ pub(crate) fn build_segment_args(
     spec: &TranscodeSpec,
     segment: &Segment,
     out_path: &str,
+    encoder: &VideoEncoder,
 ) -> Vec<String> {
     let start = segment.start_ms as f64 / 1000.0;
     let duration = segment.duration_ms as f64 / 1000.0;
-    let mut args = vec![
-        "-y".to_owned(),
-        "-ss".to_owned(),
-        format!("{start:.3}"),
-        "-i".to_owned(),
-        spec.input_path.clone(),
-        "-t".to_owned(),
-        format!("{duration:.3}"),
-    ];
+    let mut args = vec!["-y".to_owned()];
+    if let VideoEncoder::Vaapi { device } = encoder
+        && !spec.copy
+    {
+        args.push("-vaapi_device".to_owned());
+        args.push(device.clone());
+    }
+    args.push("-ss".to_owned());
+    args.push(format!("{start:.3}"));
+    args.push("-i".to_owned());
+    args.push(spec.input_path.clone());
+    args.push("-t".to_owned());
+    args.push(format!("{duration:.3}"));
     if let Some(idx) = spec.audio_track {
         args.push("-map".to_owned());
         args.push("0:v:0".to_owned());
@@ -55,16 +62,24 @@ pub(crate) fn build_segment_args(
         args.push("-c".to_owned());
         args.push("copy".to_owned());
     } else {
-        if let Some(filter) = video_filter(spec) {
+        if let Some(filter) = video_filter(spec, encoder) {
             args.push("-vf".to_owned());
             args.push(filter);
         }
-        args.push("-c:v".to_owned());
-        args.push("libx264".to_owned());
-        args.push("-preset".to_owned());
-        args.push("veryfast".to_owned());
-        args.push("-pix_fmt".to_owned());
-        args.push("yuv420p".to_owned());
+        match encoder {
+            VideoEncoder::Vaapi { .. } => {
+                args.push("-c:v".to_owned());
+                args.push("h264_vaapi".to_owned());
+            }
+            VideoEncoder::Software => {
+                args.push("-c:v".to_owned());
+                args.push("libx264".to_owned());
+                args.push("-preset".to_owned());
+                args.push("veryfast".to_owned());
+                args.push("-pix_fmt".to_owned());
+                args.push("yuv420p".to_owned());
+            }
+        }
         args.push("-c:a".to_owned());
         args.push("aac".to_owned());
         if spec.downmix_stereo {
@@ -120,7 +135,7 @@ pub(crate) fn subtitle_media_playlist(duration_ms: u64, vtt_name: &str) -> Strin
     )
 }
 
-fn video_filter(spec: &TranscodeSpec) -> Option<String> {
+fn video_filter(spec: &TranscodeSpec, encoder: &VideoEncoder) -> Option<String> {
     let mut filters = Vec::new();
     if let Some(path) = &spec.burn_subtitle_path {
         filters.push(format!(
@@ -130,6 +145,10 @@ fn video_filter(spec: &TranscodeSpec) -> Option<String> {
     }
     if let Some(height) = spec.max_height {
         filters.push(format!("scale=-2:{height}"));
+    }
+    if encoder.is_hardware() {
+        filters.push("format=nv12".to_owned());
+        filters.push("hwupload".to_owned());
     }
     if filters.is_empty() {
         None
@@ -173,7 +192,23 @@ mod tests {
     }
 
     fn args_for(spec: &TranscodeSpec) -> Vec<String> {
-        build_segment_args(spec, &segment(), "/cache/s1/v0/seg_00002.ts")
+        build_segment_args(
+            spec,
+            &segment(),
+            "/cache/s1/v0/seg_00002.ts",
+            &VideoEncoder::Software,
+        )
+    }
+
+    fn vaapi_args_for(spec: &TranscodeSpec) -> Vec<String> {
+        build_segment_args(
+            spec,
+            &segment(),
+            "/cache/s1/v0/seg_00002.ts",
+            &VideoEncoder::Vaapi {
+                device: "/dev/dri/renderD128".to_owned(),
+            },
+        )
     }
 
     fn pair_after(args: &[String], flag: &str) -> Option<String> {
@@ -311,6 +346,51 @@ mod tests {
         let args = args_for(&spec);
         assert_eq!(pair_after(&args, "-maxrate").as_deref(), Some("4000000"));
         assert_eq!(pair_after(&args, "-bufsize").as_deref(), Some("8000000"));
+    }
+
+    #[test]
+    fn segment_vaapi_uses_hardware_encoder_and_upload() {
+        let args = vaapi_args_for(&base_spec());
+        assert_eq!(
+            pair_after(&args, "-vaapi_device").as_deref(),
+            Some("/dev/dri/renderD128")
+        );
+        assert_eq!(pair_after(&args, "-c:v").as_deref(), Some("h264_vaapi"));
+        assert_eq!(
+            pair_after(&args, "-vf").as_deref(),
+            Some("format=nv12,hwupload")
+        );
+        assert!(!args.iter().any(|a| a == "libx264"));
+        assert!(!args.iter().any(|a| a == "-preset"));
+        assert!(!args.iter().any(|a| a == "-pix_fmt"));
+        let device = args.iter().position(|a| a == "-vaapi_device").unwrap();
+        let input = args.iter().position(|a| a == "-i").unwrap();
+        assert!(device < input);
+    }
+
+    #[test]
+    fn segment_vaapi_appends_hwupload_after_scale_and_burn() {
+        let spec = TranscodeSpec {
+            burn_subtitle_path: Some("/media/movie.srt".to_owned()),
+            max_height: Some(480),
+            ..base_spec()
+        };
+        assert_eq!(
+            pair_after(&vaapi_args_for(&spec), "-vf").as_deref(),
+            Some("subtitles=filename='/media/movie.srt',scale=-2:480,format=nv12,hwupload")
+        );
+    }
+
+    #[test]
+    fn segment_vaapi_copy_skips_device_and_encoder() {
+        let spec = TranscodeSpec {
+            copy: true,
+            ..base_spec()
+        };
+        let args = vaapi_args_for(&spec);
+        assert!(!args.iter().any(|a| a == "-vaapi_device"));
+        assert!(!args.iter().any(|a| a == "h264_vaapi"));
+        assert_eq!(pair_after(&args, "-c").as_deref(), Some("copy"));
     }
 
     #[test]

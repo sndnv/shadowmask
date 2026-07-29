@@ -33,7 +33,11 @@ where
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         let payload = ArtworkJobPayload::decode(&job.payload)
             .map_err(|e| JobError::Permanent(format!("invalid artwork payload: {e}")))?;
-        tracing::info!("generating artwork");
+        tracing::info!(
+            "generating artwork for [{:?}] ({} item(s))",
+            payload.owner,
+            payload.items.len()
+        );
 
         let mut refs = Vec::new();
         for item in &payload.items {
@@ -173,6 +177,7 @@ mod tests {
             updated_at: now,
             started_at: None,
             finished_at: None,
+            parent_id: None,
         }
     }
 

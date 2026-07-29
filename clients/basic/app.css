@@ -317,6 +317,21 @@ tbody tr:hover {
   background: #f0f3f8;
 }
 
+tbody tr.sm-row-running {
+  background: #e6f4ea;
+}
+
+tbody tr.sm-row-pending {
+  background: #fdf1e0;
+}
+
+.sm-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  min-width: 24em;
+  overflow-wrap: anywhere;
+}
+
 label {
   display: inline-block;
   margin: 4px 0;

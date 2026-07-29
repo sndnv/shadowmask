@@ -11,5 +11,6 @@ CREATE TABLE jobs (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     started_at INTEGER,
-    finished_at INTEGER
+    finished_at INTEGER,
+    parent_id TEXT
 );

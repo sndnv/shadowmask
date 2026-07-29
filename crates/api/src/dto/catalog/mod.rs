@@ -1,4 +1,5 @@
 mod collection;
+mod combine_request;
 mod create_collection_request;
 mod detail;
 mod episode;
@@ -10,12 +11,17 @@ mod relink_request;
 mod season;
 mod series;
 mod series_detail;
+mod subtitle_text;
 mod title_batch;
+mod transcribe_request;
+mod translate_request;
 mod update_collection_request;
+mod upscale_request;
 mod version;
 mod version_detail;
 
 pub use collection::CollectionResponse;
+pub use combine_request::CombineRequest;
 pub use create_collection_request::CreateCollectionRequest;
 pub use detail::{
     CreditDto, CreditRoleDto, ExternalIdDto, ExtraDto, ExtraKindDto, GenreDto, PersonRefDto,
@@ -30,7 +36,11 @@ pub use relink_request::RelinkRequest;
 pub use season::SeasonResponse;
 pub use series::SeriesResponse;
 pub use series_detail::SeriesDetailResponse;
+pub use subtitle_text::SubtitleTextResponse;
 pub use title_batch::{TitleBatchRequest, TitleCardResponse};
+pub use transcribe_request::TranscribeRequest;
+pub use translate_request::TranslateRequest;
 pub use update_collection_request::UpdateCollectionRequest;
+pub use upscale_request::UpscaleRequest;
 pub use version::VersionResponse;
 pub use version_detail::{MarkersDto, TrickplayRefDto, VersionDetailResponse};

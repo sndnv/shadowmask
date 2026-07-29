@@ -15,7 +15,7 @@ use domain::session::{
 
 use crate::probe::FfprobeMediaProbe;
 use crate::transcode::{
-    ProcessSpawner, TARGET_MS, TokioProcessSpawner, build_segment_args,
+    ProcessSpawner, TARGET_MS, TokioProcessSpawner, VideoEncoder, build_segment_args,
     build_subtitle_extract_args, media_playlist, segment_file_name, subtitle_media_playlist,
 };
 
@@ -43,6 +43,7 @@ struct Inner<S, P> {
     binary: String,
     cache_root: PathBuf,
     idle_timeout: SignedDuration,
+    encoder: VideoEncoder,
     spawner: S,
     prober: P,
     sessions: RwLock<HashMap<SessionId, Session>>,
@@ -81,6 +82,7 @@ impl<S: ProcessSpawner, P: KeyframeProbe> HlsStreamSource<S, P> {
                 binary: DEFAULT_BINARY.to_owned(),
                 cache_root: cache_root.into(),
                 idle_timeout: DEFAULT_IDLE_TIMEOUT,
+                encoder: VideoEncoder::Software,
                 spawner,
                 prober,
                 sessions: RwLock::new(HashMap::new()),
@@ -92,6 +94,13 @@ impl<S: ProcessSpawner, P: KeyframeProbe> HlsStreamSource<S, P> {
     pub fn with_idle_timeout(mut self, idle_timeout: SignedDuration) -> Self {
         if let Some(inner) = Arc::get_mut(&mut self.inner) {
             inner.idle_timeout = idle_timeout;
+        }
+        self
+    }
+
+    pub fn with_encoder(mut self, encoder: VideoEncoder) -> Self {
+        if let Some(inner) = Arc::get_mut(&mut self.inner) {
+            inner.encoder = encoder;
         }
         self
     }
@@ -138,7 +147,7 @@ impl<S: ProcessSpawner, P: KeyframeProbe> HlsStreamSource<S, P> {
             return Err(StreamError::Invalid);
         }
         let index = parse_segment_index(file).ok_or(StreamError::Invalid)?;
-        let (out_path, args) = {
+        let (out_path, attempts) = {
             let sessions = self.inner.sessions.read().unwrap();
             let entry = sessions.get(session).ok_or(StreamError::NotLive)?;
             let jit = entry.jit.as_ref().ok_or(StreamError::Invalid)?;
@@ -148,8 +157,22 @@ impl<S: ProcessSpawner, P: KeyframeProbe> HlsStreamSource<S, P> {
                 .output_dir
                 .join(VARIANT)
                 .join(segment_file_name(index));
-            let args = build_segment_args(&jit.spec, segment, &out_path.to_string_lossy());
-            (out_path, args)
+            let out = out_path.to_string_lossy().into_owned();
+            let mut attempts = vec![build_segment_args(
+                &jit.spec,
+                segment,
+                &out,
+                &self.inner.encoder,
+            )];
+            if self.inner.encoder.is_hardware() {
+                attempts.push(build_segment_args(
+                    &jit.spec,
+                    segment,
+                    &out,
+                    &VideoEncoder::Software,
+                ));
+            }
+            (out_path, attempts)
         };
         if out_path.exists() {
             self.touch_now(session);
@@ -161,13 +184,15 @@ impl<S: ProcessSpawner, P: KeyframeProbe> HlsStreamSource<S, P> {
             self.touch_now(session);
             return Ok(());
         }
-        let produced = self
-            .inner
-            .spawner
-            .run(&self.inner.binary, &args)
-            .await
-            .map_err(|_| StreamError::Invalid)?;
-        if !produced || !out_path.exists() {
+        let mut produced = false;
+        for args in &attempts {
+            let ran = self.inner.spawner.run(&self.inner.binary, args).await;
+            if matches!(ran, Ok(true)) && out_path.exists() {
+                produced = true;
+                break;
+            }
+        }
+        if !produced {
             return Err(StreamError::Invalid);
         }
         self.touch_now(session);
@@ -484,6 +509,24 @@ mod tests {
     }
 
     #[derive(Clone, Default)]
+    struct FailFirstSpawner {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl ProcessSpawner for FailFirstSpawner {
+        async fn run(&self, _program: &str, args: &[String]) -> std::io::Result<bool> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            if call == 0 {
+                return Ok(false);
+            }
+            if let Some(out) = args.last() {
+                std::fs::write(out, b"SEGMENT").ok();
+            }
+            Ok(true)
+        }
+    }
+
+    #[derive(Clone, Default)]
     struct MockProbe {
         keyframes: Vec<u64>,
         fail: bool,
@@ -786,6 +829,32 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(spawner.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn hardware_segment_failure_falls_back_to_software() {
+        let spawner = FailFirstSpawner::default();
+        let prober = MockProbe {
+            keyframes: vec![4_000, 8_000],
+            fail: false,
+        };
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src = HlsStreamSource::with_parts(dir.path(), spawner.clone(), prober).with_encoder(
+            VideoEncoder::Vaapi {
+                device: "/dev/dri/renderD128".to_owned(),
+            },
+        );
+        let started = src.start(spec("s1", 12_000)).await.expect("start");
+        src.register(
+            SessionId("s1".to_owned()),
+            transcode_registration(PathBuf::from(&started.output_dir)),
+        );
+        let path = src
+            .media_path(&claims("s1"), "v0", "seg_00000.ts")
+            .await
+            .unwrap();
+        assert!(path.exists());
+        assert_eq!(spawner.calls.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
