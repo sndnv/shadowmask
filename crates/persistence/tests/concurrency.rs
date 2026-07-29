@@ -28,6 +28,7 @@ fn job(id: &str, now: Timestamp) -> Job {
         updated_at: now,
         started_at: None,
         finished_at: None,
+        parent_id: None,
     }
 }
 
@@ -46,7 +47,9 @@ async fn concurrent_claim_ready_never_double_claims() {
     for _ in 0..12 {
         let repo = repo.clone();
         handles.push(tokio::spawn(async move {
-            repo.claim_ready(now, 1).await.unwrap()
+            repo.claim_ready(now, 1, vec![JobKind::LibraryScan])
+                .await
+                .unwrap()
         }));
     }
 

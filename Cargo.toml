@@ -18,6 +18,7 @@ services = { path = "crates/services" }
 jobs = { path = "crates/jobs" }
 api = { path = "crates/api" }
 contracts = { path = "crates/contracts" }
+inference = { path = "crates/inference" }
 
 tokio = "1"
 lru = "0.18"

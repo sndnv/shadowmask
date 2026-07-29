@@ -43,22 +43,64 @@
             main.appendChild(sm.el("p", { text: "No jobs." }));
             return;
           }
-          const rows = jobs.map((j) => [
-            sm.el("a", { href: "job.html?id=" + encodeURIComponent(j.id) }, j.id),
-            j.kind,
-            j.status,
-            String(j.priority),
-            Math.round(j.progress * 100) + "%",
-            String(j.attempts),
-            sm.time(j.started_at),
-            sm.time(j.finished_at),
-            j.last_error || "",
-          ]);
+          const rank = (s) => (s === "queued" ? 0 : s === "running" ? 1 : 2);
+          const byStatus = (a, b) => {
+            const byRank = rank(a.status) - rank(b.status);
+            if (byRank !== 0) return byRank;
+            if (a.started_at && b.started_at) return b.started_at.localeCompare(a.started_at);
+            if (a.started_at) return -1;
+            if (b.started_at) return 1;
+            return (b.created_at || "").localeCompare(a.created_at || "");
+          };
+          const byId = new Map(jobs.map((j) => [j.id, j]));
+          const children = new Map();
+          for (const j of jobs) {
+            if (j.parent_id && byId.has(j.parent_id)) {
+              if (!children.has(j.parent_id)) children.set(j.parent_id, []);
+              children.get(j.parent_id).push(j);
+            }
+          }
+          const roots = jobs.filter((j) => !(j.parent_id && byId.has(j.parent_id))).sort(byStatus);
+          const rowFor = (j, depth) => {
+            const link = sm.el("a", { href: "job.html?id=" + encodeURIComponent(j.id) }, j.id);
+            const first = depth
+              ? sm.el("span", { style: "padding-left:" + depth * 1.5 + "em" }, ["↳ ", link])
+              : link;
+            const cells = [
+              first,
+              j.kind,
+              j.status,
+              String(j.priority),
+              Math.round(j.progress * 100) + "%",
+              String(j.attempts),
+              sm.time(j.started_at),
+              sm.time(j.finished_at),
+              j.last_error || "",
+            ];
+            const cls =
+              j.status === "running"
+                ? "sm-row-running"
+                : j.status === "queued"
+                  ? "sm-row-pending"
+                  : null;
+            return sm.el("tr", cls ? { class: cls } : null, cells.map((c) => sm.el("td", null, c)));
+          };
+          const rows = [];
+          const walk = (j, depth) => {
+            rows.push(rowFor(j, depth));
+            (children.get(j.id) || [])
+              .slice()
+              .sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""))
+              .forEach((k) => walk(k, depth + 1));
+          };
+          roots.forEach((r) => walk(r, 0));
+          const headers = ["Job", "Kind", "Status", "Priority", "Progress", "Attempts", "Started", "Finished", "Error"];
+          const tbody = sm.el("tbody", null, rows);
           main.appendChild(
-            sm.table(
-              ["Job", "Kind", "Status", "Priority", "Progress", "Attempts", "Started", "Finished", "Error"],
-              rows,
-            ),
+            sm.el("table", null, [
+              sm.el("thead", null, sm.el("tr", null, headers.map((h) => sm.el("th", { scope: "col" }, h)))),
+              tbody,
+            ]),
           );
         } catch (err) {
           main.textContent = "Could not load jobs.";

@@ -12,4 +12,8 @@ pub trait SubtitleStore {
         format: SubtitleFormat,
         content: &str,
     ) -> impl Future<Output = Result<String, SubtitleError>> + Send;
+
+    fn remove(&self, _path: &str) -> impl Future<Output = Result<(), SubtitleError>> + Send {
+        async { Ok(()) }
+    }
 }

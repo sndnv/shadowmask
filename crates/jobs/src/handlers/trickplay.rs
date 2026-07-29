@@ -25,7 +25,11 @@ where
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         let payload = TrickplayJobPayload::decode(&job.payload)
             .map_err(|e| JobError::Permanent(format!("invalid trickplay payload: {e}")))?;
-        tracing::info!("generating trickplay");
+        tracing::info!(
+            "generating trickplay for version [{}] from [{}]",
+            payload.version_id.0,
+            payload.source_path
+        );
         let asset = self
             .generator
             .generate(
@@ -119,6 +123,7 @@ mod tests {
             updated_at: now,
             started_at: None,
             finished_at: None,
+            parent_id: None,
         }
     }
 

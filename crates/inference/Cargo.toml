@@ -1,0 +1,26 @@
+[package]
+name = "inference"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+domain.workspace = true
+media.workspace = true
+subtp = "0.2"
+tokio = { workspace = true, features = ["fs", "rt"] }
+tracing.workspace = true
+uuid.workspace = true
+ct2rs = { version = "0.9", optional = true, features = ["whisper"] }
+
+[features]
+enrichment = ["dep:ct2rs"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

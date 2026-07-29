@@ -86,6 +86,7 @@ pub fn catalog_seed() -> CatalogSeed {
             format: SubtitleFormat::Srt,
             source: SubtitleSource::External,
             path: "/media/v1.en.srt".into(),
+            translated_from: None,
         }],
         chapters: vec![Chapter {
             title: "Chapter 1".into(),
@@ -471,6 +472,17 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     assert_eq!(lib2_versions.total, 1);
     assert_eq!(lib2_versions.items[0].id, VersionId("v3".into()));
     assert_eq!(lib2_versions.items[0].edition, None);
+
+    let all_versions = repo.list_all_versions(page(0, 10)).await.unwrap();
+    assert_eq!(all_versions.total, 3);
+    assert_eq!(
+        all_versions
+            .items
+            .iter()
+            .map(|v| v.id.0.as_str())
+            .collect::<Vec<_>>(),
+        ["v1", "v2", "v3"]
+    );
 
     assert_eq!(
         repo.titles_in_library(TitleKind::Movie, &LibraryId("lib1".into()))
@@ -891,14 +903,35 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     .unwrap();
     repo.set_subtitle_files(
         &uv1,
-        &[SubtitleFile {
-            id: SubtitleFileId("uv1-sf1".into()),
-            version: uv1.clone(),
-            language: Some(LanguageCode("de".into())),
-            format: SubtitleFormat::Vtt,
-            source: SubtitleSource::OpenSubtitles,
-            path: "/subs/uv1.de.vtt".into(),
-        }],
+        &[
+            SubtitleFile {
+                id: SubtitleFileId("uv1-sf1".into()),
+                version: uv1.clone(),
+                language: Some(LanguageCode("de".into())),
+                format: SubtitleFormat::Vtt,
+                source: SubtitleSource::OpenSubtitles,
+                path: "/subs/uv1.de.vtt".into(),
+                translated_from: None,
+            },
+            SubtitleFile {
+                id: SubtitleFileId("uv1-sf2".into()),
+                version: uv1.clone(),
+                language: Some(LanguageCode("en".into())),
+                format: SubtitleFormat::Vtt,
+                source: SubtitleSource::Generated,
+                path: "/subs/uv1.en.generated.vtt".into(),
+                translated_from: None,
+            },
+            SubtitleFile {
+                id: SubtitleFileId("uv1-sf3".into()),
+                version: uv1.clone(),
+                language: Some(LanguageCode("fr".into())),
+                format: SubtitleFormat::Vtt,
+                source: SubtitleSource::MachineTranslated,
+                path: "/subs/uv1.fr.machine.vtt".into(),
+                translated_from: Some(SubtitleFileId("uv1-sf1".into())),
+            },
+        ],
     )
     .await
     .unwrap();
@@ -916,10 +949,24 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     assert_eq!(uv1_detail.trickplay[0].columns, 8);
     assert_eq!(uv1_detail.trickplay[0].rows, 8);
     assert_eq!(uv1_detail.trickplay[0].sheet_paths.len(), 1);
-    assert_eq!(uv1_detail.subtitle_files.len(), 1);
-    assert_eq!(
-        uv1_detail.subtitle_files[0].source,
-        SubtitleSource::OpenSubtitles
+    assert_eq!(uv1_detail.subtitle_files.len(), 3);
+    assert!(
+        uv1_detail
+            .subtitle_files
+            .iter()
+            .any(|f| f.source == SubtitleSource::OpenSubtitles)
+    );
+    assert!(
+        uv1_detail
+            .subtitle_files
+            .iter()
+            .any(|f| f.source == SubtitleSource::Generated)
+    );
+    assert!(
+        uv1_detail
+            .subtitle_files
+            .iter()
+            .any(|f| f.source == SubtitleSource::MachineTranslated)
     );
     assert_eq!(uv1_detail.subtitle_files[0].format, SubtitleFormat::Vtt);
 

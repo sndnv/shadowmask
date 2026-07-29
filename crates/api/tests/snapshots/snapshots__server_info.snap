@@ -4,6 +4,7 @@ expression: value
 ---
 {
   "body": {
+    "capabilities": [],
     "features": [
       "hls",
       "trickplay",

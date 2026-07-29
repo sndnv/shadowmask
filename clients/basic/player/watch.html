@@ -321,10 +321,10 @@
           (t.hdr ? " " + t.hdr : "") + " " + t.frame_rate + "fps",
         );
         trackList(box, "Audio", v.audio, (t) =>
-          t.codec + " " + t.channels + "ch" + (t.language ? " " + t.language : ""),
+          t.codec + " " + t.channels + "ch" + (t.language ? " " + sm.lang(t.language) : ""),
         );
         trackList(box, "Subtitles", v.subtitles, (t) =>
-          t.format + (t.language ? " " + t.language : "") +
+          t.format + (t.language ? " " + sm.lang(t.language) : "") +
           (t.forced ? " forced" : "") + (t.default ? " default" : ""),
         );
         if (v.chapters && v.chapters.length) {
@@ -392,12 +392,12 @@
                 sm.el(
                   "option",
                   { value: String(a.index) },
-                  "Audio " + a.index + " " + a.codec + (a.language ? " " + a.language : ""),
+                  "Audio " + a.index + " " + a.codec + (a.language ? " " + sm.lang(a.language) : ""),
                 ),
               )
             : [sm.el("option", { value: "" }, "No audio")];
           const select = sm.el("select", null, options);
-          if (audio.length < 2) select.disabled = true;
+          if (!audio.length) select.disabled = true;
           if (session.selected && session.selected.audio_track != null) {
             select.value = String(session.selected.audio_track);
           }
@@ -415,7 +415,7 @@
               sm.el(
                 "option",
                 { value: "embedded:" + s.index },
-                "Sub " + s.index + " " + s.format + (s.language ? " " + s.language : ""),
+                "Sub " + s.index + " " + s.format + (s.language ? " " + sm.lang(s.language) : ""),
               ),
             );
           });
@@ -424,7 +424,7 @@
               sm.el(
                 "option",
                 { value: "file:" + f.id },
-                (f.language || "und") + " " + f.format + " (" + f.source + ")",
+                sm.lang(f.language) + " " + f.format + " (" + f.source + ")",
               ),
             );
           });

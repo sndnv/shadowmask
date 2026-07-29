@@ -21,6 +21,7 @@ fn job(id: &str, priority: JobPriority, available_at: Timestamp, created_at: Tim
         updated_at: created_at,
         started_at: None,
         finished_at: None,
+        parent_id: None,
     }
 }
 
@@ -77,17 +78,28 @@ pub async fn job_repository_contract<R: JobRepository>(repo: R) {
         ]
     );
 
-    let first = repo.claim_ready(now, 1).await.unwrap();
+    let first = repo
+        .claim_ready(now, 1, vec![JobKind::LibraryScan])
+        .await
+        .unwrap();
     assert_eq!(ids(&first), ["high"]);
     assert!(first.iter().all(|j| j.status == JobStatus::Running));
     assert!(first.iter().all(|j| j.started_at == Some(now)));
 
-    let rest = repo.claim_ready(now, 10).await.unwrap();
+    let rest = repo
+        .claim_ready(now, 10, vec![JobKind::LibraryScan])
+        .await
+        .unwrap();
     assert_eq!(ids(&rest), ["normal-old", "normal-new", "low"]);
     assert!(rest.iter().all(|j| j.status == JobStatus::Running));
     assert!(rest.iter().all(|j| j.started_at == Some(now)));
 
-    assert!(repo.claim_ready(now, 10).await.unwrap().is_empty());
+    assert!(
+        repo.claim_ready(now, 10, vec![JobKind::LibraryScan])
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     let mut done = repo.get(&JobId("high".into())).await.unwrap().unwrap();
     done.status = JobStatus::Succeeded;
@@ -117,9 +129,43 @@ pub async fn job_repository_contract<R: JobRepository>(repo: R) {
             .status,
         JobStatus::Succeeded
     );
-    let reclaimed_jobs = repo.claim_ready(now, 10).await.unwrap();
+    let reclaimed_jobs = repo
+        .claim_ready(now, 10, vec![JobKind::LibraryScan])
+        .await
+        .unwrap();
     assert_eq!(
         ids(&reclaimed_jobs),
         ["running", "normal-old", "normal-new", "low"]
+    );
+
+    repo.enqueue(job("scan-2", JobPriority::Normal, now, now))
+        .await
+        .unwrap();
+    let mut transcribe = job("transcribe-1", JobPriority::High, now, now);
+    transcribe.kind = JobKind::Transcription;
+    repo.enqueue(transcribe).await.unwrap();
+    let scans = repo
+        .claim_ready(now, 10, vec![JobKind::LibraryScan])
+        .await
+        .unwrap();
+    assert_eq!(ids(&scans), ["scan-2"]);
+    let transcribes = repo
+        .claim_ready(now, 10, vec![JobKind::Transcription])
+        .await
+        .unwrap();
+    assert_eq!(ids(&transcribes), ["transcribe-1"]);
+
+    let mut child = job("child-1", JobPriority::Low, now, now);
+    child.parent_id = Some(JobId("scan-2".into()));
+    repo.enqueue(child).await.unwrap();
+    let reloaded_child = repo.get(&JobId("child-1".into())).await.unwrap().unwrap();
+    assert_eq!(reloaded_child.parent_id, Some(JobId("scan-2".into())));
+    assert!(
+        repo.get(&JobId("scan-2".into()))
+            .await
+            .unwrap()
+            .unwrap()
+            .parent_id
+            .is_none()
     );
 }

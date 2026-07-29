@@ -42,6 +42,7 @@ pub fn admin_job() -> Job {
         updated_at: ts(41),
         started_at: Some(ts(40)),
         finished_at: Some(ts(41)),
+        parent_id: None,
     }
 }
 

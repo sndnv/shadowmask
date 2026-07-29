@@ -21,6 +21,57 @@ TLS is off by default here (dev serves plaintext HTTP). To exercise the server's
 locally, mount a self-signed cert + key and set `SHADOWMASK_TLS_CERT` / `SHADOWMASK_TLS_KEY`; see
 the TLS section in the production README.
 
+## Container images
+
+Two images are built from the root `Dockerfile` as separate stages:
+
+- **enrichment** (`server:dev-latest-enrichment`, stage `runtime-enrichment`) - the default image for
+  this compose. It is `FROM` the base stage plus the local AI features (transcription and
+  translation, bundling CTranslate2), so it shares the base layers but is larger and slower to build
+  (compiles CTranslate2 via cmake / make / g++ / OpenBLAS).
+- **base** (`server:dev-latest`, stage `runtime`) - no local-inference runtime; smaller and faster to
+  build. Used by `docker-compose.base.yml`.
+
+`docker compose up --build` builds the enrichment image (`docker-compose.yml` pins
+`target: runtime-enrichment`). For a lighter base-only stack, use
+`docker compose -f docker-compose.base.yml up --build`. Build the images directly with (docker or
+podman auto-detected; override with `CONTAINER_ENGINE`):
+
+```
+scripts/build_images.sh                # both
+scripts/build_images.sh base
+scripts/build_images.sh enrichment
+```
+
+Enrichment is enabled by default in `docker-compose.yml` (transcription, translation, and upscaling
+are on). Upscaling is pure ffmpeg and needs no model. Transcription and translation need models on
+disk (see "Local AI models" below); without them the server still boots and those jobs fail with a
+backend error until the models are present. Turn any feature off with, for example,
+`SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED=false`.
+
+## Local AI models
+
+Local transcription, translation, and upscaling are documented in
+[`../ENRICHMENT.md`](../ENRICHMENT.md) (model formats, obtaining/converting models, licensing). This
+dev compose already targets the enrichment image, enables the features, mounts `./models` at
+`/models`, and sets `SHADOWMASK_ENRICHMENT_MODEL_CACHE=/models`. To try it, drop a CTranslate2 model
+folder into `./models/transcription/` (and `./models/translation/` for translation), then trigger a
+transcribe from the admin UI or API. Each directory holds one or more candidate model folders and the
+first valid one wins. Override the host models directory with `SHADOWMASK_MODELS_DIR`.
+
+Translation defaults to a MADLAD model: the compose sets
+`SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX=<2{target}>`, so put a MADLAD CTranslate2 model (with
+its `tokenizer.json`) under `./models/translation/`. For a different model, change that prefix (see
+[`../ENRICHMENT.md`](../ENRICHMENT.md)).
+
+## Hardware transcoding
+
+GPU-accelerated H.264 encoding (VAAPI) applies to this stack too; see
+[hardware acceleration](../README.md#hardware-acceleration) for the `SHADOWMASK_HARDWARE_ACCELERATION`
+modes and the `/dev/dri` passthrough snippet. It is not wired into this `docker-compose.yml` by
+default (macOS dev hosts have no render node), so add the `devices`/`group_add` block on a Linux GPU
+host to try it.
+
 ## Basic web client (live editing)
 
 The server serves the basic web client at `http://localhost:${SHADOWMASK_PORT:-8080}/ui/basic/`
@@ -42,8 +93,8 @@ TV episodes (generated with ffmpeg, no real content), so the catalog has somethi
 play. It writes into the same dirs the compose file mounts (`SHADOWMASK_MOVIES_DIR` /
 `SHADOWMASK_TV_DIR`, default `./media/movies` and `./media/tv`). Run it, then trigger a library scan
 (admin UI or API). See its `--help` for options. It is additive by default; pass `--reset` to clear
-the dirs first. Pass `--real` to download the real Big Buck Bunny (Creative Commons BY 3.0, about 62
-MB) in place of the synthetic stand-in so a full-length clip can be played. The smoke test (below)
+the dirs first. Pass `--real` to download real Creative Commons clips in place of the synthetic
+stand-ins so full-length content can be played (see the paragraph below). The smoke test (below)
 generates its own fixtures separately.
 
 The movie titles are real, TMDB-matchable names (the public-domain Blender open movies). Set
@@ -51,6 +102,11 @@ The movie titles are real, TMDB-matchable names (the public-domain Blender open 
 and artwork, so the full artwork pipeline is visible end to end. Without a key the catalog still
 works but shows placeholder posters and empty metadata. One TV show is intentionally unmatchable so
 the mismatch / manual-resolution behavior is also visible.
+
+`--real` downloads two Creative Commons BY 3.0 clips (Big Buck Bunny and a short Elephants Dream clip
+with clear speech, used by the transcription smoke below) in place of their synthetic stand-ins.
+Downloads are cached under `media/.cache` and reused across runs and by the smoke test, so nothing is
+re-downloaded. Attribution for all downloaded content is in `deployment/dev/CREDITS.md`.
 
 ## Logging
 
@@ -68,6 +124,12 @@ firehose:
 `scripts/run_smoke_test.sh` drives an already-running stack through the full product surface (auth,
 scan, catalog, playback, backup/recover, media-removal soft-delete, and a basic web UI sanity
 check that `/ui/basic/` and `app.js` are served). It generates its own ffmpeg
-fixtures and is destructive to the dev databases and fixture media by design — run it only against
+fixtures and is destructive to the dev databases and fixture media by design, so run it only against
 this disposable stack. Bring the stack up first, then run the script; see its `--help` for
 environment overrides.
+
+The transcribe -> translate section runs only on the enrichment image. On the base image it is
+skipped. On the enrichment image the enrichment features must be enabled with models present or the
+test fails; it uses the Elephants Dream speech clip from the clip cache, so run
+`scripts/generate_media.sh --real` first to populate it. Set
+`SHADOWMASK_SMOKE_TEST_SKIP_ENRICHMENT_TESTS=true` to skip the enrichment section.

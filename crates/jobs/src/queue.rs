@@ -35,6 +35,7 @@ impl<R: JobRepository> JobQueue<R> {
             updated_at: now,
             started_at: None,
             finished_at: None,
+            parent_id: None,
         };
         self.repo.enqueue(job).await?;
         Ok(id)

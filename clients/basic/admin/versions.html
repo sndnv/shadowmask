@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Admin versions</title>
+  </head>
+  <body>
+    <h1>Versions</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs"><a href="index.html">Admin</a> / <span id="versions-crumb">Versions</span></p>
+    <p><button type="button" id="refresh">Refresh</button></p>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      const pad2 = (n) => String(n).padStart(2, "0");
+      const eu = encodeURIComponent;
+      const LANGS = [
+        ["en", "English"], ["es", "Spanish"], ["fr", "French"], ["de", "German"],
+        ["it", "Italian"], ["pt", "Portuguese"], ["nl", "Dutch"], ["pl", "Polish"],
+        ["ru", "Russian"], ["uk", "Ukrainian"], ["cs", "Czech"], ["sv", "Swedish"],
+        ["da", "Danish"], ["no", "Norwegian"], ["fi", "Finnish"], ["el", "Greek"],
+        ["tr", "Turkish"], ["ar", "Arabic"], ["he", "Hebrew"], ["hi", "Hindi"],
+        ["ja", "Japanese"], ["ko", "Korean"], ["zh", "Chinese"], ["th", "Thai"],
+        ["vi", "Vietnamese"], ["id", "Indonesian"], ["ro", "Romanian"], ["hu", "Hungarian"],
+      ];
+
+      sm.chrome();
+      if (sm.requireAuth()) guard();
+
+      async function guard() {
+        const main = document.getElementById("main");
+        try {
+          const me = await sm.self();
+          if (me.role !== "admin") {
+            main.textContent = "Not Authorized.";
+            return;
+          }
+          document.getElementById("refresh").addEventListener("click", load);
+          await load();
+        } catch (err) {
+          main.textContent = "Could not load.";
+        }
+      }
+
+      function query() {
+        const params = new URLSearchParams();
+        const offset = sm.qs("offset");
+        const limit = sm.qs("limit");
+        if (offset) params.set("offset", offset);
+        if (limit) params.set("limit", limit);
+        const qs = params.toString();
+        return qs ? "?" + qs : "";
+      }
+
+      async function titleNames(items) {
+        const names = {};
+        try {
+          const cards = await sm.json("/api/v1/titles/batch", {
+            method: "POST",
+            body: JSON.stringify({ titles: items.map((v) => v.title) }),
+          });
+          cards.forEach((c) => {
+            const key = c.type + ":" + c.id;
+            if (c.type === "episode") {
+              const code =
+                c.season_number != null
+                  ? "S" + pad2(c.season_number) + "E" + pad2(c.number)
+                  : "E" + c.number;
+              names[key] = (c.series_title || c.title) + " " + code;
+            } else {
+              names[key] = c.title + (c.year ? " (" + c.year + ")" : "");
+            }
+          });
+        } catch (e) {}
+        return names;
+      }
+
+      async function load() {
+        const main = document.getElementById("main");
+        main.textContent = "Loading...";
+        try {
+          const page = await sm.json("/api/v1/admin/versions" + query());
+          document.getElementById("versions-crumb").textContent =
+            "Versions (" + page.total + ")";
+          main.textContent = "";
+          if (!page.items.length) {
+            main.appendChild(sm.el("p", { text: "No versions." }));
+            return;
+          }
+          page.items.sort((a, b) => (a.path || "").localeCompare(b.path || ""));
+          const names = await titleNames(page.items);
+          const libs = await sm.json("/api/v1/libraries").catch(() => []);
+          const libName = {};
+          (libs || []).forEach((l) => {
+            libName[l.id] = l.name;
+          });
+          const headers = [
+            "Path",
+            "Title",
+            "Library",
+            "Quality",
+            "Container",
+            "Edition",
+            "Size",
+            "Available",
+            "",
+          ];
+          const tbody = sm.el("tbody", null);
+          page.items.forEach((v) => {
+            const name =
+              names[v.title.type + ":" + v.title.id] || v.title.type + " " + v.title.id;
+            const detailCell = sm.el("td", { colspan: String(headers.length) });
+            const detailRow = sm.el("tr", { hidden: "hidden" }, detailCell);
+            let loaded = false;
+            const toggle = sm.el("button", { type: "button" }, "Details");
+            toggle.addEventListener("click", async () => {
+              detailRow.hidden = !detailRow.hidden;
+              if (detailRow.hidden || loaded) return;
+              loaded = true;
+              await renderDetail(v, detailCell);
+            });
+            const mainRow = sm.el("tr", null, [
+              sm.el("td", { class: "sm-path" }, sm.el("a", { href: sm.href.version(v.id) }, v.path || v.id)),
+              sm.el("td", null, name),
+              sm.el(
+                "td",
+                null,
+                sm.el(
+                  "a",
+                  { href: "library.html?id=" + eu(v.library_id) },
+                  libName[v.library_id] || v.library_id,
+                ),
+              ),
+              sm.el("td", null, v.quality.toUpperCase()),
+              sm.el("td", null, v.container),
+              sm.el("td", null, v.edition || ""),
+              sm.el("td", null, Math.round(v.size_bytes / 1048576) + " MB"),
+              sm.el("td", null, v.available ? "yes" : "no"),
+              sm.el("td", null, toggle),
+            ]);
+            tbody.appendChild(mainRow);
+            tbody.appendChild(detailRow);
+          });
+          const table = sm.el("table", null, [
+            sm.el(
+              "thead",
+              null,
+              sm.el("tr", null, headers.map((h) => sm.el("th", { scope: "col" }, h))),
+            ),
+            tbody,
+          ]);
+          main.appendChild(table);
+          main.appendChild(sm.pager(page.total, page.offset, page.limit));
+        } catch (err) {
+          main.textContent = "Could not load versions.";
+        }
+      }
+
+      async function trigger(url, body, status) {
+        status.textContent = "...";
+        try {
+          await sm.json(url, { method: "POST", body: JSON.stringify(body) });
+          status.textContent = "queued";
+        } catch (err) {
+          status.textContent = String(err).includes("409") ? "feature disabled" : "failed";
+        }
+      }
+
+      async function renderDetail(v, cell) {
+        cell.textContent = "Loading...";
+        try {
+          const detail = await sm.json("/api/v1/versions/" + eu(v.id));
+          cell.textContent = "";
+          if (detail.path) {
+            cell.appendChild(sm.el("p", { class: "sm-path", text: detail.path }));
+          }
+          const status = sm.el("p", { class: "sm-status" });
+          const post = (path, body) =>
+            trigger("/api/v1/admin/versions/" + eu(v.id) + path, body, status);
+
+          cell.appendChild(sm.el("h4", { text: "Audio" }));
+          const audioList = sm.el("ul", null);
+          (detail.audio || []).forEach((a) => {
+            const label = "audio " + a.index + " · " + sm.lang(a.language) + " · " + a.channels + "ch ";
+            const btn = sm.el("button", { type: "button" }, "Transcribe");
+            btn.addEventListener("click", () =>
+              post("/transcribe", { audio_track_index: a.index }),
+            );
+            audioList.appendChild(sm.el("li", null, [label, btn]));
+          });
+          cell.appendChild(audioList.children.length ? audioList : sm.el("p", { text: "none" }));
+
+          cell.appendChild(sm.el("h4", { text: "Subtitles" }));
+          const deletable = ["open_subtitles", "generated", "machine_translated", "combined"];
+          const subUrl = (s) =>
+            "/api/v1/admin/versions/" + eu(v.id) + "/subtitles/" + eu(s.id);
+          const subList = sm.el("ul", null);
+          (detail.subtitle_files || []).forEach((s) => {
+            const label = sm.lang(s.language) + " (" + s.source + ") → ";
+            const lang = sm.el(
+              "select",
+              null,
+              [sm.el("option", { value: "" }, "Target language")].concat(
+                LANGS.map(([code, name]) => sm.el("option", { value: code }, name + " (" + code + ")")),
+              ),
+            );
+            const btn = sm.el("button", { type: "button" }, "Translate");
+            btn.addEventListener("click", () => {
+              const target = lang.value.trim();
+              if (!target) {
+                status.textContent = "select a language";
+                return;
+              }
+              post("/translate", { source_subtitle_id: s.id, target_language: target });
+            });
+            const text = sm.el("pre", { class: "sm-subtext", hidden: "hidden" });
+            let shown = false;
+            const view = sm.el("button", { type: "button" }, "View text");
+            view.addEventListener("click", async () => {
+              text.hidden = !text.hidden;
+              if (text.hidden || shown) return;
+              shown = true;
+              text.textContent = "Loading...";
+              try {
+                const res = await sm.json(subUrl(s));
+                text.textContent = res.content || "(empty)";
+              } catch (err) {
+                shown = false;
+                text.textContent = "Could not load subtitle text.";
+              }
+            });
+            const controls = [label, lang, " ", btn, " ", view];
+            if (deletable.includes(s.source)) {
+              const del = sm.el("button", { type: "button" }, "Delete");
+              del.addEventListener("click", async () => {
+                if (!confirm("Delete this subtitle? This cannot be undone.")) return;
+                status.textContent = "...";
+                try {
+                  await sm.json(subUrl(s), { method: "DELETE" });
+                  await renderDetail(v, cell);
+                } catch (err) {
+                  status.textContent = "delete failed";
+                }
+              });
+              controls.push(" ", del);
+            }
+            subList.appendChild(sm.el("li", null, [sm.el("span", null, controls), text]));
+          });
+          cell.appendChild(subList.children.length ? subList : sm.el("p", { text: "none" }));
+
+          const subs = detail.subtitle_files || [];
+          if (subs.length >= 2) {
+            cell.appendChild(sm.el("h4", { text: "Combine" }));
+            const opt = (s) =>
+              sm.el("option", { value: s.id }, sm.lang(s.language) + " " + s.format + " (" + s.source + ")");
+            const primary = sm.el("select", null, subs.map(opt));
+            const secondary = sm.el("select", null, subs.map(opt));
+            secondary.selectedIndex = 1;
+            const cbBtn = sm.el("button", { type: "button" }, "Combine");
+            cbBtn.addEventListener("click", () => {
+              if (primary.value === secondary.value) {
+                status.textContent = "pick two different tracks";
+                return;
+              }
+              post("/subtitles/combine", {
+                primary_subtitle_id: primary.value,
+                secondary_subtitle_id: secondary.value,
+              });
+            });
+            cell.appendChild(sm.el("p", null, ["Primary ", primary, " Secondary ", secondary, " ", cbBtn]));
+          }
+
+          cell.appendChild(sm.el("h4", { text: "Upscale" }));
+          const vid = (detail.video || [])[0];
+          const current = vid ? vid.width + "x" + vid.height : "unknown";
+          cell.appendChild(sm.el("p", { text: "Current resolution: " + current }));
+          const heights = [
+            ["480p (SD)", "480"],
+            ["720p (HD)", "720"],
+            ["1080p (Full HD)", "1080"],
+            ["1440p (2K)", "1440"],
+            ["2160p (4K)", "2160"],
+          ];
+          const height = sm.el(
+            "select",
+            null,
+            heights.map(([label, value]) => sm.el("option", { value }, label)),
+          );
+          height.value = "1080";
+          const upBtn = sm.el("button", { type: "button" }, "Upscale");
+          upBtn.addEventListener("click", () =>
+            post("/upscale", { target_height: Number(height.value) || 0 }),
+          );
+          cell.appendChild(sm.el("p", null, [height, " ", upBtn]));
+
+          cell.appendChild(status);
+        } catch (err) {
+          cell.textContent = "Could not load details.";
+        }
+      }
+    </script>
+  </body>
+</html>

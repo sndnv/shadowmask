@@ -16,6 +16,10 @@ pub enum JobKind {
     SearchReindex,
     Ingest,
     Relink,
+    Transcription,
+    Translation,
+    Upscale,
+    Combine,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -49,4 +53,5 @@ pub struct Job {
     pub updated_at: Timestamp,
     pub started_at: Option<Timestamp>,
     pub finished_at: Option<Timestamp>,
+    pub parent_id: Option<JobId>,
 }

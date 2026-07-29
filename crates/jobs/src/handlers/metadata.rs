@@ -21,9 +21,9 @@ where
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         let payload = MetadataJobPayload::decode(&job.payload)
             .map_err(|e| JobError::Permanent(format!("invalid metadata payload: {e}")))?;
-        tracing::info!("refreshing metadata");
+        tracing::info!("refreshing metadata for [{:?}]", payload.title);
         self.refresher
-            .refresh(&payload.title, payload.external_id.as_ref())
+            .refresh(&payload.title, payload.external_id.as_ref(), Some(&job.id))
             .await
             .map_err(|e| JobError::Retryable(e.to_string()))?;
         Ok(())
@@ -69,6 +69,7 @@ mod tests {
             updated_at: now,
             started_at: None,
             finished_at: None,
+            parent_id: None,
         }
     }
 

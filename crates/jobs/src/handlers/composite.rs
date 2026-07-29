@@ -12,6 +12,10 @@ pub struct CompositeJobHandler<
     Metadata,
     Relink,
     Subtitles,
+    Transcription,
+    Translation,
+    Upscale,
+    Combine,
 > {
     scan: Scan,
     reindex: Reindex,
@@ -21,10 +25,40 @@ pub struct CompositeJobHandler<
     metadata: Metadata,
     relink: Relink,
     subtitles: Subtitles,
+    transcription: Transcription,
+    translation: Translation,
+    upscale: Upscale,
+    combine: Combine,
 }
 
-impl<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata, Relink, Subtitles>
-    CompositeJobHandler<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata, Relink, Subtitles>
+impl<
+    Scan,
+    Reindex,
+    Artwork,
+    Trickplay,
+    Ingest,
+    Metadata,
+    Relink,
+    Subtitles,
+    Transcription,
+    Translation,
+    Upscale,
+    Combine,
+>
+    CompositeJobHandler<
+        Scan,
+        Reindex,
+        Artwork,
+        Trickplay,
+        Ingest,
+        Metadata,
+        Relink,
+        Subtitles,
+        Transcription,
+        Translation,
+        Upscale,
+        Combine,
+    >
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -36,6 +70,10 @@ impl<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata, Relink, Subtitles>
         metadata: Metadata,
         relink: Relink,
         subtitles: Subtitles,
+        transcription: Transcription,
+        translation: Translation,
+        upscale: Upscale,
+        combine: Combine,
     ) -> Self {
         Self {
             scan,
@@ -46,12 +84,42 @@ impl<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata, Relink, Subtitles>
             metadata,
             relink,
             subtitles,
+            transcription,
+            translation,
+            upscale,
+            combine,
         }
     }
 }
 
-impl<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata, Relink, Subtitles> JobHandler
-    for CompositeJobHandler<Scan, Reindex, Artwork, Trickplay, Ingest, Metadata, Relink, Subtitles>
+impl<
+    Scan,
+    Reindex,
+    Artwork,
+    Trickplay,
+    Ingest,
+    Metadata,
+    Relink,
+    Subtitles,
+    Transcription,
+    Translation,
+    Upscale,
+    Combine,
+> JobHandler
+    for CompositeJobHandler<
+        Scan,
+        Reindex,
+        Artwork,
+        Trickplay,
+        Ingest,
+        Metadata,
+        Relink,
+        Subtitles,
+        Transcription,
+        Translation,
+        Upscale,
+        Combine,
+    >
 where
     Scan: JobHandler + Send + Sync,
     Reindex: JobHandler + Send + Sync,
@@ -61,6 +129,10 @@ where
     Metadata: JobHandler + Send + Sync,
     Relink: JobHandler + Send + Sync,
     Subtitles: JobHandler + Send + Sync,
+    Transcription: JobHandler + Send + Sync,
+    Translation: JobHandler + Send + Sync,
+    Upscale: JobHandler + Send + Sync,
+    Combine: JobHandler + Send + Sync,
 {
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         match job.kind {
@@ -72,6 +144,10 @@ where
             JobKind::Metadata => self.metadata.handle(job).await,
             JobKind::Relink => self.relink.handle(job).await,
             JobKind::Subtitles => self.subtitles.handle(job).await,
+            JobKind::Transcription => self.transcription.handle(job).await,
+            JobKind::Translation => self.translation.handle(job).await,
+            JobKind::Upscale => self.upscale.handle(job).await,
+            JobKind::Combine => self.combine.handle(job).await,
             other => Err(JobError::Permanent(format!(
                 "no handler for job kind: {other:?}"
             ))),
@@ -123,12 +199,18 @@ mod tests {
             updated_at: now,
             started_at: None,
             finished_at: None,
+            parent_id: None,
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn composite(
         calls: &Arc<Mutex<Vec<&'static str>>>,
     ) -> CompositeJobHandler<
+        Recorder,
+        Recorder,
+        Recorder,
+        Recorder,
         Recorder,
         Recorder,
         Recorder,
@@ -147,6 +229,10 @@ mod tests {
             Recorder::new("metadata", Arc::clone(calls)),
             Recorder::new("relink", Arc::clone(calls)),
             Recorder::new("subtitles", Arc::clone(calls)),
+            Recorder::new("transcription", Arc::clone(calls)),
+            Recorder::new("translation", Arc::clone(calls)),
+            Recorder::new("upscale", Arc::clone(calls)),
+            Recorder::new("combine", Arc::clone(calls)),
         )
     }
 
@@ -228,6 +314,46 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(*calls.lock().unwrap(), ["subtitles"]);
+    }
+
+    #[tokio::test]
+    async fn routes_transcription_to_transcription_handler() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        composite(&calls)
+            .handle(&job(JobKind::Transcription))
+            .await
+            .unwrap();
+        assert_eq!(*calls.lock().unwrap(), ["transcription"]);
+    }
+
+    #[tokio::test]
+    async fn routes_translation_to_translation_handler() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        composite(&calls)
+            .handle(&job(JobKind::Translation))
+            .await
+            .unwrap();
+        assert_eq!(*calls.lock().unwrap(), ["translation"]);
+    }
+
+    #[tokio::test]
+    async fn routes_upscale_to_upscale_handler() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        composite(&calls)
+            .handle(&job(JobKind::Upscale))
+            .await
+            .unwrap();
+        assert_eq!(*calls.lock().unwrap(), ["upscale"]);
+    }
+
+    #[tokio::test]
+    async fn routes_combine_to_combine_handler() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        composite(&calls)
+            .handle(&job(JobKind::Combine))
+            .await
+            .unwrap();
+        assert_eq!(*calls.lock().unwrap(), ["combine"]);
     }
 
     #[tokio::test]

@@ -512,11 +512,64 @@ async fn library_routes() {
         "/api/v1/libraries/lib1/unmatched",
         "/api/v1/libraries/lib1/duplicates",
         "/api/v1/libraries/lib1/versions",
+        "/api/v1/admin/versions",
     ];
     for uri in admin_gets {
         let (status, _) = call(ctx.app(), Method::GET, uri, Some(ADMIN), None).await;
         assert_eq!(status, StatusCode::OK, "GET {uri}");
     }
+    // The global versions table is admin-only.
+    let (status, _) = call(
+        ctx.app(),
+        Method::GET,
+        "/api/v1/admin/versions",
+        Some(USER),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let triggers = [
+        (
+            "/api/v1/admin/versions/v1/transcribe",
+            json!({"audio_track_index": 2}),
+        ),
+        (
+            "/api/v1/admin/versions/v1/translate",
+            json!({"source_subtitle_id": "sf1", "target_language": "zh"}),
+        ),
+        (
+            "/api/v1/admin/versions/v1/upscale",
+            json!({"target_height": 2160}),
+        ),
+        (
+            "/api/v1/admin/versions/v1/subtitles/combine",
+            json!({"primary_subtitle_id": "sf-en", "secondary_subtitle_id": "sf-fr"}),
+        ),
+    ];
+    for (uri, body) in triggers {
+        let (status, _) = call(ctx.app(), Method::POST, uri, Some(USER), Some(body.clone())).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "POST {uri} as user");
+        let (status, _) = call(ctx.app(), Method::POST, uri, Some(ADMIN), Some(body)).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "POST {uri} as admin");
+    }
+    let (status, _) = call(
+        ctx.app(),
+        Method::POST,
+        "/api/v1/admin/versions/v1/upscale",
+        Some(ADMIN),
+        Some(json!({"target_height": 0})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = call(
+        ctx.app(),
+        Method::POST,
+        "/api/v1/admin/versions/v1/subtitles/combine",
+        Some(ADMIN),
+        Some(json!({"primary_subtitle_id": "sf-en", "secondary_subtitle_id": "sf-en"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
     // Scan state is admin-only.
     let (status, _) = call(
         ctx.app(),

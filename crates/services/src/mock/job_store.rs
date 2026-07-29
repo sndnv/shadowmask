@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use domain::error::RepositoryError;
-use domain::job::{Job, JobId, JobStatus};
+use domain::job::{Job, JobId, JobKind, JobStatus};
 use domain::repository::JobRepository;
 use jiff::Timestamp;
 
@@ -24,11 +24,20 @@ impl JobRepository for MockJobStore {
         Ok(())
     }
 
-    async fn claim_ready(&self, now: Timestamp, limit: usize) -> Result<Vec<Job>, RepositoryError> {
+    async fn claim_ready(
+        &self,
+        now: Timestamp,
+        limit: usize,
+        kinds: Vec<JobKind>,
+    ) -> Result<Vec<Job>, RepositoryError> {
         let mut guard = self.jobs.lock().unwrap();
         let mut ready: Vec<Job> = guard
             .values()
-            .filter(|job| job.status == JobStatus::Queued && job.available_at <= now)
+            .filter(|job| {
+                job.status == JobStatus::Queued
+                    && job.available_at <= now
+                    && kinds.contains(&job.kind)
+            })
             .cloned()
             .collect();
         ready.sort_by(|a, b| {
@@ -97,6 +106,7 @@ mod tests {
             updated_at: created_at,
             started_at: None,
             finished_at: None,
+            parent_id: None,
         }
     }
 
@@ -122,7 +132,10 @@ mod tests {
             .await
             .unwrap();
 
-        let claimed = store.claim_ready(now, 10).await.unwrap();
+        let claimed = store
+            .claim_ready(now, 10, vec![JobKind::LibraryScan])
+            .await
+            .unwrap();
         let ids: Vec<&str> = claimed.iter().map(|j| j.id.0.as_str()).collect();
         assert_eq!(ids, ["high", "normal-old", "normal-new", "low"]);
         assert!(claimed.iter().all(|j| j.status == JobStatus::Running));
@@ -141,7 +154,10 @@ mod tests {
             .await
             .unwrap();
 
-        let claimed = store.claim_ready(now, 1).await.unwrap();
+        let claimed = store
+            .claim_ready(now, 1, vec![JobKind::LibraryScan])
+            .await
+            .unwrap();
         assert_eq!(claimed.len(), 1);
         let running = store
             .list()
@@ -166,7 +182,13 @@ mod tests {
         running.status = JobStatus::Running;
         store.enqueue(running).await.unwrap();
 
-        assert!(store.claim_ready(now, 10).await.unwrap().is_empty());
+        assert!(
+            store
+                .claim_ready(now, 10, vec![JobKind::LibraryScan])
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]

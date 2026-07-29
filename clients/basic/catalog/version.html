@@ -73,11 +73,11 @@
             "fps",
           );
           tracks(main, "Audio", v.audio, (t) =>
-            t.codec + " " + t.channels + "ch" + (t.language ? " " + t.language : ""),
+            t.codec + " " + t.channels + "ch" + (t.language ? " " + sm.lang(t.language) : ""),
           );
           tracks(main, "Subtitles", v.subtitles, (t) =>
             t.format +
-            (t.language ? " " + t.language : "") +
+            (t.language ? " " + sm.lang(t.language) : "") +
             (t.forced ? " forced" : "") +
             (t.default ? " default" : ""),
           );

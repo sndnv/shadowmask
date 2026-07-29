@@ -5,7 +5,8 @@ CREATE TABLE subtitle_files (
     language TEXT,
     format TEXT NOT NULL,
     source TEXT NOT NULL,
-    path TEXT NOT NULL
+    path TEXT NOT NULL,
+    translated_from TEXT
 );
 
 CREATE INDEX idx_subtitle_files_version ON subtitle_files (version_id);

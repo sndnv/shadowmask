@@ -9,3 +9,4 @@ pub mod subtitle;
 pub mod subtitle_store;
 pub mod transcode;
 pub mod trickplay;
+pub mod upscale;

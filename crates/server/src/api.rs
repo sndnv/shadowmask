@@ -1,15 +1,20 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use axum::Extension;
 use axum::Router;
 use axum::middleware::from_fn;
 
-use ::api::{AppState, ImageState, StreamState, TrickplayState, WebhookClient};
+use ::api::{
+    AppState, Capability, ImageState, ServerCapabilities, StreamState, TrickplayState,
+    WebhookClient,
+};
 use domain::error::{ProfileError, RepositoryError};
 use media::artwork::FsArtworkStore;
 use media::hls::HlsStreamSource;
 use media::profile::BuiltinProfiles;
 use media::stream_token::HmacStreamTokens;
+use media::transcode::VideoEncoder;
 use metadata::TmdbClient;
 use persistence::migrate::migrate_all;
 use persistence::server::{
@@ -64,6 +69,10 @@ pub struct WireConfig {
     pub artwork_cache: PathBuf,
     pub trickplay_cache: PathBuf,
     pub tmdb_api_key: Option<String>,
+    pub transcription_enabled: bool,
+    pub translation_enabled: bool,
+    pub upscaling_enabled: bool,
+    pub vaapi_device: Option<String>,
 }
 
 #[derive(Clone)]
@@ -123,7 +132,8 @@ pub struct Built {
 
 pub fn build_state(repos: &Repos, cfg: &WireConfig) -> Result<Built, ProfileError> {
     let profiles = BuiltinProfiles::load()?;
-    let hls = HlsStreamSource::new(&cfg.transcode_cache);
+    let hls = HlsStreamSource::new(&cfg.transcode_cache)
+        .with_encoder(VideoEncoder::from_device(cfg.vaapi_device.clone()));
     let artwork_store = FsArtworkStore::new(&cfg.artwork_cache);
     let images = ImageState::new(&cfg.artwork_cache);
     let trickplay = TrickplayState::new(&cfg.trickplay_cache);
@@ -154,6 +164,11 @@ pub fn build_state(repos: &Repos, cfg: &WireConfig) -> Result<Built, ProfileErro
         repos.jobs.clone(),
         repos.catalog.clone(),
         provider,
+    )
+    .with_enrichment_flags(
+        cfg.transcription_enabled,
+        cfg.translation_enabled,
+        cfg.upscaling_enabled,
     );
     let user = UserServiceImpl::new(repos.users.clone());
     let user_library = UserLibraryServiceImpl::new(
@@ -193,6 +208,7 @@ pub fn app(
     images: ImageState,
     trickplay: TrickplayState,
     webhook_clients: Vec<WebhookClient>,
+    capabilities: Vec<Capability>,
 ) -> Router {
     ::api::router(state.clone())
         .merge(::api::stream_router(stream))
@@ -200,4 +216,5 @@ pub fn app(
         .merge(::api::webhook_router(state.clone(), webhook_clients))
         .merge(::api::trickplay_router(state, trickplay))
         .layer(from_fn(::api::middleware::track_http))
+        .layer(Extension(ServerCapabilities(capabilities)))
 }

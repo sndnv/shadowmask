@@ -15,6 +15,7 @@ use crate::library::{
     DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryUpdate, NewLibrary,
     ResolveCandidate, ResolveTarget, ScanState, UnmatchedFile, UnmatchedFileId,
 };
+use crate::media::SubtitleFileId;
 use crate::metadata::{ExternalId, Genre, PersonId};
 use crate::playback::{
     Favorite, PlaybackProgress, TitleState, WatchHistory, WatchTarget, WatchedRollup, WatchlistItem,
@@ -165,6 +166,11 @@ pub trait CatalogService {
         library: &LibraryId,
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<Version>, CatalogError>> + Send;
+    fn all_versions(
+        &self,
+        caller: &Principal,
+        page: PageRequest,
+    ) -> impl Future<Output = Result<Page<Version>, CatalogError>> + Send;
     fn version(
         &self,
         caller: &Principal,
@@ -308,6 +314,33 @@ pub trait LibraryService {
         caller: &Principal,
         version: &VersionId,
         target: ResolveTarget,
+    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    fn trigger_transcription(
+        &self,
+        caller: &Principal,
+        version: &VersionId,
+        audio_track_index: Option<u32>,
+        source_language: Option<String>,
+    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    fn trigger_translation(
+        &self,
+        caller: &Principal,
+        version: &VersionId,
+        source_subtitle: &SubtitleFileId,
+        target_language: String,
+    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    fn trigger_upscale(
+        &self,
+        caller: &Principal,
+        version: &VersionId,
+        target_height: u32,
+    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    fn trigger_combine(
+        &self,
+        caller: &Principal,
+        version: &VersionId,
+        primary: &SubtitleFileId,
+        secondary: &SubtitleFileId,
     ) -> impl Future<Output = Result<(), LibraryError>> + Send;
     fn jobs(
         &self,

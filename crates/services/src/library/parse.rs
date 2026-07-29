@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::LazyLock;
 
 use domain::common::Quality;
@@ -94,6 +95,47 @@ fn find_quality(stem: &str) -> Option<Quality> {
     })
 }
 
+pub fn quality_from_height(height: u32) -> Quality {
+    if height >= 2000 {
+        Quality::Uhd
+    } else if height >= 1080 {
+        Quality::Fhd
+    } else if height >= 720 {
+        Quality::Hd
+    } else {
+        Quality::Sd
+    }
+}
+
+pub fn quality_token(quality: Quality) -> &'static str {
+    match quality {
+        Quality::Uhd => "2160p",
+        Quality::Fhd => "1080p",
+        Quality::Hd => "720p",
+        Quality::Sd => "480p",
+    }
+}
+
+fn strip_quality_token(stem: &str) -> String {
+    RESOLUTION
+        .replace_all(stem, "")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub fn upscaled_output_path(source_path: &str, target: Quality, uuid: &str) -> String {
+    let src = Path::new(source_path);
+    let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
+    let base = strip_quality_token(stem);
+    let name = format!("{base} {} [Upscaled {uuid}].mp4", quality_token(target));
+    src.parent()
+        .unwrap_or(Path::new(""))
+        .join(name)
+        .to_string_lossy()
+        .into_owned()
+}
+
 fn clean_title(raw: &str) -> String {
     let spaced: String = raw
         .chars()
@@ -113,6 +155,57 @@ mod tests {
 
     fn parse(name: &str) -> ParsedMedia {
         parse_filename(name)
+    }
+
+    #[test]
+    fn quality_from_height_maps_thresholds() {
+        assert_eq!(quality_from_height(2160), Quality::Uhd);
+        assert_eq!(quality_from_height(1080), Quality::Fhd);
+        assert_eq!(quality_from_height(720), Quality::Hd);
+        assert_eq!(quality_from_height(480), Quality::Sd);
+    }
+
+    #[test]
+    fn quality_token_round_trips_through_the_parser() {
+        for q in [Quality::Uhd, Quality::Fhd, Quality::Hd, Quality::Sd] {
+            assert_eq!(find_quality(quality_token(q)), Some(q));
+        }
+    }
+
+    #[test]
+    fn upscaled_output_path_swaps_quality_and_marks_upscaled() {
+        let out = upscaled_output_path(
+            "/m/Movie (2011)/Movie (2011) 480p.mkv",
+            Quality::Fhd,
+            "abcd1234",
+        );
+        assert!(out.starts_with("/m/Movie (2011)/"));
+        assert!(out.ends_with("Movie (2011) 1080p [Upscaled abcd1234].mp4"));
+        let p = parse(&out);
+        assert_eq!(p.title, "Movie");
+        assert_eq!(p.year, Some(2011));
+        assert_eq!(p.quality, Some(Quality::Fhd));
+    }
+
+    #[test]
+    fn upscaled_output_path_is_unique_per_uuid() {
+        let a = upscaled_output_path("/m/A/A 720p.mkv", Quality::Uhd, "uuid-a");
+        let b = upscaled_output_path("/m/A/A 720p.mkv", Quality::Uhd, "uuid-b");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn upscaled_output_path_preserves_episode_identity() {
+        let out = upscaled_output_path(
+            "/tv/Show/Season 01/Show S01E02 720p.mkv",
+            Quality::Fhd,
+            "zz",
+        );
+        let p = parse(&out);
+        assert_eq!(p.title, "Show");
+        assert_eq!(p.season, Some(1));
+        assert_eq!(p.episode, Some(2));
+        assert_eq!(p.quality, Some(Quality::Fhd));
     }
 
     #[test]

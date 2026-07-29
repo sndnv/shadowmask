@@ -4,16 +4,19 @@ use axum::response::Redirect;
 use axum::routing::{delete, get, post, put};
 
 use domain::job::JobLogStore;
+use domain::media::{SubtitleReader, SubtitleStore};
+use domain::repository::CatalogRepository;
 use domain::session::{StreamSource, StreamTokens};
 use tower_http::services::ServeDir;
 
 use crate::handlers::{
-    admin, auth, catalog, discovery, image, job_log, library, server, sessions, stream, trickplay,
-    user_library, users, webhook,
+    admin, auth, catalog, discovery, image, job_log, library, server, sessions, stream, subtitle,
+    trickplay, user_library, users, webhook,
 };
 use crate::middleware::{jwt, track_stream_bytes};
 use crate::state::{
-    AppServices, ImageState, JobLogState, StreamState, TrickplayState, WebhookClient, WebhookState,
+    AppServices, ImageState, JobLogState, StreamState, SubtitleState, TrickplayState,
+    WebhookClient, WebhookState,
 };
 
 pub fn router<S: AppServices>(state: S) -> Router {
@@ -100,6 +103,23 @@ pub fn router<S: AppServices>(state: S) -> Router {
         .route("/libraries/{id}/versions", get(library::versions::<S>))
         .route("/admin/jobs", get(admin::jobs::<S>))
         .route("/admin/jobs/{id}", get(admin::job::<S>))
+        .route("/admin/versions", get(admin::versions::<S>))
+        .route(
+            "/admin/versions/{id}/transcribe",
+            post(admin::transcribe_version::<S>),
+        )
+        .route(
+            "/admin/versions/{id}/translate",
+            post(admin::translate_version::<S>),
+        )
+        .route(
+            "/admin/versions/{id}/upscale",
+            post(admin::upscale_version::<S>),
+        )
+        .route(
+            "/admin/versions/{id}/subtitles/combine",
+            post(admin::combine_subtitles::<S>),
+        )
         .route("/search", get(discovery::search::<S>))
         .route("/sessions", post(sessions::start::<S>))
         .route("/sessions/{id}", delete(sessions::end::<S>))
@@ -237,6 +257,21 @@ pub fn trickplay_router<S: AppServices>(auth: S, state: TrickplayState) -> Route
             get(trickplay::trickplay),
         )
         .route_layer(from_fn_with_state(auth, jwt::<S>))
+        .with_state(state)
+}
+
+pub fn subtitle_router<A, C, S>(auth: A, state: SubtitleState<C, S>) -> Router
+where
+    A: AppServices,
+    C: CatalogRepository + Send + Sync + 'static,
+    S: SubtitleStore + SubtitleReader + Send + Sync + 'static,
+{
+    Router::new()
+        .route(
+            "/api/v1/admin/versions/{id}/subtitles/{subtitle_id}",
+            get(subtitle::view::<C, S>).delete(subtitle::delete::<C, S>),
+        )
+        .route_layer(from_fn_with_state(auth, jwt::<A>))
         .with_state(state)
 }
 

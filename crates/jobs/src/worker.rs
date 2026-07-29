@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use domain::error::RepositoryError;
-use domain::job::{Job, JobLogLevel, JobLogStore};
+use domain::job::{Job, JobKind, JobLogLevel, JobLogStore};
 use domain::repository::JobRepository;
 use jiff::Timestamp;
 use tokio::sync::Semaphore;
@@ -22,6 +22,7 @@ pub struct Worker<R, H, L> {
     log: Arc<L>,
     limit: usize,
     policy: RetryPolicy,
+    kinds: Vec<JobKind>,
 }
 
 impl<R, H, L> Worker<R, H, L>
@@ -30,18 +31,29 @@ where
     H: JobHandler + Send + Sync + 'static,
     L: JobLogStore + 'static,
 {
-    pub fn new(repo: R, handler: H, log: L, limit: usize, policy: RetryPolicy) -> Self {
+    pub fn new(
+        repo: R,
+        handler: Arc<H>,
+        log: L,
+        limit: usize,
+        policy: RetryPolicy,
+        kinds: Vec<JobKind>,
+    ) -> Self {
         Self {
             repo,
-            handler: Arc::new(handler),
+            handler,
             log: Arc::new(log),
             limit,
             policy,
+            kinds,
         }
     }
 
     pub async fn run_once(&self, now: Timestamp) -> Result<usize, RepositoryError> {
-        let jobs = self.repo.claim_ready(now, self.limit).await?;
+        let jobs = self
+            .repo
+            .claim_ready(now, self.limit, self.kinds.clone())
+            .await?;
         let semaphore = Arc::new(Semaphore::new(self.limit.max(1)));
         let mut tasks: JoinSet<(Job, Result<(), JobError>)> = JoinSet::new();
         for job in jobs {
@@ -62,39 +74,33 @@ where
                         &format!("started {:?}", job.kind),
                     )
                     .await;
+                let started = std::time::Instant::now();
                 let active = ActiveJob::start(job.kind);
                 let result = handler.handle(&job).instrument(span).await;
                 active.finish(result.is_ok());
-                match &result {
-                    Ok(()) => {
-                        let _ = log
-                            .append(&job.id, now, JobLogLevel::Info, "succeeded")
-                            .await;
-                    }
-                    Err(JobError::Retryable(message)) => {
-                        let _ = log
-                            .append(
-                                &job.id,
-                                now,
-                                JobLogLevel::Warn,
-                                &format!(
-                                    "attempt {} failed, will retry: {message}",
-                                    job.attempts + 1
-                                ),
-                            )
-                            .await;
-                    }
-                    Err(JobError::Permanent(message)) => {
-                        let _ = log
-                            .append(
-                                &job.id,
-                                now,
-                                JobLogLevel::Error,
-                                &format!("failed: {message}"),
-                            )
-                            .await;
-                    }
-                }
+                let elapsed = started.elapsed().as_secs_f64();
+                let (level, message) = match &result {
+                    Ok(()) => (
+                        JobLogLevel::Info,
+                        format!("finished {:?}: succeeded in {elapsed:.1}s", job.kind),
+                    ),
+                    Err(JobError::Retryable(message)) => (
+                        JobLogLevel::Warn,
+                        format!(
+                            "finished {:?}: failed in {elapsed:.1}s (attempt {}), will retry: {message}",
+                            job.kind,
+                            job.attempts + 1
+                        ),
+                    ),
+                    Err(JobError::Permanent(message)) => (
+                        JobLogLevel::Error,
+                        format!(
+                            "finished {:?}: failed permanently in {elapsed:.1}s: {message}",
+                            job.kind
+                        ),
+                    ),
+                };
+                let _ = log.append(&job.id, now, level, &message).await;
                 (job, result)
             });
         }
@@ -156,6 +162,10 @@ mod tests {
         }
     }
 
+    fn test_kinds() -> Vec<JobKind> {
+        crate::job_class::ALL_KINDS.to_vec()
+    }
+
     fn job(id: &str, priority: JobPriority, now: Timestamp) -> Job {
         Job {
             id: JobId(id.into()),
@@ -171,6 +181,7 @@ mod tests {
             updated_at: now,
             started_at: None,
             finished_at: None,
+            parent_id: None,
         }
     }
 
@@ -185,10 +196,11 @@ mod tests {
         let log = MockJobLogStore::new();
         let worker = Worker::new(
             store.clone(),
-            OkHandler,
+            Arc::new(OkHandler),
             log.clone(),
             4,
             RetryPolicy::default(),
+            test_kinds(),
         );
 
         assert_eq!(worker.run_once(now).await.unwrap(), 1);
@@ -198,7 +210,7 @@ mod tests {
         let lines = log.lines_for(&JobId("a".into()));
         assert_eq!(lines.len(), 2);
         assert!(lines[0].contains("INFO started LibraryScan"));
-        assert!(lines[1].contains("INFO succeeded"));
+        assert!(lines[1].contains("INFO finished LibraryScan: succeeded in"));
     }
 
     #[tokio::test]
@@ -212,10 +224,11 @@ mod tests {
         let log = MockJobLogStore::new();
         let worker = Worker::new(
             store.clone(),
-            RetryHandler,
+            Arc::new(RetryHandler),
             log.clone(),
             4,
             RetryPolicy::default(),
+            test_kinds(),
         );
 
         worker.run_once(now).await.unwrap();
@@ -226,7 +239,8 @@ mod tests {
         assert!(stored.last_error.is_some());
 
         let lines = log.lines_for(&JobId("a".into()));
-        assert!(lines[1].contains("WARN attempt 1 failed, will retry: boom"));
+        assert!(lines[1].contains("WARN finished LibraryScan: failed in"));
+        assert!(lines[1].contains("(attempt 1), will retry: boom"));
     }
 
     #[tokio::test]
@@ -240,10 +254,11 @@ mod tests {
         let log = MockJobLogStore::new();
         let worker = Worker::new(
             store.clone(),
-            PermanentHandler,
+            Arc::new(PermanentHandler),
             log.clone(),
             4,
             RetryPolicy::default(),
+            test_kinds(),
         );
 
         worker.run_once(now).await.unwrap();
@@ -251,7 +266,8 @@ mod tests {
         assert_eq!(stored.status, JobStatus::Failed);
 
         let lines = log.lines_for(&JobId("a".into()));
-        assert!(lines[1].contains("ERROR failed: nope"));
+        assert!(lines[1].contains("ERROR finished LibraryScan: failed permanently in"));
+        assert!(lines[1].contains(": nope"));
     }
 
     #[tokio::test]
@@ -266,10 +282,11 @@ mod tests {
         }
         let worker = Worker::new(
             store.clone(),
-            OkHandler,
+            Arc::new(OkHandler),
             MockJobLogStore::new(),
             2,
             RetryPolicy::default(),
+            test_kinds(),
         );
 
         assert_eq!(worker.run_once(now).await.unwrap(), 2);
@@ -283,6 +300,47 @@ mod tests {
         assert_eq!(queued, 3);
     }
 
+    #[tokio::test]
+    async fn worker_claims_only_its_own_kinds() {
+        let now = Timestamp::now();
+        let store = MockJobStore::new();
+        store
+            .enqueue(job("scan", JobPriority::Normal, now))
+            .await
+            .unwrap();
+        let mut transcribe = job("transcribe", JobPriority::High, now);
+        transcribe.kind = JobKind::Transcription;
+        store.enqueue(transcribe).await.unwrap();
+        let worker = Worker::new(
+            store.clone(),
+            Arc::new(OkHandler),
+            MockJobLogStore::new(),
+            4,
+            RetryPolicy::default(),
+            crate::job_class::normal_kinds(),
+        );
+
+        assert_eq!(worker.run_once(now).await.unwrap(), 1);
+        assert_eq!(
+            store
+                .get(&JobId("scan".into()))
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            JobStatus::Succeeded
+        );
+        assert_eq!(
+            store
+                .get(&JobId("transcribe".into()))
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            JobStatus::Queued
+        );
+    }
+
     #[tokio::test(start_paused = true)]
     async fn run_drives_until_shutdown() {
         let now = Timestamp::now();
@@ -293,10 +351,11 @@ mod tests {
             .unwrap();
         let worker = Worker::new(
             store.clone(),
-            OkHandler,
+            Arc::new(OkHandler),
             MockJobLogStore::new(),
             4,
             RetryPolicy::default(),
+            test_kinds(),
         );
 
         let (tx, rx) = oneshot::channel::<()>();
@@ -341,10 +400,11 @@ mod tests {
                 .unwrap();
             let worker = Worker::new(
                 store,
-                OkHandler,
+                Arc::new(OkHandler),
                 MockJobLogStore::new(),
                 4,
                 RetryPolicy::default(),
+                test_kinds(),
             );
             worker.run_once(now).await.unwrap();
         });
@@ -366,10 +426,11 @@ mod tests {
                 .unwrap();
             let worker = Worker::new(
                 store,
-                PermanentHandler,
+                Arc::new(PermanentHandler),
                 MockJobLogStore::new(),
                 4,
                 RetryPolicy::default(),
+                test_kinds(),
             );
             worker.run_once(now).await.unwrap();
         });

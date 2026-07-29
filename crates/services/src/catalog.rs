@@ -363,6 +363,17 @@ where
         Ok(self.catalog.list_library_versions(library, page).await?)
     }
 
+    async fn all_versions(
+        &self,
+        caller: &Principal,
+        page: PageRequest,
+    ) -> Result<Page<Version>, CatalogError> {
+        if !acl::is_admin(caller) {
+            return Err(CatalogError::Forbidden);
+        }
+        Ok(self.catalog.list_all_versions(page).await?)
+    }
+
     async fn version(
         &self,
         caller: &Principal,
@@ -832,6 +843,17 @@ mod tests {
             1
         );
         assert!(svc.version(&admin(), &VersionId("v2".into())).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn all_versions_is_admin_only() {
+        let svc = seeded().await;
+        let all = svc.all_versions(&admin(), page()).await.unwrap();
+        assert_eq!(all.total, 3);
+        assert!(matches!(
+            svc.all_versions(&member(), page()).await.unwrap_err(),
+            CatalogError::Forbidden
+        ));
     }
 
     #[tokio::test]

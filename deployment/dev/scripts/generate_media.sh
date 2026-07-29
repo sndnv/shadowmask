@@ -8,10 +8,13 @@ with ffmpeg (lavfi test sources plus a sine tone); no real content is downloaded
 copied. Clips are tiny (a couple of seconds, low resolution) so a full run is fast
 and uses little disk.
 
-Pass --real to additionally download the real Big Buck Bunny (a Creative Commons
-BY 3.0 short film, roughly 10 minutes) in place of the synthetic Big Buck Bunny
-fixture, so a full-length clip can actually be played. The Blender mirror serves it
-zipped, so this needs curl or wget plus unzip, and pulls about 62 MB over the network.
+Pass --real to additionally download two real Creative Commons BY 3.0 clips in place
+of their synthetic stand-ins: Big Buck Bunny (Blender) and a short Elephants Dream
+clip (Blender / Netherlands Media Art Institute, trimmed to 90s; it has clear speech
+for the transcription smoke test). Downloads are cached under media/.cache and reused
+on later runs and by the smoke test, so nothing is re-downloaded.
+
+Attribution is in deployment/dev/CREDITS.md.
 
 Files are laid out the way the scanner expects (it parses the file name, not the
 folder, and walks sub-directories recursively):
@@ -34,13 +37,15 @@ Usage: $0 [--reset] [--real] [-h|--help]
 
 Options:
   --reset        delete existing files under the movies and tv dirs before generating
-  --real         download the real Big Buck Bunny (CC BY 3.0) instead of a synthetic
-                 stand-in; needs curl or wget plus unzip, and about 62 MB of transfer
+  --real         download real CC BY 3.0 clips (Big Buck Bunny + Elephants Dream)
+                 instead of synthetic stand-ins; needs curl or wget plus unzip; cached
+                 under media/.cache and shared with the smoke test (no re-download)
   -h, --help     show this help and exit
 
 Environment overrides:
-  MOVIES_DIR     movies library dir (default <deployment/dev>/media/movies)
-  TV_DIR         tv library dir     (default <deployment/dev>/media/tv)"
+  MOVIES_DIR             movies library dir (default <deployment/dev>/media/movies)
+  TV_DIR                 tv library dir     (default <deployment/dev>/media/tv)
+  SHADOWMASK_CLIP_CACHE  download cache dir (default <deployment/dev>/media/.cache)"
 
 RESET=0
 REAL=0
@@ -64,6 +69,8 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 DEV_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 MOVIES_DIR="${MOVIES_DIR:-$DEV_DIR/media/movies}"
 TV_DIR="${TV_DIR:-$DEV_DIR/media/tv}"
+source "$SCRIPT_DIR/clips.sh"
+CLIP_CACHE_DIR=$(clip_cache_dir "$DEV_DIR")
 START_TS=$(date +%s)
 SECTION_N=0
 FILE_COUNT=0
@@ -119,40 +126,6 @@ write_srt() {
     note "wrote sidecar [$out]"
 }
 
-BBB_URL="https://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4.zip"
-
-DOWNLOADER=""
-if command -v curl >/dev/null 2>&1; then
-    DOWNLOADER=curl
-elif command -v wget >/dev/null 2>&1; then
-    DOWNLOADER=wget
-fi
-
-fetch() {
-    local url="$1" out="$2"
-    if [[ "$DOWNLOADER" == curl ]]; then
-        curl -fSL --retry 3 -o "$out" "$url"
-    else
-        wget -q -O "$out" "$url"
-    fi
-}
-
-fetch_movie_zipped() {
-    local title="$1" year="$2" quality="$3" ext="$4" url="$5"
-    local dir="$MOVIES_DIR/$title ($year)"
-    local suffix=""
-    [[ -n "$quality" ]] && suffix=" $quality"
-    local out="$dir/$title ($year)$suffix.$ext"
-    mkdir -p "$dir"
-    local tmp; tmp=$(mktemp)
-    note "downloading [$title] from [$url]"
-    fetch "$url" "$tmp" || { rm -f "$tmp"; die "download failed for [$title]"; }
-    unzip -p "$tmp" >"$out" || { rm -f "$tmp"; die "unzip failed for [$title]"; }
-    rm -f "$tmp"
-    FILE_COUNT=$((FILE_COUNT + 1))
-    ok "downloaded + extracted [$out]"
-}
-
 pick() {
     local -n arr="$1"
     printf '%s' "${arr[$(( $2 % ${#arr[@]} ))]}"
@@ -182,18 +155,29 @@ add_movie() {
     i=$((i + 1))
 }
 if ((REAL)); then
-    [[ -n "$DOWNLOADER" ]] || die "--real needs curl or wget on PATH"
+    [[ -n "$(clip_downloader)" ]] || die "--real needs curl or wget on PATH"
     command -v unzip >/dev/null 2>&1 || die "--real needs unzip on PATH (apt install unzip)"
-    fetch_movie_zipped "Big Buck Bunny" 2008 "" mp4 "$BBB_URL"
+    bbb=$(ensure_clip "$CLIP_CACHE_DIR" "big_buck_bunny_320x180.mp4" "$CLIP_URL_BBB" zip) \
+        || die "could not fetch [Big Buck Bunny]"
+    note "$CLIP_ATTRIBUTION_BBB (see deployment/dev/CREDITS.md)"
+    place_clip "$bbb" "$MOVIES_DIR/Big Buck Bunny (2008)/Big Buck Bunny (2008).mp4"
+    FILE_COUNT=$((FILE_COUNT + 1))
+    ok "placed [Big Buck Bunny (2008)]"
     write_srt "$MOVIES_DIR/Big Buck Bunny (2008)/Big Buck Bunny (2008).en.srt"
+    ed=$(ensure_clip "$CLIP_CACHE_DIR" "elephants_dream_clip.mp4" "$CLIP_URL_ED" trim:90) \
+        || die "could not fetch [Elephants Dream]"
+    note "$CLIP_ATTRIBUTION_ED (see deployment/dev/CREDITS.md)"
+    place_clip "$ed" "$MOVIES_DIR/Elephants Dream (2006)/Elephants Dream (2006).mp4"
+    FILE_COUNT=$((FILE_COUNT + 1))
+    ok "placed [Elephants Dream (2006)]"
 else
     add_movie "Big Buck Bunny"  2008 "1080p" mkv
     add_movie "Big Buck Bunny"  2008 "720p"  mp4
     write_srt "$MOVIES_DIR/Big Buck Bunny (2008)/Big Buck Bunny (2008) 1080p.en.srt"
+    add_movie "Elephants Dream" 2006 ""      mp4
 fi
 add_movie "Sintel"          2010 "1080p" mkv
 add_movie "Tears of Steel"  2012 "2160p" mkv
-add_movie "Elephants Dream" 2006 ""      mp4
 add_movie "Cosmos Laundromat" 2015 "1080p" mkv
 add_movie "Spring"          2019 ""      mp4
 ok "movies done"

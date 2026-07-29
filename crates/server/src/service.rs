@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
@@ -12,21 +13,26 @@ use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
 use jiff::{SignedDuration, Timestamp};
 use jobs::{
-    ArtworkJobHandler, CompositeJobHandler, IngestJobHandler, JobQueue, LibraryScanHandler,
-    MetadataJobHandler, RelinkJobHandler, RetryPolicy, Schedule, Scheduler, SearchReindexHandler,
-    SubtitlesJobHandler, TrickplayJobHandler, Worker,
+    ArtworkJobHandler, CombineJobHandler, CompositeJobHandler, IngestJobHandler, JobQueue,
+    LibraryScanHandler, MetadataJobHandler, RelinkJobHandler, RetryPolicy, Schedule, Scheduler,
+    SearchReindexHandler, SubtitlesJobHandler, TranscriptionJobHandler, TranslationJobHandler,
+    TrickplayJobHandler, UpscaleJobHandler, Worker, enrichment_kinds, normal_kinds,
 };
 use media::artwork::FsArtworkStore;
 use media::probe::FfprobeMediaProbe;
 use media::scan::WalkdirSourceWalker;
 use media::subtitle_store::FsSubtitleStore;
+use media::transcode::VideoEncoder;
 use media::trickplay::FfmpegTrickplayGenerator;
+use media::upscale::FfmpegUpscaler;
 use metadata::{ImageArtworkPipeline, OpenSubtitlesClient, TmdbClient};
 use metrics_exporter_prometheus::PrometheusHandle;
 use persistence::job_log::FsJobLogStore;
 use persistence::server::{SqliteCatalogRepo, SqliteJobRepo, SqliteLibraryRepo};
 use serde::{Deserialize, Serialize};
-use services::library::{Enricher, LibraryServiceImpl, Scanner};
+use services::library::{
+    Enricher, LibraryServiceImpl, Scanner, TranscriptionEnqueuer, TranslationEnqueuer,
+};
 use services::user::UserServiceImpl;
 use tokio::net::TcpListener;
 use tokio::task::JoinSet;
@@ -36,6 +42,7 @@ use crate::bootstrap::{
     BootstrapMode, BootstrapResult, ErasedProvider, LibraryBootstrapProvider,
     UserBootstrapProvider, run_providers,
 };
+use crate::enrichment::EnrichmentConfig;
 use crate::lockfile::ServerLock;
 use crate::observability::observability_router;
 
@@ -48,8 +55,31 @@ type TrickplayHandler = TrickplayJobHandler<SqliteCatalogRepo, FfmpegTrickplayGe
 type IngestHandler = IngestJobHandler<SqliteLibraryRepo, FfprobeMediaProbe, ServerEnricher>;
 type MetadataHandler = MetadataJobHandler<ServerEnricher>;
 type RelinkHandler = RelinkJobHandler<SqliteLibraryRepo, FfprobeMediaProbe, ServerEnricher>;
-type SubtitlesHandler =
-    SubtitlesJobHandler<OpenSubtitlesClient, SqliteCatalogRepo, FsSubtitleStore>;
+type Trigger = TranslationEnqueuer<SqliteJobRepo>;
+type TranscriptionTriggerImpl = TranscriptionEnqueuer<SqliteJobRepo, SqliteCatalogRepo>;
+type SubtitlesHandler = SubtitlesJobHandler<
+    OpenSubtitlesClient,
+    SqliteCatalogRepo,
+    FsSubtitleStore,
+    Trigger,
+    TranscriptionTriggerImpl,
+>;
+#[cfg(feature = "enrichment")]
+type TranscriptionProviderImpl =
+    inference::WhisperProvider<inference::Ct2WhisperEngine, media::transcode::TokioProcessSpawner>;
+#[cfg(not(feature = "enrichment"))]
+type TranscriptionProviderImpl = inference::DisabledTranscriptionProvider;
+type TranscriptionHandler =
+    TranscriptionJobHandler<TranscriptionProviderImpl, SqliteCatalogRepo, FsSubtitleStore, Trigger>;
+#[cfg(feature = "enrichment")]
+type TranslationProviderImpl = inference::MtProvider<inference::Ct2TranslationEngine>;
+#[cfg(not(feature = "enrichment"))]
+type TranslationProviderImpl = inference::DisabledTranslationProvider;
+type TranslationHandler =
+    TranslationJobHandler<TranslationProviderImpl, SqliteCatalogRepo, FsSubtitleStore>;
+type UpscaleHandler = UpscaleJobHandler<FfmpegUpscaler, SqliteCatalogRepo, FfprobeMediaProbe>;
+type CombineHandler =
+    CombineJobHandler<inference::SubtitleMerger, SqliteCatalogRepo, FsSubtitleStore>;
 type JobWorker = Worker<
     SqliteJobRepo,
     CompositeJobHandler<
@@ -61,10 +91,148 @@ type JobWorker = Worker<
         MetadataHandler,
         RelinkHandler,
         SubtitlesHandler,
+        TranscriptionHandler,
+        TranslationHandler,
+        UpscaleHandler,
+        CombineHandler,
     >,
     FsJobLogStore,
 >;
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
+fn transcription_model_dir(enrichment: &EnrichmentConfig) -> PathBuf {
+    enrichment
+        .transcription
+        .model_path
+        .clone()
+        .unwrap_or_else(|| enrichment.model_cache.join("transcription"))
+}
+
+fn translation_model_dir(enrichment: &EnrichmentConfig) -> PathBuf {
+    enrichment
+        .translation
+        .model_path
+        .clone()
+        .unwrap_or_else(|| enrichment.model_cache.join("translation"))
+}
+
+#[cfg(feature = "enrichment")]
+fn select_model(
+    kind: &str,
+    base: &std::path::Path,
+    enabled: bool,
+    scan: impl Fn(&std::path::Path) -> inference::ModelScan,
+) -> Result<Option<PathBuf>, BoxError> {
+    if !enabled {
+        return Ok(None);
+    }
+    let scan = scan(base);
+    for rejected in &scan.rejected {
+        tracing::warn!(
+            "{kind}: ignoring model folder [{}]: {}",
+            rejected.dir.display(),
+            rejected.reason
+        );
+    }
+    match scan.chosen {
+        Some(model) => {
+            tracing::info!(
+                "{kind}: selected model [{}] from [{}] folder(s) under [{}]",
+                model.display(),
+                scan.total,
+                base.display()
+            );
+            if let Some(warning) = crate::memory::memory_warning(
+                kind,
+                &model.display().to_string(),
+                crate::memory::dir_size_bytes(&model),
+                crate::memory::available_memory_bytes(),
+            ) {
+                tracing::warn!("{warning}");
+            }
+            Ok(Some(model))
+        }
+        None if scan.total > 0 => Err(format!(
+            "{kind}: enabled but none of the [{}] folder(s) under [{}] contain a valid model; add a valid CTranslate2 model or disable {kind}",
+            scan.total,
+            base.display()
+        )
+        .into()),
+        None => {
+            tracing::warn!(
+                "{kind}: enabled but no model folders were found under [{}]; {kind} jobs will fail until a model is added",
+                base.display()
+            );
+            Ok(None)
+        }
+    }
+}
+
+fn build_transcription_provider(model_dir: PathBuf) -> TranscriptionProviderImpl {
+    #[cfg(feature = "enrichment")]
+    {
+        inference::WhisperProvider::new(
+            inference::Ct2WhisperEngine::new(model_dir),
+            media::transcode::TokioProcessSpawner,
+        )
+    }
+    #[cfg(not(feature = "enrichment"))]
+    {
+        let _ = model_dir;
+        inference::DisabledTranscriptionProvider
+    }
+}
+
+fn build_translation_provider(
+    model_dir: PathBuf,
+    source_prefix: Option<String>,
+    target_prefix: Option<String>,
+) -> TranslationProviderImpl {
+    #[cfg(feature = "enrichment")]
+    {
+        inference::MtProvider::new(inference::Ct2TranslationEngine::new(
+            model_dir,
+            source_prefix,
+            target_prefix,
+        ))
+    }
+    #[cfg(not(feature = "enrichment"))]
+    {
+        let _ = (model_dir, source_prefix, target_prefix);
+        inference::DisabledTranslationProvider
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HardwareAccelerationMode {
+    Off,
+    #[default]
+    Auto,
+    Vaapi,
+}
+
+fn resolve_vaapi_device(
+    mode: HardwareAccelerationMode,
+    device: &str,
+    present: bool,
+) -> Option<String> {
+    match mode {
+        HardwareAccelerationMode::Off => None,
+        HardwareAccelerationMode::Auto => present.then(|| device.to_owned()),
+        HardwareAccelerationMode::Vaapi => {
+            if present {
+                Some(device.to_owned())
+            } else {
+                tracing::warn!(
+                    device,
+                    "hardware_acceleration=vaapi requested but no render node found; using software"
+                );
+                None
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -97,6 +265,9 @@ pub struct Config {
     pub basic_client_dir: PathBuf,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
+    pub hardware_acceleration: HardwareAccelerationMode,
+    pub vaapi_device: PathBuf,
+    pub enrichment: EnrichmentConfig,
 }
 
 impl Default for Config {
@@ -130,7 +301,23 @@ impl Default for Config {
             basic_client_dir: PathBuf::from("clients/basic"),
             tls_cert: None,
             tls_key: None,
+            hardware_acceleration: HardwareAccelerationMode::default(),
+            vaapi_device: PathBuf::from("/dev/dri/renderD128"),
+            enrichment: EnrichmentConfig::default(),
         }
+    }
+}
+
+fn nest_enrichment_key(key: &str) -> String {
+    let key = key.to_ascii_lowercase();
+    for section in ["transcription", "translation", "upscaling"] {
+        if let Some(leaf) = key.strip_prefix(&format!("enrichment_{section}_")) {
+            return format!("enrichment.{section}.{leaf}");
+        }
+    }
+    match key.strip_prefix("enrichment_") {
+        Some(leaf) => format!("enrichment.{leaf}"),
+        None => key,
     }
 }
 
@@ -139,7 +326,12 @@ impl Config {
         let mut config: Config = Figment::new()
             .merge(Serialized::defaults(Config::default()))
             .merge(Toml::file("shadowmask.toml"))
-            .merge(Env::prefixed("SHADOWMASK_").ignore(&["target_languages"]))
+            .merge(
+                Env::prefixed("SHADOWMASK_")
+                    .map(|key| nest_enrichment_key(key.as_str()).into())
+                    .split(".")
+                    .ignore(&["target_languages"]),
+            )
             .extract()?;
         config.tmdb_api_key = trim_key(config.tmdb_api_key);
         config.opensubtitles_api_key = trim_key(config.opensubtitles_api_key);
@@ -154,6 +346,125 @@ impl Config {
             }
         }
         Ok(config)
+    }
+
+    pub fn describe(&self) -> String {
+        use std::fmt::Write as _;
+        let provided = |value: &str| {
+            if value.trim().is_empty() {
+                "none"
+            } else {
+                "<provided>"
+            }
+        };
+        let opt_secret = |value: &Option<String>| match value {
+            Some(v) if !v.trim().is_empty() => "<provided>",
+            _ => "none",
+        };
+        let opt_path = |value: &Option<PathBuf>| {
+            value
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "none".to_owned())
+        };
+        let e = &self.enrichment;
+        let mut out = String::new();
+        let _ = writeln!(out, "\nConfig(");
+        let _ = writeln!(out, "  server:");
+        let _ = writeln!(out, "    bind:             {}", self.bind);
+        let _ = writeln!(out, "    db_root:          {}", self.db_root.display());
+        let _ = writeln!(out, "    access_ttl_secs:  {}", self.access_ttl_secs);
+        let _ = writeln!(out, "    refresh_ttl_secs: {}", self.refresh_ttl_secs);
+        let _ = writeln!(
+            out,
+            "    shutdown_timeout: {} s",
+            self.shutdown_timeout_secs
+        );
+        let _ = writeln!(out, "    reindex_every:    {} s", self.reindex_every_secs);
+        let _ = writeln!(out, "    log_level:        {}", self.log_level);
+        let _ = writeln!(out, "    sqlx_log_level:   {}", self.sqlx_log_level);
+        let _ = writeln!(out, "  caches:");
+        let _ = writeln!(out, "    transcode: {}", self.transcode_cache.display());
+        let _ = writeln!(out, "    artwork:   {}", self.artwork_cache.display());
+        let _ = writeln!(out, "    trickplay: {}", self.trickplay_cache.display());
+        let _ = writeln!(out, "    subtitles: {}", self.subtitle_cache.display());
+        let _ = writeln!(out, "    job_logs:  {}", self.job_log_dir.display());
+        let _ = writeln!(out, "  tls:");
+        let _ = writeln!(out, "    cert: {}", opt_path(&self.tls_cert));
+        let _ = writeln!(out, "    key:  {}", opt_path(&self.tls_key));
+        let _ = writeln!(out, "  transcoding:");
+        let _ = writeln!(
+            out,
+            "    hardware_acceleration: {:?}",
+            self.hardware_acceleration
+        );
+        let _ = writeln!(
+            out,
+            "    vaapi_device:          {}",
+            self.vaapi_device.display()
+        );
+        let _ = writeln!(out, "  metadata:");
+        let _ = writeln!(
+            out,
+            "    tmdb_api_key:          {}",
+            opt_secret(&self.tmdb_api_key)
+        );
+        let _ = writeln!(
+            out,
+            "    opensubtitles_api_key: {}",
+            opt_secret(&self.opensubtitles_api_key)
+        );
+        let _ = writeln!(
+            out,
+            "    target_languages:      {}",
+            self.target_languages.join(", ")
+        );
+        let _ = writeln!(out, "  workers:");
+        let _ = writeln!(out, "    concurrency:      {}", self.worker_concurrency);
+        let _ = writeln!(out, "    worker_period:    {} s", self.worker_period_secs);
+        let _ = writeln!(
+            out,
+            "    scheduler_period: {} s",
+            self.scheduler_period_secs
+        );
+        let _ = writeln!(out, "    reaper_period:    {} s", self.reaper_period_secs);
+        let _ = writeln!(out, "  bootstrap:");
+        let _ = writeln!(out, "    mode: {:?}", self.bootstrap_mode);
+        let _ = writeln!(out, "    dir:  {}", self.bootstrap_dir.display());
+        let _ = writeln!(out, "  webhooks:");
+        let _ = writeln!(out, "    clients: {}", self.webhook_clients.len());
+        let _ = writeln!(out, "  enrichment:");
+        let _ = writeln!(out, "    model_cache:   {}", e.model_cache.display());
+        let _ = writeln!(out, "    concurrency:   {}", e.concurrency);
+        let _ = writeln!(
+            out,
+            "    transcription: enabled={} provider={:?} models_dir={}",
+            e.transcription.enabled,
+            e.transcription.provider,
+            transcription_model_dir(e).display()
+        );
+        let _ = writeln!(
+            out,
+            "    translation:   enabled={} provider={:?} models_dir={} source_prefix={} target_prefix={}",
+            e.translation.enabled,
+            e.translation.provider,
+            translation_model_dir(e).display(),
+            e.translation.source_prefix.as_deref().unwrap_or("none"),
+            e.translation.target_prefix.as_deref().unwrap_or("none")
+        );
+        let _ = writeln!(
+            out,
+            "    upscaling:     enabled={} provider={:?} target_height={} model_path={}",
+            e.upscaling.enabled,
+            e.upscaling.provider,
+            e.upscaling.target_height,
+            opt_path(&e.upscaling.model_path)
+        );
+        let _ = writeln!(out, "  secrets:");
+        let _ = writeln!(out, "    jwt_secret:    {}", provided(&self.jwt_secret));
+        let _ = writeln!(out, "    stream_secret: {}", provided(&self.stream_secret));
+        let _ = write!(out, ")");
+        out
     }
 }
 
@@ -219,6 +530,7 @@ pub struct Runtime {
     router: Router,
     session: SessionSvc,
     worker: JobWorker,
+    enrichment_worker: JobWorker,
     scheduler: Scheduler,
     queue: JobQueue<SqliteJobRepo>,
     bind: SocketAddr,
@@ -232,6 +544,7 @@ pub struct Runtime {
 
 impl Runtime {
     pub async fn build(config: Config, metrics: PrometheusHandle) -> Result<Self, BoxError> {
+        tracing::info!("{}", config.describe());
         let repos = Repos::connect(&config.db_root).await?;
 
         let reclaimed = repos.jobs.reclaim_running(Timestamp::now()).await?;
@@ -242,6 +555,12 @@ impl Runtime {
             run_bootstrap(&config, &repos).await?;
         }
 
+        let vaapi_present = config.vaapi_device.exists();
+        let vaapi_device = resolve_vaapi_device(
+            config.hardware_acceleration,
+            &config.vaapi_device.to_string_lossy(),
+            vaapi_present,
+        );
         let wire = WireConfig {
             jwt_secret: config.jwt_secret.into_bytes(),
             stream_secret: config.stream_secret.into_bytes(),
@@ -251,6 +570,10 @@ impl Runtime {
             artwork_cache: config.artwork_cache,
             trickplay_cache: config.trickplay_cache.clone(),
             tmdb_api_key: config.tmdb_api_key.clone(),
+            transcription_enabled: config.enrichment.transcription.enabled,
+            translation_enabled: config.enrichment.translation.enabled,
+            upscaling_enabled: config.enrichment.upscaling.enabled,
+            vaapi_device: vaapi_device.clone(),
         };
         let Built {
             state,
@@ -261,15 +584,55 @@ impl Runtime {
             trickplay,
         } = build_state(&repos, &wire)?;
         let job_logs = FsJobLogStore::new(&config.job_log_dir);
+        let transcription_dir = transcription_model_dir(&config.enrichment);
+        let translation_dir = translation_model_dir(&config.enrichment);
+        #[cfg(feature = "enrichment")]
+        let (transcription_model, translation_model) = (
+            select_model(
+                "transcription",
+                &transcription_dir,
+                wire.transcription_enabled,
+                inference::scan_transcription_models,
+            )?,
+            select_model(
+                "translation",
+                &translation_dir,
+                wire.translation_enabled,
+                inference::scan_translation_models,
+            )?,
+        );
+        #[cfg(not(feature = "enrichment"))]
+        let (transcription_model, translation_model): (Option<PathBuf>, Option<PathBuf>) =
+            (None, None);
+        let capabilities =
+            crate::capabilities::server_capabilities(crate::capabilities::CapabilityInputs {
+                transcription: wire.transcription_enabled && transcription_model.is_some(),
+                translation: wire.translation_enabled && translation_model.is_some(),
+                upscaling: wire.upscaling_enabled,
+                opensubtitles: config.opensubtitles_api_key.is_some(),
+                tmdb: config.tmdb_api_key.is_some(),
+                tls: config.tls_cert.is_some() && config.tls_key.is_some(),
+                webhooks: !config.webhook_clients.is_empty(),
+                hardware_transcode_available: vaapi_present,
+                hardware_transcode_enabled: vaapi_device.is_some(),
+            });
         let router = app(
             state.clone(),
             stream,
             images,
             trickplay,
             config.webhook_clients.clone(),
+            capabilities,
         )
         .merge(observability_router(metrics, repos.clone()))
         .merge(::api::basic_ui_router(&config.basic_client_dir))
+        .merge(::api::subtitle_router(
+            state.clone(),
+            ::api::SubtitleState::new(
+                repos.catalog.clone(),
+                FsSubtitleStore::new(&config.subtitle_cache),
+            ),
+        ))
         .merge(::api::job_log_router(
             state,
             ::api::JobLogState::new(job_logs.clone()),
@@ -280,8 +643,47 @@ impl Runtime {
         } else {
             Vec::new()
         };
+        let translation_langs = if config.enrichment.translation.enabled {
+            config.target_languages.clone()
+        } else {
+            Vec::new()
+        };
         let subtitles = SubtitlesJobHandler::new(
             OpenSubtitlesClient::new(config.opensubtitles_api_key.clone().unwrap_or_default()),
+            repos.catalog.clone(),
+            FsSubtitleStore::new(&config.subtitle_cache),
+            TranslationEnqueuer::new(repos.jobs.clone(), translation_langs.clone()),
+            TranscriptionEnqueuer::new(
+                repos.jobs.clone(),
+                repos.catalog.clone(),
+                subtitle_langs.clone(),
+            ),
+        );
+        let transcription_enabled = config.enrichment.transcription.enabled;
+        let transcription = TranscriptionJobHandler::new(
+            build_transcription_provider(
+                transcription_model.unwrap_or_else(|| transcription_dir.clone()),
+            ),
+            repos.catalog.clone(),
+            FsSubtitleStore::new(&config.subtitle_cache),
+            TranslationEnqueuer::new(repos.jobs.clone(), translation_langs.clone()),
+        );
+        let translation = TranslationJobHandler::new(
+            build_translation_provider(
+                translation_model.unwrap_or_else(|| translation_dir.clone()),
+                config.enrichment.translation.source_prefix.clone(),
+                config.enrichment.translation.target_prefix.clone(),
+            ),
+            repos.catalog.clone(),
+            FsSubtitleStore::new(&config.subtitle_cache),
+        );
+        let upscale = UpscaleJobHandler::new(
+            FfmpegUpscaler::new().with_encoder(VideoEncoder::from_device(vaapi_device.clone())),
+            repos.catalog.clone(),
+            FfprobeMediaProbe::default(),
+        );
+        let combine = CombineJobHandler::new(
+            inference::SubtitleMerger,
             repos.catalog.clone(),
             FsSubtitleStore::new(&config.subtitle_cache),
         );
@@ -292,21 +694,27 @@ impl Runtime {
             repos.jobs.clone(),
             repos.library.clone(),
         )
-        .with_subtitle_languages(subtitle_langs.clone());
+        .with_subtitle_languages(subtitle_langs.clone())
+        .with_transcription(transcription_enabled)
+        .with_translation_languages(translation_langs.clone());
         let ingest_enricher = Enricher::new(
             repos.catalog.clone(),
             provider.clone(),
             repos.jobs.clone(),
             repos.library.clone(),
         )
-        .with_subtitle_languages(subtitle_langs.clone());
+        .with_subtitle_languages(subtitle_langs.clone())
+        .with_transcription(transcription_enabled)
+        .with_translation_languages(translation_langs.clone());
         let relink_enricher = Enricher::new(
             repos.catalog.clone(),
             provider.clone(),
             repos.jobs.clone(),
             repos.library.clone(),
         )
-        .with_subtitle_languages(subtitle_langs);
+        .with_subtitle_languages(subtitle_langs)
+        .with_transcription(transcription_enabled)
+        .with_translation_languages(translation_langs.clone());
         let metadata_enricher = Enricher::new(
             repos.catalog.clone(),
             provider,
@@ -339,14 +747,35 @@ impl Runtime {
             FfprobeMediaProbe::default(),
             relink_enricher,
         );
+        let handler = Arc::new(CompositeJobHandler::new(
+            scan,
+            reindex,
+            artwork,
+            trickplay,
+            ingest,
+            metadata,
+            relink,
+            subtitles,
+            transcription,
+            translation,
+            upscale,
+            combine,
+        ));
         let worker = Worker::new(
             repos.jobs.clone(),
-            CompositeJobHandler::new(
-                scan, reindex, artwork, trickplay, ingest, metadata, relink, subtitles,
-            ),
-            job_logs,
+            handler.clone(),
+            job_logs.clone(),
             config.worker_concurrency,
             RetryPolicy::default(),
+            normal_kinds(),
+        );
+        let enrichment_worker = Worker::new(
+            repos.jobs.clone(),
+            handler,
+            job_logs,
+            config.enrichment.concurrency,
+            RetryPolicy::default(),
+            enrichment_kinds(),
         );
 
         let tls = load_tls(config.tls_cert.as_deref(), config.tls_key.as_deref()).await?;
@@ -368,6 +797,7 @@ impl Runtime {
             router,
             session,
             worker,
+            enrichment_worker,
             scheduler,
             queue,
             bind: config.bind,
@@ -391,6 +821,7 @@ impl Runtime {
             router,
             session,
             worker,
+            enrichment_worker,
             mut scheduler,
             queue,
             tls,
@@ -409,6 +840,14 @@ impl Runtime {
         tasks.spawn(async move {
             worker
                 .run(worker_period, worker_stop)
+                .await
+                .map_err(box_err)
+        });
+
+        let enrichment_stop = stopped(stop_tx.subscribe());
+        tasks.spawn(async move {
+            enrichment_worker
+                .run(worker_period, enrichment_stop)
                 .await
                 .map_err(box_err)
         });
@@ -678,6 +1117,187 @@ mod tests {
             );
             Ok(())
         });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn enrichment_defaults_all_off() {
+        figment::Jail::expect_with(|_jail| {
+            let enrichment = Config::load().unwrap().enrichment;
+            assert_eq!(
+                enrichment.model_cache,
+                PathBuf::from("data/enrichment-models")
+            );
+            assert!(!enrichment.transcription.enabled);
+            assert!(!enrichment.translation.enabled);
+            assert!(!enrichment.upscaling.enabled);
+            assert_eq!(
+                enrichment.transcription.provider,
+                crate::enrichment::ProviderChoice::None
+            );
+            assert_eq!(
+                enrichment.translation.provider,
+                crate::enrichment::ProviderChoice::None
+            );
+            assert_eq!(
+                enrichment.upscaling.provider,
+                crate::enrichment::ProviderChoice::None
+            );
+            assert_eq!(enrichment.transcription.model_path, None);
+            assert_eq!(enrichment.upscaling.target_height, 1080);
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn enrichment_config_round_trips_from_toml() {
+        figment::Jail::expect_with(|jail| {
+            jail.create_file(
+                "shadowmask.toml",
+                "[enrichment.transcription]\nenabled = true\nprovider = \"built-in\"\nmodel_path = \"/models/transcription\"\n",
+            )?;
+            let enrichment = Config::load().unwrap().enrichment;
+            assert!(enrichment.transcription.enabled);
+            assert_eq!(
+                enrichment.transcription.provider,
+                crate::enrichment::ProviderChoice::BuiltIn
+            );
+            assert_eq!(
+                enrichment.transcription.model_path,
+                Some(PathBuf::from("/models/transcription"))
+            );
+            assert!(!enrichment.translation.enabled);
+            assert!(!enrichment.upscaling.enabled);
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn nested_env_keys_apply_without_regressing_flat_keys() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("SHADOWMASK_JWT_SECRET", "flat-secret");
+            jail.set_env("SHADOWMASK_ENRICHMENT_MODEL_CACHE", "/models");
+            jail.set_env("SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED", "true");
+            jail.set_env("SHADOWMASK_ENRICHMENT_UPSCALING_PROVIDER", "built-in");
+            jail.set_env("SHADOWMASK_ENRICHMENT_UPSCALING_TARGET_HEIGHT", "2160");
+            let config = Config::load().unwrap();
+            assert_eq!(config.jwt_secret, "flat-secret");
+            assert_eq!(config.enrichment.model_cache, PathBuf::from("/models"));
+            assert!(config.enrichment.upscaling.enabled);
+            assert_eq!(
+                config.enrichment.upscaling.provider,
+                crate::enrichment::ProviderChoice::BuiltIn
+            );
+            assert_eq!(config.enrichment.upscaling.target_height, 2160);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn nest_enrichment_key_maps_only_boundaries() {
+        assert_eq!(super::nest_enrichment_key("jwt_secret"), "jwt_secret");
+        assert_eq!(
+            super::nest_enrichment_key("enrichment_model_cache"),
+            "enrichment.model_cache"
+        );
+        assert_eq!(
+            super::nest_enrichment_key("enrichment_transcription_enabled"),
+            "enrichment.transcription.enabled"
+        );
+        assert_eq!(
+            super::nest_enrichment_key("ENRICHMENT_UPSCALING_TARGET_HEIGHT"),
+            "enrichment.upscaling.target_height"
+        );
+    }
+
+    #[test]
+    fn describe_redacts_secrets_and_lists_config() {
+        let config = Config {
+            jwt_secret: "super-secret-jwt-value".to_owned(),
+            stream_secret: String::new(),
+            tmdb_api_key: Some("tmdb-key-123".to_owned()),
+            opensubtitles_api_key: None,
+            ..Config::default()
+        };
+        let described = config.describe();
+        assert!(described.contains("Config("));
+        assert!(!described.contains("super-secret-jwt-value"));
+        assert!(!described.contains("tmdb-key-123"));
+        assert!(described.contains("jwt_secret:    <provided>"));
+        assert!(described.contains("stream_secret: none"));
+        assert!(described.contains("tmdb_api_key:          <provided>"));
+        assert!(described.contains("opensubtitles_api_key: none"));
+        assert!(described.contains("hardware_acceleration: Auto"));
+    }
+
+    #[test]
+    fn model_dirs_default_under_cache_or_override() {
+        let defaults = crate::enrichment::EnrichmentConfig::default();
+        assert_eq!(
+            transcription_model_dir(&defaults),
+            defaults.model_cache.join("transcription")
+        );
+        assert_eq!(
+            translation_model_dir(&defaults),
+            defaults.model_cache.join("translation")
+        );
+        let overridden = crate::enrichment::EnrichmentConfig {
+            transcription: crate::enrichment::TranscriptionConfig {
+                model_path: Some(PathBuf::from("/models/w")),
+                ..Default::default()
+            },
+            translation: crate::enrichment::TranslationConfig {
+                model_path: Some(PathBuf::from("/models/t")),
+                ..Default::default()
+            },
+            ..crate::enrichment::EnrichmentConfig::default()
+        };
+        assert_eq!(
+            transcription_model_dir(&overridden),
+            PathBuf::from("/models/w")
+        );
+        assert_eq!(
+            translation_model_dir(&overridden),
+            PathBuf::from("/models/t")
+        );
+    }
+
+    #[test]
+    fn resolve_vaapi_off_is_always_software() {
+        assert_eq!(
+            resolve_vaapi_device(HardwareAccelerationMode::Off, "/dev/dri/renderD128", true),
+            None
+        );
+    }
+
+    #[test]
+    fn resolve_vaapi_auto_follows_device_presence() {
+        assert_eq!(
+            resolve_vaapi_device(HardwareAccelerationMode::Auto, "/dev/dri/renderD128", true),
+            Some("/dev/dri/renderD128".to_owned())
+        );
+        assert_eq!(
+            resolve_vaapi_device(HardwareAccelerationMode::Auto, "/dev/dri/renderD128", false),
+            None
+        );
+    }
+
+    #[test]
+    fn resolve_vaapi_forced_falls_back_when_absent() {
+        assert_eq!(
+            resolve_vaapi_device(HardwareAccelerationMode::Vaapi, "/dev/dri/renderD128", true),
+            Some("/dev/dri/renderD128".to_owned())
+        );
+        assert_eq!(
+            resolve_vaapi_device(
+                HardwareAccelerationMode::Vaapi,
+                "/dev/dri/renderD128",
+                false
+            ),
+            None
+        );
     }
 
     #[test]

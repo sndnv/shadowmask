@@ -45,7 +45,7 @@ where
             .await
             .map_err(retryable)?
             .ok_or_else(|| JobError::Permanent(format!("library not found: {}", id.0)))?;
-        tracing::info!("scanning library");
+        tracing::info!("scanning library [{}]", id.0);
 
         if matches!(
             self.repo.scan_state(&id).await.map_err(retryable)?,
@@ -66,7 +66,7 @@ where
                     .save_scan_state(idle(&id, started, Timestamp::now()))
                     .await
                     .map_err(retryable)?;
-                self.enricher.enrich(&library, &report).await;
+                self.enricher.enrich(&library, &report, Some(&job.id)).await;
                 Ok(())
             }
             Err(err) => {
@@ -138,7 +138,7 @@ mod tests {
     }
 
     impl ScanEnricher for SpyEnricher {
-        async fn enrich(&self, _library: &Library, _report: &ScanReport) {
+        async fn enrich(&self, _library: &Library, _report: &ScanReport, _parent: Option<&JobId>) {
             self.called.store(true, Ordering::Relaxed);
         }
     }
@@ -173,6 +173,7 @@ mod tests {
             updated_at: now,
             started_at: None,
             finished_at: None,
+            parent_id: None,
         }
     }
 

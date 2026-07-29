@@ -8,6 +8,7 @@ pub mod library;
 pub mod server;
 pub mod sessions;
 pub mod stream;
+pub mod subtitle;
 pub mod trickplay;
 pub mod user_library;
 pub mod users;

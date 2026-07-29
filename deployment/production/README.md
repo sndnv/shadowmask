@@ -30,10 +30,18 @@ Log levels are set per target in the compose `environment:` block:
 
 ## Hardware acceleration
 
-The image ships FFmpeg with VAAPI drivers baked in. Uncomment the `devices` block to pass
-`/dev/dri` through for Intel or AMD iGPU transcoding. Intel QuickSync additionally needs
-`intel-media-va-driver`; NVIDIA NVENC needs the nvidia-container-toolkit on the host (see the
-commented `deploy` block).
+The image ships FFmpeg with VAAPI drivers baked in. Uncomment the `devices` block in
+`docker-compose.yml` to pass `/dev/dri` through for Intel or AMD iGPU H.264 encoding, selected with
+`SHADOWMASK_HARDWARE_ACCELERATION` (`auto` by default). See
+[hardware acceleration](../README.md#hardware-acceleration) for the modes and passthrough details.
+
+## Local AI (enrichment)
+
+Transcription, translation, and upscaling can run locally with no external service. These features
+live in a separate image and are off by default. In short: switch the `image:` tag to the
+`-enrichment` variant, enable the feature(s), and mount CTranslate2 models. The compose file has a
+commented block to uncomment; full setup and licensing are in
+[`../ENRICHMENT.md`](../ENRICHMENT.md).
 
 ## TLS (optional)
 
