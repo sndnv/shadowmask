@@ -277,6 +277,20 @@ const sm = (() => {
     );
   }
 
+  function authImg(path, attrs = {}) {
+    const image = el("img", Object.assign({ alt: "", loading: "lazy" }, attrs));
+    api(path)
+      .then((res) => (res.ok ? res.blob() : Promise.reject(new Error("HTTP " + res.status))))
+      .then((blob) => {
+        image.src = URL.createObjectURL(blob);
+        image.addEventListener("load", () => URL.revokeObjectURL(image.src), { once: true });
+      })
+      .catch(() => {
+        image.alt = "unavailable";
+      });
+    return image;
+  }
+
   function card(opts) {
     const image = poster(opts.artwork, 180);
     const caption = el("figcaption", null, [
@@ -357,6 +371,42 @@ const sm = (() => {
       else nodes.push(el("span", { text: item.label }));
     });
     return el("nav", { class: "sm-crumbs" }, nodes);
+  }
+
+  function dialog(title, body) {
+    const box = el("dialog", { class: "sm-dialog" });
+    const close = el("button", { type: "button" }, "Close");
+    close.addEventListener("click", () => box.close());
+    box.addEventListener("close", () => box.remove());
+    box.appendChild(el("div", { class: "sm-dialog-head" }, [el("strong", { text: title }), close]));
+    box.appendChild(body);
+    document.body.appendChild(box);
+    if (box.showModal) box.showModal();
+    else box.setAttribute("open", "open");
+    return box;
+  }
+
+  function tabs(items) {
+    const bar = el("div", { class: "sm-tabs", role: "tablist" });
+    const panels = [];
+    const buttons = [];
+    const select = (index) => {
+      buttons.forEach((b, i) => b.setAttribute("aria-selected", i === index ? "true" : "false"));
+      panels.forEach((p, i) => {
+        p.hidden = i !== index;
+      });
+    };
+    items.forEach((item, index) => {
+      const button = el("button", { type: "button", class: "sm-tab", role: "tab" }, item.label);
+      button.addEventListener("click", () => select(index));
+      buttons.push(button);
+      bar.appendChild(button);
+      const panel = el("section", { class: "sm-tabpanel", role: "tabpanel" }, item.panel);
+      panels.push(panel);
+    });
+    const wrap = el("div", null, [bar, ...panels]);
+    select(0);
+    return wrap;
   }
 
   const enc = encodeURIComponent;
@@ -675,11 +725,14 @@ const sm = (() => {
     el,
     img,
     poster,
+    authImg,
     card,
     grid,
     table,
     pager,
     breadcrumbs,
+    dialog,
+    tabs,
     href,
     url,
     wireLogout,

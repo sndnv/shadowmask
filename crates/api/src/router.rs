@@ -103,6 +103,7 @@ pub fn router<S: AppServices>(state: S) -> Router {
         .route("/libraries/{id}/versions", get(library::versions::<S>))
         .route("/admin/jobs", get(admin::jobs::<S>))
         .route("/admin/jobs/{id}", get(admin::job::<S>))
+        .route("/admin/jobs/{id}/cancel", post(admin::cancel_job::<S>))
         .route("/admin/versions", get(admin::versions::<S>))
         .route(
             "/admin/versions/{id}/transcribe",
@@ -120,6 +121,7 @@ pub fn router<S: AppServices>(state: S) -> Router {
             "/admin/versions/{id}/subtitles/combine",
             post(admin::combine_subtitles::<S>),
         )
+        .route("/admin/fetch", post(admin::create_fetch::<S>))
         .route("/search", get(discovery::search::<S>))
         .route("/sessions", post(sessions::start::<S>))
         .route("/sessions/{id}", delete(sessions::end::<S>))

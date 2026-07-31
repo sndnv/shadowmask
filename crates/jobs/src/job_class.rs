@@ -1,6 +1,6 @@
 use domain::job::JobKind;
 
-pub const ALL_KINDS: [JobKind; 15] = [
+pub const ALL_KINDS: [JobKind; 16] = [
     JobKind::LibraryScan,
     JobKind::Metadata,
     JobKind::Artwork,
@@ -16,6 +16,7 @@ pub const ALL_KINDS: [JobKind; 15] = [
     JobKind::Translation,
     JobKind::Upscale,
     JobKind::Combine,
+    JobKind::Fetch,
 ];
 
 pub fn is_enrichment_job(kind: JobKind) -> bool {
@@ -32,8 +33,13 @@ pub fn is_enrichment_job(kind: JobKind) -> bool {
         | JobKind::SearchReindex
         | JobKind::Ingest
         | JobKind::Relink
-        | JobKind::Combine => false,
+        | JobKind::Combine
+        | JobKind::Fetch => false,
     }
+}
+
+pub fn is_fetch_job(kind: JobKind) -> bool {
+    matches!(kind, JobKind::Fetch)
 }
 
 pub fn enrichment_kinds() -> Vec<JobKind> {
@@ -43,10 +49,17 @@ pub fn enrichment_kinds() -> Vec<JobKind> {
         .collect()
 }
 
+pub fn fetch_kinds() -> Vec<JobKind> {
+    ALL_KINDS
+        .into_iter()
+        .filter(|kind| is_fetch_job(*kind))
+        .collect()
+}
+
 pub fn normal_kinds() -> Vec<JobKind> {
     ALL_KINDS
         .into_iter()
-        .filter(|kind| !is_enrichment_job(*kind))
+        .filter(|kind| !is_enrichment_job(*kind) && !is_fetch_job(*kind))
         .collect()
 }
 
@@ -55,12 +68,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn kinds_partition_into_enrichment_and_normal() {
-        assert_eq!(ALL_KINDS.len(), 15);
+    fn kinds_partition_into_enrichment_fetch_and_normal() {
+        assert_eq!(ALL_KINDS.len(), 16);
         let enrichment = enrichment_kinds();
+        let fetch = fetch_kinds();
         let normal = normal_kinds();
-        assert_eq!(enrichment.len() + normal.len(), ALL_KINDS.len());
+        assert_eq!(
+            enrichment.len() + fetch.len() + normal.len(),
+            ALL_KINDS.len()
+        );
         assert!(enrichment.iter().all(|kind| !normal.contains(kind)));
+        assert!(enrichment.iter().all(|kind| !fetch.contains(kind)));
+        assert!(fetch.iter().all(|kind| !normal.contains(kind)));
         assert_eq!(
             enrichment,
             vec![
@@ -69,6 +88,7 @@ mod tests {
                 JobKind::Upscale
             ]
         );
+        assert_eq!(fetch, vec![JobKind::Fetch]);
     }
 
     #[test]
@@ -79,5 +99,13 @@ mod tests {
         assert!(!is_enrichment_job(JobKind::LibraryScan));
         assert!(!is_enrichment_job(JobKind::Subtitles));
         assert!(!is_enrichment_job(JobKind::Combine));
+        assert!(!is_enrichment_job(JobKind::Fetch));
+    }
+
+    #[test]
+    fn only_fetch_is_a_fetch_job() {
+        assert!(is_fetch_job(JobKind::Fetch));
+        assert!(!is_fetch_job(JobKind::LibraryScan));
+        assert!(!is_fetch_job(JobKind::Transcription));
     }
 }

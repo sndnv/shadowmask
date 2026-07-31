@@ -21,12 +21,14 @@ services:
       SHADOWMASK_BOOTSTRAP_MODE: "init-and-start"
       SHADOWMASK_ADMIN_USERNAME: "admin"
       SHADOWMASK_ADMIN_PASSWORD: "${SHADOWMASK_ADMIN_PASSWORD:-passw0rd}"
+      SHADOWMASK_FETCH_PROVIDERS_ENABLED: "${SHADOWMASK_FETCH_PROVIDERS_ENABLED:-true}"
     volumes:
       - shadowmask-data:/data
       - ./config/bootstrap:/config/bootstrap:ro
       - ../../clients/basic:/usr/share/shadowmask/basic:ro
       - "${SHADOWMASK_MOVIES_DIR:-./media/movies}:/media/movies:ro"
       - "${SHADOWMASK_TV_DIR:-./media/tv}:/media/tv:ro"
+      - "${SHADOWMASK_EXTERNAL_DIR:-./media/external}:/media/external"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
       interval: 10s

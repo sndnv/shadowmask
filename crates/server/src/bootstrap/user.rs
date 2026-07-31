@@ -196,7 +196,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use domain::library::{Library, LibraryId, LibraryKind, WatcherStrategy};
+    use domain::library::{Library, LibraryId, LibraryKind, LibraryOrigin, WatcherStrategy};
     use domain::user::Role;
     use jiff::Timestamp;
     use services::mock::{MockLibraryService, MockUserService};
@@ -208,6 +208,7 @@ mod tests {
         Library {
             id: LibraryId(format!("lib-{name}")),
             name: name.to_owned(),
+            origin: LibraryOrigin::Local,
             kind: LibraryKind::Movie,
             roots: vec!["/media".to_owned()],
             watcher: WatcherStrategy::Local,

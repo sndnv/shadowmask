@@ -4,6 +4,7 @@ pub mod bootstrap;
 pub mod capabilities;
 pub mod cli;
 pub mod enrichment;
+pub mod fetch_providers;
 mod job_log_layer;
 pub mod lockfile;
 #[cfg(any(feature = "enrichment", test))]
@@ -15,6 +16,7 @@ pub use api::{Built, DefaultState, DefaultStreamState, Repos, WireConfig, app, b
 pub use capabilities::{CapabilityInputs, server_capabilities};
 pub use cli::{Cli, Command};
 pub use enrichment::EnrichmentConfig;
+pub use jobs::CancelRegistry;
 pub use lockfile::ServerLock;
 pub use observability::{init_logging, install_metrics};
 pub use service::{Config, Runtime, serve};

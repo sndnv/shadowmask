@@ -13,10 +13,10 @@ use domain::discovery::{ContinueWatchingItem, Hub, SearchKind, SearchResult};
 use domain::error::{
     AuthError, CatalogError, DiscoveryError, LibraryError, SessionError, UserError,
 };
-use domain::job::Job;
+use domain::job::{Job, JobId};
 use domain::library::{
-    DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryUpdate, NewLibrary,
-    ResolveCandidate, ResolveTarget, ScanState, UnmatchedFile, UnmatchedFileId,
+    DuplicateCandidate, DuplicateCandidateId, FetchInput, Library, LibraryId, LibraryUpdate,
+    NewLibrary, ResolveCandidate, ResolveTarget, ScanState, UnmatchedFile, UnmatchedFileId,
 };
 use domain::media::SubtitleFileId;
 use domain::metadata::{ExternalId, Genre, PersonId};
@@ -565,6 +565,15 @@ where
             .await
     }
 
+    async fn create_fetch(
+        &self,
+        caller: &Principal,
+        library: &LibraryId,
+        input: FetchInput,
+    ) -> Result<(), LibraryError> {
+        self.library.create_fetch(caller, library, input).await
+    }
+
     async fn dismiss_duplicate(
         &self,
         caller: &Principal,
@@ -650,6 +659,10 @@ where
 
     async fn jobs(&self, caller: &Principal) -> Result<Vec<Job>, LibraryError> {
         self.library.jobs(caller).await
+    }
+
+    async fn cancel_job(&self, caller: &Principal, id: &JobId) -> Result<(), LibraryError> {
+        self.library.cancel_job(caller, id).await
     }
 }
 

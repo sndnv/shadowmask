@@ -11,6 +11,7 @@ expression: value
       "tmdb"
     ],
     "name": "New Library",
+    "origin": "local",
     "roots": [
       "/media/new"
     ],

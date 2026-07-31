@@ -123,7 +123,7 @@ fn is_hidden(path: &str) -> bool {
 mod tests {
     use super::*;
     use crate::mock::{MockMediaProbe, MockSourceWalker};
-    use domain::library::{LibraryId, LibraryKind, WalkedEntry, WatcherStrategy};
+    use domain::library::{LibraryId, LibraryKind, LibraryOrigin, WalkedEntry, WatcherStrategy};
     use jiff::Timestamp;
 
     fn entry(path: &str, size: u64) -> WalkedEntry {
@@ -137,6 +137,7 @@ mod tests {
         Library {
             id: LibraryId("lib".into()),
             name: "Lib".into(),
+            origin: LibraryOrigin::Local,
             kind: LibraryKind::Movie,
             roots: roots.iter().map(|r| (*r).into()).collect(),
             watcher: WatcherStrategy::Manual,

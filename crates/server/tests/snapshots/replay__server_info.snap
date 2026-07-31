@@ -41,6 +41,11 @@ expression: value
         "name": "webhooks"
       },
       {
+        "available": true,
+        "enabled": false,
+        "name": "content_fetch"
+      },
+      {
         "available": false,
         "enabled": false,
         "name": "hardware_transcode"

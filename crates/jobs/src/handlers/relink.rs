@@ -76,7 +76,9 @@ mod tests {
     use domain::catalog::{MovieId, TitleId, VersionId};
     use domain::common::PageRequest;
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
-    use domain::library::{Library, LibraryId, LibraryKind, ResolveTarget, WatcherStrategy};
+    use domain::library::{
+        Library, LibraryId, LibraryKind, LibraryOrigin, ResolveTarget, WatcherStrategy,
+    };
     use domain::repository::CatalogRepository;
     use jiff::Timestamp;
     use services::library::Enricher;
@@ -88,6 +90,7 @@ mod tests {
         Library {
             id: LibraryId("lib".into()),
             name: "Lib".into(),
+            origin: LibraryOrigin::Local,
             kind: LibraryKind::Movie,
             roots: vec!["/m".into()],
             watcher: WatcherStrategy::Manual,

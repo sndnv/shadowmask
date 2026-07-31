@@ -4,10 +4,11 @@ use std::sync::{Arc, Mutex};
 use domain::catalog::{TitleId, TitleRef, VersionId};
 use domain::common::{Page, PageRequest};
 use domain::error::LibraryError;
-use domain::job::Job;
+use domain::job::{Job, JobId};
 use domain::library::{
-    DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryUpdate, NewLibrary,
-    ResolveCandidate, ResolveTarget, ScanState, ScanStatus, UnmatchedFile, UnmatchedFileId,
+    DuplicateCandidate, DuplicateCandidateId, FetchInput, Library, LibraryId, LibraryUpdate,
+    NewLibrary, ResolveCandidate, ResolveTarget, ScanState, ScanStatus, UnmatchedFile,
+    UnmatchedFileId,
 };
 use domain::media::SubtitleFileId;
 use domain::metadata::{ExternalId, MediaKind};
@@ -102,6 +103,7 @@ impl LibraryService for MockLibraryService {
             id: LibraryId(format!("lib-{}", state.library_seq)),
             name: input.name,
             kind: input.kind,
+            origin: input.origin,
             roots: input.roots,
             watcher: input.watcher,
             scan_schedule: input.scan_schedule,
@@ -260,6 +262,17 @@ impl LibraryService for MockLibraryService {
         }
     }
 
+    async fn create_fetch(
+        &self,
+        _caller: &Principal,
+        library: &LibraryId,
+        _input: FetchInput,
+    ) -> Result<(), LibraryError> {
+        let state = self.state.lock().unwrap();
+        require_library(&state, library)?;
+        Ok(())
+    }
+
     async fn dismiss_duplicate(
         &self,
         _caller: &Principal,
@@ -348,13 +361,18 @@ impl LibraryService for MockLibraryService {
     async fn jobs(&self, _caller: &Principal) -> Result<Vec<Job>, LibraryError> {
         Ok(self.state.lock().unwrap().jobs.clone())
     }
+    async fn cancel_job(&self, _caller: &Principal, _id: &JobId) -> Result<(), LibraryError> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use domain::catalog::{MovieId, TitleId};
-    use domain::library::{DuplicateCandidateId, LibraryKind, UnmatchedFileId, WatcherStrategy};
+    use domain::library::{
+        DuplicateCandidateId, LibraryKind, LibraryOrigin, UnmatchedFileId, WatcherStrategy,
+    };
     use domain::user::{Role, UserId};
 
     fn principal() -> Principal {
@@ -375,6 +393,7 @@ mod tests {
         Library {
             id: LibraryId(id.into()),
             name: format!("Lib {id}"),
+            origin: LibraryOrigin::Local,
             kind: LibraryKind::Movie,
             roots: vec!["/media".into()],
             watcher: WatcherStrategy::Manual,
@@ -412,6 +431,7 @@ mod tests {
                 NewLibrary {
                     name: "New".into(),
                     kind: LibraryKind::Movie,
+                    origin: LibraryOrigin::Local,
                     roots: vec!["/n".into()],
                     watcher: WatcherStrategy::Manual,
                     scan_schedule: None,

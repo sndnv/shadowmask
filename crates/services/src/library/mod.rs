@@ -5,6 +5,7 @@ mod debouncer;
 mod dedup;
 mod enricher;
 mod external_subtitles;
+mod fetch_job;
 mod ingest_job;
 mod matcher;
 mod metadata_job;
@@ -31,6 +32,7 @@ pub use enricher::{
     derive_id,
 };
 pub use external_subtitles::discover_subtitles;
+pub use fetch_job::{FetchJobPayload, fetch_filename_stem};
 pub use ingest_job::IngestJobPayload;
 pub use matcher::Matcher;
 pub use metadata_job::MetadataJobPayload;

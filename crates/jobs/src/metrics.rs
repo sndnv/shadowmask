@@ -47,6 +47,7 @@ fn job_label(kind: JobKind) -> &'static str {
         JobKind::Translation => "translation",
         JobKind::Upscale => "upscale",
         JobKind::Combine => "combine",
+        JobKind::Fetch => "fetch",
     }
 }
 
@@ -72,6 +73,7 @@ mod tests {
             JobKind::Translation,
             JobKind::Upscale,
             JobKind::Combine,
+            JobKind::Fetch,
         ] {
             assert!(!job_label(kind).is_empty());
         }

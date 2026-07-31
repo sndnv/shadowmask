@@ -9,14 +9,16 @@ use axum_server::Handle;
 use axum_server::tls_rustls::RustlsConfig;
 use domain::job::{JobKind, JobPriority};
 use domain::repository::JobRepository;
+use fetch::YtDlpFetcher;
 use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
 use jiff::{SignedDuration, Timestamp};
 use jobs::{
-    ArtworkJobHandler, CombineJobHandler, CompositeJobHandler, IngestJobHandler, JobQueue,
-    LibraryScanHandler, MetadataJobHandler, RelinkJobHandler, RetryPolicy, Schedule, Scheduler,
-    SearchReindexHandler, SubtitlesJobHandler, TranscriptionJobHandler, TranslationJobHandler,
-    TrickplayJobHandler, UpscaleJobHandler, Worker, enrichment_kinds, normal_kinds,
+    ArtworkJobHandler, CancelRegistry, CombineJobHandler, CompositeJobHandler, FetchJobHandler,
+    IngestJobHandler, JobQueue, LibraryScanHandler, MetadataJobHandler, RelinkJobHandler,
+    RetryPolicy, Schedule, Scheduler, SearchReindexHandler, SubtitlesJobHandler,
+    TranscriptionJobHandler, TranslationJobHandler, TrickplayJobHandler, UpscaleJobHandler, Worker,
+    enrichment_kinds, fetch_kinds, normal_kinds,
 };
 use media::artwork::FsArtworkStore;
 use media::probe::FfprobeMediaProbe;
@@ -43,6 +45,7 @@ use crate::bootstrap::{
     UserBootstrapProvider, run_providers,
 };
 use crate::enrichment::EnrichmentConfig;
+use crate::fetch_providers::FetchProvidersConfig;
 use crate::lockfile::ServerLock;
 use crate::observability::observability_router;
 
@@ -80,6 +83,12 @@ type TranslationHandler =
 type UpscaleHandler = UpscaleJobHandler<FfmpegUpscaler, SqliteCatalogRepo, FfprobeMediaProbe>;
 type CombineHandler =
     CombineJobHandler<inference::SubtitleMerger, SqliteCatalogRepo, FsSubtitleStore>;
+type FetchHandler = FetchJobHandler<
+    SqliteLibraryRepo,
+    YtDlpFetcher<media::transcode::TokioProcessSpawner>,
+    FfprobeMediaProbe,
+    ServerEnricher,
+>;
 type JobWorker = Worker<
     SqliteJobRepo,
     CompositeJobHandler<
@@ -95,6 +104,7 @@ type JobWorker = Worker<
         TranslationHandler,
         UpscaleHandler,
         CombineHandler,
+        FetchHandler,
     >,
     FsJobLogStore,
 >;
@@ -268,6 +278,7 @@ pub struct Config {
     pub hardware_acceleration: HardwareAccelerationMode,
     pub vaapi_device: PathBuf,
     pub enrichment: EnrichmentConfig,
+    pub fetch_providers: FetchProvidersConfig,
 }
 
 impl Default for Config {
@@ -304,21 +315,25 @@ impl Default for Config {
             hardware_acceleration: HardwareAccelerationMode::default(),
             vaapi_device: PathBuf::from("/dev/dri/renderD128"),
             enrichment: EnrichmentConfig::default(),
+            fetch_providers: FetchProvidersConfig::default(),
         }
     }
 }
 
-fn nest_enrichment_key(key: &str) -> String {
+fn nest_section_key(key: &str) -> String {
     let key = key.to_ascii_lowercase();
     for section in ["transcription", "translation", "upscaling"] {
         if let Some(leaf) = key.strip_prefix(&format!("enrichment_{section}_")) {
             return format!("enrichment.{section}.{leaf}");
         }
     }
-    match key.strip_prefix("enrichment_") {
-        Some(leaf) => format!("enrichment.{leaf}"),
-        None => key,
+    if let Some(leaf) = key.strip_prefix("enrichment_") {
+        return format!("enrichment.{leaf}");
     }
+    if let Some(leaf) = key.strip_prefix("fetch_providers_") {
+        return format!("fetch_providers.{leaf}");
+    }
+    key
 }
 
 impl Config {
@@ -328,7 +343,7 @@ impl Config {
             .merge(Toml::file("shadowmask.toml"))
             .merge(
                 Env::prefixed("SHADOWMASK_")
-                    .map(|key| nest_enrichment_key(key.as_str()).into())
+                    .map(|key| nest_section_key(key.as_str()).into())
                     .split(".")
                     .ignore(&["target_languages"]),
             )
@@ -460,6 +475,31 @@ impl Config {
             e.upscaling.target_height,
             opt_path(&e.upscaling.model_path)
         );
+        let _ = writeln!(out, "  fetch_providers:");
+        let _ = writeln!(out, "    enabled:       {}", self.fetch_providers.enabled);
+        let _ = writeln!(
+            out,
+            "    concurrency:   {}",
+            self.fetch_providers.concurrency
+        );
+        let _ = writeln!(
+            out,
+            "    yt_dlp_binary: {}",
+            self.fetch_providers.yt_dlp_binary
+        );
+        let _ = writeln!(
+            out,
+            "    plugin_dir:    {}",
+            opt_path(&self.fetch_providers.yt_dlp_plugin_dir)
+        );
+        let _ = writeln!(
+            out,
+            "    max_height:    {}",
+            self.fetch_providers
+                .max_height
+                .map(|h| h.to_string())
+                .unwrap_or_else(|| "none".to_owned())
+        );
         let _ = writeln!(out, "  secrets:");
         let _ = writeln!(out, "    jwt_secret:    {}", provided(&self.jwt_secret));
         let _ = writeln!(out, "    stream_secret: {}", provided(&self.stream_secret));
@@ -531,6 +571,7 @@ pub struct Runtime {
     session: SessionSvc,
     worker: JobWorker,
     enrichment_worker: JobWorker,
+    fetch_worker: JobWorker,
     scheduler: Scheduler,
     queue: JobQueue<SqliteJobRepo>,
     bind: SocketAddr,
@@ -573,8 +614,10 @@ impl Runtime {
             transcription_enabled: config.enrichment.transcription.enabled,
             translation_enabled: config.enrichment.translation.enabled,
             upscaling_enabled: config.enrichment.upscaling.enabled,
+            content_fetch_enabled: config.fetch_providers.enabled,
             vaapi_device: vaapi_device.clone(),
         };
+        let cancel = CancelRegistry::default();
         let Built {
             state,
             stream,
@@ -582,7 +625,7 @@ impl Runtime {
             artwork_store,
             images,
             trickplay,
-        } = build_state(&repos, &wire)?;
+        } = build_state(&repos, &wire, &cancel)?;
         let job_logs = FsJobLogStore::new(&config.job_log_dir);
         let transcription_dir = transcription_model_dir(&config.enrichment);
         let translation_dir = translation_model_dir(&config.enrichment);
@@ -613,6 +656,7 @@ impl Runtime {
                 tmdb: config.tmdb_api_key.is_some(),
                 tls: config.tls_cert.is_some() && config.tls_key.is_some(),
                 webhooks: !config.webhook_clients.is_empty(),
+                content_fetch: config.fetch_providers.enabled,
                 hardware_transcode_available: vaapi_present,
                 hardware_transcode_enabled: vaapi_device.is_some(),
             });
@@ -706,6 +750,15 @@ impl Runtime {
         .with_subtitle_languages(subtitle_langs.clone())
         .with_transcription(transcription_enabled)
         .with_translation_languages(translation_langs.clone());
+        let fetch_enricher = Enricher::new(
+            repos.catalog.clone(),
+            provider.clone(),
+            repos.jobs.clone(),
+            repos.library.clone(),
+        )
+        .with_subtitle_languages(subtitle_langs.clone())
+        .with_transcription(transcription_enabled)
+        .with_translation_languages(translation_langs.clone());
         let relink_enricher = Enricher::new(
             repos.catalog.clone(),
             provider.clone(),
@@ -747,6 +800,17 @@ impl Runtime {
             FfprobeMediaProbe::default(),
             relink_enricher,
         );
+        let fetch = FetchJobHandler::new(
+            repos.library.clone(),
+            YtDlpFetcher::new(
+                media::transcode::TokioProcessSpawner,
+                config.fetch_providers.yt_dlp_binary.clone(),
+                config.fetch_providers.yt_dlp_plugin_dir.clone(),
+                config.fetch_providers.max_height,
+            ),
+            FfprobeMediaProbe::default(),
+            fetch_enricher,
+        );
         let handler = Arc::new(CompositeJobHandler::new(
             scan,
             reindex,
@@ -760,6 +824,7 @@ impl Runtime {
             translation,
             upscale,
             combine,
+            fetch,
         ));
         let worker = Worker::new(
             repos.jobs.clone(),
@@ -768,15 +833,26 @@ impl Runtime {
             config.worker_concurrency,
             RetryPolicy::default(),
             normal_kinds(),
-        );
+        )
+        .with_cancel(cancel.clone());
         let enrichment_worker = Worker::new(
             repos.jobs.clone(),
-            handler,
-            job_logs,
+            handler.clone(),
+            job_logs.clone(),
             config.enrichment.concurrency,
             RetryPolicy::default(),
             enrichment_kinds(),
-        );
+        )
+        .with_cancel(cancel.clone());
+        let fetch_worker = Worker::new(
+            repos.jobs.clone(),
+            handler,
+            job_logs,
+            config.fetch_providers.concurrency,
+            RetryPolicy::default(),
+            fetch_kinds(),
+        )
+        .with_cancel(cancel);
 
         let tls = load_tls(config.tls_cert.as_deref(), config.tls_key.as_deref()).await?;
 
@@ -798,6 +874,7 @@ impl Runtime {
             session,
             worker,
             enrichment_worker,
+            fetch_worker,
             scheduler,
             queue,
             bind: config.bind,
@@ -822,6 +899,7 @@ impl Runtime {
             session,
             worker,
             enrichment_worker,
+            fetch_worker,
             mut scheduler,
             queue,
             tls,
@@ -848,6 +926,14 @@ impl Runtime {
         tasks.spawn(async move {
             enrichment_worker
                 .run(worker_period, enrichment_stop)
+                .await
+                .map_err(box_err)
+        });
+
+        let fetch_stop = stopped(stop_tx.subscribe());
+        tasks.spawn(async move {
+            fetch_worker
+                .run(worker_period, fetch_stop)
                 .await
                 .map_err(box_err)
         });
@@ -1196,19 +1282,27 @@ mod tests {
     }
 
     #[test]
-    fn nest_enrichment_key_maps_only_boundaries() {
-        assert_eq!(super::nest_enrichment_key("jwt_secret"), "jwt_secret");
+    fn nest_section_key_maps_only_boundaries() {
+        assert_eq!(super::nest_section_key("jwt_secret"), "jwt_secret");
         assert_eq!(
-            super::nest_enrichment_key("enrichment_model_cache"),
+            super::nest_section_key("enrichment_model_cache"),
             "enrichment.model_cache"
         );
         assert_eq!(
-            super::nest_enrichment_key("enrichment_transcription_enabled"),
+            super::nest_section_key("enrichment_transcription_enabled"),
             "enrichment.transcription.enabled"
         );
         assert_eq!(
-            super::nest_enrichment_key("ENRICHMENT_UPSCALING_TARGET_HEIGHT"),
+            super::nest_section_key("ENRICHMENT_UPSCALING_TARGET_HEIGHT"),
             "enrichment.upscaling.target_height"
+        );
+        assert_eq!(
+            super::nest_section_key("FETCH_PROVIDERS_YT_DLP_BINARY"),
+            "fetch_providers.yt_dlp_binary"
+        );
+        assert_eq!(
+            super::nest_section_key("fetch_providers_enabled"),
+            "fetch_providers.enabled"
         );
     }
 
@@ -1230,6 +1324,16 @@ mod tests {
         assert!(described.contains("tmdb_api_key:          <provided>"));
         assert!(described.contains("opensubtitles_api_key: none"));
         assert!(described.contains("hardware_acceleration: Auto"));
+        assert!(described.contains("max_height:    none"));
+
+        let capped = Config {
+            fetch_providers: FetchProvidersConfig {
+                max_height: Some(1080),
+                ..FetchProvidersConfig::default()
+            },
+            ..Config::default()
+        };
+        assert!(capped.describe().contains("max_height:    1080"));
     }
 
     #[test]

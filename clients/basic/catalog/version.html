@@ -128,6 +128,16 @@
                 ),
               ),
             );
+            const sheetCount = Math.max(...v.trickplay.map((t) => t.sheets));
+            const gallery = sm.el("div", { class: "sm-trickplay" });
+            for (let sheet = 1; sheet <= sheetCount; sheet++) {
+              gallery.appendChild(
+                sm.authImg("/api/v1/trickplay/" + encodeURIComponent(v.id) + "/" + sheet, {
+                  width: "480",
+                }),
+              );
+            }
+            main.appendChild(gallery);
           }
         } catch (err) {
           main.textContent = "Could not load this version.";

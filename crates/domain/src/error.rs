@@ -70,6 +70,8 @@ pub enum LibraryError {
     Forbidden,
     #[error("feature disabled")]
     Disabled,
+    #[error("job cannot be cancelled")]
+    NotCancellable,
     #[error(transparent)]
     Walk(#[from] WalkError),
     #[error(transparent)]
@@ -172,6 +174,18 @@ pub enum TranscodeError {
 pub enum TrickplayError {
     #[error("trickplay generation failed: {0}")]
     Backend(String),
+}
+
+#[derive(Debug, Error)]
+pub enum FetchError {
+    #[error("failed to start fetch: {0}")]
+    Spawn(String),
+    #[error("failed to download media: {0}")]
+    Download(String),
+    #[error("fetch produced no output: {0}")]
+    NoOutput(String),
+    #[error("fetch io error: {0}")]
+    Io(String),
 }
 
 #[derive(Debug, Error)]

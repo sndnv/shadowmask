@@ -20,6 +20,16 @@ pub enum JobKind {
     Translation,
     Upscale,
     Combine,
+    Fetch,
+}
+
+impl JobKind {
+    pub fn is_process_killable(&self) -> bool {
+        matches!(
+            self,
+            JobKind::Trickplay | JobKind::Upscale | JobKind::Subtitles | JobKind::Fetch
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -54,4 +64,40 @@ pub struct Job {
     pub started_at: Option<Timestamp>,
     pub finished_at: Option<Timestamp>,
     pub parent_id: Option<JobId>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn process_killable_kinds() {
+        for kind in [
+            JobKind::Trickplay,
+            JobKind::Upscale,
+            JobKind::Subtitles,
+            JobKind::Fetch,
+        ] {
+            assert!(kind.is_process_killable(), "{kind:?} should be killable");
+        }
+        for kind in [
+            JobKind::LibraryScan,
+            JobKind::Metadata,
+            JobKind::Artwork,
+            JobKind::Fingerprint,
+            JobKind::Dedup,
+            JobKind::CacheEviction,
+            JobKind::SearchReindex,
+            JobKind::Ingest,
+            JobKind::Relink,
+            JobKind::Transcription,
+            JobKind::Translation,
+            JobKind::Combine,
+        ] {
+            assert!(
+                !kind.is_process_killable(),
+                "{kind:?} should not be killable"
+            );
+        }
+    }
 }

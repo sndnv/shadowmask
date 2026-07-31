@@ -18,6 +18,14 @@ RUN apt-get update \
         ca-certificates \
         curl \
     && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+        python3 \
+        python3-venv \
+    && python3 -m venv /opt/yt-dlp \
+    && /opt/yt-dlp/bin/pip install --no-cache-dir --upgrade pip yt-dlp \
+    && ln -s /opt/yt-dlp/bin/yt-dlp /usr/local/bin/yt-dlp \
+    && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --create-home --home-dir /home/shadowmask --uid 1001 --gid 0 shadowmask \
     && mkdir -p /data /config \
     && chown -R 1001:0 /data /config

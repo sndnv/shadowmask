@@ -1,11 +1,13 @@
+use std::sync::Arc;
+
 use domain::catalog::{TitleId, TitleRef, VersionId};
 use domain::common::{Page, PageRequest};
 use domain::error::LibraryError;
-use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
+use domain::job::{Job, JobCanceller, JobId, JobKind, JobPriority, JobStatus};
 use domain::library::{
-    DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryKind, LibraryUpdate,
-    NewLibrary, ResolutionStatus, ResolveCandidate, ResolveTarget, ScanState, ScanStatus,
-    UnmatchedFile, UnmatchedFileId,
+    DuplicateCandidate, DuplicateCandidateId, FetchInput, Library, LibraryId, LibraryKind,
+    LibraryOrigin, LibraryUpdate, NewLibrary, ResolutionStatus, ResolveCandidate, ResolveTarget,
+    ScanState, ScanStatus, UnmatchedFile, UnmatchedFileId,
 };
 use domain::media::SubtitleFileId;
 use domain::metadata::{ExternalId, MediaKind, MetadataProvider, MetadataQuery};
@@ -16,10 +18,18 @@ use jiff::Timestamp;
 use uuid::Uuid;
 
 use super::{
-    IngestJobPayload, MetadataJobPayload, RelinkJobPayload, combine_job, parse_filename,
-    transcription_job, translation_job_with_source, upscale_job,
+    FetchJobPayload, IngestJobPayload, MetadataJobPayload, RelinkJobPayload, combine_job,
+    parse_filename, transcription_job, translation_job_with_source, upscale_job,
 };
 use crate::acl;
+
+struct NoopCanceller;
+
+impl JobCanceller for NoopCanceller {
+    fn request_cancel(&self, _id: &JobId) -> bool {
+        false
+    }
+}
 
 #[derive(Clone)]
 pub struct LibraryServiceImpl<L, U, J, C, M> {
@@ -31,6 +41,8 @@ pub struct LibraryServiceImpl<L, U, J, C, M> {
     transcription_enabled: bool,
     translation_enabled: bool,
     upscaling_enabled: bool,
+    content_fetch_enabled: bool,
+    canceller: Arc<dyn JobCanceller>,
 }
 
 impl<L, U, J, C, M> LibraryServiceImpl<L, U, J, C, M> {
@@ -44,7 +56,14 @@ impl<L, U, J, C, M> LibraryServiceImpl<L, U, J, C, M> {
             transcription_enabled: false,
             translation_enabled: false,
             upscaling_enabled: false,
+            content_fetch_enabled: false,
+            canceller: Arc::new(NoopCanceller),
         }
+    }
+
+    pub fn with_canceller(mut self, canceller: Arc<dyn JobCanceller>) -> Self {
+        self.canceller = canceller;
+        self
     }
 
     pub fn with_enrichment_flags(
@@ -56,6 +75,11 @@ impl<L, U, J, C, M> LibraryServiceImpl<L, U, J, C, M> {
         self.transcription_enabled = transcription_enabled;
         self.translation_enabled = translation_enabled;
         self.upscaling_enabled = upscaling_enabled;
+        self
+    }
+
+    pub fn with_content_fetch(mut self, content_fetch_enabled: bool) -> Self {
+        self.content_fetch_enabled = content_fetch_enabled;
         self
     }
 }
@@ -161,6 +185,7 @@ where
             id: LibraryId(Uuid::new_v4().to_string()),
             name: input.name,
             kind: input.kind,
+            origin: input.origin,
             roots: input.roots,
             watcher: input.watcher,
             scan_schedule: input.scan_schedule,
@@ -181,7 +206,8 @@ where
         if !acl::is_admin(caller) {
             return Err(LibraryError::Forbidden);
         }
-        self.libraries
+        let existing = self
+            .libraries
             .get(id)
             .await?
             .ok_or(LibraryError::NotFound)?;
@@ -190,6 +216,7 @@ where
             id: id.clone(),
             name: update.name,
             kind: update.kind,
+            origin: existing.origin,
             roots: update.roots,
             watcher: update.watcher,
             scan_schedule: update.scan_schedule,
@@ -366,6 +393,59 @@ where
             .enqueue(Job {
                 id: JobId(Uuid::new_v4().to_string()),
                 kind: JobKind::Ingest,
+                status: JobStatus::Queued,
+                priority: JobPriority::Normal,
+                payload,
+                attempts: 0,
+                progress: 0.0,
+                available_at: now,
+                last_error: None,
+                created_at: now,
+                updated_at: now,
+                started_at: None,
+                finished_at: None,
+                parent_id: None,
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn create_fetch(
+        &self,
+        caller: &Principal,
+        library: &LibraryId,
+        input: FetchInput,
+    ) -> Result<(), LibraryError> {
+        if !acl::is_admin(caller) {
+            return Err(LibraryError::Forbidden);
+        }
+        if !self.content_fetch_enabled {
+            return Err(LibraryError::Disabled);
+        }
+        let target = self
+            .libraries
+            .get(library)
+            .await?
+            .ok_or(LibraryError::NotFound)?;
+        if target.origin != LibraryOrigin::External {
+            return Err(LibraryError::Forbidden);
+        }
+        let payload = FetchJobPayload {
+            library: library.clone(),
+            source_url: input.source_url,
+            kind: input.kind,
+            title: input.title,
+            imdb_id: input.imdb_id,
+            season: input.season,
+            episode: input.episode,
+        }
+        .encode()
+        .expect("fetch job payload serializes");
+        let now = Timestamp::now();
+        self.jobs
+            .enqueue(Job {
+                id: JobId(Uuid::new_v4().to_string()),
+                kind: JobKind::Fetch,
                 status: JobStatus::Queued,
                 priority: JobPriority::Normal,
                 payload,
@@ -611,6 +691,24 @@ where
         }
         Ok(self.jobs.list().await?)
     }
+
+    async fn cancel_job(&self, caller: &Principal, id: &JobId) -> Result<(), LibraryError> {
+        if !acl::is_admin(caller) {
+            return Err(LibraryError::Forbidden);
+        }
+        if self.jobs.cancel(id, Timestamp::now()).await? {
+            return Ok(());
+        }
+        let job = self.jobs.get(id).await?.ok_or(LibraryError::NotFound)?;
+        match job.status {
+            JobStatus::Cancelled => Ok(()),
+            JobStatus::Running if job.kind.is_process_killable() => {
+                self.canceller.request_cancel(id);
+                Ok(())
+            }
+            _ => Err(LibraryError::NotCancellable),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -636,6 +734,7 @@ mod tests {
         Library {
             id: LibraryId(id.into()),
             name: format!("Lib {id}"),
+            origin: LibraryOrigin::Local,
             kind: LibraryKind::Movie,
             roots: vec!["/media".into()],
             watcher: WatcherStrategy::Manual,
@@ -827,6 +926,7 @@ mod tests {
         NewLibrary {
             name: "New".into(),
             kind: LibraryKind::Movie,
+            origin: LibraryOrigin::Local,
             roots: vec!["/n".into()],
             watcher: WatcherStrategy::Manual,
             scan_schedule: None,
@@ -921,6 +1021,144 @@ mod tests {
         assert!(matches!(
             svc.jobs(&member()).await.unwrap_err(),
             LibraryError::Forbidden
+        ));
+    }
+
+    #[derive(Clone, Default)]
+    struct RecordingCanceller {
+        calls: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl JobCanceller for RecordingCanceller {
+        fn request_cancel(&self, id: &JobId) -> bool {
+            self.calls.lock().unwrap().push(id.0.clone());
+            true
+        }
+    }
+
+    fn job_with(id: &str, kind: JobKind, status: JobStatus) -> Job {
+        let now = Timestamp::now();
+        Job {
+            id: JobId(id.into()),
+            kind,
+            status,
+            priority: JobPriority::Normal,
+            payload: String::new(),
+            attempts: 0,
+            progress: 0.0,
+            available_at: now,
+            last_error: None,
+            created_at: now,
+            updated_at: now,
+            started_at: None,
+            finished_at: None,
+            parent_id: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn cancel_job_requires_admin() {
+        let svc = seeded().await;
+        assert!(matches!(
+            svc.cancel_job(&member(), &JobId("x".into()))
+                .await
+                .unwrap_err(),
+            LibraryError::Forbidden
+        ));
+    }
+
+    #[tokio::test]
+    async fn cancel_job_queued_marks_cancelled() {
+        let svc = seeded().await;
+        svc.jobs
+            .enqueue(job_with("q", JobKind::LibraryScan, JobStatus::Queued))
+            .await
+            .unwrap();
+        svc.cancel_job(&admin(), &JobId("q".into())).await.unwrap();
+        let stored = svc.jobs.get(&JobId("q".into())).await.unwrap().unwrap();
+        assert_eq!(stored.status, JobStatus::Cancelled);
+        assert!(stored.finished_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn cancel_job_missing_is_not_found() {
+        let svc = seeded().await;
+        assert!(matches!(
+            svc.cancel_job(&admin(), &JobId("nope".into()))
+                .await
+                .unwrap_err(),
+            LibraryError::NotFound
+        ));
+    }
+
+    #[tokio::test]
+    async fn cancel_job_running_killable_signals_canceller() {
+        let jobs = MockJobStore::new();
+        jobs.enqueue(job_with("f", JobKind::Fetch, JobStatus::Running))
+            .await
+            .unwrap();
+        let canceller = RecordingCanceller::default();
+        let svc = LibraryServiceImpl::new(
+            MockLibraryRepo::new(),
+            MockUserRepo::new(),
+            jobs,
+            MockCatalogRepo::new(),
+            None::<MockMetadataProvider>,
+        )
+        .with_canceller(Arc::new(canceller.clone()));
+        svc.cancel_job(&admin(), &JobId("f".into())).await.unwrap();
+        let calls = canceller.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0], "f");
+    }
+
+    #[tokio::test]
+    async fn cancel_job_running_killable_default_canceller_is_ok() {
+        let svc = seeded().await;
+        svc.jobs
+            .enqueue(job_with("t", JobKind::Trickplay, JobStatus::Running))
+            .await
+            .unwrap();
+        svc.cancel_job(&admin(), &JobId("t".into())).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancel_job_running_non_killable_conflicts() {
+        let svc = seeded().await;
+        svc.jobs
+            .enqueue(job_with("s", JobKind::LibraryScan, JobStatus::Running))
+            .await
+            .unwrap();
+        assert!(matches!(
+            svc.cancel_job(&admin(), &JobId("s".into()))
+                .await
+                .unwrap_err(),
+            LibraryError::NotCancellable
+        ));
+    }
+
+    #[tokio::test]
+    async fn cancel_job_already_cancelled_is_idempotent() {
+        let svc = seeded().await;
+        svc.jobs
+            .enqueue(job_with("c", JobKind::Fetch, JobStatus::Cancelled))
+            .await
+            .unwrap();
+        svc.cancel_job(&admin(), &JobId("c".into())).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancel_job_terminal_conflicts() {
+        let svc = seeded().await;
+        svc.jobs
+            .enqueue(job_with("d", JobKind::Fetch, JobStatus::Succeeded))
+            .await
+            .unwrap();
+        assert!(matches!(
+            svc.cancel_job(&admin(), &JobId("d".into()))
+                .await
+                .unwrap_err(),
+            LibraryError::NotCancellable
         ));
     }
 
@@ -1082,6 +1320,93 @@ mod tests {
 
         assert!(matches!(
             svc.resolve_unmatched(&admin(), &id, &UnmatchedFileId("ghost".into()), target)
+                .await
+                .unwrap_err(),
+            LibraryError::NotFound
+        ));
+    }
+
+    fn external_library(id: &str) -> Library {
+        let mut lib = library(id);
+        lib.origin = LibraryOrigin::External;
+        lib
+    }
+
+    fn fetch_input() -> FetchInput {
+        FetchInput {
+            source_url: "https://example.com/watch?v=abc".into(),
+            kind: LibraryKind::Movie,
+            title: "The Matrix".into(),
+            imdb_id: Some("tt0133093".into()),
+            season: None,
+            episode: None,
+        }
+    }
+
+    fn fetch_svc(jobs: MockJobStore, enabled: bool) -> Svc {
+        let libraries = MockLibraryRepo::new();
+        libraries.insert_library(library("local"));
+        libraries.insert_library(external_library("ext"));
+        LibraryServiceImpl::new(
+            libraries,
+            MockUserRepo::new(),
+            jobs,
+            MockCatalogRepo::new(),
+            None::<MockMetadataProvider>,
+        )
+        .with_content_fetch(enabled)
+    }
+
+    #[tokio::test]
+    async fn create_fetch_enqueues_fetch_job_for_external_library() {
+        let jobs = MockJobStore::new();
+        let svc = fetch_svc(jobs.clone(), true);
+        svc.create_fetch(&admin(), &LibraryId("ext".into()), fetch_input())
+            .await
+            .unwrap();
+        let enqueued = jobs.list().await.unwrap();
+        assert_eq!(enqueued.len(), 1);
+        assert_eq!(enqueued[0].kind, JobKind::Fetch);
+    }
+
+    #[tokio::test]
+    async fn create_fetch_requires_admin() {
+        let svc = fetch_svc(MockJobStore::new(), true);
+        assert!(matches!(
+            svc.create_fetch(&member(), &LibraryId("ext".into()), fetch_input())
+                .await
+                .unwrap_err(),
+            LibraryError::Forbidden
+        ));
+    }
+
+    #[tokio::test]
+    async fn create_fetch_is_disabled_when_flag_off() {
+        let svc = fetch_svc(MockJobStore::new(), false);
+        assert!(matches!(
+            svc.create_fetch(&admin(), &LibraryId("ext".into()), fetch_input())
+                .await
+                .unwrap_err(),
+            LibraryError::Disabled
+        ));
+    }
+
+    #[tokio::test]
+    async fn create_fetch_rejects_local_library() {
+        let svc = fetch_svc(MockJobStore::new(), true);
+        assert!(matches!(
+            svc.create_fetch(&admin(), &LibraryId("local".into()), fetch_input())
+                .await
+                .unwrap_err(),
+            LibraryError::Forbidden
+        ));
+    }
+
+    #[tokio::test]
+    async fn create_fetch_missing_library_is_not_found() {
+        let svc = fetch_svc(MockJobStore::new(), true);
+        assert!(matches!(
+            svc.create_fetch(&admin(), &LibraryId("ghost".into()), fetch_input())
                 .await
                 .unwrap_err(),
             LibraryError::NotFound

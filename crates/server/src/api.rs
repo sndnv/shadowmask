@@ -10,6 +10,7 @@ use ::api::{
     WebhookClient,
 };
 use domain::error::{ProfileError, RepositoryError};
+use jobs::CancelRegistry;
 use media::artwork::FsArtworkStore;
 use media::hls::HlsStreamSource;
 use media::profile::BuiltinProfiles;
@@ -72,6 +73,7 @@ pub struct WireConfig {
     pub transcription_enabled: bool,
     pub translation_enabled: bool,
     pub upscaling_enabled: bool,
+    pub content_fetch_enabled: bool,
     pub vaapi_device: Option<String>,
 }
 
@@ -130,7 +132,11 @@ pub struct Built {
     pub trickplay: TrickplayState,
 }
 
-pub fn build_state(repos: &Repos, cfg: &WireConfig) -> Result<Built, ProfileError> {
+pub fn build_state(
+    repos: &Repos,
+    cfg: &WireConfig,
+    cancel: &CancelRegistry,
+) -> Result<Built, ProfileError> {
     let profiles = BuiltinProfiles::load()?;
     let hls = HlsStreamSource::new(&cfg.transcode_cache)
         .with_encoder(VideoEncoder::from_device(cfg.vaapi_device.clone()));
@@ -169,7 +175,9 @@ pub fn build_state(repos: &Repos, cfg: &WireConfig) -> Result<Built, ProfileErro
         cfg.transcription_enabled,
         cfg.translation_enabled,
         cfg.upscaling_enabled,
-    );
+    )
+    .with_content_fetch(cfg.content_fetch_enabled)
+    .with_canceller(Arc::new(cancel.clone()));
     let user = UserServiceImpl::new(repos.users.clone());
     let user_library = UserLibraryServiceImpl::new(
         Arc::new(repos.progress.clone()),

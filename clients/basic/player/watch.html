@@ -15,7 +15,6 @@
     </div>
     <div id="controls"></div>
     <p id="status">Loading&hellip;</p>
-    <div id="details"></div>
     <script src="../vendor/hls.min.js"></script>
     <script src="../app.js"></script>
     <script>
@@ -29,6 +28,43 @@
       let versionDetail = null;
       let diagTimer = null;
       const controls = { height: null, burn: false, downmix: false };
+      let selAudio = null;
+      let selSub = "";
+      let selOffset = 0;
+      let resumeMs = 0;
+
+      function readParams() {
+        const p = new URLSearchParams(location.search);
+        const asInt = (v) => (v != null && v !== "" ? parseInt(v, 10) : null);
+        controls.height = asInt(p.get("height"));
+        controls.burn = p.get("burn") === "1";
+        controls.downmix = p.get("downmix") === "1";
+        selAudio = p.has("audio") ? asInt(p.get("audio")) : null;
+        selSub = p.get("sub") || "";
+        selOffset = asInt(p.get("offset")) || 0;
+      }
+
+      function writeParams() {
+        const p = new URLSearchParams();
+        p.set("version", versionId);
+        if (controls.height != null) p.set("height", String(controls.height));
+        if (controls.burn) p.set("burn", "1");
+        if (controls.downmix) p.set("downmix", "1");
+        if (selAudio != null) p.set("audio", String(selAudio));
+        if (selSub) p.set("sub", selSub);
+        if (selOffset) p.set("offset", String(selOffset));
+        history.replaceState(null, "", location.pathname + "?" + p.toString());
+      }
+
+      function parseSubValue(value) {
+        if (!value) return null;
+        const sep = value.indexOf(":");
+        const kind = value.slice(0, sep);
+        const key = value.slice(sep + 1);
+        return kind === "embedded"
+          ? { type: "embedded", index: parseInt(key, 10) }
+          : { type: "file", id: key };
+      }
 
       if (sm.requireAuth()) start();
 
@@ -39,6 +75,7 @@
           status.textContent = "No version specified.";
           return;
         }
+        readParams();
         try {
           const me = await sm.self();
           uid = me.id;
@@ -47,6 +84,7 @@
             .json("/api/v1/users/" + encodeURIComponent(uid) + "/progress/" + encodeURIComponent(versionId))
             .catch(() => null);
           const startPos = resume && resume.position_ms ? resume.position_ms : 0;
+          resumeMs = startPos;
           session = await sm.json("/api/v1/sessions", {
             method: "POST",
             body: JSON.stringify({
@@ -60,6 +98,7 @@
           startHeartbeat(session.heartbeat_interval_s || 10);
           wirePlaybackProgress();
           await buildControls();
+          await applyInitialParams();
           window.addEventListener("pagehide", endSession);
         } catch (err) {
           status.textContent = "Could not start playback (" + err.message + ").";
@@ -222,7 +261,7 @@
         }).catch(() => {});
       }
 
-      function sendUpdate(extra) {
+      function sendUpdate(extra, forcedPositionMs) {
         return renegotiate(
           "/update",
           Object.assign(
@@ -233,7 +272,27 @@
             },
             extra || {},
           ),
+          forcedPositionMs,
         );
+      }
+
+      async function applyInitialParams() {
+        const hasParams =
+          controls.height != null ||
+          controls.burn ||
+          controls.downmix ||
+          selAudio != null ||
+          selSub !== "";
+        if (!hasParams) return;
+        const extra = {};
+        if (selAudio != null) extra.audio_track = selAudio;
+        const track = parseSubValue(selSub);
+        if (track) {
+          extra.subtitle = { action: "set", track, offset_ms: selOffset || null };
+        }
+        const video = document.getElementById("player");
+        const resumePos = Math.max(resumeMs, Math.floor(video.currentTime * 1000));
+        await sendUpdate(extra, resumePos);
       }
 
       async function renegotiate(suffix, body, forcedPositionMs) {
@@ -253,12 +312,6 @@
         } catch (err) {
           document.getElementById("status").textContent = "Renegotiation failed (" + err.message + ").";
         }
-      }
-
-      function trackList(box, label, list, fmt) {
-        if (!list || !list.length) return;
-        box.appendChild(sm.el("h3", { text: label }));
-        box.appendChild(sm.el("ul", null, list.map((t) => sm.el("li", { text: fmt(t) }))));
       }
 
       async function renderBreadcrumb(v) {
@@ -303,55 +356,6 @@
         back.appendChild(sm.breadcrumbs(crumbs));
       }
 
-      function renderDetails(v) {
-        const box = document.getElementById("details");
-        box.textContent = "";
-        if (!v) return;
-        const facts = [
-          v.quality.toUpperCase(),
-          v.container,
-          v.edition || null,
-          Math.round(v.size_bytes / 1048576) + " MB",
-          Math.round(v.duration_ms / 60000) + " min",
-        ].filter(Boolean);
-        box.appendChild(sm.el("h2", { text: "Version details" }));
-        box.appendChild(sm.el("p", { text: facts.join(" · ") }));
-        trackList(box, "Video", v.video, (t) =>
-          t.codec + " " + t.width + "x" + t.height + " " + t.bit_depth + "-bit" +
-          (t.hdr ? " " + t.hdr : "") + " " + t.frame_rate + "fps",
-        );
-        trackList(box, "Audio", v.audio, (t) =>
-          t.codec + " " + t.channels + "ch" + (t.language ? " " + sm.lang(t.language) : ""),
-        );
-        trackList(box, "Subtitles", v.subtitles, (t) =>
-          t.format + (t.language ? " " + sm.lang(t.language) : "") +
-          (t.forced ? " forced" : "") + (t.default ? " default" : ""),
-        );
-        if (v.chapters && v.chapters.length) {
-          box.appendChild(sm.el("h3", { text: "Chapters" }));
-          box.appendChild(
-            sm.el(
-              "ol",
-              null,
-              v.chapters.map((c) =>
-                sm.el("li", { text: c.title + " (" + Math.round(c.start_ms / 1000) + "s)" }),
-              ),
-            ),
-          );
-        }
-        const markers = ((v.markers && v.markers.intro) || [])
-          .map((m) => "Intro " + Math.round(m.start_ms / 1000) + " to " + Math.round(m.end_ms / 1000) + "s")
-          .concat(
-            ((v.markers && v.markers.credits) || []).map(
-              (m) => "Credits " + Math.round(m.start_ms / 1000) + " to " + Math.round(m.end_ms / 1000) + "s",
-            ),
-          );
-        if (markers.length) {
-          box.appendChild(sm.el("h3", { text: "Markers" }));
-          box.appendChild(sm.el("ul", null, markers.map((m) => sm.el("li", { text: m }))));
-        }
-      }
-
       async function buildControls() {
         const box = document.getElementById("controls");
         box.textContent = "";
@@ -359,15 +363,22 @@
           .json("/api/v1/versions/" + encodeURIComponent(versionId))
           .catch(() => null);
         versionDetail = version;
-        renderDetails(version);
         renderBreadcrumb(version);
         const row1 = sm.el("div");
         const row2 = sm.el("div");
         box.appendChild(row1);
         box.appendChild(row2);
         {
+          const vid0 = (version && version.video && version.video[0]) || null;
+          const originalLabel = vid0
+            ? "Original, " +
+              vid0.width + "x" + vid0.height + " " +
+              vid0.bit_depth + "-bit " +
+              (vid0.hdr ? vid0.hdr + " " : "") +
+              vid0.frame_rate + "fps"
+            : "Original";
           const rungs = [
-            ["Original", ""],
+            [originalLabel, ""],
             ["1080p", "1080"],
             ["720p", "720"],
             ["480p", "480"],
@@ -381,6 +392,7 @@
           select.value = controls.height == null ? "" : String(controls.height);
           select.addEventListener("change", () => {
             controls.height = select.value === "" ? null : parseInt(select.value, 10);
+            writeParams();
             sendUpdate({});
           });
           row1.appendChild(sm.el("label", null, ["Video Quality ", select]));
@@ -398,12 +410,16 @@
             : [sm.el("option", { value: "" }, "No audio")];
           const select = sm.el("select", null, options);
           if (!audio.length) select.disabled = true;
-          if (session.selected && session.selected.audio_track != null) {
+          if (selAudio != null) {
+            select.value = String(selAudio);
+          } else if (session.selected && session.selected.audio_track != null) {
             select.value = String(session.selected.audio_track);
           }
-          select.addEventListener("change", () =>
-            sendUpdate({ audio_track: parseInt(select.value, 10) }),
-          );
+          select.addEventListener("change", () => {
+            selAudio = parseInt(select.value, 10);
+            writeParams();
+            sendUpdate({ audio_track: selAudio });
+          });
           row1.appendChild(sm.el("label", null, ["Audio Track ", select]));
         }
         {
@@ -431,7 +447,9 @@
           const select = sm.el("select", null, options);
           if (!embedded.length && !files.length) select.disabled = true;
           const selected = session.selected && session.selected.subtitle_track;
-          if (selected && selected.type === "embedded") {
+          if (selSub) {
+            select.value = selSub;
+          } else if (selected && selected.type === "embedded") {
             select.value = "embedded:" + selected.index;
           } else if (selected && selected.type === "file") {
             select.value = "file:" + selected.id;
@@ -439,36 +457,31 @@
           const offsetInput = sm.el("input", {
             type: "number",
             step: "100",
-            value: "0",
+            value: String(selOffset),
             class: "sm-offset",
           });
           offsetInput.disabled = !embedded.length && !files.length;
-          const trackOf = () => {
-            const value = select.value;
-            if (value === "") return null;
-            const sep = value.indexOf(":");
-            const kind = value.slice(0, sep);
-            const key = value.slice(sep + 1);
-            return kind === "embedded"
-              ? { type: "embedded", index: parseInt(key, 10) }
-              : { type: "file", id: key };
-          };
+          const trackOf = () => parseSubValue(select.value);
           select.addEventListener("change", () => {
+            selSub = select.value;
+            writeParams();
             const track = trackOf();
             if (!track) {
               sendUpdate({ subtitle: { action: "disable" } });
             } else {
-              sendUpdate({ subtitle: { action: "set", track: track, offset_ms: null } });
+              sendUpdate({ subtitle: { action: "set", track: track, offset_ms: selOffset || null } });
             }
           });
           offsetInput.addEventListener("change", () => {
+            selOffset = Math.round(parseFloat(offsetInput.value) || 0);
+            writeParams();
             const track = trackOf();
             if (!track) return;
             sendUpdate({
               subtitle: {
                 action: "set",
                 track: track,
-                offset_ms: Math.round(parseFloat(offsetInput.value) || 0),
+                offset_ms: selOffset,
               },
             });
           });
@@ -478,6 +491,7 @@
           burn.checked = controls.burn;
           burn.addEventListener("change", () => {
             controls.burn = burn.checked;
+            writeParams();
             sendUpdate({});
           });
           row2.appendChild(sm.el("label", null, ["Burn in ", burn]));
@@ -487,6 +501,7 @@
           downmix.checked = controls.downmix;
           downmix.addEventListener("change", () => {
             controls.downmix = downmix.checked;
+            writeParams();
             sendUpdate({});
           });
           row1.appendChild(sm.el("label", null, ["Downmix to stereo ", downmix]));

@@ -52,6 +52,7 @@ fn kind_to_str(kind: JobKind) -> &'static str {
         JobKind::Translation => "translation",
         JobKind::Upscale => "upscale",
         JobKind::Combine => "combine",
+        JobKind::Fetch => "fetch",
     }
 }
 
@@ -72,6 +73,7 @@ fn kind_from_str(value: &str) -> Result<JobKind, RepositoryError> {
         "translation" => Ok(JobKind::Translation),
         "upscale" => Ok(JobKind::Upscale),
         "combine" => Ok(JobKind::Combine),
+        "fetch" => Ok(JobKind::Fetch),
         other => Err(backend(format!("unknown job kind: {other}"))),
     }
 }
@@ -253,6 +255,22 @@ impl JobRepository for SqliteJobRepo {
             .map_err(backend)?;
         rows.iter().map(row_to_job).collect()
     }
+
+    async fn cancel(&self, id: &JobId, now: Timestamp) -> Result<bool, RepositoryError> {
+        let _op = DbOpGuard::new("jobs", "cancel");
+        let result = sqlx::query(
+            "UPDATE jobs SET status = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status = ?",
+        )
+        .bind(status_to_str(JobStatus::Cancelled))
+        .bind(to_millis(now))
+        .bind(to_millis(now))
+        .bind(id.0.as_str())
+        .bind(status_to_str(JobStatus::Queued))
+        .execute(&self.pool)
+        .await
+        .map_err(backend)?;
+        Ok(result.rows_affected() > 0)
+    }
 }
 
 #[cfg(test)]
@@ -277,6 +295,7 @@ mod tests {
             JobKind::Translation,
             JobKind::Upscale,
             JobKind::Combine,
+            JobKind::Fetch,
         ] {
             assert_eq!(kind_from_str(kind_to_str(kind)).unwrap(), kind);
         }

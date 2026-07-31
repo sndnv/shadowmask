@@ -7,7 +7,7 @@ use domain::catalog::{
 };
 use domain::common::{LanguageCode, Quality};
 use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
-use domain::library::{Library, LibraryId, LibraryKind, WatcherStrategy};
+use domain::library::{Library, LibraryId, LibraryKind, LibraryOrigin, WatcherStrategy};
 use domain::media::{
     AudioTrack, Chapter, CreditsMarker, DetectedMarkers, EmbeddedSubtitleTrack, HdrFormat,
     IntroMarker, SubtitleFormat, TrickplayAsset, VideoTrack,
@@ -128,6 +128,7 @@ pub fn library(id: &str) -> Library {
     Library {
         id: LibraryId(id.into()),
         name: format!("Lib {id}"),
+        origin: LibraryOrigin::Local,
         kind: LibraryKind::Movie,
         roots: vec!["/media".into()],
         watcher: WatcherStrategy::Manual,

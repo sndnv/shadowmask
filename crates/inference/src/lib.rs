@@ -10,6 +10,8 @@ mod subtitle_merger;
 mod translation_engine;
 mod vtt;
 mod whisper_engine;
+#[cfg(any(feature = "enrichment", test))]
+mod whisper_parse;
 mod whisper_provider;
 
 #[cfg(feature = "enrichment")]

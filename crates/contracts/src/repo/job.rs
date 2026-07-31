@@ -168,4 +168,43 @@ pub async fn job_repository_contract<R: JobRepository>(repo: R) {
             .parent_id
             .is_none()
     );
+
+    repo.enqueue(job("cancel-me", JobPriority::Normal, now, now))
+        .await
+        .unwrap();
+    assert!(
+        repo.cancel(&JobId("cancel-me".into()), future)
+            .await
+            .unwrap()
+    );
+    let cancelled = repo.get(&JobId("cancel-me".into())).await.unwrap().unwrap();
+    assert_eq!(cancelled.status, JobStatus::Cancelled);
+    assert_eq!(cancelled.finished_at, Some(future));
+    assert_eq!(cancelled.updated_at, future);
+    assert!(
+        !repo
+            .cancel(&JobId("cancel-me".into()), future)
+            .await
+            .unwrap()
+    );
+
+    let mut running_2 = job("running-2", JobPriority::Normal, now, now);
+    running_2.status = JobStatus::Running;
+    repo.enqueue(running_2).await.unwrap();
+    assert!(
+        !repo
+            .cancel(&JobId("running-2".into()), future)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        repo.get(&JobId("running-2".into()))
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        JobStatus::Running
+    );
+
+    assert!(!repo.cancel(&JobId("missing".into()), future).await.unwrap());
 }

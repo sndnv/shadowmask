@@ -24,7 +24,10 @@ use domain::repository::{
     SearchIndex, UserRepository,
 };
 use domain::user::{PendingLink, Role, User, UserId};
-use server::{Built, CapabilityInputs, Repos, WireConfig, app, build_state, server_capabilities};
+use server::{
+    Built, CancelRegistry, CapabilityInputs, Repos, WireConfig, app, build_state,
+    server_capabilities,
+};
 use services::password;
 
 const LINK_EXPIRES_AT: i64 = 4_102_444_800;
@@ -42,6 +45,7 @@ fn config(root: &Path) -> WireConfig {
         transcription_enabled: true,
         translation_enabled: true,
         upscaling_enabled: true,
+        content_fetch_enabled: false,
         vaapi_device: None,
     }
 }
@@ -267,7 +271,7 @@ async fn seeded(db_root: &Path, hash: &str) -> (Repos, Router) {
         images,
         trickplay,
         ..
-    } = build_state(&repos, &cfg).unwrap();
+    } = build_state(&repos, &cfg, &CancelRegistry::default()).unwrap();
     let capabilities = server_capabilities(CapabilityInputs {
         transcription: cfg.transcription_enabled,
         translation: cfg.translation_enabled,
@@ -276,6 +280,7 @@ async fn seeded(db_root: &Path, hash: &str) -> (Repos, Router) {
         tmdb: cfg.tmdb_api_key.is_some(),
         tls: false,
         webhooks: false,
+        content_fetch: cfg.content_fetch_enabled,
         hardware_transcode_available: false,
         hardware_transcode_enabled: false,
     });

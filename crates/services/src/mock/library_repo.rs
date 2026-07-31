@@ -212,13 +212,14 @@ impl LibraryRepository for MockLibraryRepo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::library::{LibraryKind, WatcherStrategy};
+    use domain::library::{LibraryKind, LibraryOrigin, WatcherStrategy};
     use jiff::Timestamp;
 
     fn library() -> Library {
         Library {
             id: LibraryId("l".into()),
             name: "n".into(),
+            origin: LibraryOrigin::Local,
             kind: LibraryKind::Movie,
             roots: Vec::new(),
             watcher: WatcherStrategy::Manual,
