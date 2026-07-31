@@ -53,6 +53,10 @@
             sm.el("option", { value: "movie" }, "movie"),
             sm.el("option", { value: "tv" }, "tv"),
           ]),
+          origin: sm.el("select", null, [
+            sm.el("option", { value: "local" }, "local"),
+            sm.el("option", { value: "external" }, "external"),
+          ]),
           watcher: sm.el("select", null, [
             sm.el("option", { value: "local" }, "local"),
             sm.el("option", { value: "polling" }, "polling"),
@@ -70,6 +74,8 @@
           sm.el("label", null, ["Name ", fields.name]),
           sm.el("br"),
           sm.el("label", null, ["Kind ", fields.kind]),
+          " ",
+          sm.el("label", null, ["Origin ", fields.origin]),
           " ",
           sm.el("label", null, ["Watcher ", fields.watcher]),
           sm.el("br"),
@@ -94,6 +100,7 @@
         formHeading.textContent = library ? "Edit library" : "Create library";
         fields.name.value = library ? library.name : "";
         fields.kind.value = library ? library.kind : "movie";
+        fields.origin.value = library ? library.origin || "local" : "local";
         fields.watcher.value = library ? library.watcher : "local";
         fields.roots.value = library ? (library.roots || []).join("\n") : "";
         fields.schedule.value = library && library.scan_schedule ? library.scan_schedule : "";
@@ -120,6 +127,7 @@
         const body = {
           name: fields.name.value,
           kind: fields.kind.value,
+          origin: fields.origin.value,
           watcher: fields.watcher.value,
           roots: splitLines(fields.roots.value),
           scan_schedule: fields.schedule.value ? fields.schedule.value : null,
@@ -156,45 +164,46 @@
             listContainer.appendChild(sm.el("p", { text: "No libraries." }));
             return;
           }
+          const rows = libraries.map((l) => {
+            const manage = sm.el("a", { href: "library.html?id=" + eu(l.id) }, "Manage");
+            const syncStatus = sm.el("span", null);
+            const sync = sm.el("button", { type: "button" }, "Sync");
+            sync.addEventListener("click", async () => {
+              sync.disabled = true;
+              syncStatus.textContent = " ...";
+              try {
+                await sm.json("/api/v1/libraries/" + eu(l.id) + "/scan", { method: "POST" });
+                syncStatus.textContent = " queued";
+              } catch (err) {
+                syncStatus.textContent = " failed";
+              } finally {
+                sync.disabled = false;
+              }
+            });
+            const edit = sm.el("button", { type: "button" }, "Edit");
+            edit.addEventListener("click", () => setEditing(l));
+            const del = sm.el("button", { type: "button" }, "Delete");
+            del.addEventListener("click", async () => {
+              if (!confirm("Delete library " + l.name + "?")) return;
+              await sm.json("/api/v1/libraries/" + eu(l.id), { method: "DELETE" }).catch(() => {});
+              await loadLibraries();
+            });
+            const actions = sm.el("span", null, [manage, " ", sync, " ", edit, " ", del, syncStatus]);
+            return [
+              sm.el("strong", { text: l.name }),
+              l.kind,
+              l.origin || "local",
+              l.watcher,
+              l.roots && l.roots.length ? l.roots.join(", ") : "",
+              sm.time(l.created_at),
+              sm.time(l.updated_at),
+              actions,
+            ];
+          });
           listContainer.appendChild(
-            sm.el(
-              "ul",
-              null,
-              libraries.map((l) => {
-                const manage = sm.el("a", { href: "library.html?id=" + eu(l.id) }, "Manage");
-                const edit = sm.el("button", { type: "button" }, "Edit");
-                edit.addEventListener("click", () => setEditing(l));
-                const del = sm.el("button", { type: "button" }, "Delete");
-                del.addEventListener("click", async () => {
-                  if (!confirm("Delete library " + l.name + "?")) return;
-                  await sm
-                    .json("/api/v1/libraries/" + eu(l.id), { method: "DELETE" })
-                    .catch(() => {});
-                  await loadLibraries();
-                });
-                return sm.el("li", null, [
-                  sm.el("strong", { text: l.name }),
-                  sm.el("span", {
-                    text:
-                      " (" +
-                      l.kind +
-                      ", " +
-                      l.watcher +
-                      ")" +
-                      (l.roots && l.roots.length ? " " + l.roots.join(", ") : "") +
-                      " created " +
-                      sm.time(l.created_at) +
-                      ", updated " +
-                      sm.time(l.updated_at) +
-                      " ",
-                  }),
-                  manage,
-                  " ",
-                  edit,
-                  " ",
-                  del,
-                ]);
-              }),
+            sm.table(
+              ["Name", "Kind", "Origin", "Watcher", "Roots", "Created", "Updated", ""],
+              rows,
             ),
           );
         } catch (err) {

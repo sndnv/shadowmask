@@ -4,12 +4,15 @@ use axum::http::StatusCode;
 use tracing::debug;
 
 use domain::catalog::VersionId;
+use domain::job::JobId;
+use domain::library::LibraryId;
 use domain::media::SubtitleFileId;
 
 use crate::dto::catalog::{
     CombineRequest, TranscribeRequest, TranslateRequest, UpscaleRequest, VersionResponse,
 };
 use crate::dto::job::JobResponse;
+use crate::dto::library::FetchRequest;
 use crate::error::{ApiError, ApiResult};
 use crate::extract::RequireAdmin;
 use crate::handlers::log_fail;
@@ -44,6 +47,21 @@ pub async fn job<S: AppServices>(
         .ok_or_else(|| ApiError::not_found("job not found"))?;
     debug!("User [{actor}] successfully retrieved job [{id}]");
     Ok(Json(job.into()))
+}
+
+pub async fn cancel_job<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Path(id): Path<String>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    let job_id = JobId(id);
+    state
+        .cancel_job(&principal, &job_id)
+        .await
+        .map_err(log_fail(actor, "cancel job"))?;
+    debug!("User [{actor}] successfully cancelled job [{}]", job_id.0);
+    Ok(StatusCode::ACCEPTED)
 }
 
 pub async fn versions<S: AppServices>(
@@ -131,6 +149,25 @@ pub async fn upscale_version<S: AppServices>(
     debug!(
         "User [{actor}] successfully triggered upscale for version [{}]",
         version.0
+    );
+    Ok(StatusCode::ACCEPTED)
+}
+
+pub async fn create_fetch<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Json(req): Json<FetchRequest>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    req.validate().map_err(ApiError::bad_request)?;
+    let library = LibraryId(req.library_id.clone());
+    state
+        .create_fetch(&principal, &library, req.into_input())
+        .await
+        .map_err(log_fail(actor, "trigger content fetch"))?;
+    debug!(
+        "User [{actor}] successfully triggered content fetch into library [{}]",
+        library.0
     );
     Ok(StatusCode::ACCEPTED)
 }

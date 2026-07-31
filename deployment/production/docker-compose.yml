@@ -34,11 +34,23 @@ services:
       # MADLAD: "<2{target}>" as SOURCE_PREFIX, or Opus-MT multilingual: ">>{target}<<".
       # SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX: "<2{target}>"
       # SHADOWMASK_ENRICHMENT_TRANSLATION_TARGET_PREFIX: "{target}"
+      # Optional content fetch (off by default): pull videos from external sites with the bundled
+      # yt-dlp into an external library, then run normal enrichment. Each fetch is stored under the
+      # root of the external library you pick, so mount a writable path below and root a library
+      # there. See deployment/README.md (Content fetch).
+      # SHADOWMASK_FETCH_PROVIDERS_ENABLED: "true"
+      # SHADOWMASK_FETCH_PROVIDERS_CONCURRENCY: "1"
+      # Cap download resolution (unset = best quality, up to 4K):
+      # SHADOWMASK_FETCH_PROVIDERS_MAX_HEIGHT: "1080"
+      # For a site with no built-in yt-dlp extractor, mount your extractor plugins and point at them:
+      # SHADOWMASK_FETCH_PROVIDERS_YT_DLP_PLUGIN_DIR: "/config/yt-dlp-plugins"
     volumes:
       - ./local/data:/data
       - ./bootstrap:/config/bootstrap:ro
       # - ./tls:/config/tls:ro   # mount your cert + key here when using SHADOWMASK_TLS_* above
       # - ./models:/models:ro    # CTranslate2 models for enrichment (see deployment/ENRICHMENT.md)
+      # - "${SHADOWMASK_EXTERNAL_DIR:-./local/external}:/media/external"   # writable root for fetched content
+      # - ./yt-dlp-plugins:/config/yt-dlp-plugins:ro   # site extractor plugins for content fetch
       - "${SHADOWMASK_MOVIES_DIR:?set SHADOWMASK_MOVIES_DIR to your movies library path}:/media/movies:ro"
       - "${SHADOWMASK_TV_DIR:?set SHADOWMASK_TV_DIR to your tv library path}:/media/tv:ro"
     healthcheck:

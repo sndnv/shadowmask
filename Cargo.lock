@@ -1086,6 +1086,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fetch"
+version = "1.0.0-SNAPSHOT"
+dependencies = [
+ "domain",
+ "media",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "figment"
 version = "0.10.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3596,6 +3607,7 @@ dependencies = [
  "clap",
  "contracts",
  "domain",
+ "fetch",
  "figment",
  "inference",
  "insta",

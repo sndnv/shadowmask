@@ -2,6 +2,7 @@ CREATE TABLE libraries (
     id TEXT PRIMARY KEY NOT NULL,
     name TEXT NOT NULL,
     kind TEXT NOT NULL,
+    origin TEXT NOT NULL DEFAULT 'local',
     watcher TEXT NOT NULL,
     scan_schedule TEXT,
     created_at INTEGER NOT NULL,

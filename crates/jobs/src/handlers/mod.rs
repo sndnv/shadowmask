@@ -1,6 +1,7 @@
 mod artwork;
 mod combine;
 mod composite;
+mod fetch;
 mod ingest;
 mod library_scan;
 mod metadata;
@@ -15,6 +16,7 @@ mod upscale;
 pub use artwork::ArtworkJobHandler;
 pub use combine::CombineJobHandler;
 pub use composite::CompositeJobHandler;
+pub use fetch::FetchJobHandler;
 pub use ingest::IngestJobHandler;
 pub use library_scan::LibraryScanHandler;
 pub use metadata::MetadataJobHandler;

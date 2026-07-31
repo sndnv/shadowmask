@@ -26,12 +26,14 @@ services:
       SHADOWMASK_ENRICHMENT_TRANSLATION_ENABLED: "${SHADOWMASK_ENRICHMENT_TRANSLATION_ENABLED:-true}"
       SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX: "<2{target}>"
       SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED: "${SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED:-true}"
+      SHADOWMASK_FETCH_PROVIDERS_ENABLED: "${SHADOWMASK_FETCH_PROVIDERS_ENABLED:-true}"
     volumes:
       - shadowmask-data:/data
       - ./config/bootstrap:/config/bootstrap:ro
       - ../../clients/basic:/usr/share/shadowmask/basic:ro
       - "${SHADOWMASK_MOVIES_DIR:-./media/movies}:/media/movies:ro"
       - "${SHADOWMASK_TV_DIR:-./media/tv}:/media/tv:ro"
+      - "${SHADOWMASK_EXTERNAL_DIR:-./media/external}:/media/external"
       - "${SHADOWMASK_MODELS_DIR:-./models}:/models:ro"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]

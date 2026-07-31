@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use domain::library::{Library, LibraryKind, WatcherStrategy};
+use domain::library::{Library, LibraryKind, LibraryOrigin, WatcherStrategy};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -23,6 +23,32 @@ impl From<LibraryKindDto> for LibraryKind {
         match k {
             LibraryKindDto::Movie => LibraryKind::Movie,
             LibraryKindDto::Tv => LibraryKind::Tv,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryOriginDto {
+    #[default]
+    Local,
+    External,
+}
+
+impl From<LibraryOrigin> for LibraryOriginDto {
+    fn from(o: LibraryOrigin) -> Self {
+        match o {
+            LibraryOrigin::Local => LibraryOriginDto::Local,
+            LibraryOrigin::External => LibraryOriginDto::External,
+        }
+    }
+}
+
+impl From<LibraryOriginDto> for LibraryOrigin {
+    fn from(o: LibraryOriginDto) -> Self {
+        match o {
+            LibraryOriginDto::Local => LibraryOrigin::Local,
+            LibraryOriginDto::External => LibraryOrigin::External,
         }
     }
 }
@@ -63,6 +89,7 @@ pub struct LibraryResponse {
     pub id: String,
     pub name: String,
     pub kind: LibraryKindDto,
+    pub origin: LibraryOriginDto,
     pub roots: Vec<String>,
     pub watcher: WatcherStrategyDto,
     pub scan_schedule: Option<String>,
@@ -77,6 +104,7 @@ impl From<Library> for LibraryResponse {
             id: l.id.0,
             name: l.name,
             kind: l.kind.into(),
+            origin: l.origin.into(),
             roots: l.roots,
             watcher: l.watcher.into(),
             scan_schedule: l.scan_schedule,
@@ -116,6 +144,30 @@ mod tests {
         assert!(matches!(
             WatcherStrategyDto::from(WatcherStrategy::Manual),
             WatcherStrategyDto::Manual
+        ));
+    }
+
+    #[test]
+    fn maps_origins_both_ways() {
+        assert!(matches!(
+            LibraryOriginDto::from(LibraryOrigin::Local),
+            LibraryOriginDto::Local
+        ));
+        assert!(matches!(
+            LibraryOriginDto::from(LibraryOrigin::External),
+            LibraryOriginDto::External
+        ));
+        assert_eq!(
+            LibraryOrigin::from(LibraryOriginDto::Local),
+            LibraryOrigin::Local
+        );
+        assert_eq!(
+            LibraryOrigin::from(LibraryOriginDto::External),
+            LibraryOrigin::External
+        );
+        assert!(matches!(
+            LibraryOriginDto::default(),
+            LibraryOriginDto::Local
         ));
     }
 

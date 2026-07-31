@@ -1,6 +1,7 @@
 mod discovered_file;
 mod discovered_subtitle;
 mod duplicate_candidate;
+mod fetch_input;
 #[allow(clippy::module_inception)]
 mod library;
 mod library_update;
@@ -25,7 +26,8 @@ mod watcher_trigger;
 pub use discovered_file::DiscoveredFile;
 pub use discovered_subtitle::DiscoveredSubtitle;
 pub use duplicate_candidate::{DuplicateCandidate, DuplicateCandidateId};
-pub use library::{Library, LibraryId, LibraryKind, WatcherStrategy};
+pub use fetch_input::FetchInput;
+pub use library::{Library, LibraryId, LibraryKind, LibraryOrigin, WatcherStrategy};
 pub use library_update::LibraryUpdate;
 pub use match_key::MatchKey;
 pub use match_report::MatchReport;

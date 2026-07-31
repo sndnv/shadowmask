@@ -1,8 +1,9 @@
 use domain::catalog::{MovieId, TitleId};
 use domain::common::PageRequest;
 use domain::library::{
-    DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryKind, MatchCandidate,
-    ResolutionStatus, ScanState, ScanStatus, UnmatchedFile, UnmatchedFileId, WatcherStrategy,
+    DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryKind, LibraryOrigin,
+    MatchCandidate, ResolutionStatus, ScanState, ScanStatus, UnmatchedFile, UnmatchedFileId,
+    WatcherStrategy,
 };
 use domain::repository::LibraryRepository;
 use jiff::Timestamp;
@@ -15,6 +16,7 @@ fn library(id: &str) -> Library {
     Library {
         id: LibraryId(id.into()),
         name: format!("Lib {id}"),
+        origin: LibraryOrigin::Local,
         kind: LibraryKind::Movie,
         roots: vec!["/media".into()],
         watcher: WatcherStrategy::Manual,

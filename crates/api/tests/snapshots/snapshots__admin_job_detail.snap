@@ -5,6 +5,7 @@ expression: value
 {
   "body": {
     "attempts": 1,
+    "cancellable": false,
     "created_at": "[created_at]",
     "finished_at": "2023-11-14T22:14:01Z",
     "id": "job-scan",

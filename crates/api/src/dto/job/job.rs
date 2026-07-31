@@ -20,6 +20,7 @@ pub enum JobKindDto {
     Translation,
     Upscale,
     Combine,
+    Fetch,
 }
 
 impl From<JobKind> for JobKindDto {
@@ -40,6 +41,7 @@ impl From<JobKind> for JobKindDto {
             JobKind::Translation => JobKindDto::Translation,
             JobKind::Upscale => JobKindDto::Upscale,
             JobKind::Combine => JobKindDto::Combine,
+            JobKind::Fetch => JobKindDto::Fetch,
         }
     }
 }
@@ -103,10 +105,16 @@ pub struct JobResponse {
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
     pub parent_id: Option<String>,
+    pub cancellable: bool,
 }
 
 impl From<Job> for JobResponse {
     fn from(j: Job) -> Self {
+        let cancellable = match j.status {
+            JobStatus::Queued => true,
+            JobStatus::Running => j.kind.is_process_killable(),
+            _ => false,
+        };
         JobResponse {
             id: j.id.0,
             kind: j.kind.into(),
@@ -120,6 +128,7 @@ impl From<Job> for JobResponse {
             started_at: j.started_at.map(|t| t.to_string()),
             finished_at: j.finished_at.map(|t| t.to_string()),
             parent_id: j.parent_id.map(|id| id.0),
+            cancellable,
         }
     }
 }
@@ -146,6 +155,7 @@ mod tests {
             (JobKind::Translation, "translation"),
             (JobKind::Upscale, "upscale"),
             (JobKind::Combine, "combine"),
+            (JobKind::Fetch, "fetch"),
         ] {
             let dto = JobKindDto::from(kind);
             assert_eq!(serde_json::to_value(dto).unwrap(), expected);
@@ -174,6 +184,33 @@ mod tests {
             parent_id: Some(JobId("parent".into())),
         };
         assert_eq!(JobResponse::from(job).parent_id.as_deref(), Some("parent"));
+    }
+
+    #[test]
+    fn computes_cancellable_from_status_and_kind() {
+        use domain::job::JobId;
+        use jiff::Timestamp;
+
+        let build = |kind, status| Job {
+            id: JobId("j".into()),
+            kind,
+            status,
+            priority: JobPriority::Normal,
+            payload: String::new(),
+            attempts: 0,
+            progress: 0.0,
+            available_at: Timestamp::UNIX_EPOCH,
+            last_error: None,
+            created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+            started_at: None,
+            finished_at: None,
+            parent_id: None,
+        };
+        assert!(JobResponse::from(build(JobKind::LibraryScan, JobStatus::Queued)).cancellable);
+        assert!(JobResponse::from(build(JobKind::Fetch, JobStatus::Running)).cancellable);
+        assert!(!JobResponse::from(build(JobKind::LibraryScan, JobStatus::Running)).cancellable);
+        assert!(!JobResponse::from(build(JobKind::Fetch, JobStatus::Succeeded)).cancellable);
     }
 
     #[test]

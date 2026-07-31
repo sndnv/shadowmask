@@ -9,6 +9,7 @@ expression: value
     "kind": "tv",
     "metadata_sources": [],
     "name": "Renamed Library",
+    "origin": "local",
     "roots": [
       "/media/renamed"
     ],

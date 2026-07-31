@@ -16,15 +16,14 @@
     <script>
       const pad2 = (n) => String(n).padStart(2, "0");
       const eu = encodeURIComponent;
-      const LANGS = [
-        ["en", "English"], ["es", "Spanish"], ["fr", "French"], ["de", "German"],
-        ["it", "Italian"], ["pt", "Portuguese"], ["nl", "Dutch"], ["pl", "Polish"],
-        ["ru", "Russian"], ["uk", "Ukrainian"], ["cs", "Czech"], ["sv", "Swedish"],
-        ["da", "Danish"], ["no", "Norwegian"], ["fi", "Finnish"], ["el", "Greek"],
-        ["tr", "Turkish"], ["ar", "Arabic"], ["he", "Hebrew"], ["hi", "Hindi"],
-        ["ja", "Japanese"], ["ko", "Korean"], ["zh", "Chinese"], ["th", "Thai"],
-        ["vi", "Vietnamese"], ["id", "Indonesian"], ["ro", "Romanian"], ["hu", "Hungarian"],
-      ];
+      const LANG_CODES =
+        "aa ab ae af ak am an ar as av ay az ba be bg bh bi bm bn bo br bs ca ce ch co cr cs cu cv cy da de dv dz ee el en eo es et eu fa ff fi fj fo fr fy ga gd gl gn gu gv ha he hi ho hr ht hu hy hz ia id ie ig ii ik io is it iu ja jv ka kg ki kj kk kl km kn ko kr ks ku kv kw ky la lb lg li ln lo lt lu lv mg mh mi mk ml mn mr ms mt my na nb nd ne ng nl nn no nr nv ny oc oj om or os pa pi pl ps pt qu rm rn ro ru rw sa sc sd se sg sh si sk sl sm sn so sq sr ss st su sv sw ta te tg th ti tk tl tn to tr ts tt tw ty ug uk ur uz ve vi vo wa wo xh yi yo za zh zu".split(
+          " ",
+        );
+      const langNames = new Intl.DisplayNames(["en"], { type: "language" });
+      const LANGS = LANG_CODES.map((code) => [code, langNames.of(code) || code]).sort((a, b) =>
+        a[0].localeCompare(b[0]),
+      );
 
       sm.chrome();
       if (sm.requireAuth()) guard();
@@ -215,20 +214,15 @@
               }
               post("/translate", { source_subtitle_id: s.id, target_language: target });
             });
-            const text = sm.el("pre", { class: "sm-subtext", hidden: "hidden" });
-            let shown = false;
             const view = sm.el("button", { type: "button" }, "View text");
             view.addEventListener("click", async () => {
-              text.hidden = !text.hidden;
-              if (text.hidden || shown) return;
-              shown = true;
-              text.textContent = "Loading...";
+              const body = sm.el("pre", { class: "sm-subtext", text: "Loading..." });
+              sm.dialog(sm.lang(s.language) + " (" + s.source + ")", body);
               try {
                 const res = await sm.json(subUrl(s));
-                text.textContent = res.content || "(empty)";
+                body.textContent = res.content || "(empty)";
               } catch (err) {
-                shown = false;
-                text.textContent = "Could not load subtitle text.";
+                body.textContent = "Could not load subtitle text.";
               }
             });
             const controls = [label, lang, " ", btn, " ", view];
@@ -246,7 +240,7 @@
               });
               controls.push(" ", del);
             }
-            subList.appendChild(sm.el("li", null, [sm.el("span", null, controls), text]));
+            subList.appendChild(sm.el("li", null, sm.el("span", null, controls)));
           });
           cell.appendChild(subList.children.length ? subList : sm.el("p", { text: "none" }));
 

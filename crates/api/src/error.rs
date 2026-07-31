@@ -148,6 +148,9 @@ impl From<LibraryError> for ApiError {
                 ApiError::new(StatusCode::CONFLICT, "scan_in_progress", msg)
             }
             LibraryError::Disabled => ApiError::new(StatusCode::CONFLICT, "feature_disabled", msg),
+            LibraryError::NotCancellable => {
+                ApiError::new(StatusCode::CONFLICT, "not_cancellable", msg)
+            }
             LibraryError::Forbidden => ApiError::new(StatusCode::FORBIDDEN, "access_denied", msg),
             LibraryError::Walk(_) | LibraryError::Repository(_) => ApiError::internal(),
         }
@@ -325,6 +328,9 @@ mod tests {
         let conflict = ApiError::from(LibraryError::ScanInProgress);
         assert_eq!(conflict.status, StatusCode::CONFLICT);
         assert_eq!(conflict.code, "scan_in_progress");
+        let not_cancellable = ApiError::from(LibraryError::NotCancellable);
+        assert_eq!(not_cancellable.status, StatusCode::CONFLICT);
+        assert_eq!(not_cancellable.code, "not_cancellable");
         let forbidden = ApiError::from(LibraryError::Forbidden);
         assert_eq!(forbidden.status, StatusCode::FORBIDDEN);
         assert_eq!(forbidden.code, "access_denied");

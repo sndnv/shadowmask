@@ -81,8 +81,8 @@ mod tests {
     use domain::common::PageRequest;
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
     use domain::library::{
-        Library, LibraryId, LibraryKind, ResolveTarget, UnmatchedFile, UnmatchedFileId,
-        WatcherStrategy,
+        Library, LibraryId, LibraryKind, LibraryOrigin, ResolveTarget, UnmatchedFile,
+        UnmatchedFileId, WatcherStrategy,
     };
     use domain::repository::CatalogRepository;
     use jiff::Timestamp;
@@ -95,6 +95,7 @@ mod tests {
         Library {
             id: LibraryId("lib".into()),
             name: "Lib".into(),
+            origin: LibraryOrigin::Local,
             kind: LibraryKind::Movie,
             roots: vec!["/m".into()],
             watcher: WatcherStrategy::Manual,

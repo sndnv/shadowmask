@@ -39,3 +39,48 @@ with an Intel or AMD iGPU, pass the render node through and grant access:
 The `render` group id can differ between host distributions; use the numeric gid if the group name
 does not resolve inside the container. Intel QuickSync uses the same VAAPI path (its driver is baked
 into the image). Hardware H.264 encoding is VAAPI-only; NVIDIA NVENC is not used by the encoder.
+
+## Content fetch
+
+Shadowmask can pull a single video from an external site over HTTP, store it in a dedicated
+"external" library, and then run the usual discovery and enrichment against it (trickplay,
+transcription, translation). This is admin-only and off by default. It wraps the `yt-dlp` binary
+(baked into the image), so it works for YouTube and every site yt-dlp supports.
+
+Enable it:
+
+```
+SHADOWMASK_FETCH_PROVIDERS_ENABLED=true
+SHADOWMASK_FETCH_PROVIDERS_CONCURRENCY=1
+```
+
+Downloads run on their own capped worker queue (`SHADOWMASK_FETCH_PROVIDERS_CONCURRENCY`, default 1) so
+they never all run at once and never block ordinary jobs. Each fetch is stored under the root of the
+external library you pick, so create one external library per destination directory (for example a
+"YouTube" library rooted at one path and another library rooted at a different path). The library
+root must be a writable path inside the container. Then use the admin "Fetch content" page (URL,
+type, title, optional IMDb id, and season and episode for TV). Override the binary location with
+`SHADOWMASK_FETCH_PROVIDERS_YT_DLP_BINARY` if you mount your own.
+
+By default yt-dlp downloads the highest quality available (up to 4K). To cap the download resolution
+and save disk, set a maximum height:
+
+```
+SHADOWMASK_FETCH_PROVIDERS_MAX_HEIGHT=1080
+```
+
+Unset means best quality. Playback still scales down to whatever the client requests, so a 1080 cap
+is a good fit if you never need the 4K source stored.
+
+### Sites yt-dlp does not support natively
+
+For a site with no built-in yt-dlp extractor, supply a yt-dlp extractor plugin and mount its
+directory into the container:
+
+```
+SHADOWMASK_FETCH_PROVIDERS_YT_DLP_PLUGIN_DIR=/config/yt-dlp-plugins
+```
+
+The directory is passed to yt-dlp as `--plugin-dirs`. Plugins are site-specific and are your
+responsibility; none ship with Shadowmask. Pulling from a third-party site is subject to that
+site's terms and the content's rights.

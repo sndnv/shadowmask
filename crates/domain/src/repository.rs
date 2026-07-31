@@ -398,6 +398,11 @@ pub trait JobRepository {
     fn update(&self, job: Job) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     fn get(&self, id: &JobId) -> impl Future<Output = Result<Option<Job>, RepositoryError>> + Send;
     fn list(&self) -> impl Future<Output = Result<Vec<Job>, RepositoryError>> + Send;
+    fn cancel(
+        &self,
+        id: &JobId,
+        now: Timestamp,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
 }
 
 pub trait AuthTokenRepository {

@@ -2,12 +2,14 @@ use serde::Deserialize;
 
 use domain::library::NewLibrary;
 
-use crate::dto::library::{LibraryKindDto, WatcherStrategyDto};
+use crate::dto::library::{LibraryKindDto, LibraryOriginDto, WatcherStrategyDto};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateLibraryRequest {
     pub name: String,
     pub kind: LibraryKindDto,
+    #[serde(default)]
+    pub origin: LibraryOriginDto,
     #[serde(default)]
     pub roots: Vec<String>,
     pub watcher: WatcherStrategyDto,
@@ -22,6 +24,7 @@ impl From<CreateLibraryRequest> for NewLibrary {
         NewLibrary {
             name: r.name,
             kind: r.kind.into(),
+            origin: r.origin.into(),
             roots: r.roots,
             watcher: r.watcher.into(),
             scan_schedule: r.scan_schedule,

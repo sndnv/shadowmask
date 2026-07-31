@@ -61,11 +61,33 @@
             }
           }
           const roots = jobs.filter((j) => !(j.parent_id && byId.has(j.parent_id))).sort(byStatus);
+          const shortId = (id) => String(id).split("-")[0];
           const rowFor = (j, depth) => {
-            const link = sm.el("a", { href: "job.html?id=" + encodeURIComponent(j.id) }, j.id);
+            const link = sm.el(
+              "a",
+              { href: "job.html?id=" + encodeURIComponent(j.id), title: j.id },
+              shortId(j.id),
+            );
             const first = depth
               ? sm.el("span", { style: "padding-left:" + depth * 1.5 + "em" }, ["↳ ", link])
               : link;
+            const cancelBtn = j.cancellable
+              ? sm.el("button", { type: "button" }, "Cancel")
+              : "";
+            if (j.cancellable) {
+              cancelBtn.addEventListener("click", async () => {
+                cancelBtn.disabled = true;
+                try {
+                  await sm.json("/api/v1/admin/jobs/" + encodeURIComponent(j.id) + "/cancel", {
+                    method: "POST",
+                  });
+                  await load();
+                } catch (err) {
+                  cancelBtn.disabled = false;
+                  cancelBtn.textContent = "Cancel failed";
+                }
+              });
+            }
             const cells = [
               first,
               j.kind,
@@ -76,6 +98,7 @@
               sm.time(j.started_at),
               sm.time(j.finished_at),
               j.last_error || "",
+              cancelBtn,
             ];
             const cls =
               j.status === "running"
@@ -94,7 +117,7 @@
               .forEach((k) => walk(k, depth + 1));
           };
           roots.forEach((r) => walk(r, 0));
-          const headers = ["Job", "Kind", "Status", "Priority", "Progress", "Attempts", "Started", "Finished", "Error"];
+          const headers = ["Job", "Kind", "Status", "Priority", "Progress", "Attempts", "Started", "Finished", "Error", "Actions"];
           const tbody = sm.el("tbody", null, rows);
           main.appendChild(
             sm.el("table", null, [

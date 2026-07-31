@@ -83,6 +83,19 @@ impl JobRepository for MockJobStore {
         all.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
         Ok(all)
     }
+
+    async fn cancel(&self, id: &JobId, now: Timestamp) -> Result<bool, RepositoryError> {
+        let mut guard = self.jobs.lock().unwrap();
+        match guard.get_mut(id) {
+            Some(job) if job.status == JobStatus::Queued => {
+                job.status = JobStatus::Cancelled;
+                job.finished_at = Some(now);
+                job.updated_at = now;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
 }
 
 #[cfg(test)]

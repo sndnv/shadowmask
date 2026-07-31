@@ -10,10 +10,10 @@ use crate::discovery::{ContinueWatchingItem, Hub, SearchKind, SearchResult};
 use crate::error::{
     AuthError, CatalogError, DiscoveryError, LibraryError, SessionError, UserError,
 };
-use crate::job::Job;
+use crate::job::{Job, JobId};
 use crate::library::{
-    DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryUpdate, NewLibrary,
-    ResolveCandidate, ResolveTarget, ScanState, UnmatchedFile, UnmatchedFileId,
+    DuplicateCandidate, DuplicateCandidateId, FetchInput, Library, LibraryId, LibraryUpdate,
+    NewLibrary, ResolveCandidate, ResolveTarget, ScanState, UnmatchedFile, UnmatchedFileId,
 };
 use crate::media::SubtitleFileId;
 use crate::metadata::{ExternalId, Genre, PersonId};
@@ -291,6 +291,12 @@ pub trait LibraryService {
         unmatched: &UnmatchedFileId,
         target: ResolveTarget,
     ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    fn create_fetch(
+        &self,
+        caller: &Principal,
+        library: &LibraryId,
+        input: FetchInput,
+    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
     fn dismiss_duplicate(
         &self,
         caller: &Principal,
@@ -346,6 +352,11 @@ pub trait LibraryService {
         &self,
         caller: &Principal,
     ) -> impl Future<Output = Result<Vec<Job>, LibraryError>> + Send;
+    fn cancel_job(
+        &self,
+        caller: &Principal,
+        id: &JobId,
+    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
 }
 
 pub trait UserService {

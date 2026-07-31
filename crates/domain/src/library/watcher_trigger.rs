@@ -41,7 +41,7 @@ fn require_roots(library: &Library) -> Result<(), WatchPlanError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::library::{LibraryId, LibraryKind};
+    use crate::library::{LibraryId, LibraryKind, LibraryOrigin};
     use jiff::Timestamp;
 
     fn library(watcher: WatcherStrategy, roots: &[&str], schedule: Option<&str>) -> Library {
@@ -49,6 +49,7 @@ mod tests {
             id: LibraryId("lib".into()),
             name: "Lib".into(),
             kind: LibraryKind::Movie,
+            origin: LibraryOrigin::Local,
             roots: roots.iter().map(|r| (*r).into()).collect(),
             watcher,
             scan_schedule: schedule.map(Into::into),

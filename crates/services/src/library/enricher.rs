@@ -901,7 +901,7 @@ mod tests {
     use super::*;
     use crate::mock::{MockCatalogRepo, MockJobStore, MockLibraryRepo};
     use domain::error::MetadataError;
-    use domain::library::{DiscoveredFile, LibraryId, WatcherStrategy};
+    use domain::library::{DiscoveredFile, LibraryId, LibraryOrigin, WatcherStrategy};
     use domain::media::ProbeResult;
     use domain::metadata::{
         ContentRating, CreditInfo, CreditRole, ExternalId, MetadataMatch, Rating, TitleMetadata,
@@ -964,6 +964,7 @@ mod tests {
         Library {
             id: LibraryId("lib".into()),
             name: "Lib".into(),
+            origin: LibraryOrigin::Local,
             kind,
             roots: vec!["/m".into()],
             watcher: WatcherStrategy::Manual,

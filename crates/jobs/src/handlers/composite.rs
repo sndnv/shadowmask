@@ -16,6 +16,7 @@ pub struct CompositeJobHandler<
     Translation,
     Upscale,
     Combine,
+    Fetch,
 > {
     scan: Scan,
     reindex: Reindex,
@@ -29,6 +30,7 @@ pub struct CompositeJobHandler<
     translation: Translation,
     upscale: Upscale,
     combine: Combine,
+    fetch: Fetch,
 }
 
 impl<
@@ -44,6 +46,7 @@ impl<
     Translation,
     Upscale,
     Combine,
+    Fetch,
 >
     CompositeJobHandler<
         Scan,
@@ -58,6 +61,7 @@ impl<
         Translation,
         Upscale,
         Combine,
+        Fetch,
     >
 {
     #[allow(clippy::too_many_arguments)]
@@ -74,6 +78,7 @@ impl<
         translation: Translation,
         upscale: Upscale,
         combine: Combine,
+        fetch: Fetch,
     ) -> Self {
         Self {
             scan,
@@ -88,6 +93,7 @@ impl<
             translation,
             upscale,
             combine,
+            fetch,
         }
     }
 }
@@ -105,6 +111,7 @@ impl<
     Translation,
     Upscale,
     Combine,
+    Fetch,
 > JobHandler
     for CompositeJobHandler<
         Scan,
@@ -119,6 +126,7 @@ impl<
         Translation,
         Upscale,
         Combine,
+        Fetch,
     >
 where
     Scan: JobHandler + Send + Sync,
@@ -133,6 +141,7 @@ where
     Translation: JobHandler + Send + Sync,
     Upscale: JobHandler + Send + Sync,
     Combine: JobHandler + Send + Sync,
+    Fetch: JobHandler + Send + Sync,
 {
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         match job.kind {
@@ -148,6 +157,7 @@ where
             JobKind::Translation => self.translation.handle(job).await,
             JobKind::Upscale => self.upscale.handle(job).await,
             JobKind::Combine => self.combine.handle(job).await,
+            JobKind::Fetch => self.fetch.handle(job).await,
             other => Err(JobError::Permanent(format!(
                 "no handler for job kind: {other:?}"
             ))),
@@ -219,6 +229,7 @@ mod tests {
         Recorder,
         Recorder,
         Recorder,
+        Recorder,
     > {
         CompositeJobHandler::new(
             Recorder::new("scan", Arc::clone(calls)),
@@ -233,6 +244,7 @@ mod tests {
             Recorder::new("translation", Arc::clone(calls)),
             Recorder::new("upscale", Arc::clone(calls)),
             Recorder::new("combine", Arc::clone(calls)),
+            Recorder::new("fetch", Arc::clone(calls)),
         )
     }
 
@@ -354,6 +366,16 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(*calls.lock().unwrap(), ["combine"]);
+    }
+
+    #[tokio::test]
+    async fn routes_fetch_to_fetch_handler() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        composite(&calls)
+            .handle(&job(JobKind::Fetch))
+            .await
+            .unwrap();
+        assert_eq!(*calls.lock().unwrap(), ["fetch"]);
     }
 
     #[tokio::test]

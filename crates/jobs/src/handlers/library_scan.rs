@@ -128,7 +128,9 @@ mod tests {
 
     use super::*;
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
-    use domain::library::{Library, LibraryKind, ScanReport, WalkedEntry, WatcherStrategy};
+    use domain::library::{
+        Library, LibraryKind, LibraryOrigin, ScanReport, WalkedEntry, WatcherStrategy,
+    };
     use services::library::NoopEnricher;
     use services::mock::{MockLibraryRepo, MockMediaProbe, MockSourceWalker};
 
@@ -147,6 +149,7 @@ mod tests {
         Library {
             id: LibraryId("lib".into()),
             name: "Lib".into(),
+            origin: LibraryOrigin::Local,
             kind: LibraryKind::Movie,
             roots: roots.iter().map(|r| (*r).into()).collect(),
             watcher: WatcherStrategy::Manual,

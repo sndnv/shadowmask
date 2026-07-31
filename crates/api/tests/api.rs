@@ -186,6 +186,7 @@ fn library(id: &str) -> Library {
     Library {
         id: LibraryId(id.into()),
         name: format!("Lib {id}"),
+        origin: LibraryOrigin::Local,
         kind: LibraryKind::Movie,
         roots: vec!["/media".into()],
         watcher: WatcherStrategy::Manual,
@@ -552,6 +553,11 @@ async fn library_routes() {
         let (status, _) = call(ctx.app(), Method::POST, uri, Some(ADMIN), Some(body)).await;
         assert_eq!(status, StatusCode::ACCEPTED, "POST {uri} as admin");
     }
+    let cancel_uri = "/api/v1/admin/jobs/j1/cancel";
+    let (status, _) = call(ctx.app(), Method::POST, cancel_uri, Some(USER), None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "POST {cancel_uri} as user");
+    let (status, _) = call(ctx.app(), Method::POST, cancel_uri, Some(ADMIN), None).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "POST {cancel_uri} as admin");
     let (status, _) = call(
         ctx.app(),
         Method::POST,
@@ -567,6 +573,35 @@ async fn library_routes() {
         "/api/v1/admin/versions/v1/subtitles/combine",
         Some(ADMIN),
         Some(json!({"primary_subtitle_id": "sf-en", "secondary_subtitle_id": "sf-en"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    // Content fetch is admin-only and validates tv season/episode.
+    let fetch_body = json!({"source_url": "https://x/v", "kind": "movie", "library_id": "lib1", "title": "The Matrix"});
+    let (status, _) = call(
+        ctx.app(),
+        Method::POST,
+        "/api/v1/admin/fetch",
+        Some(USER),
+        Some(fetch_body.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = call(
+        ctx.app(),
+        Method::POST,
+        "/api/v1/admin/fetch",
+        Some(ADMIN),
+        Some(fetch_body),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let (status, _) = call(
+        ctx.app(),
+        Method::POST,
+        "/api/v1/admin/fetch",
+        Some(ADMIN),
+        Some(json!({"source_url": "https://x/v", "kind": "tv", "library_id": "lib1", "title": "Show"})),
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);

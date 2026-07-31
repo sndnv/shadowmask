@@ -7,4 +7,4 @@ pub(crate) use args::{
     subtitle_media_playlist,
 };
 pub use encoder::VideoEncoder;
-pub use process::{ProcessSpawner, TokioProcessSpawner};
+pub use process::{CommandOutput, OutputStream, ProcessSpawner, TokioProcessSpawner};

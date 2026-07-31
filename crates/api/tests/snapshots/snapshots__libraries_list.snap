@@ -12,6 +12,7 @@ expression: value
         "tmdb"
       ],
       "name": "Lib lib1",
+      "origin": "local",
       "roots": [
         "/media"
       ],

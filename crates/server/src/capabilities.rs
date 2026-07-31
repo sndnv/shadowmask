@@ -8,6 +8,7 @@ pub struct CapabilityInputs {
     pub tmdb: bool,
     pub tls: bool,
     pub webhooks: bool,
+    pub content_fetch: bool,
     pub hardware_transcode_available: bool,
     pub hardware_transcode_enabled: bool,
 }
@@ -21,6 +22,7 @@ pub fn select_capabilities(ml: bool, inputs: CapabilityInputs) -> Vec<Capability
         Capability::new("tmdb", true, inputs.tmdb),
         Capability::new("tls", true, inputs.tls),
         Capability::new("webhooks", true, inputs.webhooks),
+        Capability::new("content_fetch", true, inputs.content_fetch),
         Capability::new(
             "hardware_transcode",
             inputs.hardware_transcode_available,
@@ -46,6 +48,7 @@ mod tests {
             tmdb: true,
             tls: true,
             webhooks: true,
+            content_fetch: true,
             hardware_transcode_available: true,
             hardware_transcode_enabled: true,
         }
@@ -58,7 +61,7 @@ mod tests {
     #[test]
     fn compiled_marks_ml_available_and_others_track_inputs() {
         let caps = select_capabilities(true, all_on());
-        assert_eq!(caps.len(), 8);
+        assert_eq!(caps.len(), 9);
         assert_eq!(
             find(&caps, "transcription"),
             &Capability::new("transcription", true, true)
@@ -80,6 +83,10 @@ mod tests {
         assert_eq!(
             find(&caps, "webhooks"),
             &Capability::new("webhooks", true, true)
+        );
+        assert_eq!(
+            find(&caps, "content_fetch"),
+            &Capability::new("content_fetch", true, true)
         );
         assert_eq!(
             find(&caps, "hardware_transcode"),
@@ -117,9 +124,14 @@ mod tests {
                 tmdb: false,
                 tls: false,
                 webhooks: false,
+                content_fetch: false,
                 hardware_transcode_available: false,
                 hardware_transcode_enabled: false,
             },
+        );
+        assert_eq!(
+            find(&caps, "content_fetch"),
+            &Capability::new("content_fetch", true, false)
         );
         assert_eq!(
             find(&caps, "transcription"),

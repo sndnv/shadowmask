@@ -11,60 +11,66 @@
     <nav id="nav"></nav>
     <p class="sm-crumbs">Account</p>
     <main id="main">
-      <h2>Profile</h2>
-      <dl id="profile"></dl>
-      <form id="profile-form">
-        <p><label>Preferred audio (comma separated) <input name="audio" /></label></p>
-        <p><label>Preferred subtitles (comma separated) <input name="subs" /></label></p>
-        <p><label>Concurrent stream limit <input name="limit" type="number" min="0" /></label></p>
-        <p><label>Bitrate cap (bps) <input name="bitrate" type="number" min="0" /></label></p>
-        <p><button type="submit">Save profile</button> <span id="profile-status"></span></p>
-      </form>
+      <div id="tab-library">
+        <h2 id="watchlist-heading">Watchlist</h2>
+        <div id="watchlist"></div>
 
-      <h2>Change password</h2>
-      <form id="password-form">
+        <h2 id="favorites-heading">Favorites</h2>
+        <div id="favorites"></div>
+
+        <h2 id="history-heading">History</h2>
+        <div id="history"></div>
+      </div>
+
+      <div id="tab-profile">
+        <h2>Profile</h2>
+        <dl id="profile"></dl>
+        <form id="profile-form">
+          <p><label>Preferred audio (comma separated) <input name="audio" /></label></p>
+          <p><label>Preferred subtitles (comma separated) <input name="subs" /></label></p>
+          <p><label>Concurrent stream limit <input name="limit" type="number" min="0" /></label></p>
+          <p><label>Bitrate cap (bps) <input name="bitrate" type="number" min="0" /></label></p>
+          <p><button type="submit">Save profile</button> <span id="profile-status"></span></p>
+        </form>
+
+        <h2>Change password</h2>
+        <form id="password-form">
+          <p>
+            <label>Current password
+              <input name="current" type="password" autocomplete="current-password" />
+            </label>
+          </p>
+          <p>
+            <label>New password
+              <input name="new" type="password" autocomplete="new-password" />
+            </label>
+          </p>
+          <p><button type="submit">Change password</button> <span id="password-status"></span></p>
+        </form>
+
+        <h2>Sessions</h2>
         <p>
-          <label>Current password
-            <input name="current" type="password" autocomplete="current-password" />
-          </label>
+          <button type="button" id="logout-all">Sign out of all devices</button>
+          <span id="sessions-status"></span>
         </p>
-        <p>
-          <label>New password
-            <input name="new" type="password" autocomplete="new-password" />
-          </label>
-        </p>
-        <p><button type="submit">Change password</button> <span id="password-status"></span></p>
-      </form>
+      </div>
 
-      <h2 id="watchlist-heading">Watchlist</h2>
-      <div id="watchlist"></div>
+      <div id="tab-devices">
+        <h2 id="devices-heading">Devices</h2>
+        <div id="devices"></div>
 
-      <h2 id="favorites-heading">Favorites</h2>
-      <div id="favorites"></div>
+        <h2>Provision a device</h2>
+        <form id="link-form">
+          <p>Create a link code, then enter it on the new device to sign it in to your account.</p>
+          <p><label>TTL seconds (optional) <input name="ttl" type="number" min="1" /></label></p>
+          <p><button type="submit">Create code</button> <span id="link-output"></span></p>
+        </form>
+        <h2 id="link-codes-heading">Pending codes</h2>
+        <div id="link-codes"></div>
 
-      <h2 id="history-heading">History</h2>
-      <div id="history"></div>
-
-      <h2 id="devices-heading">Devices</h2>
-      <div id="devices"></div>
-
-      <h2>Provision a device</h2>
-      <form id="link-form">
-        <p>Create a link code, then enter it on the new device to sign it in to your account.</p>
-        <p><label>TTL seconds (optional) <input name="ttl" type="number" min="1" /></label></p>
-        <p><button type="submit">Create code</button> <span id="link-output"></span></p>
-      </form>
-      <h2 id="link-codes-heading">Pending codes</h2>
-      <div id="link-codes"></div>
-
-      <h2 id="tokens-heading">API tokens</h2>
-      <div id="tokens"></div>
-
-      <h2>Sessions</h2>
-      <p>
-        <button type="button" id="logout-all">Sign out of all devices</button>
-        <span id="sessions-status"></span>
-      </p>
+        <h2 id="tokens-heading">API tokens</h2>
+        <div id="tokens"></div>
+      </div>
     </main>
     <script src="../app.js"></script>
     <script>
@@ -72,7 +78,18 @@
       const eu = encodeURIComponent;
       let uid = null;
 
+      buildTabs();
       if (sm.requireAuth()) init();
+
+      function buildTabs() {
+        document.getElementById("main").appendChild(
+          sm.tabs([
+            { label: "Profile", panel: document.getElementById("tab-profile") },
+            { label: "Library", panel: document.getElementById("tab-library") },
+            { label: "Devices & Access", panel: document.getElementById("tab-devices") },
+          ]),
+        );
+      }
 
       async function init() {
         try {

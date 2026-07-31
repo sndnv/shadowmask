@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Fetch content</title>
+  </head>
+  <body>
+    <h1>Fetch content</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs"><a href="index.html">Admin</a> / Fetch content</p>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      let fields = null;
+      let formStatus = null;
+      let tvOnly = null;
+
+      if (sm.requireAuth()) guard();
+
+      async function guard() {
+        const main = document.getElementById("main");
+        try {
+          const me = await sm.self();
+          if (me.role !== "admin") {
+            main.textContent = "Not Authorized.";
+            return;
+          }
+          main.textContent = "";
+          main.appendChild(
+            sm.el("p", {
+              text:
+                "Pull a single video from an external site into an external library, " +
+                "then run the usual enrichment. Requires content fetch to be enabled.",
+            }),
+          );
+          renderForm(main);
+          await loadLibraries();
+        } catch (err) {
+          main.textContent = "Could not load.";
+        }
+      }
+
+      function renderForm(main) {
+        fields = {
+          url: sm.el("input", { autocomplete: "off", size: "60" }),
+          library: sm.el("select", null, []),
+          kind: sm.el("select", null, [
+            sm.el("option", { value: "movie" }, "movie"),
+            sm.el("option", { value: "tv" }, "tv"),
+          ]),
+          title: sm.el("input", { autocomplete: "off" }),
+          imdb: sm.el("input", { autocomplete: "off", placeholder: "tt1234567" }),
+          season: sm.el("input", { type: "number", min: "0" }),
+          episode: sm.el("input", { type: "number", min: "0" }),
+        };
+        formStatus = sm.el("span", null);
+        tvOnly = sm.el("div", null, [
+          sm.el("label", null, ["Season ", fields.season]),
+          " ",
+          sm.el("label", null, ["Episode ", fields.episode]),
+        ]);
+        fields.kind.addEventListener("change", updateKind);
+        const form = sm.el("form", null, [
+          sm.el("label", null, ["Source URL ", fields.url]),
+          sm.el("br"),
+          sm.el("label", null, ["Target library ", fields.library]),
+          " ",
+          sm.el("label", null, ["Type ", fields.kind]),
+          sm.el("br"),
+          sm.el("label", null, ["Title ", fields.title]),
+          " ",
+          sm.el("label", null, ["IMDb id (optional) ", fields.imdb]),
+          sm.el("br"),
+          tvOnly,
+          sm.el("button", { type: "submit" }, "Fetch"),
+          " ",
+          formStatus,
+        ]);
+        form.addEventListener("submit", onSubmit);
+        main.appendChild(form);
+        updateKind();
+      }
+
+      function updateKind() {
+        tvOnly.style.display = fields.kind.value === "tv" ? "block" : "none";
+      }
+
+      async function loadLibraries() {
+        try {
+          const libraries = await sm.json("/api/v1/libraries");
+          const external = libraries.filter((l) => l.origin === "external");
+          fields.library.textContent = "";
+          if (!external.length) {
+            fields.library.appendChild(sm.el("option", { value: "" }, "no external libraries"));
+            formStatus.textContent =
+              "Create an external library first (Libraries -> origin external).";
+            return;
+          }
+          external.forEach((l) => {
+            fields.library.appendChild(sm.el("option", { value: l.id }, l.name + " (" + l.kind + ")"));
+          });
+        } catch (err) {
+          fields.library.appendChild(sm.el("option", { value: "" }, "could not load"));
+        }
+      }
+
+      function numberOrNull(value) {
+        const n = parseInt(value, 10);
+        return Number.isFinite(n) ? n : null;
+      }
+
+      async function onSubmit(e) {
+        e.preventDefault();
+        const isTv = fields.kind.value === "tv";
+        const body = {
+          source_url: fields.url.value.trim(),
+          library_id: fields.library.value,
+          kind: fields.kind.value,
+          title: fields.title.value.trim(),
+          imdb_id: fields.imdb.value.trim() ? fields.imdb.value.trim() : null,
+          season: isTv ? numberOrNull(fields.season.value) : null,
+          episode: isTv ? numberOrNull(fields.episode.value) : null,
+        };
+        if (!body.source_url || !body.library_id || !body.title) {
+          formStatus.textContent = "URL, library and title are required.";
+          return;
+        }
+        if (isTv && (body.season === null || body.episode === null)) {
+          formStatus.textContent = "Season and episode are required for tv.";
+          return;
+        }
+        formStatus.textContent = "Queuing...";
+        try {
+          await sm.json("/api/v1/admin/fetch", { method: "POST", body: JSON.stringify(body) });
+          formStatus.textContent = "Queued. Track it under Jobs.";
+        } catch (err) {
+          formStatus.textContent = "Fetch failed (is content fetch enabled?).";
+        }
+      }
+    </script>
+  </body>
+</html>

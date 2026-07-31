@@ -3,8 +3,9 @@ use std::path::Path;
 use domain::common::{Page, PageRequest};
 use domain::error::RepositoryError;
 use domain::library::{
-    DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryKind, MatchCandidate,
-    ResolutionStatus, ScanState, ScanStatus, UnmatchedFile, UnmatchedFileId, WatcherStrategy,
+    DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryKind, LibraryOrigin,
+    MatchCandidate, ResolutionStatus, ScanState, ScanStatus, UnmatchedFile, UnmatchedFileId,
+    WatcherStrategy,
 };
 use domain::repository::LibraryRepository;
 use sqlx::SqlitePool;
@@ -42,12 +43,13 @@ impl SqliteLibraryRepo {
         let mut tx = self.pool.begin().await.map_err(backend)?;
         let id = library.id.0.as_str();
         sqlx::query(
-            "INSERT OR REPLACE INTO libraries (id, name, kind, watcher, scan_schedule, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM libraries WHERE id = ?), ?), ?)",
+            "INSERT OR REPLACE INTO libraries (id, name, kind, origin, watcher, scan_schedule, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM libraries WHERE id = ?), ?), ?)",
         )
         .bind(id)
         .bind(library.name.as_str())
         .bind(kind_to_str(library.kind))
+        .bind(origin_to_str(library.origin))
         .bind(watcher_to_str(library.watcher))
         .bind(library.scan_schedule.as_deref())
         .bind(id)
@@ -124,6 +126,7 @@ impl SqliteLibraryRepo {
         Ok(Library {
             name: column(row, "name")?,
             kind: kind_from_str(&column::<String>(row, "kind")?)?,
+            origin: origin_from_str(&column::<String>(row, "origin")?)?,
             roots,
             watcher: watcher_from_str(&column::<String>(row, "watcher")?)?,
             scan_schedule: column(row, "scan_schedule")?,
@@ -170,6 +173,21 @@ fn kind_from_str(value: &str) -> Result<LibraryKind, RepositoryError> {
         "movie" => Ok(LibraryKind::Movie),
         "tv" => Ok(LibraryKind::Tv),
         other => Err(backend(format!("unknown library kind: {other}"))),
+    }
+}
+
+fn origin_to_str(origin: LibraryOrigin) -> &'static str {
+    match origin {
+        LibraryOrigin::Local => "local",
+        LibraryOrigin::External => "external",
+    }
+}
+
+fn origin_from_str(value: &str) -> Result<LibraryOrigin, RepositoryError> {
+    match value {
+        "local" => Ok(LibraryOrigin::Local),
+        "external" => Ok(LibraryOrigin::External),
+        other => Err(backend(format!("unknown library origin: {other}"))),
     }
 }
 
@@ -579,6 +597,9 @@ mod tests {
         for kind in [LibraryKind::Movie, LibraryKind::Tv] {
             assert_eq!(kind_from_str(kind_to_str(kind)).unwrap(), kind);
         }
+        for origin in [LibraryOrigin::Local, LibraryOrigin::External] {
+            assert_eq!(origin_from_str(origin_to_str(origin)).unwrap(), origin);
+        }
         for watcher in [
             WatcherStrategy::Local,
             WatcherStrategy::Polling,
@@ -599,6 +620,7 @@ mod tests {
             );
         }
         assert!(kind_from_str("nope").is_err());
+        assert!(origin_from_str("nope").is_err());
         assert!(watcher_from_str("nope").is_err());
         assert!(scan_status_from_str("nope").is_err());
     }
@@ -623,6 +645,7 @@ mod tests {
             id: LibraryId("lib1".into()),
             name: "Films".into(),
             kind: LibraryKind::Tv,
+            origin: LibraryOrigin::External,
             roots: vec!["/a".into(), "/b".into()],
             watcher: WatcherStrategy::Scheduled,
             scan_schedule: Some("0 0 * * *".into()),
@@ -640,6 +663,7 @@ mod tests {
         );
         assert_eq!(loaded.scan_schedule, Some("0 0 * * *".to_owned()));
         assert_eq!(loaded.kind, LibraryKind::Tv);
+        assert_eq!(loaded.origin, LibraryOrigin::External);
         assert_eq!(loaded.watcher, WatcherStrategy::Scheduled);
     }
 
