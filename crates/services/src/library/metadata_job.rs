@@ -1,11 +1,17 @@
 use domain::catalog::{MovieId, SeriesId, TitleRef};
-use domain::metadata::ExternalId;
+use domain::metadata::{ExternalId, PersonId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MetadataJobPayload {
-    pub title: TitleRef,
-    pub external_id: Option<ExternalId>,
+pub enum MetadataJobPayload {
+    Title {
+        title: TitleRef,
+        external_id: Option<ExternalId>,
+    },
+    People {
+        ids: Vec<PersonId>,
+        force: bool,
+    },
 }
 
 impl MetadataJobPayload {
@@ -19,9 +25,16 @@ impl MetadataJobPayload {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Wire {
-    title: TitleWire,
-    external_id: Option<ExternalIdWire>,
+#[serde(tag = "target", rename_all = "snake_case")]
+enum Wire {
+    Title {
+        title: TitleWire,
+        external_id: Option<ExternalIdWire>,
+    },
+    People {
+        ids: Vec<String>,
+        force: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -39,32 +52,48 @@ struct ExternalIdWire {
 
 impl From<&MetadataJobPayload> for Wire {
     fn from(payload: &MetadataJobPayload) -> Self {
-        let title = match &payload.title {
-            TitleRef::Movie(id) => TitleWire::Movie { id: id.0.clone() },
-            TitleRef::Series(id) => TitleWire::Series { id: id.0.clone() },
-        };
-        Wire {
-            title,
-            external_id: payload.external_id.as_ref().map(|id| ExternalIdWire {
-                source: id.source.clone(),
-                value: id.value.clone(),
-            }),
+        match payload {
+            MetadataJobPayload::Title { title, external_id } => {
+                let title = match title {
+                    TitleRef::Movie(id) => TitleWire::Movie { id: id.0.clone() },
+                    TitleRef::Series(id) => TitleWire::Series { id: id.0.clone() },
+                };
+                Wire::Title {
+                    title,
+                    external_id: external_id.as_ref().map(|id| ExternalIdWire {
+                        source: id.source.clone(),
+                        value: id.value.clone(),
+                    }),
+                }
+            }
+            MetadataJobPayload::People { ids, force } => Wire::People {
+                ids: ids.iter().map(|id| id.0.clone()).collect(),
+                force: *force,
+            },
         }
     }
 }
 
 impl From<Wire> for MetadataJobPayload {
     fn from(wire: Wire) -> Self {
-        let title = match wire.title {
-            TitleWire::Movie { id } => TitleRef::Movie(MovieId(id)),
-            TitleWire::Series { id } => TitleRef::Series(SeriesId(id)),
-        };
-        MetadataJobPayload {
-            title,
-            external_id: wire.external_id.map(|id| ExternalId {
-                source: id.source,
-                value: id.value,
-            }),
+        match wire {
+            Wire::Title { title, external_id } => {
+                let title = match title {
+                    TitleWire::Movie { id } => TitleRef::Movie(MovieId(id)),
+                    TitleWire::Series { id } => TitleRef::Series(SeriesId(id)),
+                };
+                MetadataJobPayload::Title {
+                    title,
+                    external_id: external_id.map(|id| ExternalId {
+                        source: id.source,
+                        value: id.value,
+                    }),
+                }
+            }
+            Wire::People { ids, force } => MetadataJobPayload::People {
+                ids: ids.into_iter().map(PersonId).collect(),
+                force,
+            },
         }
     }
 }
@@ -80,16 +109,28 @@ mod tests {
 
     #[test]
     fn round_trips_movie_and_series_with_and_without_external_id() {
-        round_trip(MetadataJobPayload {
+        round_trip(MetadataJobPayload::Title {
             title: TitleRef::Movie(MovieId("m1".into())),
             external_id: Some(ExternalId {
                 source: "tmdb".into(),
                 value: "movie/603".into(),
             }),
         });
-        round_trip(MetadataJobPayload {
+        round_trip(MetadataJobPayload::Title {
             title: TitleRef::Series(SeriesId("s1".into())),
             external_id: None,
+        });
+    }
+
+    #[test]
+    fn round_trips_people() {
+        round_trip(MetadataJobPayload::People {
+            ids: vec![PersonId("p1".into()), PersonId("p2".into())],
+            force: true,
+        });
+        round_trip(MetadataJobPayload::People {
+            ids: Vec::new(),
+            force: false,
         });
     }
 

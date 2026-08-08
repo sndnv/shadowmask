@@ -1,15 +1,15 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use domain::catalog::{
-    Collection, CollectionDetail, CollectionId, CollectionUpdate, Episode, EpisodeCard, EpisodeId,
-    FilmographyEntry, Movie, MovieDetail, MovieId, NewCollection, PersonProfile, Season, SeasonId,
-    Series, SeriesDetail, SeriesId, TitleCard, TitleId, TitleKind, TitleListQuery, TitleRef,
-    Version, VersionDetail, VersionId, sort_titles,
+    ArtworkRef, Collection, CollectionDetail, CollectionId, CollectionUpdate, Episode, EpisodeCard,
+    EpisodeId, FilmographyEntry, Movie, MovieDetail, MovieId, NewCollection, PersonProfile, Season,
+    SeasonId, Series, SeriesDetail, SeriesId, TitleCard, TitleId, TitleListFilter, TitleListQuery,
+    TitleRef, Version, VersionDetail, VersionId,
 };
 use domain::common::{Page, PageRequest};
 use domain::error::CatalogError;
 use domain::library::LibraryId;
-use domain::metadata::{ContentRating, Genre, GenreId, PersonId};
+use domain::metadata::{ArtworkKind, ContentRating, Genre, PersonId};
 use domain::repository::{CatalogRepository, UserRepository};
 use domain::service::CatalogService;
 use domain::user::Principal;
@@ -19,10 +19,15 @@ use uuid::Uuid;
 use crate::acl;
 use crate::page::paginate;
 
-const ALL: PageRequest = PageRequest {
-    offset: 0,
-    limit: u32::MAX,
-};
+const MOSAIC_TILES: usize = 4;
+
+fn collection_poster(movie: &Movie) -> Option<ArtworkRef> {
+    movie
+        .artwork
+        .iter()
+        .find(|art| art.kind == ArtworkKind::Poster)
+        .cloned()
+}
 
 #[derive(Clone)]
 pub struct CatalogServiceImpl<C, U> {
@@ -59,57 +64,56 @@ where
             .collect())
     }
 
-    async fn list_movies(
-        &self,
-        genre: Option<&GenreId>,
-        page: PageRequest,
-    ) -> Result<Page<Movie>, CatalogError> {
-        Ok(match genre {
-            Some(genre) => self.catalog.list_movies_by_genre(genre, page).await?,
-            None => self.catalog.list_movies(page).await?,
-        })
-    }
-
-    async fn list_series(
-        &self,
-        genre: Option<&GenreId>,
-        page: PageRequest,
-    ) -> Result<Page<Series>, CatalogError> {
-        Ok(match genre {
-            Some(genre) => self.catalog.list_series_by_genre(genre, page).await?,
-            None => self.catalog.list_series(page).await?,
-        })
-    }
-
-    async fn allowed_ids(
+    async fn library_scope(
         &self,
         caller: &Principal,
-        kind: TitleKind,
         library: Option<&LibraryId>,
-    ) -> Result<Option<HashSet<String>>, CatalogError> {
+    ) -> Result<Option<Vec<LibraryId>>, CatalogError> {
         if acl::is_admin(caller) {
-            return match library {
-                Some(lib) => Ok(Some(
-                    self.catalog
-                        .titles_in_library(kind, lib)
-                        .await?
-                        .into_iter()
-                        .collect(),
-                )),
-                None => Ok(None),
-            };
+            return Ok(library.map(|lib| vec![lib.clone()]));
         }
         let access = self.access_set(caller).await?;
-        let libraries: Vec<LibraryId> = match library {
+        let libraries = match library {
             Some(lib) if acl::can_access_library(&access, lib) => vec![lib.clone()],
-            Some(_) => return Ok(Some(HashSet::new())),
+            Some(_) => Vec::new(),
             None => access,
         };
-        let mut ids = HashSet::new();
-        for lib in &libraries {
-            ids.extend(self.catalog.titles_in_library(kind, lib).await?);
+        Ok(Some(libraries))
+    }
+
+    async fn collection_mosaic_art(
+        &self,
+        movies: &[MovieId],
+    ) -> Result<Vec<ArtworkRef>, CatalogError> {
+        let mut posters = Vec::new();
+        for movie_id in movies.iter().take(MOSAIC_TILES) {
+            let Some(movie) = self.catalog.get_movie(movie_id).await? else {
+                continue;
+            };
+            if let Some(poster) = collection_poster(&movie) {
+                posters.push(poster);
+            }
         }
-        Ok(Some(ids))
+        Ok(posters)
+    }
+
+    async fn build_filter(
+        &self,
+        caller: &Principal,
+        query: &TitleListQuery,
+    ) -> Result<TitleListFilter, CatalogError> {
+        let blocked_ratings = if acl::is_admin(caller) {
+            Vec::new()
+        } else {
+            ContentRating::blocked_by(self.rating_cap(caller).await?.as_ref())
+        };
+        Ok(TitleListFilter {
+            genres: query.genres.clone(),
+            libraries: self.library_scope(caller, query.library.as_ref()).await?,
+            blocked_ratings,
+            sort: query.sort,
+            order: query.order,
+        })
     }
 }
 
@@ -123,7 +127,13 @@ where
         _caller: &Principal,
         page: PageRequest,
     ) -> Result<Page<Collection>, CatalogError> {
-        Ok(self.catalog.list_collections(page).await?)
+        let mut page = self.catalog.list_collections(page).await?;
+        for collection in page.items.iter_mut() {
+            if collection.artwork.is_empty() {
+                collection.artwork = self.collection_mosaic_art(&collection.movies).await?;
+            }
+        }
+        Ok(page)
     }
 
     async fn collection(
@@ -131,7 +141,7 @@ where
         _caller: &Principal,
         id: &CollectionId,
     ) -> Result<CollectionDetail, CatalogError> {
-        let collection = self
+        let mut collection = self
             .catalog
             .get_collection(id)
             .await?
@@ -141,6 +151,13 @@ where
             if let Some(movie) = self.catalog.get_movie(movie_id).await? {
                 movies.push(movie);
             }
+        }
+        if collection.artwork.is_empty() {
+            collection.artwork = movies
+                .iter()
+                .take(MOSAIC_TILES)
+                .filter_map(collection_poster)
+                .collect();
         }
         Ok(CollectionDetail { collection, movies })
     }
@@ -207,27 +224,8 @@ where
         query: &TitleListQuery,
         page: PageRequest,
     ) -> Result<Page<Movie>, CatalogError> {
-        let admin = acl::is_admin(caller);
-        let allowed = self
-            .allowed_ids(caller, TitleKind::Movie, query.library.as_ref())
-            .await?;
-        let cap = if admin {
-            None
-        } else {
-            self.rating_cap(caller).await?
-        };
-        let mut items: Vec<Movie> = self
-            .list_movies(query.genre.as_ref(), ALL)
-            .await?
-            .items
-            .into_iter()
-            .filter(|movie| {
-                admin || acl::rating_permits(cap.as_ref(), movie.content_rating.as_ref())
-            })
-            .filter(|movie| allowed.as_ref().is_none_or(|ids| ids.contains(&movie.id.0)))
-            .collect();
-        sort_titles(&mut items, query.sort, query.order);
-        Ok(paginate(&items, page))
+        let filter = self.build_filter(caller, query).await?;
+        Ok(self.catalog.list_movies_filtered(&filter, page).await?)
     }
 
     async fn movie(&self, caller: &Principal, id: &MovieId) -> Result<MovieDetail, CatalogError> {
@@ -251,31 +249,8 @@ where
         query: &TitleListQuery,
         page: PageRequest,
     ) -> Result<Page<Series>, CatalogError> {
-        let admin = acl::is_admin(caller);
-        let allowed = self
-            .allowed_ids(caller, TitleKind::Series, query.library.as_ref())
-            .await?;
-        let cap = if admin {
-            None
-        } else {
-            self.rating_cap(caller).await?
-        };
-        let mut items: Vec<Series> = self
-            .list_series(query.genre.as_ref(), ALL)
-            .await?
-            .items
-            .into_iter()
-            .filter(|series| {
-                admin || acl::rating_permits(cap.as_ref(), series.content_rating.as_ref())
-            })
-            .filter(|series| {
-                allowed
-                    .as_ref()
-                    .is_none_or(|ids| ids.contains(&series.id.0))
-            })
-            .collect();
-        sort_titles(&mut items, query.sort, query.order);
-        Ok(paginate(&items, page))
+        let filter = self.build_filter(caller, query).await?;
+        Ok(self.catalog.list_series_filtered(&filter, page).await?)
     }
 
     async fn series_detail(
@@ -339,7 +314,7 @@ where
         let access = self.access_set(caller).await?;
         let filtered: Vec<Version> = self
             .catalog
-            .list_versions(title, ALL)
+            .list_versions(title, PageRequest::ALL)
             .await?
             .items
             .into_iter()
@@ -517,8 +492,9 @@ where
 mod tests {
     use super::*;
     use crate::mock::{MockCatalogRepo, MockUserRepo};
-    use domain::catalog::{SortOrder, TitleSort};
+    use domain::catalog::{ArtworkId, ArtworkOwner, SortOrder, TitleSort};
     use domain::common::Quality;
+    use domain::metadata::GenreId;
     use domain::metadata::{Credit, CreditRole, Person, TitleEnrichment};
     use domain::user::{Role, User, UserId};
     use jiff::Timestamp;
@@ -571,9 +547,9 @@ mod tests {
         TitleListQuery::default()
     }
 
-    fn genre_query(genre: &GenreId) -> TitleListQuery {
+    fn genre_query(genre: &str) -> TitleListQuery {
         TitleListQuery {
-            genre: Some(genre.clone()),
+            genres: vec![genre.to_owned()],
             ..TitleListQuery::default()
         }
     }
@@ -741,6 +717,7 @@ mod tests {
             .upsert_person(Person {
                 id: PersonId("p1".into()),
                 name: "Ada".into(),
+                ..Person::default()
             })
             .await
             .unwrap();
@@ -748,6 +725,7 @@ mod tests {
             .upsert_person(Person {
                 id: PersonId("p2".into()),
                 name: "Bob".into(),
+                ..Person::default()
             })
             .await
             .unwrap();
@@ -1138,6 +1116,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn collection_without_own_art_falls_back_to_member_posters() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_movie(movie("m1", None));
+        catalog.add_movie(movie("m2", None));
+        for id in ["m1", "m2"] {
+            catalog
+                .set_artwork(
+                    &ArtworkOwner::Movie(MovieId(id.into())),
+                    &[ArtworkRef {
+                        id: ArtworkId(format!("{id}-poster")),
+                        kind: ArtworkKind::Poster,
+                        widths: vec![180],
+                    }],
+                )
+                .await
+                .unwrap();
+        }
+        catalog
+            .upsert_collection(Collection {
+                id: CollectionId("c1".into()),
+                name: "Saga".into(),
+                overview: None,
+                movies: vec![MovieId("m1".into()), MovieId("m2".into())],
+                added_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
+                artwork: Vec::new(),
+            })
+            .await
+            .unwrap();
+        let svc = CatalogServiceImpl::new(catalog, MockUserRepo::new());
+
+        let listed = svc.collections(&admin(), page()).await.unwrap();
+        assert_eq!(listed.items[0].artwork.len(), 2);
+        assert!(
+            listed.items[0]
+                .artwork
+                .iter()
+                .all(|art| art.kind == ArtworkKind::Poster)
+        );
+
+        let detail = svc
+            .collection(&admin(), &CollectionId("c1".into()))
+            .await
+            .unwrap();
+        assert_eq!(detail.collection.artwork.len(), 2);
+    }
+
+    #[tokio::test]
     async fn title_cards_resolves_skips_missing_and_rating_gates() {
         let svc = seeded().await;
         let ids = vec![
@@ -1279,9 +1305,9 @@ mod tests {
         );
 
         // Genre filter: admin sees both action movies; the member loses the R one.
-        let action = GenreId("g-action".into());
+        let action = "Action";
         let admin_action = svc
-            .movies(&admin(), &genre_query(&action), page())
+            .movies(&admin(), &genre_query(action), page())
             .await
             .unwrap();
         assert_eq!(
@@ -1293,7 +1319,7 @@ mod tests {
             ["m1", "m2"]
         );
         let member_action = svc
-            .movies(&member(), &genre_query(&action), page())
+            .movies(&member(), &genre_query(action), page())
             .await
             .unwrap();
         assert_eq!(
@@ -1307,7 +1333,7 @@ mod tests {
 
         // Genre filter on series.
         let series_action = svc
-            .series(&admin(), &genre_query(&action), page())
+            .series(&admin(), &genre_query(action), page())
             .await
             .unwrap();
         assert_eq!(

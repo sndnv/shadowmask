@@ -8,7 +8,7 @@ use crate::catalog::{
 use crate::common::{Page, PageRequest};
 use crate::discovery::{ContinueWatchingItem, Hub, SearchKind, SearchResult};
 use crate::error::{
-    AuthError, CatalogError, DiscoveryError, LibraryError, SessionError, UserError,
+    AuthError, CatalogError, DiscoveryError, JobServiceError, LibraryError, SessionError, UserError,
 };
 use crate::job::{Job, JobId};
 use crate::library::{
@@ -22,7 +22,7 @@ use crate::playback::{
 };
 use crate::session::{
     HeartbeatAck, NowPlaying, PlaybackSession, PlaybackState, Renegotiated, SessionId,
-    SessionStarted, SessionUpdate, StartSessionRequest,
+    SessionStartInput, SessionStarted, SessionUpdate,
 };
 use crate::user::{
     ApiToken, ApiTokenId, Device, DeviceId, DeviceRegistration, IssuedToken, LibraryAccess,
@@ -196,7 +196,7 @@ pub trait SessionService {
     fn start(
         &self,
         caller: &Principal,
-        request: StartSessionRequest,
+        request: SessionStartInput,
     ) -> impl Future<Output = Result<SessionStarted, SessionError>> + Send;
     fn heartbeat(
         &self,
@@ -315,6 +315,11 @@ pub trait LibraryService {
         title: TitleRef,
         external_id: Option<ExternalId>,
     ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    fn refresh_person(
+        &self,
+        caller: &Principal,
+        id: &PersonId,
+    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
     fn relink_version(
         &self,
         caller: &Principal,
@@ -345,18 +350,26 @@ pub trait LibraryService {
         &self,
         caller: &Principal,
         version: &VersionId,
-        primary: &SubtitleFileId,
-        secondary: &SubtitleFileId,
+        top: &SubtitleFileId,
+        bottom: &SubtitleFileId,
     ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+}
+
+pub trait JobService {
     fn jobs(
         &self,
         caller: &Principal,
-    ) -> impl Future<Output = Result<Vec<Job>, LibraryError>> + Send;
+    ) -> impl Future<Output = Result<Vec<Job>, JobServiceError>> + Send;
+    fn job(
+        &self,
+        caller: &Principal,
+        id: &JobId,
+    ) -> impl Future<Output = Result<Option<Job>, JobServiceError>> + Send;
     fn cancel_job(
         &self,
         caller: &Principal,
         id: &JobId,
-    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    ) -> impl Future<Output = Result<(), JobServiceError>> + Send;
 }
 
 pub trait UserService {

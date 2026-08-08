@@ -1,7 +1,7 @@
 use domain::catalog::{
     ArtworkId, ArtworkOwner, CollectionId, EpisodeId, MovieId, SeasonId, SeriesId,
 };
-use domain::metadata::ArtworkKind;
+use domain::metadata::{ArtworkKind, PersonId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +47,7 @@ enum WireOwnerKind {
     Season,
     Episode,
     Collection,
+    Person,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -92,6 +93,7 @@ impl From<&ArtworkOwner> for WireOwner {
             ArtworkOwner::Season(id) => (WireOwnerKind::Season, id.0.clone()),
             ArtworkOwner::Episode(id) => (WireOwnerKind::Episode, id.0.clone()),
             ArtworkOwner::Collection(id) => (WireOwnerKind::Collection, id.0.clone()),
+            ArtworkOwner::Person(id) => (WireOwnerKind::Person, id.0.clone()),
         };
         WireOwner { kind, id }
     }
@@ -105,6 +107,7 @@ impl From<WireOwner> for ArtworkOwner {
             WireOwnerKind::Season => ArtworkOwner::Season(SeasonId(owner.id)),
             WireOwnerKind::Episode => ArtworkOwner::Episode(EpisodeId(owner.id)),
             WireOwnerKind::Collection => ArtworkOwner::Collection(CollectionId(owner.id)),
+            WireOwnerKind::Person => ArtworkOwner::Person(PersonId(owner.id)),
         }
     }
 }
@@ -173,6 +176,7 @@ mod tests {
             ArtworkOwner::Season(SeasonId("se1".into())),
             ArtworkOwner::Episode(EpisodeId("e1".into())),
             ArtworkOwner::Collection(CollectionId("c1".into())),
+            ArtworkOwner::Person(PersonId("p1".into())),
         ];
         for owner in owners {
             let payload = ArtworkJobPayload {

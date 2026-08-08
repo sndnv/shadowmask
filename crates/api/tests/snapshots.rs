@@ -17,6 +17,7 @@ fn build_app(generator: &Generator) -> Router {
         generator.user.clone(),
         generator.user_library.clone(),
         generator.discovery.clone(),
+        generator.job.clone(),
     ))
 }
 

@@ -104,6 +104,7 @@ mod tests {
             burn_subtitle_path: None,
             soft_subtitle: None,
             downmix_stereo: false,
+            source_hdr: None,
         }
     }
 

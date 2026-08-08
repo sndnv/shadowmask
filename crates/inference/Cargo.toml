@@ -8,12 +8,11 @@ license.workspace = true
 
 [dependencies]
 domain.workspace = true
-media.workspace = true
 subtp = "0.2"
 tokio = { workspace = true, features = ["fs", "rt"] }
 tracing.workspace = true
 uuid.workspace = true
-ct2rs = { version = "0.9", optional = true, features = ["whisper"] }
+ct2rs = { version = "0.10", optional = true, features = ["whisper"] }
 
 [features]
 enrichment = ["dep:ct2rs"]

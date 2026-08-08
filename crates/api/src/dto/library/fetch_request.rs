@@ -11,7 +11,7 @@ pub struct FetchRequest {
     pub library_id: String,
     pub title: String,
     #[serde(default)]
-    pub imdb_id: Option<String>,
+    pub external_id: Option<String>,
     #[serde(default)]
     pub season: Option<u16>,
     #[serde(default)]
@@ -42,7 +42,7 @@ impl FetchRequest {
             source_url: self.source_url,
             kind: self.kind.into(),
             title: self.title,
-            imdb_id: self.imdb_id,
+            external_id: self.external_id,
             season: self.season,
             episode: self.episode,
         }
@@ -59,7 +59,7 @@ mod tests {
             kind: LibraryKindDto::Movie,
             library_id: "ext".into(),
             title: "The Matrix".into(),
-            imdb_id: None,
+            external_id: None,
             season: None,
             episode: None,
         }
@@ -72,6 +72,14 @@ mod tests {
         let input = req.into_input();
         assert_eq!(input.title, "The Matrix");
         assert!(matches!(input.kind, domain::library::LibraryKind::Movie));
+    }
+
+    #[test]
+    fn external_id_passes_through() {
+        let mut req = base();
+        req.external_id = Some("tt0133093".into());
+        let input = req.into_input();
+        assert_eq!(input.external_id.as_deref(), Some("tt0133093"));
     }
 
     #[test]

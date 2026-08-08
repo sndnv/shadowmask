@@ -44,18 +44,22 @@ impl ArtworkPipeline for ImageArtworkPipeline {
             .bytes()
             .await
             .map_err(|e| ArtworkError::Download(e.to_string()))?;
-        let image =
-            image::load_from_memory(&bytes).map_err(|e| ArtworkError::Decode(e.to_string()))?;
-        let resized = image.thumbnail(spec.max_width, spec.max_height);
-        let mut buffer = Cursor::new(Vec::new());
-        resized
-            .write_to(&mut buffer, ImageFormat::Png)
-            .map_err(|e| ArtworkError::Decode(e.to_string()))?;
-        Ok(ProcessedArtwork {
-            width: resized.width(),
-            height: resized.height(),
-            bytes: buffer.into_inner(),
+        tokio::task::spawn_blocking(move || {
+            let image =
+                image::load_from_memory(&bytes).map_err(|e| ArtworkError::Decode(e.to_string()))?;
+            let resized = image.thumbnail(spec.max_width, spec.max_height);
+            let mut buffer = Cursor::new(Vec::new());
+            resized
+                .write_to(&mut buffer, ImageFormat::Png)
+                .map_err(|e| ArtworkError::Decode(e.to_string()))?;
+            Ok(ProcessedArtwork {
+                width: resized.width(),
+                height: resized.height(),
+                bytes: buffer.into_inner(),
+            })
         })
+        .await
+        .map_err(|e| ArtworkError::Decode(e.to_string()))?
     }
 }
 

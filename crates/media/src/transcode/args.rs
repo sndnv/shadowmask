@@ -135,8 +135,14 @@ pub(crate) fn subtitle_media_playlist(duration_ms: u64, vtt_name: &str) -> Strin
     )
 }
 
+const TONEMAP_TO_SDR: &str = "zscale=t=linear:npl=100,tonemap=tonemap=hable:desat=0,\
+     zscale=t=bt709:m=bt709:p=bt709:r=tv,format=yuv420p";
+
 fn video_filter(spec: &TranscodeSpec, encoder: &VideoEncoder) -> Option<String> {
     let mut filters = Vec::new();
+    if spec.source_hdr.is_some() {
+        filters.push(TONEMAP_TO_SDR.to_owned());
+    }
     if let Some(path) = &spec.burn_subtitle_path {
         filters.push(format!(
             "subtitles=filename='{}'",
@@ -166,6 +172,7 @@ fn escape_subtitle_path(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::media::HdrFormat;
     use domain::session::{SessionId, plan_segments};
 
     fn base_spec() -> TranscodeSpec {
@@ -181,6 +188,7 @@ mod tests {
             burn_subtitle_path: None,
             soft_subtitle: None,
             downmix_stereo: false,
+            source_hdr: None,
         }
     }
 
@@ -391,6 +399,59 @@ mod tests {
         assert!(!args.iter().any(|a| a == "-vaapi_device"));
         assert!(!args.iter().any(|a| a == "h264_vaapi"));
         assert_eq!(pair_after(&args, "-c").as_deref(), Some("copy"));
+    }
+
+    #[test]
+    fn segment_hdr_source_tonemaps_to_sdr() {
+        let spec = TranscodeSpec {
+            source_hdr: Some(HdrFormat::Hdr10),
+            ..base_spec()
+        };
+        assert_eq!(
+            pair_after(&args_for(&spec), "-vf").as_deref(),
+            Some(TONEMAP_TO_SDR)
+        );
+    }
+
+    #[test]
+    fn segment_hdr_tonemap_precedes_burn_and_scale() {
+        let spec = TranscodeSpec {
+            source_hdr: Some(HdrFormat::Hlg),
+            burn_subtitle_path: Some("/media/movie.srt".to_owned()),
+            max_height: Some(480),
+            ..base_spec()
+        };
+        assert_eq!(
+            pair_after(&args_for(&spec), "-vf").as_deref(),
+            Some(
+                format!("{TONEMAP_TO_SDR},subtitles=filename='/media/movie.srt',scale=-2:480")
+                    .as_str()
+            )
+        );
+    }
+
+    #[test]
+    fn segment_hdr_vaapi_tonemaps_before_hwupload() {
+        let spec = TranscodeSpec {
+            source_hdr: Some(HdrFormat::DolbyVision),
+            ..base_spec()
+        };
+        assert_eq!(
+            pair_after(&vaapi_args_for(&spec), "-vf").as_deref(),
+            Some(format!("{TONEMAP_TO_SDR},format=nv12,hwupload").as_str())
+        );
+    }
+
+    #[test]
+    fn segment_copy_ignores_hdr_source() {
+        let spec = TranscodeSpec {
+            copy: true,
+            source_hdr: Some(HdrFormat::Hdr10Plus),
+            ..base_spec()
+        };
+        let args = args_for(&spec);
+        assert_eq!(pair_after(&args, "-c").as_deref(), Some("copy"));
+        assert!(!args.iter().any(|a| a == "-vf"));
     }
 
     #[test]

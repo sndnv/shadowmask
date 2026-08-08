@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use domain::error::MetadataError;
 use domain::metadata::{
     Artwork, ArtworkKind, ContentRating, ExternalId, MediaKind, MetadataMatch, MetadataProvider,
@@ -6,14 +9,17 @@ use domain::metadata::{
 use serde::Deserialize;
 
 use crate::http::get_json;
+use crate::rate_limiter::RateLimiter;
 use crate::util::{non_na, parse_leading_f32, parse_leading_u32, parse_year};
 
 const DEFAULT_BASE_URL: &str = "https://www.omdbapi.com";
 
+#[derive(Clone)]
 pub struct OmdbClient {
     client: reqwest::Client,
     base_url: String,
     api_key: String,
+    limiter: Arc<RateLimiter>,
 }
 
 impl OmdbClient {
@@ -26,7 +32,13 @@ impl OmdbClient {
             client: reqwest::Client::new(),
             base_url: base_url.into(),
             api_key: api_key.into(),
+            limiter: Arc::new(RateLimiter::new(Duration::ZERO)),
         }
+    }
+
+    pub fn with_min_interval(mut self, min_interval: Duration) -> Self {
+        self.limiter = Arc::new(RateLimiter::new(min_interval));
+        self
     }
 }
 
@@ -56,8 +68,11 @@ impl MetadataProvider for OmdbClient {
         if let Some(year) = query.year {
             params.push(("y", year.to_string()));
         }
-        let response: RawSearchResponse =
-            get_json(self.client.get(self.base_url.as_str()).query(&params)).await?;
+        let response: RawSearchResponse = get_json(
+            &self.limiter,
+            self.client.get(self.base_url.as_str()).query(&params),
+        )
+        .await?;
         if response.response != "True" {
             return Err(MetadataError::NotFound);
         }
@@ -80,8 +95,11 @@ impl MetadataProvider for OmdbClient {
 
     async fn fetch(&self, id: &ExternalId) -> Result<TitleMetadata, MetadataError> {
         let params = [("apikey", self.api_key.as_str()), ("i", id.value.as_str())];
-        let detail: RawDetail =
-            get_json(self.client.get(self.base_url.as_str()).query(&params)).await?;
+        let detail: RawDetail = get_json(
+            &self.limiter,
+            self.client.get(self.base_url.as_str()).query(&params),
+        )
+        .await?;
         if detail.response != "True" {
             return Err(MetadataError::NotFound);
         }
@@ -212,6 +230,20 @@ mod tests {
             .mount(&server)
             .await;
         server
+    }
+
+    #[test]
+    fn with_min_interval_sets_the_limiter() {
+        let _ = OmdbClient::new("k").with_min_interval(Duration::from_millis(10));
+    }
+
+    #[tokio::test]
+    async fn rate_limited_response_is_a_backend_error() {
+        let server =
+            mock_server(ResponseTemplate::new(429).insert_header("retry-after", "1")).await;
+        let client = OmdbClient::with_base_url("k", server.uri());
+        let err = client.search(&movie_query("x", None)).await.unwrap_err();
+        assert!(matches!(err, MetadataError::Backend(_)));
     }
 
     #[tokio::test]
@@ -410,5 +442,17 @@ mod tests {
         let client = OmdbClient::new("k");
         assert_eq!(client.base_url, DEFAULT_BASE_URL);
         assert_eq!(client.api_key, "k");
+    }
+
+    #[tokio::test]
+    async fn fetch_season_is_unsupported() {
+        let id = ExternalId {
+            source: "tmdb".to_owned(),
+            value: "tv/1".to_owned(),
+        };
+        assert!(matches!(
+            OmdbClient::new("k").fetch_season(&id, 1).await,
+            Err(MetadataError::NotFound)
+        ));
     }
 }

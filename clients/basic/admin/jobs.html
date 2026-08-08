@@ -7,7 +7,7 @@
     <title>Shadowmask (basic) - Admin jobs</title>
   </head>
   <body>
-    <h1>Jobs</h1>
+    <h1 class="sm-visually-hidden">Jobs</h1>
     <nav id="nav"></nav>
     <p class="sm-crumbs"><a href="index.html">Admin</a> / <span id="jobs-crumb">Jobs</span></p>
     <p><button type="button" id="refresh">Refresh</button></p>
@@ -34,7 +34,7 @@
 
       async function load() {
         const main = document.getElementById("main");
-        main.textContent = "Loading...";
+        main.textContent = "Loading…";
         try {
           const jobs = await sm.json("/api/v1/admin/jobs");
           document.getElementById("jobs-crumb").textContent = "Jobs (" + jobs.length + ")";
@@ -62,33 +62,87 @@
           }
           const roots = jobs.filter((j) => !(j.parent_id && byId.has(j.parent_id))).sort(byStatus);
           const shortId = (id) => String(id).split("-")[0];
-          const rowFor = (j, depth) => {
-            const link = sm.el(
+          const idLink = (j) =>
+            sm.el(
               "a",
               { href: "job.html?id=" + encodeURIComponent(j.id), title: j.id },
               shortId(j.id),
             );
+          const tint = (s) =>
+            s === "running"
+              ? "sm-row-running"
+              : s === "queued"
+                ? "sm-row-pending"
+                : s === "failed"
+                  ? "sm-row-failed"
+                  : null;
+          const cancelButton = (j) => {
+            if (!j.cancellable) return "";
+            const btn = sm.el("button", { type: "button", class: "sm-secondary" }, "Cancel");
+            btn.addEventListener("click", async () => {
+              btn.disabled = true;
+              try {
+                await sm.json("/api/v1/admin/jobs/" + encodeURIComponent(j.id) + "/cancel", {
+                  method: "POST",
+                });
+                await load();
+              } catch (err) {
+                btn.disabled = false;
+                btn.textContent = "Cancel failed";
+              }
+            });
+            return btn;
+          };
+          const errorCell = (j) => {
+            if (!j.last_error) return "";
+            const text = j.last_error.replace(/^(retryable|permanent) job failure:\s*/i, "");
+            const label = text.length > 16 ? text.slice(0, 16) + "…" : text;
+            const btn = sm.el(
+              "button",
+              { type: "button", class: "sm-linkbtn", title: "View full error" },
+              label,
+            );
+            btn.addEventListener("click", () =>
+              sm.dialog("Job error", sm.el("pre", { class: "sm-subtext", text })),
+            );
+            return btn;
+          };
+
+          const active = jobs
+            .filter((j) => j.status === "queued" || j.status === "running")
+            .sort(byStatus);
+          const activePanel = sm.el("div");
+          if (!active.length) {
+            activePanel.appendChild(sm.el("p", { text: "No active jobs." }));
+          } else {
+            const activeRows = active.map((j) => [
+              idLink(j),
+              j.kind,
+              j.status,
+              Math.round(j.progress * 100) + "%",
+              cancelButton(j),
+            ]);
+            activePanel.appendChild(
+              sm.table(["Job", "Kind", "Status", "Progress", ""], activeRows, {
+                rowClass: (i) => tint(active[i].status),
+              }),
+            );
+          }
+
+          const ordered = [];
+          const walk = (j, depth) => {
+            ordered.push({ job: j, depth });
+            (children.get(j.id) || [])
+              .slice()
+              .sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""))
+              .forEach((k) => walk(k, depth + 1));
+          };
+          roots.forEach((r) => walk(r, 0));
+          const treeRows = ordered.map(({ job: j, depth }) => {
             const first = depth
-              ? sm.el("span", { style: "padding-left:" + depth * 1.5 + "em" }, ["↳ ", link])
-              : link;
-            const cancelBtn = j.cancellable
-              ? sm.el("button", { type: "button" }, "Cancel")
-              : "";
-            if (j.cancellable) {
-              cancelBtn.addEventListener("click", async () => {
-                cancelBtn.disabled = true;
-                try {
-                  await sm.json("/api/v1/admin/jobs/" + encodeURIComponent(j.id) + "/cancel", {
-                    method: "POST",
-                  });
-                  await load();
-                } catch (err) {
-                  cancelBtn.disabled = false;
-                  cancelBtn.textContent = "Cancel failed";
-                }
-              });
-            }
-            const cells = [
+              ? sm.el("span", { style: "padding-left:" + depth * 1.5 + "em" }, ["↳ ", idLink(j)])
+              : idLink(j);
+            return [
               first,
               j.kind,
               j.status,
@@ -97,33 +151,40 @@
               String(j.attempts),
               sm.time(j.started_at),
               sm.time(j.finished_at),
-              j.last_error || "",
-              cancelBtn,
+              errorCell(j),
+              cancelButton(j),
             ];
-            const cls =
-              j.status === "running"
-                ? "sm-row-running"
-                : j.status === "queued"
-                  ? "sm-row-pending"
-                  : null;
-            return sm.el("tr", cls ? { class: cls } : null, cells.map((c) => sm.el("td", null, c)));
-          };
-          const rows = [];
-          const walk = (j, depth) => {
-            rows.push(rowFor(j, depth));
-            (children.get(j.id) || [])
-              .slice()
-              .sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""))
-              .forEach((k) => walk(k, depth + 1));
-          };
-          roots.forEach((r) => walk(r, 0));
+          });
           const headers = ["Job", "Kind", "Status", "Priority", "Progress", "Attempts", "Started", "Finished", "Error", "Actions"];
-          const tbody = sm.el("tbody", null, rows);
+          const allTable = sm.table(headers, treeRows, {
+            rowClass: (index) => tint(ordered[index].job.status),
+          });
+          allTable.classList.add("sm-jobs-tree");
+          const trs = allTable.querySelectorAll("tbody tr");
+          const filter = sm.el("input", {
+            type: "search",
+            placeholder: "filter by id, kind, status...",
+            autocomplete: "off",
+            "aria-label": "Filter jobs",
+          });
+          filter.addEventListener("input", () => {
+            const needle = filter.value.trim().toLowerCase();
+            trs.forEach((tr) => {
+              tr.hidden = needle !== "" && !tr.textContent.toLowerCase().includes(needle);
+            });
+          });
+          const allPanel = sm.el("div");
+          allPanel.appendChild(sm.el("p", null, sm.el("label", null, ["Filter ", filter])));
+          allPanel.appendChild(allTable);
+
           main.appendChild(
-            sm.el("table", null, [
-              sm.el("thead", null, sm.el("tr", null, headers.map((h) => sm.el("th", { scope: "col" }, h)))),
-              tbody,
-            ]),
+            sm.tabs(
+              [
+                { label: "Active (" + active.length + ")", panel: activePanel },
+                { label: "All (" + jobs.length + ")", panel: allPanel },
+              ],
+              active.length ? 0 : 1,
+            ),
           );
         } catch (err) {
           main.textContent = "Could not load jobs.";

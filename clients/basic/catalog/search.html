@@ -7,12 +7,12 @@
     <title>Shadowmask (basic) - Search</title>
   </head>
   <body>
-    <h1>Search</h1>
+    <h1 class="sm-visually-hidden">Search</h1>
     <nav id="nav"></nav>
     <p class="sm-crumbs">Search</p>
     <form id="query">
-      <input name="q" placeholder="Search" autocomplete="off" />
-      <select name="type">
+      <label>Search <input name="q" autocomplete="off" /></label>
+      <select name="type" aria-label="Result type">
         <option value="">All</option>
         <option value="movie">Movies</option>
         <option value="series">Series</option>
@@ -46,7 +46,7 @@
 
       async function run() {
         const main = document.getElementById("main");
-        main.textContent = "Loading...";
+        main.textContent = "Loading…";
         try {
           const page = await sm.json("/api/v1/search?" + new URLSearchParams(location.search).toString());
           main.textContent = "";
@@ -89,7 +89,13 @@
             ref: { type: "episode", id: r.id },
           };
         }
-        return { href: sm.href.person(r.id), artwork: r.artwork, title: r.name, subtitle: "Person" };
+        return {
+          href: sm.href.person(r.id),
+          artwork: r.artwork,
+          title: r.name,
+          subtitle: "Person",
+          placeholder: "placeholder-person.svg",
+        };
       }
     </script>
   </body>

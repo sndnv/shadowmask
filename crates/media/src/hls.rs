@@ -15,9 +15,10 @@ use domain::session::{
 
 use crate::probe::FfprobeMediaProbe;
 use crate::transcode::{
-    ProcessSpawner, TARGET_MS, TokioProcessSpawner, VideoEncoder, build_segment_args,
-    build_subtitle_extract_args, media_playlist, segment_file_name, subtitle_media_playlist,
+    TARGET_MS, TokioProcessSpawner, VideoEncoder, build_segment_args, build_subtitle_extract_args,
+    media_playlist, segment_file_name, subtitle_media_playlist,
 };
+use domain::process::ProcessSpawner;
 
 pub(crate) const VARIANT: &str = "v0";
 pub(crate) const MEDIA_PLAYLIST: &str = "index.m3u8";
@@ -583,6 +584,7 @@ mod tests {
             burn_subtitle_path: None,
             soft_subtitle: None,
             downmix_stereo: false,
+            source_hdr: None,
         }
     }
 

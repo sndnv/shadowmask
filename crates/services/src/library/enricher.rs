@@ -1,31 +1,38 @@
 use std::future::Future;
 
 use domain::catalog::{
-    ArtworkId, ArtworkOwner, Collection, CollectionId, Episode, EpisodeId, Movie, MovieId, Season,
-    SeasonId, Series, SeriesId, TitleId, TitleRef, Version, VersionId,
+    ArtworkOwner, Collection, CollectionId, Episode, EpisodeId, Movie, MovieId, Season, SeasonId,
+    Series, SeriesId, TitleId, TitleRef, Version, VersionId,
 };
 use domain::common::Quality;
 use domain::error::RepositoryError;
-use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
+use domain::job::JobId;
 use domain::library::{
     DiscoveredFile, Library, LibraryKind, MatchedGroup, ParsedMedia, ResolveTarget, ScanReport,
 };
-use domain::media::{AudioTrack, SubtitleFile, SubtitleFileId, SubtitleSource};
+use domain::media::{ProbeResult, SubtitleFile, SubtitleFileId, SubtitleSource};
 use domain::metadata::{
-    Artwork, ArtworkKind, CollectionMeta, Credit, ExternalId, Genre, GenreId, MediaKind,
-    MetadataProvider, MetadataQuery, Person, PersonId, Studio, StudioId, TitleEnrichment,
-    TitleMetadata,
+    CollectionMeta, Credit, ExternalId, Genre, GenreId, MediaKind, MetadataProvider, Person,
+    PersonId, Studio, StudioId, TitleEnrichment, TitleMetadata,
 };
 use domain::repository::{CatalogRepository, JobRepository, LibraryRepository};
 use jiff::Timestamp;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
+use super::enrich_jobs::{EnrichmentJobs, SubtitleContext};
+use super::metadata_fetch::MetadataFetcher;
 use super::{
-    ArtworkJobItem, ArtworkJobPayload, Matcher, SubtitleJobPayload, TranscriptionJobPayload,
-    TrickplayJobPayload, discover_subtitles, find_duplicates, normalize_title, parse_filename,
-    select_audio_track, translation_job,
+    Matcher, discover_subtitles, find_duplicates, normalize_title, parse_filename,
+    quality_from_height,
 };
+
+fn resolve_quality(parsed: Option<Quality>, probe: &ProbeResult) -> Quality {
+    parsed.unwrap_or_else(|| {
+        let height = probe.video.iter().map(|v| v.height).max().unwrap_or(0);
+        quality_from_height(height)
+    })
+}
 
 const ID_NAMESPACE: Uuid = Uuid::NAMESPACE_URL;
 
@@ -46,6 +53,14 @@ pub trait ResolveIngester {
         target: &ResolveTarget,
         parent: Option<&JobId>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    fn ingest_fetched(
+        &self,
+        library: &Library,
+        file: &DiscoveredFile,
+        external_id: Option<&ExternalId>,
+        parent: Option<&JobId>,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }
 
 pub trait MetadataRefresher {
@@ -53,6 +68,15 @@ pub trait MetadataRefresher {
         &self,
         title: &TitleRef,
         external_id: Option<&ExternalId>,
+        parent: Option<&JobId>,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+}
+
+pub trait PersonRefresher {
+    fn refresh_person(
+        &self,
+        id: &PersonId,
+        force: bool,
         parent: Option<&JobId>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }
@@ -65,48 +89,35 @@ impl ScanEnricher for NoopEnricher {
 
 pub struct Enricher<C, M, J, L> {
     catalog: C,
-    provider: Option<M>,
-    jobs: J,
     libraries: L,
     matcher: Matcher,
-    subtitle_languages: Vec<String>,
-    transcription_enabled: bool,
-    translation_languages: Vec<String>,
-}
-
-struct SubtitleContext {
-    imdb_id: Option<String>,
-    title: String,
-    season: Option<u16>,
-    episode: Option<u16>,
+    fetch: MetadataFetcher<M>,
+    enqueue: EnrichmentJobs<J>,
 }
 
 impl<C, M, J, L> Enricher<C, M, J, L> {
     pub fn new(catalog: C, provider: Option<M>, jobs: J, libraries: L) -> Self {
         Self {
             catalog,
-            provider,
-            jobs,
             libraries,
             matcher: Matcher::new(),
-            subtitle_languages: Vec::new(),
-            transcription_enabled: false,
-            translation_languages: Vec::new(),
+            fetch: MetadataFetcher::new(provider),
+            enqueue: EnrichmentJobs::new(jobs),
         }
     }
 
     pub fn with_subtitle_languages(mut self, languages: Vec<String>) -> Self {
-        self.subtitle_languages = languages;
+        self.enqueue.subtitle_languages = languages;
         self
     }
 
     pub fn with_transcription(mut self, enabled: bool) -> Self {
-        self.transcription_enabled = enabled;
+        self.enqueue.transcription_enabled = enabled;
         self
     }
 
     pub fn with_translation_languages(mut self, languages: Vec<String>) -> Self {
-        self.translation_languages = languages;
+        self.enqueue.translation_languages = languages;
         self
     }
 }
@@ -180,6 +191,7 @@ where
         parent: Option<&JobId>,
     ) -> Result<(), RepositoryError> {
         let metadata = self
+            .fetch
             .fetch_metadata(MediaKind::Movie, &group.parsed.title, group.parsed.year)
             .await;
         self.write_movie(library, &group.parsed, &group.files, metadata, parent)
@@ -203,7 +215,7 @@ where
         self.catalog
             .upsert_movie(Movie {
                 id: movie_id.clone(),
-                title: parsed.title.clone(),
+                title: display_title(metadata.as_ref(), &parsed.title),
                 year: parsed.year,
                 overview: metadata.as_ref().and_then(|m| m.overview.clone()),
                 runtime_minutes: metadata.as_ref().and_then(|m| m.runtime_minutes),
@@ -231,7 +243,7 @@ where
             .await?;
         }
         if let Some(metadata) = &metadata {
-            self.persist_enrichment(&TitleRef::Movie(movie_id.clone()), metadata)
+            self.persist_enrichment(&TitleRef::Movie(movie_id.clone()), metadata, parent)
                 .await?;
             if let Some(collection) = &metadata.collection {
                 self.attach_to_collection(&movie_id, collection, parent)
@@ -239,7 +251,8 @@ where
             }
         }
         let artwork = metadata.map(|m| m.artwork).unwrap_or_default();
-        self.enqueue_artwork(ArtworkOwner::Movie(movie_id), artwork, parent)
+        self.enqueue
+            .enqueue_artwork(ArtworkOwner::Movie(movie_id), artwork, parent)
             .await
     }
 
@@ -273,7 +286,8 @@ where
             },
         };
         self.catalog.upsert_collection(collection).await?;
-        self.enqueue_artwork(ArtworkOwner::Collection(id), meta.artwork.clone(), parent)
+        self.enqueue
+            .enqueue_artwork(ArtworkOwner::Collection(id), meta.artwork.clone(), parent)
             .await
     }
 
@@ -284,6 +298,7 @@ where
         parent: Option<&JobId>,
     ) -> Result<(), RepositoryError> {
         let metadata = self
+            .fetch
             .fetch_metadata(MediaKind::Series, &group.parsed.title, group.parsed.year)
             .await;
         self.write_episode(library, &group.parsed, &group.files, metadata, parent)
@@ -311,10 +326,40 @@ where
         ));
         let now = Timestamp::now();
 
+        let season_info = match tmdb_external_id(metadata.as_ref()) {
+            Some(external_id) => self.fetch.fetch_season(&external_id, season_no).await,
+            None => None,
+        };
+        let season_title = season_info
+            .as_ref()
+            .and_then(|season| season.name.clone())
+            .unwrap_or_else(|| format!("Season {season_no}"));
+        let season_overview = season_info
+            .as_ref()
+            .and_then(|season| season.overview.clone());
+        let season_artwork = season_info
+            .as_ref()
+            .map(|season| season.artwork.clone())
+            .unwrap_or_default();
+        let matched_episode = season_info
+            .as_ref()
+            .and_then(|season| season.episodes.iter().find(|ep| ep.number == episode_no));
+        let episode_title = matched_episode
+            .and_then(|ep| ep.name.clone())
+            .unwrap_or_else(|| format!("Episode {episode_no}"));
+        let episode_overview = matched_episode.and_then(|ep| ep.overview.clone());
+        let episode_runtime = matched_episode.and_then(|ep| ep.runtime_minutes);
+        let episode_air_date = matched_episode
+            .and_then(|ep| ep.air_date.as_deref())
+            .and_then(parse_air_date);
+        let episode_artwork = matched_episode
+            .map(|ep| ep.artwork.clone())
+            .unwrap_or_default();
+
         self.catalog
             .upsert_series(Series {
                 id: series_id.clone(),
-                title: parsed.title.clone(),
+                title: display_title(metadata.as_ref(), &parsed.title),
                 year: parsed.year,
                 overview: metadata.as_ref().and_then(|m| m.overview.clone()),
                 content_rating: metadata.as_ref().and_then(|m| m.content_rating.clone()),
@@ -328,8 +373,8 @@ where
                 id: season_id.clone(),
                 series: series_id.clone(),
                 number: season_no,
-                title: Some(format!("Season {season_no}")),
-                overview: None,
+                title: Some(season_title),
+                overview: season_overview,
                 added_at: now,
                 updated_at: now,
                 artwork: Vec::new(),
@@ -338,12 +383,12 @@ where
         self.catalog
             .upsert_episode(Episode {
                 id: episode_id.clone(),
-                season: season_id,
+                season: season_id.clone(),
                 number: episode_no,
-                title: format!("Episode {episode_no}"),
-                overview: None,
-                runtime_minutes: None,
-                air_date: None,
+                title: episode_title,
+                overview: episode_overview,
+                runtime_minutes: episode_runtime,
+                air_date: episode_air_date,
                 added_at: now,
                 updated_at: now,
                 artwork: Vec::new(),
@@ -367,11 +412,18 @@ where
             .await?;
         }
         if let Some(metadata) = &metadata {
-            self.persist_enrichment(&TitleRef::Series(series_id.clone()), metadata)
+            self.persist_enrichment(&TitleRef::Series(series_id.clone()), metadata, parent)
                 .await?;
         }
         let artwork = metadata.map(|m| m.artwork).unwrap_or_default();
-        self.enqueue_artwork(ArtworkOwner::Series(series_id), artwork, parent)
+        self.enqueue
+            .enqueue_artwork(ArtworkOwner::Series(series_id), artwork, parent)
+            .await?;
+        self.enqueue
+            .enqueue_artwork(ArtworkOwner::Season(season_id), season_artwork, parent)
+            .await?;
+        self.enqueue
+            .enqueue_artwork(ArtworkOwner::Episode(episode_id), episode_artwork, parent)
             .await
     }
 
@@ -391,7 +443,7 @@ where
                 id: version_id.clone(),
                 title,
                 library: library.id.clone(),
-                quality: quality.unwrap_or(Quality::Sd),
+                quality: resolve_quality(quality, &file.probe),
                 container: container_of(&file.path),
                 path: file.path.clone(),
                 size_bytes: file.size_bytes,
@@ -429,214 +481,9 @@ where
                 .set_subtitle_files(&version_id, &subtitle_files)
                 .await?;
         }
-        self.enqueue_trickplay(&version_id, &file.path, file.probe.duration_ms, parent)
-            .await?;
         let has_native_subtitle = !subtitle_files.is_empty() || !file.probe.subtitles.is_empty();
-        let transcription_wanted =
-            self.transcription_enabled && !has_native_subtitle && !file.probe.audio.is_empty();
-        let opensubtitles_configured = !self.subtitle_languages.is_empty();
-        self.enqueue_subtitles(
-            &version_id,
-            subtitle,
-            transcription_wanted && opensubtitles_configured,
-            parent,
-        )
-        .await?;
-        if !opensubtitles_configured {
-            self.enqueue_transcription(
-                &version_id,
-                &file.path,
-                has_native_subtitle,
-                &file.probe.audio,
-                parent,
-            )
-            .await?;
-        }
-        self.enqueue_translation(&version_id, has_native_subtitle, parent)
-            .await
-    }
-
-    async fn enqueue_translation(
-        &self,
-        version_id: &VersionId,
-        has_native_subtitle: bool,
-        parent: Option<&JobId>,
-    ) -> Result<(), RepositoryError> {
-        if !has_native_subtitle {
-            return Ok(());
-        }
-        match translation_job(version_id, &self.translation_languages) {
-            Some(mut job) => {
-                job.parent_id = parent.cloned();
-                self.jobs.enqueue(job).await
-            }
-            None => Ok(()),
-        }
-    }
-
-    async fn enqueue_transcription(
-        &self,
-        version_id: &VersionId,
-        source_path: &str,
-        has_native_subtitle: bool,
-        audio: &[AudioTrack],
-        parent: Option<&JobId>,
-    ) -> Result<(), RepositoryError> {
-        if !self.transcription_enabled || has_native_subtitle || audio.is_empty() {
-            return Ok(());
-        }
-        let preferred = self.subtitle_languages.first().map(String::as_str);
-        let audio_track_index = select_audio_track(audio, preferred);
-        let source_language = audio_track_index
-            .and_then(|index| audio.iter().find(|track| track.index == index))
-            .or_else(|| audio.first())
-            .and_then(|track| track.language.as_ref())
-            .map(|code| code.0.clone());
-        let raw = TranscriptionJobPayload {
-            version_id: version_id.clone(),
-            source_path: source_path.to_owned(),
-            source_language,
-            audio_track_index,
-        }
-        .encode()
-        .expect("transcription job payload serializes");
-        let now = Timestamp::now();
-        self.jobs
-            .enqueue(Job {
-                id: JobId(Uuid::new_v4().to_string()),
-                kind: JobKind::Transcription,
-                status: JobStatus::Queued,
-                priority: JobPriority::Low,
-                payload: raw,
-                attempts: 0,
-                progress: 0.0,
-                available_at: now,
-                last_error: None,
-                created_at: now,
-                updated_at: now,
-                started_at: None,
-                finished_at: None,
-                parent_id: parent.cloned(),
-            })
-            .await
-    }
-
-    async fn enqueue_subtitles(
-        &self,
-        version_id: &VersionId,
-        ctx: &SubtitleContext,
-        transcribe_on_miss: bool,
-        parent: Option<&JobId>,
-    ) -> Result<(), RepositoryError> {
-        if self.subtitle_languages.is_empty() {
-            return Ok(());
-        }
-        let raw = SubtitleJobPayload {
-            version_id: version_id.clone(),
-            imdb_id: ctx.imdb_id.clone(),
-            title: Some(ctx.title.clone()),
-            languages: self.subtitle_languages.clone(),
-            season: ctx.season,
-            episode: ctx.episode,
-            transcribe_on_miss,
-        }
-        .encode()
-        .expect("subtitle job payload serializes");
-        let now = Timestamp::now();
-        self.jobs
-            .enqueue(Job {
-                id: JobId(Uuid::new_v4().to_string()),
-                kind: JobKind::Subtitles,
-                status: JobStatus::Queued,
-                priority: JobPriority::Normal,
-                payload: raw,
-                attempts: 0,
-                progress: 0.0,
-                available_at: now,
-                last_error: None,
-                created_at: now,
-                updated_at: now,
-                started_at: None,
-                finished_at: None,
-                parent_id: parent.cloned(),
-            })
-            .await
-    }
-
-    async fn enqueue_trickplay(
-        &self,
-        version_id: &VersionId,
-        source_path: &str,
-        duration_ms: u64,
-        parent: Option<&JobId>,
-    ) -> Result<(), RepositoryError> {
-        let raw = TrickplayJobPayload {
-            version_id: version_id.clone(),
-            source_path: source_path.to_owned(),
-            duration_ms,
-        }
-        .encode()
-        .expect("trickplay job payload serializes");
-        let now = Timestamp::now();
-        self.jobs
-            .enqueue(Job {
-                id: JobId(Uuid::new_v4().to_string()),
-                kind: JobKind::Trickplay,
-                status: JobStatus::Queued,
-                priority: JobPriority::Normal,
-                payload: raw,
-                attempts: 0,
-                progress: 0.0,
-                available_at: now,
-                last_error: None,
-                created_at: now,
-                updated_at: now,
-                started_at: None,
-                finished_at: None,
-                parent_id: parent.cloned(),
-            })
-            .await
-    }
-
-    async fn enqueue_artwork(
-        &self,
-        owner: ArtworkOwner,
-        artwork: Vec<Artwork>,
-        parent: Option<&JobId>,
-    ) -> Result<(), RepositoryError> {
-        let items: Vec<ArtworkJobItem> = artwork
-            .into_iter()
-            .filter(|art| matches!(art.kind, ArtworkKind::Poster | ArtworkKind::Backdrop))
-            .map(|art| ArtworkJobItem {
-                id: ArtworkId(Uuid::new_v4().to_string()),
-                kind: art.kind,
-                url: art.url,
-            })
-            .collect();
-        if items.is_empty() {
-            return Ok(());
-        }
-        let raw = ArtworkJobPayload { owner, items }
-            .encode()
-            .expect("artwork job payload serializes");
-        let now = Timestamp::now();
-        self.jobs
-            .enqueue(Job {
-                id: JobId(Uuid::new_v4().to_string()),
-                kind: JobKind::Artwork,
-                status: JobStatus::Queued,
-                priority: JobPriority::Normal,
-                payload: raw,
-                attempts: 0,
-                progress: 0.0,
-                available_at: now,
-                last_error: None,
-                created_at: now,
-                updated_at: now,
-                started_at: None,
-                finished_at: None,
-                parent_id: parent.cloned(),
-            })
+        self.enqueue
+            .for_file(&version_id, file, subtitle, has_native_subtitle, parent)
             .await
     }
 
@@ -644,16 +491,23 @@ where
         &self,
         owner: &TitleRef,
         metadata: &TitleMetadata,
+        parent: Option<&JobId>,
     ) -> Result<(), RepositoryError> {
         let mut credits = Vec::new();
+        let mut people = Vec::new();
         for info in &metadata.cast {
             let person = PersonId(derive_id("person", &info.external_person_id.value));
             self.catalog
                 .upsert_person(Person {
                     id: person.clone(),
                     name: info.name.clone(),
+                    external_id: Some(info.external_person_id.value.clone()),
+                    ..Person::default()
                 })
                 .await?;
+            if info.external_person_id.source == "tmdb" {
+                people.push(person.clone());
+            }
             credits.push(Credit {
                 person,
                 title: owner.clone(),
@@ -686,60 +540,10 @@ where
             external_ids: metadata.external_ids.clone(),
             extras: Vec::new(),
         };
-        self.catalog.set_title_enrichment(owner, &enrichment).await
-    }
-
-    async fn fetch_metadata(
-        &self,
-        kind: MediaKind,
-        title: &str,
-        year: Option<u16>,
-    ) -> Option<TitleMetadata> {
-        let provider = self.provider.as_ref()?;
-        let query = MetadataQuery {
-            title: title.to_owned(),
-            year,
-            kind,
-        };
-        let matches = match provider.search(&query).await {
-            Ok(matches) => matches,
-            Err(err) => {
-                debug!("metadata search failed for {title}: {err}");
-                return None;
-            }
-        };
-        let first = matches.into_iter().next()?;
-        match provider.fetch(&first.external_id).await {
-            Ok(metadata) => Some(metadata),
-            Err(err) => {
-                debug!("metadata fetch failed for {title}: {err}");
-                None
-            }
-        }
-    }
-
-    async fn fetch_by_id(&self, id: &ExternalId) -> Option<TitleMetadata> {
-        let provider = self.provider.as_ref()?;
-        match provider.fetch(id).await {
-            Ok(metadata) => Some(metadata),
-            Err(err) => {
-                debug!("metadata fetch failed for {}: {err}", id.value);
-                None
-            }
-        }
-    }
-
-    async fn fetch_refresh(
-        &self,
-        kind: MediaKind,
-        title: &str,
-        year: Option<u16>,
-        external_id: Option<&ExternalId>,
-    ) -> Option<TitleMetadata> {
-        match external_id {
-            Some(id) => self.fetch_by_id(id).await,
-            None => self.fetch_metadata(kind, title, year).await,
-        }
+        self.catalog
+            .set_title_enrichment(owner, &enrichment)
+            .await?;
+        self.enqueue.enqueue_person_metadata(people, parent).await
     }
 
     async fn refresh_movie(
@@ -753,6 +557,7 @@ where
             return Ok(());
         };
         let Some(metadata) = self
+            .fetch
             .fetch_refresh(
                 MediaKind::Movie,
                 &existing.title,
@@ -764,13 +569,17 @@ where
             return Ok(());
         };
         let mut updated = existing.clone();
+        if !metadata.title.trim().is_empty() {
+            updated.title = metadata.title.clone();
+        }
         updated.overview = metadata.overview.clone().or(existing.overview);
         updated.runtime_minutes = metadata.runtime_minutes.or(existing.runtime_minutes);
         updated.content_rating = metadata.content_rating.clone().or(existing.content_rating);
         self.catalog.upsert_movie(updated).await?;
-        self.persist_enrichment(&TitleRef::Movie(id.clone()), &metadata)
+        self.persist_enrichment(&TitleRef::Movie(id.clone()), &metadata, parent)
             .await?;
-        self.enqueue_artwork(ArtworkOwner::Movie(id.clone()), metadata.artwork, parent)
+        self.enqueue
+            .enqueue_artwork(ArtworkOwner::Movie(id.clone()), metadata.artwork, parent)
             .await
     }
 
@@ -785,6 +594,7 @@ where
             return Ok(());
         };
         let Some(metadata) = self
+            .fetch
             .fetch_refresh(
                 MediaKind::Series,
                 &existing.title,
@@ -796,13 +606,80 @@ where
             return Ok(());
         };
         let mut updated = existing.clone();
+        if !metadata.title.trim().is_empty() {
+            updated.title = metadata.title.clone();
+        }
         updated.overview = metadata.overview.clone().or(existing.overview);
         updated.content_rating = metadata.content_rating.clone().or(existing.content_rating);
         self.catalog.upsert_series(updated).await?;
-        self.persist_enrichment(&TitleRef::Series(id.clone()), &metadata)
+        self.persist_enrichment(&TitleRef::Series(id.clone()), &metadata, parent)
             .await?;
-        self.enqueue_artwork(ArtworkOwner::Series(id.clone()), metadata.artwork, parent)
-            .await
+        let series_ref = tmdb_external_id(Some(&metadata));
+        self.enqueue
+            .enqueue_artwork(ArtworkOwner::Series(id.clone()), metadata.artwork, parent)
+            .await?;
+        if let Some(series_ref) = series_ref {
+            self.refresh_seasons(id, &series_ref, parent).await?;
+        }
+        Ok(())
+    }
+
+    async fn refresh_seasons(
+        &self,
+        series: &SeriesId,
+        series_ref: &ExternalId,
+        parent: Option<&JobId>,
+    ) -> Result<(), RepositoryError> {
+        for season in self.catalog.list_seasons(series).await? {
+            let Some(info) = self.fetch.fetch_season(series_ref, season.number).await else {
+                continue;
+            };
+            let now = Timestamp::now();
+            let mut updated = season.clone();
+            if info.name.is_some() {
+                updated.title = info.name.clone();
+            }
+            if info.overview.is_some() {
+                updated.overview = info.overview.clone();
+            }
+            updated.updated_at = now;
+            self.catalog.upsert_season(updated).await?;
+            self.enqueue
+                .enqueue_artwork(
+                    ArtworkOwner::Season(season.id.clone()),
+                    info.artwork,
+                    parent,
+                )
+                .await?;
+            for episode in self.catalog.list_episodes(&season.id).await? {
+                let Some(ep) = info.episodes.iter().find(|ep| ep.number == episode.number) else {
+                    continue;
+                };
+                let mut updated = episode.clone();
+                if let Some(name) = ep.name.clone() {
+                    updated.title = name;
+                }
+                if ep.overview.is_some() {
+                    updated.overview = ep.overview.clone();
+                }
+                if ep.runtime_minutes.is_some() {
+                    updated.runtime_minutes = ep.runtime_minutes;
+                }
+                if let Some(air_date) = ep.air_date.as_deref().and_then(parse_air_date) {
+                    updated.air_date = Some(air_date);
+                }
+                updated.updated_at = now;
+                self.catalog.upsert_episode(updated).await?;
+                self.enqueue
+                    .enqueue_artwork(
+                        ArtworkOwner::Episode(episode.id.clone()),
+                        ep.artwork.clone(),
+                        parent,
+                    )
+                    .await?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -840,7 +717,7 @@ where
                 .await
             }
             ResolveTarget::Provider(external_id) => {
-                let metadata = self.fetch_by_id(external_id).await;
+                let metadata = self.fetch.fetch_by_id(external_id).await;
                 let files = std::slice::from_ref(file);
                 match library.kind {
                     LibraryKind::Movie => {
@@ -852,6 +729,31 @@ where
                             .await
                     }
                 }
+            }
+        }
+    }
+
+    async fn ingest_fetched(
+        &self,
+        library: &Library,
+        file: &DiscoveredFile,
+        external_id: Option<&ExternalId>,
+        parent: Option<&JobId>,
+    ) -> Result<(), RepositoryError> {
+        let parsed = parse_filename(&file.path);
+        let metadata = match external_id {
+            Some(id) => self.fetch.fetch_by_id(id).await,
+            None => None,
+        };
+        let files = std::slice::from_ref(file);
+        match library.kind {
+            LibraryKind::Movie => {
+                self.write_movie(library, &parsed, files, metadata, parent)
+                    .await
+            }
+            LibraryKind::Tv => {
+                self.write_episode(library, &parsed, files, metadata, parent)
+                    .await
             }
         }
     }
@@ -877,6 +779,62 @@ where
     }
 }
 
+impl<C, M, J, L> PersonRefresher for Enricher<C, M, J, L>
+where
+    C: CatalogRepository + Send + Sync,
+    M: MetadataProvider + Send + Sync,
+    J: JobRepository + Send + Sync,
+    L: Send + Sync,
+{
+    async fn refresh_person(
+        &self,
+        id: &PersonId,
+        force: bool,
+        parent: Option<&JobId>,
+    ) -> Result<(), RepositoryError> {
+        let Some(person) = self.catalog.get_person(id).await? else {
+            debug!("person refresh skipped for missing person {}", id.0);
+            return Ok(());
+        };
+        if !force && person.biography.is_some() {
+            return Ok(());
+        }
+        let Some(value) = person.external_id.clone() else {
+            return Ok(());
+        };
+        let external_id = ExternalId {
+            source: "tmdb".to_owned(),
+            value,
+        };
+        let Some(meta) = self.fetch.fetch_person(&external_id).await else {
+            return Ok(());
+        };
+        let mut updated = person.clone();
+        if !meta.name.is_empty() {
+            updated.name = meta.name;
+        }
+        if meta.biography.is_some() {
+            updated.biography = meta.biography;
+        }
+        if meta.birthday.is_some() {
+            updated.birthday = meta.birthday;
+        }
+        if meta.deathday.is_some() {
+            updated.deathday = meta.deathday;
+        }
+        if meta.place_of_birth.is_some() {
+            updated.place_of_birth = meta.place_of_birth;
+        }
+        if !meta.also_known_as.is_empty() {
+            updated.also_known_as = meta.also_known_as;
+        }
+        self.catalog.upsert_person(updated).await?;
+        self.enqueue
+            .enqueue_artwork(ArtworkOwner::Person(id.clone()), meta.artwork, parent)
+            .await
+    }
+}
+
 pub fn derive_id(kind: &str, key: &str) -> String {
     Uuid::new_v5(&ID_NAMESPACE, format!("{kind}:{key}").as_bytes()).to_string()
 }
@@ -896,16 +854,77 @@ fn imdb_id(metadata: Option<&TitleMetadata>) -> Option<String> {
         .map(|id| id.value.clone())
 }
 
+fn tmdb_external_id(metadata: Option<&TitleMetadata>) -> Option<ExternalId> {
+    metadata?
+        .external_ids
+        .iter()
+        .find(|id| id.source == "tmdb")
+        .cloned()
+}
+
+fn display_title(metadata: Option<&TitleMetadata>, parsed: &str) -> String {
+    metadata
+        .map(|m| m.title.trim())
+        .filter(|title| !title.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| parsed.to_owned())
+}
+
+fn parse_air_date(value: &str) -> Option<Timestamp> {
+    let date: jiff::civil::Date = value.parse().ok()?;
+    date.to_zoned(jiff::tz::TimeZone::UTC)
+        .ok()
+        .map(|zoned| zoned.timestamp())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::library::{
+        ArtworkJobPayload, MetadataJobPayload, SubtitleJobPayload, TranscriptionJobPayload,
+        TrickplayJobPayload,
+    };
     use crate::mock::{MockCatalogRepo, MockJobStore, MockLibraryRepo};
     use domain::error::MetadataError;
+    use domain::job::JobKind;
     use domain::library::{DiscoveredFile, LibraryId, LibraryOrigin, WatcherStrategy};
     use domain::media::ProbeResult;
     use domain::metadata::{
-        ContentRating, CreditInfo, CreditRole, ExternalId, MetadataMatch, Rating, TitleMetadata,
+        Artwork, ArtworkKind, ContentRating, CreditInfo, CreditRole, EpisodeArtwork, ExternalId,
+        MetadataMatch, MetadataQuery, PersonMetadata, Rating, SeasonArtwork, TitleMetadata,
     };
+
+    #[test]
+    fn resolve_quality_prefers_filename_then_falls_back_to_probed_height() {
+        use domain::media::VideoTrack;
+        let track = |height: u32| VideoTrack {
+            index: 0,
+            codec: "h264".to_owned(),
+            width: height * 16 / 9,
+            height,
+            bit_depth: 8,
+            hdr: None,
+            frame_rate: 24.0,
+            bitrate: None,
+        };
+        let uhd = ProbeResult {
+            duration_ms: 0,
+            video: vec![track(2160)],
+            audio: Vec::new(),
+            subtitles: Vec::new(),
+            chapters: Vec::new(),
+        };
+        let no_video = ProbeResult {
+            duration_ms: 0,
+            video: Vec::new(),
+            audio: Vec::new(),
+            subtitles: Vec::new(),
+            chapters: Vec::new(),
+        };
+        assert_eq!(resolve_quality(Some(Quality::Hd), &uhd), Quality::Hd);
+        assert_eq!(resolve_quality(None, &uhd), Quality::Uhd);
+        assert_eq!(resolve_quality(None, &no_video), Quality::Sd);
+    }
 
     enum ProviderMode {
         SearchErr,
@@ -913,6 +932,8 @@ mod tests {
         FetchErr,
         Artwork(Vec<Artwork>),
         Full(Box<TitleMetadata>),
+        Season(Box<TitleMetadata>, SeasonArtwork),
+        PersonInfo(PersonMetadata),
     }
 
     struct MockProvider {
@@ -946,6 +967,25 @@ mod tests {
                     ..TitleMetadata::default()
                 }),
                 ProviderMode::Full(metadata) => Ok((**metadata).clone()),
+                ProviderMode::Season(metadata, _) => Ok((**metadata).clone()),
+                _ => Err(MetadataError::NotFound),
+            }
+        }
+
+        async fn fetch_season(
+            &self,
+            _id: &ExternalId,
+            _season: u16,
+        ) -> Result<SeasonArtwork, MetadataError> {
+            match &self.mode {
+                ProviderMode::Season(_, season) => Ok(season.clone()),
+                _ => Err(MetadataError::NotFound),
+            }
+        }
+
+        async fn fetch_person(&self, _id: &ExternalId) -> Result<PersonMetadata, MetadataError> {
+            match &self.mode {
+                ProviderMode::PersonInfo(person) => Ok(person.clone()),
                 _ => Err(MetadataError::NotFound),
             }
         }
@@ -1861,6 +1901,338 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tv_ingest_enqueues_season_and_episode_artwork() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let metadata = TitleMetadata {
+            external_ids: vec![ExternalId {
+                source: "tmdb".into(),
+                value: "tv/1399".into(),
+            }],
+            ..TitleMetadata::default()
+        };
+        let season = SeasonArtwork {
+            number: 1,
+            name: Some("First Season".into()),
+            artwork: vec![art(ArtworkKind::Poster)],
+            episodes: vec![
+                EpisodeArtwork {
+                    number: 1,
+                    name: Some("Pilot".into()),
+                    overview: Some("It begins.".into()),
+                    air_date: Some("2010-10-01".into()),
+                    runtime_minutes: Some(42),
+                    artwork: vec![art(ArtworkKind::Backdrop)],
+                },
+                EpisodeArtwork {
+                    number: 2,
+                    artwork: vec![art(ArtworkKind::Backdrop)],
+                    ..EpisodeArtwork::default()
+                },
+            ],
+            ..SeasonArtwork::default()
+        };
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider {
+                mode: ProviderMode::Season(Box::new(metadata), season),
+            }),
+            jobs.clone(),
+        );
+
+        svc.enrich(
+            &library(LibraryKind::Tv),
+            &report(&["/tv/Gamma S01E01 720p.mkv"]),
+            None,
+        )
+        .await;
+
+        let artwork_jobs: Vec<ArtworkJobPayload> = jobs
+            .list()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|j| j.kind == JobKind::Artwork)
+            .map(|j| ArtworkJobPayload::decode(&j.payload).unwrap())
+            .collect();
+
+        let season_job = artwork_jobs
+            .iter()
+            .find(|p| matches!(p.owner, ArtworkOwner::Season(_)))
+            .expect("season artwork enqueued");
+        assert_eq!(season_job.items.len(), 1);
+        assert_eq!(season_job.items[0].kind, ArtworkKind::Poster);
+
+        let episode_job = artwork_jobs
+            .iter()
+            .find(|p| matches!(p.owner, ArtworkOwner::Episode(_)))
+            .expect("episode artwork enqueued");
+        assert_eq!(episode_job.items.len(), 1);
+        assert_eq!(episode_job.items[0].kind, ArtworkKind::Backdrop);
+
+        let series_id = catalog.list_series(page()).await.unwrap().items[0]
+            .id
+            .clone();
+        let season = catalog.list_seasons(&series_id).await.unwrap()[0].clone();
+        assert_eq!(season.title.as_deref(), Some("First Season"));
+        let episode = catalog.list_episodes(&season.id).await.unwrap()[0].clone();
+        assert_eq!(episode.title, "Pilot");
+        assert_eq!(episode.overview.as_deref(), Some("It begins."));
+        assert_eq!(episode.runtime_minutes, Some(42));
+        assert!(episode.air_date.is_some());
+    }
+
+    #[tokio::test]
+    async fn tv_ingest_without_season_metadata_enqueues_only_series_artwork() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let metadata = TitleMetadata {
+            artwork: vec![art(ArtworkKind::Poster)],
+            external_ids: vec![ExternalId {
+                source: "tmdb".into(),
+                value: "tv/1399".into(),
+            }],
+            ..TitleMetadata::default()
+        };
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider {
+                mode: ProviderMode::Full(Box::new(metadata)),
+            }),
+            jobs.clone(),
+        );
+
+        svc.enrich(
+            &library(LibraryKind::Tv),
+            &report(&["/tv/Gamma S01E01 720p.mkv"]),
+            None,
+        )
+        .await;
+
+        let owners: Vec<ArtworkOwner> = jobs
+            .list()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|j| j.kind == JobKind::Artwork)
+            .map(|j| ArtworkJobPayload::decode(&j.payload).unwrap().owner)
+            .collect();
+        assert!(owners.iter().any(|o| matches!(o, ArtworkOwner::Series(_))));
+        assert!(!owners.iter().any(|o| matches!(o, ArtworkOwner::Season(_))));
+        assert!(!owners.iter().any(|o| matches!(o, ArtworkOwner::Episode(_))));
+    }
+
+    #[tokio::test]
+    async fn movie_ingest_enqueues_person_metadata_for_cast() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let metadata = TitleMetadata {
+            cast: vec![CreditInfo {
+                external_person_id: ExternalId {
+                    source: "tmdb".into(),
+                    value: "person/1".into(),
+                },
+                name: "Keanu Reeves".into(),
+                role: CreditRole::Actor,
+                character: None,
+                order: 0,
+            }],
+            external_ids: vec![ExternalId {
+                source: "tmdb".into(),
+                value: "movie/603".into(),
+            }],
+            ..TitleMetadata::default()
+        };
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider {
+                mode: ProviderMode::Full(Box::new(metadata)),
+            }),
+            jobs.clone(),
+        );
+
+        svc.enrich(
+            &library(LibraryKind::Movie),
+            &report(&["/m/The Matrix (1999) 1080p.mkv"]),
+            None,
+        )
+        .await;
+
+        let job = jobs
+            .list()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|j| j.kind == JobKind::Metadata)
+            .expect("person metadata job enqueued");
+        match MetadataJobPayload::decode(&job.payload).unwrap() {
+            MetadataJobPayload::People { ids, force } => {
+                assert!(!force);
+                assert_eq!(ids.len(), 1);
+            }
+            other => panic!("expected people payload, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn refresh_person_fetches_and_enqueues_photo() {
+        let catalog = MockCatalogRepo::new();
+        catalog
+            .upsert_person(Person {
+                id: PersonId("p1".into()),
+                name: "Ada".into(),
+                external_id: Some("person/1".into()),
+                ..Person::default()
+            })
+            .await
+            .unwrap();
+        let jobs = MockJobStore::new();
+        let meta = PersonMetadata {
+            name: "Ada Lovelace".into(),
+            biography: Some("A mathematician.".into()),
+            birthday: Some("1815-12-10".into()),
+            deathday: Some("1852-11-27".into()),
+            place_of_birth: Some("London".into()),
+            also_known_as: vec!["Augusta Ada King".into()],
+            artwork: vec![art(ArtworkKind::Poster)],
+        };
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider {
+                mode: ProviderMode::PersonInfo(meta),
+            }),
+            jobs.clone(),
+        );
+
+        svc.refresh_person(&PersonId("p1".into()), false, None)
+            .await
+            .unwrap();
+
+        let person = catalog
+            .get_person(&PersonId("p1".into()))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(person.name, "Ada Lovelace");
+        assert_eq!(person.biography.as_deref(), Some("A mathematician."));
+        assert_eq!(person.birthday.as_deref(), Some("1815-12-10"));
+        assert_eq!(person.deathday.as_deref(), Some("1852-11-27"));
+        assert_eq!(person.place_of_birth.as_deref(), Some("London"));
+        assert_eq!(person.also_known_as, vec!["Augusta Ada King".to_owned()]);
+        assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 1);
+    }
+
+    #[tokio::test]
+    async fn refresh_person_skips_when_provider_has_no_data() {
+        let catalog = MockCatalogRepo::new();
+        catalog
+            .upsert_person(Person {
+                id: PersonId("p1".into()),
+                name: "Ada".into(),
+                external_id: Some("person/1".into()),
+                ..Person::default()
+            })
+            .await
+            .unwrap();
+        let jobs = MockJobStore::new();
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider {
+                mode: ProviderMode::Full(Box::default()),
+            }),
+            jobs.clone(),
+        );
+
+        svc.refresh_person(&PersonId("p1".into()), true, None)
+            .await
+            .unwrap();
+
+        assert!(bio(&catalog, "p1").await.is_none());
+        assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 0);
+    }
+
+    #[tokio::test]
+    async fn refresh_person_guard_skips_until_forced() {
+        let catalog = MockCatalogRepo::new();
+        catalog
+            .upsert_person(Person {
+                id: PersonId("p1".into()),
+                name: "Ada".into(),
+                external_id: Some("person/1".into()),
+                biography: Some("existing".into()),
+                ..Person::default()
+            })
+            .await
+            .unwrap();
+        let jobs = MockJobStore::new();
+        let meta = PersonMetadata {
+            biography: Some("fresh".into()),
+            ..PersonMetadata::default()
+        };
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider {
+                mode: ProviderMode::PersonInfo(meta),
+            }),
+            jobs.clone(),
+        );
+
+        svc.refresh_person(&PersonId("p1".into()), false, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            bio(&catalog, "p1").await.as_deref(),
+            Some("existing"),
+            "unforced refresh must not overwrite an enriched person"
+        );
+
+        svc.refresh_person(&PersonId("p1".into()), true, None)
+            .await
+            .unwrap();
+        assert_eq!(bio(&catalog, "p1").await.as_deref(), Some("fresh"));
+    }
+
+    #[tokio::test]
+    async fn refresh_person_is_noop_for_missing_or_unlinked() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider {
+                mode: ProviderMode::PersonInfo(PersonMetadata::default()),
+            }),
+            jobs.clone(),
+        );
+
+        svc.refresh_person(&PersonId("missing".into()), true, None)
+            .await
+            .unwrap();
+
+        catalog
+            .upsert_person(Person {
+                id: PersonId("p2".into()),
+                name: "NoLink".into(),
+                ..Person::default()
+            })
+            .await
+            .unwrap();
+        svc.refresh_person(&PersonId("p2".into()), true, None)
+            .await
+            .unwrap();
+
+        assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 0);
+    }
+
+    async fn bio(catalog: &MockCatalogRepo, id: &str) -> Option<String> {
+        catalog
+            .get_person(&PersonId(id.into()))
+            .await
+            .unwrap()
+            .unwrap()
+            .biography
+    }
+
+    #[tokio::test]
     async fn tv_non_episodic_file_is_skipped() {
         let catalog = MockCatalogRepo::new();
         let jobs = MockJobStore::new();
@@ -2128,7 +2500,7 @@ mod tests {
     async fn resolve_provider_creates_movie_and_version() {
         let catalog = MockCatalogRepo::new();
         let metadata = TitleMetadata {
-            title: "Ignored".into(),
+            title: "The Matrix (Provider)".into(),
             year: Some(1999),
             overview: Some("From provider".into()),
             ..TitleMetadata::default()
@@ -2155,7 +2527,7 @@ mod tests {
 
         let movies = catalog.list_movies(page()).await.unwrap();
         assert_eq!(movies.total, 1);
-        assert_eq!(movies.items[0].title, "The Matrix");
+        assert_eq!(movies.items[0].title, "The Matrix (Provider)");
         assert_eq!(movies.items[0].overview.as_deref(), Some("From provider"));
         assert_eq!(
             catalog
@@ -2349,6 +2721,112 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(series.overview.as_deref(), Some("Refreshed overview"));
+    }
+
+    #[tokio::test]
+    async fn refresh_series_populates_existing_seasons_and_episodes() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_series(Series {
+            id: SeriesId("s1".into()),
+            title: "Show".into(),
+            year: None,
+            overview: None,
+            content_rating: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        });
+        catalog
+            .upsert_season(Season {
+                id: SeasonId("s1-1".into()),
+                series: SeriesId("s1".into()),
+                number: 1,
+                title: Some("Season 1".into()),
+                overview: None,
+                added_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
+                artwork: Vec::new(),
+            })
+            .await
+            .unwrap();
+        catalog
+            .upsert_episode(Episode {
+                id: EpisodeId("s1-1-1".into()),
+                season: SeasonId("s1-1".into()),
+                number: 1,
+                title: "Episode 1".into(),
+                overview: None,
+                runtime_minutes: None,
+                air_date: None,
+                added_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
+                artwork: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        let metadata = TitleMetadata {
+            title: "Show".into(),
+            external_ids: vec![ExternalId {
+                source: "tmdb".into(),
+                value: "tv/99".into(),
+            }],
+            ..TitleMetadata::default()
+        };
+        let season = SeasonArtwork {
+            number: 1,
+            name: Some("Named Season".into()),
+            overview: Some("Season overview".into()),
+            artwork: vec![art(ArtworkKind::Poster)],
+            episodes: vec![EpisodeArtwork {
+                number: 1,
+                name: Some("Ep One".into()),
+                overview: Some("Ep overview".into()),
+                air_date: Some("2010-10-01".into()),
+                runtime_minutes: Some(42),
+                artwork: vec![art(ArtworkKind::Backdrop)],
+            }],
+        };
+        let jobs = MockJobStore::new();
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider {
+                mode: ProviderMode::Season(Box::new(metadata), season),
+            }),
+            jobs.clone(),
+        );
+
+        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, None)
+            .await
+            .unwrap();
+
+        let refreshed_season =
+            catalog.list_seasons(&SeriesId("s1".into())).await.unwrap()[0].clone();
+        assert_eq!(refreshed_season.title.as_deref(), Some("Named Season"));
+        assert_eq!(
+            refreshed_season.overview.as_deref(),
+            Some("Season overview")
+        );
+        let refreshed_ep = catalog
+            .list_episodes(&SeasonId("s1-1".into()))
+            .await
+            .unwrap()[0]
+            .clone();
+        assert_eq!(refreshed_ep.title, "Ep One");
+        assert_eq!(refreshed_ep.overview.as_deref(), Some("Ep overview"));
+        assert_eq!(refreshed_ep.runtime_minutes, Some(42));
+        assert!(refreshed_ep.air_date.is_some());
+
+        let owners: Vec<ArtworkOwner> = jobs
+            .list()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|j| j.kind == JobKind::Artwork)
+            .map(|j| ArtworkJobPayload::decode(&j.payload).unwrap().owner)
+            .collect();
+        assert!(owners.iter().any(|o| matches!(o, ArtworkOwner::Season(_))));
+        assert!(owners.iter().any(|o| matches!(o, ArtworkOwner::Episode(_))));
     }
 
     #[tokio::test]

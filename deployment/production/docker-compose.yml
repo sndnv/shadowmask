@@ -44,6 +44,8 @@ services:
       # SHADOWMASK_FETCH_PROVIDERS_MAX_HEIGHT: "1080"
       # For a site with no built-in yt-dlp extractor, mount your extractor plugins and point at them:
       # SHADOWMASK_FETCH_PROVIDERS_YT_DLP_PLUGIN_DIR: "/config/yt-dlp-plugins"
+      # For account-gated content, mount an exported Netscape cookies.txt (holds session secrets, keep read-only):
+      # SHADOWMASK_FETCH_PROVIDERS_COOKIES_FILE: "/config/cookies.txt"
     volumes:
       - ./local/data:/data
       - ./bootstrap:/config/bootstrap:ro
@@ -51,6 +53,7 @@ services:
       # - ./models:/models:ro    # CTranslate2 models for enrichment (see deployment/ENRICHMENT.md)
       # - "${SHADOWMASK_EXTERNAL_DIR:-./local/external}:/media/external"   # writable root for fetched content
       # - ./yt-dlp-plugins:/config/yt-dlp-plugins:ro   # site extractor plugins for content fetch
+      # - ./cookies.txt:/config/cookies.txt:ro   # exported session cookies for account-gated content fetch
       - "${SHADOWMASK_MOVIES_DIR:?set SHADOWMASK_MOVIES_DIR to your movies library path}:/media/movies:ro"
       - "${SHADOWMASK_TV_DIR:?set SHADOWMASK_TV_DIR to your tv library path}:/media/tv:ro"
     healthcheck:

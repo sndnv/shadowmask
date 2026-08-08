@@ -1,4 +1,5 @@
 use domain::library::{LibraryId, LibraryKind};
+use domain::metadata::ExternalId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7,7 +8,7 @@ pub struct FetchJobPayload {
     pub source_url: String,
     pub kind: LibraryKind,
     pub title: String,
-    pub imdb_id: Option<String>,
+    pub external_id: Option<String>,
     pub season: Option<u16>,
     pub episode: Option<u16>,
 }
@@ -19,6 +20,32 @@ impl FetchJobPayload {
 
     pub fn decode(raw: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str::<Wire>(raw).map(Self::from)
+    }
+
+    pub fn resolved_external_id(&self) -> Option<ExternalId> {
+        let value = self.external_id.as_deref()?.trim();
+        if value.is_empty() {
+            return None;
+        }
+        if value.starts_with("tt") {
+            return Some(ExternalId {
+                source: "imdb".to_owned(),
+                value: value.to_owned(),
+            });
+        }
+        let endpoint = match self.kind {
+            LibraryKind::Tv => "tv",
+            LibraryKind::Movie => "movie",
+        };
+        let value = if value.contains('/') {
+            value.to_owned()
+        } else {
+            format!("{endpoint}/{value}")
+        };
+        Some(ExternalId {
+            source: "tmdb".to_owned(),
+            value,
+        })
     }
 }
 
@@ -73,7 +100,7 @@ struct Wire {
     source_url: String,
     kind: KindWire,
     title: String,
-    imdb_id: Option<String>,
+    external_id: Option<String>,
     season: Option<u16>,
     episode: Option<u16>,
 }
@@ -85,7 +112,7 @@ impl From<&FetchJobPayload> for Wire {
             source_url: payload.source_url.clone(),
             kind: payload.kind.into(),
             title: payload.title.clone(),
-            imdb_id: payload.imdb_id.clone(),
+            external_id: payload.external_id.clone(),
             season: payload.season,
             episode: payload.episode,
         }
@@ -99,7 +126,7 @@ impl From<Wire> for FetchJobPayload {
             source_url: wire.source_url,
             kind: wire.kind.into(),
             title: wire.title,
-            imdb_id: wire.imdb_id,
+            external_id: wire.external_id,
             season: wire.season,
             episode: wire.episode,
         }
@@ -123,7 +150,7 @@ mod tests {
             source_url: "https://example.com/watch?v=abc".into(),
             kind: LibraryKind::Movie,
             title: "The Matrix".into(),
-            imdb_id: Some("tt0133093".into()),
+            external_id: Some("tt0133093".into()),
             season: None,
             episode: None,
         });
@@ -132,7 +159,7 @@ mod tests {
             source_url: "https://example.com/watch?v=xyz".into(),
             kind: LibraryKind::Tv,
             title: "Great Show".into(),
-            imdb_id: None,
+            external_id: None,
             season: Some(1),
             episode: Some(2),
         });
@@ -141,6 +168,55 @@ mod tests {
     #[test]
     fn decode_rejects_malformed_json() {
         assert!(FetchJobPayload::decode("not json").is_err());
+    }
+
+    #[test]
+    fn resolved_external_id_detects_imdb_tmdb_and_blank() {
+        let mut payload = FetchJobPayload {
+            library: LibraryId("lib1".into()),
+            source_url: "https://example.com/watch?v=abc".into(),
+            kind: LibraryKind::Movie,
+            title: "The Matrix".into(),
+            external_id: Some("tt0133093".into()),
+            season: None,
+            episode: None,
+        };
+        assert_eq!(
+            payload.resolved_external_id(),
+            Some(domain::metadata::ExternalId {
+                source: "imdb".into(),
+                value: "tt0133093".into(),
+            })
+        );
+        payload.external_id = Some("603".into());
+        assert_eq!(
+            payload.resolved_external_id(),
+            Some(domain::metadata::ExternalId {
+                source: "tmdb".into(),
+                value: "movie/603".into(),
+            })
+        );
+        payload.kind = LibraryKind::Tv;
+        payload.external_id = Some("1399".into());
+        assert_eq!(
+            payload.resolved_external_id(),
+            Some(domain::metadata::ExternalId {
+                source: "tmdb".into(),
+                value: "tv/1399".into(),
+            })
+        );
+        payload.external_id = Some("tv/1399".into());
+        assert_eq!(
+            payload.resolved_external_id(),
+            Some(domain::metadata::ExternalId {
+                source: "tmdb".into(),
+                value: "tv/1399".into(),
+            })
+        );
+        payload.external_id = Some("  ".into());
+        assert_eq!(payload.resolved_external_id(), None);
+        payload.external_id = None;
+        assert_eq!(payload.resolved_external_id(), None);
     }
 
     #[test]

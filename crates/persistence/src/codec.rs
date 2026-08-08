@@ -110,6 +110,7 @@ pub(crate) fn artwork_owner_parts(owner: &ArtworkOwner) -> (&'static str, &str) 
         ArtworkOwner::Season(id) => ("season", id.0.as_str()),
         ArtworkOwner::Episode(id) => ("episode", id.0.as_str()),
         ArtworkOwner::Collection(id) => ("collection", id.0.as_str()),
+        ArtworkOwner::Person(id) => ("person", id.0.as_str()),
     }
 }
 
@@ -244,6 +245,12 @@ mod tests {
         assert_eq!(
             artwork_owner_parts(&ArtworkOwner::Collection(CollectionId("c1".into()))),
             ("collection", "c1")
+        );
+        assert_eq!(
+            artwork_owner_parts(&ArtworkOwner::Person(domain::metadata::PersonId(
+                "p1".into()
+            ))),
+            ("person", "p1")
         );
     }
 }

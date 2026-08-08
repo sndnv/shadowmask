@@ -36,12 +36,13 @@ anyhow = "1"
 argon2 = { version = "0.5", features = ["std"] }
 jiff = "0.2"
 jiff-cron = "0.3"
-jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_rs"] }
+jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_rs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
 regex = "1"
+url = "2"
 walkdir = "2"
 notify = "8"
 tempfile = "3"

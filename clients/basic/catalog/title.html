@@ -51,9 +51,9 @@
           dl,
           d.overview ? sm.el("p", { text: d.overview }) : null,
         ]);
-        const posterNode = sm.poster(d.artwork, 480);
+        const posterNode = sm.poster(d.artwork, 480, d.title);
         const posterEl = playHref
-          ? sm.el("a", { href: playHref, title: "Play" }, posterNode)
+          ? sm.el("a", { href: playHref, title: "Play", "aria-label": "Play " + d.title }, posterNode)
           : posterNode;
         main.appendChild(sm.el("div", { class: "sm-detail" }, [posterEl, info]));
         arrays(main, d);
@@ -72,7 +72,15 @@
                   null,
                   sm.el(
                     "a",
-                    { href: sm.url("catalog/movies.html?genre=" + encodeURIComponent(g.id)) },
+                    {
+                      href: sm.url(
+                        (sm.qs("type") === "series"
+                          ? "catalog/series.html"
+                          : "catalog/movies.html") +
+                          "?genres=" +
+                          encodeURIComponent(g.name),
+                      ),
+                    },
                     g.name,
                   ),
                 ),
@@ -89,7 +97,8 @@
               d.credits.map((c) =>
                 sm.el("li", null, [
                   sm.el("a", { href: sm.href.person(c.person.id) }, c.person.name),
-                  " " + c.role + (c.character ? " as " + c.character : ""),
+                  " " + c.role + (c.character ? " as " : ""),
+                  c.character ? sm.el("strong", { text: c.character }) : null,
                 ]),
               ),
             ),
@@ -97,7 +106,7 @@
         }
         listOf(main, "Studios", d.studios, (s) => s.name);
         listOf(main, "Ratings", d.ratings, (r) => r.source + ": " + r.value);
-        listOf(main, "External ids", d.external_ids, (x) => x.source + ": " + x.value);
+        externalIds(main, d.external_ids);
         listOf(main, "Extras", d.extras, (x) => x.kind + ": " + x.title);
       }
 
@@ -105,6 +114,37 @@
         if (!items || !items.length) return;
         main.appendChild(sm.el("h2", { text: label + " (" + items.length + ")" }));
         main.appendChild(sm.el("ul", null, items.map((i) => sm.el("li", { text: fmt(i) }))));
+      }
+
+      function externalIdUrl(source, value) {
+        if (source === "tmdb") return "https://www.themoviedb.org/" + value;
+        if (source === "imdb") {
+          const path = value.indexOf("nm") === 0 ? "name/" : "title/";
+          return "https://www.imdb.com/" + path + value + "/";
+        }
+        return null;
+      }
+
+      function externalIds(main, items) {
+        if (!items || !items.length) return;
+        main.appendChild(sm.el("h2", { text: "External ids (" + items.length + ")" }));
+        main.appendChild(
+          sm.el(
+            "ul",
+            null,
+            items.map((x) => {
+              const label = x.source + ": " + x.value;
+              const href = externalIdUrl(x.source, x.value);
+              return sm.el(
+                "li",
+                null,
+                href
+                  ? sm.el("a", { href, target: "_blank", rel: "noopener noreferrer" }, label)
+                  : label,
+              );
+            }),
+          ),
+        );
       }
 
       async function renderMovie(main, id) {
@@ -132,7 +172,12 @@
           ],
           picker.single ? sm.href.watch(picker.single) : null,
         );
-        main.appendChild(await sm.libraryControls("movie", id));
+        const movieControls = await sm.libraryControls("movie", id);
+        main.appendChild(movieControls);
+        if (me && me.role === "admin") {
+          movieControls.appendChild(document.createTextNode(" "));
+          movieControls.appendChild(sm.refreshMetadataButton("movies", id));
+        }
         main.appendChild(picker.node);
       }
 
@@ -161,6 +206,7 @@
           .json("/api/v1/series/" + encodeURIComponent(id) + "/seasons")
           .catch(() => []);
         const nextHref = await nextEpisodeHref(id, seasons);
+        const me = await sm.self().catch(() => null);
         main.textContent = "";
         main.appendChild(
           sm.breadcrumbs([
@@ -178,7 +224,12 @@
           ],
           nextHref,
         );
-        main.appendChild(await sm.watchedControls("series", id));
+        const seriesControls = await sm.watchedControls("series", id);
+        main.appendChild(seriesControls);
+        if (me && me.role === "admin") {
+          seriesControls.appendChild(document.createTextNode(" "));
+          seriesControls.appendChild(sm.refreshMetadataButton("series", id));
+        }
         main.appendChild(sm.el("h2", { text: "Seasons (" + seasons.length + ")" }));
         if (!seasons.length) {
           main.appendChild(sm.el("p", { text: "No seasons." }));

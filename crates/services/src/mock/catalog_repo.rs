@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 
 use domain::catalog::{
     ArtworkOwner, ArtworkRef, Collection, CollectionId, Episode, EpisodeId, Movie, MovieDetail,
-    MovieId, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId, TitleKind, TitleRef,
-    Version, VersionDetail, VersionId,
+    MovieId, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId, TitleListFilter, TitleRef,
+    Version, VersionDetail, VersionId, sort_titles,
 };
 use domain::common::{Page, PageRequest};
 use domain::error::RepositoryError;
@@ -14,7 +14,9 @@ use domain::media::{
     AudioTrack, Chapter, DetectedMarkers, EmbeddedSubtitleTrack, SubtitleFile, TrickplayAsset,
     VideoTrack,
 };
-use domain::metadata::{Credit, CreditedPerson, Genre, GenreId, Person, PersonId, TitleEnrichment};
+use domain::metadata::{
+    ContentRating, Credit, CreditedPerson, Genre, Person, PersonId, TitleEnrichment,
+};
 use domain::repository::CatalogRepository;
 
 use crate::page::paginate;
@@ -105,6 +107,7 @@ impl State {
 pub struct MockCatalogRepo {
     state: Arc<Mutex<State>>,
     fail: Arc<AtomicBool>,
+    fail_writes: Arc<AtomicBool>,
 }
 
 impl MockCatalogRepo {
@@ -146,6 +149,10 @@ impl MockCatalogRepo {
 
     pub fn set_fail(&self) {
         self.fail.store(true, Ordering::Relaxed);
+    }
+
+    pub fn set_fail_writes(&self) {
+        self.fail_writes.store(true, Ordering::Relaxed);
     }
 
     fn guard(&self) -> Result<(), RepositoryError> {
@@ -223,6 +230,28 @@ impl CatalogRepository for MockCatalogRepo {
             .episodes
             .iter()
             .filter(|e| &e.season == season)
+            .cloned()
+            .map(|e| state.hydrate_episode(e))
+            .collect())
+    }
+
+    async fn list_all_seasons(&self) -> Result<Vec<Season>, RepositoryError> {
+        self.guard()?;
+        let state = self.state.lock().unwrap();
+        Ok(state
+            .seasons
+            .iter()
+            .cloned()
+            .map(|s| state.hydrate_season(s))
+            .collect())
+    }
+
+    async fn list_all_episodes(&self) -> Result<Vec<Episode>, RepositoryError> {
+        self.guard()?;
+        let state = self.state.lock().unwrap();
+        Ok(state
+            .episodes
+            .iter()
             .cloned()
             .map(|e| state.hydrate_episode(e))
             .collect())
@@ -506,6 +535,11 @@ impl CatalogRepository for MockCatalogRepo {
         files: &[SubtitleFile],
     ) -> Result<(), RepositoryError> {
         self.guard()?;
+        if self.fail_writes.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend(
+                "mock catalog write failure".to_owned(),
+            ));
+        }
         self.state
             .lock()
             .unwrap()
@@ -518,7 +552,25 @@ impl CatalogRepository for MockCatalogRepo {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
         if let Some(existing) = state.people.iter_mut().find(|p| p.id == person.id) {
-            *existing = person;
+            existing.name = person.name;
+            if person.biography.is_some() {
+                existing.biography = person.biography;
+            }
+            if person.birthday.is_some() {
+                existing.birthday = person.birthday;
+            }
+            if person.deathday.is_some() {
+                existing.deathday = person.deathday;
+            }
+            if person.place_of_birth.is_some() {
+                existing.place_of_birth = person.place_of_birth;
+            }
+            if !person.also_known_as.is_empty() {
+                existing.also_known_as = person.also_known_as;
+            }
+            if person.external_id.is_some() {
+                existing.external_id = person.external_id;
+            }
         } else {
             state.people.push(person);
         }
@@ -527,14 +579,16 @@ impl CatalogRepository for MockCatalogRepo {
 
     async fn get_person(&self, id: &PersonId) -> Result<Option<Person>, RepositoryError> {
         self.guard()?;
-        Ok(self
-            .state
-            .lock()
-            .unwrap()
+        let state = self.state.lock().unwrap();
+        Ok(state
             .people
             .iter()
             .find(|p| &p.id == id)
-            .cloned())
+            .cloned()
+            .map(|mut person| {
+                person.artwork = state.artwork_for(&ArtworkOwner::Person(person.id.clone()));
+                person
+            }))
     }
 
     async fn set_title_enrichment(
@@ -640,9 +694,9 @@ impl CatalogRepository for MockCatalogRepo {
         Ok(genres)
     }
 
-    async fn list_movies_by_genre(
+    async fn list_movies_filtered(
         &self,
-        genre: &GenreId,
+        filter: &TitleListFilter,
         page: PageRequest,
     ) -> Result<Page<Movie>, RepositoryError> {
         self.guard()?;
@@ -651,25 +705,20 @@ impl CatalogRepository for MockCatalogRepo {
             .movies
             .iter()
             .filter(|movie| {
-                state
-                    .enrichment
-                    .get(&TitleRef::Movie(movie.id.clone()))
-                    .is_some_and(|e| e.genres.iter().any(|g| &g.id == genre))
+                genre_matches(&state, &TitleRef::Movie(movie.id.clone()), &filter.genres)
+                    && !rating_blocked(movie.content_rating.as_ref(), &filter.blocked_ratings)
+                    && movie_in_libraries(&state, &movie.id, filter.libraries.as_ref())
             })
             .cloned()
             .map(|m| state.hydrate_movie(m))
             .collect();
-        matched.sort_by(|a, b| {
-            a.added_at
-                .cmp(&b.added_at)
-                .then_with(|| a.id.0.cmp(&b.id.0))
-        });
+        sort_titles(&mut matched, filter.sort, filter.order);
         Ok(paginate(&matched, page))
     }
 
-    async fn list_series_by_genre(
+    async fn list_series_filtered(
         &self,
-        genre: &GenreId,
+        filter: &TitleListFilter,
         page: PageRequest,
     ) -> Result<Page<Series>, RepositoryError> {
         self.guard()?;
@@ -678,49 +727,67 @@ impl CatalogRepository for MockCatalogRepo {
             .series
             .iter()
             .filter(|series| {
-                state
-                    .enrichment
-                    .get(&TitleRef::Series(series.id.clone()))
-                    .is_some_and(|e| e.genres.iter().any(|g| &g.id == genre))
+                genre_matches(&state, &TitleRef::Series(series.id.clone()), &filter.genres)
+                    && !rating_blocked(series.content_rating.as_ref(), &filter.blocked_ratings)
+                    && series_in_libraries(&state, &series.id, filter.libraries.as_ref())
             })
             .cloned()
             .map(|s| state.hydrate_series(s))
             .collect();
-        matched.sort_by(|a, b| {
-            a.added_at
-                .cmp(&b.added_at)
-                .then_with(|| a.id.0.cmp(&b.id.0))
-        });
+        sort_titles(&mut matched, filter.sort, filter.order);
         Ok(paginate(&matched, page))
     }
+}
 
-    async fn titles_in_library(
-        &self,
-        kind: TitleKind,
-        library: &LibraryId,
-    ) -> Result<Vec<String>, RepositoryError> {
-        self.guard()?;
-        let state = self.state.lock().unwrap();
-        let mut ids: Vec<String> = Vec::new();
-        for version in state.versions.iter().filter(|v| &v.library == library) {
-            let series_id = match (kind, &version.title) {
-                (TitleKind::Movie, TitleId::Movie(id)) => Some(id.0.clone()),
-                (TitleKind::Series, TitleId::Episode(episode)) => state
-                    .episodes
-                    .iter()
-                    .find(|e| e.id == *episode)
-                    .and_then(|e| state.seasons.iter().find(|s| s.id == e.season))
-                    .map(|s| s.series.0.clone()),
-                _ => None,
-            };
-            if let Some(id) = series_id
-                && !ids.contains(&id)
-            {
-                ids.push(id);
+fn genre_matches(state: &State, title: &TitleRef, genres: &[String]) -> bool {
+    if genres.is_empty() {
+        return true;
+    }
+    let Some(enrichment) = state.enrichment.get(title) else {
+        return false;
+    };
+    genres
+        .iter()
+        .all(|name| enrichment.genres.iter().any(|g| &g.name == name))
+}
+
+fn rating_blocked(rating: Option<&ContentRating>, blocked: &[ContentRating]) -> bool {
+    let Some(rating) = rating else {
+        return false;
+    };
+    blocked.iter().any(|entry| {
+        entry.system.eq_ignore_ascii_case(&rating.system)
+            && entry.code.eq_ignore_ascii_case(&rating.code)
+    })
+}
+
+fn movie_in_libraries(state: &State, id: &MovieId, libraries: Option<&Vec<LibraryId>>) -> bool {
+    match libraries {
+        None => true,
+        Some(libraries) => state.versions.iter().any(|version| {
+            matches!(&version.title, TitleId::Movie(movie) if movie == id)
+                && libraries.contains(&version.library)
+        }),
+    }
+}
+
+fn series_in_libraries(state: &State, id: &SeriesId, libraries: Option<&Vec<LibraryId>>) -> bool {
+    match libraries {
+        None => true,
+        Some(libraries) => state.versions.iter().any(|version| {
+            if !libraries.contains(&version.library) {
+                return false;
             }
-        }
-        ids.sort();
-        Ok(ids)
+            let TitleId::Episode(episode) = &version.title else {
+                return false;
+            };
+            state
+                .episodes
+                .iter()
+                .find(|e| &e.id == episode)
+                .and_then(|e| state.seasons.iter().find(|s| s.id == e.season))
+                .is_some_and(|season| &season.series == id)
+        }),
     }
 }
 
@@ -1094,6 +1161,7 @@ mod tests {
             repo.upsert_person(Person {
                 id: PersonId("p1".into()),
                 name: "x".into(),
+                ..Person::default()
             })
             .await
             .is_err()
@@ -1112,25 +1180,22 @@ mod tests {
         assert!(repo.filmography(&PersonId("p1".into())).await.is_err());
         assert!(repo.list_genres().await.is_err());
         assert!(
-            repo.list_movies_by_genre(&GenreId("g1".into()), page())
+            repo.list_movies_filtered(&TitleListFilter::default(), page())
                 .await
                 .is_err()
         );
         assert!(
-            repo.list_series_by_genre(&GenreId("g1".into()), page())
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.titles_in_library(TitleKind::Movie, &LibraryId("lib1".into()))
+            repo.list_series_filtered(&TitleListFilter::default(), page())
                 .await
                 .is_err()
         );
     }
 
     #[tokio::test]
-    async fn titles_in_library_is_kind_aware() {
+    async fn filtered_lists_scope_by_library_through_versions() {
         let repo = MockCatalogRepo::new();
+        repo.add_movie(movie("m1"));
+        repo.add_series(series("s1"));
         repo.add_season(season("se1", "s1"));
         repo.add_episode(episode("e1", "se1"));
         repo.add_version(Version {
@@ -1146,28 +1211,38 @@ mod tests {
             ..version("ev1")
         });
 
-        assert_eq!(
-            repo.titles_in_library(TitleKind::Movie, &LibraryId("lib1".into()))
-                .await
-                .unwrap(),
-            vec!["m1".to_owned()]
-        );
+        let in_lib1 = TitleListFilter {
+            libraries: Some(vec![LibraryId("lib1".into())]),
+            ..TitleListFilter::default()
+        };
+        let movies = repo.list_movies_filtered(&in_lib1, page()).await.unwrap();
+        assert_eq!(movies.total, 1);
+        assert_eq!(movies.items[0].id, MovieId("m1".into()));
         assert!(
-            repo.titles_in_library(TitleKind::Movie, &LibraryId("lib2".into()))
+            repo.list_series_filtered(&in_lib1, page())
                 .await
                 .unwrap()
+                .items
                 .is_empty()
         );
-        assert_eq!(
-            repo.titles_in_library(TitleKind::Series, &LibraryId("lib2".into()))
-                .await
-                .unwrap(),
-            vec!["s1".to_owned()]
-        );
+
+        let in_lib2 = TitleListFilter {
+            libraries: Some(vec![LibraryId("lib2".into())]),
+            ..TitleListFilter::default()
+        };
+        let series = repo.list_series_filtered(&in_lib2, page()).await.unwrap();
+        assert_eq!(series.total, 1);
+        assert_eq!(series.items[0].id, SeriesId("s1".into()));
+
+        let none_scope = TitleListFilter {
+            libraries: Some(Vec::new()),
+            ..TitleListFilter::default()
+        };
         assert!(
-            repo.titles_in_library(TitleKind::Series, &LibraryId("lib1".into()))
+            repo.list_movies_filtered(&none_scope, page())
                 .await
                 .unwrap()
+                .items
                 .is_empty()
         );
     }
@@ -1241,12 +1316,14 @@ mod tests {
         repo.upsert_person(Person {
             id: PersonId("p1".into()),
             name: "Ada".into(),
+            ..Person::default()
         })
         .await
         .unwrap();
         repo.upsert_person(Person {
             id: PersonId("p2".into()),
             name: "Bob".into(),
+            ..Person::default()
         })
         .await
         .unwrap();
@@ -1392,8 +1469,12 @@ mod tests {
             ["Action", "Drama"]
         );
 
+        let genre_filter = |name: &str| TitleListFilter {
+            genres: vec![name.into()],
+            ..TitleListFilter::default()
+        };
         let by_g1 = repo
-            .list_movies_by_genre(&GenreId("g1".into()), page())
+            .list_movies_filtered(&genre_filter("Action"), page())
             .await
             .unwrap();
         assert_eq!(
@@ -1405,21 +1486,21 @@ mod tests {
             ["m1"]
         );
         assert_eq!(
-            repo.list_movies_by_genre(&GenreId("g2".into()), page())
+            repo.list_movies_filtered(&genre_filter("Drama"), page())
                 .await
                 .unwrap()
                 .total,
             1
         );
         assert_eq!(
-            repo.list_movies_by_genre(&GenreId("nope".into()), page())
+            repo.list_movies_filtered(&genre_filter("nope"), page())
                 .await
                 .unwrap()
                 .total,
             0
         );
         assert_eq!(
-            repo.list_series_by_genre(&GenreId("g1".into()), page())
+            repo.list_series_filtered(&genre_filter("Action"), page())
                 .await
                 .unwrap()
                 .items
@@ -1429,7 +1510,7 @@ mod tests {
             ["s1"]
         );
         assert_eq!(
-            repo.list_series_by_genre(&GenreId("g2".into()), page())
+            repo.list_series_filtered(&genre_filter("Drama"), page())
                 .await
                 .unwrap()
                 .total,

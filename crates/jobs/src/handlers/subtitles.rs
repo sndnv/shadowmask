@@ -271,6 +271,8 @@ mod tests {
             language: Some(LanguageCode(language.into())),
             format: SubtitleFormat::Srt,
             release_name: None,
+            download_count: None,
+            rating: None,
         }
     }
 

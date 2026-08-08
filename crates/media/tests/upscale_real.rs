@@ -1,4 +1,4 @@
-use domain::media::{MediaProbe, UpscaleProvider, UpscaleRequest};
+use domain::media::{MediaProbe, UpscaleProvider, UpscaleSpec};
 use media::probe::FfprobeMediaProbe;
 use media::upscale::FfmpegUpscaler;
 
@@ -35,7 +35,7 @@ async fn upscales_a_low_res_clip_to_the_target_height() {
 
     let output = dir.path().join("out.mp4").to_string_lossy().into_owned();
     let out = FfmpegUpscaler::new()
-        .upscale(&UpscaleRequest {
+        .upscale(&UpscaleSpec {
             source_path: source,
             target_height: 480,
             output_path: output.clone(),

@@ -1,9 +1,10 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use domain::catalog::{
     ArtworkId, ArtworkOwner, ArtworkRef, Collection, CollectionId, Episode, EpisodeId, Movie,
-    MovieDetail, MovieId, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId, TitleKind,
-    TitleRef, Version, VersionDetail, VersionId,
+    MovieDetail, MovieId, Season, SeasonId, Series, SeriesDetail, SeriesId, SortOrder, TitleId,
+    TitleListFilter, TitleRef, TitleSort, Version, VersionDetail, VersionId,
 };
 use domain::common::{LanguageCode, Page, PageRequest, Quality};
 use domain::discovery::{SearchKind, SearchResult};
@@ -58,11 +59,18 @@ impl SqliteCatalogRepo {
     pub async fn insert_movie(&self, movie: Movie) -> Result<(), RepositoryError> {
         let mut tx = self.pool.begin().await.map_err(backend)?;
         sqlx::query(
-            "INSERT OR REPLACE INTO movies \
+            "INSERT INTO movies \
              (id, title, year, overview, runtime_minutes, rating_system, rating_code, \
               added_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, \
-                     COALESCE((SELECT added_at FROM movies WHERE id = ?), ?), ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) \
+             ON CONFLICT(id) DO UPDATE SET \
+                 title = excluded.title, \
+                 year = excluded.year, \
+                 overview = excluded.overview, \
+                 runtime_minutes = excluded.runtime_minutes, \
+                 rating_system = excluded.rating_system, \
+                 rating_code = excluded.rating_code, \
+                 updated_at = excluded.updated_at",
         )
         .bind(movie.id.0.as_str())
         .bind(movie.title.as_str())
@@ -71,7 +79,6 @@ impl SqliteCatalogRepo {
         .bind(movie.runtime_minutes.map(i64::from))
         .bind(movie.content_rating.as_ref().map(|r| r.system.as_str()))
         .bind(movie.content_rating.as_ref().map(|r| r.code.as_str()))
-        .bind(movie.id.0.as_str())
         .bind(to_millis(movie.added_at))
         .bind(to_millis(movie.updated_at))
         .execute(&mut *tx)
@@ -85,10 +92,16 @@ impl SqliteCatalogRepo {
     pub async fn insert_series(&self, series: Series) -> Result<(), RepositoryError> {
         let mut tx = self.pool.begin().await.map_err(backend)?;
         sqlx::query(
-            "INSERT OR REPLACE INTO series \
+            "INSERT INTO series \
              (id, title, year, overview, rating_system, rating_code, added_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, \
-                     COALESCE((SELECT added_at FROM series WHERE id = ?), ?), ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
+             ON CONFLICT(id) DO UPDATE SET \
+                 title = excluded.title, \
+                 year = excluded.year, \
+                 overview = excluded.overview, \
+                 rating_system = excluded.rating_system, \
+                 rating_code = excluded.rating_code, \
+                 updated_at = excluded.updated_at",
         )
         .bind(series.id.0.as_str())
         .bind(series.title.as_str())
@@ -96,7 +109,6 @@ impl SqliteCatalogRepo {
         .bind(series.overview.as_deref())
         .bind(series.content_rating.as_ref().map(|r| r.system.as_str()))
         .bind(series.content_rating.as_ref().map(|r| r.code.as_str()))
-        .bind(series.id.0.as_str())
         .bind(to_millis(series.added_at))
         .bind(to_millis(series.updated_at))
         .execute(&mut *tx)
@@ -115,17 +127,21 @@ impl SqliteCatalogRepo {
 
     pub async fn insert_season(&self, season: Season) -> Result<(), RepositoryError> {
         sqlx::query(
-            "INSERT OR REPLACE INTO seasons \
+            "INSERT INTO seasons \
              (id, series_id, number, title, overview, added_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, \
-                     COALESCE((SELECT added_at FROM seasons WHERE id = ?), ?), ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?) \
+             ON CONFLICT(id) DO UPDATE SET \
+                 series_id = excluded.series_id, \
+                 number = excluded.number, \
+                 title = excluded.title, \
+                 overview = excluded.overview, \
+                 updated_at = excluded.updated_at",
         )
         .bind(season.id.0.as_str())
         .bind(season.series.0.as_str())
         .bind(i64::from(season.number))
         .bind(season.title.as_deref())
         .bind(season.overview.as_deref())
-        .bind(season.id.0.as_str())
         .bind(to_millis(season.added_at))
         .bind(to_millis(season.updated_at))
         .execute(&self.pool)
@@ -137,11 +153,18 @@ impl SqliteCatalogRepo {
     pub async fn insert_episode(&self, episode: Episode) -> Result<(), RepositoryError> {
         let mut tx = self.pool.begin().await.map_err(backend)?;
         sqlx::query(
-            "INSERT OR REPLACE INTO episodes \
+            "INSERT INTO episodes \
              (id, season_id, number, title, overview, runtime_minutes, air_date, \
               added_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, \
-                     COALESCE((SELECT added_at FROM episodes WHERE id = ?), ?), ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) \
+             ON CONFLICT(id) DO UPDATE SET \
+                 season_id = excluded.season_id, \
+                 number = excluded.number, \
+                 title = excluded.title, \
+                 overview = excluded.overview, \
+                 runtime_minutes = excluded.runtime_minutes, \
+                 air_date = excluded.air_date, \
+                 updated_at = excluded.updated_at",
         )
         .bind(episode.id.0.as_str())
         .bind(episode.season.0.as_str())
@@ -150,7 +173,6 @@ impl SqliteCatalogRepo {
         .bind(episode.overview.as_deref())
         .bind(episode.runtime_minutes.map(i64::from))
         .bind(episode.air_date.map(to_millis))
-        .bind(episode.id.0.as_str())
         .bind(to_millis(episode.added_at))
         .bind(to_millis(episode.updated_at))
         .execute(&mut *tx)
@@ -171,13 +193,16 @@ impl SqliteCatalogRepo {
         let mut tx = self.pool.begin().await.map_err(backend)?;
         let id = collection.id.0.as_str();
         sqlx::query(
-            "INSERT OR REPLACE INTO collections (id, name, overview, added_at, updated_at) \
-             VALUES (?, ?, ?, COALESCE((SELECT added_at FROM collections WHERE id = ?), ?), ?)",
+            "INSERT INTO collections (id, name, overview, added_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?) \
+             ON CONFLICT(id) DO UPDATE SET \
+                 name = excluded.name, \
+                 overview = excluded.overview, \
+                 updated_at = excluded.updated_at",
         )
         .bind(id)
         .bind(collection.name.as_str())
         .bind(collection.overview.as_deref())
-        .bind(id)
         .bind(to_millis(collection.added_at))
         .bind(to_millis(collection.updated_at))
         .execute(&mut *tx)
@@ -422,6 +447,87 @@ impl SqliteCatalogRepo {
         Ok(refs)
     }
 
+    async fn load_artwork_batch(
+        &self,
+        title_kind: &str,
+        ids: &[String],
+    ) -> Result<HashMap<String, Vec<ArtworkRef>>, RepositoryError> {
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let placeholders = vec!["?"; ids.len()].join(", ");
+        let art_sql = format!(
+            "SELECT title_id, artwork_id, kind FROM artwork \
+             WHERE title_kind = ? AND title_id IN ({placeholders}) ORDER BY title_id, ordinal"
+        );
+        let mut art_query = sqlx::query(AssertSqlSafe(art_sql)).bind(title_kind);
+        for id in ids {
+            art_query = art_query.bind(id);
+        }
+        let art_rows = art_query.fetch_all(&self.pool).await.map_err(backend)?;
+        let artwork_ids = art_rows
+            .iter()
+            .map(|row| column::<String>(row, "artwork_id"))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut widths: HashMap<String, Vec<u32>> = HashMap::new();
+        if !artwork_ids.is_empty() {
+            let width_placeholders = vec!["?"; artwork_ids.len()].join(", ");
+            let width_sql = format!(
+                "SELECT artwork_id, width FROM artwork_widths \
+                 WHERE artwork_id IN ({width_placeholders}) ORDER BY artwork_id, ordinal"
+            );
+            let mut width_query = sqlx::query(AssertSqlSafe(width_sql));
+            for id in &artwork_ids {
+                width_query = width_query.bind(id);
+            }
+            let width_rows = width_query.fetch_all(&self.pool).await.map_err(backend)?;
+            for row in &width_rows {
+                let artwork_id: String = column(row, "artwork_id")?;
+                let width = column::<i64>(row, "width")? as u32;
+                widths.entry(artwork_id).or_default().push(width);
+            }
+        }
+        let mut out: HashMap<String, Vec<ArtworkRef>> = HashMap::new();
+        for row in &art_rows {
+            let title_id: String = column(row, "title_id")?;
+            let artwork_id: String = column(row, "artwork_id")?;
+            let kind = artwork_kind_from_str(&column::<String>(row, "kind")?)?;
+            let widths = widths.get(&artwork_id).cloned().unwrap_or_default();
+            out.entry(title_id).or_default().push(ArtworkRef {
+                kind,
+                id: ArtworkId(artwork_id),
+                widths,
+            });
+        }
+        Ok(out)
+    }
+
+    async fn hydrate_movies(&self, rows: Vec<SqliteRow>) -> Result<Vec<Movie>, RepositoryError> {
+        let mut items = rows
+            .iter()
+            .map(row_to_movie)
+            .collect::<Result<Vec<_>, _>>()?;
+        let ids: Vec<String> = items.iter().map(|movie| movie.id.0.clone()).collect();
+        let mut artwork = self.load_artwork_batch("movie", &ids).await?;
+        for movie in &mut items {
+            movie.artwork = artwork.remove(&movie.id.0).unwrap_or_default();
+        }
+        Ok(items)
+    }
+
+    async fn hydrate_series(&self, rows: Vec<SqliteRow>) -> Result<Vec<Series>, RepositoryError> {
+        let mut items = rows
+            .iter()
+            .map(row_to_series)
+            .collect::<Result<Vec<_>, _>>()?;
+        let ids: Vec<String> = items.iter().map(|series| series.id.0.clone()).collect();
+        let mut artwork = self.load_artwork_batch("series", &ids).await?;
+        for series in &mut items {
+            series.artwork = artwork.remove(&series.id.0).unwrap_or_default();
+        }
+        Ok(items)
+    }
+
     async fn load_video(&self, version_id: &str) -> Result<Vec<VideoTrack>, RepositoryError> {
         let rows = sqlx::query("SELECT * FROM video_tracks WHERE version_id = ? ORDER BY ordinal")
             .bind(version_id)
@@ -591,6 +697,7 @@ impl SqliteCatalogRepo {
                     person: Person {
                         id: PersonId(column(row, "person_id")?),
                         name: column(row, "person_name")?,
+                        ..Person::default()
                     },
                     role: credit_role_from_str(&column::<String>(row, "role")?)?,
                     character: column(row, "character")?,
@@ -843,11 +950,29 @@ impl SearchIndex for SqliteCatalogRepo {
                     candidates.push(SearchResult::Person(Person {
                         id: PersonId(column(row, "id")?),
                         name: column(row, "name")?,
+                        ..Person::default()
                     }));
                 }
             }
         }
-        Ok(domain::discovery::search(&candidates, query, types, page))
+        let mut results = domain::discovery::search(&candidates, query, types, page);
+        for result in results.items.iter_mut() {
+            match result {
+                SearchResult::Movie(movie) => {
+                    movie.artwork = self.load_artwork("movie", &movie.id.0).await?;
+                }
+                SearchResult::Series(series) => {
+                    series.artwork = self.load_artwork("series", &series.id.0).await?;
+                }
+                SearchResult::Episode(episode) => {
+                    episode.artwork = self.load_artwork("episode", &episode.id.0).await?;
+                }
+                SearchResult::Person(person) => {
+                    person.artwork = self.load_artwork("person", &person.id.0).await?;
+                }
+            }
+        }
+        Ok(results)
     }
 
     async fn rebuild(&self) -> Result<(), RepositoryError> {
@@ -1055,11 +1180,22 @@ where
     E: Executor<'e, Database = Sqlite>,
 {
     sqlx::query(
-        "INSERT OR REPLACE INTO versions \
+        "INSERT INTO versions \
          (id, title_kind, title_id, library_id, quality, container, path, size_bytes, \
           duration_ms, edition, available, added_at, updated_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
-                 COALESCE((SELECT added_at FROM versions WHERE id = ?), ?), ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+         ON CONFLICT(id) DO UPDATE SET \
+             title_kind = excluded.title_kind, \
+             title_id = excluded.title_id, \
+             library_id = excluded.library_id, \
+             quality = excluded.quality, \
+             container = excluded.container, \
+             path = excluded.path, \
+             size_bytes = excluded.size_bytes, \
+             duration_ms = excluded.duration_ms, \
+             edition = excluded.edition, \
+             available = excluded.available, \
+             updated_at = excluded.updated_at",
     )
     .bind(version.id.0.as_str())
     .bind(title_kind(&version.title))
@@ -1072,7 +1208,6 @@ where
     .bind(version.duration_ms as i64)
     .bind(version.edition.as_deref())
     .bind(version.available)
-    .bind(version.id.0.as_str())
     .bind(to_millis(version.added_at))
     .bind(to_millis(version.updated_at))
     .execute(executor)
@@ -1086,6 +1221,131 @@ async fn count_all(pool: &SqlitePool, query: &'static str) -> Result<u64, Reposi
     Ok(column::<i64>(&row, "n")? as u64)
 }
 
+async fn count_filtered(
+    pool: &SqlitePool,
+    from: &str,
+    where_sql: &str,
+    binds: &[String],
+) -> Result<u64, RepositoryError> {
+    let sql = format!("SELECT COUNT(*) AS n FROM {from}{where_sql}");
+    let mut query = sqlx::query(AssertSqlSafe(sql));
+    for bind in binds {
+        query = query.bind(bind);
+    }
+    let row = query.fetch_one(pool).await.map_err(backend)?;
+    Ok(column::<i64>(&row, "n")? as u64)
+}
+
+fn order_by_sql(alias: &str, sort: TitleSort, order: SortOrder) -> String {
+    let column = match sort {
+        TitleSort::AddedAt => "added_at",
+        TitleSort::Title => "title",
+        TitleSort::Year => "year",
+    };
+    let direction = match order {
+        SortOrder::Asc => "ASC",
+        SortOrder::Desc => "DESC",
+    };
+    format!("ORDER BY {alias}.{column} {direction}, {alias}.id ASC")
+}
+
+fn rating_clause(
+    alias: &str,
+    blocked: &[ContentRating],
+    binds: &mut Vec<String>,
+) -> Option<String> {
+    if blocked.is_empty() {
+        return None;
+    }
+    let placeholders = vec!["?"; blocked.len()].join(", ");
+    for rating in blocked {
+        binds.push(format!(
+            "{}::{}",
+            rating.system.to_lowercase(),
+            rating.code.to_lowercase()
+        ));
+    }
+    Some(format!(
+        "({alias}.rating_system IS NULL OR \
+         (LOWER({alias}.rating_system) || '::' || LOWER({alias}.rating_code)) NOT IN ({placeholders}))"
+    ))
+}
+
+fn genre_clauses(
+    kind: &str,
+    alias: &str,
+    genres: &[String],
+    binds: &mut Vec<String>,
+) -> Vec<String> {
+    genres
+        .iter()
+        .map(|name| {
+            binds.push(name.clone());
+            format!(
+                "EXISTS (SELECT 1 FROM title_genres tg \
+                 JOIN genres g ON g.id = tg.genre_id \
+                 WHERE tg.title_kind = '{kind}' AND tg.title_id = {alias}.id AND g.name = ?)"
+            )
+        })
+        .collect()
+}
+
+fn library_clause(scope: &str, binds: &mut Vec<String>, libraries: &[LibraryId]) -> String {
+    if libraries.is_empty() {
+        return "0 = 1".to_owned();
+    }
+    let placeholders = vec!["?"; libraries.len()].join(", ");
+    for library in libraries {
+        binds.push(library.0.clone());
+    }
+    format!("EXISTS ({scope} AND v.library_id IN ({placeholders}))")
+}
+
+fn where_sql(clauses: Vec<String>) -> String {
+    if clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", clauses.join(" AND "))
+    }
+}
+
+fn movie_filter_where(filter: &TitleListFilter) -> (String, Vec<String>) {
+    let mut binds = Vec::new();
+    let mut clauses = Vec::new();
+    clauses.extend(genre_clauses("movie", "m", &filter.genres, &mut binds));
+    if let Some(clause) = rating_clause("m", &filter.blocked_ratings, &mut binds) {
+        clauses.push(clause);
+    }
+    if let Some(libraries) = &filter.libraries {
+        clauses.push(library_clause(
+            "SELECT 1 FROM versions v WHERE v.title_kind = 'movie' AND v.title_id = m.id",
+            &mut binds,
+            libraries,
+        ));
+    }
+    (where_sql(clauses), binds)
+}
+
+fn series_filter_where(filter: &TitleListFilter) -> (String, Vec<String>) {
+    let mut binds = Vec::new();
+    let mut clauses = Vec::new();
+    clauses.extend(genre_clauses("series", "s", &filter.genres, &mut binds));
+    if let Some(clause) = rating_clause("s", &filter.blocked_ratings, &mut binds) {
+        clauses.push(clause);
+    }
+    if let Some(libraries) = &filter.libraries {
+        clauses.push(library_clause(
+            "SELECT 1 FROM versions v \
+             JOIN episodes e ON e.id = v.title_id \
+             JOIN seasons se ON se.id = e.season_id \
+             WHERE v.title_kind = 'episode' AND se.series_id = s.id",
+            &mut binds,
+            libraries,
+        ));
+    }
+    (where_sql(clauses), binds)
+}
+
 impl CatalogRepository for SqliteCatalogRepo {
     async fn list_movies(&self, page: PageRequest) -> Result<Page<Movie>, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "list_movies");
@@ -1097,13 +1357,7 @@ impl CatalogRepository for SqliteCatalogRepo {
                 .fetch_all(&self.pool)
                 .await
                 .map_err(backend)?;
-        let mut items = rows
-            .iter()
-            .map(row_to_movie)
-            .collect::<Result<Vec<_>, _>>()?;
-        for movie in &mut items {
-            movie.artwork = self.load_artwork("movie", &movie.id.0).await?;
-        }
+        let items = self.hydrate_movies(rows).await?;
         Ok(Page {
             items,
             total,
@@ -1135,13 +1389,7 @@ impl CatalogRepository for SqliteCatalogRepo {
                 .fetch_all(&self.pool)
                 .await
                 .map_err(backend)?;
-        let mut items = rows
-            .iter()
-            .map(row_to_series)
-            .collect::<Result<Vec<_>, _>>()?;
-        for series in &mut items {
-            series.artwork = self.load_artwork("series", &series.id.0).await?;
-        }
+        let items = self.hydrate_series(rows).await?;
         Ok(Page {
             items,
             total,
@@ -1174,8 +1422,10 @@ impl CatalogRepository for SqliteCatalogRepo {
             .iter()
             .map(row_to_season)
             .collect::<Result<Vec<_>, RepositoryError>>()?;
+        let ids: Vec<String> = seasons.iter().map(|season| season.id.0.clone()).collect();
+        let mut artwork = self.load_artwork_batch("season", &ids).await?;
         for season in &mut seasons {
-            season.artwork = self.load_artwork("season", &season.id.0).await?;
+            season.artwork = artwork.remove(&season.id.0).unwrap_or_default();
         }
         Ok(seasons)
     }
@@ -1191,8 +1441,52 @@ impl CatalogRepository for SqliteCatalogRepo {
             .iter()
             .map(row_to_episode)
             .collect::<Result<Vec<_>, RepositoryError>>()?;
+        let ids: Vec<String> = episodes
+            .iter()
+            .map(|episode| episode.id.0.clone())
+            .collect();
+        let mut artwork = self.load_artwork_batch("episode", &ids).await?;
         for episode in &mut episodes {
-            episode.artwork = self.load_artwork("episode", &episode.id.0).await?;
+            episode.artwork = artwork.remove(&episode.id.0).unwrap_or_default();
+        }
+        Ok(episodes)
+    }
+
+    async fn list_all_seasons(&self) -> Result<Vec<Season>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "list_all_seasons");
+        let rows = sqlx::query("SELECT * FROM seasons ORDER BY series_id, number, id")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(backend)?;
+        let mut seasons = rows
+            .iter()
+            .map(row_to_season)
+            .collect::<Result<Vec<_>, RepositoryError>>()?;
+        let ids: Vec<String> = seasons.iter().map(|season| season.id.0.clone()).collect();
+        let mut artwork = self.load_artwork_batch("season", &ids).await?;
+        for season in &mut seasons {
+            season.artwork = artwork.remove(&season.id.0).unwrap_or_default();
+        }
+        Ok(seasons)
+    }
+
+    async fn list_all_episodes(&self) -> Result<Vec<Episode>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "list_all_episodes");
+        let rows = sqlx::query("SELECT * FROM episodes ORDER BY season_id, number, id")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(backend)?;
+        let mut episodes = rows
+            .iter()
+            .map(row_to_episode)
+            .collect::<Result<Vec<_>, RepositoryError>>()?;
+        let ids: Vec<String> = episodes
+            .iter()
+            .map(|episode| episode.id.0.clone())
+            .collect();
+        let mut artwork = self.load_artwork_batch("episode", &ids).await?;
+        for episode in &mut episodes {
+            episode.artwork = artwork.remove(&episode.id.0).unwrap_or_default();
         }
         Ok(episodes)
     }
@@ -1689,13 +1983,33 @@ impl CatalogRepository for SqliteCatalogRepo {
 
     async fn upsert_person(&self, person: Person) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("catalog", "upsert_person");
+        let also_known_as = if person.also_known_as.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_string(&person.also_known_as).map_err(backend)?)
+        };
         let mut tx = self.pool.begin().await.map_err(backend)?;
         sqlx::query(
-            "INSERT INTO people (id, name) VALUES (?, ?) \
-             ON CONFLICT(id) DO UPDATE SET name = excluded.name",
+            "INSERT INTO people \
+                 (id, name, biography, birthday, deathday, place_of_birth, also_known_as, external_id) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
+             ON CONFLICT(id) DO UPDATE SET \
+                 name = excluded.name, \
+                 biography = COALESCE(excluded.biography, biography), \
+                 birthday = COALESCE(excluded.birthday, birthday), \
+                 deathday = COALESCE(excluded.deathday, deathday), \
+                 place_of_birth = COALESCE(excluded.place_of_birth, place_of_birth), \
+                 also_known_as = COALESCE(excluded.also_known_as, also_known_as), \
+                 external_id = COALESCE(excluded.external_id, external_id)",
         )
         .bind(person.id.0.as_str())
         .bind(person.name.as_str())
+        .bind(person.biography.as_deref())
+        .bind(person.birthday.as_deref())
+        .bind(person.deathday.as_deref())
+        .bind(person.place_of_birth.as_deref())
+        .bind(also_known_as.as_deref())
+        .bind(person.external_id.as_deref())
         .execute(&mut *tx)
         .await
         .map_err(backend)?;
@@ -1712,15 +2026,30 @@ impl CatalogRepository for SqliteCatalogRepo {
 
     async fn get_person(&self, id: &PersonId) -> Result<Option<Person>, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "get_person");
-        let row = sqlx::query("SELECT id, name FROM people WHERE id = ?")
-            .bind(id.0.as_str())
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(backend)?;
+        let row = sqlx::query(
+            "SELECT id, name, biography, birthday, deathday, place_of_birth, also_known_as, \
+                 external_id FROM people WHERE id = ?",
+        )
+        .bind(id.0.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(backend)?;
         let Some(row) = row else { return Ok(None) };
+        let person_id: String = column(&row, "id")?;
+        let also_known_as = column::<Option<String>>(&row, "also_known_as")?
+            .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+            .unwrap_or_default();
+        let artwork = self.load_artwork("person", &person_id).await?;
         Ok(Some(Person {
-            id: PersonId(column(&row, "id")?),
+            id: PersonId(person_id),
             name: column(&row, "name")?,
+            biography: column(&row, "biography")?,
+            birthday: column(&row, "birthday")?,
+            deathday: column(&row, "deathday")?,
+            place_of_birth: column(&row, "place_of_birth")?,
+            also_known_as,
+            external_id: column(&row, "external_id")?,
+            artwork,
         }))
     }
 
@@ -1864,13 +2193,21 @@ impl CatalogRepository for SqliteCatalogRepo {
             return Ok(None);
         };
         let tid = id.0.as_str();
+        let (genres, credits, studios, ratings, external_ids, extras) = tokio::try_join!(
+            self.load_genres("movie", tid),
+            self.load_credits("movie", tid),
+            self.load_studios("movie", tid),
+            self.load_ratings("movie", tid),
+            self.load_external_ids("movie", tid),
+            self.load_extras("movie", tid),
+        )?;
         Ok(Some(MovieDetail {
-            genres: self.load_genres("movie", tid).await?,
-            credits: self.load_credits("movie", tid).await?,
-            studios: self.load_studios("movie", tid).await?,
-            ratings: self.load_ratings("movie", tid).await?,
-            external_ids: self.load_external_ids("movie", tid).await?,
-            extras: self.load_extras("movie", tid).await?,
+            genres,
+            credits,
+            studios,
+            ratings,
+            external_ids,
+            extras,
             movie,
         }))
     }
@@ -1881,13 +2218,21 @@ impl CatalogRepository for SqliteCatalogRepo {
             return Ok(None);
         };
         let tid = id.0.as_str();
+        let (genres, credits, studios, ratings, external_ids, extras) = tokio::try_join!(
+            self.load_genres("series", tid),
+            self.load_credits("series", tid),
+            self.load_studios("series", tid),
+            self.load_ratings("series", tid),
+            self.load_external_ids("series", tid),
+            self.load_extras("series", tid),
+        )?;
         Ok(Some(SeriesDetail {
-            genres: self.load_genres("series", tid).await?,
-            credits: self.load_credits("series", tid).await?,
-            studios: self.load_studios("series", tid).await?,
-            ratings: self.load_ratings("series", tid).await?,
-            external_ids: self.load_external_ids("series", tid).await?,
-            extras: self.load_extras("series", tid).await?,
+            genres,
+            credits,
+            studios,
+            ratings,
+            external_ids,
+            extras,
             series,
         }))
     }
@@ -1934,39 +2279,29 @@ impl CatalogRepository for SqliteCatalogRepo {
             .collect()
     }
 
-    async fn list_movies_by_genre(
+    async fn list_movies_filtered(
         &self,
-        genre: &GenreId,
+        filter: &TitleListFilter,
         page: PageRequest,
     ) -> Result<Page<Movie>, RepositoryError> {
-        let _op = DbOpGuard::new("catalog", "list_movies_by_genre");
-        let count_row = sqlx::query(
-            "SELECT COUNT(*) AS n FROM movies m JOIN title_genres tg ON tg.title_id = m.id \
-             WHERE tg.title_kind = 'movie' AND tg.genre_id = ?",
-        )
-        .bind(genre.0.as_str())
-        .fetch_one(&self.pool)
-        .await
-        .map_err(backend)?;
-        let total = column::<i64>(&count_row, "n")? as u64;
-        let rows = sqlx::query(
-            "SELECT m.* FROM movies m JOIN title_genres tg ON tg.title_id = m.id \
-             WHERE tg.title_kind = 'movie' AND tg.genre_id = ? \
-             ORDER BY m.added_at ASC, m.id ASC LIMIT ? OFFSET ?",
-        )
-        .bind(genre.0.as_str())
-        .bind(i64::from(page.limit))
-        .bind(i64::from(page.offset))
-        .fetch_all(&self.pool)
-        .await
-        .map_err(backend)?;
-        let mut items = rows
-            .iter()
-            .map(row_to_movie)
-            .collect::<Result<Vec<_>, _>>()?;
-        for movie in &mut items {
-            movie.artwork = self.load_artwork("movie", &movie.id.0).await?;
+        let _op = DbOpGuard::new("catalog", "list_movies_filtered");
+        let (where_sql, binds) = movie_filter_where(filter);
+        let total = count_filtered(&self.pool, "movies m", &where_sql, &binds).await?;
+        let list_sql = format!(
+            "SELECT m.* FROM movies m{where_sql} {} LIMIT ? OFFSET ?",
+            order_by_sql("m", filter.sort, filter.order)
+        );
+        let mut list_query = sqlx::query(AssertSqlSafe(list_sql));
+        for bind in &binds {
+            list_query = list_query.bind(bind);
         }
+        let rows = list_query
+            .bind(i64::from(page.limit))
+            .bind(i64::from(page.offset))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(backend)?;
+        let items = self.hydrate_movies(rows).await?;
         Ok(Page {
             items,
             total,
@@ -1975,74 +2310,35 @@ impl CatalogRepository for SqliteCatalogRepo {
         })
     }
 
-    async fn list_series_by_genre(
+    async fn list_series_filtered(
         &self,
-        genre: &GenreId,
+        filter: &TitleListFilter,
         page: PageRequest,
     ) -> Result<Page<Series>, RepositoryError> {
-        let _op = DbOpGuard::new("catalog", "list_series_by_genre");
-        let count_row = sqlx::query(
-            "SELECT COUNT(*) AS n FROM series e JOIN title_genres tg ON tg.title_id = e.id \
-             WHERE tg.title_kind = 'series' AND tg.genre_id = ?",
-        )
-        .bind(genre.0.as_str())
-        .fetch_one(&self.pool)
-        .await
-        .map_err(backend)?;
-        let total = column::<i64>(&count_row, "n")? as u64;
-        let rows = sqlx::query(
-            "SELECT e.* FROM series e JOIN title_genres tg ON tg.title_id = e.id \
-             WHERE tg.title_kind = 'series' AND tg.genre_id = ? \
-             ORDER BY e.added_at ASC, e.id ASC LIMIT ? OFFSET ?",
-        )
-        .bind(genre.0.as_str())
-        .bind(i64::from(page.limit))
-        .bind(i64::from(page.offset))
-        .fetch_all(&self.pool)
-        .await
-        .map_err(backend)?;
-        let mut items = rows
-            .iter()
-            .map(row_to_series)
-            .collect::<Result<Vec<_>, _>>()?;
-        for series in &mut items {
-            series.artwork = self.load_artwork("series", &series.id.0).await?;
+        let _op = DbOpGuard::new("catalog", "list_series_filtered");
+        let (where_sql, binds) = series_filter_where(filter);
+        let total = count_filtered(&self.pool, "series s", &where_sql, &binds).await?;
+        let list_sql = format!(
+            "SELECT s.* FROM series s{where_sql} {} LIMIT ? OFFSET ?",
+            order_by_sql("s", filter.sort, filter.order)
+        );
+        let mut list_query = sqlx::query(AssertSqlSafe(list_sql));
+        for bind in &binds {
+            list_query = list_query.bind(bind);
         }
+        let rows = list_query
+            .bind(i64::from(page.limit))
+            .bind(i64::from(page.offset))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(backend)?;
+        let items = self.hydrate_series(rows).await?;
         Ok(Page {
             items,
             total,
             offset: page.offset,
             limit: page.limit,
         })
-    }
-
-    async fn titles_in_library(
-        &self,
-        kind: TitleKind,
-        library: &LibraryId,
-    ) -> Result<Vec<String>, RepositoryError> {
-        let _op = DbOpGuard::new("catalog", "titles_in_library");
-        let rows = match kind {
-            TitleKind::Movie => sqlx::query(
-                "SELECT DISTINCT title_id AS value FROM versions \
-                 WHERE title_kind = 'movie' AND library_id = ? ORDER BY title_id",
-            )
-            .bind(library.0.as_str())
-            .fetch_all(&self.pool)
-            .await
-            .map_err(backend)?,
-            TitleKind::Series => sqlx::query(
-                "SELECT DISTINCT se.series_id AS value FROM versions v \
-                 JOIN episodes e ON e.id = v.title_id \
-                 JOIN seasons se ON se.id = e.season_id \
-                 WHERE v.title_kind = 'episode' AND v.library_id = ? ORDER BY se.series_id",
-            )
-            .bind(library.0.as_str())
-            .fetch_all(&self.pool)
-            .await
-            .map_err(backend)?,
-        };
-        rows.iter().map(|row| column(row, "value")).collect()
     }
 }
 

@@ -1,5 +1,5 @@
 use domain::error::TranslationError;
-use domain::media::{FetchedSubtitle, TranslationProvider, TranslationRequest};
+use domain::media::{FetchedSubtitle, TranslationProvider, TranslationSpec};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DisabledTranslationProvider;
@@ -7,7 +7,7 @@ pub struct DisabledTranslationProvider;
 impl TranslationProvider for DisabledTranslationProvider {
     async fn translate(
         &self,
-        _request: &TranslationRequest,
+        _request: &TranslationSpec,
     ) -> Result<FetchedSubtitle, TranslationError> {
         Err(TranslationError::Unsupported(
             "translation feature not built".to_owned(),
@@ -24,7 +24,7 @@ mod tests {
 
     #[tokio::test]
     async fn translate_is_unsupported() {
-        let request = TranslationRequest {
+        let request = TranslationSpec {
             content: "WEBVTT\n".to_owned(),
             format: SubtitleFormat::Vtt,
             source_language: Some(LanguageCode("en".into())),

@@ -38,30 +38,37 @@
               { label: season.title || "Season " + season.number },
             ]),
           );
-          const seasonMeta = [];
-          if (season.added_at) seasonMeta.push("Added " + sm.time(season.added_at));
-          if (season.updated_at) seasonMeta.push("Updated " + sm.time(season.updated_at));
+          const facts = sm.el("dl");
+          const addFact = (key, value) => {
+            if (!value) return;
+            facts.appendChild(sm.el("dt", { text: key }));
+            facts.appendChild(sm.el("dd", { text: value }));
+          };
+          addFact("Added", sm.time(season.added_at));
+          addFact("Updated", sm.time(season.updated_at));
           const me = await sm.self().catch(() => null);
           const onDeck = await sm.onDeckEpisode(me && me.id, [season.id]);
           const nextEp =
             onDeck ||
             episodes.slice().sort((a, b) => (a.number || 0) - (b.number || 0))[0] ||
             null;
-          const posterNode = sm.poster(season.artwork, 480);
+          const seasonTitle = season.title || "Season " + season.number;
+          const posterNode = sm.poster(season.artwork, 480, seasonTitle);
           const posterEl = nextEp
             ? sm.el(
                 "a",
                 {
                   href: sm.href.episode(nextEp.id, nextEp.season_id || season.id, season.series_id),
                   title: "Play next episode",
+                  "aria-label": "Play next episode",
                 },
                 posterNode,
               )
             : posterNode;
           const info = sm.el("div", { class: "sm-detail-info" }, [
             sm.el("h1", { text: season.title || "Season " + season.number }),
+            facts,
             season.overview ? sm.el("p", { text: season.overview }) : null,
-            seasonMeta.length ? sm.el("p", { text: seasonMeta.join(", ") }) : null,
           ]);
           main.appendChild(sm.el("div", { class: "sm-detail" }, [posterEl, info]));
           main.appendChild(await sm.watchedControls("season", season.id));
@@ -76,9 +83,10 @@
                 href: sm.href.episode(e.id, e.season_id, season.series_id),
                 artwork: e.artwork,
                 title: e.number + ". " + e.title,
-                subtitle: e.air_date || null,
+                subtitle: e.air_date ? sm.date(e.air_date) : null,
                 ref: { type: "episode", id: e.id },
               })),
+              { landscape: true },
             ),
           );
         } catch (err) {

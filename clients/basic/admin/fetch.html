@@ -7,7 +7,7 @@
     <title>Shadowmask (basic) - Fetch content</title>
   </head>
   <body>
-    <h1>Fetch content</h1>
+    <h1 class="sm-visually-hidden">Fetch content</h1>
     <nav id="nav"></nav>
     <p class="sm-crumbs"><a href="index.html">Admin</a> / Fetch content</p>
     <main id="main">Loading&hellip;</main>
@@ -29,13 +29,6 @@
             return;
           }
           main.textContent = "";
-          main.appendChild(
-            sm.el("p", {
-              text:
-                "Pull a single video from an external site into an external library, " +
-                "then run the usual enrichment. Requires content fetch to be enabled.",
-            }),
-          );
           renderForm(main);
           await loadLibraries();
         } catch (err) {
@@ -52,7 +45,7 @@
             sm.el("option", { value: "tv" }, "tv"),
           ]),
           title: sm.el("input", { autocomplete: "off" }),
-          imdb: sm.el("input", { autocomplete: "off", placeholder: "tt1234567" }),
+          externalId: sm.el("input", { autocomplete: "off", placeholder: "603 or tt0133093" }),
           season: sm.el("input", { type: "number", min: "0" }),
           episode: sm.el("input", { type: "number", min: "0" }),
         };
@@ -72,7 +65,7 @@
           sm.el("br"),
           sm.el("label", null, ["Title ", fields.title]),
           " ",
-          sm.el("label", null, ["IMDb id (optional) ", fields.imdb]),
+          sm.el("label", null, ["TMDB or IMDb id (optional) ", fields.externalId]),
           sm.el("br"),
           tvOnly,
           sm.el("button", { type: "submit" }, "Fetch"),
@@ -120,7 +113,7 @@
           library_id: fields.library.value,
           kind: fields.kind.value,
           title: fields.title.value.trim(),
-          imdb_id: fields.imdb.value.trim() ? fields.imdb.value.trim() : null,
+          external_id: fields.externalId.value.trim() ? fields.externalId.value.trim() : null,
           season: isTv ? numberOrNull(fields.season.value) : null,
           episode: isTv ? numberOrNull(fields.episode.value) : null,
         };
@@ -132,12 +125,12 @@
           formStatus.textContent = "Season and episode are required for tv.";
           return;
         }
-        formStatus.textContent = "Queuing...";
+        formStatus.textContent = "";
         try {
           await sm.json("/api/v1/admin/fetch", { method: "POST", body: JSON.stringify(body) });
-          formStatus.textContent = "Queued. Track it under Jobs.";
+          sm.toast("Fetch queued. Track it under Jobs.", "ok");
         } catch (err) {
-          formStatus.textContent = "Fetch failed (is content fetch enabled?).";
+          sm.toast(err.message || "Fetch failed (is content fetch enabled?).", "danger");
         }
       }
     </script>

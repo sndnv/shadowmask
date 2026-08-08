@@ -8,7 +8,27 @@ expression: value
       {
         "added_at": "2023-11-14T22:13:24Z",
         "air_date": "2023-11-14T22:13:23Z",
-        "artwork": {},
+        "artwork": {
+          "backdrops": [
+            {
+              "base": "/images/e1-backdrop",
+              "widths": [
+                480,
+                960
+              ]
+            }
+          ],
+          "posters": [
+            {
+              "base": "/images/e1-poster",
+              "widths": [
+                180,
+                480,
+                960
+              ]
+            }
+          ]
+        },
         "id": "e1",
         "number": 1,
         "overview": null,
@@ -20,7 +40,27 @@ expression: value
       },
       {
         "added_at": "2023-11-14T22:13:21Z",
-        "artwork": {},
+        "artwork": {
+          "backdrops": [
+            {
+              "base": "/images/m1-backdrop",
+              "widths": [
+                480,
+                960
+              ]
+            }
+          ],
+          "posters": [
+            {
+              "base": "/images/m1-poster",
+              "widths": [
+                180,
+                480,
+                960
+              ]
+            }
+          ]
+        },
         "content_rating": {
           "code": "PG-13",
           "system": "MPAA"
@@ -35,7 +75,27 @@ expression: value
       },
       {
         "added_at": "2023-11-14T22:13:22Z",
-        "artwork": {},
+        "artwork": {
+          "backdrops": [
+            {
+              "base": "/images/s1-backdrop",
+              "widths": [
+                480,
+                960
+              ]
+            }
+          ],
+          "posters": [
+            {
+              "base": "/images/s1-poster",
+              "widths": [
+                180,
+                480,
+                960
+              ]
+            }
+          ]
+        },
         "content_rating": {
           "code": "TV-14",
           "system": "TV"

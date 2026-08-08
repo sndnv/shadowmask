@@ -2,7 +2,7 @@ use crate::common::LanguageCode;
 use crate::media::SubtitleFormat;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TranslationRequest {
+pub struct TranslationSpec {
     pub content: String,
     pub format: SubtitleFormat,
     pub source_language: Option<LanguageCode>,

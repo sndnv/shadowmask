@@ -11,26 +11,24 @@ pub struct ImageSetDto {
 
 #[derive(Debug, Default, Serialize)]
 pub struct ArtworkDto {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub poster: Option<ImageSetDto>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub backdrop: Option<ImageSetDto>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub posters: Vec<ImageSetDto>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub backdrops: Vec<ImageSetDto>,
 }
 
 impl ArtworkDto {
     pub fn from_refs(refs: Vec<ArtworkRef>) -> Self {
         let mut artwork = ArtworkDto::default();
         for art in refs {
-            let slot = match art.kind {
-                ArtworkKind::Poster => &mut artwork.poster,
-                ArtworkKind::Backdrop => &mut artwork.backdrop,
-                _ => continue,
+            let set = ImageSetDto {
+                base: format!("/images/{}", art.id.0),
+                widths: art.widths,
             };
-            if slot.is_none() {
-                *slot = Some(ImageSetDto {
-                    base: format!("/images/{}", art.id.0),
-                    widths: art.widths,
-                });
+            match art.kind {
+                ArtworkKind::Poster => artwork.posters.push(set),
+                ArtworkKind::Backdrop => artwork.backdrops.push(set),
+                _ => {}
             }
         }
         artwork
@@ -54,13 +52,13 @@ mod tests {
     #[test]
     fn empty_refs_serialize_to_empty_object() {
         let dto = ArtworkDto::from_refs(Vec::new());
-        assert!(dto.poster.is_none());
-        assert!(dto.backdrop.is_none());
+        assert!(dto.posters.is_empty());
+        assert!(dto.backdrops.is_empty());
         assert_eq!(serde_json::to_value(&dto).unwrap(), json!({}));
     }
 
     #[test]
-    fn poster_and_backdrop_are_mapped_to_image_sets() {
+    fn posters_and_backdrops_are_mapped_to_image_sets() {
         let dto = ArtworkDto::from_refs(vec![
             art("p1", ArtworkKind::Poster, vec![180, 480, 960]),
             art("b1", ArtworkKind::Backdrop, vec![480, 960]),
@@ -68,8 +66,8 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&dto).unwrap(),
             json!({
-                "poster": {"base": "/images/p1", "widths": [180, 480, 960]},
-                "backdrop": {"base": "/images/b1", "widths": [480, 960]},
+                "posters": [{"base": "/images/p1", "widths": [180, 480, 960]}],
+                "backdrops": [{"base": "/images/b1", "widths": [480, 960]}],
             })
         );
     }
@@ -81,19 +79,19 @@ mod tests {
             art("bn1", ArtworkKind::Banner, vec![480]),
             art("ca1", ArtworkKind::ClearArt, vec![480]),
         ]);
-        assert!(dto.poster.is_none());
-        assert!(dto.backdrop.is_none());
+        assert!(dto.posters.is_empty());
+        assert!(dto.backdrops.is_empty());
     }
 
     #[test]
-    fn first_ref_of_each_kind_wins() {
+    fn all_refs_of_each_kind_are_collected_in_order() {
         let dto = ArtworkDto::from_refs(vec![
             art("p1", ArtworkKind::Poster, vec![180]),
             art("p2", ArtworkKind::Poster, vec![480]),
         ]);
-        let poster = dto.poster.unwrap();
-        assert_eq!(poster.base, "/images/p1");
-        assert_eq!(poster.widths, vec![180]);
+        assert_eq!(dto.posters.len(), 2);
+        assert_eq!(dto.posters[0].base, "/images/p1");
+        assert_eq!(dto.posters[1].base, "/images/p2");
     }
 
     #[test]
@@ -101,7 +99,7 @@ mod tests {
         let dto = ArtworkDto::from_refs(vec![art("p1", ArtworkKind::Poster, vec![180])]);
         assert_eq!(
             serde_json::to_value(&dto).unwrap(),
-            json!({"poster": {"base": "/images/p1", "widths": [180]}})
+            json!({"posters": [{"base": "/images/p1", "widths": [180]}]})
         );
     }
 }

@@ -16,19 +16,19 @@ struct Cue {
 impl SubtitleCombiner for SubtitleMerger {
     fn combine(
         &self,
-        primary: &FetchedSubtitle,
-        secondary: &FetchedSubtitle,
+        top: &FetchedSubtitle,
+        bottom: &FetchedSubtitle,
     ) -> Result<FetchedSubtitle, SubtitleError> {
-        let primary_cues = parse(primary)?;
-        let secondary_cues = parse(secondary)?;
+        let top_cues = parse(top)?;
+        let bottom_cues = parse(bottom)?;
 
-        let segments: Vec<Segment> = primary_cues
+        let segments: Vec<Segment> = top_cues
             .iter()
             .map(|cue| {
                 let mut lines = cue.lines.clone();
-                for secondary in &secondary_cues {
-                    if secondary.start_ms < cue.end_ms && secondary.end_ms > cue.start_ms {
-                        lines.extend(secondary.lines.iter().cloned());
+                for bottom in &bottom_cues {
+                    if bottom.start_ms < cue.end_ms && bottom.end_ms > cue.start_ms {
+                        lines.extend(bottom.lines.iter().map(|line| format!("<i>{line}</i>")));
                     }
                 }
                 Segment {
@@ -129,80 +129,80 @@ mod tests {
     }
 
     #[test]
-    fn overlapping_secondary_cue_stacks_as_extra_lines() {
-        let primary = vtt("WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nHello\n");
-        let secondary = vtt("WEBVTT\n\n00:00:00.500 --> 00:00:01.500\nBonjour\n");
+    fn overlapping_bottom_cue_stacks_as_italic_lines() {
+        let top = vtt("WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nHello\n");
+        let bottom = vtt("WEBVTT\n\n00:00:00.500 --> 00:00:01.500\nBonjour\n");
 
-        let combined = SubtitleMerger.combine(&primary, &secondary).unwrap();
+        let combined = SubtitleMerger.combine(&top, &bottom).unwrap();
 
         assert_eq!(combined.format, SubtitleFormat::Vtt);
         assert!(combined.content.contains("00:00:00.000 --> 00:00:02.000"));
-        assert!(combined.content.contains("Hello\nBonjour"));
+        assert!(combined.content.contains("Hello\n<i>Bonjour</i>"));
     }
 
     #[test]
-    fn disjoint_primary_cue_stays_single_line() {
-        let primary = vtt("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello\n");
-        let secondary = vtt("WEBVTT\n\n00:00:05.000 --> 00:00:06.000\nBonjour\n");
+    fn disjoint_bottom_cue_is_dropped() {
+        let top = vtt("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello\n");
+        let bottom = vtt("WEBVTT\n\n00:00:05.000 --> 00:00:06.000\nBonjour\n");
 
-        let combined = SubtitleMerger.combine(&primary, &secondary).unwrap();
+        let combined = SubtitleMerger.combine(&top, &bottom).unwrap();
 
         assert!(combined.content.contains("Hello"));
         assert!(!combined.content.contains("Bonjour"));
     }
 
     #[test]
-    fn empty_primary_is_header_only() {
-        let primary = vtt("WEBVTT\n\n");
-        let secondary = vtt("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nBonjour\n");
+    fn empty_top_is_header_only() {
+        let top = vtt("WEBVTT\n\n");
+        let bottom = vtt("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nBonjour\n");
 
-        let combined = SubtitleMerger.combine(&primary, &secondary).unwrap();
+        let combined = SubtitleMerger.combine(&top, &bottom).unwrap();
 
         assert_eq!(combined.content, "WEBVTT\n");
     }
 
     #[test]
-    fn merges_srt_primary_with_srt_secondary() {
-        let primary = srt("1\n00:00:00,000 --> 00:00:02,000\nHello\n");
-        let secondary = srt("1\n00:00:00,000 --> 00:00:02,000\nBonjour\n");
+    fn merges_srt_top_with_srt_bottom() {
+        let top = srt("1\n00:00:00,000 --> 00:00:02,000\nHello\n");
+        let bottom = srt("1\n00:00:00,000 --> 00:00:02,000\nBonjour\n");
 
-        let combined = SubtitleMerger.combine(&primary, &secondary).unwrap();
+        let combined = SubtitleMerger.combine(&top, &bottom).unwrap();
 
         assert_eq!(combined.format, SubtitleFormat::Vtt);
-        assert!(combined.content.contains("Hello\nBonjour"));
+        assert!(combined.content.contains("Hello\n<i>Bonjour</i>"));
     }
 
     #[test]
-    fn merges_srt_primary_with_vtt_secondary() {
-        let primary = srt("1\n00:00:00,000 --> 00:00:02,000\nHello\n");
-        let secondary = vtt("WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nBonjour\n");
+    fn merges_srt_top_with_vtt_bottom() {
+        let top = srt("1\n00:00:00,000 --> 00:00:02,000\nHello\n");
+        let bottom = vtt("WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nBonjour\n");
 
-        let combined = SubtitleMerger.combine(&primary, &secondary).unwrap();
+        let combined = SubtitleMerger.combine(&top, &bottom).unwrap();
 
-        assert!(combined.content.contains("Hello\nBonjour"));
+        assert!(combined.content.contains("Hello\n<i>Bonjour</i>"));
     }
 
     #[test]
-    fn malformed_primary_is_parse_error() {
-        let primary = srt("@@@ not an srt @@@");
-        let secondary = vtt("WEBVTT\n");
+    fn malformed_top_is_parse_error() {
+        let top = srt("@@@ not an srt @@@");
+        let bottom = vtt("WEBVTT\n");
 
         assert!(matches!(
-            SubtitleMerger.combine(&primary, &secondary).unwrap_err(),
+            SubtitleMerger.combine(&top, &bottom).unwrap_err(),
             SubtitleError::Parse(_)
         ));
     }
 
     #[test]
     fn unsupported_format_is_backend_error() {
-        let primary = FetchedSubtitle {
+        let top = FetchedSubtitle {
             content: String::new(),
             format: SubtitleFormat::Ass,
         };
-        let secondary = vtt("WEBVTT\n");
+        let bottom = vtt("WEBVTT\n");
 
         assert!(matches!(
-            SubtitleMerger.combine(&primary, &secondary).unwrap_err(),
+            SubtitleMerger.combine(&top, &bottom).unwrap_err(),
             SubtitleError::Backend(_)
         ));
     }

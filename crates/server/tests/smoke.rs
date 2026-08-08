@@ -74,6 +74,7 @@ async fn serves_a_jit_segment_end_to_end() {
             burn_subtitle_path: None,
             soft_subtitle: None,
             downmix_stereo: false,
+            source_hdr: None,
         })
         .await
         .expect("session start should succeed");

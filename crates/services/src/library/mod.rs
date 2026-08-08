@@ -3,11 +3,13 @@ mod combine_job;
 mod cron;
 mod debouncer;
 mod dedup;
+mod enrich_jobs;
 mod enricher;
 mod external_subtitles;
 mod fetch_job;
 mod ingest_job;
 mod matcher;
+mod metadata_fetch;
 mod metadata_job;
 mod parse;
 mod relink_job;
@@ -28,8 +30,8 @@ pub use debouncer::Debouncer;
 pub use dedup::find_duplicates;
 pub use domain::text::normalize_title;
 pub use enricher::{
-    Enricher, MetadataRefresher, NoopEnricher, ResolveIngester, ScanEnricher, container_of,
-    derive_id,
+    Enricher, MetadataRefresher, NoopEnricher, PersonRefresher, ResolveIngester, ScanEnricher,
+    container_of, derive_id,
 };
 pub use external_subtitles::discover_subtitles;
 pub use fetch_job::{FetchJobPayload, fetch_filename_stem};

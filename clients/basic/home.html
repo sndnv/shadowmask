@@ -7,10 +7,10 @@
     <title>Shadowmask (basic) - Home</title>
   </head>
   <body>
-    <h1>Shadowmask</h1>
+    <h1 class="sm-visually-hidden">Shadowmask</h1>
     <nav id="nav"></nav>
     <p class="sm-crumbs">Home</p>
-    <main id="main"></main>
+    <main id="main">Loading&hellip;</main>
     <script src="app.js"></script>
     <script>
       sm.chrome();
@@ -94,35 +94,37 @@
           );
         if (cards.length) {
           const heading = sm.el("h2", { text: "Continue watching" });
-          main.appendChild(heading);
-          const list = sm.el("ul", { class: "sm-grid" });
-          cards.forEach(({ opts, version }) => {
-            const li = sm.card(opts);
-            if (version && uid) {
-              const dismiss = sm.el("button", { type: "button" }, "Dismiss");
-              dismiss.addEventListener("click", async () => {
-                dismiss.disabled = true;
-                try {
-                  await sm.json(
-                    "/api/v1/users/" +
-                      encodeURIComponent(uid) +
-                      "/progress/" +
-                      encodeURIComponent(version),
-                    { method: "DELETE" },
-                  );
-                  li.remove();
-                  if (!list.children.length) {
-                    heading.remove();
-                    list.remove();
+          let list;
+          list = sm.grid(
+            cards.map(({ opts, version }) => Object.assign({ version }, opts)),
+            {
+              augment: (li, item) => {
+                if (!(item.version && uid)) return;
+                const dismiss = sm.el("button", { type: "button", class: "sm-secondary" }, "Dismiss");
+                dismiss.addEventListener("click", async () => {
+                  dismiss.disabled = true;
+                  try {
+                    await sm.json(
+                      "/api/v1/users/" +
+                        encodeURIComponent(uid) +
+                        "/progress/" +
+                        encodeURIComponent(item.version),
+                      { method: "DELETE" },
+                    );
+                    li.remove();
+                    if (!list.children.length) {
+                      heading.remove();
+                      list.remove();
+                    }
+                  } catch (e) {
+                    dismiss.disabled = false;
                   }
-                } catch (e) {
-                  dismiss.disabled = false;
-                }
-              });
-              li.appendChild(dismiss);
-            }
-            list.appendChild(li);
-          });
+                });
+                li.appendChild(dismiss);
+              },
+            },
+          );
+          main.appendChild(heading);
           main.appendChild(list);
         }
         const nextEpisodes = (cont.next_episodes || []).map((e) => ({

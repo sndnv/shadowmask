@@ -1,10 +1,11 @@
 use std::path::Path;
 
 use domain::error::UpscaleError;
-use domain::media::{MediaProbe, UpscaleOutput, UpscaleProvider, UpscaleRequest};
+use domain::media::{MediaProbe, UpscaleOutput, UpscaleProvider, UpscaleSpec};
 
 use crate::probe::FfprobeMediaProbe;
-use crate::transcode::{ProcessSpawner, TokioProcessSpawner, VideoEncoder};
+use crate::transcode::{TokioProcessSpawner, VideoEncoder};
+use domain::process::ProcessSpawner;
 
 const DEFAULT_BINARY: &str = "ffmpeg";
 
@@ -103,7 +104,7 @@ async fn ensure_writable(output: &Path) -> Result<(), UpscaleError> {
 }
 
 impl<S: ProcessSpawner, P: MediaProbe + Send + Sync> UpscaleProvider for FfmpegUpscaler<S, P> {
-    async fn upscale(&self, request: &UpscaleRequest) -> Result<UpscaleOutput, UpscaleError> {
+    async fn upscale(&self, request: &UpscaleSpec) -> Result<UpscaleOutput, UpscaleError> {
         let probe = self
             .probe
             .probe(&request.source_path)
@@ -320,7 +321,7 @@ mod tests {
             device: "/dev/dri/renderD128".to_owned(),
         });
         let out = up
-            .upscale(&UpscaleRequest {
+            .upscale(&UpscaleSpec {
                 source_path: "src.mkv".to_owned(),
                 target_height: 720,
                 output_path: output.clone(),
@@ -346,7 +347,7 @@ mod tests {
             },
         );
         let out = up
-            .upscale(&UpscaleRequest {
+            .upscale(&UpscaleSpec {
                 source_path: "src.mkv".to_owned(),
                 target_height: 720,
                 output_path: output.clone(),
@@ -370,7 +371,7 @@ mod tests {
             },
         );
         let err = up
-            .upscale(&UpscaleRequest {
+            .upscale(&UpscaleSpec {
                 source_path: "src.mkv".to_owned(),
                 target_height: 720,
                 output_path: "/tmp/out.mp4".to_owned(),
@@ -393,7 +394,7 @@ mod tests {
             },
         );
         let err = up
-            .upscale(&UpscaleRequest {
+            .upscale(&UpscaleSpec {
                 source_path: "src.mkv".to_owned(),
                 target_height: 1080,
                 output_path: "/tmp/out.mp4".to_owned(),
@@ -419,7 +420,7 @@ mod tests {
             },
         );
         let err = up
-            .upscale(&UpscaleRequest {
+            .upscale(&UpscaleSpec {
                 source_path: "src.mkv".to_owned(),
                 target_height: 720,
                 output_path: output.to_string_lossy().into_owned(),
@@ -449,7 +450,7 @@ mod tests {
             },
         );
         let err = up
-            .upscale(&UpscaleRequest {
+            .upscale(&UpscaleSpec {
                 source_path: "src.mkv".to_owned(),
                 target_height: 720,
                 output_path: output,
@@ -470,7 +471,7 @@ mod tests {
             },
         );
         let err = up
-            .upscale(&UpscaleRequest {
+            .upscale(&UpscaleSpec {
                 source_path: "src.mkv".to_owned(),
                 target_height: 720,
                 output_path: "/tmp/out.mp4".to_owned(),
@@ -495,7 +496,7 @@ mod tests {
             },
         );
         let err = up
-            .upscale(&UpscaleRequest {
+            .upscale(&UpscaleSpec {
                 source_path: "src.mkv".to_owned(),
                 target_height: 720,
                 output_path: output,
@@ -520,7 +521,7 @@ mod tests {
             },
         );
         let err = up
-            .upscale(&UpscaleRequest {
+            .upscale(&UpscaleSpec {
                 source_path: "src.mkv".to_owned(),
                 target_height: 720,
                 output_path: output,
@@ -545,7 +546,7 @@ mod tests {
             },
         );
         let err = up
-            .upscale(&UpscaleRequest {
+            .upscale(&UpscaleSpec {
                 source_path: "src.mkv".to_owned(),
                 target_height: 720,
                 output_path: output,

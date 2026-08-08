@@ -4,7 +4,7 @@ use axum::response::Redirect;
 use axum::routing::{delete, get, post, put};
 
 use domain::job::JobLogStore;
-use domain::media::{SubtitleReader, SubtitleStore};
+use domain::media::{SubtitleProvider, SubtitleReader, SubtitleStore};
 use domain::repository::CatalogRepository;
 use domain::session::{StreamSource, StreamTokens};
 use tower_http::services::ServeDir;
@@ -15,8 +15,8 @@ use crate::handlers::{
 };
 use crate::middleware::{jwt, track_stream_bytes};
 use crate::state::{
-    AppServices, ImageState, JobLogState, StreamState, SubtitleState, TrickplayState,
-    WebhookClient, WebhookState,
+    AppServices, ImageState, JobLogState, StreamState, SubtitleSearchState, SubtitleState,
+    TrickplayState, WebhookClient, WebhookState,
 };
 
 pub fn router<S: AppServices>(state: S) -> Router {
@@ -66,6 +66,7 @@ pub fn router<S: AppServices>(state: S) -> Router {
         .route("/versions/{id}/relink", post(catalog::relink_version::<S>))
         .route("/titles/batch", post(catalog::title_cards::<S>))
         .route("/people/{id}", get(catalog::person::<S>))
+        .route("/people/{id}/refresh", post(catalog::refresh_person::<S>))
         .route("/genres", get(catalog::genres::<S>))
         .route("/server/info", get(server::info))
         .route(
@@ -271,7 +272,29 @@ where
     Router::new()
         .route(
             "/api/v1/admin/versions/{id}/subtitles/{subtitle_id}",
-            get(subtitle::view::<C, S>).delete(subtitle::delete::<C, S>),
+            get(subtitle::view::<C, S>)
+                .put(subtitle::rename::<C, S>)
+                .delete(subtitle::delete::<C, S>),
+        )
+        .route_layer(from_fn_with_state(auth, jwt::<A>))
+        .with_state(state)
+}
+
+pub fn subtitle_search_router<A, C, S, P>(auth: A, state: SubtitleSearchState<C, S, P>) -> Router
+where
+    A: AppServices,
+    C: CatalogRepository + Send + Sync + 'static,
+    S: SubtitleStore + Send + Sync + 'static,
+    P: SubtitleProvider + Send + Sync + 'static,
+{
+    Router::new()
+        .route(
+            "/api/v1/admin/versions/{id}/subtitles/search",
+            get(subtitle::search::<C, S, P>),
+        )
+        .route(
+            "/api/v1/admin/versions/{id}/subtitles/download",
+            post(subtitle::download::<C, S, P>),
         )
         .route_layer(from_fn_with_state(auth, jwt::<A>))
         .with_state(state)

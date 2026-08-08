@@ -4,24 +4,53 @@ expression: value
 ---
 {
   "body": {
+    "also_known_as": [],
+    "artwork": {
+      "backdrops": [
+        {
+          "base": "/images/p1-backdrop",
+          "widths": [
+            480,
+            960
+          ]
+        }
+      ],
+      "posters": [
+        {
+          "base": "/images/p1-poster",
+          "widths": [
+            180,
+            480,
+            960
+          ]
+        }
+      ]
+    },
+    "biography": null,
+    "birthday": null,
+    "deathday": null,
     "filmography": [
       {
         "artwork": {
-          "backdrop": {
-            "base": "/images/m1-backdrop",
-            "widths": [
-              480,
-              960
-            ]
-          },
-          "poster": {
-            "base": "/images/m1-poster",
-            "widths": [
-              180,
-              480,
-              960
-            ]
-          }
+          "backdrops": [
+            {
+              "base": "/images/m1-backdrop",
+              "widths": [
+                480,
+                960
+              ]
+            }
+          ],
+          "posters": [
+            {
+              "base": "/images/m1-poster",
+              "widths": [
+                180,
+                480,
+                960
+              ]
+            }
+          ]
         },
         "character": "Hero",
         "display_title": "Alpha m1",
@@ -32,21 +61,25 @@ expression: value
       },
       {
         "artwork": {
-          "backdrop": {
-            "base": "/images/s1-backdrop",
-            "widths": [
-              480,
-              960
-            ]
-          },
-          "poster": {
-            "base": "/images/s1-poster",
-            "widths": [
-              180,
-              480,
-              960
-            ]
-          }
+          "backdrops": [
+            {
+              "base": "/images/s1-backdrop",
+              "widths": [
+                480,
+                960
+              ]
+            }
+          ],
+          "posters": [
+            {
+              "base": "/images/s1-poster",
+              "widths": [
+                180,
+                480,
+                960
+              ]
+            }
+          ]
         },
         "character": "Lead",
         "display_title": "Alpha s1",
@@ -57,7 +90,8 @@ expression: value
       }
     ],
     "id": "[id]",
-    "name": "Ada Lovelace"
+    "name": "Ada Lovelace",
+    "place_of_birth": null
   },
   "status": 200
 }

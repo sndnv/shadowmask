@@ -70,10 +70,22 @@ pub enum LibraryError {
     Forbidden,
     #[error("feature disabled")]
     Disabled,
-    #[error("job cannot be cancelled")]
-    NotCancellable,
+    #[error("{0}")]
+    InvalidRequest(String),
     #[error(transparent)]
     Walk(#[from] WalkError),
+    #[error(transparent)]
+    Repository(#[from] RepositoryError),
+}
+
+#[derive(Debug, Error)]
+pub enum JobServiceError {
+    #[error("job not found")]
+    NotFound,
+    #[error("access denied")]
+    Forbidden,
+    #[error("job cannot be cancelled")]
+    NotCancellable,
     #[error(transparent)]
     Repository(#[from] RepositoryError),
 }
@@ -140,6 +152,12 @@ pub enum ArtworkError {
     Decode(String),
     #[error("failed to store artwork: {0}")]
     Store(String),
+}
+
+#[derive(Debug, Error)]
+pub enum CacheError {
+    #[error("cache maintenance failed: {0}")]
+    Io(String),
 }
 
 #[derive(Debug, Error)]

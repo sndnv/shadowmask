@@ -7,7 +7,7 @@
     <title>Shadowmask (basic) - Admin library</title>
   </head>
   <body>
-    <h1>Library</h1>
+    <h1 class="sm-visually-hidden">Library</h1>
     <nav id="nav"></nav>
     <p class="sm-crumbs"><a href="index.html">Admin</a> / <a href="libraries.html">Libraries</a> / Library</p>
     <main id="main">Loading&hellip;</main>
@@ -15,7 +15,6 @@
     <script>
       sm.chrome();
       const eu = encodeURIComponent;
-      const pad2 = (n) => String(n).padStart(2, "0");
       const libId = sm.qs("id");
       let unmatchedHeading = null;
       let duplicatesHeading = null;
@@ -51,11 +50,14 @@
         main.appendChild(sm.el("h3", { text: "Scan" }));
         const container = sm.el("div", null);
         main.appendChild(container);
-        const trigger = sm.el("button", { type: "button" }, "Trigger scan");
+        const trigger = sm.el("button", { type: "button" }, "Scan");
         trigger.addEventListener("click", async () => {
           try {
             await sm.json("/api/v1/libraries/" + eu(libId) + "/scan", { method: "POST" });
-          } catch (err) {}
+            sm.toast("Scan queued.", "ok");
+          } catch (err) {
+            sm.toast("Scan failed.", "danger");
+          }
           await reloadScan(container);
         });
         main.appendChild(trigger);
@@ -63,7 +65,7 @@
       }
 
       async function reloadScan(container) {
-        container.textContent = "Loading...";
+        container.textContent = "Loading…";
         try {
           const scan = await sm.json("/api/v1/libraries/" + eu(libId) + "/scan");
           container.textContent =
@@ -89,14 +91,14 @@
       }
 
       async function reloadUnmatched(container) {
-        container.textContent = "Loading...";
+        container.textContent = "Loading…";
         try {
           const page = await sm.json("/api/v1/libraries/" + eu(libId) + "/unmatched");
           if (unmatchedHeading)
             unmatchedHeading.textContent = "Unmatched files (" + page.items.length + ")";
           container.textContent = "";
           if (!page.items.length) {
-            container.appendChild(sm.el("p", { text: "None." }));
+            container.appendChild(sm.el("p", { text: "No unmatched files." }));
             return;
           }
           const list = sm.el("ul", null);
@@ -115,7 +117,7 @@
       }
 
       async function findCandidates(file, box, unmatchedContainer) {
-        box.textContent = " Loading...";
+        box.textContent = " Loading…";
         try {
           const candidates = await sm.json(
             "/api/v1/libraries/" + eu(libId) + "/unmatched/" + eu(file.id) + "/candidates",
@@ -133,9 +135,11 @@
                   "/api/v1/libraries/" + eu(libId) + "/unmatched/" + eu(file.id) + "/resolve",
                   { method: "POST", body: JSON.stringify({ target: c.target }) },
                 );
+                sm.toast("Resolved.", "ok");
                 await reloadUnmatched(unmatchedContainer);
               } catch (err) {
                 resolve.textContent = "Failed";
+                sm.toast("Resolve failed.", "danger");
               }
             });
             return [c.title + (c.year ? " (" + c.year + ")" : ""), c.kind, c.source, resolve];
@@ -155,20 +159,20 @@
       }
 
       async function reloadDuplicates(container) {
-        container.textContent = "Loading...";
+        container.textContent = "Loading…";
         try {
           const page = await sm.json("/api/v1/libraries/" + eu(libId) + "/duplicates");
           if (duplicatesHeading)
             duplicatesHeading.textContent = "Duplicate candidates (" + page.items.length + ")";
           container.textContent = "";
           if (!page.items.length) {
-            container.appendChild(sm.el("p", { text: "None." }));
+            container.appendChild(sm.el("p", { text: "No duplicate candidates." }));
             return;
           }
           const rows = page.items.map((dup) => {
             const resolve = sm.el("button", { type: "button" }, "Resolve");
             resolve.addEventListener("click", () => act(dup.id, "resolve", container));
-            const dismiss = sm.el("button", { type: "button" }, "Dismiss");
+            const dismiss = sm.el("button", { type: "button", class: "sm-secondary" }, "Dismiss");
             dismiss.addEventListener("click", () => act(dup.id, "dismiss", container));
             return [dup.paths.join(", "), [resolve, " ", dismiss]];
           });
@@ -184,7 +188,10 @@
             "/api/v1/libraries/" + eu(libId) + "/duplicates/" + eu(dupId) + "/" + action,
             { method: "POST" },
           );
-        } catch (err) {}
+          sm.toast(action === "resolve" ? "Resolved." : "Dismissed.", "ok");
+        } catch (err) {
+          sm.toast("Action failed.", "danger");
+        }
         await reloadDuplicates(container);
       }
 
@@ -192,20 +199,18 @@
         versionsHeading = sm.el("h3", { text: "Versions" });
         main.appendChild(versionsHeading);
         const container = sm.el("div", null);
-        const panelHost = sm.el("div", null);
         main.appendChild(container);
-        main.appendChild(panelHost);
-        await reloadVersions(container, panelHost);
+        await reloadVersions(container);
       }
 
-      async function reloadVersions(container, panelHost) {
-        container.textContent = "Loading...";
+      async function reloadVersions(container) {
+        container.textContent = "Loading…";
         try {
           const page = await sm.json("/api/v1/libraries/" + eu(libId) + "/versions");
           if (versionsHeading) versionsHeading.textContent = "Versions (" + page.items.length + ")";
           container.textContent = "";
           if (!page.items.length) {
-            container.appendChild(sm.el("p", { text: "None." }));
+            container.appendChild(sm.el("p", { text: "No versions." }));
             return;
           }
           const names = {};
@@ -219,7 +224,7 @@
               if (c.type === "episode") {
                 const code =
                   c.season_number != null
-                    ? "S" + pad2(c.season_number) + "E" + pad2(c.number)
+                    ? sm.episodeCode(c.season_number, c.number)
                     : "E" + c.number;
                 names[key] = (c.series_title || c.title) + " " + code;
               } else {
@@ -229,20 +234,15 @@
           } catch (e) {}
           const rows = page.items.map((v) => {
             const name = names[v.title.type + ":" + v.title.id] || v.title.type + " " + v.title.id;
-            const relink = sm.el("button", { type: "button" }, "Relink");
-            relink.addEventListener("click", () => {
-              panelHost.textContent = "";
-              panelHost.appendChild(
-                sm.relinkPanel(v.id, name + " (" + v.quality.toUpperCase() + ")", () =>
-                  reloadVersions(container, panelHost),
-                ),
-              );
-              panelHost.scrollIntoView({ block: "nearest" });
-            });
+            const relink = sm.relinkButton(
+              v.id,
+              name + " (" + (v.quality || "").toUpperCase() + ")",
+              () => reloadVersions(container),
+            );
             return [
               sm.el("a", { href: sm.href.version(v.id) }, v.path || "(no path)"),
               name,
-              v.quality.toUpperCase(),
+              (v.quality || "").toUpperCase(),
               v.container,
               v.edition || "",
               Math.round(v.size_bytes / 1048576) + " MB",

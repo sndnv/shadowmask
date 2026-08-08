@@ -3,7 +3,7 @@ use domain::error::TranslationError;
 use domain::job::Job;
 use domain::media::{
     SubtitleFile, SubtitleFileId, SubtitleReader, SubtitleSource, SubtitleStore,
-    TranslationProvider, TranslationRequest,
+    TranslationProvider, TranslationSpec,
 };
 use domain::repository::CatalogRepository;
 use services::library::TranslationJobPayload;
@@ -76,7 +76,7 @@ where
                 .load(&source.path)
                 .await
                 .map_err(|e| JobError::Retryable(e.to_string()))?;
-            let request = TranslationRequest {
+            let request = TranslationSpec {
                 content,
                 format: source.format,
                 source_language: source.language.clone(),
@@ -204,7 +204,7 @@ mod tests {
     impl TranslationProvider for MockProvider {
         async fn translate(
             &self,
-            request: &TranslationRequest,
+            request: &TranslationSpec,
         ) -> Result<FetchedSubtitle, TranslationError> {
             match &self.mode {
                 ProviderMode::Ok => Ok(FetchedSubtitle {

@@ -4,7 +4,7 @@ use jiff::Timestamp;
 
 use crate::catalog::{
     ArtworkOwner, ArtworkRef, Collection, CollectionId, Episode, EpisodeId, Movie, MovieDetail,
-    MovieId, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId, TitleKind, TitleRef,
+    MovieId, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId, TitleListFilter, TitleRef,
     Version, VersionDetail, VersionId,
 };
 use crate::common::{Page, PageRequest};
@@ -18,7 +18,7 @@ use crate::library::{
 use crate::media::{
     AudioTrack, Chapter, EmbeddedSubtitleTrack, SubtitleFile, TrickplayAsset, VideoTrack,
 };
-use crate::metadata::{Credit, Genre, GenreId, Person, PersonId, TitleEnrichment};
+use crate::metadata::{Credit, Genre, Person, PersonId, TitleEnrichment};
 use crate::playback::{
     Favorite, PlaybackProgress, SubtitleTrackRef, UserSubtitleOffset, WatchHistory, WatchlistItem,
 };
@@ -52,6 +52,11 @@ pub trait CatalogRepository {
     fn list_episodes(
         &self,
         season: &SeasonId,
+    ) -> impl Future<Output = Result<Vec<Episode>, RepositoryError>> + Send;
+    fn list_all_seasons(&self)
+    -> impl Future<Output = Result<Vec<Season>, RepositoryError>> + Send;
+    fn list_all_episodes(
+        &self,
     ) -> impl Future<Output = Result<Vec<Episode>, RepositoryError>> + Send;
     fn get_episode(
         &self,
@@ -173,21 +178,16 @@ pub trait CatalogRepository {
         id: &PersonId,
     ) -> impl Future<Output = Result<Vec<Credit>, RepositoryError>> + Send;
     fn list_genres(&self) -> impl Future<Output = Result<Vec<Genre>, RepositoryError>> + Send;
-    fn list_movies_by_genre(
+    fn list_movies_filtered(
         &self,
-        genre: &GenreId,
+        filter: &TitleListFilter,
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<Movie>, RepositoryError>> + Send;
-    fn list_series_by_genre(
+    fn list_series_filtered(
         &self,
-        genre: &GenreId,
+        filter: &TitleListFilter,
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<Series>, RepositoryError>> + Send;
-    fn titles_in_library(
-        &self,
-        kind: TitleKind,
-        library: &LibraryId,
-    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 }
 
 pub trait VersionCatalog {

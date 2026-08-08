@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use domain::error::FetchError;
-use domain::media::{FetchRequest, FetchedMedia, MediaFetcher};
-use media::transcode::{CommandOutput, OutputStream, ProcessSpawner};
+use domain::media::{FetchSpec, FetchedMedia, MediaFetcher};
+use domain::process::{CommandOutput, OutputStream, ProcessSpawner};
 
 #[derive(Debug, Clone)]
 pub struct YtDlpFetcher<P> {
@@ -10,6 +10,7 @@ pub struct YtDlpFetcher<P> {
     binary: String,
     plugin_dir: Option<PathBuf>,
     max_height: Option<u32>,
+    cookies_file: Option<PathBuf>,
 }
 
 impl<P> YtDlpFetcher<P> {
@@ -18,20 +19,23 @@ impl<P> YtDlpFetcher<P> {
         binary: impl Into<String>,
         plugin_dir: Option<PathBuf>,
         max_height: Option<u32>,
+        cookies_file: Option<PathBuf>,
     ) -> Self {
         Self {
             spawner,
             binary: binary.into(),
             plugin_dir,
             max_height,
+            cookies_file,
         }
     }
 }
 
 fn build_args(
-    request: &FetchRequest,
+    request: &FetchSpec,
     plugin_dir: Option<&Path>,
     max_height: Option<u32>,
+    cookies_file: Option<&Path>,
 ) -> Vec<String> {
     let mut args = vec![
         "--no-playlist".to_owned(),
@@ -51,6 +55,10 @@ fn build_args(
     if let Some(dir) = plugin_dir {
         args.push("--plugin-dirs".to_owned());
         args.push(dir.to_string_lossy().into_owned());
+    }
+    if let Some(cookies) = cookies_file {
+        args.push("--cookies".to_owned());
+        args.push(cookies.to_string_lossy().into_owned());
     }
     args.push(request.url.clone());
     args
@@ -114,11 +122,16 @@ async fn first_media_file(dir: &str) -> Result<FetchedMedia, FetchError> {
 }
 
 impl<P: ProcessSpawner> MediaFetcher for YtDlpFetcher<P> {
-    async fn fetch(&self, request: &FetchRequest) -> Result<FetchedMedia, FetchError> {
+    async fn fetch(&self, request: &FetchSpec) -> Result<FetchedMedia, FetchError> {
         tokio::fs::create_dir_all(&request.dest_dir)
             .await
             .map_err(|e| FetchError::Io(e.to_string()))?;
-        let args = build_args(request, self.plugin_dir.as_deref(), self.max_height);
+        let args = build_args(
+            request,
+            self.plugin_dir.as_deref(),
+            self.max_height,
+            self.cookies_file.as_deref(),
+        );
         let mut on_line = |stream: OutputStream, line: &str| log_line(&request.url, stream, line);
         let output = self
             .spawner
@@ -189,8 +202,8 @@ mod tests {
         }
     }
 
-    fn request(dest_dir: String) -> FetchRequest {
-        FetchRequest {
+    fn request(dest_dir: String) -> FetchSpec {
+        FetchSpec {
             url: "https://example.com/watch?v=abc".to_owned(),
             dest_dir,
             filename_stem: "Movie (2020)".to_owned(),
@@ -198,17 +211,17 @@ mod tests {
     }
 
     fn fetcher(mode: Mode) -> YtDlpFetcher<MockSpawner> {
-        YtDlpFetcher::new(MockSpawner { mode }, "yt-dlp", None, None)
+        YtDlpFetcher::new(MockSpawner { mode }, "yt-dlp", None, None, None)
     }
 
     #[test]
     fn build_args_uses_output_template_and_plugin_dir() {
-        let req = FetchRequest {
+        let req = FetchSpec {
             url: "https://x/v".to_owned(),
             dest_dir: "/d/job1".to_owned(),
             filename_stem: "Show - S01E02".to_owned(),
         };
-        let args = build_args(&req, Some(Path::new("/plugins")), None);
+        let args = build_args(&req, Some(Path::new("/plugins")), None, None);
         assert!(args.contains(&"--no-playlist".to_owned()));
         assert!(args.contains(&"--newline".to_owned()));
         assert!(args.contains(&"--verbose".to_owned()));
@@ -217,6 +230,7 @@ mod tests {
         assert!(args.contains(&"mkv".to_owned()));
         assert!(args.contains(&"--plugin-dirs".to_owned()));
         assert!(args.contains(&"/plugins".to_owned()));
+        assert!(!args.contains(&"--cookies".to_owned()));
         assert!(!args.contains(&"-f".to_owned()));
         assert!(args.iter().any(|a| a == "/d/job1/Show - S01E02.%(ext)s"));
         assert_eq!(args.last().unwrap(), "https://x/v");
@@ -224,23 +238,39 @@ mod tests {
 
     #[test]
     fn build_args_without_plugin_dir_omits_flag() {
-        let req = FetchRequest {
+        let req = FetchSpec {
             url: "u".to_owned(),
             dest_dir: "/d".to_owned(),
             filename_stem: "x".to_owned(),
         };
-        let args = build_args(&req, None, None);
+        let args = build_args(&req, None, None, None);
         assert!(!args.contains(&"--plugin-dirs".to_owned()));
     }
 
     #[test]
-    fn build_args_caps_resolution_when_max_height_set() {
-        let req = FetchRequest {
+    fn build_args_adds_cookies_when_set() {
+        let req = FetchSpec {
             url: "u".to_owned(),
             dest_dir: "/d".to_owned(),
             filename_stem: "x".to_owned(),
         };
-        let args = build_args(&req, None, Some(1080));
+        let args = build_args(&req, None, None, Some(Path::new("/secrets/cookies.txt")));
+        let cookies_index = args
+            .iter()
+            .position(|a| a == "--cookies")
+            .expect("--cookies present");
+        assert_eq!(args[cookies_index + 1], "/secrets/cookies.txt");
+        assert_eq!(args.last().unwrap(), "u");
+    }
+
+    #[test]
+    fn build_args_caps_resolution_when_max_height_set() {
+        let req = FetchSpec {
+            url: "u".to_owned(),
+            dest_dir: "/d".to_owned(),
+            filename_stem: "x".to_owned(),
+        };
+        let args = build_args(&req, None, Some(1080), None);
         let format_index = args.iter().position(|a| a == "-f").expect("-f present");
         assert_eq!(
             args[format_index + 1],

@@ -4,8 +4,8 @@ use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
 use domain::error::{
-    AuthError, CatalogError, DiscoveryError, JobLogError, LibraryError, SessionError, StreamError,
-    StreamTokenError, UserError,
+    AuthError, CatalogError, DiscoveryError, JobLogError, JobServiceError, LibraryError,
+    SessionError, StreamError, StreamTokenError, UserError,
 };
 use domain::session::PlaybackSession;
 
@@ -44,6 +44,10 @@ impl ApiError {
 
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new(StatusCode::NOT_FOUND, "not_found", message)
+    }
+
+    pub fn bad_gateway(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_GATEWAY, "upstream_error", message)
     }
 
     pub fn internal() -> Self {
@@ -148,11 +152,27 @@ impl From<LibraryError> for ApiError {
                 ApiError::new(StatusCode::CONFLICT, "scan_in_progress", msg)
             }
             LibraryError::Disabled => ApiError::new(StatusCode::CONFLICT, "feature_disabled", msg),
-            LibraryError::NotCancellable => {
-                ApiError::new(StatusCode::CONFLICT, "not_cancellable", msg)
+            LibraryError::InvalidRequest(_) => {
+                ApiError::new(StatusCode::BAD_REQUEST, "bad_request", msg)
             }
             LibraryError::Forbidden => ApiError::new(StatusCode::FORBIDDEN, "access_denied", msg),
             LibraryError::Walk(_) | LibraryError::Repository(_) => ApiError::internal(),
+        }
+    }
+}
+
+impl From<JobServiceError> for ApiError {
+    fn from(err: JobServiceError) -> Self {
+        let msg = err.to_string();
+        match err {
+            JobServiceError::NotFound => ApiError::new(StatusCode::NOT_FOUND, "not_found", msg),
+            JobServiceError::Forbidden => {
+                ApiError::new(StatusCode::FORBIDDEN, "access_denied", msg)
+            }
+            JobServiceError::NotCancellable => {
+                ApiError::new(StatusCode::CONFLICT, "not_cancellable", msg)
+            }
+            JobServiceError::Repository(_) => ApiError::internal(),
         }
     }
 }
@@ -256,6 +276,8 @@ mod tests {
         assert_eq!(ApiError::forbidden("x").code, "forbidden");
         assert_eq!(ApiError::bad_request("x").status, StatusCode::BAD_REQUEST);
         assert_eq!(ApiError::bad_request("x").code, "bad_request");
+        assert_eq!(ApiError::bad_gateway("x").status, StatusCode::BAD_GATEWAY);
+        assert_eq!(ApiError::bad_gateway("x").code, "upstream_error");
     }
 
     #[test]
@@ -328,9 +350,9 @@ mod tests {
         let conflict = ApiError::from(LibraryError::ScanInProgress);
         assert_eq!(conflict.status, StatusCode::CONFLICT);
         assert_eq!(conflict.code, "scan_in_progress");
-        let not_cancellable = ApiError::from(LibraryError::NotCancellable);
-        assert_eq!(not_cancellable.status, StatusCode::CONFLICT);
-        assert_eq!(not_cancellable.code, "not_cancellable");
+        let bad_request = ApiError::from(LibraryError::InvalidRequest("bad url".into()));
+        assert_eq!(bad_request.status, StatusCode::BAD_REQUEST);
+        assert_eq!(bad_request.code, "bad_request");
         let forbidden = ApiError::from(LibraryError::Forbidden);
         assert_eq!(forbidden.status, StatusCode::FORBIDDEN);
         assert_eq!(forbidden.code, "access_denied");
@@ -340,6 +362,21 @@ mod tests {
         );
         assert_eq!(
             ApiError::from(LibraryError::Walk(WalkError::RootNotFound("/x".into()))).status,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[test]
+    fn job_service_error_mappings() {
+        assert_eq!(ApiError::from(JobServiceError::NotFound).code, "not_found");
+        let forbidden = ApiError::from(JobServiceError::Forbidden);
+        assert_eq!(forbidden.status, StatusCode::FORBIDDEN);
+        assert_eq!(forbidden.code, "access_denied");
+        let not_cancellable = ApiError::from(JobServiceError::NotCancellable);
+        assert_eq!(not_cancellable.status, StatusCode::CONFLICT);
+        assert_eq!(not_cancellable.code, "not_cancellable");
+        assert_eq!(
+            ApiError::from(JobServiceError::Repository(repo())).status,
             StatusCode::INTERNAL_SERVER_ERROR
         );
     }

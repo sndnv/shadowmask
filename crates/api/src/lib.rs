@@ -10,9 +10,9 @@ pub mod state;
 pub use dto::server::Capability;
 pub use router::{
     basic_ui_router, image_router, job_log_router, router, stream_router, subtitle_router,
-    trickplay_router, webhook_router,
+    subtitle_search_router, trickplay_router, webhook_router,
 };
 pub use state::{
-    AppState, ImageState, JobLogState, ServerCapabilities, StreamState, SubtitleState,
-    TrickplayState, WebhookClient, WebhookState,
+    AppState, ImageState, JobLogState, ServerCapabilities, StreamState, SubtitleSearchState,
+    SubtitleState, TrickplayState, WebhookClient, WebhookState,
 };

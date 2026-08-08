@@ -17,6 +17,7 @@ pub struct CompositeJobHandler<
     Upscale,
     Combine,
     Fetch,
+    Eviction,
 > {
     scan: Scan,
     reindex: Reindex,
@@ -31,6 +32,7 @@ pub struct CompositeJobHandler<
     upscale: Upscale,
     combine: Combine,
     fetch: Fetch,
+    eviction: Eviction,
 }
 
 impl<
@@ -47,6 +49,7 @@ impl<
     Upscale,
     Combine,
     Fetch,
+    Eviction,
 >
     CompositeJobHandler<
         Scan,
@@ -62,6 +65,7 @@ impl<
         Upscale,
         Combine,
         Fetch,
+        Eviction,
     >
 {
     #[allow(clippy::too_many_arguments)]
@@ -79,6 +83,7 @@ impl<
         upscale: Upscale,
         combine: Combine,
         fetch: Fetch,
+        eviction: Eviction,
     ) -> Self {
         Self {
             scan,
@@ -94,6 +99,7 @@ impl<
             upscale,
             combine,
             fetch,
+            eviction,
         }
     }
 }
@@ -112,6 +118,7 @@ impl<
     Upscale,
     Combine,
     Fetch,
+    Eviction,
 > JobHandler
     for CompositeJobHandler<
         Scan,
@@ -127,6 +134,7 @@ impl<
         Upscale,
         Combine,
         Fetch,
+        Eviction,
     >
 where
     Scan: JobHandler + Send + Sync,
@@ -142,6 +150,7 @@ where
     Upscale: JobHandler + Send + Sync,
     Combine: JobHandler + Send + Sync,
     Fetch: JobHandler + Send + Sync,
+    Eviction: JobHandler + Send + Sync,
 {
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         match job.kind {
@@ -158,6 +167,7 @@ where
             JobKind::Upscale => self.upscale.handle(job).await,
             JobKind::Combine => self.combine.handle(job).await,
             JobKind::Fetch => self.fetch.handle(job).await,
+            JobKind::CacheEviction => self.eviction.handle(job).await,
             other => Err(JobError::Permanent(format!(
                 "no handler for job kind: {other:?}"
             ))),
@@ -230,6 +240,7 @@ mod tests {
         Recorder,
         Recorder,
         Recorder,
+        Recorder,
     > {
         CompositeJobHandler::new(
             Recorder::new("scan", Arc::clone(calls)),
@@ -245,6 +256,7 @@ mod tests {
             Recorder::new("upscale", Arc::clone(calls)),
             Recorder::new("combine", Arc::clone(calls)),
             Recorder::new("fetch", Arc::clone(calls)),
+            Recorder::new("eviction", Arc::clone(calls)),
         )
     }
 
@@ -376,6 +388,16 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(*calls.lock().unwrap(), ["fetch"]);
+    }
+
+    #[tokio::test]
+    async fn routes_cache_eviction_to_eviction_handler() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        composite(&calls)
+            .handle(&job(JobKind::CacheEviction))
+            .await
+            .unwrap();
+        assert_eq!(*calls.lock().unwrap(), ["eviction"]);
     }
 
     #[tokio::test]

@@ -9,7 +9,7 @@ use domain::catalog::{
     TitleRef, TitleSort, VersionId,
 };
 use domain::library::LibraryId;
-use domain::metadata::{GenreId, PersonId};
+use domain::metadata::PersonId;
 use domain::user::Role;
 
 use crate::dto::catalog::{
@@ -28,10 +28,18 @@ const MAX_BATCH: usize = 200;
 
 #[derive(Debug, Deserialize)]
 pub struct CatalogListParams {
-    pub genre: Option<String>,
+    pub genres: Option<String>,
     pub library: Option<String>,
     pub sort: Option<String>,
     pub order: Option<String>,
+}
+
+fn parse_genres(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|genre| !genre.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 impl CatalogListParams {
@@ -47,7 +55,7 @@ impl CatalogListParams {
             None => SortOrder::default(),
         };
         Ok(TitleListQuery {
-            genre: self.genre.map(GenreId),
+            genres: self.genres.as_deref().map(parse_genres).unwrap_or_default(),
             library: self.library.map(LibraryId),
             sort,
             order,
@@ -338,6 +346,21 @@ pub async fn person<S: AppServices>(
     Ok(Json(profile.into()))
 }
 
+pub async fn refresh_person<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Path(id): Path<String>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    let id = PersonId(id);
+    state
+        .refresh_person(&principal, &id)
+        .await
+        .map_err(log_fail(actor, "refresh person"))?;
+    debug!("User [{actor}] successfully queued a metadata refresh for a person");
+    Ok(StatusCode::ACCEPTED)
+}
+
 pub async fn genres<S: AppServices>(
     State(state): State<S>,
     AuthUser(principal): AuthUser,
@@ -449,4 +472,24 @@ pub async fn episode_versions<S: AppServices>(
     Ok(Json(PageResponse::from_page(versions, |v| {
         VersionResponse::with_path(v, include_path)
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_genres;
+
+    #[test]
+    fn parse_genres_splits_trims_and_drops_blanks() {
+        assert!(parse_genres("").is_empty());
+        assert!(parse_genres("   ").is_empty());
+        assert_eq!(parse_genres("Action"), vec!["Action".to_owned()]);
+        assert_eq!(
+            parse_genres("Action, Drama"),
+            vec!["Action".to_owned(), "Drama".to_owned()]
+        );
+        assert_eq!(
+            parse_genres("Action, ,  Science Fiction ,"),
+            vec!["Action".to_owned(), "Science Fiction".to_owned()]
+        );
+    }
 }

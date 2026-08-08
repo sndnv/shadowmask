@@ -23,8 +23,46 @@
         }
         try {
           const person = await sm.json("/api/v1/people/" + encodeURIComponent(id));
+          const me = await sm.self().catch(() => null);
           main.textContent = "";
-          main.appendChild(sm.el("h1", { text: person.name }));
+
+          const facts = sm.el("dl");
+          const addFact = (key, value) => {
+            if (!value) return;
+            facts.appendChild(sm.el("dt", { text: key }));
+            facts.appendChild(sm.el("dd", { text: value }));
+          };
+          addFact("Born", person.birthday);
+          addFact("Died", person.deathday);
+          addFact("Place of birth", person.place_of_birth);
+          if (person.also_known_as && person.also_known_as.length) {
+            addFact("Also known as", person.also_known_as.join(", "));
+          }
+          const info = sm.el("div", { class: "sm-detail-info" }, [
+            sm.el("h1", { text: person.name }),
+            facts,
+            person.biography ? sm.el("p", { text: person.biography }) : null,
+          ]);
+          const photo = sm.poster(person.artwork, 300, person.name, "placeholder-person.svg");
+          main.appendChild(sm.el("div", { class: "sm-detail" }, [photo, info]));
+
+          if (me && me.role === "admin") {
+            const refresh = sm.el("button", { type: "button", class: "sm-secondary" }, "Refresh info");
+            refresh.addEventListener("click", async () => {
+              refresh.disabled = true;
+              try {
+                await sm.json("/api/v1/people/" + encodeURIComponent(id) + "/refresh", {
+                  method: "POST",
+                });
+                sm.toast("Queued. Track it under Jobs.", "ok");
+              } catch (err) {
+                refresh.disabled = false;
+                sm.toast("Refresh failed.", "danger");
+              }
+            });
+            main.appendChild(sm.el("p", null, refresh));
+          }
+
           main.appendChild(
             sm.el("h2", { text: "Filmography (" + (person.filmography || []).length + ")" }),
           );

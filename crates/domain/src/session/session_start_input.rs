@@ -2,7 +2,7 @@ use crate::catalog::VersionId;
 use crate::session::{ClientCapabilities, SubtitleSelection};
 
 #[derive(Debug, Clone)]
-pub struct StartSessionRequest {
+pub struct SessionStartInput {
     pub version: VersionId,
     pub start_position_ms: u64,
     pub capabilities: ClientCapabilities,

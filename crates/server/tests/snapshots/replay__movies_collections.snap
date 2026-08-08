@@ -8,21 +8,25 @@ expression: value
       {
         "added_at": "2023-11-14T22:13:27Z",
         "artwork": {
-          "backdrop": {
-            "base": "/images/c1-backdrop",
-            "widths": [
-              480,
-              960
-            ]
-          },
-          "poster": {
-            "base": "/images/c1-poster",
-            "widths": [
-              180,
-              480,
-              960
-            ]
-          }
+          "backdrops": [
+            {
+              "base": "/images/c1-backdrop",
+              "widths": [
+                480,
+                960
+              ]
+            }
+          ],
+          "posters": [
+            {
+              "base": "/images/c1-poster",
+              "widths": [
+                180,
+                480,
+                960
+              ]
+            }
+          ]
         },
         "id": "c1",
         "movies": [

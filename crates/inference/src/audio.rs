@@ -1,5 +1,5 @@
 use domain::error::TranscriptionError;
-use media::transcode::ProcessSpawner;
+use domain::process::ProcessSpawner;
 use uuid::Uuid;
 
 pub const SAMPLE_RATE: u32 = 16_000;

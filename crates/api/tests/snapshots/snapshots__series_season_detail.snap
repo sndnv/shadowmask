@@ -6,21 +6,25 @@ expression: value
   "body": {
     "added_at": "[added_at]",
     "artwork": {
-      "backdrop": {
-        "base": "/images/se1-backdrop",
-        "widths": [
-          480,
-          960
-        ]
-      },
-      "poster": {
-        "base": "/images/se1-poster",
-        "widths": [
-          180,
-          480,
-          960
-        ]
-      }
+      "backdrops": [
+        {
+          "base": "/images/se1-backdrop",
+          "widths": [
+            480,
+            960
+          ]
+        }
+      ],
+      "posters": [
+        {
+          "base": "/images/se1-poster",
+          "widths": [
+            180,
+            480,
+            960
+          ]
+        }
+      ]
     },
     "id": "se1",
     "number": 1,

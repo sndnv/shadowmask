@@ -7,8 +7,8 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CombineJobPayload {
     pub version_id: VersionId,
-    pub primary_subtitle_id: String,
-    pub secondary_subtitle_id: String,
+    pub top_subtitle_id: String,
+    pub bottom_subtitle_id: String,
 }
 
 impl CombineJobPayload {
@@ -21,11 +21,11 @@ impl CombineJobPayload {
     }
 }
 
-pub fn combine_job(version_id: &VersionId, primary_id: &str, secondary_id: &str) -> Job {
+pub fn combine_job(version_id: &VersionId, top_id: &str, bottom_id: &str) -> Job {
     let raw = CombineJobPayload {
         version_id: version_id.clone(),
-        primary_subtitle_id: primary_id.to_owned(),
-        secondary_subtitle_id: secondary_id.to_owned(),
+        top_subtitle_id: top_id.to_owned(),
+        bottom_subtitle_id: bottom_id.to_owned(),
     }
     .encode()
     .expect("combine job payload serializes");
@@ -51,16 +51,16 @@ pub fn combine_job(version_id: &VersionId, primary_id: &str, secondary_id: &str)
 #[derive(Serialize, Deserialize)]
 struct Wire {
     version_id: String,
-    primary_subtitle_id: String,
-    secondary_subtitle_id: String,
+    top_subtitle_id: String,
+    bottom_subtitle_id: String,
 }
 
 impl From<&CombineJobPayload> for Wire {
     fn from(payload: &CombineJobPayload) -> Self {
         Wire {
             version_id: payload.version_id.0.clone(),
-            primary_subtitle_id: payload.primary_subtitle_id.clone(),
-            secondary_subtitle_id: payload.secondary_subtitle_id.clone(),
+            top_subtitle_id: payload.top_subtitle_id.clone(),
+            bottom_subtitle_id: payload.bottom_subtitle_id.clone(),
         }
     }
 }
@@ -69,8 +69,8 @@ impl From<Wire> for CombineJobPayload {
     fn from(wire: Wire) -> Self {
         CombineJobPayload {
             version_id: VersionId(wire.version_id),
-            primary_subtitle_id: wire.primary_subtitle_id,
-            secondary_subtitle_id: wire.secondary_subtitle_id,
+            top_subtitle_id: wire.top_subtitle_id,
+            bottom_subtitle_id: wire.bottom_subtitle_id,
         }
     }
 }
@@ -83,8 +83,8 @@ mod tests {
     fn round_trips() {
         let payload = CombineJobPayload {
             version_id: VersionId("v1".into()),
-            primary_subtitle_id: "sf-en".into(),
-            secondary_subtitle_id: "sf-fr".into(),
+            top_subtitle_id: "sf-en".into(),
+            bottom_subtitle_id: "sf-fr".into(),
         };
         let encoded = payload.encode().unwrap();
         assert_eq!(CombineJobPayload::decode(&encoded).unwrap(), payload);
@@ -102,7 +102,7 @@ mod tests {
         assert_eq!(job.priority, JobPriority::Low);
         let decoded = CombineJobPayload::decode(&job.payload).unwrap();
         assert_eq!(decoded.version_id, VersionId("v1".into()));
-        assert_eq!(decoded.primary_subtitle_id, "sf-en");
-        assert_eq!(decoded.secondary_subtitle_id, "sf-fr");
+        assert_eq!(decoded.top_subtitle_id, "sf-en");
+        assert_eq!(decoded.bottom_subtitle_id, "sf-fr");
     }
 }

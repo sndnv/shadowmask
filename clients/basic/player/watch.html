@@ -8,13 +8,16 @@
   </head>
   <body>
     <nav id="nav"></nav>
-    <p id="back"></p>
-    <div class="sm-player">
-      <video id="player" controls playsinline width="960"></video>
-      <pre id="diag" class="sm-diag" hidden></pre>
-    </div>
-    <div id="controls"></div>
-    <p id="status">Loading&hellip;</p>
+    <main id="main">
+      <h1 class="sm-visually-hidden">Watch</h1>
+      <p id="back"></p>
+      <div class="sm-player">
+        <video id="player" controls playsinline width="960"></video>
+        <pre id="diag" class="sm-diag" hidden></pre>
+      </div>
+      <div id="controls"></div>
+      <p id="status" aria-live="polite">Loading&hellip;</p>
+    </main>
     <script src="../vendor/hls.min.js"></script>
     <script src="../app.js"></script>
     <script>
@@ -32,6 +35,7 @@
       let selSub = "";
       let selOffset = 0;
       let resumeMs = 0;
+      let playbackRate = 1;
 
       function readParams() {
         const p = new URLSearchParams(location.search);
@@ -106,6 +110,8 @@
       }
 
       function autostart(video) {
+        video.defaultPlaybackRate = playbackRate;
+        video.playbackRate = playbackRate;
         const started = video.play();
         if (started && started.catch) {
           started.catch(() => {
@@ -364,10 +370,12 @@
           .catch(() => null);
         versionDetail = version;
         renderBreadcrumb(version);
-        const row1 = sm.el("div");
-        const row2 = sm.el("div");
-        box.appendChild(row1);
-        box.appendChild(row2);
+        const rowTop = sm.el("div", { class: "sm-controls-row" });
+        const rowMid = sm.el("div", { class: "sm-controls-row" });
+        const rowBottom = sm.el("div", { class: "sm-controls-row" });
+        box.appendChild(rowTop);
+        box.appendChild(rowMid);
+        box.appendChild(rowBottom);
         {
           const vid0 = (version && version.video && version.video[0]) || null;
           const originalLabel = vid0
@@ -395,7 +403,7 @@
             writeParams();
             sendUpdate({});
           });
-          row1.appendChild(sm.el("label", null, ["Video Quality ", select]));
+          rowTop.appendChild(sm.el("label", null, ["Video Quality ", select]));
         }
         {
           const audio = (version && version.audio) || [];
@@ -420,7 +428,30 @@
             writeParams();
             sendUpdate({ audio_track: selAudio });
           });
-          row1.appendChild(sm.el("label", null, ["Audio Track ", select]));
+          rowMid.appendChild(sm.el("label", null, ["Audio Track ", select]));
+        }
+        {
+          const rates = [
+            ["0.5x", "0.5"],
+            ["0.75x", "0.75"],
+            ["Normal", "1"],
+            ["1.25x", "1.25"],
+            ["1.5x", "1.5"],
+            ["2x", "2"],
+          ];
+          const select = sm.el(
+            "select",
+            null,
+            rates.map(([label, value]) => sm.el("option", { value }, label)),
+          );
+          select.value = String(playbackRate);
+          select.addEventListener("change", () => {
+            playbackRate = parseFloat(select.value) || 1;
+            const video = document.getElementById("player");
+            video.defaultPlaybackRate = playbackRate;
+            video.playbackRate = playbackRate;
+          });
+          rowTop.appendChild(sm.el("label", null, ["Speed ", select]));
         }
         {
           const embedded = (version && version.subtitles) || [];
@@ -485,8 +516,8 @@
               },
             });
           });
-          row2.appendChild(sm.el("label", null, ["Subtitles ", select]));
-          row2.appendChild(sm.el("label", null, ["Offset ", offsetInput]));
+          rowBottom.appendChild(sm.el("label", null, ["Subtitles ", select]));
+          rowBottom.appendChild(sm.el("label", null, ["Offset ", offsetInput]));
           const burn = sm.el("input", { type: "checkbox" });
           burn.checked = controls.burn;
           burn.addEventListener("change", () => {
@@ -494,7 +525,7 @@
             writeParams();
             sendUpdate({});
           });
-          row2.appendChild(sm.el("label", null, ["Burn in ", burn]));
+          rowBottom.appendChild(sm.el("label", null, ["Burn in ", burn]));
         }
         {
           const downmix = sm.el("input", { type: "checkbox" });
@@ -504,7 +535,7 @@
             writeParams();
             sendUpdate({});
           });
-          row1.appendChild(sm.el("label", null, ["Downmix to stereo ", downmix]));
+          rowMid.appendChild(sm.el("label", null, ["Downmix to stereo ", downmix]));
           const diag = sm.el("input", { type: "checkbox" });
           diag.addEventListener("change", () => {
             const panel = document.getElementById("diag");
@@ -518,7 +549,7 @@
               stopDiag();
             }
           });
-          row1.appendChild(sm.el("label", null, ["Diagnostics ", diag]));
+          rowTop.appendChild(sm.el("label", null, ["Diagnostics ", diag]));
         }
       }
     </script>

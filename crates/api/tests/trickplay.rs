@@ -25,6 +25,7 @@ fn app(dir: &Path) -> Router {
         generator.user.clone(),
         generator.user_library.clone(),
         generator.discovery.clone(),
+        generator.job.clone(),
     );
     trickplay_router(state, TrickplayState::new(dir))
 }

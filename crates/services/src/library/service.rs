@@ -3,18 +3,19 @@ use std::sync::Arc;
 use domain::catalog::{TitleId, TitleRef, VersionId};
 use domain::common::{Page, PageRequest};
 use domain::error::LibraryError;
-use domain::job::{Job, JobCanceller, JobId, JobKind, JobPriority, JobStatus};
+use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
 use domain::library::{
     DuplicateCandidate, DuplicateCandidateId, FetchInput, Library, LibraryId, LibraryKind,
     LibraryOrigin, LibraryUpdate, NewLibrary, ResolutionStatus, ResolveCandidate, ResolveTarget,
     ScanState, ScanStatus, UnmatchedFile, UnmatchedFileId,
 };
-use domain::media::SubtitleFileId;
-use domain::metadata::{ExternalId, MediaKind, MetadataProvider, MetadataQuery};
+use domain::media::{CookieInspector, CookieVerdict, SubtitleFileId};
+use domain::metadata::{ExternalId, MediaKind, MetadataProvider, MetadataQuery, PersonId};
 use domain::repository::{CatalogRepository, JobRepository, LibraryRepository, UserRepository};
 use domain::service::LibraryService;
 use domain::user::Principal;
 use jiff::Timestamp;
+use url::Url;
 use uuid::Uuid;
 
 use super::{
@@ -22,14 +23,6 @@ use super::{
     parse_filename, transcription_job, translation_job_with_source, upscale_job,
 };
 use crate::acl;
-
-struct NoopCanceller;
-
-impl JobCanceller for NoopCanceller {
-    fn request_cancel(&self, _id: &JobId) -> bool {
-        false
-    }
-}
 
 #[derive(Clone)]
 pub struct LibraryServiceImpl<L, U, J, C, M> {
@@ -42,7 +35,7 @@ pub struct LibraryServiceImpl<L, U, J, C, M> {
     translation_enabled: bool,
     upscaling_enabled: bool,
     content_fetch_enabled: bool,
-    canceller: Arc<dyn JobCanceller>,
+    cookie_inspector: Option<Arc<dyn CookieInspector>>,
 }
 
 impl<L, U, J, C, M> LibraryServiceImpl<L, U, J, C, M> {
@@ -57,13 +50,8 @@ impl<L, U, J, C, M> LibraryServiceImpl<L, U, J, C, M> {
             translation_enabled: false,
             upscaling_enabled: false,
             content_fetch_enabled: false,
-            canceller: Arc::new(NoopCanceller),
+            cookie_inspector: None,
         }
-    }
-
-    pub fn with_canceller(mut self, canceller: Arc<dyn JobCanceller>) -> Self {
-        self.canceller = canceller;
-        self
     }
 
     pub fn with_enrichment_flags(
@@ -80,6 +68,14 @@ impl<L, U, J, C, M> LibraryServiceImpl<L, U, J, C, M> {
 
     pub fn with_content_fetch(mut self, content_fetch_enabled: bool) -> Self {
         self.content_fetch_enabled = content_fetch_enabled;
+        self
+    }
+
+    pub fn with_cookie_inspector(
+        mut self,
+        cookie_inspector: Option<Arc<dyn CookieInspector>>,
+    ) -> Self {
+        self.cookie_inspector = cookie_inspector;
         self
     }
 }
@@ -430,12 +426,28 @@ where
         if target.origin != LibraryOrigin::External {
             return Err(LibraryError::Forbidden);
         }
+        let url = Url::parse(&input.source_url).map_err(|_| {
+            LibraryError::InvalidRequest("source_url is not a valid URL".to_owned())
+        })?;
+        if !matches!(url.scheme(), "http" | "https") {
+            return Err(LibraryError::InvalidRequest(
+                "source_url must be an http or https URL".to_owned(),
+            ));
+        }
+        if let Some(inspector) = &self.cookie_inspector {
+            let host = url.host_str().unwrap_or_default();
+            if matches!(inspector.verdict_for(host), CookieVerdict::Expired) {
+                return Err(LibraryError::InvalidRequest(format!(
+                    "the configured cookies for [{host}] have expired; export a fresh cookies.txt and remount it before fetching from this site"
+                )));
+            }
+        }
         let payload = FetchJobPayload {
             library: library.clone(),
             source_url: input.source_url,
             kind: input.kind,
             title: input.title,
-            imdb_id: input.imdb_id,
+            external_id: input.external_id,
             season: input.season,
             episode: input.episode,
         }
@@ -498,9 +510,41 @@ where
         if !acl::is_admin(caller) {
             return Err(LibraryError::Forbidden);
         }
-        let payload = MetadataJobPayload { title, external_id }
+        let payload = MetadataJobPayload::Title { title, external_id }
             .encode()
             .expect("metadata job payload serializes");
+        let now = Timestamp::now();
+        self.jobs
+            .enqueue(Job {
+                id: JobId(Uuid::new_v4().to_string()),
+                kind: JobKind::Metadata,
+                status: JobStatus::Queued,
+                priority: JobPriority::Normal,
+                payload,
+                attempts: 0,
+                progress: 0.0,
+                available_at: now,
+                last_error: None,
+                created_at: now,
+                updated_at: now,
+                started_at: None,
+                finished_at: None,
+                parent_id: None,
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn refresh_person(&self, caller: &Principal, id: &PersonId) -> Result<(), LibraryError> {
+        if !acl::is_admin(caller) {
+            return Err(LibraryError::Forbidden);
+        }
+        let payload = MetadataJobPayload::People {
+            ids: vec![id.clone()],
+            force: true,
+        }
+        .encode()
+        .expect("metadata job payload serializes");
         let now = Timestamp::now();
         self.jobs
             .enqueue(Job {
@@ -665,8 +709,8 @@ where
         &self,
         caller: &Principal,
         version: &VersionId,
-        primary: &SubtitleFileId,
-        secondary: &SubtitleFileId,
+        top: &SubtitleFileId,
+        bottom: &SubtitleFileId,
     ) -> Result<(), LibraryError> {
         if !acl::is_admin(caller) {
             return Err(LibraryError::Forbidden);
@@ -677,37 +721,12 @@ where
             .await?
             .ok_or(LibraryError::NotFound)?;
         let has = |id: &SubtitleFileId| detail.subtitle_files.iter().any(|file| file.id == *id);
-        if !has(primary) || !has(secondary) {
+        if !has(top) || !has(bottom) {
             return Err(LibraryError::NotFound);
         }
-        let job = combine_job(version, &primary.0, &secondary.0);
+        let job = combine_job(version, &top.0, &bottom.0);
         self.jobs.enqueue(job).await?;
         Ok(())
-    }
-
-    async fn jobs(&self, caller: &Principal) -> Result<Vec<Job>, LibraryError> {
-        if !acl::is_admin(caller) {
-            return Err(LibraryError::Forbidden);
-        }
-        Ok(self.jobs.list().await?)
-    }
-
-    async fn cancel_job(&self, caller: &Principal, id: &JobId) -> Result<(), LibraryError> {
-        if !acl::is_admin(caller) {
-            return Err(LibraryError::Forbidden);
-        }
-        if self.jobs.cancel(id, Timestamp::now()).await? {
-            return Ok(());
-        }
-        let job = self.jobs.get(id).await?.ok_or(LibraryError::NotFound)?;
-        match job.status {
-            JobStatus::Cancelled => Ok(()),
-            JobStatus::Running if job.kind.is_process_killable() => {
-                self.canceller.request_cancel(id);
-                Ok(())
-            }
-            _ => Err(LibraryError::NotCancellable),
-        }
     }
 }
 
@@ -995,174 +1014,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn jobs_admin_only() {
-        let svc = seeded().await;
-        let now = Timestamp::now();
-        svc.jobs
-            .enqueue(Job {
-                id: JobId("j1".into()),
-                kind: JobKind::LibraryScan,
-                status: JobStatus::Queued,
-                priority: JobPriority::Normal,
-                payload: "lib1".into(),
-                attempts: 0,
-                progress: 0.0,
-                available_at: now,
-                last_error: None,
-                created_at: now,
-                updated_at: now,
-                started_at: None,
-                finished_at: None,
-                parent_id: None,
-            })
-            .await
-            .unwrap();
-        assert_eq!(svc.jobs(&admin()).await.unwrap().len(), 1);
-        assert!(matches!(
-            svc.jobs(&member()).await.unwrap_err(),
-            LibraryError::Forbidden
-        ));
-    }
-
-    #[derive(Clone, Default)]
-    struct RecordingCanceller {
-        calls: Arc<std::sync::Mutex<Vec<String>>>,
-    }
-
-    impl JobCanceller for RecordingCanceller {
-        fn request_cancel(&self, id: &JobId) -> bool {
-            self.calls.lock().unwrap().push(id.0.clone());
-            true
-        }
-    }
-
-    fn job_with(id: &str, kind: JobKind, status: JobStatus) -> Job {
-        let now = Timestamp::now();
-        Job {
-            id: JobId(id.into()),
-            kind,
-            status,
-            priority: JobPriority::Normal,
-            payload: String::new(),
-            attempts: 0,
-            progress: 0.0,
-            available_at: now,
-            last_error: None,
-            created_at: now,
-            updated_at: now,
-            started_at: None,
-            finished_at: None,
-            parent_id: None,
-        }
-    }
-
-    #[tokio::test]
-    async fn cancel_job_requires_admin() {
-        let svc = seeded().await;
-        assert!(matches!(
-            svc.cancel_job(&member(), &JobId("x".into()))
-                .await
-                .unwrap_err(),
-            LibraryError::Forbidden
-        ));
-    }
-
-    #[tokio::test]
-    async fn cancel_job_queued_marks_cancelled() {
-        let svc = seeded().await;
-        svc.jobs
-            .enqueue(job_with("q", JobKind::LibraryScan, JobStatus::Queued))
-            .await
-            .unwrap();
-        svc.cancel_job(&admin(), &JobId("q".into())).await.unwrap();
-        let stored = svc.jobs.get(&JobId("q".into())).await.unwrap().unwrap();
-        assert_eq!(stored.status, JobStatus::Cancelled);
-        assert!(stored.finished_at.is_some());
-    }
-
-    #[tokio::test]
-    async fn cancel_job_missing_is_not_found() {
-        let svc = seeded().await;
-        assert!(matches!(
-            svc.cancel_job(&admin(), &JobId("nope".into()))
-                .await
-                .unwrap_err(),
-            LibraryError::NotFound
-        ));
-    }
-
-    #[tokio::test]
-    async fn cancel_job_running_killable_signals_canceller() {
-        let jobs = MockJobStore::new();
-        jobs.enqueue(job_with("f", JobKind::Fetch, JobStatus::Running))
-            .await
-            .unwrap();
-        let canceller = RecordingCanceller::default();
-        let svc = LibraryServiceImpl::new(
-            MockLibraryRepo::new(),
-            MockUserRepo::new(),
-            jobs,
-            MockCatalogRepo::new(),
-            None::<MockMetadataProvider>,
-        )
-        .with_canceller(Arc::new(canceller.clone()));
-        svc.cancel_job(&admin(), &JobId("f".into())).await.unwrap();
-        let calls = canceller.calls.lock().unwrap();
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0], "f");
-    }
-
-    #[tokio::test]
-    async fn cancel_job_running_killable_default_canceller_is_ok() {
-        let svc = seeded().await;
-        svc.jobs
-            .enqueue(job_with("t", JobKind::Trickplay, JobStatus::Running))
-            .await
-            .unwrap();
-        svc.cancel_job(&admin(), &JobId("t".into())).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn cancel_job_running_non_killable_conflicts() {
-        let svc = seeded().await;
-        svc.jobs
-            .enqueue(job_with("s", JobKind::LibraryScan, JobStatus::Running))
-            .await
-            .unwrap();
-        assert!(matches!(
-            svc.cancel_job(&admin(), &JobId("s".into()))
-                .await
-                .unwrap_err(),
-            LibraryError::NotCancellable
-        ));
-    }
-
-    #[tokio::test]
-    async fn cancel_job_already_cancelled_is_idempotent() {
-        let svc = seeded().await;
-        svc.jobs
-            .enqueue(job_with("c", JobKind::Fetch, JobStatus::Cancelled))
-            .await
-            .unwrap();
-        svc.cancel_job(&admin(), &JobId("c".into())).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn cancel_job_terminal_conflicts() {
-        let svc = seeded().await;
-        svc.jobs
-            .enqueue(job_with("d", JobKind::Fetch, JobStatus::Succeeded))
-            .await
-            .unwrap();
-        assert!(matches!(
-            svc.cancel_job(&admin(), &JobId("d".into()))
-                .await
-                .unwrap_err(),
-            LibraryError::NotCancellable
-        ));
-    }
-
-    #[tokio::test]
     async fn library_writes_propagate_backend_errors() {
         let libraries = MockLibraryRepo::new();
         libraries.insert_library(library("lib1"));
@@ -1337,7 +1188,7 @@ mod tests {
             source_url: "https://example.com/watch?v=abc".into(),
             kind: LibraryKind::Movie,
             title: "The Matrix".into(),
-            imdb_id: Some("tt0133093".into()),
+            external_id: Some("tt0133093".into()),
             season: None,
             episode: None,
         }
@@ -1355,6 +1206,54 @@ mod tests {
             None::<MockMetadataProvider>,
         )
         .with_content_fetch(enabled)
+    }
+
+    struct StubCookies(CookieVerdict);
+
+    impl CookieInspector for StubCookies {
+        fn verdict_for(&self, _host: &str) -> CookieVerdict {
+            self.0
+        }
+    }
+
+    fn stub_cookies(verdict: CookieVerdict) -> Option<Arc<dyn CookieInspector>> {
+        Some(Arc::new(StubCookies(verdict)) as Arc<dyn CookieInspector>)
+    }
+
+    #[tokio::test]
+    async fn create_fetch_rejects_expired_cookies() {
+        let jobs = MockJobStore::new();
+        let svc = fetch_svc(jobs.clone(), true)
+            .with_cookie_inspector(stub_cookies(CookieVerdict::Expired));
+        assert!(matches!(
+            svc.create_fetch(&admin(), &LibraryId("ext".into()), fetch_input())
+                .await
+                .unwrap_err(),
+            LibraryError::InvalidRequest(_)
+        ));
+        assert!(jobs.list().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn create_fetch_proceeds_when_cookies_live() {
+        let jobs = MockJobStore::new();
+        let svc =
+            fetch_svc(jobs.clone(), true).with_cookie_inspector(stub_cookies(CookieVerdict::Live));
+        svc.create_fetch(&admin(), &LibraryId("ext".into()), fetch_input())
+            .await
+            .unwrap();
+        assert_eq!(jobs.list().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn create_fetch_proceeds_when_cookies_not_applicable() {
+        let jobs = MockJobStore::new();
+        let svc = fetch_svc(jobs.clone(), true)
+            .with_cookie_inspector(stub_cookies(CookieVerdict::NotApplicable));
+        svc.create_fetch(&admin(), &LibraryId("ext".into()), fetch_input())
+            .await
+            .unwrap();
+        assert_eq!(jobs.list().await.unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -1410,6 +1309,34 @@ mod tests {
                 .await
                 .unwrap_err(),
             LibraryError::NotFound
+        ));
+    }
+
+    #[tokio::test]
+    async fn create_fetch_rejects_non_http_scheme() {
+        let jobs = MockJobStore::new();
+        let svc = fetch_svc(jobs.clone(), true);
+        let mut input = fetch_input();
+        input.source_url = "file:///etc/passwd".into();
+        assert!(matches!(
+            svc.create_fetch(&admin(), &LibraryId("ext".into()), input)
+                .await
+                .unwrap_err(),
+            LibraryError::InvalidRequest(_)
+        ));
+        assert!(jobs.list().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn create_fetch_rejects_unparseable_url() {
+        let svc = fetch_svc(MockJobStore::new(), true);
+        let mut input = fetch_input();
+        input.source_url = "not a url".into();
+        assert!(matches!(
+            svc.create_fetch(&admin(), &LibraryId("ext".into()), input)
+                .await
+                .unwrap_err(),
+            LibraryError::InvalidRequest(_)
         ));
     }
 
@@ -1493,6 +1420,32 @@ mod tests {
 
         assert!(matches!(
             svc.reidentify(&member(), title, None).await.unwrap_err(),
+            LibraryError::Forbidden
+        ));
+    }
+
+    #[tokio::test]
+    async fn refresh_person_enqueues_metadata_job_admin_only() {
+        let jobs = MockJobStore::new();
+        let svc = LibraryServiceImpl::new(
+            MockLibraryRepo::new(),
+            MockUserRepo::new(),
+            jobs.clone(),
+            MockCatalogRepo::new(),
+            None::<MockMetadataProvider>,
+        );
+
+        svc.refresh_person(&admin(), &PersonId("p1".into()))
+            .await
+            .unwrap();
+        let enqueued = jobs.list().await.unwrap();
+        assert_eq!(enqueued.len(), 1);
+        assert_eq!(enqueued[0].kind, JobKind::Metadata);
+
+        assert!(matches!(
+            svc.refresh_person(&member(), &PersonId("p1".into()))
+                .await
+                .unwrap_err(),
             LibraryError::Forbidden
         ));
     }

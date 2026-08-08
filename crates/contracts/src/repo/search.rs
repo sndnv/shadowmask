@@ -76,6 +76,7 @@ fn person(id: &str, name: &str) -> Person {
     Person {
         id: PersonId(id.into()),
         name: name.into(),
+        ..Person::default()
     }
 }
 

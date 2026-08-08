@@ -1,11 +1,11 @@
 use std::future::Future;
 
 use crate::error::TranslationError;
-use crate::media::{FetchedSubtitle, TranslationRequest};
+use crate::media::{FetchedSubtitle, TranslationSpec};
 
 pub trait TranslationProvider {
     fn translate(
         &self,
-        request: &TranslationRequest,
+        request: &TranslationSpec,
     ) -> impl Future<Output = Result<FetchedSubtitle, TranslationError>> + Send;
 }

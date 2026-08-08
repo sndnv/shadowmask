@@ -50,7 +50,7 @@ mod tests {
             json!({
                 "title": {"type": "movie", "id": "m1"},
                 "display_title": "Alpha",
-                "artwork": {"poster": {"base": "/images/p1", "widths": [180]}},
+                "artwork": {"posters": [{"base": "/images/p1", "widths": [180]}]},
                 "duration_ms": 1000,
                 "progress_percent": 42,
             })

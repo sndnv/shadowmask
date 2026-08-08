@@ -1,6 +1,6 @@
 use domain::error::TranslationError;
 use domain::media::{
-    FetchedSubtitle, SubtitleFormat, TranslationProvider, TranslationRequest, is_hallucinated_text,
+    FetchedSubtitle, SubtitleFormat, TranslationProvider, TranslationSpec, is_hallucinated_text,
 };
 use subtp::srt::SubRip;
 use subtp::vtt::{VttBlock, WebVtt};
@@ -24,7 +24,7 @@ where
     async fn translate_texts(
         &self,
         texts: Vec<String>,
-        request: &TranslationRequest,
+        request: &TranslationSpec,
     ) -> Result<Vec<String>, TranslationError> {
         let source = request.source_language.as_ref().map(|code| code.0.clone());
         let target = request.target_language.0.clone();
@@ -33,7 +33,7 @@ where
 
     async fn translate_vtt(
         &self,
-        request: &TranslationRequest,
+        request: &TranslationSpec,
     ) -> Result<FetchedSubtitle, TranslationError> {
         let mut vtt = WebVtt::parse(request.content.as_str())
             .map_err(|e| TranslationError::Backend(format!("parse vtt: {e}")))?;
@@ -65,7 +65,7 @@ where
 
     async fn translate_srt(
         &self,
-        request: &TranslationRequest,
+        request: &TranslationSpec,
     ) -> Result<FetchedSubtitle, TranslationError> {
         let mut srt = SubRip::parse(request.content.as_str())
             .map_err(|e| TranslationError::Backend(format!("parse srt: {e}")))?;
@@ -89,7 +89,7 @@ where
 {
     async fn translate(
         &self,
-        request: &TranslationRequest,
+        request: &TranslationSpec,
     ) -> Result<FetchedSubtitle, TranslationError> {
         match request.format {
             SubtitleFormat::Vtt => self.translate_vtt(request).await,
@@ -142,8 +142,8 @@ mod tests {
         }
     }
 
-    fn request(content: &str, format: SubtitleFormat, source: Option<&str>) -> TranslationRequest {
-        TranslationRequest {
+    fn request(content: &str, format: SubtitleFormat, source: Option<&str>) -> TranslationSpec {
+        TranslationSpec {
             content: content.to_owned(),
             format,
             source_language: source.map(|code| LanguageCode(code.into())),

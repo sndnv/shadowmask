@@ -99,6 +99,7 @@ mod tests {
         SearchResult::Person(Person {
             id: PersonId(name.to_owned()),
             name: name.to_owned(),
+            ..Person::default()
         })
     }
 

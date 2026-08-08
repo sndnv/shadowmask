@@ -38,14 +38,13 @@ pub async fn job<S: AppServices>(
     Path(id): Path<String>,
 ) -> ApiResult<Json<JobResponse>> {
     let actor = &principal.user.0;
+    let job_id = JobId(id);
     let job = state
-        .jobs(&principal)
+        .job(&principal, &job_id)
         .await
         .map_err(log_fail(actor, "retrieve job"))?
-        .into_iter()
-        .find(|j| j.id.0 == id)
         .ok_or_else(|| ApiError::not_found("job not found"))?;
-    debug!("User [{actor}] successfully retrieved job [{id}]");
+    debug!("User [{actor}] successfully retrieved job [{}]", job_id.0);
     Ok(Json(job.into()))
 }
 
@@ -179,9 +178,9 @@ pub async fn combine_subtitles<S: AppServices>(
     Json(req): Json<CombineRequest>,
 ) -> ApiResult<StatusCode> {
     let actor = &principal.user.0;
-    if req.primary_subtitle_id == req.secondary_subtitle_id {
+    if req.top_subtitle_id == req.bottom_subtitle_id {
         return Err(ApiError::bad_request(
-            "primary and secondary subtitles must differ",
+            "top and bottom subtitles must differ",
         ));
     }
     let version = VersionId(id);
@@ -189,8 +188,8 @@ pub async fn combine_subtitles<S: AppServices>(
         .trigger_combine(
             &principal,
             &version,
-            &SubtitleFileId(req.primary_subtitle_id),
-            &SubtitleFileId(req.secondary_subtitle_id),
+            &SubtitleFileId(req.top_subtitle_id),
+            &SubtitleFileId(req.bottom_subtitle_id),
         )
         .await
         .map_err(log_fail(actor, "trigger combine"))?;

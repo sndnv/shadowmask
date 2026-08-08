@@ -8,21 +8,25 @@ expression: value
       {
         "card": {
           "artwork": {
-            "backdrop": {
-              "base": "/images/m1-backdrop",
-              "widths": [
-                480,
-                960
-              ]
-            },
-            "poster": {
-              "base": "/images/m1-poster",
-              "widths": [
-                180,
-                480,
-                960
-              ]
-            }
+            "backdrops": [
+              {
+                "base": "/images/m1-backdrop",
+                "widths": [
+                  480,
+                  960
+                ]
+              }
+            ],
+            "posters": [
+              {
+                "base": "/images/m1-poster",
+                "widths": [
+                  180,
+                  480,
+                  960
+                ]
+              }
+            ]
           },
           "display_title": "Alpha m1",
           "duration_ms": 1000,
@@ -45,21 +49,25 @@ expression: value
         "added_at": "2023-11-14T22:13:24Z",
         "air_date": "2023-11-14T22:13:23Z",
         "artwork": {
-          "backdrop": {
-            "base": "/images/e1-backdrop",
-            "widths": [
-              480,
-              960
-            ]
-          },
-          "poster": {
-            "base": "/images/e1-poster",
-            "widths": [
-              180,
-              480,
-              960
-            ]
-          }
+          "backdrops": [
+            {
+              "base": "/images/e1-backdrop",
+              "widths": [
+                480,
+                960
+              ]
+            }
+          ],
+          "posters": [
+            {
+              "base": "/images/e1-poster",
+              "widths": [
+                180,
+                480,
+                960
+              ]
+            }
+          ]
         },
         "id": "e1",
         "number": 1,
@@ -74,21 +82,25 @@ expression: value
       {
         "added_at": "2023-11-14T22:13:21Z",
         "artwork": {
-          "backdrop": {
-            "base": "/images/m2-backdrop",
-            "widths": [
-              480,
-              960
-            ]
-          },
-          "poster": {
-            "base": "/images/m2-poster",
-            "widths": [
-              180,
-              480,
-              960
-            ]
-          }
+          "backdrops": [
+            {
+              "base": "/images/m2-backdrop",
+              "widths": [
+                480,
+                960
+              ]
+            }
+          ],
+          "posters": [
+            {
+              "base": "/images/m2-poster",
+              "widths": [
+                180,
+                480,
+                960
+              ]
+            }
+          ]
         },
         "content_rating": {
           "code": "PG-13",

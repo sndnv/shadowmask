@@ -1,5 +1,5 @@
 use domain::error::TranscriptionError;
-use domain::media::{FetchedSubtitle, TranscriptionProvider, TranscriptionRequest};
+use domain::media::{FetchedSubtitle, TranscriptionProvider, TranscriptionSpec};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DisabledTranscriptionProvider;
@@ -7,7 +7,7 @@ pub struct DisabledTranscriptionProvider;
 impl TranscriptionProvider for DisabledTranscriptionProvider {
     async fn transcribe(
         &self,
-        _request: &TranscriptionRequest,
+        _request: &TranscriptionSpec,
     ) -> Result<FetchedSubtitle, TranscriptionError> {
         Err(TranscriptionError::Unsupported(
             "transcription feature not built".to_owned(),
@@ -21,7 +21,7 @@ mod tests {
 
     #[tokio::test]
     async fn transcribe_is_unsupported() {
-        let request = TranscriptionRequest {
+        let request = TranscriptionSpec {
             audio_path: "/media/v1.mkv".to_owned(),
             source_language: None,
             audio_track_index: None,

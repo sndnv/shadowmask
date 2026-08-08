@@ -7,8 +7,7 @@ use domain::media::{CreditsMarker, DetectedMarkers, IntroMarker, TrickplayAsset}
 use domain::service::SessionService;
 use domain::session::{
     DeliveryMode, HeartbeatAck, PlaybackSession, PlaybackState, Renegotiated, SelectedTracks,
-    SessionId, SessionStarted, SessionUpdate, StartSessionRequest, SubtitleChange,
-    SubtitleDelivery,
+    SessionId, SessionStartInput, SessionStarted, SessionUpdate, SubtitleChange, SubtitleDelivery,
 };
 use domain::user::Principal;
 use jiff::Timestamp;
@@ -56,7 +55,7 @@ impl SessionService for MockSessionService {
     async fn start(
         &self,
         caller: &Principal,
-        request: StartSessionRequest,
+        request: SessionStartInput,
     ) -> Result<SessionStarted, SessionError> {
         let user = &caller.user;
         let mut state = self.state.lock().unwrap();
@@ -235,8 +234,8 @@ mod tests {
         }
     }
 
-    fn start_request() -> StartSessionRequest {
-        StartSessionRequest {
+    fn start_request() -> SessionStartInput {
+        SessionStartInput {
             version: VersionId("v1".into()),
             start_position_ms: 0,
             capabilities: ClientCapabilities {
@@ -270,7 +269,7 @@ mod tests {
     #[tokio::test]
     async fn start_with_subtitle_selection() {
         let svc = MockSessionService::new();
-        let request = StartSessionRequest {
+        let request = SessionStartInput {
             subtitle: Some(SubtitleSelection {
                 track: SubtitleTrackRef::Embedded(2),
                 offset_ms: Some(500),

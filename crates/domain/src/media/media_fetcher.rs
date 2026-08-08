@@ -3,7 +3,7 @@ use std::future::Future;
 use crate::error::FetchError;
 
 #[derive(Debug, Clone)]
-pub struct FetchRequest {
+pub struct FetchSpec {
     pub url: String,
     pub dest_dir: String,
     pub filename_stem: String,
@@ -18,6 +18,6 @@ pub struct FetchedMedia {
 pub trait MediaFetcher {
     fn fetch(
         &self,
-        request: &FetchRequest,
+        request: &FetchSpec,
     ) -> impl Future<Output = Result<FetchedMedia, FetchError>> + Send;
 }

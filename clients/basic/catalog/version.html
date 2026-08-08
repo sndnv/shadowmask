@@ -7,7 +7,9 @@
     <title>Shadowmask (basic) - Version</title>
   </head>
   <body>
+    <h1 class="sm-visually-hidden">Version</h1>
     <nav id="nav"></nav>
+    <div id="crumbs"></div>
     <main id="main">Loading&hellip;</main>
     <script src="../app.js"></script>
     <script>
@@ -23,131 +25,197 @@
         }
         try {
           const v = await sm.json("/api/v1/versions/" + encodeURIComponent(id));
+          const card = await resolveCard(v.title);
+          document.getElementById("crumbs").appendChild(sm.breadcrumbs(buildCrumbs(v, card)));
+
           main.textContent = "";
-          main.appendChild(sm.el("h1", { text: "Version" }));
-          main.appendChild(sm.el("p", null, sm.el("a", { href: sm.href.ref(v.title) }, "Back to title")));
-          if (v.available) {
-            main.appendChild(sm.el("p", null, sm.el("a", { href: sm.href.watch(v.id) }, "Play")));
-          }
-          const dl = sm.el("dl");
-          const add = (key, value) => {
-            if (value === null || value === undefined || value === "") return;
-            dl.appendChild(sm.el("dt", { text: key }));
-            dl.appendChild(sm.el("dd", { text: String(value) }));
-          };
-          add("Quality", v.quality.toUpperCase());
-          add("Container", v.container);
-          add("Edition", v.edition);
-          add("Size", Math.round(v.size_bytes / 1048576) + " MB");
-          add("Duration", Math.round(v.duration_ms / 60000) + " min");
-          add("Available", v.available ? "yes" : "no");
-          add("Added", sm.time(v.added_at));
-          add("Updated", sm.time(v.updated_at));
-          add("Path", v.path);
-          main.appendChild(dl);
-
-          const me = await sm.self().catch(() => null);
-          if (me && me.role === "admin") {
-            const host = sm.el("div", null);
-            const relink = sm.el("button", { type: "button" }, "Relink this version");
-            relink.addEventListener("click", () => {
-              host.textContent = "";
-              host.appendChild(sm.relinkPanel(v.id, "this version"));
-            });
-            main.appendChild(relink);
-            main.appendChild(host);
-          }
-
-          tracks(main, "Video", v.video, (t) =>
-            t.codec +
-            " " +
-            t.width +
-            "x" +
-            t.height +
-            " " +
-            t.bit_depth +
-            "-bit" +
-            (t.hdr ? " " + t.hdr : "") +
-            " " +
-            t.frame_rate +
-            "fps",
-          );
-          tracks(main, "Audio", v.audio, (t) =>
-            t.codec + " " + t.channels + "ch" + (t.language ? " " + sm.lang(t.language) : ""),
-          );
-          tracks(main, "Subtitles", v.subtitles, (t) =>
-            t.format +
-            (t.language ? " " + sm.lang(t.language) : "") +
-            (t.forced ? " forced" : "") +
-            (t.default ? " default" : ""),
-          );
-
-          if (v.chapters && v.chapters.length) {
-            main.appendChild(sm.el("h2", { text: "Chapters" }));
-            main.appendChild(
-              sm.el(
-                "ol",
-                null,
-                v.chapters.map((c) =>
-                  sm.el("li", { text: c.title + " (" + Math.round(c.start_ms / 1000) + "s)" }),
-                ),
-              ),
-            );
-          }
-
-          const markers = (v.markers.intro || [])
-            .map((m) => "Intro " + Math.round(m.start_ms / 1000) + " to " + Math.round(m.end_ms / 1000) + "s")
-            .concat(
-              (v.markers.credits || []).map(
-                (m) => "Credits " + Math.round(m.start_ms / 1000) + " to " + Math.round(m.end_ms / 1000) + "s",
-              ),
-            );
-          if (markers.length) {
-            main.appendChild(sm.el("h2", { text: "Markers" }));
-            main.appendChild(sm.el("ul", null, markers.map((m) => sm.el("li", { text: m }))));
-          }
-
-          if (v.trickplay && v.trickplay.length) {
-            main.appendChild(sm.el("h2", { text: "Trickplay" }));
-            main.appendChild(
-              sm.el(
-                "ul",
-                null,
-                v.trickplay.map((t) =>
-                  sm.el("li", {
-                    text:
-                      t.columns +
-                      "x" +
-                      t.rows +
-                      " tiles, " +
-                      t.sheets +
-                      " sheet(s), every " +
-                      Math.round(t.interval_ms / 1000) +
-                      "s",
-                  }),
-                ),
-              ),
-            );
-            const sheetCount = Math.max(...v.trickplay.map((t) => t.sheets));
-            const gallery = sm.el("div", { class: "sm-trickplay" });
-            for (let sheet = 1; sheet <= sheetCount; sheet++) {
-              gallery.appendChild(
-                sm.authImg("/api/v1/trickplay/" + encodeURIComponent(v.id) + "/" + sheet, {
-                  width: "480",
-                }),
-              );
-            }
-            main.appendChild(gallery);
-          }
+          const cols = sm.el("div", { class: "sm-cols" });
+          main.appendChild(cols);
+          cols.appendChild(renderSummary(v));
+          cols.appendChild(renderTracks(v));
+          renderExtras(main, v);
         } catch (err) {
           main.textContent = "Could not load this version.";
         }
       }
 
-      function tracks(main, label, list, fmt) {
+      async function resolveCard(ref) {
+        try {
+          const cards = await sm.json("/api/v1/titles/batch", {
+            method: "POST",
+            body: JSON.stringify({ titles: [ref] }),
+          });
+          return cards[0] || null;
+        } catch (e) {
+          return null;
+        }
+      }
+
+      function buildCrumbs(v, card) {
+        const versionCrumb = { label: String(v.id).split("-")[0] };
+        if (v.title.type === "movie") {
+          const name = card ? card.title + (card.year ? " (" + card.year + ")" : "") : "Movie";
+          return [
+            { label: "Movies", href: sm.url("catalog/movies.html") },
+            { label: name, href: sm.href.ref(v.title) },
+            versionCrumb,
+          ];
+        }
+        const crumbs = [{ label: "Series", href: sm.url("catalog/series.html") }];
+        if (!card) {
+          crumbs.push({ label: "Episode" }, versionCrumb);
+          return crumbs;
+        }
+        const seriesId = card.series_id || null;
+        const seriesTitle = card.series_title || "Series";
+        crumbs.push(
+          seriesId ? { label: seriesTitle, href: sm.href.series(seriesId) } : { label: seriesTitle },
+        );
+        if (card.season_number != null) {
+          crumbs.push({
+            label: "Season " + card.season_number,
+            href: sm.href.season(card.season_id, seriesId || undefined),
+          });
+        }
+        crumbs.push({
+          label: card.title || "Episode " + card.number,
+          href: sm.href.episode(card.id, card.season_id, seriesId || undefined),
+        });
+        crumbs.push(versionCrumb);
+        return crumbs;
+      }
+
+      function renderSummary(v) {
+        const section = sm.el("section");
+        section.appendChild(sm.el("h2", { text: "Summary" }));
+        if (v.available) {
+          section.appendChild(
+            sm.el("p", null, sm.el("a", { href: sm.href.watch(v.id), class: "sm-play" }, "Play")),
+          );
+        }
+        const dl = sm.el("dl");
+        const add = (key, value) => {
+          if (value === null || value === undefined || value === "") return;
+          dl.appendChild(sm.el("dt", { text: key }));
+          dl.appendChild(sm.el("dd", { text: String(value) }));
+        };
+        add("Quality", v.quality ? v.quality.toUpperCase() : null);
+        add("Container", v.container);
+        add("Edition", v.edition);
+        add("Size", v.size_bytes != null ? Math.round(v.size_bytes / 1048576) + " MB" : null);
+        add("Duration", v.duration_ms != null ? Math.round(v.duration_ms / 60000) + " min" : null);
+        add("Available", v.available ? "yes" : "no");
+        add("Added", sm.time(v.added_at));
+        add("Updated", sm.time(v.updated_at));
+        add("Path", v.path);
+        section.appendChild(dl);
+
+        sm.self()
+          .then((me) => {
+            if (!me || me.role !== "admin") return;
+            section.appendChild(sm.relinkButton(v.id, "this version"));
+          })
+          .catch(() => {});
+        return section;
+      }
+
+      function renderTracks(v) {
+        const section = sm.el("section");
+        trackTable(
+          section,
+          "Video",
+          v.video,
+          ["Codec", "Resolution", "Depth", "HDR", "FPS"],
+          (t) => [
+            t.codec,
+            t.width + "x" + t.height,
+            (t.bit_depth != null ? t.bit_depth + "-bit" : ""),
+            t.hdr || "",
+            (t.frame_rate != null ? t.frame_rate + "fps" : ""),
+          ],
+        );
+        trackTable(section, "Audio", v.audio, ["Codec", "Channels", "Language"], (t) => [
+          t.codec,
+          (t.channels != null ? t.channels + "ch" : ""),
+          t.language ? sm.lang(t.language) : "",
+        ]);
+        trackTable(section, "Subtitles", v.subtitles, ["Format", "Language", "Flags"], (t) => [
+          t.format,
+          t.language ? sm.lang(t.language) : "",
+          [t.forced ? "forced" : null, t.default ? "default" : null].filter(Boolean).join(" "),
+        ]);
+        if (!section.childNodes.length) {
+          section.appendChild(sm.el("h2", { text: "Tracks" }));
+          section.appendChild(sm.el("p", { text: "No track details." }));
+        }
+        return section;
+      }
+
+      function trackTable(section, label, list, headers, rowFor) {
         if (!list || !list.length) return;
-        main.appendChild(sm.el("h2", { text: label }));
-        main.appendChild(sm.el("ul", null, list.map((t) => sm.el("li", { text: fmt(t) }))));
+        section.appendChild(sm.el("h2", { text: label }));
+        section.appendChild(sm.table(headers, list.map(rowFor)));
+      }
+
+      function renderExtras(main, v) {
+        if (v.chapters && v.chapters.length) {
+          main.appendChild(sm.el("h2", { text: "Chapters" }));
+          main.appendChild(
+            sm.el(
+              "ol",
+              null,
+              v.chapters.map((c) =>
+                sm.el("li", { text: c.title + " (" + Math.round(c.start_ms / 1000) + "s)" }),
+              ),
+            ),
+          );
+        }
+
+        const mk = v.markers || {};
+        const markers = (mk.intro || [])
+          .map((m) => "Intro " + Math.round(m.start_ms / 1000) + " to " + Math.round(m.end_ms / 1000) + "s")
+          .concat(
+            (mk.credits || []).map(
+              (m) => "Credits " + Math.round(m.start_ms / 1000) + " to " + Math.round(m.end_ms / 1000) + "s",
+            ),
+          );
+        if (markers.length) {
+          main.appendChild(sm.el("h2", { text: "Markers" }));
+          main.appendChild(sm.el("ul", null, markers.map((m) => sm.el("li", { text: m }))));
+        }
+
+        if (v.trickplay && v.trickplay.length) {
+          main.appendChild(sm.el("h2", { text: "Trickplay" }));
+          main.appendChild(
+            sm.el(
+              "ul",
+              null,
+              v.trickplay.map((t) =>
+                sm.el("li", {
+                  text:
+                    t.columns +
+                    "x" +
+                    t.rows +
+                    " tiles, " +
+                    t.sheets +
+                    " sheet(s), every " +
+                    Math.round(t.interval_ms / 1000) +
+                    "s",
+                }),
+              ),
+            ),
+          );
+          const sheetCount = Math.max(...v.trickplay.map((t) => t.sheets));
+          const gallery = sm.el("div", { class: "sm-trickplay" });
+          for (let sheet = 1; sheet <= sheetCount; sheet++) {
+            gallery.appendChild(
+              sm.authImg("/api/v1/trickplay/" + encodeURIComponent(v.id) + "/" + sheet, {
+                width: "480",
+              }),
+            );
+          }
+          main.appendChild(gallery);
+        }
       }
     </script>
   </body>

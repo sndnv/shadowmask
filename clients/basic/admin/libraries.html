@@ -7,7 +7,7 @@
     <title>Shadowmask (basic) - Admin libraries</title>
   </head>
   <body>
-    <h1>Libraries</h1>
+    <h1 class="sm-visually-hidden">Libraries</h1>
     <nav id="nav"></nav>
     <p class="sm-crumbs"><a href="index.html">Admin</a> / Libraries</p>
     <main id="main">Loading&hellip;</main>
@@ -17,10 +17,6 @@
       const eu = encodeURIComponent;
       let listContainer = null;
       let listHeading = null;
-      let editingId = null;
-      let fields = null;
-      let formStatus = null;
-      let formHeading = null;
 
       if (sm.requireAuth()) guard();
 
@@ -33,7 +29,11 @@
             return;
           }
           main.textContent = "";
-          renderForm(main);
+          const create = sm.el("button", { type: "button" }, "Create library");
+          create.addEventListener("click", () =>
+            sm.openDialog("Create library", (box) => libraryFormBody(box, null)),
+          );
+          main.appendChild(sm.el("p", null, create));
           listHeading = sm.el("h2", { text: "Existing libraries" });
           main.appendChild(listHeading);
           listContainer = sm.el("div", null);
@@ -44,32 +44,33 @@
         }
       }
 
-      function renderForm(main) {
-        formHeading = sm.el("h2", { text: "Create library" });
-        main.appendChild(formHeading);
-        fields = {
+      function libraryFormBody(box, library) {
+        const option = (v) => sm.el("option", { value: v }, v);
+        const fields = {
           name: sm.el("input", { autocomplete: "off" }),
-          kind: sm.el("select", null, [
-            sm.el("option", { value: "movie" }, "movie"),
-            sm.el("option", { value: "tv" }, "tv"),
-          ]),
-          origin: sm.el("select", null, [
-            sm.el("option", { value: "local" }, "local"),
-            sm.el("option", { value: "external" }, "external"),
-          ]),
+          kind: sm.el("select", null, [option("movie"), option("tv")]),
+          origin: sm.el("select", null, [option("local"), option("external")]),
           watcher: sm.el("select", null, [
-            sm.el("option", { value: "local" }, "local"),
-            sm.el("option", { value: "polling" }, "polling"),
-            sm.el("option", { value: "scheduled" }, "scheduled"),
-            sm.el("option", { value: "manual" }, "manual"),
+            option("local"),
+            option("polling"),
+            option("scheduled"),
+            option("manual"),
           ]),
-          roots: sm.el("textarea", { rows: "3", cols: "50" }),
+          roots: sm.el("textarea", { rows: "3", cols: "40" }),
           schedule: sm.el("input", { autocomplete: "off" }),
           sources: sm.el("input", { autocomplete: "off" }),
         };
-        formStatus = sm.el("span", null);
-        const reset = sm.el("button", { type: "button" }, "Clear");
-        reset.addEventListener("click", () => setEditing(null));
+        fields.kind.value = library ? library.kind : "movie";
+        fields.origin.value = library ? library.origin || "local" : "local";
+        fields.watcher.value = library ? library.watcher : "local";
+        if (library) {
+          fields.name.value = library.name;
+          fields.roots.value = (library.roots || []).join("\n");
+          fields.schedule.value = library.scan_schedule || "";
+          fields.sources.value = (library.metadata_sources || []).join(", ");
+        }
+        const status = sm.el("span", null);
+        const submit = sm.el("button", { type: "submit" }, library ? "Save changes" : "Create");
         const form = sm.el("form", null, [
           sm.el("label", null, ["Name ", fields.name]),
           sm.el("br"),
@@ -85,27 +86,44 @@
           sm.el("br"),
           sm.el("label", null, ["Metadata sources (comma separated) ", fields.sources]),
           sm.el("br"),
-          sm.el("button", { type: "submit" }, "Save"),
+          submit,
           " ",
-          reset,
-          " ",
-          formStatus,
+          status,
         ]);
-        form.addEventListener("submit", onSubmit);
-        main.appendChild(form);
-      }
-
-      function setEditing(library) {
-        editingId = library ? library.id : null;
-        formHeading.textContent = library ? "Edit library" : "Create library";
-        fields.name.value = library ? library.name : "";
-        fields.kind.value = library ? library.kind : "movie";
-        fields.origin.value = library ? library.origin || "local" : "local";
-        fields.watcher.value = library ? library.watcher : "local";
-        fields.roots.value = library ? (library.roots || []).join("\n") : "";
-        fields.schedule.value = library && library.scan_schedule ? library.scan_schedule : "";
-        fields.sources.value = library ? (library.metadata_sources || []).join(", ") : "";
-        formStatus.textContent = "";
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const body = {
+            name: fields.name.value,
+            kind: fields.kind.value,
+            origin: fields.origin.value,
+            watcher: fields.watcher.value,
+            roots: splitLines(fields.roots.value),
+            scan_schedule: fields.schedule.value ? fields.schedule.value : null,
+            metadata_sources: splitCommas(fields.sources.value),
+          };
+          if (!body.name) {
+            status.textContent = "Name is required.";
+            return;
+          }
+          submit.disabled = true;
+          try {
+            if (library) {
+              await sm.json("/api/v1/libraries/" + eu(library.id), {
+                method: "PUT",
+                body: JSON.stringify(body),
+              });
+            } else {
+              await sm.json("/api/v1/libraries", { method: "POST", body: JSON.stringify(body) });
+            }
+            sm.toast("Library saved.", "ok");
+            box.close();
+            await loadLibraries();
+          } catch (err) {
+            sm.toast("Save failed.", "danger");
+            submit.disabled = false;
+          }
+        });
+        return form;
       }
 
       function splitLines(value) {
@@ -122,40 +140,8 @@
           .filter((x) => x.length);
       }
 
-      async function onSubmit(e) {
-        e.preventDefault();
-        const body = {
-          name: fields.name.value,
-          kind: fields.kind.value,
-          origin: fields.origin.value,
-          watcher: fields.watcher.value,
-          roots: splitLines(fields.roots.value),
-          scan_schedule: fields.schedule.value ? fields.schedule.value : null,
-          metadata_sources: splitCommas(fields.sources.value),
-        };
-        if (!body.name) {
-          formStatus.textContent = "Name is required.";
-          return;
-        }
-        try {
-          if (editingId) {
-            await sm.json("/api/v1/libraries/" + eu(editingId), {
-              method: "PUT",
-              body: JSON.stringify(body),
-            });
-          } else {
-            await sm.json("/api/v1/libraries", { method: "POST", body: JSON.stringify(body) });
-          }
-          setEditing(null);
-          formStatus.textContent = "Saved.";
-          await loadLibraries();
-        } catch (err) {
-          formStatus.textContent = "Save failed.";
-        }
-      }
-
       async function loadLibraries() {
-        listContainer.textContent = "Loading...";
+        listContainer.textContent = "Loading…";
         try {
           const libraries = await sm.json("/api/v1/libraries");
           listHeading.textContent = "Existing libraries (" + libraries.length + ")";
@@ -165,32 +151,36 @@
             return;
           }
           const rows = libraries.map((l) => {
-            const manage = sm.el("a", { href: "library.html?id=" + eu(l.id) }, "Manage");
-            const syncStatus = sm.el("span", null);
-            const sync = sm.el("button", { type: "button" }, "Sync");
+            const sync = sm.el("button", { type: "button" }, "Scan");
             sync.addEventListener("click", async () => {
               sync.disabled = true;
-              syncStatus.textContent = " ...";
               try {
                 await sm.json("/api/v1/libraries/" + eu(l.id) + "/scan", { method: "POST" });
-                syncStatus.textContent = " queued";
+                sm.toast("Scan queued for " + l.name + ".", "ok");
               } catch (err) {
-                syncStatus.textContent = " failed";
+                sm.toast("Scan failed for " + l.name + ".", "danger");
               } finally {
                 sync.disabled = false;
               }
             });
             const edit = sm.el("button", { type: "button" }, "Edit");
-            edit.addEventListener("click", () => setEditing(l));
-            const del = sm.el("button", { type: "button" }, "Delete");
+            edit.addEventListener("click", () =>
+              sm.openDialog("Edit library: " + l.name, (box) => libraryFormBody(box, l)),
+            );
+            const del = sm.el("button", { type: "button", class: "sm-danger" }, "Delete");
             del.addEventListener("click", async () => {
               if (!confirm("Delete library " + l.name + "?")) return;
-              await sm.json("/api/v1/libraries/" + eu(l.id), { method: "DELETE" }).catch(() => {});
+              try {
+                await sm.json("/api/v1/libraries/" + eu(l.id), { method: "DELETE" });
+                sm.toast("Library deleted.", "ok");
+              } catch (err) {
+                sm.toast("Delete failed.", "danger");
+              }
               await loadLibraries();
             });
-            const actions = sm.el("span", null, [manage, " ", sync, " ", edit, " ", del, syncStatus]);
+            const actions = sm.el("span", null, [sync, " ", edit, " ", del]);
             return [
-              sm.el("strong", { text: l.name }),
+              sm.el("a", { href: "library.html?id=" + eu(l.id) }, sm.el("strong", { text: l.name })),
               l.kind,
               l.origin || "local",
               l.watcher,
