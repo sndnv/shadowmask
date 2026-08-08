@@ -1,3 +1,4 @@
+use crate::media::HdrFormat;
 use crate::session::SessionId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,6 +14,7 @@ pub struct TranscodeSpec {
     pub burn_subtitle_path: Option<String>,
     pub soft_subtitle: Option<SoftSubtitle>,
     pub downmix_stereo: bool,
+    pub source_hdr: Option<HdrFormat>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -7,7 +7,7 @@
     <title>Shadowmask (basic) - Admin activity</title>
   </head>
   <body>
-    <h1>Activity</h1>
+    <h1 class="sm-visually-hidden">Activity</h1>
     <nav id="nav"></nav>
     <p class="sm-crumbs"><a href="index.html">Admin</a> / <span id="activity-crumb">Activity</span></p>
     <p><button type="button" id="refresh">Refresh</button></p>
@@ -34,7 +34,7 @@
 
       async function load() {
         const main = document.getElementById("main");
-        main.textContent = "Loading...";
+        main.textContent = "Loading…";
         try {
           const page = await sm.json("/api/v1/users/activity");
           document.getElementById("activity-crumb").textContent =

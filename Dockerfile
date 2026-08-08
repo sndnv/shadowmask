@@ -17,7 +17,9 @@ RUN apt-get update \
         libva2 \
         ca-certificates \
         curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && ffmpeg -hide_banner -filters | grep -qw zscale \
+    && ffmpeg -hide_banner -filters | grep -qw tonemap
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         python3 \

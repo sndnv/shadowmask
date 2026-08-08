@@ -1,6 +1,12 @@
 CREATE TABLE people (
     id TEXT PRIMARY KEY NOT NULL,
-    name TEXT NOT NULL
+    name TEXT NOT NULL,
+    biography TEXT,
+    birthday TEXT,
+    deathday TEXT,
+    place_of_birth TEXT,
+    also_known_as TEXT,
+    external_id TEXT
 );
 
 CREATE TABLE credits (

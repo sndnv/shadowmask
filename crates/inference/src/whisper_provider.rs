@@ -1,9 +1,8 @@
 use domain::error::TranscriptionError;
 use domain::media::{
-    FetchedSubtitle, SubtitleFormat, TranscriptionProvider, TranscriptionRequest,
-    is_hallucinated_text,
+    FetchedSubtitle, SubtitleFormat, TranscriptionProvider, TranscriptionSpec, is_hallucinated_text,
 };
-use media::transcode::ProcessSpawner;
+use domain::process::ProcessSpawner;
 
 use crate::WhisperEngine;
 use crate::audio::decode_audio;
@@ -27,7 +26,7 @@ where
 {
     async fn transcribe(
         &self,
-        request: &TranscriptionRequest,
+        request: &TranscriptionSpec,
     ) -> Result<FetchedSubtitle, TranscriptionError> {
         let samples = decode_audio(
             &self.spawner,
@@ -84,8 +83,8 @@ mod tests {
         }
     }
 
-    fn request() -> TranscriptionRequest {
-        TranscriptionRequest {
+    fn request() -> TranscriptionSpec {
+        TranscriptionSpec {
             audio_path: "/media/v1.mkv".to_owned(),
             source_language: None,
             audio_track_index: None,

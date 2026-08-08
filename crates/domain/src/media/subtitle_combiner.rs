@@ -4,7 +4,7 @@ use crate::media::FetchedSubtitle;
 pub trait SubtitleCombiner {
     fn combine(
         &self,
-        primary: &FetchedSubtitle,
-        secondary: &FetchedSubtitle,
+        top: &FetchedSubtitle,
+        bottom: &FetchedSubtitle,
     ) -> Result<FetchedSubtitle, SubtitleError>;
 }

@@ -46,6 +46,7 @@ fn config(root: &Path) -> WireConfig {
         translation_enabled: true,
         upscaling_enabled: true,
         content_fetch_enabled: false,
+        fetch_cookies_file: None,
         vaapi_device: None,
     }
 }
@@ -157,6 +158,10 @@ async fn seed(repos: &Repos, hash: &str) {
         (ArtworkOwner::Season(SeasonId("se1".into())), "se1"),
         (ArtworkOwner::Episode(EpisodeId("e1".into())), "e1"),
         (ArtworkOwner::Collection(CollectionId("c1".into())), "c1"),
+        (
+            ArtworkOwner::Person(domain::metadata::PersonId("p1".into())),
+            "p1",
+        ),
     ] {
         repos
             .catalog

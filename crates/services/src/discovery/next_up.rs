@@ -1,6 +1,31 @@
 use std::collections::{HashMap, HashSet};
 
-use domain::catalog::{Collection, Episode, EpisodeId, Movie, MovieId, Season, SeasonId, SeriesId};
+use domain::catalog::{
+    Collection, Episode, EpisodeId, Movie, MovieId, Season, SeasonId, SeriesId, TitleId,
+};
+use domain::playback::WatchHistory;
+
+pub fn watched_movie_ids(history: &[WatchHistory]) -> HashSet<MovieId> {
+    history
+        .iter()
+        .filter(|h| h.watched)
+        .filter_map(|h| match &h.title {
+            TitleId::Movie(id) => Some(id.clone()),
+            TitleId::Episode(_) => None,
+        })
+        .collect()
+}
+
+pub fn watched_episode_ids(history: &[WatchHistory]) -> HashSet<EpisodeId> {
+    history
+        .iter()
+        .filter(|h| h.watched)
+        .filter_map(|h| match &h.title {
+            TitleId::Episode(id) => Some(id.clone()),
+            TitleId::Movie(_) => None,
+        })
+        .collect()
+}
 
 pub fn next_episodes(
     seasons: &[Season],

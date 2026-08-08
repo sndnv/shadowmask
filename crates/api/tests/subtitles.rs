@@ -137,6 +137,7 @@ fn app(catalog: MockCatalogRepo, store: MockStore) -> Router {
         generator.user.clone(),
         generator.user_library.clone(),
         generator.discovery.clone(),
+        generator.job.clone(),
     );
     subtitle_router(auth, SubtitleState::new(catalog, store))
 }
@@ -158,8 +159,48 @@ async fn send(app: Router, method: &str, uri: &str, auth: Option<&str>) -> (Stat
     (status, body)
 }
 
+async fn send_body(
+    app: Router,
+    method: &str,
+    uri: &str,
+    auth: Option<&str>,
+    body: &str,
+) -> (StatusCode, Vec<u8>) {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/json");
+    if let Some(token) = auth {
+        builder = builder.header(header::AUTHORIZATION, token);
+    }
+    let response = app
+        .oneshot(builder.body(Body::from(body.to_owned())).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap()
+        .to_vec();
+    (status, body)
+}
+
 fn uri(subtitle: &str) -> String {
     format!("/api/v1/admin/versions/v1/subtitles/{subtitle}")
+}
+
+async fn language_of(catalog: &MockCatalogRepo, subtitle: &str) -> Option<String> {
+    catalog
+        .version_detail(&VersionId("v1".into()))
+        .await
+        .unwrap()
+        .unwrap()
+        .subtitle_files
+        .into_iter()
+        .find(|file| file.id.0 == subtitle)
+        .unwrap()
+        .language
+        .map(|code| code.0)
 }
 
 #[tokio::test]
@@ -403,6 +444,159 @@ async fn delete_succeeds_even_if_file_removal_fails() {
             .subtitle_files
             .is_empty()
     );
+}
+
+#[tokio::test]
+async fn admin_renames_a_generated_subtitle_and_leaves_others() {
+    let (catalog, store) = seed(&[
+        file(
+            "generated:v1",
+            SubtitleSource::Generated,
+            "/subs/v1/gen.vtt",
+            None,
+        ),
+        file(
+            "opensubtitles:v1:42",
+            SubtitleSource::OpenSubtitles,
+            "/subs/v1/os.srt",
+            None,
+        ),
+    ])
+    .await;
+
+    let (status, _) = send_body(
+        app(catalog.clone(), store),
+        "PUT",
+        &uri("generated:v1"),
+        Some(ADMIN),
+        r#"{"language":"fr"}"#,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(
+        language_of(&catalog, "generated:v1").await,
+        Some("fr".to_owned())
+    );
+    assert_eq!(
+        language_of(&catalog, "opensubtitles:v1:42").await,
+        Some("en".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn renaming_to_blank_clears_the_language() {
+    let (catalog, store) = seed(&[file(
+        "generated:v1",
+        SubtitleSource::Generated,
+        "/subs/v1/gen.vtt",
+        None,
+    )])
+    .await;
+
+    let (status, _) = send_body(
+        app(catalog.clone(), store),
+        "PUT",
+        &uri("generated:v1"),
+        Some(ADMIN),
+        r#"{"language":"  "}"#,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(language_of(&catalog, "generated:v1").await, None);
+}
+
+#[tokio::test]
+async fn renaming_an_external_sidecar_is_forbidden() {
+    let (catalog, store) = seed(&[file(
+        "sidecar",
+        SubtitleSource::External,
+        "/m/v1.en.srt",
+        None,
+    )])
+    .await;
+
+    let (status, _) = send_body(
+        app(catalog, store),
+        "PUT",
+        &uri("sidecar"),
+        Some(ADMIN),
+        r#"{"language":"fr"}"#,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn rename_unknown_subtitle_is_not_found() {
+    let (catalog, store) = seed(&[]).await;
+    let (status, _) = send_body(
+        app(catalog, store),
+        "PUT",
+        &uri("nope"),
+        Some(ADMIN),
+        r#"{"language":"fr"}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn rename_unknown_version_is_not_found() {
+    let catalog = MockCatalogRepo::new();
+    let (status, _) = send_body(
+        app(catalog, MockStore::default()),
+        "PUT",
+        &uri("generated:v1"),
+        Some(ADMIN),
+        r#"{"language":"fr"}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn rename_read_error_is_internal() {
+    let (catalog, store) = seed(&[file(
+        "generated:v1",
+        SubtitleSource::Generated,
+        "/subs/v1/gen.vtt",
+        None,
+    )])
+    .await;
+    catalog.set_fail();
+    let (status, _) = send_body(
+        app(catalog, store),
+        "PUT",
+        &uri("generated:v1"),
+        Some(ADMIN),
+        r#"{"language":"fr"}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[tokio::test]
+async fn rename_write_error_is_internal() {
+    let (catalog, store) = seed(&[file(
+        "generated:v1",
+        SubtitleSource::Generated,
+        "/subs/v1/gen.vtt",
+        None,
+    )])
+    .await;
+    catalog.set_fail_writes();
+    let (status, _) = send_body(
+        app(catalog, store),
+        "PUT",
+        &uri("generated:v1"),
+        Some(ADMIN),
+        r#"{"language":"fr"}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 #[tokio::test]

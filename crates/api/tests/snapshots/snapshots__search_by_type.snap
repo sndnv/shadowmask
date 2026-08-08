@@ -6,6 +6,7 @@ expression: value
   "body": {
     "items": [
       {
+        "artwork": {},
         "id": "p1",
         "name": "Alpha Person",
         "type": "person"

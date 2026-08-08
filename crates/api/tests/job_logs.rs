@@ -54,6 +54,7 @@ fn app(store: MockJobLogStore) -> Router {
         generator.user.clone(),
         generator.user_library.clone(),
         generator.discovery.clone(),
+        generator.job.clone(),
     );
     job_log_router(state, JobLogState::new(store))
 }

@@ -4,14 +4,13 @@ use std::sync::{Arc, Mutex};
 use domain::catalog::{TitleId, TitleRef, VersionId};
 use domain::common::{Page, PageRequest};
 use domain::error::LibraryError;
-use domain::job::{Job, JobId};
 use domain::library::{
     DuplicateCandidate, DuplicateCandidateId, FetchInput, Library, LibraryId, LibraryUpdate,
     NewLibrary, ResolveCandidate, ResolveTarget, ScanState, ScanStatus, UnmatchedFile,
     UnmatchedFileId,
 };
 use domain::media::SubtitleFileId;
-use domain::metadata::{ExternalId, MediaKind};
+use domain::metadata::{ExternalId, MediaKind, PersonId};
 use domain::service::LibraryService;
 use domain::user::Principal;
 use jiff::Timestamp;
@@ -25,7 +24,6 @@ struct State {
     scans: HashMap<LibraryId, ScanState>,
     unmatched: HashMap<LibraryId, Vec<UnmatchedFile>>,
     duplicates: HashMap<LibraryId, Vec<DuplicateCandidate>>,
-    jobs: Vec<Job>,
 }
 
 #[derive(Clone, Default)]
@@ -60,10 +58,6 @@ impl MockLibraryService {
             .entry(id.clone())
             .or_default()
             .push(candidate);
-    }
-
-    pub fn add_job(&self, job: Job) {
-        self.state.lock().unwrap().jobs.push(job);
     }
 }
 
@@ -310,6 +304,14 @@ impl LibraryService for MockLibraryService {
         Ok(())
     }
 
+    async fn refresh_person(
+        &self,
+        _caller: &Principal,
+        _id: &PersonId,
+    ) -> Result<(), LibraryError> {
+        Ok(())
+    }
+
     async fn relink_version(
         &self,
         _caller: &Principal,
@@ -352,16 +354,9 @@ impl LibraryService for MockLibraryService {
         &self,
         _caller: &Principal,
         _version: &VersionId,
-        _primary: &SubtitleFileId,
-        _secondary: &SubtitleFileId,
+        _top: &SubtitleFileId,
+        _bottom: &SubtitleFileId,
     ) -> Result<(), LibraryError> {
-        Ok(())
-    }
-
-    async fn jobs(&self, _caller: &Principal) -> Result<Vec<Job>, LibraryError> {
-        Ok(self.state.lock().unwrap().jobs.clone())
-    }
-    async fn cancel_job(&self, _caller: &Principal, _id: &JobId) -> Result<(), LibraryError> {
         Ok(())
     }
 }
@@ -484,33 +479,6 @@ mod tests {
                 .unwrap_err(),
             LibraryError::NotFound
         ));
-    }
-
-    #[tokio::test]
-    async fn jobs_returns_seeded() {
-        use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
-        use jiff::Timestamp;
-
-        let svc = MockLibraryService::new();
-        assert!(svc.jobs(&principal()).await.unwrap().is_empty());
-        let now = Timestamp::UNIX_EPOCH;
-        svc.add_job(Job {
-            id: JobId("j1".into()),
-            kind: JobKind::LibraryScan,
-            status: JobStatus::Succeeded,
-            priority: JobPriority::Normal,
-            payload: "lib1".into(),
-            attempts: 1,
-            progress: 1.0,
-            available_at: now,
-            last_error: None,
-            created_at: now,
-            updated_at: now,
-            started_at: None,
-            finished_at: None,
-            parent_id: None,
-        });
-        assert_eq!(svc.jobs(&principal()).await.unwrap().len(), 1);
     }
 
     #[tokio::test]

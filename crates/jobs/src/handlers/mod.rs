@@ -1,4 +1,5 @@
 mod artwork;
+mod cache_eviction;
 mod combine;
 mod composite;
 mod fetch;
@@ -14,6 +15,7 @@ mod trickplay;
 mod upscale;
 
 pub use artwork::ArtworkJobHandler;
+pub use cache_eviction::CacheEvictionHandler;
 pub use combine::CombineJobHandler;
 pub use composite::CompositeJobHandler;
 pub use fetch::FetchJobHandler;

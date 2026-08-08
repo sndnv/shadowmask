@@ -12,11 +12,6 @@ use domain::service::UserLibraryService;
 use domain::user::UserId;
 use jiff::Timestamp;
 
-const ALL: PageRequest = PageRequest {
-    offset: 0,
-    limit: u32::MAX,
-};
-
 pub struct UserLibraryServiceImpl<Pr, Pf, C> {
     progress: Arc<Pr>,
     preferences: Arc<Pf>,
@@ -156,7 +151,12 @@ where
         for title in self.leaf_titles(target).await? {
             self.progress.record_history(make(title.clone())).await?;
             if !watched {
-                for version in self.catalog.list_versions(&title, ALL).await?.items {
+                for version in self
+                    .catalog
+                    .list_versions(&title, PageRequest::ALL)
+                    .await?
+                    .items
+                {
                     self.progress.delete(user, &version.id).await?;
                 }
             }
@@ -185,7 +185,7 @@ where
             .collect();
         let history: HashMap<TitleId, (bool, bool)> = self
             .progress
-            .history(user, ALL)
+            .history(user, PageRequest::ALL)
             .await?
             .items
             .into_iter()
@@ -213,7 +213,7 @@ where
     ) -> Result<Vec<WatchedRollup>, UserError> {
         let history: HashMap<TitleId, (bool, bool)> = self
             .progress
-            .history(user, ALL)
+            .history(user, PageRequest::ALL)
             .await?
             .items
             .into_iter()

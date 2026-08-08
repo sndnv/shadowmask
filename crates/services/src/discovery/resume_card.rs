@@ -1,4 +1,4 @@
-use domain::catalog::{TitleId, VersionId};
+use domain::catalog::{TitleId, VersionDetail, VersionId};
 use domain::error::RepositoryError;
 use domain::playback::{ResumeCard, progress_percent};
 use domain::repository::CatalogRepository;
@@ -11,6 +11,14 @@ pub async fn resume_card(
     let Some(detail) = catalog.version_detail(version).await? else {
         return Ok(None);
     };
+    Ok(Some(resume_card_from(catalog, detail, position_ms).await?))
+}
+
+pub async fn resume_card_from(
+    catalog: &(impl CatalogRepository + Sync),
+    detail: VersionDetail,
+    position_ms: u64,
+) -> Result<ResumeCard, RepositoryError> {
     let duration_ms = detail.version.duration_ms;
     let title = detail.version.title;
     let (display_title, artwork) = match &title {
@@ -23,13 +31,13 @@ pub async fn resume_card(
             None => (id.0.clone(), Vec::new()),
         },
     };
-    Ok(Some(ResumeCard {
+    Ok(ResumeCard {
         title,
         display_title,
         artwork,
         duration_ms,
         progress_percent: progress_percent(position_ms, duration_ms),
-    }))
+    })
 }
 
 #[cfg(test)]

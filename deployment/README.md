@@ -84,3 +84,26 @@ SHADOWMASK_FETCH_PROVIDERS_YT_DLP_PLUGIN_DIR=/config/yt-dlp-plugins
 The directory is passed to yt-dlp as `--plugin-dirs`. Plugins are site-specific and are your
 responsibility; none ship with Shadowmask. Pulling from a third-party site is subject to that
 site's terms and the content's rights.
+
+### Sites that require an account
+
+Some sites only serve certain content to logged-in accounts (member-only videos, region-locked
+overseas catalogs, paid tiers). To fetch those, export your session cookies from a browser where
+you are signed in, save them as a Netscape-format `cookies.txt`, mount the file into the container,
+and point at it:
+
+```
+SHADOWMASK_FETCH_PROVIDERS_COOKIES_FILE=/config/cookies.txt
+```
+
+The file is passed to yt-dlp as `--cookies`. Shadowmask deliberately does not use
+`--cookies-from-browser`, because the server is headless and has no browser profile to read.
+
+When you start a fetch, the server checks the cookies for that site first. If the cookies that apply to
+the target site have all expired, the request is rejected right away with a clear error telling you to
+re-export the file, instead of queueing a download that would fail. Cookies that do not apply to the
+target site (and public fetches) are never blocked by this check.
+
+That file holds live session secrets. Mount it read-only, never commit it, and treat it like a
+password. Rotate it if a session expires. Using your account to download is subject to that site's
+terms; this is intended for personal use of content you can already access.

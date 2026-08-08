@@ -321,10 +321,12 @@ pub fn people() -> Vec<Person> {
         Person {
             id: PersonId("p1".into()),
             name: "Ada Lovelace".into(),
+            ..Person::default()
         },
         Person {
             id: PersonId("p2".into()),
             name: "Bob Director".into(),
+            ..Person::default()
         },
     ]
 }

@@ -304,12 +304,14 @@ impl CatalogService for MockCatalogService {
         let mut matched: Vec<Movie> = state
             .movies
             .iter()
-            .filter(|movie| match &query.genre {
-                Some(genre) => state
-                    .movie_details
-                    .get(&movie.id)
-                    .is_some_and(|parts| parts.genres.iter().any(|g| &g.id == genre)),
-                None => true,
+            .filter(|movie| {
+                query.genres.is_empty()
+                    || state.movie_details.get(&movie.id).is_some_and(|parts| {
+                        query
+                            .genres
+                            .iter()
+                            .all(|name| parts.genres.iter().any(|g| &g.name == name))
+                    })
             })
             .filter(|movie| allowed.as_ref().is_none_or(|ids| ids.contains(&movie.id.0)))
             .cloned()
@@ -352,12 +354,14 @@ impl CatalogService for MockCatalogService {
         let mut matched: Vec<Series> = state
             .series
             .iter()
-            .filter(|series| match &query.genre {
-                Some(genre) => state
-                    .series_details
-                    .get(&series.id)
-                    .is_some_and(|parts| parts.genres.iter().any(|g| &g.id == genre)),
-                None => true,
+            .filter(|series| {
+                query.genres.is_empty()
+                    || state.series_details.get(&series.id).is_some_and(|parts| {
+                        query
+                            .genres
+                            .iter()
+                            .all(|name| parts.genres.iter().any(|g| &g.name == name))
+                    })
             })
             .filter(|series| {
                 allowed
@@ -673,9 +677,9 @@ mod tests {
         TitleListQuery::default()
     }
 
-    fn genre_query(id: &str) -> TitleListQuery {
+    fn genre_query(name: &str) -> TitleListQuery {
         TitleListQuery {
-            genre: Some(GenreId(id.into())),
+            genres: vec![name.into()],
             ..TitleListQuery::default()
         }
     }
@@ -1099,6 +1103,7 @@ mod tests {
                 person: Person {
                     id: PersonId("p1".into()),
                     name: "Ada".into(),
+                    ..Person::default()
                 },
                 role: CreditRole::Actor,
                 character: Some("Hero".into()),
@@ -1149,6 +1154,7 @@ mod tests {
         svc.add_person(Person {
             id: PersonId("p1".into()),
             name: "Ada".into(),
+            ..Person::default()
         });
         svc.seed_filmography(
             &PersonId("p1".into()),
@@ -1194,7 +1200,7 @@ mod tests {
         );
 
         let action_movies = svc
-            .movies(&principal(), &genre_query("g1"), page())
+            .movies(&principal(), &genre_query("Action"), page())
             .await
             .unwrap();
         assert_eq!(
@@ -1206,7 +1212,7 @@ mod tests {
             ["m1"]
         );
         let action_series = svc
-            .series(&principal(), &genre_query("g1"), page())
+            .series(&principal(), &genre_query("Action"), page())
             .await
             .unwrap();
         assert_eq!(action_series.total, 1);

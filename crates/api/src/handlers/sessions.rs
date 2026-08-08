@@ -7,7 +7,7 @@ use domain::session::SessionId;
 
 use crate::dto::session::{
     HeartbeatAckResponse, HeartbeatRequest, RenegotiatedResponse, SeekRequest,
-    SessionStartedResponse, StartSessionRequestDto, UpdateSessionRequest,
+    SessionStartedResponse, StartSessionRequest, UpdateSessionRequest,
 };
 use crate::error::ApiResult;
 use crate::extract::AuthUser;
@@ -17,7 +17,7 @@ use crate::state::AppServices;
 pub async fn start<S: AppServices>(
     State(state): State<S>,
     AuthUser(principal): AuthUser,
-    Json(req): Json<StartSessionRequestDto>,
+    Json(req): Json<StartSessionRequest>,
 ) -> ApiResult<(StatusCode, Json<SessionStartedResponse>)> {
     let actor = &principal.user.0;
     let started = state

@@ -1,7 +1,7 @@
 use domain::catalog::{
     ArtworkId, ArtworkOwner, ArtworkRef, Collection, CollectionId, Episode, EpisodeId, Movie,
-    MovieId, Season, SeasonId, Series, SeriesId, TitleId, TitleKind, TitleRef, Version,
-    VersionDetail, VersionId,
+    MovieId, Season, SeasonId, Series, SeriesId, SortOrder, TitleId, TitleListFilter, TitleRef,
+    TitleSort, Version, VersionDetail, VersionId,
 };
 use domain::common::{LanguageCode, PageRequest, Quality};
 use domain::library::LibraryId;
@@ -232,10 +232,12 @@ pub fn catalog_seed() -> CatalogSeed {
             Person {
                 id: PersonId("p1".into()),
                 name: "Ada".into(),
+                ..Person::default()
             },
             Person {
                 id: PersonId("p2".into()),
                 name: "Bob".into(),
+                ..Person::default()
             },
         ],
         enrichment: vec![
@@ -422,6 +424,22 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
             .is_none()
     );
 
+    let all_seasons = repo.list_all_seasons().await.unwrap();
+    assert_eq!(
+        all_seasons
+            .iter()
+            .map(|s| s.id.0.as_str())
+            .collect::<Vec<_>>(),
+        ["se1"]
+    );
+    let all_episodes = repo.list_all_episodes().await.unwrap();
+    let mut all_episode_ids = all_episodes
+        .iter()
+        .map(|e| e.id.0.as_str())
+        .collect::<Vec<_>>();
+    all_episode_ids.sort_unstable();
+    assert_eq!(all_episode_ids, ["e1", "e2"]);
+
     let collections = repo.list_collections(page(0, 10)).await.unwrap();
     assert_eq!(collections.total, 1);
     let collection = repo
@@ -484,35 +502,141 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         ["v1", "v2", "v3"]
     );
 
+    let in_library = |name: &str| TitleListFilter {
+        libraries: Some(vec![LibraryId(name.into())]),
+        ..TitleListFilter::default()
+    };
+    let movie_ids = |page: &domain::common::Page<Movie>| {
+        page.items
+            .iter()
+            .map(|m| m.id.0.clone())
+            .collect::<Vec<_>>()
+    };
+    let series_ids = |page: &domain::common::Page<Series>| {
+        page.items
+            .iter()
+            .map(|s| s.id.0.clone())
+            .collect::<Vec<_>>()
+    };
     assert_eq!(
-        repo.titles_in_library(TitleKind::Movie, &LibraryId("lib1".into()))
-            .await
-            .unwrap(),
+        movie_ids(
+            &repo
+                .list_movies_filtered(&in_library("lib1"), page(0, 10))
+                .await
+                .unwrap()
+        ),
         vec!["m1".to_owned()]
     );
     assert!(
-        repo.titles_in_library(TitleKind::Movie, &LibraryId("lib2".into()))
+        repo.list_movies_filtered(&in_library("lib2"), page(0, 10))
             .await
             .unwrap()
+            .items
             .is_empty()
     );
     assert_eq!(
-        repo.titles_in_library(TitleKind::Series, &LibraryId("lib2".into()))
-            .await
-            .unwrap(),
+        series_ids(
+            &repo
+                .list_series_filtered(&in_library("lib2"), page(0, 10))
+                .await
+                .unwrap()
+        ),
         vec!["s1".to_owned()]
     );
     assert!(
-        repo.titles_in_library(TitleKind::Series, &LibraryId("lib1".into()))
+        repo.list_series_filtered(&in_library("lib1"), page(0, 10))
             .await
             .unwrap()
+            .items
             .is_empty()
     );
     assert!(
-        repo.titles_in_library(TitleKind::Movie, &LibraryId("ghost".into()))
+        repo.list_movies_filtered(&in_library("ghost"), page(0, 10))
             .await
             .unwrap()
+            .items
             .is_empty()
+    );
+
+    let blocked_by = |code: &str| TitleListFilter {
+        blocked_ratings: ContentRating::blocked_by(Some(&ContentRating {
+            system: "MPAA".into(),
+            code: code.into(),
+        })),
+        ..TitleListFilter::default()
+    };
+    assert_eq!(
+        movie_ids(
+            &repo
+                .list_movies_filtered(&blocked_by("G"), page(0, 10))
+                .await
+                .unwrap()
+        ),
+        vec!["m2".to_owned()]
+    );
+    assert_eq!(
+        movie_ids(
+            &repo
+                .list_movies_filtered(&blocked_by("PG-13"), page(0, 10))
+                .await
+                .unwrap()
+        ),
+        vec!["m1".to_owned(), "m2".to_owned()]
+    );
+
+    let sorted = |sort: TitleSort, order: SortOrder| TitleListFilter {
+        sort,
+        order,
+        ..TitleListFilter::default()
+    };
+    assert_eq!(
+        movie_ids(
+            &repo
+                .list_movies_filtered(&TitleListFilter::default(), page(0, 10))
+                .await
+                .unwrap()
+        ),
+        vec!["m1".to_owned(), "m2".to_owned()]
+    );
+    assert_eq!(
+        movie_ids(
+            &repo
+                .list_movies_filtered(&sorted(TitleSort::Title, SortOrder::Desc), page(0, 10))
+                .await
+                .unwrap()
+        ),
+        vec!["m2".to_owned(), "m1".to_owned()]
+    );
+    assert_eq!(
+        movie_ids(
+            &repo
+                .list_movies_filtered(&sorted(TitleSort::Year, SortOrder::Asc), page(0, 10))
+                .await
+                .unwrap()
+        ),
+        vec!["m2".to_owned(), "m1".to_owned()]
+    );
+    assert_eq!(
+        movie_ids(
+            &repo
+                .list_movies_filtered(&sorted(TitleSort::Year, SortOrder::Desc), page(0, 10))
+                .await
+                .unwrap()
+        ),
+        vec!["m1".to_owned(), "m2".to_owned()]
+    );
+    assert!(
+        repo.list_movies_filtered(
+            &TitleListFilter {
+                libraries: Some(Vec::new()),
+                ..TitleListFilter::default()
+            },
+            page(0, 10)
+        )
+        .await
+        .unwrap()
+        .items
+        .is_empty()
     );
 
     let detail = repo
@@ -1072,6 +1196,97 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
             .is_none()
     );
 
+    repo.upsert_person(Person {
+        id: PersonId("p1".into()),
+        name: "Ada Lovelace".into(),
+        biography: Some("A mathematician.".into()),
+        birthday: Some("1815-12-10".into()),
+        deathday: Some("1852-11-27".into()),
+        place_of_birth: Some("London".into()),
+        also_known_as: vec!["Augusta Ada King".into()],
+        external_id: Some("person/1".into()),
+        ..Person::default()
+    })
+    .await
+    .unwrap();
+    let enriched = repo
+        .get_person(&PersonId("p1".into()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(enriched.name, "Ada Lovelace");
+    assert_eq!(enriched.biography.as_deref(), Some("A mathematician."));
+    assert_eq!(enriched.birthday.as_deref(), Some("1815-12-10"));
+    assert_eq!(enriched.deathday.as_deref(), Some("1852-11-27"));
+    assert_eq!(enriched.place_of_birth.as_deref(), Some("London"));
+    assert_eq!(enriched.also_known_as, vec!["Augusta Ada King".to_owned()]);
+    assert_eq!(enriched.external_id.as_deref(), Some("person/1"));
+
+    repo.upsert_person(Person {
+        id: PersonId("p1".into()),
+        name: "Ada".into(),
+        ..Person::default()
+    })
+    .await
+    .unwrap();
+    let preserved = repo
+        .get_person(&PersonId("p1".into()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(preserved.name, "Ada");
+    assert_eq!(preserved.biography.as_deref(), Some("A mathematician."));
+    assert_eq!(preserved.also_known_as, vec!["Augusta Ada King".to_owned()]);
+
+    let cascade_series = SeriesId("cascade-series".into());
+    let cascade_season = SeasonId("cascade-s1".into());
+    for n in 1..=3u16 {
+        repo.upsert_series(Series {
+            id: cascade_series.clone(),
+            title: "Cascade".into(),
+            year: None,
+            overview: None,
+            content_rating: None,
+            added_at: ts(0),
+            updated_at: ts(0),
+            artwork: Vec::new(),
+        })
+        .await
+        .unwrap();
+        repo.upsert_season(Season {
+            id: cascade_season.clone(),
+            series: cascade_series.clone(),
+            number: 1,
+            title: Some("Season 1".into()),
+            overview: None,
+            added_at: ts(0),
+            updated_at: ts(0),
+            artwork: Vec::new(),
+        })
+        .await
+        .unwrap();
+        repo.upsert_episode(Episode {
+            id: EpisodeId(format!("cascade-e{n}")),
+            season: cascade_season.clone(),
+            number: n,
+            title: format!("Episode {n}"),
+            overview: None,
+            runtime_minutes: None,
+            air_date: None,
+            added_at: ts(0),
+            updated_at: ts(0),
+            artwork: Vec::new(),
+        })
+        .await
+        .unwrap();
+    }
+    assert_eq!(repo.list_seasons(&cascade_series).await.unwrap().len(), 1);
+    assert_eq!(
+        repo.list_episodes(&cascade_season).await.unwrap().len(),
+        3,
+        "re-upserting a series/season must not cascade-delete its episodes"
+    );
+
     let p1_film = repo.filmography(&PersonId("p1".into())).await.unwrap();
     assert_eq!(p1_film.len(), 2);
     assert_eq!(p1_film[0].title, TitleRef::Movie(MovieId("m1".into())));
@@ -1097,8 +1312,12 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         ["Action", "Drama"]
     );
 
+    let by_genre = |name: &str| TitleListFilter {
+        genres: vec![name.into()],
+        ..TitleListFilter::default()
+    };
     let by_action = repo
-        .list_movies_by_genre(&GenreId("g-action".into()), page(0, 10))
+        .list_movies_filtered(&by_genre("Action"), page(0, 10))
         .await
         .unwrap();
     assert_eq!(
@@ -1110,21 +1329,21 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         ["m1"]
     );
     assert_eq!(
-        repo.list_movies_by_genre(&GenreId("g-drama".into()), page(0, 10))
+        repo.list_movies_filtered(&by_genre("Drama"), page(0, 10))
             .await
             .unwrap()
             .total,
         1
     );
     assert!(
-        repo.list_movies_by_genre(&GenreId("missing".into()), page(0, 10))
+        repo.list_movies_filtered(&by_genre("missing"), page(0, 10))
             .await
             .unwrap()
             .items
             .is_empty()
     );
     assert_eq!(
-        repo.list_series_by_genre(&GenreId("g-action".into()), page(0, 10))
+        repo.list_series_filtered(&by_genre("Action"), page(0, 10))
             .await
             .unwrap()
             .items
@@ -1134,7 +1353,7 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         ["s1"]
     );
     assert!(
-        repo.list_series_by_genre(&GenreId("g-drama".into()), page(0, 10))
+        repo.list_series_filtered(&by_genre("Drama"), page(0, 10))
             .await
             .unwrap()
             .items

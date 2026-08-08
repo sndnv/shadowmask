@@ -1,7 +1,9 @@
 use std::future::Future;
 
 use crate::error::MetadataError;
-use crate::metadata::{ExternalId, MetadataMatch, MetadataQuery, TitleMetadata};
+use crate::metadata::{
+    ExternalId, MetadataMatch, MetadataQuery, PersonMetadata, SeasonArtwork, TitleMetadata,
+};
 
 pub trait MetadataProvider {
     fn search(
@@ -13,4 +15,19 @@ pub trait MetadataProvider {
         &self,
         id: &ExternalId,
     ) -> impl Future<Output = Result<TitleMetadata, MetadataError>> + Send;
+
+    fn fetch_season(
+        &self,
+        _id: &ExternalId,
+        _season: u16,
+    ) -> impl Future<Output = Result<SeasonArtwork, MetadataError>> + Send {
+        async { Err(MetadataError::NotFound) }
+    }
+
+    fn fetch_person(
+        &self,
+        _id: &ExternalId,
+    ) -> impl Future<Output = Result<PersonMetadata, MetadataError>> + Send {
+        async { Err(MetadataError::NotFound) }
+    }
 }

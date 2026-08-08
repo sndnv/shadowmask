@@ -7,43 +7,16 @@
     <title>Shadowmask (basic) - Admin users</title>
   </head>
   <body>
-    <h1>Users</h1>
+    <h1 class="sm-visually-hidden">Users</h1>
     <nav id="nav"></nav>
     <p class="sm-crumbs"><a href="index.html">Admin</a> / Users</p>
-    <main id="main">
-      <h2>Create user</h2>
-      <form id="create-user">
-        <label>Username <input name="username" autocomplete="off" /></label>
-        <label>Password <input name="password" type="password" autocomplete="new-password" /></label>
-        <label>Role
-          <select name="role">
-            <option value="user">user</option>
-            <option value="admin">admin</option>
-            <option value="player">player</option>
-          </select>
-        </label>
-        <button type="submit">Create</button>
-        <span id="create-status"></span>
-      </form>
-
-      <h2 id="users-heading">Users</h2>
-      <div id="users"></div>
-      <div id="acl"></div>
-
-      <h2>Create device link code</h2>
-      <form id="link-form">
-        <label>User <select name="user"></select></label>
-        <label>TTL seconds (optional) <input name="ttl" type="number" min="1" /></label>
-        <button type="submit">Create code</button>
-        <span id="link-output"></span>
-      </form>
-      <h2 id="link-codes-heading">Pending codes</h2>
-      <div id="link-codes"></div>
-    </main>
+    <main id="main">Loading&hellip;</main>
     <script src="../app.js"></script>
     <script>
       sm.chrome();
       const eu = encodeURIComponent;
+      let usersHeading = null;
+      let usersContainer = null;
 
       if (sm.requireAuth()) guard();
 
@@ -55,60 +28,90 @@
             main.textContent = "Not Authorized.";
             return;
           }
-          wireCreateUser();
-          wireLinkForm();
+          main.textContent = "";
+          const create = sm.el("button", { type: "button" }, "Create user");
+          create.addEventListener("click", () =>
+            sm.openDialog("Create user", (box) => createUserBody(box)),
+          );
+          main.appendChild(sm.el("p", null, create));
+          usersHeading = sm.el("h2", { text: "Users" });
+          main.appendChild(usersHeading);
+          usersContainer = sm.el("div", null);
+          main.appendChild(usersContainer);
           await loadUsers();
         } catch (err) {
           main.textContent = "Could not load.";
         }
       }
 
-      function wireCreateUser() {
-        const f = document.getElementById("create-user");
-        const status = document.getElementById("create-status");
-        f.addEventListener("submit", async (e) => {
+      function createUserBody(box) {
+        const option = (v) => sm.el("option", { value: v }, v);
+        const username = sm.el("input", { autocomplete: "off" });
+        const password = sm.el("input", { type: "password", autocomplete: "new-password" });
+        const role = sm.el("select", null, [option("user"), option("admin"), option("player")]);
+        const status = sm.el("span", null);
+        const submit = sm.el("button", { type: "submit" }, "Create");
+        const form = sm.el("form", null, [
+          sm.el("label", null, ["Username ", username]),
+          sm.el("br"),
+          sm.el("label", null, ["Password ", password]),
+          sm.el("br"),
+          sm.el("label", null, ["Role ", role]),
+          sm.el("br"),
+          submit,
+          " ",
+          status,
+        ]);
+        form.addEventListener("submit", async (e) => {
           e.preventDefault();
-          if (!f.elements.username.value || !f.elements.password.value) {
+          if (!username.value || !password.value) {
             status.textContent = "Username and password are required.";
             return;
           }
+          submit.disabled = true;
           try {
             await sm.json("/api/v1/users", {
               method: "POST",
               body: JSON.stringify({
-                username: f.elements.username.value,
-                password: f.elements.password.value,
-                role: f.elements.role.value,
+                username: username.value,
+                password: password.value,
+                role: role.value,
               }),
             });
-            status.textContent = "Created.";
-            f.elements.username.value = "";
-            f.elements.password.value = "";
+            sm.toast("User created.", "ok");
+            box.close();
             await loadUsers();
           } catch (err) {
-            status.textContent = "Create failed.";
+            sm.toast("Create failed.", "danger");
+            submit.disabled = false;
           }
         });
+        return form;
       }
 
       async function loadUsers() {
-        const container = document.getElementById("users");
-        container.textContent = "Loading...";
+        usersContainer.textContent = "Loading…";
         try {
           const page = await sm.json("/api/v1/users");
-          document.getElementById("users-heading").textContent = "Users (" + page.total + ")";
-          container.textContent = "";
+          usersHeading.textContent = "Users (" + page.total + ")";
+          usersContainer.textContent = "";
           const rows = page.items.map((u) => {
             const access = sm.el("button", { type: "button" }, "Access");
-            access.addEventListener("click", () => editAccess(u));
-            const del = sm.el("button", { type: "button" }, "Delete");
+            access.addEventListener("click", () =>
+              sm.openDialog("Library access: " + u.username, (box) => accessBody(box, u)),
+            );
+            const codes = sm.el("button", { type: "button" }, "Codes");
+            codes.addEventListener("click", () =>
+              sm.openDialog("Device link codes: " + u.username, (box) => codesBody(box, u)),
+            );
+            const del = sm.el("button", { type: "button", class: "sm-danger" }, "Delete");
             del.addEventListener("click", async () => {
               if (!confirm("Delete user " + u.username + "?")) return;
-              await sm.json("/api/v1/users/" + eu(u.id), { method: "DELETE" }).catch(() => {});
-              const acl = document.getElementById("acl");
-              if (acl.dataset.user === u.id) {
-                acl.textContent = "";
-                delete acl.dataset.user;
+              try {
+                await sm.json("/api/v1/users/" + eu(u.id), { method: "DELETE" });
+                sm.toast("User deleted.", "ok");
+              } catch (err) {
+                sm.toast("Delete failed.", "danger");
               }
               await loadUsers();
             });
@@ -117,127 +120,130 @@
               u.role,
               sm.time(u.created_at),
               sm.time(u.updated_at),
-              [access, " ", del],
+              [access, " ", codes, " ", del],
             ];
           });
-          container.appendChild(sm.table(["Username", "Role", "Created", "Updated", ""], rows));
+          usersContainer.appendChild(sm.table(["Username", "Role", "Created", "Updated", ""], rows));
         } catch (err) {
-          container.textContent = "Could not load users.";
+          usersContainer.textContent = "Could not load users.";
         }
       }
 
-      async function editAccess(user) {
-        const acl = document.getElementById("acl");
-        acl.textContent = "Loading...";
-        try {
-          const [access, libraries] = await Promise.all([
-            sm.json("/api/v1/users/" + eu(user.id) + "/libraries"),
-            sm.json("/api/v1/libraries"),
-          ]);
-          const have = new Set(access.map((a) => a.library_id));
-          acl.textContent = "";
-          acl.dataset.user = user.id;
-          acl.appendChild(sm.el("h3", { text: "Library access for " + user.username }));
-          const checks = libraries.map((l) => {
-            const cb = sm.el("input", { type: "checkbox", value: l.id });
-            if (have.has(l.id)) cb.setAttribute("checked", "checked");
-            acl.appendChild(sm.el("label", null, [cb, " " + l.name]));
-            acl.appendChild(sm.el("br"));
-            return { cb, l };
-          });
-          const status = sm.el("span", null);
-          const save = sm.el("button", { type: "button" }, "Save access");
-          save.addEventListener("click", async () => {
-            const selected = checks.filter(({ cb }) => cb.checked).map(({ l }) => l.id);
-            try {
-              await sm.json("/api/v1/users/" + eu(user.id) + "/libraries", {
-                method: "PUT",
-                body: JSON.stringify({ libraries: selected }),
-              });
-              status.textContent = "Saved.";
-            } catch (err) {
-              status.textContent = "Save failed.";
+      function accessBody(box, user) {
+        const container = sm.el("div", null);
+        container.textContent = "Loading…";
+        (async () => {
+          try {
+            const [access, libraries] = await Promise.all([
+              sm.json("/api/v1/users/" + eu(user.id) + "/libraries"),
+              sm.json("/api/v1/libraries"),
+            ]);
+            const have = new Set(access.map((a) => a.library_id));
+            container.textContent = "";
+            if (!libraries.length) {
+              container.appendChild(sm.el("p", { text: "No libraries exist yet." }));
+              return;
             }
-          });
-          acl.appendChild(sm.el("p", null, [save, " ", status]));
-        } catch (err) {
-          acl.textContent = "Could not load access.";
-        }
+            const checks = libraries.map((l) => {
+              const cb = sm.el("input", { type: "checkbox", value: l.id });
+              if (have.has(l.id)) cb.setAttribute("checked", "checked");
+              container.appendChild(sm.el("label", null, [cb, " " + l.name]));
+              container.appendChild(sm.el("br"));
+              return { cb, l };
+            });
+            const save = sm.el("button", { type: "button" }, "Save access");
+            save.addEventListener("click", async () => {
+              const selected = checks.filter(({ cb }) => cb.checked).map(({ l }) => l.id);
+              save.disabled = true;
+              try {
+                await sm.json("/api/v1/users/" + eu(user.id) + "/libraries", {
+                  method: "PUT",
+                  body: JSON.stringify({ libraries: selected }),
+                });
+                sm.toast("Access saved.", "ok");
+                box.close();
+              } catch (err) {
+                sm.toast("Save failed.", "danger");
+                save.disabled = false;
+              }
+            });
+            container.appendChild(sm.el("p", null, save));
+          } catch (err) {
+            container.textContent = "Could not load access.";
+          }
+        })();
+        return container;
       }
 
-      function wireLinkForm() {
-        const f = document.getElementById("link-form");
-        const output = document.getElementById("link-output");
-        f.addEventListener("submit", async (e) => {
-          e.preventDefault();
-          if (!f.elements.user.value) {
-            output.textContent = "Select a user.";
-            return;
+      function codesBody(box, user) {
+        const container = sm.el("div", null);
+        const ttl = sm.el("input", { type: "number", min: "1" });
+        const output = sm.el("span", null);
+        const listBox = sm.el("div", null);
+        const create = sm.el("button", { type: "submit" }, "Create code");
+        const form = sm.el("form", null, [
+          sm.el("label", null, ["TTL seconds (optional) ", ttl]),
+          " ",
+          create,
+          " ",
+          output,
+        ]);
+
+        async function reloadCodes() {
+          listBox.textContent = "Loading…";
+          try {
+            const list = await sm.json("/api/v1/users/" + eu(user.id) + "/link-codes");
+            listBox.textContent = "";
+            listBox.appendChild(sm.el("h3", { text: "Pending codes (" + list.length + ")" }));
+            if (!list.length) {
+              listBox.appendChild(sm.el("p", { text: "No pending codes." }));
+              return;
+            }
+            const rows = list.map((c) => {
+              const revoke = sm.el("button", { type: "button", class: "sm-danger" }, "Revoke");
+              revoke.addEventListener("click", async () => {
+                try {
+                  await sm.json("/api/v1/users/" + eu(user.id) + "/link-codes/" + eu(c.code), {
+                    method: "DELETE",
+                  });
+                  sm.toast("Code revoked.", "ok");
+                } catch (err) {
+                  sm.toast("Revoke failed.", "danger");
+                }
+                await reloadCodes();
+              });
+              return [sm.groupCode(c.code), sm.time(c.expires_at), revoke];
+            });
+            listBox.appendChild(sm.table(["Code", "Expires", ""], rows));
+          } catch (err) {
+            listBox.textContent = "Could not load pending codes.";
           }
-          const body = { user_id: f.elements.user.value };
-          if (f.elements.ttl.value) body.ttl_secs = parseInt(f.elements.ttl.value, 10);
+        }
+
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const body = { user_id: user.id };
+          if (ttl.value) body.ttl_secs = parseInt(ttl.value, 10);
+          create.disabled = true;
           try {
             const res = await sm.json("/api/v1/auth/link/create", {
               method: "POST",
               body: JSON.stringify(body),
             });
             output.textContent =
-              "Code " + groupCode(res.code) + " expires " + sm.time(res.expires_at);
-            await reloadLinkCodes(f.elements.user.value);
+              "Code " + sm.groupCode(res.code) + " expires " + sm.time(res.expires_at);
+            sm.toast("Code created.", "ok");
+            await reloadCodes();
           } catch (err) {
-            output.textContent = "Failed.";
+            sm.toast("Could not create a code.", "danger");
           }
+          create.disabled = false;
         });
-        f.elements.user.addEventListener("change", () => reloadLinkCodes(f.elements.user.value));
-        sm.json("/api/v1/users")
-          .then((page) => {
-            page.items.forEach((u) =>
-              f.elements.user.appendChild(
-                sm.el("option", { value: u.id }, u.username + " (" + u.role + ")"),
-              ),
-            );
-            reloadLinkCodes(f.elements.user.value);
-          })
-          .catch(() => {});
-      }
 
-      function groupCode(code) {
-        return code.length === 8 ? code.slice(0, 4) + "-" + code.slice(4) : code;
-      }
-
-      async function reloadLinkCodes(userId) {
-        const container = document.getElementById("link-codes");
-        const h = document.getElementById("link-codes-heading");
-        if (!userId) {
-          container.textContent = "";
-          if (h) h.textContent = "Pending codes";
-          return;
-        }
-        container.textContent = "Loading...";
-        try {
-          const codes = await sm.json("/api/v1/users/" + eu(userId) + "/link-codes");
-          if (h) h.textContent = "Pending codes (" + codes.length + ")";
-          container.textContent = "";
-          if (!codes.length) {
-            container.appendChild(sm.el("p", { text: "No pending codes." }));
-            return;
-          }
-          const rows = codes.map((c) => {
-            const revoke = sm.el("button", { type: "button" }, "Revoke");
-            revoke.addEventListener("click", async () => {
-              await sm
-                .json("/api/v1/users/" + eu(userId) + "/link-codes/" + eu(c.code), {
-                  method: "DELETE",
-                })
-                .catch(() => {});
-              await reloadLinkCodes(userId);
-            });
-            return [groupCode(c.code), sm.time(c.expires_at), revoke];
-          });
-          container.appendChild(sm.table(["Code", "Expires", ""], rows));
-        } catch (err) {
-          container.textContent = "Could not load pending codes.";
-        }
+        container.appendChild(form);
+        container.appendChild(listBox);
+        reloadCodes();
+        return container;
       }
     </script>
   </body>

@@ -9,7 +9,7 @@ use domain::playback::{PlaybackProgress, WatchHistory};
 use domain::user::{User, UserId};
 use jiff::Timestamp;
 use services::mock::{
-    MockAuthService, MockCatalogService, MockDiscoveryService, MockLibraryService,
+    MockAuthService, MockCatalogService, MockDiscoveryService, MockJobService, MockLibraryService,
     MockSessionService, MockUserLibraryService, MockUserService,
 };
 
@@ -26,6 +26,7 @@ pub struct Generator {
     pub user: MockUserService,
     pub user_library: MockUserLibraryService,
     pub discovery: MockDiscoveryService,
+    pub job: MockJobService,
 }
 
 impl Default for Generator {
@@ -48,6 +49,7 @@ impl Generator {
             user: MockUserService::new(),
             user_library: MockUserLibraryService::new(),
             discovery: MockDiscoveryService::new(),
+            job: MockJobService::new(),
         };
         generator.generate_catalog();
         generator.generate_library();
@@ -120,7 +122,7 @@ impl Generator {
                 paths: vec!["/a.mkv".into(), "/b.mkv".into()],
             },
         );
-        self.library.add_job(fixture::admin_job());
+        self.job.add_job(fixture::admin_job());
     }
 
     fn generate_user_library(&self) {
@@ -153,6 +155,7 @@ impl Generator {
             .add_search_result(SearchResult::Person(Person {
                 id: PersonId("p1".into()),
                 name: "Alpha Person".into(),
+                ..Person::default()
             }));
         self.discovery.add_continue_watching(
             &u1,

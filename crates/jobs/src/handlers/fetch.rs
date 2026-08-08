@@ -1,8 +1,7 @@
 use domain::error::{FetchError, RepositoryError};
 use domain::job::Job;
-use domain::library::{DiscoveredFile, LibraryOrigin, ResolveTarget};
-use domain::media::{FetchRequest, MediaFetcher, MediaProbe};
-use domain::metadata::ExternalId;
+use domain::library::{DiscoveredFile, LibraryOrigin};
+use domain::media::{FetchSpec, MediaFetcher, MediaProbe};
 use domain::repository::LibraryRepository;
 use services::library::{FetchJobPayload, ResolveIngester, fetch_filename_stem};
 
@@ -65,7 +64,7 @@ where
         tracing::info!("fetching [{}] into [{}]", payload.source_url, dest_dir);
         let fetched = self
             .fetcher
-            .fetch(&FetchRequest {
+            .fetch(&FetchSpec {
                 url: payload.source_url.clone(),
                 dest_dir,
                 filename_stem: stem,
@@ -84,12 +83,13 @@ where
             subtitle_siblings: Vec::new(),
             probe,
         };
-        let target = ResolveTarget::Provider(ExternalId {
-            source: "imdb".to_owned(),
-            value: payload.imdb_id.clone().unwrap_or_default(),
-        });
         self.ingester
-            .ingest_resolved(&library, &file, &target, Some(&job.id))
+            .ingest_fetched(
+                &library,
+                &file,
+                payload.resolved_external_id().as_ref(),
+                Some(&job.id),
+            )
             .await
             .map_err(retryable)?;
         Ok(())
@@ -132,7 +132,7 @@ mod tests {
     }
 
     impl MediaFetcher for MockFetcher {
-        async fn fetch(&self, request: &FetchRequest) -> Result<FetchedMedia, FetchError> {
+        async fn fetch(&self, request: &FetchSpec) -> Result<FetchedMedia, FetchError> {
             match self.outcome {
                 Outcome::Ok => Ok(FetchedMedia {
                     path: format!("{}/{}.mkv", request.dest_dir, request.filename_stem),
@@ -179,7 +179,7 @@ mod tests {
             source_url: "https://example.com/watch?v=abc".into(),
             kind: LibraryKind::Movie,
             title: "The Matrix".into(),
-            imdb_id: None,
+            external_id: None,
             season: None,
             episode: None,
         }
@@ -257,6 +257,26 @@ mod tests {
             enqueued
                 .iter()
                 .all(|j| j.parent_id == Some(JobId("job-1".into())))
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_with_external_id_ingests_via_provider_lookup() {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(external_library());
+        let (h, catalog, _) = handler(repo, Outcome::Ok, MockMediaProbe::new());
+
+        let mut payload = payload();
+        payload.external_id = Some("tt0133093".into());
+        h.handle(&job(payload.encode().unwrap())).await.unwrap();
+
+        assert_eq!(
+            catalog
+                .list_library_versions(&LibraryId("ext".into()), page())
+                .await
+                .unwrap()
+                .total,
+            1
         );
     }
 

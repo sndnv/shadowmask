@@ -2,6 +2,8 @@ use std::fs::Metadata;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use domain::error::CacheError;
+use domain::media::TranscodeCacheMaintenance;
 use jiff::Timestamp;
 use walkdir::WalkDir;
 
@@ -30,6 +32,7 @@ pub fn plan_eviction(entries: &[CacheEntry], max_bytes: u64) -> Vec<PathBuf> {
     victims
 }
 
+#[derive(Clone)]
 pub struct CacheEvictor {
     cache_root: PathBuf,
 }
@@ -41,7 +44,7 @@ impl CacheEvictor {
         }
     }
 
-    pub fn evict(&self, max_bytes: u64) -> io::Result<usize> {
+    pub fn evict_blocking(&self, max_bytes: u64) -> io::Result<usize> {
         let entries = self.scan()?;
         let victims = plan_eviction(&entries, max_bytes);
         let count = victims.len();
@@ -70,6 +73,17 @@ impl CacheEvictor {
             });
         }
         Ok(entries)
+    }
+}
+
+impl TranscodeCacheMaintenance for CacheEvictor {
+    async fn evict(&self, max_bytes: u64) -> Result<u64, CacheError> {
+        let evictor = self.clone();
+        tokio::task::spawn_blocking(move || evictor.evict_blocking(max_bytes))
+            .await
+            .map_err(|e| CacheError::Io(e.to_string()))?
+            .map(|count| count as u64)
+            .map_err(|e| CacheError::Io(e.to_string()))
     }
 }
 
@@ -143,14 +157,14 @@ mod tests {
     #[test]
     fn evict_missing_dir_is_noop() {
         let evictor = CacheEvictor::new("/no/such/shadowmask/cache");
-        assert_eq!(evictor.evict(0).expect("evict"), 0);
+        assert_eq!(evictor.evict_blocking(0).expect("evict"), 0);
     }
 
     #[test]
     fn evict_propagates_non_notfound_scan_error() {
         let file = tempfile::NamedTempFile::new().expect("tempfile");
         let evictor = CacheEvictor::new(file.path());
-        assert!(evictor.evict(0).is_err());
+        assert!(evictor.evict_blocking(0).is_err());
     }
 
     #[test]
@@ -159,7 +173,7 @@ mod tests {
         write_file(dir.path(), "a.ts", 1000);
         write_file(dir.path(), "b.ts", 1000);
         let evictor = CacheEvictor::new(dir.path());
-        assert_eq!(evictor.evict(10_000).expect("evict"), 0);
+        assert_eq!(evictor.evict_blocking(10_000).expect("evict"), 0);
         assert!(dir.path().join("a.ts").exists());
     }
 
@@ -172,8 +186,30 @@ mod tests {
         write_file(&session, "seg.ts", 2000);
 
         let evictor = CacheEvictor::new(dir.path());
-        assert_eq!(evictor.evict(0).expect("evict"), 2);
+        assert_eq!(evictor.evict_blocking(0).expect("evict"), 2);
         assert!(!dir.path().join("a.ts").exists());
         assert!(!session.exists());
+    }
+
+    #[tokio::test]
+    async fn maintenance_port_evicts_over_cap_off_the_runtime() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_file(dir.path(), "a.ts", 1000);
+        write_file(dir.path(), "b.ts", 1000);
+        let evictor = CacheEvictor::new(dir.path());
+        let evicted = TranscodeCacheMaintenance::evict(&evictor, 1500)
+            .await
+            .expect("evict");
+        assert_eq!(evicted, 1);
+    }
+
+    #[tokio::test]
+    async fn maintenance_port_maps_scan_error() {
+        let file = tempfile::NamedTempFile::new().expect("tempfile");
+        let evictor = CacheEvictor::new(file.path());
+        assert!(matches!(
+            TranscodeCacheMaintenance::evict(&evictor, 0).await,
+            Err(CacheError::Io(_))
+        ));
     }
 }

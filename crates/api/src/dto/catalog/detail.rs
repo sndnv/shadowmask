@@ -235,6 +235,7 @@ mod tests {
                 person: Person {
                     id: PersonId("p1".into()),
                     name: "Ada".into(),
+                    ..Person::default()
                 },
                 role: CreditRole::Actor,
                 character: Some("Hero".into()),

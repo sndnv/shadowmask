@@ -1,7 +1,7 @@
 use domain::catalog::{Version, VersionId};
 use domain::error::UpscaleError;
 use domain::job::Job;
-use domain::media::{MediaProbe, UpscaleProvider, UpscaleRequest};
+use domain::media::{MediaProbe, UpscaleProvider, UpscaleSpec};
 use domain::repository::CatalogRepository;
 use jiff::Timestamp;
 use services::library::{
@@ -54,7 +54,7 @@ where
             target_quality,
             &Uuid::new_v4().to_string(),
         );
-        let request = UpscaleRequest {
+        let request = UpscaleSpec {
             source_path: detail.version.path.clone(),
             target_height: payload.target_height,
             output_path,
@@ -145,7 +145,7 @@ mod tests {
     }
 
     impl UpscaleProvider for MockUpscaleProvider {
-        async fn upscale(&self, request: &UpscaleRequest) -> Result<UpscaleOutput, UpscaleError> {
+        async fn upscale(&self, request: &UpscaleSpec) -> Result<UpscaleOutput, UpscaleError> {
             *self.captured.lock().unwrap() = Some(request.output_path.clone());
             match self.mode {
                 Mode::Ok => Ok(UpscaleOutput {

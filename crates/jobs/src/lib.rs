@@ -13,10 +13,10 @@ pub mod worker;
 pub use cancel::CancelRegistry;
 pub use error::JobError;
 pub use handlers::{
-    ArtworkJobHandler, CombineJobHandler, CompositeJobHandler, FetchJobHandler, IngestJobHandler,
-    LibraryScanHandler, MetadataJobHandler, RelinkJobHandler, SearchReindexHandler,
-    SubtitlesJobHandler, TranscriptionJobHandler, TranslationJobHandler, TrickplayJobHandler,
-    UpscaleJobHandler,
+    ArtworkJobHandler, CacheEvictionHandler, CombineJobHandler, CompositeJobHandler,
+    FetchJobHandler, IngestJobHandler, LibraryScanHandler, MetadataJobHandler, RelinkJobHandler,
+    SearchReindexHandler, SubtitlesJobHandler, TranscriptionJobHandler, TranslationJobHandler,
+    TrickplayJobHandler, UpscaleJobHandler,
 };
 pub use job_class::{enrichment_kinds, fetch_kinds, normal_kinds};
 pub use job_handler::JobHandler;

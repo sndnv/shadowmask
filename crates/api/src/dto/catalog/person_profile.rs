@@ -25,6 +25,12 @@ impl From<TitleKind> for TitleKindDto {
 pub struct PersonProfileResponse {
     pub id: String,
     pub name: String,
+    pub biography: Option<String>,
+    pub birthday: Option<String>,
+    pub deathday: Option<String>,
+    pub place_of_birth: Option<String>,
+    pub also_known_as: Vec<String>,
+    pub artwork: ArtworkDto,
     pub filmography: Vec<FilmographyEntryDto>,
 }
 
@@ -58,6 +64,12 @@ impl From<PersonProfile> for PersonProfileResponse {
         PersonProfileResponse {
             id: p.person.id.0,
             name: p.person.name,
+            biography: p.person.biography,
+            birthday: p.person.birthday,
+            deathday: p.person.deathday,
+            place_of_birth: p.person.place_of_birth,
+            also_known_as: p.person.also_known_as,
+            artwork: ArtworkDto::from_refs(p.person.artwork),
             filmography: p.filmography.into_iter().map(Into::into).collect(),
         }
     }
@@ -88,6 +100,9 @@ mod tests {
             person: Person {
                 id: PersonId("p1".into()),
                 name: "Ada".into(),
+                biography: Some("A mathematician.".into()),
+                birthday: Some("1815-12-10".into()),
+                ..Person::default()
             },
             filmography: vec![
                 FilmographyEntry {
@@ -113,6 +128,12 @@ mod tests {
             json!({
                 "id": "p1",
                 "name": "Ada",
+                "biography": "A mathematician.",
+                "birthday": "1815-12-10",
+                "deathday": null,
+                "place_of_birth": null,
+                "also_known_as": [],
+                "artwork": {},
                 "filmography": [
                     {
                         "title_id": "m1",

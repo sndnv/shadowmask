@@ -48,6 +48,7 @@ expression: value
         "updated_at": "2023-11-14T22:13:24Z"
       },
       {
+        "artwork": {},
         "id": "p1",
         "name": "Alpha Person",
         "type": "person"

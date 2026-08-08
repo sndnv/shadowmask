@@ -228,6 +228,16 @@ gen_fixture() {
         -c:a aac -ac 2 -shortest "$1"
 }
 
+gen_hdr_fixture() {
+    ffmpeg -nostdin -loglevel error -y \
+        -f lavfi -i "testsrc2=duration=3:size=640x360:rate=15" \
+        -f lavfi -i "sine=frequency=440:duration=3" \
+        -vf format=yuv420p10le \
+        -c:v libx265 -pix_fmt yuv420p10le \
+        -x265-params "colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:range=limited:hdr10-opt=1:log-level=none" \
+        -tag:v hvc1 -c:a aac -ac 2 -shortest "$1"
+}
+
 write_offset_srt() {
     cat >"$1" <<'SRT'
 1
@@ -257,6 +267,9 @@ populate_media() {
     gen_fixture "$MEDIA_DIR/movies/Sample Movie (2011).mp4"
     gen_fixture "$MEDIA_DIR/tv/Sample Show S01E01.mkv"
     write_offset_srt "$MEDIA_DIR/movies/Sample Movie (2011).en.srt"
+    ffmpeg -hide_banner -encoders 2>/dev/null | grep -qw libx265 \
+        || die "ffmpeg has no libx265 encoder; required to generate the HDR tone-map fixture"
+    gen_hdr_fixture "$MEDIA_DIR/movies/HDR Sample (2011).mkv"
     if [[ "$SKIP_ENRICHMENT" != true ]] && capability_available transcription; then
         place_speech_clip
     fi
@@ -476,6 +489,36 @@ MU2=$(jq -r '.manifest_url' <<<"$ss2")
 [[ "$(jq -r '.mode' <<<"$ss2")" == direct ]] || die "expected direct for mp4, got [$(jq -r '.mode' <<<"$ss2")]"
 poll_until "direct-play file fetch" 30 http_get_ok "$BASE_URL$MU2"
 expect_code 204 DELETE "$API/sessions/$SID2" "$USER_TOKEN"
+
+section "playback: HDR to SDR tone map (transcode)"
+HDR_MOVIE_ID=$(jq -r 'first(.items[]? | select(.title=="HDR Sample") | .id) // empty' <<<"$mv")
+[[ -n "$HDR_MOVIE_ID" && "$HDR_MOVIE_ID" != null ]] || die "no [HDR Sample] movie in catalog; the HDR fixture was not ingested"
+hv=$(call_ok GET "$API/movies/$HDR_MOVIE_ID/versions" "$USER_TOKEN")
+HDR_VER=$(jq -r '.items[0].id' <<<"$hv")
+[[ -n "$HDR_VER" && "$HDR_VER" != null ]] || die "no version for [HDR Sample]"
+hdet=$(call_ok GET "$API/versions/$HDR_VER" "$USER_TOKEN")
+HDR_KIND=$(jq -r '.video[0].hdr // "none"' <<<"$hdet")
+[[ "$HDR_KIND" != none ]] || die "[HDR Sample] not probed as HDR (video[0].hdr is null); ffprobe HDR detection failed"
+ok "source probed as HDR [$HDR_KIND]"
+hs=$(call_ok POST "$API/sessions" "$USER_TOKEN" \
+    "$(jq -nc --arg v "$HDR_VER" '{version_id:$v,target_height:240,capabilities:{platform:"generic",profile_version:1}}')" 201 "start session (HDR, forced transcode)")
+HDR_SID=$(jq -r '.session_id' <<<"$hs")
+[[ "$(jq -r '.mode' <<<"$hs")" == transcode ]] || die "expected transcode for HDR downscale, got [$(jq -r '.mode' <<<"$hs")]"
+HDR_MASTER="$BASE_URL$(jq -r '.manifest_url' <<<"$hs")"
+poll_until "HDR HLS master ready" 90 http_get_ok "$HDR_MASTER"
+poll_until "HDR HLS segment fetch" 90 segment_fetchable "$HDR_MASTER"
+HDR_VARIANT=$(first_child "$HDR_MASTER") || die "no HDR variant playlist"
+HDR_PROBE=$(ffprobe -v error -select_streams v:0 -show_entries stream=pix_fmt,color_transfer -of default=noprint_wrappers=1 "$HDR_VARIANT" 2>/dev/null) \
+    || die "could not ffprobe the transcoded HDR output at [$HDR_VARIANT]"
+HDR_PIXFMT=$(sed -n 's/^pix_fmt=//p' <<<"$HDR_PROBE" | head -1)
+HDR_TRC=$(sed -n 's/^color_transfer=//p' <<<"$HDR_PROBE" | head -1)
+note "transcoded output pix_fmt=[$HDR_PIXFMT] transfer=[$HDR_TRC]"
+case "$HDR_PIXFMT" in
+    *10le|*10be|*p010*) die "HDR output is still 10-bit [$HDR_PIXFMT]; the SDR tone-map re-encode did not run" ;;
+esac
+[[ "$HDR_TRC" != smpte2084 ]] || die "HDR output still tagged smpte2084; it was not tone-mapped to SDR"
+expect_code 204 DELETE "$API/sessions/$HDR_SID" "$USER_TOKEN"
+ok "HDR source tone-mapped to 8-bit SDR (pix_fmt=[$HDR_PIXFMT], transfer=[$HDR_TRC])"
 
 section "enrichment: transcribe -> translate"
 if [[ "$SKIP_ENRICHMENT" == true ]]; then

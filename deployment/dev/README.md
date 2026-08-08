@@ -103,6 +103,11 @@ and artwork, so the full artwork pipeline is visible end to end. Without a key t
 works but shows placeholder posters and empty metadata. One TV show is intentionally unmatchable so
 the mismatch / manual-resolution behavior is also visible.
 
+TMDB does not return content ratings, so parental controls stay inert on TMDB alone. Also set
+`SHADOWMASK_OMDB_API_KEY` and the scan will look up each title's certification via OMDB and populate
+`content_rating`, which is what the per-user rating cap enforces. TMDB stays the primary provider;
+OMDB is an optional rating supplement, so an OMDB key without a TMDB key does not enable enrichment.
+
 `--real` downloads two Creative Commons BY 3.0 clips (Big Buck Bunny and a short Elephants Dream clip
 with clear speech, used by the transcription smoke below) in place of their synthetic stand-ins.
 Downloads are cached under `media/.cache` and reused across runs and by the smoke test, so nothing is

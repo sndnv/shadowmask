@@ -7,7 +7,7 @@
     <title>Shadowmask (basic) - Collections</title>
   </head>
   <body>
-    <h1>Collections</h1>
+    <h1 class="sm-visually-hidden">Collections</h1>
     <nav id="nav"></nav>
     <main id="main">Loading&hellip;</main>
     <script src="../app.js"></script>
@@ -32,7 +32,7 @@
         main.textContent = "";
         main.appendChild(sm.breadcrumbs([{ label: "Collections (" + page.total + ")" }]));
         if (!page.items.length) {
-          main.appendChild(sm.el("p", { text: "No collections." }));
+          main.appendChild(await sm.accessAwareEmpty("collections"));
           return;
         }
         main.appendChild(
@@ -42,6 +42,7 @@
               artwork: c.artwork,
               title: c.name,
               subtitle: c.movies.length + " movies",
+              mosaic: true,
             })),
           ),
         );
@@ -78,7 +79,9 @@
           dl,
           c.overview ? sm.el("p", { text: c.overview }) : null,
         ]);
-        main.appendChild(sm.el("div", { class: "sm-detail" }, [sm.poster(c.artwork, 480), info]));
+        main.appendChild(
+          sm.el("div", { class: "sm-detail" }, [sm.mosaicPoster(c.artwork, 480, c.name), info]),
+        );
 
         if (!items.length) {
           main.appendChild(sm.el("p", { text: "No movies in this collection." }));
@@ -149,7 +152,11 @@
 
         status.textContent = "";
         status.appendChild(
-          sm.el("progress", { max: String(items.length), value: String(done) }),
+          sm.el("progress", {
+            max: String(items.length),
+            value: String(done),
+            "aria-label": "Watched progress",
+          }),
         );
         status.appendChild(sm.el("span", { text: " " + done + " of " + items.length + " watched" }));
         if (done === items.length) {

@@ -1,9 +1,10 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use domain::catalog::{Episode, EpisodeId, Movie, MovieId, Season, Series, TitleId, VersionId};
+use domain::catalog::{Episode, Movie, MovieId, Season, Series, TitleId};
 use domain::common::{Page, PageRequest};
 use domain::discovery::{ContinueWatchingItem, Hub, HubItem, SearchKind, SearchResult};
 use domain::error::{DiscoveryError, RepositoryError};
+use domain::playback::WatchHistory;
 use domain::repository::{CatalogRepository, ProgressRepository, SearchIndex};
 use domain::service::DiscoveryService;
 use domain::session::{NowPlaying, PlaybackSession};
@@ -11,12 +12,9 @@ use domain::user::UserId;
 
 use crate::discovery::{
     continue_watching, home_hubs, next_episodes, next_movies, recently_added, resume_card,
+    resume_card_from, watched_episode_ids, watched_movie_ids,
 };
 
-const ALL: PageRequest = PageRequest {
-    offset: 0,
-    limit: u32::MAX,
-};
 const HUB_LIMIT: usize = 20;
 
 #[derive(Clone)]
@@ -43,80 +41,52 @@ where
     Pr: ProgressRepository + Sync,
 {
     async fn all_movies(&self) -> Result<Vec<Movie>, RepositoryError> {
-        Ok(self.catalog.list_movies(ALL).await?.items)
+        Ok(self.catalog.list_movies(PageRequest::ALL).await?.items)
     }
 
     async fn all_series(&self) -> Result<Vec<Series>, RepositoryError> {
-        Ok(self.catalog.list_series(ALL).await?.items)
+        Ok(self.catalog.list_series(PageRequest::ALL).await?.items)
     }
 
     async fn all_seasons(&self) -> Result<Vec<Season>, RepositoryError> {
-        let mut seasons = Vec::new();
-        for series in self.all_series().await? {
-            seasons.extend(self.catalog.list_seasons(&series.id).await?);
-        }
-        Ok(seasons)
+        self.catalog.list_all_seasons().await
     }
 
     async fn all_episodes(&self) -> Result<Vec<Episode>, RepositoryError> {
-        let mut episodes = Vec::new();
-        for season in self.all_seasons().await? {
-            episodes.extend(self.catalog.list_episodes(&season.id).await?);
-        }
-        Ok(episodes)
+        self.catalog.list_all_episodes().await
     }
 
-    async fn completed_versions(
+    async fn continue_items(
         &self,
         user: &UserId,
-    ) -> Result<HashSet<VersionId>, RepositoryError> {
-        let mut completed = HashSet::new();
-        for history in self.progress.history(user, ALL).await?.items {
-            if history.completed {
-                for version in self.catalog.list_versions(&history.title, ALL).await?.items {
-                    completed.insert(version.id);
-                }
+        history: &[WatchHistory],
+    ) -> Result<Vec<ContinueWatchingItem>, RepositoryError> {
+        let progress = self.progress.list_in_progress(user).await?;
+        let completed = completed_titles(history);
+        let mut items = Vec::new();
+        for entry in continue_watching(&progress) {
+            let Some(detail) = self.catalog.version_detail(&entry.version).await? else {
+                continue;
+            };
+            if completed.contains(&detail.version.title) {
+                continue;
             }
+            let card = resume_card_from(&self.catalog, detail, entry.position_ms).await?;
+            items.push(ContinueWatchingItem {
+                progress: entry,
+                card,
+            });
         }
-        Ok(completed)
+        Ok(items)
     }
+}
 
-    async fn watched_episodes(&self, user: &UserId) -> Result<HashSet<EpisodeId>, RepositoryError> {
-        Ok(self
-            .progress
-            .history(user, ALL)
-            .await?
-            .items
-            .into_iter()
-            .filter(|history| history.watched)
-            .filter_map(|history| match history.title {
-                TitleId::Episode(id) => Some(id),
-                TitleId::Movie(_) => None,
-            })
-            .collect())
-    }
-
-    async fn watched_movies(&self, user: &UserId) -> Result<HashSet<MovieId>, RepositoryError> {
-        Ok(self
-            .progress
-            .history(user, ALL)
-            .await?
-            .items
-            .into_iter()
-            .filter(|history| history.watched)
-            .filter_map(|history| match history.title {
-                TitleId::Movie(id) => Some(id),
-                TitleId::Episode(_) => None,
-            })
-            .collect())
-    }
-
-    async fn title_hub_item(&self, title: &TitleId) -> Result<Option<HubItem>, RepositoryError> {
-        match title {
-            TitleId::Movie(id) => Ok(self.catalog.get_movie(id).await?.map(HubItem::Movie)),
-            TitleId::Episode(_) => Ok(None),
-        }
-    }
+fn completed_titles(history: &[WatchHistory]) -> HashSet<TitleId> {
+    history
+        .iter()
+        .filter(|history| history.completed)
+        .map(|history| history.title.clone())
+        .collect()
 }
 
 impl<C, Se, Pr> DiscoveryService for DiscoveryServiceImpl<C, Se, Pr>
@@ -139,20 +109,8 @@ where
         &self,
         user: &UserId,
     ) -> Result<Vec<ContinueWatchingItem>, DiscoveryError> {
-        let progress = self.progress.list_in_progress(user).await?;
-        let completed = self.completed_versions(user).await?;
-        let mut items = Vec::new();
-        for entry in continue_watching(&progress, &completed) {
-            if let Some(card) =
-                resume_card(&self.catalog, &entry.version, entry.position_ms).await?
-            {
-                items.push(ContinueWatchingItem {
-                    progress: entry,
-                    card,
-                });
-            }
-        }
-        Ok(items)
+        let history = self.progress.history(user, PageRequest::ALL).await?.items;
+        Ok(self.continue_items(user, &history).await?)
     }
 
     async fn now_playing(
@@ -173,35 +131,43 @@ where
     async fn next_episodes(&self, user: &UserId) -> Result<Vec<Episode>, DiscoveryError> {
         let seasons = self.all_seasons().await?;
         let episodes = self.all_episodes().await?;
-        let watched = self.watched_episodes(user).await?;
+        let history = self.progress.history(user, PageRequest::ALL).await?.items;
+        let watched = watched_episode_ids(&history);
         Ok(next_episodes(&seasons, &episodes, &watched))
     }
 
     async fn next_movies(&self, user: &UserId) -> Result<Vec<Movie>, DiscoveryError> {
-        let collections = self.catalog.list_collections(ALL).await?.items;
+        let collections = self.catalog.list_collections(PageRequest::ALL).await?.items;
         let movies = self.all_movies().await?;
-        let watched = self.watched_movies(user).await?;
+        let history = self.progress.history(user, PageRequest::ALL).await?.items;
+        let watched = watched_movie_ids(&history);
         Ok(next_movies(&collections, &movies, &watched))
     }
 
     async fn home_hubs(&self, user: &UserId) -> Result<Vec<Hub>, DiscoveryError> {
-        let recently = recently_added(
-            &self.all_movies().await?,
-            &self.all_series().await?,
-            HUB_LIMIT,
-        );
-        let on_deck: Vec<HubItem> = self
-            .next_movies(user)
-            .await?
+        let movies = self.all_movies().await?;
+        let series = self.all_series().await?;
+        let collections = self.catalog.list_collections(PageRequest::ALL).await?.items;
+        let history = self.progress.history(user, PageRequest::ALL).await?.items;
+
+        let recently = recently_added(&movies, &series, HUB_LIMIT);
+        let watched = watched_movie_ids(&history);
+        let on_deck: Vec<HubItem> = next_movies(&collections, &movies, &watched)
             .into_iter()
             .map(HubItem::Movie)
             .collect();
-        let mut continue_row = Vec::new();
-        for item in self.continue_watching(user).await? {
-            if let Some(hub) = self.title_hub_item(&item.card.title).await? {
-                continue_row.push(hub);
-            }
-        }
+
+        let by_id: HashMap<&MovieId, &Movie> = movies.iter().map(|m| (&m.id, m)).collect();
+        let continue_row: Vec<HubItem> = self
+            .continue_items(user, &history)
+            .await?
+            .into_iter()
+            .filter_map(|item| match &item.card.title {
+                TitleId::Movie(id) => by_id.get(id).map(|m| HubItem::Movie((*m).clone())),
+                TitleId::Episode(_) => None,
+            })
+            .collect();
+
         Ok(home_hubs(recently, on_deck, continue_row))
     }
 }

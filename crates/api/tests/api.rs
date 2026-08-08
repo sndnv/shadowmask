@@ -26,6 +26,7 @@ struct Ctx {
     user: MockUserService,
     user_library: MockUserLibraryService,
     discovery: MockDiscoveryService,
+    job: MockJobService,
 }
 
 impl Ctx {
@@ -41,6 +42,7 @@ impl Ctx {
             user: MockUserService::new(),
             user_library: MockUserLibraryService::new(),
             discovery: MockDiscoveryService::new(),
+            job: MockJobService::new(),
         }
     }
 
@@ -62,6 +64,7 @@ impl Ctx {
         MockUserService,
         MockUserLibraryService,
         MockDiscoveryService,
+        MockJobService,
     > {
         AppState::new(
             self.auth.clone(),
@@ -71,6 +74,7 @@ impl Ctx {
             self.user.clone(),
             self.user_library.clone(),
             self.discovery.clone(),
+            self.job.clone(),
         )
     }
 }
@@ -544,8 +548,9 @@ async fn library_routes() {
         ),
         (
             "/api/v1/admin/versions/v1/subtitles/combine",
-            json!({"primary_subtitle_id": "sf-en", "secondary_subtitle_id": "sf-fr"}),
+            json!({"top_subtitle_id": "sf-en", "bottom_subtitle_id": "sf-fr"}),
         ),
+        ("/api/v1/people/p1/refresh", json!({})),
     ];
     for (uri, body) in triggers {
         let (status, _) = call(ctx.app(), Method::POST, uri, Some(USER), Some(body.clone())).await;
@@ -572,7 +577,7 @@ async fn library_routes() {
         Method::POST,
         "/api/v1/admin/versions/v1/subtitles/combine",
         Some(ADMIN),
-        Some(json!({"primary_subtitle_id": "sf-en", "secondary_subtitle_id": "sf-en"})),
+        Some(json!({"top_subtitle_id": "sf-en", "bottom_subtitle_id": "sf-en"})),
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -1200,6 +1205,7 @@ async fn discovery_routes() {
         .add_search_result(SearchResult::Person(Person {
             id: PersonId("p1".into()),
             name: "Alpha Person".into(),
+            ..Person::default()
         }));
     ctx.discovery.add_continue_watching(
         &UserId("u1".into()),

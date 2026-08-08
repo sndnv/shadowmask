@@ -1,12 +1,12 @@
 use serde::Deserialize;
 
 use domain::catalog::VersionId;
-use domain::session::StartSessionRequest;
+use domain::session::SessionStartInput;
 
 use super::{ClientCapabilitiesDto, SubtitleSelectionDto};
 
 #[derive(Debug, Deserialize)]
-pub struct StartSessionRequestDto {
+pub struct StartSessionRequest {
     pub version_id: String,
     #[serde(default)]
     pub start_position_ms: u64,
@@ -20,9 +20,9 @@ pub struct StartSessionRequestDto {
     pub downmix_stereo: bool,
 }
 
-impl From<StartSessionRequestDto> for StartSessionRequest {
-    fn from(r: StartSessionRequestDto) -> Self {
-        StartSessionRequest {
+impl From<StartSessionRequest> for SessionStartInput {
+    fn from(r: StartSessionRequest) -> Self {
+        SessionStartInput {
             version: VersionId(r.version_id),
             start_position_ms: r.start_position_ms,
             capabilities: r.capabilities.into(),

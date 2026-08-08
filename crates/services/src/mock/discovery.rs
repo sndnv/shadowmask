@@ -224,6 +224,7 @@ mod tests {
         svc.add_search_result(SearchResult::Person(Person {
             id: PersonId("p1".into()),
             name: "Keanu Reeves".into(),
+            ..Person::default()
         }));
 
         let hits = svc

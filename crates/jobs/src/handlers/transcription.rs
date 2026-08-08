@@ -1,9 +1,8 @@
-use domain::common::LanguageCode;
 use domain::error::TranscriptionError;
 use domain::job::{Job, TranslationTrigger};
 use domain::media::{
     SubtitleFile, SubtitleFileId, SubtitleSource, SubtitleStore, TranscriptionProvider,
-    TranscriptionRequest,
+    TranscriptionSpec,
 };
 use domain::repository::CatalogRepository;
 use services::library::TranscriptionJobPayload;
@@ -54,11 +53,7 @@ where
             return Ok(());
         }
 
-        let subtitle_language = payload
-            .source_language
-            .clone()
-            .filter(|code| !code.is_empty() && code.as_str() != "und");
-        let request = TranscriptionRequest {
+        let request = TranscriptionSpec {
             audio_path: payload.source_path.clone(),
             source_language: None,
             audio_track_index: payload.audio_track_index,
@@ -67,7 +62,12 @@ where
             .audio_track_index
             .map(|index| index.to_string())
             .unwrap_or_else(|| "default".into());
-        let container_language = subtitle_language.as_deref().unwrap_or("unknown");
+        let container_language = payload
+            .source_language
+            .as_deref()
+            .map(str::trim)
+            .filter(|code| !code.is_empty() && *code != "und")
+            .unwrap_or("unknown");
         tracing::info!(
             "transcribing version [{}] from [{}] (audio track {}, container language {})",
             payload.version_id.0,
@@ -112,7 +112,7 @@ where
         let file = SubtitleFile {
             id: SubtitleFileId(format!("generated:{}", payload.version_id.0)),
             version: payload.version_id.clone(),
-            language: subtitle_language.map(LanguageCode),
+            language: None,
             format: subtitle.format,
             source: SubtitleSource::Generated,
             path,
@@ -158,7 +158,7 @@ mod tests {
     impl TranscriptionProvider for MockProvider {
         async fn transcribe(
             &self,
-            _request: &TranscriptionRequest,
+            _request: &TranscriptionSpec,
         ) -> Result<FetchedSubtitle, TranscriptionError> {
             match &self.mode {
                 ProviderMode::Ok => Ok(FetchedSubtitle {
@@ -509,7 +509,7 @@ mod tests {
     impl TranscriptionProvider for CapturingProvider {
         async fn transcribe(
             &self,
-            request: &TranscriptionRequest,
+            request: &TranscriptionSpec,
         ) -> Result<FetchedSubtitle, TranscriptionError> {
             *self.seen.lock().unwrap() = Some(request.audio_track_index);
             *self.seen_language.lock().unwrap() =
@@ -547,7 +547,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn labels_subtitle_with_container_language_and_auto_detects() {
+    async fn stores_unknown_language_and_auto_detects() {
         let catalog = MockCatalogRepo::new();
         catalog.add_version(version());
         let provider = CapturingProvider::default();
@@ -574,13 +574,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(
-            detail.subtitle_files[0]
-                .language
-                .as_ref()
-                .map(|code| code.0.as_str()),
-            Some("eng")
-        );
+        assert_eq!(detail.subtitle_files[0].language, None);
     }
 
     #[tokio::test]

@@ -1,15 +1,9 @@
-use std::collections::HashSet;
-
-use domain::catalog::VersionId;
 use domain::playback::PlaybackProgress;
 
-pub fn continue_watching(
-    progress: &[PlaybackProgress],
-    completed: &HashSet<VersionId>,
-) -> Vec<PlaybackProgress> {
+pub fn continue_watching(progress: &[PlaybackProgress]) -> Vec<PlaybackProgress> {
     let mut items: Vec<PlaybackProgress> = progress
         .iter()
-        .filter(|p| p.position_ms > 0 && !completed.contains(&p.version))
+        .filter(|p| p.position_ms > 0)
         .cloned()
         .collect();
     items.sort_by_key(|p| std::cmp::Reverse(p.updated_at));
@@ -19,6 +13,7 @@ pub fn continue_watching(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::catalog::VersionId;
     use domain::user::UserId;
     use jiff::{SignedDuration, Timestamp};
 
@@ -36,25 +31,20 @@ mod tests {
     }
 
     #[test]
-    fn orders_started_unfinished_by_recency() {
+    fn orders_started_by_recency() {
         let entries = [
             progress("older", 50, 10),
             progress("newest", 50, 30),
             progress("middle", 50, 20),
         ];
-        let rows = continue_watching(&entries, &HashSet::new());
+        let rows = continue_watching(&entries);
         assert_eq!(versions(&rows), vec!["newest", "middle", "older"]);
     }
 
     #[test]
-    fn excludes_completed_and_unstarted() {
-        let entries = [
-            progress("done", 500, 30),
-            progress("unstarted", 0, 20),
-            progress("resume", 120, 10),
-        ];
-        let completed = HashSet::from([VersionId("done".to_owned())]);
-        let rows = continue_watching(&entries, &completed);
+    fn excludes_unstarted() {
+        let entries = [progress("unstarted", 0, 20), progress("resume", 120, 10)];
+        let rows = continue_watching(&entries);
         assert_eq!(versions(&rows), vec!["resume"]);
     }
 }

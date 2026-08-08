@@ -8,6 +8,9 @@ with ffmpeg (lavfi test sources plus a sine tone); no real content is downloaded
 copied. Clips are tiny (a couple of seconds, low resolution) so a full run is fast
 and uses little disk.
 
+One movie ('HDR Sample') is a 10-bit HDR10 (PQ / bt2020) clip so the HDR to SDR tone-mapping
+transcode path can be exercised; generating it requires an ffmpeg built with the libx265 encoder.
+
 Pass --real to additionally download two real Creative Commons BY 3.0 clips in place
 of their synthetic stand-ins: Big Buck Bunny (Blender) and a short Elephants Dream
 clip (Blender / Netherlands Media Art Institute, trimmed to 90s; it has clear speech
@@ -102,6 +105,8 @@ teardown() {
 trap teardown EXIT
 
 command -v ffmpeg >/dev/null 2>&1 || die "ffmpeg not found on PATH; install it and retry"
+ffmpeg -hide_banner -encoders 2>/dev/null | grep -qw libx265 \
+    || die "ffmpeg has no libx265 encoder; it is required to generate the HDR fixture (install an ffmpeg built with libx265)"
 
 PATTERNS=(testsrc testsrc2 smptebars rgbtestsrc yuvtestsrc smptehdbars)
 FREQS=(220 294 330 392 440 523 587 660)
@@ -116,6 +121,20 @@ gen_fixture() {
         -c:a aac -ac 2 -shortest "$out"
     FILE_COUNT=$((FILE_COUNT + 1))
     note "wrote [$out]"
+}
+
+gen_hdr_fixture() {
+    local out="$1" dur="${2:-3}"
+    mkdir -p "$(dirname "$out")"
+    ffmpeg -nostdin -loglevel error -y \
+        -f lavfi -i "testsrc2=duration=${dur}:size=640x360:rate=15" \
+        -f lavfi -i "sine=frequency=440:duration=${dur}" \
+        -vf format=yuv420p10le \
+        -c:v libx265 -pix_fmt yuv420p10le \
+        -x265-params "colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:range=limited:hdr10-opt=1:log-level=none" \
+        -tag:v hvc1 -c:a aac -ac 2 -shortest "$out"
+    FILE_COUNT=$((FILE_COUNT + 1))
+    note "wrote HDR10 [$out]"
 }
 
 write_srt() {
@@ -180,6 +199,8 @@ add_movie "Sintel"          2010 "1080p" mkv
 add_movie "Tears of Steel"  2012 "2160p" mkv
 add_movie "Cosmos Laundromat" 2015 "1080p" mkv
 add_movie "Spring"          2019 ""      mp4
+gen_hdr_fixture "$MOVIES_DIR/HDR Sample (2024)/HDR Sample (2024).mkv"
+ok "placed [HDR Sample (2024)] (HDR10 / PQ, for tone-map testing)"
 ok "movies done"
 
 section "tv -> [$TV_DIR]"

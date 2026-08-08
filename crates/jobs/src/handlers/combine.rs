@@ -47,24 +47,24 @@ where
         };
         let existing = detail.subtitle_files;
 
-        let Some(primary) = existing
+        let Some(top) = existing
             .iter()
-            .find(|file| file.id.0 == payload.primary_subtitle_id)
+            .find(|file| file.id.0 == payload.top_subtitle_id)
         else {
-            tracing::debug!("primary subtitle not found; skipping combine");
+            tracing::debug!("top subtitle not found; skipping combine");
             return Ok(());
         };
-        let Some(secondary) = existing
+        let Some(bottom) = existing
             .iter()
-            .find(|file| file.id.0 == payload.secondary_subtitle_id)
+            .find(|file| file.id.0 == payload.bottom_subtitle_id)
         else {
-            tracing::debug!("secondary subtitle not found; skipping combine");
+            tracing::debug!("bottom subtitle not found; skipping combine");
             return Ok(());
         };
 
         let combined_id = SubtitleFileId(format!(
             "combined:{}:{}:{}",
-            payload.version_id.0, payload.primary_subtitle_id, payload.secondary_subtitle_id
+            payload.version_id.0, payload.top_subtitle_id, payload.bottom_subtitle_id
         ));
         if existing.iter().any(|file| file.id == combined_id) {
             tracing::debug!("combined subtitle already present; skipping");
@@ -73,21 +73,21 @@ where
 
         tracing::info!(
             "combining subtitles [{}] + [{}] for version [{}]",
-            payload.primary_subtitle_id,
-            payload.secondary_subtitle_id,
+            payload.top_subtitle_id,
+            payload.bottom_subtitle_id,
             payload.version_id.0
         );
         let language = Some(LanguageCode(format!(
             "{}+{}",
-            language_code(primary),
-            language_code(secondary)
+            language_code(top),
+            language_code(bottom)
         )));
-        let primary_input = self.load(primary).await?;
-        let secondary_input = self.load(secondary).await?;
+        let top_input = self.load(top).await?;
+        let bottom_input = self.load(bottom).await?;
 
         let combined = self
             .combiner
-            .combine(&primary_input, &secondary_input)
+            .combine(&top_input, &bottom_input)
             .map_err(|e| JobError::Retryable(e.to_string()))?;
 
         let path = self
@@ -96,7 +96,7 @@ where
                 &payload.version_id,
                 &format!(
                     "combined:{}:{}",
-                    payload.primary_subtitle_id, payload.secondary_subtitle_id
+                    payload.top_subtitle_id, payload.bottom_subtitle_id
                 ),
                 combined.format,
                 &combined.content,
@@ -169,14 +169,14 @@ mod tests {
     impl SubtitleCombiner for MockCombiner {
         fn combine(
             &self,
-            primary: &FetchedSubtitle,
-            secondary: &FetchedSubtitle,
+            top: &FetchedSubtitle,
+            bottom: &FetchedSubtitle,
         ) -> Result<FetchedSubtitle, SubtitleError> {
             if self.fail {
                 return Err(SubtitleError::Parse("bad subtitle".into()));
             }
             Ok(FetchedSubtitle {
-                content: format!("{}|{}", primary.content, secondary.content),
+                content: format!("{}|{}", top.content, bottom.content),
                 format: SubtitleFormat::Vtt,
             })
         }
@@ -268,11 +268,11 @@ mod tests {
         }
     }
 
-    fn payload(primary: &str, secondary: &str) -> String {
+    fn payload(top: &str, bottom: &str) -> String {
         CombineJobPayload {
             version_id: VersionId("v1".into()),
-            primary_subtitle_id: primary.to_owned(),
-            secondary_subtitle_id: secondary.to_owned(),
+            top_subtitle_id: top.to_owned(),
+            bottom_subtitle_id: bottom.to_owned(),
         }
         .encode()
         .unwrap()

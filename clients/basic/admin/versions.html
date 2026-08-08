@@ -7,14 +7,16 @@
     <title>Shadowmask (basic) - Admin versions</title>
   </head>
   <body>
-    <h1>Versions</h1>
+    <h1 class="sm-visually-hidden">Versions</h1>
     <nav id="nav"></nav>
     <p class="sm-crumbs"><a href="index.html">Admin</a> / <span id="versions-crumb">Versions</span></p>
-    <p><button type="button" id="refresh">Refresh</button></p>
+    <div class="sm-toolbar">
+      <button type="button" id="refresh">Refresh</button>
+      <span id="filter-slot"></span>
+    </div>
     <main id="main">Loading&hellip;</main>
     <script src="../app.js"></script>
     <script>
-      const pad2 = (n) => String(n).padStart(2, "0");
       const eu = encodeURIComponent;
       const LANG_CODES =
         "aa ab ae af ak am an ar as av ay az ba be bg bh bi bm bn bo br bs ca ce ch co cr cs cu cv cy da de dv dz ee el en eo es et eu fa ff fi fj fo fr fy ga gd gl gn gu gv ha he hi ho hr ht hu hy hz ia id ie ig ii ik io is it iu ja jv ka kg ki kj kk kl km kn ko kr ks ku kv kw ky la lb lg li ln lo lt lu lv mg mh mi mk ml mn mr ms mt my na nb nd ne ng nl nn no nr nv ny oc oj om or os pa pi pl ps pt qu rm rn ro ru rw sa sc sd se sg sh si sk sl sm sn so sq sr ss st su sv sw ta te tg th ti tk tl tn to tr ts tt tw ty ug uk ur uz ve vi vo wa wo xh yi yo za zh zu".split(
@@ -65,7 +67,7 @@
             if (c.type === "episode") {
               const code =
                 c.season_number != null
-                  ? "S" + pad2(c.season_number) + "E" + pad2(c.number)
+                  ? sm.episodeCode(c.season_number, c.number)
                   : "E" + c.number;
               names[key] = (c.series_title || c.title) + " " + code;
             } else {
@@ -78,14 +80,14 @@
 
       async function load() {
         const main = document.getElementById("main");
-        main.textContent = "Loading...";
+        main.textContent = "Loading…";
         try {
           const page = await sm.json("/api/v1/admin/versions" + query());
           document.getElementById("versions-crumb").textContent =
             "Versions (" + page.total + ")";
           main.textContent = "";
           if (!page.items.length) {
-            main.appendChild(sm.el("p", { text: "No versions." }));
+            main.appendChild(sm.el("p", { text: "No versions found." }));
             return;
           }
           page.items.sort((a, b) => (a.path || "").localeCompare(b.path || ""));
@@ -107,18 +109,19 @@
             "",
           ];
           const tbody = sm.el("tbody", null);
+          const filterPairs = [];
           page.items.forEach((v) => {
             const name =
               names[v.title.type + ":" + v.title.id] || v.title.type + " " + v.title.id;
             const detailCell = sm.el("td", { colspan: String(headers.length) });
-            const detailRow = sm.el("tr", { hidden: "hidden" }, detailCell);
+            const detailRow = sm.el("tr", { class: "sm-detail-row", hidden: "hidden" }, detailCell);
             let loaded = false;
             const toggle = sm.el("button", { type: "button" }, "Details");
             toggle.addEventListener("click", async () => {
               detailRow.hidden = !detailRow.hidden;
               if (detailRow.hidden || loaded) return;
               loaded = true;
-              await renderDetail(v, detailCell);
+              await renderDetail(v, detailCell, name);
             });
             const mainRow = sm.el("tr", null, [
               sm.el("td", { class: "sm-path" }, sm.el("a", { href: sm.href.version(v.id) }, v.path || v.id)),
@@ -132,7 +135,7 @@
                   libName[v.library_id] || v.library_id,
                 ),
               ),
-              sm.el("td", null, v.quality.toUpperCase()),
+              sm.el("td", null, (v.quality || "").toUpperCase()),
               sm.el("td", null, v.container),
               sm.el("td", null, v.edition || ""),
               sm.el("td", null, Math.round(v.size_bytes / 1048576) + " MB"),
@@ -141,6 +144,7 @@
             ]);
             tbody.appendChild(mainRow);
             tbody.appendChild(detailRow);
+            filterPairs.push({ row: mainRow, detail: detailRow });
           });
           const table = sm.el("table", null, [
             sm.el(
@@ -150,7 +154,25 @@
             ),
             tbody,
           ]);
-          main.appendChild(table);
+          const applyFilter = (q) => {
+            const needle = q.trim().toLowerCase();
+            filterPairs.forEach(({ row, detail }) => {
+              const show = !needle || row.textContent.toLowerCase().includes(needle);
+              row.hidden = !show;
+              if (!show) detail.hidden = true;
+            });
+          };
+          const filter = sm.el("input", {
+            type: "search",
+            placeholder: "path, title, library, quality...",
+            autocomplete: "off",
+            "aria-label": "Filter versions",
+          });
+          filter.addEventListener("input", () => applyFilter(filter.value));
+          const slot = document.getElementById("filter-slot");
+          slot.textContent = "";
+          slot.appendChild(sm.el("label", null, ["Filter ", filter]));
+          main.appendChild(sm.el("div", { class: "sm-table-wrap" }, table));
           main.appendChild(sm.pager(page.total, page.offset, page.limit));
         } catch (err) {
           main.textContent = "Could not load versions.";
@@ -158,55 +180,55 @@
       }
 
       async function trigger(url, body, status) {
-        status.textContent = "...";
+        status.textContent = "";
         try {
           await sm.json(url, { method: "POST", body: JSON.stringify(body) });
-          status.textContent = "queued";
+          sm.toast("Queued. Track it under Jobs.", "ok");
         } catch (err) {
-          status.textContent = String(err).includes("409") ? "feature disabled" : "failed";
+          const disabled = String(err).includes("409");
+          sm.toast(disabled ? "That feature is disabled." : "Request failed.", "danger");
         }
       }
 
-      async function renderDetail(v, cell) {
-        cell.textContent = "Loading...";
+      async function renderDetail(v, cell, title) {
+        cell.textContent = "Loading…";
         try {
           const detail = await sm.json("/api/v1/versions/" + eu(v.id));
           cell.textContent = "";
-          if (detail.path) {
-            cell.appendChild(sm.el("p", { class: "sm-path", text: detail.path }));
-          }
           const status = sm.el("p", { class: "sm-status" });
           const post = (path, body) =>
             trigger("/api/v1/admin/versions/" + eu(v.id) + path, body, status);
 
           cell.appendChild(sm.el("h4", { text: "Audio" }));
-          const audioList = sm.el("ul", null);
-          (detail.audio || []).forEach((a) => {
-            const label = "audio " + a.index + " · " + sm.lang(a.language) + " · " + a.channels + "ch ";
+          const audioRows = (detail.audio || []).map((a) => {
             const btn = sm.el("button", { type: "button" }, "Transcribe");
             btn.addEventListener("click", () =>
               post("/transcribe", { audio_track_index: a.index }),
             );
-            audioList.appendChild(sm.el("li", null, [label, btn]));
+            const label = "audio " + a.index + " · " + sm.lang(a.language) + " · " + a.channels + "ch";
+            return [label, btn];
           });
-          cell.appendChild(audioList.children.length ? audioList : sm.el("p", { text: "none" }));
+          cell.appendChild(
+            audioRows.length ? sm.table(["Track", ""], audioRows) : sm.el("p", { text: "none" }),
+          );
 
           cell.appendChild(sm.el("h4", { text: "Subtitles" }));
-          const deletable = ["open_subtitles", "generated", "machine_translated", "combined"];
+          const managed = ["open_subtitles", "generated", "machine_translated", "combined"];
           const subUrl = (s) =>
             "/api/v1/admin/versions/" + eu(v.id) + "/subtitles/" + eu(s.id);
-          const subList = sm.el("ul", null);
-          (detail.subtitle_files || []).forEach((s) => {
-            const label = sm.lang(s.language) + " (" + s.source + ") → ";
+          const subRows = (detail.subtitle_files || []).map((s) => {
+            const name = sm.lang(s.language) + " (" + s.source + ")";
             const lang = sm.el(
               "select",
-              null,
+              { "aria-label": "Target language" },
               [sm.el("option", { value: "" }, "Target language")].concat(
-                LANGS.map(([code, name]) => sm.el("option", { value: code }, name + " (" + code + ")")),
+                LANGS.map(([code, cname]) =>
+                  sm.el("option", { value: code }, cname + " (" + code + ")"),
+                ),
               ),
             );
-            const btn = sm.el("button", { type: "button" }, "Translate");
-            btn.addEventListener("click", () => {
+            const translate = sm.el("button", { type: "button" }, "Translate");
+            translate.addEventListener("click", () => {
               const target = lang.value.trim();
               if (!target) {
                 status.textContent = "select a language";
@@ -216,8 +238,8 @@
             });
             const view = sm.el("button", { type: "button" }, "View text");
             view.addEventListener("click", async () => {
-              const body = sm.el("pre", { class: "sm-subtext", text: "Loading..." });
-              sm.dialog(sm.lang(s.language) + " (" + s.source + ")", body);
+              const body = sm.el("pre", { class: "sm-subtext", text: "Loading…" });
+              sm.dialog(name, body);
               try {
                 const res = await sm.json(subUrl(s));
                 body.textContent = res.content || "(empty)";
@@ -225,74 +247,254 @@
                 body.textContent = "Could not load subtitle text.";
               }
             });
-            const controls = [label, lang, " ", btn, " ", view];
-            if (deletable.includes(s.source)) {
-              const del = sm.el("button", { type: "button" }, "Delete");
+            const actions = [lang, translate, view];
+            if (managed.includes(s.source)) {
+              const rename = sm.el("button", { type: "button" }, "Rename");
+              rename.addEventListener("click", () => {
+                sm.openDialog("Rename subtitle language", (box) => {
+                  const sel = sm.el(
+                    "select",
+                    { "aria-label": "Language" },
+                    [sm.el("option", { value: "" }, "Unknown")].concat(
+                      LANGS.map(([code, cname]) =>
+                        sm.el("option", { value: code }, cname + " (" + code + ")"),
+                      ),
+                    ),
+                  );
+                  if (s.language) sel.value = s.language;
+                  const save = sm.el("button", { type: "button" }, "Save");
+                  save.addEventListener("click", async () => {
+                    try {
+                      await sm.json(subUrl(s), {
+                        method: "PUT",
+                        body: JSON.stringify({ language: sel.value || null }),
+                      });
+                      sm.toast("Subtitle renamed.", "ok");
+                      box.close();
+                      await renderDetail(v, cell, title);
+                    } catch (err) {
+                      sm.toast("Rename failed.", "danger");
+                    }
+                  });
+                  return sm.el("div", null, [
+                    sm.el("p", { class: "sm-subtext" }, "Set the language label for this subtitle."),
+                    sm.el("label", null, ["Language ", sel]),
+                    save,
+                  ]);
+                });
+              });
+              actions.push(rename);
+              const del = sm.el("button", { type: "button", class: "sm-danger" }, "Delete");
               del.addEventListener("click", async () => {
                 if (!confirm("Delete this subtitle? This cannot be undone.")) return;
                 status.textContent = "...";
                 try {
                   await sm.json(subUrl(s), { method: "DELETE" });
-                  await renderDetail(v, cell);
+                  sm.toast("Subtitle deleted.", "ok");
+                  await renderDetail(v, cell, title);
                 } catch (err) {
-                  status.textContent = "delete failed";
+                  sm.toast("Delete failed.", "danger");
                 }
               });
-              controls.push(" ", del);
+              actions.push(del);
             }
-            subList.appendChild(sm.el("li", null, sm.el("span", null, controls)));
+            return [name, actions];
           });
-          cell.appendChild(subList.children.length ? subList : sm.el("p", { text: "none" }));
+          cell.appendChild(
+            subRows.length ? sm.table(["Subtitle", ""], subRows) : sm.el("p", { text: "none" }),
+          );
+          const searchBtn = sm.el("button", { type: "button" }, "Search OpenSubtitles");
+          searchBtn.addEventListener("click", () => openSubtitleSearch(v, cell, title));
+          cell.appendChild(sm.el("p", null, searchBtn));
 
           const subs = detail.subtitle_files || [];
           if (subs.length >= 2) {
             cell.appendChild(sm.el("h4", { text: "Combine" }));
             const opt = (s) =>
               sm.el("option", { value: s.id }, sm.lang(s.language) + " " + s.format + " (" + s.source + ")");
-            const primary = sm.el("select", null, subs.map(opt));
-            const secondary = sm.el("select", null, subs.map(opt));
-            secondary.selectedIndex = 1;
+            const top = sm.el("select", null, subs.map(opt));
+            const bottom = sm.el("select", null, subs.map(opt));
+            bottom.selectedIndex = 1;
             const cbBtn = sm.el("button", { type: "button" }, "Combine");
             cbBtn.addEventListener("click", () => {
-              if (primary.value === secondary.value) {
+              if (top.value === bottom.value) {
                 status.textContent = "pick two different tracks";
                 return;
               }
               post("/subtitles/combine", {
-                primary_subtitle_id: primary.value,
-                secondary_subtitle_id: secondary.value,
+                top_subtitle_id: top.value,
+                bottom_subtitle_id: bottom.value,
               });
             });
-            cell.appendChild(sm.el("p", null, ["Primary ", primary, " Secondary ", secondary, " ", cbBtn]));
+            cell.appendChild(
+              sm.el("table", { class: "sm-combine" }, [
+                sm.el("tbody", null, [
+                  sm.el("tr", null, [
+                    sm.el("td", null, sm.el("label", null, ["Top ", top])),
+                    sm.el("td", { rowspan: "2", class: "sm-combine-action" }, cbBtn),
+                  ]),
+                  sm.el("tr", null, [
+                    sm.el("td", null, sm.el("label", null, ["Bottom ", bottom])),
+                  ]),
+                ]),
+              ]),
+            );
           }
 
           cell.appendChild(sm.el("h4", { text: "Upscale" }));
           const vid = (detail.video || [])[0];
           const current = vid ? vid.width + "x" + vid.height : "unknown";
-          cell.appendChild(sm.el("p", { text: "Current resolution: " + current }));
+          const currentH = vid ? vid.height : 0;
           const heights = [
             ["480p (SD)", "480"],
             ["720p (HD)", "720"],
             ["1080p (Full HD)", "1080"],
             ["1440p (2K)", "1440"],
             ["2160p (4K)", "2160"],
-          ];
-          const height = sm.el(
-            "select",
-            null,
-            heights.map(([label, value]) => sm.el("option", { value }, label)),
-          );
-          height.value = "1080";
-          const upBtn = sm.el("button", { type: "button" }, "Upscale");
-          upBtn.addEventListener("click", () =>
-            post("/upscale", { target_height: Number(height.value) || 0 }),
-          );
-          cell.appendChild(sm.el("p", null, [height, " ", upBtn]));
+          ].filter(([, value]) => Number(value) > currentH);
+          if (!heights.length) {
+            cell.appendChild(
+              sm.el("p", null, [
+                "Current: ",
+                sm.el("strong", { text: current }),
+                " (already at the maximum supported resolution)",
+              ]),
+            );
+          } else {
+            const height = sm.el(
+              "select",
+              { "aria-label": "Target height" },
+              heights.map(([hlabel, value]) => sm.el("option", { value }, hlabel)),
+            );
+            const upBtn = sm.el("button", { type: "button" }, "Upscale");
+            upBtn.addEventListener("click", () =>
+              post("/upscale", { target_height: Number(height.value) || 0 }),
+            );
+            cell.appendChild(
+              sm.el("p", null, [
+                "Current: ",
+                sm.el("strong", { text: current }),
+                " → ",
+                height,
+                " ",
+                upBtn,
+              ]),
+            );
+          }
 
           cell.appendChild(status);
         } catch (err) {
           cell.textContent = "Could not load details.";
         }
+      }
+
+      function openSubtitleSearch(v, cell, title) {
+        sm.openDialog("Search OpenSubtitles", (box) => {
+          const q = sm.el("input", { type: "text", autocomplete: "off", value: title || "" });
+          const lang = sm.el(
+            "select",
+            { "aria-label": "Language" },
+            [sm.el("option", { value: "" }, "Any language")].concat(
+              LANGS.map(([code, cname]) =>
+                sm.el("option", { value: code }, cname + " (" + code + ")"),
+              ),
+            ),
+          );
+          const season = sm.el("input", {
+            type: "number",
+            min: "0",
+            inputmode: "numeric",
+            placeholder: "Season",
+          });
+          const episode = sm.el("input", {
+            type: "number",
+            min: "0",
+            inputmode: "numeric",
+            placeholder: "Episode",
+          });
+          const results = sm.el("div", { class: "sm-sub-results" });
+
+          function score(c) {
+            const parts = [];
+            if (typeof c.rating === "number" && c.rating > 0) parts.push("★" + c.rating.toFixed(1));
+            if (typeof c.download_count === "number")
+              parts.push(c.download_count.toLocaleString() + "⬇");
+            return parts.join(" · ") || "no rating";
+          }
+
+          function renderCandidates(items) {
+            results.textContent = "";
+            if (!items.length) {
+              results.appendChild(sm.el("p", { text: "No matches." }));
+              return;
+            }
+            const list = sm.el("div", { class: "sm-sub-candidates" });
+            items.forEach((c) => {
+              const dl = sm.el("button", { type: "button" }, "Download");
+              dl.addEventListener("click", async () => {
+                dl.disabled = true;
+                try {
+                  await sm.json("/api/v1/admin/versions/" + eu(v.id) + "/subtitles/download", {
+                    method: "POST",
+                    body: JSON.stringify({
+                      file_id: c.file_id,
+                      language: c.language || lang.value || null,
+                    }),
+                  });
+                  sm.toast("Subtitle added.", "ok");
+                  box.close();
+                  await renderDetail(v, cell, title);
+                } catch (err) {
+                  dl.disabled = false;
+                  sm.toast("Download failed.", "danger");
+                }
+              });
+              const name = c.release_name || "(no name)";
+              const info = sm.el("div", { class: "sm-sub-candidate-info" }, [
+                sm.el("div", { class: "sm-sub-candidate-name", title: name }, name),
+                sm.el("div", { class: "sm-sub-candidate-meta" }, [
+                  sm.el("strong", { text: sm.lang(c.language) }),
+                  " · " + c.format + " · " + score(c),
+                ]),
+              ]);
+              list.appendChild(sm.el("div", { class: "sm-sub-candidate" }, [info, dl]));
+            });
+            results.appendChild(list);
+          }
+
+          const run = sm.el("button", { type: "button" }, "Search");
+          run.addEventListener("click", async () => {
+            results.textContent = "Searching…";
+            const params = new URLSearchParams();
+            if (q.value.trim()) params.set("q", q.value.trim());
+            if (lang.value) params.set("language", lang.value);
+            if (season.value) params.set("season", season.value);
+            if (episode.value) params.set("episode", episode.value);
+            try {
+              const items = await sm.json(
+                "/api/v1/admin/versions/" + eu(v.id) + "/subtitles/search?" + params.toString(),
+              );
+              renderCandidates(items);
+            } catch (err) {
+              results.textContent = "";
+              sm.toast(
+                String(err).includes("404")
+                  ? "OpenSubtitles is not configured on this server."
+                  : "Search failed.",
+                "danger",
+              );
+            }
+          });
+
+          return sm.el("div", null, [
+            sm.el("label", null, ["Query ", q]),
+            sm.el("label", null, ["Language ", lang]),
+            sm.el("label", null, ["Season ", season]),
+            sm.el("label", null, ["Episode ", episode]),
+            run,
+            results,
+          ]);
+        });
       }
     </script>
   </body>

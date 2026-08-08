@@ -25,7 +25,7 @@ pub use renegotiated::RenegotiatedResponse;
 pub use seek_request::SeekRequest;
 pub use selected_tracks::SelectedTracksResponse;
 pub use session_started::SessionStartedResponse;
-pub use start_session_request::StartSessionRequestDto;
+pub use start_session_request::StartSessionRequest;
 pub use subtitle_change::SubtitleChangeDto;
 pub use subtitle_delivery::SubtitleDeliveryDto;
 pub use subtitle_selection::SubtitleSelectionDto;

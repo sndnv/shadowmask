@@ -10,6 +10,7 @@ pub mod media;
 pub mod metadata;
 pub mod negotiation;
 pub mod playback;
+pub mod process;
 pub mod profile;
 pub mod repository;
 pub mod service;

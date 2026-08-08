@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use domain::common::LanguageCode;
 use domain::error::SubtitleError;
 use domain::media::{
@@ -7,6 +10,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use crate::http::send_ok;
+use crate::rate_limiter::RateLimiter;
 
 const DEFAULT_BASE_URL: &str = "https://api.opensubtitles.com/api/v1";
 const USER_AGENT: &str = "shadowmask/0.1";
@@ -15,6 +19,7 @@ pub struct OpenSubtitlesClient {
     client: reqwest::Client,
     base_url: String,
     api_key: String,
+    limiter: Arc<RateLimiter>,
 }
 
 impl OpenSubtitlesClient {
@@ -27,7 +32,13 @@ impl OpenSubtitlesClient {
             client: reqwest::Client::new(),
             base_url: base_url.into(),
             api_key: api_key.into(),
+            limiter: Arc::new(RateLimiter::new(Duration::ZERO)),
         }
+    }
+
+    pub fn with_min_interval(mut self, min_interval: Duration) -> Self {
+        self.limiter = Arc::new(RateLimiter::new(min_interval));
+        self
     }
 
     fn get(&self, url: &str) -> reqwest::RequestBuilder {
@@ -59,8 +70,13 @@ fn join_languages(languages: &[LanguageCode]) -> String {
         .join(",")
 }
 
-async fn json<T: DeserializeOwned>(request: reqwest::RequestBuilder) -> Result<T, SubtitleError> {
-    let response = send_ok(request).await.map_err(SubtitleError::Backend)?;
+async fn json<T: DeserializeOwned>(
+    limiter: &RateLimiter,
+    request: reqwest::RequestBuilder,
+) -> Result<T, SubtitleError> {
+    let response = send_ok(limiter, request)
+        .await
+        .map_err(SubtitleError::Backend)?;
     response
         .json::<T>()
         .await
@@ -86,13 +102,16 @@ impl SubtitleProvider for OpenSubtitlesClient {
         if let Some(episode) = query.episode {
             params.push(("episode_number", episode.to_string()));
         }
-        let response: RawSearchResponse = json(self.get(&url).query(&params)).await?;
+        let response: RawSearchResponse =
+            json(&self.limiter, self.get(&url).query(&params)).await?;
         let candidates: Vec<SubtitleCandidate> = response
             .data
             .into_iter()
             .flat_map(|sub| {
                 let language = sub.attributes.language.map(LanguageCode);
                 let release = sub.attributes.release;
+                let download_count = sub.attributes.download_count;
+                let rating = sub.attributes.ratings.filter(|value| *value > 0.0);
                 sub.attributes
                     .files
                     .into_iter()
@@ -101,6 +120,8 @@ impl SubtitleProvider for OpenSubtitlesClient {
                         language: language.clone(),
                         format: format_from_name(file.file_name.as_deref()),
                         release_name: release.clone(),
+                        download_count,
+                        rating,
                     })
             })
             .collect();
@@ -113,8 +134,8 @@ impl SubtitleProvider for OpenSubtitlesClient {
     async fn download(&self, file_id: &str) -> Result<FetchedSubtitle, SubtitleError> {
         let url = format!("{}/download", self.base_url);
         let body = serde_json::json!({ "file_id": file_id });
-        let download: RawDownload = json(self.post(&url).json(&body)).await?;
-        let response = send_ok(self.client.get(&download.link))
+        let download: RawDownload = json(&self.limiter, self.post(&url).json(&body)).await?;
+        let response = send_ok(&self.limiter, self.client.get(&download.link))
             .await
             .map_err(SubtitleError::Backend)?;
         let content = response
@@ -146,6 +167,10 @@ struct RawAttributes {
     #[serde(default)]
     release: Option<String>,
     #[serde(default)]
+    download_count: Option<u32>,
+    #[serde(default)]
+    ratings: Option<f32>,
+    #[serde(default)]
     files: Vec<RawFile>,
 }
 
@@ -169,6 +194,11 @@ mod tests {
     use serde_json::json;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[test]
+    fn with_min_interval_sets_the_limiter() {
+        let _ = OpenSubtitlesClient::new("k").with_min_interval(Duration::from_millis(10));
+    }
 
     fn query() -> SubtitleQuery {
         SubtitleQuery {
@@ -196,6 +226,8 @@ mod tests {
                 {"attributes": {
                     "language": "en",
                     "release": "The.Matrix.1999.BluRay",
+                    "download_count": 1234,
+                    "ratings": 8.5,
                     "files": [
                         {"file_id": 42, "file_name": "matrix.vtt"},
                         {"file_id": 43, "file_name": "matrix-no-ext"}
@@ -214,6 +246,8 @@ mod tests {
             candidates[0].release_name.as_deref(),
             Some("The.Matrix.1999.BluRay")
         );
+        assert_eq!(candidates[0].download_count, Some(1234));
+        assert_eq!(candidates[0].rating, Some(8.5));
         assert_eq!(candidates[1].file_id, "43");
         assert_eq!(candidates[1].format, SubtitleFormat::Srt);
     }

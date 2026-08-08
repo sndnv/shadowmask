@@ -11,7 +11,7 @@ use domain::catalog::{
 use domain::common::{Page, PageRequest};
 use domain::discovery::{ContinueWatchingItem, Hub, SearchKind, SearchResult};
 use domain::error::{
-    AuthError, CatalogError, DiscoveryError, LibraryError, SessionError, UserError,
+    AuthError, CatalogError, DiscoveryError, JobServiceError, LibraryError, SessionError, UserError,
 };
 use domain::job::{Job, JobId};
 use domain::library::{
@@ -24,12 +24,12 @@ use domain::playback::{
     Favorite, PlaybackProgress, TitleState, WatchHistory, WatchTarget, WatchedRollup, WatchlistItem,
 };
 use domain::service::{
-    AuthService, CatalogService, DiscoveryService, LibraryService, SessionService,
+    AuthService, CatalogService, DiscoveryService, JobService, LibraryService, SessionService,
     UserLibraryService, UserService,
 };
 use domain::session::{
     HeartbeatAck, NowPlaying, PlaybackSession, PlaybackState, Renegotiated, SessionId,
-    SessionStarted, SessionUpdate, StartSessionRequest,
+    SessionStartInput, SessionStarted, SessionUpdate,
 };
 use domain::user::{
     ApiToken, ApiTokenId, Device, DeviceId, DeviceRegistration, IssuedToken, LibraryAccess,
@@ -37,7 +37,7 @@ use domain::user::{
 };
 
 #[derive(Clone)]
-pub struct AppState<A, C, Se, L, U, Ul, D> {
+pub struct AppState<A, C, Se, L, U, Ul, D, Jb> {
     pub auth: A,
     pub catalog: C,
     pub session: Se,
@@ -45,9 +45,10 @@ pub struct AppState<A, C, Se, L, U, Ul, D> {
     pub user: U,
     pub user_library: Ul,
     pub discovery: D,
+    pub job: Jb,
 }
 
-impl<A, C, Se, L, U, Ul, D> AppState<A, C, Se, L, U, Ul, D> {
+impl<A, C, Se, L, U, Ul, D, Jb> AppState<A, C, Se, L, U, Ul, D, Jb> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         auth: A,
@@ -57,6 +58,7 @@ impl<A, C, Se, L, U, Ul, D> AppState<A, C, Se, L, U, Ul, D> {
         user: U,
         user_library: Ul,
         discovery: D,
+        job: Jb,
     ) -> Self {
         Self {
             auth,
@@ -66,6 +68,7 @@ impl<A, C, Se, L, U, Ul, D> AppState<A, C, Se, L, U, Ul, D> {
             user,
             user_library,
             discovery,
+            job,
         }
     }
 }
@@ -162,6 +165,32 @@ impl<C, S> Clone for SubtitleState<C, S> {
     }
 }
 
+pub struct SubtitleSearchState<C, S, P> {
+    pub catalog: Arc<C>,
+    pub subtitles: Arc<S>,
+    pub provider: Arc<P>,
+}
+
+impl<C, S, P> SubtitleSearchState<C, S, P> {
+    pub fn new(catalog: C, subtitles: S, provider: P) -> Self {
+        Self {
+            catalog: Arc::new(catalog),
+            subtitles: Arc::new(subtitles),
+            provider: Arc::new(provider),
+        }
+    }
+}
+
+impl<C, S, P> Clone for SubtitleSearchState<C, S, P> {
+    fn clone(&self) -> Self {
+        Self {
+            catalog: Arc::clone(&self.catalog),
+            subtitles: Arc::clone(&self.subtitles),
+            provider: Arc::clone(&self.provider),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookClient {
     pub name: String,
@@ -179,7 +208,7 @@ pub struct WebhookState<S> {
 #[derive(Debug, Clone, Default)]
 pub struct ServerCapabilities(pub Vec<crate::dto::server::Capability>);
 
-impl<A, C, Se, L, U, Ul, D> AuthService for AppState<A, C, Se, L, U, Ul, D>
+impl<A, C, Se, L, U, Ul, D, Jb> AuthService for AppState<A, C, Se, L, U, Ul, D, Jb>
 where
     A: AuthService + Sync,
     C: Sync,
@@ -188,6 +217,7 @@ where
     U: Sync,
     Ul: Sync,
     D: Sync,
+    Jb: Sync,
 {
     async fn login(&self, username: &str, password: &str) -> Result<TokenPair, AuthError> {
         self.auth.login(username, password).await
@@ -251,7 +281,7 @@ where
     }
 }
 
-impl<A, C, Se, L, U, Ul, D> CatalogService for AppState<A, C, Se, L, U, Ul, D>
+impl<A, C, Se, L, U, Ul, D, Jb> CatalogService for AppState<A, C, Se, L, U, Ul, D, Jb>
 where
     A: Sync,
     C: CatalogService + Sync,
@@ -260,6 +290,7 @@ where
     U: Sync,
     Ul: Sync,
     D: Sync,
+    Jb: Sync,
 {
     async fn collections(
         &self,
@@ -411,7 +442,7 @@ where
     }
 }
 
-impl<A, C, Se, L, U, Ul, D> SessionService for AppState<A, C, Se, L, U, Ul, D>
+impl<A, C, Se, L, U, Ul, D, Jb> SessionService for AppState<A, C, Se, L, U, Ul, D, Jb>
 where
     A: Sync,
     C: Sync,
@@ -420,11 +451,12 @@ where
     U: Sync,
     Ul: Sync,
     D: Sync,
+    Jb: Sync,
 {
     async fn start(
         &self,
         caller: &Principal,
-        request: StartSessionRequest,
+        request: SessionStartInput,
     ) -> Result<SessionStarted, SessionError> {
         self.session.start(caller, request).await
     }
@@ -472,7 +504,7 @@ where
     }
 }
 
-impl<A, C, Se, L, U, Ul, D> LibraryService for AppState<A, C, Se, L, U, Ul, D>
+impl<A, C, Se, L, U, Ul, D, Jb> LibraryService for AppState<A, C, Se, L, U, Ul, D, Jb>
 where
     A: Sync,
     C: Sync,
@@ -481,6 +513,7 @@ where
     U: Sync,
     Ul: Sync,
     D: Sync,
+    Jb: Sync,
 {
     async fn libraries(&self, caller: &Principal) -> Result<Vec<Library>, LibraryError> {
         self.library.libraries(caller).await
@@ -601,6 +634,10 @@ where
         self.library.reidentify(caller, title, external_id).await
     }
 
+    async fn refresh_person(&self, caller: &Principal, id: &PersonId) -> Result<(), LibraryError> {
+        self.library.refresh_person(caller, id).await
+    }
+
     async fn relink_version(
         &self,
         caller: &Principal,
@@ -649,24 +686,40 @@ where
         &self,
         caller: &Principal,
         version: &VersionId,
-        primary: &SubtitleFileId,
-        secondary: &SubtitleFileId,
+        top: &SubtitleFileId,
+        bottom: &SubtitleFileId,
     ) -> Result<(), LibraryError> {
         self.library
-            .trigger_combine(caller, version, primary, secondary)
+            .trigger_combine(caller, version, top, bottom)
             .await
-    }
-
-    async fn jobs(&self, caller: &Principal) -> Result<Vec<Job>, LibraryError> {
-        self.library.jobs(caller).await
-    }
-
-    async fn cancel_job(&self, caller: &Principal, id: &JobId) -> Result<(), LibraryError> {
-        self.library.cancel_job(caller, id).await
     }
 }
 
-impl<A, C, Se, L, U, Ul, D> UserService for AppState<A, C, Se, L, U, Ul, D>
+impl<A, C, Se, L, U, Ul, D, Jb> JobService for AppState<A, C, Se, L, U, Ul, D, Jb>
+where
+    A: Sync,
+    C: Sync,
+    Se: Sync,
+    L: Sync,
+    U: Sync,
+    Ul: Sync,
+    D: Sync,
+    Jb: JobService + Sync,
+{
+    async fn jobs(&self, caller: &Principal) -> Result<Vec<Job>, JobServiceError> {
+        self.job.jobs(caller).await
+    }
+
+    async fn job(&self, caller: &Principal, id: &JobId) -> Result<Option<Job>, JobServiceError> {
+        self.job.job(caller, id).await
+    }
+
+    async fn cancel_job(&self, caller: &Principal, id: &JobId) -> Result<(), JobServiceError> {
+        self.job.cancel_job(caller, id).await
+    }
+}
+
+impl<A, C, Se, L, U, Ul, D, Jb> UserService for AppState<A, C, Se, L, U, Ul, D, Jb>
 where
     A: Sync,
     C: Sync,
@@ -675,6 +728,7 @@ where
     U: UserService + Sync,
     Ul: Sync,
     D: Sync,
+    Jb: Sync,
 {
     async fn create(&self, input: NewUser) -> Result<User, UserError> {
         self.user.create(input).await
@@ -725,7 +779,7 @@ where
     }
 }
 
-impl<A, C, Se, L, U, Ul, D> UserLibraryService for AppState<A, C, Se, L, U, Ul, D>
+impl<A, C, Se, L, U, Ul, D, Jb> UserLibraryService for AppState<A, C, Se, L, U, Ul, D, Jb>
 where
     A: Sync,
     C: Sync,
@@ -734,6 +788,7 @@ where
     U: Sync,
     Ul: UserLibraryService + Sync,
     D: Sync,
+    Jb: Sync,
 {
     async fn watchlist(&self, user: &UserId) -> Result<Vec<WatchlistItem>, UserError> {
         self.user_library.watchlist(user).await
@@ -807,7 +862,7 @@ where
     }
 }
 
-impl<A, C, Se, L, U, Ul, D> DiscoveryService for AppState<A, C, Se, L, U, Ul, D>
+impl<A, C, Se, L, U, Ul, D, Jb> DiscoveryService for AppState<A, C, Se, L, U, Ul, D, Jb>
 where
     A: Sync,
     C: Sync,
@@ -816,6 +871,7 @@ where
     U: Sync,
     Ul: Sync,
     D: DiscoveryService + Sync,
+    Jb: Sync,
 {
     async fn search(
         &self,
@@ -859,6 +915,7 @@ pub trait AppServices:
     + CatalogService
     + SessionService
     + LibraryService
+    + JobService
     + UserService
     + UserLibraryService
     + DiscoveryService
@@ -874,6 +931,7 @@ impl<T> AppServices for T where
         + CatalogService
         + SessionService
         + LibraryService
+        + JobService
         + UserService
         + UserLibraryService
         + DiscoveryService

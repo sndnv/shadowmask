@@ -7,7 +7,7 @@
     <title>Shadowmask (basic) - Job</title>
   </head>
   <body>
-    <h1>Job</h1>
+    <h1 class="sm-visually-hidden">Job</h1>
     <nav id="nav"></nav>
     <p class="sm-crumbs">
       <a href="index.html">Admin</a> / <a href="jobs.html">Jobs</a> /
@@ -19,6 +19,7 @@
     <script>
       sm.chrome();
       const id = sm.qs("id");
+      let currentLevel = "info";
 
       if (sm.requireAuth()) guard();
 
@@ -44,34 +45,48 @@
 
       async function load() {
         const main = document.getElementById("main");
-        main.textContent = "Loading...";
+        main.textContent = "Loading…";
         try {
           const job = await sm.json("/api/v1/admin/jobs/" + encodeURIComponent(id));
           main.textContent = "";
 
-          const dl = sm.el("dl");
-          const add = (key, value) => {
-            if (value === null || value === undefined || value === "") return;
-            dl.appendChild(sm.el("dt", { text: key }));
-            dl.appendChild(sm.el("dd", { text: String(value) }));
+          const facts = (pairs) => {
+            const row = sm.el("div", { class: "sm-facts" });
+            pairs.forEach(([key, value]) => {
+              if (value === null || value === undefined || value === "") return;
+              row.appendChild(sm.el("span", null, [sm.el("strong", { text: key + ": " }), value]));
+            });
+            return row;
           };
-          add("Kind", job.kind);
-          if (job.parent_id) {
-            dl.appendChild(sm.el("dt", { text: "Parent" }));
-            dl.appendChild(
-              sm.el("dd", null, sm.el("a", { href: "job.html?id=" + encodeURIComponent(job.parent_id) }, job.parent_id)),
+          const parentLink = job.parent_id
+            ? sm.el("a", { href: "job.html?id=" + encodeURIComponent(job.parent_id) }, job.parent_id)
+            : null;
+          main.appendChild(
+            facts([
+              ["Kind", job.kind],
+              ["Parent", parentLink],
+              ["Status", job.status],
+              ["Priority", job.priority],
+              ["Progress", Math.round(job.progress * 100) + "%"],
+              ["Attempts", String(job.attempts)],
+            ]),
+          );
+          main.appendChild(
+            facts([
+              ["Created", sm.time(job.created_at)],
+              ["Updated", sm.time(job.updated_at)],
+              ["Started", sm.time(job.started_at)],
+              ["Finished", sm.time(job.finished_at)],
+            ]),
+          );
+          if (job.last_error) {
+            main.appendChild(
+              sm.el("p", { class: "sm-status" }, [
+                sm.el("strong", { text: "Error: " }),
+                job.last_error,
+              ]),
             );
           }
-          add("Status", job.status);
-          add("Priority", job.priority);
-          add("Progress", Math.round(job.progress * 100) + "%");
-          add("Attempts", job.attempts);
-          add("Created", sm.time(job.created_at));
-          add("Updated", sm.time(job.updated_at));
-          add("Started", sm.time(job.started_at));
-          add("Finished", sm.time(job.finished_at));
-          add("Error", job.last_error);
-          main.appendChild(dl);
 
           const logHost = sm.el("div");
           const level = sm.el("select", null, [
@@ -80,8 +95,11 @@
             sm.el("option", { value: "warn" }, "Warn"),
             sm.el("option", { value: "error" }, "Error"),
           ]);
-          level.value = "info";
-          level.addEventListener("change", () => loadLogs(logHost, level.value));
+          level.value = currentLevel;
+          level.addEventListener("change", () => {
+            currentLevel = level.value;
+            loadLogs(logHost, currentLevel);
+          });
           const wipe = sm.el("button", { type: "button" }, "Wipe logs");
           wipe.addEventListener("click", async () => {
             if (!confirm("Wipe all logs for this job? This cannot be undone.")) return;

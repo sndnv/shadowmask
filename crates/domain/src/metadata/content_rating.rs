@@ -38,6 +38,20 @@ impl ContentRating {
             .find(|entry| entry.0 == system.as_str() && entry.1 == code.as_str())
             .map(|entry| entry.2)
     }
+
+    pub fn blocked_by(cap: Option<&ContentRating>) -> Vec<ContentRating> {
+        let Some(cap_floor) = cap.and_then(ContentRating::age_floor) else {
+            return Vec::new();
+        };
+        AGE_TABLE
+            .iter()
+            .filter(|entry| entry.2 > cap_floor)
+            .map(|entry| ContentRating {
+                system: entry.0.to_owned(),
+                code: entry.1.to_owned(),
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -63,5 +77,22 @@ mod tests {
     fn unknown_rating_has_no_age_floor() {
         assert_eq!(rating("MPAA", "Not Rated").age_floor(), None);
         assert_eq!(rating("XYZ", "42").age_floor(), None);
+    }
+
+    #[test]
+    fn blocked_by_lists_ratings_above_the_cap() {
+        let cap = rating("MPAA", "PG-13");
+        let blocked = ContentRating::blocked_by(Some(&cap));
+        assert!(blocked.iter().all(|r| r.age_floor().unwrap() > 13));
+        assert!(blocked.contains(&rating("mpaa", "r")));
+        assert!(blocked.contains(&rating("us-tv", "tv-ma")));
+        assert!(!blocked.contains(&rating("mpaa", "pg-13")));
+        assert!(!blocked.contains(&rating("mpaa", "pg")));
+    }
+
+    #[test]
+    fn blocked_by_is_empty_for_absent_or_unknown_cap() {
+        assert!(ContentRating::blocked_by(None).is_empty());
+        assert!(ContentRating::blocked_by(Some(&rating("XYZ", "42"))).is_empty());
     }
 }

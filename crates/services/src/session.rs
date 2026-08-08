@@ -17,8 +17,8 @@ use domain::repository::{
 use domain::service::SessionService;
 use domain::session::{
     ClientCapabilities, DeliveryMode, HeartbeatAck, PlaybackSession, PlaybackState, Renegotiated,
-    SelectedTracks, SessionId, SessionStarted, SessionUpdate, SoftSubtitle, SoftSubtitleSource,
-    StartSessionRequest, StreamClaims, StreamRegistration, StreamRegistry, StreamTokens,
+    SelectedTracks, SessionId, SessionStartInput, SessionStarted, SessionUpdate, SoftSubtitle,
+    SoftSubtitleSource, StreamClaims, StreamRegistration, StreamRegistry, StreamTokens,
     SubtitleChange, SubtitleDelivery, SubtitleRendition, SubtitleSelection, TranscodeManager,
     TranscodeSpec,
 };
@@ -314,6 +314,7 @@ where
                     burn_subtitle_path,
                     soft_subtitle,
                     downmix_stereo: ctx.downmix_stereo,
+                    source_hdr: detail.video.first().and_then(|v| v.hdr),
                 })
                 .await
                 .map_err(|_| SessionError::NegotiationFailed)?;
@@ -348,7 +349,7 @@ where
     async fn start(
         &self,
         caller: &Principal,
-        request: StartSessionRequest,
+        request: SessionStartInput,
     ) -> Result<SessionStarted, SessionError> {
         let detail = self
             .inner
@@ -851,8 +852,8 @@ mod tests {
         }
     }
 
-    fn start_request(start_position_ms: u64) -> StartSessionRequest {
-        StartSessionRequest {
+    fn start_request(start_position_ms: u64) -> SessionStartInput {
+        SessionStartInput {
             version: VersionId("v1".to_owned()),
             start_position_ms,
             capabilities: caps(None),
@@ -1082,7 +1083,7 @@ mod tests {
             .await
             .unwrap();
 
-        let request = StartSessionRequest {
+        let request = SessionStartInput {
             version: VersionId("v2".to_owned()),
             start_position_ms: 0,
             capabilities: caps(None),

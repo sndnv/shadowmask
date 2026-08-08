@@ -10,6 +10,8 @@ use ::api::{
     WebhookClient,
 };
 use domain::error::{ProfileError, RepositoryError};
+use domain::media::CookieInspector;
+use fetch::CookieFileInspector;
 use jobs::CancelRegistry;
 use media::artwork::FsArtworkStore;
 use media::hls::HlsStreamSource;
@@ -26,6 +28,7 @@ use persistence::user::{SqlitePreferencesRepo, SqliteProgressRepo};
 use services::auth::DefaultAuthService;
 use services::catalog::CatalogServiceImpl;
 use services::discovery::DiscoveryServiceImpl;
+use services::job::JobServiceImpl;
 use services::library::LibraryServiceImpl;
 use services::session::DefaultSessionService;
 use services::user::UserServiceImpl;
@@ -56,9 +59,18 @@ pub type UserLibrarySvc =
     UserLibraryServiceImpl<SqliteProgressRepo, SqlitePreferencesRepo, SqliteCatalogRepo>;
 pub type DiscoverySvc =
     DiscoveryServiceImpl<SqliteCatalogRepo, SqliteCatalogRepo, SqliteProgressRepo>;
+pub type JobSvc = JobServiceImpl<SqliteJobRepo>;
 
-pub type DefaultState =
-    AppState<AuthSvc, CatalogSvc, SessionSvc, LibrarySvc, UserSvc, UserLibrarySvc, DiscoverySvc>;
+pub type DefaultState = AppState<
+    AuthSvc,
+    CatalogSvc,
+    SessionSvc,
+    LibrarySvc,
+    UserSvc,
+    UserLibrarySvc,
+    DiscoverySvc,
+    JobSvc,
+>;
 pub type DefaultStreamState = StreamState<HmacStreamTokens, HlsStreamSource>;
 
 pub struct WireConfig {
@@ -74,6 +86,7 @@ pub struct WireConfig {
     pub translation_enabled: bool,
     pub upscaling_enabled: bool,
     pub content_fetch_enabled: bool,
+    pub fetch_cookies_file: Option<PathBuf>,
     pub vaapi_device: Option<String>,
 }
 
@@ -177,7 +190,12 @@ pub fn build_state(
         cfg.upscaling_enabled,
     )
     .with_content_fetch(cfg.content_fetch_enabled)
-    .with_canceller(Arc::new(cancel.clone()));
+    .with_cookie_inspector(
+        cfg.fetch_cookies_file
+            .clone()
+            .map(|path| Arc::new(CookieFileInspector::new(path)) as Arc<dyn CookieInspector>),
+    );
+    let job = JobServiceImpl::new(repos.jobs.clone()).with_canceller(Arc::new(cancel.clone()));
     let user = UserServiceImpl::new(repos.users.clone());
     let user_library = UserLibraryServiceImpl::new(
         Arc::new(repos.progress.clone()),
@@ -198,6 +216,7 @@ pub fn build_state(
         user,
         user_library,
         discovery,
+        job,
     );
     let stream = StreamState::new(HmacStreamTokens::new(&cfg.stream_secret), hls);
     Ok(Built {

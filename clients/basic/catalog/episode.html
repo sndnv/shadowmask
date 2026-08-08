@@ -56,9 +56,13 @@
           main.appendChild(sm.breadcrumbs(crumbs));
           const me = await sm.self().catch(() => null);
           const picker = await sm.versionPicker(me && me.id, (versions && versions.items) || []);
-          const posterNode = sm.poster(episode.artwork, 480);
+          const posterNode = sm.poster(episode.artwork, 480, episode.title);
           const posterEl = picker.single
-            ? sm.el("a", { href: sm.href.watch(picker.single), title: "Play" }, posterNode)
+            ? sm.el(
+                "a",
+                { href: sm.href.watch(picker.single), title: "Play", "aria-label": "Play " + episode.title },
+                posterNode,
+              )
             : posterNode;
           const dl = sm.el("dl");
           const add = (key, value) => {
@@ -66,7 +70,7 @@
             dl.appendChild(sm.el("dt", { text: key }));
             dl.appendChild(sm.el("dd", { text: String(value) }));
           };
-          add("Air date", episode.air_date);
+          add("Air date", episode.air_date ? sm.date(episode.air_date) : null);
           add("Runtime", episode.runtime_minutes ? episode.runtime_minutes + " min" : null);
           add("Added", sm.time(episode.added_at));
           add("Updated", sm.time(episode.updated_at));

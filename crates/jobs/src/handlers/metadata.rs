@@ -1,5 +1,5 @@
 use domain::job::Job;
-use services::library::{MetadataJobPayload, MetadataRefresher};
+use services::library::{MetadataJobPayload, MetadataRefresher, PersonRefresher};
 
 use crate::error::JobError;
 use crate::job_handler::JobHandler;
@@ -16,16 +16,29 @@ impl<E> MetadataJobHandler<E> {
 
 impl<E> JobHandler for MetadataJobHandler<E>
 where
-    E: MetadataRefresher + Send + Sync,
+    E: MetadataRefresher + PersonRefresher + Send + Sync,
 {
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         let payload = MetadataJobPayload::decode(&job.payload)
             .map_err(|e| JobError::Permanent(format!("invalid metadata payload: {e}")))?;
-        tracing::info!("refreshing metadata for [{:?}]", payload.title);
-        self.refresher
-            .refresh(&payload.title, payload.external_id.as_ref(), Some(&job.id))
-            .await
-            .map_err(|e| JobError::Retryable(e.to_string()))?;
+        match payload {
+            MetadataJobPayload::Title { title, external_id } => {
+                tracing::info!("refreshing metadata for [{title:?}]");
+                self.refresher
+                    .refresh(&title, external_id.as_ref(), Some(&job.id))
+                    .await
+                    .map_err(|e| JobError::Retryable(e.to_string()))?;
+            }
+            MetadataJobPayload::People { ids, force } => {
+                tracing::info!("refreshing metadata for {} person(s)", ids.len());
+                for id in &ids {
+                    self.refresher
+                        .refresh_person(id, force, Some(&job.id))
+                        .await
+                        .map_err(|e| JobError::Retryable(e.to_string()))?;
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -35,7 +48,7 @@ mod tests {
     use super::*;
     use domain::catalog::{Movie, MovieId, TitleRef};
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
-    use domain::metadata::{ExternalId, MediaKind, MetadataMatch};
+    use domain::metadata::{ExternalId, MediaKind, MetadataMatch, PersonId};
     use domain::repository::CatalogRepository;
     use jiff::Timestamp;
     use services::library::Enricher;
@@ -97,7 +110,7 @@ mod tests {
             kind: MediaKind::Movie,
         }]);
         let handler = MetadataJobHandler::new(enricher(catalog.clone(), Some(provider)));
-        let payload = MetadataJobPayload {
+        let payload = MetadataJobPayload::Title {
             title: TitleRef::Movie(MovieId("m1".into())),
             external_id: None,
         }
@@ -116,6 +129,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn refreshes_people_payload() {
+        let handler = MetadataJobHandler::new(enricher(MockCatalogRepo::new(), None));
+        let payload = MetadataJobPayload::People {
+            ids: vec![PersonId("p1".into())],
+            force: true,
+        }
+        .encode()
+        .unwrap();
+        handler.handle(&job(payload)).await.unwrap();
+    }
+
+    #[tokio::test]
     async fn invalid_payload_is_permanent() {
         let handler = MetadataJobHandler::new(enricher(MockCatalogRepo::new(), None));
         assert!(matches!(
@@ -129,7 +154,7 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         catalog.set_fail();
         let handler = MetadataJobHandler::new(enricher(catalog, None::<MockMetadataProvider>));
-        let payload = MetadataJobPayload {
+        let payload = MetadataJobPayload::Title {
             title: TitleRef::Movie(MovieId("m1".into())),
             external_id: None,
         }
