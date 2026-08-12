@@ -2,24 +2,19 @@ use serde::Deserialize;
 
 use domain::catalog::{EpisodeId, MovieId, TitleId};
 
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TitleKind {
-    Movie,
-    Episode,
-}
+use crate::dto::common::TitleRefKind;
 
 #[derive(Debug, Deserialize)]
 pub struct AddTitleRequest {
     #[serde(rename = "type")]
-    pub kind: TitleKind,
+    pub kind: TitleRefKind,
 }
 
 impl AddTitleRequest {
     pub fn into_title(self, id: String) -> TitleId {
         match self.kind {
-            TitleKind::Movie => TitleId::Movie(MovieId(id)),
-            TitleKind::Episode => TitleId::Episode(EpisodeId(id)),
+            TitleRefKind::Movie => TitleId::Movie(MovieId(id)),
+            TitleRefKind::Episode => TitleId::Episode(EpisodeId(id)),
         }
     }
 }

@@ -34,7 +34,7 @@ pub use download_subtitle_request::DownloadSubtitleRequest;
 pub use episode::EpisodeResponse;
 pub use movie::MovieResponse;
 pub use movie_detail::MovieDetailResponse;
-pub use person_profile::{FilmographyEntryDto, PersonProfileResponse, TitleKindDto};
+pub use person_profile::{FilmographyEntryDto, PersonProfileResponse};
 pub use refresh_request::{ExternalIdInput, RefreshRequest};
 pub use relink_request::RelinkRequest;
 pub use rename_subtitle_request::RenameSubtitleRequest;

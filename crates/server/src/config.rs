@@ -95,6 +95,7 @@ pub struct Config {
     pub basic_client_dir: PathBuf,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
+    pub cors_allowed_origins: Vec<String>,
     pub hardware_acceleration: HardwareAccelerationMode,
     pub vaapi_device: PathBuf,
     pub enrichment: EnrichmentConfig,
@@ -138,6 +139,7 @@ impl Default for Config {
             basic_client_dir: PathBuf::from("clients/basic"),
             tls_cert: None,
             tls_key: None,
+            cors_allowed_origins: Vec::new(),
             hardware_acceleration: HardwareAccelerationMode::default(),
             vaapi_device: PathBuf::from("/dev/dri/renderD128"),
             enrichment: EnrichmentConfig::default(),
@@ -171,7 +173,7 @@ impl Config {
                 Env::prefixed("SHADOWMASK_")
                     .map(|key| nest_section_key(key.as_str()).into())
                     .split(".")
-                    .ignore(&["target_languages"]),
+                    .ignore(&["target_languages", "cors_allowed_origins"]),
             )
             .extract()?;
         config.tmdb_api_key = trim_key(config.tmdb_api_key);
@@ -186,6 +188,13 @@ impl Config {
             if !languages.is_empty() {
                 config.target_languages = languages;
             }
+        }
+        if let Ok(raw) = std::env::var("SHADOWMASK_CORS_ALLOWED_ORIGINS") {
+            config.cors_allowed_origins = raw
+                .split(',')
+                .map(|origin| origin.trim().to_owned())
+                .filter(|origin| !origin.is_empty())
+                .collect();
         }
         Ok(config)
     }
@@ -244,6 +253,16 @@ impl Config {
         let _ = writeln!(out, "  tls:");
         let _ = writeln!(out, "    cert: {}", opt_path(&self.tls_cert));
         let _ = writeln!(out, "    key:  {}", opt_path(&self.tls_key));
+        let _ = writeln!(out, "  cors:");
+        let _ = writeln!(
+            out,
+            "    allowed_origins: {}",
+            if self.cors_allowed_origins.is_empty() {
+                "none".to_owned()
+            } else {
+                self.cors_allowed_origins.join(", ")
+            }
+        );
         let _ = writeln!(out, "  transcoding:");
         let _ = writeln!(
             out,
@@ -493,6 +512,30 @@ mod tests {
                 Config::load().unwrap().target_languages,
                 vec!["en".to_owned()]
             );
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn cors_allowed_origins_default_empty_then_env_comma_split() {
+        figment::Jail::expect_with(|jail| {
+            assert!(Config::load().unwrap().cors_allowed_origins.is_empty());
+            jail.set_env(
+                "SHADOWMASK_CORS_ALLOWED_ORIGINS",
+                "http://localhost:8080, https://app.example ,,",
+            );
+            let config = Config::load().unwrap();
+            assert_eq!(
+                config.cors_allowed_origins,
+                vec![
+                    "http://localhost:8080".to_owned(),
+                    "https://app.example".to_owned()
+                ]
+            );
+            assert!(config.describe().contains("http://localhost:8080"));
+            jail.set_env("SHADOWMASK_CORS_ALLOWED_ORIGINS", "   ");
+            assert!(Config::load().unwrap().cors_allowed_origins.is_empty());
             Ok(())
         });
     }

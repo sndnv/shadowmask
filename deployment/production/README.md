@@ -53,3 +53,11 @@ certificate and private key (PEM) and set `SHADOWMASK_TLS_CERT` and `SHADOWMASK_
 
 When TLS is enabled the server serves HTTPS on the same port, so change the healthcheck to
 `curl -fsSk https://127.0.0.1:8080/health` (the `-k` allows a self-signed cert).
+
+## CORS (optional)
+
+CORS is off by default. The basic client is served by the server itself (same origin) and needs
+nothing. A web client hosted on a **different** origin (the Flutter web client) needs cross-origin
+access: set `SHADOWMASK_CORS_ALLOWED_ORIGINS` to a comma-separated list of exact origins (scheme +
+host + port), e.g. `https://watch.example.com` or `http://localhost:8000` for local dev. Leave it
+unset to keep CORS off. Auth is Bearer-token only, so no cookie/credential handling is involved.

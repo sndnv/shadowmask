@@ -17,6 +17,12 @@ definitions live in `config/bootstrap/`.
 The JWT and stream secrets are dev-only throwaway values set inline in the compose file. Do not
 reuse them anywhere.
 
+The Flutter web client runs on its own origin, so cross-origin (CORS) access is enabled for dev:
+`SHADOWMASK_CORS_ALLOWED_ORIGINS` defaults to `http://localhost:8090`. Run the client on that port
+(`flutter run -d chrome --web-port=8090 --dart-define=SHADOWMASK_API_BASE=http://localhost:8080`),
+or override the env var to match a different origin. Rebuild the image (`docker compose up --build`)
+so the server binary includes the CORS layer. The basic client is served same-origin and needs none.
+
 TLS is off by default here (dev serves plaintext HTTP). To exercise the server's optional TLS
 locally, mount a self-signed cert + key and set `SHADOWMASK_TLS_CERT` / `SHADOWMASK_TLS_KEY`; see
 the TLS section in the production README.

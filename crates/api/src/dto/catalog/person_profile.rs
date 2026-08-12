@@ -1,25 +1,9 @@
 use serde::Serialize;
 
-use domain::catalog::{FilmographyEntry, PersonProfile, TitleKind};
+use domain::catalog::{FilmographyEntry, PersonProfile};
 
 use crate::dto::catalog::detail::CreditRoleDto;
-use crate::dto::common::ArtworkDto;
-
-#[derive(Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TitleKindDto {
-    Movie,
-    Series,
-}
-
-impl From<TitleKind> for TitleKindDto {
-    fn from(k: TitleKind) -> Self {
-        match k {
-            TitleKind::Movie => TitleKindDto::Movie,
-            TitleKind::Series => TitleKindDto::Series,
-        }
-    }
-}
+use crate::dto::common::{ArtworkDto, CatalogTitleKindDto};
 
 #[derive(Debug, Serialize)]
 pub struct PersonProfileResponse {
@@ -37,7 +21,7 @@ pub struct PersonProfileResponse {
 #[derive(Debug, Serialize)]
 pub struct FilmographyEntryDto {
     pub title_id: String,
-    pub kind: TitleKindDto,
+    pub kind: CatalogTitleKindDto,
     pub display_title: String,
     pub year: Option<u16>,
     pub artwork: ArtworkDto,
@@ -81,18 +65,6 @@ mod tests {
     use domain::catalog::{MovieId, SeriesId, TitleRef};
     use domain::metadata::{CreditRole, Person, PersonId};
     use serde_json::json;
-
-    #[test]
-    fn title_kind_maps_both_variants() {
-        assert_eq!(
-            serde_json::to_string(&TitleKindDto::from(TitleKind::Movie)).unwrap(),
-            "\"movie\""
-        );
-        assert_eq!(
-            serde_json::to_string(&TitleKindDto::from(TitleKind::Series)).unwrap(),
-            "\"series\""
-        );
-    }
 
     #[test]
     fn profile_serializes_filmography() {
