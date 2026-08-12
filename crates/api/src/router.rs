@@ -1,7 +1,9 @@
 use axum::Router;
+use axum::http::{HeaderValue, Method, header};
 use axum::middleware::{from_fn, from_fn_with_state};
 use axum::response::Redirect;
 use axum::routing::{delete, get, post, put};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use domain::job::JobLogStore;
 use domain::media::{SubtitleProvider, SubtitleReader, SubtitleStore};
@@ -300,6 +302,28 @@ where
         .with_state(state)
 }
 
+pub fn cors_layer(origins: &[String]) -> CorsLayer {
+    let allowed: Vec<HeaderValue> = origins
+        .iter()
+        .filter_map(|origin| origin.parse().ok())
+        .collect();
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(allowed))
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::ACCEPT,
+            header::RANGE,
+        ])
+        .expose_headers([
+            header::CONTENT_LENGTH,
+            header::CONTENT_RANGE,
+            header::ACCEPT_RANGES,
+            header::ETAG,
+        ])
+}
+
 #[cfg(test)]
 mod basic_ui_tests {
     use super::*;
@@ -347,5 +371,91 @@ mod basic_ui_tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+}
+
+#[cfg(test)]
+mod cors_tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use axum::routing::get;
+    use tower::ServiceExt;
+
+    fn app() -> Router {
+        Router::new()
+            .route("/api/v1/ping", get(|| async { "pong" }))
+            .layer(cors_layer(&[
+                "http://localhost:8080".to_owned(),
+                "not a valid origin".to_owned(),
+            ]))
+    }
+
+    #[tokio::test]
+    async fn reflects_an_allowed_origin_and_exposes_headers() {
+        let response = app()
+            .oneshot(
+                Request::get("/api/v1/ping")
+                    .header("origin", "http://localhost:8080")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .unwrap(),
+            "http://localhost:8080"
+        );
+        assert!(
+            response
+                .headers()
+                .contains_key("access-control-expose-headers")
+        );
+    }
+
+    #[tokio::test]
+    async fn answers_a_preflight_with_the_allowed_methods() {
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/api/v1/ping")
+                    .header("origin", "http://localhost:8080")
+                    .header("access-control-request-method", "POST")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let methods = response
+            .headers()
+            .get("access-control-allow-methods")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(methods.contains("POST"));
+        assert!(methods.contains("DELETE"));
+    }
+
+    #[tokio::test]
+    async fn does_not_reflect_a_disallowed_origin() {
+        let response = app()
+            .oneshot(
+                Request::get("/api/v1/ping")
+                    .header("origin", "http://evil.example")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            !response
+                .headers()
+                .contains_key("access-control-allow-origin")
+        );
     }
 }

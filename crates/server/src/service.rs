@@ -384,6 +384,9 @@ impl Runtime {
                 ),
             ));
         }
+        if !config.cors_allowed_origins.is_empty() {
+            router = router.layer(::api::cors_layer(&config.cors_allowed_origins));
+        }
 
         let subtitle_langs = if config.opensubtitles_api_key.is_some() {
             config.target_languages.clone()
