@@ -2,6 +2,7 @@ pub mod admin;
 pub mod auth;
 pub mod catalog;
 pub mod discovery;
+pub mod download;
 pub mod image;
 pub mod job_log;
 pub mod library;

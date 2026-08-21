@@ -92,10 +92,11 @@ impl<S: ProcessSpawner, P: KeyframeProbe> HlsStreamSource<S, P> {
         }
     }
 
+    #[cfg(test)]
     pub fn with_idle_timeout(mut self, idle_timeout: SignedDuration) -> Self {
-        if let Some(inner) = Arc::get_mut(&mut self.inner) {
-            inner.idle_timeout = idle_timeout;
-        }
+        Arc::get_mut(&mut self.inner)
+            .expect("the idle timeout is set before the source is shared")
+            .idle_timeout = idle_timeout;
         self
     }
 

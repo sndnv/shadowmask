@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 
 use domain::common::Quality;
 use domain::library::ParsedMedia;
+use domain::metadata::ExternalId;
 use regex::Regex;
 
 const CONF_STRONG: f32 = 0.9;
@@ -24,6 +25,8 @@ static JUNK: LazyLock<Regex> = LazyLock::new(|| {
 });
 static RESOLUTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\b(480p|576p|720p|1080p|2160p|4k)\b").unwrap());
+static PROVIDER_TAG: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\[(tmdbid|imdbid)-([a-z0-9]{1,24})\]").unwrap());
 
 pub fn parse_filename(path: &str) -> ParsedMedia {
     let basename = path.rsplit(['/', '\\']).next().unwrap_or(path);
@@ -32,6 +35,7 @@ pub fn parse_filename(path: &str) -> ParsedMedia {
     let season_episode = find_season_episode(stem);
     let year = find_year(stem);
     let junk = JUNK.find(stem).map(|m| m.start());
+    let external_id = find_provider_tag(stem, season_episode.is_some());
 
     let mut cut = stem.len();
     if let Some((_, _, start)) = season_episode {
@@ -43,6 +47,9 @@ pub fn parse_filename(path: &str) -> ParsedMedia {
     if let Some(start) = junk {
         cut = cut.min(start);
     }
+    if let Some((_, start)) = &external_id {
+        cut = cut.min(*start);
+    }
 
     ParsedMedia {
         title: clean_title(&stem[..cut]),
@@ -50,17 +57,40 @@ pub fn parse_filename(path: &str) -> ParsedMedia {
         season: season_episode.map(|(s, _, _)| s),
         episode: season_episode.map(|(_, e, _)| e),
         quality: find_quality(stem),
+        external_id: external_id.map(|(id, _)| id),
     }
 }
 
 pub fn confidence(parsed: &ParsedMedia) -> f32 {
     if parsed.title.is_empty() {
         CONF_NONE
-    } else if parsed.is_episodic() || parsed.year.is_some() {
+    } else if parsed.external_id.is_some() || parsed.is_episodic() || parsed.year.is_some() {
         CONF_STRONG
     } else {
         CONF_WEAK
     }
+}
+
+fn find_provider_tag(stem: &str, episodic: bool) -> Option<(ExternalId, usize)> {
+    let captures = PROVIDER_TAG.captures(stem)?;
+    let value = captures.get(2).unwrap().as_str();
+    let id = match captures
+        .get(1)
+        .unwrap()
+        .as_str()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "imdbid" => ExternalId {
+            source: "imdb".to_owned(),
+            value: value.to_owned(),
+        },
+        _ => ExternalId {
+            source: "tmdb".to_owned(),
+            value: format!("{}/{value}", if episodic { "tv" } else { "movie" }),
+        },
+    };
+    Some((id, captures.get(0).unwrap().start()))
 }
 
 fn find_season_episode(stem: &str) -> Option<(u16, u16, usize)> {
@@ -300,6 +330,60 @@ mod tests {
     }
 
     #[test]
+    fn a_provider_tag_is_read_without_polluting_the_title() {
+        let p = parse("/ext/The Matrix (1999)/The Matrix (1999) [tmdbid-603].mkv");
+        assert_eq!(p.title, "The Matrix");
+        assert_eq!(p.year, Some(1999));
+        assert_eq!(
+            p.external_id,
+            Some(ExternalId {
+                source: "tmdb".into(),
+                value: "movie/603".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn a_tagged_episode_resolves_against_the_tv_endpoint() {
+        let p = parse("Great Show - S01E02 [TMDBID-1399].mkv");
+        assert_eq!(p.title, "Great Show");
+        assert_eq!(
+            p.external_id,
+            Some(ExternalId {
+                source: "tmdb".into(),
+                value: "tv/1399".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn an_imdb_tag_keeps_its_value_verbatim() {
+        let p = parse("The Matrix [imdbid-tt0133093].mkv");
+        assert_eq!(p.title, "The Matrix");
+        assert_eq!(
+            p.external_id,
+            Some(ExternalId {
+                source: "imdb".into(),
+                value: "tt0133093".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn an_untagged_name_parses_exactly_as_before() {
+        let p = parse("The.Matrix.1999.1080p.BluRay.x264-GRP.mkv");
+        assert_eq!(p.title, "The Matrix");
+        assert_eq!(p.year, Some(1999));
+        assert_eq!(p.external_id, None);
+    }
+
+    #[test]
+    fn an_unknown_tag_is_left_alone() {
+        let p = parse("The Matrix (1999) [tvdbid-603].mkv");
+        assert_eq!(p.external_id, None);
+    }
+
+    #[test]
     fn confidence_tiers() {
         let episodic = ParsedMedia {
             title: "Show".into(),
@@ -307,6 +391,7 @@ mod tests {
             season: Some(1),
             episode: Some(2),
             quality: None,
+            external_id: None,
         };
         let movie_year = ParsedMedia {
             title: "Movie".into(),
@@ -314,6 +399,7 @@ mod tests {
             season: None,
             episode: None,
             quality: None,
+            external_id: None,
         };
         let movie_bare = ParsedMedia {
             title: "Movie".into(),
@@ -321,6 +407,14 @@ mod tests {
             season: None,
             episode: None,
             quality: None,
+            external_id: None,
+        };
+        let tagged = ParsedMedia {
+            external_id: Some(ExternalId {
+                source: "tmdb".into(),
+                value: "movie/603".into(),
+            }),
+            ..movie_bare.clone()
         };
         let empty = ParsedMedia {
             title: String::new(),
@@ -328,10 +422,12 @@ mod tests {
             season: None,
             episode: None,
             quality: None,
+            external_id: None,
         };
         assert_eq!(confidence(&episodic), CONF_STRONG);
         assert_eq!(confidence(&movie_year), CONF_STRONG);
         assert_eq!(confidence(&movie_bare), CONF_WEAK);
+        assert_eq!(confidence(&tagged), CONF_STRONG);
         assert_eq!(confidence(&empty), CONF_NONE);
     }
 }

@@ -3,8 +3,10 @@ use std::path::{Path, PathBuf};
 use tokio::process::Command;
 
 use domain::catalog::VersionId;
-use domain::error::TrickplayError;
-use domain::media::{TrickplayAsset, TrickplayGenerator};
+use domain::error::{CacheError, TrickplayError};
+use domain::media::{
+    DerivedAssetDir, DerivedAssetFile, DerivedAssetStore, TrickplayAsset, TrickplayGenerator,
+};
 
 const DEFAULT_BINARY: &str = "ffmpeg";
 
@@ -77,6 +79,28 @@ impl TrickplayGenerator for FfmpegTrickplayGenerator {
             ));
         }
         Ok(asset)
+    }
+}
+
+impl DerivedAssetStore for FfmpegTrickplayGenerator {
+    fn label(&self) -> &'static str {
+        "trickplay"
+    }
+
+    async fn list_dirs(&self) -> Result<Vec<DerivedAssetDir>, CacheError> {
+        crate::derived_assets::list_dirs(&self.cache_root).await
+    }
+
+    async fn remove_dir(&self, owner: &str) -> Result<(), CacheError> {
+        crate::derived_assets::remove_dir(&self.cache_root, owner).await
+    }
+
+    async fn list_files(&self, owner: &str) -> Result<Vec<DerivedAssetFile>, CacheError> {
+        crate::derived_assets::list_files(&self.cache_root, owner).await
+    }
+
+    async fn remove_file(&self, path: &str) -> Result<(), CacheError> {
+        crate::derived_assets::remove_file(&self.cache_root, path).await
     }
 }
 
@@ -201,5 +225,39 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, TrickplayError::Backend(_)));
+    }
+
+    #[tokio::test]
+    async fn the_sweep_sees_one_dir_per_version_and_can_remove_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let generator = FfmpegTrickplayGenerator::new(dir.path());
+        assert_eq!(DerivedAssetStore::label(&generator), "trickplay");
+        let sheets = dir.path().join("v1");
+        tokio::fs::create_dir(&sheets).await.expect("create");
+        tokio::fs::write(sheets.join("0.jpg"), b"jpg")
+            .await
+            .expect("write");
+
+        let dirs = generator.list_dirs().await.expect("list");
+        assert_eq!(dirs.len(), 1);
+        assert_eq!(dirs[0].owner, "v1");
+
+        let files = generator.list_files("v1").await.expect("list files");
+        assert_eq!(files.len(), 1);
+        assert!(files[0].path.ends_with("0.jpg"));
+        generator
+            .remove_file(&files[0].path)
+            .await
+            .expect("remove file");
+        assert!(
+            generator
+                .list_files("v1")
+                .await
+                .expect("list files")
+                .is_empty()
+        );
+
+        generator.remove_dir("v1").await.expect("remove");
+        assert!(generator.list_dirs().await.expect("list").is_empty());
     }
 }

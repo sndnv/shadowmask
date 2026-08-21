@@ -41,6 +41,8 @@ expression: value
         "role": "actor"
       }
     ],
+    "episodes_total": 1,
+    "episodes_with_available_version": 1,
     "external_ids": [
       {
         "source": "tvdb",
@@ -55,6 +57,7 @@ expression: value
       }
     ],
     "id": "[id]",
+    "manually_edited": false,
     "overview": null,
     "ratings": [
       {

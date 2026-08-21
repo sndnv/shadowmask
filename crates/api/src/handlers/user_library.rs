@@ -15,6 +15,8 @@ use crate::error::{ApiError, ApiResult};
 use crate::extract::AuthUser;
 use crate::handlers::{log_fail, require_admin_or_self};
 use crate::pagination::{PageParams, PageResponse};
+use domain::service::UserLibraryService;
+
 use crate::state::AppServices;
 
 const MAX_BATCH: usize = 200;
@@ -28,6 +30,7 @@ pub async fn watchlist<S: AppServices>(
     let target = UserId(user_id);
     require_admin_or_self(&principal, &target)?;
     let items = state
+        .user_library()
         .watchlist(&target)
         .await
         .map_err(log_fail(actor, "retrieve watchlist"))?;
@@ -50,6 +53,7 @@ pub async fn add_to_watchlist<S: AppServices>(
     require_admin_or_self(&principal, &target)?;
     let title = req.into_title(title_id);
     state
+        .user_library()
         .add_to_watchlist(&target, &title)
         .await
         .map_err(log_fail(actor, "add to watchlist"))?;
@@ -70,6 +74,7 @@ pub async fn remove_from_watchlist<S: AppServices>(
     let target = UserId(user_id);
     require_admin_or_self(&principal, &target)?;
     state
+        .user_library()
         .remove_from_watchlist(&target, &title_id)
         .await
         .map_err(log_fail(actor, "remove from watchlist"))?;
@@ -89,6 +94,7 @@ pub async fn favorites<S: AppServices>(
     let target = UserId(user_id);
     require_admin_or_self(&principal, &target)?;
     let items = state
+        .user_library()
         .favorites(&target)
         .await
         .map_err(log_fail(actor, "retrieve favorites"))?;
@@ -111,6 +117,7 @@ pub async fn add_favorite<S: AppServices>(
     require_admin_or_self(&principal, &target)?;
     let title = req.into_title(title_id);
     state
+        .user_library()
         .add_favorite(&target, &title)
         .await
         .map_err(log_fail(actor, "add a favorite"))?;
@@ -131,6 +138,7 @@ pub async fn remove_favorite<S: AppServices>(
     let target = UserId(user_id);
     require_admin_or_self(&principal, &target)?;
     state
+        .user_library()
         .remove_favorite(&target, &title_id)
         .await
         .map_err(log_fail(actor, "remove a favorite"))?;
@@ -151,6 +159,7 @@ pub async fn history<S: AppServices>(
     let target = UserId(user_id);
     require_admin_or_self(&principal, &target)?;
     let page = state
+        .user_library()
         .history(&target, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve history"))?;
@@ -165,6 +174,46 @@ pub async fn history<S: AppServices>(
     )))
 }
 
+pub async fn remove_from_history<S: AppServices>(
+    State(state): State<S>,
+    AuthUser(principal): AuthUser,
+    Path((user_id, title_id)): Path<(String, String)>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    let target = UserId(user_id);
+    require_admin_or_self(&principal, &target)?;
+    state
+        .user_library()
+        .remove_from_history(&target, &title_id)
+        .await
+        .map_err(log_fail(actor, "remove from history"))?;
+    debug!(
+        "User [{actor}] successfully removed title [{title_id}] from history for user [{}]",
+        target.0
+    );
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn clear_history<S: AppServices>(
+    State(state): State<S>,
+    AuthUser(principal): AuthUser,
+    Path(user_id): Path<String>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    let target = UserId(user_id);
+    require_admin_or_self(&principal, &target)?;
+    state
+        .user_library()
+        .clear_history(&target)
+        .await
+        .map_err(log_fail(actor, "clear history"))?;
+    debug!(
+        "User [{actor}] successfully cleared history for user [{}]",
+        target.0
+    );
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn progress<S: AppServices>(
     State(state): State<S>,
     AuthUser(principal): AuthUser,
@@ -175,6 +224,7 @@ pub async fn progress<S: AppServices>(
     require_admin_or_self(&principal, &target)?;
     let version = VersionId(version);
     let progress = state
+        .user_library()
         .progress(&target, &version)
         .await
         .map_err(log_fail(actor, "retrieve progress"))?;
@@ -195,6 +245,7 @@ pub async fn clear_progress<S: AppServices>(
     require_admin_or_self(&principal, &target)?;
     let version = VersionId(version);
     state
+        .user_library()
         .clear_progress(&target, &version)
         .await
         .map_err(log_fail(actor, "clear progress"))?;
@@ -217,6 +268,7 @@ pub async fn set_watched<S: AppServices>(
     let watched = req.watched;
     let watch_target = req.into_target(reference);
     state
+        .user_library()
         .set_watched(&target, &watch_target, watched)
         .await
         .map_err(log_fail(actor, "set watched state"))?;
@@ -244,6 +296,7 @@ pub async fn state_batch<S: AppServices>(
     }
     let titles: Vec<TitleId> = req.titles.into_iter().map(Into::into).collect();
     let states = state
+        .user_library()
         .title_states(&target, &titles)
         .await
         .map_err(log_fail(actor, "retrieve title states"))?;
@@ -281,6 +334,7 @@ pub async fn state_rollup<S: AppServices>(
     }
     let targets: Vec<_> = req.targets.into_iter().map(|t| t.into_target()).collect();
     let rollups = state
+        .user_library()
         .watched_rollups(&target, &targets)
         .await
         .map_err(log_fail(actor, "retrieve watched rollups"))?;

@@ -4,6 +4,7 @@ expression: value
 ---
 {
   "body": {
+    "active": true,
     "bitrate_cap": null,
     "concurrent_stream_limit": null,
     "created_at": "[created_at]",

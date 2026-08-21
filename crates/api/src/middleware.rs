@@ -8,6 +8,7 @@ use axum::response::Response;
 use domain::service::AuthService;
 
 use crate::error::ApiError;
+use crate::state::AppServices;
 
 pub async fn jwt<S>(
     State(state): State<S>,
@@ -15,10 +16,10 @@ pub async fn jwt<S>(
     next: Next,
 ) -> Result<Response, ApiError>
 where
-    S: AuthService + Clone + Send + Sync + 'static,
+    S: AppServices,
 {
     let token = bearer(&request).ok_or_else(|| ApiError::unauthorized("missing bearer token"))?;
-    let principal = state.authenticate(&token).await?;
+    let principal = state.auth().authenticate(&token).await?;
     request.extensions_mut().insert(principal);
     Ok(next.run(request).await)
 }

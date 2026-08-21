@@ -1,0 +1,14 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": [
+    {
+      "artwork": {},
+      "id": "p1",
+      "name": "Ada Lovelace"
+    }
+  ],
+  "status": 200
+}

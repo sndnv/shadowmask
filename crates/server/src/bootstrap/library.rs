@@ -78,10 +78,33 @@ where
 mod tests {
     use domain::library::{Library, LibraryId, LibraryKind, LibraryOrigin, WatcherStrategy};
     use jiff::Timestamp;
-    use services::mock::MockLibraryService;
+    use mocks::{
+        MockCatalogRepo, MockJobStore, MockLibraryRepo, MockMetadataProvider, MockUserRepo,
+    };
+    use services::library::LibraryServiceImpl;
 
     use super::super::executor::run_one;
     use super::*;
+
+    type LibrarySvc = LibraryServiceImpl<
+        MockLibraryRepo,
+        MockUserRepo,
+        MockJobStore,
+        MockCatalogRepo,
+        MockMetadataProvider,
+    >;
+
+    fn library_service() -> (LibrarySvc, MockLibraryRepo) {
+        let repo = MockLibraryRepo::new();
+        let service = LibraryServiceImpl::new(
+            repo.clone(),
+            MockUserRepo::new(),
+            MockJobStore::new(),
+            MockCatalogRepo::new(),
+            None::<MockMetadataProvider>,
+        );
+        (service, repo)
+    }
 
     fn seeded_library(name: &str) -> Library {
         Library {
@@ -90,6 +113,7 @@ mod tests {
             origin: LibraryOrigin::Local,
             kind: LibraryKind::Movie,
             roots: vec!["/media".to_owned()],
+            sort_articles: Vec::new(),
             watcher: WatcherStrategy::Local,
             scan_schedule: None,
             metadata_sources: Vec::new(),
@@ -109,7 +133,7 @@ mod tests {
             dir.path(),
             "[[libraries]]\nname = \"Movies\"\nkind = \"movie\"\nroots = [\"/media/movies\"]\nwatcher = \"local\"\n",
         );
-        let service = MockLibraryService::new();
+        let (service, _repo) = library_service();
         let provider = LibraryBootstrapProvider::new(service.clone());
         let result = run_one(&provider, dir.path()).await;
         assert_eq!(result.created, 1);
@@ -128,8 +152,8 @@ mod tests {
             dir.path(),
             "[[libraries]]\nname = \"Movies\"\nkind = \"movie\"\nwatcher = \"local\"\n",
         );
-        let service = MockLibraryService::new();
-        service.add_library(seeded_library("Movies"));
+        let (service, repo) = library_service();
+        repo.insert_library(seeded_library("Movies"));
         let provider = LibraryBootstrapProvider::new(service.clone());
         let result = run_one(&provider, dir.path()).await;
         assert_eq!(result.created, 0);
@@ -147,7 +171,7 @@ mod tests {
             dir.path(),
             "[[libraries]]\nname = \"Movies\"\nkind = \"movie\"\nwatcher = \"local\"\n\n[[libraries]]\nname = \"Movies\"\nkind = \"tv\"\nwatcher = \"manual\"\n",
         );
-        let service = MockLibraryService::new();
+        let (service, _repo) = library_service();
         let provider = LibraryBootstrapProvider::new(service.clone());
         let result = run_one(&provider, dir.path()).await;
         assert_eq!(result.created, 0);
@@ -167,7 +191,7 @@ mod tests {
             dir.path(),
             "[[libraries]]\nname = \"Movies\"\nkind = \"movie\"\nwatcher = \"telepathy\"\n",
         );
-        let service = MockLibraryService::new();
+        let (service, _repo) = library_service();
         let provider = LibraryBootstrapProvider::new(service.clone());
         let result = run_one(&provider, dir.path()).await;
         assert_eq!(result.created, 0);

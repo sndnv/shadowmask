@@ -30,6 +30,9 @@ services:
       SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX: "<2{target}>"
       SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED: "${SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED:-true}"
       SHADOWMASK_FETCH_PROVIDERS_ENABLED: "${SHADOWMASK_FETCH_PROVIDERS_ENABLED:-true}"
+      # Nightly re-scan, as HH:MM in the container's timezone (UTC unless TZ is set). Unset means
+      # no automatic scanning. Only libraries with watcher = "scheduled" are picked up.
+      SHADOWMASK_DAILY_SCAN_AT: "${SHADOWMASK_DAILY_SCAN_AT:-}"
     volumes:
       - shadowmask-data:/data
       - ./config/bootstrap:/config/bootstrap:ro

@@ -1,5 +1,5 @@
 use contracts::repo::{job_repository_contract, library_repository_contract};
-use services::mock::{MockJobStore, MockLibraryRepo};
+use mocks::{MockJobStore, MockLibraryRepo};
 
 #[tokio::test]
 async fn job_repository_contract_holds_for_mock() {

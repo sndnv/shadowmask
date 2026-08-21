@@ -27,14 +27,11 @@
         try {
           const season = await sm.json(base);
           const episodes = await sm.json(base + "/episodes").catch(() => []);
-          const seriesObj = await sm
-            .json("/api/v1/series/" + encodeURIComponent(season.series_id))
-            .catch(() => null);
           main.textContent = "";
           main.appendChild(
             sm.breadcrumbs([
               { label: "Series", href: sm.url("catalog/series.html") },
-              { label: seriesObj ? seriesObj.title : "Show", href: sm.href.series(season.series_id) },
+              { label: season.series_title || "Series", href: sm.href.series(season.series_id) },
               { label: season.title || "Season " + season.number },
             ]),
           );
@@ -53,7 +50,11 @@
             episodes.slice().sort((a, b) => (a.number || 0) - (b.number || 0))[0] ||
             null;
           const seasonTitle = season.title || "Season " + season.number;
-          const posterNode = sm.poster(season.artwork, 480, seasonTitle);
+          const seasonArt =
+            season.artwork && (season.artwork.posters || []).length
+              ? season.artwork
+              : season.series_artwork;
+          const posterNode = sm.poster(seasonArt, 480, seasonTitle);
           const posterEl = nextEp
             ? sm.el(
                 "a",
@@ -71,7 +72,29 @@
             season.overview ? sm.el("p", { text: season.overview }) : null,
           ]);
           main.appendChild(sm.el("div", { class: "sm-detail" }, [posterEl, info]));
-          main.appendChild(await sm.watchedControls("season", season.id));
+          const seasonControls = await sm.watchedControls("season", season.id);
+          main.appendChild(seasonControls);
+          if (me && me.role === "admin") {
+            seasonControls.appendChild(document.createTextNode(" "));
+            seasonControls.appendChild(
+              sm.deleteTitleButton(
+                "seasons",
+                season.id,
+                season.title || "Season " + season.number,
+                episodes.length === 0
+                  ? null
+                  : "Delete its " +
+                      episodes.length +
+                      (episodes.length === 1
+                        ? " remaining episode"
+                        : " remaining episodes") +
+                      " first.",
+                () => {
+                  window.location.href = sm.href.series(season.series_id);
+                },
+              ),
+            );
+          }
           main.appendChild(sm.el("h2", { text: "Episodes (" + episodes.length + ")" }));
           if (!episodes.length) {
             main.appendChild(sm.el("p", { text: "No episodes." }));

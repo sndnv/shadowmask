@@ -2,11 +2,14 @@ use domain::catalog::{MovieId, SeriesId, TitleRef};
 use domain::metadata::{ExternalId, PersonId};
 use serde::{Deserialize, Serialize};
 
+use crate::job::encode_payload;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MetadataJobPayload {
     Title {
         title: TitleRef,
         external_id: Option<ExternalId>,
+        force: bool,
     },
     People {
         ids: Vec<PersonId>,
@@ -15,8 +18,8 @@ pub enum MetadataJobPayload {
 }
 
 impl MetadataJobPayload {
-    pub fn encode(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string(&Wire::from(self))
+    pub fn encode(&self) -> String {
+        encode_payload(&Wire::from(self))
     }
 
     pub fn decode(raw: &str) -> Result<Self, serde_json::Error> {
@@ -30,6 +33,7 @@ enum Wire {
     Title {
         title: TitleWire,
         external_id: Option<ExternalIdWire>,
+        force: bool,
     },
     People {
         ids: Vec<String>,
@@ -53,7 +57,11 @@ struct ExternalIdWire {
 impl From<&MetadataJobPayload> for Wire {
     fn from(payload: &MetadataJobPayload) -> Self {
         match payload {
-            MetadataJobPayload::Title { title, external_id } => {
+            MetadataJobPayload::Title {
+                title,
+                external_id,
+                force,
+            } => {
                 let title = match title {
                     TitleRef::Movie(id) => TitleWire::Movie { id: id.0.clone() },
                     TitleRef::Series(id) => TitleWire::Series { id: id.0.clone() },
@@ -64,6 +72,7 @@ impl From<&MetadataJobPayload> for Wire {
                         source: id.source.clone(),
                         value: id.value.clone(),
                     }),
+                    force: *force,
                 }
             }
             MetadataJobPayload::People { ids, force } => Wire::People {
@@ -77,7 +86,11 @@ impl From<&MetadataJobPayload> for Wire {
 impl From<Wire> for MetadataJobPayload {
     fn from(wire: Wire) -> Self {
         match wire {
-            Wire::Title { title, external_id } => {
+            Wire::Title {
+                title,
+                external_id,
+                force,
+            } => {
                 let title = match title {
                     TitleWire::Movie { id } => TitleRef::Movie(MovieId(id)),
                     TitleWire::Series { id } => TitleRef::Series(SeriesId(id)),
@@ -88,6 +101,7 @@ impl From<Wire> for MetadataJobPayload {
                         source: id.source,
                         value: id.value,
                     }),
+                    force,
                 }
             }
             Wire::People { ids, force } => MetadataJobPayload::People {
@@ -103,7 +117,7 @@ mod tests {
     use super::*;
 
     fn round_trip(payload: MetadataJobPayload) {
-        let encoded = payload.encode().unwrap();
+        let encoded = payload.encode();
         assert_eq!(MetadataJobPayload::decode(&encoded).unwrap(), payload);
     }
 
@@ -115,10 +129,26 @@ mod tests {
                 source: "tmdb".into(),
                 value: "movie/603".into(),
             }),
+            force: false,
         });
         round_trip(MetadataJobPayload::Title {
             title: TitleRef::Series(SeriesId("s1".into())),
             external_id: None,
+            force: false,
+        });
+    }
+
+    #[test]
+    fn round_trips_a_forced_title_refresh() {
+        round_trip(MetadataJobPayload::Title {
+            title: TitleRef::Movie(MovieId("m1".into())),
+            external_id: None,
+            force: true,
+        });
+        round_trip(MetadataJobPayload::Title {
+            title: TitleRef::Series(SeriesId("s1".into())),
+            external_id: None,
+            force: true,
         });
     }
 

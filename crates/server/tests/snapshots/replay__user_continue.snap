@@ -10,7 +10,7 @@ expression: value
           "artwork": {
             "backdrops": [
               {
-                "base": "/images/m1-backdrop",
+                "base": "/images/e1-backdrop",
                 "widths": [
                   480,
                   960
@@ -19,7 +19,7 @@ expression: value
             ],
             "posters": [
               {
-                "base": "/images/m1-poster",
+                "base": "/images/e1-poster",
                 "widths": [
                   180,
                   480,
@@ -28,19 +28,43 @@ expression: value
               }
             ]
           },
-          "display_title": "Alpha m1",
-          "duration_ms": 100000,
-          "progress_percent": 1,
+          "display_title": "Alpha e1",
+          "duration_ms": 1000,
+          "episode_number": 1,
+          "progress_percent": 40,
+          "season_number": 1,
+          "series_artwork": {
+            "backdrops": [
+              {
+                "base": "/images/s1-backdrop",
+                "widths": [
+                  480,
+                  960
+                ]
+              }
+            ],
+            "posters": [
+              {
+                "base": "/images/s1-poster",
+                "widths": [
+                  180,
+                  480,
+                  960
+                ]
+              }
+            ]
+          },
+          "series_title": "Alpha s1",
           "title": {
-            "id": "m1",
-            "type": "movie"
+            "id": "e1",
+            "type": "episode"
           }
         },
         "progress": {
-          "position_ms": 1234,
-          "updated_at": "2023-11-14T22:13:40Z",
+          "position_ms": 400,
+          "updated_at": "2023-11-14T22:13:41Z",
           "user_id": "u1",
-          "version_id": "v1"
+          "version_id": "ev1"
         }
       }
     ],

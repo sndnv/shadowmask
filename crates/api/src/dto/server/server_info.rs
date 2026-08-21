@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use domain::session::PROFILE_VERSION;
 
-use super::Capability;
+use super::{Capability, RatingSystem};
 
 const FEATURES: &[&str] = &[
     "hls",
@@ -18,6 +18,7 @@ pub struct ServerInfoResponse {
     pub features: Vec<String>,
     pub capabilities: Vec<Capability>,
     pub profile_version: u32,
+    pub rating_systems: Vec<RatingSystem>,
 }
 
 impl ServerInfoResponse {
@@ -27,6 +28,7 @@ impl ServerInfoResponse {
             features: FEATURES.iter().map(|f| (*f).to_owned()).collect(),
             capabilities,
             profile_version: PROFILE_VERSION,
+            rating_systems: RatingSystem::known(),
         }
     }
 }
@@ -56,5 +58,7 @@ mod tests {
                 .iter()
                 .any(|c| { c["name"] == "tmdb" && c["enabled"] == false })
         );
+        let systems = value["rating_systems"].as_array().unwrap();
+        assert!(systems.iter().any(|s| s["system"] == "bbfc"));
     }
 }

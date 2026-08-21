@@ -32,42 +32,92 @@
         }
       }
 
+      function query() {
+        const params = new URLSearchParams(location.search);
+        return {
+          state: params.get("state") === "all" ? "all" : "active",
+          filter: params.get("filter") || "",
+          offset: Math.max(0, parseInt(params.get("offset") || "0", 10) || 0),
+        };
+      }
+
+      function jobsHref(overrides) {
+        const current = query();
+        const params = new URLSearchParams();
+        const state = overrides.state || current.state;
+        const filter = "filter" in overrides ? overrides.filter : current.filter;
+        if (state === "all") params.set("state", "all");
+        if (filter) params.set("filter", filter);
+        if (overrides.offset) params.set("offset", String(overrides.offset));
+        const search = params.toString();
+        return "jobs.html" + (search ? "?" + search : "");
+      }
+
       async function load() {
         const main = document.getElementById("main");
+        const view = query();
         main.textContent = "Loading…";
         try {
-          const jobs = await sm.json("/api/v1/admin/jobs");
-          document.getElementById("jobs-crumb").textContent = "Jobs (" + jobs.length + ")";
+          const params = new URLSearchParams();
+          if (view.state === "active") params.set("state", "active");
+          if (view.filter) params.set("filter", view.filter);
+          if (view.offset) params.set("offset", String(view.offset));
+          const search = params.toString();
+          const page = await sm.json("/api/v1/admin/jobs" + (search ? "?" + search : ""));
+          document.getElementById("jobs-crumb").textContent = "Jobs (" + page.all_total + ")";
           main.textContent = "";
-          if (!jobs.length) {
-            main.appendChild(sm.el("p", { text: "No jobs." }));
-            return;
-          }
-          const rank = (s) => (s === "queued" ? 0 : s === "running" ? 1 : 2);
-          const byStatus = (a, b) => {
-            const byRank = rank(a.status) - rank(b.status);
-            if (byRank !== 0) return byRank;
-            if (a.started_at && b.started_at) return b.started_at.localeCompare(a.started_at);
-            if (a.started_at) return -1;
-            if (b.started_at) return 1;
-            return (b.created_at || "").localeCompare(a.created_at || "");
-          };
-          const byId = new Map(jobs.map((j) => [j.id, j]));
-          const children = new Map();
-          for (const j of jobs) {
-            if (j.parent_id && byId.has(j.parent_id)) {
-              if (!children.has(j.parent_id)) children.set(j.parent_id, []);
-              children.get(j.parent_id).push(j);
-            }
-          }
-          const roots = jobs.filter((j) => !(j.parent_id && byId.has(j.parent_id))).sort(byStatus);
-          const shortId = (id) => String(id).split("-")[0];
-          const idLink = (j) =>
+
+          const tabLink = (label, state) =>
             sm.el(
               "a",
-              { href: "job.html?id=" + encodeURIComponent(j.id), title: j.id },
-              shortId(j.id),
+              {
+                class: "sm-tab",
+                href: jobsHref({ state }),
+                "aria-selected": view.state === state ? "true" : "false",
+              },
+              label,
             );
+          main.appendChild(
+            sm.el("div", { class: "sm-tabs" }, [
+              tabLink("Active (" + page.active_total + ")", "active"),
+              tabLink("All (" + page.all_total + ")", "all"),
+            ]),
+          );
+
+          const filterInput = sm.el("input", {
+            type: "search",
+            name: "filter",
+            value: view.filter,
+            placeholder: "id, kind, status...",
+            autocomplete: "off",
+            "aria-label": "Filter jobs",
+          });
+          const form = sm.el("form", { method: "get", action: "jobs.html" }, [
+            sm.el("label", null, ["Filter ", filterInput]),
+            " ",
+            sm.el("button", { type: "submit" }, "Apply"),
+          ]);
+          if (view.state === "all") {
+            form.appendChild(sm.el("input", { type: "hidden", name: "state", value: "all" }));
+          }
+          main.appendChild(form);
+
+          if (!page.items.length) {
+            main.appendChild(
+              sm.el("p", {
+                text: view.filter
+                  ? "No jobs match the filter."
+                  : view.state === "active"
+                    ? "No active jobs."
+                    : "No jobs.",
+              }),
+            );
+            return;
+          }
+
+          const shortId = (id) => String(id).split("-")[0];
+          const idLink = (id) =>
+            sm.el("a", { href: "job.html?id=" + encodeURIComponent(id), title: id }, shortId(id));
           const tint = (s) =>
             s === "running"
               ? "sm-row-running"
@@ -108,84 +158,38 @@
             return btn;
           };
 
-          const active = jobs
-            .filter((j) => j.status === "queued" || j.status === "running")
-            .sort(byStatus);
-          const activePanel = sm.el("div");
-          if (!active.length) {
-            activePanel.appendChild(sm.el("p", { text: "No active jobs." }));
-          } else {
-            const activeRows = active.map((j) => [
-              idLink(j),
-              j.kind,
-              j.status,
-              Math.round(j.progress * 100) + "%",
-              cancelButton(j),
-            ]);
-            activePanel.appendChild(
-              sm.table(["Job", "Kind", "Status", "Progress", ""], activeRows, {
-                rowClass: (i) => tint(active[i].status),
-              }),
-            );
-          }
-
-          const ordered = [];
-          const walk = (j, depth) => {
-            ordered.push({ job: j, depth });
-            (children.get(j.id) || [])
-              .slice()
-              .sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""))
-              .forEach((k) => walk(k, depth + 1));
-          };
-          roots.forEach((r) => walk(r, 0));
-          const treeRows = ordered.map(({ job: j, depth }) => {
-            const first = depth
-              ? sm.el("span", { style: "padding-left:" + depth * 1.5 + "em" }, ["↳ ", idLink(j)])
-              : idLink(j);
-            return [
-              first,
-              j.kind,
-              j.status,
-              String(j.priority),
-              Math.round(j.progress * 100) + "%",
-              String(j.attempts),
-              sm.time(j.started_at),
-              sm.time(j.finished_at),
-              errorCell(j),
-              cancelButton(j),
-            ];
+          const rows = page.items.map((j) => [
+            idLink(j.id),
+            j.parent_id ? idLink(j.parent_id) : "",
+            j.kind,
+            j.status,
+            String(j.priority),
+            Math.round(j.progress * 100) + "%",
+            String(j.attempts),
+            sm.time(j.started_at),
+            sm.time(j.finished_at),
+            errorCell(j),
+            cancelButton(j),
+          ]);
+          const headers = [
+            "Job",
+            "Parent",
+            "Kind",
+            "Status",
+            "Priority",
+            "Progress",
+            "Attempts",
+            "Started",
+            "Finished",
+            "Error",
+            "Actions",
+          ];
+          const table = sm.table(headers, rows, {
+            rowClass: (i) => tint(page.items[i].status),
           });
-          const headers = ["Job", "Kind", "Status", "Priority", "Progress", "Attempts", "Started", "Finished", "Error", "Actions"];
-          const allTable = sm.table(headers, treeRows, {
-            rowClass: (index) => tint(ordered[index].job.status),
-          });
-          allTable.classList.add("sm-jobs-tree");
-          const trs = allTable.querySelectorAll("tbody tr");
-          const filter = sm.el("input", {
-            type: "search",
-            placeholder: "filter by id, kind, status...",
-            autocomplete: "off",
-            "aria-label": "Filter jobs",
-          });
-          filter.addEventListener("input", () => {
-            const needle = filter.value.trim().toLowerCase();
-            trs.forEach((tr) => {
-              tr.hidden = needle !== "" && !tr.textContent.toLowerCase().includes(needle);
-            });
-          });
-          const allPanel = sm.el("div");
-          allPanel.appendChild(sm.el("p", null, sm.el("label", null, ["Filter ", filter])));
-          allPanel.appendChild(allTable);
-
-          main.appendChild(
-            sm.tabs(
-              [
-                { label: "Active (" + active.length + ")", panel: activePanel },
-                { label: "All (" + jobs.length + ")", panel: allPanel },
-              ],
-              active.length ? 0 : 1,
-            ),
-          );
+          table.classList.add("sm-jobs-table");
+          main.appendChild(sm.el("div", { class: "sm-table-wrap" }, table));
+          main.appendChild(sm.pager(page.total, page.offset, page.limit));
         } catch (err) {
           main.textContent = "Could not load jobs.";
         }

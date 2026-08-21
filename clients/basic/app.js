@@ -214,7 +214,6 @@ const sm = (() => {
       if (vid) bits.push(vid.width + "x" + vid.height, vid.codec);
       const aud = detail && detail.audio && detail.audio[0];
       if (aud) bits.push(aud.codec + " " + aud.channels + "ch");
-      if (v.edition) bits.push(v.edition);
       bits.push(Math.round(v.size_bytes / 1048576) + " MB");
       if (!v.available) bits.push("unavailable");
       const sep = v.available ? " · " : " ";
@@ -359,6 +358,7 @@ const sm = (() => {
     const caption = el("figcaption", null, [
       el("strong", { text: opts.title }),
       opts.subtitle ? el("div", { text: opts.subtitle }) : null,
+      opts.caption ? el("div", { text: opts.caption }) : null,
     ]);
     return el("li", null, el("a", { href: opts.href }, el("figure", null, [image, caption])));
   }
@@ -867,8 +867,15 @@ const sm = (() => {
     return panel;
   }
 
-  function relinkButton(versionId, label, onDone) {
+  function relinkButton(versionId, label, onDone, available) {
     const btn = el("button", { type: "button" }, "Relink");
+    if (available === false) {
+      btn.disabled = true;
+      btn.title =
+        "The file for this version is missing, so there is nothing to read. " +
+        "Remove the version instead.";
+      return btn;
+    }
     btn.addEventListener("click", () => {
       openDialog("Relink " + label, (box) =>
         relinkPanel(versionId, label, () => {
@@ -876,6 +883,40 @@ const sm = (() => {
           box.close();
         }),
       );
+    });
+    return btn;
+  }
+
+  function deleteTitleButton(kind, id, label, blockedReason, onDone) {
+    const btn = el(
+      "button",
+      { type: "button", class: blockedReason ? "sm-secondary" : "sm-danger" },
+      "Delete",
+    );
+    if (blockedReason) {
+      btn.disabled = true;
+      btn.title = blockedReason;
+      return btn;
+    }
+    btn.addEventListener("click", async () => {
+      if (
+        !window.confirm(
+          "Delete " +
+            label +
+            " from the catalog, along with its artwork, cast and ratings. " +
+            "Nothing is removed from disk.",
+        )
+      ) {
+        return;
+      }
+      btn.disabled = true;
+      try {
+        await json("/api/v1/admin/" + kind + "/" + enc(id), { method: "DELETE" });
+        if (onDone) onDone();
+      } catch (e) {
+        btn.disabled = false;
+        window.alert("Delete failed.");
+      }
     });
     return btn;
   }
@@ -955,6 +996,10 @@ const sm = (() => {
 
   function episodeCode(season, number) {
     return "S" + pad2(season) + "E" + pad2(number);
+  }
+
+  function episodeCount(n) {
+    return n === 1 ? "1 episode" : n + " episodes";
   }
 
   function groupCode(code) {
@@ -1063,10 +1108,12 @@ const sm = (() => {
     watchedControls,
     relinkPanel,
     relinkButton,
+    deleteTitleButton,
     refreshMetadataButton,
     accessAwareEmpty,
     pad2,
     episodeCode,
+    episodeCount,
     groupCode,
     sortControls,
     mosaicPoster,

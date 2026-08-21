@@ -54,6 +54,7 @@ mod tests {
             watcher,
             scan_schedule: schedule.map(Into::into),
             metadata_sources: Vec::new(),
+            sort_articles: Vec::new(),
             created_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
         }

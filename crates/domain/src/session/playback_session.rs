@@ -19,4 +19,5 @@ pub struct PlaybackSession {
     pub selected: SelectedTracks,
     pub started_at: Timestamp,
     pub last_heartbeat_at: Timestamp,
+    pub completed: bool,
 }

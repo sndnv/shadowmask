@@ -48,7 +48,6 @@ where
         };
         let existing = detail.subtitle_files;
 
-        let mut produced: Vec<SubtitleFile> = Vec::new();
         for target in &payload.target_languages {
             let target_language = LanguageCode(target.clone());
             if has_language(&existing, &target_language) {
@@ -127,7 +126,7 @@ where
                 )
                 .await
                 .map_err(|e| JobError::Retryable(e.to_string()))?;
-            produced.push(SubtitleFile {
+            let produced = SubtitleFile {
                 id: SubtitleFileId(format!(
                     "machine:{}:{}",
                     payload.version_id.0, target_language.0
@@ -138,18 +137,16 @@ where
                 source: SubtitleSource::MachineTranslated,
                 path,
                 translated_from: Some(source.id.clone()),
-            });
+                label: None,
+                pinned: false,
+            };
+            self.catalog
+                .add_subtitle_file(&payload.version_id, &produced)
+                .await
+                .map_err(|e| JobError::Retryable(e.to_string()))?;
         }
 
-        if produced.is_empty() {
-            return Ok(());
-        }
-        let mut merged = existing;
-        merged.extend(produced);
-        self.catalog
-            .set_subtitle_files(&payload.version_id, &merged)
-            .await
-            .map_err(|e| JobError::Retryable(e.to_string()))
+        Ok(())
     }
 }
 
@@ -185,8 +182,8 @@ mod tests {
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
     use domain::media::{FetchedSubtitle, SubtitleFormat};
     use jiff::Timestamp;
+    use mocks::MockCatalogRepo;
     use services::library::TranslationJobPayload;
-    use services::mock::MockCatalogRepo;
 
     use super::*;
 
@@ -270,6 +267,8 @@ mod tests {
             source,
             path: format!("/subs/{id}.vtt"),
             translated_from: None,
+            label: None,
+            pinned: false,
         }
     }
 
@@ -283,7 +282,6 @@ mod tests {
             path: "/m/v1.mkv".into(),
             size_bytes: 1,
             duration_ms: 1000,
-            edition: None,
             available: true,
             added_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
@@ -317,7 +315,6 @@ mod tests {
             source_subtitle_id: None,
         }
         .encode()
-        .unwrap()
     }
 
     fn payload_with_source(source_id: &str, target: &str) -> String {
@@ -327,7 +324,6 @@ mod tests {
             source_subtitle_id: Some(source_id.to_owned()),
         }
         .encode()
-        .unwrap()
     }
 
     async fn seed(catalog: &MockCatalogRepo, files: &[SubtitleFile]) {

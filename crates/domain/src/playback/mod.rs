@@ -1,3 +1,4 @@
+mod completion;
 mod favorite;
 mod playback_progress;
 mod resume_card;
@@ -9,6 +10,7 @@ mod watch_target;
 mod watched_rollup;
 mod watchlist_item;
 
+pub use completion::{COMPLETION_PERCENT, START_FLOOR_MS, START_PERCENT, is_complete, is_started};
 pub use favorite::Favorite;
 pub use playback_progress::PlaybackProgress;
 pub use resume_card::{ResumeCard, progress_percent};

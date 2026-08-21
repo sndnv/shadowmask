@@ -16,6 +16,11 @@ expression: value
       "/media/new"
     ],
     "scan_schedule": null,
+    "sort_articles": [
+      "the",
+      "a",
+      "an"
+    ],
     "updated_at": "[updated_at]",
     "watcher": "manual"
   },

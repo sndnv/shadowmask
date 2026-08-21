@@ -32,7 +32,7 @@ where
 mod tests {
     use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
     use jiff::Timestamp;
-    use services::mock::MockSearchIndex;
+    use mocks::MockSearchIndex;
 
     use super::*;
 

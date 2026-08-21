@@ -74,7 +74,7 @@ mod tests {
     use super::*;
     use domain::job::{JobKind, JobPriority};
     use jiff::SignedDuration;
-    use services::mock::MockJobStore;
+    use mocks::MockJobStore;
 
     fn schedule(every_secs: i64, next_fire_at: Timestamp) -> Schedule {
         Schedule {
@@ -89,27 +89,29 @@ mod tests {
     #[tokio::test]
     async fn tick_fires_due_schedule_and_advances() {
         let now = Timestamp::now();
-        let queue = JobQueue::new(MockJobStore::new());
+        let store = MockJobStore::new();
+        let queue = JobQueue::new(store.clone());
         let mut scheduler = Scheduler::new();
         scheduler.register(schedule(60, now));
 
         assert_eq!(scheduler.tick(now, &queue).await.unwrap(), 1);
-        assert_eq!(queue.list().await.unwrap().len(), 1);
+        assert_eq!(store.list().await.unwrap().len(), 1);
 
         assert_eq!(scheduler.tick(now, &queue).await.unwrap(), 0);
-        assert_eq!(queue.list().await.unwrap().len(), 1);
+        assert_eq!(store.list().await.unwrap().len(), 1);
     }
 
     #[tokio::test]
     async fn tick_skips_not_due_schedule() {
         let now = Timestamp::now();
         let future = now.saturating_add(SignedDuration::from_secs(60)).unwrap();
-        let queue = JobQueue::new(MockJobStore::new());
+        let store = MockJobStore::new();
+        let queue = JobQueue::new(store.clone());
         let mut scheduler = Scheduler::new();
         scheduler.register(schedule(60, future));
 
         assert_eq!(scheduler.tick(now, &queue).await.unwrap(), 0);
-        assert!(queue.list().await.unwrap().is_empty());
+        assert!(store.list().await.unwrap().is_empty());
     }
 
     #[tokio::test(start_paused = true)]
@@ -117,7 +119,8 @@ mod tests {
         use std::time::Duration;
         use tokio::sync::oneshot;
 
-        let queue = JobQueue::new(MockJobStore::new());
+        let store = MockJobStore::new();
+        let queue = JobQueue::new(store.clone());
         let mut scheduler = Scheduler::new();
         scheduler.register(schedule(60, Timestamp::now()));
 
@@ -132,6 +135,6 @@ mod tests {
         let (result, ()) = tokio::join!(driver, control);
         result.unwrap();
 
-        assert!(!queue.list().await.unwrap().is_empty());
+        assert!(!store.list().await.unwrap().is_empty());
     }
 }

@@ -1,6 +1,8 @@
 use domain::catalog::VersionId;
 use serde::{Deserialize, Serialize};
 
+use crate::job::encode_payload;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrickplayJobPayload {
     pub version_id: VersionId,
@@ -9,8 +11,8 @@ pub struct TrickplayJobPayload {
 }
 
 impl TrickplayJobPayload {
-    pub fn encode(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string(&Wire::from(self))
+    pub fn encode(&self) -> String {
+        encode_payload(&Wire::from(self))
     }
 
     pub fn decode(raw: &str) -> Result<Self, serde_json::Error> {
@@ -56,7 +58,7 @@ mod tests {
             source_path: "/media/v1.mkv".into(),
             duration_ms: 1_200_000,
         };
-        let encoded = payload.encode().unwrap();
+        let encoded = payload.encode();
         assert_eq!(TrickplayJobPayload::decode(&encoded).unwrap(), payload);
     }
 

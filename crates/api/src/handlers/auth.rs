@@ -13,6 +13,8 @@ use crate::dto::auth::{
 use crate::error::ApiResult;
 use crate::extract::AuthUser;
 use crate::handlers::{deny_player, log_fail, require_admin_or_self};
+use domain::service::AuthService;
+
 use crate::state::AppServices;
 
 pub async fn login<S: AppServices>(
@@ -20,6 +22,7 @@ pub async fn login<S: AppServices>(
     Json(req): Json<LoginRequest>,
 ) -> ApiResult<Json<TokenPairResponse>> {
     let tokens = state
+        .auth()
         .login(&req.username, &req.password)
         .await
         .map_err(log_fail(&req.username, "log in"))?;
@@ -32,6 +35,7 @@ pub async fn refresh<S: AppServices>(
     Json(req): Json<RefreshRequest>,
 ) -> ApiResult<Json<TokenPairResponse>> {
     let tokens = state
+        .auth()
         .refresh(&req.refresh_token)
         .await
         .map_err(log_fail("anonymous", "refresh access token"))?;
@@ -44,6 +48,7 @@ pub async fn link<S: AppServices>(
     Json(req): Json<LinkRequest>,
 ) -> ApiResult<Json<IssuedTokenResponse>> {
     let issued = state
+        .auth()
         .redeem_link_code(&req.code, req.device.into())
         .await
         .map_err(log_fail("anonymous", "redeem link code"))?;
@@ -65,6 +70,7 @@ pub async fn create_link<S: AppServices>(
     deny_player(&principal)?;
     require_admin_or_self(&principal, &target)?;
     let link = state
+        .auth()
         .create_link_code(&principal, req.user_id.map(UserId), req.ttl_secs)
         .await
         .map_err(log_fail(actor, "create link code"))?;
@@ -82,6 +88,7 @@ pub async fn link_codes<S: AppServices>(
     deny_player(&principal)?;
     require_admin_or_self(&principal, &target)?;
     let codes = state
+        .auth()
         .list_link_codes(&target)
         .await
         .map_err(log_fail(actor, "list link codes"))?;
@@ -105,6 +112,7 @@ pub async fn revoke_link_code<S: AppServices>(
     deny_player(&principal)?;
     require_admin_or_self(&principal, &target)?;
     state
+        .auth()
         .revoke_link_code(&target, &code)
         .await
         .map_err(log_fail(actor, "revoke a link code"))?;
@@ -120,6 +128,7 @@ pub async fn logout<S: AppServices>(
     Json(req): Json<LogoutRequest>,
 ) -> ApiResult<StatusCode> {
     state
+        .auth()
         .logout(&req.refresh_token)
         .await
         .map_err(log_fail("anonymous", "log out"))?;
@@ -136,6 +145,7 @@ pub async fn logout_all<S: AppServices>(
     let target = UserId(user_id);
     require_admin_or_self(&principal, &target)?;
     state
+        .auth()
         .logout_all(&target)
         .await
         .map_err(log_fail(actor, "log out all sessions"))?;
@@ -155,6 +165,7 @@ pub async fn devices<S: AppServices>(
     let target = UserId(user_id);
     require_admin_or_self(&principal, &target)?;
     let devices = state
+        .auth()
         .list_devices(&target)
         .await
         .map_err(log_fail(actor, "list devices"))?;
@@ -177,6 +188,7 @@ pub async fn revoke_device<S: AppServices>(
     let target = UserId(user_id);
     require_admin_or_self(&principal, &target)?;
     state
+        .auth()
         .revoke_device(&target, &DeviceId(device_id))
         .await
         .map_err(log_fail(actor, "revoke a device"))?;
@@ -196,6 +208,7 @@ pub async fn tokens<S: AppServices>(
     let target = UserId(user_id);
     require_admin_or_self(&principal, &target)?;
     let tokens = state
+        .auth()
         .list_api_tokens(&target)
         .await
         .map_err(log_fail(actor, "list API tokens"))?;
@@ -218,6 +231,7 @@ pub async fn revoke_token<S: AppServices>(
     let target = UserId(user_id);
     require_admin_or_self(&principal, &target)?;
     state
+        .auth()
         .revoke_api_token(&target, &ApiTokenId(token_id))
         .await
         .map_err(log_fail(actor, "revoke an API token"))?;

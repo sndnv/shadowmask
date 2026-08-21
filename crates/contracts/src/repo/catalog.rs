@@ -1,7 +1,7 @@
 use domain::catalog::{
-    ArtworkId, ArtworkOwner, ArtworkRef, Collection, CollectionId, Episode, EpisodeId, Movie,
-    MovieId, Season, SeasonId, Series, SeriesId, SortOrder, TitleId, TitleListFilter, TitleRef,
-    TitleSort, Version, VersionDetail, VersionId,
+    ArtworkId, ArtworkOwner, ArtworkRef, ArtworkWidth, Collection, CollectionId, Episode,
+    EpisodeId, Movie, MovieId, RandomScope, Season, SeasonId, Series, SeriesId, SortOrder, TitleId,
+    TitleKind, TitleListFilter, TitleRef, TitleSort, Version, VersionDetail, VersionId,
 };
 use domain::common::{LanguageCode, PageRequest, Quality};
 use domain::library::LibraryId;
@@ -50,7 +50,6 @@ pub fn catalog_seed() -> CatalogSeed {
             path: "/media/v1.mkv".into(),
             size_bytes: 1_000_000,
             duration_ms: 120_000,
-            edition: Some("Director's Cut".into()),
             available: true,
             added_at: ts(14),
             updated_at: ts(14),
@@ -87,6 +86,8 @@ pub fn catalog_seed() -> CatalogSeed {
             source: SubtitleSource::External,
             path: "/media/v1.en.srt".into(),
             translated_from: None,
+            label: None,
+            pinned: false,
         }],
         chapters: vec![Chapter {
             title: "Chapter 1".into(),
@@ -119,6 +120,7 @@ pub fn catalog_seed() -> CatalogSeed {
             Movie {
                 id: MovieId("m1".into()),
                 title: "Alpha".into(),
+                sort_title: "alpha".into(),
                 year: Some(2020),
                 overview: Some("first".into()),
                 runtime_minutes: Some(100),
@@ -126,6 +128,7 @@ pub fn catalog_seed() -> CatalogSeed {
                     system: "MPAA".into(),
                     code: "PG-13".into(),
                 }),
+                manually_edited: false,
                 added_at: ts(1),
                 updated_at: ts(1),
                 artwork: Vec::new(),
@@ -133,10 +136,12 @@ pub fn catalog_seed() -> CatalogSeed {
             Movie {
                 id: MovieId("m2".into()),
                 title: "Beta".into(),
+                sort_title: "beta".into(),
                 year: None,
                 overview: None,
                 runtime_minutes: None,
                 content_rating: None,
+                manually_edited: false,
                 added_at: ts(2),
                 updated_at: ts(2),
                 artwork: Vec::new(),
@@ -145,9 +150,11 @@ pub fn catalog_seed() -> CatalogSeed {
         series: vec![Series {
             id: SeriesId("s1".into()),
             title: "Gamma".into(),
+            sort_title: "gamma".into(),
             year: Some(2019),
             overview: None,
             content_rating: None,
+            manually_edited: false,
             added_at: ts(3),
             updated_at: ts(3),
             artwork: Vec::new(),
@@ -171,6 +178,7 @@ pub fn catalog_seed() -> CatalogSeed {
                 overview: None,
                 runtime_minutes: Some(42),
                 air_date: Some(ts(4)),
+                manually_edited: false,
                 added_at: ts(5),
                 updated_at: ts(5),
                 artwork: Vec::new(),
@@ -183,6 +191,7 @@ pub fn catalog_seed() -> CatalogSeed {
                 overview: None,
                 runtime_minutes: None,
                 air_date: None,
+                manually_edited: false,
                 added_at: ts(6),
                 updated_at: ts(6),
                 artwork: Vec::new(),
@@ -207,7 +216,6 @@ pub fn catalog_seed() -> CatalogSeed {
                 path: "/media/v2.mp4".into(),
                 size_bytes: 2_000_000,
                 duration_ms: 120_000,
-                edition: None,
                 available: true,
                 added_at: ts(12),
                 updated_at: ts(12),
@@ -221,7 +229,6 @@ pub fn catalog_seed() -> CatalogSeed {
                 path: "/media/v3.mkv".into(),
                 size_bytes: 3_000_000,
                 duration_ms: 2_520_000,
-                edition: None,
                 available: true,
                 added_at: ts(13),
                 updated_at: ts(13),
@@ -324,6 +331,159 @@ pub fn catalog_seed() -> CatalogSeed {
     }
 }
 
+fn in_libraries(libraries: &[&str]) -> TitleListFilter {
+    TitleListFilter {
+        libraries: Some(libraries.iter().map(|id| LibraryId((*id).into())).collect()),
+        ..TitleListFilter::default()
+    }
+}
+
+fn with_genres(genres: &[&str]) -> TitleListFilter {
+    TitleListFilter {
+        genres: genres.iter().map(|name| (*name).to_string()).collect(),
+        ..TitleListFilter::default()
+    }
+}
+
+async fn random_picks_stay_inside_their_scope<R: CatalogRepository>(repo: &R) {
+    let any = TitleListFilter::default();
+    let movie = TitleId::Movie(MovieId("m1".into()));
+    let episode = TitleId::Episode(EpisodeId("e1".into()));
+
+    assert_eq!(
+        repo.random_playable_title(&RandomScope::Movies, &any)
+            .await
+            .unwrap(),
+        Some(movie.clone()),
+        "m2 has no version at all, so m1 is the only playable movie"
+    );
+    assert_eq!(
+        repo.random_playable_title(&RandomScope::Episodes, &any)
+            .await
+            .unwrap(),
+        Some(episode.clone()),
+        "e2 has no version at all, so e1 is the only playable episode"
+    );
+    assert_eq!(
+        repo.random_playable_title(&RandomScope::Series(SeriesId("s1".into())), &any)
+            .await
+            .unwrap(),
+        Some(episode.clone())
+    );
+    assert_eq!(
+        repo.random_playable_title(&RandomScope::Season(SeasonId("se1".into())), &any)
+            .await
+            .unwrap(),
+        Some(episode.clone())
+    );
+    assert_eq!(
+        repo.random_playable_title(&RandomScope::Collection(CollectionId("c1".into())), &any)
+            .await
+            .unwrap(),
+        Some(movie.clone())
+    );
+
+    assert!(
+        repo.random_playable_title(&RandomScope::Series(SeriesId("nope".into())), &any)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        repo.random_playable_title(&RandomScope::Season(SeasonId("nope".into())), &any)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        repo.random_playable_title(&RandomScope::Collection(CollectionId("nope".into())), &any)
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    assert_eq!(
+        repo.random_playable_title(&RandomScope::Movies, &in_libraries(&["lib1"]))
+            .await
+            .unwrap(),
+        Some(movie.clone())
+    );
+    assert!(
+        repo.random_playable_title(&RandomScope::Movies, &in_libraries(&["lib2"]))
+            .await
+            .unwrap()
+            .is_none(),
+        "m1 lives only in lib1, so a lib2 reader gets nothing"
+    );
+    assert_eq!(
+        repo.random_playable_title(&RandomScope::Episodes, &in_libraries(&["lib2"]))
+            .await
+            .unwrap(),
+        Some(episode.clone())
+    );
+    assert!(
+        repo.random_playable_title(&RandomScope::Episodes, &in_libraries(&["lib1"]))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        repo.random_playable_title(&RandomScope::Movies, &in_libraries(&[]))
+            .await
+            .unwrap()
+            .is_none(),
+        "a reader with no library access can never be handed a title"
+    );
+
+    assert_eq!(
+        repo.random_playable_title(&RandomScope::Movies, &with_genres(&["Drama"]))
+            .await
+            .unwrap(),
+        Some(movie.clone())
+    );
+    assert!(
+        repo.random_playable_title(&RandomScope::Movies, &with_genres(&["Comedy"]))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        repo.random_playable_title(&RandomScope::Episodes, &with_genres(&["Drama"]))
+            .await
+            .unwrap()
+            .is_none(),
+        "the episode genre gate reads the series, and s1 is Action only"
+    );
+    assert_eq!(
+        repo.random_playable_title(&RandomScope::Episodes, &with_genres(&["Action"]))
+            .await
+            .unwrap(),
+        Some(episode.clone())
+    );
+
+    let blocked = |code: &str| TitleListFilter {
+        blocked_ratings: vec![ContentRating {
+            system: "MPAA".into(),
+            code: code.into(),
+        }],
+        ..TitleListFilter::default()
+    };
+    assert_eq!(
+        repo.random_playable_title(&RandomScope::Movies, &blocked("R"))
+            .await
+            .unwrap(),
+        Some(movie),
+        "blocking a rating m1 does not carry must not filter it out"
+    );
+    assert!(
+        repo.random_playable_title(&RandomScope::Movies, &blocked("PG-13"))
+            .await
+            .unwrap()
+            .is_none(),
+        "m1 is PG-13, so a PG-13 block leaves nothing playable"
+    );
+}
+
 pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: impl AsyncFn(&R)) {
     assert!(
         repo.get_movie(&MovieId("nope".into()))
@@ -342,6 +502,8 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     );
 
     seed(&repo).await;
+
+    random_picks_stay_inside_their_scope(&repo).await;
 
     let movies = repo.list_movies(page(0, 10)).await.unwrap();
     assert_eq!(movies.total, 2);
@@ -384,6 +546,30 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         "Alpha"
     );
 
+    let batched = repo
+        .movies_by_ids(&[
+            MovieId("m2".into()),
+            MovieId("nope".into()),
+            MovieId("m1".into()),
+        ])
+        .await
+        .unwrap();
+    assert_eq!(
+        batched.iter().map(|m| m.id.0.as_str()).collect::<Vec<_>>(),
+        vec!["m2", "m1"],
+        "movies come back in the order asked for, and unknown ids are dropped"
+    );
+    assert_eq!(
+        batched[1].artwork,
+        repo.get_movie(&MovieId("m1".into()))
+            .await
+            .unwrap()
+            .unwrap()
+            .artwork,
+        "a batched movie is hydrated exactly like a single one"
+    );
+    assert!(repo.movies_by_ids(&[]).await.unwrap().is_empty());
+
     let series = repo.list_series(page(0, 10)).await.unwrap();
     assert_eq!(series.total, 1);
     assert_eq!(series.items[0].id, SeriesId("s1".into()));
@@ -411,6 +597,57 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     );
     assert_eq!(episodes[0].air_date, Some(ts(4)));
     assert_eq!(episodes[1].air_date, None);
+
+    let batched_series = repo
+        .series_by_ids(&[SeriesId("nope".into()), SeriesId("s1".into())])
+        .await
+        .unwrap();
+    assert_eq!(
+        batched_series
+            .iter()
+            .map(|s| s.id.0.as_str())
+            .collect::<Vec<_>>(),
+        vec!["s1"],
+        "series come back in the order asked for, and unknown ids are dropped"
+    );
+    assert_eq!(
+        batched_series[0].artwork,
+        repo.get_series(&SeriesId("s1".into()))
+            .await
+            .unwrap()
+            .unwrap()
+            .artwork,
+        "a batched series is hydrated exactly like a single one"
+    );
+    assert!(repo.series_by_ids(&[]).await.unwrap().is_empty());
+
+    assert_eq!(
+        repo.episode_ids_for_series(&[SeriesId("s1".into())])
+            .await
+            .unwrap()[&SeriesId("s1".into())],
+        vec![EpisodeId("e1".into()), EpisodeId("e2".into())],
+        "a rollup counts a series without walking its seasons one at a time"
+    );
+    assert_eq!(
+        repo.episode_ids_for_seasons(&[SeasonId("se1".into())])
+            .await
+            .unwrap()[&SeasonId("se1".into())],
+        vec![EpisodeId("e1".into()), EpisodeId("e2".into())]
+    );
+    assert!(
+        repo.episode_ids_for_series(&[SeriesId("no".into())])
+            .await
+            .unwrap()
+            .is_empty(),
+        "a target with no episodes is absent from the map rather than an error, \
+         so the rollup reports zero of zero"
+    );
+    assert!(
+        repo.episode_ids_for_series(&[]).await.unwrap().is_empty(),
+        "a grid page of only movies asks for no series at all, and an empty \
+         IN list is not valid SQL"
+    );
+    assert!(repo.episode_ids_for_seasons(&[]).await.unwrap().is_empty());
     assert!(
         repo.get_episode(&EpisodeId("e1".into()))
             .await
@@ -424,21 +661,102 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
             .is_none()
     );
 
-    let all_seasons = repo.list_all_seasons().await.unwrap();
+    let ungated = TitleListFilter::default();
+    let recent = repo.recent_episodes(&ungated, 10).await.unwrap();
     assert_eq!(
-        all_seasons
+        recent
             .iter()
-            .map(|s| s.id.0.as_str())
+            .map(|c| c.episode.id.0.as_str())
             .collect::<Vec<_>>(),
-        ["se1"]
+        ["e2", "e1"],
+        "the rail window is newest first, so the caller never sorts the catalog"
     );
-    let all_episodes = repo.list_all_episodes().await.unwrap();
-    let mut all_episode_ids = all_episodes
-        .iter()
-        .map(|e| e.id.0.as_str())
-        .collect::<Vec<_>>();
-    all_episode_ids.sort_unstable();
-    assert_eq!(all_episode_ids, ["e1", "e2"]);
+    assert_eq!(recent[0].series, SeriesId("s1".into()));
+    assert_eq!(recent[0].season, SeasonId("se1".into()));
+    assert_eq!(recent[0].season_number, 1);
+    assert_eq!(
+        repo.recent_episodes(&ungated, 1).await.unwrap().len(),
+        1,
+        "the limit is applied by the query, not by the caller"
+    );
+    assert_eq!(
+        repo.recent_episodes(&in_libraries(&["lib2"]), 10)
+            .await
+            .unwrap()
+            .iter()
+            .map(|c| c.episode.id.0.as_str())
+            .collect::<Vec<_>>(),
+        ["e1"],
+        "e2 has no version at all, so no library grants it"
+    );
+
+    assert_eq!(
+        repo.visible_movies(&[MovieId("m1".into()), MovieId("ghost".into())], &ungated)
+            .await
+            .unwrap()
+            .iter()
+            .map(|m| m.id.0.as_str())
+            .collect::<Vec<_>>(),
+        ["m1"],
+        "an id with no row drops out rather than erroring"
+    );
+    assert!(repo.visible_movies(&[], &ungated).await.unwrap().is_empty());
+    assert!(
+        repo.visible_movies(&[MovieId("m1".into())], &in_libraries(&["lib2"]))
+            .await
+            .unwrap()
+            .is_empty(),
+        "the watchlist cannot route around the library gate"
+    );
+
+    let seen = repo
+        .visible_episodes(
+            &[EpisodeId("e1".into()), EpisodeId("ghost".into())],
+            &ungated,
+        )
+        .await
+        .unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].episode.id, EpisodeId("e1".into()));
+    assert_eq!(seen[0].season_number, 1);
+    assert!(
+        repo.visible_episodes(&[EpisodeId("e1".into())], &in_libraries(&["lib1"]))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    let next = repo
+        .next_episode_in_series(&SeriesId("s1".into()), 1, 1, &ungated)
+        .await
+        .unwrap()
+        .expect("e2 follows e1 in the same season");
+    assert_eq!(next.episode.id, EpisodeId("e2".into()));
+    assert_eq!(
+        repo.next_episode_in_series(&SeriesId("s1".into()), 0, 0, &ungated)
+            .await
+            .unwrap()
+            .expect("both episodes sit after season zero")
+            .episode
+            .id,
+        EpisodeId("e1".into()),
+        "with more than one episode still ahead, up next resumes at the earliest, \
+         never an arbitrary later one"
+    );
+    assert!(
+        repo.next_episode_in_series(&SeriesId("s1".into()), 1, 2, &ungated)
+            .await
+            .unwrap()
+            .is_none(),
+        "the last episode of a series has no successor"
+    );
+    assert!(
+        repo.next_episode_in_series(&SeriesId("s1".into()), 0, 0, &in_libraries(&["lib1"]))
+            .await
+            .unwrap()
+            .is_none(),
+        "up next must not surface an episode the viewer cannot play"
+    );
 
     let collections = repo.list_collections(page(0, 10)).await.unwrap();
     assert_eq!(collections.total, 1);
@@ -478,6 +796,23 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     assert_eq!(episode_versions.total, 1);
     assert_eq!(episode_versions.items[0].id, VersionId("v3".into()));
 
+    assert_eq!(
+        repo.series_versions(&SeriesId("s1".into()))
+            .await
+            .unwrap()
+            .iter()
+            .map(|v| v.id.0.as_str())
+            .collect::<Vec<_>>(),
+        vec!["v3"],
+        "every version under a series arrives in one read, not one per episode"
+    );
+    assert!(
+        repo.series_versions(&SeriesId("nope".into()))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
     let lib1_versions = repo
         .list_library_versions(&LibraryId("lib1".into()), page(0, 10))
         .await
@@ -489,7 +824,6 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         .unwrap();
     assert_eq!(lib2_versions.total, 1);
     assert_eq!(lib2_versions.items[0].id, VersionId("v3".into()));
-    assert_eq!(lib2_versions.items[0].edition, None);
 
     let all_versions = repo.list_all_versions(page(0, 10)).await.unwrap();
     assert_eq!(all_versions.total, 3);
@@ -645,7 +979,6 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         .unwrap()
         .unwrap();
     assert_eq!(detail.version.quality, Quality::Sd);
-    assert_eq!(detail.version.edition, Some("Director's Cut".into()));
     assert_eq!(detail.video.len(), 1);
     assert_eq!(detail.video[0].codec, "h264");
     assert_eq!(detail.video[0].width, 1920);
@@ -720,18 +1053,65 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     assert_eq!(updated.added_at, ts(11));
     assert_eq!(updated.updated_at, ts(20));
 
+    assert_eq!(
+        repo.collections_of_movie(&MovieId("m2".into()))
+            .await
+            .unwrap(),
+        vec![CollectionId("c1".into())],
+        "a movie can be found from the collection side"
+    );
+    assert!(
+        repo.collections_of_movie(&MovieId("m1".into()))
+            .await
+            .unwrap()
+            .is_empty(),
+        "a movie dropped from a collection is no longer a member"
+    );
+
     repo.upsert_collection(Collection {
         id: CollectionId("c2".into()),
         name: "New".into(),
         overview: None,
-        movies: Vec::new(),
+        movies: vec![MovieId("m2".into())],
         added_at: ts(21),
         updated_at: ts(21),
         artwork: Vec::new(),
     })
     .await
     .unwrap();
+    assert_eq!(
+        repo.collections_of_movie(&MovieId("m2".into()))
+            .await
+            .unwrap(),
+        vec![CollectionId("c1".into()), CollectionId("c2".into())],
+        "a movie in two collections reports both, in a stable order"
+    );
     assert_eq!(repo.list_collections(page(0, 10)).await.unwrap().total, 2);
+
+    repo.upsert_collection(Collection {
+        id: CollectionId("c3".into()),
+        name: "alpha pack".into(),
+        overview: None,
+        movies: Vec::new(),
+        added_at: ts(22),
+        updated_at: ts(22),
+        artwork: Vec::new(),
+    })
+    .await
+    .unwrap();
+    let listed = repo.list_collections(page(0, 10)).await.unwrap();
+    assert_eq!(
+        listed
+            .items
+            .iter()
+            .map(|c| c.id.0.as_str())
+            .collect::<Vec<_>>(),
+        ["c3", "c2", "c1"],
+        "collections list by name, case-insensitively, not by id"
+    );
+    repo.delete_collection(&CollectionId("c3".into()))
+        .await
+        .unwrap();
 
     repo.delete_collection(&CollectionId("c1".into()))
         .await
@@ -746,16 +1126,30 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     repo.delete_collection(&CollectionId("missing".into()))
         .await
         .unwrap();
+    assert_eq!(
+        repo.collections_of_movie(&MovieId("m2".into()))
+            .await
+            .unwrap(),
+        vec![CollectionId("c2".into())],
+        "deleting one collection leaves the movie's other memberships alone"
+    );
 
     let poster = ArtworkRef {
         id: ArtworkId("art-poster-m1".into()),
         kind: ArtworkKind::Poster,
-        widths: vec![180, 480, 960],
+        widths: vec![
+            ArtworkWidth::new(180, "/art/art-poster-m1/180.jpg"),
+            ArtworkWidth::new(480, "/art/art-poster-m1/480.jpg"),
+            ArtworkWidth::new(960, "/art/art-poster-m1/960.jpg"),
+        ],
     };
     let backdrop = ArtworkRef {
         id: ArtworkId("art-backdrop-m1".into()),
         kind: ArtworkKind::Backdrop,
-        widths: vec![480, 960],
+        widths: vec![
+            ArtworkWidth::new(480, "/art/art-backdrop-m1/480.jpg"),
+            ArtworkWidth::new(960, "/art/art-backdrop-m1/960.jpg"),
+        ],
     };
     repo.set_artwork(
         &ArtworkOwner::Movie(MovieId("m1".into())),
@@ -768,7 +1162,7 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         &[ArtworkRef {
             id: ArtworkId("art-poster-s1".into()),
             kind: ArtworkKind::Poster,
-            widths: vec![180],
+            widths: vec![ArtworkWidth::new(180, "/art/art-poster-s1/180.jpg")],
         }],
     )
     .await
@@ -803,7 +1197,11 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         .unwrap();
     assert_eq!(hydrated_series.artwork.len(), 1);
     assert_eq!(hydrated_series.artwork[0].kind, ArtworkKind::Poster);
-    assert_eq!(hydrated_series.artwork[0].widths, vec![180]);
+    assert_eq!(hydrated_series.artwork[0].sizes(), vec![180]);
+    assert_eq!(
+        hydrated_series.artwork[0].widths[0].path, "/art/art-poster-s1/180.jpg",
+        "the stored path is what the orphan sweep protects"
+    );
 
     repo.set_artwork(
         &ArtworkOwner::Movie(MovieId("m1".into())),
@@ -825,13 +1223,43 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
             .is_empty()
     );
 
+    let artwork_ids = repo.all_artwork_ids().await.unwrap();
+    assert!(artwork_ids.contains(&ArtworkId("art-backdrop-m1".into())));
+    assert!(artwork_ids.contains(&ArtworkId("art-poster-s1".into())));
+    assert!(
+        !artwork_ids.contains(&ArtworkId("art-poster-m1".into())),
+        "artwork replaced on m1 is no longer owned by anything"
+    );
+    assert_eq!(
+        repo.live_artwork_ids(&[
+            "art-backdrop-m1".to_owned(),
+            "art-poster-m1".to_owned(),
+            "never-existed".to_owned(),
+        ])
+        .await
+        .unwrap(),
+        std::collections::HashSet::from(["art-backdrop-m1".to_owned()]),
+        "the sweep asks about owners on disk and only live ones come back"
+    );
+    assert!(repo.live_artwork_ids(&[]).await.unwrap().is_empty());
+    assert_eq!(
+        repo.live_artwork_paths(&["art-poster-s1".to_owned()])
+            .await
+            .unwrap(),
+        std::collections::HashSet::from(["/art/art-poster-s1/180.jpg".to_owned()]),
+        "the per-file sweep asks which files under a live owner are still referenced"
+    );
+    assert!(repo.live_artwork_paths(&[]).await.unwrap().is_empty());
+
     repo.upsert_movie(Movie {
         id: MovieId("um1".into()),
         title: "Ingested".into(),
+        sort_title: "ingested".into(),
         year: Some(2001),
         overview: None,
         runtime_minutes: None,
         content_rating: None,
+        manually_edited: false,
         added_at: ts(7),
         updated_at: ts(7),
         artwork: Vec::new(),
@@ -841,10 +1269,12 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     repo.upsert_movie(Movie {
         id: MovieId("um1".into()),
         title: "Ingested Remux".into(),
+        sort_title: "ingested remux".into(),
         year: Some(2001),
         overview: None,
         runtime_minutes: None,
         content_rating: None,
+        manually_edited: false,
         added_at: ts(999),
         updated_at: ts(8),
         artwork: Vec::new(),
@@ -857,15 +1287,54 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         .unwrap()
         .unwrap();
     assert_eq!(ingested.title, "Ingested Remux");
+    assert_eq!(ingested.sort_title, "ingested remux");
     assert_eq!(ingested.added_at, ts(7));
     assert_eq!(ingested.updated_at, ts(8));
+
+    repo.upsert_movie(Movie {
+        id: MovieId("ua1".into()),
+        title: "The Aardvark".into(),
+        sort_title: "aardvark, the".into(),
+        year: Some(2003),
+        overview: None,
+        runtime_minutes: None,
+        content_rating: None,
+        manually_edited: false,
+        added_at: ts(9),
+        updated_at: ts(9),
+        artwork: Vec::new(),
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        movie_ids(
+            &repo
+                .list_movies_filtered(
+                    &TitleListFilter {
+                        sort: TitleSort::Title,
+                        ..TitleListFilter::default()
+                    },
+                    page(0, 10)
+                )
+                .await
+                .unwrap()
+        ),
+        vec![
+            "ua1".to_owned(),
+            "m1".to_owned(),
+            "m2".to_owned(),
+            "um1".to_owned()
+        ]
+    );
 
     repo.upsert_series(Series {
         id: SeriesId("us1".into()),
         title: "Ingested Show".into(),
+        sort_title: "ingested show".into(),
         year: Some(2002),
         overview: None,
         content_rating: None,
+        manually_edited: false,
         added_at: ts(8),
         updated_at: ts(8),
         artwork: Vec::new(),
@@ -892,6 +1361,7 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         overview: None,
         runtime_minutes: None,
         air_date: None,
+        manually_edited: false,
         added_at: ts(9),
         updated_at: ts(9),
         artwork: Vec::new(),
@@ -907,7 +1377,6 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         path: "/media/uv1.mkv".into(),
         size_bytes: 4_000_000,
         duration_ms: 1_500_000,
-        edition: None,
         available: true,
         added_at: ts(24),
         updated_at: ts(24),
@@ -951,7 +1420,6 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         path: "/media/uv1.mkv".into(),
         size_bytes: 4_000_000,
         duration_ms: 1_500_000,
-        edition: None,
         available: true,
         added_at: ts(999),
         updated_at: ts(25),
@@ -1036,6 +1504,8 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
                 source: SubtitleSource::OpenSubtitles,
                 path: "/subs/uv1.de.vtt".into(),
                 translated_from: None,
+                label: Some("The.Matrix.1999.BluRay".into()),
+                pinned: true,
             },
             SubtitleFile {
                 id: SubtitleFileId("uv1-sf2".into()),
@@ -1045,6 +1515,8 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
                 source: SubtitleSource::Generated,
                 path: "/subs/uv1.en.generated.vtt".into(),
                 translated_from: None,
+                label: None,
+                pinned: false,
             },
             SubtitleFile {
                 id: SubtitleFileId("uv1-sf3".into()),
@@ -1054,6 +1526,8 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
                 source: SubtitleSource::MachineTranslated,
                 path: "/subs/uv1.fr.machine.vtt".into(),
                 translated_from: Some(SubtitleFileId("uv1-sf1".into())),
+                label: None,
+                pinned: false,
             },
         ],
     )
@@ -1093,6 +1567,20 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
             .any(|f| f.source == SubtitleSource::MachineTranslated)
     );
     assert_eq!(uv1_detail.subtitle_files[0].format, SubtitleFormat::Vtt);
+    let pinned = uv1_detail
+        .subtitle_files
+        .iter()
+        .find(|f| f.source == SubtitleSource::OpenSubtitles)
+        .unwrap();
+    assert_eq!(pinned.label.as_deref(), Some("The.Matrix.1999.BluRay"));
+    assert!(pinned.pinned);
+    let generated = uv1_detail
+        .subtitle_files
+        .iter()
+        .find(|f| f.source == SubtitleSource::Generated)
+        .unwrap();
+    assert_eq!(generated.label, None);
+    assert!(!generated.pinned);
 
     repo.set_version_tracks(&uv1, &[], &[], &[], &[])
         .await
@@ -1106,6 +1594,54 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     assert!(uv1_cleared.subtitle_files.is_empty());
     assert!(uv1_cleared.chapters.is_empty());
     assert!(uv1_cleared.trickplay.is_empty());
+
+    // adding appends without reading or rewriting the rows already there, so two
+    // concurrent writers cannot erase each other
+    let added = |id: &str, language: &str, path: &str, pinned: bool| SubtitleFile {
+        id: SubtitleFileId(id.into()),
+        version: uv1.clone(),
+        language: Some(LanguageCode(language.into())),
+        format: SubtitleFormat::Srt,
+        source: SubtitleSource::OpenSubtitles,
+        path: path.into(),
+        translated_from: None,
+        label: None,
+        pinned,
+    };
+    repo.add_subtitle_file(&uv1, &added("uv1-add1", "pt", "/subs/uv1.pt.srt", true))
+        .await
+        .unwrap();
+    repo.add_subtitle_file(&uv1, &added("uv1-add2", "fr", "/subs/uv1.fr.srt", true))
+        .await
+        .unwrap();
+    repo.add_subtitle_file(&uv1, &added("uv1-add3", "es", "/subs/uv1.es.srt", true))
+        .await
+        .unwrap();
+    let uv1_added = repo.version_detail(&uv1).await.unwrap().unwrap();
+    assert_eq!(
+        uv1_added
+            .subtitle_files
+            .iter()
+            .map(|f| f.id.0.as_str())
+            .collect::<Vec<_>>(),
+        vec!["uv1-add1", "uv1-add2", "uv1-add3"]
+    );
+
+    // re-adding the same id updates that row in place instead of failing on the primary key
+    repo.add_subtitle_file(&uv1, &added("uv1-add2", "fr", "/subs/uv1.fr.v2.srt", false))
+        .await
+        .unwrap();
+    let uv1_readded = repo.version_detail(&uv1).await.unwrap().unwrap();
+    assert_eq!(uv1_readded.subtitle_files.len(), 3);
+    let replaced = uv1_readded
+        .subtitle_files
+        .iter()
+        .find(|f| f.id.0 == "uv1-add2")
+        .unwrap();
+    assert_eq!(replaced.path, "/subs/uv1.fr.v2.srt");
+    assert!(!replaced.pinned);
+
+    repo.set_subtitle_files(&uv1, &[]).await.unwrap();
 
     let m1_detail = repo
         .movie_detail(&MovieId("m1".into()))
@@ -1244,9 +1780,11 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         repo.upsert_series(Series {
             id: cascade_series.clone(),
             title: "Cascade".into(),
+            sort_title: "cascade".into(),
             year: None,
             overview: None,
             content_rating: None,
+            manually_edited: false,
             added_at: ts(0),
             updated_at: ts(0),
             artwork: Vec::new(),
@@ -1273,6 +1811,7 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
             overview: None,
             runtime_minutes: None,
             air_date: None,
+            manually_edited: false,
             added_at: ts(0),
             updated_at: ts(0),
             artwork: Vec::new(),
@@ -1302,15 +1841,20 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
             .is_empty()
     );
 
-    assert_eq!(
-        repo.list_genres()
+    let genre_names = async |kind| {
+        repo.list_genres(kind)
             .await
             .unwrap()
             .iter()
-            .map(|g| g.name.as_str())
-            .collect::<Vec<_>>(),
+            .map(|g| g.name.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(genre_names(None).await, ["Action", "Drama"]);
+    assert_eq!(
+        genre_names(Some(TitleKind::Movie)).await,
         ["Action", "Drama"]
     );
+    assert_eq!(genre_names(Some(TitleKind::Series)).await, ["Action"]);
 
     let by_genre = |name: &str| TitleListFilter {
         genres: vec![name.into()],
@@ -1434,4 +1978,324 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     assert!(!available(&repo, "v2").await);
     assert!(!available(&repo, "uv1").await);
     assert!(available(&repo, "v3").await);
+
+    version_rows_and_deletes(&repo).await;
+    manually_edited_survives_a_round_trip(&repo).await;
+}
+
+async fn manually_edited_survives_a_round_trip<R: CatalogRepository>(repo: &R) {
+    let movie_id = MovieId("m1".into());
+    let series_id = SeriesId("s1".into());
+    let episode_id = EpisodeId("e1".into());
+
+    let movie = repo.get_movie(&movie_id).await.unwrap().unwrap();
+    assert!(!movie.manually_edited);
+    let series = repo.get_series(&series_id).await.unwrap().unwrap();
+    assert!(!series.manually_edited);
+    let episode = repo.get_episode(&episode_id).await.unwrap().unwrap();
+    assert!(!episode.manually_edited);
+
+    repo.upsert_movie(Movie {
+        manually_edited: true,
+        ..movie.clone()
+    })
+    .await
+    .unwrap();
+    repo.upsert_series(Series {
+        manually_edited: true,
+        ..series.clone()
+    })
+    .await
+    .unwrap();
+    repo.upsert_episode(Episode {
+        manually_edited: true,
+        ..episode.clone()
+    })
+    .await
+    .unwrap();
+
+    let edited_movie = repo.get_movie(&movie_id).await.unwrap().unwrap();
+    assert!(edited_movie.manually_edited);
+    assert_eq!(edited_movie.title, movie.title);
+    assert_eq!(edited_movie.sort_title, movie.sort_title);
+    assert!(
+        repo.get_series(&series_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .manually_edited
+    );
+    assert!(
+        repo.get_episode(&episode_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .manually_edited
+    );
+
+    repo.upsert_movie(movie).await.unwrap();
+    repo.upsert_series(series).await.unwrap();
+    repo.upsert_episode(episode).await.unwrap();
+
+    assert!(
+        !repo
+            .get_movie(&movie_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .manually_edited
+    );
+    assert!(
+        !repo
+            .get_series(&series_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .manually_edited
+    );
+    assert!(
+        !repo
+            .get_episode(&episode_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .manually_edited
+    );
+}
+
+async fn version_rows_and_deletes<R: CatalogRepository>(repo: &R) {
+    let uv1 = VersionId("uv1".into());
+    assert!(
+        repo.get_version(&VersionId("nope".into()))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let stored = repo.get_version(&uv1).await.unwrap().unwrap();
+    assert_eq!(stored.quality, Quality::Uhd);
+    assert_eq!(stored.size_bytes, 4_000_000);
+    assert_eq!(stored.duration_ms, 1_500_000);
+    assert_eq!(stored.path, "/media/uv1.mkv");
+
+    repo.set_version_tracks(
+        &uv1,
+        &[VideoTrack {
+            index: 0,
+            codec: "hevc".into(),
+            width: 3840,
+            height: 2160,
+            bit_depth: 10,
+            hdr: None,
+            frame_rate: 24.0,
+            bitrate: None,
+        }],
+        &[],
+        &[],
+        &[Chapter {
+            title: "Cold Open".into(),
+            start_ms: 0,
+        }],
+    )
+    .await
+    .unwrap();
+    repo.set_subtitle_files(
+        &uv1,
+        &[SubtitleFile {
+            id: SubtitleFileId("uv1-doomed".into()),
+            version: uv1.clone(),
+            language: Some(LanguageCode("fr".into())),
+            format: SubtitleFormat::Vtt,
+            source: SubtitleSource::MachineTranslated,
+            path: "/subs/uv1.fr.machine.vtt".into(),
+            translated_from: None,
+            label: None,
+            pinned: false,
+        }],
+    )
+    .await
+    .unwrap();
+    repo.set_trickplay(
+        &uv1,
+        &[TrickplayAsset {
+            version: uv1.clone(),
+            interval_ms: 5_000,
+            columns: 8,
+            rows: 8,
+            tile_width: 320,
+            tile_height: 180,
+            sheet_paths: vec!["/tp/uv1/sheet-001.jpg".into()],
+        }],
+    )
+    .await
+    .unwrap();
+    let before = repo.version_detail(&uv1).await.unwrap().unwrap();
+    assert_eq!(before.video.len(), 1);
+    assert_eq!(before.chapters.len(), 1);
+    assert_eq!(before.subtitle_files.len(), 1);
+    assert_eq!(before.trickplay.len(), 1);
+
+    assert!(repo.all_version_ids().await.unwrap().contains(&uv1));
+    assert_eq!(
+        repo.live_version_ids(&[uv1.0.clone(), "ghost".to_owned()])
+            .await
+            .unwrap(),
+        std::collections::HashSet::from([uv1.0.clone()]),
+        "only ids that still exist come back, and nothing else is loaded"
+    );
+    assert!(repo.live_version_ids(&[]).await.unwrap().is_empty());
+    assert_eq!(
+        repo.live_subtitle_paths(&[uv1.0.clone(), "ghost".to_owned()])
+            .await
+            .unwrap(),
+        std::collections::HashSet::from(["/subs/uv1.fr.machine.vtt".to_owned()]),
+        "a subtitle file the catalog no longer lists is what the per-file sweep collects"
+    );
+    assert!(repo.live_subtitle_paths(&[]).await.unwrap().is_empty());
+    assert_eq!(
+        repo.live_trickplay_paths(&[uv1.0.clone(), "ghost".to_owned()])
+            .await
+            .unwrap(),
+        std::collections::HashSet::from(["/tp/uv1/sheet-001.jpg".to_owned()]),
+        "a regenerate with fewer sheets leaves the tail behind unless this is exact"
+    );
+    assert!(repo.live_trickplay_paths(&[]).await.unwrap().is_empty());
+
+    repo.delete_version(&uv1).await.unwrap();
+    assert!(repo.get_version(&uv1).await.unwrap().is_none());
+    assert!(repo.version_detail(&uv1).await.unwrap().is_none());
+    let live = repo.all_version_ids().await.unwrap();
+    assert!(
+        !live.contains(&uv1),
+        "a deleted version stops counting as live"
+    );
+    assert!(live.contains(&VersionId("v1".into())));
+    assert!(
+        repo.get_version(&VersionId("v1".into()))
+            .await
+            .unwrap()
+            .is_some()
+    );
+    repo.delete_version(&uv1).await.unwrap();
+
+    repo.upsert_version(Version {
+        id: uv1.clone(),
+        title: TitleId::Episode(EpisodeId("ue1".into())),
+        library: LibraryId("lib1".into()),
+        quality: Quality::Uhd,
+        container: "mkv".into(),
+        path: "/media/uv1.mkv".into(),
+        size_bytes: 4_000_000,
+        duration_ms: 1_500_000,
+        available: true,
+        added_at: ts(26),
+        updated_at: ts(26),
+    })
+    .await
+    .unwrap();
+    let reborn = repo.version_detail(&uv1).await.unwrap().unwrap();
+    assert!(reborn.video.is_empty());
+    assert!(reborn.chapters.is_empty());
+    assert!(reborn.subtitle_files.is_empty());
+    assert!(reborn.trickplay.is_empty());
+
+    let us1 = SeriesId("us1".into());
+    let use1 = SeasonId("use1".into());
+    let ue1 = EpisodeId("ue1".into());
+
+    let counted = repo.series_detail(&us1).await.unwrap().unwrap();
+    assert_eq!(counted.episodes_total, 1);
+    assert_eq!(
+        counted.episodes_with_available_version, 1,
+        "an episode whose version is available counts as playable"
+    );
+
+    assert!(
+        !repo.delete_series(&us1).await.unwrap(),
+        "a series that still has seasons is refused"
+    );
+    assert!(
+        !repo.delete_season(&use1).await.unwrap(),
+        "a season that still has episodes is refused"
+    );
+    assert!(
+        !repo.delete_episode(&ue1).await.unwrap(),
+        "an episode that still has versions is refused"
+    );
+    assert!(
+        !repo.delete_movie(&MovieId("m1".into())).await.unwrap(),
+        "a movie that still has versions is refused"
+    );
+    assert!(
+        repo.get_series(&us1).await.unwrap().is_some(),
+        "a refused delete writes nothing"
+    );
+
+    repo.delete_version(&uv1).await.unwrap();
+    let stranded = repo.series_detail(&us1).await.unwrap().unwrap();
+    assert_eq!(stranded.episodes_total, 1);
+    assert_eq!(
+        stranded.episodes_with_available_version, 0,
+        "an episode left without a version stops counting as playable"
+    );
+
+    assert!(repo.delete_episode(&ue1).await.unwrap());
+    assert!(repo.get_episode(&ue1).await.unwrap().is_none());
+    assert!(repo.delete_season(&use1).await.unwrap());
+    assert!(repo.get_season(&use1).await.unwrap().is_none());
+    assert!(repo.delete_series(&us1).await.unwrap());
+    assert!(repo.get_series(&us1).await.unwrap().is_none());
+
+    let orphan = MovieId("um9".into());
+    repo.upsert_movie(Movie {
+        id: orphan.clone(),
+        title: "No Files".into(),
+        sort_title: "no files".into(),
+        year: None,
+        overview: None,
+        runtime_minutes: None,
+        content_rating: None,
+        manually_edited: false,
+        added_at: ts(27),
+        updated_at: ts(27),
+        artwork: Vec::new(),
+    })
+    .await
+    .unwrap();
+    repo.set_artwork(
+        &ArtworkOwner::Movie(orphan.clone()),
+        &[ArtworkRef {
+            id: ArtworkId("orphan-art".into()),
+            kind: ArtworkKind::Poster,
+            widths: Vec::new(),
+        }],
+    )
+    .await
+    .unwrap();
+    assert!(repo.delete_movie(&orphan).await.unwrap());
+    assert!(repo.get_movie(&orphan).await.unwrap().is_none());
+
+    repo.upsert_movie(Movie {
+        id: orphan.clone(),
+        title: "No Files".into(),
+        sort_title: "no files".into(),
+        year: None,
+        overview: None,
+        runtime_minutes: None,
+        content_rating: None,
+        manually_edited: false,
+        added_at: ts(28),
+        updated_at: ts(28),
+        artwork: Vec::new(),
+    })
+    .await
+    .unwrap();
+    assert!(
+        repo.get_movie(&orphan)
+            .await
+            .unwrap()
+            .unwrap()
+            .artwork
+            .is_empty(),
+        "a deleted movie takes its artwork rows with it rather than leaving them for a reused id"
+    );
 }

@@ -1,7 +1,7 @@
 use domain::common::{Page, PageRequest};
 use domain::error::{RepositoryError, UserError};
 use domain::library::LibraryId;
-use domain::repository::UserRepository;
+use domain::repository::{AuthTokenRepository, UserDataStore, UserRepository};
 use domain::service::UserService;
 use domain::user::{LibraryAccess, NewUser, Principal, Role, User, UserId, UserProfileUpdate};
 use jiff::Timestamp;
@@ -10,13 +10,19 @@ use uuid::Uuid;
 use crate::password;
 
 #[derive(Clone)]
-pub struct UserServiceImpl<U> {
+pub struct UserServiceImpl<U, T, D> {
     users: U,
+    tokens: T,
+    data: D,
 }
 
-impl<U> UserServiceImpl<U> {
-    pub fn new(users: U) -> Self {
-        Self { users }
+impl<U, T, D> UserServiceImpl<U, T, D> {
+    pub fn new(users: U, tokens: T, data: D) -> Self {
+        Self {
+            users,
+            tokens,
+            data,
+        }
     }
 }
 
@@ -24,11 +30,16 @@ fn backend(error: impl ToString) -> UserError {
     UserError::Repository(RepositoryError::Backend(error.to_string()))
 }
 
-impl<U> UserService for UserServiceImpl<U>
+impl<U, T, D> UserService for UserServiceImpl<U, T, D>
 where
     U: UserRepository + Sync,
+    T: AuthTokenRepository + Sync,
+    D: UserDataStore + Sync,
 {
     async fn create(&self, input: NewUser) -> Result<User, UserError> {
+        if input.password.trim().is_empty() {
+            return Err(UserError::EmptyPassword);
+        }
         let password_hash = password::hash(&input.password).map_err(backend)?;
         let now = Timestamp::now();
         let user = User {
@@ -41,6 +52,7 @@ where
             preferred_subtitle: Vec::new(),
             concurrent_stream_limit: None,
             bitrate_cap: None,
+            active: true,
             created_at: now,
             updated_at: now,
         };
@@ -85,10 +97,37 @@ where
         Ok(user)
     }
 
-    async fn delete(&self, id: &UserId) -> Result<(), UserError> {
+    async fn delete(&self, caller: &Principal, id: &UserId) -> Result<(), UserError> {
+        if &caller.user == id {
+            return Err(UserError::CannotDeleteSelf);
+        }
         self.users.get(id).await?.ok_or(UserError::NotFound)?;
+        self.tokens.purge_user(id).await?;
         self.users.delete(id).await?;
+        self.data.purge(id).await?;
         Ok(())
+    }
+
+    async fn set_active(
+        &self,
+        caller: &Principal,
+        id: &UserId,
+        active: bool,
+    ) -> Result<User, UserError> {
+        if !active && &caller.user == id {
+            return Err(UserError::CannotDeactivateSelf);
+        }
+        let mut user = self.users.get(id).await?.ok_or(UserError::NotFound)?;
+        if user.active == active {
+            return Ok(user);
+        }
+        user.active = active;
+        user.updated_at = Timestamp::now();
+        self.users.update(user.clone()).await?;
+        if !active {
+            self.tokens.purge_user(id).await?;
+        }
+        Ok(user)
     }
 
     async fn library_access(&self, id: &UserId) -> Result<Vec<LibraryAccess>, UserError> {
@@ -113,6 +152,9 @@ where
         current: Option<&str>,
         new_password: &str,
     ) -> Result<(), UserError> {
+        if new_password.trim().is_empty() {
+            return Err(UserError::EmptyPassword);
+        }
         let mut user = self.users.get(target).await?.ok_or(UserError::NotFound)?;
         let admin_reset = actor.role == Role::Admin && &actor.user != target;
         if !admin_reset {
@@ -131,13 +173,17 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mock::MockUserRepo;
     use domain::common::LanguageCode;
     use domain::metadata::ContentRating;
     use domain::user::Role;
+    use mocks::{MockAuthTokenRepo, MockUserDataStore, MockUserRepo};
 
-    fn service() -> UserServiceImpl<MockUserRepo> {
-        UserServiceImpl::new(MockUserRepo::new())
+    fn service() -> UserServiceImpl<MockUserRepo, MockAuthTokenRepo, MockUserDataStore> {
+        UserServiceImpl::new(
+            MockUserRepo::new(),
+            MockAuthTokenRepo::new(),
+            MockUserDataStore::new(),
+        )
     }
 
     fn new_user(name: &str) -> NewUser {
@@ -193,7 +239,9 @@ mod tests {
             UserError::NotFound
         ));
         assert!(matches!(
-            svc.delete(&missing).await.unwrap_err(),
+            svc.delete(&principal("admin", Role::Admin), &missing)
+                .await
+                .unwrap_err(),
             UserError::NotFound
         ));
         assert!(matches!(
@@ -230,8 +278,110 @@ mod tests {
         assert_eq!(updated.concurrent_stream_limit, Some(2));
         assert_eq!(updated.bitrate_cap, Some(8_000_000));
 
-        svc.delete(&user.id).await.unwrap();
+        svc.delete(&principal("admin", Role::Admin), &user.id)
+            .await
+            .unwrap();
         assert!(svc.list(page()).await.unwrap().items.is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_refuses_the_caller_s_own_account() {
+        let svc = service();
+        let user = svc.create(new_user("gail")).await.unwrap();
+        let actor = principal(&user.id.0, Role::Admin);
+
+        assert!(matches!(
+            svc.delete(&actor, &user.id).await.unwrap_err(),
+            UserError::CannotDeleteSelf
+        ));
+        assert_eq!(svc.list(page()).await.unwrap().items.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn deleting_an_account_takes_its_credentials_and_its_files_with_it() {
+        let users = MockUserRepo::new();
+        let tokens = MockAuthTokenRepo::new();
+        let data = MockUserDataStore::new();
+        let svc = UserServiceImpl::new(users, tokens.clone(), data.clone());
+        let user = svc.create(new_user("hal")).await.unwrap();
+        let admin = principal("admin", Role::Admin);
+
+        svc.delete(&admin, &user.id).await.unwrap();
+
+        assert_eq!(tokens.purged(), vec![user.id.clone()]);
+        assert_eq!(data.purged(), vec![user.id]);
+    }
+
+    #[tokio::test]
+    async fn deactivating_revokes_credentials_but_keeps_the_account_and_its_files() {
+        let users = MockUserRepo::new();
+        let tokens = MockAuthTokenRepo::new();
+        let data = MockUserDataStore::new();
+        let svc = UserServiceImpl::new(users, tokens.clone(), data.clone());
+        let user = svc.create(new_user("ivy")).await.unwrap();
+        let admin = principal("admin", Role::Admin);
+
+        let off = svc.set_active(&admin, &user.id, false).await.unwrap();
+
+        assert!(!off.active);
+        assert_eq!(tokens.purged(), vec![user.id.clone()]);
+        assert!(data.purged().is_empty());
+        assert!(!svc.get(&user.id).await.unwrap().active);
+    }
+
+    #[tokio::test]
+    async fn reactivating_does_not_revoke_anything() {
+        let users = MockUserRepo::new();
+        let tokens = MockAuthTokenRepo::new();
+        let svc = UserServiceImpl::new(users, tokens.clone(), MockUserDataStore::new());
+        let user = svc.create(new_user("jo")).await.unwrap();
+        let admin = principal("admin", Role::Admin);
+        svc.set_active(&admin, &user.id, false).await.unwrap();
+
+        let on = svc.set_active(&admin, &user.id, true).await.unwrap();
+
+        assert!(on.active);
+        assert_eq!(tokens.purged().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn setting_active_to_what_it_already_is_changes_nothing() {
+        let users = MockUserRepo::new();
+        let tokens = MockAuthTokenRepo::new();
+        let svc = UserServiceImpl::new(users, tokens.clone(), MockUserDataStore::new());
+        let user = svc.create(new_user("kim")).await.unwrap();
+        let admin = principal("admin", Role::Admin);
+
+        let same = svc.set_active(&admin, &user.id, true).await.unwrap();
+
+        assert!(same.active);
+        assert!(tokens.purged().is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_admin_cannot_deactivate_themselves_but_can_reactivate() {
+        let svc = service();
+        let user = svc.create(new_user("len")).await.unwrap();
+        let actor = principal(&user.id.0, Role::Admin);
+
+        assert!(matches!(
+            svc.set_active(&actor, &user.id, false).await.unwrap_err(),
+            UserError::CannotDeactivateSelf
+        ));
+        assert!(svc.set_active(&actor, &user.id, true).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn setting_active_on_a_missing_account_is_not_found() {
+        let svc = service();
+        let admin = principal("admin", Role::Admin);
+
+        assert!(matches!(
+            svc.set_active(&admin, &UserId("ghost".into()), false)
+                .await
+                .unwrap_err(),
+            UserError::NotFound
+        ));
     }
 
     #[tokio::test]
@@ -323,6 +473,62 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn create_rejects_an_empty_password() {
+        let svc = service();
+        for blank in ["", "   "] {
+            let mut input = new_user("alice");
+            input.password = blank.to_owned();
+            assert!(matches!(
+                svc.create(input).await.unwrap_err(),
+                UserError::EmptyPassword
+            ));
+        }
+        assert!(svc.list(page()).await.unwrap().items.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_password_keeps_the_spaces_around_it() {
+        let svc = service();
+        for secret in ["  my-pass", "pass  ", "  my-pass  "] {
+            let mut input = new_user(secret);
+            input.password = secret.to_owned();
+            let user = svc.create(input).await.unwrap();
+            assert!(password::verify(secret, &user.password_hash).unwrap());
+            assert!(!password::verify(secret.trim(), &user.password_hash).unwrap());
+        }
+    }
+
+    #[tokio::test]
+    async fn change_password_keeps_the_spaces_around_it() {
+        let svc = service();
+        let user = svc.create(new_user("alice")).await.unwrap();
+        let admin = principal("admin", Role::Admin);
+        svc.change_password(&admin, &user.id, None, "  my-pass  ")
+            .await
+            .unwrap();
+        let stored = svc.get(&user.id).await.unwrap();
+        assert!(password::verify("  my-pass  ", &stored.password_hash).unwrap());
+        assert!(!password::verify("my-pass", &stored.password_hash).unwrap());
+    }
+
+    #[tokio::test]
+    async fn change_password_rejects_an_empty_password() {
+        let svc = service();
+        let user = svc.create(new_user("alice")).await.unwrap();
+        let hash = user.password_hash.clone();
+        let admin = principal("admin", Role::Admin);
+        for blank in ["", "   "] {
+            assert!(matches!(
+                svc.change_password(&admin, &user.id, None, blank)
+                    .await
+                    .unwrap_err(),
+                UserError::EmptyPassword
+            ));
+        }
+        assert_eq!(svc.get(&user.id).await.unwrap().password_hash, hash);
+    }
+
     #[test]
     fn backend_maps_to_repository_error() {
         assert!(matches!(
@@ -335,7 +541,7 @@ mod tests {
     async fn backend_errors_propagate() {
         let repo = MockUserRepo::new();
         repo.set_fail();
-        let svc = UserServiceImpl::new(repo);
+        let svc = UserServiceImpl::new(repo, MockAuthTokenRepo::new(), MockUserDataStore::new());
         assert!(matches!(
             svc.create(new_user("x")).await.unwrap_err(),
             UserError::Repository(_)

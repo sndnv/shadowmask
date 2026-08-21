@@ -9,6 +9,8 @@ toolchain automatically.
 * [rustup](https://rustup.rs/) - Rust toolchain manager
 * [Python 3](https://www.python.org/) - runs the QA checks
 * [FFmpeg](https://ffmpeg.org/) - `ffmpeg` / `ffprobe`, for media probing and transcoding
+* [Flutter](https://docs.flutter.dev/get-started/install) - only for the web client; CI pins the
+  version in [`.github/workflows/build.yml`](.github/workflows/build.yml)
 
 ### Getting Started
 
@@ -16,7 +18,38 @@ toolchain automatically.
 2) Run `python3 qa.py`
 
 `qa.py` runs all checks (format, lint, build, test, coverage); pass step names to run a subset, for
-example `python3 qa.py fmt clippy`.
+example `python3 qa.py fmt clippy`. It covers the Rust workspace only; the web client has its own
+gate, below.
+
+### Clients
+
+Two clients live under [`clients/`](clients). [`clients/basic`](clients/basic) is a dependency-free
+HTML/JS client served by the server itself at `/ui/basic/`; it needs no build step.
+
+[`clients/flutter`](clients/flutter) is the primary web client:
+
+```
+cd clients/flutter
+flutter pub get
+dart run build_runner build
+```
+
+`build_runner` is not optional. Generated sources (`*.g.dart`, `*.freezed.dart`, `*.mocks.dart`) are
+not committed, and without them every model file is missing its `part` and the analyzer reports
+dozens of unrelated-looking errors.
+
+To run it against a local server:
+
+```
+flutter run -d chrome --web-port=8090 --dart-define=SHADOWMASK_API_BASE=http://localhost:8080
+```
+
+The server must be up, and `SHADOWMASK_CORS_ALLOWED_ORIGINS` must include the port you pass to
+`--web-port` (it defaults to `http://localhost:8090`). See
+[`deployment/dev/README.md`](deployment/dev/README.md) for the dev stack.
+
+The client's own gate is `./qa.py` inside `clients/flutter`, which mirrors the root `qa.py`: package
+resolution, code generation, format, analyze, test with coverage.
 
 ### Dependency Updates
 
@@ -49,8 +82,8 @@ the production template.
 
 Log levels are set per target so the service can run at `debug` without the SQL query firehose:
 
-* `SHADOWMASK_LOG_LEVEL` (default `info`) — Shadowmask's own crates.
-* `SHADOWMASK_SQLX_LOG_LEVEL` (default `warn`) — the `sqlx` target; raise to `debug` to log every
+* `SHADOWMASK_LOG_LEVEL` (default `info`) - Shadowmask's own crates.
+* `SHADOWMASK_SQLX_LOG_LEVEL` (default `warn`) - the `sqlx` target; raise to `debug` to log every
   query. All other dependencies stay at `warn`.
 * `RUST_LOG`, if set, overrides both with a raw `tracing` filter directive.
 
@@ -68,7 +101,3 @@ databases and fixture media by design. Bring the dev stack up first, then run th
 ```
 docker compose exec shadowmask shadowmask backup /data/snapshot.tar
 ```
-
-### Current State
-
-Early development (pre-v1).

@@ -30,8 +30,10 @@ impl From<TitleCard> for TitleCardResponse {
 mod tests {
     use super::*;
     use domain::catalog::{
-        Episode, EpisodeCard, EpisodeId, Movie, MovieId, SeasonId, SeriesId, TitleId,
+        ArtworkId, ArtworkRef, ArtworkWidth, Episode, EpisodeCard, EpisodeId, Movie, MovieId,
+        SeasonId, SeriesId, TitleId,
     };
+    use domain::metadata::ArtworkKind;
     use jiff::Timestamp;
 
     #[test]
@@ -50,10 +52,12 @@ mod tests {
         let card = TitleCardResponse::from(TitleCard::Movie(Movie {
             id: MovieId("m1".into()),
             title: "Alpha".into(),
+            sort_title: "alpha".into(),
             year: Some(2020),
             overview: None,
             runtime_minutes: None,
             content_rating: None,
+            manually_edited: false,
             added_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
@@ -75,13 +79,20 @@ mod tests {
                 overview: None,
                 runtime_minutes: None,
                 air_date: None,
+                manually_edited: false,
                 added_at: Timestamp::UNIX_EPOCH,
                 updated_at: Timestamp::UNIX_EPOCH,
                 artwork: Vec::new(),
             },
             series: Some(SeriesId("sr1".into())),
             series_title: Some("Show ABC".into()),
+            series_artwork: vec![ArtworkRef {
+                id: ArtworkId("sp1".into()),
+                kind: ArtworkKind::Poster,
+                widths: vec![ArtworkWidth::new(180, "/art/sp1/180.jpg")],
+            }],
             season_number: Some(1),
+            season_title: Some("Specials".into()),
         }));
         let value = serde_json::to_value(card).unwrap();
         assert_eq!(value["type"], "episode");
@@ -90,5 +101,7 @@ mod tests {
         assert_eq!(value["series_id"], "sr1");
         assert_eq!(value["series_title"], "Show ABC");
         assert_eq!(value["season_number"], 1);
+        assert_eq!(value["season_title"], "Specials");
+        assert_eq!(value["series_artwork"]["posters"][0]["base"], "/images/sp1");
     }
 }

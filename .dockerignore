@@ -8,6 +8,7 @@ target/
 **/*.local.json
 .config/
 assets/
+clients/flutter/
 deployment/
 *.md
 .DS_Store

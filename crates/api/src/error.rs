@@ -4,8 +4,8 @@ use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
 use domain::error::{
-    AuthError, CatalogError, DiscoveryError, JobLogError, JobServiceError, LibraryError,
-    SessionError, StreamError, StreamTokenError, UserError,
+    AuthError, CatalogError, DiscoveryError, DownloadTokenError, JobLogError, JobServiceError,
+    LibraryError, SessionError, StreamError, StreamTokenError, UserError,
 };
 use domain::session::PlaybackSession;
 
@@ -103,6 +103,10 @@ impl From<AuthError> for ApiError {
             AuthError::UnknownLinkCode => {
                 ApiError::new(StatusCode::NOT_FOUND, "unknown_link_code", msg)
             }
+            AuthError::AccountDisabled => {
+                ApiError::new(StatusCode::FORBIDDEN, "account_disabled", msg)
+            }
+            AuthError::NotFound => ApiError::new(StatusCode::NOT_FOUND, "not_found", msg),
             AuthError::Repository(_) => ApiError::internal(),
         }
     }
@@ -152,6 +156,8 @@ impl From<LibraryError> for ApiError {
                 ApiError::new(StatusCode::CONFLICT, "scan_in_progress", msg)
             }
             LibraryError::Disabled => ApiError::new(StatusCode::CONFLICT, "feature_disabled", msg),
+            LibraryError::NotEmpty(_) => ApiError::new(StatusCode::CONFLICT, "not_empty", msg),
+            LibraryError::Unavailable(_) => ApiError::new(StatusCode::CONFLICT, "unavailable", msg),
             LibraryError::InvalidRequest(_) => {
                 ApiError::new(StatusCode::BAD_REQUEST, "bad_request", msg)
             }
@@ -184,8 +190,17 @@ impl From<UserError> for ApiError {
             UserError::NotFound => ApiError::new(StatusCode::NOT_FOUND, "not_found", msg),
             UserError::UsernameTaken => ApiError::new(StatusCode::CONFLICT, "username_taken", msg),
             UserError::AccessDenied => ApiError::new(StatusCode::FORBIDDEN, "access_denied", msg),
+            UserError::CannotDeleteSelf => {
+                ApiError::new(StatusCode::FORBIDDEN, "cannot_delete_self", msg)
+            }
+            UserError::CannotDeactivateSelf => {
+                ApiError::new(StatusCode::FORBIDDEN, "cannot_deactivate_self", msg)
+            }
             UserError::InvalidPassword => {
-                ApiError::new(StatusCode::UNAUTHORIZED, "invalid_password", msg)
+                ApiError::new(StatusCode::BAD_REQUEST, "invalid_password", msg)
+            }
+            UserError::EmptyPassword => {
+                ApiError::new(StatusCode::BAD_REQUEST, "empty_password", msg)
             }
             UserError::Repository(_) => ApiError::internal(),
         }
@@ -220,6 +235,21 @@ impl From<StreamTokenError> for ApiError {
                 ApiError::new(StatusCode::FORBIDDEN, "invalid_stream_token", msg)
             }
             StreamTokenError::Create(_) => ApiError::internal(),
+        }
+    }
+}
+
+impl From<DownloadTokenError> for ApiError {
+    fn from(err: DownloadTokenError) -> Self {
+        let msg = err.to_string();
+        match err {
+            DownloadTokenError::Expired => {
+                ApiError::new(StatusCode::FORBIDDEN, "download_link_expired", msg)
+            }
+            DownloadTokenError::Invalid => {
+                ApiError::new(StatusCode::FORBIDDEN, "invalid_download_link", msg)
+            }
+            DownloadTokenError::Create(_) => ApiError::internal(),
         }
     }
 }
@@ -265,6 +295,7 @@ mod tests {
             },
             started_at: now,
             last_heartbeat_at: now,
+            completed: false,
         }
     }
 
@@ -300,6 +331,22 @@ mod tests {
         let r = ApiError::from(AuthError::Repository(repo()));
         assert_eq!(r.status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(r.code, "internal");
+        let missing = ApiError::from(AuthError::NotFound);
+        assert_eq!(missing.status, StatusCode::NOT_FOUND);
+        assert_eq!(missing.code, "not_found");
+        let disabled = ApiError::from(AuthError::AccountDisabled);
+        assert_eq!(disabled.status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            disabled.code, "account_disabled",
+            "a disabled account must be told apart from a wrong password"
+        );
+    }
+
+    #[test]
+    fn a_switched_off_feature_is_a_conflict_not_a_bad_request() {
+        let disabled = ApiError::from(LibraryError::Disabled);
+        assert_eq!(disabled.status, StatusCode::CONFLICT);
+        assert_eq!(disabled.code, "feature_disabled");
     }
 
     #[test]
@@ -391,8 +438,11 @@ mod tests {
         assert_eq!(denied.status, StatusCode::FORBIDDEN);
         assert_eq!(denied.code, "access_denied");
         let invalid = ApiError::from(UserError::InvalidPassword);
-        assert_eq!(invalid.status, StatusCode::UNAUTHORIZED);
+        assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
         assert_eq!(invalid.code, "invalid_password");
+        let empty = ApiError::from(UserError::EmptyPassword);
+        assert_eq!(empty.status, StatusCode::BAD_REQUEST);
+        assert_eq!(empty.code, "empty_password");
         assert_eq!(
             ApiError::from(UserError::Repository(repo())).status,
             StatusCode::INTERNAL_SERVER_ERROR
@@ -416,6 +466,19 @@ mod tests {
         assert_eq!(invalid.status, StatusCode::FORBIDDEN);
         assert_eq!(invalid.code, "invalid_stream_token");
         let create = ApiError::from(StreamTokenError::Create("boom".into()));
+        assert_eq!(create.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(create.code, "internal");
+    }
+
+    #[test]
+    fn download_token_error_mappings() {
+        let expired = ApiError::from(DownloadTokenError::Expired);
+        assert_eq!(expired.status, StatusCode::FORBIDDEN);
+        assert_eq!(expired.code, "download_link_expired");
+        let invalid = ApiError::from(DownloadTokenError::Invalid);
+        assert_eq!(invalid.status, StatusCode::FORBIDDEN);
+        assert_eq!(invalid.code, "invalid_download_link");
+        let create = ApiError::from(DownloadTokenError::Create("boom".into()));
         assert_eq!(create.status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(create.code, "internal");
     }

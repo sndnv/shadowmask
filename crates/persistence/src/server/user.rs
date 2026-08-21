@@ -82,6 +82,7 @@ impl SqliteUserRepo {
             concurrent_stream_limit: column::<Option<i64>>(row, "concurrent_stream_limit")?
                 .map(|value| value as u32),
             bitrate_cap: column::<Option<i64>>(row, "bitrate_cap")?.map(|value| value as u64),
+            active: column::<i64>(row, "active")? != 0,
             created_at: from_millis(column(row, "created_at")?)?,
             updated_at: from_millis(column(row, "updated_at")?)?,
             id: UserId(id),
@@ -144,8 +145,8 @@ impl UserRepository for SqliteUserRepo {
         sqlx::query(
             "INSERT INTO users \
              (id, username, password_hash, role, max_rating_system, max_rating_code, \
-              concurrent_stream_limit, bitrate_cap, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              concurrent_stream_limit, bitrate_cap, active, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(user.id.0.as_str())
         .bind(user.username.as_str())
@@ -155,6 +156,7 @@ impl UserRepository for SqliteUserRepo {
         .bind(user.max_content_rating.as_ref().map(|r| r.code.as_str()))
         .bind(user.concurrent_stream_limit.map(|value| value as i64))
         .bind(user.bitrate_cap.map(|value| value as i64))
+        .bind(i64::from(user.active))
         .bind(to_millis(user.created_at))
         .bind(to_millis(user.updated_at))
         .execute(&mut *tx)
@@ -223,8 +225,8 @@ impl UserRepository for SqliteUserRepo {
         sqlx::query(
             "UPDATE users SET \
              username = ?, password_hash = ?, role = ?, max_rating_system = ?, \
-             max_rating_code = ?, concurrent_stream_limit = ?, bitrate_cap = ?, created_at = ?, \
-             updated_at = ? \
+             max_rating_code = ?, concurrent_stream_limit = ?, bitrate_cap = ?, active = ?, \
+             created_at = ?, updated_at = ? \
              WHERE id = ?",
         )
         .bind(user.username.as_str())
@@ -234,6 +236,7 @@ impl UserRepository for SqliteUserRepo {
         .bind(user.max_content_rating.as_ref().map(|r| r.code.as_str()))
         .bind(user.concurrent_stream_limit.map(|value| value as i64))
         .bind(user.bitrate_cap.map(|value| value as i64))
+        .bind(i64::from(user.active))
         .bind(to_millis(user.created_at))
         .bind(to_millis(user.updated_at))
         .bind(user.id.0.as_str())
@@ -249,6 +252,16 @@ impl UserRepository for SqliteUserRepo {
         let _op = DbOpGuard::new("users", "delete");
         sqlx::query("DELETE FROM users WHERE id = ?")
             .bind(id.0.as_str())
+            .execute(&self.pool)
+            .await
+            .map_err(backend)?;
+        Ok(())
+    }
+
+    async fn revoke_library_access(&self, library: &LibraryId) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("users", "revoke_library_access");
+        sqlx::query("DELETE FROM user_library_access WHERE library_id = ?")
+            .bind(library.0.as_str())
             .execute(&self.pool)
             .await
             .map_err(backend)?;
@@ -305,6 +318,8 @@ impl UserRepository for SqliteUserRepo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::user::Role;
+    use jiff::Timestamp;
 
     #[test]
     fn non_database_errors_map_to_backend() {
@@ -329,5 +344,82 @@ mod tests {
             .await
             .is_err()
         );
+        assert!(
+            repo.revoke_library_access(&LibraryId("lib1".into()))
+                .await
+                .is_err()
+        );
+    }
+
+    async fn seeded(path: &Path) -> SqliteUserRepo {
+        let repo = SqliteUserRepo::connect(&path.join("users.db"))
+            .await
+            .unwrap();
+        for id in ["u1", "u2"] {
+            repo.create(User {
+                id: UserId(id.into()),
+                username: id.into(),
+                password_hash: "hash".into(),
+                role: Role::User,
+                max_content_rating: None,
+                preferred_audio: Vec::new(),
+                preferred_subtitle: Vec::new(),
+                concurrent_stream_limit: None,
+                bitrate_cap: None,
+                active: true,
+                created_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
+            })
+            .await
+            .unwrap();
+        }
+        repo
+    }
+
+    #[tokio::test]
+    async fn active_defaults_to_true_and_survives_a_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = seeded(dir.path()).await;
+        let id = UserId("u1".into());
+        assert!(repo.get(&id).await.unwrap().unwrap().active);
+
+        let mut user = repo.get(&id).await.unwrap().unwrap();
+        user.active = false;
+        repo.update(user).await.unwrap();
+
+        assert!(!repo.get(&id).await.unwrap().unwrap().active);
+        assert!(
+            repo.get(&UserId("u2".into()))
+                .await
+                .unwrap()
+                .unwrap()
+                .active
+        );
+    }
+
+    #[tokio::test]
+    async fn revoking_a_library_clears_it_for_everyone_who_had_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = seeded(dir.path()).await;
+        let dead = LibraryId("lib1".into());
+        let kept = LibraryId("lib2".into());
+        for id in ["u1", "u2"] {
+            repo.set_library_access(&UserId(id.into()), &[dead.clone(), kept.clone()])
+                .await
+                .unwrap();
+        }
+
+        repo.revoke_library_access(&dead).await.unwrap();
+
+        for id in ["u1", "u2"] {
+            let granted: Vec<String> = repo
+                .list_library_access(&UserId(id.into()))
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|a| a.library.0)
+                .collect();
+            assert_eq!(granted, vec!["lib2".to_owned()]);
+        }
     }
 }

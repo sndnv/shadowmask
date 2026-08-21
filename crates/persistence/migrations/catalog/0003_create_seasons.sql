@@ -7,3 +7,5 @@ CREATE TABLE seasons (
     added_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
+
+CREATE INDEX idx_seasons_series ON seasons (series_id, number, id);

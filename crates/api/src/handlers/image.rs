@@ -6,14 +6,14 @@ use tower::ServiceExt;
 use tower_http::services::ServeFile;
 use tracing::debug;
 
-use domain::metadata::ARTWORK_WIDTHS;
+use domain::metadata::{ARTWORK_WIDTHS, ArtworkFormat};
 
 use crate::error::{ApiError, ApiResult};
 use crate::state::ImageState;
 
-const PNG_CONTENT_TYPE: &str = "image/png";
 const IMMUTABLE_CACHE: &str = "public, max-age=31536000, immutable";
 const MAX_ARTWORK_ID_LEN: usize = 64;
+const SERVED_FORMATS: [ArtworkFormat; 2] = [ArtworkFormat::Jpeg, ArtworkFormat::Png];
 
 pub async fn image(
     State(state): State<ImageState>,
@@ -43,16 +43,43 @@ pub async fn image(
         return Ok(response);
     }
 
-    let path = state.root.join(&artwork_id).join(format!("{width}.png"));
+    let (path, format) = stored_file(&state.root, &artwork_id, width);
     let mut response = ServeFile::new(path).oneshot(request).await.into_response();
     if response.status().is_success() {
         let headers = response.headers_mut();
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static(PNG_CONTENT_TYPE));
+        headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static(format.content_type()),
+        );
         headers.insert(CACHE_CONTROL, HeaderValue::from_static(IMMUTABLE_CACHE));
         headers.insert(ETAG, etag_value);
-        debug!("Artwork [{artwork_id}/{width}] served");
+        debug!(
+            "Artwork [{artwork_id}/{width}] served as [{}]",
+            format.extension()
+        );
     }
     Ok(response)
+}
+
+fn stored_file(
+    root: &std::path::Path,
+    id: &str,
+    width: u32,
+) -> (std::path::PathBuf, ArtworkFormat) {
+    let candidate = |format: ArtworkFormat| {
+        (
+            root.join(id)
+                .join(format!("{width}.{}", format.extension())),
+            format,
+        )
+    };
+    for format in SERVED_FORMATS {
+        let found = candidate(format);
+        if found.0.exists() {
+            return found;
+        }
+    }
+    candidate(SERVED_FORMATS[0])
 }
 
 fn is_valid_artwork_id(id: &str) -> bool {

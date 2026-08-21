@@ -31,4 +31,4 @@ tests and coverage - run through a single script, [`qa.py`](qa.py), both locally
 
 Smaller and simpler test scenarios, with limited setup/teardown, are encouraged; this approach tends to create
 components that are relatively small, modular and with a limited set of responsibilities. The external boundaries
-(FFmpeg and SQLite) are mocked, and unit coverage is held at 100% via [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov).
+(FFmpeg and SQLite) are mocked, and line coverage is gated at 99.5% via [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov).

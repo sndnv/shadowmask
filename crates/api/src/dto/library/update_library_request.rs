@@ -15,6 +15,8 @@ pub struct UpdateLibraryRequest {
     pub scan_schedule: Option<String>,
     #[serde(default)]
     pub metadata_sources: Vec<String>,
+    #[serde(default)]
+    pub sort_articles: Vec<String>,
 }
 
 impl From<UpdateLibraryRequest> for LibraryUpdate {
@@ -26,6 +28,7 @@ impl From<UpdateLibraryRequest> for LibraryUpdate {
             watcher: r.watcher.into(),
             scan_schedule: r.scan_schedule,
             metadata_sources: r.metadata_sources,
+            sort_articles: r.sort_articles,
         }
     }
 }

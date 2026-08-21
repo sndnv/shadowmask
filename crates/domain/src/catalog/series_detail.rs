@@ -10,4 +10,6 @@ pub struct SeriesDetail {
     pub ratings: Vec<Rating>,
     pub external_ids: Vec<ExternalId>,
     pub extras: Vec<Extra>,
+    pub episodes_total: u32,
+    pub episodes_with_available_version: u32,
 }

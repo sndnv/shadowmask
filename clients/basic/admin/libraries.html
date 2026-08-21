@@ -59,7 +59,9 @@
           roots: sm.el("textarea", { rows: "3", cols: "40" }),
           schedule: sm.el("input", { autocomplete: "off" }),
           sources: sm.el("input", { autocomplete: "off" }),
+          articles: sm.el("input", { autocomplete: "off" }),
         };
+        fields.articles.value = "the, a, an";
         fields.kind.value = library ? library.kind : "movie";
         fields.origin.value = library ? library.origin || "local" : "local";
         fields.watcher.value = library ? library.watcher : "local";
@@ -68,6 +70,7 @@
           fields.roots.value = (library.roots || []).join("\n");
           fields.schedule.value = library.scan_schedule || "";
           fields.sources.value = (library.metadata_sources || []).join(", ");
+          fields.articles.value = (library.sort_articles || []).join(", ");
         }
         const status = sm.el("span", null);
         const submit = sm.el("button", { type: "submit" }, library ? "Save changes" : "Create");
@@ -86,6 +89,11 @@
           sm.el("br"),
           sm.el("label", null, ["Metadata sources (comma separated) ", fields.sources]),
           sm.el("br"),
+          sm.el("label", null, [
+            "Ignored sort articles (comma separated, applied on the next scan) ",
+            fields.articles,
+          ]),
+          sm.el("br"),
           submit,
           " ",
           status,
@@ -100,6 +108,7 @@
             roots: splitLines(fields.roots.value),
             scan_schedule: fields.schedule.value ? fields.schedule.value : null,
             metadata_sources: splitCommas(fields.sources.value),
+            sort_articles: splitCommas(fields.articles.value),
           };
           if (!body.name) {
             status.textContent = "Name is required.";

@@ -6,39 +6,11 @@ expression: value
   "body": {
     "items": [
       {
-        "added_at": "2023-11-14T22:13:21Z",
-        "artwork": {},
-        "content_rating": {
-          "code": "PG-13",
-          "system": "MPAA"
-        },
-        "id": "m1",
-        "overview": "overview",
-        "runtime_minutes": 100,
-        "title": "Alpha m1",
-        "type": "movie",
-        "updated_at": "2023-11-14T22:13:21Z",
-        "year": 2020
-      },
-      {
-        "added_at": "2023-11-14T22:13:22Z",
-        "artwork": {},
-        "content_rating": {
-          "code": "TV-14",
-          "system": "TV"
-        },
-        "id": "s1",
-        "overview": null,
-        "title": "Alpha s1",
-        "type": "series",
-        "updated_at": "2023-11-14T22:13:22Z",
-        "year": 2019
-      },
-      {
         "added_at": "2023-11-14T22:13:24Z",
         "air_date": "2023-11-14T22:13:23Z",
         "artwork": {},
         "id": "e1",
+        "manually_edited": false,
         "number": 1,
         "overview": null,
         "runtime_minutes": 42,
@@ -48,10 +20,41 @@ expression: value
         "updated_at": "2023-11-14T22:13:24Z"
       },
       {
+        "added_at": "2023-11-14T22:13:21Z",
+        "artwork": {},
+        "content_rating": {
+          "code": "PG-13",
+          "system": "MPAA"
+        },
+        "id": "m1",
+        "manually_edited": false,
+        "overview": "overview",
+        "runtime_minutes": 100,
+        "title": "Alpha m1",
+        "type": "movie",
+        "updated_at": "2023-11-14T22:13:21Z",
+        "year": 2020
+      },
+      {
         "artwork": {},
         "id": "p1",
         "name": "Alpha Person",
         "type": "person"
+      },
+      {
+        "added_at": "2023-11-14T22:13:22Z",
+        "artwork": {},
+        "content_rating": {
+          "code": "TV-14",
+          "system": "TV"
+        },
+        "id": "s1",
+        "manually_edited": false,
+        "overview": null,
+        "title": "Alpha s1",
+        "type": "series",
+        "updated_at": "2023-11-14T22:13:22Z",
+        "year": 2019
       }
     ],
     "limit": 50,

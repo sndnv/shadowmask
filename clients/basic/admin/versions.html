@@ -103,7 +103,6 @@
             "Library",
             "Quality",
             "Container",
-            "Edition",
             "Size",
             "Available",
             "",
@@ -123,7 +122,13 @@
               loaded = true;
               await renderDetail(v, detailCell, name);
             });
-            const mainRow = sm.el("tr", null, [
+            const actions = [toggle];
+            if (!v.available) {
+              const remove = sm.el("button", { type: "button", class: "sm-danger" }, "Remove");
+              remove.addEventListener("click", () => confirmRemove(v, name));
+              actions.push(remove);
+            }
+            const mainRow = sm.el("tr", v.available ? null : { class: "sm-row-unavailable" }, [
               sm.el("td", { class: "sm-path" }, sm.el("a", { href: sm.href.version(v.id) }, v.path || v.id)),
               sm.el("td", null, name),
               sm.el(
@@ -137,10 +142,15 @@
               ),
               sm.el("td", null, (v.quality || "").toUpperCase()),
               sm.el("td", null, v.container),
-              sm.el("td", null, v.edition || ""),
               sm.el("td", null, Math.round(v.size_bytes / 1048576) + " MB"),
-              sm.el("td", null, v.available ? "yes" : "no"),
-              sm.el("td", null, toggle),
+              sm.el(
+                "td",
+                null,
+                v.available
+                  ? "yes"
+                  : sm.el("span", { class: "sm-badge sm-danger" }, "missing"),
+              ),
+              sm.el("td", null, actions),
             ]);
             tbody.appendChild(mainRow);
             tbody.appendChild(detailRow);
@@ -177,6 +187,34 @@
         } catch (err) {
           main.textContent = "Could not load versions.";
         }
+      }
+
+      function confirmRemove(v, name) {
+        sm.openDialog("Remove version", (box) => {
+          const remove = sm.el("button", { type: "button", class: "sm-danger" }, "Remove");
+          remove.addEventListener("click", async () => {
+            remove.disabled = true;
+            try {
+              await sm.json("/api/v1/admin/versions/" + eu(v.id), { method: "DELETE" });
+              sm.toast("Version removed.", "ok");
+              box.close();
+              await load();
+            } catch (err) {
+              remove.disabled = false;
+              sm.toast("Could not remove the version.", "danger");
+            }
+          });
+          return sm.el("div", null, [
+            sm.el("p", null, [
+              "This removes the file's entry for ",
+              sm.el("strong", { text: name }),
+              " along with its tracks, subtitles and trickplay. It does not delete the file.",
+            ]),
+            sm.el("p", { class: "sm-subtext" }, v.path || v.id),
+            sm.el("p", { class: "sm-subtext" }, "If the file is still on disk, the next scan adds it back and reprocesses it."),
+            remove,
+          ]);
+        });
       }
 
       async function trigger(url, body, status) {

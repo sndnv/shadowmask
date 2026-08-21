@@ -1,31 +1,40 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Shadowmask logo">
     <defs>
-        <pattern id="sm-phosphor" width="6" height="6" patternUnits="userSpaceOnUse">
-            <circle cx="1" cy="3" r="1" fill="#ff5d5d"/>
-            <circle cx="3" cy="3" r="1" fill="#5be88a"/>
-            <circle cx="5" cy="3" r="1" fill="#5aa0ff"/>
-        </pattern>
-        <clipPath id="sm-screen">
-            <rect x="8" y="8" width="48" height="48" rx="11"/>
+        <clipPath id="sm-tube">
+            <rect x="2" y="4" width="20" height="16" rx="4"/>
         </clipPath>
-        <clipPath id="sm-play">
-            <path d="M27 20 L27 44 L47 32 Z"/>
-        </clipPath>
-        <filter id="sm-glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="1.8"/>
-        </filter>
     </defs>
 
-    <rect width="64" height="64" rx="14" fill="#0b0d10"/>
-    <rect x="8" y="8" width="48" height="48" rx="11" fill="#11151b"/>
+    <rect width="64" height="64" rx="14" fill="#06090B"/>
 
-    <g clip-path="url(#sm-screen)">
-        <rect x="8" y="8" width="48" height="48" fill="url(#sm-phosphor)" opacity="0.20"/>
-        <path d="M27 20 L27 44 L47 32 Z" fill="#bfe9ff" opacity="0.28" filter="url(#sm-glow)"/>
-        <g clip-path="url(#sm-play)">
-            <rect x="8" y="8" width="48" height="48" fill="url(#sm-phosphor)"/>
+    <g transform="translate(11.5 11.5) scale(1.708)">
+        <rect x="2" y="4" width="20" height="16" rx="4" fill="none" stroke="#35C9D6" stroke-width="1.6"/>
+        <g clip-path="url(#sm-tube)" fill="#35C9D6" fill-opacity="0.55">
+            <circle cx="5" cy="7" r="1"/>
+            <circle cx="8.5" cy="7" r="1"/>
+            <circle cx="12" cy="7" r="1"/>
+            <circle cx="15.5" cy="7" r="1"/>
+            <circle cx="19" cy="7" r="1"/>
+            <circle cx="5" cy="9.5" r="1"/>
+            <circle cx="8.5" cy="9.5" r="1"/>
+            <circle cx="12" cy="9.5" r="1"/>
+            <circle cx="15.5" cy="9.5" r="1"/>
+            <circle cx="19" cy="9.5" r="1"/>
+            <circle cx="5" cy="12" r="1"/>
+            <circle cx="8.5" cy="12" r="1"/>
+            <circle cx="12" cy="12" r="1"/>
+            <circle cx="15.5" cy="12" r="1"/>
+            <circle cx="19" cy="12" r="1"/>
+            <circle cx="5" cy="14.5" r="1"/>
+            <circle cx="8.5" cy="14.5" r="1"/>
+            <circle cx="12" cy="14.5" r="1"/>
+            <circle cx="15.5" cy="14.5" r="1"/>
+            <circle cx="19" cy="14.5" r="1"/>
+            <circle cx="5" cy="17" r="1"/>
+            <circle cx="8.5" cy="17" r="1"/>
+            <circle cx="12" cy="17" r="1"/>
+            <circle cx="15.5" cy="17" r="1"/>
+            <circle cx="19" cy="17" r="1"/>
         </g>
     </g>
-
-    <rect x="8.5" y="8.5" width="47" height="47" rx="10.5" fill="none" stroke="#2a313c" stroke-width="1"/>
 </svg>

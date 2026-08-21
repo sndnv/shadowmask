@@ -1,0 +1,41 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "added_at": "[added_at]",
+    "artwork": {
+      "backdrops": [
+        {
+          "base": "/images/s1-backdrop",
+          "widths": [
+            480,
+            960
+          ]
+        }
+      ],
+      "posters": [
+        {
+          "base": "/images/s1-poster",
+          "widths": [
+            180,
+            480,
+            960
+          ]
+        }
+      ]
+    },
+    "content_rating": {
+      "code": "TV-MA",
+      "system": "US-TV"
+    },
+    "id": "[id]",
+    "manually_edited": true,
+    "overview": "hand written",
+    "title": "Gamma Edited",
+    "updated_at": "[updated_at]",
+    "year": 2020
+  },
+  "status": 200
+}

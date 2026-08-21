@@ -10,16 +10,19 @@ use axum_server::tls_rustls::RustlsConfig;
 use domain::job::{JobKind, JobPriority};
 use domain::repository::JobRepository;
 use fetch::YtDlpFetcher;
+use jiff::tz::TimeZone;
 use jiff::{SignedDuration, Timestamp};
 use jobs::{
     ArtworkJobHandler, CacheEvictionHandler, CancelRegistry, CombineJobHandler,
     CompositeJobHandler, FetchJobHandler, IngestJobHandler, JobQueue, LibraryScanHandler,
-    MetadataJobHandler, RelinkJobHandler, RetryPolicy, Schedule, Scheduler, SearchReindexHandler,
-    SubtitlesJobHandler, TranscriptionJobHandler, TranslationJobHandler, TrickplayJobHandler,
-    UpscaleJobHandler, Worker, enrichment_kinds, fetch_kinds, normal_kinds,
+    MetadataJobHandler, OrphanSweepHandler, RelinkJobHandler, RetentionHandler, RetryPolicy,
+    Schedule, ScheduledScanHandler, Scheduler, SearchReindexHandler, SubtitlesJobHandler,
+    TranscriptionJobHandler, TranslationJobHandler, TrickplayJobHandler, UpscaleJobHandler, Worker,
+    enrichment_kinds, fetch_kinds, normal_kinds,
 };
 use media::artwork::FsArtworkStore;
 use media::cache::CacheEvictor;
+use media::download_token::HmacDownloadTokens;
 use media::probe::FfprobeMediaProbe;
 use media::scan::WalkdirSourceWalker;
 use media::subtitle_store::FsSubtitleStore;
@@ -34,6 +37,7 @@ use persistence::job_log::FsJobLogStore;
 use persistence::server::{SqliteCatalogRepo, SqliteJobRepo, SqliteLibraryRepo};
 use services::library::{
     Enricher, LibraryServiceImpl, Scanner, TranscriptionEnqueuer, TranslationEnqueuer,
+    next_daily_fire,
 };
 use services::user::UserServiceImpl;
 use tokio::net::TcpListener;
@@ -41,7 +45,7 @@ use tokio::task::JoinSet;
 
 use crate::api::{Built, Repos, SessionSvc, WireConfig, app, build_state};
 use crate::bootstrap::{
-    BootstrapResult, ErasedProvider, LibraryBootstrapProvider, UserBootstrapProvider, run_providers,
+    BootstrapResult, LibraryBootstrapProvider, UserBootstrapProvider, complete, run_one,
 };
 use crate::config::{Config, resolve_vaapi_device, transcription_model_dir, translation_model_dir};
 use crate::lockfile::ServerLock;
@@ -90,6 +94,14 @@ type FetchHandler = FetchJobHandler<
     ServerEnricher,
 >;
 type EvictionHandler = CacheEvictionHandler<CacheEvictor>;
+type NightlyHandler = ScheduledScanHandler<SqliteLibraryRepo, SqliteJobRepo>;
+type RetentionJobHandler = RetentionHandler<SqliteJobRepo, FsJobLogStore>;
+type SweepHandler = OrphanSweepHandler<
+    SqliteCatalogRepo,
+    FsArtworkStore,
+    FsSubtitleStore,
+    FfmpegTrickplayGenerator,
+>;
 type JobWorker = Worker<
     SqliteJobRepo,
     CompositeJobHandler<
@@ -107,6 +119,9 @@ type JobWorker = Worker<
         CombineHandler,
         FetchHandler,
         EvictionHandler,
+        NightlyHandler,
+        RetentionJobHandler,
+        SweepHandler,
     >,
     FsJobLogStore,
 >;
@@ -212,14 +227,24 @@ async fn run_bootstrap(config: &Config, repos: &Repos) -> Result<BootstrapResult
             }),
         )
     };
-    let providers: Vec<Box<dyn ErasedProvider>> = vec![
-        Box::new(LibraryBootstrapProvider::new(library_service())),
-        Box::new(UserBootstrapProvider::new(
-            UserServiceImpl::new(repos.users.clone()),
+    let libraries = run_one(
+        &LibraryBootstrapProvider::new(library_service()),
+        &config.bootstrap_dir,
+    )
+    .await;
+    let users = run_one(
+        &UserBootstrapProvider::new(
+            UserServiceImpl::new(
+                repos.users.clone(),
+                repos.auth_tokens.clone(),
+                repos.user_data.clone(),
+            ),
             library_service(),
-        )),
-    ];
-    Ok(run_providers(&config.bootstrap_dir, &providers).await)
+        ),
+        &config.bootstrap_dir,
+    )
+    .await;
+    Ok(complete(libraries + users))
 }
 
 fn box_err<E: std::error::Error + Send + Sync + 'static>(error: E) -> BoxError {
@@ -277,8 +302,16 @@ impl Runtime {
         tracing::info!("{}", config.describe());
         let repos = Repos::connect(&config.db_root).await?;
 
-        let reclaimed = repos.jobs.reclaim_running(Timestamp::now()).await?;
-        tracing::info!(reclaimed, "startup: reclaimed stale running jobs");
+        let reclaimed = repos
+            .jobs
+            .reclaim_running(Timestamp::now(), RetryPolicy::default().max_attempts)
+            .await?;
+        tracing::info!(
+            requeued = reclaimed.requeued,
+            dead_lettered = reclaimed.dead_lettered,
+            "startup: reclaimed [{}] stale running jobs",
+            reclaimed.total()
+        );
 
         let serve = config.bootstrap_mode.serves();
         if config.bootstrap_mode.enabled() {
@@ -291,13 +324,14 @@ impl Runtime {
             &config.vaapi_device.to_string_lossy(),
             vaapi_present,
         );
+        let download_secret = config.stream_secret.clone().into_bytes();
         let wire = WireConfig {
             jwt_secret: config.jwt_secret.into_bytes(),
             stream_secret: config.stream_secret.into_bytes(),
             access_ttl_secs: config.access_ttl_secs,
             refresh_ttl_secs: config.refresh_ttl_secs,
             transcode_cache: config.transcode_cache.clone(),
-            artwork_cache: config.artwork_cache,
+            artwork_cache: config.artwork_cache.clone(),
             trickplay_cache: config.trickplay_cache.clone(),
             tmdb_api_key: config.tmdb_api_key.clone(),
             transcription_enabled: config.enrichment.transcription.enabled,
@@ -370,6 +404,14 @@ impl Runtime {
         .merge(::api::job_log_router(
             state.clone(),
             ::api::JobLogState::new(job_logs.clone()),
+        ))
+        .merge(::api::download_router(
+            state.clone(),
+            ::api::DownloadState::new(
+                state.clone(),
+                repos.catalog.clone(),
+                HmacDownloadTokens::new(&download_secret),
+            ),
         ));
         if config.opensubtitles_api_key.is_some() {
             router = router.merge(::api::subtitle_search_router(
@@ -490,7 +532,8 @@ impl Runtime {
         );
         let scan = LibraryScanHandler::new(
             repos.library.clone(),
-            Scanner::new(WalkdirSourceWalker, FfprobeMediaProbe::default()),
+            Scanner::new(WalkdirSourceWalker, FfprobeMediaProbe::default())
+                .with_probe_concurrency(config.scan_probe_concurrency),
             scan_enricher,
         );
         let reindex = SearchReindexHandler::new(repos.catalog.clone());
@@ -530,6 +573,19 @@ impl Runtime {
             CacheEvictor::new(&config.transcode_cache),
             config.transcode_cache_cap_bytes,
         );
+        let nightly = ScheduledScanHandler::new(repos.library.clone(), repos.jobs.clone());
+        let retention = RetentionHandler::new(
+            repos.jobs.clone(),
+            job_logs.clone(),
+            SignedDuration::from_hours(config.job_retention_days.saturating_mul(24)),
+        );
+        let sweep = OrphanSweepHandler::new(
+            repos.catalog.clone(),
+            FsArtworkStore::new(&config.artwork_cache),
+            FsSubtitleStore::new(&config.subtitle_cache),
+            FfmpegTrickplayGenerator::new(&config.trickplay_cache),
+            SignedDuration::from_secs(config.orphan_sweep_grace_secs),
+        );
         let handler = Arc::new(CompositeJobHandler::new(
             scan,
             reindex,
@@ -545,6 +601,9 @@ impl Runtime {
             combine,
             fetch,
             eviction,
+            nightly,
+            retention,
+            sweep,
         ));
         let worker = Worker::new(
             repos.jobs.clone(),
@@ -595,6 +654,38 @@ impl Runtime {
             every: cache_evict_every,
             next_fire_at: now.saturating_add(cache_evict_every).unwrap_or(now),
         });
+        let retention_every = SignedDuration::from_secs(config.retention_every_secs);
+        scheduler.register(Schedule {
+            kind: JobKind::Retention,
+            priority: JobPriority::Low,
+            payload: String::new(),
+            every: retention_every,
+            next_fire_at: now.saturating_add(retention_every).unwrap_or(now),
+        });
+        let sweep_every = SignedDuration::from_secs(config.orphan_sweep_every_secs);
+        scheduler.register(Schedule {
+            kind: JobKind::OrphanSweep,
+            priority: JobPriority::Low,
+            payload: String::new(),
+            every: sweep_every,
+            next_fire_at: now.saturating_add(sweep_every).unwrap_or(now),
+        });
+        if let Some(at) = config.daily_scan_at.as_deref() {
+            match next_daily_fire(at, now, TimeZone::system()) {
+                Some(next_fire_at) => scheduler.register(Schedule {
+                    kind: JobKind::ScheduledScan,
+                    priority: JobPriority::Normal,
+                    payload: String::new(),
+                    every: SignedDuration::from_hours(24),
+                    next_fire_at,
+                }),
+                None => {
+                    tracing::warn!(
+                        "ignoring daily_scan_at [{at}], expected a clock time like 04:00"
+                    )
+                }
+            }
+        }
 
         Ok(Self {
             repos,
@@ -941,7 +1032,11 @@ mod tests {
         assert_eq!(libraries.len(), 1);
         assert_eq!(libraries[0].name, "Movies");
 
-        let users = UserServiceImpl::new(repos.users.clone());
+        let users = UserServiceImpl::new(
+            repos.users.clone(),
+            repos.auth_tokens.clone(),
+            repos.user_data.clone(),
+        );
         let listed = users
             .list(PageRequest {
                 offset: 0,
@@ -974,7 +1069,11 @@ mod tests {
         assert_eq!(second.created, 0);
         assert_eq!(second.skipped, 2);
 
-        let users = UserServiceImpl::new(repos.users.clone());
+        let users = UserServiceImpl::new(
+            repos.users.clone(),
+            repos.auth_tokens.clone(),
+            repos.user_data.clone(),
+        );
         assert_eq!(
             users
                 .list(PageRequest {
@@ -1010,7 +1109,11 @@ mod tests {
                 let repos = Repos::connect(db.path()).await.unwrap();
                 let result = run_bootstrap(&config, &repos).await.unwrap();
                 assert_eq!(result.created, 1);
-                let users = UserServiceImpl::new(repos.users.clone());
+                let users = UserServiceImpl::new(
+                    repos.users.clone(),
+                    repos.auth_tokens.clone(),
+                    repos.user_data.clone(),
+                );
                 let listed = users
                     .list(PageRequest {
                         offset: 0,
@@ -1037,7 +1140,11 @@ mod tests {
         .await
         .unwrap();
         assert!(!runtime.serve);
-        let users = UserServiceImpl::new(runtime.repos.users.clone());
+        let users = UserServiceImpl::new(
+            runtime.repos.users.clone(),
+            runtime.repos.auth_tokens.clone(),
+            runtime.repos.user_data.clone(),
+        );
         assert_eq!(
             users
                 .list(PageRequest {
@@ -1064,7 +1171,11 @@ mod tests {
         .await
         .unwrap();
         assert!(runtime.serve);
-        let users = UserServiceImpl::new(runtime.repos.users.clone());
+        let users = UserServiceImpl::new(
+            runtime.repos.users.clone(),
+            runtime.repos.auth_tokens.clone(),
+            runtime.repos.user_data.clone(),
+        );
         assert_eq!(
             users
                 .list(PageRequest {

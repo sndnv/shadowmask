@@ -185,6 +185,14 @@ where
     U: UserRepository + Sync,
     T: AuthTokenRepository + Sync,
 {
+    async fn require_active(&self, user: &UserId) -> Result<(), AuthError> {
+        match self.users.get(user).await? {
+            Some(found) if found.active => Ok(()),
+            Some(_) => Err(AuthError::AccountDisabled),
+            None => Err(AuthError::InvalidToken),
+        }
+    }
+
     async fn issue_pair(&self, user: &UserId, role: Role) -> Result<TokenPair, AuthError> {
         let now = Timestamp::now().as_second();
         let access_token = self.encode(user, role, TYP_ACCESS, now + self.access_ttl_secs, None)?;
@@ -213,6 +221,9 @@ where
     T: AuthTokenRepository + Sync,
 {
     async fn login(&self, username: &str, password: &str) -> Result<TokenPair, AuthError> {
+        if password.trim().is_empty() {
+            return Err(AuthError::InvalidCredentials);
+        }
         let user = self
             .users
             .find_by_username(username)
@@ -220,6 +231,9 @@ where
             .ok_or(AuthError::InvalidCredentials)?;
         if !password::verify(password, &user.password_hash).unwrap_or(false) {
             return Err(AuthError::InvalidCredentials);
+        }
+        if !user.active {
+            return Err(AuthError::AccountDisabled);
         }
         self.issue_pair(&user.id, user.role).await
     }
@@ -236,8 +250,10 @@ where
             return Err(AuthError::InvalidToken);
         }
         let role = role_from_claim(&claims.rol)?;
+        let user = UserId(claims.sub);
+        self.require_active(&user).await?;
         self.tokens.revoke_refresh(&jti).await?;
-        self.issue_pair(&UserId(claims.sub), role).await
+        self.issue_pair(&user, role).await
     }
 
     async fn redeem_link_code(
@@ -251,6 +267,7 @@ where
             .redeem_link_code(&normalize_link_code(code), now)
             .await?
             .ok_or(AuthError::UnknownLinkCode)?;
+        self.require_active(&link.user).await?;
         let device = Device {
             id: DeviceId(Uuid::new_v4().to_string()),
             user: link.user.clone(),
@@ -284,6 +301,7 @@ where
                 .find_api_token_by_hash(&hash_api_token(access_token))
                 .await?
                 .ok_or(AuthError::InvalidToken)?;
+            self.require_active(&token.user).await?;
             self.tokens
                 .touch_api_token(&token.id, Timestamp::now())
                 .await?;
@@ -293,8 +311,10 @@ where
             });
         }
         let claims = self.decode(access_token, TYP_ACCESS)?;
+        let user = UserId(claims.sub);
+        self.require_active(&user).await?;
         Ok(Principal {
-            user: UserId(claims.sub),
+            user,
             role: role_from_claim(&claims.rol)?,
         })
     }
@@ -351,12 +371,11 @@ where
     async fn revoke_device(&self, user: &UserId, device: &DeviceId) -> Result<(), AuthError> {
         let owned = self
             .tokens
-            .list_devices(user)
+            .get_device(device)
             .await?
-            .iter()
-            .any(|candidate| &candidate.id == device);
+            .is_some_and(|candidate| &candidate.user == user);
         if !owned {
-            return Ok(());
+            return Err(AuthError::NotFound);
         }
         for token in self.tokens.list_api_tokens(user).await? {
             if &token.device == device {
@@ -374,9 +393,10 @@ where
             .await?
             .iter()
             .any(|candidate| &candidate.id == token);
-        if owned {
-            self.tokens.revoke_api_token(token).await?;
+        if !owned {
+            return Err(AuthError::NotFound);
         }
+        self.tokens.revoke_api_token(token).await?;
         Ok(())
     }
 }
@@ -384,8 +404,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mock::{MockAuthTokenRepo, MockUserRepo};
     use domain::user::{PendingLink, User};
+    use mocks::{MockAuthTokenRepo, MockUserRepo};
 
     const SECRET: &[u8] = b"shadowmask-test-secret";
 
@@ -407,6 +427,7 @@ mod tests {
             preferred_subtitle: Vec::new(),
             concurrent_stream_limit: None,
             bitrate_cap: None,
+            active: true,
             created_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
         }
@@ -453,6 +474,94 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_deleted_user_stops_authenticating_immediately() {
+        let svc = seeded().await;
+        let pair = svc.login("alice", "pw").await.unwrap();
+        assert!(svc.authenticate(&pair.access_token).await.is_ok());
+
+        svc.users.remove(&UserId("u1".into()));
+
+        assert!(matches!(
+            svc.authenticate(&pair.access_token).await.unwrap_err(),
+            AuthError::InvalidToken
+        ));
+        assert!(matches!(
+            svc.refresh(&pair.refresh_token).await.unwrap_err(),
+            AuthError::InvalidToken
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_deactivated_user_is_refused_on_every_credential() {
+        let svc = seeded().await;
+        let pair = svc.login("alice", "pw").await.unwrap();
+        let link = svc
+            .create_link_code(
+                &Principal {
+                    user: UserId("u1".into()),
+                    role: Role::Admin,
+                },
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        svc.users.insert(User {
+            active: false,
+            ..user("u1", "alice", Role::Admin)
+        });
+
+        assert!(matches!(
+            svc.login("alice", "pw").await.unwrap_err(),
+            AuthError::AccountDisabled
+        ));
+        assert!(matches!(
+            svc.authenticate(&pair.access_token).await.unwrap_err(),
+            AuthError::AccountDisabled
+        ));
+        assert!(matches!(
+            svc.refresh(&pair.refresh_token).await.unwrap_err(),
+            AuthError::AccountDisabled
+        ));
+        assert!(matches!(
+            svc.redeem_link_code(&link.code, device())
+                .await
+                .unwrap_err(),
+            AuthError::AccountDisabled
+        ));
+    }
+
+    #[tokio::test]
+    async fn an_api_token_dies_with_the_account_that_holds_it() {
+        let svc = seeded().await;
+        let link = svc
+            .create_link_code(
+                &Principal {
+                    user: UserId("u1".into()),
+                    role: Role::Admin,
+                },
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let issued = svc.redeem_link_code(&link.code, device()).await.unwrap();
+        assert!(issued.token.starts_with(API_TOKEN_PREFIX));
+        assert!(svc.authenticate(&issued.token).await.is_ok());
+
+        svc.users.insert(User {
+            active: false,
+            ..user("u1", "alice", Role::Admin)
+        });
+
+        assert!(matches!(
+            svc.authenticate(&issued.token).await.unwrap_err(),
+            AuthError::AccountDisabled
+        ));
+    }
+
+    #[tokio::test]
     async fn login_rejects_bad_credentials() {
         let svc = seeded().await;
         assert!(matches!(
@@ -463,6 +572,33 @@ mod tests {
             svc.login("ghost", "pw").await.unwrap_err(),
             AuthError::InvalidCredentials
         ));
+    }
+
+    #[tokio::test]
+    async fn login_refuses_an_empty_password_outright() {
+        let svc = seeded().await;
+        for blank in ["", "   "] {
+            assert!(matches!(
+                svc.login("alice", blank).await.unwrap_err(),
+                AuthError::InvalidCredentials
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn login_takes_a_password_with_surrounding_spaces_as_typed() {
+        for secret in ["  my-pass", "pass  ", "  my-pass  "] {
+            let svc = service(3600, 86_400);
+            let mut account = user("u1", "alice", Role::Admin);
+            account.password_hash = password::hash(secret).unwrap();
+            svc.users.insert(account);
+
+            svc.login("alice", secret).await.unwrap();
+            assert!(matches!(
+                svc.login("alice", secret.trim()).await.unwrap_err(),
+                AuthError::InvalidCredentials
+            ));
+        }
     }
 
     #[tokio::test]
@@ -826,22 +962,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn revoke_device_absent_or_not_owned_is_noop() {
+    async fn revoke_device_absent_or_not_owned_is_not_found() {
         let svc = seeded().await;
         let user = UserId("u1".into());
         svc.tokens
             .upsert_device(stored_device("foreign", "u2"))
             .await
             .unwrap();
-        svc.revoke_device(&user, &DeviceId("ghost".into()))
-            .await
-            .unwrap();
-        svc.revoke_device(&user, &DeviceId("foreign".into()))
-            .await
-            .unwrap();
+        assert!(matches!(
+            svc.revoke_device(&user, &DeviceId("ghost".into()))
+                .await
+                .unwrap_err(),
+            AuthError::NotFound
+        ));
+        assert!(matches!(
+            svc.revoke_device(&user, &DeviceId("foreign".into()))
+                .await
+                .unwrap_err(),
+            AuthError::NotFound
+        ));
         assert_eq!(
             svc.list_devices(&UserId("u2".into())).await.unwrap().len(),
-            1
+            1,
+            "another user's device must survive a revoke aimed at it"
         );
     }
 
@@ -858,18 +1001,25 @@ mod tests {
             .await
             .unwrap();
 
-        svc.revoke_api_token(&user, &ApiTokenId("foreign".into()))
-            .await
-            .unwrap();
-        svc.revoke_api_token(&user, &ApiTokenId("ghost".into()))
-            .await
-            .unwrap();
+        assert!(matches!(
+            svc.revoke_api_token(&user, &ApiTokenId("foreign".into()))
+                .await
+                .unwrap_err(),
+            AuthError::NotFound
+        ));
+        assert!(matches!(
+            svc.revoke_api_token(&user, &ApiTokenId("ghost".into()))
+                .await
+                .unwrap_err(),
+            AuthError::NotFound
+        ));
         assert_eq!(
             svc.list_api_tokens(&UserId("u2".into()))
                 .await
                 .unwrap()
                 .len(),
-            1
+            1,
+            "another user's token must survive a revoke aimed at it"
         );
 
         svc.revoke_api_token(&user, &ApiTokenId("t1".into()))
@@ -912,16 +1062,18 @@ mod tests {
         let user = UserId("u1".into());
         assert!(svc.list_devices(&user).await.is_err());
         assert!(svc.list_api_tokens(&user).await.is_err());
-        assert!(
+        assert!(matches!(
             svc.revoke_device(&user, &DeviceId("d1".into()))
                 .await
-                .is_err()
-        );
-        assert!(
+                .unwrap_err(),
+            AuthError::Repository(_)
+        ));
+        assert!(matches!(
             svc.revoke_api_token(&user, &ApiTokenId("t1".into()))
                 .await
-                .is_err()
-        );
+                .unwrap_err(),
+            AuthError::Repository(_)
+        ));
     }
 
     fn raw_token(claims: &Claims) -> String {

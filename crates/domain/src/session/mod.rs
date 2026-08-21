@@ -1,5 +1,8 @@
 mod client_capabilities;
 mod delivery_mode;
+mod download_claims;
+mod download_token;
+mod download_tokens;
 mod heartbeat_ack;
 mod now_playing;
 mod playback_session;
@@ -25,6 +28,9 @@ mod transcode_started;
 
 pub use client_capabilities::ClientCapabilities;
 pub use delivery_mode::DeliveryMode;
+pub use download_claims::DownloadClaims;
+pub use download_token::DownloadToken;
+pub use download_tokens::DownloadTokens;
 pub use heartbeat_ack::HeartbeatAck;
 pub use now_playing::NowPlaying;
 pub use playback_session::{PlaybackSession, SessionId};

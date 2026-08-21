@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
@@ -9,7 +10,10 @@ use tower::ServiceExt;
 
 use api::{AppState, SubtitleSearchState, subtitle_search_router};
 use contracts::Generator;
-use domain::catalog::{MovieId, TitleId, Version, VersionId};
+use domain::catalog::{
+    Episode, EpisodeId, Movie, MovieId, Season, SeasonId, Series, SeriesId, TitleId, TitleRef,
+    Version, VersionId,
+};
 use domain::common::{LanguageCode, Quality};
 use domain::error::SubtitleError;
 use domain::library::LibraryId;
@@ -17,9 +21,10 @@ use domain::media::{
     FetchedSubtitle, SubtitleCandidate, SubtitleFile, SubtitleFileId, SubtitleFormat,
     SubtitleProvider, SubtitleQuery, SubtitleSource, SubtitleStore,
 };
+use domain::metadata::{ExternalId, TitleEnrichment};
 use domain::repository::CatalogRepository;
 use jiff::Timestamp;
-use services::mock::MockCatalogRepo;
+use mocks::MockCatalogRepo;
 
 const ADMIN: &str = "Bearer access:admin";
 const USER: &str = "Bearer access:u1";
@@ -71,14 +76,27 @@ enum DownloadMode {
     Backend,
 }
 
+#[derive(Clone, Default)]
+struct SeenQuery(Arc<Mutex<Option<SubtitleQuery>>>);
+
+impl SeenQuery {
+    fn take(&self) -> SubtitleQuery {
+        self.0.lock().unwrap().clone().expect("provider was called")
+    }
+}
+
 struct MockProvider {
     search: SearchMode,
     download: DownloadMode,
+    seen: SeenQuery,
+    downloads: Arc<AtomicUsize>,
 }
 
 impl Default for MockProvider {
     fn default() -> Self {
         Self {
+            seen: SeenQuery::default(),
+            downloads: Arc::default(),
             search: SearchMode::Ok(vec![SubtitleCandidate {
                 file_id: "42".into(),
                 language: Some(LanguageCode("en".into())),
@@ -96,10 +114,8 @@ impl Default for MockProvider {
 }
 
 impl SubtitleProvider for MockProvider {
-    async fn search(
-        &self,
-        _query: &SubtitleQuery,
-    ) -> Result<Vec<SubtitleCandidate>, SubtitleError> {
+    async fn search(&self, query: &SubtitleQuery) -> Result<Vec<SubtitleCandidate>, SubtitleError> {
+        *self.seen.0.lock().unwrap() = Some(query.clone());
         match &self.search {
             SearchMode::Ok(candidates) => Ok(candidates.clone()),
             SearchMode::NotFound => Err(SubtitleError::NotFound),
@@ -108,6 +124,7 @@ impl SubtitleProvider for MockProvider {
     }
 
     async fn download(&self, _file_id: &str) -> Result<FetchedSubtitle, SubtitleError> {
+        self.downloads.fetch_add(1, Ordering::SeqCst);
         match &self.download {
             DownloadMode::Ok(fetched) => Ok(fetched.clone()),
             DownloadMode::NotFound => Err(SubtitleError::NotFound),
@@ -126,7 +143,6 @@ fn version() -> Version {
         path: "/m/v1.mkv".into(),
         size_bytes: 1,
         duration_ms: 1000,
-        edition: None,
         available: true,
         added_at: Timestamp::UNIX_EPOCH,
         updated_at: Timestamp::UNIX_EPOCH,
@@ -142,6 +158,8 @@ fn subtitle(id: &str, source: SubtitleSource, path: &str) -> SubtitleFile {
         source,
         path: path.into(),
         translated_from: None,
+        label: None,
+        pinned: false,
     }
 }
 
@@ -150,6 +168,91 @@ async fn seeded(files: &[SubtitleFile]) -> MockCatalogRepo {
     catalog.add_version(version());
     catalog
         .set_subtitle_files(&VersionId("v1".into()), files)
+        .await
+        .unwrap();
+    catalog
+}
+
+fn imdb(value: &str) -> TitleEnrichment {
+    TitleEnrichment {
+        external_ids: vec![ExternalId {
+            source: "imdb".into(),
+            value: value.into(),
+        }],
+        ..TitleEnrichment::default()
+    }
+}
+
+async fn seeded_movie(external: Option<&str>) -> MockCatalogRepo {
+    let catalog = seeded(&[]).await;
+    catalog.add_movie(Movie {
+        id: MovieId("m1".into()),
+        title: "The Matrix".into(),
+        sort_title: "matrix".into(),
+        year: Some(1999),
+        overview: None,
+        runtime_minutes: None,
+        content_rating: None,
+        manually_edited: false,
+        added_at: Timestamp::UNIX_EPOCH,
+        updated_at: Timestamp::UNIX_EPOCH,
+        artwork: Vec::new(),
+    });
+    if let Some(value) = external {
+        catalog
+            .set_title_enrichment(&TitleRef::Movie(MovieId("m1".into())), &imdb(value))
+            .await
+            .unwrap();
+    }
+    catalog
+}
+
+async fn seeded_episode() -> MockCatalogRepo {
+    let catalog = MockCatalogRepo::new();
+    catalog.add_version(Version {
+        title: TitleId::Episode(EpisodeId("e1".into())),
+        ..version()
+    });
+    catalog.add_series(Series {
+        id: SeriesId("sh1".into()),
+        title: "The Expanse".into(),
+        sort_title: "expanse".into(),
+        year: Some(2015),
+        overview: None,
+        content_rating: None,
+        manually_edited: false,
+        added_at: Timestamp::UNIX_EPOCH,
+        updated_at: Timestamp::UNIX_EPOCH,
+        artwork: Vec::new(),
+    });
+    catalog.add_season(Season {
+        id: SeasonId("se2".into()),
+        series: SeriesId("sh1".into()),
+        number: 2,
+        title: None,
+        overview: None,
+        added_at: Timestamp::UNIX_EPOCH,
+        updated_at: Timestamp::UNIX_EPOCH,
+        artwork: Vec::new(),
+    });
+    catalog.add_episode(Episode {
+        id: EpisodeId("e1".into()),
+        season: SeasonId("se2".into()),
+        number: 4,
+        title: "Home".into(),
+        overview: None,
+        runtime_minutes: None,
+        air_date: None,
+        manually_edited: false,
+        added_at: Timestamp::UNIX_EPOCH,
+        updated_at: Timestamp::UNIX_EPOCH,
+        artwork: Vec::new(),
+    });
+    catalog
+        .set_title_enrichment(
+            &TitleRef::Series(SeriesId("sh1".into())),
+            &imdb("tt3230854"),
+        )
         .await
         .unwrap();
     catalog
@@ -217,6 +320,85 @@ async fn files(catalog: &MockCatalogRepo) -> Vec<SubtitleFile> {
         .unwrap()
         .unwrap()
         .subtitle_files
+}
+
+#[tokio::test]
+async fn an_empty_query_searches_on_the_matched_title() {
+    let provider = MockProvider::default();
+    let seen = provider.seen.clone();
+    let (status, _) = get(
+        app(seeded_movie(None).await, MockStore::default(), provider),
+        SEARCH,
+        Some(ADMIN),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    let query = seen.take();
+    assert_eq!(query.query.as_deref(), Some("The Matrix"));
+    assert_eq!(query.imdb_id, None);
+    assert_eq!(query.season, None);
+    assert_eq!(query.episode, None);
+}
+
+#[tokio::test]
+async fn an_empty_query_prefers_the_imdb_id_over_the_title() {
+    let provider = MockProvider::default();
+    let seen = provider.seen.clone();
+    let (status, _) = get(
+        app(
+            seeded_movie(Some("tt0133093")).await,
+            MockStore::default(),
+            provider,
+        ),
+        SEARCH,
+        Some(ADMIN),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    let query = seen.take();
+    assert_eq!(query.imdb_id.as_deref(), Some("tt0133093"));
+    assert_eq!(query.query, None);
+}
+
+#[tokio::test]
+async fn an_episode_carries_its_series_id_season_and_number() {
+    let provider = MockProvider::default();
+    let seen = provider.seen.clone();
+    let (status, _) = get(
+        app(seeded_episode().await, MockStore::default(), provider),
+        SEARCH,
+        Some(ADMIN),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    let query = seen.take();
+    assert_eq!(query.imdb_id.as_deref(), Some("tt3230854"));
+    assert_eq!(query.season, Some(2));
+    assert_eq!(query.episode, Some(4));
+}
+
+#[tokio::test]
+async fn a_typed_query_replaces_the_matched_title_and_drops_the_imdb_id() {
+    let provider = MockProvider::default();
+    let seen = provider.seen.clone();
+    let (status, _) = get(
+        app(
+            seeded_movie(Some("tt0133093")).await,
+            MockStore::default(),
+            provider,
+        ),
+        &format!("{SEARCH}?q=matrix%20reloaded"),
+        Some(ADMIN),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    let query = seen.take();
+    assert_eq!(query.query.as_deref(), Some("matrix reloaded"));
+    assert_eq!(query.imdb_id, None);
 }
 
 #[tokio::test]
@@ -386,13 +568,68 @@ async fn admin_download_adds_row_keeping_others() {
 }
 
 #[tokio::test]
-async fn download_replaces_a_previous_download_of_the_same_file() {
+async fn downloading_a_file_the_version_already_holds_spends_no_quota() {
     let catalog = seeded(&[subtitle(
         "opensubtitles:v1:42",
         SubtitleSource::OpenSubtitles,
         "/subs/v1/old.srt",
     )])
     .await;
+    let provider = MockProvider::default();
+    let downloads = provider.downloads.clone();
+    let store = MockStore::default();
+    let written = store.files.clone();
+
+    let (status, _) = post(
+        app(catalog.clone(), store, provider),
+        DOWNLOAD,
+        Some(ADMIN),
+        r#"{"file_id":"42"}"#,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(downloads.load(Ordering::SeqCst), 0);
+    assert!(written.lock().unwrap().is_empty());
+    let files = files(&catalog).await;
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path, "/subs/v1/old.srt");
+}
+
+#[tokio::test]
+async fn downloading_a_file_the_version_lacks_calls_the_provider_once() {
+    let catalog = seeded(&[subtitle(
+        "opensubtitles:v1:99",
+        SubtitleSource::OpenSubtitles,
+        "/subs/v1/99.srt",
+    )])
+    .await;
+    let provider = MockProvider::default();
+    let downloads = provider.downloads.clone();
+
+    let (status, _) = post(
+        app(catalog.clone(), MockStore::default(), provider),
+        DOWNLOAD,
+        Some(ADMIN),
+        r#"{"file_id":"42"}"#,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(downloads.load(Ordering::SeqCst), 1);
+    let files = files(&catalog).await;
+    assert_eq!(files.len(), 2);
+    let added = files
+        .iter()
+        .find(|file| file.id.0 == "opensubtitles:v1:42")
+        .unwrap();
+    assert_eq!(added.path, "/subs/v1/42.srt");
+    assert!(added.language.is_none());
+}
+
+#[tokio::test]
+async fn a_hand_picked_download_is_stored_pinned_and_labelled() {
+    let catalog = seeded(&[]).await;
 
     let (status, _) = post(
         app(
@@ -402,17 +639,39 @@ async fn download_replaces_a_previous_download_of_the_same_file() {
         ),
         DOWNLOAD,
         Some(ADMIN),
-        r#"{"file_id":"42"}"#,
+        r#"{"file_id":"42","language":"en","release_name":"The.Matrix.1999.BluRay"}"#,
     )
     .await;
 
     assert_eq!(status, StatusCode::NO_CONTENT);
     let files = files(&catalog).await;
-    assert_eq!(files.len(), 1);
-    let only = &files[0];
-    assert_eq!(only.id.0, "opensubtitles:v1:42");
-    assert_eq!(only.path, "/subs/v1/42.srt");
-    assert!(only.language.is_none());
+    assert_eq!(files[0].label.as_deref(), Some("The.Matrix.1999.BluRay"));
+    assert!(
+        files[0].pinned,
+        "an admin's pick must survive the automatic job"
+    );
+}
+
+#[tokio::test]
+async fn a_download_without_a_release_name_is_still_pinned() {
+    let catalog = seeded(&[]).await;
+
+    let (status, _) = post(
+        app(
+            catalog.clone(),
+            MockStore::default(),
+            MockProvider::default(),
+        ),
+        DOWNLOAD,
+        Some(ADMIN),
+        r#"{"file_id":"42","release_name":"  "}"#,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let files = files(&catalog).await;
+    assert_eq!(files[0].label, None);
+    assert!(files[0].pinned);
 }
 
 #[tokio::test]

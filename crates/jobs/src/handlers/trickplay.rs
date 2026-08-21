@@ -54,8 +54,8 @@ mod tests {
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
     use domain::media::TrickplayAsset;
     use jiff::Timestamp;
+    use mocks::MockCatalogRepo;
     use services::library::TrickplayJobPayload;
-    use services::mock::MockCatalogRepo;
 
     use super::*;
 
@@ -100,7 +100,6 @@ mod tests {
             path: "/m/v1.mkv".into(),
             size_bytes: 1,
             duration_ms: 1000,
-            edition: None,
             available: true,
             added_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
@@ -134,7 +133,6 @@ mod tests {
             duration_ms: 1000,
         }
         .encode()
-        .unwrap()
     }
 
     #[tokio::test]

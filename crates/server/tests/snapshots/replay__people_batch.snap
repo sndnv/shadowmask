@@ -1,0 +1,34 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": [
+    {
+      "artwork": {
+        "backdrops": [
+          {
+            "base": "/images/p1-backdrop",
+            "widths": [
+              480,
+              960
+            ]
+          }
+        ],
+        "posters": [
+          {
+            "base": "/images/p1-poster",
+            "widths": [
+              180,
+              480,
+              960
+            ]
+          }
+        ]
+      },
+      "id": "p1",
+      "name": "Ada Lovelace"
+    }
+  ],
+  "status": 200
+}

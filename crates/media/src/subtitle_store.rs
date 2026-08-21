@@ -1,8 +1,11 @@
 use std::path::PathBuf;
 
 use domain::catalog::VersionId;
-use domain::error::SubtitleError;
-use domain::media::{SubtitleFormat, SubtitleReader, SubtitleStore};
+use domain::error::{CacheError, SubtitleError};
+use domain::media::{
+    DerivedAssetDir, DerivedAssetFile, DerivedAssetStore, SubtitleFormat, SubtitleReader,
+    SubtitleStore,
+};
 
 #[derive(Debug, Clone)]
 pub struct FsSubtitleStore {
@@ -40,6 +43,28 @@ impl SubtitleStore for FsSubtitleStore {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(SubtitleError::Store(e.to_string())),
         }
+    }
+}
+
+impl DerivedAssetStore for FsSubtitleStore {
+    fn label(&self) -> &'static str {
+        "subtitles"
+    }
+
+    async fn list_dirs(&self) -> Result<Vec<DerivedAssetDir>, CacheError> {
+        crate::derived_assets::list_dirs(&self.root).await
+    }
+
+    async fn remove_dir(&self, owner: &str) -> Result<(), CacheError> {
+        crate::derived_assets::remove_dir(&self.root, owner).await
+    }
+
+    async fn list_files(&self, owner: &str) -> Result<Vec<DerivedAssetFile>, CacheError> {
+        crate::derived_assets::list_files(&self.root, owner).await
+    }
+
+    async fn remove_file(&self, path: &str) -> Result<(), CacheError> {
+        crate::derived_assets::remove_file(&self.root, path).await
     }
 }
 
@@ -155,5 +180,37 @@ mod tests {
             .await
             .expect_err("removing a directory must fail");
         assert!(matches!(err, SubtitleError::Store(_)));
+    }
+
+    #[tokio::test]
+    async fn the_sweep_sees_one_dir_per_version_and_can_remove_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = FsSubtitleStore::new(dir.path());
+        assert_eq!(DerivedAssetStore::label(&store), "subtitles");
+        store
+            .store(
+                &VersionId("v1".to_owned()),
+                "file-42",
+                SubtitleFormat::Vtt,
+                "WEBVTT\n",
+            )
+            .await
+            .expect("store");
+
+        let dirs = store.list_dirs().await.expect("list");
+        assert_eq!(dirs.len(), 1);
+        assert_eq!(dirs[0].owner, "v1");
+
+        let files = store.list_files("v1").await.expect("list files");
+        assert_eq!(files.len(), 1);
+        assert!(files[0].path.ends_with("file-42.vtt"));
+        store
+            .remove_file(&files[0].path)
+            .await
+            .expect("remove file");
+        assert!(store.list_files("v1").await.expect("list files").is_empty());
+
+        store.remove_dir("v1").await.expect("remove");
+        assert!(store.list_dirs().await.expect("list").is_empty());
     }
 }

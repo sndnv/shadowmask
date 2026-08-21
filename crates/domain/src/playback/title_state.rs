@@ -7,4 +7,5 @@ pub struct TitleState {
     pub watchlisted: bool,
     pub watched: bool,
     pub completed: bool,
+    pub progress_percent: u8,
 }

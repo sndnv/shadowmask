@@ -2,18 +2,20 @@
 # bootstrap once by setting SHADOWMASK_BOOTSTRAP_MODE=init-and-start (set back to off after).
 # kind: movie | tv
 # watcher: local | polling | scheduled | manual
+#   Only "scheduled" libraries are picked up by the nightly re-scan, and only when the server has
+#   SHADOWMASK_DAILY_SCAN_AT set. "local" and "polling" have no runtime behaviour yet.
 # roots must point at directories the server can read (mounted into the container).
 
 [[libraries]]
 name = "Movies"
 kind = "movie"
 roots = ["/media/movies"]
-watcher = "local"
+watcher = "scheduled"
 metadata_sources = ["tmdb"]
 
 [[libraries]]
 name = "TV"
 kind = "tv"
 roots = ["/media/tv"]
-watcher = "local"
+watcher = "scheduled"
 metadata_sources = ["tmdb"]

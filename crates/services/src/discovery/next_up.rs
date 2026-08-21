@@ -1,8 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use domain::catalog::{
-    Collection, Episode, EpisodeId, Movie, MovieId, Season, SeasonId, SeriesId, TitleId,
-};
+use domain::catalog::{Collection, EpisodeContext, EpisodeId, Movie, MovieId, SeriesId, TitleId};
 use domain::playback::WatchHistory;
 
 pub fn watched_movie_ids(history: &[WatchHistory]) -> HashSet<MovieId> {
@@ -27,40 +25,41 @@ pub fn watched_episode_ids(history: &[WatchHistory]) -> HashSet<EpisodeId> {
         .collect()
 }
 
-pub fn next_episodes(
-    seasons: &[Season],
-    episodes: &[Episode],
-    watched: &HashSet<EpisodeId>,
-) -> Vec<Episode> {
-    let season_info: HashMap<&SeasonId, (&SeriesId, u16)> = seasons
-        .iter()
-        .map(|s| (&s.id, (&s.series, s.number)))
+pub fn furthest_watched(seen: &[EpisodeContext]) -> Vec<(SeriesId, u16, u16)> {
+    let mut best: HashMap<&SeriesId, (u16, u16)> = HashMap::new();
+    for entry in seen {
+        let slot = (entry.season_number, entry.episode.number);
+        best.entry(&entry.series)
+            .and_modify(|found| {
+                if slot > *found {
+                    *found = slot;
+                }
+            })
+            .or_insert(slot);
+    }
+    let mut out: Vec<(SeriesId, u16, u16)> = best
+        .into_iter()
+        .map(|(series, (season, number))| (series.clone(), season, number))
         .collect();
+    out.sort_by(|a, b| a.0.0.cmp(&b.0.0));
+    out
+}
 
-    let mut by_series: HashMap<&SeriesId, Vec<(u16, u16, &Episode)>> = HashMap::new();
-    for episode in episodes {
-        if let Some((series, season_number)) = season_info.get(&episode.season) {
-            by_series
-                .entry(*series)
-                .or_default()
-                .push((*season_number, episode.number, episode));
-        }
-    }
-
-    let mut next: Vec<(&SeriesId, Episode)> = Vec::new();
-    for (series, mut ordered) in by_series {
-        ordered.sort_by_key(|&(season, number, _)| (season, number));
-        let next_episode = ordered
-            .iter()
-            .rposition(|&(_, _, episode)| watched.contains(&episode.id))
-            .and_then(|index| ordered.get(index + 1))
-            .map(|&(_, _, episode)| episode);
-        if let Some(episode) = next_episode {
-            next.push((series, episode.clone()));
-        }
-    }
-    next.sort_by(|a, b| a.0.0.cmp(&b.0.0));
-    next.into_iter().map(|(_, episode)| episode).collect()
+pub fn next_movie_candidates(
+    collections: &[Collection],
+    watched: &HashSet<MovieId>,
+) -> Vec<MovieId> {
+    collections
+        .iter()
+        .filter_map(|collection| {
+            collection
+                .movies
+                .iter()
+                .rposition(|id| watched.contains(id))
+                .and_then(|index| collection.movies.get(index + 1))
+                .cloned()
+        })
+        .collect()
 }
 
 pub fn next_movies(
@@ -87,18 +86,16 @@ pub fn next_movies(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::catalog::{Episode, SeasonId};
     use jiff::Timestamp;
 
-    fn season(id: &str, series: &str, number: u16) -> Season {
-        Season {
-            id: SeasonId(id.to_owned()),
+    fn seen(id: &str, series: &str, season_number: u16, number: u16) -> EpisodeContext {
+        EpisodeContext {
+            episode: episode(id, "se1", number),
+            season: SeasonId("se1".to_owned()),
+            season_number,
+            season_title: None,
             series: SeriesId(series.to_owned()),
-            number,
-            title: None,
-            overview: None,
-            added_at: Timestamp::UNIX_EPOCH,
-            updated_at: Timestamp::UNIX_EPOCH,
-            artwork: Vec::new(),
         }
     }
 
@@ -111,6 +108,7 @@ mod tests {
             overview: None,
             runtime_minutes: None,
             air_date: None,
+            manually_edited: false,
             added_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
@@ -121,66 +119,79 @@ mod tests {
         Movie {
             id: MovieId(id.to_owned()),
             title: id.to_owned(),
+            sort_title: id.to_owned(),
             year: None,
             overview: None,
             runtime_minutes: None,
             content_rating: None,
+            manually_edited: false,
             added_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         }
     }
 
-    fn watched_episodes(ids: &[&str]) -> HashSet<EpisodeId> {
-        ids.iter().map(|id| EpisodeId((*id).to_owned())).collect()
-    }
-
-    fn ids(episodes: &[Episode]) -> Vec<String> {
-        episodes.iter().map(|e| e.id.0.clone()).collect()
+    fn resume(marks: &[(SeriesId, u16, u16)]) -> Vec<(String, u16, u16)> {
+        marks
+            .iter()
+            .map(|(series, season, number)| (series.0.clone(), *season, *number))
+            .collect()
     }
 
     #[test]
-    fn returns_next_after_last_watched_across_seasons() {
-        let seasons = [season("s1", "show", 1), season("s2", "show", 2)];
-        let episodes = [
-            episode("s1e1", "s1", 1),
-            episode("s1e2", "s1", 2),
-            episode("s2e1", "s2", 1),
+    fn the_furthest_watched_slot_wins_even_when_an_earlier_one_comes_last() {
+        let watched = [
+            seen("s2e1", "show", 2, 1),
+            seen("s1e1", "show", 1, 1),
+            seen("s1e2", "show", 1, 2),
         ];
-        let next = next_episodes(&seasons, &episodes, &watched_episodes(&["s1e1", "s1e2"]));
-        assert_eq!(ids(&next), vec!["s2e1"]);
-    }
-
-    #[test]
-    fn crosses_season_boundary_when_season_finished() {
-        let seasons = [season("s1", "show", 1), season("s2", "show", 2)];
-        let episodes = [episode("s1e1", "s1", 1), episode("s2e1", "s2", 1)];
-        let next = next_episodes(&seasons, &episodes, &watched_episodes(&["s1e1"]));
-        assert_eq!(ids(&next), vec!["s2e1"]);
-    }
-
-    #[test]
-    fn nothing_watched_or_all_watched_yields_no_next() {
-        let seasons = [season("s1", "show", 1)];
-        let episodes = [episode("s1e1", "s1", 1), episode("s1e2", "s1", 2)];
-        assert!(next_episodes(&seasons, &episodes, &HashSet::new()).is_empty());
-        assert!(
-            next_episodes(&seasons, &episodes, &watched_episodes(&["s1e1", "s1e2"])).is_empty()
+        assert_eq!(
+            resume(&furthest_watched(&watched)),
+            vec![("show".to_owned(), 2, 1)],
+            "a rewatch of an early episode must not drag up next backwards"
         );
     }
 
     #[test]
-    fn independent_series_are_sorted_and_orphan_episodes_skipped() {
-        let seasons = [season("a1", "alpha", 1), season("b1", "beta", 1)];
-        let episodes = [
-            episode("a1e1", "a1", 1),
-            episode("a1e2", "a1", 2),
-            episode("b1e1", "b1", 1),
-            episode("b1e2", "b1", 2),
-            episode("orphan", "missing", 1),
+    fn nothing_watched_leaves_nothing_to_resume() {
+        assert!(furthest_watched(&[]).is_empty());
+    }
+
+    #[test]
+    fn each_series_resumes_independently_and_in_id_order() {
+        let watched = [
+            seen("b1e1", "beta", 1, 1),
+            seen("a1e1", "alpha", 1, 1),
+            seen("a1e2", "alpha", 1, 2),
         ];
-        let next = next_episodes(&seasons, &episodes, &watched_episodes(&["a1e1", "b1e1"]));
-        assert_eq!(ids(&next), vec!["a1e2", "b1e2"]);
+        assert_eq!(
+            resume(&furthest_watched(&watched)),
+            vec![("alpha".to_owned(), 1, 2), ("beta".to_owned(), 1, 1)]
+        );
+    }
+
+    #[test]
+    fn a_collection_offers_the_movie_after_the_last_watched_one() {
+        let collections = [Collection {
+            id: domain::catalog::CollectionId("mtx".to_owned()),
+            name: "Matrix".to_owned(),
+            overview: None,
+            movies: vec![
+                MovieId("m1".to_owned()),
+                MovieId("m2".to_owned()),
+                MovieId("m3".to_owned()),
+            ],
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        }];
+        let watched = HashSet::from([MovieId("m1".to_owned())]);
+        assert_eq!(
+            next_movie_candidates(&collections, &watched),
+            vec![MovieId("m2".to_owned())],
+            "only the candidate is fetched, never the whole catalog"
+        );
+        assert!(next_movie_candidates(&collections, &HashSet::new()).is_empty());
     }
 
     #[test]

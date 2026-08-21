@@ -1,6 +1,6 @@
 use domain::job::JobKind;
 
-pub const ALL_KINDS: [JobKind; 16] = [
+pub const ALL_KINDS: [JobKind; 19] = [
     JobKind::LibraryScan,
     JobKind::Metadata,
     JobKind::Artwork,
@@ -17,9 +17,12 @@ pub const ALL_KINDS: [JobKind; 16] = [
     JobKind::Upscale,
     JobKind::Combine,
     JobKind::Fetch,
+    JobKind::ScheduledScan,
+    JobKind::Retention,
+    JobKind::OrphanSweep,
 ];
 
-pub fn is_enrichment_job(kind: JobKind) -> bool {
+fn is_enrichment_job(kind: JobKind) -> bool {
     match kind {
         JobKind::Transcription | JobKind::Translation | JobKind::Upscale => true,
         JobKind::LibraryScan
@@ -34,11 +37,14 @@ pub fn is_enrichment_job(kind: JobKind) -> bool {
         | JobKind::Ingest
         | JobKind::Relink
         | JobKind::Combine
-        | JobKind::Fetch => false,
+        | JobKind::Fetch
+        | JobKind::ScheduledScan
+        | JobKind::Retention
+        | JobKind::OrphanSweep => false,
     }
 }
 
-pub fn is_fetch_job(kind: JobKind) -> bool {
+fn is_fetch_job(kind: JobKind) -> bool {
     matches!(kind, JobKind::Fetch)
 }
 
@@ -69,7 +75,7 @@ mod tests {
 
     #[test]
     fn kinds_partition_into_enrichment_fetch_and_normal() {
-        assert_eq!(ALL_KINDS.len(), 16);
+        assert_eq!(ALL_KINDS.len(), 19);
         let enrichment = enrichment_kinds();
         let fetch = fetch_kinds();
         let normal = normal_kinds();

@@ -18,12 +18,16 @@ pub struct ArtworkDto {
 }
 
 impl ArtworkDto {
+    pub fn is_empty(&self) -> bool {
+        self.posters.is_empty() && self.backdrops.is_empty()
+    }
+
     pub fn from_refs(refs: Vec<ArtworkRef>) -> Self {
         let mut artwork = ArtworkDto::default();
         for art in refs {
             let set = ImageSetDto {
                 base: format!("/images/{}", art.id.0),
-                widths: art.widths,
+                widths: art.sizes(),
             };
             match art.kind {
                 ArtworkKind::Poster => artwork.posters.push(set),
@@ -38,14 +42,17 @@ impl ArtworkDto {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::catalog::ArtworkId;
+    use domain::catalog::{ArtworkId, ArtworkWidth};
     use serde_json::json;
 
     fn art(id: &str, kind: ArtworkKind, widths: Vec<u32>) -> ArtworkRef {
         ArtworkRef {
             id: ArtworkId(id.into()),
             kind,
-            widths,
+            widths: widths
+                .into_iter()
+                .map(|width| ArtworkWidth::new(width, format!("/art/{id}/{width}.jpg")))
+                .collect(),
         }
     }
 

@@ -14,6 +14,7 @@ pub struct Episode {
     pub overview: Option<String>,
     pub runtime_minutes: Option<u32>,
     pub air_date: Option<Timestamp>,
+    pub manually_edited: bool,
     pub added_at: Timestamp,
     pub updated_at: Timestamp,
     pub artwork: Vec<ArtworkRef>,

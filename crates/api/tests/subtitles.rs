@@ -18,7 +18,7 @@ use domain::media::{
 };
 use domain::repository::CatalogRepository;
 use jiff::Timestamp;
-use services::mock::MockCatalogRepo;
+use mocks::MockCatalogRepo;
 
 const ADMIN: &str = "Bearer access:admin";
 const USER: &str = "Bearer access:u1";
@@ -93,7 +93,6 @@ fn version() -> Version {
         path: "/m/v1.mkv".into(),
         size_bytes: 1,
         duration_ms: 1000,
-        edition: None,
         available: true,
         added_at: Timestamp::UNIX_EPOCH,
         updated_at: Timestamp::UNIX_EPOCH,
@@ -114,6 +113,8 @@ fn file(
         source,
         path: path.into(),
         translated_from: translated_from.map(|id| SubtitleFileId(id.into())),
+        label: None,
+        pinned: false,
     }
 }
 

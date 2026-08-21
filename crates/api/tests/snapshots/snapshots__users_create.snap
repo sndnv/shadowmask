@@ -4,10 +4,11 @@ expression: value
 ---
 {
   "body": {
+    "active": true,
     "bitrate_cap": null,
     "concurrent_stream_limit": null,
     "created_at": "[created_at]",
-    "id": "user-1",
+    "id": "[id]",
     "max_content_rating": null,
     "preferred_audio": [],
     "preferred_subtitle": [],

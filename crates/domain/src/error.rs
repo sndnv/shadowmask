@@ -30,6 +30,10 @@ pub enum AuthError {
     InvalidToken,
     #[error("unknown or expired link code")]
     UnknownLinkCode,
+    #[error("this account has been deactivated")]
+    AccountDisabled,
+    #[error("device or API token not found")]
+    NotFound,
     #[error(transparent)]
     Repository(#[from] RepositoryError),
 }
@@ -70,6 +74,10 @@ pub enum LibraryError {
     Forbidden,
     #[error("feature disabled")]
     Disabled,
+    #[error("{0}")]
+    NotEmpty(String),
+    #[error("{0}")]
+    Unavailable(String),
     #[error("{0}")]
     InvalidRequest(String),
     #[error(transparent)]
@@ -114,8 +122,14 @@ pub enum UserError {
     UsernameTaken,
     #[error("access denied")]
     AccessDenied,
+    #[error("an account cannot delete itself")]
+    CannotDeleteSelf,
+    #[error("an account cannot deactivate itself")]
+    CannotDeactivateSelf,
     #[error("current password is incorrect")]
     InvalidPassword,
+    #[error("password must not be empty")]
+    EmptyPassword,
     #[error(transparent)]
     Repository(#[from] RepositoryError),
 }
@@ -239,6 +253,16 @@ pub enum StreamTokenError {
     #[error("invalid stream token")]
     Invalid,
     #[error("failed to create stream token: {0}")]
+    Create(String),
+}
+
+#[derive(Debug, Error)]
+pub enum DownloadTokenError {
+    #[error("download link expired")]
+    Expired,
+    #[error("invalid download link")]
+    Invalid,
+    #[error("failed to create download link: {0}")]
     Create(String),
 }
 

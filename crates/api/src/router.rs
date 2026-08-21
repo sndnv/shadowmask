@@ -8,17 +8,17 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use domain::job::JobLogStore;
 use domain::media::{SubtitleProvider, SubtitleReader, SubtitleStore};
 use domain::repository::CatalogRepository;
-use domain::session::{StreamSource, StreamTokens};
+use domain::session::{DownloadTokens, StreamSource, StreamTokens};
 use tower_http::services::ServeDir;
 
 use crate::handlers::{
-    admin, auth, catalog, discovery, image, job_log, library, server, sessions, stream, subtitle,
-    trickplay, user_library, users, webhook,
+    admin, auth, catalog, discovery, download, image, job_log, library, server, sessions, stream,
+    subtitle, trickplay, user_library, users, webhook,
 };
 use crate::middleware::{jwt, track_stream_bytes};
 use crate::state::{
-    AppServices, ImageState, JobLogState, StreamState, SubtitleSearchState, SubtitleState,
-    TrickplayState, WebhookClient, WebhookState,
+    AppServices, DownloadState, ImageState, JobLogState, StreamState, SubtitleSearchState,
+    SubtitleState, TrickplayState, WebhookClient, WebhookState,
 };
 
 pub fn router<S: AppServices>(state: S) -> Router {
@@ -31,6 +31,7 @@ pub fn router<S: AppServices>(state: S) -> Router {
     let protected = Router::<S>::new()
         .route("/auth/link/create", post(auth::create_link::<S>))
         .route("/movies", get(catalog::movies::<S>))
+        .route("/movies/random", get(catalog::random_movie::<S>))
         .route(
             "/movies/collections",
             get(catalog::collections::<S>).post(catalog::create_collection::<S>),
@@ -41,16 +42,37 @@ pub fn router<S: AppServices>(state: S) -> Router {
                 .put(catalog::update_collection::<S>)
                 .delete(catalog::delete_collection::<S>),
         )
-        .route("/movies/{id}", get(catalog::movie::<S>))
+        .route(
+            "/movies/collections/{id}/random",
+            get(catalog::random_in_collection::<S>),
+        )
+        .route(
+            "/movies/{id}",
+            get(catalog::movie::<S>).put(catalog::edit_movie::<S>),
+        )
         .route("/movies/{id}/versions", get(catalog::movie_versions::<S>))
+        .route(
+            "/movies/{id}/collections",
+            get(catalog::movie_collections::<S>),
+        )
         .route("/movies/{id}/refresh", post(catalog::refresh_movie::<S>))
         .route("/series", get(catalog::series::<S>))
-        .route("/series/{id}", get(catalog::series_detail::<S>))
+        .route("/series/random", get(catalog::random_episode::<S>))
+        .route(
+            "/series/{id}",
+            get(catalog::series_detail::<S>).put(catalog::edit_series::<S>),
+        )
+        .route("/series/{id}/random", get(catalog::random_in_series::<S>))
         .route("/series/{id}/refresh", post(catalog::refresh_series::<S>))
+        .route("/series/{id}/relink", post(catalog::relink_series::<S>))
         .route("/series/{id}/seasons", get(catalog::seasons::<S>))
         .route(
             "/series/{id}/seasons/{season_id}",
             get(catalog::season::<S>),
+        )
+        .route(
+            "/series/{id}/seasons/{season_id}/random",
+            get(catalog::random_in_season::<S>),
         )
         .route(
             "/series/{id}/seasons/{season_id}/episodes",
@@ -58,7 +80,7 @@ pub fn router<S: AppServices>(state: S) -> Router {
         )
         .route(
             "/series/{id}/seasons/{season_id}/episodes/{episode_id}",
-            get(catalog::episode::<S>),
+            get(catalog::episode::<S>).put(catalog::edit_episode::<S>),
         )
         .route(
             "/series/{id}/seasons/{season_id}/episodes/{episode_id}/versions",
@@ -67,6 +89,7 @@ pub fn router<S: AppServices>(state: S) -> Router {
         .route("/versions/{id}", get(catalog::version_detail::<S>))
         .route("/versions/{id}/relink", post(catalog::relink_version::<S>))
         .route("/titles/batch", post(catalog::title_cards::<S>))
+        .route("/people/batch", post(catalog::people_batch::<S>))
         .route("/people/{id}", get(catalog::person::<S>))
         .route("/people/{id}/refresh", post(catalog::refresh_person::<S>))
         .route("/genres", get(catalog::genres::<S>))
@@ -87,12 +110,12 @@ pub fn router<S: AppServices>(state: S) -> Router {
             post(library::dismiss_duplicate::<S>),
         )
         .route(
-            "/libraries/{id}/duplicates/{did}/resolve",
-            post(library::resolve_duplicate::<S>),
-        )
-        .route(
             "/libraries/{id}/scan",
             get(library::scan_state::<S>).post(library::trigger_scan::<S>),
+        )
+        .route(
+            "/libraries/{id}/refresh-metadata",
+            post(library::refresh_metadata::<S>),
         )
         .route("/libraries/{id}/unmatched", get(library::unmatched::<S>))
         .route(
@@ -106,8 +129,14 @@ pub fn router<S: AppServices>(state: S) -> Router {
         .route("/libraries/{id}/versions", get(library::versions::<S>))
         .route("/admin/jobs", get(admin::jobs::<S>))
         .route("/admin/jobs/{id}", get(admin::job::<S>))
+        .route("/admin/jobs/{id}/children", get(admin::job_children::<S>))
         .route("/admin/jobs/{id}/cancel", post(admin::cancel_job::<S>))
         .route("/admin/versions", get(admin::versions::<S>))
+        .route("/admin/versions/{id}", delete(admin::delete_version::<S>))
+        .route("/admin/movies/{id}", delete(admin::delete_movie::<S>))
+        .route("/admin/series/{id}", delete(admin::delete_series::<S>))
+        .route("/admin/seasons/{id}", delete(admin::delete_season::<S>))
+        .route("/admin/episodes/{id}", delete(admin::delete_episode::<S>))
         .route(
             "/admin/versions/{id}/transcribe",
             post(admin::transcribe_version::<S>),
@@ -140,6 +169,7 @@ pub fn router<S: AppServices>(state: S) -> Router {
                 .put(users::update_profile::<S>)
                 .delete(users::delete::<S>),
         )
+        .route("/users/{id}/active", put(users::set_active::<S>))
         .route(
             "/users/{id}/continue",
             get(discovery::continue_watching::<S>),
@@ -149,7 +179,14 @@ pub fn router<S: AppServices>(state: S) -> Router {
             "/users/{id}/favorites/{title_id}",
             put(user_library::add_favorite::<S>).delete(user_library::remove_favorite::<S>),
         )
-        .route("/users/{id}/history", get(user_library::history::<S>))
+        .route(
+            "/users/{id}/history",
+            get(user_library::history::<S>).delete(user_library::clear_history::<S>),
+        )
+        .route(
+            "/users/{id}/history/{title_id}",
+            delete(user_library::remove_from_history::<S>),
+        )
         .route("/users/{id}/hub", get(discovery::hub::<S>))
         .route(
             "/users/{id}/libraries",
@@ -263,6 +300,22 @@ pub fn trickplay_router<S: AppServices>(auth: S, state: TrickplayState) -> Route
         )
         .route_layer(from_fn_with_state(auth, jwt::<S>))
         .with_state(state)
+}
+
+pub fn download_router<A, C, D>(auth: A, state: DownloadState<A, C, D>) -> Router
+where
+    A: AppServices,
+    C: CatalogRepository + Send + Sync + 'static,
+    D: DownloadTokens + Send + Sync + 'static,
+{
+    let mint = Router::new()
+        .route(
+            "/api/v1/versions/{id}/download",
+            post(download::link::<A, C, D>),
+        )
+        .route_layer(from_fn_with_state(auth, jwt::<A>));
+    let fetch = Router::new().route("/download/{token}", get(download::file::<A, C, D>));
+    mint.merge(fetch).with_state(state)
 }
 
 pub fn subtitle_router<A, C, S>(auth: A, state: SubtitleState<C, S>) -> Router

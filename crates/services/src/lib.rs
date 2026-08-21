@@ -4,7 +4,6 @@ pub mod catalog;
 pub mod discovery;
 pub mod job;
 pub mod library;
-pub mod mock;
 pub(crate) mod page;
 pub mod password;
 pub mod session;

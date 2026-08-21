@@ -1,0 +1,13 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "error": {
+      "code": "bad_request",
+      "message": "unparseable air_date: last thursday"
+    }
+  },
+  "status": 400
+}

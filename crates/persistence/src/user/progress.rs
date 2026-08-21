@@ -1,11 +1,12 @@
 use std::path::Path;
 
-use domain::catalog::VersionId;
+use domain::catalog::{TitleId, VersionId};
 use domain::common::{Page, PageRequest};
 use domain::error::RepositoryError;
 use domain::playback::{PlaybackProgress, WatchHistory};
 use domain::repository::ProgressRepository;
 use domain::user::UserId;
+use jiff::Timestamp;
 use sqlx::migrate::Migrator;
 use sqlx::sqlite::SqliteRow;
 
@@ -37,8 +38,20 @@ impl SqliteProgressRepo {
         Ok(())
     }
 
+    pub async fn purge(&self, user: &UserId) -> Result<(), RepositoryError> {
+        self.pools.purge(user).await
+    }
+
     pub async fn close(&self) {
         self.pools.close_all().await;
+    }
+
+    async fn prune(&self, pool: &sqlx::SqlitePool) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM watch_history WHERE play_count = 0 AND watched = 0")
+            .execute(pool)
+            .await
+            .map_err(backend)?;
+        Ok(())
     }
 }
 
@@ -132,24 +145,90 @@ impl ProgressRepository for SqliteProgressRepo {
         rows.iter().map(|row| row_to_progress(user, row)).collect()
     }
 
-    async fn record_history(&self, history: WatchHistory) -> Result<(), RepositoryError> {
-        let _op = DbOpGuard::new("progress", "record_history");
-        let pool = self.pools.get(&history.user).await?;
+    async fn record_view(
+        &self,
+        user: &UserId,
+        title: &TitleId,
+        at: Timestamp,
+    ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("progress", "record_view");
+        let pool = self.pools.get(user).await?;
         sqlx::query(
-            "INSERT OR REPLACE INTO watch_history \
+            "INSERT INTO watch_history \
              (title_kind, title_id, watched, play_count, last_watched_at, completed) \
-             VALUES (?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, 1, 1, ?, 1) \
+             ON CONFLICT (title_kind, title_id) DO UPDATE SET \
+             watched = 1, completed = 1, play_count = play_count + 1, \
+             last_watched_at = excluded.last_watched_at",
         )
-        .bind(title_kind(&history.title))
-        .bind(history.title.id())
-        .bind(history.watched)
-        .bind(history.play_count as i64)
-        .bind(history.last_watched_at.map(to_millis))
-        .bind(history.completed)
+        .bind(title_kind(title))
+        .bind(title.id())
+        .bind(to_millis(at))
         .execute(&pool)
         .await
         .map_err(backend)?;
         Ok(())
+    }
+
+    async fn set_watched_flags(
+        &self,
+        user: &UserId,
+        title: &TitleId,
+        watched: bool,
+    ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("progress", "set_watched_flags");
+        let pool = self.pools.get(user).await?;
+        sqlx::query(
+            "INSERT INTO watch_history \
+             (title_kind, title_id, watched, play_count, last_watched_at, completed) \
+             VALUES (?, ?, ?, 0, NULL, ?) \
+             ON CONFLICT (title_kind, title_id) DO UPDATE SET \
+             watched = excluded.watched, completed = excluded.completed",
+        )
+        .bind(title_kind(title))
+        .bind(title.id())
+        .bind(watched)
+        .bind(watched)
+        .execute(&pool)
+        .await
+        .map_err(backend)?;
+        self.prune(&pool).await
+    }
+
+    async fn delete_history(&self, user: &UserId, title_id: &str) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("progress", "delete_history");
+        let pool = self.pools.get(user).await?;
+        sqlx::query(
+            "UPDATE watch_history SET play_count = 0, last_watched_at = NULL WHERE title_id = ?",
+        )
+        .bind(title_id)
+        .execute(&pool)
+        .await
+        .map_err(backend)?;
+        self.prune(&pool).await
+    }
+
+    async fn clear_history(&self, user: &UserId) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("progress", "clear_history");
+        let pool = self.pools.get(user).await?;
+        sqlx::query("UPDATE watch_history SET play_count = 0, last_watched_at = NULL")
+            .execute(&pool)
+            .await
+            .map_err(backend)?;
+        self.prune(&pool).await
+    }
+
+    async fn watched_state(&self, user: &UserId) -> Result<Vec<WatchHistory>, RepositoryError> {
+        let _op = DbOpGuard::new("progress", "watched_state");
+        let pool = self.pools.get(user).await?;
+        let rows = sqlx::query(
+            "SELECT title_kind, title_id, watched, play_count, last_watched_at, completed \
+             FROM watch_history",
+        )
+        .fetch_all(&pool)
+        .await
+        .map_err(backend)?;
+        rows.iter().map(|row| row_to_history(user, row)).collect()
     }
 
     async fn history(
@@ -159,14 +238,15 @@ impl ProgressRepository for SqliteProgressRepo {
     ) -> Result<Page<WatchHistory>, RepositoryError> {
         let _op = DbOpGuard::new("progress", "history");
         let pool = self.pools.get(user).await?;
-        let count_row = sqlx::query("SELECT COUNT(*) AS n FROM watch_history")
+        let count_row = sqlx::query("SELECT COUNT(*) AS n FROM watch_history WHERE play_count > 0")
             .fetch_one(&pool)
             .await
             .map_err(backend)?;
         let total = column::<i64>(&count_row, "n")? as u64;
         let rows = sqlx::query(
             "SELECT title_kind, title_id, watched, play_count, last_watched_at, completed \
-             FROM watch_history ORDER BY last_watched_at DESC, title_kind, title_id \
+             FROM watch_history WHERE play_count > 0 \
+             ORDER BY last_watched_at DESC, title_kind, title_id \
              LIMIT ? OFFSET ?",
         )
         .bind(i64::from(page.limit))

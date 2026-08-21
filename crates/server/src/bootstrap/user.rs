@@ -199,10 +199,43 @@ mod tests {
     use domain::library::{Library, LibraryId, LibraryKind, LibraryOrigin, WatcherStrategy};
     use domain::user::Role;
     use jiff::Timestamp;
-    use services::mock::{MockLibraryService, MockUserService};
+    use mocks::{
+        MockAuthTokenRepo, MockCatalogRepo, MockJobStore, MockLibraryRepo, MockMetadataProvider,
+        MockUserDataStore, MockUserRepo,
+    };
+    use services::library::LibraryServiceImpl;
+    use services::user::UserServiceImpl;
 
     use super::super::executor::run_one;
     use super::*;
+
+    type LibrarySvc = LibraryServiceImpl<
+        MockLibraryRepo,
+        MockUserRepo,
+        MockJobStore,
+        MockCatalogRepo,
+        MockMetadataProvider,
+    >;
+
+    fn user_service() -> UserServiceImpl<MockUserRepo, MockAuthTokenRepo, MockUserDataStore> {
+        UserServiceImpl::new(
+            MockUserRepo::new(),
+            MockAuthTokenRepo::new(),
+            MockUserDataStore::new(),
+        )
+    }
+
+    fn library_service() -> (LibrarySvc, MockLibraryRepo) {
+        let repo = MockLibraryRepo::new();
+        let service = LibraryServiceImpl::new(
+            repo.clone(),
+            MockUserRepo::new(),
+            MockJobStore::new(),
+            MockCatalogRepo::new(),
+            None::<MockMetadataProvider>,
+        );
+        (service, repo)
+    }
 
     fn library(name: &str) -> Library {
         Library {
@@ -211,6 +244,7 @@ mod tests {
             origin: LibraryOrigin::Local,
             kind: LibraryKind::Movie,
             roots: vec!["/media".to_owned()],
+            sort_articles: Vec::new(),
             watcher: WatcherStrategy::Local,
             scan_schedule: None,
             metadata_sources: Vec::new(),
@@ -224,15 +258,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn language_preferences_reach_the_created_user() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            dir.path(),
+            "[[users]]\nusername = \"pat\"\npassword = \"secret\"\nrole = \"user\"\npreferred_audio = [\"eng\", \"nld\"]\npreferred_subtitle = [\"eng\"]\n",
+        );
+        let users = user_service();
+        let provider = UserBootstrapProvider::new(users.clone(), library_service().0);
+
+        let result = run_one(&provider, dir.path()).await;
+
+        assert_eq!(result.created, 1);
+        let listed = users
+            .list(domain::common::PageRequest {
+                offset: 0,
+                limit: 10,
+            })
+            .await
+            .unwrap();
+        let pat = &listed.items[0];
+        assert_eq!(
+            pat.preferred_audio,
+            vec![
+                LanguageCode("eng".to_owned()),
+                LanguageCode("nld".to_owned())
+            ]
+        );
+        assert_eq!(pat.preferred_subtitle, vec![LanguageCode("eng".to_owned())]);
+    }
+
+    #[tokio::test]
     async fn creates_admin_with_library_access_and_profile() {
         let dir = tempfile::tempdir().unwrap();
         write(
             dir.path(),
             "[[users]]\nusername = \"admin\"\npassword = \"secret\"\nrole = \"admin\"\nlibraries = [\"Movies\"]\nconcurrent_stream_limit = 3\n\n[users.max_content_rating]\nsystem = \"mpaa\"\ncode = \"PG-13\"\n",
         );
-        let users = MockUserService::new();
-        let libraries = MockLibraryService::new();
-        libraries.add_library(library("Movies"));
+        let users = user_service();
+        let (libraries, library_repo) = library_service();
+        library_repo.insert_library(library("Movies"));
         let provider = UserBootstrapProvider::new(users.clone(), libraries.clone());
 
         let result = run_one(&provider, dir.path()).await;
@@ -268,16 +333,17 @@ mod tests {
             dir.path(),
             "[[users]]\nusername = \"admin\"\npassword = \"new\"\nrole = \"admin\"\n",
         );
-        let users = MockUserService::new();
-        users
+        let users = user_service();
+        let before = users
             .create(NewUser {
                 username: "admin".to_owned(),
                 password: "original".to_owned(),
                 role: Role::Admin,
             })
             .await
-            .unwrap();
-        let provider = UserBootstrapProvider::new(users.clone(), MockLibraryService::new());
+            .unwrap()
+            .password_hash;
+        let provider = UserBootstrapProvider::new(users.clone(), library_service().0);
 
         let result = run_one(&provider, dir.path()).await;
         assert_eq!(result.created, 0);
@@ -290,7 +356,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(listed.total, 1);
-        assert_eq!(listed.items[0].password_hash, "original");
+        assert_eq!(
+            listed.items[0].password_hash, before,
+            "skipping must leave the stored credential exactly as it was"
+        );
     }
 
     #[tokio::test]
@@ -300,8 +369,8 @@ mod tests {
             dir.path(),
             "[[users]]\nusername = \"admin\"\npassword = \"secret\"\nrole = \"admin\"\nlibraries = [\"Nope\"]\n",
         );
-        let users = MockUserService::new();
-        let provider = UserBootstrapProvider::new(users.clone(), MockLibraryService::new());
+        let users = user_service();
+        let provider = UserBootstrapProvider::new(users.clone(), library_service().0);
 
         let result = run_one(&provider, dir.path()).await;
         assert_eq!(result.found, 1);
@@ -326,8 +395,8 @@ mod tests {
             dir.path(),
             "[[users]]\nusername = \"admin\"\npassword = \"a\"\nrole = \"admin\"\n\n[[users]]\nusername = \"admin\"\npassword = \"b\"\nrole = \"user\"\n",
         );
-        let users = MockUserService::new();
-        let provider = UserBootstrapProvider::new(users.clone(), MockLibraryService::new());
+        let users = user_service();
+        let provider = UserBootstrapProvider::new(users.clone(), library_service().0);
 
         let result = run_one(&provider, dir.path()).await;
         assert_eq!(result.created, 0);

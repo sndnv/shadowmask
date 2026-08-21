@@ -3,7 +3,7 @@ use domain::job::Job;
 use domain::library::{DiscoveredFile, ResolutionStatus};
 use domain::media::MediaProbe;
 use domain::repository::LibraryRepository;
-use services::library::{IngestJobPayload, ResolveIngester};
+use services::library::{IngestJobPayload, ResolveIngester, ResolveOutcome};
 
 use crate::error::JobError;
 use crate::job_handler::JobHandler;
@@ -58,10 +58,17 @@ where
             subtitle_siblings: Vec::new(),
             probe,
         };
-        self.ingester
+        let outcome = self
+            .ingester
             .ingest_resolved(&library, &file, &payload.target, Some(&job.id))
             .await
             .map_err(retryable)?;
+        if outcome == ResolveOutcome::Unidentified {
+            return Err(JobError::Retryable(format!(
+                "the provider returned no metadata for [{}]; the file was ingested but the title was not identified",
+                payload.path
+            )));
+        }
         self.repo
             .set_unmatched_status(&payload.unmatched, ResolutionStatus::Resolved)
             .await
@@ -86,10 +93,10 @@ mod tests {
     };
     use domain::repository::CatalogRepository;
     use jiff::Timestamp;
-    use services::library::Enricher;
-    use services::mock::{
+    use mocks::{
         MockCatalogRepo, MockJobStore, MockLibraryRepo, MockMediaProbe, MockMetadataProvider,
     };
+    use services::library::Enricher;
 
     fn library() -> Library {
         Library {
@@ -98,6 +105,7 @@ mod tests {
             origin: LibraryOrigin::Local,
             kind: LibraryKind::Movie,
             roots: vec!["/m".into()],
+            sort_articles: Vec::new(),
             watcher: WatcherStrategy::Manual,
             scan_schedule: None,
             metadata_sources: Vec::new(),
@@ -179,7 +187,7 @@ mod tests {
         );
 
         handler
-            .handle(&job(payload("/m/x.mkv", "lib").encode().unwrap()))
+            .handle(&job(payload("/m/x.mkv", "lib").encode()))
             .await
             .unwrap();
 
@@ -216,11 +224,30 @@ mod tests {
             IngestJobHandler::new(MockLibraryRepo::new(), MockMediaProbe::new(), ingester());
         assert!(matches!(
             handler
-                .handle(&job(payload("/m/x.mkv", "nope").encode().unwrap()))
+                .handle(&job(payload("/m/x.mkv", "nope").encode()))
                 .await
                 .unwrap_err(),
             JobError::Permanent(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn a_backend_failure_reading_the_library_is_retryable() {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(library());
+        repo.set_fail_get();
+        let handler = IngestJobHandler::new(repo, MockMediaProbe::new(), ingester());
+
+        assert!(
+            matches!(
+                handler
+                    .handle(&job(payload("/m/x.mkv", "lib").encode()))
+                    .await
+                    .unwrap_err(),
+                JobError::Retryable(_)
+            ),
+            "a database blip must not permanently drop the file"
+        );
     }
 
     #[tokio::test]
@@ -234,7 +261,7 @@ mod tests {
         );
         assert!(matches!(
             handler
-                .handle(&job(payload("/m/x.mkv", "lib").encode().unwrap()))
+                .handle(&job(payload("/m/x.mkv", "lib").encode()))
                 .await
                 .unwrap_err(),
             JobError::Retryable(_)

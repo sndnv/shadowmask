@@ -41,18 +41,11 @@ pub(crate) fn title_from_parts(kind: &str, id: String) -> Result<TitleId, Reposi
 }
 
 pub(crate) fn title_kind_to_str(kind: TitleKind) -> &'static str {
-    match kind {
-        TitleKind::Movie => "movie",
-        TitleKind::Series => "series",
-    }
+    kind.as_str()
 }
 
 pub(crate) fn title_kind_from_str(value: &str) -> Result<TitleKind, RepositoryError> {
-    match value {
-        "movie" => Ok(TitleKind::Movie),
-        "series" => Ok(TitleKind::Series),
-        other => Err(backend(format!("unknown title kind: {other}"))),
-    }
+    TitleKind::parse(value).ok_or_else(|| backend(format!("unknown title kind: {value}")))
 }
 
 pub(crate) fn title_ref_from_parts(kind: &str, id: String) -> Result<TitleRef, RepositoryError> {

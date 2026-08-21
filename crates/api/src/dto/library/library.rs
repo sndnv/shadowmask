@@ -94,6 +94,7 @@ pub struct LibraryResponse {
     pub watcher: WatcherStrategyDto,
     pub scan_schedule: Option<String>,
     pub metadata_sources: Vec<String>,
+    pub sort_articles: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -109,6 +110,7 @@ impl From<Library> for LibraryResponse {
             watcher: l.watcher.into(),
             scan_schedule: l.scan_schedule,
             metadata_sources: l.metadata_sources,
+            sort_articles: l.sort_articles,
             created_at: l.created_at.to_string(),
             updated_at: l.updated_at.to_string(),
         }

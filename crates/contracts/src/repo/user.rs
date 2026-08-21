@@ -28,6 +28,7 @@ fn user(id: &str, username: &str, role: Role, created_at: Timestamp) -> User {
         preferred_subtitle: Vec::new(),
         concurrent_stream_limit: Some(2),
         bitrate_cap: Some(8_000_000),
+        active: true,
         created_at,
         updated_at: created_at,
     }

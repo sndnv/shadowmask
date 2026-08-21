@@ -2,14 +2,20 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp};
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use domain::catalog::{VersionDetail, VersionId};
-use domain::common::{Page, PageRequest};
+use domain::common::{Page, PageRequest, paginate};
 use domain::error::SessionError;
-use domain::negotiation::{NegotiationInput, effective_max_height, negotiate};
-use domain::playback::{PlaybackProgress, SubtitleTrackRef, UserSubtitleOffset, WatchHistory};
+use domain::negotiation::{
+    NegotiationInput, effective_max_height, negotiate, preferred_audio_track,
+    preferred_subtitle_track,
+};
+use domain::playback::{
+    PlaybackProgress, SubtitleTrackRef, UserSubtitleOffset, is_complete, is_started,
+};
 use domain::profile::{Container, ProfileRegistry};
 use domain::repository::{
     PreferencesRepository, ProgressRepository, SessionRegistry, UserRepository, VersionCatalog,
@@ -24,7 +30,10 @@ use domain::session::{
 };
 use domain::user::{Principal, UserId};
 
+use crate::acl;
+
 const HEARTBEAT_INTERVAL_S: u32 = 10;
+const MISSED_HEARTBEATS_BEFORE_REAP: i64 = 6;
 const DEFAULT_BANDWIDTH: u64 = 4_000_000;
 const TOKEN_TTL_SECS: i64 = 3600;
 
@@ -102,9 +111,20 @@ impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> DefaultSessionService<Vc, Pr, Tm, Tk, S
 impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf>
 where
     Tm: TranscodeManager,
+    Reg: SessionRegistry,
 {
     pub async fn reap_idle(&self) -> usize {
-        self.inner.transcode.reap_idle().await
+        let reaped = self.inner.transcode.reap_idle().await;
+        let cutoff = Timestamp::now()
+            - SignedDuration::from_secs(
+                i64::from(HEARTBEAT_INTERVAL_S) * MISSED_HEARTBEATS_BEFORE_REAP,
+            );
+        match self.inner.sessions.remove_idle(cutoff).await {
+            Ok(0) => {}
+            Ok(dropped) => info!("Reaped [{dropped}] playback sessions that stopped heartbeating"),
+            Err(err) => warn!("Could not reap idle playback sessions: [{err}]"),
+        }
+        reaped
     }
 }
 
@@ -185,6 +205,35 @@ where
     Pg: ProgressRepository + Send + Sync,
     Pf: PreferencesRepository + Send + Sync,
 {
+    async fn owned(
+        &self,
+        caller: &Principal,
+        session: &SessionId,
+    ) -> Result<PlaybackSession, SessionError> {
+        let playback = self
+            .inner
+            .sessions
+            .get(session)
+            .await?
+            .ok_or(SessionError::NotFound)?;
+        if playback.user != caller.user {
+            warn!(
+                "User [{}] tried to control session [{}], which belongs to user [{}]",
+                caller.user.0, session.0, playback.user.0
+            );
+            return Err(SessionError::NotFound);
+        }
+        Ok(playback)
+    }
+
+    async fn teardown(&self, session: &SessionId) -> Result<(), SessionError> {
+        let _ = self.inner.transcode.stop(session).await;
+        self.inner.streams.remove(session);
+        self.inner.sessions.remove(session).await?;
+        self.inner.contexts.write().unwrap().remove(session);
+        Ok(())
+    }
+
     async fn soft_subtitle_for(
         &self,
         selected: &SelectedTracks,
@@ -377,9 +426,9 @@ where
             let same_title = self
                 .inner
                 .catalog
-                .version_detail(&row.version)
+                .get_version(&row.version)
                 .await?
-                .is_some_and(|other| other.version.title == started_title);
+                .is_some_and(|other| other.title == started_title);
             if same_title {
                 self.inner
                     .progress
@@ -395,8 +444,22 @@ where
             user: caller.user.clone(),
             version: request.version.clone(),
             capabilities: request.capabilities.clone(),
-            requested_audio: request.audio_track,
-            requested_subtitle: request.subtitle.clone(),
+            requested_audio: request.audio_track.or_else(|| {
+                preferred_audio_track(
+                    &detail.audio,
+                    user.as_ref().map_or(&[], |u| &u.preferred_audio),
+                )
+            }),
+            requested_subtitle: request.subtitle.clone().or_else(|| {
+                preferred_subtitle_track(
+                    &detail.subtitles,
+                    user.as_ref().map_or(&[], |u| &u.preferred_subtitle),
+                )
+                .map(|index| SubtitleSelection {
+                    track: SubtitleTrackRef::Embedded(index),
+                    offset_ms: None,
+                })
+            }),
             bitrate_cap: user.as_ref().and_then(|u| u.bitrate_cap),
             target_height: request.target_height,
             force_burn: request.force_burn,
@@ -425,6 +488,7 @@ where
                 selected: selected.clone(),
                 started_at: now,
                 last_heartbeat_at: now,
+                completed: false,
             })
             .await?;
 
@@ -446,45 +510,45 @@ where
         position_ms: u64,
         state: PlaybackState,
     ) -> Result<HeartbeatAck, SessionError> {
-        let mut playback = self
-            .inner
-            .sessions
-            .get(session)
-            .await?
-            .ok_or(SessionError::NotFound)?;
+        let mut playback = self.owned(caller, session).await?;
+        let owner = playback.user.clone();
         let now = Timestamp::now();
         playback.position_ms = position_ms;
         playback.state = state;
         playback.last_heartbeat_at = now;
         let version = playback.version.clone();
+
+        let played = self.inner.catalog.get_version(&version).await?;
+        let duration_ms = played.as_ref().map_or(0, |played| played.duration_ms);
+        let completed_title =
+            played.and_then(|played| is_complete(position_ms, duration_ms).then_some(played.title));
+        let already_counted = playback.completed;
+        playback.completed |= completed_title.is_some();
+
         self.inner.sessions.insert(playback).await?;
         let _ = self.inner.transcode.touch(session).await;
 
-        self.inner
-            .progress
-            .upsert(PlaybackProgress {
-                user: caller.user.clone(),
-                version: version.clone(),
-                position_ms,
-                updated_at: now,
-            })
-            .await?;
-
-        if let Some(detail) = self.inner.catalog.version_detail(&version).await? {
-            let duration = detail.version.duration_ms;
-            if duration > 0 && (position_ms as u128) * 10 >= (duration as u128) * 9 {
+        if let Some(title) = completed_title {
+            if !already_counted {
+                self.inner.progress.record_view(&owner, &title, now).await?;
                 self.inner
-                    .progress
-                    .record_history(WatchHistory {
-                        user: caller.user.clone(),
-                        title: detail.version.title,
-                        watched: true,
-                        play_count: 1,
-                        last_watched_at: Some(now),
-                        completed: true,
-                    })
+                    .preferences
+                    .remove_watchlist(&owner, title.id())
                     .await?;
             }
+            self.inner.progress.delete(&owner, &version).await?;
+        } else if is_started(position_ms, duration_ms) {
+            self.inner
+                .progress
+                .upsert(PlaybackProgress {
+                    user: owner.clone(),
+                    version: version.clone(),
+                    position_ms,
+                    updated_at: now,
+                })
+                .await?;
+        } else {
+            self.inner.progress.delete(&owner, &version).await?;
         }
 
         Ok(HeartbeatAck {
@@ -494,16 +558,11 @@ where
 
     async fn seek(
         &self,
-        _caller: &Principal,
+        caller: &Principal,
         session: &SessionId,
         position_ms: u64,
     ) -> Result<Renegotiated, SessionError> {
-        let mut playback = self
-            .inner
-            .sessions
-            .get(session)
-            .await?
-            .ok_or(SessionError::NotFound)?;
+        let mut playback = self.owned(caller, session).await?;
         let ctx = self
             .inner
             .contexts
@@ -539,16 +598,11 @@ where
 
     async fn update(
         &self,
-        _caller: &Principal,
+        caller: &Principal,
         session: &SessionId,
         update: SessionUpdate,
     ) -> Result<Renegotiated, SessionError> {
-        let mut playback = self
-            .inner
-            .sessions
-            .get(session)
-            .await?
-            .ok_or(SessionError::NotFound)?;
+        let mut playback = self.owned(caller, session).await?;
         let mut ctx = self
             .inner
             .contexts
@@ -614,23 +668,28 @@ where
         })
     }
 
-    async fn end(&self, _caller: &Principal, session: &SessionId) -> Result<(), SessionError> {
-        if self.inner.sessions.get(session).await?.is_none() {
-            return Err(SessionError::NotFound);
+    async fn end(&self, caller: &Principal, session: &SessionId) -> Result<(), SessionError> {
+        self.owned(caller, session).await?;
+        self.teardown(session).await
+    }
+
+    async fn end_all_for_user(&self, user: &UserId) -> Result<(), SessionError> {
+        for session in self.inner.sessions.list_for_user(user).await? {
+            self.teardown(&session.id).await?;
         }
-        let _ = self.inner.transcode.stop(session).await;
-        self.inner.streams.remove(session);
-        self.inner.sessions.remove(session).await?;
-        self.inner.contexts.write().unwrap().remove(session);
         Ok(())
     }
 
     async fn active_sessions(
         &self,
-        _caller: &Principal,
+        caller: &Principal,
         page: PageRequest,
     ) -> Result<Page<PlaybackSession>, SessionError> {
-        Ok(self.inner.sessions.list_all(page).await?)
+        if acl::is_admin(caller) {
+            return Ok(self.inner.sessions.list_all(page).await?);
+        }
+        let mine = self.inner.sessions.list_for_user(&caller.user).await?;
+        Ok(paginate(&mine, page))
     }
 }
 
@@ -645,10 +704,11 @@ mod tests {
         AudioTrack, DetectedMarkers, EmbeddedSubtitleTrack, SubtitleFile, SubtitleFileId,
         SubtitleFormat, SubtitleSource, VideoTrack,
     };
+    use domain::playback::WatchlistItem;
     use domain::profile::{AudioCodecCap, CapabilityProfile, VideoCodecCap};
     use domain::user::{Role, User};
 
-    use crate::mock::{
+    use mocks::{
         MockPreferencesRepo, MockProfileRegistry, MockProgressRepo, MockSessionRegistry,
         MockStreamRegistry, MockStreamTokens, MockTranscodeManager, MockUserRepo,
         MockVersionCatalog,
@@ -755,6 +815,13 @@ mod tests {
         }
     }
 
+    fn audio_in(index: u32, language: Option<&str>) -> AudioTrack {
+        AudioTrack {
+            language: language.map(|l| LanguageCode(l.to_owned())),
+            ..audio(index)
+        }
+    }
+
     fn subtitle(
         index: u32,
         language: Option<&str>,
@@ -786,7 +853,6 @@ mod tests {
                 path: "/media/m1".to_owned(),
                 size_bytes: 1,
                 duration_ms,
-                edition: None,
                 available: true,
                 added_at: Timestamp::UNIX_EPOCH,
                 updated_at: Timestamp::UNIX_EPOCH,
@@ -832,6 +898,7 @@ mod tests {
             preferred_subtitle: Vec::new(),
             concurrent_stream_limit: limit,
             bitrate_cap,
+            active: true,
             created_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
         }
@@ -881,6 +948,7 @@ mod tests {
             },
             started_at: Timestamp::UNIX_EPOCH,
             last_heartbeat_at: Timestamp::UNIX_EPOCH,
+            completed: false,
         }
     }
 
@@ -1031,6 +1099,48 @@ mod tests {
         let harness = Harness::new();
         assert_eq!(harness.service.reap_idle().await, 0);
         assert_eq!(harness.transcode.reaped(), 1);
+    }
+
+    #[tokio::test]
+    async fn reap_idle_drops_sessions_that_stopped_heartbeating() {
+        let harness = Harness::new();
+        let mut stale = bare_session("stale");
+        stale.last_heartbeat_at = Timestamp::UNIX_EPOCH;
+        let mut live = bare_session("live");
+        live.last_heartbeat_at = Timestamp::now();
+        harness.sessions.insert(stale).await.unwrap();
+        harness.sessions.insert(live).await.unwrap();
+
+        harness.service.reap_idle().await;
+
+        let left = harness.sessions.list_all(page()).await.unwrap();
+        assert_eq!(left.items.len(), 1);
+        assert_eq!(left.items[0].id, SessionId("live".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn a_reaped_session_stops_counting_against_the_stream_limit() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        harness.users.insert(make_user(Some(1), None));
+        let mut abandoned = bare_session("abandoned");
+        abandoned.last_heartbeat_at = Timestamp::UNIX_EPOCH;
+        harness.sessions.insert(abandoned).await.unwrap();
+
+        assert!(matches!(
+            harness.service.start(&principal(), start_request(0)).await,
+            Err(SessionError::ConcurrentLimit { .. })
+        ));
+
+        harness.service.reap_idle().await;
+
+        assert!(
+            harness
+                .service
+                .start(&principal(), start_request(0))
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -1211,6 +1321,8 @@ mod tests {
             source: SubtitleSource::External,
             path: "/media/m1.en.srt".into(),
             translated_from: None,
+            label: None,
+            pinned: false,
         }];
         harness.catalog.insert(detail);
         let mut request = start_request(0);
@@ -1266,6 +1378,8 @@ mod tests {
             source: SubtitleSource::External,
             path: "/media/m1.en.srt".into(),
             translated_from: None,
+            label: None,
+            pinned: false,
         }];
         harness.catalog.insert(detail);
         let mut request = start_request(0);
@@ -1454,6 +1568,92 @@ mod tests {
         assert_eq!(harness.transcode.started()[0].max_bitrate, Some(1_000_000));
     }
 
+    fn multilingual_detail() -> VersionDetail {
+        detail_with(
+            "mp4",
+            100_000,
+            vec![video("h264", Some(5_000_000))],
+            vec![
+                audio_in(0, Some("eng")),
+                audio_in(1, Some("jpn")),
+                audio_in(2, Some("fra")),
+            ],
+            vec![
+                subtitle(0, Some("eng"), SubtitleFormat::Srt),
+                subtitle(1, Some("fra"), SubtitleFormat::Srt),
+            ],
+        )
+    }
+
+    fn user_who_prefers(audio: &[&str], subtitle: &[&str]) -> User {
+        let mut user = make_user(None, None);
+        user.preferred_audio = audio
+            .iter()
+            .map(|c| LanguageCode((*c).to_owned()))
+            .collect();
+        user.preferred_subtitle = subtitle
+            .iter()
+            .map(|c| LanguageCode((*c).to_owned()))
+            .collect();
+        user
+    }
+
+    #[tokio::test]
+    async fn start_honours_the_users_preferred_audio_and_subtitle_languages() {
+        let harness = Harness::new();
+        harness.catalog.insert(multilingual_detail());
+        harness.users.insert(user_who_prefers(&["jpn"], &["fra"]));
+
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+
+        assert_eq!(started.selected.audio_track, Some(1));
+        assert_eq!(
+            started.selected.subtitle_track,
+            Some(SubtitleTrackRef::Embedded(1))
+        );
+    }
+
+    #[tokio::test]
+    async fn an_explicit_request_beats_the_users_language_preferences() {
+        let harness = Harness::new();
+        harness.catalog.insert(multilingual_detail());
+        harness.users.insert(user_who_prefers(&["jpn"], &["fra"]));
+        let mut request = start_request(0);
+        request.audio_track = Some(2);
+        request.subtitle = Some(SubtitleSelection {
+            track: SubtitleTrackRef::Embedded(0),
+            offset_ms: None,
+        });
+
+        let started = harness.service.start(&principal(), request).await.unwrap();
+
+        assert_eq!(started.selected.audio_track, Some(2));
+        assert_eq!(
+            started.selected.subtitle_track,
+            Some(SubtitleTrackRef::Embedded(0))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_language_with_no_matching_track_leaves_the_default_alone() {
+        let harness = Harness::new();
+        harness.catalog.insert(multilingual_detail());
+        harness.users.insert(user_who_prefers(&["deu"], &["deu"]));
+
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+
+        assert_eq!(started.selected.audio_track, Some(0));
+        assert_eq!(started.selected.subtitle_track, None);
+    }
+
     #[tokio::test]
     async fn start_forces_quality_rung_scales_and_transcodes() {
         let harness = Harness::new();
@@ -1564,15 +1764,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(ack.heartbeat_interval_s, HEARTBEAT_INTERVAL_S);
-        assert_eq!(
+        assert!(
             harness
                 .progress
                 .get(&principal().user, &VersionId("v1".to_owned()))
                 .await
                 .unwrap()
-                .unwrap()
-                .position_ms,
-            90_000
+                .is_none()
         );
         let history = harness
             .progress
@@ -1581,6 +1779,210 @@ mod tests {
             .unwrap();
         assert_eq!(history.total, 1);
         assert!(history.items[0].completed);
+    }
+
+    #[tokio::test]
+    async fn finishing_a_title_takes_it_off_the_watchlist() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let title = TitleId::Movie(MovieId("m1".to_owned()));
+        harness
+            .preferences
+            .add_watchlist(WatchlistItem {
+                user: principal().user.clone(),
+                title: title.clone(),
+                added_at: Timestamp::UNIX_EPOCH,
+            })
+            .await
+            .unwrap();
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+
+        harness
+            .service
+            .heartbeat(
+                &principal(),
+                &started.session_id,
+                90_000,
+                PlaybackState::Playing,
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            harness
+                .preferences
+                .list_watchlist(&principal().user)
+                .await
+                .unwrap()
+                .is_empty(),
+            "watching a title to the end is the clearest signal it can leave the queue"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_partly_watched_title_stays_on_the_watchlist() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        harness
+            .preferences
+            .add_watchlist(WatchlistItem {
+                user: principal().user.clone(),
+                title: TitleId::Movie(MovieId("m1".to_owned())),
+                added_at: Timestamp::UNIX_EPOCH,
+            })
+            .await
+            .unwrap();
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+
+        harness
+            .service
+            .heartbeat(
+                &principal(),
+                &started.session_id,
+                30_000,
+                PlaybackState::Playing,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            harness
+                .preferences
+                .list_watchlist(&principal().user)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn every_heartbeat_past_the_threshold_counts_one_view() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        for position in [90_000, 93_000, 96_000, 99_000, 100_000] {
+            harness
+                .service
+                .heartbeat(
+                    &principal(),
+                    &started.session_id,
+                    position,
+                    PlaybackState::Playing,
+                )
+                .await
+                .unwrap();
+        }
+
+        let history = harness
+            .progress
+            .history(&principal().user, page())
+            .await
+            .unwrap();
+        assert_eq!(history.total, 1);
+        assert_eq!(history.items[0].play_count, 1);
+        assert!(
+            harness
+                .progress
+                .get(&principal().user, &VersionId("v1".to_owned()))
+                .await
+                .unwrap()
+                .is_none(),
+            "a finished title must not offer to resume at the end of itself"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_second_session_on_the_same_title_counts_a_second_view() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        for _ in 0..2 {
+            let started = harness
+                .service
+                .start(&principal(), start_request(0))
+                .await
+                .unwrap();
+            harness
+                .service
+                .heartbeat(
+                    &principal(),
+                    &started.session_id,
+                    99_000,
+                    PlaybackState::Playing,
+                )
+                .await
+                .unwrap();
+        }
+
+        let history = harness
+            .progress
+            .history(&principal().user, page())
+            .await
+            .unwrap();
+        assert_eq!(history.total, 1);
+        assert_eq!(history.items[0].play_count, 2);
+    }
+
+    #[tokio::test]
+    async fn heartbeat_clears_a_resume_point_once_complete() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        harness
+            .service
+            .heartbeat(
+                &principal(),
+                &started.session_id,
+                42_000,
+                PlaybackState::Playing,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            harness
+                .progress
+                .get(&principal().user, &VersionId("v1".to_owned()))
+                .await
+                .unwrap()
+                .unwrap()
+                .position_ms,
+            42_000
+        );
+
+        harness
+            .service
+            .heartbeat(
+                &principal(),
+                &started.session_id,
+                99_000,
+                PlaybackState::Playing,
+            )
+            .await
+            .unwrap();
+        assert!(
+            harness
+                .progress
+                .get(&principal().user, &VersionId("v1".to_owned()))
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -1610,6 +2012,78 @@ mod tests {
                 .unwrap()
                 .total,
             0
+        );
+    }
+
+    fn feature_length() -> VersionDetail {
+        detail_with(
+            "mp4",
+            7_200_000,
+            vec![video("h264", Some(5_000_000))],
+            vec![audio(1)],
+            vec![],
+        )
+    }
+
+    async fn beat_at(harness: &Harness, position_ms: u64) {
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        harness
+            .service
+            .heartbeat(
+                &principal(),
+                &started.session_id,
+                position_ms,
+                PlaybackState::Playing,
+            )
+            .await
+            .unwrap();
+    }
+
+    async fn stored_progress(harness: &Harness) -> Option<PlaybackProgress> {
+        harness
+            .progress
+            .get(&principal().user, &VersionId("v1".to_owned()))
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_barely_started_title_is_not_worth_resuming() {
+        let harness = Harness::new();
+        harness.catalog.insert(feature_length());
+        beat_at(&harness, 30_000).await;
+        assert!(
+            stored_progress(&harness).await.is_none(),
+            "thirty seconds of a two hour film is below the resume floor"
+        );
+    }
+
+    #[tokio::test]
+    async fn passing_the_resume_floor_stores_progress() {
+        let harness = Harness::new();
+        harness.catalog.insert(feature_length());
+        beat_at(&harness, 60_000).await;
+        assert_eq!(
+            stored_progress(&harness).await.map(|p| p.position_ms),
+            Some(60_000)
+        );
+    }
+
+    #[tokio::test]
+    async fn seeking_back_to_the_start_drops_the_bookmark() {
+        let harness = Harness::new();
+        harness.catalog.insert(feature_length());
+        beat_at(&harness, 600_000).await;
+        assert!(stored_progress(&harness).await.is_some());
+
+        beat_at(&harness, 5_000).await;
+        assert!(
+            stored_progress(&harness).await.is_none(),
+            "a stale bookmark must not survive a restart from the beginning"
         );
     }
 
@@ -1646,6 +2120,38 @@ mod tests {
                 .unwrap()
                 .total,
             0
+        );
+    }
+
+    #[tokio::test]
+    async fn a_heartbeat_never_loads_the_full_version_detail() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        let after_start = harness.catalog.detail_lookup_count();
+
+        for _ in 0..5 {
+            harness
+                .service
+                .heartbeat(
+                    &principal(),
+                    &started.session_id,
+                    1_000,
+                    PlaybackState::Playing,
+                )
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(
+            harness.catalog.detail_lookup_count(),
+            after_start,
+            "a heartbeat needs duration and title, both columns on the version row, \
+             so it must not pull tracks, chapters, markers and trickplay"
         );
     }
 
@@ -1991,6 +2497,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn end_all_for_user_tears_down_the_stream_not_just_the_session_row() {
+        let harness = Harness::new();
+        harness.catalog.insert(transcode_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+
+        harness
+            .service
+            .end_all_for_user(&UserId("u1".to_owned()))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            harness.streams.removed(),
+            vec![started.session_id.clone()],
+            "the stream registration is what makes playback stop"
+        );
+        assert_eq!(
+            harness.transcode.stopped(),
+            vec![started.session_id.clone()]
+        );
+        assert!(
+            harness
+                .sessions
+                .get(&started.session_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn end_all_for_a_user_with_nothing_playing_is_a_no_op() {
+        let harness = Harness::new();
+
+        harness
+            .service
+            .end_all_for_user(&UserId("nobody".to_owned()))
+            .await
+            .unwrap();
+
+        assert!(harness.streams.removed().is_empty());
+    }
+
+    #[tokio::test]
     async fn end_direct_session_ignores_missing_transcode() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
@@ -2018,6 +2572,194 @@ mod tests {
                 .await,
             Err(SessionError::NotFound)
         ));
+    }
+
+    fn intruder() -> Principal {
+        Principal {
+            user: UserId("u2".to_owned()),
+            role: Role::User,
+        }
+    }
+
+    fn admin() -> Principal {
+        Principal {
+            user: UserId("boss".to_owned()),
+            role: Role::Admin,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_heartbeat_from_another_user_moves_nothing() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            harness
+                .service
+                .heartbeat(
+                    &intruder(),
+                    &started.session_id,
+                    42_000,
+                    PlaybackState::Playing
+                )
+                .await,
+            Err(SessionError::NotFound)
+        ));
+        assert_eq!(
+            harness
+                .sessions
+                .get(&started.session_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .position_ms,
+            0,
+            "a stranger's heartbeat must not move the owner's playhead"
+        );
+        assert!(
+            harness
+                .progress
+                .get(&intruder().user, &VersionId("v1".to_owned()))
+                .await
+                .unwrap()
+                .is_none(),
+            "nor write a resume point onto the stranger's own account"
+        );
+    }
+
+    #[tokio::test]
+    async fn seeking_another_users_session_is_not_found() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        assert!(matches!(
+            harness
+                .service
+                .seek(&intruder(), &started.session_id, 42_000)
+                .await,
+            Err(SessionError::NotFound)
+        ));
+    }
+
+    #[tokio::test]
+    async fn updating_another_users_session_is_not_found() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        assert!(matches!(
+            harness
+                .service
+                .update(
+                    &intruder(),
+                    &started.session_id,
+                    SessionUpdate {
+                        audio_track: Some(1),
+                        subtitle: SubtitleChange::Keep,
+                        target_height: None,
+                        force_burn: false,
+                        downmix_stereo: false,
+                    },
+                )
+                .await,
+            Err(SessionError::NotFound)
+        ));
+    }
+
+    #[tokio::test]
+    async fn ending_another_users_session_leaves_it_playing() {
+        let harness = Harness::new();
+        harness.catalog.insert(transcode_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            harness.service.end(&intruder(), &started.session_id).await,
+            Err(SessionError::NotFound)
+        ));
+        assert!(
+            harness
+                .sessions
+                .get(&started.session_id)
+                .await
+                .unwrap()
+                .is_some(),
+            "the owner's session survives a stranger's delete"
+        );
+        assert!(
+            harness.transcode.stopped().is_empty(),
+            "and their transcode keeps running"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_non_admin_sees_only_their_own_active_sessions() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        harness
+            .sessions
+            .insert(PlaybackSession {
+                user: intruder().user,
+                ..bare_session("theirs")
+            })
+            .await
+            .unwrap();
+
+        let listing = harness
+            .service
+            .active_sessions(&principal(), page())
+            .await
+            .unwrap();
+
+        assert_eq!(listing.total, 1);
+        assert!(listing.items.iter().all(|s| s.user == principal().user));
+    }
+
+    #[tokio::test]
+    async fn an_admin_sees_every_active_session() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        harness
+            .sessions
+            .insert(PlaybackSession {
+                user: intruder().user,
+                ..bare_session("theirs")
+            })
+            .await
+            .unwrap();
+
+        let listing = harness
+            .service
+            .active_sessions(&admin(), page())
+            .await
+            .unwrap();
+
+        assert_eq!(listing.total, 2);
     }
 
     #[tokio::test]

@@ -1,9 +1,13 @@
-use crate::catalog::{Movie, Series};
+use crate::catalog::{EpisodeCard, Movie, Series};
 
 #[derive(Debug, Clone)]
 pub enum HubItem {
     Movie(Movie),
-    Series(Series),
+    Series {
+        series: Series,
+        episode_count: Option<u32>,
+    },
+    Episode(Box<EpisodeCard>),
 }
 
 #[derive(Debug, Clone)]

@@ -10,9 +10,11 @@ pub struct SeriesId(pub String);
 pub struct Series {
     pub id: SeriesId,
     pub title: String,
+    pub sort_title: String,
     pub year: Option<u16>,
     pub overview: Option<String>,
     pub content_rating: Option<ContentRating>,
+    pub manually_edited: bool,
     pub added_at: Timestamp,
     pub updated_at: Timestamp,
     pub artwork: Vec<ArtworkRef>,

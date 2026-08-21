@@ -3,6 +3,11 @@ source: crates/server/tests/replay.rs
 expression: value
 ---
 {
-  "body": null,
-  "status": 204
+  "body": {
+    "error": {
+      "code": "not_found",
+      "message": "device or API token not found"
+    }
+  },
+  "status": 404
 }

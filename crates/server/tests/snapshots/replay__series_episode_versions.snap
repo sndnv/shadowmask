@@ -10,7 +10,6 @@ expression: value
         "available": true,
         "container": "mkv",
         "duration_ms": 1000,
-        "edition": null,
         "id": "ev1",
         "library_id": "lib1",
         "quality": "hd",

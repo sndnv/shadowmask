@@ -16,6 +16,9 @@ expression: value
       "/media"
     ],
     "scan_schedule": "0 0 * * *",
+    "sort_articles": [
+      "the"
+    ],
     "updated_at": "[updated_at]",
     "watcher": "manual"
   },

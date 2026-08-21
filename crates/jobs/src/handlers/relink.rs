@@ -3,7 +3,7 @@ use domain::job::Job;
 use domain::library::DiscoveredFile;
 use domain::media::MediaProbe;
 use domain::repository::LibraryRepository;
-use services::library::{RelinkJobPayload, ResolveIngester};
+use services::library::{RelinkJobPayload, ResolveIngester, ResolveOutcome};
 
 use crate::error::JobError;
 use crate::job_handler::JobHandler;
@@ -58,10 +58,17 @@ where
             subtitle_siblings: Vec::new(),
             probe,
         };
-        self.ingester
+        let outcome = self
+            .ingester
             .ingest_resolved(&library, &file, &payload.target, Some(&job.id))
             .await
             .map_err(retryable)?;
+        if outcome == ResolveOutcome::Unidentified {
+            return Err(JobError::Retryable(format!(
+                "the provider returned no metadata for [{}]; the file was linked but the title was not re-identified",
+                payload.path
+            )));
+        }
         Ok(())
     }
 }
@@ -79,12 +86,13 @@ mod tests {
     use domain::library::{
         Library, LibraryId, LibraryKind, LibraryOrigin, ResolveTarget, WatcherStrategy,
     };
+    use domain::metadata::ExternalId;
     use domain::repository::CatalogRepository;
     use jiff::Timestamp;
-    use services::library::Enricher;
-    use services::mock::{
+    use mocks::{
         MockCatalogRepo, MockJobStore, MockLibraryRepo, MockMediaProbe, MockMetadataProvider,
     };
+    use services::library::Enricher;
 
     fn library() -> Library {
         Library {
@@ -93,6 +101,7 @@ mod tests {
             origin: LibraryOrigin::Local,
             kind: LibraryKind::Movie,
             roots: vec!["/m".into()],
+            sort_articles: Vec::new(),
             watcher: WatcherStrategy::Manual,
             scan_schedule: None,
             metadata_sources: Vec::new(),
@@ -164,7 +173,7 @@ mod tests {
         );
 
         handler
-            .handle(&job(payload("/m/x.mkv", "lib").encode().unwrap()))
+            .handle(&job(payload("/m/x.mkv", "lib").encode()))
             .await
             .unwrap();
 
@@ -195,11 +204,73 @@ mod tests {
             RelinkJobHandler::new(MockLibraryRepo::new(), MockMediaProbe::new(), ingester());
         assert!(matches!(
             handler
-                .handle(&job(payload("/m/x.mkv", "nope").encode().unwrap()))
+                .handle(&job(payload("/m/x.mkv", "nope").encode()))
                 .await
                 .unwrap_err(),
             JobError::Permanent(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn a_backend_failure_reading_the_library_is_retryable() {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(library());
+        repo.set_fail_get();
+        let handler = RelinkJobHandler::new(repo, MockMediaProbe::new(), ingester());
+
+        assert!(
+            matches!(
+                handler
+                    .handle(&job(payload("/m/x.mkv", "lib").encode()))
+                    .await
+                    .unwrap_err(),
+                JobError::Retryable(_)
+            ),
+            "a database blip must not permanently abandon the relink"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_provider_that_returns_nothing_is_retryable() {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(library());
+        let catalog = MockCatalogRepo::new();
+        let handler = RelinkJobHandler::new(
+            repo,
+            MockMediaProbe::new(),
+            Enricher::new(
+                catalog.clone(),
+                Some(MockMetadataProvider::failing()),
+                MockJobStore::new(),
+                MockLibraryRepo::new(),
+            ),
+        );
+        let payload = RelinkJobPayload {
+            version: VersionId("v1".into()),
+            library: LibraryId("lib".into()),
+            path: "/m/The Matrix (1999).mkv".into(),
+            target: ResolveTarget::Provider(ExternalId {
+                source: "tmdb".into(),
+                value: "movie/603".into(),
+            }),
+        };
+
+        assert!(
+            matches!(
+                handler.handle(&job(payload.encode())).await.unwrap_err(),
+                JobError::Retryable(_)
+            ),
+            "a relink that could not re-identify the title must not report success"
+        );
+        assert_eq!(
+            catalog
+                .list_library_versions(&LibraryId("lib".into()), page())
+                .await
+                .unwrap()
+                .total,
+            1,
+            "the file is still linked, so the retry only has the metadata left to do"
+        );
     }
 
     #[tokio::test]
@@ -213,7 +284,7 @@ mod tests {
         );
         assert!(matches!(
             handler
-                .handle(&job(payload("/m/x.mkv", "lib").encode().unwrap()))
+                .handle(&job(payload("/m/x.mkv", "lib").encode()))
                 .await
                 .unwrap_err(),
             JobError::Retryable(_)

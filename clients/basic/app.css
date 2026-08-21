@@ -388,6 +388,7 @@ dd {
 
 .sm-grid figcaption {
   padding: 8px 10px;
+  min-height: 4.5rem;
 }
 
 .sm-grid figcaption strong {
@@ -462,9 +463,14 @@ dd {
   max-width: none;
 }
 
-.sm-jobs-tree td:first-child,
-.sm-jobs-tree th:first-child {
+.sm-jobs-table td:first-child,
+.sm-jobs-table th:first-child {
   white-space: nowrap;
+}
+
+.sm-job-tree {
+  list-style: none;
+  padding-left: 0;
 }
 
 table {
@@ -501,6 +507,10 @@ tbody tr.sm-row-pending {
 }
 
 tbody tr.sm-row-failed {
+  background: var(--danger-bg);
+}
+
+tbody tr.sm-row-unavailable {
   background: var(--danger-bg);
 }
 
@@ -766,6 +776,13 @@ form {
   border: 1px solid transparent;
   border-bottom: none;
   border-radius: var(--radius) var(--radius) 0 0;
+}
+
+a.sm-tab {
+  padding: 6px 8px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  text-decoration: none;
+  color: var(--text);
 }
 
 .sm-tab[aria-selected="true"] {

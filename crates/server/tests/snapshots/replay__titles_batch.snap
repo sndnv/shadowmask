@@ -32,6 +32,7 @@ expression: value
         "system": "MPAA"
       },
       "id": "m1",
+      "manually_edited": false,
       "overview": "overview",
       "runtime_minutes": 100,
       "title": "Alpha m1",
@@ -64,11 +65,34 @@ expression: value
         ]
       },
       "id": "e1",
+      "manually_edited": false,
       "number": 1,
       "overview": null,
       "runtime_minutes": 42,
       "season_id": "se1",
       "season_number": 1,
+      "season_title": "Season 1",
+      "series_artwork": {
+        "backdrops": [
+          {
+            "base": "/images/s1-backdrop",
+            "widths": [
+              480,
+              960
+            ]
+          }
+        ],
+        "posters": [
+          {
+            "base": "/images/s1-poster",
+            "widths": [
+              180,
+              480,
+              960
+            ]
+          }
+        ]
+      },
       "series_id": "s1",
       "series_title": "Alpha s1",
       "title": "Alpha e1",

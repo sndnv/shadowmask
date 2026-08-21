@@ -22,6 +22,7 @@ impl Matcher {
         }
     }
 
+    #[cfg(test)]
     pub fn with_threshold(threshold: f32) -> Self {
         Self { threshold }
     }

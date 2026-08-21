@@ -1,11 +1,8 @@
 use std::future::Future;
 use std::path::Path;
-use std::pin::Pin;
 
 use super::env::load_expanded;
 use super::{BootstrapError, BootstrapResult, Created};
-
-type BootstrapFuture<'a> = Pin<Box<dyn Future<Output = BootstrapResult> + Send + 'a>>;
 
 pub trait BootstrapEntityProvider {
     type Entity;
@@ -30,27 +27,7 @@ pub trait BootstrapEntityProvider {
     fn extract_id(&self, entity: &Self::Entity) -> String;
 }
 
-pub trait ErasedProvider: Send + Sync {
-    fn name(&self) -> &'static str;
-
-    fn execute<'a>(&'a self, dir: &'a Path) -> BootstrapFuture<'a>;
-}
-
-impl<P> ErasedProvider for P
-where
-    P: BootstrapEntityProvider + Send + Sync,
-    P::Entity: Send,
-{
-    fn name(&self) -> &'static str {
-        BootstrapEntityProvider::name(self)
-    }
-
-    fn execute<'a>(&'a self, dir: &'a Path) -> BootstrapFuture<'a> {
-        Box::pin(run_one(self, dir))
-    }
-}
-
-pub(crate) async fn run_one<P>(provider: &P, dir: &Path) -> BootstrapResult
+pub async fn run_one<P>(provider: &P, dir: &Path) -> BootstrapResult
 where
     P: BootstrapEntityProvider + Sync,
     P::Entity: Send,
@@ -113,6 +90,14 @@ where
         }
     }
 
+    tracing::info!(
+        provider = name,
+        found,
+        created,
+        skipped,
+        "bootstrap: provider finished"
+    );
+
     BootstrapResult {
         found,
         created,
@@ -120,19 +105,7 @@ where
     }
 }
 
-pub async fn run_providers(dir: &Path, providers: &[Box<dyn ErasedProvider>]) -> BootstrapResult {
-    let mut total = BootstrapResult::empty();
-    for provider in providers {
-        let result = provider.execute(dir).await;
-        tracing::info!(
-            provider = provider.name(),
-            found = result.found,
-            created = result.created,
-            skipped = result.skipped,
-            "bootstrap: provider finished"
-        );
-        total = total + result;
-    }
+pub fn complete(total: BootstrapResult) -> BootstrapResult {
     tracing::info!(
         found = total.found,
         created = total.created,
@@ -244,6 +217,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_config_file_that_cannot_be_read_creates_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("widgets.toml")).unwrap();
+        let mut provider = WidgetProvider::new();
+        provider.defaults = vec![Widget {
+            id: "built-in".to_owned(),
+            label: "Built In".to_owned(),
+        }];
+
+        let result = run_one(&provider, dir.path()).await;
+
+        assert_eq!(result.found, 0);
+        assert_eq!(result.created, 0);
+        assert!(
+            provider.created().is_empty(),
+            "an unreadable file must not fall back to the defaults, which would hide it"
+        );
+    }
+
+    #[tokio::test]
     async fn missing_file_creates_only_defaults() {
         let dir = tempfile::tempdir().unwrap();
         let mut provider = WidgetProvider::new();
@@ -293,12 +286,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_providers_aggregates_results() {
+    async fn results_from_several_providers_add_up() {
         let dir = tempfile::tempdir().unwrap();
         write_widgets(dir.path(), "[[widgets]]\nid = \"a\"\nlabel = \"Alpha\"\n");
-        let providers: Vec<Box<dyn ErasedProvider>> = vec![Box::new(WidgetProvider::new())];
-        let result = run_providers(dir.path(), &providers).await;
-        assert_eq!(result.found, 1);
-        assert_eq!(result.created, 1);
+
+        let first = run_one(&WidgetProvider::new(), dir.path()).await;
+        let second = run_one(&WidgetProvider::new(), dir.path()).await;
+        let total = complete(first + second);
+
+        assert_eq!(total.found, 2);
+        assert_eq!(total.created, 2);
     }
 }

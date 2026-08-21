@@ -31,6 +31,10 @@ impl SqlitePreferencesRepo {
         Ok(())
     }
 
+    pub async fn purge(&self, user: &UserId) -> Result<(), RepositoryError> {
+        self.pools.purge(user).await
+    }
+
     pub async fn close(&self) {
         self.pools.close_all().await;
     }

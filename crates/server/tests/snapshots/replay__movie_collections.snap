@@ -1,0 +1,77 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": [
+    {
+      "added_at": "2023-11-14T22:13:27Z",
+      "artwork": {
+        "backdrops": [
+          {
+            "base": "/images/c1-backdrop",
+            "widths": [
+              480,
+              960
+            ]
+          }
+        ],
+        "posters": [
+          {
+            "base": "/images/c1-poster",
+            "widths": [
+              180,
+              480,
+              960
+            ]
+          }
+        ]
+      },
+      "id": "c1",
+      "items": [
+        {
+          "added_at": "2023-11-14T22:13:21Z",
+          "artwork": {
+            "backdrops": [
+              {
+                "base": "/images/m1-backdrop",
+                "widths": [
+                  480,
+                  960
+                ]
+              }
+            ],
+            "posters": [
+              {
+                "base": "/images/m1-poster",
+                "widths": [
+                  180,
+                  480,
+                  960
+                ]
+              }
+            ]
+          },
+          "content_rating": {
+            "code": "PG-13",
+            "system": "MPAA"
+          },
+          "id": "m1",
+          "manually_edited": false,
+          "overview": "overview",
+          "runtime_minutes": 100,
+          "title": "Alpha m1",
+          "updated_at": "2023-11-14T22:13:21Z",
+          "year": 2020
+        }
+      ],
+      "movies": [
+        "m1"
+      ],
+      "name": "Saga",
+      "overview": "epic",
+      "updated_at": "2023-11-14T22:13:27Z"
+    }
+  ],
+  "status": 200
+}

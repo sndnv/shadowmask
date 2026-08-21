@@ -49,6 +49,7 @@ where
             &detail.version.path,
             source_language,
             audio_track_index,
+            false,
         );
         job.parent_id = parent.cloned();
         self.jobs.enqueue(job).await
@@ -65,7 +66,7 @@ mod tests {
 
     use super::*;
     use crate::library::TranscriptionJobPayload;
-    use crate::mock::{MockCatalogRepo, MockJobStore};
+    use mocks::{MockCatalogRepo, MockJobStore};
 
     fn track(index: u32, language: Option<&str>) -> AudioTrack {
         AudioTrack {
@@ -87,7 +88,6 @@ mod tests {
             path: "/m/v1.mkv".into(),
             size_bytes: 1,
             duration_ms: 1000,
-            edition: None,
             available: true,
             added_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
@@ -217,6 +217,8 @@ mod tests {
                     source: SubtitleSource::OpenSubtitles,
                     path: "/subs/os.srt".into(),
                     translated_from: None,
+                    label: None,
+                    pinned: false,
                 }],
             )
             .await
