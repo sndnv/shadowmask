@@ -1,6 +1,8 @@
 use domain::catalog::VersionId;
 use serde::{Deserialize, Serialize};
 
+use crate::job::encode_payload;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubtitleJobPayload {
     pub version_id: VersionId,
@@ -13,8 +15,8 @@ pub struct SubtitleJobPayload {
 }
 
 impl SubtitleJobPayload {
-    pub fn encode(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string(&Wire::from(self))
+    pub fn encode(&self) -> String {
+        encode_payload(&Wire::from(self))
     }
 
     pub fn decode(raw: &str) -> Result<Self, serde_json::Error> {
@@ -77,7 +79,7 @@ mod tests {
             episode: Some(2),
             transcribe_on_miss: true,
         };
-        let encoded = payload.encode().unwrap();
+        let encoded = payload.encode();
         assert_eq!(SubtitleJobPayload::decode(&encoded).unwrap(), payload);
     }
 

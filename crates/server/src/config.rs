@@ -80,13 +80,19 @@ pub struct Config {
     pub opensubtitles_min_interval_ms: u64,
     pub target_languages: Vec<String>,
     pub worker_concurrency: usize,
+    pub scan_probe_concurrency: usize,
     pub worker_period_secs: u64,
     pub scheduler_period_secs: u64,
     pub reaper_period_secs: u64,
     pub shutdown_timeout_secs: u64,
     pub reindex_every_secs: i64,
+    pub daily_scan_at: Option<String>,
     pub transcode_cache_cap_bytes: u64,
     pub cache_eviction_every_secs: i64,
+    pub job_retention_days: i64,
+    pub retention_every_secs: i64,
+    pub orphan_sweep_every_secs: i64,
+    pub orphan_sweep_grace_secs: i64,
     pub log_level: String,
     pub sqlx_log_level: String,
     pub bootstrap_mode: BootstrapMode,
@@ -124,13 +130,19 @@ impl Default for Config {
             opensubtitles_min_interval_ms: 1000,
             target_languages: vec!["en".to_owned()],
             worker_concurrency: 4,
+            scan_probe_concurrency: services::library::DEFAULT_PROBE_CONCURRENCY,
             worker_period_secs: 5,
             scheduler_period_secs: 30,
             reaper_period_secs: 30,
             shutdown_timeout_secs: 30,
             reindex_every_secs: 3600,
+            daily_scan_at: None,
             transcode_cache_cap_bytes: 10 * 1024 * 1024 * 1024,
             cache_eviction_every_secs: 3600,
+            job_retention_days: 30,
+            retention_every_secs: 86_400,
+            orphan_sweep_every_secs: 86_400,
+            orphan_sweep_grace_secs: 86_400,
             log_level: "info".to_owned(),
             sqlx_log_level: "warn".to_owned(),
             bootstrap_mode: BootstrapMode::Off,
@@ -179,6 +191,7 @@ impl Config {
         config.tmdb_api_key = trim_key(config.tmdb_api_key);
         config.omdb_api_key = trim_key(config.omdb_api_key);
         config.opensubtitles_api_key = trim_key(config.opensubtitles_api_key);
+        config.daily_scan_at = trim_key(config.daily_scan_at);
         if let Ok(raw) = std::env::var("SHADOWMASK_TARGET_LANGUAGES") {
             let languages: Vec<String> = raw
                 .split(',')
@@ -232,6 +245,11 @@ impl Config {
             self.shutdown_timeout_secs
         );
         let _ = writeln!(out, "    reindex_every:    {} s", self.reindex_every_secs);
+        let _ = writeln!(
+            out,
+            "    daily_scan_at:    {}",
+            self.daily_scan_at.as_deref().unwrap_or("off")
+        );
         let _ = writeln!(
             out,
             "    cache_evict_every: {} s",
@@ -304,6 +322,7 @@ impl Config {
         );
         let _ = writeln!(out, "  workers:");
         let _ = writeln!(out, "    concurrency:      {}", self.worker_concurrency);
+        let _ = writeln!(out, "    scan_probes:      {}", self.scan_probe_concurrency);
         let _ = writeln!(out, "    worker_period:    {} s", self.worker_period_secs);
         let _ = writeln!(
             out,
@@ -440,6 +459,22 @@ mod tests {
             let config = Config::load().unwrap();
             assert_eq!(config.access_ttl_secs, 7);
             assert_eq!(config.worker_concurrency, 9);
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn daily_scan_at_is_off_unless_configured() {
+        figment::Jail::expect_with(|jail| {
+            assert_eq!(Config::load().unwrap().daily_scan_at, None);
+            jail.set_env("SHADOWMASK_DAILY_SCAN_AT", "   ");
+            assert_eq!(Config::load().unwrap().daily_scan_at, None);
+            jail.set_env("SHADOWMASK_DAILY_SCAN_AT", " 04:00 ");
+            assert_eq!(
+                Config::load().unwrap().daily_scan_at.as_deref(),
+                Some("04:00")
+            );
             Ok(())
         });
     }

@@ -9,7 +9,7 @@ use domain::repository::JobRepository;
 use jiff::Timestamp;
 use tokio::sync::{Semaphore, watch};
 use tokio::task::JoinSet;
-use tokio::time::interval;
+use tokio::time::{Interval, interval};
 use tracing::Instrument;
 
 use crate::cancel::CancelRegistry;
@@ -80,6 +80,14 @@ async fn finish_job<L: JobLogStore>(
                 )
                 .await;
         }
+    }
+}
+
+async fn next_batch(ticker: &mut Interval, backlog: bool) {
+    if backlog {
+        tokio::task::yield_now().await;
+    } else {
+        ticker.tick().await;
     }
 }
 
@@ -190,14 +198,14 @@ where
     ) -> Result<(), RepositoryError> {
         let mut ticker = interval(period);
         tokio::pin!(shutdown);
+        let mut backlog = false;
         loop {
             tokio::select! {
                 biased;
                 () = &mut shutdown => return Ok(()),
-                _ = ticker.tick() => {
-                    self.run_once(Timestamp::now()).await?;
-                }
+                () = next_batch(&mut ticker, backlog) => {}
             }
+            backlog = self.run_once(Timestamp::now()).await? == self.limit;
         }
     }
 }
@@ -206,7 +214,7 @@ where
 mod tests {
     use super::*;
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
-    use services::mock::{MockJobLogStore, MockJobStore};
+    use mocks::{MockJobLogStore, MockJobStore};
     use tokio::sync::oneshot;
 
     struct OkHandler;
@@ -227,6 +235,14 @@ mod tests {
     impl JobHandler for PermanentHandler {
         async fn handle(&self, _job: &Job) -> Result<(), JobError> {
             Err(JobError::Permanent("nope".into()))
+        }
+    }
+
+    struct SlowHandler;
+    impl JobHandler for SlowHandler {
+        async fn handle(&self, _job: &Job) -> Result<(), JobError> {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            Ok(())
         }
     }
 
@@ -439,6 +455,81 @@ mod tests {
 
         let stored = store.get(&JobId("a".into())).await.unwrap().unwrap();
         assert_eq!(stored.status, JobStatus::Succeeded);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn one_tick_drains_a_backlog_deeper_than_the_batch() {
+        let now = Timestamp::now();
+        let store = MockJobStore::new();
+        for i in 0..50 {
+            store
+                .enqueue(job(&format!("j{i:02}"), JobPriority::Normal, now))
+                .await
+                .unwrap();
+        }
+        let worker = Worker::new(
+            store.clone(),
+            Arc::new(OkHandler),
+            MockJobLogStore::new(),
+            4,
+            RetryPolicy::default(),
+            test_kinds(),
+        );
+
+        worker
+            .run(Duration::from_secs(3600), async {
+                tokio::time::sleep(Duration::from_secs(1800)).await;
+            })
+            .await
+            .unwrap();
+
+        let done = store
+            .list()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|j| j.status == JobStatus::Succeeded)
+            .count();
+        assert_eq!(done, 50, "the first tick should have drained the queue");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn shutdown_still_wins_against_a_queue_that_never_empties() {
+        let now = Timestamp::now();
+        let store = MockJobStore::new();
+        for i in 0..50 {
+            store
+                .enqueue(job(&format!("j{i:02}"), JobPriority::Normal, now))
+                .await
+                .unwrap();
+        }
+        let worker = Worker::new(
+            store.clone(),
+            Arc::new(SlowHandler),
+            MockJobLogStore::new(),
+            4,
+            RetryPolicy::default(),
+            test_kinds(),
+        );
+
+        worker
+            .run(Duration::from_secs(3600), async {
+                tokio::time::sleep(Duration::from_millis(2500)).await;
+            })
+            .await
+            .unwrap();
+
+        let done = store
+            .list()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|j| j.status == JobStatus::Succeeded)
+            .count();
+        assert!(
+            (8..50).contains(&done),
+            "draining should stop at the first batch boundary after shutdown, got {done}"
+        );
     }
 
     fn recorded<F, Fut>(work: F) -> String

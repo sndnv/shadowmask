@@ -11,6 +11,8 @@ pub struct FetchRequest {
     pub library_id: String,
     pub title: String,
     #[serde(default)]
+    pub year: Option<u16>,
+    #[serde(default)]
     pub external_id: Option<String>,
     #[serde(default)]
     pub season: Option<u16>,
@@ -42,6 +44,7 @@ impl FetchRequest {
             source_url: self.source_url,
             kind: self.kind.into(),
             title: self.title,
+            year: self.year,
             external_id: self.external_id,
             season: self.season,
             episode: self.episode,
@@ -59,6 +62,7 @@ mod tests {
             kind: LibraryKindDto::Movie,
             library_id: "ext".into(),
             title: "The Matrix".into(),
+            year: None,
             external_id: None,
             season: None,
             episode: None,
@@ -72,6 +76,13 @@ mod tests {
         let input = req.into_input();
         assert_eq!(input.title, "The Matrix");
         assert!(matches!(input.kind, domain::library::LibraryKind::Movie));
+    }
+
+    #[test]
+    fn year_passes_through() {
+        let mut req = base();
+        req.year = Some(1999);
+        assert_eq!(req.into_input().year, Some(1999));
     }
 
     #[test]

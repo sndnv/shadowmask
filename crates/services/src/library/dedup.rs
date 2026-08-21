@@ -104,6 +104,7 @@ mod tests {
                 season,
                 episode,
                 quality: None,
+                external_id: None,
             },
             confidence: 0.9,
             files,

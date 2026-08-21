@@ -1,0 +1,42 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "added_at": "[added_at]",
+    "artwork": {
+      "backdrops": [
+        {
+          "base": "/images/m1-backdrop",
+          "widths": [
+            480,
+            960
+          ]
+        }
+      ],
+      "posters": [
+        {
+          "base": "/images/m1-poster",
+          "widths": [
+            180,
+            480,
+            960
+          ]
+        }
+      ]
+    },
+    "content_rating": {
+      "code": "R",
+      "system": "MPAA"
+    },
+    "id": "m1",
+    "manually_edited": true,
+    "overview": "hand written",
+    "runtime_minutes": 101,
+    "title": "Alpha Edited",
+    "updated_at": "[updated_at]",
+    "year": 2021
+  },
+  "status": 200
+}

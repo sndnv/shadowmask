@@ -95,7 +95,6 @@ where
             path: output.path.clone(),
             size_bytes: output.size_bytes,
             duration_ms: probe.duration_ms,
-            edition: Some("Upscaled".to_owned()),
             available: true,
             added_at: now,
             updated_at: now,
@@ -127,8 +126,8 @@ mod tests {
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
     use domain::media::{ProbeResult, UpscaleOutput, VideoTrack};
     use jiff::Timestamp;
+    use mocks::MockCatalogRepo;
     use services::library::{UpscaleJobPayload, derive_id};
-    use services::mock::MockCatalogRepo;
 
     use super::*;
 
@@ -213,7 +212,6 @@ mod tests {
             path: "/m/Movie (2011)/Movie (2011) 480p.mkv".into(),
             size_bytes: 100,
             duration_ms: 2000,
-            edition: None,
             available: true,
             added_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
@@ -246,7 +244,6 @@ mod tests {
             target_height: 1080,
         }
         .encode()
-        .unwrap()
     }
 
     #[tokio::test]
@@ -265,7 +262,6 @@ mod tests {
 
         let new_id = VersionId(derive_id("version", &out_path));
         let detail = catalog.version_detail(&new_id).await.unwrap().unwrap();
-        assert_eq!(detail.version.edition, Some("Upscaled".into()));
         assert_eq!(detail.version.quality, Quality::Fhd);
         assert_eq!(detail.version.size_bytes, 4242);
         assert_eq!(detail.version.container, "mp4");

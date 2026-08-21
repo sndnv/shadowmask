@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use domain::common::LanguageCode;
 use domain::error::SubtitleError;
 use domain::job::{Job, JobId, TranscriptionTrigger, TranslationTrigger};
@@ -121,6 +123,8 @@ where
                 source: SubtitleSource::OpenSubtitles,
                 path,
                 translated_from: None,
+                label: candidate.release_name.clone(),
+                pinned: false,
             });
         }
 
@@ -137,9 +141,10 @@ where
             .map(|detail| detail.subtitle_files)
             .unwrap_or_default()
             .into_iter()
-            .filter(|file| file.source != SubtitleSource::OpenSubtitles)
+            .filter(|file| file.source != SubtitleSource::OpenSubtitles || file.pinned)
             .collect();
-        merged.extend(fetched);
+        let kept: HashSet<SubtitleFileId> = merged.iter().map(|file| file.id.clone()).collect();
+        merged.extend(fetched.into_iter().filter(|file| !kept.contains(&file.id)));
         let merged = prune_orphaned_translations(merged);
         self.catalog
             .set_subtitle_files(&payload.version_id, &merged)
@@ -165,8 +170,8 @@ mod tests {
         SubtitleQuery, SubtitleSource,
     };
     use jiff::Timestamp;
+    use mocks::MockCatalogRepo;
     use services::library::SubtitleJobPayload;
-    use services::mock::MockCatalogRepo;
 
     use super::*;
 
@@ -286,7 +291,6 @@ mod tests {
             path: "/m/v1.mkv".into(),
             size_bytes: 1,
             duration_ms: 1000,
-            edition: None,
             available: true,
             added_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
@@ -324,7 +328,6 @@ mod tests {
             transcribe_on_miss: false,
         }
         .encode()
-        .unwrap()
     }
 
     fn payload_with_fallback() -> String {
@@ -338,7 +341,6 @@ mod tests {
             transcribe_on_miss: true,
         }
         .encode()
-        .unwrap()
     }
 
     #[tokio::test]
@@ -356,6 +358,8 @@ mod tests {
                     source: SubtitleSource::External,
                     path: "/m/v1.en.srt".into(),
                     translated_from: None,
+                    label: None,
+                    pinned: false,
                 }],
             )
             .await
@@ -642,6 +646,8 @@ mod tests {
                         source: SubtitleSource::OpenSubtitles,
                         path: "/subs/old.srt".into(),
                         translated_from: None,
+                        label: None,
+                        pinned: false,
                     },
                     SubtitleFile {
                         id: SubtitleFileId("machine:v1:fr".into()),
@@ -651,6 +657,8 @@ mod tests {
                         source: SubtitleSource::MachineTranslated,
                         path: "/subs/fr.vtt".into(),
                         translated_from: Some(SubtitleFileId("opensubtitles:v1:old".into())),
+                        label: None,
+                        pinned: false,
                     },
                 ],
             )
@@ -680,5 +688,83 @@ mod tests {
                 .all(|f| f.source != SubtitleSource::MachineTranslated)
         );
         assert!(files.iter().any(|f| f.id.0 == "opensubtitles:v1:42"));
+    }
+
+    async fn re_pull_over(seeded: &[SubtitleFile]) -> Vec<SubtitleFile> {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
+        catalog
+            .set_subtitle_files(&VersionId("v1".into()), seeded)
+            .await
+            .unwrap();
+        let handler = SubtitlesJobHandler::new(
+            MockProvider {
+                mode: ProviderMode::Ok(vec![SubtitleCandidate {
+                    release_name: Some("The.Matrix.WEB".into()),
+                    ..candidate("42", "en")
+                }]),
+            },
+            catalog.clone(),
+            MockStore::default(),
+            MockTrigger::default(),
+            MockTranscription::default(),
+        );
+        handler.handle(&job(payload())).await.unwrap();
+        catalog
+            .version_detail(&VersionId("v1".into()))
+            .await
+            .unwrap()
+            .unwrap()
+            .subtitle_files
+    }
+
+    fn downloaded(id: &str, pinned: bool, label: Option<&str>) -> SubtitleFile {
+        SubtitleFile {
+            id: SubtitleFileId(id.into()),
+            version: VersionId("v1".into()),
+            language: Some(LanguageCode("en".into())),
+            format: SubtitleFormat::Srt,
+            source: SubtitleSource::OpenSubtitles,
+            path: format!("/subs/{id}.srt"),
+            translated_from: None,
+            label: label.map(str::to_owned),
+            pinned,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_pinned_file_survives_a_re_pull_that_replaces_the_unpinned_one() {
+        let files = re_pull_over(&[
+            downloaded("opensubtitles:v1:hand", true, Some("The.Matrix.BluRay")),
+            downloaded("opensubtitles:v1:old", false, None),
+        ])
+        .await;
+
+        assert_eq!(files.len(), 2);
+        let pinned = files
+            .iter()
+            .find(|f| f.id.0 == "opensubtitles:v1:hand")
+            .expect("the admin's pick must survive");
+        assert!(pinned.pinned);
+        assert_eq!(pinned.label.as_deref(), Some("The.Matrix.BluRay"));
+        assert!(
+            files.iter().all(|f| f.id.0 != "opensubtitles:v1:old"),
+            "the job's own previous pick is still replaceable"
+        );
+        let fresh = files
+            .iter()
+            .find(|f| f.id.0 == "opensubtitles:v1:42")
+            .unwrap();
+        assert_eq!(fresh.label.as_deref(), Some("The.Matrix.WEB"));
+        assert!(!fresh.pinned);
+    }
+
+    #[tokio::test]
+    async fn a_pinned_file_the_job_picks_again_is_not_written_twice() {
+        let files = re_pull_over(&[downloaded("opensubtitles:v1:42", true, Some("Kept"))]).await;
+
+        assert_eq!(files.len(), 1);
+        assert!(files[0].pinned, "the admin's row wins over the job's");
+        assert_eq!(files[0].label.as_deref(), Some("Kept"));
     }
 }

@@ -40,8 +40,8 @@ jobs:
       - name: Release project
         run: |
           pip install semver
-          git config --global user.name ${{ github.actor }}
-          git config --global user.email ${{ github.actor }}@users.noreply.github.com
+          git config --global user.name "$GITHUB_ACTOR"
+          git config --global user.email "$GITHUB_ACTOR@users.noreply.github.com"
           ./release.py $VERBOSE --next $NEXT_VERSION
           git push
           git push --tags

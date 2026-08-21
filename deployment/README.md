@@ -10,6 +10,24 @@ the repository root.
 Optional local AI (transcription, translation, upscaling) applies to both and is documented in
 [`ENRICHMENT.md`](./ENRICHMENT.md).
 
+## Scanning
+
+**Nothing is scanned automatically unless you ask for it.** A scan otherwise runs only when an
+admin triggers one or a webhook does.
+
+Turn on the nightly re-scan with `SHADOWMASK_DAILY_SCAN_AT`, a clock time as `HH:MM`. It runs in
+the container's timezone, which is UTC unless you set `TZ`. Leave it unset to disable.
+
+The nightly run is opt in per library: it only queues a scan for libraries whose `watcher` is
+`scheduled` and that hold local files. Set that in `bootstrap/libraries.toml` before first start,
+or on the library in the admin UI afterwards. A library already scanning is left alone.
+
+A re-scan is cheap on a settled library: titles you already have are not re-fetched and versions
+whose file has not changed are skipped entirely. New files, changed files, and titles that appear
+for the first time are picked up as usual. To deliberately re-pull metadata and artwork for
+everything in a library, use "Refresh metadata" on the library's admin page rather than a scan. It
+queues one job per title, replaces descriptions, ratings and artwork, and leaves the files alone.
+
 ## Hardware acceleration
 
 Video transcoding (live HLS streaming and the offline upscale job) uses the software H.264 encoder

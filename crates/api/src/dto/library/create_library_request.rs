@@ -17,6 +17,12 @@ pub struct CreateLibraryRequest {
     pub scan_schedule: Option<String>,
     #[serde(default)]
     pub metadata_sources: Vec<String>,
+    #[serde(default = "default_sort_articles")]
+    pub sort_articles: Vec<String>,
+}
+
+fn default_sort_articles() -> Vec<String> {
+    vec!["the".to_owned(), "a".to_owned(), "an".to_owned()]
 }
 
 impl From<CreateLibraryRequest> for NewLibrary {
@@ -29,6 +35,7 @@ impl From<CreateLibraryRequest> for NewLibrary {
             watcher: r.watcher.into(),
             scan_schedule: r.scan_schedule,
             metadata_sources: r.metadata_sources,
+            sort_articles: r.sort_articles,
         }
     }
 }

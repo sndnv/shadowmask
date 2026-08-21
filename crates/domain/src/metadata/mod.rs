@@ -1,4 +1,5 @@
 mod artwork;
+mod artwork_format;
 mod artwork_pipeline;
 mod artwork_spec;
 mod artwork_store;
@@ -21,11 +22,11 @@ mod processed_artwork;
 mod rating;
 mod season_artwork;
 mod studio;
-mod tag;
 mod title_enrichment;
 mod title_metadata;
 
 pub use artwork::{Artwork, ArtworkKind};
+pub use artwork_format::ArtworkFormat;
 pub use artwork_pipeline::ArtworkPipeline;
 pub use artwork_spec::ArtworkSpec;
 pub use artwork_store::ArtworkStore;
@@ -48,6 +49,5 @@ pub use processed_artwork::ProcessedArtwork;
 pub use rating::Rating;
 pub use season_artwork::{EpisodeArtwork, SeasonArtwork};
 pub use studio::{Studio, StudioId};
-pub use tag::{Tag, TagId};
 pub use title_enrichment::TitleEnrichment;
 pub use title_metadata::TitleMetadata;

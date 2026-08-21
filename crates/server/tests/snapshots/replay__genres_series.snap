@@ -1,0 +1,13 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": [
+    {
+      "id": "g-action",
+      "name": "Action"
+    }
+  ],
+  "status": 200
+}

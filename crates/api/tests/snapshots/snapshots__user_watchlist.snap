@@ -3,6 +3,23 @@ source: crates/api/tests/snapshots.rs
 expression: value
 ---
 {
-  "body": [],
+  "body": [
+    {
+      "added_at": "2023-11-14T22:14:00Z",
+      "title": {
+        "id": "m2",
+        "type": "movie"
+      },
+      "user_id": "u1"
+    },
+    {
+      "added_at": "2023-11-14T22:14:01Z",
+      "title": {
+        "id": "e1",
+        "type": "episode"
+      },
+      "user_id": "u1"
+    }
+  ],
   "status": 200
 }

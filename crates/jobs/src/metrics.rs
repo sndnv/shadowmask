@@ -48,6 +48,9 @@ fn job_label(kind: JobKind) -> &'static str {
         JobKind::Upscale => "upscale",
         JobKind::Combine => "combine",
         JobKind::Fetch => "fetch",
+        JobKind::ScheduledScan => "scheduled_scan",
+        JobKind::Retention => "retention",
+        JobKind::OrphanSweep => "orphan_sweep",
     }
 }
 
@@ -57,24 +60,7 @@ mod tests {
 
     #[test]
     fn job_label_covers_all_kinds() {
-        for kind in [
-            JobKind::LibraryScan,
-            JobKind::Metadata,
-            JobKind::Artwork,
-            JobKind::Subtitles,
-            JobKind::Trickplay,
-            JobKind::Fingerprint,
-            JobKind::Dedup,
-            JobKind::CacheEviction,
-            JobKind::SearchReindex,
-            JobKind::Ingest,
-            JobKind::Relink,
-            JobKind::Transcription,
-            JobKind::Translation,
-            JobKind::Upscale,
-            JobKind::Combine,
-            JobKind::Fetch,
-        ] {
+        for kind in crate::job_class::ALL_KINDS {
             assert!(!job_label(kind).is_empty());
         }
     }

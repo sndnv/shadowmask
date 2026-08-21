@@ -19,6 +19,7 @@ fn library(id: &str) -> Library {
         origin: LibraryOrigin::Local,
         kind: LibraryKind::Movie,
         roots: vec!["/media".into()],
+        sort_articles: vec!["the".into(), "a".into()],
         watcher: WatcherStrategy::Manual,
         scan_schedule: None,
         metadata_sources: Vec::new(),
@@ -135,22 +136,43 @@ pub async fn library_repository_contract<R: LibraryRepository>(repo: R) {
             .await
             .unwrap()
             .items
-            .is_empty()
+            .is_empty(),
+        "re-reading a filename the matcher still cannot parse carries no new information"
     );
-    assert!(
-        repo.list_duplicates(&id, page())
-            .await
-            .unwrap()
-            .items
-            .is_empty()
+    assert_eq!(
+        repo.list_duplicates(&id, page()).await.unwrap().total,
+        1,
+        "re-detection proves both files are still there, so a dismissal is lifted"
     );
 
     repo.set_unmatched_status(&unmatched_id, ResolutionStatus::Active)
         .await
         .unwrap();
-    repo.set_duplicate_status(&dup_id, ResolutionStatus::Active)
+    assert_eq!(repo.list_unmatched(&id, page()).await.unwrap().total, 1);
+
+    repo.reconcile_duplicates(&id, std::slice::from_ref(&dup_id))
         .await
         .unwrap();
+    repo.reconcile_unmatched(&id, &["/media/x.mkv".to_owned()])
+        .await
+        .unwrap();
+    assert_eq!(repo.list_unmatched(&id, page()).await.unwrap().total, 1);
+    assert_eq!(repo.list_duplicates(&id, page()).await.unwrap().total, 1);
+
+    repo.reconcile_duplicates(&id, &[]).await.unwrap();
+    assert_eq!(
+        repo.list_duplicates(&id, page()).await.unwrap().total,
+        0,
+        "a candidate the detector no longer emits is gone, not merely hidden"
+    );
+    repo.reconcile_unmatched(&id, &[]).await.unwrap();
+    assert!(
+        repo.get_unmatched(&unmatched_id).await.unwrap().is_none(),
+        "a file that left the disk leaves no tombstone"
+    );
+
+    repo.insert_unmatched(unmatched(Vec::new())).await.unwrap();
+    repo.insert_duplicate(&id, duplicate()).await.unwrap();
     assert_eq!(repo.list_unmatched(&id, page()).await.unwrap().total, 1);
     assert_eq!(repo.list_duplicates(&id, page()).await.unwrap().total, 1);
 

@@ -21,6 +21,9 @@ pub enum JobKindDto {
     Upscale,
     Combine,
     Fetch,
+    ScheduledScan,
+    Retention,
+    OrphanSweep,
 }
 
 impl From<JobKind> for JobKindDto {
@@ -42,6 +45,9 @@ impl From<JobKind> for JobKindDto {
             JobKind::Upscale => JobKindDto::Upscale,
             JobKind::Combine => JobKindDto::Combine,
             JobKind::Fetch => JobKindDto::Fetch,
+            JobKind::ScheduledScan => JobKindDto::ScheduledScan,
+            JobKind::Retention => JobKindDto::Retention,
+            JobKind::OrphanSweep => JobKindDto::OrphanSweep,
         }
     }
 }
@@ -156,6 +162,9 @@ mod tests {
             (JobKind::Upscale, "upscale"),
             (JobKind::Combine, "combine"),
             (JobKind::Fetch, "fetch"),
+            (JobKind::ScheduledScan, "scheduled_scan"),
+            (JobKind::Retention, "retention"),
+            (JobKind::OrphanSweep, "orphan_sweep"),
         ] {
             let dto = JobKindDto::from(kind);
             assert_eq!(serde_json::to_value(dto).unwrap(), expected);

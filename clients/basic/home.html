@@ -56,11 +56,34 @@
                 href: itemHref(i),
                 artwork: i.artwork,
                 title: i.title,
-                subtitle: i.year ? String(i.year) : null,
+                subtitle:
+                  i.episode_count != null
+                    ? sm.episodeCount(i.episode_count)
+                    : i.year
+                      ? String(i.year)
+                      : null,
               })),
             ),
           );
         }
+      }
+
+      function resumeOpts(card, caption) {
+        const isEpisode = card.title && card.title.type === "episode";
+        const hasSeries = isEpisode && !!card.series_title;
+        return {
+          href: sm.href.ref(card.title),
+          artwork: hasSeries ? card.series_artwork : card.artwork,
+          title: hasSeries ? card.series_title : card.display_title,
+          subtitle: isEpisode
+            ? card.episode_number != null
+              ? sm.episodeCode(card.season_number, card.episode_number)
+              : null
+            : card.year
+              ? String(card.year)
+              : null,
+          caption,
+        };
       }
 
       function renderContinue(main, cont) {
@@ -70,12 +93,7 @@
           .filter((s) => s.card)
           .forEach((s) =>
             cards.push({
-              opts: {
-                href: sm.href.ref(s.card.title),
-                artwork: s.card.artwork,
-                title: s.card.display_title,
-                subtitle: s.card.progress_percent + "% (now playing)",
-              },
+              opts: resumeOpts(s.card, s.card.progress_percent + "% (now playing)"),
               version: null,
             }),
           );
@@ -83,12 +101,7 @@
           .filter((p) => p.card)
           .forEach((p) =>
             cards.push({
-              opts: {
-                href: sm.href.ref(p.card.title),
-                artwork: p.card.artwork,
-                title: p.card.display_title,
-                subtitle: p.card.progress_percent + "%",
-              },
+              opts: resumeOpts(p.card, p.card.progress_percent + "%"),
               version: p.progress && p.progress.version_id,
             }),
           );
@@ -127,12 +140,19 @@
           main.appendChild(heading);
           main.appendChild(list);
         }
-        const nextEpisodes = (cont.next_episodes || []).map((e) => ({
-          href: sm.href.episode(e.id, e.season_id),
-          artwork: e.artwork,
-          title: e.title,
-          subtitle: "Episode " + e.number,
-        }));
+        const nextEpisodes = (cont.next_episodes || []).map((e) => {
+          const hasSeries = !!e.series_title;
+          return {
+            href: sm.href.episode(e.id, e.season_id),
+            artwork: hasSeries ? e.series_artwork : e.artwork,
+            title: hasSeries ? e.series_title : e.title,
+            subtitle:
+              e.season_number != null
+                ? sm.episodeCode(e.season_number, e.number)
+                : "Episode " + e.number,
+            caption: hasSeries ? e.title : null,
+          };
+        });
         const nextMovies = (cont.next_movies || []).map((m) => ({
           href: sm.href.movie(m.id),
           artwork: m.artwork,

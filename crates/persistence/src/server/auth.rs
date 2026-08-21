@@ -135,6 +135,25 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
         Ok(())
     }
 
+    async fn purge_user(&self, user: &UserId) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("auth", "purge_user");
+        let mut tx = self.pool.begin().await.map_err(backend)?;
+        for statement in [
+            "DELETE FROM refresh_tokens WHERE user_id = ?",
+            "DELETE FROM link_codes WHERE user_id = ?",
+            "DELETE FROM api_tokens WHERE user_id = ?",
+            "DELETE FROM devices WHERE user_id = ?",
+        ] {
+            sqlx::query(statement)
+                .bind(user.0.as_str())
+                .execute(&mut *tx)
+                .await
+                .map_err(backend)?;
+        }
+        tx.commit().await.map_err(backend)?;
+        Ok(())
+    }
+
     async fn store_link_code(&self, link: PendingLink) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("auth", "store_link_code");
         sqlx::query(
@@ -315,6 +334,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::user::Role;
 
     #[tokio::test]
     async fn surfaces_backend_error_after_close() {
@@ -342,5 +362,88 @@ mod tests {
                 .await
                 .is_err()
         );
+        assert!(repo.purge_user(&UserId("u1".into())).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn purge_user_clears_every_credential_and_leaves_other_accounts_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = SqliteAuthTokenRepo::connect(&dir.path().join("auth.db"))
+            .await
+            .unwrap();
+        let doomed = UserId("u1".into());
+        let other = UserId("u2".into());
+
+        for user in [&doomed, &other] {
+            repo.store_refresh(AuthSession {
+                id: AuthSessionId(format!("jti-{}", user.0)),
+                user: user.clone(),
+                refresh_token_hash: "hash".into(),
+                issued_at: Timestamp::UNIX_EPOCH,
+                expires_at: Timestamp::UNIX_EPOCH + std::time::Duration::from_secs(3600),
+            })
+            .await
+            .unwrap();
+            repo.store_link_code(PendingLink {
+                code: format!("CODE{}", user.0),
+                user: user.clone(),
+                role: Role::Player,
+                expires_at: Timestamp::UNIX_EPOCH + std::time::Duration::from_secs(3600),
+            })
+            .await
+            .unwrap();
+            repo.upsert_device(Device {
+                id: DeviceId(format!("dev-{}", user.0)),
+                user: user.clone(),
+                name: "Roku".into(),
+                platform: "roku".into(),
+                created_at: Timestamp::UNIX_EPOCH,
+                last_seen: None,
+            })
+            .await
+            .unwrap();
+            repo.store_api_token(ApiToken {
+                id: ApiTokenId(format!("tok-{}", user.0)),
+                user: user.clone(),
+                device: DeviceId(format!("dev-{}", user.0)),
+                token_hash: format!("hash-{}", user.0),
+                created_at: Timestamp::UNIX_EPOCH,
+                last_used_at: None,
+            })
+            .await
+            .unwrap();
+        }
+
+        repo.purge_user(&doomed).await.unwrap();
+
+        assert!(
+            repo.find_refresh(&AuthSessionId("jti-u1".into()))
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            repo.list_link_codes(&doomed, Timestamp::UNIX_EPOCH)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(repo.list_devices(&doomed).await.unwrap().is_empty());
+        assert!(repo.list_api_tokens(&doomed).await.unwrap().is_empty());
+        assert!(
+            repo.find_api_token_by_hash("hash-u1")
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        assert!(
+            repo.find_refresh(&AuthSessionId("jti-u2".into()))
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(repo.list_devices(&other).await.unwrap().len(), 1);
+        assert_eq!(repo.list_api_tokens(&other).await.unwrap().len(), 1);
     }
 }

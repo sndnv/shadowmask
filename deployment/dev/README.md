@@ -106,7 +106,7 @@ generates its own fixtures separately.
 The movie titles are real, TMDB-matchable names (the public-domain Blender open movies). Set
 `SHADOWMASK_TMDB_API_KEY` before starting the stack and a scan will enrich them with real metadata
 and artwork, so the full artwork pipeline is visible end to end. Without a key the catalog still
-works but shows placeholder posters and empty metadata. One TV show is intentionally unmatchable so
+works but shows placeholder posters and empty metadata. One series is intentionally unmatchable so
 the mismatch / manual-resolution behavior is also visible.
 
 TMDB does not return content ratings, so parental controls stay inert on TMDB alone. Also set

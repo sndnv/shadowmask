@@ -6,6 +6,7 @@ use domain::error::RepositoryError;
 use domain::repository::SessionRegistry;
 use domain::session::{DeliveryMode, PlaybackSession, SessionId};
 use domain::user::{DeviceId, UserId};
+use jiff::Timestamp;
 
 #[derive(Default)]
 pub struct InMemorySessionRegistry {
@@ -83,6 +84,17 @@ impl SessionRegistry for InMemorySessionRegistry {
         record_gauges(&sessions);
         Ok(())
     }
+
+    async fn remove_idle(&self, cutoff: Timestamp) -> Result<usize, RepositoryError> {
+        let mut sessions = self.sessions.write().unwrap();
+        let before = sessions.len();
+        sessions.retain(|_, s| s.last_heartbeat_at >= cutoff);
+        let removed = before - sessions.len();
+        if removed > 0 {
+            record_gauges(&sessions);
+        }
+        Ok(removed)
+    }
 }
 
 #[cfg(test)]
@@ -109,6 +121,7 @@ mod tests {
             },
             started_at: Timestamp::from_second(1_700_000_000 + started_offset).unwrap(),
             last_heartbeat_at: Timestamp::from_second(1_700_000_000 + started_offset).unwrap(),
+            completed: false,
         }
     }
 
@@ -174,6 +187,32 @@ mod tests {
         let second = registry.list_all(page(1, 1)).await.unwrap();
         assert_eq!(second.total, 3);
         assert_eq!(second.items[0].id, SessionId("s2".into()));
+    }
+
+    #[tokio::test]
+    async fn remove_idle_drops_only_what_stopped_heartbeating() {
+        let registry = InMemorySessionRegistry::new();
+        for (i, id) in ["stale", "borderline", "live"].iter().enumerate() {
+            registry.insert(session(id, "u1", i as i64)).await.unwrap();
+        }
+        let cutoff = Timestamp::from_second(1_700_000_001).unwrap();
+
+        let dropped = registry.remove_idle(cutoff).await.unwrap();
+
+        assert_eq!(dropped, 1);
+        let left = registry.list_all(page(0, 10)).await.unwrap();
+        assert_eq!(left.total, 2);
+        assert!(!left.items.iter().any(|s| s.id == SessionId("stale".into())));
+    }
+
+    #[tokio::test]
+    async fn remove_idle_with_nothing_to_drop_reports_zero() {
+        let registry = InMemorySessionRegistry::new();
+        registry.insert(session("live", "u1", 10)).await.unwrap();
+        let cutoff = Timestamp::from_second(1_700_000_000).unwrap();
+
+        assert_eq!(registry.remove_idle(cutoff).await.unwrap(), 0);
+        assert_eq!(registry.list_all(page(0, 10)).await.unwrap().total, 1);
     }
 
     fn recorded<F, Fut>(work: F) -> String

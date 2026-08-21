@@ -16,6 +16,10 @@ services:
       SHADOWMASK_LOG_LEVEL: "info"
       SHADOWMASK_SQLX_LOG_LEVEL: "warn"
       SHADOWMASK_BOOTSTRAP_MODE: "off"
+      # Nightly re-scan (off by default): a clock time as HH:MM. It runs in the container's
+      # timezone, which is UTC unless you set TZ. Only libraries whose watcher is "scheduled"
+      # are picked up; see bootstrap/libraries.toml.
+      # SHADOWMASK_DAILY_SCAN_AT: "04:00"
       # Optional TLS (off by default): point these at a mounted cert + key to serve HTTPS
       # directly. Leave unset to serve plaintext HTTP (fine on a trusted LAN or behind your
       # own reverse proxy). When enabled, update the healthcheck below to https (curl -k).

@@ -22,10 +22,18 @@ where
         let payload = MetadataJobPayload::decode(&job.payload)
             .map_err(|e| JobError::Permanent(format!("invalid metadata payload: {e}")))?;
         match payload {
-            MetadataJobPayload::Title { title, external_id } => {
-                tracing::info!("refreshing metadata for [{title:?}]");
+            MetadataJobPayload::Title {
+                title,
+                external_id,
+                force,
+            } => {
+                tracing::info!(
+                    "refreshing metadata for {} [{}] force [{force}]",
+                    title.kind().as_str(),
+                    title.id()
+                );
                 self.refresher
-                    .refresh(&title, external_id.as_ref(), Some(&job.id))
+                    .refresh(&title, external_id.as_ref(), force, Some(&job.id))
                     .await
                     .map_err(|e| JobError::Retryable(e.to_string()))?;
             }
@@ -51,8 +59,8 @@ mod tests {
     use domain::metadata::{ExternalId, MediaKind, MetadataMatch, PersonId};
     use domain::repository::CatalogRepository;
     use jiff::Timestamp;
+    use mocks::{MockCatalogRepo, MockJobStore, MockLibraryRepo, MockMetadataProvider};
     use services::library::Enricher;
-    use services::mock::{MockCatalogRepo, MockJobStore, MockLibraryRepo, MockMetadataProvider};
 
     fn enricher(
         catalog: MockCatalogRepo,
@@ -92,10 +100,12 @@ mod tests {
         catalog.add_movie(Movie {
             id: MovieId("m1".into()),
             title: "Old".into(),
+            sort_title: "old".into(),
             year: Some(1999),
             overview: None,
             runtime_minutes: None,
             content_rating: None,
+            manually_edited: false,
             added_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
@@ -113,9 +123,9 @@ mod tests {
         let payload = MetadataJobPayload::Title {
             title: TitleRef::Movie(MovieId("m1".into())),
             external_id: None,
+            force: false,
         }
-        .encode()
-        .unwrap();
+        .encode();
 
         handler.handle(&job(payload)).await.unwrap();
 
@@ -135,8 +145,7 @@ mod tests {
             ids: vec![PersonId("p1".into())],
             force: true,
         }
-        .encode()
-        .unwrap();
+        .encode();
         handler.handle(&job(payload)).await.unwrap();
     }
 
@@ -157,9 +166,9 @@ mod tests {
         let payload = MetadataJobPayload::Title {
             title: TitleRef::Movie(MovieId("m1".into())),
             external_id: None,
+            force: false,
         }
-        .encode()
-        .unwrap();
+        .encode();
         assert!(matches!(
             handler.handle(&job(payload)).await.unwrap_err(),
             JobError::Retryable(_)

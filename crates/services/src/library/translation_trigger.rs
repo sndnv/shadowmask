@@ -43,7 +43,7 @@ mod tests {
     use domain::job::{JobId, JobKind};
 
     use super::*;
-    use crate::mock::MockJobStore;
+    use mocks::MockJobStore;
 
     #[tokio::test]
     async fn enqueues_a_translation_job_when_languages_configured() {

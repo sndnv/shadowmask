@@ -1,8 +1,9 @@
 use domain::catalog::VersionId;
-use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
+use domain::job::{Job, JobKind, JobPriority};
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+
+use crate::job::{encode_payload, queued_job};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TranslationJobPayload {
@@ -12,8 +13,8 @@ pub struct TranslationJobPayload {
 }
 
 impl TranslationJobPayload {
-    pub fn encode(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string(&Wire::from(self))
+    pub fn encode(&self) -> String {
+        encode_payload(&Wire::from(self))
     }
 
     pub fn decode(raw: &str) -> Result<Self, serde_json::Error> {
@@ -30,8 +31,7 @@ pub fn translation_job(version_id: &VersionId, target_languages: &[String]) -> O
         target_languages: target_languages.to_vec(),
         source_subtitle_id: None,
     }
-    .encode()
-    .expect("translation job payload serializes");
+    .encode();
     Some(translation_job_from_payload(raw))
 }
 
@@ -45,29 +45,18 @@ pub fn translation_job_with_source(
         target_languages: vec![target_language.to_owned()],
         source_subtitle_id: Some(source_subtitle_id.to_owned()),
     }
-    .encode()
-    .expect("translation job payload serializes");
+    .encode();
     translation_job_from_payload(raw)
 }
 
 fn translation_job_from_payload(payload: String) -> Job {
-    let now = Timestamp::now();
-    Job {
-        id: JobId(Uuid::new_v4().to_string()),
-        kind: JobKind::Translation,
-        status: JobStatus::Queued,
-        priority: JobPriority::Low,
+    queued_job(
+        JobKind::Translation,
+        JobPriority::Low,
         payload,
-        attempts: 0,
-        progress: 0.0,
-        available_at: now,
-        last_error: None,
-        created_at: now,
-        updated_at: now,
-        started_at: None,
-        finished_at: None,
-        parent_id: None,
-    }
+        None,
+        Timestamp::now(),
+    )
 }
 
 #[derive(Serialize, Deserialize)]
@@ -109,7 +98,7 @@ mod tests {
             target_languages: vec!["fr".into(), "de".into()],
             source_subtitle_id: Some("sf1".into()),
         };
-        let encoded = payload.encode().unwrap();
+        let encoded = payload.encode();
         assert_eq!(TranslationJobPayload::decode(&encoded).unwrap(), payload);
     }
 

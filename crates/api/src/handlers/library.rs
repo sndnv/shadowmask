@@ -15,6 +15,8 @@ use crate::error::ApiResult;
 use crate::extract::{AuthUser, RequireAdmin};
 use crate::handlers::log_fail;
 use crate::pagination::{PageParams, PageResponse};
+use domain::service::{CatalogService, LibraryService};
+
 use crate::state::AppServices;
 
 pub async fn libraries<S: AppServices>(
@@ -23,6 +25,7 @@ pub async fn libraries<S: AppServices>(
 ) -> ApiResult<Json<Vec<LibraryResponse>>> {
     let actor = &principal.user.0;
     let libraries = state
+        .library()
         .libraries(&principal)
         .await
         .map_err(log_fail(actor, "retrieve libraries"))?;
@@ -41,6 +44,7 @@ pub async fn library<S: AppServices>(
     let actor = &principal.user.0;
     let id = LibraryId(id);
     let library = state
+        .library()
         .library(&principal, &id)
         .await
         .map_err(log_fail(actor, "retrieve library"))?;
@@ -55,6 +59,7 @@ pub async fn create_library<S: AppServices>(
 ) -> ApiResult<(StatusCode, Json<LibraryResponse>)> {
     let actor = &principal.user.0;
     let library = state
+        .library()
         .create_library(&principal, req.into())
         .await
         .map_err(log_fail(actor, "create library"))?;
@@ -74,6 +79,7 @@ pub async fn update_library<S: AppServices>(
     let actor = &principal.user.0;
     let id = LibraryId(id);
     let library = state
+        .library()
         .update_library(&principal, &id, req.into())
         .await
         .map_err(log_fail(actor, "update library"))?;
@@ -89,6 +95,7 @@ pub async fn delete_library<S: AppServices>(
     let actor = &principal.user.0;
     let id = LibraryId(id);
     state
+        .library()
         .delete_library(&principal, &id)
         .await
         .map_err(log_fail(actor, "delete library"))?;
@@ -104,6 +111,7 @@ pub async fn scan_state<S: AppServices>(
     let actor = &principal.user.0;
     let id = LibraryId(id);
     let scan = state
+        .library()
         .scan_state(&principal, &id)
         .await
         .map_err(log_fail(actor, "retrieve scan state"))?;
@@ -122,11 +130,31 @@ pub async fn trigger_scan<S: AppServices>(
     let actor = &principal.user.0;
     let id = LibraryId(id);
     state
+        .library()
         .trigger_scan(&principal, &id)
         .await
         .map_err(log_fail(actor, "trigger scan"))?;
     debug!(
         "User [{actor}] successfully triggered scan for library [{}]",
+        id.0
+    );
+    Ok(StatusCode::ACCEPTED)
+}
+
+pub async fn refresh_metadata<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Path(id): Path<String>,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
+    let id = LibraryId(id);
+    state
+        .library()
+        .refresh_library_metadata(&principal, &id)
+        .await
+        .map_err(log_fail(actor, "refresh library metadata"))?;
+    debug!(
+        "User [{actor}] successfully queued a metadata refresh for library [{}]",
         id.0
     );
     Ok(StatusCode::ACCEPTED)
@@ -141,6 +169,7 @@ pub async fn unmatched<S: AppServices>(
     let actor = &principal.user.0;
     let id = LibraryId(id);
     let unmatched = state
+        .library()
         .unmatched(&principal, &id, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve unmatched files"))?;
@@ -164,6 +193,7 @@ pub async fn duplicates<S: AppServices>(
     let actor = &principal.user.0;
     let id = LibraryId(id);
     let duplicates = state
+        .library()
         .duplicates(&principal, &id, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve duplicate candidates"))?;
@@ -191,6 +221,7 @@ pub async fn unmatched_candidates<S: AppServices>(
 ) -> ApiResult<Json<Vec<ResolveCandidateResponse>>> {
     let actor = &principal.user.0;
     let candidates = state
+        .library()
         .unmatched_candidates(&principal, &LibraryId(id), &UnmatchedFileId(uid), params.q)
         .await
         .map_err(log_fail(actor, "retrieve unmatched candidates"))?;
@@ -209,6 +240,7 @@ pub async fn resolve_unmatched<S: AppServices>(
 ) -> ApiResult<StatusCode> {
     let actor = &principal.user.0;
     state
+        .library()
         .resolve_unmatched(
             &principal,
             &LibraryId(id),
@@ -228,24 +260,11 @@ pub async fn dismiss_duplicate<S: AppServices>(
 ) -> ApiResult<StatusCode> {
     let actor = &principal.user.0;
     state
+        .library()
         .dismiss_duplicate(&principal, &LibraryId(id), &DuplicateCandidateId(did))
         .await
         .map_err(log_fail(actor, "dismiss duplicate candidate"))?;
     debug!("User [{actor}] successfully dismissed a duplicate candidate");
-    Ok(StatusCode::NO_CONTENT)
-}
-
-pub async fn resolve_duplicate<S: AppServices>(
-    State(state): State<S>,
-    RequireAdmin(principal): RequireAdmin,
-    Path((id, did)): Path<(String, String)>,
-) -> ApiResult<StatusCode> {
-    let actor = &principal.user.0;
-    state
-        .resolve_duplicate(&principal, &LibraryId(id), &DuplicateCandidateId(did))
-        .await
-        .map_err(log_fail(actor, "resolve duplicate candidate"))?;
-    debug!("User [{actor}] successfully resolved a duplicate candidate");
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -258,6 +277,7 @@ pub async fn versions<S: AppServices>(
     let actor = &principal.user.0;
     let id = LibraryId(id);
     let versions = state
+        .catalog()
         .library_versions(&principal, &id, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve library versions"))?;

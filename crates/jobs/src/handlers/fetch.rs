@@ -3,7 +3,7 @@ use domain::job::Job;
 use domain::library::{DiscoveredFile, LibraryOrigin};
 use domain::media::{FetchSpec, MediaFetcher, MediaProbe};
 use domain::repository::LibraryRepository;
-use services::library::{FetchJobPayload, ResolveIngester, fetch_filename_stem};
+use services::library::{FetchJobPayload, ResolveIngester};
 
 use crate::error::JobError;
 use crate::job_handler::JobHandler;
@@ -53,14 +53,8 @@ where
         let root = library.roots.first().ok_or_else(|| {
             JobError::Permanent(format!("external library [{}] has no root", library.id.0))
         })?;
-        let dest_dir = format!("{root}/{}", job.id.0);
-        let stem = fetch_filename_stem(
-            payload.kind,
-            &payload.title,
-            None,
-            payload.season,
-            payload.episode,
-        );
+        let dest_dir = payload.destination_dir(root, &job.id.0);
+        let stem = payload.filename_stem();
         tracing::info!("fetching [{}] into [{}]", payload.source_url, dest_dir);
         let fetched = self
             .fetcher
@@ -116,10 +110,10 @@ mod tests {
     use domain::media::FetchedMedia;
     use domain::repository::{CatalogRepository, JobRepository};
     use jiff::Timestamp;
-    use services::library::Enricher;
-    use services::mock::{
+    use mocks::{
         MockCatalogRepo, MockJobStore, MockLibraryRepo, MockMediaProbe, MockMetadataProvider,
     };
+    use services::library::Enricher;
 
     enum Outcome {
         Ok,
@@ -151,6 +145,7 @@ mod tests {
             origin: LibraryOrigin::External,
             kind: LibraryKind::Movie,
             roots: vec!["/ext".into()],
+            sort_articles: Vec::new(),
             watcher: WatcherStrategy::Manual,
             scan_schedule: None,
             metadata_sources: Vec::new(),
@@ -179,6 +174,7 @@ mod tests {
             source_url: "https://example.com/watch?v=abc".into(),
             kind: LibraryKind::Movie,
             title: "The Matrix".into(),
+            year: Some(1999),
             external_id: None,
             season: None,
             episode: None,
@@ -241,7 +237,7 @@ mod tests {
         repo.insert_library(external_library());
         let (h, catalog, jobs) = handler(repo, Outcome::Ok, MockMediaProbe::new());
 
-        h.handle(&job(payload().encode().unwrap())).await.unwrap();
+        h.handle(&job(payload().encode())).await.unwrap();
 
         assert_eq!(
             catalog
@@ -261,6 +257,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_movie_is_written_into_its_own_title_directory() {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(external_library());
+        let (h, catalog, _) = handler(repo, Outcome::Ok, MockMediaProbe::new());
+
+        let mut payload = payload();
+        payload.external_id = Some("603".into());
+        h.handle(&job(payload.encode())).await.unwrap();
+
+        let versions = catalog
+            .list_library_versions(&LibraryId("ext".into()), page())
+            .await
+            .unwrap();
+        assert_eq!(
+            versions.items[0].path,
+            "/ext/The Matrix (1999)/The Matrix (1999) [tmdbid-603].mkv"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_episode_is_written_under_a_padded_season_directory() {
+        let repo = MockLibraryRepo::new();
+        let mut library = external_library();
+        library.kind = LibraryKind::Tv;
+        repo.insert_library(library);
+        let (h, catalog, _) = handler(repo, Outcome::Ok, MockMediaProbe::new());
+
+        let mut payload = payload();
+        payload.kind = LibraryKind::Tv;
+        payload.title = "Great Show".into();
+        payload.year = None;
+        payload.season = Some(1);
+        payload.episode = Some(2);
+        h.handle(&job(payload.encode())).await.unwrap();
+
+        let versions = catalog
+            .list_library_versions(&LibraryId("ext".into()), page())
+            .await
+            .unwrap();
+        assert_eq!(
+            versions.items[0].path,
+            "/ext/Great Show/Season 01/Great Show - S01E02.mkv"
+        );
+    }
+
+    #[tokio::test]
     async fn fetch_with_external_id_ingests_via_provider_lookup() {
         let repo = MockLibraryRepo::new();
         repo.insert_library(external_library());
@@ -268,7 +310,7 @@ mod tests {
 
         let mut payload = payload();
         payload.external_id = Some("tt0133093".into());
-        h.handle(&job(payload.encode().unwrap())).await.unwrap();
+        h.handle(&job(payload.encode())).await.unwrap();
 
         assert_eq!(
             catalog
@@ -293,9 +335,7 @@ mod tests {
     async fn missing_library_is_permanent() {
         let (h, _, _) = handler(MockLibraryRepo::new(), Outcome::Ok, MockMediaProbe::new());
         assert!(matches!(
-            h.handle(&job(payload().encode().unwrap()))
-                .await
-                .unwrap_err(),
+            h.handle(&job(payload().encode())).await.unwrap_err(),
             JobError::Permanent(_)
         ));
     }
@@ -306,9 +346,7 @@ mod tests {
         repo.insert_library(local_library());
         let (h, _, _) = handler(repo, Outcome::Ok, MockMediaProbe::new());
         assert!(matches!(
-            h.handle(&job(payload().encode().unwrap()))
-                .await
-                .unwrap_err(),
+            h.handle(&job(payload().encode())).await.unwrap_err(),
             JobError::Permanent(_)
         ));
     }
@@ -319,9 +357,7 @@ mod tests {
         repo.insert_library(external_library());
         let (h, _, _) = handler(repo, Outcome::Permanent, MockMediaProbe::new());
         assert!(matches!(
-            h.handle(&job(payload().encode().unwrap()))
-                .await
-                .unwrap_err(),
+            h.handle(&job(payload().encode())).await.unwrap_err(),
             JobError::Permanent(_)
         ));
     }
@@ -332,9 +368,7 @@ mod tests {
         repo.insert_library(external_library());
         let (h, _, _) = handler(repo, Outcome::Retryable, MockMediaProbe::new());
         assert!(matches!(
-            h.handle(&job(payload().encode().unwrap()))
-                .await
-                .unwrap_err(),
+            h.handle(&job(payload().encode())).await.unwrap_err(),
             JobError::Retryable(_)
         ));
     }
@@ -346,12 +380,10 @@ mod tests {
         let (h, _, _) = handler(
             repo,
             Outcome::Ok,
-            MockMediaProbe::new().failing_on("/ext/job-1/The Matrix.mkv"),
+            MockMediaProbe::new().failing_on("/ext/The Matrix (1999)/The Matrix (1999).mkv"),
         );
         assert!(matches!(
-            h.handle(&job(payload().encode().unwrap()))
-                .await
-                .unwrap_err(),
+            h.handle(&job(payload().encode())).await.unwrap_err(),
             JobError::Retryable(_)
         ));
     }
@@ -364,9 +396,7 @@ mod tests {
         repo.insert_library(lib);
         let (h, _, _) = handler(repo, Outcome::Ok, MockMediaProbe::new());
         assert!(matches!(
-            h.handle(&job(payload().encode().unwrap()))
-                .await
-                .unwrap_err(),
+            h.handle(&job(payload().encode())).await.unwrap_err(),
             JobError::Permanent(_)
         ));
     }
@@ -377,9 +407,7 @@ mod tests {
         repo.set_fail_get();
         let (h, _, _) = handler(repo, Outcome::Ok, MockMediaProbe::new());
         assert!(matches!(
-            h.handle(&job(payload().encode().unwrap()))
-                .await
-                .unwrap_err(),
+            h.handle(&job(payload().encode())).await.unwrap_err(),
             JobError::Retryable(_)
         ));
     }

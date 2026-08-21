@@ -66,8 +66,21 @@ def main():
 
     targets = {
         'clients/basic': [
-            {'asset': 'shadowmask.logo.svg', 'target': 'favicon.svg'},
-            {'asset': 'shadowmask.placeholder.svg', 'target': 'placeholder.svg'},
+            {'asset': 'brand/shadowmask.logo.svg', 'target': 'favicon.svg'},
+            {'asset': 'placeholders/poster.svg', 'target': 'placeholder.svg'},
+            {'asset': 'placeholders/landscape.svg', 'target': 'placeholder-landscape.svg'},
+            {'asset': 'placeholders/person.svg', 'target': 'placeholder-person.svg'},
+            {'asset': 'vendor/hls.min.js', 'target': 'vendor/hls.min.js'},
+            {'asset': 'vendor/hls.js.LICENSE.txt', 'target': 'vendor/hls.js.LICENSE.txt'},
+        ],
+        'clients/flutter': [
+            {'asset': 'icons/flutter/favicon.png', 'target': 'web/favicon.png'},
+            {'asset': 'icons/flutter/Icon-192.png', 'target': 'web/icons/Icon-192.png'},
+            {'asset': 'icons/flutter/Icon-512.png', 'target': 'web/icons/Icon-512.png'},
+            {'asset': 'icons/flutter/Icon-maskable-192.png', 'target': 'web/icons/Icon-maskable-192.png'},
+            {'asset': 'icons/flutter/Icon-maskable-512.png', 'target': 'web/icons/Icon-maskable-512.png'},
+            {'asset': 'vendor/hls.min.js', 'target': 'web/hls.min.js'},
+            {'asset': 'vendor/hls.js.LICENSE.txt', 'target': 'web/hls.js.LICENSE.txt'},
         ],
     }
 

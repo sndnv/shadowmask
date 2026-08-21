@@ -8,13 +8,15 @@ use domain::user::UserId;
 
 use crate::dto::session::PlaybackSessionResponse;
 use crate::dto::user::{
-    ChangePasswordRequest, CreateUserRequest, LibraryAccessResponse, RoleDto,
+    ChangePasswordRequest, CreateUserRequest, LibraryAccessResponse, RoleDto, SetActiveRequest,
     SetLibraryAccessRequest, UpdateProfileRequest, UserResponse,
 };
 use crate::error::{ApiError, ApiResult};
 use crate::extract::{AuthUser, RequireAdmin};
 use crate::handlers::{deny_player, log_fail, require_admin_or_self};
 use crate::pagination::{PageParams, PageResponse};
+use domain::service::{AuthService, DiscoveryService, SessionService, UserService};
+
 use crate::state::AppServices;
 
 pub async fn list<S: AppServices>(
@@ -24,6 +26,7 @@ pub async fn list<S: AppServices>(
 ) -> ApiResult<Json<PageResponse<UserResponse>>> {
     let actor = &principal.user.0;
     let users = state
+        .user()
         .list(page.to_request())
         .await
         .map_err(log_fail(actor, "list users"))?;
@@ -46,6 +49,7 @@ pub async fn create<S: AppServices>(
         ));
     }
     let user = state
+        .user()
         .create(req.into())
         .await
         .map_err(log_fail(actor, "create a user"))?;
@@ -60,6 +64,7 @@ pub async fn activity<S: AppServices>(
 ) -> ApiResult<Json<PageResponse<PlaybackSessionResponse>>> {
     let actor = &principal.user.0;
     let sessions = state
+        .session()
         .active_sessions(&principal, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve active sessions"))?;
@@ -67,6 +72,7 @@ pub async fn activity<S: AppServices>(
     let offset = sessions.offset;
     let limit = sessions.limit;
     let now_playing = state
+        .discovery()
         .now_playing(sessions.items)
         .await
         .map_err(log_fail(actor, "retrieve active sessions"))?;
@@ -94,6 +100,7 @@ pub async fn get<S: AppServices>(
     let target = UserId(id);
     require_admin_or_self(&principal, &target)?;
     let user = state
+        .user()
         .get(&target)
         .await
         .map_err(log_fail(actor, "retrieve a user"))?;
@@ -107,6 +114,7 @@ pub async fn current<S: AppServices>(
 ) -> ApiResult<Json<UserResponse>> {
     let actor = &principal.user.0;
     let user = state
+        .user()
         .get(&principal.user)
         .await
         .map_err(log_fail(actor, "retrieve current user"))?;
@@ -125,6 +133,7 @@ pub async fn update_profile<S: AppServices>(
     deny_player(&principal)?;
     require_admin_or_self(&principal, &target)?;
     let user = state
+        .user()
         .update_profile(&target, req.into())
         .await
         .map_err(log_fail(actor, "update a user"))?;
@@ -140,11 +149,44 @@ pub async fn delete<S: AppServices>(
     let actor = &principal.user.0;
     let target = UserId(id);
     state
-        .delete(&target)
+        .user()
+        .delete(&principal, &target)
         .await
         .map_err(log_fail(actor, "delete a user"))?;
+    state
+        .session()
+        .end_all_for_user(&target)
+        .await
+        .map_err(log_fail(actor, "stop playback for a deleted user"))?;
     debug!("User [{actor}] successfully deleted user [{}]", target.0);
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn set_active<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Path(id): Path<String>,
+    Json(req): Json<SetActiveRequest>,
+) -> ApiResult<Json<UserResponse>> {
+    let actor = &principal.user.0;
+    let target = UserId(id);
+    let user = state
+        .user()
+        .set_active(&principal, &target, req.active)
+        .await
+        .map_err(log_fail(actor, "change whether a user is active"))?;
+    if !req.active {
+        state
+            .session()
+            .end_all_for_user(&target)
+            .await
+            .map_err(log_fail(actor, "stop playback for a deactivated user"))?;
+    }
+    debug!(
+        "User [{actor}] successfully set user [{}] active to [{}]",
+        target.0, req.active
+    );
+    Ok(Json(user.into()))
 }
 
 pub async fn library_access<S: AppServices>(
@@ -155,6 +197,7 @@ pub async fn library_access<S: AppServices>(
     let actor = &principal.user.0;
     let target = UserId(id);
     let access = state
+        .user()
         .library_access(&target)
         .await
         .map_err(log_fail(actor, "retrieve library access"))?;
@@ -177,6 +220,7 @@ pub async fn change_password<S: AppServices>(
     deny_player(&principal)?;
     require_admin_or_self(&principal, &target)?;
     state
+        .user()
         .change_password(
             &principal,
             &target,
@@ -186,6 +230,7 @@ pub async fn change_password<S: AppServices>(
         .await
         .map_err(log_fail(actor, "change password"))?;
     state
+        .auth()
         .logout_all(&target)
         .await
         .map_err(log_fail(actor, "revoke sessions after password change"))?;
@@ -206,6 +251,7 @@ pub async fn set_library_access<S: AppServices>(
     let target = UserId(id);
     let libraries: Vec<LibraryId> = req.libraries.into_iter().map(LibraryId).collect();
     state
+        .user()
         .set_library_access(&target, &libraries)
         .await
         .map_err(log_fail(actor, "set library access"))?;

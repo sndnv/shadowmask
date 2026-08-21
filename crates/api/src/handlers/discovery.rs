@@ -7,12 +7,15 @@ use domain::common::PageRequest;
 use domain::discovery::SearchKind;
 use domain::session::PlaybackSession;
 use domain::user::UserId;
+use services::discovery::drop_resumable;
 
 use crate::dto::discovery::{ContinueResponse, HubResponse, SearchResultResponse};
 use crate::error::{ApiError, ApiResult};
 use crate::extract::AuthUser;
 use crate::handlers::{log_fail, require_admin_or_self};
 use crate::pagination::PageResponse;
+use domain::service::{DiscoveryService, SessionService};
+
 use crate::state::AppServices;
 
 const DEFAULT_LIMIT: u32 = 50;
@@ -46,6 +49,7 @@ pub async fn search<S: AppServices>(
         None => Vec::new(),
     };
     let results = state
+        .discovery()
         .search(&principal.user, &params.q, &types, page)
         .await
         .map_err(log_fail(actor, "search"))?;
@@ -69,6 +73,7 @@ pub async fn continue_watching<S: AppServices>(
     require_admin_or_self(&principal, &target)?;
 
     let sessions = state
+        .session()
         .active_sessions(
             &principal,
             PageRequest {
@@ -84,18 +89,23 @@ pub async fn continue_watching<S: AppServices>(
         .filter(|s| s.user == target)
         .collect();
     let now_playing = state
+        .discovery()
         .now_playing(mine)
         .await
         .map_err(log_fail(actor, "retrieve continue data"))?;
     let in_progress = state
+        .discovery()
         .continue_watching(&target)
         .await
         .map_err(log_fail(actor, "retrieve continue data"))?;
+    let now_playing = drop_resumable(now_playing, &in_progress);
     let next_episodes = state
+        .discovery()
         .next_episodes(&target)
         .await
         .map_err(log_fail(actor, "retrieve continue data"))?;
     let next_movies = state
+        .discovery()
         .next_movies(&target)
         .await
         .map_err(log_fail(actor, "retrieve continue data"))?;
@@ -121,6 +131,7 @@ pub async fn hub<S: AppServices>(
     let target = UserId(user_id);
     require_admin_or_self(&principal, &target)?;
     let hubs = state
+        .discovery()
         .home_hubs(&target)
         .await
         .map_err(log_fail(actor, "retrieve home hubs"))?;

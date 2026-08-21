@@ -34,7 +34,6 @@ expression: value
     ],
     "container": "mkv",
     "duration_ms": 1000,
-    "edition": null,
     "id": "v1",
     "library_id": "lib1",
     "markers": {

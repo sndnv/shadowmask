@@ -10,6 +10,8 @@ use domain::user::{Principal, Role, UserId};
 
 use crate::dto::webhook::{TokenQuery, WebhookPayload};
 use crate::error::ApiError;
+use domain::service::LibraryService;
+
 use crate::state::{AppServices, WebhookClient, WebhookState};
 
 enum AuthorizationOutcome<'a> {
@@ -80,7 +82,12 @@ pub async fn scan<S: AppServices>(
         role: Role::Automation,
     };
     let library = LibraryId(id);
-    match state.services.trigger_scan(&principal, &library).await {
+    match state
+        .services
+        .library()
+        .trigger_scan(&principal, &library)
+        .await
+    {
         Ok(()) | Err(LibraryError::ScanInProgress) => {
             debug!(
                 "Webhook client [{}] triggered scan for library [{}]",

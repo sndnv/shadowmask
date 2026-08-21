@@ -14,6 +14,7 @@ pub struct SeriesDetailResponse {
     pub year: Option<u16>,
     pub overview: Option<String>,
     pub content_rating: Option<ContentRatingDto>,
+    pub manually_edited: bool,
     pub added_at: String,
     pub updated_at: String,
     pub artwork: ArtworkDto,
@@ -23,6 +24,8 @@ pub struct SeriesDetailResponse {
     pub ratings: Vec<RatingDto>,
     pub external_ids: Vec<ExternalIdDto>,
     pub extras: Vec<ExtraDto>,
+    pub episodes_total: u32,
+    pub episodes_with_available_version: u32,
 }
 
 impl From<SeriesDetail> for SeriesDetailResponse {
@@ -34,6 +37,7 @@ impl From<SeriesDetail> for SeriesDetailResponse {
             year: series.year,
             overview: series.overview,
             content_rating: series.content_rating.map(Into::into),
+            manually_edited: series.manually_edited,
             added_at: series.added_at.to_string(),
             updated_at: series.updated_at.to_string(),
             artwork: ArtworkDto::from_refs(series.artwork),
@@ -43,6 +47,8 @@ impl From<SeriesDetail> for SeriesDetailResponse {
             ratings: d.ratings.into_iter().map(Into::into).collect(),
             external_ids: d.external_ids.into_iter().map(Into::into).collect(),
             extras: d.extras.into_iter().map(Into::into).collect(),
+            episodes_total: d.episodes_total,
+            episodes_with_available_version: d.episodes_with_available_version,
         }
     }
 }

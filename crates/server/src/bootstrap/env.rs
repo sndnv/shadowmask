@@ -58,6 +58,18 @@ mod tests {
     }
 
     #[test]
+    fn a_file_that_exists_but_cannot_be_read_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let error = load_expanded(dir.path()).unwrap_err();
+
+        assert!(
+            matches!(error, BootstrapError::ReadFile { .. }),
+            "only a missing file is allowed to read as an empty config"
+        );
+    }
+
+    #[test]
     fn expands_env_reference() {
         figment::Jail::expect_with(|jail| {
             jail.set_env("SHADOWMASK_TEST_SECRET", "hunter2");

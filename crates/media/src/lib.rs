@@ -1,6 +1,9 @@
 pub mod artwork;
 pub mod cache;
+mod derived_assets;
+pub mod download_token;
 pub mod hls;
+mod hmac_token;
 pub mod probe;
 pub mod profile;
 pub mod scan;

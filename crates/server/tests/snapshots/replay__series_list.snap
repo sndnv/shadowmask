@@ -33,6 +33,7 @@ expression: value
           "system": "TV"
         },
         "id": "s1",
+        "manually_edited": false,
         "overview": null,
         "title": "Alpha s1",
         "updated_at": "2023-11-14T22:13:22Z",

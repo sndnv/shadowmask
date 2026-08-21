@@ -1,16 +1,17 @@
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 
 use jiff::Timestamp;
 
 use crate::catalog::{
-    ArtworkOwner, ArtworkRef, Collection, CollectionId, Episode, EpisodeId, Movie, MovieDetail,
-    MovieId, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId, TitleListFilter, TitleRef,
-    Version, VersionDetail, VersionId,
+    ArtworkId, ArtworkOwner, ArtworkRef, Collection, CollectionId, Episode, EpisodeContext,
+    EpisodeId, Movie, MovieDetail, MovieId, RandomScope, Season, SeasonId, Series, SeriesDetail,
+    SeriesId, TitleId, TitleKind, TitleListFilter, TitleRef, Version, VersionDetail, VersionId,
 };
 use crate::common::{Page, PageRequest};
 use crate::discovery::{SearchKind, SearchResult};
 use crate::error::RepositoryError;
-use crate::job::{Job, JobId, JobKind};
+use crate::job::{Job, JobId, JobKind, JobNode, JobQuery, ReclaimOutcome};
 use crate::library::{
     DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, ResolutionStatus, ScanState,
     UnmatchedFile, UnmatchedFileId,
@@ -37,6 +38,18 @@ pub trait CatalogRepository {
         &self,
         id: &MovieId,
     ) -> impl Future<Output = Result<Option<Movie>, RepositoryError>> + Send;
+    fn movies_by_ids(
+        &self,
+        ids: &[MovieId],
+    ) -> impl Future<Output = Result<Vec<Movie>, RepositoryError>> + Send;
+    fn series_versions(
+        &self,
+        series: &SeriesId,
+    ) -> impl Future<Output = Result<Vec<Version>, RepositoryError>> + Send;
+    fn series_by_ids(
+        &self,
+        ids: &[SeriesId],
+    ) -> impl Future<Output = Result<Vec<Series>, RepositoryError>> + Send;
     fn list_series(
         &self,
         page: PageRequest,
@@ -53,11 +66,36 @@ pub trait CatalogRepository {
         &self,
         season: &SeasonId,
     ) -> impl Future<Output = Result<Vec<Episode>, RepositoryError>> + Send;
-    fn list_all_seasons(&self)
-    -> impl Future<Output = Result<Vec<Season>, RepositoryError>> + Send;
-    fn list_all_episodes(
+    fn episode_ids_for_series(
         &self,
-    ) -> impl Future<Output = Result<Vec<Episode>, RepositoryError>> + Send;
+        series: &[SeriesId],
+    ) -> impl Future<Output = Result<HashMap<SeriesId, Vec<EpisodeId>>, RepositoryError>> + Send;
+    fn episode_ids_for_seasons(
+        &self,
+        seasons: &[SeasonId],
+    ) -> impl Future<Output = Result<HashMap<SeasonId, Vec<EpisodeId>>, RepositoryError>> + Send;
+    fn recent_episodes(
+        &self,
+        filter: &TitleListFilter,
+        limit: u32,
+    ) -> impl Future<Output = Result<Vec<EpisodeContext>, RepositoryError>> + Send;
+    fn visible_movies(
+        &self,
+        ids: &[MovieId],
+        filter: &TitleListFilter,
+    ) -> impl Future<Output = Result<Vec<Movie>, RepositoryError>> + Send;
+    fn visible_episodes(
+        &self,
+        ids: &[EpisodeId],
+        filter: &TitleListFilter,
+    ) -> impl Future<Output = Result<Vec<EpisodeContext>, RepositoryError>> + Send;
+    fn next_episode_in_series(
+        &self,
+        series: &SeriesId,
+        after_season: u16,
+        after_number: u16,
+        filter: &TitleListFilter,
+    ) -> impl Future<Output = Result<Option<EpisodeContext>, RepositoryError>> + Send;
     fn get_episode(
         &self,
         id: &EpisodeId,
@@ -78,6 +116,10 @@ pub trait CatalogRepository {
         &self,
         id: &CollectionId,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn collections_of_movie(
+        &self,
+        movie: &MovieId,
+    ) -> impl Future<Output = Result<Vec<CollectionId>, RepositoryError>> + Send;
     fn get_season(
         &self,
         id: &SeasonId,
@@ -100,6 +142,30 @@ pub trait CatalogRepository {
         &self,
         id: &VersionId,
     ) -> impl Future<Output = Result<Option<VersionDetail>, RepositoryError>> + Send;
+    fn get_version(
+        &self,
+        id: &VersionId,
+    ) -> impl Future<Output = Result<Option<Version>, RepositoryError>> + Send;
+    fn delete_version(
+        &self,
+        id: &VersionId,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn delete_movie(
+        &self,
+        id: &MovieId,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+    fn delete_series(
+        &self,
+        id: &SeriesId,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+    fn delete_season(
+        &self,
+        id: &SeasonId,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+    fn delete_episode(
+        &self,
+        id: &EpisodeId,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
     fn upsert_movie(
         &self,
         movie: Movie,
@@ -134,6 +200,32 @@ pub trait CatalogRepository {
         &self,
         owner: &ArtworkOwner,
     ) -> impl Future<Output = Result<Vec<ArtworkRef>, RepositoryError>> + Send;
+    fn all_artwork_ids(
+        &self,
+    ) -> impl Future<Output = Result<Vec<ArtworkId>, RepositoryError>> + Send;
+    fn all_version_ids(
+        &self,
+    ) -> impl Future<Output = Result<Vec<VersionId>, RepositoryError>> + Send;
+    fn live_artwork_ids(
+        &self,
+        ids: &[String],
+    ) -> impl Future<Output = Result<HashSet<String>, RepositoryError>> + Send;
+    fn live_version_ids(
+        &self,
+        ids: &[String],
+    ) -> impl Future<Output = Result<HashSet<String>, RepositoryError>> + Send;
+    fn live_artwork_paths(
+        &self,
+        ids: &[String],
+    ) -> impl Future<Output = Result<HashSet<String>, RepositoryError>> + Send;
+    fn live_subtitle_paths(
+        &self,
+        ids: &[String],
+    ) -> impl Future<Output = Result<HashSet<String>, RepositoryError>> + Send;
+    fn live_trickplay_paths(
+        &self,
+        ids: &[String],
+    ) -> impl Future<Output = Result<HashSet<String>, RepositoryError>> + Send;
     fn set_version_tracks(
         &self,
         version: &VersionId,
@@ -151,6 +243,11 @@ pub trait CatalogRepository {
         &self,
         version: &VersionId,
         files: &[SubtitleFile],
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn add_subtitle_file(
+        &self,
+        version: &VersionId,
+        file: &SubtitleFile,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     fn upsert_person(
         &self,
@@ -177,7 +274,10 @@ pub trait CatalogRepository {
         &self,
         id: &PersonId,
     ) -> impl Future<Output = Result<Vec<Credit>, RepositoryError>> + Send;
-    fn list_genres(&self) -> impl Future<Output = Result<Vec<Genre>, RepositoryError>> + Send;
+    fn list_genres(
+        &self,
+        kind: Option<TitleKind>,
+    ) -> impl Future<Output = Result<Vec<Genre>, RepositoryError>> + Send;
     fn list_movies_filtered(
         &self,
         filter: &TitleListFilter,
@@ -188,6 +288,11 @@ pub trait CatalogRepository {
         filter: &TitleListFilter,
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<Series>, RepositoryError>> + Send;
+    fn random_playable_title(
+        &self,
+        scope: &RandomScope,
+        filter: &TitleListFilter,
+    ) -> impl Future<Output = Result<Option<TitleId>, RepositoryError>> + Send;
 }
 
 pub trait VersionCatalog {
@@ -195,6 +300,10 @@ pub trait VersionCatalog {
         &self,
         id: &VersionId,
     ) -> impl Future<Output = Result<Option<VersionDetail>, RepositoryError>> + Send;
+    fn get_version(
+        &self,
+        id: &VersionId,
+    ) -> impl Future<Output = Result<Option<Version>, RepositoryError>> + Send;
 }
 
 impl<T: CatalogRepository + Send + Sync> VersionCatalog for T {
@@ -203,6 +312,10 @@ impl<T: CatalogRepository + Send + Sync> VersionCatalog for T {
         id: &VersionId,
     ) -> Result<Option<VersionDetail>, RepositoryError> {
         CatalogRepository::version_detail(self, id).await
+    }
+
+    async fn get_version(&self, id: &VersionId) -> Result<Option<Version>, RepositoryError> {
+        CatalogRepository::get_version(self, id).await
     }
 }
 
@@ -255,6 +368,16 @@ pub trait LibraryRepository {
         id: &DuplicateCandidateId,
         status: ResolutionStatus,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn reconcile_duplicates(
+        &self,
+        library: &LibraryId,
+        detected: &[DuplicateCandidateId],
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn reconcile_unmatched(
+        &self,
+        library: &LibraryId,
+        present_paths: &[String],
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }
 
 pub trait UserRepository {
@@ -282,6 +405,14 @@ pub trait UserRepository {
         id: &UserId,
         libraries: &[LibraryId],
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn revoke_library_access(
+        &self,
+        library: &LibraryId,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+}
+
+pub trait UserDataStore {
+    fn purge(&self, user: &UserId) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }
 
 pub trait ProgressRepository {
@@ -303,10 +434,31 @@ pub trait ProgressRepository {
         &self,
         user: &UserId,
     ) -> impl Future<Output = Result<Vec<PlaybackProgress>, RepositoryError>> + Send;
-    fn record_history(
+    fn record_view(
         &self,
-        history: WatchHistory,
+        user: &UserId,
+        title: &TitleId,
+        at: Timestamp,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn set_watched_flags(
+        &self,
+        user: &UserId,
+        title: &TitleId,
+        watched: bool,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn delete_history(
+        &self,
+        user: &UserId,
+        title_id: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn clear_history(
+        &self,
+        user: &UserId,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn watched_state(
+        &self,
+        user: &UserId,
+    ) -> impl Future<Output = Result<Vec<WatchHistory>, RepositoryError>> + Send;
     fn history(
         &self,
         user: &UserId,
@@ -358,6 +510,7 @@ pub trait SearchIndex {
         &self,
         query: &str,
         types: &[SearchKind],
+        filter: &TitleListFilter,
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<SearchResult>, RepositoryError>> + Send;
     fn rebuild(&self) -> impl Future<Output = Result<(), RepositoryError>> + Send;
@@ -381,6 +534,10 @@ pub trait SessionRegistry {
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<PlaybackSession>, RepositoryError>> + Send;
     fn remove(&self, id: &SessionId) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn remove_idle(
+        &self,
+        cutoff: Timestamp,
+    ) -> impl Future<Output = Result<usize, RepositoryError>> + Send;
 }
 
 pub trait JobRepository {
@@ -394,15 +551,31 @@ pub trait JobRepository {
     fn reclaim_running(
         &self,
         now: Timestamp,
-    ) -> impl Future<Output = Result<usize, RepositoryError>> + Send;
+        max_attempts: u32,
+    ) -> impl Future<Output = Result<ReclaimOutcome, RepositoryError>> + Send;
     fn update(&self, job: Job) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     fn get(&self, id: &JobId) -> impl Future<Output = Result<Option<Job>, RepositoryError>> + Send;
     fn list(&self) -> impl Future<Output = Result<Vec<Job>, RepositoryError>> + Send;
+    fn list_page(
+        &self,
+        query: &JobQuery,
+        page: PageRequest,
+    ) -> impl Future<Output = Result<Vec<Job>, RepositoryError>> + Send;
+    fn count(&self, query: &JobQuery) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
+    fn list_descendants(
+        &self,
+        root: &JobId,
+        page: PageRequest,
+    ) -> impl Future<Output = Result<Page<JobNode>, RepositoryError>> + Send;
     fn cancel(
         &self,
         id: &JobId,
         now: Timestamp,
     ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+    fn delete_finished_before(
+        &self,
+        cutoff: Timestamp,
+    ) -> impl Future<Output = Result<Vec<JobId>, RepositoryError>> + Send;
 }
 
 pub trait AuthTokenRepository {
@@ -478,4 +651,6 @@ pub trait AuthTokenRepository {
         &self,
         id: &ApiTokenId,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn purge_user(&self, user: &UserId)
+    -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }

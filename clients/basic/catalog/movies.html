@@ -20,7 +20,7 @@
         const params = new URLSearchParams(location.search);
         try {
           const page = await sm.json("/api/v1/movies?" + params.toString());
-          const genres = await sm.json("/api/v1/genres").catch(() => []);
+          const genres = await sm.json("/api/v1/genres?kind=movie").catch(() => []);
           main.textContent = "";
           main.appendChild(sm.breadcrumbs([{ label: "Movies (" + page.total + ")" }]));
           main.appendChild(sm.sortControls(params, genres));

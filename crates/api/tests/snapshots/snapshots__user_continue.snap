@@ -30,90 +30,23 @@ expression: value
           },
           "display_title": "Alpha m1",
           "duration_ms": 1000,
-          "progress_percent": 1,
+          "progress_percent": 30,
           "title": {
             "id": "m1",
             "type": "movie"
-          }
+          },
+          "year": 2020
         },
         "progress": {
-          "position_ms": 10,
-          "updated_at": "2023-11-14T22:13:50Z",
+          "position_ms": 300,
+          "updated_at": "2023-11-14T22:13:40Z",
           "user_id": "u1",
           "version_id": "v1"
         }
       }
     ],
-    "next_episodes": [
-      {
-        "added_at": "2023-11-14T22:13:24Z",
-        "air_date": "2023-11-14T22:13:23Z",
-        "artwork": {
-          "backdrops": [
-            {
-              "base": "/images/e1-backdrop",
-              "widths": [
-                480,
-                960
-              ]
-            }
-          ],
-          "posters": [
-            {
-              "base": "/images/e1-poster",
-              "widths": [
-                180,
-                480,
-                960
-              ]
-            }
-          ]
-        },
-        "id": "e1",
-        "number": 1,
-        "overview": null,
-        "runtime_minutes": 42,
-        "season_id": "se1",
-        "title": "Alpha e1",
-        "updated_at": "2023-11-14T22:13:24Z"
-      }
-    ],
-    "next_movies": [
-      {
-        "added_at": "2023-11-14T22:13:21Z",
-        "artwork": {
-          "backdrops": [
-            {
-              "base": "/images/m2-backdrop",
-              "widths": [
-                480,
-                960
-              ]
-            }
-          ],
-          "posters": [
-            {
-              "base": "/images/m2-poster",
-              "widths": [
-                180,
-                480,
-                960
-              ]
-            }
-          ]
-        },
-        "content_rating": {
-          "code": "PG-13",
-          "system": "MPAA"
-        },
-        "id": "m2",
-        "overview": "overview",
-        "runtime_minutes": 100,
-        "title": "Alpha m2",
-        "updated_at": "2023-11-14T22:13:21Z",
-        "year": 2020
-      }
-    ],
+    "next_episodes": [],
+    "next_movies": [],
     "now_playing": []
   },
   "status": 200

@@ -13,6 +13,50 @@ expression: value
       "api_tokens"
     ],
     "profile_version": 1,
+    "rating_systems": [
+      {
+        "codes": [
+          "g",
+          "pg",
+          "pg-13",
+          "r",
+          "nc-17"
+        ],
+        "system": "mpaa"
+      },
+      {
+        "codes": [
+          "tv-y",
+          "tv-y7",
+          "tv-g",
+          "tv-pg",
+          "tv-14",
+          "tv-ma"
+        ],
+        "system": "us-tv"
+      },
+      {
+        "codes": [
+          "u",
+          "pg",
+          "12",
+          "12a",
+          "15",
+          "18"
+        ],
+        "system": "bbfc"
+      },
+      {
+        "codes": [
+          "0",
+          "6",
+          "12",
+          "16",
+          "18"
+        ],
+        "system": "de-fsk"
+      }
+    ],
     "version": "[version]"
   },
   "status": 200

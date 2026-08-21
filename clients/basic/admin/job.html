@@ -122,8 +122,75 @@
           );
           main.appendChild(logHost);
           await loadLogs(logHost, level.value);
+
+          const childHost = sm.el("div");
+          main.appendChild(sm.el("h2", { text: "Child jobs" }));
+          main.appendChild(childHost);
+          await loadChildren(childHost, 0);
         } catch (err) {
           main.textContent = "Could not load this job.";
+        }
+      }
+
+      async function loadChildren(host, offset) {
+        host.textContent = "Loading child jobs...";
+        try {
+          const url =
+            "/api/v1/admin/jobs/" +
+            encodeURIComponent(id) +
+            "/children" +
+            (offset ? "?offset=" + offset : "");
+          const page = await sm.json(url);
+          host.textContent = "";
+          if (!page.items.length) {
+            host.appendChild(sm.el("p", { text: "This job has no child jobs." }));
+            return;
+          }
+          const list = sm.el("ul", { class: "sm-job-tree" });
+          page.items.forEach((child) => {
+            list.appendChild(
+              sm.el("li", { style: "margin-left:" + child.depth * 1.5 + "em" }, [
+                child.depth ? "↳ " : "",
+                sm.el(
+                  "a",
+                  { href: "job.html?id=" + encodeURIComponent(child.id), title: child.id },
+                  child.kind,
+                ),
+                " " + child.status,
+              ]),
+            );
+          });
+          host.appendChild(list);
+          if (page.total > page.items.length) {
+            const nav = sm.el("nav", { "aria-label": "Child job pagination" });
+            if (offset > 0) {
+              const prev = sm.el("button", { type: "button" }, "Prev");
+              prev.addEventListener("click", () =>
+                loadChildren(host, Math.max(0, offset - page.limit)),
+              );
+              nav.appendChild(prev);
+            }
+            nav.appendChild(
+              sm.el("span", {
+                text:
+                  " " +
+                  (page.offset + 1) +
+                  " to " +
+                  (page.offset + page.items.length) +
+                  " of " +
+                  page.total +
+                  " ",
+              }),
+            );
+            if (page.offset + page.items.length < page.total) {
+              const next = sm.el("button", { type: "button" }, "Next");
+              next.addEventListener("click", () => loadChildren(host, offset + page.limit));
+              nav.appendChild(next);
+            }
+            host.appendChild(nav);
+          }
+        } catch (err) {
+          host.textContent = "Could not load child jobs.";
         }
       }
 

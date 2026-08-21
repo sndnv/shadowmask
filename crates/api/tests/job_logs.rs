@@ -8,7 +8,7 @@ use api::{AppState, JobLogState, job_log_router};
 use contracts::Generator;
 use domain::job::{JobId, JobLogLevel, JobLogStore};
 use jiff::Timestamp;
-use services::mock::MockJobLogStore;
+use mocks::MockJobLogStore;
 
 const JOB: &str = "job-scan";
 const ADMIN: &str = "Bearer access:admin";

@@ -1,6 +1,6 @@
 use domain::catalog::{EpisodeId, MovieId, TitleId, VersionId};
 use domain::common::PageRequest;
-use domain::playback::{PlaybackProgress, WatchHistory};
+use domain::playback::PlaybackProgress;
 use domain::repository::ProgressRepository;
 use domain::user::UserId;
 use jiff::Timestamp;
@@ -27,24 +27,6 @@ fn progress(user: &str, version: &str, position_ms: u64, updated_at: i64) -> Pla
         version: VersionId(version.into()),
         position_ms,
         updated_at: ts(updated_at),
-    }
-}
-
-fn history(
-    user: &str,
-    title: TitleId,
-    watched: bool,
-    play_count: u32,
-    last_watched_at: Option<i64>,
-    completed: bool,
-) -> WatchHistory {
-    WatchHistory {
-        user: UserId(user.into()),
-        title,
-        watched,
-        play_count,
-        last_watched_at: last_watched_at.map(ts),
-        completed,
     }
 }
 
@@ -76,15 +58,11 @@ pub async fn progress_repository_contract<R: ProgressRepository>(repo: R) {
     let versions: Vec<_> = in_progress.iter().map(|p| p.version.0.as_str()).collect();
     assert_eq!(versions, ["v2", "v3", "v1"]);
 
-    repo.record_history(history("u1", movie("m1"), true, 1, Some(100), false))
+    repo.record_view(&u1, &movie("m1"), ts(100)).await.unwrap();
+    repo.record_view(&u1, &episode("e1"), ts(200))
         .await
         .unwrap();
-    repo.record_history(history("u1", episode("e1"), true, 2, Some(200), true))
-        .await
-        .unwrap();
-    repo.record_history(history("u1", movie("m2"), false, 1, None, false))
-        .await
-        .unwrap();
+    repo.record_view(&u1, &movie("m2"), ts(50)).await.unwrap();
     let listed = repo.history(&u1, page(0, 10)).await.unwrap();
     assert_eq!(listed.total, 3);
     let titles: Vec<_> = listed
@@ -94,26 +72,42 @@ pub async fn progress_repository_contract<R: ProgressRepository>(repo: R) {
         .collect();
     assert_eq!(titles, ["e1", "m1", "m2"]);
     let first = &listed.items[0];
-    assert_eq!(first.play_count, 2);
+    assert_eq!(first.play_count, 1);
     assert!(first.completed);
+    assert!(first.watched);
     assert_eq!(first.last_watched_at, Some(ts(200)));
     assert_eq!(first.user, u1);
-    let last = &listed.items[2];
-    assert_eq!(last.last_watched_at, None);
-    assert!(!last.watched);
 
-    repo.record_history(history("u1", movie("m1"), true, 5, Some(300), true))
+    repo.record_view(&u1, &movie("m1"), ts(300)).await.unwrap();
+    repo.record_view(&u1, &movie("m1"), ts(400)).await.unwrap();
+    let counted = repo.history(&u1, page(0, 10)).await.unwrap();
+    assert_eq!(counted.total, 3);
+    let m1 = counted.items.iter().find(|h| h.title.id() == "m1").unwrap();
+    assert_eq!(m1.play_count, 3);
+    assert_eq!(m1.last_watched_at, Some(ts(400)));
+
+    repo.set_watched_flags(&u1, &movie("m1"), false)
         .await
         .unwrap();
-    let replaced = repo.history(&u1, page(0, 10)).await.unwrap();
-    assert_eq!(replaced.total, 3);
-    let m1 = replaced
+    let unmarked = repo.history(&u1, page(0, 10)).await.unwrap();
+    assert_eq!(unmarked.total, 3);
+    let m1 = unmarked
         .items
         .iter()
         .find(|h| h.title.id() == "m1")
         .unwrap();
-    assert_eq!(m1.play_count, 5);
-    assert!(m1.completed);
+    assert_eq!(m1.play_count, 3);
+    assert_eq!(m1.last_watched_at, Some(ts(400)));
+    assert!(!m1.watched);
+
+    repo.set_watched_flags(&u1, &movie("m3"), true)
+        .await
+        .unwrap();
+    assert_eq!(repo.history(&u1, page(0, 10)).await.unwrap().total, 3);
+    repo.set_watched_flags(&u1, &movie("m3"), false)
+        .await
+        .unwrap();
+    assert_eq!(repo.history(&u1, page(0, 10)).await.unwrap().total, 3);
 
     let paged = repo.history(&u1, page(1, 1)).await.unwrap();
     assert_eq!(paged.total, 3);
@@ -143,4 +137,25 @@ pub async fn progress_repository_contract<R: ProgressRepository>(repo: R) {
     assert_eq!(remaining, ["v2", "v3"]);
     assert_eq!(repo.get(&u2, &v1).await.unwrap().unwrap().position_ms, 42);
     repo.delete(&u1, &v1).await.unwrap();
+
+    repo.delete_history(&u1, "m2").await.unwrap();
+    let after = repo.history(&u1, page(0, 10)).await.unwrap();
+    assert_eq!(after.total, 2);
+    let titles: Vec<_> = after
+        .items
+        .iter()
+        .map(|h| h.title.id().to_owned())
+        .collect();
+    assert_eq!(titles, ["m1", "e1"]);
+    repo.delete_history(&u1, "m2").await.unwrap();
+    assert_eq!(repo.history(&u1, page(0, 10)).await.unwrap().total, 2);
+
+    repo.set_watched_flags(&u1, &episode("e1"), true)
+        .await
+        .unwrap();
+    repo.clear_history(&u1).await.unwrap();
+    assert_eq!(repo.history(&u1, page(0, 10)).await.unwrap().total, 0);
+    let states = repo.watched_state(&u1).await.unwrap();
+    assert!(states.iter().any(|h| h.title.id() == "e1" && h.watched));
+    assert!(!states.iter().any(|h| h.title.id() == "m1"));
 }

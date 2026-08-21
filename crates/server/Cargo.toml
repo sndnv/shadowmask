@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 domain.workspace = true
@@ -40,6 +41,7 @@ tempfile.workspace = true
 enrichment = ["inference/enrichment"]
 
 [dev-dependencies]
+mocks.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
 tower = { workspace = true, features = ["util"] }
 axum = { workspace = true }

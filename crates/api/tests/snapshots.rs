@@ -93,17 +93,32 @@ async fn create_user(app: &Router) -> String {
 
 fn snapshot(name: &str, status: StatusCode, body: Value) {
     let value = json!({"status": status.as_u16(), "body": body});
-    insta::assert_json_snapshot!(name, value, {
-        ".body.session_id" => "[session_id]",
-        ".body.manifest_url" => "[manifest_url]",
-        ".body.created_at" => "[created_at]",
-        ".body.added_at" => "[added_at]",
-        ".body.updated_at" => "[updated_at]",
-        ".body.version" => "[version]",
-        ".body.active[].session_id" => "[session_id]",
-        ".body.active[].started_at" => "[started_at]",
-        ".body.active[].last_heartbeat_at" => "[last_heartbeat_at]",
-    });
+    let mut settings = insta::Settings::clone_current();
+    for (selector, replacement) in [
+        (".body.session_id", "[session_id]"),
+        (".body.manifest_url", "[manifest_url]"),
+        (".body.created_at", "[created_at]"),
+        (".body.added_at", "[added_at]"),
+        (".body.updated_at", "[updated_at]"),
+        (".body.version", "[version]"),
+        (".body.active[].session_id", "[session_id]"),
+        (".body.active[].started_at", "[started_at]"),
+        (".body.active[].last_heartbeat_at", "[last_heartbeat_at]"),
+    ] {
+        settings.add_redaction(selector, replacement);
+    }
+    if matches!(
+        name,
+        "movies_create_collection"
+            | "libraries_create"
+            | "users_create"
+            | "user_detail"
+            | "user_set_active"
+            | "user_update_profile"
+    ) {
+        settings.add_redaction(".body.id", "[id]");
+    }
+    settings.bind(|| insta::assert_json_snapshot!(name, value));
 }
 
 #[tokio::test]
@@ -307,6 +322,16 @@ async fn endpoint_error_snapshots() {
     )
     .await;
     snapshot("err_titles_batch_too_large", status, body);
+
+    let (status, body) = call(
+        build_app(&generator),
+        Method::GET,
+        "/api/v1/admin/jobs?state=sideways",
+        Some("access:admin"),
+        None,
+    )
+    .await;
+    snapshot("err_unknown_job_state", status, body);
 }
 
 #[tokio::test]

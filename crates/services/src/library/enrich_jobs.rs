@@ -1,6 +1,6 @@
 use domain::catalog::{ArtworkId, ArtworkOwner, VersionId};
 use domain::error::RepositoryError;
-use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
+use domain::job::{JobId, JobKind, JobPriority};
 use domain::library::DiscoveredFile;
 use domain::media::AudioTrack;
 use domain::metadata::{Artwork, ArtworkKind, PersonId};
@@ -12,6 +12,7 @@ use super::{
     ArtworkJobItem, ArtworkJobPayload, MetadataJobPayload, SubtitleJobPayload,
     TranscriptionJobPayload, TrickplayJobPayload, select_audio_track, translation_job,
 };
+use crate::job::queued_job;
 
 pub(super) struct SubtitleContext {
     pub(super) imdb_id: Option<String>,
@@ -112,27 +113,18 @@ where
             source_path: source_path.to_owned(),
             source_language,
             audio_track_index,
+            force: false,
         }
-        .encode()
-        .expect("transcription job payload serializes");
+        .encode();
         let now = Timestamp::now();
         self.jobs
-            .enqueue(Job {
-                id: JobId(Uuid::new_v4().to_string()),
-                kind: JobKind::Transcription,
-                status: JobStatus::Queued,
-                priority: JobPriority::Low,
-                payload: raw,
-                attempts: 0,
-                progress: 0.0,
-                available_at: now,
-                last_error: None,
-                created_at: now,
-                updated_at: now,
-                started_at: None,
-                finished_at: None,
-                parent_id: parent.cloned(),
-            })
+            .enqueue(queued_job(
+                JobKind::Transcription,
+                JobPriority::Low,
+                raw,
+                parent,
+                now,
+            ))
             .await
     }
 
@@ -155,26 +147,16 @@ where
             episode: ctx.episode,
             transcribe_on_miss,
         }
-        .encode()
-        .expect("subtitle job payload serializes");
+        .encode();
         let now = Timestamp::now();
         self.jobs
-            .enqueue(Job {
-                id: JobId(Uuid::new_v4().to_string()),
-                kind: JobKind::Subtitles,
-                status: JobStatus::Queued,
-                priority: JobPriority::Normal,
-                payload: raw,
-                attempts: 0,
-                progress: 0.0,
-                available_at: now,
-                last_error: None,
-                created_at: now,
-                updated_at: now,
-                started_at: None,
-                finished_at: None,
-                parent_id: parent.cloned(),
-            })
+            .enqueue(queued_job(
+                JobKind::Subtitles,
+                JobPriority::Normal,
+                raw,
+                parent,
+                now,
+            ))
             .await
     }
 
@@ -190,26 +172,16 @@ where
             source_path: source_path.to_owned(),
             duration_ms,
         }
-        .encode()
-        .expect("trickplay job payload serializes");
+        .encode();
         let now = Timestamp::now();
         self.jobs
-            .enqueue(Job {
-                id: JobId(Uuid::new_v4().to_string()),
-                kind: JobKind::Trickplay,
-                status: JobStatus::Queued,
-                priority: JobPriority::Normal,
-                payload: raw,
-                attempts: 0,
-                progress: 0.0,
-                available_at: now,
-                last_error: None,
-                created_at: now,
-                updated_at: now,
-                started_at: None,
-                finished_at: None,
-                parent_id: parent.cloned(),
-            })
+            .enqueue(queued_job(
+                JobKind::Trickplay,
+                JobPriority::Normal,
+                raw,
+                parent,
+                now,
+            ))
             .await
     }
 
@@ -221,27 +193,16 @@ where
         if ids.is_empty() {
             return Ok(());
         }
-        let raw = MetadataJobPayload::People { ids, force: false }
-            .encode()
-            .expect("metadata job payload serializes");
+        let raw = MetadataJobPayload::People { ids, force: false }.encode();
         let now = Timestamp::now();
         self.jobs
-            .enqueue(Job {
-                id: JobId(Uuid::new_v4().to_string()),
-                kind: JobKind::Metadata,
-                status: JobStatus::Queued,
-                priority: JobPriority::Low,
-                payload: raw,
-                attempts: 0,
-                progress: 0.0,
-                available_at: now,
-                last_error: None,
-                created_at: now,
-                updated_at: now,
-                started_at: None,
-                finished_at: None,
-                parent_id: parent.cloned(),
-            })
+            .enqueue(queued_job(
+                JobKind::Metadata,
+                JobPriority::Low,
+                raw,
+                parent,
+                now,
+            ))
             .await
     }
 
@@ -263,27 +224,16 @@ where
         if items.is_empty() {
             return Ok(());
         }
-        let raw = ArtworkJobPayload { owner, items }
-            .encode()
-            .expect("artwork job payload serializes");
+        let raw = ArtworkJobPayload { owner, items }.encode();
         let now = Timestamp::now();
         self.jobs
-            .enqueue(Job {
-                id: JobId(Uuid::new_v4().to_string()),
-                kind: JobKind::Artwork,
-                status: JobStatus::Queued,
-                priority: JobPriority::Normal,
-                payload: raw,
-                attempts: 0,
-                progress: 0.0,
-                available_at: now,
-                last_error: None,
-                created_at: now,
-                updated_at: now,
-                started_at: None,
-                finished_at: None,
-                parent_id: parent.cloned(),
-            })
+            .enqueue(queued_job(
+                JobKind::Artwork,
+                JobPriority::Normal,
+                raw,
+                parent,
+                now,
+            ))
             .await
     }
 }

@@ -8,4 +8,5 @@ pub struct LibraryUpdate {
     pub watcher: WatcherStrategy,
     pub scan_schedule: Option<String>,
     pub metadata_sources: Vec<String>,
+    pub sort_articles: Vec<String>,
 }

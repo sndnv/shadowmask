@@ -6,3 +6,5 @@ CREATE TABLE unmatched_files (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
+
+CREATE INDEX idx_unmatched_library ON unmatched_files (library_id, status, id);

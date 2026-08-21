@@ -16,6 +16,7 @@ pub struct TitleStateResponse {
     pub watchlisted: bool,
     pub watched: bool,
     pub completed: bool,
+    pub progress_percent: u8,
 }
 
 impl From<TitleState> for TitleStateResponse {
@@ -26,6 +27,7 @@ impl From<TitleState> for TitleStateResponse {
             watchlisted: s.watchlisted,
             watched: s.watched,
             completed: s.completed,
+            progress_percent: s.progress_percent,
         }
     }
 }
@@ -54,6 +56,7 @@ mod tests {
             watchlisted: false,
             watched: true,
             completed: false,
+            progress_percent: 35,
         });
         let value = serde_json::to_value(response).unwrap();
         assert_eq!(
@@ -64,5 +67,9 @@ mod tests {
         assert_eq!(value["watchlisted"], false);
         assert_eq!(value["watched"], true);
         assert_eq!(value["completed"], false);
+        assert_eq!(
+            value["progress_percent"], 35,
+            "the grid reads its progress bars off this batch rather than the continue feed"
+        );
     }
 }

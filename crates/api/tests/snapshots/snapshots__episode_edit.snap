@@ -1,0 +1,40 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "added_at": "[added_at]",
+    "air_date": "2010-10-01T00:00:00Z",
+    "artwork": {
+      "backdrops": [
+        {
+          "base": "/images/e1-backdrop",
+          "widths": [
+            480,
+            960
+          ]
+        }
+      ],
+      "posters": [
+        {
+          "base": "/images/e1-poster",
+          "widths": [
+            180,
+            480,
+            960
+          ]
+        }
+      ]
+    },
+    "id": "e1",
+    "manually_edited": true,
+    "number": 1,
+    "overview": "hand written",
+    "runtime_minutes": 43,
+    "season_id": "se1",
+    "title": "Pilot Edited",
+    "updated_at": "[updated_at]"
+  },
+  "status": 200
+}

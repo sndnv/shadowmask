@@ -5,7 +5,49 @@ expression: value
 {
   "body": [
     {
-      "id": "recently_added",
+      "id": "recently_added_movies",
+      "items": [
+        {
+          "added_at": "2023-11-14T22:13:21Z",
+          "artwork": {
+            "backdrops": [
+              {
+                "base": "/images/m1-backdrop",
+                "widths": [
+                  480,
+                  960
+                ]
+              }
+            ],
+            "posters": [
+              {
+                "base": "/images/m1-poster",
+                "widths": [
+                  180,
+                  480,
+                  960
+                ]
+              }
+            ]
+          },
+          "content_rating": {
+            "code": "PG-13",
+            "system": "MPAA"
+          },
+          "id": "m1",
+          "manually_edited": false,
+          "overview": "overview",
+          "runtime_minutes": 100,
+          "title": "Alpha m1",
+          "type": "movie",
+          "updated_at": "2023-11-14T22:13:21Z",
+          "year": 2020
+        }
+      ],
+      "title": "Recently Added Movies"
+    },
+    {
+      "id": "recently_added_shows",
       "items": [
         {
           "added_at": "2023-11-14T22:13:22Z",
@@ -34,91 +76,17 @@ expression: value
             "code": "TV-14",
             "system": "TV"
           },
+          "episode_count": 1,
           "id": "s1",
+          "manually_edited": false,
           "overview": null,
           "title": "Alpha s1",
           "type": "series",
           "updated_at": "2023-11-14T22:13:22Z",
           "year": 2019
-        },
-        {
-          "added_at": "2023-11-14T22:13:21Z",
-          "artwork": {
-            "backdrops": [
-              {
-                "base": "/images/m1-backdrop",
-                "widths": [
-                  480,
-                  960
-                ]
-              }
-            ],
-            "posters": [
-              {
-                "base": "/images/m1-poster",
-                "widths": [
-                  180,
-                  480,
-                  960
-                ]
-              }
-            ]
-          },
-          "content_rating": {
-            "code": "PG-13",
-            "system": "MPAA"
-          },
-          "id": "m1",
-          "overview": "overview",
-          "runtime_minutes": 100,
-          "title": "Alpha m1",
-          "type": "movie",
-          "updated_at": "2023-11-14T22:13:21Z",
-          "year": 2020
         }
       ],
-      "title": "Recently Added"
-    },
-    {
-      "id": "continue_watching",
-      "items": [
-        {
-          "added_at": "2023-11-14T22:13:21Z",
-          "artwork": {
-            "backdrops": [
-              {
-                "base": "/images/m1-backdrop",
-                "widths": [
-                  480,
-                  960
-                ]
-              }
-            ],
-            "posters": [
-              {
-                "base": "/images/m1-poster",
-                "widths": [
-                  180,
-                  480,
-                  960
-                ]
-              }
-            ]
-          },
-          "content_rating": {
-            "code": "PG-13",
-            "system": "MPAA"
-          },
-          "id": "m1",
-          "overview": "overview",
-          "runtime_minutes": 100,
-          "title": "Alpha m1",
-          "type": "movie",
-          "updated_at": "2023-11-14T22:13:21Z",
-          "year": 2020
-        }
-      ],
-      "title": "Continue Watching"
+      "title": "Recently Added Series"
     }
   ],
   "status": 200

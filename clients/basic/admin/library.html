@@ -60,8 +60,34 @@
           }
           await reloadScan(container);
         });
-        main.appendChild(trigger);
+        const refresh = sm.el("button", { type: "button", class: "sm-secondary" }, "Refresh metadata");
+        refresh.addEventListener("click", confirmRefreshMetadata);
+        main.appendChild(sm.el("p", null, [trigger, " ", refresh]));
         await reloadScan(container);
+      }
+
+      function confirmRefreshMetadata() {
+        sm.openDialog("Refresh metadata", (box) => {
+          const run = sm.el("button", { type: "button" }, "Refresh metadata");
+          run.addEventListener("click", async () => {
+            run.disabled = true;
+            try {
+              await sm.json("/api/v1/libraries/" + eu(libId) + "/refresh-metadata", {
+                method: "POST",
+              });
+              sm.toast("Metadata refresh queued. Track it under Jobs.", "ok");
+              box.close();
+            } catch (err) {
+              run.disabled = false;
+              sm.toast("Could not queue the refresh.", "danger");
+            }
+          });
+          return sm.el("div", null, [
+            sm.el("p", null, "Re-fetch the description, ratings and artwork for every title in this library."),
+            sm.el("p", { class: "sm-subtext" }, "Files are not scanned and nothing is re-processed. Large libraries queue one job per title."),
+            run,
+          ]);
+        });
       }
 
       async function reloadScan(container) {
@@ -238,13 +264,13 @@
               v.id,
               name + " (" + (v.quality || "").toUpperCase() + ")",
               () => reloadVersions(container),
+              v.available,
             );
             return [
               sm.el("a", { href: sm.href.version(v.id) }, v.path || "(no path)"),
               name,
               (v.quality || "").toUpperCase(),
               v.container,
-              v.edition || "",
               Math.round(v.size_bytes / 1048576) + " MB",
               v.available ? "yes" : "no",
               relink,
@@ -252,7 +278,7 @@
           });
           container.appendChild(
             sm.table(
-              ["Path", "Title", "Quality", "Container", "Edition", "Size", "Available", ""],
+              ["Path", "Title", "Quality", "Container", "Size", "Available", ""],
               rows,
             ),
           );

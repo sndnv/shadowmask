@@ -18,6 +18,9 @@ pub struct CompositeJobHandler<
     Combine,
     Fetch,
     Eviction,
+    Nightly,
+    Retention,
+    Sweep,
 > {
     scan: Scan,
     reindex: Reindex,
@@ -33,6 +36,9 @@ pub struct CompositeJobHandler<
     combine: Combine,
     fetch: Fetch,
     eviction: Eviction,
+    nightly: Nightly,
+    retention: Retention,
+    sweep: Sweep,
 }
 
 impl<
@@ -50,6 +56,9 @@ impl<
     Combine,
     Fetch,
     Eviction,
+    Nightly,
+    Retention,
+    Sweep,
 >
     CompositeJobHandler<
         Scan,
@@ -66,6 +75,9 @@ impl<
         Combine,
         Fetch,
         Eviction,
+        Nightly,
+        Retention,
+        Sweep,
     >
 {
     #[allow(clippy::too_many_arguments)]
@@ -84,6 +96,9 @@ impl<
         combine: Combine,
         fetch: Fetch,
         eviction: Eviction,
+        nightly: Nightly,
+        retention: Retention,
+        sweep: Sweep,
     ) -> Self {
         Self {
             scan,
@@ -100,6 +115,9 @@ impl<
             combine,
             fetch,
             eviction,
+            nightly,
+            retention,
+            sweep,
         }
     }
 }
@@ -119,6 +137,9 @@ impl<
     Combine,
     Fetch,
     Eviction,
+    Nightly,
+    Retention,
+    Sweep,
 > JobHandler
     for CompositeJobHandler<
         Scan,
@@ -135,6 +156,9 @@ impl<
         Combine,
         Fetch,
         Eviction,
+        Nightly,
+        Retention,
+        Sweep,
     >
 where
     Scan: JobHandler + Send + Sync,
@@ -151,6 +175,9 @@ where
     Combine: JobHandler + Send + Sync,
     Fetch: JobHandler + Send + Sync,
     Eviction: JobHandler + Send + Sync,
+    Nightly: JobHandler + Send + Sync,
+    Retention: JobHandler + Send + Sync,
+    Sweep: JobHandler + Send + Sync,
 {
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         match job.kind {
@@ -168,6 +195,9 @@ where
             JobKind::Combine => self.combine.handle(job).await,
             JobKind::Fetch => self.fetch.handle(job).await,
             JobKind::CacheEviction => self.eviction.handle(job).await,
+            JobKind::ScheduledScan => self.nightly.handle(job).await,
+            JobKind::Retention => self.retention.handle(job).await,
+            JobKind::OrphanSweep => self.sweep.handle(job).await,
             other => Err(JobError::Permanent(format!(
                 "no handler for job kind: {other:?}"
             ))),
@@ -241,6 +271,9 @@ mod tests {
         Recorder,
         Recorder,
         Recorder,
+        Recorder,
+        Recorder,
+        Recorder,
     > {
         CompositeJobHandler::new(
             Recorder::new("scan", Arc::clone(calls)),
@@ -257,6 +290,9 @@ mod tests {
             Recorder::new("combine", Arc::clone(calls)),
             Recorder::new("fetch", Arc::clone(calls)),
             Recorder::new("eviction", Arc::clone(calls)),
+            Recorder::new("nightly", Arc::clone(calls)),
+            Recorder::new("retention", Arc::clone(calls)),
+            Recorder::new("sweep", Arc::clone(calls)),
         )
     }
 
@@ -398,6 +434,36 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(*calls.lock().unwrap(), ["eviction"]);
+    }
+
+    #[tokio::test]
+    async fn routes_scheduled_scan_to_nightly_handler() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        composite(&calls)
+            .handle(&job(JobKind::ScheduledScan))
+            .await
+            .unwrap();
+        assert_eq!(*calls.lock().unwrap(), ["nightly"]);
+    }
+
+    #[tokio::test]
+    async fn routes_retention_to_retention_handler() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        composite(&calls)
+            .handle(&job(JobKind::Retention))
+            .await
+            .unwrap();
+        assert_eq!(*calls.lock().unwrap(), ["retention"]);
+    }
+
+    #[tokio::test]
+    async fn routes_orphan_sweep_to_sweep_handler() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        composite(&calls)
+            .handle(&job(JobKind::OrphanSweep))
+            .await
+            .unwrap();
+        assert_eq!(*calls.lock().unwrap(), ["sweep"]);
     }
 
     #[tokio::test]

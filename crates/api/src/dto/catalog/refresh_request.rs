@@ -5,6 +5,8 @@ use domain::metadata::ExternalId;
 #[derive(Debug, Deserialize)]
 pub struct RefreshRequest {
     pub external_id: Option<ExternalIdInput>,
+    #[serde(default)]
+    pub force: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -30,6 +32,7 @@ mod tests {
     fn deserializes_optional_external_id() {
         let empty: RefreshRequest = serde_json::from_value(serde_json::json!({})).unwrap();
         assert!(empty.external_id.is_none());
+        assert!(!empty.force);
 
         let forced: RefreshRequest = serde_json::from_value(
             serde_json::json!({"external_id": {"source": "tmdb", "value": "movie/603"}}),
@@ -42,5 +45,13 @@ mod tests {
                 value: "movie/603".into(),
             }
         );
+    }
+
+    #[test]
+    fn deserializes_the_force_flag() {
+        let request: RefreshRequest =
+            serde_json::from_value(serde_json::json!({"force": true})).unwrap();
+        assert!(request.force);
+        assert!(request.external_id.is_none());
     }
 }

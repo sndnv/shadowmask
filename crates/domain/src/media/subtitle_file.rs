@@ -25,6 +25,8 @@ pub struct SubtitleFile {
     pub source: SubtitleSource,
     pub path: String,
     pub translated_from: Option<SubtitleFileId>,
+    pub label: Option<String>,
+    pub pinned: bool,
 }
 
 pub fn prune_orphaned_translations(files: Vec<SubtitleFile>) -> Vec<SubtitleFile> {
@@ -52,6 +54,8 @@ mod tests {
             source,
             path: format!("/subs/{id}.vtt"),
             translated_from: translated_from.map(|code| SubtitleFileId(code.into())),
+            label: None,
+            pinned: false,
         }
     }
 

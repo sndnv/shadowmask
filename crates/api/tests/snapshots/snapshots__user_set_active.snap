@@ -1,0 +1,20 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "active": false,
+    "bitrate_cap": null,
+    "concurrent_stream_limit": null,
+    "created_at": "[created_at]",
+    "id": "[id]",
+    "max_content_rating": null,
+    "preferred_audio": [],
+    "preferred_subtitle": [],
+    "role": "user",
+    "updated_at": "[updated_at]",
+    "username": "minted"
+  },
+  "status": 200
+}

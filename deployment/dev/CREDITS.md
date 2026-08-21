@@ -1,8 +1,12 @@
 # Credits and third-party attribution
 
 The Shadowmask dev deployment can optionally download real Creative Commons video clips as playable
-fixtures. None of this content is  redistributed in this repository; the scripts fetch it to your 
-own machine on request. The clips remain under their own licenses, credited here.
+fixtures. The scripts fetch them to your own machine on request; the clips themselves are not
+redistributed in this repository. The clips remain under their own licenses, credited here.
+
+Test fixtures under `crates/media/tests/fixtures` are a separate case: two of them are real-world
+files that are redistributed here, credited in
+[`../../crates/media/tests/fixtures/CREDITS.md`](../../crates/media/tests/fixtures/CREDITS.md).
 
 ## Video fixtures
 

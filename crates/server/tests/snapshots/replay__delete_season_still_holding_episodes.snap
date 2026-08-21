@@ -1,0 +1,13 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "error": {
+      "code": "not_empty",
+      "message": "the season still has episodes"
+    }
+  },
+  "status": 409
+}

@@ -1,7 +1,9 @@
 # Bootstrap library definitions. Copy and edit for your deployment.
 # kind: movie | tv
 # watcher: local | polling | scheduled | manual
-# scan_schedule: optional cron expression (used by the scheduled watcher)
+#   Only "scheduled" libraries are picked up by the nightly re-scan, and only when the server has
+#   SHADOWMASK_DAILY_SCAN_AT set. "local" and "polling" have no runtime behaviour yet.
+# scan_schedule: reserved for per-library cron times; not read yet
 # metadata_sources: provider ids, e.g. "tmdb"
 # roots must point at directories the server can read.
 
@@ -9,12 +11,12 @@
 name = "Movies"
 kind = "movie"
 roots = ["/media/movies"]
-watcher = "local"
+watcher = "scheduled"
 metadata_sources = ["tmdb"]
 
 [[libraries]]
 name = "TV"
 kind = "tv"
 roots = ["/media/tv"]
-watcher = "local"
+watcher = "scheduled"
 metadata_sources = ["tmdb"]

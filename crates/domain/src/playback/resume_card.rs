@@ -7,6 +7,11 @@ pub struct ResumeCard {
     pub artwork: Vec<ArtworkRef>,
     pub duration_ms: u64,
     pub progress_percent: u8,
+    pub year: Option<u16>,
+    pub series_title: Option<String>,
+    pub series_artwork: Vec<ArtworkRef>,
+    pub season_number: Option<u16>,
+    pub episode_number: Option<u16>,
 }
 
 pub fn progress_percent(position_ms: u64, duration_ms: u64) -> u8 {

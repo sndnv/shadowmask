@@ -62,6 +62,7 @@ fn user(id: &str, username: &str, role: Role, hash: &str) -> User {
         preferred_subtitle: Vec::new(),
         concurrent_stream_limit: None,
         bitrate_cap: None,
+        active: true,
         created_at: fixture::ts(0),
         updated_at: fixture::ts(0),
     }
@@ -78,7 +79,6 @@ fn direct_v1_detail() -> VersionDetail {
             path: "/media/v1.mp4".into(),
             size_bytes: 1,
             duration_ms: 100_000,
-            edition: None,
             available: true,
             added_at: fixture::ts(0),
             updated_at: fixture::ts(0),
@@ -115,6 +115,8 @@ fn direct_v1_detail() -> VersionDetail {
             source: SubtitleSource::External,
             path: "/media/v1.en.srt".into(),
             translated_from: None,
+            label: None,
+            pinned: false,
         }],
         chapters: Vec::new(),
         markers: DetectedMarkers {
@@ -253,6 +255,17 @@ async fn seed(repos: &Repos, hash: &str) {
         .unwrap();
 
     repos
+        .progress
+        .upsert(PlaybackProgress {
+            user: UserId("u1".into()),
+            version: VersionId("ev1".into()),
+            position_ms: 400,
+            updated_at: fixture::ts(21),
+        })
+        .await
+        .unwrap();
+
+    repos
         .auth_tokens
         .store_link_code(PendingLink {
             code: fixture::LINK_CODE.into(),
@@ -264,6 +277,11 @@ async fn seed(repos: &Repos, hash: &str) {
         .unwrap();
 
     repos.jobs.enqueue(fixture::admin_job()).await.unwrap();
+    repos
+        .jobs
+        .enqueue(fixture::admin_child_job())
+        .await
+        .unwrap();
 }
 
 async fn seeded(db_root: &Path, hash: &str) -> (Repos, Router) {

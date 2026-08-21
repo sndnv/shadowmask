@@ -12,6 +12,8 @@ use crate::dto::session::{
 use crate::error::ApiResult;
 use crate::extract::AuthUser;
 use crate::handlers::log_fail;
+use domain::service::SessionService;
+
 use crate::state::AppServices;
 
 pub async fn start<S: AppServices>(
@@ -21,6 +23,7 @@ pub async fn start<S: AppServices>(
 ) -> ApiResult<(StatusCode, Json<SessionStartedResponse>)> {
     let actor = &principal.user.0;
     let started = state
+        .session()
         .start(&principal, req.into())
         .await
         .map_err(log_fail(actor, "start a session"))?;
@@ -37,6 +40,7 @@ pub async fn heartbeat<S: AppServices>(
     let actor = &principal.user.0;
     let id = SessionId(id);
     let ack = state
+        .session()
         .heartbeat(&principal, &id, req.position_ms, req.state.into())
         .await
         .map_err(log_fail(actor, "send a heartbeat"))?;
@@ -56,6 +60,7 @@ pub async fn seek<S: AppServices>(
     let actor = &principal.user.0;
     let id = SessionId(id);
     let renegotiated = state
+        .session()
         .seek(&principal, &id, req.position_ms)
         .await
         .map_err(log_fail(actor, "seek"))?;
@@ -72,6 +77,7 @@ pub async fn update<S: AppServices>(
     let actor = &principal.user.0;
     let id = SessionId(id);
     let renegotiated = state
+        .session()
         .update(&principal, &id, req.into())
         .await
         .map_err(log_fail(actor, "update a session"))?;
@@ -87,6 +93,7 @@ pub async fn end<S: AppServices>(
     let actor = &principal.user.0;
     let id = SessionId(id);
     state
+        .session()
         .end(&principal, &id)
         .await
         .map_err(log_fail(actor, "end a session"))?;

@@ -7,10 +7,26 @@ on: [push, pull_request]
 
 env:
   CARGO_TERM_COLOR: always
-  SQLX_OFFLINE: "true"
 
 jobs:
+  assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+
+      - name: Setup Python 3
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.14'
+
+      - name: Verify assets
+        run: ./assets/refresh_assets.py --verify
+
   qa:
+    needs:
+      - assets
     strategy:
       fail-fast: false
       matrix:
@@ -36,3 +52,24 @@ jobs:
         run: brew install ffmpeg
 
       - run: python3 qa.py
+
+  flutter:
+    needs:
+      - assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: 'stable'
+          flutter-version: '3.47.1'
+
+      - name: Run Flutter QA
+        run: |
+          sudo apt update -y
+          sudo apt install -y lcov
+          cd clients/flutter
+          ./qa.py

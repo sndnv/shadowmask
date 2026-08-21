@@ -1,6 +1,4 @@
 use jiff::Timestamp;
-use jsonwebtoken::errors::ErrorKind;
-use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 
 use domain::catalog::VersionId;
@@ -8,25 +6,19 @@ use domain::error::StreamTokenError;
 use domain::session::{SessionId, StreamClaims, StreamToken, StreamTokens};
 use domain::user::UserId;
 
+use crate::hmac_token::{HmacCodec, TokenFailure, TypedClaims};
+
 const STREAM_AUDIENCE: &str = "shadowmask-stream";
 const STREAM_TOKEN_TYPE: &str = "stream";
 
 pub struct HmacStreamTokens {
-    encoding_key: EncodingKey,
-    decoding_key: DecodingKey,
-    header: Header,
-    validation: Validation,
+    codec: HmacCodec,
 }
 
 impl HmacStreamTokens {
     pub fn new(secret: &[u8]) -> Self {
-        let mut validation = Validation::new(Algorithm::HS256);
-        validation.set_audience(&[STREAM_AUDIENCE]);
         Self {
-            encoding_key: EncodingKey::from_secret(secret),
-            decoding_key: DecodingKey::from_secret(secret),
-            header: Header::new(Algorithm::HS256),
-            validation,
+            codec: HmacCodec::new(secret, STREAM_AUDIENCE),
         }
     }
 }
@@ -42,6 +34,12 @@ struct RawClaims {
     nnc: String,
 }
 
+impl TypedClaims for RawClaims {
+    fn typ(&self) -> &str {
+        &self.typ
+    }
+}
+
 impl StreamTokens for HmacStreamTokens {
     fn create(&self, claims: &StreamClaims) -> Result<StreamToken, StreamTokenError> {
         let raw = RawClaims {
@@ -53,21 +51,20 @@ impl StreamTokens for HmacStreamTokens {
             exp: claims.expires_at.as_second(),
             nnc: claims.nonce.clone(),
         };
-        encode(&self.header, &raw, &self.encoding_key)
+        self.codec
+            .sign(&raw)
             .map(StreamToken)
-            .map_err(|e| StreamTokenError::Create(e.to_string()))
+            .map_err(StreamTokenError::Create)
     }
 
     fn verify(&self, token: &str) -> Result<StreamClaims, StreamTokenError> {
-        let raw = decode::<RawClaims>(token, &self.decoding_key, &self.validation)
-            .map_err(|e| match e.kind() {
-                ErrorKind::ExpiredSignature => StreamTokenError::Expired,
-                _ => StreamTokenError::Invalid,
-            })?
-            .claims;
-        if raw.typ != STREAM_TOKEN_TYPE {
-            return Err(StreamTokenError::Invalid);
-        }
+        let raw: RawClaims = self
+            .codec
+            .verify(token, STREAM_TOKEN_TYPE)
+            .map_err(|failure| match failure {
+                TokenFailure::Expired => StreamTokenError::Expired,
+                TokenFailure::Invalid => StreamTokenError::Invalid,
+            })?;
         let expires_at = Timestamp::from_second(raw.exp).map_err(|_| StreamTokenError::Invalid)?;
         Ok(StreamClaims {
             session: SessionId(raw.sid),
@@ -82,6 +79,7 @@ impl StreamTokens for HmacStreamTokens {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 
     const SECRET: &[u8] = b"shadowmask-test-secret";
 

@@ -25,6 +25,9 @@ async fn search_index_contract_holds_for_sqlite() {
         for person in seed.people {
             repo.upsert_person(person).await.unwrap();
         }
+        for version in seed.versions {
+            repo.upsert_version(version).await.unwrap();
+        }
     })
     .await;
 }

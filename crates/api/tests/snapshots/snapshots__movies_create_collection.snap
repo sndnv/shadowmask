@@ -6,7 +6,7 @@ expression: value
   "body": {
     "added_at": "[added_at]",
     "artwork": {},
-    "id": "col-1",
+    "id": "[id]",
     "movies": [
       "m1"
     ],

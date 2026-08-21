@@ -1,9 +1,10 @@
 use domain::catalog::VersionId;
-use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
+use domain::job::{Job, JobKind, JobPriority};
 use domain::media::AudioTrack;
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+
+use crate::job::{encode_payload, queued_job};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TranscriptionJobPayload {
@@ -11,11 +12,12 @@ pub struct TranscriptionJobPayload {
     pub source_path: String,
     pub source_language: Option<String>,
     pub audio_track_index: Option<u32>,
+    pub force: bool,
 }
 
 impl TranscriptionJobPayload {
-    pub fn encode(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string(&Wire::from(self))
+    pub fn encode(&self) -> String {
+        encode_payload(&Wire::from(self))
     }
 
     pub fn decode(raw: &str) -> Result<Self, serde_json::Error> {
@@ -30,6 +32,8 @@ struct Wire {
     source_language: Option<String>,
     #[serde(default)]
     audio_track_index: Option<u32>,
+    #[serde(default)]
+    force: bool,
 }
 
 impl From<&TranscriptionJobPayload> for Wire {
@@ -39,6 +43,7 @@ impl From<&TranscriptionJobPayload> for Wire {
             source_path: payload.source_path.clone(),
             source_language: payload.source_language.clone(),
             audio_track_index: payload.audio_track_index,
+            force: payload.force,
         }
     }
 }
@@ -50,6 +55,7 @@ impl From<Wire> for TranscriptionJobPayload {
             source_path: wire.source_path,
             source_language: wire.source_language,
             audio_track_index: wire.audio_track_index,
+            force: wire.force,
         }
     }
 }
@@ -59,32 +65,23 @@ pub fn transcription_job(
     source_path: &str,
     source_language: Option<String>,
     audio_track_index: Option<u32>,
+    force: bool,
 ) -> Job {
     let raw = TranscriptionJobPayload {
         version_id: version_id.clone(),
         source_path: source_path.to_owned(),
         source_language,
         audio_track_index,
+        force,
     }
-    .encode()
-    .expect("transcription job payload serializes");
-    let now = Timestamp::now();
-    Job {
-        id: JobId(Uuid::new_v4().to_string()),
-        kind: JobKind::Transcription,
-        status: JobStatus::Queued,
-        priority: JobPriority::Low,
-        payload: raw,
-        attempts: 0,
-        progress: 0.0,
-        available_at: now,
-        last_error: None,
-        created_at: now,
-        updated_at: now,
-        started_at: None,
-        finished_at: None,
-        parent_id: None,
-    }
+    .encode();
+    queued_job(
+        JobKind::Transcription,
+        JobPriority::Low,
+        raw,
+        None,
+        Timestamp::now(),
+    )
 }
 
 pub fn select_audio_track(tracks: &[AudioTrack], preferred: Option<&str>) -> Option<u32> {
@@ -106,8 +103,9 @@ mod tests {
             source_path: "/media/v1.mkv".into(),
             source_language: Some("en".into()),
             audio_track_index: Some(2),
+            force: true,
         };
-        let encoded = payload.encode().unwrap();
+        let encoded = payload.encode();
         assert_eq!(TranscriptionJobPayload::decode(&encoded).unwrap(), payload);
     }
 
@@ -118,8 +116,9 @@ mod tests {
             source_path: "/media/v2.mkv".into(),
             source_language: None,
             audio_track_index: None,
+            force: false,
         };
-        let encoded = payload.encode().unwrap();
+        let encoded = payload.encode();
         assert_eq!(TranscriptionJobPayload::decode(&encoded).unwrap(), payload);
     }
 
@@ -129,6 +128,16 @@ mod tests {
         let decoded = TranscriptionJobPayload::decode(legacy).unwrap();
         assert_eq!(decoded.audio_track_index, None);
         assert_eq!(decoded.version_id, VersionId("v3".into()));
+    }
+
+    #[test]
+    fn a_job_queued_before_force_existed_decodes_as_the_automatic_path() {
+        let legacy = r#"{"version_id":"v4","source_path":"/media/v4.mkv","source_language":null,"audio_track_index":1}"#;
+        let decoded = TranscriptionJobPayload::decode(legacy).unwrap();
+        assert!(
+            !decoded.force,
+            "a job already in the queue must keep the skip-when-subtitled behaviour"
+        );
     }
 
     #[test]
@@ -143,6 +152,7 @@ mod tests {
             "/media/v1.mkv",
             Some("spa".into()),
             Some(2),
+            false,
         );
         assert_eq!(job.kind, JobKind::Transcription);
         assert_eq!(job.priority, JobPriority::Low);
@@ -151,6 +161,13 @@ mod tests {
         assert_eq!(decoded.source_path, "/media/v1.mkv");
         assert_eq!(decoded.source_language.as_deref(), Some("spa"));
         assert_eq!(decoded.audio_track_index, Some(2));
+        assert!(!decoded.force);
+    }
+
+    #[test]
+    fn transcription_job_carries_the_force_flag() {
+        let job = transcription_job(&VersionId("v1".into()), "/media/v1.mkv", None, None, true);
+        assert!(TranscriptionJobPayload::decode(&job.payload).unwrap().force);
     }
 
     fn track(index: u32, language: Option<&str>) -> AudioTrack {

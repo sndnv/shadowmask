@@ -24,7 +24,7 @@ use persistence::server::{
     SqliteAuthTokenRepo, SqliteCatalogRepo, SqliteJobRepo, SqliteLibraryRepo, SqliteUserRepo,
 };
 use persistence::session::InMemorySessionRegistry;
-use persistence::user::{SqlitePreferencesRepo, SqliteProgressRepo};
+use persistence::user::{SqlitePreferencesRepo, SqliteProgressRepo, SqliteUserData};
 use services::auth::DefaultAuthService;
 use services::catalog::CatalogServiceImpl;
 use services::discovery::DiscoveryServiceImpl;
@@ -54,11 +54,16 @@ pub type LibrarySvc = LibraryServiceImpl<
     SqliteCatalogRepo,
     TmdbClient,
 >;
-pub type UserSvc = UserServiceImpl<SqliteUserRepo>;
+pub type UserSvc = UserServiceImpl<SqliteUserRepo, SqliteAuthTokenRepo, SqliteUserData>;
 pub type UserLibrarySvc =
     UserLibraryServiceImpl<SqliteProgressRepo, SqlitePreferencesRepo, SqliteCatalogRepo>;
-pub type DiscoverySvc =
-    DiscoveryServiceImpl<SqliteCatalogRepo, SqliteCatalogRepo, SqliteProgressRepo>;
+pub type DiscoverySvc = DiscoveryServiceImpl<
+    SqliteCatalogRepo,
+    SqliteCatalogRepo,
+    SqliteProgressRepo,
+    SqlitePreferencesRepo,
+    SqliteUserRepo,
+>;
 pub type JobSvc = JobServiceImpl<SqliteJobRepo>;
 
 pub type DefaultState = AppState<
@@ -99,6 +104,7 @@ pub struct Repos {
     pub auth_tokens: SqliteAuthTokenRepo,
     pub progress: SqliteProgressRepo,
     pub preferences: SqlitePreferencesRepo,
+    pub user_data: SqliteUserData,
 }
 
 impl Repos {
@@ -106,14 +112,17 @@ impl Repos {
         migrate_all(db_root).await?;
         let server = db_root.join("server");
         let users_dir = db_root.join("users");
+        let progress = SqliteProgressRepo::new(&users_dir);
+        let preferences = SqlitePreferencesRepo::new(&users_dir);
         Ok(Self {
             catalog: SqliteCatalogRepo::connect(&server.join("catalog.db")).await?,
             library: SqliteLibraryRepo::connect(&server.join("libraries.db")).await?,
             users: SqliteUserRepo::connect(&server.join("users.db")).await?,
             jobs: SqliteJobRepo::connect(&server.join("jobs.db")).await?,
             auth_tokens: SqliteAuthTokenRepo::connect(&server.join("auth.db")).await?,
-            progress: SqliteProgressRepo::new(&users_dir),
-            preferences: SqlitePreferencesRepo::new(&users_dir),
+            user_data: SqliteUserData::new(progress.clone(), preferences.clone()),
+            progress,
+            preferences,
         })
     }
 
@@ -196,7 +205,11 @@ pub fn build_state(
             .map(|path| Arc::new(CookieFileInspector::new(path)) as Arc<dyn CookieInspector>),
     );
     let job = JobServiceImpl::new(repos.jobs.clone()).with_canceller(Arc::new(cancel.clone()));
-    let user = UserServiceImpl::new(repos.users.clone());
+    let user = UserServiceImpl::new(
+        repos.users.clone(),
+        repos.auth_tokens.clone(),
+        repos.user_data.clone(),
+    );
     let user_library = UserLibraryServiceImpl::new(
         Arc::new(repos.progress.clone()),
         Arc::new(repos.preferences.clone()),
@@ -206,6 +219,8 @@ pub fn build_state(
         repos.catalog.clone(),
         repos.catalog.clone(),
         repos.progress.clone(),
+        repos.preferences.clone(),
+        repos.users.clone(),
     );
 
     let state = AppState::new(

@@ -48,7 +48,7 @@ where
             tracing::debug!("version gone; skipping transcription");
             return Ok(());
         };
-        if !detail.subtitle_files.is_empty() {
+        if !payload.force && !detail.subtitle_files.is_empty() {
             tracing::debug!("subtitle already present; skipping transcription");
             return Ok(());
         }
@@ -117,9 +117,23 @@ where
             source: SubtitleSource::Generated,
             path,
             translated_from: None,
+            label: None,
+            pinned: false,
         };
+        let current = self
+            .catalog
+            .version_detail(&payload.version_id)
+            .await
+            .map_err(|e| JobError::Retryable(e.to_string()))?;
+        let mut merged: Vec<SubtitleFile> = current
+            .map(|detail| detail.subtitle_files)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|existing| existing.source != SubtitleSource::Generated)
+            .collect();
+        merged.push(file);
         self.catalog
-            .set_subtitle_files(&payload.version_id, &[file])
+            .set_subtitle_files(&payload.version_id, &merged)
             .await
             .map_err(|e| JobError::Retryable(e.to_string()))?;
         self.trigger
@@ -139,8 +153,8 @@ mod tests {
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
     use domain::media::{FetchedSubtitle, SubtitleFile, SubtitleFileId, SubtitleFormat};
     use jiff::Timestamp;
+    use mocks::MockCatalogRepo;
     use services::library::TranscriptionJobPayload;
-    use services::mock::MockCatalogRepo;
 
     use super::*;
 
@@ -233,7 +247,6 @@ mod tests {
             path: "/m/v1.mkv".into(),
             size_bytes: 1,
             duration_ms: 1000,
-            edition: None,
             available: true,
             added_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
@@ -261,14 +274,32 @@ mod tests {
     }
 
     fn payload() -> String {
+        payload_with_force(false)
+    }
+
+    fn payload_with_force(force: bool) -> String {
         TranscriptionJobPayload {
             version_id: VersionId("v1".into()),
             source_path: "/m/v1.mkv".into(),
             source_language: None,
             audio_track_index: None,
+            force,
         }
         .encode()
-        .unwrap()
+    }
+
+    fn subtitle(id: &str, source: SubtitleSource) -> SubtitleFile {
+        SubtitleFile {
+            id: SubtitleFileId(id.into()),
+            version: VersionId("v1".into()),
+            language: None,
+            format: SubtitleFormat::Srt,
+            source,
+            path: format!("/m/{id}.srt"),
+            translated_from: None,
+            label: None,
+            pinned: false,
+        }
     }
 
     #[tokio::test]
@@ -344,6 +375,8 @@ mod tests {
                     source: SubtitleSource::External,
                     path: "/m/v1.srt".into(),
                     translated_from: None,
+                    label: None,
+                    pinned: false,
                 }],
             )
             .await
@@ -371,6 +404,106 @@ mod tests {
             .unwrap();
         assert_eq!(detail.subtitle_files.len(), 1);
         assert_eq!(detail.subtitle_files[0].source, SubtitleSource::External);
+    }
+
+    #[tokio::test]
+    async fn a_forced_run_transcribes_over_an_existing_subtitle() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
+        catalog
+            .set_subtitle_files(
+                &VersionId("v1".into()),
+                &[subtitle(
+                    "opensubtitles:v1:1",
+                    SubtitleSource::OpenSubtitles,
+                )],
+            )
+            .await
+            .unwrap();
+        let store = MockStore::default();
+        let handler = TranscriptionJobHandler::new(
+            MockProvider {
+                mode: ProviderMode::Ok,
+            },
+            catalog.clone(),
+            MockStore {
+                stored: store.stored.clone(),
+                ..MockStore::default()
+            },
+            MockTrigger::default(),
+        );
+
+        handler
+            .handle(&job(payload_with_force(true)))
+            .await
+            .unwrap();
+
+        assert_eq!(store.stored.lock().unwrap().len(), 1);
+        let detail = catalog
+            .version_detail(&VersionId("v1".into()))
+            .await
+            .unwrap()
+            .unwrap();
+        let sources: Vec<SubtitleSource> = detail.subtitle_files.iter().map(|f| f.source).collect();
+        assert!(
+            sources.contains(&SubtitleSource::Generated),
+            "the admin asked for this explicitly, so it must run"
+        );
+        assert!(
+            sources.contains(&SubtitleSource::OpenSubtitles),
+            "forcing must add a track, never wipe the ones already fetched"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_forced_rerun_replaces_the_previous_generated_subtitle() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
+        catalog
+            .set_subtitle_files(
+                &VersionId("v1".into()),
+                &[
+                    subtitle("external", SubtitleSource::External),
+                    subtitle("generated:v1", SubtitleSource::Generated),
+                ],
+            )
+            .await
+            .unwrap();
+        let handler = TranscriptionJobHandler::new(
+            MockProvider {
+                mode: ProviderMode::Ok,
+            },
+            catalog.clone(),
+            MockStore::default(),
+            MockTrigger::default(),
+        );
+
+        handler
+            .handle(&job(payload_with_force(true)))
+            .await
+            .unwrap();
+
+        let detail = catalog
+            .version_detail(&VersionId("v1".into()))
+            .await
+            .unwrap()
+            .unwrap();
+        let generated: Vec<&SubtitleFile> = detail
+            .subtitle_files
+            .iter()
+            .filter(|f| f.source == SubtitleSource::Generated)
+            .collect();
+        assert_eq!(
+            generated.len(),
+            1,
+            "re-running must not stack up a second generated track"
+        );
+        assert_eq!(
+            generated[0].format,
+            SubtitleFormat::Vtt,
+            "the seeded track was Srt, so Vtt proves the rerun replaced it"
+        );
+        assert_eq!(detail.subtitle_files.len(), 2);
     }
 
     #[tokio::test]
@@ -537,9 +670,9 @@ mod tests {
             source_path: "/m/v1.mkv".into(),
             source_language: None,
             audio_track_index: Some(3),
+            force: false,
         }
-        .encode()
-        .unwrap();
+        .encode();
 
         handler.handle(&job(raw)).await.unwrap();
 
@@ -562,9 +695,9 @@ mod tests {
             source_path: "/m/v1.mkv".into(),
             source_language: Some("eng".into()),
             audio_track_index: None,
+            force: false,
         }
-        .encode()
-        .unwrap();
+        .encode();
 
         handler.handle(&job(raw)).await.unwrap();
 
@@ -594,9 +727,9 @@ mod tests {
             source_path: "/m/v1.mkv".into(),
             source_language: Some("und".into()),
             audio_track_index: None,
+            force: false,
         }
-        .encode()
-        .unwrap();
+        .encode();
 
         handler.handle(&job(raw)).await.unwrap();
 

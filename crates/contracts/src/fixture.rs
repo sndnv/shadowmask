@@ -1,7 +1,7 @@
 use jiff::Timestamp;
 
 use domain::catalog::{
-    ArtworkId, ArtworkRef, Collection, CollectionId, Episode, EpisodeId, FilmographyEntry, Movie,
+    ArtworkId, ArtworkRef, ArtworkWidth, Collection, CollectionId, Episode, EpisodeId, Movie,
     MovieDetail, MovieId, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId, TitleRef,
     Version, VersionDetail, VersionId,
 };
@@ -16,7 +16,6 @@ use domain::metadata::{
     ArtworkKind, ContentRating, Credit, CreditRole, CreditedPerson, ExternalId, Extra, ExtraKind,
     Genre, GenreId, Person, PersonId, Rating, Studio, StudioId, TitleEnrichment,
 };
-use domain::playback::ResumeCard;
 use domain::user::{IssuedToken, Role, UserId};
 
 pub const EPOCH: i64 = 1_700_000_000;
@@ -46,10 +45,30 @@ pub fn admin_job() -> Job {
     }
 }
 
+pub fn admin_child_job() -> Job {
+    Job {
+        id: JobId("job-artwork".into()),
+        kind: JobKind::Artwork,
+        status: JobStatus::Queued,
+        priority: JobPriority::Normal,
+        payload: "m1".into(),
+        attempts: 0,
+        progress: 0.0,
+        available_at: ts(42),
+        last_error: None,
+        created_at: ts(42),
+        updated_at: ts(42),
+        started_at: None,
+        finished_at: None,
+        parent_id: Some(JobId("job-scan".into())),
+    }
+}
+
 pub fn movie(id: &str) -> Movie {
     Movie {
         id: MovieId(id.into()),
         title: format!("Alpha {id}"),
+        sort_title: format!("alpha {id}"),
         year: Some(2020),
         overview: Some("overview".into()),
         runtime_minutes: Some(100),
@@ -57,6 +76,7 @@ pub fn movie(id: &str) -> Movie {
             system: "MPAA".into(),
             code: "PG-13".into(),
         }),
+        manually_edited: false,
         added_at: ts(1),
         updated_at: ts(1),
         artwork: Vec::new(),
@@ -67,12 +87,14 @@ pub fn series(id: &str) -> Series {
     Series {
         id: SeriesId(id.into()),
         title: format!("Alpha {id}"),
+        sort_title: format!("alpha {id}"),
         year: Some(2019),
         overview: None,
         content_rating: Some(ContentRating {
             system: "TV".into(),
             code: "TV-14".into(),
         }),
+        manually_edited: false,
         added_at: ts(2),
         updated_at: ts(2),
         artwork: Vec::new(),
@@ -101,6 +123,7 @@ pub fn episode(id: &str, season: &str) -> Episode {
         overview: None,
         runtime_minutes: Some(42),
         air_date: Some(ts(3)),
+        manually_edited: false,
         added_at: ts(4),
         updated_at: ts(4),
         artwork: Vec::new(),
@@ -117,7 +140,6 @@ pub fn version(id: &str, title: TitleId, lib: &str, quality: Quality) -> Version
         path: format!("/media/{id}.mkv"),
         size_bytes: 1,
         duration_ms: 1000,
-        edition: None,
         available: true,
         added_at: ts(6),
         updated_at: ts(6),
@@ -131,6 +153,7 @@ pub fn library(id: &str) -> Library {
         origin: LibraryOrigin::Local,
         kind: LibraryKind::Movie,
         roots: vec!["/media".into()],
+        sort_articles: vec!["the".into()],
         watcher: WatcherStrategy::Manual,
         scan_schedule: Some("0 0 * * *".into()),
         metadata_sources: vec!["tmdb".into()],
@@ -151,21 +174,6 @@ pub fn saga_collection() -> Collection {
     }
 }
 
-pub fn artwork_set(owner_id: &str) -> Vec<ArtworkRef> {
-    vec![
-        ArtworkRef {
-            id: ArtworkId(format!("{owner_id}-poster")),
-            kind: ArtworkKind::Poster,
-            widths: vec![180, 480, 960],
-        },
-        ArtworkRef {
-            id: ArtworkId(format!("{owner_id}-backdrop")),
-            kind: ArtworkKind::Backdrop,
-            widths: vec![480, 960],
-        },
-    ]
-}
-
 pub fn movie_art(id: &str) -> Movie {
     Movie {
         artwork: artwork_set(id),
@@ -178,6 +186,28 @@ pub fn series_art(id: &str) -> Series {
         artwork: artwork_set(id),
         ..series(id)
     }
+}
+
+pub fn artwork_set(owner_id: &str) -> Vec<ArtworkRef> {
+    vec![
+        ArtworkRef {
+            id: ArtworkId(format!("{owner_id}-poster")),
+            kind: ArtworkKind::Poster,
+            widths: vec![
+                ArtworkWidth::new(180, format!("/art/{owner_id}-poster/180.jpg")),
+                ArtworkWidth::new(480, format!("/art/{owner_id}-poster/480.jpg")),
+                ArtworkWidth::new(960, format!("/art/{owner_id}-poster/960.jpg")),
+            ],
+        },
+        ArtworkRef {
+            id: ArtworkId(format!("{owner_id}-backdrop")),
+            kind: ArtworkKind::Backdrop,
+            widths: vec![
+                ArtworkWidth::new(480, format!("/art/{owner_id}-backdrop/480.jpg")),
+                ArtworkWidth::new(960, format!("/art/{owner_id}-backdrop/960.jpg")),
+            ],
+        },
+    ]
 }
 
 pub fn season_art(id: &str, series: &str) -> Season {
@@ -198,16 +228,6 @@ pub fn collection_art() -> Collection {
     Collection {
         artwork: artwork_set("c1"),
         ..saga_collection()
-    }
-}
-
-pub fn resume_card() -> ResumeCard {
-    ResumeCard {
-        title: TitleId::Movie(MovieId("m1".into())),
-        display_title: "Alpha m1".into(),
-        artwork: artwork_set("m1"),
-        duration_ms: 1000,
-        progress_percent: 1,
     }
 }
 
@@ -445,28 +465,9 @@ pub fn series_detail_aggregate() -> SeriesDetail {
         ratings: enrichment.ratings,
         external_ids: enrichment.external_ids,
         extras: enrichment.extras,
+        episodes_total: 0,
+        episodes_with_available_version: 0,
     }
-}
-
-pub fn p1_filmography() -> Vec<FilmographyEntry> {
-    vec![
-        FilmographyEntry {
-            title: TitleRef::Movie(MovieId("m1".into())),
-            display_title: "Alpha m1".into(),
-            year: Some(2020),
-            artwork: artwork_set("m1"),
-            role: CreditRole::Actor,
-            character: Some("Hero".into()),
-        },
-        FilmographyEntry {
-            title: TitleRef::Series(SeriesId("s1".into())),
-            display_title: "Alpha s1".into(),
-            year: Some(2019),
-            artwork: artwork_set("s1"),
-            role: CreditRole::Actor,
-            character: Some("Lead".into()),
-        },
-    ]
 }
 
 pub struct SeedAccount {

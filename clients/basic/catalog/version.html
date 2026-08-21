@@ -101,7 +101,6 @@
         };
         add("Quality", v.quality ? v.quality.toUpperCase() : null);
         add("Container", v.container);
-        add("Edition", v.edition);
         add("Size", v.size_bytes != null ? Math.round(v.size_bytes / 1048576) + " MB" : null);
         add("Duration", v.duration_ms != null ? Math.round(v.duration_ms / 60000) + " min" : null);
         add("Available", v.available ? "yes" : "no");
@@ -113,7 +112,9 @@
         sm.self()
           .then((me) => {
             if (!me || me.role !== "admin") return;
-            section.appendChild(sm.relinkButton(v.id, "this version"));
+            section.appendChild(
+              sm.relinkButton(v.id, "this version", null, v.available),
+            );
           })
           .catch(() => {});
         return section;

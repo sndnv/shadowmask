@@ -14,9 +14,10 @@ pub use cancel::CancelRegistry;
 pub use error::JobError;
 pub use handlers::{
     ArtworkJobHandler, CacheEvictionHandler, CombineJobHandler, CompositeJobHandler,
-    FetchJobHandler, IngestJobHandler, LibraryScanHandler, MetadataJobHandler, RelinkJobHandler,
-    SearchReindexHandler, SubtitlesJobHandler, TranscriptionJobHandler, TranslationJobHandler,
-    TrickplayJobHandler, UpscaleJobHandler,
+    FetchJobHandler, IngestJobHandler, LibraryScanHandler, MetadataJobHandler, OrphanSweepHandler,
+    RelinkJobHandler, RetentionHandler, ScheduledScanHandler, SearchReindexHandler,
+    SubtitlesJobHandler, TranscriptionJobHandler, TranslationJobHandler, TrickplayJobHandler,
+    UpscaleJobHandler,
 };
 pub use job_class::{enrichment_kinds, fetch_kinds, normal_kinds};
 pub use job_handler::JobHandler;

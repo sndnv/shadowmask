@@ -6,7 +6,7 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use tracing::debug;
 
-use domain::catalog::VersionId;
+use domain::catalog::{TitleId, VersionId};
 use domain::common::LanguageCode;
 use domain::error::SubtitleError;
 use domain::media::{
@@ -40,6 +40,65 @@ fn cleaned(value: Option<String>) -> Option<String> {
         .map(str::to_owned)
 }
 
+#[derive(Debug, Default)]
+struct TitleContext {
+    imdb_id: Option<String>,
+    title: Option<String>,
+    season: Option<u16>,
+    episode: Option<u16>,
+}
+
+fn imdb_of(ids: &[domain::metadata::ExternalId]) -> Option<String> {
+    ids.iter()
+        .find(|id| id.source == "imdb")
+        .map(|id| id.value.clone())
+}
+
+async fn title_context<C: CatalogRepository + Send + Sync>(
+    catalog: &C,
+    title: &TitleId,
+) -> Result<TitleContext, ApiError> {
+    let internal = |_| ApiError::internal();
+    match title {
+        TitleId::Movie(id) => {
+            let Some(detail) = catalog.movie_detail(id).await.map_err(internal)? else {
+                return Ok(TitleContext::default());
+            };
+            Ok(TitleContext {
+                imdb_id: imdb_of(&detail.external_ids),
+                title: Some(detail.movie.title),
+                season: None,
+                episode: None,
+            })
+        }
+        TitleId::Episode(id) => {
+            let Some(episode) = catalog.get_episode(id).await.map_err(internal)? else {
+                return Ok(TitleContext::default());
+            };
+            let season = catalog
+                .get_season(&episode.season)
+                .await
+                .map_err(internal)?;
+            let series = match &season {
+                Some(season) => catalog
+                    .series_detail(&season.series)
+                    .await
+                    .map_err(internal)?,
+                None => None,
+            };
+            Ok(TitleContext {
+                imdb_id: series
+                    .as_ref()
+                    .map(|s| imdb_of(&s.external_ids))
+                    .unwrap_or_default(),
+                title: series.map(|s| s.series.title),
+                season: season.map(|s| s.number),
+                episode: Some(episode.number),
+            })
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SubtitleSearchParams {
     #[serde(default)]
@@ -65,7 +124,7 @@ where
 {
     let actor = &principal.user.0;
     let version = VersionId(version);
-    state
+    let detail = state
         .catalog
         .version_detail(&version)
         .await
@@ -74,12 +133,19 @@ where
     let languages = cleaned(params.language)
         .map(|value| vec![LanguageCode(value)])
         .unwrap_or_default();
+    let typed = cleaned(params.q);
+    let context = title_context(state.catalog.as_ref(), &detail.version.title).await?;
+    let imdb_id = typed.is_none().then_some(context.imdb_id).flatten();
     let query = SubtitleQuery {
-        imdb_id: None,
-        query: cleaned(params.q),
+        query: match (&typed, &imdb_id) {
+            (Some(_), _) => typed,
+            (None, Some(_)) => None,
+            (None, None) => context.title,
+        },
+        imdb_id,
         languages,
-        season: params.season,
-        episode: params.episode,
+        season: params.season.or(context.season),
+        episode: params.episode.or(context.episode),
     };
     let mut candidates = match state.provider.search(&query).await {
         Ok(candidates) => candidates,
@@ -126,6 +192,14 @@ where
     if file_id.is_empty() {
         return Err(ApiError::bad_request("file_id is required"));
     }
+    let id = SubtitleFileId(format!("opensubtitles:{}:{}", version.0, file_id));
+    if detail.subtitle_files.iter().any(|file| file.id == id) {
+        debug!(
+            "user [{actor}] re-requested subtitle [{file_id}] already held by version [{}]",
+            version.0
+        );
+        return Ok(StatusCode::NO_CONTENT);
+    }
     let fetched = match state.provider.download(file_id).await {
         Ok(fetched) => fetched,
         Err(SubtitleError::NotFound) => return Err(ApiError::not_found("subtitle not found")),
@@ -143,23 +217,19 @@ where
         .await
         .map_err(|_| ApiError::internal())?;
     let subtitle = SubtitleFile {
-        id: SubtitleFileId(format!("opensubtitles:{}:{}", version.0, file_id)),
+        id,
         version: version.clone(),
         language: cleaned(request.language).map(LanguageCode),
         format: fetched.format,
         source: SubtitleSource::OpenSubtitles,
         path,
         translated_from: None,
+        label: cleaned(request.release_name),
+        pinned: true,
     };
-    let mut merged: Vec<SubtitleFile> = detail
-        .subtitle_files
-        .into_iter()
-        .filter(|file| file.id != subtitle.id)
-        .collect();
-    merged.push(subtitle);
     state
         .catalog
-        .set_subtitle_files(&version, &merged)
+        .add_subtitle_file(&version, &subtitle)
         .await
         .map_err(|_| ApiError::internal())?;
     debug!(

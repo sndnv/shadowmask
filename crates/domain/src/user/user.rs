@@ -18,6 +18,7 @@ pub struct User {
     pub preferred_subtitle: Vec<LanguageCode>,
     pub concurrent_stream_limit: Option<u32>,
     pub bitrate_cap: Option<u64>,
+    pub active: bool,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
 }

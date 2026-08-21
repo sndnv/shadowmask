@@ -8,8 +8,10 @@ CREATE TABLE versions (
     path TEXT NOT NULL,
     size_bytes INTEGER NOT NULL,
     duration_ms INTEGER NOT NULL,
-    edition TEXT,
     available INTEGER NOT NULL DEFAULT 1,
     added_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
+
+CREATE INDEX idx_versions_title ON versions (title_kind, title_id);
+CREATE INDEX idx_versions_library_path ON versions (library_id, path);

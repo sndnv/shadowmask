@@ -12,7 +12,7 @@ pub fn dir_size_bytes(dir: &Path) -> u64 {
         .sum()
 }
 
-pub fn parse_cgroup_v2_max(contents: &str) -> Option<u64> {
+fn parse_cgroup_v2_max(contents: &str) -> Option<u64> {
     let trimmed = contents.trim();
     if trimmed == "max" {
         return None;
@@ -20,7 +20,7 @@ pub fn parse_cgroup_v2_max(contents: &str) -> Option<u64> {
     trimmed.parse().ok()
 }
 
-pub fn parse_cgroup_v1_limit(contents: &str) -> Option<u64> {
+fn parse_cgroup_v1_limit(contents: &str) -> Option<u64> {
     let value: u64 = contents.trim().parse().ok()?;
     if value >= 1u64 << 62 {
         None
@@ -29,7 +29,7 @@ pub fn parse_cgroup_v1_limit(contents: &str) -> Option<u64> {
     }
 }
 
-pub fn parse_mem_available(contents: &str) -> Option<u64> {
+fn parse_mem_available(contents: &str) -> Option<u64> {
     for line in contents.lines() {
         if let Some(rest) = line.strip_prefix("MemAvailable:") {
             let kib: u64 = rest.trim().trim_end_matches("kB").trim().parse().ok()?;
@@ -39,7 +39,7 @@ pub fn parse_mem_available(contents: &str) -> Option<u64> {
     None
 }
 
-pub fn cgroup_indicates_container(contents: &str) -> bool {
+fn cgroup_indicates_container(contents: &str) -> bool {
     ["docker", "kubepods", "containerd", "lxc", "libpod"]
         .iter()
         .any(|marker| contents.contains(marker))

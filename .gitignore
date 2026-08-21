@@ -1,11 +1,28 @@
+# Build output
+target/
+coverage/
+*.profraw
+
+# Runtime state
+*.db
+*.db-wal
+*.db-shm
+.env
+
+# IDE and tooling
 .idea
 .idea_modules
+.vscode/
 .classpath
 .project
 .settings
+.bsp
+.claude/settings.local.json
+
+# Local notes and keys
 .local
 *.keystore
-.bsp
+
+# Misc
 .DS_Store
-/target
 __pycache__

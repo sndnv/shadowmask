@@ -1,5 +1,5 @@
 CREATE VIRTUAL TABLE search_index USING fts5 (
-    kind UNINDEXED,
+    kind,
     id UNINDEXED,
     title
 );

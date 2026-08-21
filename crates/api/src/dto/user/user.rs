@@ -15,6 +15,7 @@ pub struct UserResponse {
     pub preferred_subtitle: Vec<String>,
     pub concurrent_stream_limit: Option<u32>,
     pub bitrate_cap: Option<u64>,
+    pub active: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -30,6 +31,7 @@ impl From<User> for UserResponse {
             preferred_subtitle: u.preferred_subtitle.into_iter().map(|l| l.0).collect(),
             concurrent_stream_limit: u.concurrent_stream_limit,
             bitrate_cap: u.bitrate_cap,
+            active: u.active,
             created_at: u.created_at.to_string(),
             updated_at: u.updated_at.to_string(),
         }

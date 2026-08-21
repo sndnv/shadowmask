@@ -17,7 +17,6 @@ pub struct VersionDetailResponse {
     pub container: String,
     pub size_bytes: u64,
     pub duration_ms: u64,
-    pub edition: Option<String>,
     pub available: bool,
     pub added_at: String,
     pub updated_at: String,
@@ -87,6 +86,8 @@ pub struct SubtitleFileDto {
     pub language: Option<String>,
     pub format: SubtitleFormatDto,
     pub source: SubtitleSourceDto,
+    pub label: Option<String>,
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -146,7 +147,6 @@ impl From<VersionDetail> for VersionDetailResponse {
             container: d.version.container,
             size_bytes: d.version.size_bytes,
             duration_ms: d.version.duration_ms,
-            edition: d.version.edition,
             available: d.version.available,
             added_at: d.version.added_at.to_string(),
             updated_at: d.version.updated_at.to_string(),
@@ -231,6 +231,8 @@ impl From<SubtitleFile> for SubtitleFileDto {
             language: f.language.map(|l| l.0),
             format: f.format.into(),
             source: f.source.into(),
+            label: f.label,
+            pinned: f.pinned,
         }
     }
 }
@@ -311,7 +313,6 @@ mod tests {
                 path: "/media/v1.mkv".into(),
                 size_bytes: 1,
                 duration_ms: 1000,
-                edition: None,
                 available: true,
                 added_at: Timestamp::UNIX_EPOCH,
                 updated_at: Timestamp::UNIX_EPOCH,
@@ -409,9 +410,13 @@ mod tests {
             source: SubtitleSource::External,
             path: "/media/v1.en.srt".into(),
             translated_from: None,
+            label: Some("The.Matrix.1999.BluRay".into()),
+            pinned: true,
         });
         assert_eq!(dto.id, "sf1");
         assert_eq!(dto.language.as_deref(), Some("en"));
+        assert_eq!(dto.label.as_deref(), Some("The.Matrix.1999.BluRay"));
+        assert!(dto.pinned);
         let json = serde_json::to_string(&dto).unwrap();
         assert!(json.contains("\"source\":\"external\""));
         assert!(!json.contains("/media/v1.en.srt"));

@@ -112,12 +112,12 @@ where
             source: SubtitleSource::Combined,
             path,
             translated_from: None,
+            label: None,
+            pinned: false,
         };
 
-        let mut merged = existing;
-        merged.push(produced);
         self.catalog
-            .set_subtitle_files(&payload.version_id, &merged)
+            .add_subtitle_file(&payload.version_id, &produced)
             .await
             .map_err(|e| JobError::Retryable(e.to_string()))
     }
@@ -157,8 +157,8 @@ mod tests {
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
     use domain::media::SubtitleFormat;
     use jiff::Timestamp;
+    use mocks::MockCatalogRepo;
     use services::library::CombineJobPayload;
-    use services::mock::MockCatalogRepo;
 
     use super::*;
 
@@ -228,6 +228,8 @@ mod tests {
             source,
             path: format!("/subs/{id}.vtt"),
             translated_from: None,
+            label: None,
+            pinned: false,
         }
     }
 
@@ -241,7 +243,6 @@ mod tests {
             path: "/m/v1.mkv".into(),
             size_bytes: 1,
             duration_ms: 1000,
-            edition: None,
             available: true,
             added_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
@@ -275,7 +276,6 @@ mod tests {
             bottom_subtitle_id: bottom.to_owned(),
         }
         .encode()
-        .unwrap()
     }
 
     async fn seed(catalog: &MockCatalogRepo, files: &[SubtitleFile]) {

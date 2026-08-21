@@ -444,8 +444,13 @@ MASTER="$BASE_URL$MANIFEST_URL"
 poll_until "HLS master playlist ready" 60 http_get_ok "$MASTER"
 grep -q '#EXTM3U' <<<"$(curl -sS "$MASTER")" || die "master is not an m3u8"
 poll_until "HLS segment fetch" 60 segment_fetchable "$MASTER"
-call_ok POST "$API/sessions/$SESSION_ID/progress" "$USER_TOKEN" "$(jq -nc '{position_ms:5000,state:"playing"}')" 200 "heartbeat playing" >/dev/null
-call_ok POST "$API/sessions/$SESSION_ID/progress" "$USER_TOKEN" "$(jq -nc '{position_ms:6000,state:"paused"}')" 200 "heartbeat paused" >/dev/null
+MKV_DURATION_MS=$(jq -r '.duration_ms // 0' <<<"$(call_ok GET "$API/versions/$MKV_VER" "$USER_TOKEN")")
+(( MKV_DURATION_MS > 0 )) || die "mkv version reports no duration, cannot pick a mid-clip position"
+PLAY_MS=$((MKV_DURATION_MS / 4))
+PAUSE_MS=$((MKV_DURATION_MS / 3))
+note "clip is [${MKV_DURATION_MS}ms]; heartbeating at [${PLAY_MS}ms] then [${PAUSE_MS}ms]"
+call_ok POST "$API/sessions/$SESSION_ID/progress" "$USER_TOKEN" "$(jq -nc --argjson p "$PLAY_MS" '{position_ms:$p,state:"playing"}')" 200 "heartbeat playing" >/dev/null
+call_ok POST "$API/sessions/$SESSION_ID/progress" "$USER_TOKEN" "$(jq -nc --argjson p "$PAUSE_MS" '{position_ms:$p,state:"paused"}')" 200 "heartbeat paused" >/dev/null
 act=$(call_ok GET "$API/users/activity" "$ADMIN_TOKEN")
 jq -e --arg s "$SESSION_ID" 'any(.items[]?; .session_id==$s)' <<<"$act" >/dev/null || die "session not in admin now-playing"
 ok "session visible in admin now-playing"
@@ -473,7 +478,7 @@ STREAM_BASE2="${STREAM_BASE2%/master.m3u8}"
 poll_until "subtitle offset applied (+5000ms)" 60 offset_applied "$BASE_URL$STREAM_BASE2/subs/subs.vtt" 5000
 ok "subtitle offset applied: first cue shifted by exactly 5000ms"
 
-call_ok POST "$API/sessions/$SESSION_ID/seek" "$USER_TOKEN" "$(jq -nc '{position_ms:10000}')" 200 "seek" >/dev/null
+call_ok POST "$API/sessions/$SESSION_ID/seek" "$USER_TOKEN" "$(jq -nc --argjson p "$((MKV_DURATION_MS / 2))" '{position_ms:$p}')" 200 "seek" >/dev/null
 call_ok POST "$API/sessions/$SESSION_ID/update" "$USER_TOKEN" "$(jq -nc '{audio_track:null,subtitle:{action:"keep"}}')" 200 "update tracks" >/dev/null
 pr=$(call_ok GET "$API/users/$TEST_UID/progress/$MKV_VER" "$USER_TOKEN")
 [[ "$(jq -r 'if .==null then "null" else "set" end' <<<"$pr")" == "set" ]] || die "no resume progress recorded"
@@ -561,7 +566,10 @@ pr2=$(call_ok GET "$API/users/$TEST_UID/progress/$MKV_VER" "$USER_TOKEN")
 [[ "$(jq -r 'if .==null then "null" else "set" end' <<<"$pr2")" == "null" ]] || die "progress not cleared"
 call_ok GET "$API/users/$TEST_UID/history" "$USER_TOKEN" >/dev/null
 sb=$(call_ok POST "$API/users/$TEST_UID/state/batch" "$USER_TOKEN" "$(jq -nc --arg id "$MOVIE_ID" '{titles:[{type:"movie",id:$id}]}')" 200 "state batch")
-jq -e '.[0].watched==true and .[0].watchlisted==true' <<<"$sb" >/dev/null || die "batch state incorrect"
+jq -e '.[0].watched==true and .[0].watchlisted==false' <<<"$sb" >/dev/null \
+    || die "batch state incorrect: marking a title watched must also clear its watchlist entry"
+expect_code 204 PUT "$API/users/$TEST_UID/watchlist/$MOVIE_ID" "$USER_TOKEN" "$(jq -nc '{type:"movie"}')"
+ok "watched cleared the watchlist entry; marker restored for the recovery proof"
 
 section "device link codes (as [$TEST_USER])"
 lc=$(call_ok POST "$API/auth/link/create" "$USER_TOKEN" "$(jq -nc '{}')" 200 "create link code")

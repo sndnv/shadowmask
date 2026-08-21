@@ -1,4 +1,5 @@
 use crate::common::Quality;
+use crate::metadata::ExternalId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedMedia {
@@ -7,6 +8,7 @@ pub struct ParsedMedia {
     pub season: Option<u16>,
     pub episode: Option<u16>,
     pub quality: Option<Quality>,
+    pub external_id: Option<ExternalId>,
 }
 
 impl ParsedMedia {

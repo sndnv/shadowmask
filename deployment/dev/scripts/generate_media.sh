@@ -29,6 +29,12 @@ domain) so that, with SHADOWMASK_TMDB_API_KEY set, a scan enriches them with rea
 metadata and artwork. One TV show ('Untitled Test Show') is intentionally unmatchable so
 the mismatch / manual-resolution path is visible too.
 
+Six further movies ('Untitled Test Movie NN') are also intentionally unmatchable. They
+exist to be relinked by hand in the UI, which is the quickest way to give the dev catalog
+titles that share a cast: point several of them at real films with an actor in common and
+the 'More with <actor>' rail on the title page has something to show. They also give the
+lists enough rows to exercise infinite scroll.
+
 After generating, trigger a library scan (admin UI, or POST /api/v1/libraries/{id}/scan)
 so the server ingests the new files.
 
@@ -48,6 +54,8 @@ Options:
 Environment overrides:
   MOVIES_DIR             movies library dir (default <deployment/dev>/media/movies)
   TV_DIR                 tv library dir     (default <deployment/dev>/media/tv)
+  UNMATCHED_MOVIES       how many 'Untitled Test Movie NN' fixtures to generate (default 6);
+                         raise it to give the lists enough rows for infinite scroll
   SHADOWMASK_CLIP_CACHE  download cache dir (default <deployment/dev>/media/.cache)"
 
 RESET=0
@@ -72,6 +80,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 DEV_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 MOVIES_DIR="${MOVIES_DIR:-$DEV_DIR/media/movies}"
 TV_DIR="${TV_DIR:-$DEV_DIR/media/tv}"
+UNMATCHED_MOVIES="${UNMATCHED_MOVIES:-6}"
 source "$SCRIPT_DIR/clips.sh"
 CLIP_CACHE_DIR=$(clip_cache_dir "$DEV_DIR")
 START_TS=$(date +%s)
@@ -201,6 +210,10 @@ add_movie "Cosmos Laundromat" 2015 "1080p" mkv
 add_movie "Spring"          2019 ""      mp4
 gen_hdr_fixture "$MOVIES_DIR/HDR Sample (2024)/HDR Sample (2024).mkv"
 ok "placed [HDR Sample (2024)] (HDR10 / PQ, for tone-map testing)"
+for ((n = 1; n <= UNMATCHED_MOVIES; n++)); do
+    add_movie "$(printf 'Untitled Test Movie %02d' "$n")" $((2000 + n)) "" mp4
+done
+ok "placed [$UNMATCHED_MOVIES] unmatchable movies for manual relinking"
 ok "movies done"
 
 section "tv -> [$TV_DIR]"

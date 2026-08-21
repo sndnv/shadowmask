@@ -1,22 +1,23 @@
 use std::future::Future;
 
 use crate::catalog::{
-    Collection, CollectionDetail, CollectionId, CollectionUpdate, Episode, EpisodeId, Movie,
-    MovieDetail, MovieId, NewCollection, PersonProfile, Season, SeasonId, Series, SeriesDetail,
-    SeriesId, TitleCard, TitleId, TitleListQuery, TitleRef, Version, VersionDetail, VersionId,
+    Collection, CollectionDetail, CollectionId, CollectionUpdate, Episode, EpisodeCard,
+    EpisodeEdit, EpisodeId, Movie, MovieDetail, MovieEdit, MovieId, NewCollection, PersonProfile,
+    RandomScope, Season, SeasonCard, SeasonId, Series, SeriesDetail, SeriesEdit, SeriesId,
+    TitleCard, TitleId, TitleKind, TitleListQuery, TitleRef, Version, VersionDetail, VersionId,
 };
 use crate::common::{Page, PageRequest};
 use crate::discovery::{ContinueWatchingItem, Hub, SearchKind, SearchResult};
 use crate::error::{
     AuthError, CatalogError, DiscoveryError, JobServiceError, LibraryError, SessionError, UserError,
 };
-use crate::job::{Job, JobId};
+use crate::job::{Job, JobId, JobNode, JobPage, JobQuery};
 use crate::library::{
     DuplicateCandidate, DuplicateCandidateId, FetchInput, Library, LibraryId, LibraryUpdate,
     NewLibrary, ResolveCandidate, ResolveTarget, ScanState, UnmatchedFile, UnmatchedFileId,
 };
 use crate::media::SubtitleFileId;
-use crate::metadata::{ExternalId, Genre, PersonId};
+use crate::metadata::{ExternalId, Genre, Person, PersonId};
 use crate::playback::{
     Favorite, PlaybackProgress, TitleState, WatchHistory, WatchTarget, WatchedRollup, WatchlistItem,
 };
@@ -96,6 +97,16 @@ pub trait CatalogService {
         caller: &Principal,
         id: &CollectionId,
     ) -> impl Future<Output = Result<CollectionDetail, CatalogError>> + Send;
+    fn movie_collections(
+        &self,
+        caller: &Principal,
+        movie: &MovieId,
+    ) -> impl Future<Output = Result<Vec<CollectionDetail>, CatalogError>> + Send;
+    fn people_cards(
+        &self,
+        caller: &Principal,
+        ids: &[PersonId],
+    ) -> impl Future<Output = Result<Vec<Person>, CatalogError>> + Send;
     fn create_collection(
         &self,
         caller: &Principal,
@@ -143,7 +154,7 @@ pub trait CatalogService {
         &self,
         caller: &Principal,
         id: &SeasonId,
-    ) -> impl Future<Output = Result<Season, CatalogError>> + Send;
+    ) -> impl Future<Output = Result<SeasonCard, CatalogError>> + Send;
     fn episodes(
         &self,
         caller: &Principal,
@@ -153,7 +164,7 @@ pub trait CatalogService {
         &self,
         caller: &Principal,
         id: &EpisodeId,
-    ) -> impl Future<Output = Result<Episode, CatalogError>> + Send;
+    ) -> impl Future<Output = Result<EpisodeCard, CatalogError>> + Send;
     fn versions(
         &self,
         caller: &Principal,
@@ -184,12 +195,19 @@ pub trait CatalogService {
     fn genres(
         &self,
         caller: &Principal,
+        kind: Option<TitleKind>,
     ) -> impl Future<Output = Result<Vec<Genre>, CatalogError>> + Send;
     fn title_cards(
         &self,
         caller: &Principal,
         ids: &[TitleId],
     ) -> impl Future<Output = Result<Vec<TitleCard>, CatalogError>> + Send;
+    fn random(
+        &self,
+        caller: &Principal,
+        scope: &RandomScope,
+        query: &TitleListQuery,
+    ) -> impl Future<Output = Result<VersionId, CatalogError>> + Send;
 }
 
 pub trait SessionService {
@@ -221,6 +239,10 @@ pub trait SessionService {
         &self,
         caller: &Principal,
         session: &SessionId,
+    ) -> impl Future<Output = Result<(), SessionError>> + Send;
+    fn end_all_for_user(
+        &self,
+        user: &UserId,
     ) -> impl Future<Output = Result<(), SessionError>> + Send;
     fn active_sessions(
         &self,
@@ -303,17 +325,35 @@ pub trait LibraryService {
         id: &LibraryId,
         duplicate: &DuplicateCandidateId,
     ) -> impl Future<Output = Result<(), LibraryError>> + Send;
-    fn resolve_duplicate(
-        &self,
-        caller: &Principal,
-        id: &LibraryId,
-        duplicate: &DuplicateCandidateId,
-    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
     fn reidentify(
         &self,
         caller: &Principal,
         title: TitleRef,
         external_id: Option<ExternalId>,
+        force: bool,
+    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    fn edit_movie(
+        &self,
+        caller: &Principal,
+        id: &MovieId,
+        edit: MovieEdit,
+    ) -> impl Future<Output = Result<Movie, LibraryError>> + Send;
+    fn edit_series(
+        &self,
+        caller: &Principal,
+        id: &SeriesId,
+        edit: SeriesEdit,
+    ) -> impl Future<Output = Result<Series, LibraryError>> + Send;
+    fn edit_episode(
+        &self,
+        caller: &Principal,
+        id: &EpisodeId,
+        edit: EpisodeEdit,
+    ) -> impl Future<Output = Result<Episode, LibraryError>> + Send;
+    fn refresh_library_metadata(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
     ) -> impl Future<Output = Result<(), LibraryError>> + Send;
     fn refresh_person(
         &self,
@@ -325,6 +365,37 @@ pub trait LibraryService {
         caller: &Principal,
         version: &VersionId,
         target: ResolveTarget,
+    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    fn relink_series(
+        &self,
+        caller: &Principal,
+        series: &SeriesId,
+        target: ResolveTarget,
+    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    fn delete_version(
+        &self,
+        caller: &Principal,
+        version: &VersionId,
+    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    fn delete_movie(
+        &self,
+        caller: &Principal,
+        movie: &MovieId,
+    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    fn delete_series(
+        &self,
+        caller: &Principal,
+        series: &SeriesId,
+    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    fn delete_season(
+        &self,
+        caller: &Principal,
+        season: &SeasonId,
+    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    fn delete_episode(
+        &self,
+        caller: &Principal,
+        episode: &EpisodeId,
     ) -> impl Future<Output = Result<(), LibraryError>> + Send;
     fn trigger_transcription(
         &self,
@@ -359,12 +430,20 @@ pub trait JobService {
     fn jobs(
         &self,
         caller: &Principal,
-    ) -> impl Future<Output = Result<Vec<Job>, JobServiceError>> + Send;
+        query: &JobQuery,
+        page: PageRequest,
+    ) -> impl Future<Output = Result<JobPage, JobServiceError>> + Send;
     fn job(
         &self,
         caller: &Principal,
         id: &JobId,
     ) -> impl Future<Output = Result<Option<Job>, JobServiceError>> + Send;
+    fn job_descendants(
+        &self,
+        caller: &Principal,
+        id: &JobId,
+        page: PageRequest,
+    ) -> impl Future<Output = Result<Page<JobNode>, JobServiceError>> + Send;
     fn cancel_job(
         &self,
         caller: &Principal,
@@ -382,7 +461,17 @@ pub trait UserService {
         id: &UserId,
         update: UserProfileUpdate,
     ) -> impl Future<Output = Result<User, UserError>> + Send;
-    fn delete(&self, id: &UserId) -> impl Future<Output = Result<(), UserError>> + Send;
+    fn delete(
+        &self,
+        caller: &Principal,
+        id: &UserId,
+    ) -> impl Future<Output = Result<(), UserError>> + Send;
+    fn set_active(
+        &self,
+        caller: &Principal,
+        id: &UserId,
+        active: bool,
+    ) -> impl Future<Output = Result<User, UserError>> + Send;
     fn library_access(
         &self,
         id: &UserId,
@@ -435,6 +524,12 @@ pub trait UserLibraryService {
         user: &UserId,
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<WatchHistory>, UserError>> + Send;
+    fn remove_from_history(
+        &self,
+        user: &UserId,
+        title_id: &str,
+    ) -> impl Future<Output = Result<(), UserError>> + Send;
+    fn clear_history(&self, user: &UserId) -> impl Future<Output = Result<(), UserError>> + Send;
     fn progress(
         &self,
         user: &UserId,
@@ -482,7 +577,7 @@ pub trait DiscoveryService {
     fn next_episodes(
         &self,
         user: &UserId,
-    ) -> impl Future<Output = Result<Vec<Episode>, DiscoveryError>> + Send;
+    ) -> impl Future<Output = Result<Vec<EpisodeCard>, DiscoveryError>> + Send;
     fn next_movies(
         &self,
         user: &UserId,

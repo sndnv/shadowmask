@@ -2,11 +2,17 @@ mod collection;
 mod combine_request;
 mod create_collection_request;
 mod detail;
+mod download_link_response;
 mod download_subtitle_request;
+mod edit_episode_request;
+mod edit_movie_request;
+mod edit_series_request;
 mod episode;
 mod movie;
 mod movie_detail;
+mod people_batch_request;
 mod person_profile;
+mod random_pick_response;
 mod refresh_request;
 mod relink_request;
 mod rename_subtitle_request;
@@ -30,11 +36,17 @@ pub use detail::{
     CreditDto, CreditRoleDto, ExternalIdDto, ExtraDto, ExtraKindDto, GenreDto, PersonRefDto,
     RatingDto, StudioDto,
 };
+pub use download_link_response::DownloadLinkResponse;
 pub use download_subtitle_request::DownloadSubtitleRequest;
+pub use edit_episode_request::EditEpisodeRequest;
+pub use edit_movie_request::EditMovieRequest;
+pub use edit_series_request::EditSeriesRequest;
 pub use episode::EpisodeResponse;
 pub use movie::MovieResponse;
 pub use movie_detail::MovieDetailResponse;
+pub use people_batch_request::PeopleBatchRequest;
 pub use person_profile::{FilmographyEntryDto, PersonProfileResponse};
+pub use random_pick_response::RandomPickResponse;
 pub use refresh_request::{ExternalIdInput, RefreshRequest};
 pub use relink_request::RelinkRequest;
 pub use rename_subtitle_request::RenameSubtitleRequest;

@@ -39,6 +39,17 @@ impl ContentRating {
             .map(|entry| entry.2)
     }
 
+    pub fn known_systems() -> Vec<(&'static str, Vec<&'static str>)> {
+        let mut systems: Vec<(&'static str, Vec<&'static str>)> = Vec::new();
+        for (system, code, _) in AGE_TABLE {
+            match systems.iter_mut().find(|(name, _)| name == system) {
+                Some((_, codes)) => codes.push(code),
+                None => systems.push((system, vec![code])),
+            }
+        }
+        systems
+    }
+
     pub fn blocked_by(cap: Option<&ContentRating>) -> Vec<ContentRating> {
         let Some(cap_floor) = cap.and_then(ContentRating::age_floor) else {
             return Vec::new();
@@ -71,6 +82,17 @@ mod tests {
         assert_eq!(rating("US-TV", "TV-MA").age_floor(), Some(17));
         assert_eq!(rating("BBFC", "18").age_floor(), Some(18));
         assert_eq!(rating("de-fsk", "6").age_floor(), Some(6));
+    }
+
+    #[test]
+    fn known_systems_group_their_codes_in_table_order() {
+        let systems = ContentRating::known_systems();
+
+        let names: Vec<&str> = systems.iter().map(|(name, _)| *name).collect();
+        assert_eq!(names, vec!["mpaa", "us-tv", "bbfc", "de-fsk"]);
+        let mpaa = &systems.first().unwrap().1;
+        assert_eq!(mpaa, &vec!["g", "pg", "pg-13", "r", "nc-17"]);
+        assert!(systems.iter().all(|(_, codes)| !codes.is_empty()));
     }
 
     #[test]

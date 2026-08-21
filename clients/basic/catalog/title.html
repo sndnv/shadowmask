@@ -175,8 +175,26 @@
         const movieControls = await sm.libraryControls("movie", id);
         main.appendChild(movieControls);
         if (me && me.role === "admin") {
+          const held = ((versions && versions.items) || []).length;
           movieControls.appendChild(document.createTextNode(" "));
           movieControls.appendChild(sm.refreshMetadataButton("movies", id));
+          movieControls.appendChild(document.createTextNode(" "));
+          movieControls.appendChild(
+            sm.deleteTitleButton(
+              "movies",
+              id,
+              d.title,
+              held === 0
+                ? null
+                : "Remove its " +
+                    held +
+                    (held === 1 ? " remaining version" : " remaining versions") +
+                    " first.",
+              () => {
+                window.location.href = sm.url("catalog/movies.html");
+              },
+            ),
+          );
         }
         main.appendChild(picker.node);
       }
@@ -229,6 +247,25 @@
         if (me && me.role === "admin") {
           seriesControls.appendChild(document.createTextNode(" "));
           seriesControls.appendChild(sm.refreshMetadataButton("series", id));
+          seriesControls.appendChild(document.createTextNode(" "));
+          seriesControls.appendChild(
+            sm.deleteTitleButton(
+              "series",
+              id,
+              d.title,
+              seasons.length === 0
+                ? null
+                : "Delete its " +
+                    seasons.length +
+                    (seasons.length === 1
+                      ? " remaining season"
+                      : " remaining seasons") +
+                    " first.",
+              () => {
+                window.location.href = sm.url("catalog/series.html");
+              },
+            ),
+          );
         }
         main.appendChild(sm.el("h2", { text: "Seasons (" + seasons.length + ")" }));
         if (!seasons.length) {

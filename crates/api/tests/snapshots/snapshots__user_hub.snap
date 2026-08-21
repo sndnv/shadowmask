@@ -5,7 +5,72 @@ expression: value
 {
   "body": [
     {
-      "id": "recent",
+      "id": "watchlist",
+      "items": [
+        {
+          "added_at": "2023-11-14T22:13:24Z",
+          "air_date": "2023-11-14T22:13:23Z",
+          "artwork": {
+            "backdrops": [
+              {
+                "base": "/images/e1-backdrop",
+                "widths": [
+                  480,
+                  960
+                ]
+              }
+            ],
+            "posters": [
+              {
+                "base": "/images/e1-poster",
+                "widths": [
+                  180,
+                  480,
+                  960
+                ]
+              }
+            ]
+          },
+          "id": "e1",
+          "manually_edited": false,
+          "number": 1,
+          "overview": null,
+          "runtime_minutes": 42,
+          "season_id": "se1",
+          "season_number": 1,
+          "season_title": "Season 1",
+          "series_artwork": {
+            "backdrops": [
+              {
+                "base": "/images/s1-backdrop",
+                "widths": [
+                  480,
+                  960
+                ]
+              }
+            ],
+            "posters": [
+              {
+                "base": "/images/s1-poster",
+                "widths": [
+                  180,
+                  480,
+                  960
+                ]
+              }
+            ]
+          },
+          "series_id": "s1",
+          "series_title": "Alpha s1",
+          "title": "Alpha e1",
+          "type": "episode",
+          "updated_at": "2023-11-14T22:13:24Z"
+        }
+      ],
+      "title": "On Your Watchlist"
+    },
+    {
+      "id": "recently_added_movies",
       "items": [
         {
           "added_at": "2023-11-14T22:13:21Z",
@@ -35,13 +100,20 @@ expression: value
             "system": "MPAA"
           },
           "id": "m1",
+          "manually_edited": false,
           "overview": "overview",
           "runtime_minutes": 100,
           "title": "Alpha m1",
           "type": "movie",
           "updated_at": "2023-11-14T22:13:21Z",
           "year": 2020
-        },
+        }
+      ],
+      "title": "Recently Added Movies"
+    },
+    {
+      "id": "recently_added_shows",
+      "items": [
         {
           "added_at": "2023-11-14T22:13:22Z",
           "artwork": {
@@ -69,7 +141,9 @@ expression: value
             "code": "TV-14",
             "system": "TV"
           },
+          "episode_count": 1,
           "id": "s1",
+          "manually_edited": false,
           "overview": null,
           "title": "Alpha s1",
           "type": "series",
@@ -77,7 +151,49 @@ expression: value
           "year": 2019
         }
       ],
-      "title": "Recently Added"
+      "title": "Recently Added Series"
+    },
+    {
+      "id": "continue_watching",
+      "items": [
+        {
+          "added_at": "2023-11-14T22:13:21Z",
+          "artwork": {
+            "backdrops": [
+              {
+                "base": "/images/m1-backdrop",
+                "widths": [
+                  480,
+                  960
+                ]
+              }
+            ],
+            "posters": [
+              {
+                "base": "/images/m1-poster",
+                "widths": [
+                  180,
+                  480,
+                  960
+                ]
+              }
+            ]
+          },
+          "content_rating": {
+            "code": "PG-13",
+            "system": "MPAA"
+          },
+          "id": "m1",
+          "manually_edited": false,
+          "overview": "overview",
+          "runtime_minutes": 100,
+          "title": "Alpha m1",
+          "type": "movie",
+          "updated_at": "2023-11-14T22:13:21Z",
+          "year": 2020
+        }
+      ],
+      "title": "Continue Watching"
     }
   ],
   "status": 200

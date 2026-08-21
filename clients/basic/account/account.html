@@ -128,11 +128,13 @@
             c.season_number != null
               ? sm.episodeCode(c.season_number, c.number)
               : "Episode " + c.number;
+          const hasSeries = !!c.series_title;
           return {
             href: sm.href.episode(c.id, c.season_id),
-            artwork: c.artwork,
-            title: c.series_title || c.title,
+            artwork: hasSeries ? c.series_artwork : c.artwork,
+            title: hasSeries ? c.series_title : c.title,
             subtitle,
+            caption: hasSeries ? c.title : null,
           };
         }
         return {

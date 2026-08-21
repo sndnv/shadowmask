@@ -33,6 +33,7 @@ pub struct Library {
     pub watcher: WatcherStrategy,
     pub scan_schedule: Option<String>,
     pub metadata_sources: Vec<String>,
+    pub sort_articles: Vec<String>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
 }

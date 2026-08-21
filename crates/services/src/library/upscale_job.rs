@@ -1,8 +1,9 @@
 use domain::catalog::VersionId;
-use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
+use domain::job::{Job, JobKind, JobPriority};
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+
+use crate::job::{encode_payload, queued_job};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpscaleJobPayload {
@@ -11,8 +12,8 @@ pub struct UpscaleJobPayload {
 }
 
 impl UpscaleJobPayload {
-    pub fn encode(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string(&Wire::from(self))
+    pub fn encode(&self) -> String {
+        encode_payload(&Wire::from(self))
     }
 
     pub fn decode(raw: &str) -> Result<Self, serde_json::Error> {
@@ -25,25 +26,14 @@ pub fn upscale_job(version_id: &VersionId, target_height: u32) -> Job {
         version_id: version_id.clone(),
         target_height,
     }
-    .encode()
-    .expect("upscale job payload serializes");
-    let now = Timestamp::now();
-    Job {
-        id: JobId(Uuid::new_v4().to_string()),
-        kind: JobKind::Upscale,
-        status: JobStatus::Queued,
-        priority: JobPriority::Low,
-        payload: raw,
-        attempts: 0,
-        progress: 0.0,
-        available_at: now,
-        last_error: None,
-        created_at: now,
-        updated_at: now,
-        started_at: None,
-        finished_at: None,
-        parent_id: None,
-    }
+    .encode();
+    queued_job(
+        JobKind::Upscale,
+        JobPriority::Low,
+        raw,
+        None,
+        Timestamp::now(),
+    )
 }
 
 #[derive(Serialize, Deserialize)]
@@ -80,7 +70,7 @@ mod tests {
             version_id: VersionId("v1".into()),
             target_height: 1080,
         };
-        let encoded = payload.encode().unwrap();
+        let encoded = payload.encode();
         assert_eq!(UpscaleJobPayload::decode(&encoded).unwrap(), payload);
     }
 

@@ -1,0 +1,13 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "error": {
+      "code": "not_empty",
+      "message": "the episode still has versions"
+    }
+  },
+  "status": 409
+}

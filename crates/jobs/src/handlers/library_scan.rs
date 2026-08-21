@@ -60,7 +60,20 @@ where
             .await
             .map_err(retryable)?;
 
-        match self.scanner.scan(&library).await {
+        let repo = &self.repo;
+        let scanned = self
+            .scanner
+            .scan(&library, |done, total| {
+                let state = probing(&id, started, done, total);
+                async move {
+                    if let Err(err) = repo.save_scan_state(state).await {
+                        tracing::warn!("could not report scan progress: {err}");
+                    }
+                }
+            })
+            .await;
+
+        match scanned {
             Ok(report) => {
                 self.repo
                     .save_scan_state(idle(&id, started, Timestamp::now()))
@@ -99,6 +112,17 @@ fn running(id: &LibraryId, started: Timestamp) -> ScanState {
     }
 }
 
+fn probing(id: &LibraryId, started: Timestamp, done: u32, total: u32) -> ScanState {
+    ScanState {
+        library: id.clone(),
+        status: ScanStatus::Running,
+        progress: f64::from(done) as f32 / f64::from(total.max(1)) as f32,
+        started_at: Some(started),
+        last_scanned_at: None,
+        error: None,
+    }
+}
+
 fn idle(id: &LibraryId, started: Timestamp, now: Timestamp) -> ScanState {
     ScanState {
         library: id.clone(),
@@ -131,8 +155,8 @@ mod tests {
     use domain::library::{
         Library, LibraryKind, LibraryOrigin, ScanReport, WalkedEntry, WatcherStrategy,
     };
+    use mocks::{MockLibraryRepo, MockMediaProbe, MockSourceWalker};
     use services::library::NoopEnricher;
-    use services::mock::{MockLibraryRepo, MockMediaProbe, MockSourceWalker};
 
     #[derive(Clone)]
     struct SpyEnricher {
@@ -152,6 +176,7 @@ mod tests {
             origin: LibraryOrigin::Local,
             kind: LibraryKind::Movie,
             roots: roots.iter().map(|r| (*r).into()).collect(),
+            sort_articles: Vec::new(),
             watcher: WatcherStrategy::Manual,
             scan_schedule: None,
             metadata_sources: Vec::new(),
@@ -212,6 +237,31 @@ mod tests {
         assert_eq!(state.progress, 1.0);
         assert!(state.started_at.is_some());
         assert!(state.last_scanned_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn a_long_scan_moves_the_progress_bar_while_it_runs() {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(library(&["/m"]));
+        let walker = MockSourceWalker::new().with_entries(
+            "/m",
+            (0..500)
+                .map(|n| WalkedEntry {
+                    path: format!("/m/movie{n}.mkv"),
+                    size_bytes: 1,
+                })
+                .collect(),
+        );
+        let handler = handler(repo.clone(), walker, MockMediaProbe::new());
+
+        handler.handle(&scan_job("lib")).await.unwrap();
+
+        assert_eq!(
+            repo.recorded_scan_progress(),
+            vec![0.0, 0.4, 0.8, 1.0],
+            "an admin watching a long scan saw zero until it finished, because \
+             nothing wrote a state between the running and idle rows"
+        );
     }
 
     #[tokio::test]
@@ -288,8 +338,8 @@ mod tests {
         use domain::repository::JobRepository;
         use domain::service::LibraryService;
         use domain::user::{Principal, Role, UserId};
+        use mocks::{MockCatalogRepo, MockJobStore, MockMetadataProvider, MockUserRepo};
         use services::library::LibraryServiceImpl;
-        use services::mock::{MockCatalogRepo, MockJobStore, MockMetadataProvider, MockUserRepo};
 
         let repo = MockLibraryRepo::new();
         repo.insert_library(library(&["/m"]));

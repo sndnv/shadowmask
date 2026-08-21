@@ -1,0 +1,10 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "version_id": "ev1"
+  },
+  "status": 200
+}
