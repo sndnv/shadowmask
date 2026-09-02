@@ -1,0 +1,37 @@
+name: shadowmask
+description: "Shadowmask Flutter client (web-first)."
+version: 1.0.0-SNAPSHOT
+
+publish_to: 'none'
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  fluro: ^2.0.5
+  http: ^1.6.0
+  freezed_annotation: ^3.1.0
+  json_annotation: ^4.12.0
+  shared_preferences: ^2.5.5
+  flutter_svg: ^2.3.0
+  intl: ^0.20.3
+  web: ^1.1.0
+  flutter_dotenv: ^6.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+  build_runner: ^2.15.1
+  freezed: ^4.0.0
+  json_serializable: ^6.14.1
+
+flutter:
+  uses-material-design: true

@@ -1,0 +1,98 @@
+const Map<String, String> kLanguages = <String, String>{
+  'afr': 'Afrikaans',
+  'sqi': 'Albanian',
+  'amh': 'Amharic',
+  'ara': 'Arabic',
+  'hye': 'Armenian',
+  'aze': 'Azerbaijani',
+  'eus': 'Basque',
+  'bel': 'Belarusian',
+  'ben': 'Bengali',
+  'bos': 'Bosnian',
+  'bul': 'Bulgarian',
+  'mya': 'Burmese',
+  'cat': 'Catalan',
+  'zho': 'Chinese',
+  'hrv': 'Croatian',
+  'ces': 'Czech',
+  'dan': 'Danish',
+  'nld': 'Dutch',
+  'eng': 'English',
+  'epo': 'Esperanto',
+  'est': 'Estonian',
+  'fil': 'Filipino',
+  'fin': 'Finnish',
+  'fra': 'French',
+  'glg': 'Galician',
+  'kat': 'Georgian',
+  'deu': 'German',
+  'ell': 'Greek',
+  'heb': 'Hebrew',
+  'hin': 'Hindi',
+  'hun': 'Hungarian',
+  'isl': 'Icelandic',
+  'ind': 'Indonesian',
+  'gle': 'Irish',
+  'ita': 'Italian',
+  'jpn': 'Japanese',
+  'kan': 'Kannada',
+  'kaz': 'Kazakh',
+  'khm': 'Khmer',
+  'kor': 'Korean',
+  'kur': 'Kurdish',
+  'lao': 'Lao',
+  'lat': 'Latin',
+  'lav': 'Latvian',
+  'lit': 'Lithuanian',
+  'mkd': 'Macedonian',
+  'msa': 'Malay',
+  'mal': 'Malayalam',
+  'mlt': 'Maltese',
+  'mar': 'Marathi',
+  'mon': 'Mongolian',
+  'nep': 'Nepali',
+  'nor': 'Norwegian',
+  'fas': 'Persian',
+  'pol': 'Polish',
+  'por': 'Portuguese',
+  'pan': 'Punjabi',
+  'ron': 'Romanian',
+  'rus': 'Russian',
+  'srp': 'Serbian',
+  'sin': 'Sinhala',
+  'slk': 'Slovak',
+  'slv': 'Slovenian',
+  'som': 'Somali',
+  'spa': 'Spanish',
+  'swa': 'Swahili',
+  'swe': 'Swedish',
+  'tgl': 'Tagalog',
+  'tam': 'Tamil',
+  'tel': 'Telugu',
+  'tha': 'Thai',
+  'tur': 'Turkish',
+  'ukr': 'Ukrainian',
+  'urd': 'Urdu',
+  'uzb': 'Uzbek',
+  'vie': 'Vietnamese',
+  'cym': 'Welsh',
+  'yid': 'Yiddish',
+  'zul': 'Zulu',
+};
+
+String languageLabel(String code) =>
+    kLanguages[code.toLowerCase()] ?? code.toUpperCase();
+
+List<(String, String)> languageOptions({String? keep}) {
+  final List<(String, String)> options = kLanguages.entries
+      .map((MapEntry<String, String> e) => (e.key, e.value))
+      .toList();
+  final String? extra = keep?.toLowerCase();
+  if (extra != null && extra.isNotEmpty && !kLanguages.containsKey(extra)) {
+    options.add((keep!, languageLabel(keep)));
+  }
+  options.sort(
+    ((String, String) a, (String, String) b) => a.$2.compareTo(b.$2),
+  );
+  return options;
+}

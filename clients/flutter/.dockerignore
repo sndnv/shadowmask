@@ -1,0 +1,7 @@
+.dart_tool/
+.idea/
+__pycache__/
+coverage/
+*.iml
+build/*
+!build/web

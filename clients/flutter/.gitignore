@@ -1,0 +1,36 @@
+# Dart / Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub/
+.pub-cache/
+build/
+**/doc/api/
+
+# Generated sources; regenerate with `dart run build_runner build`
+*.g.dart
+*.freezed.dart
+*.mocks.dart
+
+# Coverage
+coverage/
+
+# Runtime configuration; copied from deployment/dev/.env.template
+web/assets/.env
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+
+# Misc
+*.log
+*.swp
+.DS_Store
+__pycache__/
