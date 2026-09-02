@@ -26,6 +26,13 @@ impl SubtitleStore for FsSubtitleStore {
         format: SubtitleFormat,
         content: &str,
     ) -> Result<String, SubtitleError> {
+        if !crate::derived_assets::is_plain_name(&version.0)
+            || !crate::derived_assets::is_plain_name(file_id)
+        {
+            return Err(SubtitleError::Store(
+                "refusing to write a subtitle outside the store".to_owned(),
+            ));
+        }
         let dir = self.root.join(&version.0);
         tokio::fs::create_dir_all(&dir)
             .await
@@ -116,6 +123,38 @@ mod tests {
             .await
             .expect_err("store under a file path must fail");
         assert!(matches!(err, SubtitleError::Store(_)));
+    }
+
+    #[tokio::test]
+    async fn a_traversing_file_id_or_version_never_escapes_the_store() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("subtitles");
+        let store = FsSubtitleStore::new(&root);
+        let outside = dir.path().join("escaped.srt");
+
+        for (version, file_id) in [
+            ("v1", "../../escaped"),
+            ("../..", "file-42"),
+            ("v1", ".."),
+            ("v1", "nested/file-42"),
+        ] {
+            let err = store
+                .store(
+                    &VersionId(version.to_owned()),
+                    file_id,
+                    SubtitleFormat::Srt,
+                    "1\npwned\n",
+                )
+                .await
+                .expect_err("a path component that is not a plain name must be refused");
+            assert!(matches!(err, SubtitleError::Store(_)));
+        }
+
+        assert!(!outside.exists(), "nothing is written outside the root");
+        assert!(
+            !root.exists(),
+            "a refused write does not even create the root"
+        );
     }
 
     #[tokio::test]

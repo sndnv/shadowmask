@@ -103,7 +103,7 @@ pub(crate) async fn remove_dir(root: &Path, owner: &str) -> Result<(), CacheErro
     }
 }
 
-fn is_plain_name(owner: &str) -> bool {
+pub(crate) fn is_plain_name(owner: &str) -> bool {
     let mut components = Path::new(owner).components();
     matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
 }
