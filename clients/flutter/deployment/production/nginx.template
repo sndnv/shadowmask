@@ -1,0 +1,37 @@
+worker_processes  1;
+
+error_log  /var/log/nginx/error.log warn;
+pid        /var/run/nginx.pid;
+
+events {
+  worker_connections  1024;
+}
+
+http {
+  include       /etc/nginx/mime.types;
+  default_type  application/octet-stream;
+
+  server {
+    server_name         ${NGINX_SERVER_NAME};
+    listen              ${NGINX_SERVER_PORT};
+    ${NGINX_SERVER_SSL_CERTIFICATE_LINE}
+    ${NGINX_SERVER_SSL_CERTIFICATE_KEY_LINE}
+    ${NGINX_SERVER_SSL_PROTOCOLS_LINE}
+    ${NGINX_SERVER_SSL_CIPHERS_LINE}
+
+    if ($request_uri ~ "//") {
+        return 301 $uri;
+    }
+
+    root   /usr/share/nginx/html;
+    index  index.html;
+
+    location = /assets/.env {
+      add_header Cache-Control "no-store" always;
+    }
+
+    location / {
+      try_files $uri $uri/ /index.html;
+    }
+  }
+}

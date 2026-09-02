@@ -34,8 +34,10 @@ assets/
   bundle above. It is distributed alongside `hls.min.js` so the licence travels
   with the redistributed file into both container images. Update it whenever the
   bundle is replaced.
-- `screenshots/*.png` - Flutter web client captures used by the root `README.md`.
-  Not distributed to any client.
+- `screenshots/*.jpg` - Flutter web client captures used by the root `README.md`.
+  Not distributed to any client. JPEG rather than PNG on purpose: the same set as
+  lossless PNG was 17 MB, which is a lot to carry in history for images GitHub
+  renders at under 900px.
 
 ## Usage
 
