@@ -433,6 +433,8 @@ mod tests {
                 user: user(),
                 version: VersionId("v1".into()),
                 position_ms: 1234,
+                audio_track: None,
+                subtitle: None,
                 updated_at: Timestamp::UNIX_EPOCH,
             })
             .await
@@ -478,6 +480,8 @@ mod tests {
                 user: user(),
                 version: VersionId("v1".into()),
                 position_ms: 1234,
+                audio_track: None,
+                subtitle: None,
                 updated_at: Timestamp::UNIX_EPOCH,
             })
             .await
@@ -498,6 +502,8 @@ mod tests {
                 user: user(),
                 version: VersionId("v1".into()),
                 position_ms: 1234,
+                audio_track: None,
+                subtitle: None,
                 updated_at: Timestamp::UNIX_EPOCH,
             })
             .await
@@ -649,6 +655,8 @@ mod tests {
                     user: user(),
                     version: VersionId(id.into()),
                     position_ms,
+                    audio_track: None,
+                    subtitle: None,
                     updated_at: Timestamp::UNIX_EPOCH + SignedDuration::from_secs(seconds),
                 })
                 .await
@@ -688,6 +696,8 @@ mod tests {
                 user: user(),
                 version: VersionId("v1".into()),
                 position_ms: 0,
+                audio_track: None,
+                subtitle: None,
                 updated_at: Timestamp::UNIX_EPOCH,
             })
             .await
@@ -718,6 +728,8 @@ mod tests {
                 user: user(),
                 version: VersionId("gone".into()),
                 position_ms: 500,
+                audio_track: None,
+                subtitle: None,
                 updated_at: Timestamp::UNIX_EPOCH,
             })
             .await

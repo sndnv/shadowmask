@@ -11,14 +11,16 @@ expression: value
       "intro": []
     },
     "mode": "remux",
+    "origin_ms": 0,
     "selected": {
-      "audio_track": null,
+      "audio_track": 1,
       "subtitle_delivery": "hls_vtt",
       "subtitle_track": {
         "index": 1,
         "type": "embedded"
       }
     },
+    "sequential": false,
     "session_id": "[session_id]",
     "trickplay": []
   },

@@ -203,6 +203,8 @@ impl Generator {
             user: u1,
             version: VersionId("v1".into()),
             position_ms: 300,
+            audio_track: None,
+            subtitle: None,
             updated_at: ts(20),
         });
     }

@@ -84,6 +84,8 @@ async fn racing_heartbeats_serialize_to_last_writer() {
                 user,
                 version,
                 position_ms: i * 1000,
+                audio_track: None,
+                subtitle: None,
                 updated_at: at(1_700_000_000 + i as i64),
             })
             .await

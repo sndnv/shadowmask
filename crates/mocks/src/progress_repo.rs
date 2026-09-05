@@ -248,6 +248,8 @@ mod tests {
             user: user(),
             version: VersionId(version.to_owned()),
             position_ms,
+            audio_track: None,
+            subtitle: None,
             updated_at: Timestamp::UNIX_EPOCH,
         }
     }

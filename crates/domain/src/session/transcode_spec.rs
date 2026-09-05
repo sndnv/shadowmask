@@ -1,5 +1,5 @@
 use crate::media::HdrFormat;
-use crate::session::SessionId;
+use crate::session::{SegmentContainer, SessionId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TranscodeSpec {
@@ -7,6 +7,7 @@ pub struct TranscodeSpec {
     pub input_path: String,
     pub duration_ms: u64,
     pub copy: bool,
+    pub container: SegmentContainer,
     pub seek_ms: Option<u64>,
     pub audio_track: Option<u32>,
     pub max_height: Option<u32>,

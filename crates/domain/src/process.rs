@@ -9,6 +9,24 @@ pub struct CommandOutput {
     pub status: String,
 }
 
+impl CommandOutput {
+    pub fn failure_detail(&self, max_lines: usize) -> String {
+        let text = if self.stderr.trim().is_empty() {
+            self.stdout.trim_end()
+        } else {
+            self.stderr.trim_end()
+        };
+        let lines: Vec<&str> = text.lines().collect();
+        if lines.is_empty() {
+            return match self.status.trim() {
+                "" => "no diagnostic output captured".to_owned(),
+                status => format!("no diagnostic output captured ({status})"),
+            };
+        }
+        lines[lines.len().saturating_sub(max_lines)..].join("\n")
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputStream {
     Stdout,
@@ -48,5 +66,62 @@ pub trait ProcessSpawner: Send + Sync {
             }
             Ok(output)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failure_detail_tails_stderr_to_the_last_lines() {
+        let stderr = (0..20)
+            .map(|i| format!("L{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let detail = CommandOutput {
+            success: false,
+            stderr,
+            status: "exit code 1".to_owned(),
+            ..CommandOutput::default()
+        }
+        .failure_detail(15);
+        assert!(detail.contains("L19"));
+        assert!(detail.contains("L5"));
+        assert!(!detail.contains("L4"));
+    }
+
+    #[test]
+    fn failure_detail_falls_back_to_stdout_when_stderr_is_empty() {
+        let detail = CommandOutput {
+            success: false,
+            stdout: "only stdout diagnostic".to_owned(),
+            status: "exit code 1".to_owned(),
+            ..CommandOutput::default()
+        }
+        .failure_detail(15);
+        assert!(detail.contains("only stdout diagnostic"));
+    }
+
+    #[test]
+    fn failure_detail_without_output_reports_the_status() {
+        let detail = CommandOutput {
+            success: false,
+            status: "terminated by signal 4".to_owned(),
+            ..CommandOutput::default()
+        }
+        .failure_detail(15);
+        assert_eq!(
+            detail,
+            "no diagnostic output captured (terminated by signal 4)"
+        );
+    }
+
+    #[test]
+    fn failure_detail_without_output_or_status_is_labelled() {
+        assert_eq!(
+            CommandOutput::default().failure_detail(15),
+            "no diagnostic output captured"
+        );
     }
 }

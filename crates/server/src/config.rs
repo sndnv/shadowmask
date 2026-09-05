@@ -88,6 +88,7 @@ pub struct Config {
     pub reindex_every_secs: i64,
     pub daily_scan_at: Option<String>,
     pub transcode_cache_cap_bytes: u64,
+    pub remux_read_rate: f64,
     pub cache_eviction_every_secs: i64,
     pub job_retention_days: i64,
     pub retention_every_secs: i64,
@@ -138,6 +139,7 @@ impl Default for Config {
             reindex_every_secs: 3600,
             daily_scan_at: None,
             transcode_cache_cap_bytes: 10 * 1024 * 1024 * 1024,
+            remux_read_rate: 10.0,
             cache_eviction_every_secs: 3600,
             job_retention_days: 30,
             retention_every_secs: 86_400,
@@ -212,7 +214,7 @@ impl Config {
         Ok(config)
     }
 
-    pub fn describe(&self) -> String {
+    pub fn describe(&self, yt_dlp_version: Option<&str>) -> String {
         use std::fmt::Write as _;
         let provided = |value: &str| {
             if value.trim().is_empty() {
@@ -261,8 +263,13 @@ impl Config {
         let _ = writeln!(out, "    transcode: {}", self.transcode_cache.display());
         let _ = writeln!(
             out,
-            "    transcode_cap: {} bytes",
-            self.transcode_cache_cap_bytes
+            "    transcode_cap: {}",
+            human_bytes(self.transcode_cache_cap_bytes)
+        );
+        let _ = writeln!(
+            out,
+            "    remux_read_rate: {}",
+            read_rate(self.remux_read_rate)
         );
         let _ = writeln!(out, "    artwork:   {}", self.artwork_cache.display());
         let _ = writeln!(out, "    trickplay: {}", self.trickplay_cache.display());
@@ -376,6 +383,11 @@ impl Config {
         );
         let _ = writeln!(
             out,
+            "    version:       {}",
+            yt_dlp_version.unwrap_or("none")
+        );
+        let _ = writeln!(
+            out,
             "    plugin_dir:    {}",
             opt_path(&self.fetch_providers.yt_dlp_plugin_dir)
         );
@@ -398,6 +410,25 @@ impl Config {
         let _ = write!(out, ")");
         out
     }
+}
+
+fn read_rate(rate: f64) -> String {
+    if rate > 0.0 {
+        format!("{rate}x realtime")
+    } else {
+        "unthrottled".to_owned()
+    }
+}
+
+pub(crate) fn human_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KiB", "MiB", "GiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    format!("{value:.1} {}", UNITS[unit])
 }
 
 fn trim_key(key: Option<String>) -> Option<String> {
@@ -568,7 +599,7 @@ mod tests {
                     "https://app.example".to_owned()
                 ]
             );
-            assert!(config.describe().contains("http://localhost:8080"));
+            assert!(config.describe(None).contains("http://localhost:8080"));
             jail.set_env("SHADOWMASK_CORS_ALLOWED_ORIGINS", "   ");
             assert!(Config::load().unwrap().cors_allowed_origins.is_empty());
             Ok(())
@@ -686,7 +717,7 @@ mod tests {
             opensubtitles_api_key: None,
             ..Config::default()
         };
-        let described = config.describe();
+        let described = config.describe(None);
         assert!(described.contains("Config("));
         assert!(!described.contains("super-secret-jwt-value"));
         assert!(!described.contains("tmdb-key-123"));
@@ -699,8 +730,12 @@ mod tests {
         assert!(described.contains("hardware_acceleration: Auto"));
         assert!(described.contains("max_height:    none"));
         assert!(described.contains("cookies_file:  none"));
+        assert!(described.contains("version:       none"));
         assert!(described.contains("cache_evict_every: 3600 s"));
-        assert!(described.contains("transcode_cap: 10737418240 bytes"));
+        assert!(
+            described.contains("transcode_cap: 10.0 GiB"),
+            "a byte count is unreadable in a startup banner"
+        );
 
         let capped = Config {
             fetch_providers: FetchProvidersConfig {
@@ -710,9 +745,47 @@ mod tests {
             },
             ..Config::default()
         };
-        let capped = capped.describe();
+        let capped = capped.describe(Some("2026.08.19"));
         assert!(capped.contains("max_height:    1080"));
         assert!(capped.contains("cookies_file:  /secrets/cookies.txt"));
+        // The version belongs beside the binary it describes rather than in a
+        // separate log record that scrolls away from the block.
+        assert!(capped.contains("yt_dlp_binary: yt-dlp\n    version:       2026.08.19"));
+    }
+
+    #[test]
+    fn the_read_rate_is_described_as_a_multiple_of_realtime() {
+        assert!(
+            Config::default()
+                .describe(None)
+                .contains("remux_read_rate: 10x realtime"),
+            "a bare number reads as seconds or bytes in a startup banner"
+        );
+    }
+
+    #[test]
+    fn a_read_rate_of_zero_is_described_as_unthrottled() {
+        let config = Config {
+            remux_read_rate: 0.0,
+            ..Config::default()
+        };
+        assert!(
+            config
+                .describe(None)
+                .contains("remux_read_rate: unthrottled"),
+            "zero means no throttle at all, which 0x realtime would read as the opposite"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn the_read_rate_can_be_set_by_an_admin() {
+        figment::Jail::expect_with(|jail| {
+            assert_eq!(Config::load().unwrap().remux_read_rate, 10.0);
+            jail.set_env("SHADOWMASK_REMUX_READ_RATE", "2.5");
+            assert_eq!(Config::load().unwrap().remux_read_rate, 2.5);
+            Ok(())
+        });
     }
 
     #[test]

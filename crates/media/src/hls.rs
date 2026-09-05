@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
 
 use jiff::{SignedDuration, Timestamp};
 use tokio::sync::Mutex as AsyncMutex;
@@ -9,14 +10,16 @@ use tokio::task::spawn_blocking;
 use domain::error::{StreamError, TranscodeError};
 use domain::media::KeyframeProbe;
 use domain::session::{
-    DeliveryMode, SegmentPlan, SessionId, SoftSubtitle, StreamClaims, StreamRegistration,
-    StreamRegistry, StreamSource, TranscodeManager, TranscodeSpec, TranscodeStarted, plan_segments,
+    DeliveryMode, SegmentContainer, SegmentPlan, SessionId, SoftSubtitle, StreamClaims,
+    StreamRegistration, StreamRegistry, StreamSource, TranscodeManager, TranscodeSpec,
+    TranscodeStarted, plan_segments, plan_segments_on_grid,
 };
 
 use crate::probe::FfprobeMediaProbe;
 use crate::transcode::{
-    TARGET_MS, TokioProcessSpawner, VideoEncoder, build_segment_args, build_subtitle_extract_args,
-    media_playlist, segment_file_name, subtitle_media_playlist,
+    DEFAULT_READ_RATE, INIT_SEGMENT, TARGET_MS, TokioProcessSpawner, VideoEncoder,
+    build_producer_args, build_segment_args, build_subtitle_extract_args, media_playlist,
+    segment_file_name, subtitle_media_playlist,
 };
 use domain::process::ProcessSpawner;
 
@@ -26,10 +29,13 @@ const SUBTITLE_GROUP: &str = "subs";
 pub(crate) const SUBTITLE_VARIANT: &str = "subs";
 const DEFAULT_BINARY: &str = "ffmpeg";
 const DEFAULT_IDLE_TIMEOUT: SignedDuration = SignedDuration::from_secs(30);
+const PRODUCED_WAIT: Duration = Duration::from_secs(30);
+const PRODUCED_POLL: Duration = Duration::from_millis(100);
 
 struct Session {
     registration: StreamRegistration,
     jit: Option<Jit>,
+    producer: Option<Producer>,
     last_active: Timestamp,
 }
 
@@ -38,13 +44,34 @@ struct Jit {
     spec: TranscodeSpec,
 }
 
+#[derive(Default)]
+struct ProducerState {
+    failure: Option<String>,
+    finished: bool,
+}
+
+struct Producer {
+    task: Option<tokio::task::JoinHandle<()>>,
+    state: Arc<Mutex<ProducerState>>,
+}
+
+impl Drop for Producer {
+    fn drop(&mut self) {
+        if let Some(task) = &self.task {
+            task.abort();
+        }
+    }
+}
+
 type SegmentLocks = HashMap<(SessionId, usize), Arc<AsyncMutex<()>>>;
 
 struct Inner<S, P> {
     binary: String,
     cache_root: PathBuf,
     idle_timeout: SignedDuration,
+    produced_wait: Duration,
     encoder: VideoEncoder,
+    read_rate: f64,
     spawner: S,
     prober: P,
     sessions: RwLock<HashMap<SessionId, Session>>,
@@ -76,14 +103,16 @@ impl HlsStreamSource {
     }
 }
 
-impl<S: ProcessSpawner, P: KeyframeProbe> HlsStreamSource<S, P> {
+impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S, P> {
     pub fn with_parts(cache_root: impl Into<PathBuf>, spawner: S, prober: P) -> Self {
         Self {
             inner: Arc::new(Inner {
                 binary: DEFAULT_BINARY.to_owned(),
                 cache_root: cache_root.into(),
                 idle_timeout: DEFAULT_IDLE_TIMEOUT,
+                produced_wait: PRODUCED_WAIT,
                 encoder: VideoEncoder::Software,
+                read_rate: DEFAULT_READ_RATE,
                 spawner,
                 prober,
                 sessions: RwLock::new(HashMap::new()),
@@ -100,9 +129,24 @@ impl<S: ProcessSpawner, P: KeyframeProbe> HlsStreamSource<S, P> {
         self
     }
 
+    #[cfg(test)]
+    pub fn with_produced_wait(mut self, produced_wait: Duration) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("the produced wait is set before the source is shared")
+            .produced_wait = produced_wait;
+        self
+    }
+
     pub fn with_encoder(mut self, encoder: VideoEncoder) -> Self {
         if let Some(inner) = Arc::get_mut(&mut self.inner) {
             inner.encoder = encoder;
+        }
+        self
+    }
+
+    pub fn with_read_rate(mut self, read_rate: f64) -> Self {
+        if let Some(inner) = Arc::get_mut(&mut self.inner) {
+            inner.read_rate = read_rate;
         }
         self
     }
@@ -139,6 +183,124 @@ impl<S: ProcessSpawner, P: KeyframeProbe> HlsStreamSource<S, P> {
         }
     }
 
+    fn spawn_producer(
+        &self,
+        session: &SessionId,
+        spec: &TranscodeSpec,
+        variant_dir: &Path,
+        origin_ms: u64,
+        first_index: usize,
+    ) -> Producer {
+        let args = build_producer_args(
+            spec,
+            &variant_dir.to_string_lossy(),
+            origin_ms,
+            first_index,
+            self.inner.read_rate,
+        );
+        let state = Arc::new(Mutex::new(ProducerState::default()));
+        let task_state = Arc::clone(&state);
+        let inner = Arc::clone(&self.inner);
+        let id = session.0.clone();
+        let task = tokio::spawn(async move {
+            let outcome = inner.spawner.run_captured(&inner.binary, &args).await;
+            let mut guard = task_state.lock().unwrap();
+            guard.finished = true;
+            match outcome {
+                Ok(output) if output.success => {}
+                Ok(output) => {
+                    let detail = output.failure_detail(10);
+                    tracing::warn!("producer for session [{id}] failed: {detail}");
+                    guard.failure = Some(detail);
+                }
+                Err(err) => {
+                    let binary = inner.binary.clone();
+                    tracing::warn!("producer for session [{id}] could not run [{binary}]: {err}");
+                    guard.failure = Some(err.to_string());
+                }
+            }
+        });
+        Producer {
+            task: Some(task),
+            state,
+        }
+    }
+
+    async fn stop_producer(&self, session: &SessionId) {
+        let handle = {
+            let mut sessions = self.inner.sessions.write().unwrap();
+            sessions
+                .get_mut(session)
+                .and_then(|s| s.producer.as_mut())
+                .and_then(|p| p.task.take())
+        };
+        if let Some(handle) = handle {
+            handle.abort();
+            let _ = handle.await;
+        }
+    }
+
+    fn session_container(&self, session: &SessionId) -> Result<SegmentContainer, StreamError> {
+        let sessions = self.inner.sessions.read().unwrap();
+        let entry = sessions.get(session).ok_or(StreamError::NotLive)?;
+        let jit = entry.jit.as_ref().ok_or(StreamError::Invalid)?;
+        Ok(jit.spec.container)
+    }
+
+    fn producer_verdict(&self, session: &SessionId) -> Option<(bool, Option<String>)> {
+        let sessions = self.inner.sessions.read().unwrap();
+        let producer = sessions.get(session)?.producer.as_ref()?;
+        let state = producer.state.lock().unwrap();
+        Some((state.finished, state.failure.clone()))
+    }
+
+    async fn await_produced(&self, session: &SessionId, path: &Path) -> Result<(), StreamError> {
+        let wait = self.inner.produced_wait;
+        let deadline = Instant::now() + wait;
+        loop {
+            if has_content(path).await {
+                self.touch_now(session);
+                return Ok(());
+            }
+            match self.producer_verdict(session) {
+                None => return Err(StreamError::NotLive),
+                Some((_, Some(detail))) => {
+                    let file = path.display().to_string();
+                    tracing::warn!(
+                        "session [{}] cannot serve [{file}] because the producer failed: {detail}",
+                        session.0
+                    );
+                    return Err(StreamError::Invalid);
+                }
+                Some((true, None)) => {
+                    if has_content(path).await {
+                        self.touch_now(session);
+                        return Ok(());
+                    }
+                    let file = path.display().to_string();
+                    tracing::warn!(
+                        "session [{}] was asked for [{file}], which the producer finished \
+                         without writing",
+                        session.0
+                    );
+                    return Err(StreamError::Invalid);
+                }
+                Some((false, None)) => {}
+            }
+            if Instant::now() >= deadline {
+                let file = path.display().to_string();
+                let seconds = wait.as_secs_f64();
+                tracing::warn!(
+                    "session [{}] gave up waiting [{seconds:.0}s] for [{file}]; the producer is \
+                     still running but has not reached it",
+                    session.0
+                );
+                return Err(StreamError::Invalid);
+            }
+            tokio::time::sleep(PRODUCED_POLL).await;
+        }
+    }
+
     async fn ensure_segment(
         &self,
         session: &SessionId,
@@ -148,53 +310,90 @@ impl<S: ProcessSpawner, P: KeyframeProbe> HlsStreamSource<S, P> {
         if variant != VARIANT {
             return Err(StreamError::Invalid);
         }
-        let index = parse_segment_index(file).ok_or(StreamError::Invalid)?;
-        let (out_path, attempts) = {
+        let container = self.session_container(session)?;
+        if container == SegmentContainer::Fmp4 {
+            let base = {
+                let sessions = self.inner.sessions.read().unwrap();
+                sessions
+                    .get(session)
+                    .ok_or(StreamError::NotLive)?
+                    .registration
+                    .output_dir
+                    .join(VARIANT)
+            };
+            return self.await_produced(session, &base.join(file)).await;
+        }
+        let index = parse_segment_index(file, container).ok_or(StreamError::Invalid)?;
+        let (out_path, part_path, attempts) = {
             let sessions = self.inner.sessions.read().unwrap();
             let entry = sessions.get(session).ok_or(StreamError::NotLive)?;
             let jit = entry.jit.as_ref().ok_or(StreamError::Invalid)?;
             let segment = jit.plan.segments.get(index).ok_or(StreamError::Invalid)?;
-            let out_path = entry
-                .registration
-                .output_dir
-                .join(VARIANT)
-                .join(segment_file_name(index));
-            let out = out_path.to_string_lossy().into_owned();
+            let variant_dir = entry.registration.output_dir.join(VARIANT);
+            let out_path = variant_dir.join(segment_file_name(index, container));
+            let part_path = variant_dir.join(segment_part_name(index, container));
+            let part = part_path.to_string_lossy().into_owned();
             let mut attempts = vec![build_segment_args(
                 &jit.spec,
                 segment,
-                &out,
+                &part,
                 &self.inner.encoder,
             )];
             if self.inner.encoder.is_hardware() {
                 attempts.push(build_segment_args(
                     &jit.spec,
                     segment,
-                    &out,
+                    &part,
                     &VideoEncoder::Software,
                 ));
             }
-            (out_path, attempts)
+            (out_path, part_path, attempts)
         };
-        if out_path.exists() {
+        if out_path.is_file() {
             self.touch_now(session);
             return Ok(());
         }
         let lock = self.segment_lock(session, index);
         let _guard = lock.lock().await;
-        if out_path.exists() {
+        if out_path.is_file() {
             self.touch_now(session);
             return Ok(());
         }
+        let mut attempt = SegmentAttempt::started(session, index);
         let mut produced = false;
         for args in &attempts {
-            let ran = self.inner.spawner.run(&self.inner.binary, args).await;
-            if matches!(ran, Ok(true)) && out_path.exists() {
-                produced = true;
-                break;
+            match self
+                .inner
+                .spawner
+                .run_captured(&self.inner.binary, args)
+                .await
+            {
+                Ok(output) if output.success && has_content(&part_path).await => {
+                    produced = true;
+                    break;
+                }
+                Ok(output) => {
+                    let detail = output.failure_detail(10);
+                    tracing::warn!(
+                        "segment [{index}] of session [{}] was not produced: {detail}",
+                        session.0
+                    );
+                }
+                Err(err) => {
+                    let binary = self.inner.binary.clone();
+                    tracing::warn!(
+                        "segment [{index}] of session [{}] could not run [{binary}]: {err}",
+                        session.0
+                    );
+                }
             }
         }
+        attempt.settled();
         if !produced {
+            remove_file_off_lock(part_path).await;
+            return Err(StreamError::Invalid);
+        }
+        if !rename_off_lock(part_path, out_path).await {
             return Err(StreamError::Invalid);
         }
         self.touch_now(session);
@@ -283,7 +482,9 @@ impl<S: ProcessSpawner, P: KeyframeProbe> HlsStreamSource<S, P> {
     }
 }
 
-impl<S: ProcessSpawner, P: KeyframeProbe> StreamRegistry for HlsStreamSource<S, P> {
+impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> StreamRegistry
+    for HlsStreamSource<S, P>
+{
     fn register(&self, session: SessionId, entry: StreamRegistration) {
         let mut sessions = self.inner.sessions.write().unwrap();
         match sessions.get_mut(&session) {
@@ -297,6 +498,7 @@ impl<S: ProcessSpawner, P: KeyframeProbe> StreamRegistry for HlsStreamSource<S, 
                     Session {
                         registration: entry,
                         jit: None,
+                        producer: None,
                         last_active: Timestamp::now(),
                     },
                 );
@@ -310,7 +512,9 @@ impl<S: ProcessSpawner, P: KeyframeProbe> StreamRegistry for HlsStreamSource<S, 
     }
 }
 
-impl<S: ProcessSpawner, P: KeyframeProbe> StreamSource for HlsStreamSource<S, P> {
+impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> StreamSource
+    for HlsStreamSource<S, P>
+{
     fn master_playlist(&self, claims: &StreamClaims) -> Result<String, StreamError> {
         let sessions = self.inner.sessions.read().unwrap();
         let reg = &sessions
@@ -353,7 +557,7 @@ impl<S: ProcessSpawner, P: KeyframeProbe> StreamSource for HlsStreamSource<S, P>
                 .output_dir
                 .clone()
         };
-        if file.ends_with(".ts") {
+        if is_segment_request(file) {
             self.ensure_segment(&claims.session, variant, file).await?;
         }
         resolve_media_path(&base, variant, file)
@@ -371,10 +575,13 @@ impl<S: ProcessSpawner, P: KeyframeProbe> StreamSource for HlsStreamSource<S, P>
     }
 }
 
-impl<S: ProcessSpawner, P: KeyframeProbe> TranscodeManager for HlsStreamSource<S, P> {
+impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> TranscodeManager
+    for HlsStreamSource<S, P>
+{
     async fn start(&self, spec: TranscodeSpec) -> Result<TranscodeStarted, TranscodeError> {
         let session = spec.session.clone();
         let output_dir = self.inner.cache_root.join(&session.0);
+        self.stop_producer(&session).await;
         self.evict(&session).await;
         let variant_dir = output_dir.join(VARIANT);
         let make = variant_dir.clone();
@@ -388,8 +595,20 @@ impl<S: ProcessSpawner, P: KeyframeProbe> TranscodeManager for HlsStreamSource<S
             .keyframes(&spec.input_path)
             .await
             .unwrap_or_default();
-        let plan = plan_segments(&keyframes, spec.duration_ms, TARGET_MS);
-        let playlist = media_playlist(&plan);
+        let container = spec.container;
+        let full = match container {
+            SegmentContainer::MpegTs => plan_segments(&keyframes, spec.duration_ms, TARGET_MS),
+            SegmentContainer::Fmp4 => {
+                plan_segments_on_grid(&keyframes, spec.duration_ms, TARGET_MS)
+            }
+        };
+        let first = match container {
+            SegmentContainer::Fmp4 => spec.seek_ms.map_or(0, |ms| full.index_at(ms)),
+            SegmentContainer::MpegTs => 0,
+        };
+        let origin_ms = full.start_of(first);
+        let plan = full.from_index(first);
+        let playlist = media_playlist(&plan, spec.container, first);
         let index_path = variant_dir.join(MEDIA_PLAYLIST);
         spawn_blocking(move || std::fs::write(index_path, playlist))
             .await
@@ -399,6 +618,12 @@ impl<S: ProcessSpawner, P: KeyframeProbe> TranscodeManager for HlsStreamSource<S
             self.write_subtitle_rendition(&output_dir, &spec.input_path, &soft)
                 .await;
         }
+        let producer = match spec.container {
+            SegmentContainer::Fmp4 => {
+                Some(self.spawn_producer(&session, &spec, &variant_dir, origin_ms, first))
+            }
+            SegmentContainer::MpegTs => None,
+        };
         {
             let mut sessions = self.inner.sessions.write().unwrap();
             let entry = sessions.entry(session.clone()).or_insert_with(|| Session {
@@ -410,15 +635,19 @@ impl<S: ProcessSpawner, P: KeyframeProbe> TranscodeManager for HlsStreamSource<S
                     subtitle: None,
                 },
                 jit: None,
+                producer: None,
                 last_active: Timestamp::now(),
             });
             entry.registration.output_dir = output_dir.clone();
             entry.jit = Some(Jit { plan, spec });
+            entry.producer = producer;
             entry.last_active = Timestamp::now();
         }
         Ok(TranscodeStarted {
             session,
             output_dir: output_dir.to_string_lossy().into_owned(),
+            origin_ms,
+            sequential: container == SegmentContainer::Fmp4,
         })
     }
 
@@ -434,6 +663,7 @@ impl<S: ProcessSpawner, P: KeyframeProbe> TranscodeManager for HlsStreamSource<S
     }
 
     async fn stop(&self, session: &SessionId) -> Result<(), TranscodeError> {
+        self.stop_producer(session).await;
         let removed = self.inner.sessions.write().unwrap().remove(session);
         let entry = removed.ok_or(TranscodeError::NotFound)?;
         self.purge_locks(session);
@@ -448,6 +678,67 @@ impl<S: ProcessSpawner, P: KeyframeProbe> TranscodeManager for HlsStreamSource<S
 
 async fn remove_dir_off_lock(dir: PathBuf) {
     let _ = spawn_blocking(move || std::fs::remove_dir_all(&dir)).await;
+}
+
+struct SegmentAttempt {
+    session: String,
+    index: usize,
+    started: Instant,
+    settled: bool,
+}
+
+impl SegmentAttempt {
+    fn started(session: &SessionId, index: usize) -> Self {
+        Self {
+            session: session.0.clone(),
+            index,
+            started: Instant::now(),
+            settled: false,
+        }
+    }
+
+    fn settled(&mut self) {
+        self.settled = true;
+    }
+}
+
+impl Drop for SegmentAttempt {
+    fn drop(&mut self) {
+        if self.settled {
+            return;
+        }
+        let seconds = self.started.elapsed().as_secs_f64();
+        tracing::warn!(
+            "segment [{}] of session [{}] was abandoned after [{seconds:.1}s]: the client stopped waiting before it could be produced",
+            self.index,
+            self.session
+        );
+    }
+}
+
+async fn remove_file_off_lock(path: PathBuf) {
+    let _ = spawn_blocking(move || std::fs::remove_file(&path)).await;
+}
+
+async fn rename_off_lock(from: PathBuf, to: PathBuf) -> bool {
+    spawn_blocking(move || std::fs::rename(&from, &to).is_ok())
+        .await
+        .unwrap_or(false)
+}
+
+async fn has_content(path: &Path) -> bool {
+    let path = path.to_path_buf();
+    spawn_blocking(move || {
+        std::fs::metadata(&path)
+            .map(|m| m.len() > 0)
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
+}
+
+fn segment_part_name(index: usize, container: SegmentContainer) -> String {
+    format!("{}.part", segment_file_name(index, container))
 }
 
 fn resolve_media_path(base: &Path, variant: &str, file: &str) -> Result<PathBuf, StreamError> {
@@ -470,8 +761,16 @@ fn is_safe_segment(segment: &str) -> bool {
     !segment.is_empty() && segment != ".." && !segment.contains('/') && !segment.contains('\\')
 }
 
-fn parse_segment_index(file: &str) -> Option<usize> {
-    file.strip_prefix("seg_")?.strip_suffix(".ts")?.parse().ok()
+fn parse_segment_index(file: &str, container: SegmentContainer) -> Option<usize> {
+    let suffix = format!(".{}", container.segment_extension());
+    file.strip_prefix("seg_")?
+        .strip_suffix(&suffix)?
+        .parse()
+        .ok()
+}
+
+fn is_segment_request(file: &str) -> bool {
+    file.ends_with(".ts") || file.ends_with(".m4s") || file == INIT_SEGMENT
 }
 
 fn is_expired(now: Timestamp, last_active: Timestamp, timeout: SignedDuration) -> bool {
@@ -491,6 +790,7 @@ mod tests {
     #[derive(Clone, Default)]
     struct MockSpawner {
         fail: bool,
+        unspawnable: bool,
         silent: bool,
         calls: Arc<AtomicUsize>,
     }
@@ -498,6 +798,9 @@ mod tests {
     impl ProcessSpawner for MockSpawner {
         async fn run(&self, _program: &str, args: &[String]) -> std::io::Result<bool> {
             self.calls.fetch_add(1, Ordering::SeqCst);
+            if self.unspawnable {
+                return Err(std::io::Error::other("no such binary"));
+            }
             if self.fail {
                 return Ok(false);
             }
@@ -507,6 +810,21 @@ mod tests {
                 std::fs::write(out, b"SEGMENT").ok();
             }
             Ok(true)
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct KilledMidWriteSpawner {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl ProcessSpawner for KilledMidWriteSpawner {
+        async fn run(&self, _program: &str, args: &[String]) -> std::io::Result<bool> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if let Some(out) = args.last() {
+                std::fs::write(out, b"HALF").ok();
+            }
+            Ok(false)
         }
     }
 
@@ -578,6 +896,7 @@ mod tests {
             input_path: "/media/movie.mkv".to_owned(),
             duration_ms,
             copy: false,
+            container: SegmentContainer::MpegTs,
             seek_ms: None,
             audio_track: None,
             max_height: None,
@@ -1022,6 +1341,107 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn segment_production_that_cannot_spawn_is_invalid() {
+        let spawner = MockSpawner {
+            unspawnable: true,
+            ..Default::default()
+        };
+        let prober = MockProbe {
+            keyframes: vec![4_000],
+            fail: false,
+        };
+        let (_dir, src) = engine(spawner, prober);
+        let started = src.start(spec("s1", 8_000)).await.expect("start");
+        src.register(
+            SessionId("s1".to_owned()),
+            transcode_registration(PathBuf::from(&started.output_dir)),
+        );
+        assert!(
+            matches!(
+                src.media_path(&claims("s1"), "v0", "seg_00000.ts").await,
+                Err(StreamError::Invalid)
+            ),
+            "a missing ffmpeg is an io error rather than a failed exit, and must not be \
+             mistaken for a produced segment"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_segment_killed_part_way_is_never_served_or_cached() {
+        // A cancelled request SIGKILLs ffmpeg through kill_on_drop, so it can
+        // leave a truncated file behind and no cleanup code of ours ever runs.
+        // Writing to a part file and renaming is what keeps that unservable.
+        let spawner = KilledMidWriteSpawner::default();
+        let prober = MockProbe {
+            keyframes: vec![4_000],
+            fail: false,
+        };
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src = HlsStreamSource::with_parts(dir.path(), spawner.clone(), prober);
+        let started = src.start(spec("s1", 8_000)).await.expect("start");
+        let out_dir = PathBuf::from(&started.output_dir);
+        src.register(
+            SessionId("s1".to_owned()),
+            transcode_registration(out_dir.clone()),
+        );
+
+        assert!(matches!(
+            src.media_path(&claims("s1"), "v0", "seg_00000.ts").await,
+            Err(StreamError::Invalid)
+        ));
+        assert!(
+            !out_dir.join(VARIANT).join("seg_00000.ts").exists(),
+            "a half written segment must not be left where it can be served"
+        );
+
+        assert!(matches!(
+            src.media_path(&claims("s1"), "v0", "seg_00000.ts").await,
+            Err(StreamError::Invalid)
+        ));
+        assert_eq!(
+            spawner.calls.load(Ordering::SeqCst),
+            2,
+            "the retry has to re-run ffmpeg rather than short circuit on the corpse"
+        );
+    }
+
+    #[test]
+    fn an_unsettled_segment_attempt_reports_itself_on_drop() {
+        // Cancelling the request drops this mid-flight, and Drop is the only
+        // thing that still runs then, so it is the one place an abandoned
+        // encode can be recorded at all.
+        drop(SegmentAttempt::started(&SessionId("s1".to_owned()), 3));
+
+        let mut settled = SegmentAttempt::started(&SessionId("s1".to_owned()), 4);
+        settled.settled();
+        drop(settled);
+    }
+
+    #[tokio::test]
+    async fn a_segment_that_cannot_be_moved_into_place_is_invalid() {
+        let spawner = MockSpawner::default();
+        let prober = MockProbe {
+            keyframes: vec![4_000],
+            fail: false,
+        };
+        let (_dir, src) = engine(spawner, prober);
+        let started = src.start(spec("s1", 8_000)).await.expect("start");
+        let out_dir = PathBuf::from(&started.output_dir);
+        src.register(
+            SessionId("s1".to_owned()),
+            transcode_registration(out_dir.clone()),
+        );
+        // A directory sitting where the segment belongs makes the rename fail,
+        // which must surface rather than be reported as a produced segment.
+        std::fs::create_dir_all(out_dir.join(VARIANT).join("seg_00000.ts")).unwrap();
+
+        assert!(matches!(
+            src.media_path(&claims("s1"), "v0", "seg_00000.ts").await,
+            Err(StreamError::Invalid)
+        ));
+    }
+
+    #[tokio::test]
     async fn segment_reported_produced_but_missing_is_invalid() {
         let spawner = MockSpawner {
             silent: true,
@@ -1195,5 +1615,510 @@ mod tests {
             transcode_registration(PathBuf::from("/cache/s1")),
         );
         assert!(cloned.master_playlist(&claims("s1")).is_ok());
+    }
+
+    struct DropFlag(Arc<AtomicUsize>);
+
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct ProducerSpawner {
+        fail: bool,
+        unspawnable: bool,
+        hang: bool,
+        empty_init: bool,
+        segments: usize,
+        dropped: Arc<AtomicUsize>,
+    }
+
+    impl ProcessSpawner for ProducerSpawner {
+        async fn run(&self, _program: &str, args: &[String]) -> std::io::Result<bool> {
+            if self.hang {
+                let _flag = DropFlag(Arc::clone(&self.dropped));
+                std::future::pending::<()>().await;
+            }
+            if self.unspawnable {
+                return Err(std::io::Error::other("no such binary"));
+            }
+            if self.fail {
+                return Ok(false);
+            }
+            let playlist = args.last().expect("the producer is given a playlist path");
+            let dir = Path::new(playlist)
+                .parent()
+                .expect("the playlist sits in the variant directory");
+            let init: &[u8] = if self.empty_init { b"" } else { b"INIT" };
+            std::fs::write(dir.join(INIT_SEGMENT), init).ok();
+            for index in 0..self.segments {
+                let name = segment_file_name(index, SegmentContainer::Fmp4);
+                std::fs::write(dir.join(name), b"SEGMENT").ok();
+            }
+            Ok(true)
+        }
+    }
+
+    fn fmp4_engine(
+        spawner: ProducerSpawner,
+        prober: MockProbe,
+    ) -> (
+        tempfile::TempDir,
+        HlsStreamSource<ProducerSpawner, MockProbe>,
+    ) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src = HlsStreamSource::with_parts(dir.path(), spawner, prober);
+        (dir, src)
+    }
+
+    fn fmp4_spec(id: &str, duration_ms: u64) -> TranscodeSpec {
+        TranscodeSpec {
+            copy: true,
+            container: SegmentContainer::Fmp4,
+            ..spec(id, duration_ms)
+        }
+    }
+
+    #[tokio::test]
+    async fn an_fmp4_session_serves_a_playlist_that_maps_the_init_segment() {
+        let (_dir, src) = fmp4_engine(
+            ProducerSpawner {
+                segments: 2,
+                ..ProducerSpawner::default()
+            },
+            MockProbe {
+                keyframes: vec![0, 4_000, 8_000],
+                fail: false,
+            },
+        );
+        let started = src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+        let playlist = std::fs::read_to_string(
+            PathBuf::from(&started.output_dir)
+                .join(VARIANT)
+                .join(MEDIA_PLAYLIST),
+        )
+        .expect("the playlist is written at start, before any segment exists");
+        assert!(playlist.contains("#EXT-X-VERSION:7"));
+        assert!(playlist.contains("#EXT-X-MAP:URI=\"init.mp4\""));
+        assert!(playlist.contains("seg_00000.m4s"));
+        assert!(playlist.contains("#EXT-X-ENDLIST"));
+    }
+
+    #[tokio::test]
+    async fn an_fmp4_segment_is_served_once_the_producer_has_written_it() {
+        let (_dir, src) = fmp4_engine(
+            ProducerSpawner {
+                segments: 3,
+                ..ProducerSpawner::default()
+            },
+            MockProbe {
+                keyframes: vec![0, 4_000, 8_000],
+                fail: false,
+            },
+        );
+        src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+        let path = src
+            .media_path(&claims("s1"), VARIANT, "seg_00000.m4s")
+            .await
+            .expect("the segment is served after the producer writes it");
+        assert!(path.is_file());
+        let init = src
+            .media_path(&claims("s1"), VARIANT, INIT_SEGMENT)
+            .await
+            .expect("the init segment is served like any other produced file");
+        assert!(init.is_file());
+    }
+
+    #[tokio::test]
+    async fn an_fmp4_segment_is_invalid_when_the_producer_fails() {
+        let (_dir, src) = fmp4_engine(
+            ProducerSpawner {
+                fail: true,
+                ..ProducerSpawner::default()
+            },
+            MockProbe::default(),
+        );
+        src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+        assert!(
+            matches!(
+                src.media_path(&claims("s1"), VARIANT, "seg_00000.m4s")
+                    .await,
+                Err(StreamError::Invalid)
+            ),
+            "a failed producer must fail fast, not wait out the clock"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_fmp4_segment_the_producer_finished_without_writing_is_invalid() {
+        let (_dir, src) = fmp4_engine(
+            ProducerSpawner {
+                segments: 1,
+                ..ProducerSpawner::default()
+            },
+            MockProbe::default(),
+        );
+        src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+        assert!(
+            matches!(
+                src.media_path(&claims("s1"), VARIANT, "seg_00042.m4s")
+                    .await,
+                Err(StreamError::Invalid)
+            ),
+            "the producer is done, so this segment is never coming"
+        );
+    }
+
+    #[tokio::test]
+    async fn stopping_an_fmp4_session_kills_the_producer() {
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let (_dir, src) = fmp4_engine(
+            ProducerSpawner {
+                hang: true,
+                dropped: Arc::clone(&dropped),
+                ..ProducerSpawner::default()
+            },
+            MockProbe::default(),
+        );
+        src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+        tokio::task::yield_now().await;
+        assert_eq!(dropped.load(Ordering::SeqCst), 0, "the producer is running");
+
+        src.stop(&SessionId("s1".to_owned())).await.expect("stop");
+        for _ in 0..50 {
+            if dropped.load(Ordering::SeqCst) > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            dropped.load(Ordering::SeqCst),
+            1,
+            "dropping the session must drop the producer future, which is what SIGKILLs ffmpeg; \
+             a producer that outlives its session keeps writing to a deleted directory"
+        );
+    }
+
+    #[tokio::test]
+    async fn reaping_an_idle_fmp4_session_kills_the_producer() {
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let (_dir, src) = fmp4_engine(
+            ProducerSpawner {
+                hang: true,
+                dropped: Arc::clone(&dropped),
+                ..ProducerSpawner::default()
+            },
+            MockProbe::default(),
+        );
+        let src = src.with_idle_timeout(SignedDuration::from_secs(5));
+        src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+        tokio::task::yield_now().await;
+
+        let reaped = src
+            .reap_at(Timestamp::now() + SignedDuration::from_secs(6))
+            .await;
+        assert_eq!(reaped, 1);
+        for _ in 0..50 {
+            if dropped.load(Ordering::SeqCst) > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(dropped.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_restart_waits_for_the_old_producer_to_die_before_starting_the_new_one() {
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let (_dir, src) = fmp4_engine(
+            ProducerSpawner {
+                hang: true,
+                dropped: Arc::clone(&dropped),
+                ..ProducerSpawner::default()
+            },
+            MockProbe::default(),
+        );
+        src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+        tokio::task::yield_now().await;
+
+        src.start(fmp4_spec("s1", 12_000)).await.expect("restart");
+
+        assert_eq!(
+            dropped.load(Ordering::SeqCst),
+            1,
+            "the old ffmpeg must be gone before the directory is recreated; two producers writing \
+             one directory mix segments from different timelines, which reads as partial files \
+             and decodes as torn video"
+        );
+    }
+
+    #[tokio::test]
+    async fn stopping_waits_for_the_producer_rather_than_only_asking_it_to_stop() {
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let (_dir, src) = fmp4_engine(
+            ProducerSpawner {
+                hang: true,
+                dropped: Arc::clone(&dropped),
+                ..ProducerSpawner::default()
+            },
+            MockProbe::default(),
+        );
+        src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+        tokio::task::yield_now().await;
+
+        src.stop(&SessionId("s1".to_owned())).await.expect("stop");
+
+        assert_eq!(dropped.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn restarting_an_fmp4_session_kills_the_previous_producer() {
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let (_dir, src) = fmp4_engine(
+            ProducerSpawner {
+                hang: true,
+                dropped: Arc::clone(&dropped),
+                ..ProducerSpawner::default()
+            },
+            MockProbe::default(),
+        );
+        src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+        tokio::task::yield_now().await;
+        src.start(fmp4_spec("s1", 12_000)).await.expect("restart");
+        for _ in 0..50 {
+            if dropped.load(Ordering::SeqCst) > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            dropped.load(Ordering::SeqCst),
+            1,
+            "a seek restarts the session, and the old producer must not race the new one"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_fmp4_session_resumed_at_a_seek_serves_only_the_tail() {
+        let (_dir, src) = fmp4_engine(
+            ProducerSpawner {
+                segments: 4,
+                ..ProducerSpawner::default()
+            },
+            MockProbe {
+                keyframes: vec![0, 4_000, 8_000, 12_000],
+                fail: false,
+            },
+        );
+        let started = src
+            .start(TranscodeSpec {
+                seek_ms: Some(9_000),
+                ..fmp4_spec("s1", 16_000)
+            })
+            .await
+            .expect("start");
+        assert_eq!(
+            started.origin_ms, 8_000,
+            "the timeline begins at the segment boundary holding the seek, not at the seek itself"
+        );
+        let playlist = std::fs::read_to_string(
+            PathBuf::from(&started.output_dir)
+                .join(VARIANT)
+                .join(MEDIA_PLAYLIST),
+        )
+        .expect("playlist");
+        assert!(playlist.contains("#EXT-X-MEDIA-SEQUENCE:2"));
+        assert!(playlist.contains("seg_00002.m4s"));
+        assert!(
+            !playlist.contains("seg_00000.m4s"),
+            "a restarted producer never writes the earlier segments, so listing them breaks \
+             the demuxer, which opens segment zero regardless of where the player seeks"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_transcode_session_ignores_the_seek_and_keeps_the_whole_timeline() {
+        let (_dir, src) = engine(
+            MockSpawner::default(),
+            MockProbe {
+                keyframes: vec![0, 4_000, 8_000, 12_000],
+                fail: false,
+            },
+        );
+        let started = src
+            .start(TranscodeSpec {
+                seek_ms: Some(9_000),
+                ..spec("s1", 16_000)
+            })
+            .await
+            .expect("start");
+        assert_eq!(started.origin_ms, 0);
+        let playlist = std::fs::read_to_string(
+            PathBuf::from(&started.output_dir)
+                .join(VARIANT)
+                .join(MEDIA_PLAYLIST),
+        )
+        .expect("playlist");
+        assert!(
+            playlist.contains("seg_00000.ts"),
+            "mpegts stays just in time, so every segment remains reachable and seeking is local"
+        );
+    }
+
+    #[derive(Clone, Default)]
+    struct ArgRecordingSpawner {
+        args: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl ProcessSpawner for ArgRecordingSpawner {
+        async fn run(&self, _program: &str, args: &[String]) -> std::io::Result<bool> {
+            *self.args.lock().unwrap() = args.to_vec();
+            let playlist = args.last().expect("the producer is given a playlist path");
+            let dir = Path::new(playlist).parent().expect("a variant directory");
+            std::fs::write(dir.join(INIT_SEGMENT), b"INIT").ok();
+            Ok(true)
+        }
+    }
+
+    #[tokio::test]
+    async fn the_configured_read_rate_reaches_the_producer() {
+        let spawner = ArgRecordingSpawner::default();
+        let seen = Arc::clone(&spawner.args);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src = HlsStreamSource::with_parts(dir.path(), spawner, MockProbe::default())
+            .with_read_rate(3.5);
+        src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+        for _ in 0..50 {
+            if !seen.lock().unwrap().is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let args = seen.lock().unwrap().clone();
+        let rate = args
+            .iter()
+            .position(|a| a == "-readrate")
+            .map(|at| args[at + 1].clone());
+        assert_eq!(
+            rate.as_deref(),
+            Some("3.5"),
+            "an admin who lowers the read rate to protect their disks must actually see it applied"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_init_segment_the_producer_has_only_created_is_never_served() {
+        let (_dir, src) = fmp4_engine(
+            ProducerSpawner {
+                empty_init: true,
+                segments: 1,
+                ..ProducerSpawner::default()
+            },
+            MockProbe::default(),
+        );
+        let src = src.with_produced_wait(Duration::from_millis(250));
+        src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+        assert!(
+            matches!(
+                src.media_path(&claims("s1"), VARIANT, INIT_SEGMENT).await,
+                Err(StreamError::Invalid)
+            ),
+            "ffmpeg creates init.mp4 empty and only fills it when the first segment closes, and \
+             hls_flags temp_file does not cover it; serving the empty file leaves every client \
+             unable to decode a single segment"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_fmp4_segment_is_invalid_when_the_producer_cannot_be_spawned() {
+        let (_dir, src) = fmp4_engine(
+            ProducerSpawner {
+                unspawnable: true,
+                ..ProducerSpawner::default()
+            },
+            MockProbe::default(),
+        );
+        src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+        assert!(
+            matches!(
+                src.media_path(&claims("s1"), VARIANT, "seg_00000.m4s")
+                    .await,
+                Err(StreamError::Invalid)
+            ),
+            "a missing ffmpeg must surface as a failed segment, not a thirty second hang"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_fmp4_segment_gives_up_when_the_producer_never_reaches_it() {
+        let (_dir, src) = fmp4_engine(
+            ProducerSpawner {
+                hang: true,
+                ..ProducerSpawner::default()
+            },
+            MockProbe::default(),
+        );
+        let src = src.with_produced_wait(Duration::from_millis(250));
+        src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+        assert!(
+            matches!(
+                src.media_path(&claims("s1"), VARIANT, "seg_00000.m4s")
+                    .await,
+                Err(StreamError::Invalid)
+            ),
+            "a producer that is alive but far behind must not hold the request open forever"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_fmp4_segment_is_not_live_once_the_producer_is_gone() {
+        let (_dir, src) = fmp4_engine(
+            ProducerSpawner {
+                hang: true,
+                ..ProducerSpawner::default()
+            },
+            MockProbe::default(),
+        );
+        src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+        src.inner
+            .sessions
+            .write()
+            .unwrap()
+            .get_mut(&SessionId("s1".to_owned()))
+            .expect("the session exists")
+            .producer = None;
+        assert!(
+            matches!(
+                src.media_path(&claims("s1"), VARIANT, "seg_00000.m4s")
+                    .await,
+                Err(StreamError::NotLive)
+            ),
+            "without a producer nothing will ever write the segment, so waiting is pointless"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_transcode_session_starts_no_producer() {
+        let (_dir, src) = engine(MockSpawner::default(), MockProbe::default());
+        let started = src.start(spec("s1", 12_000)).await.expect("start");
+        assert!(
+            !PathBuf::from(&started.output_dir)
+                .join(VARIANT)
+                .join(INIT_SEGMENT)
+                .exists(),
+            "mpegts sessions stay just in time and spawn nothing"
+        );
+        assert!(
+            src.inner
+                .sessions
+                .read()
+                .unwrap()
+                .get(&SessionId("s1".to_owned()))
+                .expect("the session exists")
+                .producer
+                .is_none()
+        );
     }
 }

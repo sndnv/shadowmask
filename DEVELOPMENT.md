@@ -26,7 +26,8 @@ gate, below.
 Two clients live under [`clients/`](clients). [`clients/basic`](clients/basic) is a dependency-free
 HTML/JS client served by the server itself at `/ui/basic/`; it needs no build step.
 
-[`clients/flutter`](clients/flutter) is the primary web client:
+[`clients/flutter`](clients/flutter) is the primary client, one codebase covering the web and the
+desktop:
 
 ```
 cd clients/flutter
@@ -48,8 +49,17 @@ The server must be up, and `SHADOWMASK_CORS_ALLOWED_ORIGINS` must include the po
 `--web-port` (it defaults to `http://localhost:8090`). See
 [`deployment/dev/README.md`](deployment/dev/README.md) for the dev stack.
 
+The same codebase runs on the desktop with `flutter run -d macos` or `flutter run -d linux`. The
+desktop asks for the server address on first run and stores it on the device, so there is no
+`--dart-define` and no CORS to configure.
+
+Desktop prerequisites: CocoaPods on macOS (`brew install cocoapods`), and libmpv on Linux
+(`sudo apt install libmpv-dev mpv` on Debian and Ubuntu). Linux is not verified on hardware.
+Windows is not supported.
+
 The client's own gate is `./qa.py` inside `clients/flutter`, which mirrors the root `qa.py`: package
-resolution, code generation, format, analyze, test with coverage.
+resolution, code generation, format, analyze, test with coverage. It does not build the desktop
+targets, so build those by hand when the native side changes.
 
 ### Dependency Updates
 

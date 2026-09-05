@@ -10,8 +10,8 @@ use api::{StreamState, stream_router};
 use domain::catalog::VersionId;
 use domain::media::MediaProbe;
 use domain::session::{
-    DeliveryMode, SessionId, StreamClaims, StreamRegistration, StreamRegistry, StreamTokens,
-    TranscodeManager, TranscodeSpec,
+    DeliveryMode, SegmentContainer, SessionId, StreamClaims, StreamRegistration, StreamRegistry,
+    StreamTokens, TranscodeManager, TranscodeSpec,
 };
 use domain::user::UserId;
 use media::hls::HlsStreamSource;
@@ -67,6 +67,7 @@ async fn serves_a_jit_segment_end_to_end() {
             input_path,
             duration_ms: probe.duration_ms,
             copy: true,
+            container: SegmentContainer::MpegTs,
             seek_ms: None,
             audio_track: None,
             max_height: None,

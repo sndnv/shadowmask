@@ -53,12 +53,15 @@ impl TranscodeManager for MockTranscodeManager {
         }
         let output_dir = format!("/mock/cache/{}", spec.session.0);
         let session = spec.session.clone();
+        let origin_ms = spec.seek_ms.unwrap_or(0);
         let mut state = self.state.lock().unwrap();
         state.active.insert(session.clone(), output_dir.clone());
         state.started.push(spec);
         Ok(TranscodeStarted {
             session,
             output_dir,
+            origin_ms,
+            sequential: false,
         })
     }
 
@@ -90,6 +93,7 @@ impl TranscodeManager for MockTranscodeManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::session::SegmentContainer;
 
     fn spec(id: &str) -> TranscodeSpec {
         TranscodeSpec {
@@ -97,6 +101,7 @@ mod tests {
             input_path: "/media/m1.mkv".to_owned(),
             duration_ms: 100_000,
             copy: false,
+            container: SegmentContainer::MpegTs,
             seek_ms: None,
             audio_track: None,
             max_height: None,

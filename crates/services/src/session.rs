@@ -10,11 +10,12 @@ use domain::catalog::{VersionDetail, VersionId};
 use domain::common::{Page, PageRequest, paginate};
 use domain::error::SessionError;
 use domain::negotiation::{
-    NegotiationInput, effective_max_height, negotiate, preferred_audio_track,
-    preferred_subtitle_track,
+    AvailableSubtitles, NegotiationInput, effective_max_height, negotiate, resolve_audio,
+    resolve_subtitle,
 };
 use domain::playback::{
-    PlaybackProgress, SubtitleTrackRef, UserSubtitleOffset, is_complete, is_started,
+    PlaybackProgress, SubtitleOverride, SubtitleTrackRef, UserSubtitleOffset, is_complete,
+    is_started,
 };
 use domain::profile::{Container, ProfileRegistry};
 use domain::repository::{
@@ -25,8 +26,8 @@ use domain::session::{
     ClientCapabilities, DeliveryMode, HeartbeatAck, PlaybackSession, PlaybackState, Renegotiated,
     SelectedTracks, SessionId, SessionStartInput, SessionStarted, SessionUpdate, SoftSubtitle,
     SoftSubtitleSource, StreamClaims, StreamRegistration, StreamRegistry, StreamTokens,
-    SubtitleChange, SubtitleDelivery, SubtitleRendition, SubtitleSelection, TranscodeManager,
-    TranscodeSpec,
+    SubtitleChange, SubtitleDelivery, SubtitleRendition, SubtitleRequest, SubtitleSelection,
+    TranscodeManager, TranscodeSpec, segment_container_for,
 };
 use domain::user::{Principal, UserId};
 
@@ -37,6 +38,12 @@ const MISSED_HEARTBEATS_BEFORE_REAP: i64 = 6;
 const DEFAULT_BANDWIDTH: u64 = 4_000_000;
 const TOKEN_TTL_SECS: i64 = 3600;
 
+#[derive(Clone, Copy, Default)]
+struct Timeline {
+    origin_ms: u64,
+    sequential: bool,
+}
+
 #[derive(Clone)]
 struct LaunchContext {
     user: UserId,
@@ -44,10 +51,18 @@ struct LaunchContext {
     capabilities: ClientCapabilities,
     requested_audio: Option<u32>,
     requested_subtitle: Option<SubtitleSelection>,
+    remembered_audio: Option<u32>,
+    remembered_subtitle: Option<SubtitleOverride>,
     bitrate_cap: Option<u64>,
     target_height: Option<u32>,
     force_burn: bool,
     downmix_stereo: bool,
+}
+
+impl LaunchContext {
+    fn has_override(&self) -> bool {
+        self.remembered_audio.is_some() || self.remembered_subtitle.is_some()
+    }
 }
 
 struct Inner<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> {
@@ -226,6 +241,28 @@ where
         Ok(playback)
     }
 
+    async fn remember_tracks(
+        &self,
+        ctx: &LaunchContext,
+        position_ms: u64,
+    ) -> Result<(), SessionError> {
+        if !ctx.has_override() {
+            return Ok(());
+        }
+        self.inner
+            .progress
+            .upsert(PlaybackProgress {
+                user: ctx.user.clone(),
+                version: ctx.version.clone(),
+                position_ms,
+                audio_track: ctx.remembered_audio,
+                subtitle: ctx.remembered_subtitle.clone(),
+                updated_at: Timestamp::now(),
+            })
+            .await?;
+        Ok(())
+    }
+
     async fn teardown(&self, session: &SessionId) -> Result<(), SessionError> {
         let _ = self.inner.transcode.stop(session).await;
         self.inner.streams.remove(session);
@@ -305,7 +342,7 @@ where
         detail: &VersionDetail,
         ctx: &LaunchContext,
         position_ms: u64,
-    ) -> Result<(DeliveryMode, SelectedTracks), SessionError> {
+    ) -> Result<(DeliveryMode, SelectedTracks, Timeline), SessionError> {
         let container =
             Container::parse(&detail.version.container).ok_or(SessionError::NegotiationFailed)?;
         let profile = self.inner.profiles.resolve(&ctx.capabilities.platform);
@@ -332,6 +369,8 @@ where
             .filter(|height| *height > cap)
             .map(|_| cap);
 
+        let mut origin_ms = 0;
+        let mut sequential = false;
         if outcome.mode == DeliveryMode::Direct {
             let _ = self.inner.transcode.stop(session_id).await;
             self.inner.streams.register(
@@ -356,6 +395,15 @@ where
                     input_path: detail.version.path.clone(),
                     duration_ms: detail.version.duration_ms,
                     copy: remux,
+                    container: segment_container_for(
+                        remux,
+                        detail.video.first().map(|v| v.codec.as_str()),
+                        outcome
+                            .selected
+                            .audio_track
+                            .and_then(|idx| detail.audio.iter().find(|a| a.index == idx))
+                            .map(|a| a.codec.as_str()),
+                    ),
                     seek_ms: (position_ms > 0).then_some(position_ms),
                     audio_track: outcome.selected.audio_track,
                     max_height: if remux { None } else { scale_to },
@@ -367,6 +415,8 @@ where
                 })
                 .await
                 .map_err(|_| SessionError::NegotiationFailed)?;
+            origin_ms = started.origin_ms;
+            sequential = started.sequential;
             self.inner.streams.register(
                 session_id.clone(),
                 StreamRegistration {
@@ -378,7 +428,14 @@ where
                 },
             );
         }
-        Ok((outcome.mode, outcome.selected))
+        Ok((
+            outcome.mode,
+            outcome.selected,
+            Timeline {
+                origin_ms,
+                sequential,
+            },
+        ))
     }
 }
 
@@ -437,6 +494,27 @@ where
             }
         }
 
+        let stored = self
+            .inner
+            .progress
+            .get(&caller.user, &request.version)
+            .await?;
+        let audio = resolve_audio(
+            &request.audio,
+            stored.as_ref().and_then(|row| row.audio_track),
+            &detail.audio,
+            user.as_ref().map_or(&[], |u| &u.preferred_audio),
+        );
+        let subtitle = resolve_subtitle(
+            &request.subtitle,
+            stored.as_ref().and_then(|row| row.subtitle.as_ref()),
+            &AvailableSubtitles {
+                embedded: &detail.subtitles,
+                files: &detail.subtitle_files,
+            },
+            user.as_ref().map_or(&[], |u| &u.preferred_subtitle),
+        );
+
         let session_id = SessionId(Uuid::new_v4().to_string());
         let now = Timestamp::now();
         let token = self.create_token(&session_id, &caller.user, &request.version)?;
@@ -444,28 +522,16 @@ where
             user: caller.user.clone(),
             version: request.version.clone(),
             capabilities: request.capabilities.clone(),
-            requested_audio: request.audio_track.or_else(|| {
-                preferred_audio_track(
-                    &detail.audio,
-                    user.as_ref().map_or(&[], |u| &u.preferred_audio),
-                )
-            }),
-            requested_subtitle: request.subtitle.clone().or_else(|| {
-                preferred_subtitle_track(
-                    &detail.subtitles,
-                    user.as_ref().map_or(&[], |u| &u.preferred_subtitle),
-                )
-                .map(|index| SubtitleSelection {
-                    track: SubtitleTrackRef::Embedded(index),
-                    offset_ms: None,
-                })
-            }),
+            requested_audio: audio.selected,
+            requested_subtitle: subtitle.selected,
+            remembered_audio: audio.remembered,
+            remembered_subtitle: subtitle.remembered,
             bitrate_cap: user.as_ref().and_then(|u| u.bitrate_cap),
             target_height: request.target_height,
             force_burn: request.force_burn,
             downmix_stereo: request.downmix_stereo,
         };
-        let (mode, selected) = self
+        let (mode, selected, timeline) = self
             .launch(&session_id, &detail, &ctx, request.start_position_ms)
             .await?;
         let manifest_url = manifest_path(mode, &token);
@@ -496,6 +562,8 @@ where
             session_id,
             mode,
             manifest_url,
+            origin_ms: timeline.origin_ms,
+            sequential: timeline.sequential,
             selected,
             heartbeat_interval_s: HEARTBEAT_INTERVAL_S,
             markers: detail.markers,
@@ -517,6 +585,8 @@ where
         playback.state = state;
         playback.last_heartbeat_at = now;
         let version = playback.version.clone();
+        let ctx = self.inner.contexts.read().unwrap().get(session).cloned();
+        let remembered = ctx.as_ref().filter(|ctx| ctx.has_override());
 
         let played = self.inner.catalog.get_version(&version).await?;
         let duration_ms = played.as_ref().map_or(0, |played| played.duration_ms);
@@ -537,18 +607,21 @@ where
                     .await?;
             }
             self.inner.progress.delete(&owner, &version).await?;
-        } else if is_started(position_ms, duration_ms) {
+        } else if is_started(position_ms, duration_ms)
+            || remembered.is_some()
+            || self.inner.progress.get(&owner, &version).await?.is_some()
+        {
             self.inner
                 .progress
                 .upsert(PlaybackProgress {
                     user: owner.clone(),
                     version: version.clone(),
                     position_ms,
+                    audio_track: remembered.and_then(|ctx| ctx.remembered_audio),
+                    subtitle: remembered.and_then(|ctx| ctx.remembered_subtitle.clone()),
                     updated_at: now,
                 })
                 .await?;
-        } else {
-            self.inner.progress.delete(&owner, &version).await?;
         }
 
         Ok(HeartbeatAck {
@@ -579,7 +652,7 @@ where
             .ok_or(SessionError::VersionNotFound)?;
 
         let token = self.create_token(session, &playback.user, &playback.version)?;
-        let (mode, selected) = self.launch(session, &detail, &ctx, position_ms).await?;
+        let (mode, selected, timeline) = self.launch(session, &detail, &ctx, position_ms).await?;
         let manifest_url = manifest_path(mode, &token);
 
         playback.position_ms = position_ms;
@@ -592,6 +665,8 @@ where
             session_id: session.clone(),
             mode,
             manifest_url,
+            origin_ms: timeline.origin_ms,
+            sequential: timeline.sequential,
             selected,
         })
     }
@@ -612,40 +687,56 @@ where
             .cloned()
             .ok_or(SessionError::NotFound)?;
 
-        if let Some(audio) = update.audio_track {
-            ctx.requested_audio = Some(audio);
-        }
-        ctx.target_height = update.target_height;
-        ctx.force_burn = update.force_burn;
-        ctx.downmix_stereo = update.downmix_stereo;
-        match update.subtitle {
-            SubtitleChange::Keep => {}
-            SubtitleChange::Disable => ctx.requested_subtitle = None,
-            SubtitleChange::Set(selection) => {
-                if let Some(offset_ms) = selection.offset_ms {
-                    self.inner
-                        .preferences
-                        .set_subtitle_offset(UserSubtitleOffset {
-                            user: playback.user.clone(),
-                            version: playback.version.clone(),
-                            subtitle: selection.track.clone(),
-                            offset_ms,
-                        })
-                        .await?;
-                }
-                ctx.requested_subtitle = Some(selection);
-            }
-        }
-
         let detail = self
             .inner
             .catalog
             .version_detail(&playback.version)
             .await?
             .ok_or(SessionError::VersionNotFound)?;
+        let available = AvailableSubtitles {
+            embedded: &detail.subtitles,
+            files: &detail.subtitle_files,
+        };
+
+        if let Some(audio) = update
+            .audio_track
+            .filter(|index| detail.audio.iter().any(|track| track.index == *index))
+        {
+            ctx.requested_audio = Some(audio);
+            ctx.remembered_audio = Some(audio);
+        }
+        ctx.target_height = update.target_height;
+        ctx.force_burn = update.force_burn;
+        ctx.downmix_stereo = update.downmix_stereo;
+        match update.subtitle {
+            SubtitleChange::Keep => {}
+            SubtitleChange::Disable => {
+                ctx.requested_subtitle = None;
+                ctx.remembered_subtitle = Some(SubtitleOverride::Off);
+            }
+            SubtitleChange::Set(selection) => {
+                let resolved =
+                    resolve_subtitle(&SubtitleRequest::Track(selection), None, &available, &[]);
+                if let Some(selection) = resolved.selected {
+                    if let Some(offset_ms) = selection.offset_ms {
+                        self.inner
+                            .preferences
+                            .set_subtitle_offset(UserSubtitleOffset {
+                                user: playback.user.clone(),
+                                version: playback.version.clone(),
+                                subtitle: selection.track.clone(),
+                                offset_ms,
+                            })
+                            .await?;
+                    }
+                    ctx.remembered_subtitle = resolved.remembered;
+                    ctx.requested_subtitle = Some(selection);
+                }
+            }
+        }
 
         let token = self.create_token(session, &playback.user, &playback.version)?;
-        let (mode, selected) = self
+        let (mode, selected, timeline) = self
             .launch(session, &detail, &ctx, playback.position_ms)
             .await?;
         let manifest_url = manifest_path(mode, &token);
@@ -653,6 +744,8 @@ where
         playback.mode = mode;
         playback.selected = selected.clone();
         playback.last_heartbeat_at = Timestamp::now();
+        let position_ms = playback.position_ms;
+        self.remember_tracks(&ctx, position_ms).await?;
         self.inner
             .contexts
             .write()
@@ -664,6 +757,8 @@ where
             session_id: session.clone(),
             mode,
             manifest_url,
+            origin_ms: timeline.origin_ms,
+            sequential: timeline.sequential,
             selected,
         })
     }
@@ -706,6 +801,7 @@ mod tests {
     };
     use domain::playback::WatchlistItem;
     use domain::profile::{AudioCodecCap, CapabilityProfile, VideoCodecCap};
+    use domain::session::{AudioRequest, SubtitleRequest};
     use domain::user::{Role, User};
 
     use mocks::{
@@ -924,8 +1020,8 @@ mod tests {
             version: VersionId("v1".to_owned()),
             start_position_ms,
             capabilities: caps(None),
-            audio_track: None,
-            subtitle: None,
+            audio: AudioRequest::Unspecified,
+            subtitle: SubtitleRequest::Unspecified,
             target_height: None,
             force_burn: false,
             downmix_stereo: false,
@@ -1188,6 +1284,8 @@ mod tests {
                 user: UserId("u1".to_owned()),
                 version: VersionId("v1".to_owned()),
                 position_ms: 5_000,
+                audio_track: None,
+                subtitle: None,
                 updated_at: Timestamp::UNIX_EPOCH,
             })
             .await
@@ -1197,8 +1295,8 @@ mod tests {
             version: VersionId("v2".to_owned()),
             start_position_ms: 0,
             capabilities: caps(None),
-            audio_track: None,
-            subtitle: None,
+            audio: AudioRequest::Unspecified,
+            subtitle: SubtitleRequest::Unspecified,
             target_height: None,
             force_burn: false,
             downmix_stereo: false,
@@ -1283,7 +1381,7 @@ mod tests {
             vec![subtitle(2, None, SubtitleFormat::Pgs)],
         ));
         let mut request = start_request(0);
-        request.subtitle = Some(SubtitleSelection {
+        request.subtitle = SubtitleRequest::Track(SubtitleSelection {
             track: SubtitleTrackRef::Embedded(2),
             offset_ms: None,
         });
@@ -1327,7 +1425,7 @@ mod tests {
         harness.catalog.insert(detail);
         let mut request = start_request(0);
         request.force_burn = true;
-        request.subtitle = Some(SubtitleSelection {
+        request.subtitle = SubtitleRequest::Track(SubtitleSelection {
             track: SubtitleTrackRef::File(SubtitleFileId("sf1".into())),
             offset_ms: None,
         });
@@ -1350,7 +1448,7 @@ mod tests {
             vec![subtitle(2, Some("fra"), SubtitleFormat::Srt)],
         ));
         let mut request = start_request(0);
-        request.subtitle = Some(SubtitleSelection {
+        request.subtitle = SubtitleRequest::Track(SubtitleSelection {
             track: SubtitleTrackRef::Embedded(2),
             offset_ms: None,
         });
@@ -1383,7 +1481,7 @@ mod tests {
         }];
         harness.catalog.insert(detail);
         let mut request = start_request(0);
-        request.subtitle = Some(SubtitleSelection {
+        request.subtitle = SubtitleRequest::Track(SubtitleSelection {
             track: SubtitleTrackRef::File(SubtitleFileId("sf1".into())),
             offset_ms: None,
         });
@@ -1623,8 +1721,8 @@ mod tests {
         harness.catalog.insert(multilingual_detail());
         harness.users.insert(user_who_prefers(&["jpn"], &["fra"]));
         let mut request = start_request(0);
-        request.audio_track = Some(2);
-        request.subtitle = Some(SubtitleSelection {
+        request.audio = AudioRequest::Track(2);
+        request.subtitle = SubtitleRequest::Track(SubtitleSelection {
             track: SubtitleTrackRef::Embedded(0),
             offset_ms: None,
         });
@@ -1676,7 +1774,7 @@ mod tests {
             vec![subtitle(2, Some("eng"), SubtitleFormat::Srt)],
         ));
         let mut request = start_request(0);
-        request.subtitle = Some(SubtitleSelection {
+        request.subtitle = SubtitleRequest::Track(SubtitleSelection {
             track: SubtitleTrackRef::Embedded(2),
             offset_ms: None,
         });
@@ -2074,16 +2172,232 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn seeking_back_to_the_start_drops_the_bookmark() {
+    async fn seeking_back_to_the_start_moves_the_bookmark_but_keeps_the_row() {
         let harness = Harness::new();
         harness.catalog.insert(feature_length());
         beat_at(&harness, 600_000).await;
         assert!(stored_progress(&harness).await.is_some());
 
         beat_at(&harness, 5_000).await;
+        let row = stored_progress(&harness).await;
+        assert_eq!(
+            row.map(|row| row.position_ms),
+            Some(5_000),
+            "rewinding moves the bookmark rather than destroying the viewer's history"
+        );
+    }
+
+    async fn track_choice(harness: &Harness, session: &SessionId, track: u32) {
+        harness
+            .service
+            .update(
+                &principal(),
+                session,
+                SessionUpdate {
+                    audio_track: Some(track),
+                    subtitle: SubtitleChange::Set(SubtitleSelection {
+                        track: SubtitleTrackRef::Embedded(1),
+                        offset_ms: None,
+                    }),
+                    target_height: None,
+                    force_burn: false,
+                    downmix_stereo: false,
+                },
+            )
+            .await
+            .unwrap();
+    }
+
+    // A choice made in the first minute must survive, which is why it forces a row
+    // of its own rather than waiting for the started threshold.
+    #[tokio::test]
+    async fn changing_tracks_early_writes_the_override_immediately() {
+        let harness = Harness::new();
+        harness.catalog.insert(multilingual_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+
+        track_choice(&harness, &started.session_id, 2).await;
+
+        let row = stored_progress(&harness).await.expect("row forced");
+        assert_eq!(row.audio_track, Some(2));
+        assert_eq!(
+            row.subtitle,
+            Some(SubtitleOverride::Track(SubtitleTrackRef::Embedded(1)))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stored_override_is_restored_on_the_next_session() {
+        let harness = Harness::new();
+        harness.catalog.insert(multilingual_detail());
+        harness.users.insert(user_who_prefers(&["eng"], &["eng"]));
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        track_choice(&harness, &started.session_id, 2).await;
+        harness
+            .service
+            .end(&principal(), &started.session_id)
+            .await
+            .unwrap();
+
+        let again = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+
+        assert_eq!(again.selected.audio_track, Some(2));
+        assert_eq!(
+            again.selected.subtitle_track,
+            Some(SubtitleTrackRef::Embedded(1))
+        );
+    }
+
+    // The account preference is applied but never hardened, or it would stop
+    // tracking the account setting from the next episode onward.
+    #[tokio::test]
+    async fn the_account_preference_never_becomes_an_override() {
+        let harness = Harness::new();
+        harness.catalog.insert(multilingual_detail());
+        harness.users.insert(user_who_prefers(&["jpn"], &["fra"]));
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        assert_eq!(started.selected.audio_track, Some(1));
+
+        harness
+            .service
+            .heartbeat(
+                &principal(),
+                &started.session_id,
+                50_000,
+                PlaybackState::Playing,
+            )
+            .await
+            .unwrap();
+
+        let row = stored_progress(&harness).await.expect("started");
+        assert_eq!(row.audio_track, None);
+        assert_eq!(row.subtitle, None);
+    }
+
+    #[tokio::test]
+    async fn finishing_a_version_drops_its_override() {
+        let harness = Harness::new();
+        harness.catalog.insert(multilingual_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        track_choice(&harness, &started.session_id, 2).await;
+        assert!(stored_progress(&harness).await.is_some());
+
+        harness
+            .service
+            .heartbeat(
+                &principal(),
+                &started.session_id,
+                95_000,
+                PlaybackState::Playing,
+            )
+            .await
+            .unwrap();
+
+        assert!(stored_progress(&harness).await.is_none());
+    }
+
+    // A track the file does not have must leave the current choice alone rather than
+    // selecting nothing, which is how an unknown index used to produce silence.
+    #[tokio::test]
+    async fn updating_to_a_subtitle_track_that_is_absent_keeps_the_current_one() {
+        let harness = Harness::new();
+        harness.catalog.insert(multilingual_detail());
+        let mut request = start_request(0);
+        request.subtitle = SubtitleRequest::Track(SubtitleSelection {
+            track: SubtitleTrackRef::Embedded(1),
+            offset_ms: None,
+        });
+        let started = harness.service.start(&principal(), request).await.unwrap();
+
+        let renegotiated = harness
+            .service
+            .update(
+                &principal(),
+                &started.session_id,
+                SessionUpdate {
+                    audio_track: None,
+                    subtitle: SubtitleChange::Set(SubtitleSelection {
+                        track: SubtitleTrackRef::Embedded(9),
+                        offset_ms: Some(250),
+                    }),
+                    target_height: None,
+                    force_burn: false,
+                    downmix_stereo: false,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            renegotiated.selected.subtitle_track,
+            Some(SubtitleTrackRef::Embedded(1))
+        );
+        assert!(
+            harness
+                .preferences
+                .get_subtitle_offset(
+                    &principal().user,
+                    &VersionId("v1".to_owned()),
+                    &SubtitleTrackRef::Embedded(9),
+                )
+                .await
+                .unwrap()
+                .is_none(),
+            "an offset must not be stored against a track the file does not have"
+        );
+    }
+
+    // Rewinding below the threshold must not throw the choice away with the bookmark.
+    #[tokio::test]
+    async fn an_override_survives_a_rewind_to_the_start() {
+        let harness = Harness::new();
+        harness.catalog.insert(multilingual_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        track_choice(&harness, &started.session_id, 2).await;
+
+        harness
+            .service
+            .heartbeat(&principal(), &started.session_id, 0, PlaybackState::Paused)
+            .await
+            .unwrap();
+
+        let row = stored_progress(&harness).await.expect("row kept");
+        assert_eq!(row.position_ms, 0);
+        assert_eq!(row.audio_track, Some(2));
+    }
+
+    #[tokio::test]
+    async fn a_title_barely_sampled_leaves_no_bookmark() {
+        let harness = Harness::new();
+        harness.catalog.insert(feature_length());
+        beat_at(&harness, 5_000).await;
         assert!(
             stored_progress(&harness).await.is_none(),
-            "a stale bookmark must not survive a restart from the beginning"
+            "ten seconds of something new is not worth remembering"
         );
     }
 
