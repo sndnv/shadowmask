@@ -1654,6 +1654,8 @@ async fn user_library_routes() {
         user: u1.clone(),
         version: VersionId("v1".into()),
         position_ms: 1234,
+        audio_track: None,
+        subtitle: None,
         updated_at: Timestamp::now(),
     });
 
@@ -1911,6 +1913,8 @@ async fn discovery_routes() {
         user: UserId("u1".into()),
         version: VersionId("v1".into()),
         position_ms: 200,
+        audio_track: None,
+        subtitle: None,
         updated_at: Timestamp::now(),
     });
 
@@ -1981,4 +1985,46 @@ async fn discovery_routes() {
     assert_eq!(show["type"], "series");
     assert_eq!(show["id"], "s1");
     assert_eq!(show["episode_count"], 2);
+}
+
+#[tokio::test]
+async fn a_session_that_never_left_the_start_stays_off_the_continue_rail() {
+    let ctx = Ctx::new();
+    ctx.grant("u1", &["lib1"]);
+    ctx.catalog_repo.add_movie(movie("m1"));
+    ctx.catalog_repo.add_version(version(
+        "v1",
+        TitleId::Movie(MovieId("m1".into())),
+        "lib1",
+        Quality::Hd,
+    ));
+
+    let (status, _) = call(
+        ctx.app(),
+        Method::POST,
+        "/api/v1/sessions",
+        Some(USER),
+        Some(json!({
+            "version_id": "v1",
+            "capabilities": {"platform": "web", "profile_version": 1, "max_bitrate": null},
+            "audio_track": null,
+            "subtitle": null
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let (status, body) = call(
+        ctx.app(),
+        Method::GET,
+        "/api/v1/users/u1/continue",
+        Some(USER),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    // The session is real but has no position to offer, and the title page would
+    // show Play rather than Resume, so a card here would contradict it.
+    assert!(body["now_playing"].as_array().unwrap().is_empty());
+    assert!(body["in_progress"].as_array().unwrap().is_empty());
 }

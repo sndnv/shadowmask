@@ -48,6 +48,7 @@ fn config(root: &Path) -> WireConfig {
         content_fetch_enabled: false,
         fetch_cookies_file: None,
         vaapi_device: None,
+        remux_read_rate: 10.0,
     }
 }
 
@@ -249,6 +250,8 @@ async fn seed(repos: &Repos, hash: &str) {
             user: UserId("u1".into()),
             version: VersionId("v1".into()),
             position_ms: 1234,
+            audio_track: None,
+            subtitle: None,
             updated_at: fixture::ts(20),
         })
         .await
@@ -260,6 +263,8 @@ async fn seed(repos: &Repos, hash: &str) {
             user: UserId("u1".into()),
             version: VersionId("ev1".into()),
             position_ms: 400,
+            audio_track: None,
+            subtitle: None,
             updated_at: fixture::ts(21),
         })
         .await

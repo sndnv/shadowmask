@@ -9,7 +9,7 @@ use axum_server::Handle;
 use axum_server::tls_rustls::RustlsConfig;
 use domain::job::{JobKind, JobPriority};
 use domain::repository::JobRepository;
-use fetch::YtDlpFetcher;
+use fetch::{YtDlpFetcher, yt_dlp_version};
 use jiff::tz::TimeZone;
 use jiff::{SignedDuration, Timestamp};
 use jobs::{
@@ -251,6 +251,16 @@ fn box_err<E: std::error::Error + Send + Sync + 'static>(error: E) -> BoxError {
     Box::new(error)
 }
 
+async fn resolve_yt_dlp_version(binary: &str) -> Option<String> {
+    match yt_dlp_version(&media::transcode::TokioProcessSpawner, binary).await {
+        Ok(version) => Some(version),
+        Err(e) => {
+            tracing::warn!("startup: yt-dlp at [{binary}] reported no version: {e}");
+            None
+        }
+    }
+}
+
 async fn load_tls(
     cert: Option<&Path>,
     key: Option<&Path>,
@@ -299,7 +309,11 @@ pub struct Runtime {
 
 impl Runtime {
     pub async fn build(config: Config, metrics: PrometheusHandle) -> Result<Self, BoxError> {
-        tracing::info!("{}", config.describe());
+        let yt_dlp = match config.fetch_providers.enabled {
+            true => resolve_yt_dlp_version(&config.fetch_providers.yt_dlp_binary).await,
+            false => None,
+        };
+        tracing::info!("{}", config.describe(yt_dlp.as_deref()));
         let repos = Repos::connect(&config.db_root).await?;
 
         let reclaimed = repos
@@ -340,6 +354,7 @@ impl Runtime {
             content_fetch_enabled: config.fetch_providers.enabled,
             fetch_cookies_file: config.fetch_providers.cookies_file.clone(),
             vaapi_device: vaapi_device.clone(),
+            remux_read_rate: config.remux_read_rate,
         };
         let cancel = CancelRegistry::default();
         let Built {
@@ -934,6 +949,28 @@ mod tests {
         };
         let runtime = Runtime::build(config, test_metrics()).await.unwrap();
         assert_eq!(runtime.worker.run_once(Timestamp::now()).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_fetch_enabled_server_reports_its_yt_dlp_at_startup() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = test_config(dir.path().to_owned());
+        config.fetch_providers.enabled = true;
+        // echo answers --version with the flag itself, which is all this needs:
+        // a binary that runs and prints something.
+        config.fetch_providers.yt_dlp_binary = "/bin/echo".to_owned();
+        let runtime = Runtime::build(config, test_metrics()).await.unwrap();
+        assert_eq!(runtime.worker.run_once(Timestamp::now()).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_missing_yt_dlp_warns_instead_of_stopping_the_server() {
+        // Content fetch is one optional feature; a server whose yt-dlp is gone
+        // still has to boot and serve everything else.
+        assert_eq!(
+            resolve_yt_dlp_version("/definitely/not/a/binary").await,
+            None
+        );
     }
 
     #[tokio::test]

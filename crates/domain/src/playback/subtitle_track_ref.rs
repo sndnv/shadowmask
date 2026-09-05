@@ -5,3 +5,9 @@ pub enum SubtitleTrackRef {
     Embedded(u32),
     File(SubtitleFileId),
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubtitleOverride {
+    Off,
+    Track(SubtitleTrackRef),
+}

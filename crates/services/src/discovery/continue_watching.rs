@@ -28,6 +28,13 @@ pub fn drop_resumable(
         .collect()
 }
 
+pub fn drop_unstarted(now_playing: Vec<NowPlaying>) -> Vec<NowPlaying> {
+    now_playing
+        .into_iter()
+        .filter(|n| n.card.progress_percent > 0)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -44,6 +51,8 @@ mod tests {
             user: UserId("u1".to_owned()),
             version: VersionId(version.to_owned()),
             position_ms,
+            audio_track: None,
+            subtitle: None,
             updated_at: Timestamp::UNIX_EPOCH + SignedDuration::from_secs(seconds),
         }
     }
@@ -71,12 +80,16 @@ mod tests {
     }
 
     fn card() -> ResumeCard {
+        card_at(40)
+    }
+
+    fn card_at(progress_percent: u8) -> ResumeCard {
         ResumeCard {
             title: TitleId::Movie(MovieId("m1".to_owned())),
             display_title: "Big Buck Bunny".to_owned(),
             artwork: Vec::new(),
             duration_ms: 1000,
-            progress_percent: 40,
+            progress_percent,
             year: None,
             series_title: None,
             series_artwork: Vec::new(),
@@ -131,6 +144,22 @@ mod tests {
     fn a_session_with_no_stored_progress_yet_survives() {
         let rows = drop_resumable(vec![playing("v1")], &[]);
         assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn a_session_sitting_at_the_start_never_reaches_the_rail() {
+        let stalled = NowPlaying {
+            card: card_at(0),
+            ..playing("v1")
+        };
+        let rows = drop_unstarted(vec![stalled, playing("v2")]);
+        assert_eq!(
+            rows.iter()
+                .map(|n| n.session.version.0.clone())
+                .collect::<Vec<String>>(),
+            vec!["v2"],
+            "a card at 0% has nothing to resume while the title page offers no resume either"
+        );
     }
 
     #[test]

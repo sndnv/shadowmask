@@ -93,6 +93,7 @@ pub struct WireConfig {
     pub content_fetch_enabled: bool,
     pub fetch_cookies_file: Option<PathBuf>,
     pub vaapi_device: Option<String>,
+    pub remux_read_rate: f64,
 }
 
 #[derive(Clone)]
@@ -161,7 +162,8 @@ pub fn build_state(
 ) -> Result<Built, ProfileError> {
     let profiles = BuiltinProfiles::load()?;
     let hls = HlsStreamSource::new(&cfg.transcode_cache)
-        .with_encoder(VideoEncoder::from_device(cfg.vaapi_device.clone()));
+        .with_encoder(VideoEncoder::from_device(cfg.vaapi_device.clone()))
+        .with_read_rate(cfg.remux_read_rate);
     let artwork_store = FsArtworkStore::new(&cfg.artwork_cache);
     let images = ImageState::new(&cfg.artwork_cache);
     let trickplay = TrickplayState::new(&cfg.trickplay_cache);

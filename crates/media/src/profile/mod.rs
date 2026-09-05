@@ -11,9 +11,11 @@ use domain::profile::{
 const GENERIC: &str = "generic";
 
 const BUILTINS: &[(&str, &str)] = &[
+    ("desktop", include_str!("data/desktop.json")),
     ("roku", include_str!("data/roku.json")),
     ("safari", include_str!("data/safari.json")),
     ("chrome", include_str!("data/chrome.json")),
+    ("firefox", include_str!("data/firefox.json")),
     ("ios", include_str!("data/ios.json")),
     ("android", include_str!("data/android.json")),
     (GENERIC, include_str!("data/generic.json")),
@@ -185,6 +187,44 @@ mod tests {
         assert!(roku.video.iter().any(|v| v.codec == "hevc"));
         assert_eq!(roku.max_height, 2160);
         assert!(roku.hdr.contains(&HdrFormat::Hdr10));
+    }
+
+    #[test]
+    fn the_desktop_player_direct_plays_hdr_and_ten_bit_hevc() {
+        let registry = BuiltinProfiles::load().unwrap();
+        let desktop = registry.resolve("desktop");
+        // mpv decodes these natively, so anything narrower here makes the
+        // server tone map and downscale 4K HDR in real time for nothing.
+        let hevc = desktop
+            .video
+            .iter()
+            .find(|v| v.codec == "hevc")
+            .expect("hevc present");
+        assert!(hevc.max_bit_depth >= 10);
+        assert_eq!(desktop.max_height, 2160);
+        assert!(desktop.hdr.contains(&HdrFormat::Hdr10));
+        assert!(desktop.hdr.contains(&HdrFormat::Hlg));
+        assert!(desktop.containers.contains(&Container::Mkv));
+        assert!(desktop.audio.iter().any(|a| a.codec == "truehd"));
+    }
+
+    #[test]
+    fn firefox_direct_plays_4k_but_leaves_out_what_it_cannot_decode() {
+        let registry = BuiltinProfiles::load().unwrap();
+        let firefox = registry.resolve("firefox");
+        assert_eq!(firefox.max_height, 2160);
+        assert!(firefox.video.iter().any(|v| v.codec == "av1"));
+        // Claiming something Firefox cannot decode fails playback outright,
+        // which is worse than the transcode leaving it out costs. Firefox has
+        // no ac3/dts at all, and its hevc and HDR support is per-platform and
+        // hardware dependent.
+        assert!(!firefox.audio.iter().any(|a| a.codec == "ac3"));
+        assert!(!firefox.audio.iter().any(|a| a.codec == "dts"));
+        assert!(!firefox.video.iter().any(|v| v.codec == "hevc"));
+        assert!(firefox.hdr.is_empty());
+        // Firefox plays WebM rather than Matroska generally, so an mkv source
+        // has to remux, which is still a copy rather than a re-encode.
+        assert!(!firefox.containers.contains(&Container::Mkv));
     }
 
     #[test]

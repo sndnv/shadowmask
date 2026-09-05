@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use domain::error::FetchError;
 use domain::media::{FetchSpec, FetchedMedia, MediaFetcher};
-use domain::process::{CommandOutput, OutputStream, ProcessSpawner};
+use domain::process::{OutputStream, ProcessSpawner};
 
 #[derive(Debug, Clone)]
 pub struct YtDlpFetcher<P> {
@@ -28,6 +28,23 @@ impl<P> YtDlpFetcher<P> {
             max_height,
             cookies_file,
         }
+    }
+}
+
+pub async fn yt_dlp_version<P: ProcessSpawner>(
+    spawner: &P,
+    binary: &str,
+) -> Result<String, FetchError> {
+    let output = spawner
+        .run_captured(binary, &["--version".to_owned()])
+        .await
+        .map_err(|e| FetchError::Spawn(e.to_string()))?;
+    if !output.success {
+        return Err(FetchError::Spawn(output.failure_detail(DIAGNOSTIC_LINES)));
+    }
+    match output.stdout.trim() {
+        "" => Err(FetchError::NoOutput("no version reported".to_owned())),
+        version => Ok(version.to_owned()),
     }
 }
 
@@ -77,22 +94,7 @@ fn log_line(url: &str, stream: OutputStream, line: &str) {
     }
 }
 
-fn error_detail(output: &CommandOutput) -> String {
-    let text = if output.stderr.trim().is_empty() {
-        output.stdout.trim_end()
-    } else {
-        output.stderr.trim_end()
-    };
-    let lines: Vec<&str> = text.lines().collect();
-    if lines.is_empty() {
-        return match output.status.trim() {
-            "" => "no diagnostic output captured".to_owned(),
-            status => format!("no diagnostic output captured ({status})"),
-        };
-    }
-    let start = lines.len().saturating_sub(15);
-    lines[start..].join("\n")
-}
+const DIAGNOSTIC_LINES: usize = 15;
 
 async fn first_media_file(dir: &str) -> Result<FetchedMedia, FetchError> {
     let mut entries = tokio::fs::read_dir(dir)
@@ -142,7 +144,7 @@ impl<P: ProcessSpawner> MediaFetcher for YtDlpFetcher<P> {
             return Err(FetchError::Download(format!(
                 "yt-dlp failed for [{}]: {}",
                 request.url,
-                error_detail(&output)
+                output.failure_detail(DIAGNOSTIC_LINES)
             )));
         }
         first_media_file(&request.dest_dir).await
@@ -151,6 +153,8 @@ impl<P: ProcessSpawner> MediaFetcher for YtDlpFetcher<P> {
 
 #[cfg(test)]
 mod tests {
+    use domain::process::CommandOutput;
+
     use super::*;
 
     enum Mode {
@@ -158,6 +162,7 @@ mod tests {
         OkButEmpty,
         Fail,
         Err,
+        Version,
     }
 
     struct MockSpawner {
@@ -169,7 +174,7 @@ mod tests {
             match self.mode {
                 Mode::Err => Err(std::io::Error::other("spawn failed")),
                 Mode::Fail => Ok(false),
-                Mode::OkButEmpty => Ok(true),
+                Mode::OkButEmpty | Mode::Version => Ok(true),
                 Mode::WriteThenOk => {
                     let template = args
                         .iter()
@@ -181,6 +186,23 @@ mod tests {
                     Ok(true)
                 }
             }
+        }
+
+        async fn run_captured(
+            &self,
+            program: &str,
+            args: &[String],
+        ) -> std::io::Result<CommandOutput> {
+            let success = self.run(program, args).await?;
+            Ok(CommandOutput {
+                success,
+                stdout: match self.mode {
+                    Mode::Version => "2026.08.19\n".to_owned(),
+                    _ => String::new(),
+                },
+                stderr: "ERROR: no such option: --version".to_owned(),
+                status: "exit code 2".to_owned(),
+            })
         }
 
         async fn run_streaming(
@@ -300,53 +322,6 @@ mod tests {
     }
 
     #[test]
-    fn error_detail_tails_stderr_to_last_lines() {
-        let stderr = (0..20)
-            .map(|i| format!("L{i}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let detail = error_detail(&CommandOutput {
-            success: false,
-            stdout: String::new(),
-            stderr,
-            status: "exit code 1".to_owned(),
-        });
-        assert!(detail.contains("L19"));
-        assert!(detail.contains("L5"));
-        assert!(!detail.contains("L4"));
-    }
-
-    #[test]
-    fn error_detail_falls_back_to_stdout_when_stderr_empty() {
-        let detail = error_detail(&CommandOutput {
-            success: false,
-            stdout: "only stdout diagnostic".to_owned(),
-            stderr: String::new(),
-            status: "exit code 1".to_owned(),
-        });
-        assert!(detail.contains("only stdout diagnostic"));
-    }
-
-    #[test]
-    fn error_detail_without_output_reports_status() {
-        let detail = error_detail(&CommandOutput {
-            success: false,
-            status: "terminated by signal 4".to_owned(),
-            ..CommandOutput::default()
-        });
-        assert_eq!(
-            detail,
-            "no diagnostic output captured (terminated by signal 4)"
-        );
-    }
-
-    #[test]
-    fn error_detail_without_output_or_status_is_labelled() {
-        let detail = error_detail(&CommandOutput::default());
-        assert_eq!(detail, "no diagnostic output captured");
-    }
-
-    #[test]
     fn is_progress_line_detects_download_lines() {
         assert!(is_progress_line("[download]  12.3% of 300.00MiB"));
         assert!(is_progress_line("  [download] Destination: file.mkv"));
@@ -406,6 +381,46 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, FetchError::Io(_)));
+    }
+
+    #[tokio::test]
+    async fn version_reports_what_the_binary_printed() {
+        let spawner = MockSpawner {
+            mode: Mode::Version,
+        };
+        assert_eq!(
+            yt_dlp_version(&spawner, "yt-dlp").await.unwrap(),
+            "2026.08.19"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_binary_that_will_not_start_is_a_spawn_error() {
+        let spawner = MockSpawner { mode: Mode::Err };
+        assert!(matches!(
+            yt_dlp_version(&spawner, "yt-dlp").await.unwrap_err(),
+            FetchError::Spawn(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_binary_that_rejects_the_flag_reports_why() {
+        let spawner = MockSpawner { mode: Mode::Fail };
+        // The startup line is the only warning an operator gets, so it has to
+        // carry the reason rather than just say the version is unknown.
+        let err = yt_dlp_version(&spawner, "yt-dlp").await.unwrap_err();
+        assert!(matches!(&err, FetchError::Spawn(detail) if detail.contains("no such option")));
+    }
+
+    #[tokio::test]
+    async fn a_silent_binary_is_no_output() {
+        let spawner = MockSpawner {
+            mode: Mode::OkButEmpty,
+        };
+        assert!(matches!(
+            yt_dlp_version(&spawner, "yt-dlp").await.unwrap_err(),
+            FetchError::NoOutput(_)
+        ));
     }
 
     #[tokio::test]

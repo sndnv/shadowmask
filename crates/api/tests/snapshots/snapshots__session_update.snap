@@ -6,11 +6,13 @@ expression: value
   "body": {
     "manifest_url": "[manifest_url]",
     "mode": "direct",
+    "origin_ms": 0,
     "selected": {
       "audio_track": 2,
       "subtitle_delivery": null,
       "subtitle_track": null
     },
+    "sequential": false,
     "session_id": "[session_id]"
   },
   "status": 200

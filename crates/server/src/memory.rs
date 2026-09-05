@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use crate::config::human_bytes;
+
 pub fn dir_size_bytes(dir: &Path) -> u64 {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return 0;
@@ -68,17 +70,6 @@ pub fn memory_warning(
         ));
     }
     None
-}
-
-fn human_bytes(bytes: u64) -> String {
-    const UNITS: [&str; 4] = ["B", "KiB", "MiB", "GiB"];
-    let mut value = bytes as f64;
-    let mut unit = 0;
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit += 1;
-    }
-    format!("{value:.1} {}", UNITS[unit])
 }
 
 #[cfg(feature = "enrichment")]

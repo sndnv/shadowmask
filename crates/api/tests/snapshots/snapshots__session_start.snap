@@ -21,6 +21,7 @@ expression: value
       ]
     },
     "mode": "direct",
+    "origin_ms": 0,
     "selected": {
       "audio_track": 0,
       "subtitle_delivery": "hls_vtt",
@@ -29,6 +30,7 @@ expression: value
         "type": "embedded"
       }
     },
+    "sequential": false,
     "session_id": "[session_id]",
     "trickplay": [
       {

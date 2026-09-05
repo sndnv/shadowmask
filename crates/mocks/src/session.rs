@@ -6,8 +6,9 @@ use domain::error::SessionError;
 use domain::media::{CreditsMarker, DetectedMarkers, IntroMarker, TrickplayAsset};
 use domain::service::SessionService;
 use domain::session::{
-    DeliveryMode, HeartbeatAck, PlaybackSession, PlaybackState, Renegotiated, SelectedTracks,
-    SessionId, SessionStartInput, SessionStarted, SessionUpdate, SubtitleChange, SubtitleDelivery,
+    AudioRequest, DeliveryMode, HeartbeatAck, PlaybackSession, PlaybackState, Renegotiated,
+    SelectedTracks, SessionId, SessionStartInput, SessionStarted, SessionUpdate, SubtitleChange,
+    SubtitleDelivery, SubtitleRequest,
 };
 use domain::user::{Principal, UserId};
 use jiff::Timestamp;
@@ -47,6 +48,8 @@ fn renegotiated(session: &PlaybackSession) -> Renegotiated {
         session_id: session.id.clone(),
         mode: session.mode,
         manifest_url: manifest_url(&session.id),
+        origin_ms: 0,
+        sequential: false,
         selected: session.selected.clone(),
     }
 }
@@ -72,10 +75,19 @@ impl SessionService for MockSessionService {
         }
         let id = SessionId(Uuid::new_v4().to_string());
         let now = Timestamp::now();
+        let requested_subtitle = match &request.subtitle {
+            SubtitleRequest::Track(selection) => Some(selection.track.clone()),
+            _ => None,
+        };
         let selected = SelectedTracks {
-            audio_track: request.audio_track,
-            subtitle_track: request.subtitle.as_ref().map(|s| s.track.clone()),
-            subtitle_delivery: request.subtitle.as_ref().map(|_| SubtitleDelivery::HlsVtt),
+            audio_track: match request.audio {
+                AudioRequest::Track(index) => Some(index),
+                _ => None,
+            },
+            subtitle_delivery: requested_subtitle
+                .as_ref()
+                .map(|_| SubtitleDelivery::HlsVtt),
+            subtitle_track: requested_subtitle,
         };
         let version = request.version.clone();
         let session = PlaybackSession {
@@ -96,6 +108,8 @@ impl SessionService for MockSessionService {
             session_id: id.clone(),
             mode: DeliveryMode::Direct,
             manifest_url: manifest_url(&id),
+            origin_ms: 0,
+            sequential: false,
             selected,
             heartbeat_interval_s: HEARTBEAT_INTERVAL_S,
             markers: DetectedMarkers {
@@ -253,8 +267,8 @@ mod tests {
                 profile_version: 1,
                 max_bitrate: None,
             },
-            audio_track: Some(0),
-            subtitle: None,
+            audio: AudioRequest::Track(0),
+            subtitle: SubtitleRequest::Unspecified,
             target_height: None,
             force_burn: false,
             downmix_stereo: false,
@@ -280,7 +294,7 @@ mod tests {
     async fn start_with_subtitle_selection() {
         let svc = MockSessionService::new();
         let request = SessionStartInput {
-            subtitle: Some(SubtitleSelection {
+            subtitle: SubtitleRequest::Track(SubtitleSelection {
                 track: SubtitleTrackRef::Embedded(2),
                 offset_ms: Some(500),
             }),

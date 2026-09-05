@@ -1,7 +1,8 @@
 use domain::catalog::{ArtworkOwner, EpisodeId, MovieId, SeriesId, TitleId, TitleKind, TitleRef};
 use domain::error::RepositoryError;
+use domain::media::SubtitleFileId;
 use domain::metadata::{ArtworkKind, CreditRole, ExtraKind};
-use domain::playback::SubtitleTrackRef;
+use domain::playback::{SubtitleOverride, SubtitleTrackRef};
 use domain::user::Role;
 
 use crate::pool::backend;
@@ -96,6 +97,38 @@ pub(crate) fn subtitle_ref_parts(subtitle: &SubtitleTrackRef) -> (&'static str, 
     }
 }
 
+pub(crate) fn subtitle_override_parts(
+    subtitle: &SubtitleOverride,
+) -> (&'static str, Option<String>) {
+    match subtitle {
+        SubtitleOverride::Off => ("off", None),
+        SubtitleOverride::Track(track) => {
+            let (kind, value) = subtitle_ref_parts(track);
+            (kind, Some(value))
+        }
+    }
+}
+
+pub(crate) fn subtitle_override_from_parts(
+    kind: &str,
+    value: Option<String>,
+) -> Result<SubtitleOverride, RepositoryError> {
+    if kind == "off" {
+        return Ok(SubtitleOverride::Off);
+    }
+    let value = value.ok_or_else(|| backend(format!("subtitle kind {kind} has no reference")))?;
+    match kind {
+        "embedded" => value
+            .parse::<u32>()
+            .map(|index| SubtitleOverride::Track(SubtitleTrackRef::Embedded(index)))
+            .map_err(|_| backend(format!("unreadable embedded subtitle index: {value}"))),
+        "file" => Ok(SubtitleOverride::Track(SubtitleTrackRef::File(
+            SubtitleFileId(value),
+        ))),
+        other => Err(backend(format!("unknown subtitle kind: {other}"))),
+    }
+}
+
 pub(crate) fn artwork_owner_parts(owner: &ArtworkOwner) -> (&'static str, &str) {
     match owner {
         ArtworkOwner::Movie(id) => ("movie", id.0.as_str()),
@@ -152,6 +185,29 @@ mod tests {
             subtitle_ref_parts(&SubtitleTrackRef::File(SubtitleFileId("sub-1".into()))),
             ("file", "sub-1".to_owned())
         );
+    }
+
+    #[test]
+    fn subtitle_override_round_trips_every_state() {
+        for value in [
+            SubtitleOverride::Off,
+            SubtitleOverride::Track(SubtitleTrackRef::Embedded(3)),
+            SubtitleOverride::Track(SubtitleTrackRef::File(SubtitleFileId("sub-1".into()))),
+        ] {
+            let (kind, reference) = subtitle_override_parts(&value);
+            assert_eq!(
+                subtitle_override_from_parts(kind, reference).unwrap(),
+                value
+            );
+        }
+        assert_eq!(subtitle_override_parts(&SubtitleOverride::Off).1, None);
+    }
+
+    #[test]
+    fn subtitle_override_rejects_unreadable_rows() {
+        assert!(subtitle_override_from_parts("embedded", Some("three".into())).is_err());
+        assert!(subtitle_override_from_parts("embedded", None).is_err());
+        assert!(subtitle_override_from_parts("elsewhere", Some("3".into())).is_err());
     }
 
     #[test]

@@ -77,13 +77,9 @@ where
             subtitle_siblings: Vec::new(),
             probe,
         };
+        let parsed = payload.parsed(&file.path);
         self.ingester
-            .ingest_fetched(
-                &library,
-                &file,
-                payload.resolved_external_id().as_ref(),
-                Some(&job.id),
-            )
+            .ingest_fetched(&library, &file, &parsed, Some(&job.id))
             .await
             .map_err(retryable)?;
         Ok(())
@@ -253,6 +249,25 @@ mod tests {
             enqueued
                 .iter()
                 .all(|j| j.parent_id == Some(JobId("job-1".into())))
+        );
+    }
+
+    #[tokio::test]
+    async fn the_title_the_admin_typed_survives_reading_as_a_release_name() {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(external_library());
+        let (h, catalog, _) = handler(repo, Outcome::Ok, MockMediaProbe::new());
+
+        let mut payload = payload();
+        payload.title = "THIS IS 4K ANIME YOUR NAME 2160P 60FPS".into();
+        payload.year = None;
+        h.handle(&job(payload.encode())).await.unwrap();
+
+        let movies = catalog.list_movies(page()).await.unwrap();
+        assert_eq!(
+            movies.items[0].title, "THIS IS 4K ANIME YOUR NAME 2160P 60FPS",
+            "the fetch knows the title, so it must not be re-derived from the \
+             filename it just wrote"
         );
     }
 

@@ -25,14 +25,16 @@ RUN apt-get update \
         python3 \
         python3-venv \
     && python3 -m venv /opt/yt-dlp \
-    && /opt/yt-dlp/bin/pip install --no-cache-dir --upgrade pip yt-dlp \
-    && ln -s /opt/yt-dlp/bin/yt-dlp /usr/local/bin/yt-dlp \
+    && /opt/yt-dlp/bin/pip install --no-cache-dir --upgrade pip \
     && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --create-home --home-dir /home/shadowmask --uid 1001 --gid 0 shadowmask \
     && mkdir -p /data /config \
     && chown -R 1001:0 /data /config
 COPY --from=builder /usr/local/bin/shadowmask /usr/local/bin/shadowmask
 COPY clients/basic /usr/share/shadowmask/basic
+RUN /opt/yt-dlp/bin/pip install --no-cache-dir --upgrade yt-dlp \
+    && ln -sf /opt/yt-dlp/bin/yt-dlp /usr/local/bin/yt-dlp \
+    && yt-dlp --version
 LABEL org.opencontainers.image.title="Shadowmask" \
       org.opencontainers.image.description="Self-hosted media library and streaming server" \
       org.opencontainers.image.source="https://github.com/sndnv/shadowmask"

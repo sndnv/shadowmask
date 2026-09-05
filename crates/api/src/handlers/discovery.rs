@@ -7,7 +7,7 @@ use domain::common::PageRequest;
 use domain::discovery::SearchKind;
 use domain::session::PlaybackSession;
 use domain::user::UserId;
-use services::discovery::drop_resumable;
+use services::discovery::{drop_resumable, drop_unstarted};
 
 use crate::dto::discovery::{ContinueResponse, HubResponse, SearchResultResponse};
 use crate::error::{ApiError, ApiResult};
@@ -98,7 +98,7 @@ pub async fn continue_watching<S: AppServices>(
         .continue_watching(&target)
         .await
         .map_err(log_fail(actor, "retrieve continue data"))?;
-    let now_playing = drop_resumable(now_playing, &in_progress);
+    let now_playing = drop_unstarted(drop_resumable(now_playing, &in_progress));
     let next_episodes = state
         .discovery()
         .next_episodes(&target)

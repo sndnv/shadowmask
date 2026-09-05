@@ -84,6 +84,8 @@ fn app(dir: &Path) -> Router {
     let output_dir = dir.join("out");
     std::fs::create_dir_all(&output_dir).unwrap();
     std::fs::write(output_dir.join("seg_00001.ts"), b"SEGMENT-BYTES").unwrap();
+    std::fs::write(output_dir.join("seg_00001.m4s"), b"FRAGMENT-BYTES").unwrap();
+    std::fs::write(output_dir.join("init.mp4"), b"INIT-BYTES").unwrap();
     std::fs::write(output_dir.join("index.m3u8"), b"#EXTM3U\nmedia").unwrap();
     std::fs::write(output_dir.join("subs.vtt"), b"WEBVTT\n").unwrap();
     std::fs::write(output_dir.join("data.bin"), b"\x00\x01\x02\x03").unwrap();
@@ -138,6 +140,30 @@ async fn segment_served_with_content_type_and_bytes() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(content_type(&headers), "video/mp2t");
     assert_eq!(body, b"SEGMENT-BYTES");
+}
+
+#[tokio::test]
+async fn fmp4_fragment_served_as_mp4_not_transport_stream() {
+    let dir = tempfile::tempdir().unwrap();
+    let (status, headers, body) =
+        send(app(dir.path()), "/stream/good:live/v0/seg_00001.m4s", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(content_type(&headers), "video/mp4");
+    assert_eq!(body, b"FRAGMENT-BYTES");
+}
+
+#[tokio::test]
+async fn fmp4_init_segment_served_as_mp4() {
+    let dir = tempfile::tempdir().unwrap();
+    let (status, headers, body) =
+        send(app(dir.path()), "/stream/good:live/v0/init.mp4", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        content_type(&headers),
+        "video/mp4",
+        "the init segment is fetched once per variant and the player rejects a wrong type"
+    );
+    assert_eq!(body, b"INIT-BYTES");
 }
 
 #[tokio::test]

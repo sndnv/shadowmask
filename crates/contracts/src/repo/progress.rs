@@ -1,6 +1,7 @@
 use domain::catalog::{EpisodeId, MovieId, TitleId, VersionId};
 use domain::common::PageRequest;
-use domain::playback::PlaybackProgress;
+use domain::media::SubtitleFileId;
+use domain::playback::{PlaybackProgress, SubtitleOverride, SubtitleTrackRef};
 use domain::repository::ProgressRepository;
 use domain::user::UserId;
 use jiff::Timestamp;
@@ -26,6 +27,8 @@ fn progress(user: &str, version: &str, position_ms: u64, updated_at: i64) -> Pla
         user: UserId(user.into()),
         version: VersionId(version.into()),
         position_ms,
+        audio_track: None,
+        subtitle: None,
         updated_at: ts(updated_at),
     }
 }
@@ -51,6 +54,54 @@ pub async fn progress_repository_contract<R: ProgressRepository>(repo: R) {
     let got = repo.get(&u1, &v1).await.unwrap().unwrap();
     assert_eq!(got.position_ms, 2500);
     assert_eq!(repo.list_in_progress(&u1).await.unwrap().len(), 1);
+
+    repo.upsert(PlaybackProgress {
+        audio_track: Some(2),
+        subtitle: Some(SubtitleOverride::Track(SubtitleTrackRef::Embedded(4))),
+        ..progress("u1", "v1", 2500, 20)
+    })
+    .await
+    .unwrap();
+    let got = repo.get(&u1, &v1).await.unwrap().unwrap();
+    assert_eq!(got.audio_track, Some(2));
+    assert_eq!(
+        got.subtitle,
+        Some(SubtitleOverride::Track(SubtitleTrackRef::Embedded(4)))
+    );
+    assert!(got.has_override());
+
+    repo.upsert(PlaybackProgress {
+        subtitle: Some(SubtitleOverride::Track(SubtitleTrackRef::File(
+            SubtitleFileId("sf1".into()),
+        ))),
+        ..progress("u1", "v1", 2500, 20)
+    })
+    .await
+    .unwrap();
+    let got = repo.get(&u1, &v1).await.unwrap().unwrap();
+    assert_eq!(got.audio_track, None);
+    assert_eq!(
+        got.subtitle,
+        Some(SubtitleOverride::Track(SubtitleTrackRef::File(
+            SubtitleFileId("sf1".into())
+        )))
+    );
+
+    // Off is a stored choice, distinct from having no override at all.
+    repo.upsert(PlaybackProgress {
+        subtitle: Some(SubtitleOverride::Off),
+        ..progress("u1", "v1", 2500, 20)
+    })
+    .await
+    .unwrap();
+    let got = repo.get(&u1, &v1).await.unwrap().unwrap();
+    assert_eq!(got.subtitle, Some(SubtitleOverride::Off));
+    assert!(got.has_override());
+
+    repo.upsert(progress("u1", "v1", 2500, 20)).await.unwrap();
+    let got = repo.get(&u1, &v1).await.unwrap().unwrap();
+    assert!(!got.has_override());
+    assert_eq!(got.subtitle, None);
 
     repo.upsert(progress("u1", "v2", 500, 30)).await.unwrap();
     repo.upsert(progress("u1", "v3", 500, 30)).await.unwrap();

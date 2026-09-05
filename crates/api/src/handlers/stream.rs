@@ -6,7 +6,7 @@ use axum::http::header::CONTENT_TYPE;
 use axum::response::{IntoResponse, Response};
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use domain::session::{StreamSource, StreamTokens};
 
@@ -42,7 +42,17 @@ where
     G: StreamSource + Send + Sync + 'static,
 {
     let claims = state.tokens.verify(&token)?;
-    let path = state.source.media_path(&claims, &variant, &file).await?;
+    let path = state
+        .source
+        .media_path(&claims, &variant, &file)
+        .await
+        .map_err(|err| {
+            warn!(
+                "User [{}] could not be served stream media [{variant}/{file}]: {err}",
+                claims.user.0
+            );
+            err
+        })?;
     let content_type = content_type_for(&file);
     debug!(
         "User [{}] successfully fetched stream media [{variant}/{file}]",
@@ -91,6 +101,8 @@ fn content_type_for(file: &str) -> Option<&'static str> {
         Some(M3U8_CONTENT_TYPE)
     } else if file.ends_with(".ts") {
         Some("video/mp2t")
+    } else if file.ends_with(".m4s") || file.ends_with(".mp4") {
+        Some("video/mp4")
     } else if file.ends_with(".vtt") {
         Some("text/vtt")
     } else {

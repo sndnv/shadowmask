@@ -1,8 +1,9 @@
-use domain::library::{LibraryId, LibraryKind};
+use domain::library::{LibraryId, LibraryKind, ParsedMedia};
 use domain::metadata::ExternalId;
 use serde::{Deserialize, Serialize};
 
 use crate::job::encode_payload;
+use crate::library::parse_filename;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FetchJobPayload {
@@ -69,6 +70,18 @@ impl FetchJobPayload {
                 Some(year) => format!("{title} ({year}){tag}"),
                 None => format!("{title}{tag}"),
             },
+        }
+    }
+
+    pub fn parsed(&self, path: &str) -> ParsedMedia {
+        let episodic = matches!(self.kind, LibraryKind::Tv);
+        ParsedMedia {
+            title: self.title.trim().to_owned(),
+            year: self.year,
+            season: episodic.then(|| self.season.unwrap_or(1)),
+            episode: episodic.then(|| self.episode.unwrap_or(1)),
+            quality: parse_filename(path).quality,
+            external_id: self.resolved_external_id(),
         }
     }
 
@@ -183,7 +196,7 @@ impl From<Wire> for FetchJobPayload {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::library::{confidence, parse_filename};
+    use crate::library::confidence;
 
     fn round_trip(payload: FetchJobPayload) {
         let encoded = payload.encode();
@@ -234,6 +247,56 @@ mod tests {
     #[test]
     fn decode_rejects_malformed_json() {
         assert!(FetchJobPayload::decode("not json").is_err());
+    }
+
+    #[test]
+    fn a_typed_title_is_kept_whole_however_it_reads_as_a_release_name() {
+        // parse_filename cuts a scanned name at the first junk token, so "4K"
+        // inside a real title truncated this to "THIS IS". A fetch already
+        // knows the title, so it must not be re-derived from the filename.
+        let payload = movie("THIS IS 4K ANIME YOUR NAME 2160P 60FPS", None, None);
+        let parsed = payload.parsed("/ext/whatever.mkv");
+        assert_eq!(parsed.title, "THIS IS 4K ANIME YOUR NAME 2160P 60FPS");
+        assert_eq!(parse_filename("/ext/THIS IS 4K ANIME.mkv").title, "THIS IS");
+    }
+
+    #[test]
+    fn a_title_that_ends_in_a_bare_year_keeps_it() {
+        let parsed = movie("Blade Runner 2049", None, None).parsed("/ext/x.mkv");
+        assert_eq!(parsed.title, "Blade Runner 2049");
+        assert_eq!(parsed.year, None);
+    }
+
+    #[test]
+    fn a_movie_carries_its_year_and_no_episode_numbering() {
+        let parsed = movie("The Matrix", Some(1999), Some("tt0133093")).parsed("/ext/x.mkv");
+        assert_eq!(parsed.year, Some(1999));
+        assert_eq!(parsed.season, None);
+        assert_eq!(parsed.episode, None);
+        assert_eq!(parsed.external_id.unwrap().source, "imdb");
+    }
+
+    #[test]
+    fn an_episode_defaults_to_the_same_numbering_the_filename_uses() {
+        // filename_stem falls back to S01E01, so parsed has to agree or the
+        // catalog entry names a different episode than the file on disk.
+        let payload = series("Great Show", None, None, None);
+        let parsed = payload.parsed("/ext/x.mkv");
+        assert_eq!((parsed.season, parsed.episode), (Some(1), Some(1)));
+        assert!(payload.filename_stem().contains("S01E01"));
+
+        let numbered = series("Great Show", Some(2), Some(5), None).parsed("/ext/x.mkv");
+        assert_eq!((numbered.season, numbered.episode), (Some(2), Some(5)));
+    }
+
+    #[test]
+    fn quality_still_comes_from_the_file_since_the_payload_cannot_know_it() {
+        let payload = movie("Anything", None, None);
+        assert_eq!(payload.parsed("/ext/x.mkv").quality, None);
+        assert_eq!(
+            payload.parsed("/ext/x 2160p.mkv").quality,
+            parse_filename("/ext/x 2160p.mkv").quality
+        );
     }
 
     #[test]

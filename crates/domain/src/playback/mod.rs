@@ -14,7 +14,7 @@ pub use completion::{COMPLETION_PERCENT, START_FLOOR_MS, START_PERCENT, is_compl
 pub use favorite::Favorite;
 pub use playback_progress::PlaybackProgress;
 pub use resume_card::{ResumeCard, progress_percent};
-pub use subtitle_track_ref::SubtitleTrackRef;
+pub use subtitle_track_ref::{SubtitleOverride, SubtitleTrackRef};
 pub use title_state::TitleState;
 pub use user_subtitle_offset::UserSubtitleOffset;
 pub use watch_history::WatchHistory;

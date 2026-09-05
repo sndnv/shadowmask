@@ -4,7 +4,7 @@ mod next_up;
 mod resume_card;
 mod service;
 
-pub use continue_watching::{continue_watching, drop_resumable};
+pub use continue_watching::{continue_watching, drop_resumable, drop_unstarted};
 pub use domain::discovery::search;
 pub use home_hubs::{
     EPISODE_WINDOW, RECENT_ROW, home_hubs, recently_added_movies, recently_added_shows,

@@ -125,7 +125,7 @@ pub trait ResolveIngester {
         &self,
         library: &Library,
         file: &DiscoveredFile,
-        external_id: Option<&ExternalId>,
+        parsed: &ParsedMedia,
         parent: Option<&JobId>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }
@@ -1072,25 +1072,24 @@ where
         &self,
         library: &Library,
         file: &DiscoveredFile,
-        external_id: Option<&ExternalId>,
+        parsed: &ParsedMedia,
         parent: Option<&JobId>,
     ) -> Result<(), RepositoryError> {
-        let parsed = parse_filename(&file.path);
-        let metadata = match external_id {
+        let metadata = match parsed.external_id.as_ref() {
             Some(id) => self.fetch.fetch_by_id(id).await,
             None => None,
         };
         let plan = self
-            .explicit_plan(library, &parsed, metadata.is_some())
+            .explicit_plan(library, parsed, metadata.is_some())
             .await?;
         let files = std::slice::from_ref(file);
         match library.kind {
             LibraryKind::Movie => {
-                self.write_movie(library, &parsed, files, metadata, parent, plan)
+                self.write_movie(library, parsed, files, metadata, parent, plan)
                     .await
             }
             LibraryKind::Tv => {
-                self.write_episode(library, &parsed, files, metadata, parent, plan)
+                self.write_episode(library, parsed, files, metadata, parent, plan)
                     .await
             }
         }
@@ -3748,10 +3747,17 @@ mod tests {
         svc.ingest_fetched(
             &library(LibraryKind::Tv),
             &discovered("/tv/Gamma S01E01 720p.mkv"),
-            Some(&ExternalId {
-                source: "tmdb".into(),
-                value: "tv/1399".into(),
-            }),
+            &ParsedMedia {
+                title: "Gamma".into(),
+                year: None,
+                season: Some(1),
+                episode: Some(1),
+                quality: Some(Quality::Hd),
+                external_id: Some(ExternalId {
+                    source: "tmdb".into(),
+                    value: "tv/1399".into(),
+                }),
+            },
             None,
         )
         .await
@@ -3782,7 +3788,14 @@ mod tests {
         svc.ingest_fetched(
             &library(LibraryKind::Movie),
             &discovered("/m/The Matrix (1999).mkv"),
-            None,
+            &ParsedMedia {
+                title: "The Matrix".into(),
+                year: Some(1999),
+                season: None,
+                episode: None,
+                quality: None,
+                external_id: None,
+            },
             None,
         )
         .await
