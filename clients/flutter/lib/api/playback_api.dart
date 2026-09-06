@@ -40,6 +40,7 @@ class PlaybackApi {
     int startPositionMs = 0,
     int profileVersion = 1,
     String platform = 'generic',
+    PlaybackControls controls = const PlaybackControls(),
   }) => _api.postJson('/api/v1/sessions', <String, dynamic>{
     'version_id': versionId,
     'start_position_ms': startPositionMs,
@@ -47,6 +48,7 @@ class PlaybackApi {
       'platform': platform,
       'profile_version': profileVersion,
     },
+    ...controls.toStartBody(),
   }, PlaybackSession.fromJson);
 
   Future<void> progress(String sessionId, int positionMs, String state) async {
@@ -64,6 +66,12 @@ class PlaybackApi {
       await _api.sendVoid('DELETE', '/api/v1/sessions/${_enc(sessionId)}');
     } catch (_) {}
   }
+
+  Future<Negotiation> seek(String sessionId, int positionMs) => _api.postJson(
+    '/api/v1/sessions/${_enc(sessionId)}/seek',
+    <String, dynamic>{'position_ms': positionMs},
+    Negotiation.fromJson,
+  );
 
   Future<Negotiation> update(String sessionId, PlaybackControls controls) =>
       _api.postJson(

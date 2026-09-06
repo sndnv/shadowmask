@@ -33,13 +33,14 @@ import 'package:shadowmask/util/job_labels.dart';
 const String kDefaultLogLevel = 'INFO';
 
 class JobPage extends StatelessWidget {
-  const JobPage({super.key, required this.api});
+  const JobPage({super.key, required this.api, this.id});
 
   final ApiClient api;
+  final String? id;
 
   @override
   Widget build(BuildContext context) {
-    final String? id = Uri.base.queryParameters['id'];
+    final String? id = this.id;
     return SectionPage(
       api: api,
       section: NavSection.admin,

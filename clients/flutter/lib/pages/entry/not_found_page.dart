@@ -22,7 +22,8 @@ class NotFoundPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String wanted = path ?? Uri.base.path;
+    final String wanted =
+        path ?? Uri.parse(ModalRoute.of(context)?.settings.name ?? '/').path;
     return SectionPage(
       api: api,
       section: NavSection.home,

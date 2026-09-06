@@ -46,7 +46,7 @@ class LibraryPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String? id = libraryId ?? Uri.base.queryParameters['id'];
+    final String? id = libraryId;
     return SectionPage(
       api: api,
       section: NavSection.admin,

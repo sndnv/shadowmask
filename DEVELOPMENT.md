@@ -9,8 +9,8 @@ toolchain automatically.
 * [rustup](https://rustup.rs/) - Rust toolchain manager
 * [Python 3](https://www.python.org/) - runs the QA checks
 * [FFmpeg](https://ffmpeg.org/) - `ffmpeg` / `ffprobe`, for media probing and transcoding
-* [Flutter](https://docs.flutter.dev/get-started/install) - only for the web client; CI pins the
-  version in [`.github/workflows/build.yml`](.github/workflows/build.yml)
+* [Flutter](https://docs.flutter.dev/get-started/install) - for the web and desktop clients; CI pins
+  the version in [`.github/workflows/build.yml`](.github/workflows/build.yml)
 
 ### Getting Started
 
@@ -60,6 +60,9 @@ Windows is not supported.
 The client's own gate is `./qa.py` inside `clients/flutter`, which mirrors the root `qa.py`: package
 resolution, code generation, format, analyze, test with coverage. It does not build the desktop
 targets, so build those by hand when the native side changes.
+
+Desktop releases are a macOS `.dmg` and a Linux `.AppImage`, built by the publish workflows and
+described in [`clients/flutter/README.md`](clients/flutter/README.md#packaging).
 
 ### Dependency Updates
 

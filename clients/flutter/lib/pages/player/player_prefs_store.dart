@@ -6,9 +6,11 @@ typedef PlayerPrefs = ({
   bool remaining,
   bool wide,
   int autoplaySeconds,
+  int networkTimeoutSeconds,
 });
 
 const List<int> kAutoplayDelays = <int>[0, 5, 10, 15, 30];
+const List<int> kNetworkTimeouts = <int>[10, 30, 60, 90];
 
 const PlayerPrefs kDefaultPlayerPrefs = (
   volume: 1.0,
@@ -16,6 +18,7 @@ const PlayerPrefs kDefaultPlayerPrefs = (
   remaining: false,
   wide: false,
   autoplaySeconds: 10,
+  networkTimeoutSeconds: 10,
 );
 
 class PlayerPrefsStore {
@@ -26,12 +29,15 @@ class PlayerPrefsStore {
   static const String _remainingKey = 'shadowmask.player.remaining';
   static const String _wideKey = 'shadowmask.player.wide';
   static const String _autoplayKey = 'shadowmask.player.autoplay';
+  static const String _timeoutKey = 'shadowmask.player.network_timeout';
 
   Future<PlayerPrefs> load() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     final double volume = (prefs.getDouble(_volumeKey) ?? 1).clamp(0.0, 1.0);
     final int autoplay =
         prefs.getInt(_autoplayKey) ?? kDefaultPlayerPrefs.autoplaySeconds;
+    final int timeout =
+        prefs.getInt(_timeoutKey) ?? kDefaultPlayerPrefs.networkTimeoutSeconds;
     return (
       volume: volume,
       muted: prefs.getBool(_mutedKey) ?? false,
@@ -40,6 +46,9 @@ class PlayerPrefsStore {
       autoplaySeconds: kAutoplayDelays.contains(autoplay)
           ? autoplay
           : kDefaultPlayerPrefs.autoplaySeconds,
+      networkTimeoutSeconds: kNetworkTimeouts.contains(timeout)
+          ? timeout
+          : kDefaultPlayerPrefs.networkTimeoutSeconds,
     );
   }
 
@@ -66,5 +75,10 @@ class PlayerPrefsStore {
   Future<void> saveAutoplaySeconds(int seconds) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_autoplayKey, seconds);
+  }
+
+  Future<void> saveNetworkTimeoutSeconds(int seconds) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_timeoutKey, seconds);
   }
 }

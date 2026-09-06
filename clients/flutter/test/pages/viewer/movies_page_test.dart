@@ -11,6 +11,7 @@ import 'package:shadowmask/components/catalog_card_tile.dart';
 import 'package:shadowmask/components/pagination.dart';
 import 'package:shadowmask/components/skeleton.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/pages/viewer/list_query.dart';
 import 'package:shadowmask/pages/viewer/movies_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
@@ -116,8 +117,12 @@ Future<void> _pump(
       setVariant: (_) {},
       child: MaterialApp(
         theme: buildTheme(AppThemeVariant.dark),
-        onGenerateRoute: (_) =>
-            MaterialPageRoute<void>(builder: (_) => MoviesPage(api: api)),
+        onGenerateRoute: (_) => MaterialPageRoute<void>(
+          builder: (_) => MoviesPage(
+            api: api,
+            query: ListQuery.fromArgs(const <String, String>{}),
+          ),
+        ),
       ),
     ),
   );

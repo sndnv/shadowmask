@@ -1,7 +1,8 @@
+import 'package:shadowmask/nav/route_args.dart';
 import 'package:shadowmask/pages/viewer/list_prefs_store.dart';
 
-int? pageSizeFromUri() {
-  final int? limit = int.tryParse(Uri.base.queryParameters['limit'] ?? '');
+int? pageSizeArg(Map<String, String> args) {
+  final int? limit = int.tryParse(args['limit'] ?? '');
   return limit != null && limit > 0 ? limit : null;
 }
 
@@ -39,12 +40,11 @@ class ListQuery {
           orderFromUrl: orderFromUrl,
         );
 
-  factory ListQuery.fromUri() {
-    final Map<String, String> q = Uri.base.queryParameters;
+  factory ListQuery.fromArgs(Map<String, String> q) {
     final String? library = q['library'];
     return ListQuery(
-      offset: int.tryParse(q['offset'] ?? '') ?? 0,
-      limit: pageSizeFromUri(),
+      offset: offsetArg(q),
+      limit: pageSizeArg(q),
       sort: q['sort'] ?? 'added_at',
       order: q['order'] ?? 'asc',
       sortFromUrl: q['sort'] != null,

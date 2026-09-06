@@ -40,6 +40,21 @@ abstract final class Strings {
       'Username and password are required.';
   static String signInFailed(String detail) => 'Sign in failed ($detail).';
 
+  static const String serverHeading = 'Server';
+  static const String serverAddress = 'Server address';
+  static const String serverAddressHelp =
+      'The address of the media server this device connects to, for example '
+      'http://192.168.1.10:8080.';
+  static const String serverAddressInvalid =
+      'That does not look like a server address.';
+  static const String serverAddressUnanswered =
+      'Nothing answered at that address.';
+  static const String connect = 'Connect';
+  static const String connecting = 'Connecting…';
+  static const String changeServer = 'Change server';
+  static const String changeServerHelp =
+      'Connecting to a different server signs you out of this one.';
+
   static const String loading = 'Loading…';
   static const String couldNotLoad = 'Could not load.';
   static const String couldNotLoadMore = 'Could not load more.';
@@ -214,7 +229,8 @@ abstract final class Strings {
   static String playerAutoplayDelay(int seconds) => '$seconds seconds';
   static String playerUpNextIn(int seconds) => 'Up next in ${seconds}s';
   static const String playerPlayNow = 'Play now';
-  static const String shortcutsHeading = 'Keyboard shortcuts';
+  static const String shortcutsHeading = 'Shortcuts';
+  static const String playerNetworkTimeout = 'Timeout';
   static const String shortcutPlayPause = 'Play or pause';
   static const String shortcutSeekBack = 'Back 10 seconds';
   static const String shortcutSeekForward = 'Forward 10 seconds';
@@ -227,6 +243,7 @@ abstract final class Strings {
   static const String shortcutNextEpisode = 'Next episode';
   static const String shortcutRemaining = 'Time elapsed or remaining';
   static const String shortcutLegend = 'Show this list';
+  static const String shortcutBack = 'Close the panel, or leave full screen';
   static const String timelineLabel = 'Playback position';
   static const String shortcutDigits = 'Jump to 0% through 90%';
   static const String shortcutDigitKeys = '0 - 9';
@@ -234,8 +251,29 @@ abstract final class Strings {
   static const String playerNoSubtitles = 'Off';
   static const String playerNoAudio = 'No audio';
   static String qualityRung(int height) => '${height}p';
+  static String playerOriginalAt(int height) =>
+      '$playerOriginal - ${sourceHeight(height)}';
+  static String sourceHeight(int height) => switch (height) {
+    >= 4320 => '8K',
+    >= 2160 => '4K',
+    >= 1440 => '2K',
+    _ => '${height}p',
+  };
   static const String playerModeLabel = 'Mode';
   static const String playerUnmute = 'Sound is off, turn it on';
+  static const String playerLoading = 'Loading';
+  static const String playerBuffering = 'Buffering';
+  static const String playerTooSlow =
+      'This may not play at all, or may be very choppy';
+  static const String playerTooSlowHint =
+      'Another version of this title may play better.';
+  static const String playerKeepWaiting = 'Keep waiting';
+  static const String playerGoBack = 'Go back';
+  static const String playerReplay = 'Watch again';
+  static String playerBufferedSeconds(double seconds) =>
+      '${seconds.toStringAsFixed(1)}s ready';
+  static String playerBufferedPercent(double percent) =>
+      '${percent.round()}% ready';
   static String titleWithYear(String title, int year) => '$title ($year)';
   static const String couldNotStartPlayback = 'Could not start playback.';
   static const String renegotiationFailed =

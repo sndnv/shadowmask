@@ -209,8 +209,9 @@ Future<({List<String> paths, List<String> routes})> _pump(
           final bool first = routes.length == 1;
           return MaterialPageRoute<void>(
             settings: settings,
-            builder: (_) =>
-                first ? VersionPage(api: api) : const SizedBox.shrink(),
+            builder: (_) => first
+                ? VersionPage(api: api, id: 'v1')
+                : const SizedBox.shrink(),
           );
         },
       ),

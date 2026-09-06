@@ -45,13 +45,21 @@ import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
 
 class EpisodePage extends StatelessWidget {
-  const EpisodePage({super.key, required this.api});
+  const EpisodePage({
+    super.key,
+    required this.api,
+    required this.id,
+    this.series,
+    this.season,
+  });
 
   final ApiClient api;
+  final String id;
+  final String? series;
+  final String? season;
 
   @override
   Widget build(BuildContext context) {
-    final Map<String, String> q = Uri.base.queryParameters;
     return SectionPage(
       api: api,
       section: NavSection.series,
@@ -62,9 +70,9 @@ class EpisodePage extends StatelessWidget {
       bodyBuilder: (BuildContext context, SelfUser user) => _EpisodeBody(
         api: api,
         user: user,
-        id: q['id'] ?? '',
-        series: q['series'],
-        season: q['season'],
+        id: id,
+        series: series,
+        season: season,
       ),
     );
   }

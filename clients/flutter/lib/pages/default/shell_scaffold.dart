@@ -437,7 +437,7 @@ class _TopNav extends StatelessWidget {
       ),
       minimumSize: Size.zero,
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+      textStyle: kNavItemText,
     ),
     child: const Text(Strings.signOut),
   );
@@ -472,7 +472,13 @@ class _TopNav extends StatelessWidget {
               _account(context),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: Space.s2),
-                child: Text('/', style: TextStyle(color: t.muted)),
+                child: Text(
+                  '/',
+                  style: kNavItemText.copyWith(
+                    color: t.muted,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
               ),
             ],
             _signOutButton(context, t),

@@ -16,6 +16,8 @@ import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/model/session/playback_mode.dart';
 import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/nav/route_observer.dart';
+import 'package:shadowmask/nav/routes.dart';
+import 'package:shadowmask/pages/player/player_prefs_store.dart';
 import 'package:shadowmask/pages/player/watch_body.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_diagnostics.dart';
@@ -26,7 +28,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class FakePlayerController implements PlayerController {
   final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
-    const PlayerSnapshot(durationMs: 100000),
+    const PlayerSnapshot(durationMs: 100000, ready: true),
   );
   final ValueNotifier<bool> _fullscreen = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _mutedByPolicy = ValueNotifier<bool>(false);
@@ -36,6 +38,10 @@ class FakePlayerController implements PlayerController {
   final List<String> calls = <String>[];
   int? seekedMs;
   double? rate;
+  int? networkTimeout;
+  String? attached;
+  int? attachedPositionMs;
+  bool streamSeeks = true;
 
   @override
   ValueListenable<PlayerSnapshot> get snapshot => _snapshot;
@@ -57,6 +63,9 @@ class FakePlayerController implements PlayerController {
 
   @override
   bool get supportsPictureInPicture => true;
+
+  @override
+  bool get seeksWithinStream => streamSeeks;
 
   @override
   void unmute() {
@@ -100,8 +109,34 @@ class FakePlayerController implements PlayerController {
     _snapshot.value = PlayerSnapshot(
       durationMs: 100000,
       positionMs: ended ? 100000 : 0,
+      ready: true,
       ended: ended,
       playing: playing,
+    );
+  }
+
+  void at({required int positionMs, int bufferedAheadMs = 0}) {
+    _snapshot.value = PlayerSnapshot(
+      durationMs: 100000,
+      positionMs: positionMs,
+      bufferedAheadMs: bufferedAheadMs,
+      ready: true,
+      playing: true,
+    );
+  }
+
+  void stall({
+    required int positionMs,
+    bool ready = true,
+    int bufferedAheadMs = 0,
+  }) {
+    _snapshot.value = PlayerSnapshot(
+      durationMs: 100000,
+      positionMs: positionMs,
+      bufferedAheadMs: bufferedAheadMs,
+      ready: ready,
+      buffering: true,
+      playing: true,
     );
   }
 
@@ -115,6 +150,8 @@ class FakePlayerController implements PlayerController {
     int positionMs = 0,
   }) async {
     calls.add('attach:${mode.name}');
+    attached = manifestUrl;
+    attachedPositionMs = positionMs;
   }
 
   @override
@@ -134,6 +171,12 @@ class FakePlayerController implements PlayerController {
 
   @override
   void setRate(double value) => rate = value;
+
+  @override
+  void setNetworkTimeout(int seconds) {
+    networkTimeout = seconds;
+    calls.add('timeout:$seconds');
+  }
 
   @override
   void toggleFullscreen() {
@@ -222,6 +265,31 @@ http.Response _route(http.Request req) {
   return http.Response('', 204);
 }
 
+http.Response _sequentialSession(int originMs) => http.Response(
+  jsonEncode(<String, dynamic>{
+    'session_id': 's1',
+    'mode': 'remux',
+    'manifest_url': '/stream/tok/master.m3u8',
+    'origin_ms': originMs,
+    'sequential': true,
+    'heartbeat_interval_s': 10,
+    'selected': <String, dynamic>{'audio_track': 1, 'subtitle_track': null},
+    'trickplay': <dynamic>[],
+  }),
+  201,
+);
+
+http.Response _seekRestart(int originMs) => http.Response(
+  jsonEncode(<String, dynamic>{
+    'manifest_url': '/stream/tok3/master.m3u8',
+    'mode': 'remux',
+    'origin_ms': originMs,
+    'sequential': true,
+    'selected': <String, dynamic>{},
+  }),
+  200,
+);
+
 Map<String, dynamic> _ep(String id, int number, String title) =>
     <String, dynamic>{
       'id': id,
@@ -244,11 +312,41 @@ http.Response _episodeVersion() => http.Response(
     'quality': 'hd',
     'container': 'mp4',
     'duration_ms': 100000,
+    'audio': <dynamic>[
+      <String, dynamic>{
+        'index': 1,
+        'codec': 'aac',
+        'channels': 2,
+        'language': 'eng',
+      },
+    ],
+    'subtitles': <dynamic>[
+      <String, dynamic>{'index': 2, 'language': 'eng', 'format': 'srt'},
+    ],
   }),
   200,
 );
 
 http.Response? _episodic(String path) {
+  if (path.endsWith('/versions')) {
+    return http.Response(
+      jsonEncode(<String, dynamic>{
+        'items': <dynamic>[
+          <String, dynamic>{
+            'id': 'v2',
+            'title': <String, dynamic>{'type': 'episode', 'id': 'e2'},
+            'library_id': 'lib',
+            'quality': 'hd',
+            'container': 'mp4',
+            'duration_ms': 100000,
+            'available': true,
+          },
+        ],
+        'total': 1,
+      }),
+      200,
+    );
+  }
   if (path.endsWith('/episodes')) {
     return http.Response(
       jsonEncode(<dynamic>[_ep('e1', 1, 'Pilot'), _ep('e2', 2, 'Second')]),
@@ -287,6 +385,10 @@ http.Response? _episodic(String path) {
 
 const String _mutedKey = 'shadowmask.player.muted';
 
+const String _timeoutKey = 'shadowmask.player.network_timeout';
+
+const int _stallDelay = kStallSeconds;
+
 const SelfUser _user = SelfUser(id: 'u1', username: 'u', role: UserRole.user);
 
 Widget _shellShaped(ApiClient api, FakePlayerController fake, bool bounded) =>
@@ -323,11 +425,24 @@ Widget _app(
   bool wide = false,
   bool episodic = false,
   VoidCallback? onToggleWide,
+  PlaybackControls controls = const PlaybackControls(),
+  List<String>? pushed,
+  bool sequential = false,
+  int originMs = 0,
+  int seekOriginMs = 0,
 }) {
   final ApiClient api = ApiClient(
     baseUrl: 'http://test',
     httpClient: MockClient((http.Request r) {
       seen?.add(r);
+      if (sequential) {
+        if (r.method == 'POST' && r.url.path == '/api/v1/sessions') {
+          return Future<http.Response>.value(_sequentialSession(originMs));
+        }
+        if (r.method == 'POST' && r.url.path.endsWith('/seek')) {
+          return Future<http.Response>.value(_seekRestart(seekOriginMs));
+        }
+      }
       if (episodic) {
         if (r.url.path == '/api/v1/versions/v1') {
           return Future<http.Response>.value(_episodeVersion());
@@ -343,12 +458,21 @@ Widget _app(
   return MaterialApp(
     theme: buildTheme(AppThemeVariant.dark),
     navigatorObservers: <NavigatorObserver>[appRouteObserver],
+    onGenerateRoute: pushed == null
+        ? null
+        : (RouteSettings settings) {
+            pushed.add(settings.name ?? '');
+            return MaterialPageRoute<void>(
+              settings: settings,
+              builder: (BuildContext _) => const SizedBox(),
+            );
+          },
     home: Scaffold(
       body: WatchBody(
         api: api,
         user: _user,
         versionId: 'v1',
-        initialControls: const PlaybackControls(),
+        initialControls: controls,
         controllerFactory: (_) => fake,
         wide: wide,
         onToggleWide: onToggleWide ?? () {},
@@ -368,7 +492,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(fake.calls, contains('attach:direct'));
-    expect(find.byIcon(Icons.play_arrow), findsOneWidget);
+    // One in the transport bar and one in the middle of a paused video.
+    expect(find.byIcon(Icons.play_arrow), findsNWidgets(2));
     expect(find.text('0:00 / 1:40'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox());
@@ -481,7 +606,7 @@ void main() {
     await tester.pumpWidget(_app(fake));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.play_arrow));
+    await tester.tap(find.byIcon(Icons.play_arrow).first);
     expect(fake.calls, contains('toggle'));
 
     await tester.pumpWidget(const SizedBox());
@@ -520,7 +645,13 @@ void main() {
     fake.mutePolicy();
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(GestureDetector).first);
+    // Off centre on purpose: the middle of a paused video is the play button.
+    await tester.tapAt(
+      tester.getCenter(find.byType(PlayerFrame)) + const Offset(0, 80),
+    );
+    // A single click only resolves once the double click window closes, which
+    // is the price of double click toggling full screen.
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
 
     expect(fake.calls, contains('unmute'));
@@ -651,7 +782,11 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.video_settings));
     await tester.pumpAndSettle();
-    await tester.tap(find.text(Strings.playerOriginal).last);
+    // The source is 1080p, so Original names it and 1080p is not offered as a
+    // rung of its own.
+    expect(find.text(Strings.playerOriginalAt(1080)).last, findsOneWidget);
+    expect(find.text('1080p'), findsNothing);
+    await tester.tap(find.text(Strings.playerOriginalAt(1080)).last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('720p').last);
     await tester.pumpAndSettle();
@@ -764,6 +899,87 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(fake.calls, contains('toggle'));
+  });
+
+  testWidgets('the shortcuts survive a trip into the settings panel', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.video_settings));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pumpAndSettle();
+
+    await tester.tapAt(const Offset(40, 40));
+    await tester.pumpAndSettle();
+    fake.calls.clear();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+
+    expect(
+      fake.calls,
+      contains('toggle'),
+      reason: 'tabbing into the panel must not cost the player its keyboard',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('escape closes the panel before it touches full screen', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.video_settings));
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.playerQuality), findsOneWidget);
+    fake.calls.clear();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.playerQuality), findsNothing);
+    expect(
+      fake.calls,
+      isNot(contains('fullscreen')),
+      reason: 'the panel is the nearer thing to back out of',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('escape leaves full screen, and does nothing outside it', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+    fake.calls.clear();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(
+      fake.calls,
+      isNot(contains('fullscreen')),
+      reason: 'a windowed player has nothing to leave',
+    );
+
+    await tester.tap(find.byIcon(Icons.fullscreen));
+    await tester.pumpAndSettle();
+    fake.calls.clear();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    expect(fake.calls, contains('fullscreen'));
+
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('the question mark opens the legend', (
@@ -1047,6 +1263,366 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets(
+    'a stream with nothing to show yet says so instead of looking stuck',
+    (WidgetTester tester) async {
+      final FakePlayerController fake = FakePlayerController();
+      await tester.pumpWidget(_app(fake));
+      await tester.pumpAndSettle();
+
+      expect(find.text(Strings.playerLoading), findsNothing);
+
+      fake.stall(positionMs: 0, ready: false);
+      await tester.pump();
+
+      expect(
+        find.text(Strings.playerLoading),
+        findsOneWidget,
+        reason: 'a 4K transcode can take seconds to produce its first frames',
+      );
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+      fake.emit(playing: true);
+      await tester.pumpAndSettle();
+
+      expect(find.text(Strings.playerLoading), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets('stalling part way through reads as buffering, not loading', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+
+    // Seeking into a part of the stream the server has not produced yet is the
+    // same wait as the opening one, but the viewer has already seen frames.
+    fake.stall(positionMs: 40000);
+    await tester.pump();
+
+    expect(find.text(Strings.playerBuffering), findsOneWidget);
+    expect(find.text(Strings.playerLoading), findsNothing);
+
+    fake.emit(playing: true);
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.playerBuffering), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets(
+    'a stream that never arrives says so instead of spinning forever',
+    (WidgetTester tester) async {
+      final FakePlayerController fake = FakePlayerController();
+      await tester.pumpWidget(_app(fake));
+      await tester.pumpAndSettle();
+
+      fake.stall(positionMs: 0, ready: false);
+      await tester.pump();
+      expect(find.text(Strings.playerLoading), findsOneWidget);
+
+      await tester.pump(Duration(seconds: _stallDelay - 1));
+      expect(
+        find.text(Strings.playerTooSlow),
+        findsNothing,
+        reason: 'a slow but working start must not be called a failure',
+      );
+
+      await tester.pump(const Duration(seconds: 2));
+
+      expect(find.text(Strings.playerTooSlow), findsOneWidget);
+      expect(find.text(Strings.playerTooSlowHint), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.text(Strings.playerGoBack), findsOneWidget);
+
+      await tester.tap(find.text(Strings.playerKeepWaiting));
+      await tester.pump();
+
+      expect(
+        find.text(Strings.playerTooSlow),
+        findsNothing,
+        reason: 'dismissing returns to the plain wait rather than giving up',
+      );
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+      // Dismissing restarts the clock rather than silencing it, so someone who
+      // chose to wait is asked again instead of being left with the spinner.
+      await tester.pump(Duration(seconds: _stallDelay + 1));
+      expect(find.text(Strings.playerTooSlow), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets('a stream that is merely slow clears the warning once it moves', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+
+    fake.stall(positionMs: 0, ready: false);
+    await tester.pump(Duration(seconds: _stallDelay + 1));
+    expect(find.text(Strings.playerTooSlow), findsOneWidget);
+
+    // Any forward movement at all is proof the pipeline is alive.
+    fake.stall(positionMs: 0, ready: false, bufferedAheadMs: 500);
+    await tester.pump(const Duration(seconds: 2));
+
+    expect(find.text(Strings.playerTooSlow), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('going back from a stalled player lands on the title page', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<String> pushed = <String>[];
+    await tester.pumpWidget(_app(fake, episodic: true, pushed: pushed));
+    await tester.pumpAndSettle();
+
+    fake.stall(positionMs: 0, ready: false);
+    await tester.pump(Duration(seconds: _stallDelay + 1));
+    expect(find.text(Strings.playerTooSlow), findsOneWidget);
+
+    await tester.tap(find.text(Strings.playerGoBack));
+    await tester.pumpAndSettle();
+
+    expect(
+      pushed.single,
+      episodeRoute('e1', series: 's1'),
+      reason:
+          'the viewer came from the title page and that is where the way '
+          'out belongs',
+    );
+  });
+
+  testWidgets(
+    'the middle of the player plays, and offers a replay at the end',
+    (WidgetTester tester) async {
+      final FakePlayerController fake = FakePlayerController();
+      await tester.pumpWidget(_app(fake));
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.replay), findsNothing);
+      fake.calls.clear();
+      await tester.tap(find.byIcon(Icons.play_arrow).last);
+      expect(fake.calls, contains('toggle'));
+
+      fake.emit(playing: true);
+      await tester.pump();
+      expect(
+        find.byIcon(Icons.play_arrow),
+        findsNothing,
+        reason: 'nothing should sit over a video that is playing',
+      );
+
+      fake.emit(ended: true);
+      await tester.pump();
+      expect(find.byIcon(Icons.replay), findsOneWidget);
+
+      fake.calls.clear();
+      await tester.tap(find.byIcon(Icons.replay));
+      await tester.pump();
+      expect(fake.seekedMs, 0, reason: 'replay starts from the beginning');
+      expect(fake.calls, contains('toggle'));
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets('double clicking the video goes full screen and back', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+    fake.calls.clear();
+
+    // Off centre, since the middle of a paused video is the play button.
+    final Offset spot =
+        tester.getCenter(find.byType(PlayerFrame)) + const Offset(0, 80);
+    await tester.tapAt(spot);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tapAt(spot);
+    await tester.pumpAndSettle();
+
+    expect(fake.calls, contains('fullscreen'));
+    expect(
+      fake.calls,
+      isNot(contains('toggle')),
+      reason: 'a double click is one gesture, not a play and a full screen',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('the network wait is selectable, applied and remembered', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+
+    expect(
+      fake.networkTimeout,
+      kDefaultPlayerPrefs.networkTimeoutSeconds,
+      reason: 'the stored preference has to reach the player on start',
+    );
+    expect(
+      fake.calls.indexOf(
+        'timeout:${kDefaultPlayerPrefs.networkTimeoutSeconds}',
+      ),
+      lessThan(fake.calls.indexOf('attach:direct')),
+      reason:
+          'mpv reads the timeout when it opens the stream, so setting it after '
+          'attach leaves the first stream on the wrong value',
+    );
+
+    await tester.tap(find.byIcon(Icons.settings).first);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find
+          .text(
+            Strings.playerAutoplayDelay(
+              kDefaultPlayerPrefs.networkTimeoutSeconds,
+            ),
+          )
+          .last,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerAutoplayDelay(60)).last);
+    await tester.pumpAndSettle();
+
+    expect(fake.networkTimeout, 60, reason: 'and again when it is changed');
+    expect(
+      (await SharedPreferences.getInstance()).getInt(_timeoutKey),
+      60,
+      reason: 'the choice has to outlive the session that made it',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a finished video is not treated as waiting for frames', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake, episodic: true));
+    await tester.pumpAndSettle();
+
+    fake.emit(ended: true);
+    await tester.pump();
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a carried language is asked for when the session starts', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(
+      _app(
+        fake,
+        seen: seen,
+        controls: const PlaybackControls(
+          audioLanguage: 'fra',
+          subtitleLanguage: 'fra',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final http.Request start = seen.firstWhere(
+      (http.Request r) =>
+          r.method == 'POST' && r.url.path == '/api/v1/sessions',
+    );
+    final Map<String, dynamic> body =
+        jsonDecode(start.body) as Map<String, dynamic>;
+    expect(body['audio_language'], 'fra');
+    expect(body['subtitle_language'], 'fra');
+    expect(
+      body.containsKey('audio_track'),
+      isFalse,
+      reason: 'an index from the previous episode means nothing in this file',
+    );
+    expect(
+      seen.where((http.Request r) => r.url.path.endsWith('/update')),
+      isEmpty,
+      reason:
+          'the start request already carries the request, so nothing has '
+          'to be renegotiated after it',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a chosen subtitle follows the viewer into the next episode', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<String> pushed = <String>[];
+    await tester.pumpWidget(_app(fake, episodic: true, pushed: pushed));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.subtitles).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerNoSubtitles).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('English').last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.skip_next));
+    await tester.pumpAndSettle();
+
+    final Uri next = Uri.parse(pushed.single);
+    expect(next.path, '/watch');
+    expect(next.queryParameters['version'], 'v2');
+    expect(next.queryParameters['slang'], 'eng');
+    expect(
+      next.queryParameters.containsKey('sub'),
+      isFalse,
+      reason: 'stream 2 of this episode is not stream 2 of the next one',
+    );
+  });
+
+  testWidgets('a viewer who chose nothing carries nothing forward', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<String> pushed = <String>[];
+    await tester.pumpWidget(_app(fake, episodic: true, pushed: pushed));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.skip_next));
+    await tester.pumpAndSettle();
+
+    expect(
+      Uri.parse(pushed.single).queryParameters,
+      <String, String>{'version': 'v2'},
+      reason:
+          'the account preference has to keep answering for someone who '
+          'never overrode it',
+    );
+  });
+
   testWidgets('an episode gets both steps, with no way back from the first', (
     WidgetTester tester,
   ) async {
@@ -1068,6 +1644,191 @@ void main() {
       isNull,
       reason: 'the first episode of the first season has no predecessor',
     );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a session resumed part way reports the position on the '
+      'whole timeline, not within its own manifest', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(
+      _app(fake, seen: seen, sequential: true, originMs: 40000),
+    );
+    await tester.pumpAndSettle();
+
+    fake.at(positionMs: 5000);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.pause).first);
+    await tester.pumpAndSettle();
+
+    final http.Request progress = seen.lastWhere(
+      (http.Request r) => r.url.path.endsWith('/progress'),
+    );
+    expect(
+      jsonDecode(progress.body)['position_ms'],
+      45000,
+      reason:
+          'the manifest starts at 40s, so the player reporting 5s means the '
+          'viewer is 45s into the film; reporting 5s would rewind the bookmark',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('seeking inside what is already produced stays local', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(
+      _app(fake, seen: seen, sequential: true, originMs: 10000),
+    );
+    await tester.pumpAndSettle();
+
+    fake.at(positionMs: 5000, bufferedAheadMs: 20000);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+
+    expect(
+      seen.where((http.Request r) => r.url.path.endsWith('/seek')),
+      isEmpty,
+      reason: 'a short hop is already on disk, so restarting would be waste',
+    );
+    expect(
+      fake.seekedMs,
+      5000 + kSeekStepMs,
+      reason: 'the player is asked in its own coordinates, not the timeline',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('seeking past what is produced restarts the session', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(
+      _app(
+        fake,
+        seen: seen,
+        sequential: true,
+        originMs: 0,
+        seekOriginMs: 88000,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    fake.at(positionMs: 1000);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.digit9);
+    await tester.pumpAndSettle();
+
+    final http.Request seek = seen.firstWhere(
+      (http.Request r) => r.url.path.endsWith('/seek'),
+    );
+    expect(jsonDecode(seek.body)['position_ms'], 90000);
+    expect(
+      fake.attached,
+      '/stream/tok3/master.m3u8',
+      reason:
+          'a restarted producer writes a new init segment, so the player '
+          'has to re-attach for it to be fetched',
+    );
+    expect(
+      fake.attachedPositionMs,
+      2000,
+      reason:
+          'the new manifest begins at 88s, so 90s on the timeline is 2s into it',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a player that cannot seek in stream restarts for every seek', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController()
+      ..streamSeeks = false;
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(
+      _app(fake, seen: seen, sequential: true, originMs: 0, seekOriginMs: 8000),
+    );
+    await tester.pumpAndSettle();
+
+    fake.at(positionMs: 1000, bufferedAheadMs: 60000);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+
+    expect(
+      seen.where((http.Request r) => r.url.path.endsWith('/seek')),
+      isNotEmpty,
+      reason:
+          'libavformat cannot seek inside an fmp4 HLS playlist, so mpv must be '
+          'handed a fresh manifest that already starts where the viewer aimed',
+    );
+    expect(
+      fake.attachedPositionMs,
+      0,
+      reason:
+          'the new manifest already begins at the target, so asking the player '
+          'to seek again would hit the same broken path',
+    );
+  });
+
+  testWidgets('a player that can seek in stream still seeks locally', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController()
+      ..streamSeeks = true;
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(
+      _app(fake, seen: seen, sequential: true, originMs: 0),
+    );
+    await tester.pumpAndSettle();
+
+    fake.at(positionMs: 1000, bufferedAheadMs: 60000);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+
+    expect(
+      seen.where((http.Request r) => r.url.path.endsWith('/seek')),
+      isEmpty,
+    );
+    expect(fake.seekedMs, 1000 + kSeekStepMs);
+  });
+
+  testWidgets('a session that is not produced sequentially never restarts', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(_app(fake, seen: seen));
+    await tester.pumpAndSettle();
+
+    fake.at(positionMs: 1000);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.digit9);
+    await tester.pumpAndSettle();
+
+    expect(
+      seen.where((http.Request r) => r.url.path.endsWith('/seek')),
+      isEmpty,
+      reason:
+          'direct play and just in time segments are reachable anywhere, so '
+          'the whole timeline is seekable without the server doing anything',
+    );
+    expect(fake.seekedMs, 90000);
 
     await tester.pumpWidget(const SizedBox());
     await tester.pumpAndSettle();

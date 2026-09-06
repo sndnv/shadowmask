@@ -40,11 +40,12 @@ final CatalogListSpec kSeriesList = CatalogListSpec(
 );
 
 class SeriesPage extends StatelessWidget {
-  const SeriesPage({super.key, required this.api});
+  const SeriesPage({super.key, required this.api, required this.query});
 
   final ApiClient api;
+  final ListQuery query;
 
   @override
   Widget build(BuildContext context) =>
-      CatalogListPage(api: api, spec: kSeriesList);
+      CatalogListPage(api: api, spec: kSeriesList, query: query);
 }

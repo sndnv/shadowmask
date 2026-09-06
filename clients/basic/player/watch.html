@@ -30,12 +30,30 @@
       let versionId = null;
       let versionDetail = null;
       let diagTimer = null;
+      let screenLock = null;
+      let awake = false;
       const controls = { height: null, burn: false, downmix: false };
       let selAudio = null;
       let selSub = "";
       let selOffset = 0;
       let resumeMs = 0;
+      let originMs = 0;
+      let sequential = false;
+      let restarting = false;
       let playbackRate = 1;
+      const networkTimeouts = [10, 30, 60, 90];
+      const timeoutKey = "shadowmask.player.network_timeout";
+      let networkTimeout = loadNetworkTimeout();
+
+      function loadNetworkTimeout() {
+        let stored = null;
+        try {
+          stored = parseInt(localStorage.getItem(timeoutKey), 10);
+        } catch (_) {
+          stored = null;
+        }
+        return networkTimeouts.indexOf(stored) >= 0 ? stored : networkTimeouts[0];
+      }
 
       function readParams() {
         const p = new URLSearchParams(location.search);
@@ -94,13 +112,17 @@
             body: JSON.stringify({
               version_id: versionId,
               start_position_ms: startPos,
-              capabilities: { platform: "generic", profile_version: info.profile_version || 1 },
+              capabilities: { platform: clientPlatform(), profile_version: info.profile_version || 1 },
             }),
           });
+          originMs = session.origin_ms || 0;
+          sequential = session.sequential === true;
           status.textContent = "Mode: " + session.mode;
-          await attach(session.manifest_url, session.mode, startPos);
+          await attach(session.manifest_url, session.mode, startPos - originMs);
+          wireSequentialSeeks();
           startHeartbeat(session.heartbeat_interval_s || 10);
           wirePlaybackProgress();
+          wireScreenLock();
           await buildControls();
           await applyInitialParams();
           window.addEventListener("pagehide", endSession);
@@ -130,7 +152,12 @@
           return;
         }
         if (window.Hls && window.Hls.isSupported()) {
-          hls = new window.Hls();
+          const wait = networkTimeout * 1000;
+          hls = new window.Hls({
+            manifestLoadingTimeOut: wait,
+            levelLoadingTimeOut: wait,
+            fragLoadingTimeOut: wait,
+          });
           hls.loadSource(url);
           hls.attachMedia(video);
           hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
@@ -158,6 +185,38 @@
         video.addEventListener("loadedmetadata", handler);
       }
 
+      function wireSequentialSeeks() {
+        if (!sequential) return;
+        const video = document.getElementById("player");
+        video.addEventListener("seeking", () => {
+          if (restarting || ended) return;
+          const target = Math.floor(video.currentTime * 1000);
+          const produced = Math.floor((video.currentTime + bufferedAhead(video)) * 1000) + 30000;
+          if (target <= produced) return;
+          restartAt(originMs + target);
+        });
+      }
+
+      async function restartAt(timelineMs) {
+        if (!session || restarting) return;
+        restarting = true;
+        try {
+          const r = await sm.json(
+            "/api/v1/sessions/" + encodeURIComponent(session.session_id) + "/seek",
+            { method: "POST", body: JSON.stringify({ position_ms: timelineMs }) },
+          );
+          session.manifest_url = r.manifest_url;
+          session.mode = r.mode;
+          originMs = r.origin_ms || 0;
+          sequential = r.sequential === true;
+          await attach(r.manifest_url, r.mode, timelineMs - originMs);
+        } catch (err) {
+          document.getElementById("status").textContent = "Could not seek there (" + err.message + ").";
+        } finally {
+          restarting = false;
+        }
+      }
+
       function teardownHls() {
         if (hls) {
           hls.destroy();
@@ -173,7 +232,7 @@
           .api("/api/v1/sessions/" + encodeURIComponent(session.session_id) + "/progress", {
             method: "POST",
             body: JSON.stringify({
-              position_ms: Math.floor(video.currentTime * 1000),
+              position_ms: originMs + Math.floor(video.currentTime * 1000),
               state,
             }),
           })
@@ -185,6 +244,51 @@
         video.addEventListener("playing", () => sendProgress("playing"));
         video.addEventListener("pause", () => sendProgress("paused"));
         video.addEventListener("ended", () => sendProgress("playing"));
+      }
+
+      function clientPlatform() {
+        const agent = navigator.userAgent;
+        if (agent.includes("Chrome/") || agent.includes("Chromium/")) return "chrome";
+        if (agent.includes("Firefox/")) return "firefox";
+        if (agent.includes("Safari/")) return "safari";
+        return "generic";
+      }
+
+      function holdScreen(hold) {
+        awake = hold;
+        if (hold) {
+          acquireScreen();
+          return;
+        }
+        const held = screenLock;
+        screenLock = null;
+        if (held) held.release().catch(() => {});
+      }
+
+      function acquireScreen() {
+        if (screenLock && !screenLock.released) return;
+        screenLock = null;
+        if (!navigator.wakeLock) return;
+        navigator.wakeLock
+          .request("screen")
+          .then((sentinel) => {
+            if (awake) {
+              screenLock = sentinel;
+            } else {
+              sentinel.release().catch(() => {});
+            }
+          })
+          .catch(() => {});
+      }
+
+      function wireScreenLock() {
+        const video = document.getElementById("player");
+        video.addEventListener("play", () => holdScreen(true));
+        video.addEventListener("pause", () => holdScreen(false));
+        video.addEventListener("ended", () => holdScreen(false));
+        document.addEventListener("visibilitychange", () => {
+          if (awake && document.visibilityState === "visible") acquireScreen();
+        });
       }
 
       function startHeartbeat(intervalS) {
@@ -258,6 +362,7 @@
         ended = true;
         stopHeartbeat();
         stopDiag();
+        holdScreen(false);
         const t = sm.tokens();
         const token = t && t.access_token;
         fetch("/api/v1/sessions/" + encodeURIComponent(session.session_id), {
@@ -297,14 +402,15 @@
           extra.subtitle = { action: "set", track, offset_ms: selOffset || null };
         }
         const video = document.getElementById("player");
-        const resumePos = Math.max(resumeMs, Math.floor(video.currentTime * 1000));
+        const resumePos = Math.max(resumeMs, originMs + Math.floor(video.currentTime * 1000));
         await sendUpdate(extra, resumePos);
       }
 
       async function renegotiate(suffix, body, forcedPositionMs) {
         if (!session || ended) return;
         const video = document.getElementById("player");
-        const keepPos = forcedPositionMs != null ? forcedPositionMs : Math.floor(video.currentTime * 1000);
+        const keepPos =
+          forcedPositionMs != null ? forcedPositionMs : originMs + Math.floor(video.currentTime * 1000);
         try {
           const r = await sm.json(
             "/api/v1/sessions/" + encodeURIComponent(session.session_id) + suffix,
@@ -313,8 +419,10 @@
           session.manifest_url = r.manifest_url;
           session.mode = r.mode;
           session.selected = r.selected;
+          originMs = r.origin_ms || 0;
+          sequential = r.sequential === true;
           document.getElementById("status").textContent = "Mode: " + r.mode;
-          await attach(r.manifest_url, r.mode, keepPos);
+          await attach(r.manifest_url, r.mode, keepPos - originMs);
         } catch (err) {
           document.getElementById("status").textContent = "Renegotiation failed (" + err.message + ").";
         }
@@ -452,6 +560,26 @@
             video.playbackRate = playbackRate;
           });
           rowTop.appendChild(sm.el("label", null, ["Speed ", select]));
+        }
+        {
+          const select = sm.el(
+            "select",
+            null,
+            networkTimeouts.map((seconds) =>
+              sm.el("option", { value: String(seconds) }, seconds + "s"),
+            ),
+          );
+          select.value = String(networkTimeout);
+          select.addEventListener("change", () => {
+            networkTimeout = parseInt(select.value, 10) || networkTimeouts[0];
+            try {
+              localStorage.setItem(timeoutKey, String(networkTimeout));
+            } catch (_) {}
+            if (!session) return;
+            const video = document.getElementById("player");
+            attach(session.manifest_url, session.mode, Math.floor(video.currentTime * 1000));
+          });
+          rowMid.appendChild(sm.el("label", null, ["Timeout ", select]));
         }
         {
           const embedded = (version && version.subtitles) || [];

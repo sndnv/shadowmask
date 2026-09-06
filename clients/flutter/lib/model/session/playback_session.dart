@@ -13,6 +13,8 @@ abstract class PlaybackSession with _$PlaybackSession {
     required String sessionId,
     @Default(PlaybackMode.direct) PlaybackMode mode,
     @Default('') String manifestUrl,
+    @Default(0) int originMs,
+    @Default(false) bool sequential,
     @Default(10) int heartbeatIntervalS,
     SelectedTracks? selected,
     Markers? markers,

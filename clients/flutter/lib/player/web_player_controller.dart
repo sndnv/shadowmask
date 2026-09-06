@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'dart:ui_web' as ui_web;
 
 import 'package:flutter/foundation.dart';
@@ -39,6 +40,8 @@ extension type _HlsLevel._(JSObject _) implements JSObject {
 
 int _viewCounter = 0;
 
+Future<void> preparePlayer() async {}
+
 PlayerController makePlayerController(String baseUrl) =>
     WebPlayerController(baseUrl);
 
@@ -74,12 +77,30 @@ class WebPlayerController implements PlayerController {
         _volume.value = _video.volume;
       }).toJS,
     );
+    _video.addEventListener('play', ((web.Event _) => _holdScreen(true)).toJS);
+    _video.addEventListener(
+      'pause',
+      ((web.Event _) => _holdScreen(false)).toJS,
+    );
+    _video.addEventListener(
+      'ended',
+      ((web.Event _) => _holdScreen(false)).toJS,
+    );
+    _onVisibilityChange = ((web.Event _) {
+      if (_awake && web.document.visibilityState == 'visible') {
+        _acquireScreen();
+      }
+    }).toJS;
+    web.document.addEventListener('visibilitychange', _onVisibilityChange);
   }
 
   final String _baseUrl;
   final String _viewType;
   late final web.HTMLVideoElement _video;
   late final JSFunction _onFullscreenChange;
+  late final JSFunction _onVisibilityChange;
+  web.WakeLockSentinel? _screen;
+  bool _awake = false;
   _Hls? _hls;
   Timer? _timer;
   double _rate = 1;
@@ -116,6 +137,9 @@ class WebPlayerController implements PlayerController {
 
   @override
   bool get supportsPictureInPicture => web.document.pictureInPictureEnabled;
+
+  @override
+  bool get seeksWithinStream => true;
 
   @override
   Widget get view => HtmlElementView(viewType: _viewType);
@@ -248,6 +272,7 @@ class WebPlayerController implements PlayerController {
       bufferedAheadMs: (_bufferedAhead() * 1000).round(),
       playing: !_video.paused,
       ready: _video.readyState >= 1,
+      buffering: _video.readyState < 3 && !_video.ended,
       ended: _video.ended,
     );
   }
@@ -291,6 +316,9 @@ class WebPlayerController implements PlayerController {
     _video.defaultPlaybackRate = rate;
     _video.playbackRate = rate;
   }
+
+  @override
+  void setNetworkTimeout(int seconds) {}
 
   @override
   void toggleFullscreen() {
@@ -341,11 +369,46 @@ class WebPlayerController implements PlayerController {
     _hls = null;
   }
 
+  void _holdScreen(bool hold) {
+    _awake = hold;
+    if (hold) {
+      _acquireScreen();
+      return;
+    }
+    final web.WakeLockSentinel? held = _screen;
+    _screen = null;
+    held?.release();
+  }
+
+  void _acquireScreen() {
+    final web.WakeLockSentinel? held = _screen;
+    if (held != null && !held.released) {
+      return;
+    }
+    _screen = null;
+    if (!(web.window.navigator as JSObject).has('wakeLock')) {
+      return;
+    }
+    web.window.navigator.wakeLock
+        .request('screen')
+        .toDart
+        .then((web.WakeLockSentinel sentinel) {
+          if (_awake) {
+            _screen = sentinel;
+          } else {
+            sentinel.release();
+          }
+        })
+        .catchError((Object _) {});
+  }
+
   @override
   Future<void> dispose() async {
     _timer?.cancel();
     _timer = null;
     web.document.removeEventListener('fullscreenchange', _onFullscreenChange);
+    web.document.removeEventListener('visibilitychange', _onVisibilityChange);
+    _holdScreen(false);
     _teardownHls();
     _video.pause();
     _video.removeAttribute('src');

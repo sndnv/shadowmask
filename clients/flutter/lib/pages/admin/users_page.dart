@@ -37,14 +37,13 @@ const List<UserRole> _creatableRoles = <UserRole>[
 ];
 
 class UsersPage extends StatelessWidget {
-  const UsersPage({super.key, required this.api});
+  const UsersPage({super.key, required this.api, this.offset = 0});
 
   final ApiClient api;
+  final int offset;
 
   @override
   Widget build(BuildContext context) {
-    final int offset =
-        int.tryParse(Uri.base.queryParameters['offset'] ?? '') ?? 0;
     return SectionPage(
       api: api,
       section: NavSection.admin,

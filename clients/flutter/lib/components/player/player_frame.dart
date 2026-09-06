@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/components/player/settings_panel.dart';
+import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
@@ -26,6 +27,13 @@ class PlayerFrame extends StatefulWidget {
     this.onDismissSettings,
     this.keepVisible = false,
     this.status,
+    this.waiting,
+    this.waitingDetail,
+    this.onKeepWaiting,
+    this.onGoBack,
+    this.ended = false,
+    this.onCentrePlay,
+    this.onDoubleTapVideo,
   });
 
   final Widget view;
@@ -37,6 +45,13 @@ class PlayerFrame extends StatefulWidget {
   final VoidCallback? onDismissSettings;
   final bool keepVisible;
   final String? status;
+  final String? waiting;
+  final String? waitingDetail;
+  final VoidCallback? onKeepWaiting;
+  final VoidCallback? onGoBack;
+  final bool ended;
+  final VoidCallback? onCentrePlay;
+  final VoidCallback? onDoubleTapVideo;
   final bool playing;
   final bool fullscreen;
   final VoidCallback onTapVideo;
@@ -106,11 +121,42 @@ class _PlayerFrameState extends State<PlayerFrame> {
                 widget.onTapVideo();
                 _reveal();
               },
+              onDoubleTap: widget.onDoubleTapVideo == null
+                  ? null
+                  : () {
+                      widget.onDoubleTapVideo!();
+                      _reveal();
+                    },
             ),
           ),
         ),
+        if (widget.waiting != null)
+          Positioned.fill(
+            child: _Waiting(
+              label: widget.waiting!,
+              detail: widget.waitingDetail,
+              onKeepWaiting: widget.onKeepWaiting,
+              onGoBack: widget.onGoBack,
+            ),
+          ),
+        if (widget.waiting == null &&
+            !widget.playing &&
+            widget.upNext == null &&
+            widget.onCentrePlay != null)
+          Positioned.fill(
+            child: Center(
+              child: _CentreAction(
+                ended: widget.ended,
+                onPressed: widget.onCentrePlay!,
+              ),
+            ),
+          ),
         if (widget.diagnostics != null)
-          Positioned(top: Space.s3, left: Space.s3, child: widget.diagnostics!),
+          Positioned(
+            top: Space.s3,
+            right: Space.s3,
+            child: widget.diagnostics!,
+          ),
         Positioned(
           top: 0,
           left: 0,
@@ -229,6 +275,118 @@ class _PlayerFrameState extends State<PlayerFrame> {
       return 16 / 9;
     }
     return c.maxWidth / c.maxHeight;
+  }
+}
+
+class _CentreAction extends StatelessWidget {
+  const _CentreAction({required this.ended, required this.onPressed});
+
+  final bool ended;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: ended ? Strings.playerReplay : Strings.playerPlay,
+      child: Material(
+        color: const Color(0xB3000000),
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onPressed,
+          child: Padding(
+            padding: const EdgeInsets.all(Space.s3),
+            child: Icon(
+              ended ? Icons.replay : Icons.play_arrow,
+              color: Colors.white,
+              size: 28,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Waiting extends StatelessWidget {
+  const _Waiting({
+    required this.label,
+    this.detail,
+    this.onKeepWaiting,
+    this.onGoBack,
+  });
+
+  final String label;
+  final String? detail;
+  final VoidCallback? onKeepWaiting;
+  final VoidCallback? onGoBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final Tokens t = context.tokens;
+    final Widget panel = Semantics(
+      liveRegion: true,
+      label: label,
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Space.s4,
+            vertical: Space.s3,
+          ),
+          decoration: BoxDecoration(
+            color: const Color(0xB3000000),
+            borderRadius: BorderRadius.circular(Space.s2),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              if (onKeepWaiting == null)
+                SizedBox.square(
+                  dimension: 28,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    color: t.accent,
+                  ),
+                )
+              else
+                Icon(Icons.warning_amber_rounded, color: t.warn, size: 28),
+              const SizedBox(height: Space.s2),
+              Text(
+                label,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+              ),
+              if (detail != null)
+                Text(
+                  detail!,
+                  style: monoStyle.copyWith(
+                    color: Colors.white70,
+                    fontSize: 11,
+                  ),
+                ),
+              if (onKeepWaiting != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: Space.s2),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      if (onGoBack != null)
+                        TextButton(
+                          onPressed: onGoBack,
+                          child: const Text(Strings.playerGoBack),
+                        ),
+                      TextButton(
+                        onPressed: onKeepWaiting,
+                        child: const Text(Strings.playerKeepWaiting),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    return onKeepWaiting == null ? IgnorePointer(child: panel) : panel;
   }
 }
 

@@ -50,10 +50,16 @@ class CatalogListSpec {
 }
 
 class CatalogListPage extends StatelessWidget {
-  const CatalogListPage({super.key, required this.api, required this.spec});
+  const CatalogListPage({
+    super.key,
+    required this.api,
+    required this.spec,
+    required this.query,
+  });
 
   final ApiClient api;
   final CatalogListSpec spec;
+  final ListQuery query;
 
   @override
   Widget build(BuildContext context) => SectionPage(
@@ -62,16 +68,22 @@ class CatalogListPage extends StatelessWidget {
     errorText: spec.errorText,
     loading: const SkeletonPage(toolbar: true, child: SkeletonCards(count: 12)),
     bodyBuilder: (BuildContext context, SelfUser user) =>
-        _Body(api: api, user: user, spec: spec),
+        _Body(api: api, user: user, spec: spec, query: query),
   );
 }
 
 class _Body extends StatefulWidget {
-  const _Body({required this.api, required this.user, required this.spec});
+  const _Body({
+    required this.api,
+    required this.user,
+    required this.spec,
+    required this.query,
+  });
 
   final ApiClient api;
   final SelfUser user;
   final CatalogListSpec spec;
+  final ListQuery query;
 
   @override
   State<_Body> createState() => _BodyState();
@@ -79,7 +91,7 @@ class _Body extends StatefulWidget {
 
 class _BodyState extends State<_Body> {
   late final CatalogApi _catalog = CatalogApi(widget.api);
-  ListQuery _query = ListQuery.fromUri();
+  late ListQuery _query = widget.query;
   late final Future<CatalogListData> _future = _load();
 
   final List<CatalogCard> _more = <CatalogCard>[];

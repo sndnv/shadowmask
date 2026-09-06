@@ -133,6 +133,7 @@ def main():
     version_files = {
         'Cargo.toml': r'^version = "({})"'.format(version_regex),
         'clients/flutter/pubspec.yaml': r'^version: ({})'.format(version_regex),
+        'clients/flutter/AppImageBuilder.yml': r'^    version: ({})'.format(version_regex),
     }
 
     extra_actions = {

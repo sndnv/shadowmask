@@ -14,13 +14,14 @@ import 'package:shadowmask/pages/admin/library_access_block.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
 
 class UserPage extends StatelessWidget {
-  const UserPage({super.key, required this.api});
+  const UserPage({super.key, required this.api, this.id});
 
   final ApiClient api;
+  final String? id;
 
   @override
   Widget build(BuildContext context) {
-    final String? id = Uri.base.queryParameters['id'];
+    final String? id = this.id;
     return SectionPage(
       api: api,
       section: NavSection.admin,

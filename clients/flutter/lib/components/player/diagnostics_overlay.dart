@@ -49,18 +49,16 @@ class _DiagnosticsOverlayState extends State<DiagnosticsOverlay> {
       if (widget.sourceLine != null) widget.sourceLine!,
       ...widget.controller.diagnostics().lines,
     ];
-    return IgnorePointer(
-      child: Container(
-        padding: const EdgeInsets.all(Space.s2),
-        decoration: BoxDecoration(
-          color: t.surface.withValues(alpha: 0.72),
-          borderRadius: const BorderRadius.all(Radii.sm),
-          border: Border.all(color: t.border),
-        ),
-        child: Text(
-          lines.join('\n'),
-          style: monoStyle.copyWith(color: t.text, fontSize: 12, height: 1.4),
-        ),
+    return Container(
+      padding: const EdgeInsets.all(Space.s2),
+      decoration: BoxDecoration(
+        color: t.surface.withValues(alpha: 0.72),
+        borderRadius: const BorderRadius.all(Radii.sm),
+        border: Border.all(color: t.border),
+      ),
+      child: SelectableText(
+        lines.join('\n'),
+        style: monoStyle.copyWith(color: t.text, fontSize: 12, height: 1.4),
       ),
     );
   }

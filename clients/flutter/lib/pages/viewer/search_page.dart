@@ -25,10 +25,18 @@ import 'package:shadowmask/pages/default/section_page.dart';
 const double kSearchControlHeight = 40;
 
 class SearchPage extends StatelessWidget {
-  const SearchPage({super.key, required this.api, this.query});
+  const SearchPage({
+    super.key,
+    required this.api,
+    this.query,
+    this.type,
+    this.offset = 0,
+  });
 
   final ApiClient api;
   final String? query;
+  final String? type;
+  final int offset;
 
   @override
   Widget build(BuildContext context) => SectionPage(
@@ -36,17 +44,30 @@ class SearchPage extends StatelessWidget {
     section: NavSection.search,
     errorText: Strings.couldNotLoadSearch,
     loading: const SkeletonPage(child: SkeletonCards()),
-    bodyBuilder: (BuildContext context, SelfUser user) =>
-        _SearchBody(api: api, user: user, query: query),
+    bodyBuilder: (BuildContext context, SelfUser user) => _SearchBody(
+      api: api,
+      user: user,
+      query: query,
+      type: type,
+      offset: offset,
+    ),
   );
 }
 
 class _SearchBody extends StatefulWidget {
-  const _SearchBody({required this.api, required this.user, this.query});
+  const _SearchBody({
+    required this.api,
+    required this.user,
+    required this.offset,
+    this.query,
+    this.type,
+  });
 
   final ApiClient api;
   final SelfUser user;
   final String? query;
+  final String? type;
+  final int offset;
 
   @override
   State<_SearchBody> createState() => _SearchBodyState();
@@ -54,11 +75,9 @@ class _SearchBody extends StatefulWidget {
 
 class _SearchBodyState extends State<_SearchBody> {
   late final CatalogApi _catalog = CatalogApi(widget.api);
-  late final String _q =
-      (widget.query ?? Uri.base.queryParameters['q'])?.trim() ?? '';
-  late final String? _type = Uri.base.queryParameters['type'];
-  late final int _offset =
-      int.tryParse(Uri.base.queryParameters['offset'] ?? '') ?? 0;
+  late final String _q = widget.query?.trim() ?? '';
+  late final String? _type = widget.type;
+  late final int _offset = widget.offset;
   late final TextEditingController _controller = TextEditingController(
     text: _q,
   );

@@ -13,6 +13,25 @@ import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/util/languages.dart';
 
 const List<int?> _qualityRungs = <int?>[null, 1080, 720, 480, 320];
+
+int _sourceHeight(VersionDetail version) =>
+    version.video.isNotEmpty ? version.video.first.height : 0;
+
+List<int?> _offeredRungs(VersionDetail version) {
+  final int source = _sourceHeight(version);
+  if (source <= 0) {
+    return _qualityRungs;
+  }
+  return _qualityRungs
+      .where((int? rung) => rung == null || rung < source)
+      .toList();
+}
+
+String _originalLabel(VersionDetail version) {
+  final int source = _sourceHeight(version);
+  return source > 0 ? Strings.playerOriginalAt(source) : Strings.playerOriginal;
+}
+
 const List<double> _speeds = <double>[0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const double _kControlColumn = 168;
 const double _kDenseControlColumn = 132;
@@ -50,6 +69,8 @@ class PlayerSettingsPanel extends StatefulWidget {
     this.onPictureInPicture,
     this.autoplaySeconds,
     this.onAutoplaySeconds,
+    this.networkTimeoutSeconds,
+    this.onNetworkTimeoutSeconds,
     this.onShortcuts,
     this.dense = false,
   });
@@ -65,6 +86,8 @@ class PlayerSettingsPanel extends StatefulWidget {
   final VoidCallback? onPictureInPicture;
   final int? autoplaySeconds;
   final ValueChanged<int>? onAutoplaySeconds;
+  final int? networkTimeoutSeconds;
+  final ValueChanged<int>? onNetworkTimeoutSeconds;
   final VoidCallback? onShortcuts;
   final ValueChanged<PlaybackControls> onControls;
   final ValueChanged<double> onSpeed;
@@ -91,6 +114,8 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
   late bool _diag = widget.diagnostics;
   late int _autoplay =
       widget.autoplaySeconds ?? kDefaultPlayerPrefs.autoplaySeconds;
+  late int _timeout =
+      widget.networkTimeoutSeconds ?? kDefaultPlayerPrefs.networkTimeoutSeconds;
 
   @override
   void dispose() {
@@ -106,6 +131,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
         downmix: _downmix,
         audioTrack: _audio,
         subtitle: SubtitleSelection.fromWire(_sub.isEmpty ? null : _sub),
+        subtitleOff: _sub.isEmpty,
         offsetMs: int.tryParse(_offset.text) ?? 0,
       ),
     );
@@ -125,11 +151,11 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
               width: double.infinity,
               tapGroupId: kPlayerPanelGroup,
               items: <(int?, String)>[
-                for (final int? rung in _qualityRungs)
+                for (final int? rung in _offeredRungs(v))
                   (
                     rung,
                     rung == null
-                        ? Strings.playerOriginal
+                        ? _originalLabel(v)
                         : Strings.qualityRung(rung),
                   ),
               ],
@@ -261,6 +287,23 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
                 onChanged: (int value) {
                   setState(() => _autoplay = value);
                   widget.onAutoplaySeconds?.call(value);
+                },
+              ),
+            ),
+          if (widget.onNetworkTimeoutSeconds != null)
+            _row(
+              Strings.playerNetworkTimeout,
+              AppDropdown<int>(
+                value: _timeout,
+                width: double.infinity,
+                tapGroupId: kPlayerPanelGroup,
+                items: <(int, String)>[
+                  for (final int seconds in kNetworkTimeouts)
+                    (seconds, Strings.playerAutoplayDelay(seconds)),
+                ],
+                onChanged: (int value) {
+                  setState(() => _timeout = value);
+                  widget.onNetworkTimeoutSeconds?.call(value);
                 },
               ),
             ),

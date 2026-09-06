@@ -10,7 +10,8 @@ if they drift.
 
 Not everything here is distributed. `brand/shadowmask.logo-retro.svg` and everything
 under `screenshots/` are referenced only by the root `README.md` and have no entry in
-`refresh_assets.py`.
+`refresh_assets.py`. `icons/flutter/linux_icon_*.png` are read straight from here by
+`clients/flutter/AppImageBuilder.yml` when the AppImage is packaged.
 
 ## Layout
 
@@ -23,11 +24,35 @@ assets/
   screenshots/   client captures for the root README
 ```
 
-- `brand/shadowmask.logo.svg` - the brand mark.
-- `brand/shadowmask.logo-retro.svg` - the brand mark without its background plate,
-  in the retro theme's colours. Root README only.
+All three brand icons carry the same artwork: the retro mark, amber tube with RGB dots, on a warm
+gradient plate running `#43331f` to `#1c140d`. They differ only in how the plate meets the canvas,
+because each platform masks differently.
+
+- `brand/shadowmask.logo.svg` - the brand mark on a rounded plate. The default, and the widest
+  reach: both client favicons, the Flutter PWA `any` icons, and the Linux hicolor sizes.
+- `brand/shadowmask.icon-desktop.svg` - the same on a transparent canvas, art at 80.5% of the
+  canvas and corner radius at 22.5% of the art, matching Apple's icon template. macOS applies no
+  mask of its own, so the full-bleed version renders larger and squarer than its neighbours.
+- `brand/shadowmask.icon-maskable.svg` - the same on a square full-bleed plate, with the mark held
+  inside the 80% safe circle. Android maskable only; the launcher crops it to its own shape.
+The two plateless variants below are page logos, not icons. They sit on a themed page background
+rather than a launcher or tab, so they carry no plate and take the theme's `accent`.
+
+- `brand/shadowmask.logo-light.svg` - the mark on no plate, in the light theme's accent `#0e7d88`,
+  dots at 0.55. The basic client's in-page nav logo. Single-accent dots, since the design system
+  makes the RGB dots a retro-theme variant only. **This is a hand-kept port of what
+  `brandMarkSvg` in `clients/flutter/lib/components/brand_mark.dart` generates at runtime**, which
+  the basic client cannot call because it is Dart. Same `viewBox`, tube, dot grid and opacity, so
+  the two clients render the same mark; change one and change the other.
+- `brand/shadowmask.logo-retro.svg` - the same without a plate in the retro theme's colours.
+  Currently unreferenced: the root README used it before switching to the desktop icon.
 - `placeholders/{poster,landscape,person}.svg` - artwork fallbacks.
-- `icons/flutter/*.png` - the Flutter web favicon and PWA icons.
+- `icons/flutter/{favicon,Icon-*}.png` - the Flutter web favicon and PWA icons.
+- `icons/flutter/app_icon_*.png` - the Flutter macOS app icon set. Filenames match the
+  ones the appiconset's `Contents.json` references.
+- `icons/flutter/linux_icon_*.png` - the hicolor sizes for the Linux AppImage, rendered full-bleed
+  from `brand/shadowmask.logo.svg`. Not distributed by `refresh_assets.py`;
+  `clients/flutter/AppImageBuilder.yml` reads them from here at package time.
 - `vendor/hls.min.js` - hls.js, bundled by the web clients for HLS playback
   (Apache-2.0). Replace with a newer upstream `hls.min.js` here, then refresh.
 - `vendor/hls.js.LICENSE.txt` - the Apache-2.0 text and copyright notices for the
@@ -38,6 +63,17 @@ assets/
   Not distributed to any client. JPEG rather than PNG on purpose: the same set as
   lossless PNG was 17 MB, which is a lot to carry in history for images GitHub
   renders at under 900px.
+
+## Rendering
+
+The PNGs under `icons/` are generated from the SVGs under `brand/` by
+`./render_icons.sh`, which needs `rsvg-convert` from librsvg: `librsvg2-bin` on Debian
+and Ubuntu, `librsvg2-tools` on Fedora, `librsvg` on Arch or via Homebrew. Run it when a
+brand SVG changes, then refresh.
+
+```
+./render_icons.sh              # brand SVGs -> icons/flutter/*.png
+```
 
 ## Usage
 
@@ -63,6 +99,7 @@ assets/
 | `clients/flutter` | `icons/flutter/Icon-512.png` | `web/icons/Icon-512.png` |
 | `clients/flutter` | `icons/flutter/Icon-maskable-192.png` | `web/icons/Icon-maskable-192.png` |
 | `clients/flutter` | `icons/flutter/Icon-maskable-512.png` | `web/icons/Icon-maskable-512.png` |
+| `clients/flutter` | `icons/flutter/app_icon_{16,32,64,128,256,512,1024}.png` | `macos/Runner/Assets.xcassets/AppIcon.appiconset/` |
 | `clients/flutter` | `vendor/hls.min.js` | `web/hls.min.js` |
 
 As the Android, iOS, and Roku clients land, add their launcher and icon targets

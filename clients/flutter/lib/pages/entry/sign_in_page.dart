@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/api/server_scope.dart';
 import 'package:shadowmask/components/brand_mark.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/default/bare_page.dart';
+import 'package:shadowmask/pages/entry/server_page.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -82,9 +84,19 @@ class _SignInPageState extends State<SignInPage> {
     }
   }
 
+  void _changeServer(ServerScope scope) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) =>
+            ServerPage(initialAddress: scope.address),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
+    final ServerScope? scope = ServerScope.of(context);
     return BarePage(
       child: Center(
         child: ConstrainedBox(
@@ -150,6 +162,13 @@ class _SignInPageState extends State<SignInPage> {
                     onPressed: _busy ? null : _submit,
                     child: Text(_busy ? Strings.loading : Strings.signInTitle),
                   ),
+                  if (scope != null) ...<Widget>[
+                    const SizedBox(height: Space.s2),
+                    TextButton(
+                      onPressed: _busy ? null : () => _changeServer(scope),
+                      child: const Text(Strings.changeServer),
+                    ),
+                  ],
                   const SizedBox(height: Space.s6),
                   const Center(child: BrandMark(size: 40)),
                 ],

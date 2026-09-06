@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Shadowmask logo">
+    <defs>
+        <clipPath id="sm-tube-desktop">
+            <rect x="2" y="4" width="20" height="16" rx="4"/>
+        </clipPath>
+        <linearGradient id="sm-plate" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#43331f"/>
+            <stop offset="1" stop-color="#1c140d"/>
+        </linearGradient>
+    </defs>
+
+    <g transform="translate(6.25 6.25) scale(0.8047)">
+        <rect width="64" height="64" rx="14.4" fill="url(#sm-plate)"/>
+
+        <g transform="translate(11.5 11.5) scale(1.708)">
+            <rect x="2" y="4" width="20" height="16" rx="4" fill="none" stroke="#e0913a" stroke-width="1.6"/>
+            <g clip-path="url(#sm-tube-desktop)" fill-opacity="0.9">
+                <circle cx="5" cy="7" r="1" fill="#FF5D5D"/>
+                <circle cx="8.5" cy="7" r="1" fill="#5BE88A"/>
+                <circle cx="12" cy="7" r="1" fill="#5AA0FF"/>
+                <circle cx="15.5" cy="7" r="1" fill="#FF5D5D"/>
+                <circle cx="19" cy="7" r="1" fill="#5BE88A"/>
+                <circle cx="5" cy="9.5" r="1" fill="#5BE88A"/>
+                <circle cx="8.5" cy="9.5" r="1" fill="#5AA0FF"/>
+                <circle cx="12" cy="9.5" r="1" fill="#FF5D5D"/>
+                <circle cx="15.5" cy="9.5" r="1" fill="#5BE88A"/>
+                <circle cx="19" cy="9.5" r="1" fill="#5AA0FF"/>
+                <circle cx="5" cy="12" r="1" fill="#5AA0FF"/>
+                <circle cx="8.5" cy="12" r="1" fill="#FF5D5D"/>
+                <circle cx="12" cy="12" r="1" fill="#5BE88A"/>
+                <circle cx="15.5" cy="12" r="1" fill="#5AA0FF"/>
+                <circle cx="19" cy="12" r="1" fill="#FF5D5D"/>
+                <circle cx="5" cy="14.5" r="1" fill="#FF5D5D"/>
+                <circle cx="8.5" cy="14.5" r="1" fill="#5BE88A"/>
+                <circle cx="12" cy="14.5" r="1" fill="#5AA0FF"/>
+                <circle cx="15.5" cy="14.5" r="1" fill="#FF5D5D"/>
+                <circle cx="19" cy="14.5" r="1" fill="#5BE88A"/>
+                <circle cx="5" cy="17" r="1" fill="#5BE88A"/>
+                <circle cx="8.5" cy="17" r="1" fill="#5AA0FF"/>
+                <circle cx="12" cy="17" r="1" fill="#FF5D5D"/>
+                <circle cx="15.5" cy="17" r="1" fill="#5BE88A"/>
+                <circle cx="19" cy="17" r="1" fill="#5AA0FF"/>
+            </g>
+        </g>
+    </g>
+</svg>
