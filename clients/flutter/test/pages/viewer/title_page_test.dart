@@ -200,7 +200,7 @@ Future<void> _pump(WidgetTester tester, ApiClient api) async {
         theme: buildTheme(AppThemeVariant.dark),
         onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
           builder: (_) => settings.name == null || settings.name == '/'
-              ? TitlePage(api: api)
+              ? TitlePage(api: api, kind: 'movie', id: 'm1')
               : Text('went to ${settings.name}'),
         ),
       ),

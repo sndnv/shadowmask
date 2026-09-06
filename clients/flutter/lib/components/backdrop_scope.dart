@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:shadowmask/components/remote_image.dart';
 import 'package:shadowmask/model/common/artwork.dart';
 import 'package:shadowmask/util/scoped_value.dart';
 
@@ -98,8 +99,8 @@ class _WashImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Image.network(
-      url,
+    return Image(
+      image: remoteImage(url),
       fit: BoxFit.cover,
       alignment: Alignment.topCenter,
       width: double.infinity,

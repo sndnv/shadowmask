@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:shadowmask/components/remote_image.dart';
 import 'package:shadowmask/components/skeleton.dart';
 import 'package:shadowmask/model/common/artwork.dart';
 import 'package:shadowmask/theme/radii.dart';
@@ -67,12 +68,13 @@ class CardArt extends StatelessWidget {
     return _networkImage(url, t, pixels);
   }
 
-  Widget _networkImage(String url, Tokens t, int pixels) => Image.network(
-    url,
+  Widget _networkImage(String url, Tokens t, int pixels) => Image(
+    image: width == null
+        ? remoteImage(url)
+        : ResizeImage(remoteImage(url), width: pixels),
     fit: BoxFit.cover,
     width: double.infinity,
     height: double.infinity,
-    cacheWidth: width == null ? null : pixels,
     errorBuilder: (BuildContext _, Object _, StackTrace? _) => _failed(t),
     loadingBuilder: (BuildContext _, Widget child, ImageChunkEvent? progress) =>
         progress == null ? child : _loading(),

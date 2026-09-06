@@ -15,6 +15,7 @@ enum PlayerShortcut {
   nextEpisode,
   remaining,
   legend,
+  back,
 }
 
 typedef ShortcutRow = ({PlayerShortcut action, String keys, String label});
@@ -67,6 +68,7 @@ const List<ShortcutRow> kPlayerShortcuts = <ShortcutRow>[
     label: Strings.shortcutRemaining,
   ),
   (action: PlayerShortcut.legend, keys: '?', label: Strings.shortcutLegend),
+  (action: PlayerShortcut.back, keys: 'Esc', label: Strings.shortcutBack),
 ];
 
 PlayerShortcut? shortcutFor(LogicalKeyboardKey key) {
@@ -90,6 +92,9 @@ PlayerShortcut? shortcutFor(LogicalKeyboardKey key) {
   }
   if (key == LogicalKeyboardKey.keyF) {
     return PlayerShortcut.fullscreen;
+  }
+  if (key == LogicalKeyboardKey.escape) {
+    return PlayerShortcut.back;
   }
   if (key == LogicalKeyboardKey.keyW) {
     return PlayerShortcut.wide;

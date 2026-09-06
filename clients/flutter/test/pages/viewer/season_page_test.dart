@@ -45,8 +45,9 @@ Future<void> _pump(WidgetTester tester, ApiClient api) async {
       setVariant: (_) {},
       child: MaterialApp(
         theme: buildTheme(AppThemeVariant.dark),
-        onGenerateRoute: (_) =>
-            MaterialPageRoute<void>(builder: (_) => SeasonPage(api: api)),
+        onGenerateRoute: (_) => MaterialPageRoute<void>(
+          builder: (_) => SeasonPage(api: api, id: 'se1'),
+        ),
       ),
     ),
   );

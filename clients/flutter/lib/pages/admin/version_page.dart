@@ -56,13 +56,13 @@ typedef SubtitleRow = ({
 });
 
 class VersionPage extends StatelessWidget {
-  const VersionPage({super.key, required this.api});
+  const VersionPage({super.key, required this.api, required this.id});
 
   final ApiClient api;
+  final String id;
 
   @override
   Widget build(BuildContext context) {
-    final String id = Uri.base.queryParameters['id'] ?? '';
     return SectionPage(
       api: api,
       section: NavSection.admin,

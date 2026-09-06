@@ -27,6 +27,17 @@ Map<String, dynamic> _version(String id, {bool available = true}) =>
       'updated_at': '2026-08-17T09:00:00Z',
     };
 
+Map<String, dynamic> _season() => <String, dynamic>{
+  'id': 'se1',
+  'series_id': 's1',
+  'series_title': 'Stargate',
+  'number': 1,
+  'title': 'Season 1',
+  'added_at': '2026-08-17T09:00:00Z',
+  'updated_at': '2026-08-17T09:00:00Z',
+  'artwork': <String, dynamic>{},
+};
+
 ApiClient _api({
   List<Map<String, dynamic>> versions = const <Map<String, dynamic>>[],
   List<Map<String, dynamic>> seasons = const <Map<String, dynamic>>[],
@@ -104,7 +115,13 @@ ApiClient _api({
   }),
 );
 
-Future<void> _pump(WidgetTester tester, ApiClient api, {String? route}) async {
+Future<void> _pump(
+  WidgetTester tester,
+  ApiClient api, {
+  String? route,
+  String kind = 'movie',
+  String id = 'm1',
+}) async {
   tester.view.physicalSize = const Size(1600, 1400);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -117,9 +134,9 @@ Future<void> _pump(WidgetTester tester, ApiClient api, {String? route}) async {
         onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
           builder: (_) =>
               settings.name != null && settings.name!.startsWith('/title')
-              ? TitlePage(api: api)
+              ? TitlePage(api: api, kind: kind, id: id)
               : (settings.name == null || settings.name == '/'
-                    ? TitlePage(api: api)
+                    ? TitlePage(api: api, kind: kind, id: id)
                     : Text('went to ${settings.name}')),
         ),
         theme: buildTheme(AppThemeVariant.dark),
@@ -263,6 +280,77 @@ void main() {
         Icons.delete_outline,
       ],
       reason: 'read only, then provider refresh, hand edit, identity, removal',
+    );
+  });
+
+  testWidgets('a series whose episodes all have a file can be relinked', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api(
+        seasons: <Map<String, dynamic>>[_season()],
+        episodesTotal: 6,
+        episodesPlayable: 6,
+      ),
+      kind: 'series',
+      id: 's1',
+    );
+
+    expect(find.byTooltip(Strings.relinkSeries), findsOneWidget);
+    expect(_enabled(tester, Strings.relinkSeries), isTrue);
+  });
+
+  testWidgets(
+    'a series with stranded episodes refuses relink and counts them',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        _api(
+          seasons: <Map<String, dynamic>>[_season()],
+          episodesTotal: 6,
+          episodesPlayable: 4,
+        ),
+        kind: 'series',
+        id: 's1',
+      );
+
+      expect(find.byTooltip(Strings.relinkSeries), findsNothing);
+      expect(
+        _enabled(tester, Strings.relinkBlockedSeries(2)),
+        isFalse,
+        reason: 'the two episodes without a file are named in the tooltip',
+      );
+    },
+  );
+
+  testWidgets('a series still holding seasons cannot be deleted', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api(
+        seasons: <Map<String, dynamic>>[_season()],
+        episodesTotal: 6,
+        episodesPlayable: 6,
+      ),
+      kind: 'series',
+      id: 's1',
+    );
+
+    expect(find.byTooltip(Strings.deleteSeries), findsNothing);
+    expect(_enabled(tester, Strings.blockedBySeasons(1)), isFalse);
+  });
+
+  testWidgets('a series with no seasons left can be deleted', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, _api(), kind: 'series', id: 's1');
+
+    expect(
+      _enabled(tester, Strings.deleteSeries),
+      isTrue,
+      reason: 'the bottom-up rule lets the last step through once it is empty',
     );
   });
 }

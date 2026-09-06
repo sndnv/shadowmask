@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/theme/app_button.dart';
@@ -10,17 +11,20 @@ import 'package:shadowmask/theme/tokens_ext.dart';
 const double _kFieldTextHeight = 24;
 const double _kFieldPadding = (kControlHeight - _kFieldTextHeight) / 2;
 
-const String _familySans = 'system-ui';
-const List<String> _sansFallback = <String>[
-  '-apple-system',
-  'Segoe UI',
-  'Roboto',
-  'Helvetica',
-  'Arial',
-  'sans-serif',
-];
-const String _familyMono = 'ui-monospace';
+const String? _familySans = kIsWeb ? 'system-ui' : null;
+const List<String> _sansFallback = kIsWeb
+    ? <String>[
+        '-apple-system',
+        'Segoe UI',
+        'Roboto',
+        'Helvetica',
+        'Arial',
+        'sans-serif',
+      ]
+    : <String>[];
+const String? _familyMono = kIsWeb ? 'ui-monospace' : null;
 const List<String> _monoFallback = <String>[
+  'SF Mono',
   'SFMono-Regular',
   'Menlo',
   'Consolas',

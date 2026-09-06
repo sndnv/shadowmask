@@ -18,7 +18,10 @@ void main() {
 
   test('an unbound key claims nothing', () {
     expect(shortcutFor(LogicalKeyboardKey.keyZ), isNull);
-    expect(shortcutFor(LogicalKeyboardKey.escape), isNull);
+  });
+
+  test('escape is ours to bind, because only a browser gave it away free', () {
+    expect(shortcutFor(LogicalKeyboardKey.escape), PlayerShortcut.back);
   });
 
   test('the legend has a key of its own', () {

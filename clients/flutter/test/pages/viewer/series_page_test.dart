@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/pagination.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/pages/viewer/list_query.dart';
 import 'package:shadowmask/pages/viewer/series_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
@@ -67,8 +68,12 @@ Future<void> _pump(WidgetTester tester, ApiClient api) async {
       setVariant: (_) {},
       child: MaterialApp(
         theme: buildTheme(AppThemeVariant.dark),
-        onGenerateRoute: (_) =>
-            MaterialPageRoute<void>(builder: (_) => SeriesPage(api: api)),
+        onGenerateRoute: (_) => MaterialPageRoute<void>(
+          builder: (_) => SeriesPage(
+            api: api,
+            query: ListQuery.fromArgs(const <String, String>{}),
+          ),
+        ),
       ),
     ),
   );

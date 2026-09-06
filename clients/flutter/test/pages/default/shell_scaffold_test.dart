@@ -692,6 +692,50 @@ void _responsiveNavTests() {
 
     expect(find.text(Strings.navigationAdmin), findsNothing);
   });
+
+  testWidgets('every label in the bar is set from one type style', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      ThemeScope(
+        variant: AppThemeVariant.dark,
+        setVariant: (_) {},
+        child: MaterialApp(
+          theme: buildTheme(AppThemeVariant.dark),
+          home: ShellScaffold(
+            api: _api(),
+            current: NavSection.movies,
+            user: const SelfUser(
+              id: 'u1',
+              username: 'pat',
+              role: UserRole.user,
+            ),
+            body: _body,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final TextButton signOut = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, Strings.signOut),
+    );
+    expect(
+      signOut.style?.textStyle?.resolve(<WidgetState>{}),
+      kNavItemText,
+      reason:
+          'a size of its own puts the sign out baseline off the row, because '
+          'boxes of different heights centre to different baselines',
+    );
+    expect(
+      tester.widget<Text>(find.text('/')).style?.fontSize,
+      kNavItemText.fontSize,
+      reason: 'without a size the separator inherits the theme body size',
+    );
+  });
 }
 
 class _Counter extends StatefulWidget {

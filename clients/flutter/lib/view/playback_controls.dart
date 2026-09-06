@@ -1,3 +1,4 @@
+import 'package:shadowmask/model/session/selected_tracks.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
 
 class PlaybackControls {
@@ -6,19 +7,26 @@ class PlaybackControls {
     this.burn = false,
     this.downmix = false,
     this.audioTrack,
+    this.audioLanguage,
     this.subtitle,
+    this.subtitleLanguage,
+    this.subtitleOff = false,
     this.offsetMs = 0,
   });
 
   factory PlaybackControls.fromQuery(Map<String, String> q) {
     int? asInt(String? v) =>
         (v != null && v.isNotEmpty) ? int.tryParse(v) : null;
+    String? asText(String? v) => (v != null && v.isNotEmpty) ? v : null;
     return PlaybackControls(
       height: asInt(q['height']),
       burn: q['burn'] == '1',
       downmix: q['downmix'] == '1',
       audioTrack: asInt(q['audio']),
+      audioLanguage: asText(q['alang']),
       subtitle: SubtitleSelection.fromWire(q['sub']),
+      subtitleLanguage: asText(q['slang']),
+      subtitleOff: q['soff'] == '1',
       offsetMs: asInt(q['offset']) ?? 0,
     );
   }
@@ -27,16 +35,44 @@ class PlaybackControls {
   final bool burn;
   final bool downmix;
   final int? audioTrack;
+  final String? audioLanguage;
   final SubtitleSelection? subtitle;
+  final String? subtitleLanguage;
+  final bool subtitleOff;
   final int offsetMs;
 
   bool get isDefault =>
-      height == null &&
-      !burn &&
-      !downmix &&
-      audioTrack == null &&
-      subtitle == null &&
-      offsetMs == 0;
+      height == null && !burn && !downmix && offsetMs == 0 && !hasTrackRequest;
+
+  bool get hasTrackRequest =>
+      audioTrack != null ||
+      audioLanguage != null ||
+      subtitle != null ||
+      subtitleLanguage != null ||
+      subtitleOff;
+
+  PlaybackControls withSelection(SelectedTracks? selected) => PlaybackControls(
+    height: height,
+    burn: burn,
+    downmix: downmix,
+    audioTrack: selected?.audioTrack ?? audioTrack,
+    audioLanguage: audioLanguage,
+    subtitle: selected?.subtitleTrack ?? subtitle,
+    subtitleLanguage: subtitleLanguage,
+    subtitleOff: subtitleOff,
+    offsetMs: offsetMs,
+  );
+
+  Map<String, dynamic> toStartBody() => <String, dynamic>{
+    if (height != null) 'target_height': height,
+    if (burn) 'force_burn': true,
+    if (downmix) 'downmix_stereo': true,
+    if (audioTrack != null) 'audio_track': audioTrack,
+    if (audioLanguage != null) 'audio_language': audioLanguage,
+    if (subtitle != null) 'subtitle': subtitle!.toJson(),
+    if (subtitleLanguage != null) 'subtitle_language': subtitleLanguage,
+    if (subtitleOff) 'subtitle_off': true,
+  };
 
   Map<String, dynamic> toUpdateBody() {
     final Map<String, dynamic> body = <String, dynamic>{
@@ -64,7 +100,10 @@ class PlaybackControls {
     if (burn) 'burn': '1',
     if (downmix) 'downmix': '1',
     if (audioTrack != null) 'audio': audioTrack.toString(),
+    if (audioLanguage != null) 'alang': audioLanguage,
     if (subtitle != null) 'sub': subtitle!.toWire(),
+    if (subtitleLanguage != null) 'slang': subtitleLanguage,
+    if (subtitleOff) 'soff': '1',
     if (offsetMs != 0) 'offset': offsetMs.toString(),
   };
 
@@ -75,10 +114,22 @@ class PlaybackControls {
       other.burn == burn &&
       other.downmix == downmix &&
       other.audioTrack == audioTrack &&
+      other.audioLanguage == audioLanguage &&
       other.subtitle == subtitle &&
+      other.subtitleLanguage == subtitleLanguage &&
+      other.subtitleOff == subtitleOff &&
       other.offsetMs == offsetMs;
 
   @override
-  int get hashCode =>
-      Object.hash(height, burn, downmix, audioTrack, subtitle, offsetMs);
+  int get hashCode => Object.hash(
+    height,
+    burn,
+    downmix,
+    audioTrack,
+    audioLanguage,
+    subtitle,
+    subtitleLanguage,
+    subtitleOff,
+    offsetMs,
+  );
 }

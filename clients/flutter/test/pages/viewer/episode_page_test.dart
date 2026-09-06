@@ -63,7 +63,7 @@ Future<void> _pump(WidgetTester tester, ApiClient api) async {
         theme: buildTheme(AppThemeVariant.dark),
         onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
           builder: (_) => settings.name == null || settings.name == '/'
-              ? EpisodePage(api: api)
+              ? EpisodePage(api: api, id: 'e1')
               : Text('went to ${settings.name}'),
         ),
       ),

@@ -70,16 +70,20 @@ import 'package:shadowmask/pages/viewer/catalog_support.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
 
 class TitlePage extends StatelessWidget {
-  const TitlePage({super.key, required this.api});
+  const TitlePage({
+    super.key,
+    required this.api,
+    required this.kind,
+    required this.id,
+  });
 
   final ApiClient api;
+  final String kind;
+  final String id;
 
   @override
   Widget build(BuildContext context) {
-    final Map<String, String> q = Uri.base.queryParameters;
-    final String type = q['type'] ?? 'movie';
-    final String id = q['id'] ?? '';
-    final bool isSeries = type == 'series';
+    final bool isSeries = kind == 'series';
     return SectionPage(
       api: api,
       section: isSeries ? NavSection.series : NavSection.movies,

@@ -26,7 +26,10 @@ String seriesRoute(String id) => '/title?type=series&id=${_enc(id)}';
 String personRoute(String id) => '/person?id=${_enc(id)}';
 String versionRoute(String id) => '/version?id=${_enc(id)}';
 String collectionRoute(String id) => '/collections?id=${_enc(id)}';
-String watchRoute(String versionId) => '/watch?version=${_enc(versionId)}';
+String watchRoute(
+  String versionId, {
+  Map<String, String?> controls = const <String, String?>{},
+}) => withQuery('/watch', <String, String?>{'version': versionId, ...controls});
 
 String seasonRoute(String id, {String? series}) =>
     '/season?id=${_enc(id)}${series != null ? '&series=${_enc(series)}' : ''}';

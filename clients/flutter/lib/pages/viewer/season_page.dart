@@ -41,24 +41,26 @@ import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
 
 class SeasonPage extends StatelessWidget {
-  const SeasonPage({super.key, required this.api});
+  const SeasonPage({
+    super.key,
+    required this.api,
+    required this.id,
+    this.series,
+  });
 
   final ApiClient api;
+  final String id;
+  final String? series;
 
   @override
   Widget build(BuildContext context) {
-    final Map<String, String> q = Uri.base.queryParameters;
     return SectionPage(
       api: api,
       section: NavSection.series,
       errorText: Strings.couldNotLoadSeason,
       loading: const SkeletonPage(child: SkeletonDetail()),
-      bodyBuilder: (BuildContext context, SelfUser user) => _SeasonBody(
-        api: api,
-        user: user,
-        id: q['id'] ?? '',
-        series: q['series'],
-      ),
+      bodyBuilder: (BuildContext context, SelfUser user) =>
+          _SeasonBody(api: api, user: user, id: id, series: series),
     );
   }
 }

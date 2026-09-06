@@ -10,6 +10,8 @@ part 'negotiation.g.dart';
 abstract class Negotiation with _$Negotiation {
   const factory Negotiation({
     @Default('') String manifestUrl,
+    @Default(0) int originMs,
+    @Default(false) bool sequential,
     @Default(PlaybackMode.direct) PlaybackMode mode,
     SelectedTracks? selected,
   }) = _Negotiation;

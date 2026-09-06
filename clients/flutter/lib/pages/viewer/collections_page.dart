@@ -17,7 +17,6 @@ import 'package:shadowmask/view/empty_state.dart';
 import 'package:shadowmask/components/card_grid.dart';
 import 'package:shadowmask/components/paged_card_grid.dart';
 import 'package:shadowmask/components/skeleton.dart';
-import 'package:shadowmask/pages/viewer/list_query.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/collection.dart';
 import 'package:shadowmask/view/page.dart';
@@ -27,13 +26,21 @@ import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
 
 class CollectionsPage extends StatelessWidget {
-  const CollectionsPage({super.key, required this.api});
+  const CollectionsPage({
+    super.key,
+    required this.api,
+    this.id,
+    this.offset = 0,
+    this.limit,
+  });
 
   final ApiClient api;
+  final String? id;
+  final int offset;
+  final int? limit;
 
   @override
   Widget build(BuildContext context) {
-    final String? id = Uri.base.queryParameters['id'];
     return SectionPage(
       api: api,
       section: NavSection.collections,
@@ -42,17 +49,29 @@ class CollectionsPage extends StatelessWidget {
           : Strings.couldNotLoadCollection,
       loading: const SkeletonPage(child: SkeletonCards()),
       bodyBuilder: (BuildContext context, SelfUser user) => id == null
-          ? _CollectionsListBody(api: api, user: user)
-          : _CollectionDetailBody(api: api, id: id, user: user),
+          ? _CollectionsListBody(
+              api: api,
+              user: user,
+              offset: offset,
+              limit: limit,
+            )
+          : _CollectionDetailBody(api: api, id: id!, user: user),
     );
   }
 }
 
 class _CollectionsListBody extends StatefulWidget {
-  const _CollectionsListBody({required this.api, required this.user});
+  const _CollectionsListBody({
+    required this.api,
+    required this.user,
+    required this.offset,
+    required this.limit,
+  });
 
   final ApiClient api;
   final SelfUser user;
+  final int offset;
+  final int? limit;
 
   @override
   State<_CollectionsListBody> createState() => _CollectionsListBodyState();
@@ -60,9 +79,8 @@ class _CollectionsListBody extends StatefulWidget {
 
 class _CollectionsListBodyState extends State<_CollectionsListBody> {
   late final CatalogApi _catalog = CatalogApi(widget.api);
-  final int _offset =
-      int.tryParse(Uri.base.queryParameters['offset'] ?? '') ?? 0;
-  final int? _limit = pageSizeFromUri();
+  late final int _offset = widget.offset;
+  late final int? _limit = widget.limit;
   late final Future<Paged<Collection>> _future = _load();
 
   final List<CatalogCard> _more = <CatalogCard>[];

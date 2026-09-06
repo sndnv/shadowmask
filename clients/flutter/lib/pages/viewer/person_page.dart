@@ -24,13 +24,13 @@ import 'package:shadowmask/pages/default/section_page.dart';
 import 'package:shadowmask/pages/viewer/catalog_support.dart';
 
 class PersonPage extends StatelessWidget {
-  const PersonPage({super.key, required this.api});
+  const PersonPage({super.key, required this.api, required this.id});
 
   final ApiClient api;
+  final String id;
 
   @override
   Widget build(BuildContext context) {
-    final String id = Uri.base.queryParameters['id'] ?? '';
     return SectionPage(
       api: api,
       section: NavSection.none,

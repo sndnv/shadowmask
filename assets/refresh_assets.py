@@ -9,6 +9,8 @@ from pathlib import Path
 
 DESCRIPTION = 'Refresh shared assets used by client subprojects'
 
+FLUTTER_MACOS_APPICON = 'macos/Runner/Assets.xcassets/AppIcon.appiconset'
+
 
 class Paths:
     def __init__(self):
@@ -67,6 +69,7 @@ def main():
     targets = {
         'clients/basic': [
             {'asset': 'brand/shadowmask.logo.svg', 'target': 'favicon.svg'},
+            {'asset': 'brand/shadowmask.logo-light.svg', 'target': 'logo.svg'},
             {'asset': 'placeholders/poster.svg', 'target': 'placeholder.svg'},
             {'asset': 'placeholders/landscape.svg', 'target': 'placeholder-landscape.svg'},
             {'asset': 'placeholders/person.svg', 'target': 'placeholder-person.svg'},
@@ -79,6 +82,13 @@ def main():
             {'asset': 'icons/flutter/Icon-512.png', 'target': 'web/icons/Icon-512.png'},
             {'asset': 'icons/flutter/Icon-maskable-192.png', 'target': 'web/icons/Icon-maskable-192.png'},
             {'asset': 'icons/flutter/Icon-maskable-512.png', 'target': 'web/icons/Icon-maskable-512.png'},
+            {'asset': 'icons/flutter/app_icon_16.png', 'target': '{}/app_icon_16.png'.format(FLUTTER_MACOS_APPICON)},
+            {'asset': 'icons/flutter/app_icon_32.png', 'target': '{}/app_icon_32.png'.format(FLUTTER_MACOS_APPICON)},
+            {'asset': 'icons/flutter/app_icon_64.png', 'target': '{}/app_icon_64.png'.format(FLUTTER_MACOS_APPICON)},
+            {'asset': 'icons/flutter/app_icon_128.png', 'target': '{}/app_icon_128.png'.format(FLUTTER_MACOS_APPICON)},
+            {'asset': 'icons/flutter/app_icon_256.png', 'target': '{}/app_icon_256.png'.format(FLUTTER_MACOS_APPICON)},
+            {'asset': 'icons/flutter/app_icon_512.png', 'target': '{}/app_icon_512.png'.format(FLUTTER_MACOS_APPICON)},
+            {'asset': 'icons/flutter/app_icon_1024.png', 'target': '{}/app_icon_1024.png'.format(FLUTTER_MACOS_APPICON)},
             {'asset': 'vendor/hls.min.js', 'target': 'web/hls.min.js'},
             {'asset': 'vendor/hls.js.LICENSE.txt', 'target': 'web/hls.js.LICENSE.txt'},
         ],

@@ -29,6 +29,7 @@ import 'package:shadowmask/model/catalog/season.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/model/server/server_info.dart';
+import 'package:shadowmask/model/session/negotiation.dart';
 import 'package:shadowmask/model/session/playback_session.dart';
 import 'package:shadowmask/model/session/resume_position.dart';
 import 'package:shadowmask/model/user/self_user.dart';
@@ -39,12 +40,17 @@ import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/pages/player/player_prefs_store.dart';
 import 'package:shadowmask/player/web_history.dart';
 import 'package:shadowmask/model/catalog/version.dart';
+import 'package:shadowmask/util/client_platform.dart';
 import 'package:shadowmask/util/scoped_value.dart';
 import 'package:shadowmask/view/page.dart';
 import 'package:shadowmask/view/episode_neighbours.dart';
 import 'package:shadowmask/view/play_target.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/view/player_shortcuts.dart';
+import 'package:shadowmask/view/track_carry.dart';
+
+const int kStallSeconds = 20;
+const int kSeekReachMs = 30000;
 
 class WatchBody extends StatefulWidget {
   const WatchBody({
@@ -86,6 +92,8 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
   PlayerPanel? _panel;
   PlaybackSession? _session;
   VersionDetail? _version;
+  int _originMs = 0;
+  bool _sequential = false;
   TrickplayLoader? _trickplay;
   Timer? _heartbeat;
   String? _status;
@@ -97,18 +105,25 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
   String? _lastState;
   ScopedValue<bool>? _immersive;
   int _autoplaySeconds = kDefaultPlayerPrefs.autoplaySeconds;
+  int _networkTimeout = kDefaultPlayerPrefs.networkTimeoutSeconds;
   String? _seriesId;
   EpisodeNeighbours _neighbours = const EpisodeNeighbours();
   EpisodeLink? _upNext;
   int _upNextLeft = 0;
   Timer? _countdown;
   bool _autoplayHandled = false;
+  bool _carrySelection = false;
+  Timer? _stallWatch;
+  int _stalledSeconds = 0;
+  int _lastProgressMs = -1;
+  bool _stalled = false;
   final FocusNode _keys = FocusNode(debugLabel: 'player-shortcuts');
 
   @override
   void initState() {
     super.initState();
     _controls = widget.initialControls;
+    _carrySelection = _controls.hasTrackRequest;
     _controller.snapshot.addListener(_onSnapshot);
     _controller.fullscreen.addListener(_onFullscreen);
   }
@@ -169,6 +184,7 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
     _immersive?.releaseAfterFrame(true, false, owner: this);
     _controller.snapshot.removeListener(_onSnapshot);
     _countdown?.cancel();
+    _stallWatch?.cancel();
     _keys.dispose();
     _heartbeat?.cancel();
     _endSession();
@@ -191,9 +207,14 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
       versionId: widget.versionId,
       startPositionMs: resume.positionMs,
       profileVersion: info.profileVersion,
+      platform: clientPlatform(),
+      controls: _controls,
     );
     _session = session;
     _version = version;
+    _originMs = session.originMs;
+    _sequential = session.sequential;
+    _controls = _controls.withSelection(session.selected);
     _mode = session.mode.name;
     _subtitleDelivery = session.selected?.subtitleDelivery;
     _trickplay = TrickplayLoader(
@@ -203,13 +224,15 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
           ? session.trickplay
           : version.trickplay,
     );
+    final PlayerPrefs prefs = await _prefs.load().catchError(
+      (_) => kDefaultPlayerPrefs,
+    );
+    _networkTimeout = prefs.networkTimeoutSeconds;
+    _controller.setNetworkTimeout(_networkTimeout);
     await _controller.attach(
       session.manifestUrl,
       mode: session.mode,
-      positionMs: resume.positionMs,
-    );
-    final PlayerPrefs prefs = await _prefs.load().catchError(
-      (_) => kDefaultPlayerPrefs,
+      positionMs: _attachOffset(resume.positionMs),
     );
     _remaining = prefs.remaining;
     _autoplaySeconds = prefs.autoplaySeconds;
@@ -218,11 +241,12 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
       _controller.setMuted(true);
     }
     _startHeartbeat(session.heartbeatIntervalS);
+    _watchForStall();
     if (!_unloadBound) {
       _unloadBound = true;
       addUnloadListener(_endSessionBeacon);
     }
-    if (!_controls.isDefault) {
+    if (_controls.offsetMs != 0) {
       await _applyControls(_controls, seekMs: resume.positionMs);
     }
     await _loadTitle(version.title);
@@ -280,6 +304,53 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
         const Crumb(Strings.watchHeading),
       ];
     } catch (_) {}
+  }
+
+  void _watchForStall() {
+    _stallWatch ??= Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) {
+        return;
+      }
+      final PlayerSnapshot snap = _controller.snapshot.value;
+      final int progress = snap.positionMs + snap.bufferedAheadMs;
+      if (!snap.waiting || progress != _lastProgressMs) {
+        _lastProgressMs = progress;
+        _stalledSeconds = 0;
+        if (_stalled) {
+          setState(() => _stalled = false);
+        }
+        return;
+      }
+      _stalledSeconds += 1;
+      if (_stalledSeconds >= kStallSeconds && !_stalled) {
+        setState(() => _stalled = true);
+      }
+    });
+  }
+
+  void _keepWaiting() {
+    _stalledSeconds = 0;
+    setState(() => _stalled = false);
+  }
+
+  void _centrePlay() {
+    if (_controller.snapshot.value.ended) {
+      _cancelCountdown();
+      _controller.seekTo(0);
+    }
+    _controller.togglePlay();
+  }
+
+  void _leavePlayer() {
+    final NavigatorState navigator = Navigator.of(context);
+    final String? route = _detailRoute;
+    if (route != null) {
+      navigator.pushReplacementNamed(route);
+      return;
+    }
+    if (navigator.canPop()) {
+      navigator.pop();
+    }
   }
 
   void _startHeartbeat(int intervalS) {
@@ -362,10 +433,18 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
         const <String>{},
       );
       if (target != null) {
-        return watchRoute(target.id);
+        return watchRoute(target.id, controls: _carried());
       }
     } catch (_) {}
     return episodeRoute(link.id, series: _seriesId);
+  }
+
+  Map<String, String?> _carried() {
+    final VersionDetail? version = _version;
+    if (!_carrySelection || version == null) {
+      return const <String, String?>{};
+    }
+    return carryTracks(_controls, version).toQuery();
   }
 
   TransportStep? _step(
@@ -382,10 +461,22 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
     );
   }
 
+  int get _fullDurationMs => _version?.durationMs ?? 0;
+
+  int _attachOffset(int timelineMs) =>
+      _sequential && !_controller.seeksWithinStream
+      ? 0
+      : timelineMs - _originMs;
+
+  PlayerSnapshot get _view => _controller.snapshot.value.onTimeline(
+    originMs: _originMs,
+    fullMs: _fullDurationMs,
+  );
+
   void _sendProgress(String state) {
     final String? sid = _session?.sessionId;
     if (sid != null) {
-      _pb.progress(sid, _controller.snapshot.value.positionMs, state);
+      _pb.progress(sid, _view.positionMs, state);
     }
   }
 
@@ -405,19 +496,26 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
   }
 
   Future<void> _applyControls(PlaybackControls next, {int? seekMs}) async {
+    _carrySelection =
+        _carrySelection ||
+        next.audioTrack != _controls.audioTrack ||
+        next.subtitle != _controls.subtitle ||
+        next.subtitleOff != _controls.subtitleOff;
     setState(() => _controls = next);
     _writeUrl();
     final String? sid = _session?.sessionId;
     if (sid == null) {
       return;
     }
-    final int keepMs = seekMs ?? _controller.snapshot.value.positionMs;
+    final int keepMs = seekMs ?? _view.positionMs;
     try {
       final neg = await _pb.update(sid, next);
+      _originMs = neg.originMs;
+      _sequential = neg.sequential;
       await _controller.attach(
         neg.manifestUrl,
         mode: neg.mode,
-        positionMs: keepMs,
+        positionMs: _attachOffset(keepMs),
       );
       if (mounted) {
         setState(() {
@@ -455,6 +553,12 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
   void _changeRemaining(bool on) {
     setState(() => _remaining = on);
     _prefs.saveRemaining(on);
+  }
+
+  void _changeNetworkTimeout(int seconds) {
+    setState(() => _networkTimeout = seconds);
+    _prefs.saveNetworkTimeoutSeconds(seconds);
+    _controller.setNetworkTimeout(seconds);
   }
 
   void _changeAutoplay(int seconds) {
@@ -520,6 +624,18 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
         _changeRemaining(!_remaining);
       case PlayerShortcut.legend:
         _showShortcuts();
+      case PlayerShortcut.back:
+        _back();
+    }
+  }
+
+  void _back() {
+    if (_panel != null) {
+      _closePanel();
+      return;
+    }
+    if (_controller.fullscreen.value) {
+      _controller.toggleFullscreen();
     }
   }
 
@@ -536,14 +652,58 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
   }
 
   void _seekBy(int? deltaMs, {double? toFraction}) {
-    final PlayerSnapshot s = _controller.snapshot.value;
+    final PlayerSnapshot s = _view;
     if (s.durationMs <= 0) {
       return;
     }
     final int target = toFraction != null
         ? (s.durationMs * toFraction).round()
         : s.positionMs + deltaMs!;
-    _controller.seekTo(target.clamp(0, s.durationMs));
+    _seekTo(target.clamp(0, s.durationMs));
+  }
+
+  bool _reachable(int targetMs) {
+    if (!_sequential) {
+      return true;
+    }
+    if (!_controller.seeksWithinStream) {
+      return false;
+    }
+    if (targetMs < _originMs) {
+      return false;
+    }
+    final PlayerSnapshot raw = _controller.snapshot.value;
+    final int produced =
+        _originMs + raw.positionMs + raw.bufferedAheadMs + kSeekReachMs;
+    return targetMs <= produced;
+  }
+
+  void _seekTo(int targetMs) {
+    if (_reachable(targetMs)) {
+      _controller.seekTo(targetMs - _originMs);
+      return;
+    }
+    unawaited(_restartAt(targetMs));
+  }
+
+  Future<void> _restartAt(int targetMs) async {
+    final String? sid = _session?.sessionId;
+    if (sid == null) {
+      return;
+    }
+    try {
+      final Negotiation neg = await _pb.seek(sid, targetMs);
+      _originMs = neg.originMs;
+      _sequential = neg.sequential;
+      await _controller.attach(
+        neg.manifestUrl,
+        mode: neg.mode,
+        positionMs: _attachOffset(targetMs),
+      );
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (_) {}
   }
 
   void _nudgeVolume(double by) {
@@ -565,8 +725,16 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
     }
   }
 
+  void _reclaimAfterPointer() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_typing) {
+        _reclaimKeys();
+      }
+    });
+  }
+
   void _reclaimKeys() {
-    if (!mounted || _keys.hasFocus) {
+    if (!mounted || _keys.hasPrimaryFocus) {
       return;
     }
     if (ModalRoute.of(context)?.isCurrent ?? true) {
@@ -585,6 +753,34 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
       return;
     }
     _controller.togglePlay();
+  }
+
+  String? _waitingLabel(PlayerSnapshot snap) {
+    if (!snap.waiting) {
+      return null;
+    }
+    if (_stalled) {
+      return Strings.playerTooSlow;
+    }
+    return snap.positionMs > 0
+        ? Strings.playerBuffering
+        : Strings.playerLoading;
+  }
+
+  String? _waitingDetail(PlayerSnapshot snap) {
+    if (!snap.waiting) {
+      return null;
+    }
+    if (_stalled) {
+      return Strings.playerTooSlowHint;
+    }
+    if (snap.bufferedAheadMs > 0) {
+      return Strings.playerBufferedSeconds(snap.bufferedAheadMs / 1000);
+    }
+    if (snap.bufferingPercent > 0) {
+      return Strings.playerBufferedPercent(snap.bufferingPercent);
+    }
+    return null;
   }
 
   String? _sourceLine() {
@@ -617,7 +813,11 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
           builder: (BuildContext context, bool fullscreen, _) {
             return ValueListenableBuilder<PlayerSnapshot>(
               valueListenable: _controller.snapshot,
-              builder: (BuildContext context, PlayerSnapshot snap, _) {
+              builder: (BuildContext context, PlayerSnapshot raw, _) {
+                final PlayerSnapshot snap = raw.onTimeline(
+                  originMs: _originMs,
+                  fullMs: _fullDurationMs,
+                );
                 final double buffered = snap.durationMs > 0
                     ? ((snap.positionMs + snap.bufferedAheadMs) /
                               snap.durationMs)
@@ -628,8 +828,7 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
                   fraction: snap.fraction,
                   bufferedFraction: buffered,
                   durationMs: snap.durationMs,
-                  onSeek: (double f) =>
-                      _controller.seekTo((f * snap.durationMs).round()),
+                  onSeek: (double f) => _seekTo((f * snap.durationMs).round()),
                   thumbBuilder: (tp != null && tp.available)
                       ? (int ms) => TrickplayThumb(
                           tile: tp.tileFor(ms, () {
@@ -646,101 +845,116 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
                   autofocus: true,
                   focusNode: _keys,
                   onKeyEvent: _onKey,
-                  child: PlayerFrame(
-                    view: _controller.view,
-                    playing: snap.playing,
-                    fullscreen: fullscreen,
-                    onTapVideo: _onTapVideo,
-                    keepVisible: _panel != null,
-                    status: snap.error ?? _status,
-                    diagnostics: _diag
-                        ? DiagnosticsOverlay(
-                            controller: _controller,
-                            sourceLine: _sourceLine(),
-                          )
-                        : null,
-                    settings: _panel != null && version != null
-                        ? ValueListenableBuilder<bool>(
-                            valueListenable: _controller.pictureInPicture,
-                            builder:
-                                (BuildContext context, bool pip, Widget? _) =>
-                                    PlayerSettingsPanel(
-                                      panel: _panel!,
-                                      controls: _controls,
-                                      version: version,
-                                      speed: _speed,
-                                      diagnostics: _diag,
-                                      mode: _mode,
-                                      subtitleDelivery: _subtitleDelivery,
-                                      pictureInPicture:
-                                          _controller.supportsPictureInPicture
-                                          ? pip
-                                          : null,
-                                      onPictureInPicture:
-                                          _controller.togglePictureInPicture,
-                                      onControls: (PlaybackControls next) =>
-                                          _applyControls(next),
-                                      onSpeed: _changeSpeed,
-                                      onDiagnostics: _changeDiagnostics,
-                                      autoplaySeconds: _neighbours.next != null
-                                          ? _autoplaySeconds
-                                          : null,
-                                      onAutoplaySeconds: _changeAutoplay,
-                                      onShortcuts: _showShortcuts,
-                                      onClose: _closePanel,
-                                      dense: compactViewport(context),
-                                    ),
-                          )
-                        : null,
-                    onDismissSettings: _closePanel,
-                    upNext: _upNext == null
-                        ? null
-                        : UpNextCard(
-                            label: _upNext!.label,
-                            remainingSeconds: _upNextLeft,
-                            onPlay: () => _goToEpisode(_upNext!),
-                            onCancel: _cancelCountdown,
-                          ),
-                    back: _titleRow(),
-                    overlay: ValueListenableBuilder<bool>(
-                      valueListenable: _controller.muted,
-                      builder: (BuildContext context, bool muted, Widget? _) =>
-                          ValueListenableBuilder<double>(
-                            valueListenable: _controller.volume,
-                            builder:
-                                (
-                                  BuildContext context,
-                                  double level,
-                                  Widget? _,
-                                ) => OverlayBar(
-                                  snapshot: snap,
-                                  timeline: timeline,
-                                  fullscreen: fullscreen,
-                                  wide: widget.wide,
-                                  muted: muted,
-                                  volume: level,
-                                  remaining: _remaining,
-                                  onPlayPause: _controller.togglePlay,
-                                  onOpenPanel: _openPanel,
-                                  onToggleFullscreen:
-                                      _controller.toggleFullscreen,
-                                  onToggleWide: widget.onToggleWide,
-                                  onToggleMute: _toggleMute,
-                                  onVolume: _changeVolume,
-                                  onToggleRemaining: () =>
-                                      _changeRemaining(!_remaining),
-                                  previousEpisode: _step(
-                                    _neighbours.previous,
-                                    Strings.noEarlierEpisode,
-                                    Strings.previousNamed,
-                                  ),
-                                  nextEpisode: _step(
-                                    _neighbours.next,
-                                    Strings.noLaterEpisode,
-                                    Strings.nextNamed,
-                                  ),
+                  child: Listener(
+                    onPointerUp: (_) => _reclaimAfterPointer(),
+                    child: PlayerFrame(
+                      view: _controller.view,
+                      playing: snap.playing,
+                      fullscreen: fullscreen,
+                      onTapVideo: _onTapVideo,
+                      keepVisible: _panel != null,
+                      status: snap.error ?? _status,
+                      waiting: _waitingLabel(snap),
+                      waitingDetail: _waitingDetail(snap),
+                      onKeepWaiting: _stalled ? _keepWaiting : null,
+                      onGoBack: _stalled ? _leavePlayer : null,
+                      ended: snap.ended,
+                      onCentrePlay: _centrePlay,
+                      onDoubleTapVideo: _controller.toggleFullscreen,
+                      diagnostics: _diag
+                          ? DiagnosticsOverlay(
+                              controller: _controller,
+                              sourceLine: _sourceLine(),
+                            )
+                          : null,
+                      settings: _panel != null && version != null
+                          ? ValueListenableBuilder<bool>(
+                              valueListenable: _controller.pictureInPicture,
+                              builder:
+                                  (BuildContext context, bool pip, Widget? _) =>
+                                      PlayerSettingsPanel(
+                                        panel: _panel!,
+                                        controls: _controls,
+                                        version: version,
+                                        speed: _speed,
+                                        diagnostics: _diag,
+                                        mode: _mode,
+                                        subtitleDelivery: _subtitleDelivery,
+                                        pictureInPicture:
+                                            _controller.supportsPictureInPicture
+                                            ? pip
+                                            : null,
+                                        onPictureInPicture:
+                                            _controller.togglePictureInPicture,
+                                        onControls: (PlaybackControls next) =>
+                                            _applyControls(next),
+                                        onSpeed: _changeSpeed,
+                                        onDiagnostics: _changeDiagnostics,
+                                        autoplaySeconds:
+                                            _neighbours.next != null
+                                            ? _autoplaySeconds
+                                            : null,
+                                        onAutoplaySeconds: _changeAutoplay,
+                                        networkTimeoutSeconds: _networkTimeout,
+                                        onNetworkTimeoutSeconds:
+                                            _changeNetworkTimeout,
+                                        onShortcuts: _showShortcuts,
+                                        onClose: _closePanel,
+                                        dense: compactViewport(context),
+                                      ),
+                            )
+                          : null,
+                      onDismissSettings: _closePanel,
+                      upNext: _upNext == null
+                          ? null
+                          : UpNextCard(
+                              label: _upNext!.label,
+                              remainingSeconds: _upNextLeft,
+                              onPlay: () => _goToEpisode(_upNext!),
+                              onCancel: _cancelCountdown,
+                            ),
+                      back: _titleRow(),
+                      overlay: ValueListenableBuilder<bool>(
+                        valueListenable: _controller.muted,
+                        builder:
+                            (BuildContext context, bool muted, Widget? _) =>
+                                ValueListenableBuilder<double>(
+                                  valueListenable: _controller.volume,
+                                  builder:
+                                      (
+                                        BuildContext context,
+                                        double level,
+                                        Widget? _,
+                                      ) => OverlayBar(
+                                        snapshot: snap,
+                                        timeline: timeline,
+                                        fullscreen: fullscreen,
+                                        wide: widget.wide,
+                                        muted: muted,
+                                        volume: level,
+                                        remaining: _remaining,
+                                        onPlayPause: _controller.togglePlay,
+                                        onOpenPanel: _openPanel,
+                                        onToggleFullscreen:
+                                            _controller.toggleFullscreen,
+                                        onToggleWide: widget.onToggleWide,
+                                        onToggleMute: _toggleMute,
+                                        onVolume: _changeVolume,
+                                        onToggleRemaining: () =>
+                                            _changeRemaining(!_remaining),
+                                        previousEpisode: _step(
+                                          _neighbours.previous,
+                                          Strings.noEarlierEpisode,
+                                          Strings.previousNamed,
+                                        ),
+                                        nextEpisode: _step(
+                                          _neighbours.next,
+                                          Strings.noLaterEpisode,
+                                          Strings.nextNamed,
+                                        ),
+                                      ),
                                 ),
-                          ),
+                      ),
                     ),
                   ),
                 );

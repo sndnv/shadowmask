@@ -1,6 +1,6 @@
 # Shadowmask - Self-Hosted Media Server
 
-<img src="./assets/brand/shadowmask.logo-retro.svg" width="64px" alt="Shadowmask Logo" align="right"/>
+<img src="./assets/brand/shadowmask.icon-desktop.svg" width="64px" alt="Shadowmask Logo" align="right"/>
 
 Shadowmask is a self-hosted media library and streaming server for movies and series. It scans your
 media files, recognizes and organizes them, enriches them with metadata, artwork and subtitles, and
@@ -39,22 +39,22 @@ streams to multiple players with per-user accounts and access control.
 
 ## Screenshots
 
-| Home | Movies |
-|---|---|
+| Home                                                                                                          | Movies                                                                                          |
+|---------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------|
 | ![Home, with continue watching and recently added rails](./assets/screenshots/shadowmask_screenshot_home.jpg) | ![The movies library, filtered by genre](./assets/screenshots/shadowmask_screenshot_movies.jpg) |
 
-| Movie details | Series details |
-|---|---|
+| Movie details                                                                                                       | Series details                                                                                        |
+|---------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
 | ![A movie page with ratings, cast and its collection](./assets/screenshots/shadowmask_screenshot_movie_details.jpg) | ![A series page with cast and seasons](./assets/screenshots/shadowmask_screenshot_series_details.jpg) |
 
-| Player | Version admin |
-|---|---|
+| Player                                                                                                                          | Version admin                                                                                                                              |
+|---------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
 | ![The player, with playback controls, audio, subtitle and quality menus](./assets/screenshots/shadowmask_screenshot_player.jpg) | ![Admin view of one version, with its tracks, subtitles and actions](./assets/screenshots/shadowmask_screenshot_admin_version_details.jpg) |
 
 On a phone, in each of the three themes:
 
-| Dark | Light | Retro |
-|---|---|---|
+| Dark                                                                                                  | Light                                                                                                   | Retro                                                                                                   |
+|-------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
 | ![Home on a phone in the dark theme](./assets/screenshots/shadowmask_screenshot_home_dark_mobile.jpg) | ![Home on a phone in the light theme](./assets/screenshots/shadowmask_screenshot_home_light_mobile.jpg) | ![Home on a phone in the retro theme](./assets/screenshots/shadowmask_screenshot_home_retro_mobile.jpg) |
 
 ## Quick start
@@ -125,6 +125,11 @@ We use [SemVer](http://semver.org/) for versioning.
 * [hls.js](https://github.com/video-dev/hls.js) is bundled by both web clients for HLS playback,
   under the Apache License 2.0. The licence and copyright notices are distributed alongside it, at
   [`assets/vendor/hls.js.LICENSE.txt`](./assets/vendor/hls.js.LICENSE.txt).
+* The macOS desktop application bundles mpv (LGPL-2.1-or-later), FFmpeg (LGPL-3.0-or-later) and nine
+  supporting libraries, each as a separately replaceable dynamically linked framework. They are
+  credited in [`clients/flutter/CREDITS.md`](./clients/flutter/CREDITS.md), with their licence texts
+  under [`licenses/`](./licenses). The Linux application links the distribution's own libmpv and
+  bundles none of them.
 * CTranslate2 and `ct2rs` are bundled into the enrichment image under the MIT License, with the
   operator's model licensing responsibilities described in
   [`deployment/ENRICHMENT.md`](deployment/ENRICHMENT.md#licensing-and-attribution).

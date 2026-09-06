@@ -17,6 +17,7 @@ import 'package:shadowmask/pages/account/history_block.dart';
 import 'package:shadowmask/pages/account/library_list_block.dart';
 import 'package:shadowmask/pages/account/link_codes_block.dart';
 import 'package:shadowmask/pages/account/profile_block.dart';
+import 'package:shadowmask/pages/account/server_block.dart';
 import 'package:shadowmask/pages/account/session_block.dart';
 import 'package:shadowmask/pages/account/tokens_block.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
@@ -103,6 +104,7 @@ class _AccountBodyState extends State<_AccountBody> {
             showPasswordAction: management,
           ),
           const AppearanceBlock(),
+          const ServerBlock(),
           SessionBlock(
             api: api,
             userId: user.id,

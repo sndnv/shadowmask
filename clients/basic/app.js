@@ -614,7 +614,7 @@ const sm = (() => {
     const logo = el(
       "a",
       { href: url("home.html"), class: "sm-logo", "aria-label": "Shadowmask home" },
-      el("img", { src: url("favicon.svg"), alt: "", width: "22", height: "22" }),
+      el("img", { src: url("logo.svg"), alt: "", width: "22", height: "22" }),
     );
     const nodes = [logo].concat(
       items.map((item) => {

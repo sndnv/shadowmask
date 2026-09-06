@@ -17,10 +17,14 @@ class WatchPage extends StatefulWidget {
   const WatchPage({
     super.key,
     required this.api,
+    required this.versionId,
+    this.controls = const PlaybackControls(),
     this.controllerFactory = createPlayerController,
   });
 
   final ApiClient api;
+  final String versionId;
+  final PlaybackControls controls;
   final PlayerControllerFactory controllerFactory;
 
   @override
@@ -53,8 +57,7 @@ class _WatchPageState extends State<WatchPage> {
 
   @override
   Widget build(BuildContext context) {
-    final Map<String, String> query = Uri.base.queryParameters;
-    final String versionId = query['version'] ?? '';
+    final String versionId = widget.versionId;
     if (versionId.isEmpty) {
       return SectionPage(
         api: widget.api,
@@ -70,14 +73,14 @@ class _WatchPageState extends State<WatchPage> {
       section: NavSection.none,
       errorText: Strings.couldNotStartPlayback,
       fullWidth: wide,
-      fitViewport: wide,
+      fitViewport: true,
       bodyBuilder: (BuildContext context, SelfUser user) =>
           SelectionContainer.disabled(
             child: WatchBody(
               api: widget.api,
               user: user,
               versionId: versionId,
-              initialControls: PlaybackControls.fromQuery(query),
+              initialControls: widget.controls,
               controllerFactory: widget.controllerFactory,
               wide: wide,
               onToggleWide: compact ? null : _toggleWide,

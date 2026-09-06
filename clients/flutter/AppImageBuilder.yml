@@ -1,0 +1,54 @@
+version: 1
+
+script:
+  - rm -rf AppDir || true
+  - cp -r build/linux/x64/release/bundle AppDir
+  - mkdir -p AppDir/usr/share/icons/hicolor/64x64/apps/
+  - mkdir -p AppDir/usr/share/icons/hicolor/128x128/apps/
+  - mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps/
+  - mkdir -p AppDir/usr/share/icons/hicolor/512x512/apps/
+  - cp ../../assets/icons/flutter/linux_icon_64.png AppDir/usr/share/icons/hicolor/64x64/apps/shadowmask.png
+  - cp ../../assets/icons/flutter/linux_icon_128.png AppDir/usr/share/icons/hicolor/128x128/apps/shadowmask.png
+  - cp ../../assets/icons/flutter/linux_icon_256.png AppDir/usr/share/icons/hicolor/256x256/apps/shadowmask.png
+  - cp ../../assets/icons/flutter/linux_icon_512.png AppDir/usr/share/icons/hicolor/512x512/apps/shadowmask.png
+  - cp ../../assets/icons/flutter/linux_icon_512.png AppDir/usr/share/icons/shadowmask.png
+  - mkdir -p AppDir/usr/share/doc/shadowmask/licenses
+  - cp CREDITS.md AppDir/usr/share/doc/shadowmask/
+  - cp ../../licenses/LGPL-2.1.txt AppDir/usr/share/doc/shadowmask/licenses/
+
+AppDir:
+  path: ./AppDir
+
+  app_info:
+    id: io.github.sndnv.shadowmask
+    name: shadowmask
+    icon: shadowmask
+    version: 1.0.0-SNAPSHOT
+    exec: shadowmask
+    exec_args: $@
+
+  apt:
+    arch:
+      - amd64
+    allow_unauthenticated: true
+    sources:
+      - sourceline: deb http://archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse
+      - sourceline: deb http://archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse
+      - sourceline: deb http://security.ubuntu.com/ubuntu noble-security main restricted universe multiverse
+    include:
+      - libc6
+
+  files:
+    include:
+      - lib64/ld-linux-x86-64.so.2
+    exclude:
+      - usr/share/man
+      - usr/share/doc/*/README.*
+      - usr/share/doc/*/changelog.*
+      - usr/share/doc/*/NEWS.*
+      - usr/share/doc/*/TODO.*
+
+AppImage:
+  arch: x86_64
+  update-information: guess
+  sign-key: None

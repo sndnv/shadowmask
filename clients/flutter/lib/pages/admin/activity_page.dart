@@ -30,14 +30,13 @@ import 'package:shadowmask/util/format.dart';
 import 'package:shadowmask/view/page.dart';
 
 class ActivityPage extends StatelessWidget {
-  const ActivityPage({super.key, required this.api});
+  const ActivityPage({super.key, required this.api, this.offset = 0});
 
   final ApiClient api;
+  final int offset;
 
   @override
   Widget build(BuildContext context) {
-    final int offset =
-        int.tryParse(Uri.base.queryParameters['offset'] ?? '') ?? 0;
     return SectionPage(
       api: api,
       section: NavSection.admin,
