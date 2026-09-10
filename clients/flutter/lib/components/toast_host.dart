@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 
+import 'package:shadowmask/components/bottom_chrome.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
 import 'package:shadowmask/theme/radii.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
+import 'package:shadowmask/util/scoped_value.dart';
 
 const Duration kToastDuration = Duration(milliseconds: 3200);
 const Duration kErrorToastDuration = Duration(milliseconds: 8000);
@@ -31,6 +33,7 @@ class ToastHost extends StatefulWidget {
 class _ToastHostState extends State<ToastHost> {
   final List<_ToastEntry> _toasts = <_ToastEntry>[];
   final Map<int, Timer> _timers = <int, Timer>{};
+  final ScopedValue<double> _bottomChrome = ScopedValue<double>(0);
   int _seq = 0;
 
   @override
@@ -39,6 +42,7 @@ class _ToastHostState extends State<ToastHost> {
       timer.cancel();
     }
     _timers.clear();
+    _bottomChrome.dispose();
     super.dispose();
   }
 
@@ -69,6 +73,7 @@ class _ToastHostState extends State<ToastHost> {
   @override
   Widget build(BuildContext context) {
     final bool narrow = MediaQuery.sizeOf(context).width < Breakpoints.sm;
+    final EdgeInsets safe = MediaQuery.paddingOf(context);
     final List<_ToastEntry> ordered = narrow
         ? _toasts
         : _toasts.reversed.toList();
@@ -76,12 +81,17 @@ class _ToastHostState extends State<ToastHost> {
       state: this,
       child: Stack(
         children: <Widget>[
-          widget.child,
-          Positioned(
-            top: narrow ? null : kShellHeaderHeight + Space.s4,
-            bottom: narrow ? Space.s4 : null,
-            left: narrow ? Space.s4 : null,
-            right: Space.s4,
+          BottomChromeScope(height: _bottomChrome, child: widget.child),
+          ValueListenableBuilder<double>(
+            valueListenable: _bottomChrome,
+            builder: (BuildContext context, double chrome, Widget? toasts) =>
+                Positioned(
+                  top: narrow ? null : kShellHeaderHeight + Space.s4 + safe.top,
+                  bottom: narrow ? Space.s4 + safe.bottom + chrome : null,
+                  left: narrow ? Space.s4 + safe.left : null,
+                  right: Space.s4 + safe.right,
+                  child: toasts!,
+                ),
             child: Material(
               type: MaterialType.transparency,
               child: Semantics(

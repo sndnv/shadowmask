@@ -32,6 +32,7 @@ import 'package:shadowmask/nav/routes.dart';
 import 'package:shadowmask/pages/default/mutations.dart';
 import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
+import 'package:shadowmask/theme/app_menu.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
@@ -241,7 +242,7 @@ class _VersionBodyState extends State<_VersionBody>
   }
 }
 
-const double _kFourIconActions = 200;
+final double _kFourIconActions = adminActionsWidth(4);
 const double _kPosterWidth = 96;
 const double _kFactLabelWidth = 120;
 const double _kMinFactValueWidth = 160;
@@ -523,6 +524,7 @@ class _Audio extends StatelessWidget {
           AdminColumn<AudioTrack>(
             label: Strings.columnActions,
             align: AdminColumnAlign.end,
+            fixedWidth: adminActionsWidth(1),
             essential: true,
             cell: (BuildContext context, AudioTrack a) => IconButton(
               tooltip: Strings.transcribe,
@@ -639,11 +641,91 @@ class _Subtitles extends StatelessWidget {
             label: Strings.columnActions,
             align: AdminColumnAlign.end,
             fixedWidth: _kFourIconActions,
+            narrowFixedWidth: adminActionsWidth(1),
             essential: true,
             cell: (BuildContext context, SubtitleRow s) =>
                 _rowActions(context, d.id, s.file),
+            narrowCell: (BuildContext context, SubtitleRow s) =>
+                _rowActionsMenu(context, d.id, s.file),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _rowActionsMenu(
+    BuildContext context,
+    String versionId,
+    SubtitleFile? f,
+  ) {
+    if (f == null) {
+      return const SizedBox.shrink();
+    }
+    final MenuController controller = MenuController();
+    return MenuAnchor(
+      controller: controller,
+      alignmentOffset: kMenuOffset,
+      style: appMenuStyle(context.tokens),
+      menuChildren: <Widget>[
+        MenuItemButton(
+          leadingIcon: const Icon(Icons.subject),
+          onPressed: () => showSubtitleText(
+            context,
+            admin: admin,
+            versionId: versionId,
+            sub: f,
+          ),
+          child: const Text(Strings.viewText),
+        ),
+        MenuItemButton(
+          leadingIcon: const Icon(Icons.translate),
+          onPressed: () => run(
+            showTranslateDialog(
+              context,
+              admin: admin,
+              versionId: versionId,
+              source: f,
+            ),
+          ),
+          child: const Text(Strings.translate),
+        ),
+        MenuItemButton(
+          leadingIcon: const Icon(Icons.drive_file_rename_outline),
+          onPressed: () => run(
+            renameSubtitleFile(
+              context,
+              admin: admin,
+              versionId: versionId,
+              sub: f,
+            ),
+          ),
+          child: const Text(Strings.rename),
+        ),
+        MenuItemButton(
+          leadingIcon: Icon(
+            Icons.delete_outline,
+            color: Theme.of(context).colorScheme.error,
+          ),
+          style: MenuItemButton.styleFrom(
+            foregroundColor: Theme.of(context).colorScheme.error,
+          ),
+          onPressed: () => run(
+            deleteSubtitleFile(
+              context,
+              admin: admin,
+              versionId: versionId,
+              sub: f,
+            ),
+          ),
+          child: const Text(Strings.delete),
+        ),
+      ],
+      child: IconButton(
+        tooltip: Strings.columnActions,
+        visualDensity: VisualDensity.compact,
+        onPressed: () =>
+            controller.isOpen ? controller.close() : controller.open(),
+        icon: const Icon(Icons.more_vert),
       ),
     );
   }

@@ -10,8 +10,8 @@ use api::{StreamState, stream_router};
 use domain::catalog::VersionId;
 use domain::media::MediaProbe;
 use domain::session::{
-    DeliveryMode, SegmentContainer, SessionId, StreamClaims, StreamRegistration, StreamRegistry,
-    StreamTokens, TranscodeManager, TranscodeSpec,
+    DeliveryMode, SegmentContainer, SessionId, StreamClaims, StreamGeneration, StreamRegistration,
+    StreamRegistry, StreamTokens, TranscodeManager, TranscodeSpec,
 };
 use domain::user::UserId;
 use media::hls::HlsStreamSource;
@@ -60,10 +60,12 @@ async fn serves_a_jit_segment_end_to_end() {
 
     let cache = tempfile::tempdir().unwrap();
     let session = SessionId(SESSION.to_owned());
+    let generation = StreamGeneration(1);
     let engine = HlsStreamSource::new(cache.path());
     let started = engine
         .start(TranscodeSpec {
             session: session.clone(),
+            generation,
             input_path,
             duration_ms: probe.duration_ms,
             copy: true,
@@ -83,6 +85,7 @@ async fn serves_a_jit_segment_end_to_end() {
     let output_dir = PathBuf::from(&started.output_dir);
     engine.register(
         session.clone(),
+        generation,
         StreamRegistration {
             mode: DeliveryMode::Transcode,
             output_dir: output_dir.clone(),
@@ -107,6 +110,7 @@ async fn serves_a_jit_segment_end_to_end() {
     let token = tokens
         .create(&StreamClaims {
             session,
+            generation,
             user: UserId("smoke-user".to_owned()),
             version: VersionId("smoke".to_owned()),
             expires_at: Timestamp::from_second(Timestamp::now().as_second() + 3600).unwrap(),

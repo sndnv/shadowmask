@@ -12,6 +12,7 @@ abstract class PlaybackSession with _$PlaybackSession {
   const factory PlaybackSession({
     required String sessionId,
     @Default(PlaybackMode.direct) PlaybackMode mode,
+    String? container,
     @Default('') String manifestUrl,
     @Default(0) int originMs,
     @Default(false) bool sequential,

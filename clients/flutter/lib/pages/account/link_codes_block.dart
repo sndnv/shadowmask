@@ -7,10 +7,10 @@ import 'package:shadowmask/components/skeleton.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/auth/link_code.dart';
 import 'package:shadowmask/components/page_actions.dart';
+import 'package:shadowmask/components/entry_row.dart';
 import 'package:shadowmask/components/section_block.dart';
 import 'package:shadowmask/pages/default/mutations.dart';
 import 'package:shadowmask/pages/default/page_states.dart';
-import 'package:shadowmask/theme/breakpoints.dart';
 import 'package:shadowmask/util/format.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -102,30 +102,6 @@ class _LinkCodesBlockState extends State<LinkCodesBlock>
       onPressed: busy(c.code) ? null : () => _revoke(c.code),
       child: const Text(Strings.revoke),
     );
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        if (constraints.maxWidth < Breakpoints.sm) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              code,
-              Row(
-                children: <Widget>[
-                  Expanded(child: expiry),
-                  revoke,
-                ],
-              ),
-            ],
-          );
-        }
-        return Row(
-          children: <Widget>[
-            Expanded(child: code),
-            Expanded(child: expiry),
-            revoke,
-          ],
-        );
-      },
-    );
+    return EntryRow(label: code, meta: expiry, action: revoke);
   }
 }

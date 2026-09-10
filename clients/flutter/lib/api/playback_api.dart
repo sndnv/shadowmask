@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:shadowmask/model/catalog/download_link.dart';
+import 'package:shadowmask/model/session/client_decoding.dart';
 import 'package:shadowmask/model/session/negotiation.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/model/session/playback_session.dart';
@@ -40,6 +41,7 @@ class PlaybackApi {
     int startPositionMs = 0,
     int profileVersion = 1,
     String platform = 'generic',
+    ClientDecoding? decoding,
     PlaybackControls controls = const PlaybackControls(),
   }) => _api.postJson('/api/v1/sessions', <String, dynamic>{
     'version_id': versionId,
@@ -47,6 +49,7 @@ class PlaybackApi {
     'capabilities': <String, dynamic>{
       'platform': platform,
       'profile_version': profileVersion,
+      if (decoding != null) 'decoding': decoding.toJson(),
     },
     ...controls.toStartBody(),
   }, PlaybackSession.fromJson);

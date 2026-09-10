@@ -49,6 +49,8 @@ fn config(root: &Path) -> WireConfig {
         fetch_cookies_file: None,
         vaapi_device: None,
         remux_read_rate: 10.0,
+        max_transcode_height: None,
+        profile_overrides_dir: None,
     }
 }
 
@@ -241,6 +243,13 @@ async fn seed(repos: &Repos, hash: &str) {
     repos
         .users
         .set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())])
+        .await
+        .unwrap();
+    // Admin is no longer implicitly granted every library, so it is granted here
+    // the same way a real admin would be.
+    repos
+        .users
+        .set_library_access(&UserId("admin".into()), &[LibraryId("lib1".into())])
         .await
         .unwrap();
 

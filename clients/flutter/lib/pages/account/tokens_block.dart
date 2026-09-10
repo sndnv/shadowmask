@@ -5,6 +5,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/skeleton.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/auth/api_token.dart';
+import 'package:shadowmask/components/entry_row.dart';
 import 'package:shadowmask/components/section_block.dart';
 import 'package:shadowmask/pages/default/mutations.dart';
 import 'package:shadowmask/pages/default/page_states.dart';
@@ -57,28 +58,22 @@ class _TokensBlockState extends State<TokensBlock> with Mutations<TokensBlock> {
             spacing: Space.s2,
             children: <Widget>[
               for (final ApiToken tk in tokens)
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: Text(
-                        tk.deviceId,
-                        style: monoStyle.copyWith(color: context.tokens.text),
-                      ),
-                    ),
-                    if (tk.lastUsedAt != null)
-                      Text(
-                        Strings.lastSeen(
-                          relativeText(tk.lastUsedAt) ?? tk.lastUsedAt!,
+                EntryRow(
+                  label: Text(
+                    tk.deviceId,
+                    style: monoStyle.copyWith(color: context.tokens.text),
+                  ),
+                  meta: sinceText(tk.lastUsedAt) == null
+                      ? null
+                      : Text(
+                          Strings.lastSeen(sinceText(tk.lastUsedAt)!),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: context.tokens.muted),
                         ),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: context.tokens.muted,
-                        ),
-                      ),
-                    TextButton(
-                      onPressed: busy(tk.id) ? null : () => _revoke(tk.id),
-                      child: const Text(Strings.revoke),
-                    ),
-                  ],
+                  action: TextButton(
+                    onPressed: busy(tk.id) ? null : () => _revoke(tk.id),
+                    child: const Text(Strings.revoke),
+                  ),
                 ),
             ],
           );

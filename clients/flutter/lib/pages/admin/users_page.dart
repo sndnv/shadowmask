@@ -219,7 +219,7 @@ class _UsersBodyState extends State<_UsersBody> with Mutations<_UsersBody> {
                 ),
                 AdminColumn<AccountProfile>(
                   label: Strings.columnActions,
-                  size: AdminColumnSize.small,
+                  fixedWidth: adminActionsWidth(2),
                   align: AdminColumnAlign.end,
                   cell: (BuildContext c, AccountProfile u) {
                     final bool self = u.id == widget.selfId;

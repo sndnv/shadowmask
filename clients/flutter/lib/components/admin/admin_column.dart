@@ -1,7 +1,12 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
+
+import 'package:shadowmask/theme/space.dart';
 
 typedef AdminCell<T> = Widget Function(BuildContext context, T row);
 typedef AdminSortKey<T> = Comparable<dynamic> Function(T row);
+
+double adminActionsWidth(int buttons) =>
+    buttons * (kMinInteractiveDimension + Space.s1) + Space.s3 * 2;
 
 enum AdminColumnSize {
   small(3),
@@ -24,6 +29,8 @@ class AdminColumn<T> {
     this.align = AdminColumnAlign.start,
     this.sortKey,
     this.essential = false,
+    this.narrowCell,
+    this.narrowFixedWidth,
   });
 
   final String label;
@@ -33,4 +40,11 @@ class AdminColumn<T> {
   final AdminColumnAlign align;
   final AdminSortKey<T>? sortKey;
   final bool essential;
+  final AdminCell<T>? narrowCell;
+  final double? narrowFixedWidth;
+
+  AdminCell<T> cellFor(bool narrow) => narrow ? (narrowCell ?? cell) : cell;
+
+  double? widthFor(bool narrow) =>
+      narrow ? (narrowFixedWidth ?? fixedWidth) : fixedWidth;
 }

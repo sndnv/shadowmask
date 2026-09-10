@@ -3903,6 +3903,10 @@ mod tests {
         assert!(subtitle_source_from_str("nope").is_err());
     }
 
+    // Every method here reaches the pool through `?`, and an untested `?` is an
+    // error arm nothing proves propagates. Closing the pool is the cheapest way to
+    // make all of them fail at once; a method missing from this list has an error
+    // path no test has ever taken.
     #[tokio::test]
     async fn surfaces_backend_error_after_close() {
         let dir = tempfile::tempdir().unwrap();
@@ -3910,14 +3914,185 @@ mod tests {
             .await
             .unwrap();
         repo.pool.close().await;
+
+        let page = PageRequest {
+            offset: 0,
+            limit: 10,
+        };
+        let movie_id = MovieId("m1".into());
+        let series_id = SeriesId("s1".into());
+        let season_id = SeasonId("se1".into());
+        let episode_id = EpisodeId("e1".into());
+        let version_id = VersionId("v1".into());
+        let collection_id = CollectionId("c1".into());
+        let person_id = PersonId("p1".into());
+        let library_id = LibraryId("lib1".into());
+        let title = TitleId::Movie(movie_id.clone());
+        let filter = unfiltered();
+        let ids = ["x".to_owned()];
+
+        assert!(repo.list_movies(page).await.is_err());
+        assert!(repo.get_movie(&movie_id).await.is_err());
         assert!(
-            repo.list_movies(PageRequest {
-                offset: 0,
-                limit: 10
-            })
+            repo.movies_by_ids(std::slice::from_ref(&movie_id))
+                .await
+                .is_err()
+        );
+        assert!(repo.list_series(page).await.is_err());
+        assert!(repo.get_series(&series_id).await.is_err());
+        assert!(
+            repo.series_by_ids(std::slice::from_ref(&series_id))
+                .await
+                .is_err()
+        );
+        assert!(repo.list_seasons(&series_id).await.is_err());
+        assert!(repo.list_episodes(&season_id).await.is_err());
+        assert!(
+            repo.episode_ids_for_series(std::slice::from_ref(&series_id))
+                .await
+                .is_err()
+        );
+        assert!(
+            repo.episode_ids_for_seasons(std::slice::from_ref(&season_id))
+                .await
+                .is_err()
+        );
+        assert!(repo.recent_episodes(&filter, 5).await.is_err());
+        assert!(
+            repo.visible_movies(std::slice::from_ref(&movie_id), &filter)
+                .await
+                .is_err()
+        );
+        assert!(
+            repo.visible_episodes(std::slice::from_ref(&episode_id), &filter)
+                .await
+                .is_err()
+        );
+        assert!(
+            repo.next_episode_in_series(&series_id, 1, 1, &filter)
+                .await
+                .is_err()
+        );
+        assert!(repo.get_episode(&episode_id).await.is_err());
+        assert!(repo.list_collections(page).await.is_err());
+        assert!(repo.get_collection(&collection_id).await.is_err());
+        assert!(
+            repo.upsert_collection(contracts::fixture::saga_collection())
+                .await
+                .is_err()
+        );
+        assert!(repo.delete_collection(&collection_id).await.is_err());
+        assert!(repo.collections_of_movie(&movie_id).await.is_err());
+        assert!(repo.get_season(&season_id).await.is_err());
+        assert!(repo.series_versions(&series_id).await.is_err());
+        assert!(repo.list_versions(&title, page).await.is_err());
+        assert!(repo.list_library_versions(&library_id, page).await.is_err());
+        assert!(repo.list_all_versions(page).await.is_err());
+        assert!(repo.version_detail(&version_id).await.is_err());
+        assert!(repo.get_version(&version_id).await.is_err());
+        assert!(repo.delete_version(&version_id).await.is_err());
+        assert!(repo.delete_movie(&movie_id).await.is_err());
+        assert!(repo.delete_series(&series_id).await.is_err());
+        assert!(repo.delete_season(&season_id).await.is_err());
+        assert!(repo.delete_episode(&episode_id).await.is_err());
+        assert!(
+            repo.upsert_movie(contracts::fixture::movie("m1"))
+                .await
+                .is_err()
+        );
+        assert!(
+            repo.upsert_series(contracts::fixture::series("s1"))
+                .await
+                .is_err()
+        );
+        assert!(
+            repo.upsert_season(contracts::fixture::season("se1", "s1"))
+                .await
+                .is_err()
+        );
+        assert!(
+            repo.upsert_episode(contracts::fixture::episode("e1", "se1"))
+                .await
+                .is_err()
+        );
+        assert!(
+            repo.upsert_version(contracts::fixture::version(
+                "v1",
+                title.clone(),
+                "lib1",
+                Quality::Hd
+            ))
             .await
             .is_err()
         );
+        assert!(
+            repo.reconcile_library_versions(&library_id, &ids)
+                .await
+                .is_err()
+        );
+        let owner = ArtworkOwner::Movie(movie_id.clone());
+        assert!(
+            repo.set_artwork(&owner, &contracts::fixture::artwork_set("m1"))
+                .await
+                .is_err()
+        );
+        assert!(repo.list_artwork(&owner).await.is_err());
+        assert!(repo.all_artwork_ids().await.is_err());
+        assert!(repo.all_version_ids().await.is_err());
+        assert!(repo.live_artwork_ids(&ids).await.is_err());
+        assert!(repo.live_version_ids(&ids).await.is_err());
+        assert!(repo.live_artwork_paths(&ids).await.is_err());
+        assert!(repo.live_subtitle_paths(&ids).await.is_err());
+        assert!(repo.live_trickplay_paths(&ids).await.is_err());
+        assert!(
+            repo.set_version_tracks(&version_id, &[], &[], &[], &[])
+                .await
+                .is_err()
+        );
+        assert!(repo.set_trickplay(&version_id, &[]).await.is_err());
+        assert!(repo.set_subtitle_files(&version_id, &[]).await.is_err());
+        let subtitle = SubtitleFile {
+            id: SubtitleFileId("sf1".into()),
+            version: version_id.clone(),
+            language: None,
+            format: SubtitleFormat::Srt,
+            source: SubtitleSource::External,
+            path: "/subs/sf1.srt".into(),
+            translated_from: None,
+            label: None,
+            pinned: false,
+        };
+        assert!(
+            repo.add_subtitle_file(&version_id, &subtitle)
+                .await
+                .is_err()
+        );
+        assert!(
+            repo.upsert_person(contracts::fixture::people()[0].clone())
+                .await
+                .is_err()
+        );
+        assert!(repo.get_person(&person_id).await.is_err());
+        assert!(
+            repo.set_title_enrichment(
+                &TitleRef::Movie(movie_id.clone()),
+                &contracts::fixture::movie_enrichment()
+            )
+            .await
+            .is_err()
+        );
+        assert!(repo.movie_detail(&movie_id).await.is_err());
+        assert!(repo.series_detail(&series_id).await.is_err());
+        assert!(repo.filmography(&person_id).await.is_err());
+        assert!(repo.list_genres(None).await.is_err());
+        assert!(repo.list_movies_filtered(&filter, page).await.is_err());
+        assert!(repo.list_series_filtered(&filter, page).await.is_err());
+        assert!(
+            repo.random_playable_title(&RandomScope::Movies, &filter)
+                .await
+                .is_err()
+        );
+        assert!(repo.search("q", &[], &filter, page).await.is_err());
     }
 
     #[tokio::test]

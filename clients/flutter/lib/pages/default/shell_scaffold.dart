@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
+import 'package:shadowmask/components/bottom_chrome.dart';
 import 'package:shadowmask/components/brand_mark.dart';
 import 'package:shadowmask/components/hex_texture.dart';
 import 'package:shadowmask/components/page_title.dart';
@@ -165,12 +166,14 @@ class _ShellScaffoldState extends State<ShellScaffold> {
           t,
           pageWidth,
           MediaQuery.sizeOf(context).width < Breakpoints.sm,
+          MediaQuery.paddingOf(context),
         ),
       ),
     );
   }
 
-  Widget _shell(Tokens t, double pageWidth, bool compact) {
+  Widget _shell(Tokens t, double pageWidth, bool compact, EdgeInsets safe) {
+    final double headerExtent = _kHeaderHeight + safe.top;
     return FocusTraversalGroup(
       policy: OrderedTraversalPolicy(),
       child: Scaffold(
@@ -181,10 +184,13 @@ class _ShellScaffoldState extends State<ShellScaffold> {
                 valueListenable: _immersive,
                 builder: (BuildContext context, bool immersive, Widget? bar) =>
                     immersive ? const SizedBox.shrink() : bar!,
-                child: ShellBottomNav(
-                  api: widget.api,
-                  current: widget.current,
-                  user: widget.user,
+                child: BottomChrome(
+                  height: kNavHeight,
+                  child: ShellBottomNav(
+                    api: widget.api,
+                    current: widget.current,
+                    user: widget.user,
+                  ),
                 ),
               ),
         body: Stack(
@@ -210,9 +216,26 @@ class _ShellScaffoldState extends State<ShellScaffold> {
                                 : pageWidth;
                             final double bodyHeight = math.max(
                               0,
-                              constraints.maxHeight -
-                                  (bare ? 0 : _kHeaderHeight),
+                              constraints.maxHeight - (bare ? 0 : headerExtent),
                             );
+                            final EdgeInsets gutter = immersive
+                                ? EdgeInsets.zero
+                                : _kGutter.add(
+                                        EdgeInsets.only(
+                                          left: safe.left,
+                                          right: safe.right,
+                                        ),
+                                      )
+                                      as EdgeInsets;
+                            final EdgeInsets bodyPadding = immersive
+                                ? EdgeInsets.zero
+                                : _kBodyPadding.add(
+                                        EdgeInsets.only(
+                                          top: bare ? safe.top : 0,
+                                          bottom: compact ? 0 : safe.bottom,
+                                        ),
+                                      )
+                                      as EdgeInsets;
                             final BoxConstraints bodyConstraints;
                             if (immersive) {
                               bodyConstraints = BoxConstraints.tightFor(
@@ -242,6 +265,7 @@ class _ShellScaffoldState extends State<ShellScaffold> {
                                     backdrop: _backdrop,
                                     viewportHeight: constraints.maxHeight,
                                     collapsed: bare,
+                                    insets: safe,
                                     tokens: t,
                                   ),
                                 ),
@@ -250,13 +274,9 @@ class _ShellScaffoldState extends State<ShellScaffold> {
                                     constraints: bodyConstraints,
                                     child: _Centered(
                                       maxWidth: maxWidth,
-                                      padding: immersive
-                                          ? EdgeInsets.zero
-                                          : _kGutter,
+                                      padding: gutter,
                                       child: Padding(
-                                        padding: immersive
-                                            ? EdgeInsets.zero
-                                            : _kBodyPadding,
+                                        padding: bodyPadding,
                                         child: BackdropScope(
                                           url: _backdrop,
                                           child: SelectionArea(
@@ -322,6 +342,7 @@ class _ShellHeader extends SliverPersistentHeaderDelegate {
     required this.backdrop,
     required this.viewportHeight,
     required this.collapsed,
+    required this.insets,
     required this.tokens,
   });
 
@@ -332,13 +353,14 @@ class _ShellHeader extends SliverPersistentHeaderDelegate {
   final ValueListenable<String?> backdrop;
   final double viewportHeight;
   final bool collapsed;
+  final EdgeInsets insets;
   final Tokens tokens;
 
   @override
-  double get minExtent => collapsed ? 0 : _kHeaderHeight;
+  double get minExtent => collapsed ? 0 : _kHeaderHeight + insets.top;
 
   @override
-  double get maxExtent => collapsed ? 0 : _kHeaderHeight;
+  double get maxExtent => collapsed ? 0 : _kHeaderHeight + insets.top;
 
   @override
   Widget build(BuildContext context, double shrinkOffset, bool _) {
@@ -364,9 +386,14 @@ class _ShellHeader extends SliverPersistentHeaderDelegate {
         ),
         const ClipRect(child: HexTexture()),
         Padding(
-          padding: const EdgeInsets.only(top: Space.s3),
+          padding: EdgeInsets.only(top: Space.s3 + insets.top),
           child: _Centered(
             maxWidth: maxWidth,
+            padding:
+                _kGutter.add(
+                      EdgeInsets.only(left: insets.left, right: insets.right),
+                    )
+                    as EdgeInsets,
             child: Container(
               clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
@@ -393,6 +420,7 @@ class _ShellHeader extends SliverPersistentHeaderDelegate {
       old.backdrop != backdrop ||
       old.viewportHeight != viewportHeight ||
       old.collapsed != collapsed ||
+      old.insets != insets ||
       old.tokens != tokens;
 }
 

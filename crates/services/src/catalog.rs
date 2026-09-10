@@ -53,7 +53,7 @@ where
     }
 
     async fn viewer(&self, caller: &Principal) -> Result<acl::Viewer, CatalogError> {
-        Ok(acl::caller_viewer(&self.users, caller).await?)
+        Ok(acl::viewer(&self.users, &caller.user).await?)
     }
 
     async fn collection_mosaic_art(
@@ -276,11 +276,9 @@ where
         series: &SeriesId,
     ) -> Result<Vec<Season>, CatalogError> {
         let viewer = self.viewer(caller).await?;
-        if !viewer.is_admin() {
-            let show = self.catalog.get_series(series).await?;
-            if !viewer.permits(show.as_ref().and_then(|show| show.content_rating.as_ref())) {
-                return Err(CatalogError::NotFound);
-            }
+        let show = self.catalog.get_series(series).await?;
+        if !viewer.permits(show.as_ref().and_then(|show| show.content_rating.as_ref())) {
+            return Err(CatalogError::NotFound);
         }
         Ok(self.catalog.list_seasons(series).await?)
     }
@@ -308,18 +306,16 @@ where
         season: &SeasonId,
     ) -> Result<Vec<Episode>, CatalogError> {
         let viewer = self.viewer(caller).await?;
-        if !viewer.is_admin() {
-            let series = match self.catalog.get_season(season).await? {
-                Some(season) => self.catalog.get_series(&season.series).await?,
-                None => None,
-            };
-            if !viewer.permits(
-                series
-                    .as_ref()
-                    .and_then(|show| show.content_rating.as_ref()),
-            ) {
-                return Err(CatalogError::NotFound);
-            }
+        let series = match self.catalog.get_season(season).await? {
+            Some(season) => self.catalog.get_series(&season.series).await?,
+            None => None,
+        };
+        if !viewer.permits(
+            series
+                .as_ref()
+                .and_then(|show| show.content_rating.as_ref()),
+        ) {
+            return Err(CatalogError::NotFound);
         }
         Ok(self.catalog.list_episodes(season).await?)
     }
@@ -359,9 +355,6 @@ where
         page: PageRequest,
     ) -> Result<Page<Version>, CatalogError> {
         let viewer = self.viewer(caller).await?;
-        if viewer.is_admin() {
-            return Ok(self.catalog.list_versions(title, page).await?);
-        }
         let filtered: Vec<Version> = self
             .catalog
             .list_versions(title, PageRequest::ALL)
@@ -393,7 +386,16 @@ where
         if !acl::is_admin(caller) {
             return Err(CatalogError::Forbidden);
         }
-        Ok(self.catalog.list_all_versions(page).await?)
+        let viewer = self.viewer(caller).await?;
+        let filtered: Vec<Version> = self
+            .catalog
+            .list_all_versions(PageRequest::ALL)
+            .await?
+            .items
+            .into_iter()
+            .filter(|version| viewer.sees_library(&version.library))
+            .collect();
+        Ok(paginate(&filtered, page))
     }
 
     async fn version(
@@ -724,7 +726,7 @@ mod tests {
         }
     }
 
-    async fn seeded() -> CatalogServiceImpl<MockCatalogRepo, MockUserRepo> {
+    async fn seeded_catalog() -> MockCatalogRepo {
         let catalog = MockCatalogRepo::new();
         catalog.add_movie(movie("m1", Some("PG-13")));
         catalog.add_movie(movie("m2", Some("R")));
@@ -872,6 +874,18 @@ mod tests {
             )
             .await
             .unwrap();
+        // s2 is the series with a file behind it, so it is the one a scoped genre
+        // query can return. s1 stays file-less on purpose, which the random tests pin.
+        catalog
+            .set_title_enrichment(
+                &TitleRef::Series(SeriesId("s2".into())),
+                &TitleEnrichment {
+                    genres: vec![genre("g-action", "Action")],
+                    ..TitleEnrichment::default()
+                },
+            )
+            .await
+            .unwrap();
         let ghost = TitleRef::Movie(MovieId("ghost".into()));
         catalog
             .set_title_enrichment(
@@ -883,27 +897,39 @@ mod tests {
             )
             .await
             .unwrap();
+        catalog
+    }
 
+    async fn seeded() -> CatalogServiceImpl<MockCatalogRepo, MockUserRepo> {
+        let catalog = seeded_catalog().await;
         let users = MockUserRepo::new();
         users.insert(capped_user());
         users
             .set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())])
             .await
             .unwrap();
+        // Admin carries no implicit access, so it is granted both libraries here
+        // the same way a real admin would grant itself.
+        users.grant(
+            &UserId("admin".into()),
+            &[LibraryId("lib1".into()), LibraryId("lib2".into())],
+        );
         CatalogServiceImpl::new(catalog, users)
     }
 
     #[tokio::test]
-    async fn admin_bypasses_rating_and_library_gates() {
+    async fn a_fully_granted_uncapped_account_sees_everything_reachable() {
         let svc = seeded().await;
         assert_eq!(
             svc.movies(&admin(), &query(), page()).await.unwrap().total,
-            2
+            1,
+            "m2 has no version, so it sits in no library and a scoped list cannot reach it"
         );
         assert!(svc.movie(&admin(), &MovieId("m2".into())).await.is_ok());
         assert_eq!(
             svc.series(&admin(), &query(), page()).await.unwrap().total,
-            2
+            1,
+            "s1 has no file, so like m2 it belongs to no library"
         );
         assert!(
             svc.series_detail(&admin(), &SeriesId("s1".into()))
@@ -928,7 +954,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn all_versions_is_admin_only() {
+    async fn an_admin_without_the_grant_is_refused_like_anyone_else() {
+        let svc = seeded().await;
+        let stranger = Principal {
+            user: UserId("nobody".into()),
+            role: Role::Admin,
+        };
+
+        assert_eq!(
+            svc.movies(&stranger, &query(), page()).await.unwrap().total,
+            0
+        );
+        assert_eq!(
+            svc.versions(&stranger, &TitleId::Movie(MovieId("m1".into())), page())
+                .await
+                .unwrap()
+                .total,
+            0
+        );
+        assert!(matches!(
+            svc.version(&stranger, &VersionId("v1".into()))
+                .await
+                .unwrap_err(),
+            CatalogError::NotFound
+        ));
+    }
+
+    #[tokio::test]
+    async fn all_versions_is_admin_only_and_still_scoped_to_the_grants() {
         let svc = seeded().await;
         let all = svc.all_versions(&admin(), page()).await.unwrap();
         assert_eq!(all.total, 3);
@@ -936,6 +989,16 @@ mod tests {
             svc.all_versions(&member(), page()).await.unwrap_err(),
             CatalogError::Forbidden
         ));
+
+        let stranger = Principal {
+            user: UserId("nobody".into()),
+            role: Role::Admin,
+        };
+        assert_eq!(
+            svc.all_versions(&stranger, page()).await.unwrap().total,
+            0,
+            "an admin listing must not show a version whose detail page would 404"
+        );
     }
 
     #[tokio::test]
@@ -1048,7 +1111,8 @@ mod tests {
                 .iter()
                 .map(|m| m.id.0.as_str())
                 .collect::<Vec<_>>(),
-            ["m2", "m1"]
+            ["m1"],
+            "m2 has no version and so belongs to no library, which every list is scoped by"
         );
     }
 
@@ -1243,25 +1307,124 @@ mod tests {
         ));
     }
 
+    // A method missing from this list has a `?` on the repository whose error arm
+    // no test has ever taken, so nothing proves it propagates rather than being
+    // swallowed into an empty page or a NotFound.
     #[tokio::test]
     async fn backend_errors_propagate() {
         let catalog = MockCatalogRepo::new();
         catalog.set_fail();
-        let svc = CatalogServiceImpl::new(catalog, MockUserRepo::new());
-        assert!(matches!(
-            svc.movies(&admin(), &query(), page()).await.unwrap_err(),
-            CatalogError::Repository(_)
+        let users = MockUserRepo::new();
+        // Granted, or the library-scoped methods short circuit to an empty page
+        // and never reach the repository whose failure this test is about.
+        users.grant(
+            &UserId("admin".into()),
+            &[LibraryId("lib1".into()), LibraryId("lib2".into())],
+        );
+        let svc = CatalogServiceImpl::new(catalog, users);
+
+        let movie = MovieId("m1".into());
+        let series = SeriesId("s1".into());
+        let season = SeasonId("se1".into());
+        let episode = EpisodeId("e1".into());
+        let version = VersionId("v1".into());
+        let collection = CollectionId("c1".into());
+        let person = PersonId("p1".into());
+        let library = LibraryId("lib1".into());
+        let title = TitleId::Movie(movie.clone());
+
+        macro_rules! is_repository_error {
+            ($call:expr) => {
+                assert!(matches!(
+                    $call.await.unwrap_err(),
+                    CatalogError::Repository(_)
+                ))
+            };
+        }
+
+        is_repository_error!(svc.collections(&admin(), page()));
+        is_repository_error!(svc.collection(&admin(), &collection));
+        is_repository_error!(svc.movie_collections(&admin(), &movie));
+        is_repository_error!(svc.create_collection(
+            &admin(),
+            NewCollection {
+                name: "Saga".into(),
+                overview: None,
+                movies: vec![movie.clone()],
+            }
         ));
-        assert!(matches!(
-            svc.collections(&admin(), page()).await.unwrap_err(),
-            CatalogError::Repository(_)
+        is_repository_error!(svc.update_collection(
+            &admin(),
+            &collection,
+            CollectionUpdate {
+                name: "Saga".into(),
+                overview: None,
+                movies: vec![movie.clone()],
+            }
         ));
-        assert!(matches!(
-            svc.title_cards(&admin(), &[TitleId::Movie(MovieId("m1".into()))])
-                .await
-                .unwrap_err(),
-            CatalogError::Repository(_)
-        ));
+        is_repository_error!(svc.delete_collection(&admin(), &collection));
+        is_repository_error!(svc.movies(&admin(), &query(), page()));
+        is_repository_error!(svc.movie(&admin(), &movie));
+        is_repository_error!(svc.series(&admin(), &query(), page()));
+        is_repository_error!(svc.series_detail(&admin(), &series));
+        is_repository_error!(svc.seasons(&admin(), &series));
+        is_repository_error!(svc.season(&admin(), &season));
+        is_repository_error!(svc.episodes(&admin(), &season));
+        is_repository_error!(svc.episode(&admin(), &episode));
+        is_repository_error!(svc.versions(&admin(), &title, page()));
+        is_repository_error!(svc.library_versions(&admin(), &library, page()));
+        is_repository_error!(svc.all_versions(&admin(), page()));
+        is_repository_error!(svc.version(&admin(), &version));
+        is_repository_error!(svc.people_cards(&admin(), std::slice::from_ref(&person)));
+        is_repository_error!(svc.person(&admin(), &person));
+        is_repository_error!(svc.genres(&admin(), None));
+        is_repository_error!(svc.title_cards(&admin(), &[title]));
+        is_repository_error!(svc.random(&admin(), &RandomScope::Movies, &query()));
+    }
+
+    // Every gated method builds a Viewer first, and that lookup can fail on its own.
+    // Without this the `?` inside `viewer()` is only ever taken on the happy path.
+    #[tokio::test]
+    async fn an_unreadable_account_fails_the_request_rather_than_hiding_everything() {
+        let users = MockUserRepo::new();
+        users.set_fail();
+        let svc = CatalogServiceImpl::new(MockCatalogRepo::new(), users);
+
+        let movie = MovieId("m1".into());
+        let series = SeriesId("s1".into());
+        let season = SeasonId("se1".into());
+        let episode = EpisodeId("e1".into());
+        let library = LibraryId("lib1".into());
+        let title = TitleId::Movie(movie.clone());
+
+        macro_rules! is_repository_error {
+            ($call:expr) => {
+                assert!(matches!(
+                    $call.await.unwrap_err(),
+                    CatalogError::Repository(_)
+                ))
+            };
+        }
+
+        is_repository_error!(svc.movies(&admin(), &query(), page()));
+        is_repository_error!(svc.series(&admin(), &query(), page()));
+        is_repository_error!(svc.seasons(&admin(), &series));
+        is_repository_error!(svc.episodes(&admin(), &season));
+        is_repository_error!(svc.versions(&admin(), &title, page()));
+        is_repository_error!(svc.library_versions(&admin(), &library, page()));
+        is_repository_error!(svc.all_versions(&admin(), page()));
+        is_repository_error!(svc.random(&admin(), &RandomScope::Movies, &query()));
+
+        let users = MockUserRepo::new();
+        users.set_fail();
+        let svc = CatalogServiceImpl::new(seeded_catalog().await, users);
+
+        is_repository_error!(svc.movie(&admin(), &movie));
+        is_repository_error!(svc.series_detail(&admin(), &series));
+        is_repository_error!(svc.season(&admin(), &season));
+        is_repository_error!(svc.episode(&admin(), &episode));
+        is_repository_error!(svc.person(&admin(), &PersonId("p1".into())));
+        is_repository_error!(svc.title_cards(&admin(), &[title]));
     }
 
     #[tokio::test]
@@ -1790,7 +1953,7 @@ mod tests {
             ["Action"]
         );
 
-        // Genre filter: admin sees both action movies; the member loses the R one.
+        // Genre filter: m2 has no version, so no list reaches it whoever asks.
         let action = "Action";
         let admin_action = svc
             .movies(&admin(), &genre_query(action), page())
@@ -1802,7 +1965,7 @@ mod tests {
                 .iter()
                 .map(|m| m.id.0.as_str())
                 .collect::<Vec<_>>(),
-            ["m1", "m2"]
+            ["m1"]
         );
         let member_action = svc
             .movies(&member(), &genre_query(action), page())
@@ -1828,7 +1991,8 @@ mod tests {
                 .iter()
                 .map(|s| s.id.0.as_str())
                 .collect::<Vec<_>>(),
-            ["s1"]
+            ["s2"],
+            "s1 carries the genre too, but has no file and so sits in no library"
         );
 
         // Detail aggregates carry enrichment.
@@ -1887,6 +2051,10 @@ mod tests {
             .set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())])
             .await
             .unwrap();
+        users.grant(
+            &UserId("admin".into()),
+            &[LibraryId("lib1".into()), LibraryId("lib2".into())],
+        );
         CatalogServiceImpl::new(catalog, users)
     }
 
@@ -1899,7 +2067,7 @@ mod tests {
                 .await
                 .unwrap(),
             VersionId("uhd-lib2".into()),
-            "an admin sees every library, so the best copy wins outright"
+            "this account holds both libraries, so the best copy wins outright"
         );
         assert_eq!(
             svc.random(&member(), &RandomScope::Movies, &query())
@@ -1926,6 +2094,7 @@ mod tests {
             .set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())])
             .await
             .unwrap();
+        users.grant(&UserId("admin".into()), &[LibraryId("lib1".into())]);
         let svc = CatalogServiceImpl::new(catalog, users);
 
         assert!(matches!(

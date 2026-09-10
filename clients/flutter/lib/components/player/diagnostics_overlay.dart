@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show DisplayFeature, DisplayFeatureType;
 
 import 'package:flutter/material.dart';
 
@@ -47,6 +48,7 @@ class _DiagnosticsOverlayState extends State<DiagnosticsOverlay> {
     final Tokens t = context.tokens;
     final List<String> lines = <String>[
       if (widget.sourceLine != null) widget.sourceLine!,
+      _insetsLine(context),
       ...widget.controller.diagnostics().lines,
     ];
     return Container(
@@ -62,4 +64,19 @@ class _DiagnosticsOverlayState extends State<DiagnosticsOverlay> {
       ),
     );
   }
+
+  String _insetsLine(BuildContext context) {
+    final int cutouts = MediaQuery.displayFeaturesOf(context)
+        .where(
+          (DisplayFeature feature) => feature.type == DisplayFeatureType.cutout,
+        )
+        .length;
+    return 'insets: padding ${_edges(MediaQuery.paddingOf(context))}'
+        '  view ${_edges(MediaQuery.viewPaddingOf(context))}'
+        '  cutouts $cutouts';
+  }
+
+  String _edges(EdgeInsets insets) =>
+      '${insets.left.round()},${insets.top.round()},'
+      '${insets.right.round()},${insets.bottom.round()}';
 }

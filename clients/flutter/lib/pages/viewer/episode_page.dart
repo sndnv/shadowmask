@@ -240,6 +240,7 @@ class _EpisodeBodyState extends State<_EpisodeBody>
             ),
             DetailSplit(
               posterWidth: 320,
+              compactPosterWidth: double.infinity,
               poster: VersionMenu(
                 controller: _posterMenu,
                 ordered: ordered,
@@ -269,7 +270,7 @@ class _EpisodeBodyState extends State<_EpisodeBody>
                   ),
                 ),
               ),
-              info: Column(
+              headline: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   TitleHeading(
@@ -325,25 +326,11 @@ class _EpisodeBodyState extends State<_EpisodeBody>
                         ),
                     ],
                   ),
-                  const SizedBox(height: Space.s3),
-                  FactsRow(
-                    FactsRow.of(<(String, String?)>[
-                      (Strings.factAirDate, dateText(e.airDate)),
-                      (
-                        Strings.factRuntime,
-                        e.runtimeMinutes != null
-                            ? runtime(e.runtimeMinutes!)
-                            : null,
-                      ),
-                      (Strings.factQuality, best?.quality.label),
-                    ]),
-                    labels: false,
-                  ),
-                  if (e.overview != null) ...<Widget>[
-                    const SizedBox(height: Space.s3),
-                    OverviewText(e.overview!),
-                  ],
-                  const SizedBox(height: Space.s4),
+                ],
+              ),
+              actions: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
                   LibraryToggles(
                     catalog: _catalog,
                     userId: widget.user.id,
@@ -365,6 +352,28 @@ class _EpisodeBodyState extends State<_EpisodeBody>
                   if (available.isEmpty) ...<Widget>[
                     const SizedBox(height: Space.s2),
                     const MutedNote(Strings.noVersionsAvailable),
+                  ],
+                ],
+              ),
+              info: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  FactsRow(
+                    FactsRow.of(<(String, String?)>[
+                      (Strings.factAirDate, dateText(e.airDate)),
+                      (
+                        Strings.factRuntime,
+                        e.runtimeMinutes != null
+                            ? runtime(e.runtimeMinutes!)
+                            : null,
+                      ),
+                      (Strings.factQuality, best?.quality.label),
+                    ]),
+                    labels: false,
+                  ),
+                  if (e.overview != null) ...<Widget>[
+                    const SizedBox(height: Space.s3),
+                    OverviewText(e.overview!),
                   ],
                 ],
               ),

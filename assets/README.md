@@ -24,17 +24,23 @@ assets/
   screenshots/   client captures for the root README
 ```
 
-All three brand icons carry the same artwork: the retro mark, amber tube with RGB dots, on a warm
+All four brand icons carry the same artwork: the retro mark, amber tube with RGB dots, on a warm
 gradient plate running `#43331f` to `#1c140d`. They differ only in how the plate meets the canvas,
 because each platform masks differently.
 
 - `brand/shadowmask.logo.svg` - the brand mark on a rounded plate. The default, and the widest
-  reach: both client favicons, the Flutter PWA `any` icons, and the Linux hicolor sizes.
+  reach: both client favicons, the Flutter PWA `any` icons, the Linux hicolor sizes, and the
+  Android legacy `ic_launcher` mipmaps used below API 26.
 - `brand/shadowmask.icon-desktop.svg` - the same on a transparent canvas, art at 80.5% of the
   canvas and corner radius at 22.5% of the art, matching Apple's icon template. macOS applies no
   mask of its own, so the full-bleed version renders larger and squarer than its neighbours.
 - `brand/shadowmask.icon-maskable.svg` - the same on a square full-bleed plate, with the mark held
-  inside the 80% safe circle. Android maskable only; the launcher crops it to its own shape.
+  inside the 80% safe circle. The PWA maskable icons and the iOS `AppIcon` set. Opaque, so it meets
+  the no-alpha rule for the 1024 iOS marketing icon; iOS applies its own squircle.
+- `brand/shadowmask.icon-android.svg` - the mark alone, no plate, for the Android adaptive icon
+  foreground. Android crops to the inner 66.7% of the canvas; the mark sits at 58% of that visible
+  area, centered by the same rule as the others, `translate = 32 - 12 * scale`. The plate is the
+  background layer, `ic_launcher_background.xml`. No `<monochrome>` layer.
 The two plateless variants below are page logos, not icons. They sit on a themed page background
 rather than a launcher or tab, so they carry no plate and take the theme's `accent`.
 
@@ -50,6 +56,10 @@ rather than a launcher or tab, so they carry no plate and take the theme's `acce
 - `icons/flutter/{favicon,Icon-*}.png` - the Flutter web favicon and PWA icons.
 - `icons/flutter/app_icon_*.png` - the Flutter macOS app icon set. Filenames match the
   ones the appiconset's `Contents.json` references.
+- `icons/flutter/ios_icon_*.png` - the Flutter iOS app icon set, named by pixel size. Several of
+  the appiconset's point-and-scale entries share a pixel size and take the same render.
+- `icons/flutter/android_icon_*.png` - the Android legacy `ic_launcher` mipmaps, 48 through 192.
+- `icons/flutter/android_icon_fg_*.png` - the Android adaptive icon foreground, 108 through 432.
 - `icons/flutter/linux_icon_*.png` - the hicolor sizes for the Linux AppImage, rendered full-bleed
   from `brand/shadowmask.logo.svg`. Not distributed by `refresh_assets.py`;
   `clients/flutter/AppImageBuilder.yml` reads them from here at package time.
@@ -90,6 +100,7 @@ brand SVG changes, then refresh.
 | Project | Source | Target |
 |---|---|---|
 | `clients/basic` | `brand/shadowmask.logo.svg` | `favicon.svg` |
+| `clients/basic` | `brand/shadowmask.logo-light.svg` | `logo.svg` |
 | `clients/basic` | `placeholders/poster.svg` | `placeholder.svg` |
 | `clients/basic` | `placeholders/landscape.svg` | `placeholder-landscape.svg` |
 | `clients/basic` | `placeholders/person.svg` | `placeholder-person.svg` |
@@ -100,7 +111,9 @@ brand SVG changes, then refresh.
 | `clients/flutter` | `icons/flutter/Icon-maskable-192.png` | `web/icons/Icon-maskable-192.png` |
 | `clients/flutter` | `icons/flutter/Icon-maskable-512.png` | `web/icons/Icon-maskable-512.png` |
 | `clients/flutter` | `icons/flutter/app_icon_{16,32,64,128,256,512,1024}.png` | `macos/Runner/Assets.xcassets/AppIcon.appiconset/` |
+| `clients/flutter` | `icons/flutter/ios_icon_*.png` | `ios/Runner/Assets.xcassets/AppIcon.appiconset/` |
+| `clients/flutter` | `icons/flutter/android_icon_{48,72,96,144,192}.png` | `android/app/src/main/res/mipmap-*/ic_launcher.png` |
+| `clients/flutter` | `icons/flutter/android_icon_fg_{108,162,216,324,432}.png` | `android/app/src/main/res/mipmap-*/ic_launcher_foreground.png` |
 | `clients/flutter` | `vendor/hls.min.js` | `web/hls.min.js` |
 
-As the Android, iOS, and Roku clients land, add their launcher and icon targets
-here.
+As the Roku client lands, add its launcher and icon targets here.

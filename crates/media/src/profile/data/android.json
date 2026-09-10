@@ -6,10 +6,15 @@
     { "codec": "vp9", "max_bit_depth": 10 }
   ],
   "audio": [
-    { "codec": "aac", "max_channels": 6 },
+    { "codec": "aac", "max_channels": 8 },
     { "codec": "ac3", "max_channels": 6 },
     { "codec": "eac3", "max_channels": 8 },
-    { "codec": "opus", "max_channels": 8 }
+    { "codec": "dts", "max_channels": 8 },
+    { "codec": "truehd", "max_channels": 8 },
+    { "codec": "flac", "max_channels": 8 },
+    { "codec": "opus", "max_channels": 8 },
+    { "codec": "vorbis", "max_channels": 8 },
+    { "codec": "mp3", "max_channels": 2 }
   ],
   "hdr": ["hdr10", "hdr10plus", "hlg"],
   "max_width": 3840,

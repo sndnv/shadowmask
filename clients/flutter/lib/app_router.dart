@@ -15,6 +15,7 @@ import 'package:shadowmask/pages/admin/library_page.dart';
 import 'package:shadowmask/pages/admin/user_page.dart';
 import 'package:shadowmask/pages/admin/users_page.dart';
 import 'package:shadowmask/pages/admin/versions_page.dart';
+import 'package:shadowmask/pages/entry/link_code_page.dart';
 import 'package:shadowmask/pages/entry/not_found_page.dart';
 import 'package:shadowmask/pages/entry/sign_in_page.dart';
 import 'package:shadowmask/pages/player/watch_page.dart';
@@ -54,6 +55,7 @@ class AppRouter {
 
   void _configure() {
     _define('/', (Map<String, String> a) => SignInPage(api: api));
+    _define('/link', (Map<String, String> a) => LinkCodePage(api: api));
     _define('/home', (Map<String, String> a) => HomePage(api: api));
     _define(
       '/movies',

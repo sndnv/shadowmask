@@ -1,9 +1,10 @@
 use crate::media::HdrFormat;
-use crate::session::{SegmentContainer, SessionId};
+use crate::session::{SegmentContainer, SessionId, StreamGeneration};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TranscodeSpec {
     pub session: SessionId,
+    pub generation: StreamGeneration,
     pub input_path: String,
     pub duration_ms: u64,
     pub copy: bool,

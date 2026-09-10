@@ -19,4 +19,16 @@ for size in 64 128 256 512; do
     rsvg-convert -w "$size" -h "$size" "$brand/shadowmask.logo.svg" -o "$out/linux_icon_$size.png"
 done
 
+for size in 48 72 96 144 192; do
+    rsvg-convert -w "$size" -h "$size" "$brand/shadowmask.logo.svg" -o "$out/android_icon_$size.png"
+done
+
+for size in 108 162 216 324 432; do
+    rsvg-convert -w "$size" -h "$size" "$brand/shadowmask.icon-android.svg" -o "$out/android_icon_fg_$size.png"
+done
+
+for size in 20 29 40 58 60 76 80 87 120 152 167 180 1024; do
+    rsvg-convert -w "$size" -h "$size" "$brand/shadowmask.icon-maskable.svg" -o "$out/ios_icon_$size.png"
+done
+
 echo "Rendered brand icons into $out. Run refresh_assets.py to distribute."

@@ -5,7 +5,7 @@ use jiff::Timestamp;
 
 use domain::catalog::VersionId;
 use domain::error::StreamTokenError;
-use domain::session::{SessionId, StreamClaims, StreamToken, StreamTokens};
+use domain::session::{SessionId, StreamClaims, StreamGeneration, StreamToken, StreamTokens};
 use domain::user::UserId;
 
 const SEP: char = '\u{1f}';
@@ -31,8 +31,9 @@ impl StreamTokens for MockStreamTokens {
             return Err(StreamTokenError::Create("mock token failure".to_owned()));
         }
         Ok(StreamToken(format!(
-            "{}{SEP}{}{SEP}{}{SEP}{}{SEP}{}",
+            "{}{SEP}{}{SEP}{}{SEP}{}{SEP}{}{SEP}{}",
             claims.session.0,
+            claims.generation.0,
             claims.user.0,
             claims.version.0,
             claims.expires_at.as_second(),
@@ -42,13 +43,17 @@ impl StreamTokens for MockStreamTokens {
 
     fn verify(&self, token: &str) -> Result<StreamClaims, StreamTokenError> {
         let parts: Vec<&str> = token.split(SEP).collect();
-        let [session, user, version, exp, nonce] = parts.as_slice() else {
+        let [session, generation, user, version, exp, nonce] = parts.as_slice() else {
             return Err(StreamTokenError::Invalid);
         };
+        let generation = generation
+            .parse::<u32>()
+            .map_err(|_| StreamTokenError::Invalid)?;
         let exp = exp.parse::<i64>().map_err(|_| StreamTokenError::Invalid)?;
         let expires_at = Timestamp::from_second(exp).map_err(|_| StreamTokenError::Invalid)?;
         Ok(StreamClaims {
             session: SessionId((*session).to_owned()),
+            generation: StreamGeneration(generation),
             user: UserId((*user).to_owned()),
             version: VersionId((*version).to_owned()),
             expires_at,
@@ -64,6 +69,7 @@ mod tests {
     fn claims(nonce: &str) -> StreamClaims {
         StreamClaims {
             session: SessionId("s1".to_owned()),
+            generation: StreamGeneration(2),
             user: UserId("u1".to_owned()),
             version: VersionId("v1".to_owned()),
             expires_at: Timestamp::from_second(1_700_000_000).unwrap(),
@@ -93,14 +99,19 @@ mod tests {
             tokens.verify("too-few-fields"),
             Err(StreamTokenError::Invalid)
         ));
-        let bad_exp = format!("s1{SEP}u1{SEP}v1{SEP}not-a-number{SEP}n1");
+        let bad_exp = format!("s1{SEP}2{SEP}u1{SEP}v1{SEP}not-a-number{SEP}n1");
         assert!(matches!(
             tokens.verify(&bad_exp),
             Err(StreamTokenError::Invalid)
         ));
-        let out_of_range = format!("s1{SEP}u1{SEP}v1{SEP}{}{SEP}n1", i64::MAX);
+        let out_of_range = format!("s1{SEP}2{SEP}u1{SEP}v1{SEP}{}{SEP}n1", i64::MAX);
         assert!(matches!(
             tokens.verify(&out_of_range),
+            Err(StreamTokenError::Invalid)
+        ));
+        let bad_generation = format!("s1{SEP}not-a-number{SEP}u1{SEP}v1{SEP}1700000000{SEP}n1");
+        assert!(matches!(
+            tokens.verify(&bad_generation),
             Err(StreamTokenError::Invalid)
         ));
     }

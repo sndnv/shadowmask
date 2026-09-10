@@ -4,6 +4,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/components/breadcrumbs.dart';
 import 'package:shadowmask/components/crumb.dart';
+import 'package:shadowmask/components/section_block.dart';
 import 'package:shadowmask/components/segmented_tabs.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
@@ -16,11 +17,13 @@ import 'package:shadowmask/pages/account/devices_block.dart';
 import 'package:shadowmask/pages/account/history_block.dart';
 import 'package:shadowmask/pages/account/library_list_block.dart';
 import 'package:shadowmask/pages/account/link_codes_block.dart';
+import 'package:shadowmask/pages/account/playback_support_block.dart';
 import 'package:shadowmask/pages/account/profile_block.dart';
 import 'package:shadowmask/pages/account/server_block.dart';
 import 'package:shadowmask/pages/account/session_block.dart';
 import 'package:shadowmask/pages/account/tokens_block.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
+import 'package:shadowmask/theme/breakpoints.dart';
 import 'package:shadowmask/theme/space.dart';
 
 class AccountPage extends StatelessWidget {
@@ -57,6 +60,23 @@ class _AccountBodyState extends State<_AccountBody> {
     mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.start,
     children: children,
+  );
+
+  Widget _paired(Widget start, Widget end) => LayoutBuilder(
+    builder: (BuildContext context, BoxConstraints constraints) =>
+        constraints.maxWidth < Breakpoints.md
+        ? _panel(<Widget>[start, end])
+        : SectionHeaderHeight(
+            minHeight: kMinInteractiveDimension,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Expanded(child: start),
+                const SizedBox(width: Space.s5),
+                Expanded(child: end),
+              ],
+            ),
+          ),
   );
 
   @override
@@ -97,11 +117,14 @@ class _AccountBodyState extends State<_AccountBody> {
       (
         Strings.accountTabProfile,
         _panel(<Widget>[
-          ProfileBlock(
-            api: api,
-            userId: user.id,
-            editable: management,
-            showPasswordAction: management,
+          _paired(
+            ProfileBlock(
+              api: api,
+              userId: user.id,
+              editable: management,
+              showPasswordAction: management,
+            ),
+            const PlaybackSupportBlock(),
           ),
           const AppearanceBlock(),
           const ServerBlock(),
@@ -139,10 +162,11 @@ class _AccountBodyState extends State<_AccountBody> {
         const SizedBox(height: Space.s4),
         TabPanel(
           label: tabs[index].$1,
-          child: IndexedStack(
-            index: index,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              for (final (String _, Widget panel) in tabs) panel,
+              for (int i = 0; i < tabs.length; i++)
+                Offstage(offstage: i != index, child: tabs[i].$2),
             ],
           ),
         ),

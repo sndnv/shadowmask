@@ -4,6 +4,7 @@ expression: value
 ---
 {
   "body": {
+    "container": null,
     "manifest_url": "[manifest_url]",
     "mode": "direct",
     "origin_ms": 0,

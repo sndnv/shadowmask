@@ -63,7 +63,8 @@ of that vintage or newer.
 The macOS build is neither signed nor notarized. On first open, right-click the app and choose Open,
 or run `xattr -dr com.apple.quarantine` against it.
 
-The macOS bundle vendors mpv, FFmpeg and nine supporting libraries. They are attributed in
+The macOS and iOS bundles vendor mpv, FFmpeg and nine supporting libraries, and the Android APK
+vendors a different build of most of the same ones. They are attributed in
 [CREDITS.md](CREDITS.md), with their licence texts under [`licenses/`](../../licenses).
 
 ## Configuration

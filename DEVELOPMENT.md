@@ -9,8 +9,8 @@ toolchain automatically.
 * [rustup](https://rustup.rs/) - Rust toolchain manager
 * [Python 3](https://www.python.org/) - runs the QA checks
 * [FFmpeg](https://ffmpeg.org/) - `ffmpeg` / `ffprobe`, for media probing and transcoding
-* [Flutter](https://docs.flutter.dev/get-started/install) - for the web and desktop clients; CI pins
-  the version in [`.github/workflows/build.yml`](.github/workflows/build.yml)
+* [Flutter](https://docs.flutter.dev/get-started/install) - for the web, desktop and mobile clients;
+  CI pins the version in [`.github/workflows/build.yml`](.github/workflows/build.yml)
 
 ### Getting Started
 
@@ -26,8 +26,8 @@ gate, below.
 Two clients live under [`clients/`](clients). [`clients/basic`](clients/basic) is a dependency-free
 HTML/JS client served by the server itself at `/ui/basic/`; it needs no build step.
 
-[`clients/flutter`](clients/flutter) is the primary client, one codebase covering the web and the
-desktop:
+[`clients/flutter`](clients/flutter) is the primary client, one codebase covering the web, the
+desktop and mobile:
 
 ```
 cd clients/flutter
@@ -57,9 +57,15 @@ Desktop prerequisites: CocoaPods on macOS (`brew install cocoapods`), and libmpv
 (`sudo apt install libmpv-dev mpv` on Debian and Ubuntu). Linux is not verified on hardware.
 Windows is not supported.
 
+The same codebase runs on mobile with `flutter run -d android` or `flutter run -d ios`. Mobile
+prerequisites are the Android SDK, and Xcode plus CocoaPods for iOS. Mobile asks for the server
+address on first run and stores it on the device, so there is no `--dart-define` and no CORS to
+configure. A device can also be provisioned with a link code.
+
 The client's own gate is `./qa.py` inside `clients/flutter`, which mirrors the root `qa.py`: package
-resolution, code generation, format, analyze, test with coverage. It does not build the desktop
-targets, so build those by hand when the native side changes.
+resolution, code generation, format, analyze, test with coverage. It does not build the desktop or
+mobile targets, and it does not cover the native channels, so build and verify those by hand when
+the native side changes.
 
 Desktop releases are a macOS `.dmg` and a Linux `.AppImage`, built by the publish workflows and
 described in [`clients/flutter/README.md`](clients/flutter/README.md#packaging).

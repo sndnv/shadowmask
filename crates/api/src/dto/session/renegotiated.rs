@@ -8,6 +8,7 @@ use super::{DeliveryModeDto, SelectedTracksResponse};
 pub struct RenegotiatedResponse {
     pub session_id: String,
     pub mode: DeliveryModeDto,
+    pub container: Option<String>,
     pub manifest_url: String,
     pub origin_ms: u64,
     pub sequential: bool,
@@ -19,6 +20,7 @@ impl From<Renegotiated> for RenegotiatedResponse {
         RenegotiatedResponse {
             session_id: r.session_id.0,
             mode: r.mode.into(),
+            container: r.container.map(|c| c.as_str().to_owned()),
             manifest_url: r.manifest_url,
             origin_ms: r.origin_ms,
             sequential: r.sequential,

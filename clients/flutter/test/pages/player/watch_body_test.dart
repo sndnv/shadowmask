@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/player/player_frame.dart';
+import 'package:shadowmask/components/player/settings_panel.dart';
 import 'package:shadowmask/components/player/shortcuts_dialog.dart';
 import 'package:shadowmask/components/player/up_next_card.dart';
 import 'package:shadowmask/view/player_shortcuts.dart';
@@ -39,9 +41,13 @@ class FakePlayerController implements PlayerController {
   int? seekedMs;
   double? rate;
   int? networkTimeout;
+  int? bufferSeconds;
+  int? bufferBytes;
   String? attached;
   int? attachedPositionMs;
+  bool? attachedAutoplay;
   bool streamSeeks = true;
+  bool hlsBuffers = true;
 
   @override
   ValueListenable<PlayerSnapshot> get snapshot => _snapshot;
@@ -148,11 +154,16 @@ class FakePlayerController implements PlayerController {
     String manifestUrl, {
     required PlaybackMode mode,
     int positionMs = 0,
+    bool autoplay = true,
   }) async {
     calls.add('attach:${mode.name}');
     attached = manifestUrl;
     attachedPositionMs = positionMs;
+    attachedAutoplay = autoplay;
   }
+
+  @override
+  Future<void> detach() async => calls.add('detach');
 
   @override
   void play() => calls.add('play');
@@ -176,6 +187,16 @@ class FakePlayerController implements PlayerController {
   void setNetworkTimeout(int seconds) {
     networkTimeout = seconds;
     calls.add('timeout:$seconds');
+  }
+
+  @override
+  bool get buffersAhead => hlsBuffers;
+
+  @override
+  void setBuffer({required int seconds, required int bytes}) {
+    bufferSeconds = seconds;
+    bufferBytes = bytes;
+    calls.add('buffer:$seconds');
   }
 
   @override
@@ -264,6 +285,15 @@ http.Response _route(http.Request req) {
   }
   return http.Response('', 204);
 }
+
+http.Response _renegotiated(String mode, String manifestUrl) => http.Response(
+  jsonEncode(<String, dynamic>{
+    'manifest_url': manifestUrl,
+    'mode': mode,
+    'selected': <String, dynamic>{},
+  }),
+  200,
+);
 
 http.Response _sequentialSession(int originMs) => http.Response(
   jsonEncode(<String, dynamic>{
@@ -387,7 +417,19 @@ const String _mutedKey = 'shadowmask.player.muted';
 
 const String _timeoutKey = 'shadowmask.player.network_timeout';
 
+const String _bufferKey = 'shadowmask.player.buffer_seconds';
+
+const String _waitKey = 'shadowmask.player.wait_for_buffer';
+
 const int _stallDelay = kStallSeconds;
+
+// The buffering card carries a CircularProgressIndicator, so pumpAndSettle
+// never returns while it is on screen.
+Future<void> _settleAroundSpinner(WidgetTester tester) async {
+  for (int i = 0; i < 12; i++) {
+    await tester.pump(const Duration(milliseconds: 20));
+  }
+}
 
 const SelfUser _user = SelfUser(id: 'u1', username: 'u', role: UserRole.user);
 
@@ -430,11 +472,17 @@ Widget _app(
   bool sequential = false,
   int originMs = 0,
   int seekOriginMs = 0,
+  bool touch = false,
+  Future<http.Response> Function(int call)? onUpdate,
 }) {
+  int updates = 0;
   final ApiClient api = ApiClient(
     baseUrl: 'http://test',
     httpClient: MockClient((http.Request r) {
       seen?.add(r);
+      if (onUpdate != null && r.url.path.endsWith('/update')) {
+        return onUpdate(updates++);
+      }
       if (sequential) {
         if (r.method == 'POST' && r.url.path == '/api/v1/sessions') {
           return Future<http.Response>.value(_sequentialSession(originMs));
@@ -475,6 +523,7 @@ Widget _app(
         initialControls: controls,
         controllerFactory: (_) => fake,
         wide: wide,
+        touch: touch,
         onToggleWide: onToggleWide ?? () {},
       ),
     ),
@@ -806,6 +855,52 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('a renegotiation that returns late never attaches over a newer one', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final Completer<http.Response> slow = Completer<http.Response>();
+    await tester.pumpWidget(
+      _app(
+        fake,
+        onUpdate: (int call) => call == 0
+            ? slow.future
+            : Future<http.Response>.value(
+                _renegotiated('remux', '/stream/newer/master.m3u8'),
+              ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.video_settings));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerOriginalAt(1080)).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('720p').last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('720p').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('480p').last);
+    await tester.pumpAndSettle();
+
+    expect(fake.attached, '/stream/newer/master.m3u8');
+
+    slow.complete(_renegotiated('transcode', '/stream/older/master.m3u8'));
+    await tester.pumpAndSettle();
+
+    expect(
+      fake.attached,
+      '/stream/newer/master.m3u8',
+      reason:
+          'the slower negotiation is for an artifact the newer one has already '
+          'superseded, so attaching it would play a stream the labels no longer describe',
+    );
+    expect(fake.calls, isNot(contains('attach:transcode')));
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('flushes a final progress on teardown', (
     WidgetTester tester,
   ) async {
@@ -882,6 +977,167 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(sessionStarts(), 2);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('backgrounding a touch player ends the session', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(_app(fake, seen: seen, touch: true));
+    await tester.pumpAndSettle();
+
+    bool sessionEnded() => seen.any(
+      (http.Request r) =>
+          r.method == 'DELETE' && r.url.path == '/api/v1/sessions/s1',
+    );
+
+    expect(sessionEnded(), isFalse);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pumpAndSettle();
+
+    // Pausing does not stop the player reading ahead, so it has to be detached
+    // as well or it walks the rest of the playlist against a dead session.
+    expect(fake.calls, containsAllInOrder(<String>['pause', 'detach']));
+    expect(sessionEnded(), isTrue);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  // A fresh session, but waiting for a tap: coming back to the app is not the
+  // same as asking to watch.
+  testWidgets('returning from the background restarts the session paused', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(_app(fake, seen: seen, touch: true));
+    await tester.pumpAndSettle();
+
+    int sessionStarts() => seen
+        .where(
+          (http.Request r) =>
+              r.method == 'POST' && r.url.path == '/api/v1/sessions',
+        )
+        .length;
+
+    expect(sessionStarts(), 1);
+    expect(fake.attachedAutoplay, isTrue);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(sessionStarts(), 2);
+    expect(fake.attachedAutoplay, isFalse);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('being uncovered by a route still resumes playing', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake, touch: true));
+    await tester.pumpAndSettle();
+
+    final NavigatorState navigator = Navigator.of(
+      tester.element(find.byType(WatchBody)),
+    );
+    navigator.push(
+      MaterialPageRoute<void>(builder: (BuildContext _) => const SizedBox()),
+    );
+    await tester.pumpAndSettle();
+    navigator.pop();
+    await tester.pumpAndSettle();
+
+    expect(fake.attachedAutoplay, isTrue);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  // An incoming call or a pulled-down notification shade must not cost the
+  // session, so only a full background counts.
+  testWidgets('going inactive leaves the session alone', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(_app(fake, seen: seen, touch: true));
+    await tester.pumpAndSettle();
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+
+    expect(
+      seen.any(
+        (http.Request r) =>
+            r.method == 'DELETE' && r.url.path == '/api/v1/sessions/s1',
+      ),
+      isFalse,
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  // Minimising a desktop window or hiding a browser tab keeps playing.
+  testWidgets('backgrounding leaves a non-touch player alone', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(_app(fake, seen: seen));
+    await tester.pumpAndSettle();
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pumpAndSettle();
+
+    expect(
+      seen.any(
+        (http.Request r) =>
+            r.method == 'DELETE' && r.url.path == '/api/v1/sessions/s1',
+      ),
+      isFalse,
+    );
+    expect(fake.calls, isNot(contains('pause')));
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  // The escape hatch is only useful if it survives the round trip, so assert
+  // it on the wire rather than on the widget that set it.
+  testWidgets('a delivery preference is sent when the session starts', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(
+      _app(
+        fake,
+        seen: seen,
+        controls: const PlaybackControls(delivery: DeliveryPreference.always),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final http.Request start = seen.firstWhere(
+      (http.Request r) =>
+          r.method == 'POST' && r.url.path == '/api/v1/sessions',
+    );
+    expect(
+      (jsonDecode(start.body) as Map<String, dynamic>)['delivery'],
+      'always',
+    );
 
     await tester.pumpWidget(const SizedBox());
     await tester.pumpAndSettle();
@@ -1468,6 +1724,92 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('on touch a tap only reveals, and a double tap seeks', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake, touch: true));
+    await tester.pumpAndSettle();
+    fake.calls.clear();
+
+    final Offset spot =
+        tester.getCenter(find.byType(PlayerFrame)) + const Offset(0, 80);
+    await tester.tapAt(spot);
+    await tester.pumpAndSettle();
+
+    expect(
+      fake.calls,
+      isNot(contains('toggle')),
+      reason: 'a thumb landing on the picture asks to see the controls',
+    );
+
+    await tester.tapAt(spot);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tapAt(spot);
+    await tester.pumpAndSettle();
+
+    expect(fake.calls, isNot(contains('fullscreen')));
+    expect(fake.calls.where((String c) => c.startsWith('seek')), isNotEmpty);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a touch player drops the controls a phone cannot use', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake, touch: true));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.fullscreen), findsNothing);
+    expect(find.byIcon(Icons.width_wide), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.tune));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(PlayerPanel.settings.title));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(Strings.shortcutsHeading),
+      findsNothing,
+      reason: 'there is no keyboard to list shortcuts for',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets(
+    'a touch player offers a way out that iOS does not otherwise have',
+    (WidgetTester tester) async {
+      // Android has a system back gesture and iOS has none, so the immersive
+      // player would otherwise be a room with no door there.
+      final FakePlayerController fake = FakePlayerController();
+      await tester.pumpWidget(_app(fake, touch: true));
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.arrow_back), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'a pointer player leaves the way out to the browser and the shell',
+    (WidgetTester tester) async {
+      final FakePlayerController fake = FakePlayerController();
+      await tester.pumpWidget(_app(fake));
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.arrow_back), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    },
+  );
+
   testWidgets('the network wait is selectable, applied and remembered', (
     WidgetTester tester,
   ) async {
@@ -1511,6 +1853,220 @@ void main() {
       60,
       reason: 'the choice has to outlive the session that made it',
     );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('the buffer target reaches the player before the stream opens', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+
+    expect(fake.bufferSeconds, kDefaultPlayerPrefs.bufferSeconds);
+    expect(
+      fake.calls.indexOf('buffer:${kDefaultPlayerPrefs.bufferSeconds}'),
+      lessThan(fake.calls.indexOf('attach:direct')),
+      reason:
+          'hls.js takes its buffer config when it is constructed, so a target '
+          'set after attach would not apply until the next stream',
+    );
+
+    await tester.tap(find.byIcon(Icons.settings).first);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find
+          .text(Strings.playerBufferDuration(kDefaultPlayerPrefs.bufferSeconds))
+          .last,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerBufferDuration(300)).last);
+    await tester.pumpAndSettle();
+
+    expect(fake.bufferSeconds, 300);
+    expect(
+      (await SharedPreferences.getInstance()).getInt(_bufferKey),
+      300,
+      reason: 'a weak connection outlives the session that noticed it',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  // The whole point of the toggle is that playback does not begin, so the
+  // attach has to be told not to autoplay rather than being paused after.
+  testWidgets('waiting for the buffer holds playback until the target is met', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      _waitKey: true,
+      _bufferKey: 30,
+    });
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await _settleAroundSpinner(tester);
+
+    expect(fake.attachedAutoplay, isFalse);
+    expect(find.text(Strings.playerBuffering), findsOneWidget);
+    expect(find.text(Strings.playerBufferingTo(0, 30)), findsOneWidget);
+
+    fake.at(positionMs: 0, bufferedAheadMs: 12000);
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(
+      fake.calls.contains('play'),
+      isFalse,
+      reason: 'twelve seconds is short of the thirty that was asked for',
+    );
+
+    fake.at(positionMs: 0, bufferedAheadMs: 30000);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(fake.calls.contains('play'), isTrue);
+    expect(find.text(Strings.playerBuffering), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  // Direct play on web never builds an hls.js instance, so nothing honours the
+  // target. Holding playback for a buffer that cannot grow is a deadlock: a
+  // paused progressive video stops filling once the browser has its own fill.
+  testWidgets('a player that cannot buffer ahead never holds playback', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      _waitKey: true,
+      _bufferKey: 600,
+    });
+    final FakePlayerController fake = FakePlayerController()
+      ..hlsBuffers = false;
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+
+    expect(fake.calls.contains('play'), isTrue);
+    expect(find.text(Strings.playerBuffering), findsNothing);
+    expect(find.text(Strings.playerPlayNow), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.settings).first);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(Strings.playerBufferingSection),
+      findsNothing,
+      reason:
+          'a control that cannot reach the engine reads as broken, so the '
+          'whole section goes rather than sitting there doing nothing',
+    );
+    expect(find.text(Strings.playerBufferTarget), findsNothing);
+    expect(find.text(Strings.playerWaitForBuffer), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  // A clip shorter than the target can never reach it, so an absolute target
+  // would sit through the whole give-up timer on every short video.
+  testWidgets('a clip shorter than the target waits only for what exists', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      _waitKey: true,
+      _bufferKey: 300,
+    });
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await _settleAroundSpinner(tester);
+
+    expect(
+      find.text(Strings.playerBufferingTo(0, 100)),
+      findsOneWidget,
+      reason:
+          'the fake runs a 100 second video, so the reachable target is the '
+          'whole clip and not the five minutes that were asked for',
+    );
+
+    // A fully buffered clip stops a fraction short of its stated duration, and
+    // the overlay rounds that to the target while an exact comparison does not,
+    // so it read "45s of 45s" and still sat through the give-up timer.
+    fake.at(positionMs: 0, bufferedAheadMs: 99600);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(
+      fake.calls.contains('play'),
+      isTrue,
+      reason:
+          'buffered to within a second of the whole clip is buffered, and the '
+          'overlay already says so',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  // Even where the target is honoured, a connection that cannot reach it would
+  // otherwise wait for ever without the viewer touching anything.
+  testWidgets('a buffer that stops growing gives up and starts', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      _waitKey: true,
+      _bufferKey: 600,
+    });
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await _settleAroundSpinner(tester);
+
+    fake.at(positionMs: 0, bufferedAheadMs: 11000);
+    for (int i = 0; i <= kPrebufferGiveUpSeconds; i++) {
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    expect(
+      fake.calls.contains('play'),
+      isTrue,
+      reason:
+          'eleven seconds that never move is exactly what a paused progressive '
+          'video looks like, and waiting longer would not help',
+    );
+    expect(
+      kPrebufferGiveUpSeconds,
+      10,
+      reason:
+          'this is the dead wait a viewer sits through every time the memory '
+          'limit binds, so it is bounded by patience rather than by how long '
+          'a slow transcode takes to deliver its next segment',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  // A target set too high on a connection that cannot reach it would otherwise
+  // trap the viewer in the waiting state with no way out.
+  testWidgets('a viewer who is tired of waiting can start anyway', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      _waitKey: true,
+      _bufferKey: 600,
+    });
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await _settleAroundSpinner(tester);
+
+    expect(find.text(Strings.playerPlayNow), findsOneWidget);
+
+    await tester.tap(find.text(Strings.playerPlayNow));
+    await _settleAroundSpinner(tester);
+
+    expect(fake.calls.contains('play'), isTrue);
+    expect(find.text(Strings.playerPlayNow), findsNothing);
 
     await tester.pumpWidget(const SizedBox());
     await tester.pumpAndSettle();

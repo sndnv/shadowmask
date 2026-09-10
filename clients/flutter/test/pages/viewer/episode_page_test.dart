@@ -60,7 +60,11 @@ Future<void> _pump(WidgetTester tester, ApiClient api) async {
       variant: AppThemeVariant.dark,
       setVariant: (_) {},
       child: MaterialApp(
-        theme: buildTheme(AppThemeVariant.dark),
+        // Pointer platform: the poster is only a button where there is a
+        // cursor to reveal it, so the artwork tests below are desktop and web.
+        theme: buildTheme(
+          AppThemeVariant.dark,
+        ).copyWith(platform: TargetPlatform.macOS),
         onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
           builder: (_) => settings.name == null || settings.name == '/'
               ? EpisodePage(api: api, id: 'e1')

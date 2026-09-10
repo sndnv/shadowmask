@@ -732,4 +732,58 @@ void main() {
       reason: 'a dismissed dialog changed nothing, so nothing needs reloading',
     );
   });
+
+  testWidgets('a phone folds the subtitle actions so the row still reads', (
+    WidgetTester tester,
+  ) async {
+    // Four icon buttons took 232 of a 360px phone and squeezed the format and
+    // language cells to zero width, which put every character on its own line.
+    await _pump(tester, size: const Size(360, 2400));
+
+    expect(
+      find.byIcon(Icons.more_vert),
+      findsWidgets,
+      reason: 'the four actions fold into one menu',
+    );
+    expect(
+      find.byIcon(Icons.drive_file_rename_outline),
+      findsNothing,
+      reason: 'and are reached through it rather than sitting in the row',
+    );
+
+    for (final String value in <String>['SRT', 'ENG', 'NLD']) {
+      final Size cell = tester.getSize(find.text(value).first);
+      expect(cell.width, greaterThan(0), reason: value);
+      expect(cell.height, lessThan(22), reason: '$value wrapped');
+    }
+  });
+
+  testWidgets('delete stays red once it is inside the folded menu', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, size: const Size(360, 2400));
+
+    await tester.tap(find.byIcon(Icons.more_vert).first);
+    await tester.pumpAndSettle();
+
+    final Finder item = find.ancestor(
+      of: find.text(Strings.delete),
+      matching: find.byType(MenuItemButton),
+    );
+    final BuildContext context = tester.element(item);
+    final Icon icon = tester.widget<Icon>(
+      find.descendant(of: item, matching: find.byIcon(Icons.delete_outline)),
+    );
+
+    expect(icon.color, Theme.of(context).colorScheme.error);
+  });
+
+  testWidgets('a roomy window keeps every subtitle action in the row', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester);
+
+    expect(find.byIcon(Icons.drive_file_rename_outline), findsWidgets);
+    expect(find.byIcon(Icons.more_vert), findsNothing);
+  });
 }

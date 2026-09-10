@@ -221,13 +221,14 @@ mod tests {
 
     #[test]
     fn a_stream_token_does_not_verify_as_a_download_token() {
-        use domain::session::{SessionId, StreamClaims, StreamTokens};
+        use domain::session::{SessionId, StreamClaims, StreamGeneration, StreamTokens};
 
         let streams = crate::stream_token::HmacStreamTokens::new(SECRET);
         let downloads = HmacDownloadTokens::new(SECRET);
         let token = streams
             .create(&StreamClaims {
                 session: SessionId("session-1".into()),
+                generation: StreamGeneration(0),
                 user: UserId("user-1".into()),
                 version: VersionId("version-1".into()),
                 expires_at: Timestamp::from_second(Timestamp::now().as_second() + 3600).unwrap(),

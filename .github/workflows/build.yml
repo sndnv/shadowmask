@@ -73,3 +73,80 @@ jobs:
           sudo apt install -y lcov
           cd clients/flutter
           ./qa.py
+
+  flutter-build:
+    needs:
+      - flutter
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: web
+            os: ubuntu-latest
+          - target: android
+            os: ubuntu-latest
+          - target: linux
+            os: ubuntu-latest
+          - target: macos
+            os: macos-latest
+          - target: ios
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        if: matrix.target == 'android'
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: 'stable'
+          flutter-version: '3.47.1'
+
+      - name: Install Linux build dependencies
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ninja-build libgtk-3-dev libmpv-dev mpv
+
+      - name: Generate sources
+        run: |
+          cd clients/flutter
+          flutter pub get
+          dart run build_runner build
+
+      - name: Build web bundle
+        if: matrix.target == 'web'
+        run: |
+          cd clients/flutter
+          flutter build web --release
+
+      - name: Build Android APK
+        if: matrix.target == 'android'
+        run: |
+          cd clients/flutter
+          flutter build apk --debug
+
+      - name: Build Linux bundle
+        if: matrix.target == 'linux'
+        run: |
+          cd clients/flutter
+          flutter build linux --release
+
+      - name: Build macOS app
+        if: matrix.target == 'macos'
+        run: |
+          cd clients/flutter
+          flutter build macos --release
+
+      - name: Build iOS app
+        if: matrix.target == 'ios'
+        run: |
+          cd clients/flutter
+          flutter build ios --release --no-codesign

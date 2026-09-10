@@ -107,8 +107,9 @@ Future<void> _pump(
   WidgetTester tester,
   ApiClient api, {
   bool settle = true,
+  Size window = const Size(1400, 1000),
 }) async {
-  tester.view.physicalSize = const Size(1400, 1000);
+  tester.view.physicalSize = window;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
@@ -242,5 +243,39 @@ void main() {
     expect(find.text(Strings.retry), findsOneWidget);
     expect(find.text('Movie 0'), findsOneWidget);
     expect(offsets, <int>[0, 2]);
+  });
+
+  testWidgets('the list lays out on every phone shape without overflowing', (
+    WidgetTester tester,
+  ) async {
+    // Portrait and landscape, and the narrowest phone still sold, because an
+    // overflow only shows up at the width that produces it.
+    for (final Size window in <Size>[
+      const Size(360, 640),
+      const Size(393, 851),
+      const Size(411, 914),
+      const Size(851, 393),
+    ]) {
+      final List<int> offsets = <int>[];
+      await _pump(tester, _api(offsets), window: window);
+
+      expect(find.text('Movie 0'), findsOneWidget, reason: '$window');
+      expect(tester.takeException(), isNull, reason: '$window');
+    }
+  });
+
+  testWidgets('a loading phone list lays out without overflowing', (
+    WidgetTester tester,
+  ) async {
+    final List<int> offsets = <int>[];
+    await _pump(
+      tester,
+      _api(offsets, stallAfterFirst: true),
+      settle: false,
+      window: const Size(360, 800),
+    );
+
+    expect(find.byType(SkeletonCard), findsWidgets);
+    expect(tester.takeException(), isNull);
   });
 }

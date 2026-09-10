@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 
 use serde::Deserialize;
 
@@ -31,6 +32,8 @@ struct RawProfile {
     max_width: u32,
     max_height: u32,
     max_bitrate: u64,
+    #[serde(default)]
+    max_frame_rate: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -39,6 +42,12 @@ struct RawVideoCodec {
     #[serde(default)]
     max_level: Option<String>,
     max_bit_depth: u8,
+    #[serde(default = "smooth_unless_stated")]
+    smooth: bool,
+}
+
+fn smooth_unless_stated() -> bool {
+    true
 }
 
 #[derive(Deserialize)]
@@ -57,6 +66,13 @@ impl BuiltinProfiles {
         Self::load_with_overrides(HashMap::new())
     }
 
+    pub fn load_from_dir(dir: Option<&Path>) -> Result<Self, ProfileError> {
+        match dir {
+            Some(dir) => Self::load_with_overrides(read_overrides(dir)?),
+            None => Self::load(),
+        }
+    }
+
     pub fn load_with_overrides(
         overrides: HashMap<String, CapabilityProfile>,
     ) -> Result<Self, ProfileError> {
@@ -65,12 +81,35 @@ impl BuiltinProfiles {
             profiles.insert(name.to_owned(), parse_profile(json)?);
         }
         for (name, profile) in overrides {
-            validate(&profile)?;
+            profile.validate()?;
             profiles.insert(name, profile);
         }
         let generic = profiles[GENERIC].clone();
         Ok(Self { profiles, generic })
     }
+}
+
+fn read_overrides(dir: &Path) -> Result<HashMap<String, CapabilityProfile>, ProfileError> {
+    let entries = std::fs::read_dir(dir).map_err(|error| unreadable(dir, &error))?;
+    let mut overrides = HashMap::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        let json = std::fs::read_to_string(&path).map_err(|error| unreadable(&path, &error))?;
+        let profile = parse_profile(&json)
+            .map_err(|error| ProfileError::Invalid(format!("{}: {error}", path.display())))?;
+        overrides.insert(name.to_owned(), profile);
+    }
+    Ok(overrides)
+}
+
+fn unreadable(path: &Path, error: &std::io::Error) -> ProfileError {
+    ProfileError::Unreadable(format!("{}: {error}", path.display()))
 }
 
 impl ProfileRegistry for BuiltinProfiles {
@@ -106,6 +145,7 @@ fn to_domain(raw: RawProfile) -> Result<CapabilityProfile, ProfileError> {
             codec: v.codec,
             max_level: v.max_level,
             max_bit_depth: v.max_bit_depth,
+            smooth: v.smooth,
         })
         .collect();
     let audio = raw
@@ -124,25 +164,10 @@ fn to_domain(raw: RawProfile) -> Result<CapabilityProfile, ProfileError> {
         max_width: raw.max_width,
         max_height: raw.max_height,
         max_bitrate: raw.max_bitrate,
+        max_frame_rate: raw.max_frame_rate,
     };
-    validate(&profile)?;
+    profile.validate()?;
     Ok(profile)
-}
-
-fn validate(p: &CapabilityProfile) -> Result<(), ProfileError> {
-    if p.containers.is_empty() {
-        return Err(ProfileError::Invalid("no containers".to_owned()));
-    }
-    if p.video.is_empty() {
-        return Err(ProfileError::Invalid("no video codecs".to_owned()));
-    }
-    if p.audio.is_empty() {
-        return Err(ProfileError::Invalid("no audio codecs".to_owned()));
-    }
-    if p.max_width == 0 || p.max_height == 0 || p.max_bitrate == 0 {
-        return Err(ProfileError::Invalid("non-positive limits".to_owned()));
-    }
-    Ok(())
 }
 
 fn map_container(value: &str) -> Result<Container, ProfileError> {
@@ -156,15 +181,8 @@ fn map_container(value: &str) -> Result<Container, ProfileError> {
 }
 
 fn map_hdr(value: &str) -> Result<HdrFormat, ProfileError> {
-    match value {
-        "hdr10" => Ok(HdrFormat::Hdr10),
-        "hdr10plus" => Ok(HdrFormat::Hdr10Plus),
-        "dolby_vision" => Ok(HdrFormat::DolbyVision),
-        "hlg" => Ok(HdrFormat::Hlg),
-        other => Err(ProfileError::Invalid(format!(
-            "unknown hdr format: {other}"
-        ))),
-    }
+    HdrFormat::parse(value)
+        .ok_or_else(|| ProfileError::Invalid(format!("unknown hdr format: {value}")))
 }
 
 #[cfg(test)]
@@ -176,7 +194,12 @@ mod tests {
         let registry = BuiltinProfiles::load().expect("built-ins should load");
         for &(name, _) in BUILTINS {
             let profile = registry.resolve(name);
-            assert!(validate(&profile).is_ok());
+            assert!(profile.validate().is_ok());
+            // A profile file says nothing about smoothness, so every built-in
+            // has to keep negotiating exactly as it did before clients could
+            // report otherwise.
+            assert!(profile.video.iter().all(|codec| codec.smooth));
+            assert_eq!(profile.max_frame_rate, None);
         }
     }
 
@@ -244,6 +267,7 @@ mod tests {
                 codec: "av1".to_owned(),
                 max_level: None,
                 max_bit_depth: 10,
+                smooth: true,
             }],
             audio: vec![AudioCodecCap {
                 codec: "opus".to_owned(),
@@ -253,6 +277,7 @@ mod tests {
             max_width: 7680,
             max_height: 4320,
             max_bitrate: 100_000_000,
+            max_frame_rate: None,
         };
         let mut overrides = HashMap::new();
         overrides.insert("roku".to_owned(), custom.clone());
@@ -276,6 +301,7 @@ mod tests {
                 max_width: 0,
                 max_height: 0,
                 max_bitrate: 0,
+                max_frame_rate: None,
             },
         );
         assert!(matches!(
@@ -320,5 +346,76 @@ mod tests {
             parse_profile("not json"),
             Err(ProfileError::Parse(_))
         ));
+    }
+
+    #[test]
+    fn a_profile_can_declare_a_codec_it_cannot_decode_smoothly() {
+        let json = r#"{"containers":["mp4"],"video":[{"codec":"av1","max_bit_depth":10,"smooth":false}],"audio":[{"codec":"aac","max_channels":2}],"max_width":3840,"max_height":2160,"max_bitrate":40000000,"max_frame_rate":30}"#;
+        let profile = parse_profile(json).unwrap();
+        assert!(!profile.video[0].smooth);
+        assert_eq!(profile.max_frame_rate, Some(30));
+    }
+
+    fn write_profile(dir: &std::path::Path, name: &str, body: &str) {
+        std::fs::write(dir.join(name), body).unwrap();
+    }
+
+    const OVERRIDE: &str = r#"{"containers":["mp4"],"video":[{"codec":"h264","max_bit_depth":8}],"audio":[{"codec":"aac","max_channels":2}],"max_width":1280,"max_height":720,"max_bitrate":4000000}"#;
+
+    #[test]
+    fn without_a_directory_only_the_built_ins_load() {
+        let registry = BuiltinProfiles::load_from_dir(None).unwrap();
+        assert_eq!(
+            registry.resolve("roku"),
+            BuiltinProfiles::load().unwrap().resolve("roku")
+        );
+    }
+
+    #[test]
+    fn a_file_replaces_the_built_in_it_names_and_adds_the_ones_it_does_not() {
+        // The operator escape hatch for a client that cannot measure: a Roku
+        // Express cannot do what roku.json claims for every model.
+        let dir = tempfile::tempdir().unwrap();
+        write_profile(dir.path(), "roku.json", OVERRIDE);
+        write_profile(dir.path(), "lounge-tv.json", OVERRIDE);
+        write_profile(dir.path(), "notes.txt", "ignored");
+
+        let registry = BuiltinProfiles::load_from_dir(Some(dir.path())).unwrap();
+        assert_eq!(registry.resolve("roku").max_height, 720);
+        assert_eq!(registry.resolve("lounge-tv").max_height, 720);
+        assert_eq!(registry.resolve("android").max_height, 2160);
+        assert_eq!(registry.resolve("notes"), registry.resolve(GENERIC));
+    }
+
+    #[test]
+    fn a_missing_directory_refuses_to_start() {
+        // A silently ignored override is worse than a refusal to boot: the
+        // operator would be reading a profile they think they replaced.
+        let Err(error) = BuiltinProfiles::load_from_dir(Some(std::path::Path::new("/no/such/dir")))
+        else {
+            panic!("a missing directory should not be ignored");
+        };
+        assert!(matches!(error, ProfileError::Unreadable(_)));
+        assert!(error.to_string().contains("/no/such/dir"));
+    }
+
+    #[test]
+    fn an_unreadable_file_refuses_to_start() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("roku.json")).unwrap();
+        assert!(matches!(
+            BuiltinProfiles::load_from_dir(Some(dir.path())),
+            Err(ProfileError::Unreadable(_))
+        ));
+    }
+
+    #[test]
+    fn a_broken_file_names_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        write_profile(dir.path(), "roku.json", "not json");
+        let Err(error) = BuiltinProfiles::load_from_dir(Some(dir.path())) else {
+            panic!("a broken override should not be ignored");
+        };
+        assert!(error.to_string().contains("roku.json"));
     }
 }

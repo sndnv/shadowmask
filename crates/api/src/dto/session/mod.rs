@@ -15,7 +15,9 @@ mod subtitle_selection;
 mod subtitle_track_ref;
 mod update_session_request;
 
-pub use client_capabilities::ClientCapabilitiesDto;
+pub use client_capabilities::{
+    AudioCodecCapDto, ClientCapabilitiesDto, ClientDecodingDto, VideoCodecCapDto,
+};
 pub use delivery_mode::DeliveryModeDto;
 pub use heartbeat_ack::HeartbeatAckResponse;
 pub use heartbeat_request::HeartbeatRequest;

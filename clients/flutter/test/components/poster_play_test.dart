@@ -6,10 +6,15 @@ import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 
 void main() {
+  // These cover the hover affordance, which is a pointer behaviour. Tests run
+  // as Android by default, where the poster now shows a resting play badge
+  // instead, because touch has no hover to reveal one.
   Future<void> pumpPoster(WidgetTester tester, {VoidCallback? onTap}) =>
       tester.pumpWidget(
         MaterialApp(
-          theme: buildTheme(AppThemeVariant.dark),
+          theme: buildTheme(
+            AppThemeVariant.dark,
+          ).copyWith(platform: TargetPlatform.macOS),
           home: Scaffold(
             body: Center(
               child: SizedBox(
@@ -61,5 +66,41 @@ void main() {
 
     expect(find.byIcon(Icons.play_arrow), findsNothing);
     expect(find.byType(InkWell), findsNothing);
+  });
+
+  testWidgets('on touch the poster is artwork rather than a button', (
+    WidgetTester tester,
+  ) async {
+    // There is no hover to reveal an affordance, so a tappable poster is a
+    // secret. The visible controls below it do the same job.
+    int taps = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(
+          AppThemeVariant.dark,
+        ).copyWith(platform: TargetPlatform.android),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 220,
+              height: 330,
+              child: PosterPlay(
+                tooltip: 'Play',
+                onTap: () => taps++,
+                child: const ColoredBox(color: Color(0xFF000000)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byIcon(Icons.play_arrow), findsNothing);
+    expect(find.byType(InkWell), findsNothing);
+
+    await tester.tap(find.byType(PosterPlay), warnIfMissed: false);
+    await tester.pump();
+
+    expect(taps, 0);
   });
 }

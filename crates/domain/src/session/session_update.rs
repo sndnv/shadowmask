@@ -1,4 +1,4 @@
-use crate::session::SubtitleChange;
+use crate::session::{DeliveryPreference, SubtitleChange};
 
 #[derive(Debug, Clone)]
 pub struct SessionUpdate {
@@ -7,4 +7,5 @@ pub struct SessionUpdate {
     pub target_height: Option<u32>,
     pub force_burn: bool,
     pub downmix_stereo: bool,
+    pub delivery: DeliveryPreference,
 }

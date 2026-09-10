@@ -30,6 +30,18 @@ void main() {
     expect(dateTimeText(null), isNull);
   });
 
+  test('sinceText prefers how long ago and falls back to the clock', () {
+    // "Last seen" reads better as an interval, but an unparseable value must
+    // still render as something rather than reaching the screen as ISO.
+    final DateTime now = DateTime(2026, 8, 17, 12);
+    final DateTime local = DateTime(2026, 8, 17, 9, 24, 11);
+
+    expect(sinceText(local.toUtc().toIso8601String(), now: now), '2 hours ago');
+    expect(sinceText('not a date'), 'not a date');
+    expect(sinceText(null), isNull);
+    expect(sinceText(''), isNull);
+  });
+
   test('relativeText counts up through the units', () {
     final DateTime now = DateTime(2026, 8, 17, 12);
     String? ago(DateTime at) =>

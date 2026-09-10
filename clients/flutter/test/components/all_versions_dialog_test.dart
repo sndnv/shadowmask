@@ -15,6 +15,7 @@ import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
+import 'package:shadowmask/util/downloads.dart';
 import 'package:shadowmask/view/version_order.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -80,7 +81,13 @@ bool _numbered(List<String> lines, String number, String quality) =>
     lines.any((String l) => l.startsWith('$number · $quality'));
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+  final DownloadStarter platform = startDownload;
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    startDownload = (String url, String filename) async => true;
+  });
+  tearDown(() => startDownload = platform);
 
   testWidgets('the dialog numbers versions the same way the picker does', (
     WidgetTester tester,

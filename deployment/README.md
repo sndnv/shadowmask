@@ -58,6 +58,36 @@ The `render` group id can differ between host distributions; use the numeric gid
 does not resolve inside the container. Intel QuickSync uses the same VAAPI path (its driver is baked
 into the image). Hardware H.264 encoding is VAAPI-only; NVIDIA NVENC is not used by the encoder.
 
+## Playback profiles
+
+Every client names a device type when it starts a session, and the server resolves that to a
+built-in profile saying what the device can play. Clients that can measure their own decode support
+report it as well, and the report overrides the built-in field by field, so the profile is only the
+starting point on those devices.
+
+For a device that cannot measure and that the built-in gets wrong, point
+`SHADOWMASK_PROFILE_OVERRIDES_DIR` at a directory of JSON profile files. The file name without its
+extension is the device type, so `roku.json` replaces the built-in `roku` profile and
+`lounge-tv.json` adds a new type a client can name for itself.
+
+```json
+{
+  "containers": ["mp4", "hls"],
+  "video": [{ "codec": "h264", "max_level": "4.2", "max_bit_depth": 8 }],
+  "audio": [{ "codec": "aac", "max_channels": 2 }],
+  "hdr": [],
+  "max_width": 1920,
+  "max_height": 1080,
+  "max_bitrate": 8000000
+}
+```
+
+`hdr`, `max_frame_rate` and each codec's `max_level` are optional; everything else is required.
+Claiming something a device cannot actually play fails playback outright, which is worse than the
+transcode that leaving it out costs, so prefer narrow. The server refuses to start if the directory
+is missing or a file does not parse, rather than quietly falling back to the built-in you meant to
+replace.
+
 ## Content fetch
 
 Shadowmask can pull a single video from an external site over HTTP, store it in a dedicated

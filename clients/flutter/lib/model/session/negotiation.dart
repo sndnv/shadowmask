@@ -13,6 +13,7 @@ abstract class Negotiation with _$Negotiation {
     @Default(0) int originMs,
     @Default(false) bool sequential,
     @Default(PlaybackMode.direct) PlaybackMode mode,
+    String? container,
     SelectedTracks? selected,
   }) = _Negotiation;
 

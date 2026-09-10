@@ -75,6 +75,12 @@ impl Ctx {
         let users_repo = MockUserRepo::new();
         users_repo.insert(account("admin", Role::Admin));
         users_repo.insert(account("u1", Role::User));
+        // Admin is no longer implicitly granted every library, so the fixture grants
+        // it the libraries these tests use, the same way a real admin would be.
+        users_repo.grant(
+            &UserId("admin".into()),
+            &[LibraryId("lib1".into()), LibraryId("ext1".into())],
+        );
         let library_repo = MockLibraryRepo::new();
         let jobs_repo = MockJobStore::new();
         let progress_repo = MockProgressRepo::new();
@@ -410,6 +416,85 @@ async fn auth_endpoints() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["token"], "player-token");
+}
+
+// Only /admin/versions had a delete test, so the success path of the four title
+// delete endpoints was never taken. These are the destructive routes, and a 204
+// that never ran is a 204 nobody has seen.
+#[tokio::test]
+async fn the_admin_title_deletes_are_gated_and_return_no_content() {
+    let ctx = Ctx::new();
+    ctx.catalog_repo.add_movie(movie("m1"));
+    ctx.catalog_repo.add_series(series("s1"));
+    ctx.catalog_repo.add_season(season("se1", "s1"));
+    ctx.catalog_repo.add_episode(episode("e1", "se1"));
+
+    // Leaves first: a title with children still under it is refused.
+    let uris = [
+        "/api/v1/admin/episodes/e1",
+        "/api/v1/admin/seasons/se1",
+        "/api/v1/admin/series/s1",
+        "/api/v1/admin/movies/m1",
+    ];
+    for uri in uris {
+        let (status, _) = call(ctx.app(), Method::DELETE, uri, Some(USER), None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "DELETE {uri} as user");
+        let (status, _) = call(ctx.app(), Method::DELETE, uri, Some(ADMIN), None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "DELETE {uri} as admin");
+    }
+
+    let (status, _) = call(
+        ctx.app(),
+        Method::DELETE,
+        "/api/v1/admin/movies/m1",
+        Some(ADMIN),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "deleting the same title twice is not found, not another 204"
+    );
+}
+
+#[tokio::test]
+async fn self_reports_the_session_role_not_the_account_role() {
+    let ctx = Ctx::new();
+    ctx.users_repo.insert(account("boss", Role::Admin));
+    ctx.auth
+        .add_account("tablet", "pw", UserId("boss".into()), Role::Player);
+
+    let (status, body) = call(
+        ctx.app(),
+        Method::GET,
+        "/api/v1/users/self",
+        Some("access:boss"),
+        None,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["id"], "boss");
+    assert_eq!(
+        body["role"], "player",
+        "a linked device told it is an admin renders admin pages the server then refuses"
+    );
+
+    let (status, body) = call(
+        ctx.app(),
+        Method::GET,
+        "/api/v1/users/boss",
+        Some(ADMIN),
+        None,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["role"], "admin",
+        "the account row is still the account row; only self is session scoped"
+    );
 }
 
 #[tokio::test]

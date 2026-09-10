@@ -40,6 +40,22 @@ abstract final class Strings {
       'Username and password are required.';
   static String signInFailed(String detail) => 'Sign in failed ($detail).';
 
+  static const String linkDeviceTitle = 'Link this device';
+  static const String linkDeviceHelp =
+      'Ask someone with an account to create a link code for you, then enter '
+      'it here. This device can browse and play, and no password is kept on '
+      'it.';
+  static const String linkCodeLabel = 'Link code';
+  static const String deviceNameLabel = 'Device name';
+  static const String deviceNameFallback = 'This device';
+  static const String linkCodeRequired = 'Enter the link code.';
+  static const String deviceNameRequired = 'Give this device a name.';
+  static const String linkDeviceAction = 'Link';
+  static const String linking = 'Linking…';
+  static String linkFailed(String detail) => 'Linking failed ($detail).';
+  static const String useLinkCode = 'Use a link code instead';
+  static const String usePassword = 'Sign in with a password instead';
+
   static const String serverHeading = 'Server';
   static const String serverAddress = 'Server address';
   static const String serverAddressHelp =
@@ -54,6 +70,50 @@ abstract final class Strings {
   static const String changeServer = 'Change server';
   static const String changeServerHelp =
       'Connecting to a different server signs you out of this one.';
+
+  static const String playbackSupportHeading = 'Playback support';
+  static const String playbackSupportDeviceType = 'Device type';
+  static const String playbackSupportLargestPicture = 'Largest picture';
+  static const String playbackSupportVideo = 'Video';
+  static const String playbackSupportAudio = 'Audio';
+  static const String playbackSupportHdr = 'High dynamic range';
+  static const String playbackSupportNone = 'None';
+  static String playbackSupportVideoCodec(
+    String codec,
+    int bits, {
+    required bool smooth,
+  }) => '$codec · $bits-bit · ${smooth ? 'hardware' : 'software'}';
+  static String playbackSupportAudioCodec(String codec, int channels) =>
+      '$codec · up to $channels channels';
+  static const String playbackSupportFrameRate = 'Frame rate';
+  static const String playbackSupportAuto = 'Detected';
+  static const String playbackSupportHardware = 'Hardware';
+  static const String playbackSupportSoftware = 'Software';
+  static const String playbackSupportUnsupported = 'Do not use';
+  static const String playbackSupportAllow = 'Allow';
+  static const String playbackSupportDeny = 'Never';
+  static const String playbackSupportReset = 'Use detected values';
+  static const String editPlaybackSupport = 'Edit playback support';
+  static const String playbackSupportChanged = 'Overridden';
+  static const String playbackSupportPictureHelp =
+      'The biggest picture this device asks for. Lower it if large videos '
+      'stutter: anything bigger is shrunk before it is sent, which asks more '
+      'of the server but less of this device.';
+  static const String playbackSupportFrameRateHelp =
+      'The fastest frame rate this device asks for. Video recorded faster than '
+      'this is rebuilt before it is sent.';
+  static const String playbackSupportCodecHelp =
+      'How this device handles video saved in this format. Hardware plays it '
+      'most smoothly. Software still plays it, using more battery and '
+      'sometimes stuttering. Selecting "Do not use" forces a rebuild before video is sent, '
+      'which always plays but asks the most of the server.';
+  static const String playbackSupportHdrHelp =
+      'Whether this device is sent video with a wider range of brightness and '
+      'colour. Choose "Never" if colours look washed out or too dark, and it '
+      'will be converted before it is sent.';
+  static String playbackSupportUpTo(int height) => 'Up to ${height}p';
+  static String playbackSupportUpToRate(int rate) => 'Up to $rate fps';
+  static String playbackSupportDetectedAs(String value) => 'Detected: $value';
 
   static const String loading = 'Loading…';
   static const String couldNotLoad = 'Could not load.';
@@ -211,19 +271,44 @@ abstract final class Strings {
   static const String playerVideo = 'Video';
   static const String playerMute = 'Mute';
   static const String playerRemainingTime = 'Count down to the end';
+  static String playerSeekSeconds(int seconds) => '${seconds}s';
+  static String playerHoldSpeed(double rate) =>
+      '${rate == rate.roundToDouble() ? rate.toInt() : rate}x';
   static const String playerNormalSpeed = 'Normal';
   static const String playerPictureInPicture = 'Picture in picture';
   static const String playerQuality = 'Quality';
+  static const String playerQualityHelp =
+      'The largest picture asked for. Anything bigger is shrunk before it is '
+      'sent, so choosing a smaller size can steady a weak connection at the '
+      'cost of detail.';
   static const String playerAudio = 'Audio';
   static const String playerSubtitles = 'Subtitles';
   static String subtitleTrackLabel(int index) => 'Sub $index';
   static const String playerOffset = 'Offset';
+  static const String playerOffsetHelp =
+      'Shift the subtitles in time, in thousandths of a second. Use a positive '
+      'number when they appear too early and a negative one when they lag '
+      'behind the speech. A thousand is one second.';
   static const String playerBurnIn = 'Burn in';
+  static const String playerBurnInHelp =
+      'Draw the subtitles into the picture itself instead of sending them '
+      'separately. Turn it on if subtitles do not show up at all, or if the '
+      'styling of the original is lost. The cost is that they can no longer be '
+      'turned off or restyled without starting over, and the video has to be '
+      'rebuilt, which asks more of the server.';
   static const String playerSubtitlesImageTrack =
       'This subtitle track is an image, so it is always drawn into the picture.';
   static const String playerStereoDownmix = 'Stereo downmix';
+  static const String playerStereoDownmixHelp =
+      'Fold surround sound down to two channels. Turn it on for headphones or '
+      'stereo speakers, where surround audio can otherwise sound thin or leave '
+      'speech too quiet, because the channel carrying the dialogue is never '
+      'played.';
   static const String playerSpeed = 'Speed';
   static const String playerDiagnostics = 'Diagnostics';
+  static const String playerDiagnosticsHelp =
+      'Show technical detail about what is playing, on top of the video. '
+      'Useful when reporting a problem with playback.';
   static const String playerAutoplayNext = 'Autoplay next';
   static const String playerAutoplayOff = 'Off';
   static String playerAutoplayDelay(int seconds) => '$seconds seconds';
@@ -231,6 +316,44 @@ abstract final class Strings {
   static const String playerPlayNow = 'Play now';
   static const String shortcutsHeading = 'Shortcuts';
   static const String playerNetworkTimeout = 'Timeout';
+  static const String playerNetworkTimeoutHelp =
+      'How long to keep waiting for the server before giving up on a piece of '
+      'video. Raise it on a slow or unreliable connection, where a short wait '
+      'abandons video that would have arrived.';
+  static const String playerBufferingSection = 'Buffering';
+  static const String playerBufferTarget = 'Buffer';
+  static const String playerBufferHelp =
+      'How much video to load ahead of what you are watching. A larger amount '
+      'rides out an uneven connection, but takes longer to fill and asks more '
+      'of the server. Very high quality video may not reach the amount you '
+      'pick, because it fills the space set aside for it sooner.';
+  static const String playerBufferLimit = 'Limit';
+  static const String playerBufferLimitHelp =
+      'The most memory to set aside for video loaded ahead. Loading stops at '
+      'whichever runs out first, this or the time above, so high quality video '
+      'often stops short of the time you picked. Raise it if this device has '
+      'memory to spare, lower it if other things slow down while watching.';
+  static String playerBufferSize(int bytes) {
+    final int mb = bytes ~/ (1024 * 1024);
+    return mb >= 1024 ? '${mb ~/ 1024} GB' : '$mb MB';
+  }
+
+  static const String playerWaitForBuffer = 'Wait for buffer';
+  static const String playerWaitForBufferHelp =
+      'Hold playback until the amount above has loaded, instead of starting '
+      'straight away. Useful on a connection that keeps pausing. Playback '
+      'starts anyway if the amount stops growing, so a target this connection '
+      'cannot reach will not leave you waiting for ever.';
+  static String playerBufferDuration(int seconds) {
+    if (seconds < 60) {
+      return '$seconds seconds';
+    }
+    final int minutes = seconds ~/ 60;
+    return minutes == 1 ? '1 minute' : '$minutes minutes';
+  }
+
+  static String playerBufferingTo(double ready, int target) =>
+      'Buffering ${ready.round()}s of ${target}s';
   static const String shortcutPlayPause = 'Play or pause';
   static const String shortcutSeekBack = 'Back 10 seconds';
   static const String shortcutSeekForward = 'Forward 10 seconds';
@@ -260,6 +383,26 @@ abstract final class Strings {
     _ => '${height}p',
   };
   static const String playerModeLabel = 'Mode';
+  static const String playerModeHelp =
+      'How this video is reaching you right now. Reported, not chosen: it '
+      'follows from the Converting setting and what this device can play.';
+  static const String playerAdvanced = 'Advanced';
+  static const String playerDelivery = 'Converting';
+  static const String playerDeliveryHelp =
+      'Whether video is rebuilt before it is sent. "Auto" rebuilds only when '
+      'this device cannot play the original. "Never" sends the original where '
+      'it can, which is fastest but may not play at all. "Always" rebuilds '
+      'every time, which plays most reliably and asks the most of the server. '
+      'This applies to the current video only.';
+  static const String playerDeliveryAuto = 'Auto';
+  static const String playerDeliveryNever = 'Never';
+  static const String playerDeliveryAlways = 'Always';
+  static const String playerContainerLabel = 'Segments';
+  static const String playerContainerHelp =
+      'How the video is packaged while it is sent to you. Reported, not '
+      'chosen: it follows from the format of the original and whether it is '
+      'being rebuilt.';
+  static const String playerContainerNone = 'none';
   static const String playerUnmute = 'Sound is off, turn it on';
   static const String playerLoading = 'Loading';
   static const String playerBuffering = 'Buffering';

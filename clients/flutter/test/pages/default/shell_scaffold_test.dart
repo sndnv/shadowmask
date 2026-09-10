@@ -736,6 +736,73 @@ void _responsiveNavTests() {
       reason: 'without a size the separator inherits the theme body size',
     );
   });
+
+  testWidgets('the top bar clears the status bar and the side cutout', (
+    WidgetTester tester,
+  ) async {
+    const EdgeInsets safe = EdgeInsets.fromLTRB(0, 44, 0, 34);
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      ThemeScope(
+        variant: AppThemeVariant.dark,
+        setVariant: (_) {},
+        child: MaterialApp(
+          theme: buildTheme(AppThemeVariant.dark),
+          home: MediaQuery(
+            data: const MediaQueryData(size: Size(1200, 800), padding: safe),
+            child: ShellScaffold(
+              api: _api(),
+              current: NavSection.movies,
+              body: _body,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getRect(find.byType(BrandMark)).top,
+      greaterThanOrEqualTo(safe.top),
+      reason: 'the brand sits inside the bar, which sits below the status bar',
+    );
+  });
+
+  testWidgets('a phone with no top bar still keeps its body off the clock', (
+    WidgetTester tester,
+  ) async {
+    const EdgeInsets safe = EdgeInsets.fromLTRB(0, 44, 0, 34);
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      ThemeScope(
+        variant: AppThemeVariant.dark,
+        setVariant: (_) {},
+        child: MaterialApp(
+          theme: buildTheme(AppThemeVariant.dark),
+          home: MediaQuery(
+            data: const MediaQueryData(size: Size(360, 800), padding: safe),
+            child: ShellScaffold(
+              api: _api(),
+              current: NavSection.movies,
+              body: _body,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getRect(find.byKey(const Key('body'))).top,
+      greaterThanOrEqualTo(safe.top),
+    );
+  });
 }
 
 class _Counter extends StatefulWidget {

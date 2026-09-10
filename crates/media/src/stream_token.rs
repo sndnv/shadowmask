@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use domain::catalog::VersionId;
 use domain::error::StreamTokenError;
-use domain::session::{SessionId, StreamClaims, StreamToken, StreamTokens};
+use domain::session::{SessionId, StreamClaims, StreamGeneration, StreamToken, StreamTokens};
 use domain::user::UserId;
 
 use crate::hmac_token::{HmacCodec, TokenFailure, TypedClaims};
@@ -27,6 +27,7 @@ impl HmacStreamTokens {
 struct RawClaims {
     sub: String,
     sid: String,
+    gnr: u32,
     vid: String,
     aud: String,
     typ: String,
@@ -45,6 +46,7 @@ impl StreamTokens for HmacStreamTokens {
         let raw = RawClaims {
             sub: claims.user.0.clone(),
             sid: claims.session.0.clone(),
+            gnr: claims.generation.0,
             vid: claims.version.0.clone(),
             aud: STREAM_AUDIENCE.to_owned(),
             typ: STREAM_TOKEN_TYPE.to_owned(),
@@ -68,6 +70,7 @@ impl StreamTokens for HmacStreamTokens {
         let expires_at = Timestamp::from_second(raw.exp).map_err(|_| StreamTokenError::Invalid)?;
         Ok(StreamClaims {
             session: SessionId(raw.sid),
+            generation: StreamGeneration(raw.gnr),
             user: UserId(raw.sub),
             version: VersionId(raw.vid),
             expires_at,
@@ -86,6 +89,7 @@ mod tests {
     fn claims_expiring_in(secs: i64) -> StreamClaims {
         StreamClaims {
             session: SessionId("session-1".into()),
+            generation: StreamGeneration(3),
             user: UserId("user-1".into()),
             version: VersionId("version-1".into()),
             expires_at: Timestamp::from_second(Timestamp::now().as_second() + secs).unwrap(),
@@ -155,6 +159,7 @@ mod tests {
         let raw = RawClaims {
             sub: "user-1".into(),
             sid: "session-1".into(),
+            gnr: 0,
             vid: "version-1".into(),
             aud: STREAM_AUDIENCE.into(),
             typ: STREAM_TOKEN_TYPE.into(),
@@ -188,6 +193,7 @@ mod tests {
         let token = encode_raw(&RawClaims {
             sub: "user-1".into(),
             sid: "session-1".into(),
+            gnr: 0,
             vid: "version-1".into(),
             aud: "shadowmask-rest".into(),
             typ: STREAM_TOKEN_TYPE.into(),
@@ -206,6 +212,7 @@ mod tests {
         let token = encode_raw(&RawClaims {
             sub: "user-1".into(),
             sid: "session-1".into(),
+            gnr: 0,
             vid: "version-1".into(),
             aud: STREAM_AUDIENCE.into(),
             typ: "access".into(),
@@ -216,6 +223,41 @@ mod tests {
             codec.verify(&token),
             Err(StreamTokenError::Invalid)
         ));
+    }
+
+    #[test]
+    fn verify_rejects_a_token_without_a_generation() {
+        #[derive(serde::Serialize)]
+        struct Legacy {
+            sub: String,
+            sid: String,
+            vid: String,
+            aud: String,
+            typ: String,
+            exp: i64,
+            nnc: String,
+        }
+
+        let codec = HmacStreamTokens::new(SECRET);
+        let token = encode(
+            &Header::new(Algorithm::HS256),
+            &Legacy {
+                sub: "user-1".into(),
+                sid: "session-1".into(),
+                vid: "version-1".into(),
+                aud: STREAM_AUDIENCE.into(),
+                typ: STREAM_TOKEN_TYPE.into(),
+                exp: Timestamp::now().as_second() + 3600,
+                nnc: String::new(),
+            },
+            &EncodingKey::from_secret(SECRET),
+        )
+        .unwrap();
+        assert!(
+            matches!(codec.verify(&token), Err(StreamTokenError::Invalid)),
+            "a token minted before generations names no artifact, and every session it could \
+             refer to died with the process that issued it"
+        );
     }
 }
 
@@ -230,10 +272,12 @@ mod prop_tests {
             sid in "\\PC{0,20}",
             vid in "\\PC{0,20}",
             nnc in "\\PC{0,20}",
+            gnr in 0u32..=1_000,
             offset in 3600i64..=1_000_000,
         ) -> StreamClaims {
             StreamClaims {
                 session: SessionId(sid),
+                generation: StreamGeneration(gnr),
                 user: UserId(sub),
                 version: VersionId(vid),
                 expires_at: Timestamp::from_second(Timestamp::now().as_second() + offset).unwrap(),
@@ -271,6 +315,7 @@ mod prop_tests {
             let codec = HmacStreamTokens::new(b"prop-secret");
             let claims = StreamClaims {
                 session: SessionId(sid),
+                generation: StreamGeneration(0),
                 user: UserId(sub),
                 version: VersionId(vid),
                 expires_at: Timestamp::from_second(Timestamp::now().as_second() - ago).unwrap(),

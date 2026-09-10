@@ -100,3 +100,6 @@ String? relativeText(String? iso, {DateTime? now}) {
 
 String _ago(int count, String unit) =>
     count == 1 ? '1 $unit ago' : '$count ${unit}s ago';
+
+String? sinceText(String? iso, {DateTime? now}) =>
+    relativeText(iso, now: now) ?? dateTimeText(iso);

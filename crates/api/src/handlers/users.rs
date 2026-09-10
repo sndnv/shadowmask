@@ -119,7 +119,10 @@ pub async fn current<S: AppServices>(
         .await
         .map_err(log_fail(actor, "retrieve current user"))?;
     debug!("User [{actor}] successfully retrieved self");
-    Ok(Json(user.into()))
+    Ok(Json(UserResponse {
+        role: principal.role.into(),
+        ..UserResponse::from(user)
+    }))
 }
 
 pub async fn update_profile<S: AppServices>(

@@ -1,10 +1,27 @@
 #!/usr/bin/env python3
 
 import os
+import resource
 import subprocess
 import sys
 
 flutter_ui_path = os.path.dirname(os.path.realpath(__file__))
+
+wanted_open_files = 4096
+
+
+def raise_open_file_limit():
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if soft >= wanted_open_files:
+        return
+    target = wanted_open_files if hard == resource.RLIM_INFINITY \
+        else min(wanted_open_files, hard)
+    try:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+    except (OSError, ValueError):
+        print('>: could not raise the open file limit from [{}]'.format(soft))
+        return
+    print('>: raised the open file limit from [{}] to [{}]'.format(soft, target))
 
 
 def run_command(command, description):
@@ -13,6 +30,8 @@ def run_command(command, description):
         print('>: {} failed with exit code [{}]'.format(description, result))
         sys.exit(result)
 
+
+raise_open_file_limit()
 
 run_command(
     command=['flutter', 'pub', 'get'],

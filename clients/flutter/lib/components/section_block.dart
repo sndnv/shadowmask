@@ -7,6 +7,26 @@ import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 
+class SectionHeaderHeight extends InheritedWidget {
+  const SectionHeaderHeight({
+    super.key,
+    required this.minHeight,
+    required super.child,
+  });
+
+  final double minHeight;
+
+  static double of(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<SectionHeaderHeight>()
+          ?.minHeight ??
+      0;
+
+  @override
+  bool updateShouldNotify(SectionHeaderHeight old) =>
+      old.minHeight != minHeight;
+}
+
 class SectionBlock extends StatelessWidget {
   const SectionBlock({
     super.key,
@@ -28,6 +48,7 @@ class SectionBlock extends StatelessWidget {
   Widget _header(BuildContext context, double width, bool narrow) => Wrap(
     alignment: WrapAlignment.spaceBetween,
     crossAxisAlignment: WrapCrossAlignment.center,
+    runAlignment: WrapAlignment.center,
     spacing: Space.s3,
     runSpacing: Space.s2,
     children: <Widget>[
@@ -60,16 +81,21 @@ class SectionBlock extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        LayoutBuilder(
-          builder: (BuildContext context, BoxConstraints constraints) =>
-              SizedBox(
-                width: constraints.maxWidth,
-                child: _header(
-                  context,
-                  constraints.maxWidth,
-                  constraints.maxWidth < Breakpoints.sm,
+        ConstrainedBox(
+          constraints: BoxConstraints(
+            minHeight: SectionHeaderHeight.of(context),
+          ),
+          child: LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) =>
+                SizedBox(
+                  width: constraints.maxWidth,
+                  child: _header(
+                    context,
+                    constraints.maxWidth,
+                    constraints.maxWidth < Breakpoints.sm,
+                  ),
                 ),
-              ),
+          ),
         ),
         const SizedBox(height: Space.s3),
         if (framed)

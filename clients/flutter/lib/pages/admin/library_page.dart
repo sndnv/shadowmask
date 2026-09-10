@@ -285,8 +285,12 @@ class _ScanBlockState extends State<_ScanBlock> with Mutations<_ScanBlock> {
               Strings.columnProgress,
               '${(scan.progress * 100).round()}%',
             ),
-            if (scan.lastScannedAt != null)
-              _kv(context, Strings.factUpdated, scan.lastScannedAt!),
+            if (dateTimeText(scan.lastScannedAt) != null)
+              _kv(
+                context,
+                Strings.factUpdated,
+                dateTimeText(scan.lastScannedAt)!,
+              ),
             if (scan.error != null)
               _kv(context, Strings.jobFactError, scan.error!),
           ],

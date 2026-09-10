@@ -164,7 +164,7 @@ class _CollectionsBodyState extends State<_CollectionsBody>
               ),
               AdminColumn<Collection>(
                 label: Strings.columnActions,
-                size: AdminColumnSize.small,
+                fixedWidth: adminActionsWidth(2),
                 align: AdminColumnAlign.end,
                 essential: true,
                 cell: (BuildContext c, Collection col) => Wrap(

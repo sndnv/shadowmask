@@ -148,7 +148,7 @@ class _AdminTableState<T> extends State<AdminTable<T>> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    _header(t, visible, sortColumn),
+                    _header(t, visible, sortColumn, narrow: narrow),
                     for (int i = 0; i < rows.length; i++)
                       _row(
                         context,
@@ -156,6 +156,7 @@ class _AdminTableState<T> extends State<AdminTable<T>> {
                         rows[i],
                         visible,
                         last: i == rows.length - 1,
+                        narrow: narrow,
                       ),
                   ],
                 ),
@@ -167,7 +168,12 @@ class _AdminTableState<T> extends State<AdminTable<T>> {
     );
   }
 
-  Widget _header(Tokens t, List<int> visible, int? sortColumn) {
+  Widget _header(
+    Tokens t,
+    List<int> visible,
+    int? sortColumn, {
+    required bool narrow,
+  }) {
     final TextStyle style = TextStyle(
       color: t.muted,
       fontSize: 11,
@@ -184,7 +190,11 @@ class _AdminTableState<T> extends State<AdminTable<T>> {
         child: Row(
           children: <Widget>[
             for (final int i in visible)
-              _slot(widget.columns[i], _headerContent(t, style, i, sortColumn)),
+              _slot(
+                widget.columns[i],
+                _headerContent(t, style, i, sortColumn),
+                narrow: narrow,
+              ),
           ],
         ),
       ),
@@ -227,6 +237,7 @@ class _AdminTableState<T> extends State<AdminTable<T>> {
     T row,
     List<int> visible, {
     required bool last,
+    required bool narrow,
   }) {
     final void Function(T row)? tap = widget.onRowTap;
     return _TableRow(
@@ -236,12 +247,16 @@ class _AdminTableState<T> extends State<AdminTable<T>> {
       onTap: tap == null ? null : () => tap(row),
       children: <Widget>[
         for (final int i in visible)
-          _slot(widget.columns[i], widget.columns[i].cell(context, row)),
+          _slot(
+            widget.columns[i],
+            widget.columns[i].cellFor(narrow)(context, row),
+            narrow: narrow,
+          ),
       ],
     );
   }
 
-  Widget _slot(AdminColumn<T> col, Widget child) {
+  Widget _slot(AdminColumn<T> col, Widget child, {required bool narrow}) {
     final Widget inner = col.align == AdminColumnAlign.end
         ? Align(alignment: Alignment.centerRight, child: child)
         : child;
@@ -252,8 +267,9 @@ class _AdminTableState<T> extends State<AdminTable<T>> {
       ),
       child: inner,
     );
-    return col.fixedWidth != null
-        ? SizedBox(width: col.fixedWidth, child: padded)
+    final double? width = col.widthFor(narrow);
+    return width != null
+        ? SizedBox(width: width, child: padded)
         : Expanded(flex: col.size.flex, child: padded);
   }
 }

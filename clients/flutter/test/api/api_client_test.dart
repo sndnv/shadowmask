@@ -198,4 +198,95 @@ void main() {
     );
     expect(api.currentUser(), throwsA(isA<AuthenticationFailure>()));
   });
+
+  test('a redeemed link code authorizes later calls', () async {
+    String? seenAuth;
+    final ApiClient api = _client(
+      MockClient((http.Request req) async {
+        if (req.url.path == '/api/v1/auth/link') {
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'token': 'smk_abc',
+              'expires_at': null,
+            }),
+            200,
+          );
+        }
+        seenAuth = req.headers['Authorization'];
+        return http.Response(
+          jsonEncode(<String, String>{
+            'id': 'u1',
+            'username': 'tablet',
+            'role': 'player',
+          }),
+          200,
+        );
+      }),
+    );
+
+    await api.redeemLinkCode(
+      '7G2K9QMP',
+      deviceName: 'Kitchen tablet',
+      platform: 'android',
+    );
+    final SelfUser user = await api.currentUser();
+
+    expect(seenAuth, 'Bearer smk_abc');
+    expect(user.role, UserRole.player);
+  });
+
+  test(
+    'an api token is never sent for refresh, it just expires the session',
+    () async {
+      final List<String> paths = <String>[];
+      final ApiClient api = _client(
+        MockClient((http.Request req) async {
+          paths.add(req.url.path);
+          if (req.url.path == '/api/v1/auth/link') {
+            return http.Response(
+              jsonEncode(<String, dynamic>{'token': 'smk_abc'}),
+              200,
+            );
+          }
+          return http.Response('', 401);
+        }),
+      );
+
+      await api.redeemLinkCode(
+        'C0DE',
+        deviceName: 'Tablet',
+        platform: 'android',
+      );
+
+      await expectLater(
+        api.currentUser(),
+        throwsA(isA<AuthenticationFailure>()),
+        reason: 'a revoked device should land on sign in, not loop',
+      );
+      expect(
+        paths.contains('/api/v1/auth/refresh'),
+        isFalse,
+        reason: 'there is no refresh token to spend',
+      );
+    },
+  );
+
+  test('signing out an api token device is a local matter', () async {
+    final List<String> paths = <String>[];
+    final ApiClient api = _client(
+      MockClient((http.Request req) async {
+        paths.add(req.url.path);
+        return http.Response(
+          jsonEncode(<String, dynamic>{'token': 'smk_abc'}),
+          200,
+        );
+      }),
+    );
+
+    await api.redeemLinkCode('C0DE', deviceName: 'Tablet', platform: 'android');
+    await api.logout();
+
+    expect(paths, <String>['/api/v1/auth/link']);
+    expect(await api.currentTokens(), isNull);
+  });
 }

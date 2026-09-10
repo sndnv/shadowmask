@@ -1,4 +1,4 @@
-use std::fs::Metadata;
+use std::fs::{DirEntry, Metadata};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -54,15 +54,41 @@ impl CacheEvictor {
         Ok(count)
     }
 
+    pub fn purge_blocking(&self) -> io::Result<usize> {
+        let entries = self.entries()?;
+        for entry in &entries {
+            remove(&entry.path())?;
+        }
+        Ok(entries.len())
+    }
+
+    pub async fn purge(&self) -> Result<u64, CacheError> {
+        self.off_runtime(CacheEvictor::purge_blocking).await
+    }
+
+    async fn off_runtime(
+        &self,
+        work: impl FnOnce(&CacheEvictor) -> io::Result<usize> + Send + 'static,
+    ) -> Result<u64, CacheError> {
+        let evictor = self.clone();
+        tokio::task::spawn_blocking(move || work(&evictor))
+            .await
+            .map_err(|e| CacheError::Io(e.to_string()))?
+            .map(|count| count as u64)
+            .map_err(|e| CacheError::Io(e.to_string()))
+    }
+
+    fn entries(&self) -> io::Result<Vec<DirEntry>> {
+        match std::fs::read_dir(&self.cache_root) {
+            Ok(read) => read.collect(),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(e) => Err(e),
+        }
+    }
+
     fn scan(&self) -> io::Result<Vec<CacheEntry>> {
-        let read = match std::fs::read_dir(&self.cache_root) {
-            Ok(read) => read,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(e) => return Err(e),
-        };
         let mut entries = Vec::new();
-        for entry in read {
-            let entry = entry?;
+        for entry in self.entries()? {
             let path = entry.path();
             let size_bytes = dir_size(&path);
             let last_access = access_time(&entry.metadata()?);
@@ -78,12 +104,8 @@ impl CacheEvictor {
 
 impl TranscodeCacheMaintenance for CacheEvictor {
     async fn evict(&self, max_bytes: u64) -> Result<u64, CacheError> {
-        let evictor = self.clone();
-        tokio::task::spawn_blocking(move || evictor.evict_blocking(max_bytes))
+        self.off_runtime(move |evictor| evictor.evict_blocking(max_bytes))
             .await
-            .map_err(|e| CacheError::Io(e.to_string()))?
-            .map(|count| count as u64)
-            .map_err(|e| CacheError::Io(e.to_string()))
     }
 }
 
@@ -201,6 +223,66 @@ mod tests {
             .await
             .expect("evict");
         assert_eq!(evicted, 1);
+    }
+
+    #[test]
+    fn purge_clears_files_and_session_trees() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_file(dir.path(), "a.ts", 1000);
+        let session = dir.path().join("session");
+        std::fs::create_dir(&session).expect("subdir");
+        write_file(&session, "seg.ts", 2000);
+
+        let evictor = CacheEvictor::new(dir.path());
+        assert_eq!(evictor.purge_blocking().expect("purge"), 2);
+        assert!(!dir.path().join("a.ts").exists());
+        assert!(!session.exists());
+        assert!(dir.path().exists(), "the cache root itself stays");
+    }
+
+    // Eviction plans by size, so a session directory holding no files weighs
+    // nothing and never gets planned. A purge is not a cap of zero.
+    #[test]
+    fn purge_removes_an_empty_session_directory_that_eviction_leaves_behind() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let session = dir.path().join("session");
+        std::fs::create_dir(&session).expect("subdir");
+
+        let evictor = CacheEvictor::new(dir.path());
+        assert_eq!(evictor.evict_blocking(0).expect("evict"), 0);
+        assert!(session.exists());
+
+        assert_eq!(evictor.purge_blocking().expect("purge"), 1);
+        assert!(!session.exists());
+    }
+
+    #[test]
+    fn purge_missing_dir_is_noop() {
+        let evictor = CacheEvictor::new("/no/such/shadowmask/cache");
+        assert_eq!(evictor.purge_blocking().expect("purge"), 0);
+    }
+
+    #[test]
+    fn purge_propagates_non_notfound_read_error() {
+        let file = tempfile::NamedTempFile::new().expect("tempfile");
+        let evictor = CacheEvictor::new(file.path());
+        assert!(evictor.purge_blocking().is_err());
+    }
+
+    #[tokio::test]
+    async fn purge_off_the_runtime_reports_what_it_removed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_file(dir.path(), "a.ts", 1000);
+        write_file(dir.path(), "b.ts", 1000);
+        let evictor = CacheEvictor::new(dir.path());
+        assert_eq!(evictor.purge().await.expect("purge"), 2);
+    }
+
+    #[tokio::test]
+    async fn purge_off_the_runtime_maps_read_error() {
+        let file = tempfile::NamedTempFile::new().expect("tempfile");
+        let evictor = CacheEvictor::new(file.path());
+        assert!(matches!(evictor.purge().await, Err(CacheError::Io(_))));
     }
 
     #[tokio::test]

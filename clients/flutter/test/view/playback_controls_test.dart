@@ -25,6 +25,61 @@ void main() {
       });
     });
 
+    // The update body always states the preference, so clearing it back to
+    // automatic reaches the server as a change rather than as an omission.
+    test('the delivery preference is always stated on an update', () {
+      expect(const PlaybackControls().toUpdateBody()['delivery'], 'auto');
+      expect(
+        const PlaybackControls(
+          delivery: DeliveryPreference.always,
+        ).toUpdateBody()['delivery'],
+        'always',
+      );
+    });
+
+    test('the delivery preference is sent on start only when chosen', () {
+      expect(
+        const PlaybackControls().toStartBody().containsKey('delivery'),
+        isFalse,
+      );
+      expect(
+        const PlaybackControls(
+          delivery: DeliveryPreference.never,
+        ).toStartBody()['delivery'],
+        'never',
+      );
+    });
+
+    test('the delivery preference round trips through the query', () {
+      expect(
+        PlaybackControls.fromQuery(<String, String>{
+          'delivery': 'never',
+        }).delivery,
+        DeliveryPreference.never,
+      );
+      expect(
+        PlaybackControls.fromQuery(<String, String>{
+          'delivery': 'nonsense',
+        }).delivery,
+        DeliveryPreference.auto,
+      );
+      expect(
+        const PlaybackControls(
+          delivery: DeliveryPreference.always,
+        ).toQuery()['delivery'],
+        'always',
+      );
+      expect(const PlaybackControls().toQuery().containsKey('delivery'), false);
+    });
+
+    test('a chosen delivery preference is not the default', () {
+      expect(const PlaybackControls().isDefault, isTrue);
+      expect(
+        const PlaybackControls(delivery: DeliveryPreference.always).isDefault,
+        isFalse,
+      );
+    });
+
     test('disables subtitles and omits audio when unset', () {
       final Map<String, dynamic> body = const PlaybackControls().toUpdateBody();
       expect(body['target_height'], isNull);

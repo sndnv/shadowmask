@@ -18,7 +18,7 @@ use domain::metadata::{ExternalId, MediaKind, MetadataProvider, MetadataQuery, P
 use domain::repository::{CatalogRepository, JobRepository, LibraryRepository, UserRepository};
 use domain::service::LibraryService;
 use domain::text::sort_title;
-use domain::user::Principal;
+use domain::user::{Principal, UserId};
 use jiff::Timestamp;
 use url::Url;
 use uuid::Uuid;
@@ -94,6 +94,22 @@ where
     C: CatalogRepository + Sync,
     M: MetadataProvider + Sync,
 {
+    async fn grant_access(&self, user: &UserId, library: &LibraryId) -> Result<(), LibraryError> {
+        if self.users.get(user).await?.is_none() {
+            return Ok(());
+        }
+        let mut access: Vec<LibraryId> = self
+            .users
+            .list_library_access(user)
+            .await?
+            .into_iter()
+            .map(|entry| entry.library)
+            .collect();
+        access.push(library.clone());
+        self.users.set_library_access(user, &access).await?;
+        Ok(())
+    }
+
     async fn visible_to(&self, caller: &Principal, id: &LibraryId) -> Result<bool, LibraryError> {
         if acl::is_admin(caller) || acl::is_automation(caller) {
             return Ok(true);
@@ -240,6 +256,7 @@ where
             updated_at: now,
         };
         self.libraries.upsert(library.clone()).await?;
+        self.grant_access(&caller.user, &library.id).await?;
         Ok(library)
     }
 
@@ -1018,6 +1035,7 @@ mod tests {
         libraries.insert_library(library("lib2"));
         let users = MockUserRepo::new();
         users.insert(user("u1"));
+        users.insert(user("admin"));
         users
             .set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())])
             .await
@@ -1145,6 +1163,87 @@ mod tests {
         ));
     }
 
+    // Everything here opens by resolving the library. A method absent from the list
+    // has an unread repository error that could just as easily surface as NotFound,
+    // which reads to a caller as "this library is gone" rather than "try again".
+    #[tokio::test]
+    async fn every_library_scoped_method_surfaces_a_backend_error() {
+        let libraries = MockLibraryRepo::new();
+        libraries.insert_library(library("lib1"));
+        libraries.set_fail_get();
+        let svc = LibraryServiceImpl::new(
+            libraries,
+            MockUserRepo::new(),
+            MockJobStore::new(),
+            MockCatalogRepo::new(),
+            None::<MockMetadataProvider>,
+        )
+        .with_content_fetch(true);
+
+        let id = LibraryId("lib1".into());
+        let page = PageRequest {
+            offset: 0,
+            limit: 10,
+        };
+        let unmatched = UnmatchedFileId("uf1".into());
+        let duplicate = DuplicateCandidateId("d1".into());
+
+        macro_rules! is_repository_error {
+            ($call:expr) => {
+                assert!(matches!(
+                    $call.await.unwrap_err(),
+                    LibraryError::Repository(_)
+                ))
+            };
+        }
+
+        is_repository_error!(svc.library(&admin(), &id));
+        is_repository_error!(svc.scan_state(&admin(), &id));
+        is_repository_error!(svc.trigger_scan(&admin(), &id));
+        is_repository_error!(svc.unmatched(&admin(), &id, page));
+        is_repository_error!(svc.duplicates(&admin(), &id, page));
+        is_repository_error!(svc.unmatched_candidates(&admin(), &id, &unmatched, None));
+        is_repository_error!(svc.resolve_unmatched(
+            &admin(),
+            &id,
+            &unmatched,
+            ResolveTarget::Existing(TitleId::Movie(MovieId("m1".into())))
+        ));
+        is_repository_error!(svc.dismiss_duplicate(&admin(), &id, &duplicate));
+        is_repository_error!(svc.refresh_library_metadata(&admin(), &id));
+        is_repository_error!(svc.create_fetch(&admin(), &id, fetch_input()));
+        is_repository_error!(svc.update_library(&admin(), &id, library_update()));
+        is_repository_error!(svc.delete_library(&admin(), &id));
+    }
+
+    // The member path reads grants before it reads the library, so its error arm is
+    // a different one, and a swallowed failure there reads as "no access" instead.
+    #[tokio::test]
+    async fn a_member_whose_grants_cannot_be_read_is_refused_with_the_real_error() {
+        let libraries = MockLibraryRepo::new();
+        libraries.insert_library(library("lib1"));
+        let users = MockUserRepo::new();
+        users.set_fail();
+        let svc = LibraryServiceImpl::new(
+            libraries,
+            users,
+            MockJobStore::new(),
+            MockCatalogRepo::new(),
+            None::<MockMetadataProvider>,
+        );
+
+        assert!(matches!(
+            svc.libraries(&member()).await.unwrap_err(),
+            LibraryError::Repository(_)
+        ));
+        assert!(matches!(
+            svc.library(&member(), &LibraryId("lib1".into()))
+                .await
+                .unwrap_err(),
+            LibraryError::Repository(_)
+        ));
+    }
+
     fn new_library() -> NewLibrary {
         NewLibrary {
             name: "New".into(),
@@ -1221,6 +1320,71 @@ mod tests {
             .unwrap();
         let granted: Vec<String> = access.into_iter().map(|a| a.library.0).collect();
         assert_eq!(granted, vec!["lib2".to_owned()]);
+    }
+
+    #[tokio::test]
+    async fn creating_a_library_grants_its_creator_access() {
+        let svc = seeded().await;
+
+        let created = svc.create_library(&admin(), new_library()).await.unwrap();
+        let granted: Vec<LibraryId> = svc
+            .users
+            .list_library_access(&admin().user)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.library)
+            .collect();
+
+        assert!(
+            granted.contains(&created.id),
+            "without this the library is invisible to the person who just added it"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_creator_with_no_account_is_not_granted_anything() {
+        let svc = seeded().await;
+        let synthetic = Principal {
+            user: UserId("bootstrap".into()),
+            role: Role::Admin,
+        };
+
+        let created = svc.create_library(&synthetic, new_library()).await;
+
+        assert!(
+            created.is_ok(),
+            "bootstrap creates libraries before users exist, and the access row \
+             has a foreign key onto users, so granting one would fail the create"
+        );
+        assert!(
+            svc.users
+                .list_library_access(&synthetic.user)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn creating_a_second_library_keeps_the_first_grant() {
+        let svc = seeded().await;
+
+        let first = svc.create_library(&admin(), new_library()).await.unwrap();
+        let second = svc.create_library(&admin(), new_library()).await.unwrap();
+        let granted: Vec<LibraryId> = svc
+            .users
+            .list_library_access(&admin().user)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.library)
+            .collect();
+
+        assert!(
+            granted.contains(&first.id) && granted.contains(&second.id),
+            "set_library_access replaces the whole set, so the grant has to append"
+        );
     }
 
     #[tokio::test]

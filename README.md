@@ -80,8 +80,11 @@ acceleration and the rest.
 
 ## Clients
 
-* **Web** ([`clients/flutter`](./clients/flutter)) - the primary interface, published as
-  `ghcr.io/sndnv/shadowmask/web-ui`
+* **Flutter** ([`clients/flutter`](./clients/flutter)) - the primary interface, one codebase covering
+  the web, the desktop (macOS and Linux) and mobile (Android and iOS). The web build is published as
+  `ghcr.io/sndnv/shadowmask/web-ui`; the desktop ships as a macOS `.dmg` and a Linux `.AppImage`;
+  mobile ships as a signed Android `.apk`, and as an unsigned iOS `.ipa` that has to be signed at
+  install time with a tool such as Sideloadly or AltStore
 * **Basic** ([`clients/basic`](./clients/basic)) - a dependency-free HTML/JS client served by the
   server itself at `/ui/basic/`, useful as a fallback and for debugging
 
@@ -125,8 +128,10 @@ We use [SemVer](http://semver.org/) for versioning.
 * [hls.js](https://github.com/video-dev/hls.js) is bundled by both web clients for HLS playback,
   under the Apache License 2.0. The licence and copyright notices are distributed alongside it, at
   [`assets/vendor/hls.js.LICENSE.txt`](./assets/vendor/hls.js.LICENSE.txt).
-* The macOS desktop application bundles mpv (LGPL-2.1-or-later), FFmpeg (LGPL-3.0-or-later) and nine
-  supporting libraries, each as a separately replaceable dynamically linked framework. They are
+* The macOS and iOS applications bundle mpv (LGPL-2.1-or-later), FFmpeg (LGPL-3.0-or-later) and nine
+  supporting libraries, each as a separately replaceable dynamically linked framework. The Android
+  application bundles a different build of most of the same libraries, linked statically into one
+  replaceable `libmpv.so` per ABI. They are
   credited in [`clients/flutter/CREDITS.md`](./clients/flutter/CREDITS.md), with their licence texts
   under [`licenses/`](./licenses). The Linux application links the distribution's own libmpv and
   bundles none of them.

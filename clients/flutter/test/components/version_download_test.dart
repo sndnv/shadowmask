@@ -15,6 +15,7 @@ import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/util/absolute_url.dart';
+import 'package:shadowmask/util/downloads.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Map<String, dynamic> _json(String id, {bool available = true}) =>
@@ -102,7 +103,18 @@ Finder _download() => find.byTooltip(Strings.downloadVersion);
 Finder _chevron() => find.byTooltip(Strings.fullVersionDetails);
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+  final DownloadStarter platform = startDownload;
+  final List<String> started = <String>[];
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    started.clear();
+    startDownload = (String url, String filename) async {
+      started.add(url);
+      return true;
+    };
+  });
+  tearDown(() => startDownload = platform);
 
   test('an absolute url survives a base with or without a trailing slash', () {
     expect(absoluteUrl('http://h', '/download/t'), 'http://h/download/t');
@@ -227,4 +239,34 @@ void main() {
       expect(find.byTooltip(Strings.resume(40)), findsOneWidget);
     },
   );
+
+  testWidgets('a handoff that never happened is not reported as success', (
+    WidgetTester tester,
+  ) async {
+    // The toast used to fire on the request succeeding, so on every platform
+    // but the web it announced a download that was never started.
+    startDownload = (String url, String filename) async => false;
+    await _pump(tester, _api(<String>[]));
+
+    await tester.tap(_download());
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.toastDownloadStarted), findsNothing);
+    expect(find.text(Strings.errorDownload), findsOneWidget);
+
+    await tester.pump(kErrorToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('the signed link is what gets handed off', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, _api(<String>[]));
+
+    await tester.tap(_download());
+    await tester.pumpAndSettle();
+
+    expect(started, <String>['http://test/download/tok-123']);
+
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
 }

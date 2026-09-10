@@ -4,6 +4,7 @@ expression: value
 ---
 {
   "body": {
+    "container": null,
     "heartbeat_interval_s": 10,
     "manifest_url": "[manifest_url]",
     "markers": {
