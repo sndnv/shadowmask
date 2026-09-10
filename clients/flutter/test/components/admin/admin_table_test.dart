@@ -516,4 +516,65 @@ void _priorityColumnTests() {
           'which is not a legal BoxConstraints minimum',
     );
   });
+
+  testWidgets('an actions column keeps its buttons on one line on a phone', (
+    WidgetTester tester,
+  ) async {
+    // A flex-sized actions column gets a share of the width rather than what
+    // its buttons need, so on a phone the second button dropped onto its own
+    // line. `adminActionsWidth` reserves the tap targets instead.
+    await tester.pumpWidget(
+      ThemeScope(
+        variant: AppThemeVariant.dark,
+        setVariant: (_) {},
+        child: MaterialApp(
+          theme: buildTheme(AppThemeVariant.dark),
+          home: Scaffold(
+            body: SizedBox(
+              width: 360,
+              child: AdminTable<String>(
+                rows: const <String>['A collection with a long enough name'],
+                emptyText: 'none',
+                columns: <AdminColumn<String>>[
+                  AdminColumn<String>(
+                    label: 'Name',
+                    essential: true,
+                    size: AdminColumnSize.large,
+                    cell: (BuildContext c, String s) =>
+                        Text(s, overflow: TextOverflow.ellipsis),
+                  ),
+                  AdminColumn<String>(
+                    label: 'Actions',
+                    essential: true,
+                    fixedWidth: adminActionsWidth(2),
+                    align: AdminColumnAlign.end,
+                    cell: (BuildContext c, String s) => Wrap(
+                      alignment: WrapAlignment.end,
+                      children: <Widget>[
+                        IconButton(
+                          onPressed: () {},
+                          icon: const Icon(Icons.edit_outlined),
+                        ),
+                        IconButton(
+                          onPressed: () {},
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Rect edit = tester.getRect(find.byIcon(Icons.edit_outlined));
+    final Rect delete = tester.getRect(find.byIcon(Icons.delete_outline));
+
+    expect(edit.center.dy, closeTo(delete.center.dy, 1));
+    expect(tester.takeException(), isNull);
+  });
 }

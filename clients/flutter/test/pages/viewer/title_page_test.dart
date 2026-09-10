@@ -188,8 +188,12 @@ ApiClient _api({
   );
 }
 
-Future<void> _pump(WidgetTester tester, ApiClient api) async {
-  tester.view.physicalSize = const Size(1600, 1400);
+Future<void> _pump(
+  WidgetTester tester,
+  ApiClient api, {
+  Size window = const Size(1600, 1400),
+}) async {
+  tester.view.physicalSize = window;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
@@ -197,7 +201,11 @@ Future<void> _pump(WidgetTester tester, ApiClient api) async {
       variant: AppThemeVariant.dark,
       setVariant: (_) {},
       child: MaterialApp(
-        theme: buildTheme(AppThemeVariant.dark),
+        // Pointer platform: the poster is only a button where there is a
+        // cursor to reveal it, so the poster tests below are desktop and web.
+        theme: buildTheme(
+          AppThemeVariant.dark,
+        ).copyWith(platform: TargetPlatform.macOS),
         onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
           builder: (_) => settings.name == null || settings.name == '/'
               ? TitlePage(api: api, kind: 'movie', id: 'm1')
@@ -677,5 +685,29 @@ void main() {
     );
 
     expect(find.text(Strings.noVersionsAvailable), findsNothing);
+  });
+
+  testWidgets('a phone reaches Play without scrolling past the overview', (
+    WidgetTester tester,
+  ) async {
+    // Play used to sit after the overview, which measured at y=527 on a 640
+    // tall phone, below the usable height once the shell chrome is counted.
+    await _pump(
+      tester,
+      _api(versions: <Map<String, dynamic>>[_version('v1', 'fhd')]),
+      window: const Size(360, 640),
+    );
+
+    final double poster = tester.getRect(find.byType(PosterPlay)).top;
+    final double play = tester.getRect(find.text(Strings.play)).top;
+
+    expect(poster, lessThan(play), reason: 'the artwork still leads');
+    expect(
+      play,
+      lessThan(480),
+      reason:
+          'it measured 527 when the actions sat after the overview, against '
+          'roughly 530 of usable height once the shell chrome is counted',
+    );
   });
 }

@@ -14,7 +14,7 @@ import 'package:shadowmask/player/player_snapshot.dart';
 
 @JS('Hls')
 extension type _Hls._(JSObject _) implements JSObject {
-  external factory _Hls();
+  external factory _Hls([_HlsConfig config]);
   external static bool isSupported();
   @JS('Events')
   external static _HlsEvents get events;
@@ -26,6 +26,18 @@ extension type _Hls._(JSObject _) implements JSObject {
   external int get currentLevel;
   external bool get autoLevelEnabled;
   external JSArray<_HlsLevel> get levels;
+  external _HlsConfig get config;
+}
+
+extension type _HlsConfig._(JSObject _) implements JSObject {
+  external factory _HlsConfig({
+    int maxBufferLength,
+    int maxMaxBufferLength,
+    int maxBufferSize,
+  });
+  external set maxBufferLength(int value);
+  external set maxMaxBufferLength(int value);
+  external set maxBufferSize(int value);
 }
 
 extension type _HlsEvents._(JSObject _) implements JSObject {
@@ -102,6 +114,8 @@ class WebPlayerController implements PlayerController {
   web.WakeLockSentinel? _screen;
   bool _awake = false;
   _Hls? _hls;
+  int _bufferSeconds = kDefaultBufferSeconds;
+  int _bufferBytes = kDefaultBufferBytes;
   Timer? _timer;
   double _rate = 1;
   PlaybackMode _mode = PlaybackMode.direct;
@@ -149,6 +163,7 @@ class WebPlayerController implements PlayerController {
     String manifestUrl, {
     required PlaybackMode mode,
     int positionMs = 0,
+    bool autoplay = true,
   }) async {
     _mode = mode;
     _teardownHls();
@@ -158,11 +173,17 @@ class WebPlayerController implements PlayerController {
         : '$_baseUrl$manifestUrl';
     if (mode == PlaybackMode.direct) {
       _video.src = url;
-      _seekOnReady(positionMs);
+      _seekOnReady(positionMs, autoplay);
       return;
     }
     if (_Hls.isSupported()) {
-      final _Hls hls = _Hls();
+      final _Hls hls = _Hls(
+        _HlsConfig(
+          maxBufferLength: _bufferSeconds,
+          maxMaxBufferLength: _bufferSeconds,
+          maxBufferSize: _bufferBytes,
+        ),
+      );
       _hls = hls;
       hls.loadSource(url);
       hls.attachMedia(_video);
@@ -172,14 +193,14 @@ class WebPlayerController implements PlayerController {
           if (positionMs > 0) {
             _video.currentTime = positionMs / 1000;
           }
-          _autoplay();
+          _resume(autoplay);
         }).toJS,
       );
       return;
     }
     if (_video.canPlayType('application/vnd.apple.mpegurl').isNotEmpty) {
       _video.src = url;
-      _seekOnReady(positionMs);
+      _seekOnReady(positionMs, autoplay);
       return;
     }
     _snapshot.value = const PlayerSnapshot(
@@ -187,21 +208,24 @@ class WebPlayerController implements PlayerController {
     );
   }
 
-  void _seekOnReady(int positionMs) {
+  void _seekOnReady(int positionMs, bool autoplay) {
     late final JSFunction handler;
     handler = ((web.Event _) {
       if (positionMs > 0) {
         _video.currentTime = positionMs / 1000;
       }
-      _autoplay();
+      _resume(autoplay);
       _video.removeEventListener('loadedmetadata', handler);
     }).toJS;
     _video.addEventListener('loadedmetadata', handler);
   }
 
-  Future<void> _autoplay() async {
+  Future<void> _resume(bool autoplay) async {
     _video.defaultPlaybackRate = _rate;
     _video.playbackRate = _rate;
+    if (!autoplay) {
+      return;
+    }
     try {
       await _video.play().toDart;
     } catch (_) {
@@ -290,9 +314,20 @@ class WebPlayerController implements PlayerController {
   }
 
   @override
+  Future<void> detach() async {
+    _teardownHls();
+    _timer?.cancel();
+    _timer = null;
+    _video.pause();
+    _video.removeAttribute('src');
+    _video.load();
+    _snapshot.value = const PlayerSnapshot();
+  }
+
+  @override
   void play() {
     unmute();
-    _autoplay();
+    _resume(true);
   }
 
   @override
@@ -301,7 +336,7 @@ class WebPlayerController implements PlayerController {
   @override
   void togglePlay() {
     unmute();
-    _video.paused ? _autoplay() : _video.pause();
+    _video.paused ? _resume(true) : _video.pause();
   }
 
   @override
@@ -321,6 +356,23 @@ class WebPlayerController implements PlayerController {
   void setNetworkTimeout(int seconds) {}
 
   @override
+  bool get buffersAhead => _hls != null;
+
+  @override
+  void setBuffer({required int seconds, required int bytes}) {
+    _bufferSeconds = seconds;
+    _bufferBytes = bytes;
+    final _Hls? hls = _hls;
+    if (hls == null) {
+      return;
+    }
+    hls.config
+      ..maxBufferLength = seconds
+      ..maxMaxBufferLength = seconds
+      ..maxBufferSize = bytes;
+  }
+
+  @override
   void toggleFullscreen() {
     if (web.document.fullscreenElement != null) {
       web.document.exitFullscreen();
@@ -335,6 +387,9 @@ class WebPlayerController implements PlayerController {
       'mode: ${_mode.name}',
       'resolution: ${_video.videoWidth}x${_video.videoHeight}',
       'buffer: ${_bufferedAhead().toStringAsFixed(1)}s',
+      _hls == null
+          ? 'target: browser controlled'
+          : 'target: ${_bufferSeconds}s',
     ];
     final _Hls? hls = _hls;
     if (hls != null) {

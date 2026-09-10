@@ -146,4 +146,60 @@ void main() {
     expect(edit.top, greaterThan(title.bottom - 1));
     expect(edit.left, lessThan(title.left + 40));
   });
+
+  testWidgets('a lone action follows the title instead of taking a row', (
+    WidgetTester tester,
+  ) async {
+    // A title wraps rather than ellipsing, so the last line almost always has
+    // room for one icon, and a row of its own left 90% of it empty.
+    await _pump(
+      tester,
+      TitleHeading(
+        title: 'A rather long film title that wants the room',
+        actions: <TitleAction>[_action(Icons.layers, onPressed: () {})],
+      ),
+      width: 304,
+    );
+
+    expect(find.byType(Wrap), findsNothing);
+    expect(
+      tester.getRect(find.byIcon(Icons.layers)).top,
+      lessThan(tester.getRect(find.byType(Text).first).bottom),
+      reason: 'inside the text, not below it',
+    );
+  });
+
+  testWidgets('several actions still get their own row', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      TitleHeading(
+        title: 'A rather long film title that wants the room',
+        actions: <TitleAction>[
+          _action(Icons.layers, onPressed: () {}),
+          _action(Icons.edit, onPressed: () {}),
+        ],
+      ),
+      width: 304,
+    );
+
+    expect(find.byType(Wrap), findsOneWidget);
+  });
+
+  testWidgets('a pager keeps its own row even with one action', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      TitleHeading(
+        title: 'A rather long film title that wants the room',
+        pager: <TitleAction>[_action(Icons.chevron_left, onPressed: () {})],
+        actions: <TitleAction>[_action(Icons.layers, onPressed: () {})],
+      ),
+      width: 304,
+    );
+
+    expect(find.byType(Wrap), findsOneWidget);
+  });
 }

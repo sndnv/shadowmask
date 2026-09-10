@@ -25,7 +25,9 @@ fn build_app(generator: &Generator) -> Router {
 }
 
 fn empty_app() -> Router {
-    let generator = Generator::new();
+    // Default rather than new, so the Default impl clippy requires alongside an
+    // argument-free new is exercised by something rather than sitting dead.
+    let generator = Generator::default();
     router(AppState::new(
         generator.auth.clone(),
         CatalogServiceImpl::new(MockCatalogRepo::new(), MockUserRepo::new()),

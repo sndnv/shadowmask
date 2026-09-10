@@ -336,6 +336,7 @@ mod tests {
             .await
             .unwrap();
         repo.pool.close().await;
+        let id = UserId("u1".into());
         assert!(
             repo.list(PageRequest {
                 offset: 0,
@@ -349,6 +350,34 @@ mod tests {
                 .await
                 .is_err()
         );
+        assert!(repo.create(account("u1")).await.is_err());
+        assert!(repo.get(&id).await.is_err());
+        assert!(repo.find_by_username("u1").await.is_err());
+        assert!(repo.update(account("u1")).await.is_err());
+        assert!(repo.delete(&id).await.is_err());
+        assert!(repo.list_library_access(&id).await.is_err());
+        assert!(
+            repo.set_library_access(&id, &[LibraryId("lib1".into())])
+                .await
+                .is_err()
+        );
+    }
+
+    fn account(id: &str) -> User {
+        User {
+            id: UserId(id.into()),
+            username: id.into(),
+            password_hash: "hash".into(),
+            role: Role::User,
+            max_content_rating: None,
+            preferred_audio: Vec::new(),
+            preferred_subtitle: Vec::new(),
+            concurrent_stream_limit: None,
+            bitrate_cap: None,
+            active: true,
+            created_at: from_millis(0).unwrap(),
+            updated_at: from_millis(0).unwrap(),
+        }
     }
 
     async fn seeded(path: &Path) -> SqliteUserRepo {

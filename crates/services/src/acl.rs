@@ -3,7 +3,7 @@ use domain::error::RepositoryError;
 use domain::library::LibraryId;
 use domain::metadata::ContentRating;
 use domain::repository::UserRepository;
-use domain::user::{Principal, Role, User, UserId};
+use domain::user::{Principal, Role, UserId};
 
 pub fn is_admin(caller: &Principal) -> bool {
     caller.role == Role::Admin
@@ -28,7 +28,6 @@ pub fn rating_permits(cap: Option<&ContentRating>, item: Option<&ContentRating>)
 }
 
 pub struct Viewer {
-    admin: bool,
     cap: Option<ContentRating>,
     access: Vec<LibraryId>,
 }
@@ -38,64 +37,28 @@ where
     U: UserRepository + Sync,
 {
     let account = users.get(user).await?;
-    let admin = account.as_ref().is_some_and(|a| a.role == Role::Admin);
-    entitlements(users, user, admin, account).await
-}
-
-pub async fn caller_viewer<U>(users: &U, caller: &Principal) -> Result<Viewer, RepositoryError>
-where
-    U: UserRepository + Sync,
-{
-    let account = users.get(&caller.user).await?;
-    entitlements(users, &caller.user, is_admin(caller), account).await
-}
-
-async fn entitlements<U>(
-    users: &U,
-    user: &UserId,
-    admin: bool,
-    account: Option<User>,
-) -> Result<Viewer, RepositoryError>
-where
-    U: UserRepository + Sync,
-{
-    let access = if admin {
-        Vec::new()
-    } else {
-        users
-            .list_library_access(user)
-            .await?
-            .into_iter()
-            .map(|entry| entry.library)
-            .collect()
-    };
+    let access = users
+        .list_library_access(user)
+        .await?
+        .into_iter()
+        .map(|entry| entry.library)
+        .collect();
     Ok(Viewer {
-        admin,
         cap: account.and_then(|account| account.max_content_rating),
         access,
     })
 }
 
 impl Viewer {
-    pub fn is_admin(&self) -> bool {
-        self.admin
-    }
-
     pub fn permits(&self, rating: Option<&ContentRating>) -> bool {
-        self.admin || rating_permits(self.cap.as_ref(), rating)
+        rating_permits(self.cap.as_ref(), rating)
     }
 
     pub fn sees_library(&self, library: &LibraryId) -> bool {
-        self.admin || can_access_library(&self.access, library)
+        can_access_library(&self.access, library)
     }
 
     pub fn filter(&self, library: Option<&LibraryId>) -> TitleListFilter {
-        if self.admin {
-            return TitleListFilter {
-                libraries: library.map(|lib| vec![lib.clone()]),
-                ..TitleListFilter::default()
-            };
-        }
         let libraries = match library {
             Some(lib) if can_access_library(&self.access, lib) => vec![lib.clone()],
             Some(_) => Vec::new(),
@@ -112,7 +75,7 @@ impl Viewer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::user::UserId;
+    use domain::user::{User, UserId};
     use jiff::Timestamp;
     use mocks::MockUserRepo;
 
@@ -222,7 +185,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_admin_viewer_is_scoped_to_nothing_at_all() {
+    async fn an_admin_is_scoped_to_their_grants_like_anyone_else() {
+        let users = repo_with(account("boss", Role::Admin, None), &["lib1"]).await;
+
+        let filter = viewer(&users, &UserId("boss".into()))
+            .await
+            .unwrap()
+            .filter(None);
+
+        assert_eq!(
+            filter.libraries,
+            Some(vec![LibraryId("lib1".into())]),
+            "admin is permission to act, never permission to see"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_admin_with_no_grants_sees_nothing_rather_than_everything() {
         let users = repo_with(account("boss", Role::Admin, None), &[]).await;
 
         let filter = viewer(&users, &UserId("boss".into()))
@@ -230,8 +209,11 @@ mod tests {
             .unwrap()
             .filter(None);
 
-        assert_eq!(filter.libraries, None, "an admin sees every library");
-        assert!(filter.blocked_ratings.is_empty());
+        assert_eq!(
+            filter.libraries,
+            Some(Vec::new()),
+            "the old bypass returned an empty access list, which must not read as unscoped"
+        );
     }
 
     #[tokio::test]
@@ -268,7 +250,6 @@ mod tests {
 
         let seen = viewer(&users, &UserId("ghost".into())).await.unwrap();
 
-        assert!(!seen.is_admin());
         assert_eq!(seen.filter(None).libraries, Some(Vec::new()));
         assert!(!seen.sees_library(&LibraryId("lib1".into())));
     }
@@ -290,33 +271,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_admin_viewer_bypasses_both_gates() {
-        let users = repo_with(account("boss", Role::Admin, Some(rating("MPAA", "G"))), &[]).await;
+    async fn an_admin_is_gated_by_both_their_grants_and_their_cap() {
+        let users = repo_with(
+            account("boss", Role::Admin, Some(rating("MPAA", "G"))),
+            &["lib1"],
+        )
+        .await;
 
         let seen = viewer(&users, &UserId("boss".into())).await.unwrap();
 
-        assert!(seen.permits(Some(&rating("MPAA", "R"))));
-        assert!(seen.sees_library(&LibraryId("ungranted".into())));
+        assert!(!seen.permits(Some(&rating("MPAA", "R"))));
+        assert!(seen.sees_library(&LibraryId("lib1".into())));
+        assert!(!seen.sees_library(&LibraryId("ungranted".into())));
     }
 
     #[tokio::test]
-    async fn the_caller_view_reads_the_token_role_and_the_target_view_reads_the_row() {
-        let users = repo_with(account("u1", Role::User, Some(rating("MPAA", "G"))), &[]).await;
-        let stale = Principal {
+    async fn a_view_is_the_same_whoever_asks_for_it() {
+        let users = repo_with(account("u1", Role::User, None), &["lib1"]).await;
+        let elevated = Principal {
             user: UserId("u1".into()),
             role: Role::Admin,
         };
 
-        let as_caller = caller_viewer(&users, &stale).await.unwrap();
+        let as_caller = viewer(&users, &elevated.user).await.unwrap();
         let as_target = viewer(&users, &UserId("u1".into())).await.unwrap();
 
-        assert!(
-            as_caller.is_admin(),
-            "a caller is judged by the role the request carries"
-        );
-        assert!(
-            !as_target.is_admin(),
-            "a target account is judged by its own row, which is what /users/{{id}}/hub needs"
+        assert_eq!(
+            as_caller.filter(None).libraries,
+            as_target.filter(None).libraries,
+            "the role on the request must not change what the account can see, or home and \
+             the catalog answer differently for the same person"
         );
     }
 }

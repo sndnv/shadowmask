@@ -4,6 +4,7 @@ import 'package:shadowmask/components/progress_bar.dart';
 import 'package:shadowmask/theme/radii.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
+import 'package:shadowmask/util/touch_platform.dart';
 
 class PosterPlay extends StatefulWidget {
   const PosterPlay({
@@ -53,7 +54,7 @@ class _PosterPlayState extends State<PosterPlay> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.onTap == null) {
+    if (widget.onTap == null || touchPlatform(context)) {
       return _art();
     }
     final Tokens t = context.tokens;

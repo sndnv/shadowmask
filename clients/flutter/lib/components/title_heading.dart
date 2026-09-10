@@ -66,9 +66,25 @@ class TitleHeading extends StatelessWidget {
       for (final TitleAction action in actions) button(action),
       ?trailing,
     ];
+    final bool inlineable =
+        pager.isEmpty && actions.length == 1 && trailing == null;
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         if (constraints.maxWidth < Breakpoints.sm) {
+          if (inlineable) {
+            return Text.rich(
+              TextSpan(
+                children: <InlineSpan>[
+                  TextSpan(text: title),
+                  WidgetSpan(
+                    alignment: PlaceholderAlignment.middle,
+                    child: button(actions.single),
+                  ),
+                ],
+              ),
+              style: Theme.of(context).textTheme.headlineLarge,
+            );
+          }
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[

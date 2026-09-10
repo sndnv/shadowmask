@@ -725,6 +725,7 @@ impl LibraryRepository for SqliteLibraryRepo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::catalog::{MovieId, TitleId};
 
     #[tokio::test]
     async fn reconciling_a_backlog_deletes_more_rows_than_sqlite_allows_parameters() {
@@ -837,6 +838,7 @@ mod tests {
         assert!(scan_status_from_str("nope").is_err());
     }
 
+    // A method absent from this list has an error arm no test has ever taken.
     #[tokio::test]
     async fn surfaces_backend_error_after_close() {
         let dir = tempfile::tempdir().unwrap();
@@ -844,7 +846,83 @@ mod tests {
             .await
             .unwrap();
         repo.pool.close().await;
+
+        let page = PageRequest {
+            offset: 0,
+            limit: 10,
+        };
+        let library = LibraryId("lib1".into());
+        let unmatched = UnmatchedFileId("uf1".into());
+        let duplicate = DuplicateCandidateId("d1".into());
+
         assert!(repo.list().await.is_err());
+        assert!(repo.get(&library).await.is_err());
+        assert!(repo.scan_state(&library).await.is_err());
+        assert!(
+            repo.save_scan_state(ScanState {
+                library: library.clone(),
+                status: ScanStatus::Idle,
+                progress: 0.0,
+                started_at: None,
+                last_scanned_at: None,
+                error: None,
+            })
+            .await
+            .is_err()
+        );
+        assert!(
+            repo.upsert(contracts::fixture::library("lib1"))
+                .await
+                .is_err()
+        );
+        assert!(repo.delete(&library).await.is_err());
+        assert!(repo.list_unmatched(&library, page).await.is_err());
+        assert!(repo.list_duplicates(&library, page).await.is_err());
+        assert!(repo.get_unmatched(&unmatched).await.is_err());
+        assert!(
+            repo.insert_unmatched(UnmatchedFile {
+                id: unmatched.clone(),
+                library: library.clone(),
+                path: "/media/x.mkv".into(),
+                candidates: Vec::new(),
+                created_at: from_millis(0).unwrap(),
+                updated_at: from_millis(0).unwrap(),
+            })
+            .await
+            .is_err()
+        );
+        assert!(
+            repo.insert_duplicate(
+                &library,
+                DuplicateCandidate {
+                    id: duplicate.clone(),
+                    title: TitleId::Movie(MovieId("m1".into())),
+                    paths: vec!["/a.mkv".into()],
+                }
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            repo.set_unmatched_status(&unmatched, ResolutionStatus::Dismissed)
+                .await
+                .is_err()
+        );
+        assert!(
+            repo.set_duplicate_status(&duplicate, ResolutionStatus::Dismissed)
+                .await
+                .is_err()
+        );
+        assert!(
+            repo.reconcile_duplicates(&library, &[duplicate])
+                .await
+                .is_err()
+        );
+        assert!(
+            repo.reconcile_unmatched(&library, &["/media/x.mkv".to_owned()])
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]

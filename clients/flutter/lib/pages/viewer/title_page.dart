@@ -291,7 +291,7 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
                   ),
                 ),
               ),
-              info: Column(
+              headline: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   TitleHeading(
@@ -341,34 +341,11 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
                         ),
                     ],
                   ),
-                  const SizedBox(height: Space.s3),
-                  FactsRow(
-                    FactsRow.of(<(String, String?)>[
-                      (Strings.factYear, d.year?.toString()),
-                      (
-                        Strings.factRuntime,
-                        d.runtimeMinutes != null
-                            ? runtime(d.runtimeMinutes!)
-                            : null,
-                      ),
-                      (Strings.factRating, d.contentRating?.label),
-                      (Strings.factQuality, best?.quality.label),
-                    ]),
-                    labels: false,
-                  ),
-                  if (d.genres.isNotEmpty) ...<Widget>[
-                    const SizedBox(height: Space.s3),
-                    GenreChips(d.genres, basePath: moviesRoute()),
-                  ],
-                  if (d.ratings.isNotEmpty) ...<Widget>[
-                    const SizedBox(height: Space.s3),
-                    RatingChips(d.ratings),
-                  ],
-                  if (d.overview != null) ...<Widget>[
-                    const SizedBox(height: Space.s3),
-                    OverviewText(d.overview!),
-                  ],
-                  const SizedBox(height: Space.s4),
+                ],
+              ),
+              actions: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
                   LibraryToggles(
                     catalog: _catalog,
                     userId: widget.user.id,
@@ -391,6 +368,35 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
                     const SizedBox(height: Space.s2),
                     const MutedNote(Strings.noVersionsAvailable),
                   ],
+                ],
+              ),
+              info: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  FactsRow(
+                    FactsRow.of(<(String, String?)>[
+                      (Strings.factYear, d.year?.toString()),
+                      (
+                        Strings.factRuntime,
+                        d.runtimeMinutes != null
+                            ? runtime(d.runtimeMinutes!)
+                            : null,
+                      ),
+                      (Strings.factRating, d.contentRating?.label),
+                      (Strings.factQuality, best?.quality.label),
+                    ]),
+                    labels: false,
+                  ),
+                  const SizedBox(height: Space.s3),
+                  if (d.genres.isNotEmpty) ...<Widget>[
+                    GenreChips(d.genres, basePath: moviesRoute()),
+                    const SizedBox(height: Space.s3),
+                  ],
+                  if (d.ratings.isNotEmpty) ...<Widget>[
+                    RatingChips(d.ratings),
+                    const SizedBox(height: Space.s3),
+                  ],
+                  if (d.overview != null) OverviewText(d.overview!),
                 ],
               ),
             ),
@@ -765,7 +771,7 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
                   imageBase: _catalog.imageBase,
                 ),
               ),
-              info: Column(
+              headline: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   TitleHeading(
@@ -804,7 +810,21 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
                         ),
                     ],
                   ),
-                  const SizedBox(height: Space.s3),
+                ],
+              ),
+              actions: LibraryToggles(
+                catalog: _catalog,
+                userId: widget.user.id,
+                ref: _ref,
+                title: d.title,
+                initialWatched: rollup.watched,
+                showWatchlistFavorite: false,
+                episodeCount: rollup.totalEpisodes,
+                onWatchedChanged: (bool _) => _reload(),
+              ),
+              info: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
                   FactsRow(
                     FactsRow.of(<(String, String?)>[
                       (Strings.factYear, d.year?.toString()),
@@ -812,29 +832,16 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
                     ]),
                     labels: false,
                   ),
+                  const SizedBox(height: Space.s3),
                   if (d.genres.isNotEmpty) ...<Widget>[
-                    const SizedBox(height: Space.s3),
                     GenreChips(d.genres, basePath: seriesListRoute()),
+                    const SizedBox(height: Space.s3),
                   ],
                   if (d.ratings.isNotEmpty) ...<Widget>[
-                    const SizedBox(height: Space.s3),
                     RatingChips(d.ratings),
-                  ],
-                  if (d.overview != null) ...<Widget>[
                     const SizedBox(height: Space.s3),
-                    OverviewText(d.overview!),
                   ],
-                  const SizedBox(height: Space.s4),
-                  LibraryToggles(
-                    catalog: _catalog,
-                    userId: widget.user.id,
-                    ref: _ref,
-                    title: d.title,
-                    initialWatched: rollup.watched,
-                    showWatchlistFavorite: false,
-                    episodeCount: rollup.totalEpisodes,
-                    onWatchedChanged: (bool _) => _reload(),
-                  ),
+                  if (d.overview != null) OverviewText(d.overview!),
                 ],
               ),
             ),

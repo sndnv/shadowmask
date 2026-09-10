@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use domain::session::{SessionId, StreamRegistration, StreamRegistry};
+use domain::session::{SessionId, StreamGeneration, StreamRegistration, StreamRegistry};
 
 #[derive(Default)]
 struct State {
-    registrations: HashMap<SessionId, StreamRegistration>,
+    registrations: HashMap<SessionId, (StreamGeneration, StreamRegistration)>,
     removed: Vec<SessionId>,
 }
 
@@ -25,7 +25,16 @@ impl MockStreamRegistry {
             .unwrap()
             .registrations
             .get(session)
-            .cloned()
+            .map(|(_, entry)| entry.clone())
+    }
+
+    pub fn registered_generation(&self, session: &SessionId) -> Option<StreamGeneration> {
+        self.state
+            .lock()
+            .unwrap()
+            .registrations
+            .get(session)
+            .map(|(generation, _)| *generation)
     }
 
     pub fn removed(&self) -> Vec<SessionId> {
@@ -34,12 +43,17 @@ impl MockStreamRegistry {
 }
 
 impl StreamRegistry for MockStreamRegistry {
-    fn register(&self, session: SessionId, entry: StreamRegistration) {
+    fn register(
+        &self,
+        session: SessionId,
+        generation: StreamGeneration,
+        entry: StreamRegistration,
+    ) {
         self.state
             .lock()
             .unwrap()
             .registrations
-            .insert(session, entry);
+            .insert(session, (generation, entry));
     }
 
     fn remove(&self, session: &SessionId) {
@@ -71,12 +85,17 @@ mod tests {
         let registry = MockStreamRegistry::new();
         let session = SessionId("s1".to_owned());
         assert!(registry.registration(&session).is_none());
-        registry.register(session.clone(), entry());
+        registry.register(session.clone(), StreamGeneration(4), entry());
         assert_eq!(
             registry.registration(&session).unwrap().mode,
             DeliveryMode::Transcode
         );
+        assert_eq!(
+            registry.registered_generation(&session),
+            Some(StreamGeneration(4))
+        );
         registry.remove(&session);
+        assert!(registry.registered_generation(&session).is_none());
         assert!(registry.registration(&session).is_none());
         assert_eq!(registry.removed(), vec![session]);
     }

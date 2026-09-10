@@ -31,6 +31,13 @@ impl SegmentContainer {
             SegmentContainer::Fmp4 => "m4s",
         }
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SegmentContainer::MpegTs => "mpegts",
+            SegmentContainer::Fmp4 => "fmp4",
+        }
+    }
 }
 
 #[cfg(test)]

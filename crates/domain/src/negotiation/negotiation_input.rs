@@ -1,6 +1,6 @@
 use crate::media::{AudioTrack, EmbeddedSubtitleTrack, VideoTrack};
 use crate::profile::Container;
-use crate::session::SubtitleSelection;
+use crate::session::{DeliveryPreference, SubtitleSelection};
 
 #[derive(Debug, Clone)]
 pub struct NegotiationInput {
@@ -14,4 +14,5 @@ pub struct NegotiationInput {
     pub target_height: Option<u32>,
     pub force_burn: bool,
     pub downmix_stereo: bool,
+    pub delivery: DeliveryPreference,
 }

@@ -135,6 +135,20 @@ mod tests {
         sort_titles(&mut items, TitleSort::Year, SortOrder::Desc);
         let by_year: Vec<&str> = items.iter().map(|s| s.id.0.as_str()).collect();
         assert_eq!(by_year, ["a", "b", "c"]);
+
+        // Series carry the same four sort keys as movies, but only two of them were
+        // ever asked for here, so the other two impls ran in no test at all.
+        sort_titles(&mut items, TitleSort::AddedAt, SortOrder::Asc);
+        let by_added: Vec<&str> = items.iter().map(|s| s.id.0.as_str()).collect();
+        assert_eq!(by_added, ["a", "c", "b"]);
+
+        let mut tied = vec![
+            series("z", "Same", Some(2000), 5),
+            series("a", "Same", Some(2000), 5),
+        ];
+        sort_titles(&mut tied, TitleSort::Title, SortOrder::Desc);
+        let by_id: Vec<&str> = tied.iter().map(|s| s.id.0.as_str()).collect();
+        assert_eq!(by_id, ["a", "z"], "id breaks a series tie ascending too");
     }
 
     #[test]

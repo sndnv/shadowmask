@@ -5,11 +5,13 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/skeleton.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/auth/device.dart';
+import 'package:shadowmask/components/entry_row.dart';
 import 'package:shadowmask/components/section_block.dart';
 import 'package:shadowmask/pages/default/mutations.dart';
 import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
+import 'package:shadowmask/util/format.dart';
 
 class DevicesBlock extends StatefulWidget {
   const DevicesBlock({super.key, required this.api, required this.userId});
@@ -56,26 +58,22 @@ class _DevicesBlockState extends State<DevicesBlock>
             spacing: Space.s2,
             children: <Widget>[
               for (final Device d in devices)
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: Text(
-                        '${d.name} · ${d.platform}',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ),
-                    if (d.lastSeen != null)
-                      Text(
-                        Strings.lastSeen(d.lastSeen!),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: context.tokens.muted,
+                EntryRow(
+                  label: Text(
+                    '${d.name} · ${d.platform}',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  meta: sinceText(d.lastSeen) == null
+                      ? null
+                      : Text(
+                          Strings.lastSeen(sinceText(d.lastSeen)!),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: context.tokens.muted),
                         ),
-                      ),
-                    TextButton(
-                      onPressed: busy(d.id) ? null : () => _revoke(d.id),
-                      child: const Text(Strings.revoke),
-                    ),
-                  ],
+                  action: TextButton(
+                    onPressed: busy(d.id) ? null : () => _revoke(d.id),
+                    child: const Text(Strings.revoke),
+                  ),
                 ),
             ],
           );

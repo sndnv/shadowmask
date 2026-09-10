@@ -192,6 +192,8 @@ pub enum ProfileError {
     Parse(String),
     #[error("invalid profile: {0}")]
     Invalid(String),
+    #[error("could not read profile data: {0}")]
+    Unreadable(String),
 }
 
 #[derive(Debug, Error)]

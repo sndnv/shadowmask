@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/api/capability_scope.dart';
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/player/diagnostics_overlay.dart';
@@ -29,6 +30,7 @@ import 'package:shadowmask/model/catalog/season.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/model/server/server_info.dart';
+import 'package:shadowmask/model/session/client_decoding.dart';
 import 'package:shadowmask/model/session/negotiation.dart';
 import 'package:shadowmask/model/session/playback_session.dart';
 import 'package:shadowmask/model/session/resume_position.dart';
@@ -50,6 +52,10 @@ import 'package:shadowmask/view/player_shortcuts.dart';
 import 'package:shadowmask/view/track_carry.dart';
 
 const int kStallSeconds = 20;
+
+const int kPrebufferGiveUpSeconds = 10;
+
+const int kBufferReachMs = 1000;
 const int kSeekReachMs = 30000;
 
 class WatchBody extends StatefulWidget {
@@ -62,6 +68,7 @@ class WatchBody extends StatefulWidget {
     required this.controllerFactory,
     required this.wide,
     required this.onToggleWide,
+    this.touch = false,
   });
 
   final ApiClient api;
@@ -70,13 +77,15 @@ class WatchBody extends StatefulWidget {
   final PlaybackControls initialControls;
   final PlayerControllerFactory controllerFactory;
   final bool wide;
+  final bool touch;
   final VoidCallback? onToggleWide;
 
   @override
   State<WatchBody> createState() => _WatchBodyState();
 }
 
-class _WatchBodyState extends State<WatchBody> with RouteAware {
+class _WatchBodyState extends State<WatchBody>
+    with RouteAware, WidgetsBindingObserver {
   late final PlaybackApi _pb = PlaybackApi(widget.api);
   late final PlayerController _controller = widget.controllerFactory(
     _pb.baseUrl,
@@ -98,14 +107,22 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
   Timer? _heartbeat;
   String? _status;
   String? _mode;
+  String? _container;
   String? _subtitleDelivery;
   String? _title;
   String? _detailRoute;
   List<Crumb> _crumbs = const <Crumb>[];
   String? _lastState;
   ScopedValue<bool>? _immersive;
+  ClientDecoding? _decoding;
   int _autoplaySeconds = kDefaultPlayerPrefs.autoplaySeconds;
   int _networkTimeout = kDefaultPlayerPrefs.networkTimeoutSeconds;
+  int _bufferSeconds = kDefaultPlayerPrefs.bufferSeconds;
+  int _bufferBytes = kDefaultPlayerPrefs.bufferBytes;
+  bool _waitForBuffer = kDefaultPlayerPrefs.waitForBuffer;
+  bool _prebuffered = true;
+  int _lastBufferMs = 0;
+  int _bufferStalledSeconds = 0;
   String? _seriesId;
   EpisodeNeighbours _neighbours = const EpisodeNeighbours();
   EpisodeLink? _upNext;
@@ -117,6 +134,7 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
   int _stalledSeconds = 0;
   int _lastProgressMs = -1;
   bool _stalled = false;
+  int _negotiation = 0;
   final FocusNode _keys = FocusNode(debugLabel: 'player-shortcuts');
 
   @override
@@ -126,12 +144,14 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
     _carrySelection = _controls.hasTrackRequest;
     _controller.snapshot.addListener(_onSnapshot);
     _controller.fullscreen.addListener(_onFullscreen);
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _immersive = ImmersiveScope.of(context);
+    _decoding = CapabilityScope.of(context)?.decoding;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _onFullscreen();
@@ -150,12 +170,30 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
   void didPushNext() => _release();
 
   @override
-  void didPopNext() {
-    if (_session != null || !mounted) {
+  void didPopNext() => _restart();
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!widget.touch) {
+      return;
+    }
+    if (state == AppLifecycleState.paused) {
+      _release();
+      return;
+    }
+    if (state == AppLifecycleState.resumed) {
+      _restart(autoplay: false);
+    }
+  }
+
+  void _restart({bool autoplay = true}) {
+    if (_session != null ||
+        !mounted ||
+        !(ModalRoute.of(context)?.isCurrent ?? false)) {
       return;
     }
     setState(() {
-      _boot = _start();
+      _boot = _start(autoplay: autoplay);
     });
   }
 
@@ -165,6 +203,7 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
     _cancelCountdown();
     _controller.pause();
     _endSession();
+    unawaited(_controller.detach());
   }
 
   void _endSession() {
@@ -179,6 +218,7 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     appRouteObserver.unsubscribe(this);
     _controller.fullscreen.removeListener(_onFullscreen);
     _immersive?.releaseAfterFrame(true, false, owner: this);
@@ -193,7 +233,20 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
     super.dispose();
   }
 
-  Future<bool> _start() async {
+  Future<bool> _start({bool autoplay = true}) async {
+    try {
+      final bool started = await _startSession(autoplay: autoplay);
+      _immersive?.publish(_controller.fullscreen.value, owner: this);
+      return started;
+    } catch (_) {
+      _immersive?.publish(false, owner: this);
+      rethrow;
+    }
+  }
+
+  void _retry() => setState(() => _boot = _start());
+
+  Future<bool> _startSession({bool autoplay = true}) async {
     final ServerInfo info = await _pb.serverInfo().catchError(
       (_) => const ServerInfo(),
     );
@@ -208,14 +261,17 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
       startPositionMs: resume.positionMs,
       profileVersion: info.profileVersion,
       platform: clientPlatform(),
+      decoding: _decoding,
       controls: _controls,
     );
     _session = session;
+    _negotiation++;
     _version = version;
     _originMs = session.originMs;
     _sequential = session.sequential;
     _controls = _controls.withSelection(session.selected);
     _mode = session.mode.name;
+    _container = session.container;
     _subtitleDelivery = session.selected?.subtitleDelivery;
     _trickplay = TrickplayLoader(
       api: _pb,
@@ -229,11 +285,23 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
     );
     _networkTimeout = prefs.networkTimeoutSeconds;
     _controller.setNetworkTimeout(_networkTimeout);
+    _bufferSeconds = prefs.bufferSeconds;
+    _bufferBytes = prefs.bufferBytes;
+    _waitForBuffer = prefs.waitForBuffer;
+    _prebuffered = !(_waitForBuffer && autoplay);
+    _lastBufferMs = 0;
+    _bufferStalledSeconds = 0;
+    _controller.setBuffer(seconds: _bufferSeconds, bytes: _bufferBytes);
     await _controller.attach(
       session.manifestUrl,
       mode: session.mode,
       positionMs: _attachOffset(resume.positionMs),
+      autoplay: autoplay && _prebuffered,
     );
+    if (!_prebuffered && !_controller.buffersAhead) {
+      _prebuffered = true;
+      _controller.play();
+    }
     _remaining = prefs.remaining;
     _autoplaySeconds = prefs.autoplaySeconds;
     _controller.setVolume(prefs.volume);
@@ -247,7 +315,11 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
       addUnloadListener(_endSessionBeacon);
     }
     if (_controls.offsetMs != 0) {
-      await _applyControls(_controls, seekMs: resume.positionMs);
+      await _applyControls(
+        _controls,
+        seekMs: resume.positionMs,
+        autoplay: autoplay,
+      );
     }
     await _loadTitle(version.title);
     return true;
@@ -312,6 +384,20 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
         return;
       }
       final PlayerSnapshot snap = _controller.snapshot.value;
+      if (!_prebuffered) {
+        final int ahead = snap.bufferedAheadMs;
+        if (ahead + kBufferReachMs >= _prebufferTargetMs(snap)) {
+          _playNow();
+          return;
+        }
+        if (ahead > _lastBufferMs) {
+          _bufferStalledSeconds = 0;
+        } else if (++_bufferStalledSeconds >= kPrebufferGiveUpSeconds) {
+          _playNow();
+        }
+        _lastBufferMs = ahead;
+        return;
+      }
       final int progress = snap.positionMs + snap.bufferedAheadMs;
       if (!snap.waiting || progress != _lastProgressMs) {
         _lastProgressMs = progress;
@@ -495,7 +581,11 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
     );
   }
 
-  Future<void> _applyControls(PlaybackControls next, {int? seekMs}) async {
+  Future<void> _applyControls(
+    PlaybackControls next, {
+    int? seekMs,
+    bool autoplay = true,
+  }) async {
     _carrySelection =
         _carrySelection ||
         next.audioTrack != _controls.audioTrack ||
@@ -508,24 +598,30 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
       return;
     }
     final int keepMs = seekMs ?? _view.positionMs;
+    final int negotiation = ++_negotiation;
     try {
       final neg = await _pb.update(sid, next);
+      if (negotiation != _negotiation) {
+        return;
+      }
       _originMs = neg.originMs;
       _sequential = neg.sequential;
       await _controller.attach(
         neg.manifestUrl,
         mode: neg.mode,
         positionMs: _attachOffset(keepMs),
+        autoplay: autoplay,
       );
-      if (mounted) {
+      if (mounted && negotiation == _negotiation) {
         setState(() {
           _mode = neg.mode.name;
+          _container = neg.container;
           _subtitleDelivery = neg.selected?.subtitleDelivery;
           _status = null;
         });
       }
     } catch (_) {
-      if (mounted) {
+      if (mounted && negotiation == _negotiation) {
         setState(() => _status = Strings.renegotiationFailed);
       }
     }
@@ -535,6 +631,8 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
     setState(() => _speed = rate);
     _controller.setRate(rate);
   }
+
+  void _holdSpeed(double? rate) => _controller.setRate(rate ?? _speed);
 
   void _changeDiagnostics(bool on) => setState(() => _diag = on);
 
@@ -559,6 +657,43 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
     setState(() => _networkTimeout = seconds);
     _prefs.saveNetworkTimeoutSeconds(seconds);
     _controller.setNetworkTimeout(seconds);
+  }
+
+  bool get _canBuffer => _controller.buffersAhead;
+
+  int _prebufferTargetMs(PlayerSnapshot snap) {
+    final int chosen = _bufferSeconds * 1000;
+    final int left = snap.durationMs - snap.positionMs;
+    return left > 0 && left < chosen ? left : chosen;
+  }
+
+  void _changeBufferSeconds(int seconds) {
+    setState(() => _bufferSeconds = seconds);
+    _prefs.saveBufferSeconds(seconds);
+    _controller.setBuffer(seconds: seconds, bytes: _bufferBytes);
+  }
+
+  void _changeBufferBytes(int bytes) {
+    setState(() => _bufferBytes = bytes);
+    _prefs.saveBufferBytes(bytes);
+    _controller.setBuffer(seconds: _bufferSeconds, bytes: bytes);
+  }
+
+  void _changeWaitForBuffer(bool wait) {
+    setState(() {
+      _waitForBuffer = wait;
+      if (!wait) {
+        _prebuffered = true;
+      }
+    });
+    _prefs.saveWaitForBuffer(wait);
+  }
+
+  void _playNow() {
+    _lastBufferMs = 0;
+    _bufferStalledSeconds = 0;
+    setState(() => _prebuffered = true);
+    _controller.play();
   }
 
   void _changeAutoplay(int seconds) {
@@ -691,8 +826,12 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
     if (sid == null) {
       return;
     }
+    final int negotiation = ++_negotiation;
     try {
       final Negotiation neg = await _pb.seek(sid, targetMs);
+      if (negotiation != _negotiation) {
+        return;
+      }
       _originMs = neg.originMs;
       _sequential = neg.sequential;
       await _controller.attach(
@@ -700,7 +839,7 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
         mode: neg.mode,
         positionMs: _attachOffset(targetMs),
       );
-      if (mounted) {
+      if (mounted && negotiation == _negotiation) {
         setState(() {});
       }
     } catch (_) {}
@@ -752,10 +891,16 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
       _controller.unmute();
       return;
     }
+    if (widget.touch) {
+      return;
+    }
     _controller.togglePlay();
   }
 
   String? _waitingLabel(PlayerSnapshot snap) {
+    if (!_prebuffered) {
+      return Strings.playerBuffering;
+    }
     if (!snap.waiting) {
       return null;
     }
@@ -768,6 +913,12 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
   }
 
   String? _waitingDetail(PlayerSnapshot snap) {
+    if (!_prebuffered) {
+      return Strings.playerBufferingTo(
+        snap.bufferedAheadMs / 1000,
+        _prebufferTargetMs(snap) ~/ 1000,
+      );
+    }
     if (!snap.waiting) {
       return null;
     }
@@ -795,10 +946,26 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
 
   Widget _titleRow() => Padding(
     padding: const EdgeInsets.symmetric(horizontal: Space.s2),
-    child: Text(
-      _title ?? '',
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+    child: Row(
+      children: <Widget>[
+        if (widget.touch)
+          IconButton(
+            onPressed: _leavePlayer,
+            icon: const Icon(Icons.arrow_back),
+            color: Colors.white,
+            tooltip: Strings.playerGoBack,
+          ),
+        Expanded(
+          child: Text(
+            _title ?? '',
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
     ),
   );
 
@@ -807,6 +974,7 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
     return buildBlock<bool>(
       future: _boot,
       errorText: Strings.couldNotStartPlayback,
+      onRetry: _retry,
       builder: (BuildContext context, bool _) {
         return ValueListenableBuilder<bool>(
           valueListenable: _controller.fullscreen,
@@ -858,9 +1026,15 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
                       waitingDetail: _waitingDetail(snap),
                       onKeepWaiting: _stalled ? _keepWaiting : null,
                       onGoBack: _stalled ? _leavePlayer : null,
+                      onPlayNow: _prebuffered ? null : _playNow,
                       ended: snap.ended,
                       onCentrePlay: _centrePlay,
-                      onDoubleTapVideo: _controller.toggleFullscreen,
+                      touch: widget.touch,
+                      onSeekRelative: _seekBy,
+                      onHoldSpeed: _holdSpeed,
+                      onDoubleTapVideo: widget.touch
+                          ? null
+                          : _controller.toggleFullscreen,
                       diagnostics: _diag
                           ? DiagnosticsOverlay(
                               controller: _controller,
@@ -879,6 +1053,7 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
                                         speed: _speed,
                                         diagnostics: _diag,
                                         mode: _mode,
+                                        container: _container,
                                         subtitleDelivery: _subtitleDelivery,
                                         pictureInPicture:
                                             _controller.supportsPictureInPicture
@@ -898,7 +1073,27 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
                                         networkTimeoutSeconds: _networkTimeout,
                                         onNetworkTimeoutSeconds:
                                             _changeNetworkTimeout,
-                                        onShortcuts: _showShortcuts,
+                                        bufferSeconds: _canBuffer
+                                            ? _bufferSeconds
+                                            : null,
+                                        onBufferSeconds: _canBuffer
+                                            ? _changeBufferSeconds
+                                            : null,
+                                        bufferBytes: _canBuffer
+                                            ? _bufferBytes
+                                            : null,
+                                        onBufferBytes: _canBuffer
+                                            ? _changeBufferBytes
+                                            : null,
+                                        waitForBuffer: _canBuffer
+                                            ? _waitForBuffer
+                                            : null,
+                                        onWaitForBuffer: _canBuffer
+                                            ? _changeWaitForBuffer
+                                            : null,
+                                        onShortcuts: widget.touch
+                                            ? null
+                                            : _showShortcuts,
                                         onClose: _closePanel,
                                         dense: compactViewport(context),
                                       ),
@@ -930,6 +1125,7 @@ class _WatchBodyState extends State<WatchBody> with RouteAware {
                                         timeline: timeline,
                                         fullscreen: fullscreen,
                                         wide: widget.wide,
+                                        touch: widget.touch,
                                         muted: muted,
                                         volume: level,
                                         remaining: _remaining,

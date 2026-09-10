@@ -9,6 +9,7 @@ use crate::dto::catalog::{MarkersDto, TrickplayRefDto};
 pub struct SessionStartedResponse {
     pub session_id: String,
     pub mode: DeliveryModeDto,
+    pub container: Option<String>,
     pub manifest_url: String,
     pub origin_ms: u64,
     pub sequential: bool,
@@ -23,6 +24,7 @@ impl From<SessionStarted> for SessionStartedResponse {
         SessionStartedResponse {
             session_id: s.session_id.0,
             mode: s.mode.into(),
+            container: s.container.map(|c| c.as_str().to_owned()),
             manifest_url: s.manifest_url,
             origin_ms: s.origin_ms,
             sequential: s.sequential,

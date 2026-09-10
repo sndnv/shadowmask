@@ -7,8 +7,8 @@ use domain::media::{CreditsMarker, DetectedMarkers, IntroMarker, TrickplayAsset}
 use domain::service::SessionService;
 use domain::session::{
     AudioRequest, DeliveryMode, HeartbeatAck, PlaybackSession, PlaybackState, Renegotiated,
-    SelectedTracks, SessionId, SessionStartInput, SessionStarted, SessionUpdate, SubtitleChange,
-    SubtitleDelivery, SubtitleRequest,
+    SegmentContainer, SelectedTracks, SessionId, SessionStartInput, SessionStarted, SessionUpdate,
+    SubtitleChange, SubtitleDelivery, SubtitleRequest,
 };
 use domain::user::{Principal, UserId};
 use jiff::Timestamp;
@@ -43,10 +43,15 @@ fn manifest_url(id: &SessionId) -> String {
     format!("/stream/{}/master.m3u8", id.0)
 }
 
+fn container_for(mode: DeliveryMode) -> Option<SegmentContainer> {
+    (mode != DeliveryMode::Direct).then_some(SegmentContainer::MpegTs)
+}
+
 fn renegotiated(session: &PlaybackSession) -> Renegotiated {
     Renegotiated {
         session_id: session.id.clone(),
         mode: session.mode,
+        container: container_for(session.mode),
         manifest_url: manifest_url(&session.id),
         origin_ms: 0,
         sequential: false,
@@ -107,6 +112,7 @@ impl SessionService for MockSessionService {
         Ok(SessionStarted {
             session_id: id.clone(),
             mode: DeliveryMode::Direct,
+            container: None,
             manifest_url: manifest_url(&id),
             origin_ms: 0,
             sequential: false,
@@ -241,7 +247,7 @@ mod tests {
     use super::*;
     use domain::catalog::VersionId;
     use domain::playback::SubtitleTrackRef;
-    use domain::session::{ClientCapabilities, SubtitleSelection};
+    use domain::session::{ClientCapabilities, DeliveryPreference, SubtitleSelection};
     use domain::user::{Role, UserId};
 
     fn principal(user: &str) -> Principal {
@@ -266,12 +272,14 @@ mod tests {
                 platform: "web".into(),
                 profile_version: 1,
                 max_bitrate: None,
+                decoding: None,
             },
             audio: AudioRequest::Track(0),
             subtitle: SubtitleRequest::Unspecified,
             target_height: None,
             force_burn: false,
             downmix_stereo: false,
+            delivery: DeliveryPreference::Auto,
         }
     }
 
@@ -371,6 +379,7 @@ mod tests {
                 target_height: None,
                 force_burn: false,
                 downmix_stereo: false,
+                delivery: DeliveryPreference::Auto,
             },
         )
         .await
@@ -397,6 +406,7 @@ mod tests {
                 target_height: None,
                 force_burn: false,
                 downmix_stereo: false,
+                delivery: DeliveryPreference::Auto,
             },
         )
         .await
@@ -421,6 +431,7 @@ mod tests {
                 target_height: None,
                 force_burn: false,
                 downmix_stereo: false,
+                delivery: DeliveryPreference::Auto,
             },
         )
         .await
@@ -445,6 +456,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: false,
+                    delivery: DeliveryPreference::Auto,
                 },
             )
             .await

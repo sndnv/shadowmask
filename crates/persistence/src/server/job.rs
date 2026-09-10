@@ -583,6 +583,22 @@ mod tests {
                 .await
                 .is_err()
         );
+        let id = JobId("j1".into());
+        assert!(repo.enqueue(contracts::fixture::admin_job()).await.is_err());
+        assert!(
+            repo.claim_ready(Timestamp::UNIX_EPOCH, 1, vec![JobKind::LibraryScan])
+                .await
+                .is_err(),
+            "an empty kind list short circuits before the pool, so it proves nothing"
+        );
+        assert!(
+            repo.reclaim_running(Timestamp::UNIX_EPOCH, 3)
+                .await
+                .is_err()
+        );
+        assert!(repo.update(contracts::fixture::admin_job()).await.is_err());
+        assert!(repo.get(&id).await.is_err());
+        assert!(repo.cancel(&id, Timestamp::UNIX_EPOCH).await.is_err());
     }
 
     #[test]

@@ -89,6 +89,7 @@ pub struct Config {
     pub daily_scan_at: Option<String>,
     pub transcode_cache_cap_bytes: u64,
     pub remux_read_rate: f64,
+    pub max_transcode_height: Option<u32>,
     pub cache_eviction_every_secs: i64,
     pub job_retention_days: i64,
     pub retention_every_secs: i64,
@@ -105,6 +106,7 @@ pub struct Config {
     pub cors_allowed_origins: Vec<String>,
     pub hardware_acceleration: HardwareAccelerationMode,
     pub vaapi_device: PathBuf,
+    pub profile_overrides_dir: Option<PathBuf>,
     pub enrichment: EnrichmentConfig,
     pub fetch_providers: FetchProvidersConfig,
 }
@@ -140,6 +142,7 @@ impl Default for Config {
             daily_scan_at: None,
             transcode_cache_cap_bytes: 10 * 1024 * 1024 * 1024,
             remux_read_rate: 10.0,
+            max_transcode_height: None,
             cache_eviction_every_secs: 3600,
             job_retention_days: 30,
             retention_every_secs: 86_400,
@@ -156,6 +159,7 @@ impl Default for Config {
             cors_allowed_origins: Vec::new(),
             hardware_acceleration: HardwareAccelerationMode::default(),
             vaapi_device: PathBuf::from("/dev/dri/renderD128"),
+            profile_overrides_dir: None,
             enrichment: EnrichmentConfig::default(),
             fetch_providers: FetchProvidersConfig::default(),
         }
@@ -260,21 +264,24 @@ impl Config {
         let _ = writeln!(out, "    log_level:        {}", self.log_level);
         let _ = writeln!(out, "    sqlx_log_level:   {}", self.sqlx_log_level);
         let _ = writeln!(out, "  caches:");
-        let _ = writeln!(out, "    transcode: {}", self.transcode_cache.display());
-        let _ = writeln!(
-            out,
-            "    transcode_cap: {}",
-            human_bytes(self.transcode_cache_cap_bytes)
-        );
-        let _ = writeln!(
-            out,
-            "    remux_read_rate: {}",
-            read_rate(self.remux_read_rate)
-        );
-        let _ = writeln!(out, "    artwork:   {}", self.artwork_cache.display());
-        let _ = writeln!(out, "    trickplay: {}", self.trickplay_cache.display());
-        let _ = writeln!(out, "    subtitles: {}", self.subtitle_cache.display());
-        let _ = writeln!(out, "    job_logs:  {}", self.job_log_dir.display());
+        for (key, value) in [
+            ("transcode:", self.transcode_cache.display().to_string()),
+            (
+                "transcode_cap:",
+                human_bytes(self.transcode_cache_cap_bytes),
+            ),
+            ("remux_read_rate:", read_rate(self.remux_read_rate)),
+            (
+                "max_transcode_height:",
+                transcode_height(self.max_transcode_height),
+            ),
+            ("artwork:", self.artwork_cache.display().to_string()),
+            ("trickplay:", self.trickplay_cache.display().to_string()),
+            ("subtitles:", self.subtitle_cache.display().to_string()),
+            ("job_logs:", self.job_log_dir.display().to_string()),
+        ] {
+            let _ = writeln!(out, "    {key:<CACHE_KEY_WIDTH$} {value}");
+        }
         let _ = writeln!(out, "  tls:");
         let _ = writeln!(out, "    cert: {}", opt_path(&self.tls_cert));
         let _ = writeln!(out, "    key:  {}", opt_path(&self.tls_key));
@@ -420,6 +427,15 @@ fn read_rate(rate: f64) -> String {
     }
 }
 
+const CACHE_KEY_WIDTH: usize = "max_transcode_height:".len();
+
+fn transcode_height(height: Option<u32>) -> String {
+    match height {
+        Some(height) => format!("{height}p"),
+        None => "unbounded".to_owned(),
+    }
+}
+
 pub(crate) fn human_bytes(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["B", "KiB", "MiB", "GiB"];
     let mut value = bytes as f64;
@@ -490,6 +506,23 @@ mod tests {
             let config = Config::load().unwrap();
             assert_eq!(config.access_ttl_secs, 7);
             assert_eq!(config.worker_concurrency, 9);
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn profile_overrides_are_off_unless_a_directory_is_named() {
+        figment::Jail::expect_with(|jail| {
+            assert_eq!(Config::load().unwrap().profile_overrides_dir, None);
+            jail.set_env(
+                "SHADOWMASK_PROFILE_OVERRIDES_DIR",
+                "/etc/shadowmask/profiles",
+            );
+            assert_eq!(
+                Config::load().unwrap().profile_overrides_dir,
+                Some(PathBuf::from("/etc/shadowmask/profiles"))
+            );
             Ok(())
         });
     }
@@ -733,7 +766,7 @@ mod tests {
         assert!(described.contains("version:       none"));
         assert!(described.contains("cache_evict_every: 3600 s"));
         assert!(
-            described.contains("transcode_cap: 10.0 GiB"),
+            described.contains(&cache_line("transcode_cap:", "10.0 GiB")),
             "a byte count is unreadable in a startup banner"
         );
 
@@ -758,7 +791,7 @@ mod tests {
         assert!(
             Config::default()
                 .describe(None)
-                .contains("remux_read_rate: 10x realtime"),
+                .contains(&cache_line("remux_read_rate:", "10x realtime")),
             "a bare number reads as seconds or bytes in a startup banner"
         );
     }
@@ -772,7 +805,7 @@ mod tests {
         assert!(
             config
                 .describe(None)
-                .contains("remux_read_rate: unthrottled"),
+                .contains(&cache_line("remux_read_rate:", "unthrottled")),
             "zero means no throttle at all, which 0x realtime would read as the opposite"
         );
     }
@@ -786,6 +819,70 @@ mod tests {
             assert_eq!(Config::load().unwrap().remux_read_rate, 2.5);
             Ok(())
         });
+    }
+
+    // Unbounded is the shipped default: the operator decides what their host can
+    // encode, and nothing about the machine is probed to guess it for them.
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn the_transcode_height_is_unbounded_until_an_admin_bounds_it() {
+        figment::Jail::expect_with(|jail| {
+            assert_eq!(Config::load().unwrap().max_transcode_height, None);
+            jail.set_env("SHADOWMASK_MAX_TRANSCODE_HEIGHT", "1080");
+            assert_eq!(Config::load().unwrap().max_transcode_height, Some(1080));
+            Ok(())
+        });
+    }
+
+    fn cache_line(key: &str, value: &str) -> String {
+        format!("    {key:<CACHE_KEY_WIDTH$} {value}")
+    }
+
+    #[test]
+    fn describe_names_the_transcode_bound() {
+        assert!(
+            Config::default()
+                .describe(None)
+                .contains(&cache_line("max_transcode_height:", "unbounded")),
+            "an unset bound has to read as unbounded, not as a missing line"
+        );
+        let bounded = Config {
+            max_transcode_height: Some(1080),
+            ..Config::default()
+        };
+        assert!(
+            bounded
+                .describe(None)
+                .contains(&cache_line("max_transcode_height:", "1080p"))
+        );
+    }
+
+    // Every other section lines its values up; the cache section grew three
+    // longer keys and stopped doing so.
+    #[test]
+    fn the_cache_section_lines_its_values_up() {
+        fn value_column(line: &str) -> usize {
+            let colon = line.find(':').expect("a cache line names its setting");
+            let offset = line[colon + 1..]
+                .find(|c: char| c != ' ')
+                .expect("a cache line carries a value");
+            colon + 1 + offset
+        }
+
+        let described = Config::default().describe(None);
+        let columns: Vec<usize> = described
+            .lines()
+            .skip_while(|line| line.trim_end() != "  caches:")
+            .skip(1)
+            .take_while(|line| line.starts_with("    "))
+            .map(value_column)
+            .collect();
+
+        assert_eq!(columns.len(), 8, "every cache line has to be measured");
+        assert!(
+            columns.iter().all(|column| *column == columns[0]),
+            "cache values start at differing columns: {columns:?}"
+        );
     }
 
     #[test]

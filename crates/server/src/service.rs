@@ -327,6 +327,15 @@ impl Runtime {
             reclaimed.total()
         );
 
+        match CacheEvictor::new(&config.transcode_cache).purge().await {
+            Ok(purged) => {
+                tracing::info!("startup: purged [{purged}] stale transcode cache entries")
+            }
+            Err(error) => {
+                tracing::warn!("startup: could not purge the transcode cache: [{error}]")
+            }
+        }
+
         let serve = config.bootstrap_mode.serves();
         if config.bootstrap_mode.enabled() {
             run_bootstrap(&config, &repos).await?;
@@ -355,6 +364,8 @@ impl Runtime {
             fetch_cookies_file: config.fetch_providers.cookies_file.clone(),
             vaapi_device: vaapi_device.clone(),
             remux_read_rate: config.remux_read_rate,
+            max_transcode_height: config.max_transcode_height,
+            profile_overrides_dir: config.profile_overrides_dir.clone(),
         };
         let cancel = CancelRegistry::default();
         let Built {
@@ -917,6 +928,7 @@ mod tests {
     fn test_config(db_root: PathBuf) -> Config {
         Config {
             job_log_dir: db_root.join("job-logs"),
+            transcode_cache: db_root.join("transcode"),
             db_root,
             bind: SocketAddr::from(([127, 0, 0, 1], 0)),
             ..Config::default()
@@ -937,6 +949,72 @@ mod tests {
             .unwrap();
         assert_eq!(runtime.worker.run_once(Timestamp::now()).await.unwrap(), 0);
         assert_eq!(runtime.session.reap_idle().await, 0);
+    }
+
+    // Every session named in the cache died with the process that wrote it, so a
+    // restart starts from an empty cache rather than waiting for the cap.
+    #[tokio::test]
+    async fn build_purges_the_transcode_cache_it_inherited() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = test_config(dir.path().to_owned());
+        let cache = config.transcode_cache.clone();
+        let stale = cache.join("session").join("1");
+        std::fs::create_dir_all(&stale).unwrap();
+        std::fs::write(stale.join("seg_00000.ts"), b"x").unwrap();
+
+        Runtime::build(config, test_metrics()).await.unwrap();
+
+        assert!(!cache.join("session").exists());
+    }
+
+    // The default config leaves every optional component switched off, so the
+    // branches that wire the metadata providers, the CORS layer, the translation
+    // languages and the daily scan are never taken by any other test.
+    #[tokio::test]
+    async fn a_fully_configured_build_wires_every_optional_component() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = test_config(dir.path().to_owned());
+        config.tmdb_api_key = Some("tmdb-key".into());
+        config.omdb_api_key = Some("omdb-key".into());
+        config.opensubtitles_api_key = Some("os-key".into());
+        config.target_languages = vec!["nl".into()];
+        config.enrichment.translation.enabled = true;
+        config.cors_allowed_origins = vec!["https://example.test".into()];
+        config.daily_scan_at = Some("04:00".into());
+        let profiles = dir.path().join("profiles");
+        std::fs::create_dir_all(&profiles).unwrap();
+        std::fs::write(
+            profiles.join("lounge-tv.json"),
+            r#"{"containers":["mp4"],"video":[{"codec":"h264","max_bit_depth":8}],"audio":[{"codec":"aac","max_channels":2}],"max_width":1920,"max_height":1080,"max_bitrate":8000000}"#,
+        )
+        .unwrap();
+        config.profile_overrides_dir = Some(profiles);
+
+        let runtime = Runtime::build(config, test_metrics()).await.unwrap();
+
+        assert_eq!(runtime.worker.run_once(Timestamp::now()).await.unwrap(), 0);
+    }
+
+    // An operator who points at a directory that is not there has to hear about
+    // it, since the alternative is reading a profile they think they replaced.
+    #[tokio::test]
+    async fn a_profile_override_directory_that_is_not_there_stops_the_build() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = test_config(dir.path().to_owned());
+        config.profile_overrides_dir = Some(dir.path().join("absent"));
+
+        assert!(Runtime::build(config, test_metrics()).await.is_err());
+    }
+
+    // A malformed clock time must be ignored rather than refusing to start, which
+    // is the difference between a warning and an unbootable server.
+    #[tokio::test]
+    async fn a_daily_scan_time_that_is_not_a_clock_time_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = test_config(dir.path().to_owned());
+        config.daily_scan_at = Some("half past four".into());
+
+        assert!(Runtime::build(config, test_metrics()).await.is_ok());
     }
 
     #[tokio::test]

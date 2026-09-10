@@ -8,6 +8,7 @@ import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
+import 'package:shadowmask/util/touch_platform.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
 import 'package:shadowmask/pages/player/player_prefs_store.dart';
 import 'package:shadowmask/pages/player/watch_body.dart';
@@ -67,6 +68,7 @@ class _WatchPageState extends State<WatchPage> {
       );
     }
     final bool compact = compactViewport(context);
+    final bool touch = touchPlatform(context);
     final bool wide = _wide || compact;
     return SectionPage(
       api: widget.api,
@@ -83,6 +85,7 @@ class _WatchPageState extends State<WatchPage> {
               initialControls: widget.controls,
               controllerFactory: widget.controllerFactory,
               wide: wide,
+              touch: touch,
               onToggleWide: compact ? null : _toggleWide,
             ),
           ),

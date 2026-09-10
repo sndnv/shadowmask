@@ -343,6 +343,8 @@ mod tests {
     fn admins() -> MockUserRepo {
         let users = MockUserRepo::new();
         users.insert(account(Role::Admin, None));
+        // Admin carries no implicit access, so it is granted like anyone else.
+        users.grant(&user(), &[LibraryId("lib1".into())]);
         users
     }
 
@@ -472,7 +474,11 @@ mod tests {
             artwork: Vec::new(),
         });
         catalog.add_version(version("v1", TitleId::Movie(MovieId("m1".into()))));
+        catalog.add_version(version("v2", TitleId::Movie(MovieId("m2".into()))));
         catalog.add_version(version("ev1", TitleId::Episode(EpisodeId("e1".into()))));
+        // Every list is library scoped now, and a title with no version is in no
+        // library, so the fixture gives each one a version to stay reachable.
+        catalog.add_version(version("ev2", TitleId::Episode(EpisodeId("e2".into()))));
 
         let search = MockSearchIndex::new();
         search.add(SearchResult::Movie(movie("m1", 10)));
@@ -716,6 +722,8 @@ mod tests {
         catalog.add_season(season("se1", "s1"));
         catalog.add_episode(episode("e1", "se1", 1));
         catalog.add_episode(episode("e2", "se1", 2));
+        catalog.add_version(version("ev1", TitleId::Episode(EpisodeId("e1".into()))));
+        catalog.add_version(version("ev2", TitleId::Episode(EpisodeId("e2".into()))));
 
         let preferences = MockPreferencesRepo::new();
         for (id, seconds) in [("e1", 20), ("e2", 10)] {
@@ -793,6 +801,10 @@ mod tests {
         catalog.add_season(season("se1", "s1"));
         catalog.add_episode(episode("e1", "se1", 1));
         catalog.add_episode(episode("e2", "se1", 2));
+        catalog.add_version(version("v1", TitleId::Movie(MovieId("m1".into()))));
+        catalog.add_version(version("v2", TitleId::Movie(MovieId("m2".into()))));
+        catalog.add_version(version("ev1", TitleId::Episode(EpisodeId("e1".into()))));
+        catalog.add_version(version("ev2", TitleId::Episode(EpisodeId("e2".into()))));
         catalog.add_collection(Collection {
             id: CollectionId("c1".into()),
             name: "Saga".into(),
@@ -888,6 +900,8 @@ mod tests {
         catalog.add_series(series("s1"));
         catalog.add_season(season("se1", "s1"));
         catalog.add_episode(episode("e1", "se1", 1));
+        catalog.add_version(version("v1", TitleId::Movie(MovieId("m1".into()))));
+        catalog.add_version(version("ev1", TitleId::Episode(EpisodeId("e1".into()))));
 
         let preferences = MockPreferencesRepo::new();
         for (title, seconds) in [
@@ -1027,7 +1041,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_admin_home_is_not_gated() {
+    async fn an_admin_home_shows_their_grants_and_no_more() {
         let svc = DiscoveryServiceImpl::new(
             gated(),
             MockSearchIndex::new(),
@@ -1039,6 +1053,24 @@ mod tests {
         let hubs = svc.home_hubs(&user()).await.unwrap();
 
         assert_eq!(hub_movie_ids(&hubs, "recently_added_movies").len(), 2);
+    }
+
+    #[tokio::test]
+    async fn an_admin_with_no_grants_gets_an_empty_home_like_anyone_else() {
+        let users = MockUserRepo::new();
+        users.insert(account(Role::Admin, None));
+        let svc = DiscoveryServiceImpl::new(
+            gated(),
+            MockSearchIndex::new(),
+            MockProgressRepo::new(),
+            MockPreferencesRepo::new(),
+            users,
+        );
+
+        assert!(
+            svc.home_hubs(&user()).await.unwrap().is_empty(),
+            "home and the catalog must agree, and the catalog shows grants"
+        );
     }
 
     #[tokio::test]
@@ -1132,7 +1164,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_admin_search_carries_no_gates() {
+    async fn an_admin_search_carries_the_same_gates_as_anyone() {
         let index = MockSearchIndex::new();
         let svc = DiscoveryServiceImpl::new(
             MockCatalogRepo::new(),
@@ -1145,8 +1177,11 @@ mod tests {
         svc.search(&user(), "anything", &[], page()).await.unwrap();
 
         let filter = index.last_filter().expect("the index was asked to search");
-        assert!(filter.libraries.is_none());
-        assert!(filter.blocked_ratings.is_empty());
+        assert_eq!(
+            filter.libraries,
+            Some(vec![LibraryId("lib1".into())]),
+            "an unscoped search would reach past the grants into every library"
+        );
     }
 
     #[tokio::test]
@@ -1184,5 +1219,88 @@ mod tests {
         assert!(svc.next_episodes(&user()).await.is_err());
         assert!(svc.next_movies(&user()).await.is_err());
         assert!(svc.home_hubs(&user()).await.is_err());
+    }
+
+    // The test above fails the account lookup, which is the first `?` in every
+    // method, so nothing below it is ever reached. These fail one store at a time
+    // with a readable account, which is the only way the later arms are taken. A
+    // swallowed failure here would render as a plausible empty home rather than an
+    // error, which is the worst way for this to break.
+    #[tokio::test]
+    async fn a_failure_below_the_account_lookup_still_surfaces() {
+        // Rows are needed, or the walks finish empty without ever reaching the
+        // catalog and the assertion proves nothing.
+        let stocked = || async {
+            let progress = MockProgressRepo::new();
+            progress
+                .upsert(PlaybackProgress {
+                    user: user(),
+                    version: VersionId("v1".into()),
+                    position_ms: 1234,
+                    audio_track: None,
+                    subtitle: None,
+                    updated_at: Timestamp::UNIX_EPOCH,
+                })
+                .await
+                .unwrap();
+            progress.seed_history(history(TitleId::Movie(MovieId("m1".into())), true, false));
+            progress.seed_history(history(
+                TitleId::Episode(EpisodeId("e1".into())),
+                true,
+                false,
+            ));
+            progress
+        };
+
+        let catalog = MockCatalogRepo::new();
+        catalog.set_fail();
+        let svc = DiscoveryServiceImpl::new(
+            catalog,
+            MockSearchIndex::new(),
+            stocked().await,
+            MockPreferencesRepo::new(),
+            viewer(None, &["lib1"]).await,
+        );
+        assert!(svc.now_playing(vec![session("s1", "v1", 1)]).await.is_err());
+        assert!(svc.continue_watching(&user()).await.is_err());
+        assert!(svc.next_episodes(&user()).await.is_err());
+        assert!(svc.next_movies(&user()).await.is_err());
+        assert!(svc.home_hubs(&user()).await.is_err());
+
+        let progress = MockProgressRepo::new();
+        progress.set_fail();
+        let svc = DiscoveryServiceImpl::new(
+            MockCatalogRepo::new(),
+            MockSearchIndex::new(),
+            progress,
+            MockPreferencesRepo::new(),
+            viewer(None, &["lib1"]).await,
+        );
+        assert!(svc.continue_watching(&user()).await.is_err());
+        assert!(svc.next_episodes(&user()).await.is_err());
+        assert!(svc.next_movies(&user()).await.is_err());
+        assert!(svc.home_hubs(&user()).await.is_err());
+
+        let preferences = MockPreferencesRepo::new();
+        preferences.set_fail();
+        let svc = DiscoveryServiceImpl::new(
+            MockCatalogRepo::new(),
+            MockSearchIndex::new(),
+            MockProgressRepo::new(),
+            preferences,
+            viewer(None, &["lib1"]).await,
+        );
+        assert!(svc.home_hubs(&user()).await.is_err());
+
+        let search = MockSearchIndex::new();
+        search.set_fail();
+        let svc = DiscoveryServiceImpl::new(
+            MockCatalogRepo::new(),
+            search,
+            MockProgressRepo::new(),
+            MockPreferencesRepo::new(),
+            viewer(None, &["lib1"]).await,
+        );
+        assert!(svc.search(&user(), "x", &[], page()).await.is_err());
     }
 }

@@ -94,6 +94,8 @@ pub struct WireConfig {
     pub fetch_cookies_file: Option<PathBuf>,
     pub vaapi_device: Option<String>,
     pub remux_read_rate: f64,
+    pub max_transcode_height: Option<u32>,
+    pub profile_overrides_dir: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -160,7 +162,7 @@ pub fn build_state(
     cfg: &WireConfig,
     cancel: &CancelRegistry,
 ) -> Result<Built, ProfileError> {
-    let profiles = BuiltinProfiles::load()?;
+    let profiles = BuiltinProfiles::load_from_dir(cfg.profile_overrides_dir.as_deref())?;
     let hls = HlsStreamSource::new(&cfg.transcode_cache)
         .with_encoder(VideoEncoder::from_device(cfg.vaapi_device.clone()))
         .with_read_rate(cfg.remux_read_rate);
@@ -186,7 +188,8 @@ pub fn build_state(
         repos.users.clone(),
         repos.progress.clone(),
         repos.preferences.clone(),
-    );
+    )
+    .with_max_transcode_height(cfg.max_transcode_height);
     let provider = cfg.tmdb_api_key.clone().map(TmdbClient::new);
     let library = LibraryServiceImpl::new(
         repos.library.clone(),

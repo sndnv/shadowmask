@@ -17,7 +17,7 @@ import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/util/absolute_url.dart';
-import 'package:shadowmask/util/browser_download.dart';
+import 'package:shadowmask/util/downloads.dart';
 import 'package:shadowmask/util/format.dart';
 import 'package:shadowmask/util/languages.dart';
 import 'package:shadowmask/view/failure_reason.dart';
@@ -224,12 +224,14 @@ class _VersionRowState extends State<_VersionRow> {
       final DownloadLink link = await widget.playback.downloadLink(
         widget.version.id,
       );
-      startDownload(
+      final bool started = await startDownload(
         absoluteUrl(widget.playback.baseUrl, link.url),
         link.filename,
       );
       if (mounted) {
-        Toasts.of(context).success(Strings.toastDownloadStarted);
+        started
+            ? Toasts.of(context).success(Strings.toastDownloadStarted)
+            : Toasts.of(context).error(Strings.errorDownload);
       }
     } catch (e) {
       if (mounted) {

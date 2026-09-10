@@ -8,6 +8,7 @@ import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
+import 'package:shadowmask/view/player_shortcuts.dart';
 
 const double _barClearance = 84;
 const double _minPanelHeight = 140;
@@ -31,9 +32,13 @@ class PlayerFrame extends StatefulWidget {
     this.waitingDetail,
     this.onKeepWaiting,
     this.onGoBack,
+    this.onPlayNow,
     this.ended = false,
     this.onCentrePlay,
     this.onDoubleTapVideo,
+    this.onSeekRelative,
+    this.onHoldSpeed,
+    this.touch = false,
   });
 
   final Widget view;
@@ -49,9 +54,13 @@ class PlayerFrame extends StatefulWidget {
   final String? waitingDetail;
   final VoidCallback? onKeepWaiting;
   final VoidCallback? onGoBack;
+  final VoidCallback? onPlayNow;
   final bool ended;
   final VoidCallback? onCentrePlay;
   final VoidCallback? onDoubleTapVideo;
+  final ValueChanged<int>? onSeekRelative;
+  final ValueChanged<double?>? onHoldSpeed;
+  final bool touch;
   final bool playing;
   final bool fullscreen;
   final VoidCallback onTapVideo;
@@ -63,6 +72,13 @@ class PlayerFrame extends StatefulWidget {
 class _PlayerFrameState extends State<PlayerFrame> {
   bool _visible = true;
   Timer? _hide;
+  Offset? _doubleTapAt;
+  int _seekDelta = 0;
+  bool _seekVisible = false;
+  int? _holdStep;
+  int _holdShown = 0;
+  Timer? _clearSeek;
+  Timer? _stepHold;
 
   @override
   void initState() {
@@ -73,6 +89,8 @@ class _PlayerFrameState extends State<PlayerFrame> {
   @override
   void dispose() {
     _hide?.cancel();
+    _clearSeek?.cancel();
+    _stepHold?.cancel();
     super.dispose();
   }
 
@@ -99,12 +117,84 @@ class _PlayerFrameState extends State<PlayerFrame> {
     });
   }
 
+  bool get _canDoubleTap =>
+      (widget.touch && widget.onSeekRelative != null) ||
+      widget.onDoubleTapVideo != null;
+
+  void _onTap() {
+    widget.onTapVideo();
+    _reveal();
+  }
+
+  void _onDoubleTap(double width) {
+    final ValueChanged<int>? seek = widget.onSeekRelative;
+    final Offset? at = _doubleTapAt;
+    if (widget.touch && seek != null && at != null && width > 0) {
+      final int delta = at.dx < width / 2 ? -kSeekStepMs : kSeekStepMs;
+      seek(delta);
+      _showSeek(delta);
+      return;
+    }
+    widget.onDoubleTapVideo?.call();
+    _reveal();
+  }
+
+  bool get _canHold => widget.touch && widget.onHoldSpeed != null;
+
+  void _startHold() {
+    if (!_canHold) {
+      return;
+    }
+    _applyHold(0);
+    _stepHold?.cancel();
+    _stepHold = Timer.periodic(kHoldStep, (Timer timer) {
+      final int next = (_holdStep ?? 0) + 1;
+      if (next >= kHoldSpeeds.length) {
+        timer.cancel();
+        return;
+      }
+      _applyHold(next);
+    });
+  }
+
+  void _endHold() {
+    _stepHold?.cancel();
+    _stepHold = null;
+    if (_holdStep == null) {
+      return;
+    }
+    widget.onHoldSpeed?.call(null);
+    setState(() => _holdStep = null);
+  }
+
+  void _applyHold(int step) {
+    widget.onHoldSpeed!(kHoldSpeeds[step]);
+    setState(() {
+      _holdStep = step;
+      _holdShown = step;
+    });
+  }
+
+  void _showSeek(int delta) {
+    setState(() {
+      _seekDelta = delta;
+      _seekVisible = true;
+    });
+    _clearSeek?.cancel();
+    _clearSeek = Timer(const Duration(milliseconds: 700), () {
+      if (mounted) {
+        setState(() => _seekVisible = false);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
     final Duration fade = MediaQuery.disableAnimationsOf(context)
         ? Duration.zero
         : const Duration(milliseconds: 200);
+    final EdgeInsets safe = MediaQuery.paddingOf(context);
     final Widget content = Stack(
       fit: StackFit.expand,
       children: <Widget>[
@@ -115,21 +205,67 @@ class _PlayerFrameState extends State<PlayerFrame> {
                 ? SystemMouseCursors.none
                 : MouseCursor.defer,
             onHover: (_) => _reveal(),
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () {
-                widget.onTapVideo();
-                _reveal();
-              },
-              onDoubleTap: widget.onDoubleTapVideo == null
-                  ? null
-                  : () {
-                      widget.onDoubleTapVideo!();
-                      _reveal();
-                    },
+            child: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints c) =>
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _onTap,
+                    onDoubleTapDown: (TapDownDetails d) =>
+                        _doubleTapAt = d.localPosition,
+                    onDoubleTap: _canDoubleTap
+                        ? () => _onDoubleTap(c.maxWidth)
+                        : null,
+                    onLongPressStart: _canHold
+                        ? (LongPressStartDetails _) => _startHold()
+                        : null,
+                    onLongPressEnd: _canHold
+                        ? (LongPressEndDetails _) => _endHold()
+                        : null,
+                    onLongPressCancel: _canHold ? _endHold : null,
+                  ),
             ),
           ),
         ),
+        Positioned.fill(
+          child: IgnorePointer(
+            child: AnimatedOpacity(
+              opacity: _holdStep == null ? 0 : 1,
+              duration: fade,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Padding(
+                  padding: EdgeInsets.only(top: Space.s6 + safe.top),
+                  child: _SpeedBadge(rate: kHoldSpeeds[_holdShown]),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: IgnorePointer(
+            child: AnimatedOpacity(
+              opacity: _seekVisible ? 1 : 0,
+              duration: fade,
+              child: Align(
+                alignment: _seekDelta < 0
+                    ? Alignment.centerLeft
+                    : Alignment.centerRight,
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: Space.s6 + safe.horizontal / 2,
+                  ),
+                  child: _SeekBadge(deltaMs: _seekDelta),
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (widget.diagnostics != null)
+          Positioned(
+            top: Space.s3,
+            right: Space.s3,
+            child: widget.diagnostics!,
+          ),
         if (widget.waiting != null)
           Positioned.fill(
             child: _Waiting(
@@ -137,6 +273,7 @@ class _PlayerFrameState extends State<PlayerFrame> {
               detail: widget.waitingDetail,
               onKeepWaiting: widget.onKeepWaiting,
               onGoBack: widget.onGoBack,
+              onPlayNow: widget.onPlayNow,
             ),
           ),
         if (widget.waiting == null &&
@@ -151,12 +288,6 @@ class _PlayerFrameState extends State<PlayerFrame> {
               ),
             ),
           ),
-        if (widget.diagnostics != null)
-          Positioned(
-            top: Space.s3,
-            right: Space.s3,
-            child: widget.diagnostics!,
-          ),
         Positioned(
           top: 0,
           left: 0,
@@ -167,10 +298,10 @@ class _PlayerFrameState extends State<PlayerFrame> {
               opacity: _visible ? 1 : 0,
               duration: fade,
               child: Container(
-                padding: const EdgeInsets.fromLTRB(
-                  Space.s3,
-                  Space.s3,
-                  Space.s3,
+                padding: EdgeInsets.fromLTRB(
+                  Space.s3 + safe.left,
+                  Space.s3 + safe.top,
+                  Space.s3 + safe.right,
                   Space.s5,
                 ),
                 decoration: const BoxDecoration(
@@ -201,7 +332,7 @@ class _PlayerFrameState extends State<PlayerFrame> {
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Container(
-                        margin: const EdgeInsets.only(left: Space.s3),
+                        margin: EdgeInsets.only(left: Space.s3 + safe.left),
                         padding: const EdgeInsets.symmetric(
                           horizontal: Space.s2,
                           vertical: 2,
@@ -308,18 +439,92 @@ class _CentreAction extends StatelessWidget {
   }
 }
 
+class _SpeedBadge extends StatelessWidget {
+  const _SpeedBadge({required this.rate});
+
+  final double rate;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    liveRegion: true,
+    label: Strings.playerHoldSpeed(rate),
+    child: Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Space.s3,
+        vertical: Space.s2,
+      ),
+      decoration: const BoxDecoration(
+        color: Color(0xB3000000),
+        borderRadius: BorderRadius.all(Radius.circular(6)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(Icons.fast_forward, color: Colors.white, size: 18),
+          const SizedBox(width: Space.s2),
+          Text(
+            Strings.playerHoldSpeed(rate),
+            style: monoStyle.copyWith(color: Colors.white, fontSize: 12),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _SeekBadge extends StatelessWidget {
+  const _SeekBadge({required this.deltaMs});
+
+  final int deltaMs;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool back = deltaMs < 0;
+    return Semantics(
+      liveRegion: true,
+      label: back ? Strings.shortcutSeekBack : Strings.shortcutSeekForward,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Space.s3,
+          vertical: Space.s2,
+        ),
+        decoration: const BoxDecoration(
+          color: Color(0xB3000000),
+          shape: BoxShape.circle,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(
+              back ? Icons.replay_10 : Icons.forward_10,
+              color: Colors.white,
+              size: 28,
+            ),
+            Text(
+              Strings.playerSeekSeconds(deltaMs.abs() ~/ 1000),
+              style: monoStyle.copyWith(color: Colors.white, fontSize: 11),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _Waiting extends StatelessWidget {
   const _Waiting({
     required this.label,
     this.detail,
     this.onKeepWaiting,
     this.onGoBack,
+    this.onPlayNow,
   });
 
   final String label;
   final String? detail;
   final VoidCallback? onKeepWaiting;
   final VoidCallback? onGoBack;
+  final VoidCallback? onPlayNow;
 
   @override
   Widget build(BuildContext context) {
@@ -380,13 +585,23 @@ class _Waiting extends StatelessWidget {
                       ),
                     ],
                   ),
+                )
+              else if (onPlayNow != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: Space.s2),
+                  child: TextButton(
+                    onPressed: onPlayNow,
+                    child: const Text(Strings.playerPlayNow),
+                  ),
                 ),
             ],
           ),
         ),
       ),
     );
-    return onKeepWaiting == null ? IgnorePointer(child: panel) : panel;
+    return onKeepWaiting == null && onPlayNow == null
+        ? IgnorePointer(child: panel)
+        : panel;
   }
 }
 

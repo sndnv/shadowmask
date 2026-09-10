@@ -23,7 +23,11 @@ impl CommandOutput {
                 status => format!("no diagnostic output captured ({status})"),
             };
         }
-        lines[lines.len().saturating_sub(max_lines)..].join("\n")
+        let tail = lines[lines.len().saturating_sub(max_lines)..].join("\n");
+        match self.status.trim() {
+            "" => tail,
+            status => format!("({status}) {tail}"),
+        }
     }
 }
 
@@ -89,6 +93,21 @@ mod tests {
         assert!(detail.contains("L19"));
         assert!(detail.contains("L5"));
         assert!(!detail.contains("L4"));
+    }
+
+    #[test]
+    fn failure_detail_names_the_status_alongside_the_output() {
+        // A killed ffmpeg still lets the encoder print its statistics block, which
+        // filled the tail and left no sign that the process had been terminated.
+        let detail = CommandOutput {
+            success: false,
+            stderr: "kb/s:1220.04".to_owned(),
+            status: "terminated by signal 15".to_owned(),
+            ..CommandOutput::default()
+        }
+        .failure_detail(10);
+        assert!(detail.contains("terminated by signal 15"));
+        assert!(detail.contains("kb/s:1220.04"));
     }
 
     #[test]

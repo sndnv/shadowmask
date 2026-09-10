@@ -876,6 +876,85 @@ mod tests {
         ));
     }
 
+    // An unreadable credential store must refuse, never fall through to a decision.
+    // These are the arms where a swallowed error is worst: silently granting on a
+    // failed revocation check, or silently denying and locking everyone out.
+    #[tokio::test]
+    async fn an_unreadable_token_store_refuses_every_credential_path() {
+        let svc = seeded().await;
+        let pair = svc.login("alice", "pw").await.unwrap();
+        let issued = {
+            let boss = Principal {
+                user: UserId("u1".into()),
+                role: Role::Admin,
+            };
+            let link = svc.create_link_code(&boss, None, None).await.unwrap();
+            svc.redeem_link_code(&link.code, device()).await.unwrap()
+        };
+        svc.tokens.set_fail();
+
+        let user = UserId("u1".into());
+        let boss = Principal {
+            user: user.clone(),
+            role: Role::Admin,
+        };
+
+        macro_rules! is_repository_error {
+            ($call:expr) => {
+                assert!(matches!($call.await.unwrap_err(), AuthError::Repository(_)))
+            };
+        }
+
+        is_repository_error!(svc.login("alice", "pw"));
+        is_repository_error!(svc.refresh(&pair.refresh_token));
+        is_repository_error!(svc.authenticate(&issued.token));
+        is_repository_error!(svc.redeem_link_code("7G2K9QMP", device()));
+        is_repository_error!(svc.create_link_code(&boss, None, None));
+        is_repository_error!(svc.list_link_codes(&user));
+        is_repository_error!(svc.revoke_link_code(&user, "7G2K9QMP"));
+        is_repository_error!(svc.list_devices(&user));
+        is_repository_error!(svc.list_api_tokens(&user));
+        is_repository_error!(svc.revoke_device(&user, &DeviceId("d1".into())));
+        is_repository_error!(svc.revoke_api_token(&user, &ApiTokenId("t1".into())));
+    }
+
+    // The account lookup is a separate store from the credentials, and its failure
+    // must not read as "this account is inactive", which would deny a valid session.
+    #[tokio::test]
+    async fn an_unreadable_account_refuses_rather_than_reading_as_inactive() {
+        let svc = seeded().await;
+        let pair = svc.login("alice", "pw").await.unwrap();
+        // A real code, or the redeem below stops at UnknownLinkCode and never
+        // reaches the account lookup this test is about.
+        let link = svc
+            .create_link_code(
+                &Principal {
+                    user: UserId("u1".into()),
+                    role: Role::Admin,
+                },
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        svc.users.set_fail();
+
+        assert!(matches!(
+            svc.refresh(&pair.refresh_token).await.unwrap_err(),
+            AuthError::Repository(_)
+        ));
+        assert!(matches!(
+            svc.authenticate(&pair.access_token).await.unwrap_err(),
+            AuthError::Repository(_)
+        ));
+        assert!(matches!(
+            svc.redeem_link_code(&link.code, device())
+                .await
+                .unwrap_err(),
+            AuthError::Repository(_)
+        ));
+    }
+
     fn stored_device(id: &str, user: &str) -> Device {
         Device {
             id: DeviceId(id.into()),

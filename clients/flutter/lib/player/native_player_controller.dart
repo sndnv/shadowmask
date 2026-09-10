@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui' show FlutterView;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -10,6 +13,9 @@ import 'package:shadowmask/model/session/playback_mode.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
+
+const Duration kOrientationTimeout = Duration(milliseconds: 1200);
+const Duration kOrientationPoll = Duration(milliseconds: 32);
 
 Future<void> preparePlayer() async {
   MediaKit.ensureInitialized();
@@ -24,11 +30,24 @@ class NativePlayerController implements PlayerController {
         configuration: const PlayerConfiguration(logLevel: MPVLogLevel.warn),
       ) {
     _video = VideoController(_player);
+    unawaited(
+      _video.platform.future.then<void>(
+        (_) {},
+        onError: (Object error) => _onError(error.toString()),
+      ),
+    );
     _errors = _player.stream.error.listen(_onError);
     _logs = _player.stream.log.listen(_onLog);
+    if (_handheld) {
+      _fullscreen.value = true;
+      unawaited(_enterStage());
+      return;
+    }
     windowManager.addListener(_window);
     unawaited(_syncFullscreen());
   }
+
+  static final bool _handheld = Platform.isAndroid || Platform.isIOS;
 
   final String _baseUrl;
   final Player _player;
@@ -53,6 +72,8 @@ class NativePlayerController implements PlayerController {
   String _fps = 'unknown';
   String _timeout = 'unknown';
   int _networkTimeout = 10;
+  int _bufferSeconds = kDefaultBufferSeconds;
+  int _bufferBytes = kDefaultBufferBytes;
 
   final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
     const PlayerSnapshot(),
@@ -100,6 +121,7 @@ class NativePlayerController implements PlayerController {
     String manifestUrl, {
     required PlaybackMode mode,
     int positionMs = 0,
+    bool autoplay = true,
   }) async {
     _mode = mode;
     _error = null;
@@ -111,13 +133,14 @@ class NativePlayerController implements PlayerController {
         : '$_baseUrl$manifestUrl';
     await _setProperty('start', '0');
     await _setProperty('network-timeout', '$_networkTimeout');
-    await _player.open(Media(url), play: positionMs <= 0);
+    await _applyBuffer();
+    await _player.open(Media(url), play: autoplay && positionMs <= 0);
     if (positionMs > 0) {
-      await _resumeAt(positionMs, generation);
+      await _resumeAt(positionMs, generation, autoplay);
     }
   }
 
-  Future<void> _resumeAt(int positionMs, int generation) async {
+  Future<void> _resumeAt(int positionMs, int generation, bool autoplay) async {
     final bool ready = await _durationArrives();
     if (generation != _generation) {
       return;
@@ -125,7 +148,9 @@ class NativePlayerController implements PlayerController {
     if (ready && !_seeked) {
       await _player.seek(Duration(milliseconds: positionMs));
     }
-    await _player.play();
+    if (autoplay) {
+      await _player.play();
+    }
   }
 
   Future<bool> _durationArrives() async {
@@ -136,6 +161,17 @@ class NativePlayerController implements PlayerController {
         .firstWhere((Duration d) => d > Duration.zero)
         .then((_) => true)
         .timeout(const Duration(seconds: 10), onTimeout: () => false);
+  }
+
+  @override
+  Future<void> detach() async {
+    _generation++;
+    _timer?.cancel();
+    _timer = null;
+    _seeked = false;
+    _error = null;
+    await _player.stop();
+    _snapshot.value = const PlayerSnapshot();
   }
 
   @override
@@ -205,13 +241,69 @@ class NativePlayerController implements PlayerController {
   }
 
   @override
+  bool get buffersAhead => true;
+
+  @override
+  void setBuffer({required int seconds, required int bytes}) {
+    _bufferSeconds = seconds;
+    _bufferBytes = bytes;
+    unawaited(_applyBuffer());
+  }
+
+  Future<void> _applyBuffer() async {
+    await _setProperty('cache', 'yes');
+    await _setProperty('cache-secs', '$_bufferSeconds');
+    await _setProperty('demuxer-readahead-secs', '$_bufferSeconds');
+    await _setProperty('demuxer-max-bytes', '$_bufferBytes');
+    await _setProperty('demuxer-max-back-bytes', '${_bufferBytes ~/ 4}');
+  }
+
+  @override
   void toggleFullscreen() {
+    if (_handheld) {
+      return;
+    }
     unawaited(_toggleFullscreen());
   }
 
   Future<void> _toggleFullscreen() async {
     await windowManager.setFullScreen(!await windowManager.isFullScreen());
     await _syncFullscreen();
+  }
+
+  Future<void> _enterStage() async {
+    await SystemChrome.setPreferredOrientations(<DeviceOrientation>[
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  }
+
+  Future<void> _leaveStage() async {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[]);
+    await SystemChrome.setPreferredOrientations(<DeviceOrientation>[
+      DeviceOrientation.portraitUp,
+    ]);
+    await _portraitLands();
+    await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[]);
+  }
+
+  Future<void> _portraitLands() async {
+    final FlutterView? view =
+        WidgetsBinding.instance.platformDispatcher.implicitView;
+    if (view == null) {
+      await Future<void>.delayed(kOrientationTimeout);
+      return;
+    }
+    final Stopwatch waited = Stopwatch()..start();
+    while (waited.elapsed < kOrientationTimeout) {
+      final Size size = view.physicalSize;
+      if (size.height >= size.width) {
+        return;
+      }
+      await Future<void>.delayed(kOrientationPoll);
+    }
   }
 
   Future<void> _syncFullscreen() async {
@@ -227,6 +319,7 @@ class NativePlayerController implements PlayerController {
       'resolution: ${state.width ?? 0}x${state.height ?? 0}',
       'fps: $_fps',
       'buffer: ${(_bufferedAheadMs(state) / 1000).toStringAsFixed(1)}s',
+      'target: ${_bufferSeconds}s',
       'decoder: $_decoder',
       'bandwidth: n/a (native)',
       'level: native',
@@ -241,7 +334,11 @@ class NativePlayerController implements PlayerController {
   Future<void> dispose() async {
     _timer?.cancel();
     _timer = null;
-    windowManager.removeListener(_window);
+    if (_handheld) {
+      await _leaveStage();
+    } else {
+      windowManager.removeListener(_window);
+    }
     await _errors.cancel();
     await _logs.cancel();
     await _player.dispose();
@@ -254,14 +351,19 @@ class NativePlayerController implements PlayerController {
   }
 
   void _onError(String message) {
-    _error = message;
+    _error = redactStreamTokens(message);
     _tick();
   }
 
   void _onLog(PlayerLog log) {
-    _recentLogs.add('${log.level[0]} ${log.prefix}: ${log.text.trim()}');
+    _recentLogs.add(
+      redactStreamTokens('${log.level[0]} ${log.prefix}: ${log.text.trim()}'),
+    );
     while (_recentLogs.length > 8) {
       _recentLogs.removeAt(0);
+    }
+    if (log.level == 'fatal' && _error == null) {
+      _onError(log.text.trim());
     }
   }
 

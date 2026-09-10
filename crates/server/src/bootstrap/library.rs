@@ -196,4 +196,32 @@ mod tests {
         let result = run_one(&provider, dir.path()).await;
         assert_eq!(result.created, 0);
     }
+
+    // Bootstrap runs before anything is serving, so a repository that is down has to
+    // be reported as a backend failure rather than counted as a created entity.
+    // Nothing exercised that conversion, which is why `backend()` ran in no test.
+    #[tokio::test]
+    async fn an_unreadable_repository_is_reported_rather_than_counted() {
+        let (service, repo) = library_service();
+        // The existence check reads through `list`, which `set_fail_get` does not
+        // gate, so the write is the call that has to fail here.
+        repo.set_fail_save();
+        let provider = LibraryBootstrapProvider::new(service.clone());
+        let entity = provider
+            .load(
+                &toml::from_str(
+                    "name = \"Movies\"\nkind = \"movie\"\nroots = [\"/media/movies\"]\nwatcher = \"local\"\n",
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        assert!(matches!(
+            provider.create(entity).await,
+            Err(BootstrapError::Backend {
+                entity: "library",
+                ..
+            })
+        ));
+    }
 }

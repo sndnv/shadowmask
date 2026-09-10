@@ -5,8 +5,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/api/capability_scope.dart';
+import 'package:shadowmask/components/segmented_tabs.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/model/session/client_decoding.dart';
+import 'package:shadowmask/util/format.dart';
 import 'package:shadowmask/pages/account/account_page.dart';
+import 'package:shadowmask/pages/account/playback_support_block.dart';
+import 'package:shadowmask/pages/account/profile_block.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
@@ -49,7 +55,22 @@ http.Response _route(http.Request req, String role) {
       200,
     );
   }
-  // watchlist, favorites, devices, tokens, link-codes all return empty arrays.
+  if (path == '/api/v1/users/u1/devices') {
+    return http.Response(
+      jsonEncode(<dynamic>[
+        <String, dynamic>{
+          'id': 'd1',
+          'user_id': 'u1',
+          'name': 'Lounge tablet',
+          'platform': 'android',
+          'created_at': '2026-08-17T09:00:00Z',
+          'last_seen': '2026-08-17T09:24:11Z',
+        },
+      ]),
+      200,
+    );
+  }
+  // watchlist, favorites, tokens and link-codes all return empty arrays.
   return http.Response(jsonEncode(<dynamic>[]), 200);
 }
 
@@ -59,18 +80,32 @@ Future<void> _pumpAccount(WidgetTester tester, String role) async {
     httpClient: MockClient((http.Request req) async => _route(req, role)),
   );
   await tester.pumpWidget(
-    ThemeScope(
-      variant: AppThemeVariant.dark,
-      setVariant: (_) {},
-      child: MaterialApp(
-        theme: buildTheme(AppThemeVariant.dark),
-        onGenerateRoute: (_) =>
-            MaterialPageRoute<void>(builder: (_) => AccountPage(api: api)),
+    CapabilityScope(
+      platform: 'desktop',
+      measured: const ClientDecoding(
+        video: <VideoCodecCap>[
+          VideoCodecCap(codec: 'hevc', maxBitDepth: 10, smooth: true),
+        ],
+      ),
+      child: ThemeScope(
+        variant: AppThemeVariant.dark,
+        setVariant: (_) {},
+        child: MaterialApp(
+          theme: buildTheme(AppThemeVariant.dark),
+          onGenerateRoute: (_) =>
+              MaterialPageRoute<void>(builder: (_) => AccountPage(api: api)),
+        ),
       ),
     ),
   );
   await tester.pumpAndSettle();
 }
+
+double _cardTop(WidgetTester tester, Finder block) => tester
+    .getTopLeft(
+      find.descendant(of: block, matching: find.byType(Container)).first,
+    )
+    .dy;
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
@@ -116,5 +151,93 @@ void main() {
     await tester.tap(find.text('Devices & Access'));
     await tester.pumpAndSettle();
     expect(find.text('API tokens'), findsOneWidget);
+  });
+
+  testWidgets('an unselected tab adds no height to the page', (
+    WidgetTester tester,
+  ) async {
+    // An IndexedStack sizes to its largest child, so Profile inherited the
+    // Library tab's height and a phone scrolled a long way past the content.
+    tester.view.physicalSize = const Size(390, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await _pumpAccount(tester, 'user');
+
+    final double library = tester.getSize(find.byType(TabPanel)).height;
+
+    await tester.tap(find.text('Profile'));
+    await tester.pumpAndSettle();
+    final double profile = tester.getSize(find.byType(TabPanel)).height;
+
+    expect(
+      profile,
+      isNot(closeTo(library, 1)),
+      reason: 'each tab has to be its own height, not the tallest one',
+    );
+  });
+
+  testWidgets('a wide screen puts Profile and Playback support on one row', (
+    WidgetTester tester,
+  ) async {
+    // Both blocks are short label and value lists, so stacking them full width
+    // on a desktop window left most of the row empty.
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await _pumpAccount(tester, 'user');
+    await tester.tap(find.text(Strings.accountTabProfile));
+    await tester.pumpAndSettle();
+
+    final Offset profile = tester.getTopLeft(find.byType(ProfileBlock));
+    final Offset playback = tester.getTopLeft(
+      find.byType(PlaybackSupportBlock),
+    );
+
+    expect(profile.dy, closeTo(playback.dy, 1));
+    expect(profile.dx, lessThan(playback.dx));
+    expect(
+      tester.getSize(find.byType(ProfileBlock)).width,
+      closeTo(tester.getSize(find.byType(PlaybackSupportBlock)).width, 1),
+      reason: 'the two halves have to match, not one wide and one narrow',
+    );
+
+    // Profile carries header buttons and Playback support does not, so without
+    // a shared header height its card sat 23px lower than the one beside it.
+    expect(
+      _cardTop(tester, find.byType(ProfileBlock)),
+      closeTo(_cardTop(tester, find.byType(PlaybackSupportBlock)), 1),
+      reason: 'the two cards have to start at the same height',
+    );
+  });
+
+  testWidgets('a narrow screen stacks Profile above Playback support', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await _pumpAccount(tester, 'user');
+    await tester.tap(find.text(Strings.accountTabProfile));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.byType(ProfileBlock)).dy,
+      lessThan(tester.getTopLeft(find.byType(PlaybackSupportBlock)).dy),
+    );
+  });
+
+  testWidgets('a device says when it was last seen in words, not as sent', (
+    WidgetTester tester,
+  ) async {
+    // The server sends ISO 8601 and the client owns the rendering.
+    await _pumpAccount(tester, 'user');
+    await tester.tap(find.text('Devices & Access'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('2026-08-17T09:24'), findsNothing);
+    expect(
+      find.text(Strings.lastSeen(sinceText('2026-08-17T09:24:11Z')!)),
+      findsOneWidget,
+    );
   });
 }

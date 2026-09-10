@@ -28,7 +28,10 @@ abstract class PlayerController {
     String manifestUrl, {
     required PlaybackMode mode,
     int positionMs = 0,
+    bool autoplay = true,
   });
+
+  Future<void> detach();
 
   void play();
   void pause();
@@ -42,10 +45,15 @@ abstract class PlayerController {
   void seekTo(int positionMs);
   void setRate(double rate);
   void setNetworkTimeout(int seconds);
+  void setBuffer({required int seconds, required int bytes});
+  bool get buffersAhead;
   void toggleFullscreen();
   PlayerDiagnostics diagnostics();
   Future<void> dispose();
 }
+
+const int kDefaultBufferBytes = 256 * 1024 * 1024;
+const int kDefaultBufferSeconds = 60;
 
 typedef PlayerControllerFactory = PlayerController Function(String baseUrl);
 

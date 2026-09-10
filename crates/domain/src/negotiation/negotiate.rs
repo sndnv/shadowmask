@@ -1,8 +1,10 @@
 use crate::media::{AudioTrack, EmbeddedSubtitleTrack, SubtitleFormat, VideoTrack};
-use crate::negotiation::{NegotiationInput, NegotiationOutcome};
+use crate::negotiation::{NegotiationInput, NegotiationOutcome, NegotiationReason};
 use crate::playback::SubtitleTrackRef;
 use crate::profile::CapabilityProfile;
-use crate::session::{DeliveryMode, SelectedTracks, SubtitleDelivery, SubtitleSelection};
+use crate::session::{
+    DeliveryMode, DeliveryPreference, SelectedTracks, SubtitleDelivery, SubtitleSelection,
+};
 
 pub fn negotiate(input: &NegotiationInput, profile: &CapabilityProfile) -> NegotiationOutcome {
     let video = input.video.first();
@@ -13,19 +15,54 @@ pub fn negotiate(input: &NegotiationInput, profile: &CapabilityProfile) -> Negot
         .map(|sel| subtitle_delivery_for(sel, &input.subtitles, input.force_burn));
 
     let max_height = effective_max_height(profile.max_height, input.target_height);
-    let video_ok = video.is_none_or(|v| video_supported(v, profile, max_height, input.max_bitrate));
-    let audio_ok = audio.is_none_or(|a| audio_supported(a, profile));
-    let downmix = input.downmix_stereo && audio.is_some_and(|a| a.channels > 2);
-    let subtitle_burn = subtitle_delivery == Some(SubtitleDelivery::Burned);
+    let mut reasons = Vec::new();
+    if let Some(v) = video {
+        reasons.extend(video_reasons(v, profile, max_height, input.max_bitrate));
+    }
+    if let Some(a) = audio {
+        reasons.extend(audio_reasons(a, profile));
+    }
+    if input.downmix_stereo && audio.is_some_and(|a| a.channels > 2) {
+        reasons.push(NegotiationReason::Downmix);
+    }
+    if subtitle_delivery == Some(SubtitleDelivery::Burned) {
+        reasons.push(NegotiationReason::SubtitleBurn);
+    }
+    let transcode = !reasons.is_empty();
+
     let subtitle_hls = subtitle_delivery == Some(SubtitleDelivery::HlsVtt);
     let container_ok = profile.containers.contains(&input.container);
+    if !container_ok {
+        reasons.push(NegotiationReason::Container);
+    }
+    if subtitle_hls {
+        reasons.push(NegotiationReason::SubtitleSoft);
+    }
 
-    let mode = if !video_ok || !audio_ok || subtitle_burn || downmix {
+    let wanted = if transcode {
         DeliveryMode::Transcode
     } else if !container_ok || subtitle_hls {
         DeliveryMode::Remux
     } else {
         DeliveryMode::Direct
+    };
+    let burned = subtitle_delivery == Some(SubtitleDelivery::Burned);
+    let mode = match input.delivery {
+        DeliveryPreference::Auto => wanted,
+        DeliveryPreference::AlwaysConvert => {
+            if wanted != DeliveryMode::Transcode {
+                reasons.push(NegotiationReason::Forced);
+            }
+            DeliveryMode::Transcode
+        }
+        DeliveryPreference::NeverConvert if !burned => {
+            if !container_ok || subtitle_hls {
+                DeliveryMode::Remux
+            } else {
+                DeliveryMode::Direct
+            }
+        }
+        DeliveryPreference::NeverConvert => wanted,
     };
 
     NegotiationOutcome {
@@ -35,6 +72,7 @@ pub fn negotiate(input: &NegotiationInput, profile: &CapabilityProfile) -> Negot
             subtitle_track: input.requested_subtitle.as_ref().map(|s| s.track.clone()),
             subtitle_delivery,
         },
+        reasons,
     }
 }
 
@@ -52,30 +90,54 @@ fn selected_audio(input: &NegotiationInput) -> Option<&AudioTrack> {
     }
 }
 
-fn video_supported(
+fn video_reasons(
     v: &VideoTrack,
     profile: &CapabilityProfile,
     max_height: u32,
     user_cap: Option<u64>,
-) -> bool {
+) -> Vec<NegotiationReason> {
     let Some(cap) = profile.video.iter().find(|c| c.codec == v.codec) else {
-        return false;
+        return vec![NegotiationReason::VideoCodec];
     };
-    let bitrate_ok = v
-        .bitrate
-        .is_none_or(|b| b <= effective_cap(profile.max_bitrate, user_cap));
-    cap.max_bit_depth >= v.bit_depth
-        && v.width <= profile.max_width
-        && v.height <= max_height
-        && v.hdr.is_none_or(|h| profile.hdr.contains(&h))
-        && bitrate_ok
+    let mut reasons = Vec::new();
+    if !cap.smooth {
+        reasons.push(NegotiationReason::VideoSoftwareOnly);
+    }
+    if cap.max_bit_depth < v.bit_depth {
+        reasons.push(NegotiationReason::VideoBitDepth);
+    }
+    if v.width > profile.max_width || v.height > max_height {
+        reasons.push(NegotiationReason::VideoResolution);
+    }
+    if profile
+        .max_frame_rate
+        .is_some_and(|max| v.frame_rate.round() as u32 > max)
+    {
+        reasons.push(NegotiationReason::VideoFrameRate);
+    }
+    if v.hdr.is_some_and(|h| !profile.hdr.contains(&h)) {
+        reasons.push(NegotiationReason::VideoHdr);
+    }
+    if v.bitrate
+        .is_some_and(|b| b > effective_cap(profile.max_bitrate, user_cap))
+    {
+        reasons.push(NegotiationReason::VideoBitrate);
+    }
+    reasons
 }
 
-fn audio_supported(a: &AudioTrack, profile: &CapabilityProfile) -> bool {
-    profile
+fn audio_reasons(a: &AudioTrack, profile: &CapabilityProfile) -> Vec<NegotiationReason> {
+    let channels = profile
         .audio
         .iter()
-        .any(|c| c.codec == a.codec && a.channels <= c.max_channels)
+        .filter(|c| c.codec == a.codec)
+        .map(|c| c.max_channels)
+        .max();
+    match channels {
+        None => vec![NegotiationReason::AudioCodec],
+        Some(max) if a.channels > max => vec![NegotiationReason::AudioChannels],
+        Some(_) => Vec::new(),
+    }
 }
 
 fn effective_cap(profile_cap: u64, user_cap: Option<u64>) -> u64 {
@@ -162,6 +224,7 @@ mod tests {
                 codec: "h264".to_owned(),
                 max_level: None,
                 max_bit_depth: 8,
+                smooth: true,
             }],
             audio: vec![AudioCodecCap {
                 codec: "aac".to_owned(),
@@ -171,6 +234,7 @@ mod tests {
             max_width: 1920,
             max_height: 1080,
             max_bitrate: 10_000_000,
+            max_frame_rate: None,
         }
     }
 
@@ -186,6 +250,7 @@ mod tests {
             target_height: None,
             force_burn: false,
             downmix_stereo: false,
+            delivery: DeliveryPreference::Auto,
         }
     }
 
@@ -194,6 +259,76 @@ mod tests {
             track: SubtitleTrackRef::Embedded(idx),
             offset_ms: None,
         }
+    }
+
+    // The per-session escape hatch: the viewer already knows this version
+    // misbehaves, so their choice beats what the capabilities imply.
+    #[test]
+    fn always_convert_transcodes_what_would_have_played_directly() {
+        let i = NegotiationInput {
+            delivery: DeliveryPreference::AlwaysConvert,
+            ..input()
+        };
+        let out = negotiate(&i, &profile());
+        assert_eq!(out.mode, DeliveryMode::Transcode);
+        assert!(out.reasons.contains(&NegotiationReason::Forced));
+    }
+
+    #[test]
+    fn always_convert_says_nothing_extra_when_it_changed_nothing() {
+        let i = NegotiationInput {
+            video: vec![video_track("vp9", 1920, 1080, 8, None, Some(5_000_000))],
+            delivery: DeliveryPreference::AlwaysConvert,
+            ..input()
+        };
+        let out = negotiate(&i, &profile());
+        assert_eq!(out.mode, DeliveryMode::Transcode);
+        assert!(!out.reasons.contains(&NegotiationReason::Forced));
+        assert!(out.reasons.contains(&NegotiationReason::VideoCodec));
+    }
+
+    #[test]
+    fn never_convert_drops_a_transcode_to_direct_and_keeps_the_reasons() {
+        let i = NegotiationInput {
+            video: vec![video_track("vp9", 1920, 1080, 8, None, Some(5_000_000))],
+            delivery: DeliveryPreference::NeverConvert,
+            ..input()
+        };
+        let out = negotiate(&i, &profile());
+        assert_eq!(out.mode, DeliveryMode::Direct);
+        assert!(
+            out.reasons.contains(&NegotiationReason::VideoCodec),
+            "the reasons still record what would have happened"
+        );
+    }
+
+    #[test]
+    fn never_convert_stops_at_remux_when_the_container_cannot_be_played() {
+        let i = NegotiationInput {
+            container: Container::Mkv,
+            video: vec![video_track("vp9", 1920, 1080, 8, None, Some(5_000_000))],
+            delivery: DeliveryPreference::NeverConvert,
+            ..input()
+        };
+        assert_eq!(negotiate(&i, &profile()).mode, DeliveryMode::Remux);
+    }
+
+    // Burning needs a re-encode, so honouring the preference would drop the
+    // subtitles without saying so.
+    #[test]
+    fn never_convert_gives_way_to_burned_in_subtitles() {
+        let i = NegotiationInput {
+            subtitles: vec![subtitle(3, SubtitleFormat::Pgs)],
+            requested_subtitle: Some(embedded(3)),
+            delivery: DeliveryPreference::NeverConvert,
+            ..input()
+        };
+        let out = negotiate(&i, &profile());
+        assert_eq!(out.mode, DeliveryMode::Transcode);
+        assert_eq!(
+            out.selected.subtitle_delivery,
+            Some(SubtitleDelivery::Burned)
+        );
     }
 
     #[test]
@@ -477,6 +612,188 @@ mod tests {
             DeliveryMode::Direct
         );
     }
+
+    #[test]
+    fn a_codec_the_client_can_only_software_decode_is_transcoded() {
+        // A phone that software decodes 4K HEVC at single digit fps still
+        // reports it as supported, so the client says so and the server, not
+        // the client, decides that means transcode.
+        let p = CapabilityProfile {
+            video: vec![VideoCodecCap {
+                codec: "h264".to_owned(),
+                max_level: None,
+                max_bit_depth: 8,
+                smooth: false,
+            }],
+            ..profile()
+        };
+        let out = negotiate(&input(), &p);
+        assert_eq!(out.mode, DeliveryMode::Transcode);
+        assert_eq!(out.reasons, vec![NegotiationReason::VideoSoftwareOnly]);
+    }
+
+    #[test]
+    fn frame_rate_over_the_ceiling_transcodes_and_broadcast_rates_do_not() {
+        // A hardware decoder that reaches 4K30 but not 4K60 is the case a
+        // resolution ceiling alone cannot express. 59.94 is 60, not 59.
+        let p = CapabilityProfile {
+            max_frame_rate: Some(30),
+            ..profile()
+        };
+        let sixty = NegotiationInput {
+            video: vec![VideoTrack {
+                frame_rate: 59.94,
+                ..video_track("h264", 1920, 1080, 8, None, Some(5_000_000))
+            }],
+            ..input()
+        };
+        let out = negotiate(&sixty, &p);
+        assert_eq!(out.mode, DeliveryMode::Transcode);
+        assert_eq!(out.reasons, vec![NegotiationReason::VideoFrameRate]);
+
+        let thirty = NegotiationInput {
+            video: vec![VideoTrack {
+                frame_rate: 29.97,
+                ..video_track("h264", 1920, 1080, 8, None, Some(5_000_000))
+            }],
+            ..input()
+        };
+        assert_eq!(negotiate(&thirty, &p).mode, DeliveryMode::Direct);
+    }
+
+    #[test]
+    fn an_unconstrained_frame_rate_never_transcodes_on_rate() {
+        let fast = NegotiationInput {
+            video: vec![VideoTrack {
+                frame_rate: 120.0,
+                ..video_track("h264", 1920, 1080, 8, None, Some(5_000_000))
+            }],
+            ..input()
+        };
+        assert_eq!(negotiate(&fast, &profile()).mode, DeliveryMode::Direct);
+    }
+
+    #[test]
+    fn every_mismatch_names_itself() {
+        // Nothing recorded why a session became transcode, which is the
+        // question every 4K support report turned on.
+        let cases: Vec<(NegotiationInput, NegotiationReason)> = vec![
+            (
+                NegotiationInput {
+                    video: vec![video_track("vp9", 1920, 1080, 8, None, None)],
+                    ..input()
+                },
+                NegotiationReason::VideoCodec,
+            ),
+            (
+                NegotiationInput {
+                    video: vec![video_track("h264", 1920, 1080, 10, None, None)],
+                    ..input()
+                },
+                NegotiationReason::VideoBitDepth,
+            ),
+            (
+                NegotiationInput {
+                    video: vec![video_track("h264", 3840, 2160, 8, None, None)],
+                    ..input()
+                },
+                NegotiationReason::VideoResolution,
+            ),
+            (
+                NegotiationInput {
+                    video: vec![video_track(
+                        "h264",
+                        1920,
+                        1080,
+                        8,
+                        Some(HdrFormat::Hdr10),
+                        None,
+                    )],
+                    ..input()
+                },
+                NegotiationReason::VideoHdr,
+            ),
+            (
+                NegotiationInput {
+                    video: vec![video_track("h264", 1920, 1080, 8, None, Some(20_000_000))],
+                    ..input()
+                },
+                NegotiationReason::VideoBitrate,
+            ),
+            (
+                NegotiationInput {
+                    audio: vec![audio_track("eac3", 2, 1)],
+                    ..input()
+                },
+                NegotiationReason::AudioCodec,
+            ),
+            (
+                NegotiationInput {
+                    audio: vec![audio_track("aac", 6, 1)],
+                    ..input()
+                },
+                NegotiationReason::AudioChannels,
+            ),
+            (
+                NegotiationInput {
+                    container: Container::Mkv,
+                    ..input()
+                },
+                NegotiationReason::Container,
+            ),
+            (
+                NegotiationInput {
+                    subtitles: vec![subtitle(2, SubtitleFormat::Srt)],
+                    requested_subtitle: Some(embedded(2)),
+                    ..input()
+                },
+                NegotiationReason::SubtitleSoft,
+            ),
+            (
+                NegotiationInput {
+                    subtitles: vec![subtitle(3, SubtitleFormat::Pgs)],
+                    requested_subtitle: Some(embedded(3)),
+                    ..input()
+                },
+                NegotiationReason::SubtitleBurn,
+            ),
+            (
+                NegotiationInput {
+                    audio: vec![audio_track("aac", 6, 1)],
+                    downmix_stereo: true,
+                    ..input()
+                },
+                NegotiationReason::Downmix,
+            ),
+        ];
+
+        let base = profile();
+        let surround = CapabilityProfile {
+            audio: vec![AudioCodecCap {
+                codec: "aac".to_owned(),
+                max_channels: 8,
+            }],
+            ..profile()
+        };
+        for (case, expected) in cases {
+            let p = if case.downmix_stereo {
+                &surround
+            } else {
+                &base
+            };
+            let out = negotiate(&case, p);
+            assert!(
+                out.reasons.contains(&expected),
+                "expected {expected} in {:?}",
+                out.reasons
+            );
+        }
+    }
+
+    #[test]
+    fn a_direct_session_has_nothing_to_report() {
+        assert!(negotiate(&input(), &profile()).reasons.is_empty());
+    }
 }
 
 #[cfg(test)]
@@ -492,6 +809,7 @@ mod prop_tests {
                 codec: "h264".to_owned(),
                 max_level: None,
                 max_bit_depth: 8,
+                smooth: true,
             }],
             audio: vec![AudioCodecCap {
                 codec: "aac".to_owned(),
@@ -501,6 +819,7 @@ mod prop_tests {
             max_width: 1920,
             max_height: 1080,
             max_bitrate: 10_000_000,
+            max_frame_rate: Some(60),
         }
     }
 
@@ -518,6 +837,11 @@ mod prop_tests {
             target_height in prop::option::of(prop_oneof![Just(480u32), Just(720u32), Just(1080u32)]),
             force_burn in any::<bool>(),
             downmix_stereo in any::<bool>(),
+            delivery in prop_oneof![
+                Just(DeliveryPreference::Auto),
+                Just(DeliveryPreference::NeverConvert),
+                Just(DeliveryPreference::AlwaysConvert),
+            ],
         ) -> NegotiationInput {
             let height = if width >= 3840 { 2160 } else { 1080 };
             let subtitles = subtitle
@@ -561,6 +885,7 @@ mod prop_tests {
                 target_height,
                 force_burn,
                 downmix_stereo,
+                delivery,
             }
         }
     }
@@ -619,6 +944,30 @@ mod prop_tests {
                 out.selected.audio_track,
                 selected_audio(&input).map(|a| a.index)
             );
+        }
+
+        // Only holds when the viewer has not overridden the outcome: a
+        // preference deliberately keeps the reasons while changing the mode.
+        #[test]
+        fn a_session_left_alone_is_direct_exactly_when_there_is_nothing_to_report(input in inputs()) {
+            let input = NegotiationInput { delivery: DeliveryPreference::Auto, ..input };
+            let out = negotiate(&input, &profile());
+            prop_assert_eq!(out.mode == DeliveryMode::Direct, out.reasons.is_empty());
+        }
+
+        #[test]
+        fn a_preference_gets_what_it_asked_for(input in inputs()) {
+            let out = negotiate(&input, &profile());
+            match input.delivery {
+                DeliveryPreference::Auto => {}
+                DeliveryPreference::AlwaysConvert => {
+                    prop_assert_eq!(out.mode, DeliveryMode::Transcode);
+                }
+                DeliveryPreference::NeverConvert => prop_assert!(
+                    out.mode != DeliveryMode::Transcode
+                        || out.selected.subtitle_delivery == Some(SubtitleDelivery::Burned)
+                ),
+            }
         }
     }
 }

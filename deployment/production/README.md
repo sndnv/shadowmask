@@ -35,6 +35,15 @@ The image ships FFmpeg with VAAPI drivers baked in. Uncomment the `devices` bloc
 `SHADOWMASK_HARDWARE_ACCELERATION` (`auto` by default). See
 [hardware acceleration](../README.md#hardware-acceleration) for the modes and passthrough details.
 
+## Transcode height
+
+`SHADOWMASK_MAX_TRANSCODE_HEIGHT` caps the picture height the server will re-encode to. It is
+unset by default, meaning no cap, and it applies only to transcoding; direct play and remux are
+never downscaled. Set it to a number such as `1080` or `720` on a host without a hardware encoder,
+where transcoding at the source resolution runs slower than realtime and playback stalls. The
+resolved value is printed in the startup block as `max_transcode_height`, and each session logs the
+height it resolved to.
+
 ## Local AI (enrichment)
 
 Transcription, translation, and upscaling can run locally with no external service. These features

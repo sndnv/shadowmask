@@ -170,6 +170,7 @@ class _LibrariesBodyState extends State<_LibrariesBody>
               ),
               AdminColumn<Library>(
                 label: Strings.columnActions,
+                fixedWidth: adminActionsWidth(3),
                 align: AdminColumnAlign.end,
                 cell: (BuildContext c, Library l) => Row(
                   mainAxisSize: MainAxisSize.min,

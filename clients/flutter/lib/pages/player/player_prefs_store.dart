@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:shadowmask/player/player_controller.dart';
+
 typedef PlayerPrefs = ({
   double volume,
   bool muted,
@@ -7,10 +9,21 @@ typedef PlayerPrefs = ({
   bool wide,
   int autoplaySeconds,
   int networkTimeoutSeconds,
+  int bufferSeconds,
+  int bufferBytes,
+  bool waitForBuffer,
 });
 
 const List<int> kAutoplayDelays = <int>[0, 5, 10, 15, 30];
 const List<int> kNetworkTimeouts = <int>[10, 30, 60, 90];
+const List<int> kBufferTargets = <int>[30, 60, 120, 300, 600];
+const List<int> kBufferSizes = <int>[
+  64 * 1024 * 1024,
+  128 * 1024 * 1024,
+  256 * 1024 * 1024,
+  512 * 1024 * 1024,
+  1024 * 1024 * 1024,
+];
 
 const PlayerPrefs kDefaultPlayerPrefs = (
   volume: 1.0,
@@ -19,6 +32,9 @@ const PlayerPrefs kDefaultPlayerPrefs = (
   wide: false,
   autoplaySeconds: 10,
   networkTimeoutSeconds: 10,
+  bufferSeconds: kDefaultBufferSeconds,
+  bufferBytes: kDefaultBufferBytes,
+  waitForBuffer: false,
 );
 
 class PlayerPrefsStore {
@@ -30,6 +46,9 @@ class PlayerPrefsStore {
   static const String _wideKey = 'shadowmask.player.wide';
   static const String _autoplayKey = 'shadowmask.player.autoplay';
   static const String _timeoutKey = 'shadowmask.player.network_timeout';
+  static const String _bufferKey = 'shadowmask.player.buffer_seconds';
+  static const String _bufferBytesKey = 'shadowmask.player.buffer_bytes';
+  static const String _waitKey = 'shadowmask.player.wait_for_buffer';
 
   Future<PlayerPrefs> load() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -38,6 +57,10 @@ class PlayerPrefsStore {
         prefs.getInt(_autoplayKey) ?? kDefaultPlayerPrefs.autoplaySeconds;
     final int timeout =
         prefs.getInt(_timeoutKey) ?? kDefaultPlayerPrefs.networkTimeoutSeconds;
+    final int buffer =
+        prefs.getInt(_bufferKey) ?? kDefaultPlayerPrefs.bufferSeconds;
+    final int bytes =
+        prefs.getInt(_bufferBytesKey) ?? kDefaultPlayerPrefs.bufferBytes;
     return (
       volume: volume,
       muted: prefs.getBool(_mutedKey) ?? false,
@@ -49,6 +72,14 @@ class PlayerPrefsStore {
       networkTimeoutSeconds: kNetworkTimeouts.contains(timeout)
           ? timeout
           : kDefaultPlayerPrefs.networkTimeoutSeconds,
+      bufferSeconds: kBufferTargets.contains(buffer)
+          ? buffer
+          : kDefaultPlayerPrefs.bufferSeconds,
+      bufferBytes: kBufferSizes.contains(bytes)
+          ? bytes
+          : kDefaultPlayerPrefs.bufferBytes,
+      waitForBuffer:
+          prefs.getBool(_waitKey) ?? kDefaultPlayerPrefs.waitForBuffer,
     );
   }
 
@@ -80,5 +111,20 @@ class PlayerPrefsStore {
   Future<void> saveNetworkTimeoutSeconds(int seconds) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_timeoutKey, seconds);
+  }
+
+  Future<void> saveBufferSeconds(int seconds) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_bufferKey, seconds);
+  }
+
+  Future<void> saveBufferBytes(int bytes) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_bufferBytesKey, bytes);
+  }
+
+  Future<void> saveWaitForBuffer(bool wait) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_waitKey, wait);
   }
 }

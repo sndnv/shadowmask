@@ -411,23 +411,22 @@ class SkeletonPage extends StatelessWidget {
           if (toolbar)
             Padding(
               padding: const EdgeInsets.only(bottom: Space.s4),
-              child: Row(
+              child: Wrap(
+                spacing: Space.s4,
+                runSpacing: Space.s2,
                 children: <Widget>[
                   for (int i = 0; i < 3; i++)
-                    Padding(
-                      padding: const EdgeInsets.only(right: Space.s4),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: const BorderRadius.all(Radii.sm),
-                          border: Border.all(color: t.border),
-                        ),
-                        child: const SizedBox(
-                          width: 120,
-                          height: 34,
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(horizontal: Space.s3),
-                            child: Align(child: Skeleton(height: 9)),
-                          ),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: const BorderRadius.all(Radii.sm),
+                        border: Border.all(color: t.border),
+                      ),
+                      child: const SizedBox(
+                        width: 120,
+                        height: 34,
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(horizontal: Space.s3),
+                          child: Align(child: Skeleton(height: 9)),
                         ),
                       ),
                     ),

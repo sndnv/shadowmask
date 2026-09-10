@@ -11,8 +11,8 @@ use domain::error::{StreamError, TranscodeError};
 use domain::media::KeyframeProbe;
 use domain::session::{
     DeliveryMode, SegmentContainer, SegmentPlan, SessionId, SoftSubtitle, StreamClaims,
-    StreamRegistration, StreamRegistry, StreamSource, TranscodeManager, TranscodeSpec,
-    TranscodeStarted, plan_segments, plan_segments_on_grid,
+    StreamGeneration, StreamRegistration, StreamRegistry, StreamSource, TranscodeManager,
+    TranscodeSpec, TranscodeStarted, plan_segments, plan_segments_on_grid,
 };
 
 use crate::probe::FfprobeMediaProbe;
@@ -33,10 +33,14 @@ const PRODUCED_WAIT: Duration = Duration::from_secs(30);
 const PRODUCED_POLL: Duration = Duration::from_millis(100);
 
 struct Session {
+    generations: HashMap<StreamGeneration, Generation>,
+    last_active: Timestamp,
+}
+
+struct Generation {
     registration: StreamRegistration,
     jit: Option<Jit>,
     producer: Option<Producer>,
-    last_active: Timestamp,
 }
 
 struct Jit {
@@ -63,7 +67,7 @@ impl Drop for Producer {
     }
 }
 
-type SegmentLocks = HashMap<(SessionId, usize), Arc<AsyncMutex<()>>>;
+type SegmentLocks = HashMap<(SessionId, StreamGeneration, usize), Arc<AsyncMutex<()>>>;
 
 struct Inner<S, P> {
     binary: String,
@@ -157,12 +161,17 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
         }
     }
 
-    fn segment_lock(&self, session: &SessionId, index: usize) -> Arc<AsyncMutex<()>> {
+    fn segment_lock(
+        &self,
+        session: &SessionId,
+        generation: StreamGeneration,
+        index: usize,
+    ) -> Arc<AsyncMutex<()>> {
         self.inner
             .locks
             .lock()
             .unwrap()
-            .entry((session.clone(), index))
+            .entry((session.clone(), generation, index))
             .or_default()
             .clone()
     }
@@ -172,20 +181,33 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
             .locks
             .lock()
             .unwrap()
-            .retain(|(s, _), _| s != session);
+            .retain(|(s, _, _), _| s != session);
     }
 
-    async fn evict(&self, session: &SessionId) {
-        let removed = self.inner.sessions.write().unwrap().remove(session);
-        self.purge_locks(session);
-        if let Some(entry) = removed {
-            remove_dir_off_lock(entry.registration.output_dir).await;
+    fn purge_generation_locks(&self, session: &SessionId, generation: StreamGeneration) {
+        self.inner
+            .locks
+            .lock()
+            .unwrap()
+            .retain(|(s, g, _), _| s != session || *g != generation);
+    }
+
+    async fn retire(
+        &self,
+        session: &SessionId,
+        generation: StreamGeneration,
+        mut entry: Generation,
+    ) {
+        if let Some(handle) = entry.producer.as_mut().and_then(|p| p.task.take()) {
+            handle.abort();
+            let _ = handle.await;
         }
+        self.purge_generation_locks(session, generation);
+        remove_dir_off_lock(entry.registration.output_dir).await;
     }
 
     fn spawn_producer(
         &self,
-        session: &SessionId,
         spec: &TranscodeSpec,
         variant_dir: &Path,
         origin_ms: u64,
@@ -201,7 +223,7 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
         let state = Arc::new(Mutex::new(ProducerState::default()));
         let task_state = Arc::clone(&state);
         let inner = Arc::clone(&self.inner);
-        let id = session.0.clone();
+        let id = format!("{}/{}", spec.session.0, spec.generation.0);
         let task = tokio::spawn(async move {
             let outcome = inner.spawner.run_captured(&inner.binary, &args).await;
             let mut guard = task_state.lock().unwrap();
@@ -210,12 +232,12 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
                 Ok(output) if output.success => {}
                 Ok(output) => {
                     let detail = output.failure_detail(10);
-                    tracing::warn!("producer for session [{id}] failed: {detail}");
+                    tracing::warn!("producer for stream [{id}] failed: {detail}");
                     guard.failure = Some(detail);
                 }
                 Err(err) => {
                     let binary = inner.binary.clone();
-                    tracing::warn!("producer for session [{id}] could not run [{binary}]: {err}");
+                    tracing::warn!("producer for stream [{id}] could not run [{binary}]: {err}");
                     guard.failure = Some(err.to_string());
                 }
             }
@@ -226,35 +248,70 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
         }
     }
 
-    async fn stop_producer(&self, session: &SessionId) {
-        let handle = {
+    async fn stop_producers(&self, session: &SessionId) {
+        let handles: Vec<tokio::task::JoinHandle<()>> = {
             let mut sessions = self.inner.sessions.write().unwrap();
-            sessions
-                .get_mut(session)
-                .and_then(|s| s.producer.as_mut())
-                .and_then(|p| p.task.take())
+            match sessions.get_mut(session) {
+                Some(entry) => entry
+                    .generations
+                    .values_mut()
+                    .filter_map(|g| g.producer.as_mut())
+                    .filter_map(|p| p.task.take())
+                    .collect(),
+                None => Vec::new(),
+            }
         };
-        if let Some(handle) = handle {
+        for handle in handles {
             handle.abort();
             let _ = handle.await;
         }
     }
 
-    fn session_container(&self, session: &SessionId) -> Result<SegmentContainer, StreamError> {
+    fn is_live(&self, session: &SessionId, generation: StreamGeneration) -> bool {
+        self.inner
+            .sessions
+            .read()
+            .unwrap()
+            .get(session)
+            .is_some_and(|entry| entry.generations.contains_key(&generation))
+    }
+
+    fn generation_container(
+        &self,
+        session: &SessionId,
+        generation: StreamGeneration,
+    ) -> Result<SegmentContainer, StreamError> {
         let sessions = self.inner.sessions.read().unwrap();
-        let entry = sessions.get(session).ok_or(StreamError::NotLive)?;
+        let entry = sessions
+            .get(session)
+            .and_then(|s| s.generations.get(&generation))
+            .ok_or(StreamError::NotLive)?;
         let jit = entry.jit.as_ref().ok_or(StreamError::Invalid)?;
         Ok(jit.spec.container)
     }
 
-    fn producer_verdict(&self, session: &SessionId) -> Option<(bool, Option<String>)> {
+    fn producer_verdict(
+        &self,
+        session: &SessionId,
+        generation: StreamGeneration,
+    ) -> Option<(bool, Option<String>)> {
         let sessions = self.inner.sessions.read().unwrap();
-        let producer = sessions.get(session)?.producer.as_ref()?;
+        let producer = sessions
+            .get(session)?
+            .generations
+            .get(&generation)?
+            .producer
+            .as_ref()?;
         let state = producer.state.lock().unwrap();
         Some((state.finished, state.failure.clone()))
     }
 
-    async fn await_produced(&self, session: &SessionId, path: &Path) -> Result<(), StreamError> {
+    async fn await_produced(
+        &self,
+        session: &SessionId,
+        generation: StreamGeneration,
+        path: &Path,
+    ) -> Result<(), StreamError> {
         let wait = self.inner.produced_wait;
         let deadline = Instant::now() + wait;
         loop {
@@ -262,13 +319,15 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
                 self.touch_now(session);
                 return Ok(());
             }
-            match self.producer_verdict(session) {
+            match self.producer_verdict(session, generation) {
                 None => return Err(StreamError::NotLive),
                 Some((_, Some(detail))) => {
                     let file = path.display().to_string();
                     tracing::warn!(
-                        "session [{}] cannot serve [{file}] because the producer failed: {detail}",
-                        session.0
+                        "stream [{}/{}] cannot serve [{file}] because the producer failed: \
+                         {detail}",
+                        session.0,
+                        generation.0
                     );
                     return Err(StreamError::Invalid);
                 }
@@ -279,9 +338,10 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
                     }
                     let file = path.display().to_string();
                     tracing::warn!(
-                        "session [{}] was asked for [{file}], which the producer finished \
+                        "stream [{}/{}] was asked for [{file}], which the producer finished \
                          without writing",
-                        session.0
+                        session.0,
+                        generation.0
                     );
                     return Err(StreamError::Invalid);
                 }
@@ -291,9 +351,10 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
                 let file = path.display().to_string();
                 let seconds = wait.as_secs_f64();
                 tracing::warn!(
-                    "session [{}] gave up waiting [{seconds:.0}s] for [{file}]; the producer is \
+                    "stream [{}/{}] gave up waiting [{seconds:.0}s] for [{file}]; the producer is \
                      still running but has not reached it",
-                    session.0
+                    session.0,
+                    generation.0
                 );
                 return Err(StreamError::Invalid);
             }
@@ -304,29 +365,46 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
     async fn ensure_segment(
         &self,
         session: &SessionId,
+        generation: StreamGeneration,
         variant: &str,
         file: &str,
     ) -> Result<(), StreamError> {
         if variant != VARIANT {
             return Err(StreamError::Invalid);
         }
-        let container = self.session_container(session)?;
+        let container = self.generation_container(session, generation)?;
+        if !segment_matches(file, container) {
+            tracing::warn!(
+                "stream [{}/{}] was asked for [{file}], which its container [{}] does not \
+                 produce; the playlist and the segments have come apart",
+                session.0,
+                generation.0,
+                container.as_str()
+            );
+            return Err(StreamError::Invalid);
+        }
         if container == SegmentContainer::Fmp4 {
             let base = {
                 let sessions = self.inner.sessions.read().unwrap();
                 sessions
                     .get(session)
+                    .and_then(|s| s.generations.get(&generation))
                     .ok_or(StreamError::NotLive)?
                     .registration
                     .output_dir
                     .join(VARIANT)
             };
-            return self.await_produced(session, &base.join(file)).await;
+            return self
+                .await_produced(session, generation, &base.join(file))
+                .await;
         }
         let index = parse_segment_index(file, container).ok_or(StreamError::Invalid)?;
         let (out_path, part_path, attempts) = {
             let sessions = self.inner.sessions.read().unwrap();
-            let entry = sessions.get(session).ok_or(StreamError::NotLive)?;
+            let entry = sessions
+                .get(session)
+                .and_then(|s| s.generations.get(&generation))
+                .ok_or(StreamError::NotLive)?;
             let jit = entry.jit.as_ref().ok_or(StreamError::Invalid)?;
             let segment = jit.plan.segments.get(index).ok_or(StreamError::Invalid)?;
             let variant_dir = entry.registration.output_dir.join(VARIANT);
@@ -353,14 +431,15 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
             self.touch_now(session);
             return Ok(());
         }
-        let lock = self.segment_lock(session, index);
+        let lock = self.segment_lock(session, generation, index);
         let _guard = lock.lock().await;
         if out_path.is_file() {
             self.touch_now(session);
             return Ok(());
         }
-        let mut attempt = SegmentAttempt::started(session, index);
+        let mut attempt = SegmentAttempt::started(session, generation, index);
         let mut produced = false;
+        let mut cancelled = false;
         for args in &attempts {
             match self
                 .inner
@@ -372,18 +451,29 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
                     produced = true;
                     break;
                 }
+                Ok(_) if !self.is_live(session, generation) => {
+                    cancelled = true;
+                    tracing::debug!(
+                        "segment [{index}] of stream [{}/{}] was cancelled with the stream",
+                        session.0,
+                        generation.0
+                    );
+                    break;
+                }
                 Ok(output) => {
                     let detail = output.failure_detail(10);
                     tracing::warn!(
-                        "segment [{index}] of session [{}] was not produced: {detail}",
-                        session.0
+                        "segment [{index}] of stream [{}/{}] was not produced: {detail}",
+                        session.0,
+                        generation.0
                     );
                 }
                 Err(err) => {
                     let binary = self.inner.binary.clone();
                     tracing::warn!(
-                        "segment [{index}] of session [{}] could not run [{binary}]: {err}",
-                        session.0
+                        "segment [{index}] of stream [{}/{}] could not run [{binary}]: {err}",
+                        session.0,
+                        generation.0
                     );
                 }
             }
@@ -391,7 +481,11 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
         attempt.settled();
         if !produced {
             remove_file_off_lock(part_path).await;
-            return Err(StreamError::Invalid);
+            return Err(if cancelled {
+                StreamError::NotLive
+            } else {
+                StreamError::Invalid
+            });
         }
         if !rename_off_lock(part_path, out_path).await {
             return Err(StreamError::Invalid);
@@ -458,52 +552,61 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
 
     async fn reap_at(&self, now: Timestamp) -> usize {
         let timeout = self.inner.idle_timeout;
-        let evicted: Vec<(SessionId, PathBuf)> = {
+        let expired: Vec<SessionId> = {
             let mut sessions = self.inner.sessions.write().unwrap();
             let expired: Vec<SessionId> = sessions
                 .iter()
-                .filter(|(_, s)| s.jit.is_some() && is_expired(now, s.last_active, timeout))
+                .filter(|(_, s)| {
+                    s.generations.values().any(|g| g.jit.is_some())
+                        && is_expired(now, s.last_active, timeout)
+                })
                 .map(|(id, _)| id.clone())
                 .collect();
+            for id in &expired {
+                sessions.remove(id);
+            }
             expired
-                .into_iter()
-                .filter_map(|id| {
-                    sessions
-                        .remove(&id)
-                        .map(|s| (id, s.registration.output_dir))
-                })
-                .collect()
         };
-        for (id, dir) in &evicted {
+        for id in &expired {
             self.purge_locks(id);
-            remove_dir_off_lock(dir.clone()).await;
+            remove_dir_off_lock(self.session_dir(id)).await;
         }
-        evicted.len()
+        expired.len()
+    }
+
+    fn session_dir(&self, session: &SessionId) -> PathBuf {
+        self.inner.cache_root.join(&session.0)
     }
 }
 
 impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> StreamRegistry
     for HlsStreamSource<S, P>
 {
-    fn register(&self, session: SessionId, entry: StreamRegistration) {
+    fn register(
+        &self,
+        session: SessionId,
+        generation: StreamGeneration,
+        entry: StreamRegistration,
+    ) {
         let mut sessions = self.inner.sessions.write().unwrap();
-        match sessions.get_mut(&session) {
-            Some(existing) => {
-                existing.registration = entry;
-                existing.last_active = Timestamp::now();
-            }
+        let existing = sessions.entry(session).or_insert_with(|| Session {
+            generations: HashMap::new(),
+            last_active: Timestamp::now(),
+        });
+        match existing.generations.get_mut(&generation) {
+            Some(current) => current.registration = entry,
             None => {
-                sessions.insert(
-                    session,
-                    Session {
+                existing.generations.insert(
+                    generation,
+                    Generation {
                         registration: entry,
                         jit: None,
                         producer: None,
-                        last_active: Timestamp::now(),
                     },
                 );
             }
         }
+        existing.last_active = Timestamp::now();
     }
 
     fn remove(&self, session: &SessionId) {
@@ -519,6 +622,7 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> StreamSource
         let sessions = self.inner.sessions.read().unwrap();
         let reg = &sessions
             .get(&claims.session)
+            .and_then(|s| s.generations.get(&claims.generation))
             .ok_or(StreamError::NotLive)?
             .registration;
         if reg.mode == DeliveryMode::Direct {
@@ -552,13 +656,15 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> StreamSource
             let sessions = self.inner.sessions.read().unwrap();
             sessions
                 .get(&claims.session)
+                .and_then(|s| s.generations.get(&claims.generation))
                 .ok_or(StreamError::NotLive)?
                 .registration
                 .output_dir
                 .clone()
         };
         if is_segment_request(file) {
-            self.ensure_segment(&claims.session, variant, file).await?;
+            self.ensure_segment(&claims.session, claims.generation, variant, file)
+                .await?;
         }
         resolve_media_path(&base, variant, file)
     }
@@ -567,6 +673,7 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> StreamSource
         let sessions = self.inner.sessions.read().unwrap();
         sessions
             .get(&claims.session)
+            .and_then(|s| s.generations.get(&claims.generation))
             .ok_or(StreamError::NotLive)?
             .registration
             .direct_path
@@ -580,9 +687,8 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> TranscodeManager
 {
     async fn start(&self, spec: TranscodeSpec) -> Result<TranscodeStarted, TranscodeError> {
         let session = spec.session.clone();
-        let output_dir = self.inner.cache_root.join(&session.0);
-        self.stop_producer(&session).await;
-        self.evict(&session).await;
+        let generation = spec.generation;
+        let output_dir = self.session_dir(&session).join(generation.dir_name());
         let variant_dir = output_dir.join(VARIANT);
         let make = variant_dir.clone();
         spawn_blocking(move || std::fs::create_dir_all(make))
@@ -620,28 +726,58 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> TranscodeManager
         }
         let producer = match spec.container {
             SegmentContainer::Fmp4 => {
-                Some(self.spawn_producer(&session, &spec, &variant_dir, origin_ms, first))
+                Some(self.spawn_producer(&spec, &variant_dir, origin_ms, first))
             }
             SegmentContainer::MpegTs => None,
         };
-        {
+        let stale: Vec<(StreamGeneration, Generation)> = {
             let mut sessions = self.inner.sessions.write().unwrap();
             let entry = sessions.entry(session.clone()).or_insert_with(|| Session {
-                registration: StreamRegistration {
+                generations: HashMap::new(),
+                last_active: Timestamp::now(),
+            });
+            let registration = entry
+                .generations
+                .get(&generation)
+                .map(|existing| existing.registration.clone())
+                .unwrap_or(StreamRegistration {
                     mode: DeliveryMode::Remux,
                     output_dir: output_dir.clone(),
                     direct_path: None,
                     bandwidth: 0,
                     subtitle: None,
+                });
+            entry.generations.insert(
+                generation,
+                Generation {
+                    registration: StreamRegistration {
+                        output_dir: output_dir.clone(),
+                        ..registration
+                    },
+                    jit: Some(Jit { plan, spec }),
+                    producer,
                 },
-                jit: None,
-                producer: None,
-                last_active: Timestamp::now(),
-            });
-            entry.registration.output_dir = output_dir.clone();
-            entry.jit = Some(Jit { plan, spec });
-            entry.producer = producer;
+            );
             entry.last_active = Timestamp::now();
+            let newest = entry
+                .generations
+                .keys()
+                .copied()
+                .max()
+                .expect("a generation was just inserted");
+            let superseded: Vec<StreamGeneration> = entry
+                .generations
+                .keys()
+                .copied()
+                .filter(|g| *g != newest)
+                .collect();
+            superseded
+                .into_iter()
+                .filter_map(|g| entry.generations.remove(&g).map(|entry| (g, entry)))
+                .collect()
+        };
+        for (superseded, entry) in stale {
+            self.retire(&session, superseded, entry).await;
         }
         Ok(TranscodeStarted {
             session,
@@ -654,7 +790,7 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> TranscodeManager
     async fn touch(&self, session: &SessionId) -> Result<(), TranscodeError> {
         let mut sessions = self.inner.sessions.write().unwrap();
         match sessions.get_mut(session) {
-            Some(s) if s.jit.is_some() => {
+            Some(s) if s.generations.values().any(|g| g.jit.is_some()) => {
                 s.last_active = Timestamp::now();
                 Ok(())
             }
@@ -663,11 +799,11 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> TranscodeManager
     }
 
     async fn stop(&self, session: &SessionId) -> Result<(), TranscodeError> {
-        self.stop_producer(session).await;
+        self.stop_producers(session).await;
         let removed = self.inner.sessions.write().unwrap().remove(session);
-        let entry = removed.ok_or(TranscodeError::NotFound)?;
+        removed.ok_or(TranscodeError::NotFound)?;
         self.purge_locks(session);
-        remove_dir_off_lock(entry.registration.output_dir).await;
+        remove_dir_off_lock(self.session_dir(session)).await;
         Ok(())
     }
 
@@ -681,16 +817,16 @@ async fn remove_dir_off_lock(dir: PathBuf) {
 }
 
 struct SegmentAttempt {
-    session: String,
+    stream: String,
     index: usize,
     started: Instant,
     settled: bool,
 }
 
 impl SegmentAttempt {
-    fn started(session: &SessionId, index: usize) -> Self {
+    fn started(session: &SessionId, generation: StreamGeneration, index: usize) -> Self {
         Self {
-            session: session.0.clone(),
+            stream: format!("{}/{}", session.0, generation.0),
             index,
             started: Instant::now(),
             settled: false,
@@ -709,9 +845,9 @@ impl Drop for SegmentAttempt {
         }
         let seconds = self.started.elapsed().as_secs_f64();
         tracing::warn!(
-            "segment [{}] of session [{}] was abandoned after [{seconds:.1}s]: the client stopped waiting before it could be produced",
+            "segment [{}] of stream [{}] was abandoned after [{seconds:.1}s]: the client stopped waiting before it could be produced",
             self.index,
-            self.session
+            self.stream
         );
     }
 }
@@ -771,6 +907,13 @@ fn parse_segment_index(file: &str, container: SegmentContainer) -> Option<usize>
 
 fn is_segment_request(file: &str) -> bool {
     file.ends_with(".ts") || file.ends_with(".m4s") || file == INIT_SEGMENT
+}
+
+fn segment_matches(file: &str, container: SegmentContainer) -> bool {
+    match container {
+        SegmentContainer::Fmp4 => file == INIT_SEGMENT || file.ends_with(".m4s"),
+        SegmentContainer::MpegTs => file.ends_with(".ts"),
+    }
 }
 
 fn is_expired(now: Timestamp, last_active: Timestamp, timeout: SignedDuration) -> bool {
@@ -847,6 +990,22 @@ mod tests {
     }
 
     #[derive(Clone, Default)]
+    #[allow(clippy::type_complexity)]
+    struct TornDownSpawner {
+        on_run: Arc<Mutex<Option<Box<dyn Fn() + Send>>>>,
+    }
+
+    impl ProcessSpawner for TornDownSpawner {
+        async fn run(&self, _program: &str, _args: &[String]) -> std::io::Result<bool> {
+            let hook = self.on_run.lock().unwrap();
+            if let Some(hook) = hook.as_ref() {
+                hook();
+            }
+            Ok(false)
+        }
+    }
+
+    #[derive(Clone, Default)]
     struct MockProbe {
         keyframes: Vec<u64>,
         fail: bool,
@@ -870,9 +1029,16 @@ mod tests {
         (dir, src)
     }
 
+    const GEN: StreamGeneration = StreamGeneration(1);
+
     fn claims(session: &str) -> StreamClaims {
+        claims_at(session, GEN)
+    }
+
+    fn claims_at(session: &str, generation: StreamGeneration) -> StreamClaims {
         StreamClaims {
             session: SessionId(session.to_owned()),
+            generation,
             user: UserId("u1".to_owned()),
             version: VersionId("ver-1".to_owned()),
             expires_at: Timestamp::now(),
@@ -891,8 +1057,13 @@ mod tests {
     }
 
     fn spec(id: &str, duration_ms: u64) -> TranscodeSpec {
+        spec_at(id, GEN, duration_ms)
+    }
+
+    fn spec_at(id: &str, generation: StreamGeneration, duration_ms: u64) -> TranscodeSpec {
         TranscodeSpec {
             session: SessionId(id.to_owned()),
+            generation,
             input_path: "/media/movie.mkv".to_owned(),
             duration_ms,
             copy: false,
@@ -913,6 +1084,7 @@ mod tests {
         let (_dir, src) = engine(MockSpawner::default(), MockProbe::default());
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(PathBuf::from("/cache/s1")),
         );
         let master = src.master_playlist(&claims("s1")).unwrap();
@@ -927,6 +1099,7 @@ mod tests {
         let (_dir, src) = engine(MockSpawner::default(), MockProbe::default());
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             StreamRegistration {
                 subtitle: Some(SubtitleRendition {
                     name: "English".to_owned(),
@@ -948,6 +1121,7 @@ mod tests {
         let (_dir, src) = engine(MockSpawner::default(), MockProbe::default());
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             StreamRegistration {
                 mode: DeliveryMode::Direct,
                 direct_path: Some(PathBuf::from("/media/movie.mkv")),
@@ -974,6 +1148,7 @@ mod tests {
         let (_dir, src) = engine(MockSpawner::default(), MockProbe::default());
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(PathBuf::from("/cache/s1")),
         );
         src.remove(&SessionId("s1".to_owned()));
@@ -988,6 +1163,7 @@ mod tests {
         let (_dir, src) = engine(MockSpawner::default(), MockProbe::default());
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             StreamRegistration {
                 mode: DeliveryMode::Direct,
                 direct_path: Some(PathBuf::from("/media/movie.mkv")),
@@ -1005,6 +1181,7 @@ mod tests {
         let (_dir, src) = engine(MockSpawner::default(), MockProbe::default());
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(PathBuf::from("/cache/s1")),
         );
         assert!(matches!(
@@ -1032,6 +1209,7 @@ mod tests {
         let started = src.start(spec("s1", 15_000)).await.expect("start");
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(PathBuf::from(&started.output_dir)),
         );
         let index = PathBuf::from(&started.output_dir)
@@ -1074,19 +1252,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn restarting_a_session_replaces_the_prior_one() {
+    async fn renegotiating_replaces_the_prior_generation() {
         let prober = MockProbe {
             keyframes: vec![4_000],
             fail: false,
         };
         let (_dir, src) = engine(MockSpawner::default(), prober);
         src.start(spec("s1", 8_000)).await.expect("start");
-        src.start(spec("s1", 8_000)).await.expect("restart");
+        src.start(spec_at("s1", StreamGeneration(2), 8_000))
+            .await
+            .expect("renegotiate");
         let sessions = src.inner.sessions.read().unwrap();
         assert_eq!(sessions.len(), 1);
+        let session = sessions.get(&SessionId("s1".to_owned())).unwrap();
+        assert_eq!(session.generations.len(), 1);
         assert!(
-            sessions
-                .get(&SessionId("s1".to_owned()))
+            session
+                .generations
+                .get(&StreamGeneration(2))
                 .unwrap()
                 .jit
                 .is_some()
@@ -1139,6 +1322,7 @@ mod tests {
         let started = src.start(spec("s1", 12_000)).await.expect("start");
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(PathBuf::from(&started.output_dir)),
         );
         let path = src
@@ -1169,6 +1353,7 @@ mod tests {
         let started = src.start(spec("s1", 12_000)).await.expect("start");
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(PathBuf::from(&started.output_dir)),
         );
         let path = src
@@ -1177,6 +1362,61 @@ mod tests {
             .unwrap();
         assert!(path.exists());
         assert_eq!(spawner.calls.load(Ordering::SeqCst), 2);
+    }
+
+    // ffmpeg traps SIGTERM, so an encode killed by a session teardown exits 0
+    // and prints its encoder statistics. That looked identical to a fault, and
+    // filled the log with a stats block every time anyone closed a player.
+    #[tokio::test]
+    async fn a_segment_killed_by_a_teardown_is_not_a_fault() {
+        let spawner = TornDownSpawner::default();
+        let prober = MockProbe {
+            keyframes: vec![4_000, 8_000],
+            fail: false,
+        };
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src = HlsStreamSource::with_parts(dir.path(), spawner.clone(), prober);
+        let started = src.start(spec("s1", 12_000)).await.expect("start");
+        src.register(
+            SessionId("s1".to_owned()),
+            GEN,
+            transcode_registration(PathBuf::from(&started.output_dir)),
+        );
+        let teardown = src.clone();
+        *spawner.on_run.lock().unwrap() = Some(Box::new(move || {
+            teardown.remove(&SessionId("s1".to_owned()))
+        }));
+
+        let err = src
+            .media_path(&claims("s1"), "v0", "seg_00000.ts")
+            .await
+            .expect_err("a torn down session cannot serve a segment");
+
+        assert!(matches!(err, StreamError::NotLive), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn a_segment_that_genuinely_fails_is_still_invalid() {
+        let spawner = TornDownSpawner::default();
+        let prober = MockProbe {
+            keyframes: vec![4_000, 8_000],
+            fail: false,
+        };
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src = HlsStreamSource::with_parts(dir.path(), spawner.clone(), prober);
+        let started = src.start(spec("s1", 12_000)).await.expect("start");
+        src.register(
+            SessionId("s1".to_owned()),
+            GEN,
+            transcode_registration(PathBuf::from(&started.output_dir)),
+        );
+
+        let err = src
+            .media_path(&claims("s1"), "v0", "seg_00000.ts")
+            .await
+            .expect_err("the encoder produced nothing");
+
+        assert!(matches!(err, StreamError::Invalid), "got {err:?}");
     }
 
     #[tokio::test]
@@ -1190,6 +1430,7 @@ mod tests {
         let started = src.start(spec("s1", 12_000)).await.expect("start");
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(PathBuf::from(&started.output_dir)),
         );
         let c = claims("s1");
@@ -1211,6 +1452,7 @@ mod tests {
         let started = src.start(spec("s1", 8_000)).await.expect("start");
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(PathBuf::from(&started.output_dir)),
         );
         assert!(matches!(
@@ -1225,6 +1467,7 @@ mod tests {
         let started = src.start(spec("s1", 8_000)).await.expect("start");
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(PathBuf::from(&started.output_dir)),
         );
         for file in ["seg_x.ts", "seg_.ts", "foo.ts"] {
@@ -1239,12 +1482,12 @@ mod tests {
     async fn ensure_segment_rejects_wrong_variant_and_unknown_session() {
         let (_dir, src) = engine(MockSpawner::default(), MockProbe::default());
         assert!(matches!(
-            src.ensure_segment(&SessionId("s1".to_owned()), "subs", "seg_00000.ts")
+            src.ensure_segment(&SessionId("s1".to_owned()), GEN, "subs", "seg_00000.ts")
                 .await,
             Err(StreamError::Invalid)
         ));
         assert!(matches!(
-            src.ensure_segment(&SessionId("nope".to_owned()), "v0", "seg_00000.ts")
+            src.ensure_segment(&SessionId("nope".to_owned()), GEN, "v0", "seg_00000.ts")
                 .await,
             Err(StreamError::NotLive)
         ));
@@ -1258,6 +1501,7 @@ mod tests {
         let (_cache, src) = engine(MockSpawner::default(), MockProbe::default());
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(base.clone()),
         );
         let canonical_base = base.canonicalize().unwrap();
@@ -1281,6 +1525,7 @@ mod tests {
         let (_dir, src) = engine(MockSpawner::default(), MockProbe::default());
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(PathBuf::from("/no/such/shadowmask/dir")),
         );
         assert!(matches!(
@@ -1311,7 +1556,11 @@ mod tests {
         let base = dir.path().to_path_buf();
         std::fs::create_dir_all(base.join("v0")).unwrap();
         let (_cache, src) = engine(MockSpawner::default(), MockProbe::default());
-        src.register(SessionId("s1".to_owned()), transcode_registration(base));
+        src.register(
+            SessionId("s1".to_owned()),
+            GEN,
+            transcode_registration(base),
+        );
         assert!(matches!(
             src.media_path(&claims("s1"), "v0", "seg_00000.ts").await,
             Err(StreamError::Invalid)
@@ -1332,6 +1581,7 @@ mod tests {
         let started = src.start(spec("s1", 8_000)).await.expect("start");
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(PathBuf::from(&started.output_dir)),
         );
         assert!(matches!(
@@ -1354,6 +1604,7 @@ mod tests {
         let started = src.start(spec("s1", 8_000)).await.expect("start");
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(PathBuf::from(&started.output_dir)),
         );
         assert!(
@@ -1382,6 +1633,7 @@ mod tests {
         let out_dir = PathBuf::from(&started.output_dir);
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(out_dir.clone()),
         );
 
@@ -1410,9 +1662,9 @@ mod tests {
         // Cancelling the request drops this mid-flight, and Drop is the only
         // thing that still runs then, so it is the one place an abandoned
         // encode can be recorded at all.
-        drop(SegmentAttempt::started(&SessionId("s1".to_owned()), 3));
+        drop(SegmentAttempt::started(&SessionId("s1".to_owned()), GEN, 3));
 
-        let mut settled = SegmentAttempt::started(&SessionId("s1".to_owned()), 4);
+        let mut settled = SegmentAttempt::started(&SessionId("s1".to_owned()), GEN, 4);
         settled.settled();
         drop(settled);
     }
@@ -1429,6 +1681,7 @@ mod tests {
         let out_dir = PathBuf::from(&started.output_dir);
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(out_dir.clone()),
         );
         // A directory sitting where the segment belongs makes the rename fail,
@@ -1455,6 +1708,7 @@ mod tests {
         let started = src.start(spec("s1", 8_000)).await.expect("start");
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(PathBuf::from(&started.output_dir)),
         );
         assert!(matches!(
@@ -1470,6 +1724,7 @@ mod tests {
         let started = src.start(spec("s1", 8_000)).await.expect("start");
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(PathBuf::from(&started.output_dir)),
         );
         src.media_path(&claims("s1"), "v0", "index.m3u8")
@@ -1492,6 +1747,7 @@ mod tests {
         let (_dir, src) = engine(MockSpawner::default(), MockProbe::default());
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(PathBuf::from("/cache/s1")),
         );
         for (variant, file) in [("..", "index.m3u8"), ("v0", ""), ("v0", "a\\b")] {
@@ -1511,7 +1767,11 @@ mod tests {
         let base = dir.path().to_path_buf();
         std::os::unix::fs::symlink(outside.path(), base.join("v0")).unwrap();
         let (_cache, src) = engine(MockSpawner::default(), MockProbe::default());
-        src.register(SessionId("s1".to_owned()), transcode_registration(base));
+        src.register(
+            SessionId("s1".to_owned()),
+            GEN,
+            transcode_registration(base),
+        );
         assert!(matches!(
             src.media_path(&claims("s1"), "v0", "secret").await,
             Err(StreamError::Invalid)
@@ -1529,7 +1789,11 @@ mod tests {
         std::fs::create_dir_all(base.join("v0")).unwrap();
         std::os::unix::fs::symlink(&secret, base.join("v0").join("leak.bin")).unwrap();
         let (_cache, src) = engine(MockSpawner::default(), MockProbe::default());
-        src.register(SessionId("s1".to_owned()), transcode_registration(base));
+        src.register(
+            SessionId("s1".to_owned()),
+            GEN,
+            transcode_registration(base),
+        );
         assert!(matches!(
             src.media_path(&claims("s1"), "v0", "leak.bin").await,
             Err(StreamError::Invalid)
@@ -1547,6 +1811,7 @@ mod tests {
         ));
         src.register(
             SessionId("direct".to_owned()),
+            GEN,
             StreamRegistration {
                 mode: DeliveryMode::Direct,
                 direct_path: Some(PathBuf::from("/m.mkv")),
@@ -1580,6 +1845,7 @@ mod tests {
         let started = src.start(spec("s1", 8_000)).await.expect("start");
         src.register(
             SessionId("direct".to_owned()),
+            GEN,
             StreamRegistration {
                 mode: DeliveryMode::Direct,
                 direct_path: Some(PathBuf::from("/m.mkv")),
@@ -1612,6 +1878,7 @@ mod tests {
         let cloned = src.clone();
         src.register(
             SessionId("s1".to_owned()),
+            GEN,
             transcode_registration(PathBuf::from("/cache/s1")),
         );
         assert!(cloned.master_playlist(&claims("s1")).is_ok());
@@ -1830,7 +2097,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_restart_waits_for_the_old_producer_to_die_before_starting_the_new_one() {
+    async fn a_newer_generation_waits_for_the_old_producer_to_die_before_returning() {
         let dropped = Arc::new(AtomicUsize::new(0));
         let (_dir, src) = fmp4_engine(
             ProducerSpawner {
@@ -1843,14 +2110,19 @@ mod tests {
         src.start(fmp4_spec("s1", 12_000)).await.expect("start");
         tokio::task::yield_now().await;
 
-        src.start(fmp4_spec("s1", 12_000)).await.expect("restart");
+        src.start(TranscodeSpec {
+            copy: true,
+            container: SegmentContainer::Fmp4,
+            ..spec_at("s1", StreamGeneration(2), 12_000)
+        })
+        .await
+        .expect("renegotiate");
 
         assert_eq!(
             dropped.load(Ordering::SeqCst),
             1,
-            "the old ffmpeg must be gone before the directory is recreated; two producers writing \
-             one directory mix segments from different timelines, which reads as partial files \
-             and decodes as torn video"
+            "the superseded ffmpeg must be gone before its directory is removed, or it keeps \
+             writing into a deleted tree and leaves the generation behind"
         );
     }
 
@@ -1886,7 +2158,13 @@ mod tests {
         );
         src.start(fmp4_spec("s1", 12_000)).await.expect("start");
         tokio::task::yield_now().await;
-        src.start(fmp4_spec("s1", 12_000)).await.expect("restart");
+        src.start(TranscodeSpec {
+            copy: true,
+            container: SegmentContainer::Fmp4,
+            ..spec_at("s1", StreamGeneration(2), 12_000)
+        })
+        .await
+        .expect("restart");
         for _ in 0..50 {
             if dropped.load(Ordering::SeqCst) > 0 {
                 break;
@@ -1896,7 +2174,7 @@ mod tests {
         assert_eq!(
             dropped.load(Ordering::SeqCst),
             1,
-            "a seek restarts the session, and the old producer must not race the new one"
+            "a seek starts a new generation, and the superseded producer must not outlive it"
         );
     }
 
@@ -2088,6 +2366,9 @@ mod tests {
             .unwrap()
             .get_mut(&SessionId("s1".to_owned()))
             .expect("the session exists")
+            .generations
+            .get_mut(&GEN)
+            .expect("the generation exists")
             .producer = None;
         assert!(
             matches!(
@@ -2117,8 +2398,183 @@ mod tests {
                 .unwrap()
                 .get(&SessionId("s1".to_owned()))
                 .expect("the session exists")
+                .generations
+                .get(&GEN)
+                .expect("the generation exists")
                 .producer
                 .is_none()
         );
+    }
+
+    fn live_generations(
+        src: &HlsStreamSource<MockSpawner, MockProbe>,
+        session: &str,
+    ) -> Vec<StreamGeneration> {
+        let sessions = src.inner.sessions.read().unwrap();
+        let mut live: Vec<StreamGeneration> = sessions
+            .get(&SessionId(session.to_owned()))
+            .map(|s| s.generations.keys().copied().collect())
+            .unwrap_or_default();
+        live.sort();
+        live
+    }
+
+    #[tokio::test]
+    async fn a_newer_generation_supersedes_the_previous_one_and_takes_its_directory_with_it() {
+        let (_dir, src) = engine(MockSpawner::default(), MockProbe::default());
+        let first = src.start(spec("s1", 12_000)).await.expect("start");
+        let second = src
+            .start(spec_at("s1", StreamGeneration(2), 12_000))
+            .await
+            .expect("renegotiate");
+
+        assert_ne!(
+            first.output_dir, second.output_dir,
+            "each generation is written once, into its own directory"
+        );
+        assert!(!PathBuf::from(&first.output_dir).exists());
+        assert!(PathBuf::from(&second.output_dir).exists());
+        assert_eq!(live_generations(&src, "s1"), vec![StreamGeneration(2)]);
+    }
+
+    #[tokio::test]
+    async fn a_superseded_generation_is_no_longer_served() {
+        let (_dir, src) = engine(MockSpawner::default(), MockProbe::default());
+        let started = src.start(spec("s1", 12_000)).await.expect("start");
+        src.register(
+            SessionId("s1".to_owned()),
+            GEN,
+            transcode_registration(PathBuf::from(&started.output_dir)),
+        );
+        assert!(src.master_playlist(&claims_at("s1", GEN)).is_ok());
+
+        let next = src
+            .start(spec_at("s1", StreamGeneration(2), 12_000))
+            .await
+            .expect("renegotiate");
+        src.register(
+            SessionId("s1".to_owned()),
+            StreamGeneration(2),
+            transcode_registration(PathBuf::from(&next.output_dir)),
+        );
+
+        assert!(
+            matches!(
+                src.master_playlist(&claims_at("s1", GEN)),
+                Err(StreamError::NotLive)
+            ),
+            "a token for a superseded generation names an artifact that no longer exists, which \
+             is a specific answer rather than another generation's playlist"
+        );
+        assert!(
+            src.master_playlist(&claims_at("s1", StreamGeneration(2)))
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_generation_that_lands_after_a_newer_one_is_dropped_on_sight() {
+        let (_dir, src) = engine(MockSpawner::default(), MockProbe::default());
+        let newer = src
+            .start(spec_at("s1", StreamGeneration(2), 12_000))
+            .await
+            .expect("start");
+        let older = src.start(spec("s1", 12_000)).await.expect("late start");
+
+        assert_eq!(
+            live_generations(&src, "s1"),
+            vec![StreamGeneration(2)],
+            "newest wins whatever order two launches land in, so no ordering rule is needed"
+        );
+        assert!(!PathBuf::from(&older.output_dir).exists());
+        assert!(PathBuf::from(&newer.output_dir).exists());
+    }
+
+    #[tokio::test]
+    async fn superseding_a_generation_purges_only_its_own_segment_locks() {
+        let (_dir, src) = engine(MockSpawner::default(), MockProbe::default());
+        src.start(spec("s1", 12_000)).await.expect("start");
+        let _ = src.segment_lock(&SessionId("s1".to_owned()), GEN, 0);
+        let _ = src.segment_lock(&SessionId("other".to_owned()), GEN, 0);
+
+        src.start(spec_at("s1", StreamGeneration(2), 12_000))
+            .await
+            .expect("renegotiate");
+
+        let locks = src.inner.locks.lock().unwrap();
+        assert!(
+            !locks.contains_key(&(SessionId("s1".to_owned()), GEN, 0)),
+            "a superseded generation's locks guard paths that no longer exist"
+        );
+        assert!(locks.contains_key(&(SessionId("other".to_owned()), GEN, 0)));
+    }
+
+    #[tokio::test]
+    async fn stopping_removes_the_whole_session_tree() {
+        let (dir, src) = engine(MockSpawner::default(), MockProbe::default());
+        src.start(spec("s1", 12_000)).await.expect("start");
+        src.start(spec_at("s1", StreamGeneration(2), 12_000))
+            .await
+            .expect("renegotiate");
+        src.stop(&SessionId("s1".to_owned())).await.expect("stop");
+        assert!(!dir.path().join("s1").exists());
+    }
+
+    #[tokio::test]
+    async fn an_fmp4_generation_refuses_a_mpegts_segment_without_waiting_for_it() {
+        let (_dir, src) = fmp4_engine(
+            ProducerSpawner {
+                hang: true,
+                ..ProducerSpawner::default()
+            },
+            MockProbe::default(),
+        );
+        let started = src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+        src.register(
+            SessionId("s1".to_owned()),
+            GEN,
+            transcode_registration(PathBuf::from(&started.output_dir)),
+        );
+
+        let verdict = tokio::time::timeout(
+            Duration::from_millis(500),
+            src.media_path(&claims("s1"), VARIANT, "seg_00000.ts"),
+        )
+        .await
+        .expect(
+            "the mismatch is answered from the spec, so it must not enter the produced wait at \
+             all; this is the 30s hang that #158 reported",
+        );
+        assert!(matches!(verdict, Err(StreamError::Invalid)));
+    }
+
+    #[tokio::test]
+    async fn a_mpegts_generation_refuses_an_fmp4_segment() {
+        let (_dir, src) = engine(MockSpawner::default(), MockProbe::default());
+        let started = src.start(spec("s1", 12_000)).await.expect("start");
+        src.register(
+            SessionId("s1".to_owned()),
+            GEN,
+            transcode_registration(PathBuf::from(&started.output_dir)),
+        );
+        for file in ["seg_00000.m4s", INIT_SEGMENT] {
+            assert!(
+                matches!(
+                    src.media_path(&claims("s1"), VARIANT, file).await,
+                    Err(StreamError::Invalid)
+                ),
+                "mpegts produces neither [{file}] nor an init segment"
+            );
+        }
+    }
+
+    #[test]
+    fn a_segment_matches_only_the_container_that_produces_it() {
+        assert!(segment_matches("seg_00000.ts", SegmentContainer::MpegTs));
+        assert!(!segment_matches("seg_00000.m4s", SegmentContainer::MpegTs));
+        assert!(!segment_matches(INIT_SEGMENT, SegmentContainer::MpegTs));
+        assert!(segment_matches("seg_00000.m4s", SegmentContainer::Fmp4));
+        assert!(segment_matches(INIT_SEGMENT, SegmentContainer::Fmp4));
+        assert!(!segment_matches("seg_00000.ts", SegmentContainer::Fmp4));
     }
 }

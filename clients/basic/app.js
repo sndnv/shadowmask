@@ -977,13 +977,13 @@ const sm = (() => {
     if (!params.get("genre") && !params.get("library")) {
       try {
         const me = await self();
-        if (me.role !== "admin") {
-          const libs = await json("/api/v1/libraries").catch(() => []);
-          if (!libs.length) {
-            return el("p", {
-              text: "No libraries have been shared with your account yet. Ask an administrator to grant you access.",
-            });
-          }
+        const granted = await json(
+          "/api/v1/users/" + encodeURIComponent(me.id) + "/libraries",
+        ).catch(() => []);
+        if (!granted.length) {
+          return el("p", {
+            text: "No libraries have been shared with your account yet. Ask an administrator to grant you access.",
+          });
         }
       } catch (e) {}
     }

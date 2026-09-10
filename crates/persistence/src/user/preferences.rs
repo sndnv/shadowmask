@@ -201,6 +201,8 @@ impl PreferencesRepository for SqlitePreferencesRepo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::catalog::{MovieId, TitleId};
+    use jiff::Timestamp;
 
     #[tokio::test]
     async fn surfaces_backend_error_after_close() {
@@ -209,6 +211,47 @@ mod tests {
         let user = UserId("u1".into());
         repo.list_watchlist(&user).await.unwrap();
         repo.pools.close_cached().await;
+
+        let title = TitleId::Movie(MovieId("m1".into()));
+        let version = VersionId("v1".into());
+        let track = SubtitleTrackRef::Embedded(0);
+
         assert!(repo.list_watchlist(&user).await.is_err());
+        assert!(
+            repo.add_watchlist(WatchlistItem {
+                user: user.clone(),
+                title: title.clone(),
+                added_at: Timestamp::UNIX_EPOCH,
+            })
+            .await
+            .is_err()
+        );
+        assert!(repo.remove_watchlist(&user, "m1").await.is_err());
+        assert!(repo.list_favorites(&user).await.is_err());
+        assert!(
+            repo.add_favorite(Favorite {
+                user: user.clone(),
+                title,
+                added_at: Timestamp::UNIX_EPOCH,
+            })
+            .await
+            .is_err()
+        );
+        assert!(repo.remove_favorite(&user, "m1").await.is_err());
+        assert!(
+            repo.get_subtitle_offset(&user, &version, &track)
+                .await
+                .is_err()
+        );
+        assert!(
+            repo.set_subtitle_offset(UserSubtitleOffset {
+                user,
+                version,
+                subtitle: track,
+                offset_ms: 250,
+            })
+            .await
+            .is_err()
+        );
     }
 }

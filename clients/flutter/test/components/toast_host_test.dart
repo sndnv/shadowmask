@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadowmask/components/bottom_chrome.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
@@ -374,6 +375,81 @@ void main() {
     final Rect card = tester.getRect(find.text('Added.'));
     expect(card.top, greaterThan(400));
     expect(tester.takeException(), isNull);
+
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('a toast clears the bottom nav bar as well as the gesture bar', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    late BuildContext ctx;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(AppThemeVariant.dark),
+        home: Scaffold(
+          body: ToastHost(
+            child: BottomChrome(
+              height: 48,
+              child: Builder(
+                builder: (BuildContext c) {
+                  ctx = c;
+                  return const SizedBox.expand();
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    Toasts.of(ctx).show('Added.');
+    await tester.pumpAndSettle();
+
+    expect(_cardRect(tester, 'Added.').bottom, lessThanOrEqualTo(800 - 48));
+
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('a toast clears the gesture bar it would otherwise hide under', (
+    WidgetTester tester,
+  ) async {
+    // The app draws edge to edge from Android 15, so a bottom offset that
+    // ignores the inset puts most of the card under the navigation bar.
+    tester.view.physicalSize = const Size(390, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const EdgeInsets safe = EdgeInsets.only(bottom: 48);
+
+    late BuildContext ctx;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(AppThemeVariant.dark),
+        home: MediaQuery(
+          data: const MediaQueryData(size: Size(390, 800), padding: safe),
+          child: Scaffold(
+            body: ToastHost(
+              child: Builder(
+                builder: (BuildContext c) {
+                  ctx = c;
+                  return const SizedBox.expand();
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    Toasts.of(ctx).show('Added.');
+    await tester.pump();
+
+    final Rect card = _cardRect(tester, 'Added.');
+    expect(card.bottom, lessThanOrEqualTo(800 - safe.bottom));
 
     await tester.pump(kToastDuration + const Duration(milliseconds: 100));
   });

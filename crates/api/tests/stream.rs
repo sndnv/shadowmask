@@ -9,12 +9,15 @@ use tower::ServiceExt;
 use api::{StreamState, stream_router};
 use domain::catalog::VersionId;
 use domain::error::{StreamError, StreamTokenError};
-use domain::session::{SessionId, StreamClaims, StreamSource, StreamToken, StreamTokens};
+use domain::session::{
+    SessionId, StreamClaims, StreamGeneration, StreamSource, StreamToken, StreamTokens,
+};
 use domain::user::UserId;
 
 fn claims(session: &str) -> StreamClaims {
     StreamClaims {
         session: SessionId(session.to_owned()),
+        generation: StreamGeneration(1),
         user: UserId("u1".to_owned()),
         version: VersionId("ver-1".to_owned()),
         expires_at: Timestamp::now(),

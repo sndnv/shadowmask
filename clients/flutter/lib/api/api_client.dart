@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import 'package:shadowmask/model/auth/auth_tokens.dart';
+import 'package:shadowmask/model/auth/issued_token.dart';
 import 'package:shadowmask/view/page.dart';
 import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/api/api_exception.dart';
@@ -73,7 +74,7 @@ class ApiClient {
       body: body,
       token: stored?.accessToken,
     );
-    if (res.statusCode == 401 && stored != null) {
+    if (res.statusCode == 401 && stored != null && stored.canRefresh) {
       final String? refreshed = await _tryRefresh(stored);
       if (refreshed != null) {
         res = await _raw(method, path, body: body, token: refreshed);
@@ -213,9 +214,32 @@ class ApiClient {
     );
   }
 
+  Future<void> redeemLinkCode(
+    String code, {
+    required String deviceName,
+    required String platform,
+  }) async {
+    final http.Response res = await _raw(
+      'POST',
+      '/api/v1/auth/link',
+      body: <String, dynamic>{
+        'code': code,
+        'device': <String, String>{'name': deviceName, 'platform': platform},
+      },
+    );
+    if (res.statusCode >= 400) {
+      throw _errorFrom(res);
+    }
+    final IssuedToken issued = IssuedToken.fromJson(
+      jsonDecode(res.body) as Map<String, dynamic>,
+    );
+    forgetUser();
+    await _store.save(AuthTokens(accessToken: issued.token));
+  }
+
   Future<void> logout() async {
     final AuthTokens? stored = await _store.load();
-    if (stored != null) {
+    if (stored != null && stored.canRefresh) {
       try {
         await _raw(
           'POST',

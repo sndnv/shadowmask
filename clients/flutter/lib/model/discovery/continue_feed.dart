@@ -51,7 +51,7 @@ class ContinueFeed {
       final Object? progress = e['progress'];
       final String? versionId = progress is Map<String, dynamic>
           ? progress['version_id'] as String?
-          : null;
+          : e['version_id'] as String?;
       return CatalogCard.fromResume(
         ResumeCard.fromJson(card),
         dismissVersionId: versionId,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:shadowmask/components/admin/field_help.dart';
 import 'package:shadowmask/components/app_dropdown.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/player/player_prefs_store.dart';
@@ -64,6 +65,7 @@ class PlayerSettingsPanel extends StatefulWidget {
     required this.onDiagnostics,
     required this.onClose,
     this.mode,
+    this.container,
     this.subtitleDelivery,
     this.pictureInPicture,
     this.onPictureInPicture,
@@ -71,6 +73,12 @@ class PlayerSettingsPanel extends StatefulWidget {
     this.onAutoplaySeconds,
     this.networkTimeoutSeconds,
     this.onNetworkTimeoutSeconds,
+    this.bufferSeconds,
+    this.onBufferSeconds,
+    this.bufferBytes,
+    this.onBufferBytes,
+    this.waitForBuffer,
+    this.onWaitForBuffer,
     this.onShortcuts,
     this.dense = false,
   });
@@ -81,6 +89,7 @@ class PlayerSettingsPanel extends StatefulWidget {
   final double speed;
   final bool diagnostics;
   final String? mode;
+  final String? container;
   final String? subtitleDelivery;
   final bool? pictureInPicture;
   final VoidCallback? onPictureInPicture;
@@ -88,6 +97,12 @@ class PlayerSettingsPanel extends StatefulWidget {
   final ValueChanged<int>? onAutoplaySeconds;
   final int? networkTimeoutSeconds;
   final ValueChanged<int>? onNetworkTimeoutSeconds;
+  final int? bufferSeconds;
+  final ValueChanged<int>? onBufferSeconds;
+  final int? bufferBytes;
+  final ValueChanged<int>? onBufferBytes;
+  final bool? waitForBuffer;
+  final ValueChanged<bool>? onWaitForBuffer;
   final VoidCallback? onShortcuts;
   final ValueChanged<PlaybackControls> onControls;
   final ValueChanged<double> onSpeed;
@@ -110,12 +125,16 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
   );
   late bool _burn = widget.controls.burn;
   late bool _downmix = widget.controls.downmix;
+  late DeliveryPreference _delivery = widget.controls.delivery;
   late double _speed = widget.speed;
   late bool _diag = widget.diagnostics;
   late int _autoplay =
       widget.autoplaySeconds ?? kDefaultPlayerPrefs.autoplaySeconds;
   late int _timeout =
       widget.networkTimeoutSeconds ?? kDefaultPlayerPrefs.networkTimeoutSeconds;
+  late int _buffer = widget.bufferSeconds ?? kDefaultPlayerPrefs.bufferSeconds;
+  late int _bufferBytes = widget.bufferBytes ?? kDefaultPlayerPrefs.bufferBytes;
+  late bool _wait = widget.waitForBuffer ?? kDefaultPlayerPrefs.waitForBuffer;
 
   @override
   void dispose() {
@@ -133,6 +152,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
         subtitle: SubtitleSelection.fromWire(_sub.isEmpty ? null : _sub),
         subtitleOff: _sub.isEmpty,
         offsetMs: int.tryParse(_offset.text) ?? 0,
+        delivery: _delivery,
       ),
     );
   }
@@ -164,6 +184,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
                 _apply();
               },
             ),
+            help: Strings.playerQualityHelp,
           ),
           _row(
             Strings.playerSpeed,
@@ -205,7 +226,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
           _switch(Strings.playerStereoDownmix, _downmix, (bool value) {
             setState(() => _downmix = value);
             _apply();
-          }),
+          }, help: Strings.playerStereoDownmixHelp),
         ];
       case PlayerPanel.subtitles:
         return <Widget>[
@@ -249,12 +270,13 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
                   onTapOutside: (_) => _apply(),
                 ),
               ),
+              help: Strings.playerOffsetHelp,
             ),
           if (_sub.isNotEmpty && hasSubs)
             _switch(Strings.playerBurnIn, _burn, (bool value) {
               setState(() => _burn = value);
               _apply();
-            }),
+            }, help: Strings.playerBurnInHelp),
           if (_sub.isNotEmpty && burnedIn && !_burn)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: Space.s2),
@@ -306,6 +328,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
                   widget.onNetworkTimeoutSeconds?.call(value);
                 },
               ),
+              help: Strings.playerNetworkTimeoutHelp,
             ),
           if (widget.pictureInPicture != null)
             _switch(
@@ -313,10 +336,6 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
               widget.pictureInPicture!,
               (_) => widget.onPictureInPicture?.call(),
             ),
-          _switch(Strings.playerDiagnostics, _diag, (bool value) {
-            setState(() => _diag = value);
-            widget.onDiagnostics(value);
-          }),
           if (widget.onShortcuts != null)
             _row(
               Strings.shortcutsHeading,
@@ -331,6 +350,93 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
                 ),
               ),
             ),
+          if (widget.onBufferSeconds != null ||
+              widget.onBufferBytes != null ||
+              widget.onWaitForBuffer != null) ...<Widget>[
+            Divider(color: t.border, height: Space.s5),
+            Text(
+              Strings.playerBufferingSection,
+              style: TextStyle(
+                color: t.muted,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: Space.s2),
+            if (widget.onBufferSeconds != null)
+              _row(
+                Strings.playerBufferTarget,
+                AppDropdown<int>(
+                  value: _buffer,
+                  width: double.infinity,
+                  tapGroupId: kPlayerPanelGroup,
+                  items: <(int, String)>[
+                    for (final int seconds in kBufferTargets)
+                      (seconds, Strings.playerBufferDuration(seconds)),
+                  ],
+                  onChanged: (int value) {
+                    setState(() => _buffer = value);
+                    widget.onBufferSeconds?.call(value);
+                  },
+                ),
+                help: Strings.playerBufferHelp,
+              ),
+            if (widget.onBufferBytes != null)
+              _row(
+                Strings.playerBufferLimit,
+                AppDropdown<int>(
+                  value: _bufferBytes,
+                  width: double.infinity,
+                  tapGroupId: kPlayerPanelGroup,
+                  items: <(int, String)>[
+                    for (final int bytes in kBufferSizes)
+                      (bytes, Strings.playerBufferSize(bytes)),
+                  ],
+                  onChanged: (int value) {
+                    setState(() => _bufferBytes = value);
+                    widget.onBufferBytes?.call(value);
+                  },
+                ),
+                help: Strings.playerBufferLimitHelp,
+              ),
+            if (widget.onWaitForBuffer != null)
+              _switch(Strings.playerWaitForBuffer, _wait, (bool value) {
+                setState(() => _wait = value);
+                widget.onWaitForBuffer?.call(value);
+              }, help: Strings.playerWaitForBufferHelp),
+          ],
+          Divider(color: t.border, height: Space.s5),
+          Text(
+            Strings.playerAdvanced,
+            style: TextStyle(
+              color: t.muted,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: Space.s2),
+          _row(
+            Strings.playerDelivery,
+            AppDropdown<DeliveryPreference>(
+              value: _delivery,
+              width: double.infinity,
+              tapGroupId: kPlayerPanelGroup,
+              items: const <(DeliveryPreference, String)>[
+                (DeliveryPreference.auto, Strings.playerDeliveryAuto),
+                (DeliveryPreference.never, Strings.playerDeliveryNever),
+                (DeliveryPreference.always, Strings.playerDeliveryAlways),
+              ],
+              onChanged: (DeliveryPreference value) {
+                setState(() => _delivery = value);
+                _apply();
+              },
+            ),
+            help: Strings.playerDeliveryHelp,
+          ),
+          _switch(Strings.playerDiagnostics, _diag, (bool value) {
+            setState(() => _diag = value);
+            widget.onDiagnostics(value);
+          }, help: Strings.playerDiagnosticsHelp),
           if (widget.mode != null)
             _row(
               Strings.playerModeLabel,
@@ -339,7 +445,17 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
                 textAlign: TextAlign.right,
                 style: TextStyle(color: t.text, fontSize: 13),
               ),
+              help: Strings.playerModeHelp,
             ),
+          _row(
+            Strings.playerContainerLabel,
+            Text(
+              widget.container ?? Strings.playerContainerNone,
+              textAlign: TextAlign.right,
+              style: TextStyle(color: t.text, fontSize: 13),
+            ),
+            help: Strings.playerContainerHelp,
+          ),
         ];
     }
   }
@@ -413,7 +529,12 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
     );
   }
 
-  Widget _row(String label, Widget control, {bool nameControl = true}) {
+  Widget _row(
+    String label,
+    Widget control, {
+    bool nameControl = true,
+    String? help,
+  }) {
     final Tokens t = context.tokens;
     final bool dense = widget.dense;
     return Padding(
@@ -423,10 +544,20 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
         child: Row(
           children: <Widget>[
             Expanded(
-              child: Text(
-                label,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: t.muted, fontSize: dense ? 13 : null),
+              child: Row(
+                children: <Widget>[
+                  Flexible(
+                    child: Text(
+                      label,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: t.muted,
+                        fontSize: dense ? 13 : null,
+                      ),
+                    ),
+                  ),
+                  if (help != null) FieldHelp(title: label, body: help),
+                ],
               ),
             ),
             SizedBox(width: dense ? Space.s2 : Space.s3),
@@ -442,20 +573,25 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
     );
   }
 
-  Widget _switch(String label, bool value, ValueChanged<bool> onChanged) =>
-      InkWell(
-        onTap: () => onChanged(!value),
-        child: _row(
-          label,
-          Align(
-            alignment: Alignment.centerRight,
-            child: IgnorePointer(
-              child: Switch(value: value, onChanged: onChanged),
-            ),
-          ),
-          nameControl: false,
+  Widget _switch(
+    String label,
+    bool value,
+    ValueChanged<bool> onChanged, {
+    String? help,
+  }) => InkWell(
+    onTap: () => onChanged(!value),
+    child: _row(
+      label,
+      Align(
+        alignment: Alignment.centerRight,
+        child: IgnorePointer(
+          child: Switch(value: value, onChanged: onChanged),
         ),
-      );
+      ),
+      nameControl: help != null,
+      help: help,
+    ),
+  );
 
   String _audioLabel(AudioTrack a) => <String>[
     '${Strings.playerAudio} ${a.index}',

@@ -100,8 +100,13 @@ pub(crate) fn build_segment_args(
     encoder: &VideoEncoder,
 ) -> Vec<String> {
     let start = segment.start_ms as f64 / 1000.0;
-    let duration = segment.duration_ms as f64 / 1000.0;
-    let end = (segment.start_ms + segment.duration_ms) as f64 / 1000.0;
+    let last_ms = segment.start_ms + segment.duration_ms;
+    let end = if spec.copy {
+        last_ms
+    } else {
+        last_ms.saturating_sub(1)
+    } as f64
+        / 1000.0;
     let mut args = vec!["-y".to_owned()];
     if let VideoEncoder::Vaapi { device } = encoder
         && !spec.copy
@@ -111,19 +116,14 @@ pub(crate) fn build_segment_args(
     }
     if spec.copy {
         args.push("-noaccurate_seek".to_owned());
-        args.push("-copyts".to_owned());
     }
+    args.push("-copyts".to_owned());
     args.push("-ss".to_owned());
     args.push(format!("{start:.3}"));
     args.push("-i".to_owned());
     args.push(spec.input_path.clone());
-    if spec.copy {
-        args.push("-to".to_owned());
-        args.push(format!("{end:.3}"));
-    } else {
-        args.push("-t".to_owned());
-        args.push(format!("{duration:.3}"));
-    }
+    args.push("-to".to_owned());
+    args.push(format!("{end:.3}"));
     if let Some(idx) = spec.audio_track {
         args.push("-map".to_owned());
         args.push("0:v:0".to_owned());
@@ -166,8 +166,8 @@ pub(crate) fn build_segment_args(
         }
     }
     if !spec.copy {
-        args.push("-output_ts_offset".to_owned());
-        args.push(format!("{start:.3}"));
+        args.push("-avoid_negative_ts".to_owned());
+        args.push("disabled".to_owned());
     }
     args.push("-muxdelay".to_owned());
     args.push("0".to_owned());
@@ -214,6 +214,9 @@ const TONEMAP_TO_SDR: &str = "zscale=t=linear:npl=100,tonemap=tonemap=hable:desa
 
 fn video_filter(spec: &TranscodeSpec, encoder: &VideoEncoder) -> Option<String> {
     let mut filters = Vec::new();
+    if let Some(height) = spec.max_height {
+        filters.push(format!("scale=-2:{height}"));
+    }
     if spec.source_hdr.is_some() {
         filters.push(TONEMAP_TO_SDR.to_owned());
     }
@@ -222,9 +225,6 @@ fn video_filter(spec: &TranscodeSpec, encoder: &VideoEncoder) -> Option<String> 
             "subtitles=filename='{}'",
             escape_subtitle_path(path)
         ));
-    }
-    if let Some(height) = spec.max_height {
-        filters.push(format!("scale=-2:{height}"));
     }
     if encoder.is_hardware() {
         filters.push("format=nv12".to_owned());
@@ -247,11 +247,14 @@ fn escape_subtitle_path(path: &str) -> String {
 mod tests {
     use super::*;
     use domain::media::HdrFormat;
-    use domain::session::{SegmentContainer, SessionId, plan_segments, plan_segments_on_grid};
+    use domain::session::{
+        SegmentContainer, SessionId, StreamGeneration, plan_segments, plan_segments_on_grid,
+    };
 
     fn base_spec() -> TranscodeSpec {
         TranscodeSpec {
             session: SessionId("s1".to_owned()),
+            generation: StreamGeneration(1),
             input_path: "/media/movie.mkv".to_owned(),
             duration_ms: 120_000,
             copy: false,
@@ -306,15 +309,11 @@ mod tests {
         assert_eq!(args.first().map(String::as_str), Some("-y"));
         assert_eq!(pair_after(&args, "-ss").as_deref(), Some("8.000"));
         assert_eq!(pair_after(&args, "-i").as_deref(), Some("/media/movie.mkv"));
-        assert_eq!(pair_after(&args, "-t").as_deref(), Some("4.000"));
+        assert_eq!(pair_after(&args, "-to").as_deref(), Some("11.999"));
         assert_eq!(pair_after(&args, "-f").as_deref(), Some("mpegts"));
         assert_eq!(pair_after(&args, "-c:v").as_deref(), Some("libx264"));
         assert_eq!(pair_after(&args, "-c:a").as_deref(), Some("aac"));
         assert_eq!(pair_after(&args, "-pix_fmt").as_deref(), Some("yuv420p"));
-        assert_eq!(
-            pair_after(&args, "-output_ts_offset").as_deref(),
-            Some("8.000")
-        );
         assert_eq!(
             args.last().map(String::as_str),
             Some("/cache/s1/v0/seg_00002.ts")
@@ -324,8 +323,54 @@ mod tests {
         assert!(!args.iter().any(|a| a == "-vf"));
         assert!(!args.iter().any(|a| a == "-maxrate"));
         assert!(!args.iter().any(|a| a == "-noaccurate_seek"));
-        assert!(!args.iter().any(|a| a == "-copyts"));
-        assert!(!args.iter().any(|a| a == "-to"));
+        assert!(!args.iter().any(|a| a == "-t"));
+        assert!(!args.iter().any(|a| a == "-output_ts_offset"));
+    }
+
+    #[test]
+    fn every_segment_shares_one_timeline_so_boundaries_cannot_overlap() {
+        // Segments are produced by independent ffmpeg runs. Re-anchoring each one
+        // to its own zero let avoid_negative_ts shift only the first segment, by
+        // the B-frame reorder delay, so it overran the second by a frame.
+        for spec in [
+            base_spec(),
+            TranscodeSpec {
+                copy: true,
+                ..base_spec()
+            },
+        ] {
+            let args = args_for(&spec);
+            let input = args.iter().position(|a| a == "-i").unwrap();
+            let copyts = args.iter().position(|a| a == "-copyts").unwrap();
+            assert!(copyts < input, "-copyts has to be an input option");
+            assert_eq!(pair_after(&args, "-ss").as_deref(), Some("8.000"));
+            assert!(!args.iter().any(|a| a == "-output_ts_offset"));
+            assert!(!args.iter().any(|a| a == "-t"));
+        }
+    }
+
+    #[test]
+    fn a_re_encoded_segment_stops_a_millisecond_before_the_next_one_starts() {
+        // Plan boundaries are whole milliseconds and frames are not, so a frame
+        // sitting just under a rounded-up boundary was emitted by both neighbours.
+        let args = args_for(&base_spec());
+        assert_eq!(pair_after(&args, "-to").as_deref(), Some("11.999"));
+        assert_eq!(
+            pair_after(&args, "-avoid_negative_ts").as_deref(),
+            Some("disabled")
+        );
+
+        let copied = TranscodeSpec {
+            copy: true,
+            ..base_spec()
+        };
+        let args = args_for(&copied);
+        assert_eq!(
+            pair_after(&args, "-to").as_deref(),
+            Some("12.000"),
+            "a stream copy cuts on keyframes, so it keeps the exact boundary"
+        );
+        assert!(!args.iter().any(|a| a == "-avoid_negative_ts"));
     }
 
     #[test]
@@ -413,7 +458,7 @@ mod tests {
         };
         assert_eq!(
             pair_after(&args_for(&spec), "-vf").as_deref(),
-            Some("subtitles=filename='/media/movie.srt',scale=-2:480")
+            Some("scale=-2:480,subtitles=filename='/media/movie.srt'")
         );
     }
 
@@ -478,7 +523,7 @@ mod tests {
         };
         assert_eq!(
             pair_after(&vaapi_args_for(&spec), "-vf").as_deref(),
-            Some("subtitles=filename='/media/movie.srt',scale=-2:480,format=nv12,hwupload")
+            Some("scale=-2:480,subtitles=filename='/media/movie.srt',format=nv12,hwupload")
         );
     }
 
@@ -506,8 +551,10 @@ mod tests {
         );
     }
 
+    // The scale comes first so the tonemap works on the smaller picture, and the
+    // burn stays after the tonemap so subtitle graphics are not tonemapped too.
     #[test]
-    fn segment_hdr_tonemap_precedes_burn_and_scale() {
+    fn segment_scales_before_tonemapping_and_burns_last() {
         let spec = TranscodeSpec {
             source_hdr: Some(HdrFormat::Hlg),
             burn_subtitle_path: Some("/media/movie.srt".to_owned()),
@@ -517,7 +564,7 @@ mod tests {
         assert_eq!(
             pair_after(&args_for(&spec), "-vf").as_deref(),
             Some(
-                format!("{TONEMAP_TO_SDR},subtitles=filename='/media/movie.srt',scale=-2:480")
+                format!("scale=-2:480,{TONEMAP_TO_SDR},subtitles=filename='/media/movie.srt'")
                     .as_str()
             )
         );

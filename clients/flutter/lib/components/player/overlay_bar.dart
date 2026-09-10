@@ -36,6 +36,7 @@ class OverlayBar extends StatelessWidget {
     required this.onToggleRemaining,
     this.previousEpisode,
     this.nextEpisode,
+    this.touch = false,
   });
 
   final PlayerSnapshot snapshot;
@@ -54,6 +55,7 @@ class OverlayBar extends StatelessWidget {
   final VoidCallback onToggleRemaining;
   final TransportStep? previousEpisode;
   final TransportStep? nextEpisode;
+  final bool touch;
 
   IconData get _volumeIcon {
     if (muted || volume == 0) {
@@ -72,8 +74,14 @@ class OverlayBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final EdgeInsets safe = MediaQuery.paddingOf(context);
     return Container(
-      padding: const EdgeInsets.fromLTRB(_gap, Space.s6, _gap, 10),
+      padding: EdgeInsets.fromLTRB(
+        _gap + safe.left,
+        Space.s6,
+        _gap + safe.right,
+        10 + safe.bottom,
+      ),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.bottomCenter,
@@ -112,7 +120,8 @@ class OverlayBar extends StatelessWidget {
           const SizedBox(height: 6),
           LayoutBuilder(
             builder: (BuildContext context, BoxConstraints constraints) {
-              final bool compact = constraints.maxWidth < _fullBarWidth;
+              final bool compact =
+                  touch || constraints.maxWidth < _fullBarWidth;
               return Row(
                 children: <Widget>[
                   if (previousEpisode != null)
@@ -120,6 +129,7 @@ class OverlayBar extends StatelessWidget {
                       icon: Icons.skip_previous,
                       tooltip: previousEpisode!.tooltip,
                       onPressed: previousEpisode!.onPressed,
+                      touch: touch,
                     ),
                   _IcBtn(
                     icon: snapshot.playing ? Icons.pause : Icons.play_arrow,
@@ -127,18 +137,21 @@ class OverlayBar extends StatelessWidget {
                         ? Strings.playerPause
                         : Strings.playerPlay,
                     onPressed: onPlayPause,
+                    touch: touch,
                   ),
                   if (nextEpisode != null)
                     _IcBtn(
                       icon: Icons.skip_next,
                       tooltip: nextEpisode!.tooltip,
                       onPressed: nextEpisode!.onPressed,
+                      touch: touch,
                     ),
                   const SizedBox(width: _gap),
                   _IcBtn(
                     icon: _volumeIcon,
                     tooltip: muted ? Strings.playerUnmute : Strings.playerMute,
                     onPressed: onToggleMute,
+                    touch: touch,
                   ),
                   if (!compact)
                     SizedBox(
@@ -162,7 +175,7 @@ class OverlayBar extends StatelessWidget {
                     ),
                   const Spacer(),
                   if (compact)
-                    _PanelMenu(onOpenPanel: onOpenPanel)
+                    _PanelMenu(onOpenPanel: onOpenPanel, touch: touch)
                   else
                     for (final PlayerPanel panel in PlayerPanel.values)
                       _IcBtn(
@@ -171,7 +184,7 @@ class OverlayBar extends StatelessWidget {
                         onPressed: () => onOpenPanel(panel),
                       ),
                   const SizedBox(width: _gap),
-                  if (!fullscreen && onToggleWide != null)
+                  if (!touch && !fullscreen && onToggleWide != null)
                     _IcBtn(
                       icon: wide ? Icons.width_normal : Icons.width_wide,
                       tooltip: wide
@@ -179,11 +192,14 @@ class OverlayBar extends StatelessWidget {
                           : Strings.playerWideScreen,
                       onPressed: onToggleWide,
                     ),
-                  _IcBtn(
-                    icon: fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
-                    tooltip: Strings.playerFullscreen,
-                    onPressed: onToggleFullscreen,
-                  ),
+                  if (!touch)
+                    _IcBtn(
+                      icon: fullscreen
+                          ? Icons.fullscreen_exit
+                          : Icons.fullscreen,
+                      tooltip: Strings.playerFullscreen,
+                      onPressed: onToggleFullscreen,
+                    ),
                 ],
               );
             },
@@ -195,9 +211,10 @@ class OverlayBar extends StatelessWidget {
 }
 
 class _PanelMenu extends StatefulWidget {
-  const _PanelMenu({required this.onOpenPanel});
+  const _PanelMenu({required this.onOpenPanel, this.touch = false});
 
   final ValueChanged<PlayerPanel> onOpenPanel;
+  final bool touch;
 
   @override
   State<_PanelMenu> createState() => _PanelMenuState();
@@ -233,6 +250,7 @@ class _PanelMenuState extends State<_PanelMenu> {
             tooltip: Strings.playerOptions,
             onPressed: () =>
                 controller.isOpen ? controller.close() : controller.open(),
+            touch: widget.touch,
           ),
     );
   }
@@ -243,21 +261,26 @@ class _IcBtn extends StatelessWidget {
     required this.icon,
     required this.tooltip,
     required this.onPressed,
+    this.touch = false,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback? onPressed;
+  final bool touch;
 
   @override
   Widget build(BuildContext context) {
     return IconButton(
       onPressed: onPressed,
       color: _chrome,
-      iconSize: 20,
-      padding: const EdgeInsets.all(6),
-      visualDensity: VisualDensity.compact,
-      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+      iconSize: touch ? 24 : 20,
+      padding: EdgeInsets.all(touch ? 10 : 6),
+      visualDensity: touch ? VisualDensity.standard : VisualDensity.compact,
+      constraints: BoxConstraints(
+        minWidth: touch ? 44 : 32,
+        minHeight: touch ? 44 : 32,
+      ),
       tooltip: tooltip,
       icon: Icon(icon),
     );

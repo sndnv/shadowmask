@@ -9,6 +9,7 @@ import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/page_actions.dart';
 import 'package:shadowmask/components/section_block.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/util/format.dart';
 import 'package:shadowmask/pages/admin/library_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
@@ -64,6 +65,7 @@ http.Response _detailRoute(http.Request req) {
         'library_id': 'lib1',
         'status': 'idle',
         'progress': 0,
+        'last_scanned_at': '2026-08-17T09:24:11Z',
       }),
       200,
     );
@@ -230,6 +232,17 @@ void main() {
       isEmpty,
       reason: 'refresh must not queue a scan',
     );
+  });
+
+  testWidgets('the last scan reads as a date rather than as sent', (
+    WidgetTester tester,
+  ) async {
+    // The server sends ISO 8601 and the client owns the rendering, the same
+    // way it owns the words.
+    await _pump(tester, _api(_detailRoute));
+
+    expect(find.textContaining('2026-08-17T09:24'), findsNothing);
+    expect(find.text(dateTimeText('2026-08-17T09:24:11Z')!), findsOneWidget);
   });
 
   testWidgets('a duplicate offers Dismiss and nothing else', (

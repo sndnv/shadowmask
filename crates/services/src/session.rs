@@ -10,24 +10,25 @@ use domain::catalog::{VersionDetail, VersionId};
 use domain::common::{Page, PageRequest, paginate};
 use domain::error::SessionError;
 use domain::negotiation::{
-    AvailableSubtitles, NegotiationInput, effective_max_height, negotiate, resolve_audio,
-    resolve_subtitle,
+    AvailableSubtitles, NegotiationInput, NegotiationReason, effective_max_height, negotiate,
+    resolve_audio, resolve_subtitle,
 };
 use domain::playback::{
     PlaybackProgress, SubtitleOverride, SubtitleTrackRef, UserSubtitleOffset, is_complete,
     is_started,
 };
-use domain::profile::{Container, ProfileRegistry};
+use domain::profile::{CapabilityProfile, Container, ProfileRegistry};
 use domain::repository::{
     PreferencesRepository, ProgressRepository, SessionRegistry, UserRepository, VersionCatalog,
 };
 use domain::service::SessionService;
 use domain::session::{
-    ClientCapabilities, DeliveryMode, HeartbeatAck, PlaybackSession, PlaybackState, Renegotiated,
-    SelectedTracks, SessionId, SessionStartInput, SessionStarted, SessionUpdate, SoftSubtitle,
-    SoftSubtitleSource, StreamClaims, StreamRegistration, StreamRegistry, StreamTokens,
-    SubtitleChange, SubtitleDelivery, SubtitleRendition, SubtitleRequest, SubtitleSelection,
-    TranscodeManager, TranscodeSpec, segment_container_for,
+    ClientCapabilities, DeliveryMode, DeliveryPreference, HeartbeatAck, PlaybackSession,
+    PlaybackState, Renegotiated, SegmentContainer, SelectedTracks, SessionId, SessionStartInput,
+    SessionStarted, SessionUpdate, SoftSubtitle, SoftSubtitleSource, StreamClaims,
+    StreamGeneration, StreamRegistration, StreamRegistry, StreamTokens, SubtitleChange,
+    SubtitleDelivery, SubtitleRendition, SubtitleRequest, SubtitleSelection, TranscodeManager,
+    TranscodeSpec, segment_container_for,
 };
 use domain::user::{Principal, UserId};
 
@@ -57,6 +58,14 @@ struct LaunchContext {
     target_height: Option<u32>,
     force_burn: bool,
     downmix_stereo: bool,
+    delivery: DeliveryPreference,
+}
+
+struct Launched {
+    mode: DeliveryMode,
+    container: Option<SegmentContainer>,
+    selected: SelectedTracks,
+    timeline: Timeline,
 }
 
 impl LaunchContext {
@@ -76,11 +85,13 @@ struct Inner<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> {
     progress: Pg,
     preferences: Pf,
     contexts: RwLock<HashMap<SessionId, LaunchContext>>,
+    generations: RwLock<HashMap<SessionId, u32>>,
 }
 
 pub struct DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> {
     #[allow(clippy::type_complexity)]
     inner: Arc<Inner<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf>>,
+    max_transcode_height: Option<u32>,
 }
 
 impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> Clone
@@ -89,6 +100,7 @@ impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> Clone
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
+            max_transcode_height: self.max_transcode_height,
         }
     }
 }
@@ -118,8 +130,15 @@ impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> DefaultSessionService<Vc, Pr, Tm, Tk, S
                 progress,
                 preferences,
                 contexts: RwLock::new(HashMap::new()),
+                generations: RwLock::new(HashMap::new()),
             }),
+            max_transcode_height: None,
         }
+    }
+
+    pub fn with_max_transcode_height(mut self, height: Option<u32>) -> Self {
+        self.max_transcode_height = height;
+        self
     }
 }
 
@@ -268,6 +287,7 @@ where
         self.inner.streams.remove(session);
         self.inner.sessions.remove(session).await?;
         self.inner.contexts.write().unwrap().remove(session);
+        self.inner.generations.write().unwrap().remove(session);
         Ok(())
     }
 
@@ -314,9 +334,17 @@ where
             .unwrap_or(0)
     }
 
+    fn next_generation(&self, session: &SessionId) -> StreamGeneration {
+        let mut generations = self.inner.generations.write().unwrap();
+        let counter = generations.entry(session.clone()).or_insert(0);
+        *counter += 1;
+        StreamGeneration(*counter)
+    }
+
     fn create_token(
         &self,
         session: &SessionId,
+        generation: StreamGeneration,
         user: &UserId,
         version: &VersionId,
     ) -> Result<String, SessionError> {
@@ -324,6 +352,7 @@ where
             .unwrap_or(Timestamp::MAX);
         let claims = StreamClaims {
             session: session.clone(),
+            generation,
             user: user.clone(),
             version: version.clone(),
             expires_at,
@@ -336,16 +365,34 @@ where
             .map_err(|_| SessionError::NegotiationFailed)
     }
 
+    fn profile_for(&self, capabilities: &ClientCapabilities) -> (CapabilityProfile, &'static str) {
+        let named = self.inner.profiles.resolve(&capabilities.platform);
+        let Some(reported) = capabilities.decoding.as_ref() else {
+            return (named, "none");
+        };
+        match named.merged_with(reported) {
+            Ok(merged) => (merged, "accepted"),
+            Err(error) => {
+                warn!(
+                    "rejected the capabilities reported by platform [{}]: [{error}]",
+                    capabilities.platform
+                );
+                (named, "rejected")
+            }
+        }
+    }
+
     async fn launch(
         &self,
         session_id: &SessionId,
+        generation: StreamGeneration,
         detail: &VersionDetail,
         ctx: &LaunchContext,
         position_ms: u64,
-    ) -> Result<(DeliveryMode, SelectedTracks, Timeline), SessionError> {
+    ) -> Result<Launched, SessionError> {
         let container =
             Container::parse(&detail.version.container).ok_or(SessionError::NegotiationFailed)?;
-        let profile = self.inner.profiles.resolve(&ctx.capabilities.platform);
+        let (profile, report) = self.profile_for(&ctx.capabilities);
         let max_bitrate = combine_caps(ctx.capabilities.max_bitrate, ctx.bitrate_cap);
         let input = NegotiationInput {
             container,
@@ -358,16 +405,52 @@ where
             target_height: ctx.target_height,
             force_burn: ctx.force_burn,
             downmix_stereo: ctx.downmix_stereo,
+            delivery: ctx.delivery,
         };
         let outcome = negotiate(&input, &profile);
+        let ceiling = match profile.max_frame_rate {
+            Some(rate) => format!("{}x{}@{rate}", profile.max_width, profile.max_height),
+            None => format!("{}x{}", profile.max_width, profile.max_height),
+        };
+        let reasons: Vec<&str> = outcome
+            .reasons
+            .iter()
+            .map(NegotiationReason::as_str)
+            .collect();
         let bandwidth = bandwidth_of(detail);
-        let cap = effective_max_height(profile.max_height, ctx.target_height);
+        let cap = effective_max_height(profile.max_height, ctx.target_height)
+            .min(self.max_transcode_height.unwrap_or(u32::MAX));
         let scale_to = detail
             .video
             .first()
             .map(|v| v.height)
             .filter(|height| *height > cap)
             .map(|_| cap);
+        let height = match scale_to {
+            Some(height) => height.to_string(),
+            None => "source".to_owned(),
+        };
+        let remux = outcome.mode == DeliveryMode::Remux;
+        let segments = (outcome.mode != DeliveryMode::Direct).then(|| {
+            segment_container_for(
+                remux,
+                detail.video.first().map(|v| v.codec.as_str()),
+                outcome
+                    .selected
+                    .audio_track
+                    .and_then(|idx| detail.audio.iter().find(|a| a.index == idx))
+                    .map(|a| a.codec.as_str()),
+            )
+        });
+        info!(
+            "negotiated session [{}] generation [{}]: platform [{}] report [{report}] ceiling [{ceiling}] height [{height}] mode [{:?}] container [{}] reasons [{}]",
+            session_id.0,
+            generation.0,
+            ctx.capabilities.platform,
+            outcome.mode,
+            segments.map_or("none", SegmentContainer::as_str),
+            reasons.join(", ")
+        );
 
         let mut origin_ms = 0;
         let mut sequential = false;
@@ -375,6 +458,7 @@ where
             let _ = self.inner.transcode.stop(session_id).await;
             self.inner.streams.register(
                 session_id.clone(),
+                generation,
                 StreamRegistration {
                     mode: DeliveryMode::Direct,
                     output_dir: PathBuf::new(),
@@ -386,24 +470,16 @@ where
         } else {
             let burn_subtitle_path = burn_path_for(&outcome.selected, detail);
             let soft_subtitle = self.soft_subtitle_for(&outcome.selected, detail, ctx).await;
-            let remux = outcome.mode == DeliveryMode::Remux;
             let started = self
                 .inner
                 .transcode
                 .start(TranscodeSpec {
                     session: session_id.clone(),
+                    generation,
                     input_path: detail.version.path.clone(),
                     duration_ms: detail.version.duration_ms,
                     copy: remux,
-                    container: segment_container_for(
-                        remux,
-                        detail.video.first().map(|v| v.codec.as_str()),
-                        outcome
-                            .selected
-                            .audio_track
-                            .and_then(|idx| detail.audio.iter().find(|a| a.index == idx))
-                            .map(|a| a.codec.as_str()),
-                    ),
+                    container: segments.unwrap_or(SegmentContainer::MpegTs),
                     seek_ms: (position_ms > 0).then_some(position_ms),
                     audio_track: outcome.selected.audio_track,
                     max_height: if remux { None } else { scale_to },
@@ -419,6 +495,7 @@ where
             sequential = started.sequential;
             self.inner.streams.register(
                 session_id.clone(),
+                generation,
                 StreamRegistration {
                     mode: outcome.mode,
                     output_dir: PathBuf::from(started.output_dir),
@@ -428,14 +505,15 @@ where
                 },
             );
         }
-        Ok((
-            outcome.mode,
-            outcome.selected,
-            Timeline {
+        Ok(Launched {
+            mode: outcome.mode,
+            container: segments,
+            selected: outcome.selected,
+            timeline: Timeline {
                 origin_ms,
                 sequential,
             },
-        ))
+        })
     }
 }
 
@@ -464,6 +542,12 @@ where
             .await?
             .ok_or(SessionError::VersionNotFound)?;
         if !detail.version.available {
+            return Err(SessionError::VersionNotFound);
+        }
+        if !acl::viewer(&self.inner.users, &caller.user)
+            .await?
+            .sees_library(&detail.version.library)
+        {
             return Err(SessionError::VersionNotFound);
         }
         let user = self.inner.users.get(&caller.user).await?;
@@ -517,7 +601,8 @@ where
 
         let session_id = SessionId(Uuid::new_v4().to_string());
         let now = Timestamp::now();
-        let token = self.create_token(&session_id, &caller.user, &request.version)?;
+        let generation = self.next_generation(&session_id);
+        let token = self.create_token(&session_id, generation, &caller.user, &request.version)?;
         let ctx = LaunchContext {
             user: caller.user.clone(),
             version: request.version.clone(),
@@ -530,9 +615,21 @@ where
             target_height: request.target_height,
             force_burn: request.force_burn,
             downmix_stereo: request.downmix_stereo,
+            delivery: request.delivery,
         };
-        let (mode, selected, timeline) = self
-            .launch(&session_id, &detail, &ctx, request.start_position_ms)
+        let Launched {
+            mode,
+            container,
+            selected,
+            timeline,
+        } = self
+            .launch(
+                &session_id,
+                generation,
+                &detail,
+                &ctx,
+                request.start_position_ms,
+            )
             .await?;
         let manifest_url = manifest_path(mode, &token);
 
@@ -561,6 +658,7 @@ where
         Ok(SessionStarted {
             session_id,
             mode,
+            container,
             manifest_url,
             origin_ms: timeline.origin_ms,
             sequential: timeline.sequential,
@@ -651,8 +749,16 @@ where
             .await?
             .ok_or(SessionError::VersionNotFound)?;
 
-        let token = self.create_token(session, &playback.user, &playback.version)?;
-        let (mode, selected, timeline) = self.launch(session, &detail, &ctx, position_ms).await?;
+        let generation = self.next_generation(session);
+        let token = self.create_token(session, generation, &playback.user, &playback.version)?;
+        let Launched {
+            mode,
+            container,
+            selected,
+            timeline,
+        } = self
+            .launch(session, generation, &detail, &ctx, position_ms)
+            .await?;
         let manifest_url = manifest_path(mode, &token);
 
         playback.position_ms = position_ms;
@@ -664,6 +770,7 @@ where
         Ok(Renegotiated {
             session_id: session.clone(),
             mode,
+            container,
             manifest_url,
             origin_ms: timeline.origin_ms,
             sequential: timeline.sequential,
@@ -708,6 +815,7 @@ where
         ctx.target_height = update.target_height;
         ctx.force_burn = update.force_burn;
         ctx.downmix_stereo = update.downmix_stereo;
+        ctx.delivery = update.delivery;
         match update.subtitle {
             SubtitleChange::Keep => {}
             SubtitleChange::Disable => {
@@ -735,9 +843,15 @@ where
             }
         }
 
-        let token = self.create_token(session, &playback.user, &playback.version)?;
-        let (mode, selected, timeline) = self
-            .launch(session, &detail, &ctx, playback.position_ms)
+        let generation = self.next_generation(session);
+        let token = self.create_token(session, generation, &playback.user, &playback.version)?;
+        let Launched {
+            mode,
+            container,
+            selected,
+            timeline,
+        } = self
+            .launch(session, generation, &detail, &ctx, playback.position_ms)
             .await?;
         let manifest_url = manifest_path(mode, &token);
 
@@ -756,6 +870,7 @@ where
         Ok(Renegotiated {
             session_id: session.clone(),
             mode,
+            container,
             manifest_url,
             origin_ms: timeline.origin_ms,
             sequential: timeline.sequential,
@@ -800,7 +915,7 @@ mod tests {
         SubtitleFormat, SubtitleSource, VideoTrack,
     };
     use domain::playback::WatchlistItem;
-    use domain::profile::{AudioCodecCap, CapabilityProfile, VideoCodecCap};
+    use domain::profile::{AudioCodecCap, CapabilityProfile, ClientDecoding, VideoCodecCap};
     use domain::session::{AudioRequest, SubtitleRequest};
     use domain::user::{Role, User};
 
@@ -836,11 +951,16 @@ mod tests {
 
     impl Harness {
         fn new() -> Self {
+            Self::bounded(None)
+        }
+
+        fn bounded(max_transcode_height: Option<u32>) -> Self {
             let catalog = MockVersionCatalog::new();
             let transcode = MockTranscodeManager::new();
             let streams = MockStreamRegistry::new();
             let sessions = MockSessionRegistry::new();
             let users = MockUserRepo::new();
+            users.grant(&UserId("u1".to_owned()), &[LibraryId("lib1".to_owned())]);
             let progress = MockProgressRepo::new();
             let tokens = MockStreamTokens::new();
             let preferences = MockPreferencesRepo::new();
@@ -854,7 +974,8 @@ mod tests {
                 users.clone(),
                 progress.clone(),
                 preferences.clone(),
-            );
+            )
+            .with_max_transcode_height(max_transcode_height);
             Self {
                 service,
                 catalog,
@@ -876,6 +997,7 @@ mod tests {
                 codec: "h264".to_owned(),
                 max_level: None,
                 max_bit_depth: 8,
+                smooth: true,
             }],
             audio: vec![AudioCodecCap {
                 codec: "aac".to_owned(),
@@ -885,6 +1007,7 @@ mod tests {
             max_width: 1920,
             max_height: 1080,
             max_bitrate: 10_000_000,
+            max_frame_rate: None,
         }
     }
 
@@ -1012,6 +1135,7 @@ mod tests {
             platform: "web".to_owned(),
             profile_version: 1,
             max_bitrate,
+            decoding: None,
         }
     }
 
@@ -1025,6 +1149,7 @@ mod tests {
             target_height: None,
             force_burn: false,
             downmix_stereo: false,
+            delivery: DeliveryPreference::Auto,
         }
     }
 
@@ -1240,6 +1365,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_version_in_an_ungranted_library_cannot_be_played() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        harness.users.grant(&UserId("u1".to_owned()), &[]);
+
+        let refused = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(refused, SessionError::VersionNotFound),
+            "a caller who cannot see the library must not learn the version exists"
+        );
+        assert!(
+            harness.transcode.started().is_empty(),
+            "nothing may be spawned before the access check"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_admin_cannot_play_out_of_an_ungranted_library_either() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        harness.users.grant(&UserId("u1".to_owned()), &[]);
+        let boss = Principal {
+            user: UserId("u1".to_owned()),
+            role: Role::Admin,
+        };
+
+        assert!(matches!(
+            harness.service.start(&boss, start_request(0)).await,
+            Err(SessionError::VersionNotFound)
+        ));
+    }
+
+    #[tokio::test]
     async fn start_direct_play() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
@@ -1300,6 +1463,7 @@ mod tests {
             target_height: None,
             force_burn: false,
             downmix_stereo: false,
+            delivery: DeliveryPreference::Auto,
         };
         harness.service.start(&principal(), request).await.unwrap();
 
@@ -1333,7 +1497,8 @@ mod tests {
         assert_eq!(registration.mode, DeliveryMode::Transcode);
         assert_eq!(
             registration.output_dir,
-            PathBuf::from(format!("/mock/cache/{}", started.session_id.0))
+            PathBuf::from(format!("/mock/cache/{}/1", started.session_id.0)),
+            "the directory names the generation, which is what makes it written once"
         );
         assert!(registration.direct_path.is_none());
     }
@@ -1348,6 +1513,119 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(harness.transcode.started()[0].seek_ms, Some(5_000));
+    }
+
+    fn video_cap(codec: &str, smooth: bool) -> VideoCodecCap {
+        VideoCodecCap {
+            codec: codec.to_owned(),
+            max_level: None,
+            max_bit_depth: 8,
+            smooth,
+        }
+    }
+
+    fn reporting(decoding: ClientDecoding) -> SessionStartInput {
+        SessionStartInput {
+            capabilities: ClientCapabilities {
+                decoding: Some(decoding),
+                ..caps(None)
+            },
+            ..start_request(0)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_codec_the_profile_never_claimed_direct_plays_when_the_client_reports_it() {
+        // The measurement has to be able to earn direct play, not only lose it,
+        // or a profile is still the ceiling and nothing was gained.
+        let harness = Harness::new();
+        harness.catalog.insert(transcode_detail());
+        let started = harness
+            .service
+            .start(
+                &principal(),
+                reporting(ClientDecoding {
+                    video: Some(vec![video_cap("vp9", true)]),
+                    ..ClientDecoding::default()
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(started.mode, DeliveryMode::Direct);
+        assert!(harness.transcode.started().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_codec_the_client_can_only_software_decode_is_transcoded() {
+        // The client says it can decode h264 but not smoothly, and the server,
+        // not the client, is what turns that into a transcode.
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let started = harness
+            .service
+            .start(
+                &principal(),
+                reporting(ClientDecoding {
+                    video: Some(vec![video_cap("h264", false)]),
+                    ..ClientDecoding::default()
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(started.mode, DeliveryMode::Transcode);
+    }
+
+    #[tokio::test]
+    async fn a_report_that_does_not_validate_falls_back_to_the_named_profile() {
+        // A client bug must cost the report, never the playback.
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let started = harness
+            .service
+            .start(
+                &principal(),
+                reporting(ClientDecoding {
+                    video: Some(Vec::new()),
+                    ..ClientDecoding::default()
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(started.mode, DeliveryMode::Direct);
+    }
+
+    #[tokio::test]
+    async fn a_reported_frame_rate_ceiling_transcodes_high_frame_rate_video() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let started = harness
+            .service
+            .start(
+                &principal(),
+                reporting(ClientDecoding {
+                    max_frame_rate: Some(24),
+                    ..ClientDecoding::default()
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(started.mode, DeliveryMode::Direct);
+
+        let mut fast = direct_detail();
+        fast.video[0].frame_rate = 60.0;
+        harness.catalog.insert(fast);
+        let started = harness
+            .service
+            .start(
+                &principal(),
+                reporting(ClientDecoding {
+                    max_frame_rate: Some(24),
+                    ..ClientDecoding::default()
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(started.mode, DeliveryMode::Transcode);
     }
 
     #[tokio::test]
@@ -1513,6 +1791,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: false,
+                    delivery: DeliveryPreference::Auto,
                 },
             )
             .await
@@ -1764,6 +2043,119 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_started_session_reports_the_container_it_resolved() {
+        let harness = Harness::new();
+        harness.catalog.insert(transcode_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        assert_eq!(started.mode, DeliveryMode::Transcode);
+        assert_eq!(started.container, Some(SegmentContainer::MpegTs));
+    }
+
+    // Nothing is produced for a direct session, so there is no container to name.
+    #[tokio::test]
+    async fn a_direct_session_reports_no_container() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        assert_eq!(started.mode, DeliveryMode::Direct);
+        assert_eq!(started.container, None);
+    }
+
+    #[tokio::test]
+    async fn always_convert_transcodes_a_version_that_would_direct_play() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let mut request = start_request(0);
+        request.delivery = DeliveryPreference::AlwaysConvert;
+        let started = harness.service.start(&principal(), request).await.unwrap();
+        assert_eq!(started.mode, DeliveryMode::Transcode);
+    }
+
+    // The preference has to outlive the request that set it, or the next track
+    // change would quietly put the session back the way it was.
+    #[tokio::test]
+    async fn the_delivery_preference_survives_an_update() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let mut request = start_request(0);
+        request.delivery = DeliveryPreference::AlwaysConvert;
+        let started = harness.service.start(&principal(), request).await.unwrap();
+
+        let again = harness
+            .service
+            .update(
+                &principal(),
+                &started.session_id,
+                SessionUpdate {
+                    audio_track: None,
+                    subtitle: SubtitleChange::Keep,
+                    target_height: None,
+                    force_burn: false,
+                    downmix_stereo: false,
+                    delivery: DeliveryPreference::AlwaysConvert,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(again.mode, DeliveryMode::Transcode);
+    }
+
+    // The operator bound exists because a host without a hardware encoder cannot
+    // produce 4K in realtime; it must never touch a session that is not re-encoding.
+    #[tokio::test]
+    async fn a_transcode_bound_lowers_the_output_height() {
+        let harness = Harness::bounded(Some(720));
+        harness.catalog.insert(transcode_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        assert_eq!(started.mode, DeliveryMode::Transcode);
+        assert_eq!(harness.transcode.started()[0].max_height, Some(720));
+    }
+
+    #[tokio::test]
+    async fn a_transcode_bound_above_the_source_changes_nothing() {
+        let harness = Harness::bounded(Some(2160));
+        harness.catalog.insert(transcode_detail());
+        harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        assert_eq!(harness.transcode.started()[0].max_height, None);
+    }
+
+    #[tokio::test]
+    async fn a_transcode_bound_never_shrinks_a_remux() {
+        let harness = Harness::bounded(Some(480));
+        harness.catalog.insert(detail_with(
+            "mkv",
+            100_000,
+            vec![video("h264", Some(5_000_000))],
+            vec![audio(1)],
+            vec![],
+        ));
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        assert_eq!(started.mode, DeliveryMode::Remux);
+        assert_eq!(harness.transcode.started()[0].max_height, None);
+    }
+
+    #[tokio::test]
     async fn update_forces_burn_in_of_selected_subtitle() {
         let harness = Harness::new();
         harness.catalog.insert(detail_with(
@@ -1794,6 +2186,7 @@ mod tests {
                     target_height: None,
                     force_burn: true,
                     downmix_stereo: false,
+                    delivery: DeliveryPreference::Auto,
                 },
             )
             .await
@@ -1835,6 +2228,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: true,
+                    delivery: DeliveryPreference::Auto,
                 },
             )
             .await
@@ -2202,6 +2596,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: false,
+                    delivery: DeliveryPreference::Auto,
                 },
             )
             .await
@@ -2343,6 +2738,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: false,
+                    delivery: DeliveryPreference::Auto,
                 },
             )
             .await
@@ -2644,6 +3040,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: false,
+                    delivery: DeliveryPreference::Auto,
                 },
             )
             .await
@@ -2680,6 +3077,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: false,
+                    delivery: DeliveryPreference::Auto,
                 },
             )
             .await
@@ -2699,6 +3097,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: false,
+                    delivery: DeliveryPreference::Auto,
                 },
             )
             .await
@@ -2721,6 +3120,7 @@ mod tests {
                         target_height: None,
                         force_burn: false,
                         downmix_stereo: false,
+                        delivery: DeliveryPreference::Auto,
                     },
                 )
                 .await,
@@ -2745,6 +3145,7 @@ mod tests {
                         target_height: None,
                         force_burn: false,
                         downmix_stereo: false,
+                        delivery: DeliveryPreference::Auto,
                     },
                 )
                 .await,
@@ -2774,6 +3175,7 @@ mod tests {
                         target_height: None,
                         force_burn: false,
                         downmix_stereo: false,
+                        delivery: DeliveryPreference::Auto,
                     },
                 )
                 .await,
@@ -2985,6 +3387,7 @@ mod tests {
                         target_height: None,
                         force_burn: false,
                         downmix_stereo: false,
+                        delivery: DeliveryPreference::Auto,
                     },
                 )
                 .await,
@@ -3111,5 +3514,139 @@ mod tests {
         let listing = cloned.active_sessions(&principal(), page()).await.unwrap();
         assert_eq!(listing.total, 1);
         assert_eq!(listing.items[0].id, started.session_id);
+    }
+
+    fn keep_everything() -> SessionUpdate {
+        SessionUpdate {
+            audio_track: None,
+            subtitle: SubtitleChange::Keep,
+            target_height: None,
+            force_burn: false,
+            downmix_stereo: false,
+            delivery: DeliveryPreference::Auto,
+        }
+    }
+
+    #[tokio::test]
+    async fn every_renegotiation_launches_a_new_generation() {
+        let harness = Harness::new();
+        harness.catalog.insert(transcode_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        harness
+            .service
+            .update(&principal(), &started.session_id, keep_everything())
+            .await
+            .unwrap();
+        harness
+            .service
+            .seek(&principal(), &started.session_id, 5_000)
+            .await
+            .unwrap();
+
+        let generations: Vec<u32> = harness
+            .transcode
+            .started()
+            .iter()
+            .map(|spec| spec.generation.0)
+            .collect();
+        assert_eq!(
+            generations,
+            vec![1, 2, 3],
+            "a generation directory is written once, so every launch has to claim a fresh one"
+        );
+        assert_eq!(
+            harness
+                .streams
+                .registered_generation(&started.session_id)
+                .map(|g| g.0),
+            Some(3),
+            "the registration follows the newest launch"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_token_names_the_generation_it_was_minted_for() {
+        let harness = Harness::new();
+        harness.catalog.insert(transcode_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        let renegotiated = harness
+            .service
+            .update(&principal(), &started.session_id, keep_everything())
+            .await
+            .unwrap();
+
+        let first = token_claims(&harness, &started.manifest_url);
+        let second = token_claims(&harness, &renegotiated.manifest_url);
+        assert_eq!(first.session, second.session);
+        assert_eq!(first.generation, StreamGeneration(1));
+        assert_eq!(
+            second.generation,
+            StreamGeneration(2),
+            "the client is handed a URL naming the artifact it just negotiated, which is what \
+             stops it reading a playlist another launch wrote"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_direct_session_is_registered_under_a_generation_too() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        assert_eq!(started.mode, DeliveryMode::Direct);
+        assert_eq!(
+            harness
+                .streams
+                .registered_generation(&started.session_id)
+                .map(|g| g.0),
+            Some(1),
+            "direct play spawns no transcode, but its token still has to resolve to something"
+        );
+    }
+
+    #[tokio::test]
+    async fn ending_a_session_forgets_its_generation_counter() {
+        let harness = Harness::new();
+        harness.catalog.insert(transcode_detail());
+        let started = harness
+            .service
+            .start(&principal(), start_request(0))
+            .await
+            .unwrap();
+        harness
+            .service
+            .end(&principal(), &started.session_id)
+            .await
+            .unwrap();
+        assert!(
+            harness
+                .service
+                .inner
+                .generations
+                .read()
+                .unwrap()
+                .get(&started.session_id)
+                .is_none()
+        );
+    }
+
+    fn token_claims(harness: &Harness, manifest_url: &str) -> StreamClaims {
+        let token = manifest_url
+            .strip_prefix("/stream/")
+            .and_then(|rest| rest.rsplit_once('/'))
+            .expect("a manifest url carries its token")
+            .0;
+        harness.tokens.verify(token).expect("the token verifies")
     }
 }

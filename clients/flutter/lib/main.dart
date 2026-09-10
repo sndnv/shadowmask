@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/api/capability_scope.dart';
 import 'package:shadowmask/api/server_probe.dart';
 import 'package:shadowmask/api/server_scope.dart';
 import 'package:shadowmask/api/server_store.dart';
@@ -13,6 +14,9 @@ import 'package:shadowmask/components/remote_image.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/tooltip_dismisser.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/api/capability_overrides_store.dart';
+import 'package:shadowmask/model/session/capability_overrides.dart';
+import 'package:shadowmask/model/session/client_decoding.dart';
 import 'package:shadowmask/nav/route_observer.dart';
 import 'package:shadowmask/pages/entry/server_page.dart';
 import 'package:shadowmask/player/player_controller.dart';
@@ -20,6 +24,8 @@ import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/theme/theme_store.dart';
+import 'package:shadowmask/util/client_capabilities.dart';
+import 'package:shadowmask/util/client_platform.dart';
 import 'package:shadowmask/util/url_strategy.dart';
 import 'package:shadowmask/util/window.dart';
 
@@ -35,6 +41,9 @@ Future<void> main() async {
   final AppThemeVariant variant = await themeStore.load();
   final bool? highContrast = await themeStore.loadHighContrast();
   final String? stored = await serverStore.load();
+  final ClientDecoding? decoding = await measureDecoding();
+  const CapabilityOverridesStore capabilityStore = CapabilityOverridesStore();
+  final CapabilityOverrides overrides = await capabilityStore.load();
   runApp(
     ShadowmaskApp(
       initialServer: stored ?? _resolveApiBase(),
@@ -42,6 +51,9 @@ Future<void> main() async {
       initialHighContrast: highContrast,
       themeStore: themeStore,
       serverStore: serverStore,
+      capabilityStore: capabilityStore,
+      decoding: decoding,
+      initialOverrides: overrides,
     ),
   );
 }
@@ -63,6 +75,9 @@ class ShadowmaskApp extends StatefulWidget {
     this.initialHighContrast,
     this.themeStore = const ThemeStore(),
     this.serverStore = const ServerStore(),
+    this.capabilityStore = const CapabilityOverridesStore(),
+    this.decoding,
+    this.initialOverrides = const CapabilityOverrides(),
   });
 
   final String? initialServer;
@@ -72,6 +87,9 @@ class ShadowmaskApp extends StatefulWidget {
   final bool? initialHighContrast;
   final ThemeStore themeStore;
   final ServerStore serverStore;
+  final CapabilityOverridesStore capabilityStore;
+  final ClientDecoding? decoding;
+  final CapabilityOverrides initialOverrides;
 
   @override
   State<ShadowmaskApp> createState() => _ShadowmaskAppState();
@@ -82,6 +100,7 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
   late AppThemeVariant _variant = widget.initialVariant;
   late bool? _highContrast = widget.initialHighContrast;
   late String? _server = widget.initialServer;
+  late CapabilityOverrides _overrides = widget.initialOverrides;
   late ApiClient _api = widget.clientFactory(_server);
   late AppRouter _router = AppRouter(_api);
   late bool _systemHighContrast = WidgetsBinding
@@ -132,6 +151,14 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
     widget.themeStore.saveHighContrast(value);
   }
 
+  void _setOverrides(CapabilityOverrides overrides) {
+    if (overrides == _overrides) {
+      return;
+    }
+    setState(() => _overrides = overrides);
+    widget.capabilityStore.save(overrides);
+  }
+
   bool get _needsServer => !kIsWeb && _server == null;
 
   Future<void> _setServer(String address) async {
@@ -155,14 +182,20 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
       setVariant: _setVariant,
       highContrast: _contrast,
       setHighContrast: _setHighContrast,
-      child: kIsWeb
-          ? app
-          : ServerScope(
-              address: _server,
-              setAddress: _setServer,
-              probe: widget.probe,
-              child: app,
-            ),
+      child: CapabilityScope(
+        platform: clientPlatform(),
+        measured: widget.decoding,
+        overrides: _overrides,
+        setOverrides: _setOverrides,
+        child: kIsWeb
+            ? app
+            : ServerScope(
+                address: _server,
+                setAddress: _setServer,
+                probe: widget.probe,
+                child: app,
+              ),
+      ),
     );
   }
 

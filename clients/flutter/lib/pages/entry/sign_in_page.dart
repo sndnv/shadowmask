@@ -162,13 +162,20 @@ class _SignInPageState extends State<SignInPage> {
                     onPressed: _busy ? null : _submit,
                     child: Text(_busy ? Strings.loading : Strings.signInTitle),
                   ),
-                  if (scope != null) ...<Widget>[
-                    const SizedBox(height: Space.s2),
+                  const SizedBox(height: Space.s2),
+                  TextButton(
+                    onPressed: _busy
+                        ? null
+                        : () => Navigator.of(
+                            context,
+                          ).pushReplacementNamed('/link'),
+                    child: const Text(Strings.useLinkCode),
+                  ),
+                  if (scope != null)
                     TextButton(
                       onPressed: _busy ? null : () => _changeServer(scope),
                       child: const Text(Strings.changeServer),
                     ),
-                  ],
                   const SizedBox(height: Space.s6),
                   const Center(child: BrandMark(size: 40)),
                 ],

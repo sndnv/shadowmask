@@ -10,6 +10,8 @@ from pathlib import Path
 DESCRIPTION = 'Refresh shared assets used by client subprojects'
 
 FLUTTER_MACOS_APPICON = 'macos/Runner/Assets.xcassets/AppIcon.appiconset'
+FLUTTER_IOS_APPICON = 'ios/Runner/Assets.xcassets/AppIcon.appiconset'
+FLUTTER_ANDROID_RES = 'android/app/src/main/res'
 
 
 class Paths:
@@ -89,6 +91,31 @@ def main():
             {'asset': 'icons/flutter/app_icon_256.png', 'target': '{}/app_icon_256.png'.format(FLUTTER_MACOS_APPICON)},
             {'asset': 'icons/flutter/app_icon_512.png', 'target': '{}/app_icon_512.png'.format(FLUTTER_MACOS_APPICON)},
             {'asset': 'icons/flutter/app_icon_1024.png', 'target': '{}/app_icon_1024.png'.format(FLUTTER_MACOS_APPICON)},
+            {'asset': 'icons/flutter/ios_icon_20.png', 'target': '{}/Icon-App-20x20@1x.png'.format(FLUTTER_IOS_APPICON)},
+            {'asset': 'icons/flutter/ios_icon_40.png', 'target': '{}/Icon-App-20x20@2x.png'.format(FLUTTER_IOS_APPICON)},
+            {'asset': 'icons/flutter/ios_icon_60.png', 'target': '{}/Icon-App-20x20@3x.png'.format(FLUTTER_IOS_APPICON)},
+            {'asset': 'icons/flutter/ios_icon_29.png', 'target': '{}/Icon-App-29x29@1x.png'.format(FLUTTER_IOS_APPICON)},
+            {'asset': 'icons/flutter/ios_icon_58.png', 'target': '{}/Icon-App-29x29@2x.png'.format(FLUTTER_IOS_APPICON)},
+            {'asset': 'icons/flutter/ios_icon_87.png', 'target': '{}/Icon-App-29x29@3x.png'.format(FLUTTER_IOS_APPICON)},
+            {'asset': 'icons/flutter/ios_icon_40.png', 'target': '{}/Icon-App-40x40@1x.png'.format(FLUTTER_IOS_APPICON)},
+            {'asset': 'icons/flutter/ios_icon_80.png', 'target': '{}/Icon-App-40x40@2x.png'.format(FLUTTER_IOS_APPICON)},
+            {'asset': 'icons/flutter/ios_icon_120.png', 'target': '{}/Icon-App-40x40@3x.png'.format(FLUTTER_IOS_APPICON)},
+            {'asset': 'icons/flutter/ios_icon_120.png', 'target': '{}/Icon-App-60x60@2x.png'.format(FLUTTER_IOS_APPICON)},
+            {'asset': 'icons/flutter/ios_icon_180.png', 'target': '{}/Icon-App-60x60@3x.png'.format(FLUTTER_IOS_APPICON)},
+            {'asset': 'icons/flutter/ios_icon_76.png', 'target': '{}/Icon-App-76x76@1x.png'.format(FLUTTER_IOS_APPICON)},
+            {'asset': 'icons/flutter/ios_icon_152.png', 'target': '{}/Icon-App-76x76@2x.png'.format(FLUTTER_IOS_APPICON)},
+            {'asset': 'icons/flutter/ios_icon_167.png', 'target': '{}/Icon-App-83.5x83.5@2x.png'.format(FLUTTER_IOS_APPICON)},
+            {'asset': 'icons/flutter/ios_icon_1024.png', 'target': '{}/Icon-App-1024x1024@1x.png'.format(FLUTTER_IOS_APPICON)},
+            {'asset': 'icons/flutter/android_icon_48.png', 'target': '{}/mipmap-mdpi/ic_launcher.png'.format(FLUTTER_ANDROID_RES)},
+            {'asset': 'icons/flutter/android_icon_72.png', 'target': '{}/mipmap-hdpi/ic_launcher.png'.format(FLUTTER_ANDROID_RES)},
+            {'asset': 'icons/flutter/android_icon_96.png', 'target': '{}/mipmap-xhdpi/ic_launcher.png'.format(FLUTTER_ANDROID_RES)},
+            {'asset': 'icons/flutter/android_icon_144.png', 'target': '{}/mipmap-xxhdpi/ic_launcher.png'.format(FLUTTER_ANDROID_RES)},
+            {'asset': 'icons/flutter/android_icon_192.png', 'target': '{}/mipmap-xxxhdpi/ic_launcher.png'.format(FLUTTER_ANDROID_RES)},
+            {'asset': 'icons/flutter/android_icon_fg_108.png', 'target': '{}/mipmap-mdpi/ic_launcher_foreground.png'.format(FLUTTER_ANDROID_RES)},
+            {'asset': 'icons/flutter/android_icon_fg_162.png', 'target': '{}/mipmap-hdpi/ic_launcher_foreground.png'.format(FLUTTER_ANDROID_RES)},
+            {'asset': 'icons/flutter/android_icon_fg_216.png', 'target': '{}/mipmap-xhdpi/ic_launcher_foreground.png'.format(FLUTTER_ANDROID_RES)},
+            {'asset': 'icons/flutter/android_icon_fg_324.png', 'target': '{}/mipmap-xxhdpi/ic_launcher_foreground.png'.format(FLUTTER_ANDROID_RES)},
+            {'asset': 'icons/flutter/android_icon_fg_432.png', 'target': '{}/mipmap-xxxhdpi/ic_launcher_foreground.png'.format(FLUTTER_ANDROID_RES)},
             {'asset': 'vendor/hls.min.js', 'target': 'web/hls.min.js'},
             {'asset': 'vendor/hls.js.LICENSE.txt', 'target': 'web/hls.js.LICENSE.txt'},
         ],

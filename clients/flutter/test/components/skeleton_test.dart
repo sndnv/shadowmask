@@ -146,4 +146,22 @@ void main() {
 
     await tester.pump(kShimmerDuration);
   });
+
+  testWidgets('the loading toolbar folds onto a phone instead of overflowing', (
+    WidgetTester tester,
+  ) async {
+    // Three fixed 120px chips in a Row came to 408px, which is wider than any
+    // phone, and it showed for exactly as long as the page took to load.
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      _host(const SkeletonPage(toolbar: true, child: SizedBox.shrink())),
+    );
+
+    expect(tester.takeException(), isNull);
+
+    await tester.pump(kShimmerDuration);
+  });
 }

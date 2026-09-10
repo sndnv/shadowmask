@@ -1,6 +1,21 @@
 import 'package:shadowmask/model/session/selected_tracks.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
 
+enum DeliveryPreference {
+  auto('auto'),
+  never('never'),
+  always('always');
+
+  const DeliveryPreference(this.wire);
+
+  final String wire;
+
+  static DeliveryPreference fromWire(String? value) => values.firstWhere(
+    (DeliveryPreference p) => p.wire == value,
+    orElse: () => DeliveryPreference.auto,
+  );
+}
+
 class PlaybackControls {
   const PlaybackControls({
     this.height,
@@ -12,6 +27,7 @@ class PlaybackControls {
     this.subtitleLanguage,
     this.subtitleOff = false,
     this.offsetMs = 0,
+    this.delivery = DeliveryPreference.auto,
   });
 
   factory PlaybackControls.fromQuery(Map<String, String> q) {
@@ -28,6 +44,7 @@ class PlaybackControls {
       subtitleLanguage: asText(q['slang']),
       subtitleOff: q['soff'] == '1',
       offsetMs: asInt(q['offset']) ?? 0,
+      delivery: DeliveryPreference.fromWire(q['delivery']),
     );
   }
 
@@ -40,9 +57,15 @@ class PlaybackControls {
   final String? subtitleLanguage;
   final bool subtitleOff;
   final int offsetMs;
+  final DeliveryPreference delivery;
 
   bool get isDefault =>
-      height == null && !burn && !downmix && offsetMs == 0 && !hasTrackRequest;
+      height == null &&
+      !burn &&
+      !downmix &&
+      offsetMs == 0 &&
+      delivery == DeliveryPreference.auto &&
+      !hasTrackRequest;
 
   bool get hasTrackRequest =>
       audioTrack != null ||
@@ -61,6 +84,7 @@ class PlaybackControls {
     subtitleLanguage: subtitleLanguage,
     subtitleOff: subtitleOff,
     offsetMs: offsetMs,
+    delivery: delivery,
   );
 
   Map<String, dynamic> toStartBody() => <String, dynamic>{
@@ -72,6 +96,7 @@ class PlaybackControls {
     if (subtitle != null) 'subtitle': subtitle!.toJson(),
     if (subtitleLanguage != null) 'subtitle_language': subtitleLanguage,
     if (subtitleOff) 'subtitle_off': true,
+    if (delivery != DeliveryPreference.auto) 'delivery': delivery.wire,
   };
 
   Map<String, dynamic> toUpdateBody() {
@@ -79,6 +104,7 @@ class PlaybackControls {
       'target_height': height,
       'force_burn': burn,
       'downmix_stereo': downmix,
+      'delivery': delivery.wire,
     };
     if (audioTrack != null) {
       body['audio_track'] = audioTrack;
@@ -105,6 +131,7 @@ class PlaybackControls {
     if (subtitleLanguage != null) 'slang': subtitleLanguage,
     if (subtitleOff) 'soff': '1',
     if (offsetMs != 0) 'offset': offsetMs.toString(),
+    if (delivery != DeliveryPreference.auto) 'delivery': delivery.wire,
   };
 
   @override
@@ -118,7 +145,8 @@ class PlaybackControls {
       other.subtitle == subtitle &&
       other.subtitleLanguage == subtitleLanguage &&
       other.subtitleOff == subtitleOff &&
-      other.offsetMs == offsetMs;
+      other.offsetMs == offsetMs &&
+      other.delivery == delivery;
 
   @override
   int get hashCode => Object.hash(
@@ -131,5 +159,6 @@ class PlaybackControls {
     subtitleLanguage,
     subtitleOff,
     offsetMs,
+    delivery,
   );
 }

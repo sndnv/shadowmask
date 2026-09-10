@@ -565,5 +565,29 @@ mod tests {
             .unwrap_err(),
             UserError::Repository(_)
         ));
+
+        let id = UserId("x".into());
+        let boss = principal("admin", Role::Admin);
+
+        macro_rules! is_repository_error {
+            ($call:expr) => {
+                assert!(matches!($call.await.unwrap_err(), UserError::Repository(_)))
+            };
+        }
+
+        is_repository_error!(svc.update_profile(
+            &id,
+            UserProfileUpdate {
+                preferred_audio: None,
+                preferred_subtitle: None,
+                max_content_rating: None,
+                concurrent_stream_limit: None,
+                bitrate_cap: None,
+            }
+        ));
+        is_repository_error!(svc.delete(&boss, &id));
+        is_repository_error!(svc.set_active(&boss, &id, false));
+        is_repository_error!(svc.library_access(&id));
+        is_repository_error!(svc.set_library_access(&id, &[LibraryId("lib1".into())]));
     }
 }

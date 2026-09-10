@@ -51,8 +51,8 @@ const List<NavDestination> navDestinations = <NavDestination>[
     NavSection.admin,
     Strings.navigationAdmin,
     '/admin',
-    icon: Icons.tune_outlined,
-    selectedIcon: Icons.tune,
+    icon: Icons.settings_outlined,
+    selectedIcon: Icons.settings,
     adminOnly: true,
   ),
 ];

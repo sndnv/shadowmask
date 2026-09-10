@@ -21,6 +21,8 @@ enum PlayerShortcut {
 typedef ShortcutRow = ({PlayerShortcut action, String keys, String label});
 
 const int kSeekStepMs = 10000;
+const List<double> kHoldSpeeds = <double>[3, 5, 10];
+const Duration kHoldStep = Duration(seconds: 2);
 const double kVolumeStep = 0.05;
 
 const List<ShortcutRow> kPlayerShortcuts = <ShortcutRow>[

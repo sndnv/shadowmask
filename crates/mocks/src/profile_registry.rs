@@ -33,6 +33,7 @@ mod tests {
                 codec: "h264".to_owned(),
                 max_level: None,
                 max_bit_depth: 8,
+                smooth: true,
             }],
             audio: vec![AudioCodecCap {
                 codec: "aac".to_owned(),
@@ -42,6 +43,7 @@ mod tests {
             max_width: 1920,
             max_height: 1080,
             max_bitrate: 10_000_000,
+            max_frame_rate: None,
         }
     }
 
