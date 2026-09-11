@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use domain::common::{Page, PageRequest};
@@ -24,6 +24,10 @@ pub struct MockLibraryRepo {
     duplicates: Arc<Mutex<HashMap<DuplicateCandidateId, DuplicateEntry>>>,
     fail_get: Arc<AtomicBool>,
     fail_save: Arc<AtomicBool>,
+    fail_list: Arc<AtomicBool>,
+    fail_queues: Arc<AtomicBool>,
+    fail_reconcile: Arc<AtomicBool>,
+    saves_before_failure: Arc<AtomicUsize>,
 }
 
 impl MockLibraryRepo {
@@ -32,10 +36,7 @@ impl MockLibraryRepo {
     }
 
     pub fn insert_library(&self, library: Library) {
-        self.libraries
-            .lock()
-            .unwrap()
-            .insert(library.id.clone(), library);
+        self.libraries.lock().unwrap().insert(library.id.clone(), library);
     }
 
     pub fn recorded_scan_progress(&self) -> Vec<f32> {
@@ -43,17 +44,14 @@ impl MockLibraryRepo {
     }
 
     pub fn add_unmatched(&self, file: UnmatchedFile) {
-        self.unmatched
-            .lock()
-            .unwrap()
-            .insert(file.id.clone(), (file, ResolutionStatus::Active));
+        self.unmatched.lock().unwrap().insert(file.id.clone(), (file, ResolutionStatus::Active));
     }
 
     pub fn add_duplicate(&self, library: &LibraryId, candidate: DuplicateCandidate) {
-        self.duplicates.lock().unwrap().insert(
-            candidate.id.clone(),
-            (library.clone(), candidate, ResolutionStatus::Active),
-        );
+        self.duplicates
+            .lock()
+            .unwrap()
+            .insert(candidate.id.clone(), (library.clone(), candidate, ResolutionStatus::Active));
     }
 
     pub fn set_fail_get(&self) {
@@ -63,10 +61,42 @@ impl MockLibraryRepo {
     pub fn set_fail_save(&self) {
         self.fail_save.store(true, Ordering::Relaxed);
     }
+
+    pub fn set_fail_list(&self) {
+        self.fail_list.store(true, Ordering::Relaxed);
+    }
+
+    /// Fails `scan_state`, `list_unmatched` and `list_duplicates`, which the rest of the
+    /// repository's reads do not go through.
+    pub fn set_fail_queues(&self) {
+        self.fail_queues.store(true, Ordering::Relaxed);
+    }
+
+    pub fn set_fail_reconcile(&self) {
+        self.fail_reconcile.store(true, Ordering::Relaxed);
+    }
+
+    /// Lets the first `count` saves through and fails every one after them, which is how a
+    /// progress callback can fail without the state that opened the scan failing first.
+    pub fn fail_saves_after(&self, count: usize) {
+        self.saves_before_failure.store(count, Ordering::Relaxed);
+        self.fail_save.store(true, Ordering::Relaxed);
+    }
+
+    fn save_allowed(&self) -> bool {
+        !self.fail_save.load(Ordering::Relaxed)
+            || self
+                .saves_before_failure
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |left| left.checked_sub(1))
+                .is_ok()
+    }
 }
 
 impl LibraryRepository for MockLibraryRepo {
     async fn list(&self) -> Result<Vec<Library>, RepositoryError> {
+        if self.fail_list.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend("mock list failure".to_owned()));
+        }
         Ok(self.libraries.lock().unwrap().values().cloned().collect())
     }
 
@@ -78,23 +108,23 @@ impl LibraryRepository for MockLibraryRepo {
     }
 
     async fn scan_state(&self, id: &LibraryId) -> Result<Option<ScanState>, RepositoryError> {
+        if self.fail_queues.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend("mock scan state failure".to_owned()));
+        }
         Ok(self.scan_states.lock().unwrap().get(id).cloned())
     }
 
     async fn save_scan_state(&self, state: ScanState) -> Result<(), RepositoryError> {
-        if self.fail_save.load(Ordering::Relaxed) {
+        if !self.save_allowed() {
             return Err(RepositoryError::Backend("mock save failure".to_owned()));
         }
         self.scan_progress.lock().unwrap().push(state.progress);
-        self.scan_states
-            .lock()
-            .unwrap()
-            .insert(state.library.clone(), state);
+        self.scan_states.lock().unwrap().insert(state.library.clone(), state);
         Ok(())
     }
 
     async fn upsert(&self, library: Library) -> Result<(), RepositoryError> {
-        if self.fail_save.load(Ordering::Relaxed) {
+        if !self.save_allowed() {
             return Err(RepositoryError::Backend("mock save failure".to_owned()));
         }
         let mut map = self.libraries.lock().unwrap();
@@ -107,19 +137,13 @@ impl LibraryRepository for MockLibraryRepo {
     }
 
     async fn delete(&self, id: &LibraryId) -> Result<(), RepositoryError> {
-        if self.fail_save.load(Ordering::Relaxed) {
+        if !self.save_allowed() {
             return Err(RepositoryError::Backend("mock save failure".to_owned()));
         }
         self.libraries.lock().unwrap().remove(id);
         self.scan_states.lock().unwrap().remove(id);
-        self.unmatched
-            .lock()
-            .unwrap()
-            .retain(|_, (file, _)| file.library != *id);
-        self.duplicates
-            .lock()
-            .unwrap()
-            .retain(|_, (library, _, _)| library != id);
+        self.unmatched.lock().unwrap().retain(|_, (file, _)| file.library != *id);
+        self.duplicates.lock().unwrap().retain(|_, (library, _, _)| library != id);
         Ok(())
     }
 
@@ -128,6 +152,9 @@ impl LibraryRepository for MockLibraryRepo {
         id: &LibraryId,
         page: PageRequest,
     ) -> Result<Page<UnmatchedFile>, RepositoryError> {
+        if self.fail_queues.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend("mock unmatched failure".to_owned()));
+        }
         let mut items: Vec<UnmatchedFile> = self
             .unmatched
             .lock()
@@ -145,6 +172,9 @@ impl LibraryRepository for MockLibraryRepo {
         id: &LibraryId,
         page: PageRequest,
     ) -> Result<Page<DuplicateCandidate>, RepositoryError> {
+        if self.fail_queues.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend("mock duplicates failure".to_owned()));
+        }
         let mut items: Vec<DuplicateCandidate> = self
             .duplicates
             .lock()
@@ -164,16 +194,11 @@ impl LibraryRepository for MockLibraryRepo {
         if self.fail_get.load(Ordering::Relaxed) {
             return Err(RepositoryError::Backend("mock get failure".to_owned()));
         }
-        Ok(self
-            .unmatched
-            .lock()
-            .unwrap()
-            .get(id)
-            .map(|(file, _)| file.clone()))
+        Ok(self.unmatched.lock().unwrap().get(id).map(|(file, _)| file.clone()))
     }
 
     async fn insert_unmatched(&self, file: UnmatchedFile) -> Result<(), RepositoryError> {
-        if self.fail_save.load(Ordering::Relaxed) {
+        if !self.save_allowed() {
             return Err(RepositoryError::Backend("mock save failure".to_owned()));
         }
         let mut map = self.unmatched.lock().unwrap();
@@ -194,14 +219,11 @@ impl LibraryRepository for MockLibraryRepo {
         library: &LibraryId,
         duplicate: DuplicateCandidate,
     ) -> Result<(), RepositoryError> {
-        if self.fail_save.load(Ordering::Relaxed) {
+        if !self.save_allowed() {
             return Err(RepositoryError::Backend("mock save failure".to_owned()));
         }
         let mut map = self.duplicates.lock().unwrap();
-        map.insert(
-            duplicate.id.clone(),
-            (library.clone(), duplicate, ResolutionStatus::Active),
-        );
+        map.insert(duplicate.id.clone(), (library.clone(), duplicate, ResolutionStatus::Active));
         Ok(())
     }
 
@@ -232,6 +254,9 @@ impl LibraryRepository for MockLibraryRepo {
         library: &LibraryId,
         detected: &[DuplicateCandidateId],
     ) -> Result<(), RepositoryError> {
+        if self.fail_reconcile.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend("mock reconcile failure".to_owned()));
+        }
         self.duplicates
             .lock()
             .unwrap()
@@ -244,6 +269,9 @@ impl LibraryRepository for MockLibraryRepo {
         library: &LibraryId,
         present_paths: &[String],
     ) -> Result<(), RepositoryError> {
+        if self.fail_reconcile.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend("mock reconcile failure".to_owned()));
+        }
         self.unmatched
             .lock()
             .unwrap()
@@ -275,10 +303,7 @@ mod tests {
     }
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        PageRequest { offset: 0, limit: 10 }
     }
 
     #[tokio::test]
@@ -290,19 +315,7 @@ mod tests {
         assert_eq!(repo.list().await.unwrap().len(), 1);
         assert!(repo.get(&id).await.unwrap().is_some());
         assert!(repo.scan_state(&id).await.unwrap().is_none());
-        assert!(
-            repo.list_unmatched(&id, page())
-                .await
-                .unwrap()
-                .items
-                .is_empty()
-        );
-        assert!(
-            repo.list_duplicates(&id, page())
-                .await
-                .unwrap()
-                .items
-                .is_empty()
-        );
+        assert!(repo.list_unmatched(&id, page()).await.unwrap().items.is_empty());
+        assert!(repo.list_duplicates(&id, page()).await.unwrap().items.is_empty());
     }
 }

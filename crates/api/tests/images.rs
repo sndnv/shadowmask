@@ -6,6 +6,7 @@ use axum::http::{HeaderMap, Request, StatusCode, header};
 use tower::ServiceExt;
 
 use api::{ImageState, image_router};
+use tracing_test::traced_test;
 
 const ARTWORK_ID: &str = "550e8400-e29b-41d4-a716-446655440000";
 const MISSING_ID: &str = "ffffffff-ffff-ffff-ffff-ffffffffffff";
@@ -32,16 +33,10 @@ async fn send(
     for (name, value) in headers {
         builder = builder.header(name, *value);
     }
-    let response = app
-        .oneshot(builder.body(Body::empty()).unwrap())
-        .await
-        .unwrap();
+    let response = app.oneshot(builder.body(Body::empty()).unwrap()).await.unwrap();
     let status = response.status();
     let response_headers = response.headers().clone();
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap()
-        .to_vec();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec();
     (status, response_headers, body)
 }
 
@@ -49,21 +44,17 @@ fn header_str(headers: &HeaderMap, name: header::HeaderName) -> &str {
     headers.get(name).unwrap().to_str().unwrap()
 }
 
+#[traced_test]
 #[tokio::test]
 async fn png_served_with_cache_headers_and_body() {
     let dir = tempfile::tempdir().unwrap();
     let uri = format!("/images/{ARTWORK_ID}/480");
     let (status, headers, body) = send(app(dir.path()), &uri, &[]).await;
     assert_eq!(status, StatusCode::OK);
+    assert!(logs_contain(&format!("Artwork [{ARTWORK_ID}/480] served as [png]")));
     assert_eq!(header_str(&headers, header::CONTENT_TYPE), "image/png");
-    assert_eq!(
-        header_str(&headers, header::CACHE_CONTROL),
-        "public, max-age=31536000, immutable"
-    );
-    assert_eq!(
-        header_str(&headers, header::ETAG),
-        format!("\"{ARTWORK_ID}-480\"")
-    );
+    assert_eq!(header_str(&headers, header::CACHE_CONTROL), "public, max-age=31536000, immutable");
+    assert_eq!(header_str(&headers, header::ETAG), format!("\"{ARTWORK_ID}-480\""));
     assert_eq!(body, PNG_BYTES);
 }
 
@@ -75,10 +66,7 @@ async fn a_jpeg_rung_is_served_as_jpeg() {
         send(app_serving(dir.path(), "480.jpg", JPEG_BYTES), &uri, &[]).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(header_str(&headers, header::CONTENT_TYPE), "image/jpeg");
-    assert_eq!(
-        header_str(&headers, header::CACHE_CONTROL),
-        "public, max-age=31536000, immutable"
-    );
+    assert_eq!(header_str(&headers, header::CACHE_CONTROL), "public, max-age=31536000, immutable");
     assert_eq!(body, JPEG_BYTES);
 }
 
@@ -133,10 +121,7 @@ async fn matching_if_none_match_is_not_modified() {
         send(app(dir.path()), &uri, &[(header::IF_NONE_MATCH, &etag)]).await;
     assert_eq!(status, StatusCode::NOT_MODIFIED);
     assert_eq!(header_str(&headers, header::ETAG), etag);
-    assert_eq!(
-        header_str(&headers, header::CACHE_CONTROL),
-        "public, max-age=31536000, immutable"
-    );
+    assert_eq!(header_str(&headers, header::CACHE_CONTROL), "public, max-age=31536000, immutable");
     assert!(body.is_empty());
 }
 
@@ -144,12 +129,8 @@ async fn matching_if_none_match_is_not_modified() {
 async fn non_matching_if_none_match_serves_content() {
     let dir = tempfile::tempdir().unwrap();
     let uri = format!("/images/{ARTWORK_ID}/480");
-    let (status, _, body) = send(
-        app(dir.path()),
-        &uri,
-        &[(header::IF_NONE_MATCH, "\"stale\"")],
-    )
-    .await;
+    let (status, _, body) =
+        send(app(dir.path()), &uri, &[(header::IF_NONE_MATCH, "\"stale\"")]).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, PNG_BYTES);
 }

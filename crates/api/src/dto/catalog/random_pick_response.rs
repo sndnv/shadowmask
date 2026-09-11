@@ -11,12 +11,7 @@ mod tests {
 
     #[test]
     fn the_pick_carries_only_the_version_to_play() {
-        let response = RandomPickResponse {
-            version_id: "v1".into(),
-        };
-        assert_eq!(
-            serde_json::to_string(&response).unwrap(),
-            r#"{"version_id":"v1"}"#
-        );
+        let response = RandomPickResponse { version_id: "v1".into() };
+        assert_eq!(serde_json::to_string(&response).unwrap(), r#"{"version_id":"v1"}"#);
     }
 }

@@ -13,11 +13,7 @@ pub struct MatchCandidateDto {
 
 impl From<MatchCandidate> for MatchCandidateDto {
     fn from(c: MatchCandidate) -> Self {
-        MatchCandidateDto {
-            title: c.title.into(),
-            confidence: c.confidence,
-            label: c.label,
-        }
+        MatchCandidateDto { title: c.title.into(), confidence: c.confidence, label: c.label }
     }
 }
 

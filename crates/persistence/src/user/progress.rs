@@ -26,12 +26,7 @@ pub struct SqliteProgressRepo {
 impl SqliteProgressRepo {
     pub fn new(base_dir: &Path) -> Self {
         Self {
-            pools: UserPools::new(
-                base_dir,
-                "progress.db",
-                &MIGRATOR,
-                DEFAULT_USER_POOL_CAPACITY,
-            ),
+            pools: UserPools::new(base_dir, "progress.db", &MIGRATOR, DEFAULT_USER_POOL_CAPACITY),
         }
     }
 
@@ -76,13 +71,9 @@ fn row_to_progress(user: &UserId, row: &SqliteRow) -> Result<PlaybackProgress, R
 }
 
 fn row_to_history(user: &UserId, row: &SqliteRow) -> Result<WatchHistory, RepositoryError> {
-    let title = title_from_parts(
-        &column::<String>(row, "title_kind")?,
-        column(row, "title_id")?,
-    )?;
-    let last_watched_at = column::<Option<i64>>(row, "last_watched_at")?
-        .map(from_millis)
-        .transpose()?;
+    let title = title_from_parts(&column::<String>(row, "title_kind")?, column(row, "title_id")?)?;
+    let last_watched_at =
+        column::<Option<i64>>(row, "last_watched_at")?.map(from_millis).transpose()?;
     Ok(WatchHistory {
         user: user.clone(),
         title,
@@ -109,9 +100,7 @@ impl ProgressRepository for SqliteProgressRepo {
         .fetch_optional(&pool)
         .await
         .map_err(backend)?;
-        row.as_ref()
-            .map(|row| row_to_progress(user, row))
-            .transpose()
+        row.as_ref().map(|row| row_to_progress(user, row)).transpose()
     }
 
     async fn upsert(&self, progress: PlaybackProgress) -> Result<(), RepositoryError> {
@@ -271,16 +260,8 @@ impl ProgressRepository for SqliteProgressRepo {
         .fetch_all(&pool)
         .await
         .map_err(backend)?;
-        let items = rows
-            .iter()
-            .map(|row| row_to_history(user, row))
-            .collect::<Result<_, _>>()?;
-        Ok(Page {
-            items,
-            total,
-            offset: page.offset,
-            limit: page.limit,
-        })
+        let items = rows.iter().map(|row| row_to_history(user, row)).collect::<Result<_, _>>()?;
+        Ok(Page { items, total, offset: page.offset, limit: page.limit })
     }
 }
 
@@ -303,10 +284,7 @@ mod tests {
     }
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        PageRequest { offset: 0, limit: 10 }
     }
 
     fn row() -> PlaybackProgress {
@@ -402,16 +380,8 @@ mod tests {
         assert!(repo.upsert(row()).await.is_err());
         assert!(repo.delete(&user(), &version()).await.is_err());
         assert!(repo.list_in_progress(&user()).await.is_err());
-        assert!(
-            repo.record_view(&user(), &title(), Timestamp::UNIX_EPOCH)
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.set_watched_flags(&user(), &title(), true)
-                .await
-                .is_err()
-        );
+        assert!(repo.record_view(&user(), &title(), Timestamp::UNIX_EPOCH).await.is_err());
+        assert!(repo.set_watched_flags(&user(), &title(), true).await.is_err());
         assert!(repo.delete_history(&user(), "m1").await.is_err());
         assert!(repo.clear_history(&user()).await.is_err());
         assert!(repo.watched_state(&user()).await.is_err());

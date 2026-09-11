@@ -42,10 +42,7 @@ mod tests {
         let req: TitleStateBatchRequest =
             serde_json::from_str(r#"{"titles":[{"type":"movie","id":"m1"}]}"#).unwrap();
         assert_eq!(req.titles.len(), 1);
-        assert_eq!(
-            TitleId::from(req.titles[0].clone()),
-            TitleId::Movie(MovieId("m1".into()))
-        );
+        assert_eq!(TitleId::from(req.titles[0].clone()), TitleId::Movie(MovieId("m1".into())));
     }
 
     #[test]
@@ -59,10 +56,7 @@ mod tests {
             progress_percent: 35,
         });
         let value = serde_json::to_value(response).unwrap();
-        assert_eq!(
-            value["title"],
-            serde_json::json!({"type": "movie", "id": "m1"})
-        );
+        assert_eq!(value["title"], serde_json::json!({"type": "movie", "id": "m1"}));
         assert_eq!(value["favorite"], true);
         assert_eq!(value["watchlisted"], false);
         assert_eq!(value["watched"], true);

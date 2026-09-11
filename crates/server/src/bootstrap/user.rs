@@ -18,10 +18,7 @@ struct ContentRatingEntry {
 
 impl From<ContentRatingEntry> for ContentRating {
     fn from(entry: ContentRatingEntry) -> Self {
-        ContentRating {
-            system: entry.system,
-            code: entry.code,
-        }
+        ContentRating { system: entry.system, code: entry.code }
     }
 }
 
@@ -88,11 +85,7 @@ pub struct UserBootstrapProvider<U, L> {
 
 impl<U, L> UserBootstrapProvider<U, L> {
     pub fn new(users: U, libraries: L) -> Self {
-        Self {
-            users,
-            libraries,
-            admin: bootstrap_admin(),
-        }
+        Self { users, libraries, admin: bootstrap_admin() }
     }
 }
 
@@ -104,19 +97,16 @@ where
         if names.is_empty() {
             return Ok(Vec::new());
         }
-        let existing = self
-            .libraries
-            .libraries(&self.admin)
-            .await
-            .map_err(|error| backend("user", error))?;
+        let existing =
+            self.libraries.libraries(&self.admin).await.map_err(|error| backend("user", error))?;
         let mut ids = Vec::with_capacity(names.len());
         for name in names {
-            let library = existing
-                .iter()
-                .find(|library| &library.name == name)
-                .ok_or_else(|| BootstrapError::Invalid {
-                    entity: "user",
-                    reason: format!("references unknown library {name:?}"),
+            let library =
+                existing.iter().find(|library| &library.name == name).ok_or_else(|| {
+                    BootstrapError::Invalid {
+                        entity: "user",
+                        reason: format!("references unknown library {name:?}"),
+                    }
                 })?;
             ids.push(library.id.clone());
         }
@@ -136,29 +126,18 @@ where
     }
 
     fn load(&self, value: &toml::Value) -> Result<ParsedUser, BootstrapError> {
-        let entry: UserEntry =
-            value
-                .clone()
-                .try_into()
-                .map_err(|error| BootstrapError::Invalid {
-                    entity: "user",
-                    reason: error.to_string(),
-                })?;
+        let entry: UserEntry = value.clone().try_into().map_err(|error| {
+            BootstrapError::Invalid { entity: "user", reason: error.to_string() }
+        })?;
         Ok(entry.into())
     }
 
     fn validate(&self, entities: &[ParsedUser]) -> Result<(), BootstrapError> {
-        require_unique(entities, "user", "username", |user| {
-            user.new_user.username.clone()
-        })
+        require_unique(entities, "user", "username", |user| user.new_user.username.clone())
     }
 
     async fn create(&self, entity: ParsedUser) -> Result<Created, BootstrapError> {
-        let ParsedUser {
-            new_user,
-            libraries,
-            profile,
-        } = entity;
+        let ParsedUser { new_user, libraries, profile } = entity;
         let library_ids = self.resolve_libraries(&libraries).await?;
 
         let user = match self.users.create(new_user).await {
@@ -270,20 +249,12 @@ mod tests {
         let result = run_one(&provider, dir.path()).await;
 
         assert_eq!(result.created, 1);
-        let listed = users
-            .list(domain::common::PageRequest {
-                offset: 0,
-                limit: 10,
-            })
-            .await
-            .unwrap();
+        let listed =
+            users.list(domain::common::PageRequest { offset: 0, limit: 10 }).await.unwrap();
         let pat = &listed.items[0];
         assert_eq!(
             pat.preferred_audio,
-            vec![
-                LanguageCode("eng".to_owned()),
-                LanguageCode("nld".to_owned())
-            ]
+            vec![LanguageCode("eng".to_owned()), LanguageCode("nld".to_owned())]
         );
         assert_eq!(pat.preferred_subtitle, vec![LanguageCode("eng".to_owned())]);
     }
@@ -303,23 +274,15 @@ mod tests {
         let result = run_one(&provider, dir.path()).await;
         assert_eq!(result.created, 1);
 
-        let listed = users
-            .list(domain::common::PageRequest {
-                offset: 0,
-                limit: 10,
-            })
-            .await
-            .unwrap();
+        let listed =
+            users.list(domain::common::PageRequest { offset: 0, limit: 10 }).await.unwrap();
         let admin = &listed.items[0];
         assert_eq!(admin.username, "admin");
         assert_eq!(admin.role, Role::Admin);
         assert_eq!(admin.concurrent_stream_limit, Some(3));
         assert_eq!(
             admin.max_content_rating,
-            Some(ContentRating {
-                system: "mpaa".to_owned(),
-                code: "PG-13".to_owned(),
-            })
+            Some(ContentRating { system: "mpaa".to_owned(), code: "PG-13".to_owned() })
         );
         let access = users.library_access(&admin.id).await.unwrap();
         assert_eq!(access.len(), 1);
@@ -348,13 +311,8 @@ mod tests {
         let result = run_one(&provider, dir.path()).await;
         assert_eq!(result.created, 0);
         assert_eq!(result.skipped, 1);
-        let listed = users
-            .list(domain::common::PageRequest {
-                offset: 0,
-                limit: 10,
-            })
-            .await
-            .unwrap();
+        let listed =
+            users.list(domain::common::PageRequest { offset: 0, limit: 10 }).await.unwrap();
         assert_eq!(listed.total, 1);
         assert_eq!(
             listed.items[0].password_hash, before,
@@ -377,15 +335,44 @@ mod tests {
         assert_eq!(result.created, 0);
         assert!(
             users
-                .list(domain::common::PageRequest {
-                    offset: 0,
-                    limit: 10,
-                })
+                .list(domain::common::PageRequest { offset: 0, limit: 10 })
                 .await
                 .unwrap()
                 .items
                 .is_empty()
         );
+    }
+
+    #[tokio::test]
+    async fn an_entry_that_is_not_a_user_is_refused_rather_than_guessed_at() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "[[users]]\nusername = 4\npassword = \"secret\"\n");
+        let provider = UserBootstrapProvider::new(user_service(), library_service().0);
+
+        let result = run_one(&provider, dir.path()).await;
+
+        assert_eq!(result.found, 0);
+        assert_eq!(result.created, 0);
+    }
+
+    // Bootstrap runs before anything is serving, so a user store that is down has to be
+    // reported as a backend failure rather than counted as a created account.
+    #[tokio::test]
+    async fn a_user_store_that_is_down_creates_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            dir.path(),
+            "[[users]]\nusername = \"admin\"\npassword = \"secret\"\nrole = \"admin\"\n",
+        );
+        let repo = MockUserRepo::new();
+        repo.set_fail();
+        let users = UserServiceImpl::new(repo, MockAuthTokenRepo::new(), MockUserDataStore::new());
+        let provider = UserBootstrapProvider::new(users, library_service().0);
+
+        let result = run_one(&provider, dir.path()).await;
+
+        assert_eq!(result.found, 1);
+        assert_eq!(result.created, 0);
     }
 
     #[tokio::test]

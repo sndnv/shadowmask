@@ -23,11 +23,7 @@ pub struct UserLibraryServiceImpl<Pr, Pf, C> {
 
 impl<Pr, Pf, C> UserLibraryServiceImpl<Pr, Pf, C> {
     pub fn new(progress: Arc<Pr>, preferences: Arc<Pf>, catalog: Arc<C>) -> Self {
-        Self {
-            progress,
-            preferences,
-            catalog,
-        }
+        Self { progress, preferences, catalog }
     }
 }
 
@@ -46,11 +42,7 @@ where
     C: CatalogRepository + Send + Sync,
 {
     async fn leaf_titles(&self, target: &WatchTarget) -> Result<Vec<TitleId>, UserError> {
-        Ok(self
-            .leaves_for(std::slice::from_ref(target))
-            .await?
-            .pop()
-            .unwrap_or_default())
+        Ok(self.leaves_for(std::slice::from_ref(target)).await?.pop().unwrap_or_default())
     }
 
     async fn leaves_for(&self, targets: &[WatchTarget]) -> Result<Vec<Vec<TitleId>>, UserError> {
@@ -71,9 +63,7 @@ where
         let by_series = self.catalog.episode_ids_for_series(&series).await?;
         let by_season = self.catalog.episode_ids_for_seasons(&seasons).await?;
         let episodes = |found: Option<&Vec<EpisodeId>>| {
-            found
-                .map(|ids| ids.iter().cloned().map(TitleId::Episode).collect())
-                .unwrap_or_default()
+            found.map(|ids| ids.iter().cloned().map(TitleId::Episode).collect()).unwrap_or_default()
         };
         Ok(targets
             .iter()
@@ -191,18 +181,11 @@ where
         watched: bool,
     ) -> Result<(), UserError> {
         for title in self.leaf_titles(target).await? {
-            self.progress
-                .set_watched_flags(user, &title, watched)
-                .await?;
+            self.progress.set_watched_flags(user, &title, watched).await?;
             if watched {
                 self.preferences.remove_watchlist(user, title.id()).await?;
             }
-            for version in self
-                .catalog
-                .list_versions(&title, PageRequest::ALL)
-                .await?
-                .items
-            {
+            for version in self.catalog.list_versions(&title, PageRequest::ALL).await?.items {
                 self.progress.delete(user, &version.id).await?;
             }
         }
@@ -214,20 +197,10 @@ where
         user: &UserId,
         titles: &[TitleId],
     ) -> Result<Vec<TitleState>, UserError> {
-        let favorites: HashSet<TitleId> = self
-            .preferences
-            .list_favorites(user)
-            .await?
-            .into_iter()
-            .map(|f| f.title)
-            .collect();
-        let watchlisted: HashSet<TitleId> = self
-            .preferences
-            .list_watchlist(user)
-            .await?
-            .into_iter()
-            .map(|w| w.title)
-            .collect();
+        let favorites: HashSet<TitleId> =
+            self.preferences.list_favorites(user).await?.into_iter().map(|f| f.title).collect();
+        let watchlisted: HashSet<TitleId> =
+            self.preferences.list_watchlist(user).await?.into_iter().map(|w| w.title).collect();
         let history: HashMap<TitleId, (bool, bool)> = self
             .progress
             .watched_state(user)
@@ -335,10 +308,7 @@ mod tests {
     }
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 100,
-        }
+        PageRequest { offset: 0, limit: 100 }
     }
 
     fn series(id: &str) -> Series {
@@ -439,30 +409,16 @@ mod tests {
             })
             .await
             .unwrap();
-        progress
-            .record_view(&user(), &title(), Timestamp::UNIX_EPOCH)
-            .await
-            .unwrap();
+        progress.record_view(&user(), &title(), Timestamp::UNIX_EPOCH).await.unwrap();
 
         assert_eq!(svc.history(&user(), page()).await.unwrap().total, 1);
         assert_eq!(
-            svc.progress(&user(), &VersionId("v1".into()))
-                .await
-                .unwrap()
-                .unwrap()
-                .position_ms,
+            svc.progress(&user(), &VersionId("v1".into())).await.unwrap().unwrap().position_ms,
             1234
         );
 
-        svc.clear_progress(&user(), &VersionId("v1".into()))
-            .await
-            .unwrap();
-        assert!(
-            svc.progress(&user(), &VersionId("v1".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        svc.clear_progress(&user(), &VersionId("v1".into())).await.unwrap();
+        assert!(svc.progress(&user(), &VersionId("v1".into())).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -487,15 +443,8 @@ mod tests {
             .await
             .unwrap();
 
-        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), true)
-            .await
-            .unwrap();
-        assert!(
-            svc.progress(&user(), &VersionId("v1".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), true).await.unwrap();
+        assert!(svc.progress(&user(), &VersionId("v1".into())).await.unwrap().is_none());
 
         progress
             .upsert(PlaybackProgress {
@@ -508,15 +457,8 @@ mod tests {
             })
             .await
             .unwrap();
-        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), false)
-            .await
-            .unwrap();
-        assert!(
-            svc.progress(&user(), &VersionId("v1".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), false).await.unwrap();
+        assert!(svc.progress(&user(), &VersionId("v1".into())).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -548,16 +490,8 @@ mod tests {
         assert!(svc.add_favorite(&user(), &title()).await.is_err());
         assert!(svc.remove_favorite(&user(), "m1").await.is_err());
         assert!(svc.history(&user(), page()).await.is_err());
-        assert!(
-            svc.progress(&user(), &VersionId("v1".into()))
-                .await
-                .is_err()
-        );
-        assert!(
-            svc.clear_progress(&user(), &VersionId("v1".into()))
-                .await
-                .is_err()
-        );
+        assert!(svc.progress(&user(), &VersionId("v1".into())).await.is_err());
+        assert!(svc.clear_progress(&user(), &VersionId("v1".into())).await.is_err());
         assert!(
             svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), true)
                 .await
@@ -590,9 +524,7 @@ mod tests {
         let m4 = TitleId::Movie(MovieId("m4".into()));
         svc.add_favorite(&user(), &m1).await.unwrap();
         svc.add_to_watchlist(&user(), &m2).await.unwrap();
-        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m3".into())), true)
-            .await
-            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m3".into())), true).await.unwrap();
 
         let states = svc
             .title_states(&user(), &[m3.clone(), m2.clone(), m1.clone(), m4.clone()])
@@ -665,10 +597,7 @@ mod tests {
 
         let m1 = TitleId::Movie(MovieId("m1".into()));
         let m2 = TitleId::Movie(MovieId("m2".into()));
-        let states = svc
-            .title_states(&user(), &[m1.clone(), m2.clone()])
-            .await
-            .unwrap();
+        let states = svc.title_states(&user(), &[m1.clone(), m2.clone()]).await.unwrap();
 
         assert_eq!(
             states[0].progress_percent, 70,
@@ -703,10 +632,8 @@ mod tests {
             .await
             .unwrap();
 
-        let states = svc
-            .title_states(&user(), &[TitleId::Movie(MovieId("m1".into()))])
-            .await
-            .unwrap();
+        let states =
+            svc.title_states(&user(), &[TitleId::Movie(MovieId("m1".into()))]).await.unwrap();
 
         assert_eq!(
             states[0].progress_percent, 0,
@@ -735,10 +662,8 @@ mod tests {
             .await
             .unwrap();
 
-        let states = svc
-            .title_states(&user(), &[TitleId::Movie(MovieId("m1".into()))])
-            .await
-            .unwrap();
+        let states =
+            svc.title_states(&user(), &[TitleId::Movie(MovieId("m1".into()))]).await.unwrap();
 
         assert_eq!(
             states[0].progress_percent, 0,
@@ -769,18 +694,12 @@ mod tests {
             Arc::clone(&catalog),
         );
 
-        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), true)
-            .await
-            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), true).await.unwrap();
         svc.set_watched(&user(), &WatchTarget::Episode(EpisodeId("e9".into())), true)
             .await
             .unwrap();
-        svc.set_watched(&user(), &WatchTarget::Season(SeasonId("se1".into())), true)
-            .await
-            .unwrap();
-        svc.set_watched(&user(), &WatchTarget::Series(SeriesId("sr1".into())), true)
-            .await
-            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Season(SeasonId("se1".into())), true).await.unwrap();
+        svc.set_watched(&user(), &WatchTarget::Series(SeriesId("sr1".into())), true).await.unwrap();
 
         assert_eq!(
             watched_ids(&progress).await,
@@ -823,9 +742,7 @@ mod tests {
             "one episode watched takes only that episode off"
         );
 
-        svc.set_watched(&user(), &WatchTarget::Season(SeasonId("se1".into())), true)
-            .await
-            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Season(SeasonId("se1".into())), true).await.unwrap();
 
         assert_eq!(
             saved_ids(&svc).await,
@@ -833,9 +750,7 @@ mod tests {
             "a season takes its own episodes and leaves the other season alone"
         );
 
-        svc.set_watched(&user(), &WatchTarget::Series(SeriesId("sr1".into())), true)
-            .await
-            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Series(SeriesId("sr1".into())), true).await.unwrap();
 
         assert_eq!(
             saved_ids(&svc).await,
@@ -850,9 +765,7 @@ mod tests {
         let m1 = TitleId::Movie(MovieId("m1".into()));
         svc.add_to_watchlist(&user(), &m1).await.unwrap();
 
-        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), false)
-            .await
-            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), false).await.unwrap();
 
         assert_eq!(
             saved_ids(&svc).await,
@@ -860,9 +773,7 @@ mod tests {
             "clearing the flag must not be a way to lose a saved title"
         );
 
-        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), true)
-            .await
-            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), true).await.unwrap();
 
         assert!(
             saved_ids(&svc).await.is_empty(),
@@ -878,14 +789,10 @@ mod tests {
             Arc::new(MockPreferencesRepo::new()),
             Arc::new(MockCatalogRepo::new()),
         );
-        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), true)
-            .await
-            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), true).await.unwrap();
         assert_eq!(watched_ids(&progress).await.len(), 1);
 
-        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), false)
-            .await
-            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), false).await.unwrap();
         assert!(watched_ids(&progress).await.is_empty());
         assert!(svc.history(&user(), page()).await.unwrap().items.is_empty());
     }
@@ -898,18 +805,10 @@ mod tests {
             Arc::new(MockPreferencesRepo::new()),
             Arc::new(MockCatalogRepo::new()),
         );
-        progress
-            .record_view(&user(), &title(), Timestamp::UNIX_EPOCH)
-            .await
-            .unwrap();
-        progress
-            .record_view(&user(), &title(), Timestamp::UNIX_EPOCH)
-            .await
-            .unwrap();
+        progress.record_view(&user(), &title(), Timestamp::UNIX_EPOCH).await.unwrap();
+        progress.record_view(&user(), &title(), Timestamp::UNIX_EPOCH).await.unwrap();
 
-        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), false)
-            .await
-            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), false).await.unwrap();
         let history = svc.history(&user(), page()).await.unwrap();
         assert_eq!(history.total, 1);
         assert_eq!(history.items[0].play_count, 2);
@@ -927,10 +826,7 @@ mod tests {
             Arc::new(MockPreferencesRepo::new()),
             Arc::new(MockCatalogRepo::new()),
         );
-        progress
-            .record_view(&user(), &title(), Timestamp::UNIX_EPOCH)
-            .await
-            .unwrap();
+        progress.record_view(&user(), &title(), Timestamp::UNIX_EPOCH).await.unwrap();
 
         svc.clear_history(&user()).await.unwrap();
         assert!(svc.history(&user(), page()).await.unwrap().items.is_empty());
@@ -940,12 +836,8 @@ mod tests {
     #[tokio::test]
     async fn set_watched_empty_season_and_series_are_noops() {
         let svc = service();
-        svc.set_watched(&user(), &WatchTarget::Season(SeasonId("se1".into())), true)
-            .await
-            .unwrap();
-        svc.set_watched(&user(), &WatchTarget::Series(SeriesId("sr1".into())), true)
-            .await
-            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Season(SeasonId("se1".into())), true).await.unwrap();
+        svc.set_watched(&user(), &WatchTarget::Series(SeriesId("sr1".into())), true).await.unwrap();
         assert!(svc.history(&user(), page()).await.unwrap().items.is_empty());
     }
 
@@ -999,9 +891,7 @@ mod tests {
             Arc::new(MockPreferencesRepo::new()),
             Arc::clone(&catalog),
         );
-        svc.set_watched(&user(), &WatchTarget::Series(SeriesId("sr1".into())), true)
-            .await
-            .unwrap();
+        svc.set_watched(&user(), &WatchTarget::Series(SeriesId("sr1".into())), true).await.unwrap();
 
         let rollups = svc
             .watched_rollups(
@@ -1178,9 +1068,8 @@ mod tests {
             Arc::new(MockPreferencesRepo::new()),
             Arc::clone(&catalog),
         );
-        let targets: Vec<WatchTarget> = (0..50)
-            .map(|s| WatchTarget::Series(SeriesId(format!("sr{s}"))))
-            .collect();
+        let targets: Vec<WatchTarget> =
+            (0..50).map(|s| WatchTarget::Series(SeriesId(format!("sr{s}")))).collect();
 
         let rollups = svc.watched_rollups(&user(), &targets).await.unwrap();
 

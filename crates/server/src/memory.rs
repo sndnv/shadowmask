@@ -24,11 +24,7 @@ fn parse_cgroup_v2_max(contents: &str) -> Option<u64> {
 
 fn parse_cgroup_v1_limit(contents: &str) -> Option<u64> {
     let value: u64 = contents.trim().parse().ok()?;
-    if value >= 1u64 << 62 {
-        None
-    } else {
-        Some(value)
-    }
+    if value >= 1u64 << 62 { None } else { Some(value) }
 }
 
 fn parse_mem_available(contents: &str) -> Option<u64> {
@@ -75,9 +71,7 @@ pub fn memory_warning(
 #[cfg(feature = "enrichment")]
 pub fn available_memory_bytes() -> u64 {
     if in_container() {
-        cgroup_memory_limit()
-            .or_else(host_available_memory)
-            .unwrap_or(0)
+        cgroup_memory_limit().or_else(host_available_memory).unwrap_or(0)
     } else {
         host_available_memory().unwrap_or(0)
     }
@@ -170,13 +164,8 @@ mod tests {
     #[test]
     fn no_warning_when_model_fits() {
         assert!(
-            memory_warning(
-                "transcription",
-                "/models/small",
-                3_000_000_000,
-                16_000_000_000
-            )
-            .is_none()
+            memory_warning("transcription", "/models/small", 3_000_000_000, 16_000_000_000)
+                .is_none()
         );
     }
 

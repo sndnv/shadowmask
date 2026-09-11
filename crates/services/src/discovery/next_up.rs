@@ -132,19 +132,13 @@ mod tests {
     }
 
     fn resume(marks: &[(SeriesId, u16, u16)]) -> Vec<(String, u16, u16)> {
-        marks
-            .iter()
-            .map(|(series, season, number)| (series.0.clone(), *season, *number))
-            .collect()
+        marks.iter().map(|(series, season, number)| (series.0.clone(), *season, *number)).collect()
     }
 
     #[test]
     fn the_furthest_watched_slot_wins_even_when_an_earlier_one_comes_last() {
-        let watched = [
-            seen("s2e1", "show", 2, 1),
-            seen("s1e1", "show", 1, 1),
-            seen("s1e2", "show", 1, 2),
-        ];
+        let watched =
+            [seen("s2e1", "show", 2, 1), seen("s1e1", "show", 1, 1), seen("s1e2", "show", 1, 2)];
         assert_eq!(
             resume(&furthest_watched(&watched)),
             vec![("show".to_owned(), 2, 1)],
@@ -159,11 +153,8 @@ mod tests {
 
     #[test]
     fn each_series_resumes_independently_and_in_id_order() {
-        let watched = [
-            seen("b1e1", "beta", 1, 1),
-            seen("a1e1", "alpha", 1, 1),
-            seen("a1e2", "alpha", 1, 2),
-        ];
+        let watched =
+            [seen("b1e1", "beta", 1, 1), seen("a1e1", "alpha", 1, 1), seen("a1e2", "alpha", 1, 2)];
         assert_eq!(
             resume(&furthest_watched(&watched)),
             vec![("alpha".to_owned(), 1, 2), ("beta".to_owned(), 1, 1)]
@@ -212,10 +203,7 @@ mod tests {
         let movies = [movie("m1"), movie("m2"), movie("m3")];
         let watched = HashSet::from([MovieId("m1".to_owned())]);
         let next = next_movies(&collections, &movies, &watched);
-        assert_eq!(
-            next.iter().map(|m| m.id.0.clone()).collect::<Vec<_>>(),
-            vec!["m2"]
-        );
+        assert_eq!(next.iter().map(|m| m.id.0.clone()).collect::<Vec<_>>(), vec!["m2"]);
     }
 
     #[test]

@@ -23,11 +23,7 @@ use crate::page::paginate;
 const MOSAIC_TILES: usize = 4;
 
 fn collection_poster(movie: &Movie) -> Option<ArtworkRef> {
-    movie
-        .artwork
-        .iter()
-        .find(|art| art.kind == ArtworkKind::Poster)
-        .cloned()
+    movie.artwork.iter().find(|art| art.kind == ArtworkKind::Poster).cloned()
 }
 
 #[derive(Clone)]
@@ -61,13 +57,7 @@ where
         movies: &[MovieId],
     ) -> Result<Vec<ArtworkRef>, CatalogError> {
         let tiles = &movies[..movies.len().min(MOSAIC_TILES)];
-        Ok(self
-            .catalog
-            .movies_by_ids(tiles)
-            .await?
-            .iter()
-            .filter_map(collection_poster)
-            .collect())
+        Ok(self.catalog.movies_by_ids(tiles).await?.iter().filter_map(collection_poster).collect())
     }
 
     async fn permits_series(
@@ -75,10 +65,7 @@ where
         caller: &Principal,
         series: Option<&Series>,
     ) -> Result<bool, CatalogError> {
-        Ok(self
-            .viewer(caller)
-            .await?
-            .permits(series.and_then(|show| show.content_rating.as_ref())))
+        Ok(self.viewer(caller).await?.permits(series.and_then(|show| show.content_rating.as_ref())))
     }
 
     async fn build_filter(
@@ -118,18 +105,12 @@ where
         _caller: &Principal,
         id: &CollectionId,
     ) -> Result<CollectionDetail, CatalogError> {
-        let mut collection = self
-            .catalog
-            .get_collection(id)
-            .await?
-            .ok_or(CatalogError::NotFound)?;
+        let mut collection =
+            self.catalog.get_collection(id).await?.ok_or(CatalogError::NotFound)?;
         let movies = self.catalog.movies_by_ids(&collection.movies).await?;
         if collection.artwork.is_empty() {
-            collection.artwork = movies
-                .iter()
-                .take(MOSAIC_TILES)
-                .filter_map(collection_poster)
-                .collect();
+            collection.artwork =
+                movies.iter().take(MOSAIC_TILES).filter_map(collection_poster).collect();
         }
         Ok(CollectionDetail { collection, movies })
     }
@@ -142,11 +123,7 @@ where
         let ids = self.catalog.collections_of_movie(movie).await?;
         let mut found = Vec::with_capacity(ids.len());
         for id in &ids {
-            match self.collection(caller, id).await {
-                Ok(detail) => found.push(detail),
-                Err(CatalogError::NotFound) => continue,
-                Err(err) => return Err(err),
-            }
+            found.push(self.collection(caller, id).await?);
         }
         found.sort_by(|a, b| {
             a.collection
@@ -183,10 +160,7 @@ where
         id: &CollectionId,
         update: CollectionUpdate,
     ) -> Result<Collection, CatalogError> {
-        self.catalog
-            .get_collection(id)
-            .await?
-            .ok_or(CatalogError::NotFound)?;
+        self.catalog.get_collection(id).await?.ok_or(CatalogError::NotFound)?;
         let now = Timestamp::now();
         let collection = Collection {
             id: id.clone(),
@@ -206,10 +180,7 @@ where
         _caller: &Principal,
         id: &CollectionId,
     ) -> Result<(), CatalogError> {
-        self.catalog
-            .get_collection(id)
-            .await?
-            .ok_or(CatalogError::NotFound)?;
+        self.catalog.get_collection(id).await?.ok_or(CatalogError::NotFound)?;
         self.catalog.delete_collection(id).await?;
         Ok(())
     }
@@ -225,16 +196,8 @@ where
     }
 
     async fn movie(&self, caller: &Principal, id: &MovieId) -> Result<MovieDetail, CatalogError> {
-        let detail = self
-            .catalog
-            .movie_detail(id)
-            .await?
-            .ok_or(CatalogError::NotFound)?;
-        if !self
-            .viewer(caller)
-            .await?
-            .permits(detail.movie.content_rating.as_ref())
-        {
+        let detail = self.catalog.movie_detail(id).await?.ok_or(CatalogError::NotFound)?;
+        if !self.viewer(caller).await?.permits(detail.movie.content_rating.as_ref()) {
             return Err(CatalogError::NotFound);
         }
         Ok(detail)
@@ -255,16 +218,8 @@ where
         caller: &Principal,
         id: &SeriesId,
     ) -> Result<SeriesDetail, CatalogError> {
-        let detail = self
-            .catalog
-            .series_detail(id)
-            .await?
-            .ok_or(CatalogError::NotFound)?;
-        if !self
-            .viewer(caller)
-            .await?
-            .permits(detail.series.content_rating.as_ref())
-        {
+        let detail = self.catalog.series_detail(id).await?.ok_or(CatalogError::NotFound)?;
+        if !self.viewer(caller).await?.permits(detail.series.content_rating.as_ref()) {
             return Err(CatalogError::NotFound);
         }
         Ok(detail)
@@ -284,11 +239,7 @@ where
     }
 
     async fn season(&self, caller: &Principal, id: &SeasonId) -> Result<SeasonCard, CatalogError> {
-        let season = self
-            .catalog
-            .get_season(id)
-            .await?
-            .ok_or(CatalogError::NotFound)?;
+        let season = self.catalog.get_season(id).await?.ok_or(CatalogError::NotFound)?;
         let series = self.catalog.get_series(&season.series).await?;
         if !self.permits_series(caller, series.as_ref()).await? {
             return Err(CatalogError::NotFound);
@@ -310,11 +261,7 @@ where
             Some(season) => self.catalog.get_series(&season.series).await?,
             None => None,
         };
-        if !viewer.permits(
-            series
-                .as_ref()
-                .and_then(|show| show.content_rating.as_ref()),
-        ) {
+        if !viewer.permits(series.as_ref().and_then(|show| show.content_rating.as_ref())) {
             return Err(CatalogError::NotFound);
         }
         Ok(self.catalog.list_episodes(season).await?)
@@ -325,11 +272,7 @@ where
         caller: &Principal,
         id: &EpisodeId,
     ) -> Result<EpisodeCard, CatalogError> {
-        let episode = self
-            .catalog
-            .get_episode(id)
-            .await?
-            .ok_or(CatalogError::NotFound)?;
+        let episode = self.catalog.get_episode(id).await?.ok_or(CatalogError::NotFound)?;
         let season = self.catalog.get_season(&episode.season).await?;
         let series = match &season {
             Some(season) => self.catalog.get_series(&season.series).await?,
@@ -403,16 +346,8 @@ where
         caller: &Principal,
         id: &VersionId,
     ) -> Result<VersionDetail, CatalogError> {
-        let detail = self
-            .catalog
-            .version_detail(id)
-            .await?
-            .ok_or(CatalogError::NotFound)?;
-        if !self
-            .viewer(caller)
-            .await?
-            .sees_library(&detail.version.library)
-        {
+        let detail = self.catalog.version_detail(id).await?.ok_or(CatalogError::NotFound)?;
+        if !self.viewer(caller).await?.sees_library(&detail.version.library) {
             return Err(CatalogError::NotFound);
         }
         Ok(detail)
@@ -437,11 +372,7 @@ where
         caller: &Principal,
         id: &PersonId,
     ) -> Result<PersonProfile, CatalogError> {
-        let person = self
-            .catalog
-            .get_person(id)
-            .await?
-            .ok_or(CatalogError::NotFound)?;
+        let person = self.catalog.get_person(id).await?.ok_or(CatalogError::NotFound)?;
         let viewer = self.viewer(caller).await?;
         let credits = self.catalog.filmography(id).await?;
         let mut movie_ids = Vec::new();
@@ -470,12 +401,12 @@ where
         let mut filmography = Vec::new();
         for credit in credits {
             let resolved = match &credit.title {
-                TitleRef::Movie(movie) => movies
-                    .get(movie)
-                    .map(|m| (&m.title, m.year, &m.artwork, &m.content_rating)),
-                TitleRef::Series(show) => series
-                    .get(show)
-                    .map(|s| (&s.title, s.year, &s.artwork, &s.content_rating)),
+                TitleRef::Movie(movie) => {
+                    movies.get(movie).map(|m| (&m.title, m.year, &m.artwork, &m.content_rating))
+                }
+                TitleRef::Series(show) => {
+                    series.get(show).map(|s| (&s.title, s.year, &s.artwork, &s.content_rating))
+                }
             };
             let Some((display_title, year, artwork, content_rating)) = resolved else {
                 continue;
@@ -493,10 +424,7 @@ where
                 character: credit.character,
             });
         }
-        Ok(PersonProfile {
-            person,
-            filmography,
-        })
+        Ok(PersonProfile { person, filmography })
     }
 
     async fn genres(
@@ -599,10 +527,7 @@ mod tests {
     use mocks::{MockCatalogRepo, MockUserRepo};
 
     fn genre(id: &str, name: &str) -> Genre {
-        Genre {
-            id: GenreId(id.into()),
-            name: name.into(),
-        }
+        Genre { id: GenreId(id.into()), name: name.into() }
     }
 
     fn credit(
@@ -622,24 +547,15 @@ mod tests {
     }
 
     fn admin() -> Principal {
-        Principal {
-            user: UserId("admin".into()),
-            role: Role::Admin,
-        }
+        Principal { user: UserId("admin".into()), role: Role::Admin }
     }
 
     fn member() -> Principal {
-        Principal {
-            user: UserId("u1".into()),
-            role: Role::User,
-        }
+        Principal { user: UserId("u1".into()), role: Role::User }
     }
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        PageRequest { offset: 0, limit: 10 }
     }
 
     fn query() -> TitleListQuery {
@@ -647,24 +563,15 @@ mod tests {
     }
 
     fn genre_query(genre: &str) -> TitleListQuery {
-        TitleListQuery {
-            genres: vec![genre.to_owned()],
-            ..TitleListQuery::default()
-        }
+        TitleListQuery { genres: vec![genre.to_owned()], ..TitleListQuery::default() }
     }
 
     fn library_query(library: &str) -> TitleListQuery {
-        TitleListQuery {
-            library: Some(LibraryId(library.into())),
-            ..TitleListQuery::default()
-        }
+        TitleListQuery { library: Some(LibraryId(library.into())), ..TitleListQuery::default() }
     }
 
     fn rating(code: &str) -> ContentRating {
-        ContentRating {
-            system: "MPAA".into(),
-            code: code.into(),
-        }
+        ContentRating { system: "MPAA".into(), code: code.into() }
     }
 
     fn card_ids(cards: &[TitleCard]) -> Vec<&str> {
@@ -736,10 +643,7 @@ mod tests {
             sort_title: "s1".into(),
             year: None,
             overview: None,
-            content_rating: Some(ContentRating {
-                system: "US-TV".into(),
-                code: "TV-MA".into(),
-            }),
+            content_rating: Some(ContentRating { system: "US-TV".into(), code: "TV-MA".into() }),
             manually_edited: false,
             added_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
@@ -904,16 +808,10 @@ mod tests {
         let catalog = seeded_catalog().await;
         let users = MockUserRepo::new();
         users.insert(capped_user());
-        users
-            .set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())])
-            .await
-            .unwrap();
+        users.set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())]).await.unwrap();
         // Admin carries no implicit access, so it is granted both libraries here
         // the same way a real admin would grant itself.
-        users.grant(
-            &UserId("admin".into()),
-            &[LibraryId("lib1".into()), LibraryId("lib2".into())],
-        );
+        users.grant(&UserId("admin".into()), &[LibraryId("lib1".into()), LibraryId("lib2".into())]);
         CatalogServiceImpl::new(catalog, users)
     }
 
@@ -931,11 +829,7 @@ mod tests {
             1,
             "s1 has no file, so like m2 it belongs to no library"
         );
-        assert!(
-            svc.series_detail(&admin(), &SeriesId("s1".into()))
-                .await
-                .is_ok()
-        );
+        assert!(svc.series_detail(&admin(), &SeriesId("s1".into())).await.is_ok());
         assert_eq!(
             svc.versions(&admin(), &TitleId::Movie(MovieId("m1".into())), page())
                 .await
@@ -944,10 +838,7 @@ mod tests {
             2
         );
         assert_eq!(
-            svc.library_versions(&admin(), &LibraryId("lib2".into()), page())
-                .await
-                .unwrap()
-                .total,
+            svc.library_versions(&admin(), &LibraryId("lib2".into()), page()).await.unwrap().total,
             1
         );
         assert!(svc.version(&admin(), &VersionId("v2".into())).await.is_ok());
@@ -956,15 +847,9 @@ mod tests {
     #[tokio::test]
     async fn an_admin_without_the_grant_is_refused_like_anyone_else() {
         let svc = seeded().await;
-        let stranger = Principal {
-            user: UserId("nobody".into()),
-            role: Role::Admin,
-        };
+        let stranger = Principal { user: UserId("nobody".into()), role: Role::Admin };
 
-        assert_eq!(
-            svc.movies(&stranger, &query(), page()).await.unwrap().total,
-            0
-        );
+        assert_eq!(svc.movies(&stranger, &query(), page()).await.unwrap().total, 0);
         assert_eq!(
             svc.versions(&stranger, &TitleId::Movie(MovieId("m1".into())), page())
                 .await
@@ -973,9 +858,7 @@ mod tests {
             0
         );
         assert!(matches!(
-            svc.version(&stranger, &VersionId("v1".into()))
-                .await
-                .unwrap_err(),
+            svc.version(&stranger, &VersionId("v1".into())).await.unwrap_err(),
             CatalogError::NotFound
         ));
     }
@@ -990,10 +873,7 @@ mod tests {
             CatalogError::Forbidden
         ));
 
-        let stranger = Principal {
-            user: UserId("nobody".into()),
-            role: Role::Admin,
-        };
+        let stranger = Principal { user: UserId("nobody".into()), role: Role::Admin };
         assert_eq!(
             svc.all_versions(&stranger, page()).await.unwrap().total,
             0,
@@ -1009,24 +889,16 @@ mod tests {
         assert_eq!(movies.items[0].id, MovieId("m1".into()));
         assert!(svc.movie(&member(), &MovieId("m1".into())).await.is_ok());
         assert!(matches!(
-            svc.movie(&member(), &MovieId("m2".into()))
-                .await
-                .unwrap_err(),
+            svc.movie(&member(), &MovieId("m2".into())).await.unwrap_err(),
             CatalogError::NotFound
         ));
 
         let series = svc.series(&member(), &query(), page()).await.unwrap();
         assert_eq!(series.total, 1);
         assert_eq!(series.items[0].id, SeriesId("s2".into()));
-        assert!(
-            svc.series_detail(&member(), &SeriesId("s2".into()))
-                .await
-                .is_ok()
-        );
+        assert!(svc.series_detail(&member(), &SeriesId("s2".into())).await.is_ok());
         assert!(matches!(
-            svc.series_detail(&member(), &SeriesId("s1".into()))
-                .await
-                .unwrap_err(),
+            svc.series_detail(&member(), &SeriesId("s1".into())).await.unwrap_err(),
             CatalogError::NotFound
         ));
     }
@@ -1035,67 +907,26 @@ mod tests {
     async fn list_scoping_and_sort() {
         let svc = seeded().await;
 
-        let admin_lib1 = svc
-            .movies(&admin(), &library_query("lib1"), page())
-            .await
-            .unwrap();
+        let admin_lib1 = svc.movies(&admin(), &library_query("lib1"), page()).await.unwrap();
+        assert_eq!(admin_lib1.items.iter().map(|m| m.id.0.as_str()).collect::<Vec<_>>(), ["m1"]);
+        let admin_series_lib1 = svc.series(&admin(), &library_query("lib1"), page()).await.unwrap();
         assert_eq!(
-            admin_lib1
-                .items
-                .iter()
-                .map(|m| m.id.0.as_str())
-                .collect::<Vec<_>>(),
-            ["m1"]
-        );
-        let admin_series_lib1 = svc
-            .series(&admin(), &library_query("lib1"), page())
-            .await
-            .unwrap();
-        assert_eq!(
-            admin_series_lib1
-                .items
-                .iter()
-                .map(|s| s.id.0.as_str())
-                .collect::<Vec<_>>(),
+            admin_series_lib1.items.iter().map(|s| s.id.0.as_str()).collect::<Vec<_>>(),
             ["s2"]
         );
         assert!(
-            svc.movies(&admin(), &library_query("ghost"), page())
-                .await
-                .unwrap()
-                .items
-                .is_empty()
+            svc.movies(&admin(), &library_query("ghost"), page()).await.unwrap().items.is_empty()
         );
 
         assert!(
-            svc.movies(&member(), &library_query("lib2"), page())
-                .await
-                .unwrap()
-                .items
-                .is_empty()
+            svc.movies(&member(), &library_query("lib2"), page()).await.unwrap().items.is_empty()
         );
-        let member_lib1 = svc
-            .movies(&member(), &library_query("lib1"), page())
-            .await
-            .unwrap();
+        let member_lib1 = svc.movies(&member(), &library_query("lib1"), page()).await.unwrap();
+        assert_eq!(member_lib1.items.iter().map(|m| m.id.0.as_str()).collect::<Vec<_>>(), ["m1"]);
+        let member_series_lib1 =
+            svc.series(&member(), &library_query("lib1"), page()).await.unwrap();
         assert_eq!(
-            member_lib1
-                .items
-                .iter()
-                .map(|m| m.id.0.as_str())
-                .collect::<Vec<_>>(),
-            ["m1"]
-        );
-        let member_series_lib1 = svc
-            .series(&member(), &library_query("lib1"), page())
-            .await
-            .unwrap();
-        assert_eq!(
-            member_series_lib1
-                .items
-                .iter()
-                .map(|s| s.id.0.as_str())
-                .collect::<Vec<_>>(),
+            member_series_lib1.items.iter().map(|s| s.id.0.as_str()).collect::<Vec<_>>(),
             ["s2"]
         );
 
@@ -1106,11 +937,7 @@ mod tests {
         };
         let sorted = svc.movies(&admin(), &by_title_desc, page()).await.unwrap();
         assert_eq!(
-            sorted
-                .items
-                .iter()
-                .map(|m| m.id.0.as_str())
-                .collect::<Vec<_>>(),
+            sorted.items.iter().map(|m| m.id.0.as_str()).collect::<Vec<_>>(),
             ["m1"],
             "m2 has no version and so belongs to no library, which every list is scoped by"
         );
@@ -1125,29 +952,17 @@ mod tests {
         assert_eq!(versions.items[0].id, VersionId("v1".into()));
 
         assert_eq!(
-            svc.library_versions(&member(), &LibraryId("lib1".into()), page())
-                .await
-                .unwrap()
-                .total,
+            svc.library_versions(&member(), &LibraryId("lib1".into()), page()).await.unwrap().total,
             2
         );
         assert_eq!(
-            svc.library_versions(&member(), &LibraryId("lib2".into()), page())
-                .await
-                .unwrap()
-                .total,
+            svc.library_versions(&member(), &LibraryId("lib2".into()), page()).await.unwrap().total,
             0
         );
 
-        assert!(
-            svc.version(&member(), &VersionId("v1".into()))
-                .await
-                .is_ok()
-        );
+        assert!(svc.version(&member(), &VersionId("v1".into())).await.is_ok());
         assert!(matches!(
-            svc.version(&member(), &VersionId("v2".into()))
-                .await
-                .unwrap_err(),
+            svc.version(&member(), &VersionId("v2".into())).await.unwrap_err(),
             CatalogError::NotFound
         ));
     }
@@ -1155,48 +970,28 @@ mod tests {
     #[tokio::test]
     async fn seasons_episodes_and_missing() {
         let svc = seeded().await;
-        assert_eq!(
-            svc.seasons(&member(), &SeriesId("s2".into()))
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
+        assert_eq!(svc.seasons(&member(), &SeriesId("s2".into())).await.unwrap().len(), 1);
         assert!(svc.season(&member(), &SeasonId("se2".into())).await.is_ok());
         assert!(matches!(
-            svc.season(&member(), &SeasonId("x".into()))
-                .await
-                .unwrap_err(),
+            svc.season(&member(), &SeasonId("x".into())).await.unwrap_err(),
             CatalogError::NotFound
         ));
-        assert_eq!(
-            svc.episodes(&member(), &SeasonId("se2".into()))
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
+        assert_eq!(svc.episodes(&member(), &SeasonId("se2".into())).await.unwrap().len(), 1);
         assert!(
-            svc.episode(&member(), &EpisodeId("e2".into()))
-                .await
-                .is_ok()
+            svc.episodes(&member(), &SeasonId("x".into())).await.unwrap().is_empty(),
+            "a season that is not there has no show to rate, so the cap has nothing to block"
         );
+        assert!(svc.episode(&member(), &EpisodeId("e2".into())).await.is_ok());
         assert!(matches!(
-            svc.episode(&member(), &EpisodeId("x".into()))
-                .await
-                .unwrap_err(),
+            svc.episode(&member(), &EpisodeId("x".into())).await.unwrap_err(),
             CatalogError::NotFound
         ));
         assert!(matches!(
-            svc.movie(&member(), &MovieId("x".into()))
-                .await
-                .unwrap_err(),
+            svc.movie(&member(), &MovieId("x".into())).await.unwrap_err(),
             CatalogError::NotFound
         ));
         assert!(matches!(
-            svc.version(&member(), &VersionId("x".into()))
-                .await
-                .unwrap_err(),
+            svc.version(&member(), &VersionId("x".into())).await.unwrap_err(),
             CatalogError::NotFound
         ));
     }
@@ -1215,35 +1010,21 @@ mod tests {
         let created = svc
             .create_collection(
                 &admin(),
-                NewCollection {
-                    name: "Saga".into(),
-                    overview: None,
-                    movies: members.clone(),
-                },
+                NewCollection { name: "Saga".into(), overview: None, movies: members.clone() },
             )
             .await
             .unwrap();
-        assert_eq!(
-            created.movies,
-            vec![MovieId("early".into()), MovieId("late".into())]
-        );
+        assert_eq!(created.movies, vec![MovieId("early".into()), MovieId("late".into())]);
 
         let updated = svc
             .update_collection(
                 &admin(),
                 &created.id,
-                CollectionUpdate {
-                    name: "Saga".into(),
-                    overview: None,
-                    movies: members,
-                },
+                CollectionUpdate { name: "Saga".into(), overview: None, movies: members },
             )
             .await
             .unwrap();
-        assert_eq!(
-            updated.movies,
-            vec![MovieId("early".into()), MovieId("late".into())]
-        );
+        assert_eq!(updated.movies, vec![MovieId("early".into()), MovieId("late".into())]);
     }
 
     #[tokio::test]
@@ -1264,9 +1045,7 @@ mod tests {
         assert_eq!(svc.collections(&admin(), page()).await.unwrap().total, 1);
         assert!(svc.collection(&admin(), &created.id).await.is_ok());
         assert!(matches!(
-            svc.collection(&admin(), &CollectionId("x".into()))
-                .await
-                .unwrap_err(),
+            svc.collection(&admin(), &CollectionId("x".into())).await.unwrap_err(),
             CatalogError::NotFound
         ));
 
@@ -1274,11 +1053,7 @@ mod tests {
             .update_collection(
                 &admin(),
                 &created.id,
-                CollectionUpdate {
-                    name: "Saga II".into(),
-                    overview: None,
-                    movies: Vec::new(),
-                },
+                CollectionUpdate { name: "Saga II".into(), overview: None, movies: Vec::new() },
             )
             .await
             .unwrap();
@@ -1287,11 +1062,7 @@ mod tests {
             svc.update_collection(
                 &admin(),
                 &CollectionId("x".into()),
-                CollectionUpdate {
-                    name: "x".into(),
-                    overview: None,
-                    movies: Vec::new(),
-                },
+                CollectionUpdate { name: "x".into(), overview: None, movies: Vec::new() },
             )
             .await
             .unwrap_err(),
@@ -1300,9 +1071,7 @@ mod tests {
 
         svc.delete_collection(&admin(), &created.id).await.unwrap();
         assert!(matches!(
-            svc.delete_collection(&admin(), &created.id)
-                .await
-                .unwrap_err(),
+            svc.delete_collection(&admin(), &created.id).await.unwrap_err(),
             CatalogError::NotFound
         ));
     }
@@ -1317,10 +1086,7 @@ mod tests {
         let users = MockUserRepo::new();
         // Granted, or the library-scoped methods short circuit to an empty page
         // and never reach the repository whose failure this test is about.
-        users.grant(
-            &UserId("admin".into()),
-            &[LibraryId("lib1".into()), LibraryId("lib2".into())],
-        );
+        users.grant(&UserId("admin".into()), &[LibraryId("lib1".into()), LibraryId("lib2".into())]);
         let svc = CatalogServiceImpl::new(catalog, users);
 
         let movie = MovieId("m1".into());
@@ -1335,10 +1101,7 @@ mod tests {
 
         macro_rules! is_repository_error {
             ($call:expr) => {
-                assert!(matches!(
-                    $call.await.unwrap_err(),
-                    CatalogError::Repository(_)
-                ))
+                assert!(matches!($call.await.unwrap_err(), CatalogError::Repository(_)))
             };
         }
 
@@ -1347,20 +1110,12 @@ mod tests {
         is_repository_error!(svc.movie_collections(&admin(), &movie));
         is_repository_error!(svc.create_collection(
             &admin(),
-            NewCollection {
-                name: "Saga".into(),
-                overview: None,
-                movies: vec![movie.clone()],
-            }
+            NewCollection { name: "Saga".into(), overview: None, movies: vec![movie.clone()] }
         ));
         is_repository_error!(svc.update_collection(
             &admin(),
             &collection,
-            CollectionUpdate {
-                name: "Saga".into(),
-                overview: None,
-                movies: vec![movie.clone()],
-            }
+            CollectionUpdate { name: "Saga".into(), overview: None, movies: vec![movie.clone()] }
         ));
         is_repository_error!(svc.delete_collection(&admin(), &collection));
         is_repository_error!(svc.movies(&admin(), &query(), page()));
@@ -1399,10 +1154,7 @@ mod tests {
 
         macro_rules! is_repository_error {
             ($call:expr) => {
-                assert!(matches!(
-                    $call.await.unwrap_err(),
-                    CatalogError::Repository(_)
-                ))
+                assert!(matches!($call.await.unwrap_err(), CatalogError::Repository(_)))
             };
         }
 
@@ -1478,17 +1230,11 @@ mod tests {
         });
         let svc = CatalogServiceImpl::new(catalog, MockUserRepo::new());
 
-        let season = svc
-            .season(&member(), &SeasonId("se9".into()))
-            .await
-            .unwrap();
+        let season = svc.season(&member(), &SeasonId("se9".into())).await.unwrap();
         assert_eq!(season.series_title.as_deref(), Some("The Show"));
         assert_eq!(season.series_artwork.len(), 1);
 
-        let episode = svc
-            .episode(&member(), &EpisodeId("e9".into()))
-            .await
-            .unwrap();
+        let episode = svc.episode(&member(), &EpisodeId("e9".into())).await.unwrap();
         assert_eq!(episode.series, Some(SeriesId("s9".into())));
         assert_eq!(episode.series_title.as_deref(), Some("The Show"));
         assert_eq!(episode.season_number, Some(0));
@@ -1523,17 +1269,11 @@ mod tests {
         });
         let svc = CatalogServiceImpl::new(catalog, MockUserRepo::new());
 
-        let season = svc
-            .season(&member(), &SeasonId("se9".into()))
-            .await
-            .unwrap();
+        let season = svc.season(&member(), &SeasonId("se9".into())).await.unwrap();
         assert!(season.series_title.is_none());
         assert!(season.series_artwork.is_empty());
 
-        let episode = svc
-            .episode(&member(), &EpisodeId("e9".into()))
-            .await
-            .unwrap();
+        let episode = svc.episode(&member(), &EpisodeId("e9".into())).await.unwrap();
         assert!(episode.series.is_none());
         assert!(episode.series_title.is_none());
         assert!(episode.season_number.is_none());
@@ -1574,17 +1314,9 @@ mod tests {
 
         let listed = svc.collections(&admin(), page()).await.unwrap();
         assert_eq!(listed.items[0].artwork.len(), 2);
-        assert!(
-            listed.items[0]
-                .artwork
-                .iter()
-                .all(|art| art.kind == ArtworkKind::Poster)
-        );
+        assert!(listed.items[0].artwork.iter().all(|art| art.kind == ArtworkKind::Poster));
 
-        let detail = svc
-            .collection(&admin(), &CollectionId("c1".into()))
-            .await
-            .unwrap();
+        let detail = svc.collection(&admin(), &CollectionId("c1".into())).await.unwrap();
         assert_eq!(detail.collection.artwork.len(), 2);
     }
 
@@ -1607,24 +1339,15 @@ mod tests {
         }
         let svc = CatalogServiceImpl::new(catalog, MockUserRepo::new());
 
-        let found = svc
-            .movie_collections(&admin(), &MovieId("m1".into()))
-            .await
-            .unwrap();
+        let found = svc.movie_collections(&admin(), &MovieId("m1".into())).await.unwrap();
         assert_eq!(
-            found
-                .iter()
-                .map(|d| d.collection.id.0.as_str())
-                .collect::<Vec<_>>(),
+            found.iter().map(|d| d.collection.id.0.as_str()).collect::<Vec<_>>(),
             ["c-a", "c-z"],
             "collections come back ordered by name, case-insensitively, not by id"
         );
 
         assert!(
-            svc.movie_collections(&admin(), &MovieId("nobody".into()))
-                .await
-                .unwrap()
-                .is_empty()
+            svc.movie_collections(&admin(), &MovieId("nobody".into())).await.unwrap().is_empty()
         );
     }
 
@@ -1640,9 +1363,7 @@ mod tests {
 
         let admin_cards = svc.title_cards(&admin(), &ids).await.unwrap();
         assert_eq!(card_ids(&admin_cards), ["m1", "e1", "m2"]);
-        let TitleCard::Episode(e1) = &admin_cards[1] else {
-            panic!("expected an episode card");
-        };
+        let TitleCard::Episode(e1) = &admin_cards[1] else { panic!("not an episode card") };
         assert_eq!(e1.series, Some(SeriesId("s1".into())));
         assert_eq!(e1.series_title.as_deref(), Some("s1"));
         assert_eq!(e1.season_number, Some(1));
@@ -1661,40 +1382,24 @@ mod tests {
     async fn every_episode_route_hides_a_blocked_series_from_a_capped_account() {
         let svc = seeded().await;
 
+        let seasons = svc.seasons(&member(), &SeriesId("s1".into())).await.unwrap_err();
         assert!(
-            matches!(
-                svc.seasons(&member(), &SeriesId("s1".into()))
-                    .await
-                    .unwrap_err(),
-                CatalogError::NotFound
-            ),
+            matches!(seasons, CatalogError::NotFound),
             "listing the seasons of a blocked show enumerates it just as well"
         );
+        let season = svc.season(&member(), &SeasonId("se1".into())).await.unwrap_err();
         assert!(
-            matches!(
-                svc.season(&member(), &SeasonId("se1".into()))
-                    .await
-                    .unwrap_err(),
-                CatalogError::NotFound
-            ),
+            matches!(season, CatalogError::NotFound),
             "the season card names the show and carries its artwork"
         );
+        let episodes = svc.episodes(&member(), &SeasonId("se1".into())).await.unwrap_err();
         assert!(
-            matches!(
-                svc.episodes(&member(), &SeasonId("se1".into()))
-                    .await
-                    .unwrap_err(),
-                CatalogError::NotFound
-            ),
+            matches!(episodes, CatalogError::NotFound),
             "the episode list is the cheapest way to enumerate a blocked show"
         );
+        let episode = svc.episode(&member(), &EpisodeId("e1".into())).await.unwrap_err();
         assert!(
-            matches!(
-                svc.episode(&member(), &EpisodeId("e1".into()))
-                    .await
-                    .unwrap_err(),
-                CatalogError::NotFound
-            ),
+            matches!(episode, CatalogError::NotFound),
             "gating the batch route while this one answers would be no gate at all"
         );
     }
@@ -1703,34 +1408,11 @@ mod tests {
     async fn an_unrated_series_stays_reachable_under_a_cap() {
         let svc = seeded().await;
 
+        assert_eq!(svc.seasons(&member(), &SeriesId("s2".into())).await.unwrap().len(), 1);
+        assert_eq!(svc.season(&member(), &SeasonId("se2".into())).await.unwrap().season.number, 1);
+        assert_eq!(svc.episodes(&member(), &SeasonId("se2".into())).await.unwrap().len(), 1);
         assert_eq!(
-            svc.seasons(&member(), &SeriesId("s2".into()))
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
-        assert_eq!(
-            svc.season(&member(), &SeasonId("se2".into()))
-                .await
-                .unwrap()
-                .season
-                .number,
-            1
-        );
-        assert_eq!(
-            svc.episodes(&member(), &SeasonId("se2".into()))
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
-        assert_eq!(
-            svc.episode(&member(), &EpisodeId("e2".into()))
-                .await
-                .unwrap()
-                .episode
-                .id,
+            svc.episode(&member(), &EpisodeId("e2".into())).await.unwrap().episode.id,
             EpisodeId("e2".into()),
             "a show with no rating is not a show above the cap"
         );
@@ -1740,21 +1422,9 @@ mod tests {
     async fn an_admin_reaches_a_blocked_series_through_every_episode_route() {
         let svc = seeded().await;
 
-        assert_eq!(
-            svc.seasons(&admin(), &SeriesId("s1".into()))
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
+        assert_eq!(svc.seasons(&admin(), &SeriesId("s1".into())).await.unwrap().len(), 1);
         assert!(svc.season(&admin(), &SeasonId("se1".into())).await.is_ok());
-        assert_eq!(
-            svc.episodes(&admin(), &SeasonId("se1".into()))
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
+        assert_eq!(svc.episodes(&admin(), &SeasonId("se1".into())).await.unwrap().len(), 1);
         assert!(svc.episode(&admin(), &EpisodeId("e1".into())).await.is_ok());
     }
 
@@ -1810,16 +1480,12 @@ mod tests {
             .await
             .unwrap();
 
-        let TitleCard::Episode(no_series) = &cards[0] else {
-            panic!("expected an episode card");
-        };
+        let TitleCard::Episode(no_series) = &cards[0] else { panic!("not an episode card") };
         assert_eq!(no_series.series, Some(SeriesId("s-missing".into())));
         assert_eq!(no_series.series_title, None);
         assert_eq!(no_series.season_number, Some(4));
 
-        let TitleCard::Episode(no_season) = &cards[1] else {
-            panic!("expected an episode card");
-        };
+        let TitleCard::Episode(no_season) = &cards[1] else { panic!("not an episode card") };
         assert_eq!(no_season.series, None);
         assert_eq!(no_season.series_title, None);
         assert_eq!(no_season.season_number, None);
@@ -1901,108 +1567,52 @@ mod tests {
         let admin_profile = svc.person(&admin(), &PersonId("p1".into())).await.unwrap();
         assert_eq!(admin_profile.person.name, "Ada");
         assert_eq!(
-            admin_profile
-                .filmography
-                .iter()
-                .map(|e| e.title.id())
-                .collect::<Vec<_>>(),
+            admin_profile.filmography.iter().map(|e| e.title.id()).collect::<Vec<_>>(),
             ["m1", "m2", "s1"]
         );
         assert_eq!(admin_profile.filmography[0].display_title, "m1");
-        assert_eq!(
-            admin_profile.filmography[0].character,
-            Some("Hero".to_owned())
-        );
+        assert_eq!(admin_profile.filmography[0].character, Some("Hero".to_owned()));
 
         // Member (PG-13 cap) keeps only the PG-13 movie; R and TV-MA drop out.
         let member_profile = svc.person(&member(), &PersonId("p1".into())).await.unwrap();
         assert_eq!(
-            member_profile
-                .filmography
-                .iter()
-                .map(|e| e.title.id())
-                .collect::<Vec<_>>(),
+            member_profile.filmography.iter().map(|e| e.title.id()).collect::<Vec<_>>(),
             ["m1"]
         );
 
-        // p2 only directed m1.
         let p2 = svc.person(&admin(), &PersonId("p2".into())).await.unwrap();
         assert_eq!(p2.filmography.len(), 1);
         assert_eq!(p2.filmography[0].role, CreditRole::Director);
 
         assert!(matches!(
-            svc.person(&admin(), &PersonId("nope".into()))
-                .await
-                .unwrap_err(),
+            svc.person(&admin(), &PersonId("nope".into())).await.unwrap_err(),
             CatalogError::NotFound
         ));
 
         // Genres (deduped, name-sorted by the mock), optionally scoped to one kind.
-        let names = |genres: Vec<Genre>| {
-            genres
-                .iter()
-                .map(|g| g.name.clone())
-                .collect::<Vec<String>>()
-        };
-        assert_eq!(
-            names(svc.genres(&admin(), None).await.unwrap()),
-            ["Action", "Drama"]
-        );
-        assert_eq!(
-            names(svc.genres(&admin(), Some(TitleKind::Series)).await.unwrap()),
-            ["Action"]
-        );
+        let names =
+            |genres: Vec<Genre>| genres.iter().map(|g| g.name.clone()).collect::<Vec<String>>();
+        assert_eq!(names(svc.genres(&admin(), None).await.unwrap()), ["Action", "Drama"]);
+        assert_eq!(names(svc.genres(&admin(), Some(TitleKind::Series)).await.unwrap()), ["Action"]);
 
         // Genre filter: m2 has no version, so no list reaches it whoever asks.
         let action = "Action";
-        let admin_action = svc
-            .movies(&admin(), &genre_query(action), page())
-            .await
-            .unwrap();
-        assert_eq!(
-            admin_action
-                .items
-                .iter()
-                .map(|m| m.id.0.as_str())
-                .collect::<Vec<_>>(),
-            ["m1"]
-        );
-        let member_action = svc
-            .movies(&member(), &genre_query(action), page())
-            .await
-            .unwrap();
-        assert_eq!(
-            member_action
-                .items
-                .iter()
-                .map(|m| m.id.0.as_str())
-                .collect::<Vec<_>>(),
-            ["m1"]
-        );
+        let admin_action = svc.movies(&admin(), &genre_query(action), page()).await.unwrap();
+        assert_eq!(admin_action.items.iter().map(|m| m.id.0.as_str()).collect::<Vec<_>>(), ["m1"]);
+        let member_action = svc.movies(&member(), &genre_query(action), page()).await.unwrap();
+        assert_eq!(member_action.items.iter().map(|m| m.id.0.as_str()).collect::<Vec<_>>(), ["m1"]);
 
-        // Genre filter on series.
-        let series_action = svc
-            .series(&admin(), &genre_query(action), page())
-            .await
-            .unwrap();
+        let series_action = svc.series(&admin(), &genre_query(action), page()).await.unwrap();
         assert_eq!(
-            series_action
-                .items
-                .iter()
-                .map(|s| s.id.0.as_str())
-                .collect::<Vec<_>>(),
+            series_action.items.iter().map(|s| s.id.0.as_str()).collect::<Vec<_>>(),
             ["s2"],
             "s1 carries the genre too, but has no file and so sits in no library"
         );
 
-        // Detail aggregates carry enrichment.
         let detail = svc.movie(&admin(), &MovieId("m1".into())).await.unwrap();
         assert_eq!(detail.genres.len(), 1);
         assert_eq!(detail.credits.len(), 2);
-        let series_detail = svc
-            .series_detail(&admin(), &SeriesId("s1".into()))
-            .await
-            .unwrap();
+        let series_detail = svc.series_detail(&admin(), &SeriesId("s1".into())).await.unwrap();
         assert_eq!(series_detail.credits.len(), 1);
     }
 
@@ -2047,14 +1657,8 @@ mod tests {
 
         let users = MockUserRepo::new();
         users.insert(capped_user());
-        users
-            .set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())])
-            .await
-            .unwrap();
-        users.grant(
-            &UserId("admin".into()),
-            &[LibraryId("lib1".into()), LibraryId("lib2".into())],
-        );
+        users.set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())]).await.unwrap();
+        users.grant(&UserId("admin".into()), &[LibraryId("lib1".into()), LibraryId("lib2".into())]);
         CatalogServiceImpl::new(catalog, users)
     }
 
@@ -2063,16 +1667,12 @@ mod tests {
         let svc = random_fixture().await;
 
         assert_eq!(
-            svc.random(&admin(), &RandomScope::Movies, &query())
-                .await
-                .unwrap(),
+            svc.random(&admin(), &RandomScope::Movies, &query()).await.unwrap(),
             VersionId("uhd-lib2".into()),
             "this account holds both libraries, so the best copy wins outright"
         );
         assert_eq!(
-            svc.random(&member(), &RandomScope::Movies, &query())
-                .await
-                .unwrap(),
+            svc.random(&member(), &RandomScope::Movies, &query()).await.unwrap(),
             VersionId("hd-lib1".into()),
             "the 4K copy is in a library this reader cannot open, so the HD copy is its best"
         );
@@ -2090,10 +1690,7 @@ mod tests {
         ));
         let users = MockUserRepo::new();
         users.insert(capped_user());
-        users
-            .set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())])
-            .await
-            .unwrap();
+        users.set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())]).await.unwrap();
         users.grant(&UserId("admin".into()), &[LibraryId("lib1".into())]);
         let svc = CatalogServiceImpl::new(catalog, users);
 
@@ -2101,11 +1698,7 @@ mod tests {
             svc.random(&member(), &RandomScope::Movies, &query()).await,
             Err(CatalogError::NotFound)
         ));
-        assert!(
-            svc.random(&admin(), &RandomScope::Movies, &query())
-                .await
-                .is_ok()
-        );
+        assert!(svc.random(&admin(), &RandomScope::Movies, &query()).await.is_ok());
     }
 
     #[tokio::test]
@@ -2113,21 +1706,12 @@ mod tests {
         let svc = seeded().await;
 
         assert!(matches!(
-            svc.random(
-                &member(),
-                &RandomScope::Season(SeasonId("se1".into())),
-                &query()
-            )
-            .await,
+            svc.random(&member(), &RandomScope::Season(SeasonId("se1".into())), &query()).await,
             Err(CatalogError::NotFound)
         ));
         assert!(matches!(
-            svc.random(
-                &member(),
-                &RandomScope::Collection(CollectionId("nope".into())),
-                &query()
-            )
-            .await,
+            svc.random(&member(), &RandomScope::Collection(CollectionId("nope".into())), &query())
+                .await,
             Err(CatalogError::NotFound)
         ));
     }
@@ -2137,33 +1721,20 @@ mod tests {
         let svc = seeded().await;
 
         assert_eq!(
-            svc.random(
-                &admin(),
-                &RandomScope::Season(SeasonId("se2".into())),
-                &query()
-            )
-            .await
-            .unwrap(),
+            svc.random(&admin(), &RandomScope::Season(SeasonId("se2".into())), &query())
+                .await
+                .unwrap(),
             VersionId("ev2".into())
         );
         assert_eq!(
-            svc.random(
-                &admin(),
-                &RandomScope::Series(SeriesId("s2".into())),
-                &query()
-            )
-            .await
-            .unwrap(),
+            svc.random(&admin(), &RandomScope::Series(SeriesId("s2".into())), &query())
+                .await
+                .unwrap(),
             VersionId("ev2".into())
         );
         assert!(
             matches!(
-                svc.random(
-                    &admin(),
-                    &RandomScope::Series(SeriesId("s1".into())),
-                    &query()
-                )
-                .await,
+                svc.random(&admin(), &RandomScope::Series(SeriesId("s1".into())), &query()).await,
                 Err(CatalogError::NotFound)
             ),
             "s1 has an episode but no file behind it"

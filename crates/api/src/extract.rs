@@ -59,10 +59,7 @@ mod tests {
     }
 
     fn principal(role: Role) -> Principal {
-        Principal {
-            user: UserId("u1".into()),
-            role,
-        }
+        Principal { user: UserId("u1".into()), role }
     }
 
     #[tokio::test]
@@ -71,34 +68,21 @@ mod tests {
         assert!(AuthUser::from_request_parts(&mut parts, &()).await.is_ok());
 
         let mut parts = parts_with(None);
-        let rejection = AuthUser::from_request_parts(&mut parts, &())
-            .await
-            .unwrap_err();
+        let rejection = AuthUser::from_request_parts(&mut parts, &()).await.unwrap_err();
         assert_eq!(rejection.into_response().status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
     async fn require_admin_admin_user_and_missing() {
         let mut parts = parts_with(Some(principal(Role::Admin)));
-        assert!(
-            RequireAdmin::from_request_parts(&mut parts, &())
-                .await
-                .is_ok()
-        );
+        assert!(RequireAdmin::from_request_parts(&mut parts, &()).await.is_ok());
 
         let mut parts = parts_with(Some(principal(Role::User)));
-        let forbidden = RequireAdmin::from_request_parts(&mut parts, &())
-            .await
-            .unwrap_err();
+        let forbidden = RequireAdmin::from_request_parts(&mut parts, &()).await.unwrap_err();
         assert_eq!(forbidden.into_response().status(), StatusCode::FORBIDDEN);
 
         let mut parts = parts_with(None);
-        let unauthorized = RequireAdmin::from_request_parts(&mut parts, &())
-            .await
-            .unwrap_err();
-        assert_eq!(
-            unauthorized.into_response().status(),
-            StatusCode::UNAUTHORIZED
-        );
+        let unauthorized = RequireAdmin::from_request_parts(&mut parts, &()).await.unwrap_err();
+        assert_eq!(unauthorized.into_response().status(), StatusCode::UNAUTHORIZED);
     }
 }

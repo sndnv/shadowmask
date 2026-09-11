@@ -13,10 +13,6 @@ pub struct CreateUserRequest {
 
 impl From<CreateUserRequest> for NewUser {
     fn from(r: CreateUserRequest) -> Self {
-        NewUser {
-            username: r.username,
-            password: r.password,
-            role: r.role.into(),
-        }
+        NewUser { username: r.username, password: r.password, role: r.role.into() }
     }
 }

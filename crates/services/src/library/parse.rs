@@ -74,17 +74,8 @@ pub fn confidence(parsed: &ParsedMedia) -> f32 {
 fn find_provider_tag(stem: &str, episodic: bool) -> Option<(ExternalId, usize)> {
     let captures = PROVIDER_TAG.captures(stem)?;
     let value = captures.get(2).unwrap().as_str();
-    let id = match captures
-        .get(1)
-        .unwrap()
-        .as_str()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "imdbid" => ExternalId {
-            source: "imdb".to_owned(),
-            value: value.to_owned(),
-        },
+    let id = match captures.get(1).unwrap().as_str().to_ascii_lowercase().as_str() {
+        "imdbid" => ExternalId { source: "imdb".to_owned(), value: value.to_owned() },
         _ => ExternalId {
             source: "tmdb".to_owned(),
             value: format!("{}/{value}", if episodic { "tv" } else { "movie" }),
@@ -94,9 +85,7 @@ fn find_provider_tag(stem: &str, episodic: bool) -> Option<(ExternalId, usize)> 
 }
 
 fn find_season_episode(stem: &str) -> Option<(u16, u16, usize)> {
-    let captures = SEASON_EPISODE
-        .captures(stem)
-        .or_else(|| SEASON_EPISODE_X.captures(stem))?;
+    let captures = SEASON_EPISODE.captures(stem).or_else(|| SEASON_EPISODE_X.captures(stem))?;
     let whole = captures.get(0).unwrap();
     let season = captures.get(1).unwrap().as_str().parse().unwrap();
     let episode = captures.get(2).unwrap().as_str().parse().unwrap();
@@ -147,11 +136,7 @@ pub fn quality_token(quality: Quality) -> &'static str {
 }
 
 fn strip_quality_token(stem: &str) -> String {
-    RESOLUTION
-        .replace_all(stem, "")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+    RESOLUTION.replace_all(stem, "").split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 pub fn upscaled_output_path(source_path: &str, target: Quality, uuid: &str) -> String {
@@ -159,18 +144,11 @@ pub fn upscaled_output_path(source_path: &str, target: Quality, uuid: &str) -> S
     let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
     let base = strip_quality_token(stem);
     let name = format!("{base} {} [Upscaled {uuid}].mp4", quality_token(target));
-    src.parent()
-        .unwrap_or(Path::new(""))
-        .join(name)
-        .to_string_lossy()
-        .into_owned()
+    src.parent().unwrap_or(Path::new("")).join(name).to_string_lossy().into_owned()
 }
 
 fn clean_title(raw: &str) -> String {
-    let spaced: String = raw
-        .chars()
-        .map(|c| if c == '.' || c == '_' { ' ' } else { c })
-        .collect();
+    let spaced: String = raw.chars().map(|c| if c == '.' || c == '_' { ' ' } else { c }).collect();
     spaced
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -204,11 +182,8 @@ mod tests {
 
     #[test]
     fn upscaled_output_path_swaps_quality_and_marks_upscaled() {
-        let out = upscaled_output_path(
-            "/m/Movie (2011)/Movie (2011) 480p.mkv",
-            Quality::Fhd,
-            "abcd1234",
-        );
+        let out =
+            upscaled_output_path("/m/Movie (2011)/Movie (2011) 480p.mkv", Quality::Fhd, "abcd1234");
         assert!(out.starts_with("/m/Movie (2011)/"));
         assert!(out.ends_with("Movie (2011) 1080p [Upscaled abcd1234].mp4"));
         let p = parse(&out);
@@ -226,11 +201,8 @@ mod tests {
 
     #[test]
     fn upscaled_output_path_preserves_episode_identity() {
-        let out = upscaled_output_path(
-            "/tv/Show/Season 01/Show S01E02 720p.mkv",
-            Quality::Fhd,
-            "zz",
-        );
+        let out =
+            upscaled_output_path("/tv/Show/Season 01/Show S01E02 720p.mkv", Quality::Fhd, "zz");
         let p = parse(&out);
         assert_eq!(p.title, "Show");
         assert_eq!(p.season, Some(1));
@@ -336,10 +308,7 @@ mod tests {
         assert_eq!(p.year, Some(1999));
         assert_eq!(
             p.external_id,
-            Some(ExternalId {
-                source: "tmdb".into(),
-                value: "movie/603".into(),
-            })
+            Some(ExternalId { source: "tmdb".into(), value: "movie/603".into() })
         );
     }
 
@@ -349,10 +318,7 @@ mod tests {
         assert_eq!(p.title, "Great Show");
         assert_eq!(
             p.external_id,
-            Some(ExternalId {
-                source: "tmdb".into(),
-                value: "tv/1399".into(),
-            })
+            Some(ExternalId { source: "tmdb".into(), value: "tv/1399".into() })
         );
     }
 
@@ -362,10 +328,7 @@ mod tests {
         assert_eq!(p.title, "The Matrix");
         assert_eq!(
             p.external_id,
-            Some(ExternalId {
-                source: "imdb".into(),
-                value: "tt0133093".into(),
-            })
+            Some(ExternalId { source: "imdb".into(), value: "tt0133093".into() })
         );
     }
 
@@ -410,10 +373,7 @@ mod tests {
             external_id: None,
         };
         let tagged = ParsedMedia {
-            external_id: Some(ExternalId {
-                source: "tmdb".into(),
-                value: "movie/603".into(),
-            }),
+            external_id: Some(ExternalId { source: "tmdb".into(), value: "movie/603".into() }),
             ..movie_bare.clone()
         };
         let empty = ParsedMedia {

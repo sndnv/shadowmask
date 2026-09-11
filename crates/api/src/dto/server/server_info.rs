@@ -4,13 +4,7 @@ use domain::session::PROFILE_VERSION;
 
 use super::{Capability, RatingSystem};
 
-const FEATURES: &[&str] = &[
-    "hls",
-    "trickplay",
-    "transcoding",
-    "link_codes",
-    "api_tokens",
-];
+const FEATURES: &[&str] = &["hls", "trickplay", "transcoding", "link_codes", "api_tokens"];
 
 #[derive(Debug, Serialize)]
 pub struct ServerInfoResponse {
@@ -53,11 +47,7 @@ mod tests {
         assert!(capabilities.iter().any(|c| {
             c["name"] == "upscaling" && c["available"] == true && c["enabled"] == true
         }));
-        assert!(
-            capabilities
-                .iter()
-                .any(|c| { c["name"] == "tmdb" && c["enabled"] == false })
-        );
+        assert!(capabilities.iter().any(|c| { c["name"] == "tmdb" && c["enabled"] == false }));
         let systems = value["rating_systems"].as_array().unwrap();
         assert!(systems.iter().any(|s| s["system"] == "bbfc"));
     }

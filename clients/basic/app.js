@@ -216,13 +216,12 @@ const sm = (() => {
       if (aud) bits.push(aud.codec + " " + aud.channels + "ch");
       bits.push(Math.round(v.size_bytes / 1048576) + " MB");
       if (!v.available) bits.push("unavailable");
-      const sep = v.available ? " · " : " ";
-      const row = el("li", null, [el("span", { text: bits.join(" · ") + sep })]);
+      const row = el("li", null, [el("span", { text: bits.join(" · ") })]);
       if (v.available) {
         const isResume = Object.prototype.hasOwnProperty.call(resume, v.id);
         const play = el(
           "a",
-          { href: href.watch(v.id) },
+          { href: href.watch(v.id), class: "sm-play" },
           isResume ? "Resume " + (resume[v.id] || 0) + "%" : "Play",
         );
         row.appendChild(play);
@@ -244,13 +243,12 @@ const sm = (() => {
               dismiss.disabled = false;
             }
           });
-          row.appendChild(el("span", { text: " " }));
           row.appendChild(dismiss);
         }
       }
       return row;
     });
-    node.appendChild(el("ul", null, rows));
+    node.appendChild(el("ul", { class: "sm-versions" }, rows));
     return { single, node };
   }
 

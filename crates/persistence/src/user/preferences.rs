@@ -21,9 +21,7 @@ pub struct SqlitePreferencesRepo {
 
 impl SqlitePreferencesRepo {
     pub fn new(base_dir: &Path) -> Self {
-        Self {
-            pools: UserPools::new(base_dir, "prefs.db", &MIGRATOR, DEFAULT_USER_POOL_CAPACITY),
-        }
+        Self { pools: UserPools::new(base_dir, "prefs.db", &MIGRATOR, DEFAULT_USER_POOL_CAPACITY) }
     }
 
     pub async fn ensure_migrated(&self, user: &UserId) -> Result<(), RepositoryError> {
@@ -43,10 +41,7 @@ impl SqlitePreferencesRepo {
 fn row_to_watchlist(user: &UserId, row: &SqliteRow) -> Result<WatchlistItem, RepositoryError> {
     Ok(WatchlistItem {
         user: user.clone(),
-        title: title_from_parts(
-            &column::<String>(row, "title_kind")?,
-            column(row, "title_id")?,
-        )?,
+        title: title_from_parts(&column::<String>(row, "title_kind")?, column(row, "title_id")?)?,
         added_at: from_millis(column(row, "added_at")?)?,
     })
 }
@@ -54,10 +49,7 @@ fn row_to_watchlist(user: &UserId, row: &SqliteRow) -> Result<WatchlistItem, Rep
 fn row_to_favorite(user: &UserId, row: &SqliteRow) -> Result<Favorite, RepositoryError> {
     Ok(Favorite {
         user: user.clone(),
-        title: title_from_parts(
-            &column::<String>(row, "title_kind")?,
-            column(row, "title_id")?,
-        )?,
+        title: title_from_parts(&column::<String>(row, "title_kind")?, column(row, "title_id")?)?,
         added_at: from_millis(column(row, "added_at")?)?,
     })
 }
@@ -174,9 +166,7 @@ impl PreferencesRepository for SqlitePreferencesRepo {
         .fetch_optional(&pool)
         .await
         .map_err(backend)?;
-        row.as_ref()
-            .map(|row| row_to_offset(user, version, subtitle, row))
-            .transpose()
+        row.as_ref().map(|row| row_to_offset(user, version, subtitle, row)).transpose()
     }
 
     async fn set_subtitle_offset(&self, offset: UserSubtitleOffset) -> Result<(), RepositoryError> {
@@ -238,11 +228,7 @@ mod tests {
             .is_err()
         );
         assert!(repo.remove_favorite(&user, "m1").await.is_err());
-        assert!(
-            repo.get_subtitle_offset(&user, &version, &track)
-                .await
-                .is_err()
-        );
+        assert!(repo.get_subtitle_offset(&user, &version, &track).await.is_err());
         assert!(
             repo.set_subtitle_offset(UserSubtitleOffset {
                 user,

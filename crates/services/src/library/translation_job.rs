@@ -50,13 +50,7 @@ pub fn translation_job_with_source(
 }
 
 fn translation_job_from_payload(payload: String) -> Job {
-    queued_job(
-        JobKind::Translation,
-        JobPriority::Low,
-        payload,
-        None,
-        Timestamp::now(),
-    )
+    queued_job(JobKind::Translation, JobPriority::Low, payload, None, Timestamp::now())
 }
 
 #[derive(Serialize, Deserialize)]

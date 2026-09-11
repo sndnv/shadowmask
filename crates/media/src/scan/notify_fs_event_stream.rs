@@ -10,10 +10,7 @@ pub struct NotifyFsEventStream {
 
 impl NotifyFsEventStream {
     pub(crate) fn new(watcher: RecommendedWatcher, rx: UnboundedReceiver<Vec<String>>) -> Self {
-        Self {
-            _watcher: watcher,
-            rx,
-        }
+        Self { _watcher: watcher, rx }
     }
 }
 

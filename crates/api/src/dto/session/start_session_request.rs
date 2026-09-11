@@ -62,9 +62,7 @@ mod tests {
         let json = format!(
             r#"{{"version_id":"v1","capabilities":{{"platform":"chrome","profile_version":1}}{delivery}}}"#
         );
-        serde_json::from_str::<StartSessionRequest>(&json)
-            .unwrap()
-            .into()
+        serde_json::from_str::<StartSessionRequest>(&json).unwrap().into()
     }
 
     // Every client shipped before this field existed omits it, and must keep
@@ -76,13 +74,20 @@ mod tests {
 
     #[test]
     fn a_named_preference_carries_through() {
-        assert_eq!(
-            parse(r#","delivery":"always""#).delivery,
-            DeliveryPreference::AlwaysConvert
-        );
-        assert_eq!(
-            parse(r#","delivery":"nonsense""#).delivery,
-            DeliveryPreference::Auto
-        );
+        assert_eq!(parse(r#","delivery":"always""#).delivery, DeliveryPreference::AlwaysConvert);
+        assert_eq!(parse(r#","delivery":"nonsense""#).delivery, DeliveryPreference::Auto);
+    }
+
+    #[test]
+    fn a_language_stands_in_for_a_track_a_client_cannot_name() {
+        let input = parse(r#","audio_language":"fr","subtitle_language":"de""#);
+        assert!(matches!(input.audio, AudioRequest::Language(ref l) if l.0 == "fr"));
+        assert!(matches!(input.subtitle, SubtitleRequest::Language(ref l) if l.0 == "de"));
+    }
+
+    #[test]
+    fn switching_subtitles_off_beats_every_other_subtitle_field() {
+        let input = parse(r#","subtitle_off":true,"subtitle_language":"de""#);
+        assert!(matches!(input.subtitle, SubtitleRequest::Off));
     }
 }

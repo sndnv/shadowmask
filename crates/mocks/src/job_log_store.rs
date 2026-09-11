@@ -16,12 +16,7 @@ impl MockJobLogStore {
     }
 
     pub fn lines_for(&self, job: &JobId) -> Vec<String> {
-        self.lines
-            .lock()
-            .unwrap()
-            .get(job)
-            .cloned()
-            .unwrap_or_default()
+        self.lines.lock().unwrap().get(job).cloned().unwrap_or_default()
     }
 }
 
@@ -68,12 +63,7 @@ mod tests {
         let job = JobId("job-1".into());
         for n in 0..3 {
             store
-                .append(
-                    &job,
-                    Timestamp::UNIX_EPOCH,
-                    JobLogLevel::Info,
-                    &format!("l{n}"),
-                )
+                .append(&job, Timestamp::UNIX_EPOCH, JobLogLevel::Info, &format!("l{n}"))
                 .await
                 .unwrap();
         }

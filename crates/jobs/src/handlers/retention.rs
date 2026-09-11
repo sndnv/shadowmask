@@ -13,11 +13,7 @@ pub struct RetentionHandler<J, L> {
 
 impl<J, L> RetentionHandler<J, L> {
     pub fn new(jobs: J, logs: L, retain_for: SignedDuration) -> Self {
-        Self {
-            jobs,
-            logs,
-            retain_for,
-        }
+        Self { jobs, logs, retain_for }
     }
 }
 
@@ -29,9 +25,7 @@ where
     async fn handle(&self, _job: &Job) -> Result<(), JobError> {
         let now = Timestamp::now();
         let Some(cutoff) = now.checked_sub(self.retain_for).ok() else {
-            return Err(JobError::Permanent(
-                "retention window is out of range".into(),
-            ));
+            return Err(JobError::Permanent("retention window is out of range".into()));
         };
         let removed = self
             .jobs
@@ -81,11 +75,8 @@ mod tests {
     }
 
     async fn seed(store: &MockJobStore, id: &str, status: JobStatus, age: SignedDuration) {
-        let finished_at = if status.is_active() {
-            None
-        } else {
-            Timestamp::now().checked_sub(age).ok()
-        };
+        let finished_at =
+            if status.is_active() { None } else { Timestamp::now().checked_sub(age).ok() };
         store.enqueue(job(id, status, finished_at)).await.unwrap();
     }
 
@@ -93,21 +84,10 @@ mod tests {
     async fn expired_terminal_jobs_are_removed_with_their_logs() {
         let jobs = MockJobStore::new();
         let logs = MockJobLogStore::new();
-        seed(
-            &jobs,
-            "old",
-            JobStatus::Succeeded,
-            SignedDuration::from_hours(48),
-        )
-        .await;
-        logs.append(
-            &JobId("old".into()),
-            Timestamp::UNIX_EPOCH,
-            JobLogLevel::Info,
-            "a line",
-        )
-        .await
-        .unwrap();
+        seed(&jobs, "old", JobStatus::Succeeded, SignedDuration::from_hours(48)).await;
+        logs.append(&JobId("old".into()), Timestamp::UNIX_EPOCH, JobLogLevel::Info, "a line")
+            .await
+            .unwrap();
 
         RetentionHandler::new(jobs.clone(), logs.clone(), SignedDuration::from_hours(24))
             .handle(&retention_job())
@@ -122,27 +102,9 @@ mod tests {
     async fn recent_and_active_jobs_are_kept() {
         let jobs = MockJobStore::new();
         let logs = MockJobLogStore::new();
-        seed(
-            &jobs,
-            "recent",
-            JobStatus::Failed,
-            SignedDuration::from_hours(1),
-        )
-        .await;
-        seed(
-            &jobs,
-            "queued",
-            JobStatus::Queued,
-            SignedDuration::from_hours(0),
-        )
-        .await;
-        seed(
-            &jobs,
-            "running",
-            JobStatus::Running,
-            SignedDuration::from_hours(0),
-        )
-        .await;
+        seed(&jobs, "recent", JobStatus::Failed, SignedDuration::from_hours(1)).await;
+        seed(&jobs, "queued", JobStatus::Queued, SignedDuration::from_hours(0)).await;
+        seed(&jobs, "running", JobStatus::Running, SignedDuration::from_hours(0)).await;
 
         RetentionHandler::new(jobs.clone(), logs, SignedDuration::from_hours(24))
             .handle(&retention_job())
@@ -168,21 +130,10 @@ mod tests {
     async fn a_job_is_still_dropped_when_wiping_its_log_fails() {
         let jobs = MockJobStore::new();
         let logs = FailingWipe(MockJobLogStore::new());
-        seed(
-            &jobs,
-            "old",
-            JobStatus::Succeeded,
-            SignedDuration::from_hours(48),
-        )
-        .await;
-        logs.append(
-            &JobId("old".into()),
-            Timestamp::UNIX_EPOCH,
-            JobLogLevel::Info,
-            "a line",
-        )
-        .await
-        .unwrap();
+        seed(&jobs, "old", JobStatus::Succeeded, SignedDuration::from_hours(48)).await;
+        logs.append(&JobId("old".into()), Timestamp::UNIX_EPOCH, JobLogLevel::Info, "a line")
+            .await
+            .unwrap();
 
         RetentionHandler::new(jobs.clone(), logs.clone(), SignedDuration::from_hours(24))
             .handle(&retention_job())

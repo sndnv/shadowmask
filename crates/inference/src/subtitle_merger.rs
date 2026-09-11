@@ -31,18 +31,11 @@ impl SubtitleCombiner for SubtitleMerger {
                         lines.extend(bottom.lines.iter().map(|line| format!("<i>{line}</i>")));
                     }
                 }
-                Segment {
-                    start_ms: cue.start_ms,
-                    end_ms: cue.end_ms,
-                    text: lines.join("\n"),
-                }
+                Segment { start_ms: cue.start_ms, end_ms: cue.end_ms, text: lines.join("\n") }
             })
             .collect();
 
-        Ok(FetchedSubtitle {
-            content: segments_to_vtt(&segments),
-            format: SubtitleFormat::Vtt,
-        })
+        Ok(FetchedSubtitle { content: segments_to_vtt(&segments), format: SubtitleFormat::Vtt })
     }
 }
 
@@ -97,9 +90,7 @@ fn parse(subtitle: &FetchedSubtitle) -> Result<Vec<Cue>, SubtitleError> {
                 })
                 .collect())
         }
-        other => Err(SubtitleError::Backend(format!(
-            "unsupported subtitle format: {other:?}"
-        ))),
+        other => Err(SubtitleError::Backend(format!("unsupported subtitle format: {other:?}"))),
     }
 }
 
@@ -115,17 +106,11 @@ mod tests {
     use super::*;
 
     fn vtt(content: &str) -> FetchedSubtitle {
-        FetchedSubtitle {
-            content: content.to_owned(),
-            format: SubtitleFormat::Vtt,
-        }
+        FetchedSubtitle { content: content.to_owned(), format: SubtitleFormat::Vtt }
     }
 
     fn srt(content: &str) -> FetchedSubtitle {
-        FetchedSubtitle {
-            content: content.to_owned(),
-            format: SubtitleFormat::Srt,
-        }
+        FetchedSubtitle { content: content.to_owned(), format: SubtitleFormat::Srt }
     }
 
     #[test]
@@ -195,10 +180,7 @@ mod tests {
 
     #[test]
     fn unsupported_format_is_backend_error() {
-        let top = FetchedSubtitle {
-            content: String::new(),
-            format: SubtitleFormat::Ass,
-        };
+        let top = FetchedSubtitle { content: String::new(), format: SubtitleFormat::Ass };
         let bottom = vtt("WEBVTT\n");
 
         assert!(matches!(

@@ -12,9 +12,7 @@ pub struct Ct2WhisperEngine {
 
 impl Ct2WhisperEngine {
     pub fn new(model_path: impl Into<PathBuf>) -> Self {
-        Self {
-            model_path: model_path.into(),
-        }
+        Self { model_path: model_path.into() }
     }
 }
 

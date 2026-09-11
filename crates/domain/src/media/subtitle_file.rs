@@ -73,11 +73,7 @@ mod tests {
     fn drops_translations_whose_source_is_gone() {
         let files = vec![
             file("os-en-new", SubtitleSource::OpenSubtitles, None),
-            file(
-                "mt-es",
-                SubtitleSource::MachineTranslated,
-                Some("os-en-old"),
-            ),
+            file("mt-es", SubtitleSource::MachineTranslated, Some("os-en-old")),
         ];
         let kept = prune_orphaned_translations(files);
         assert_eq!(kept.len(), 1);

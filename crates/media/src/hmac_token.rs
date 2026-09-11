@@ -100,10 +100,7 @@ mod tests {
 
         let token = codec.sign(&claims("other", AUDIENCE, 60)).unwrap();
 
-        assert!(matches!(
-            codec.verify::<Claims>(&token, "thing"),
-            Err(TokenFailure::Invalid)
-        ));
+        assert!(matches!(codec.verify::<Claims>(&token, "thing"), Err(TokenFailure::Invalid)));
     }
 
     #[test]
@@ -111,14 +108,9 @@ mod tests {
         let codec = HmacCodec::new(SECRET, AUDIENCE);
         let other = HmacCodec::new(SECRET, "shadowmask-elsewhere");
 
-        let token = other
-            .sign(&claims("thing", "shadowmask-elsewhere", 60))
-            .unwrap();
+        let token = other.sign(&claims("thing", "shadowmask-elsewhere", 60)).unwrap();
 
-        assert!(matches!(
-            codec.verify::<Claims>(&token, "thing"),
-            Err(TokenFailure::Invalid)
-        ));
+        assert!(matches!(codec.verify::<Claims>(&token, "thing"), Err(TokenFailure::Invalid)));
     }
 
     #[test]
@@ -127,10 +119,7 @@ mod tests {
 
         let token = codec.sign(&claims("thing", AUDIENCE, -3600)).unwrap();
 
-        assert!(matches!(
-            codec.verify::<Claims>(&token, "thing"),
-            Err(TokenFailure::Expired)
-        ));
+        assert!(matches!(codec.verify::<Claims>(&token, "thing"), Err(TokenFailure::Expired)));
     }
 
     #[test]
@@ -140,9 +129,6 @@ mod tests {
 
         let token = forger.sign(&claims("thing", AUDIENCE, 60)).unwrap();
 
-        assert!(matches!(
-            codec.verify::<Claims>(&token, "thing"),
-            Err(TokenFailure::Invalid)
-        ));
+        assert!(matches!(codec.verify::<Claims>(&token, "thing"), Err(TokenFailure::Invalid)));
     }
 }

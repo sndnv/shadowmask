@@ -12,11 +12,7 @@ pub const EPISODE_WINDOW: u32 = 2_000;
 
 pub fn recently_added_movies(movies: &[Movie], limit: usize) -> Vec<HubItem> {
     let mut ordered: Vec<&Movie> = movies.iter().collect();
-    ordered.sort_by(|a, b| {
-        b.added_at
-            .cmp(&a.added_at)
-            .then_with(|| a.id.0.cmp(&b.id.0))
-    });
+    ordered.sort_by(|a, b| b.added_at.cmp(&a.added_at).then_with(|| a.id.0.cmp(&b.id.0)));
     ordered.truncate(limit);
     ordered.into_iter().cloned().map(HubItem::Movie).collect()
 }
@@ -45,10 +41,7 @@ pub fn recently_added_shows(window: &[EpisodeContext], limit: usize) -> Vec<(Ser
         }
     }
 
-    order
-        .into_iter()
-        .map(|id| (id.clone(), counted[id]))
-        .collect()
+    order.into_iter().map(|id| (id.clone(), counted[id])).collect()
 }
 
 pub fn watchlist_row(
@@ -62,11 +55,8 @@ pub fn watchlist_row(
         episodes.iter().map(|c| (&c.episode.id, c)).collect();
 
     let mut ordered: Vec<&WatchlistItem> = items.iter().collect();
-    ordered.sort_by(|a, b| {
-        b.added_at
-            .cmp(&a.added_at)
-            .then_with(|| a.title.id().cmp(b.title.id()))
-    });
+    ordered
+        .sort_by(|a, b| b.added_at.cmp(&a.added_at).then_with(|| a.title.id().cmp(b.title.id())));
 
     let mut row: Vec<HubItem> = Vec::new();
     for item in ordered {
@@ -98,16 +88,8 @@ pub fn home_hubs(
 ) -> Vec<Hub> {
     [
         ("watchlist", "On Your Watchlist", watchlist),
-        (
-            "recently_added_movies",
-            "Recently Added Movies",
-            recent_movies,
-        ),
-        (
-            "recently_added_shows",
-            "Recently Added Series",
-            recent_shows,
-        ),
+        ("recently_added_movies", "Recently Added Movies", recent_movies),
+        ("recently_added_shows", "Recently Added Series", recent_shows),
         ("on_deck", "On Deck", on_deck),
         ("continue_watching", "Continue Watching", continue_watching),
     ]
@@ -115,11 +97,7 @@ pub fn home_hubs(
     .filter(|(_, _, items)| !items.is_empty())
     .map(|(id, title, mut items)| {
         items.truncate(HUB_LIMIT);
-        Hub {
-            id: id.to_owned(),
-            title: title.to_owned(),
-            items,
-        }
+        Hub { id: id.to_owned(), title: title.to_owned(), items }
     })
     .collect()
 }
@@ -204,11 +182,7 @@ mod tests {
     }
 
     fn saved(title: TitleId, seconds: i64) -> WatchlistItem {
-        WatchlistItem {
-            user: UserId("u1".to_owned()),
-            title,
-            added_at: at(seconds),
-        }
+        WatchlistItem { user: UserId("u1".to_owned()), title, added_at: at(seconds) }
     }
 
     fn saved_movie(id: &str, seconds: i64) -> WatchlistItem {
@@ -224,10 +198,7 @@ mod tests {
             .iter()
             .map(|i| match i {
                 HubItem::Movie(m) => (m.title.clone(), None),
-                HubItem::Series {
-                    series,
-                    episode_count,
-                } => (series.title.clone(), *episode_count),
+                HubItem::Series { series, episode_count } => (series.title.clone(), *episode_count),
                 HubItem::Episode(card) => (card.episode.title.clone(), None),
             })
             .collect()
@@ -237,17 +208,11 @@ mod tests {
     fn movies_are_newest_first_and_capped() {
         let movies = [movie("old", 10), movie("new", 30), movie("mid", 20)];
         let items = recently_added_movies(&movies, 2);
-        assert_eq!(
-            shown(&items),
-            vec![("new".to_owned(), None), ("mid".to_owned(), None)]
-        );
+        assert_eq!(shown(&items), vec![("new".to_owned(), None), ("mid".to_owned(), None)]);
     }
 
     fn listed(shows: &[(SeriesId, u32)]) -> Vec<(String, u32)> {
-        shows
-            .iter()
-            .map(|(id, count)| (id.0.clone(), *count))
-            .collect()
+        shows.iter().map(|(id, count)| (id.0.clone(), *count)).collect()
     }
 
     #[test]
@@ -284,10 +249,7 @@ mod tests {
         let hubs = home_hubs(
             Vec::new(),
             vec![HubItem::Movie(movie("m", 10))],
-            vec![HubItem::Series {
-                series: show("s1"),
-                episode_count: Some(3),
-            }],
+            vec![HubItem::Series { series: show("s1"), episode_count: Some(3) }],
             Vec::new(),
             vec![HubItem::Movie(movie("c", 10))],
         );
@@ -305,9 +267,8 @@ mod tests {
 
     #[test]
     fn home_hubs_caps_each_row() {
-        let big: Vec<HubItem> = (0..HUB_LIMIT + 5)
-            .map(|n| HubItem::Movie(movie(&format!("m{n}"), 0)))
-            .collect();
+        let big: Vec<HubItem> =
+            (0..HUB_LIMIT + 5).map(|n| HubItem::Movie(movie(&format!("m{n}"), 0))).collect();
         let hubs = home_hubs(Vec::new(), big, Vec::new(), Vec::new(), Vec::new());
         assert_eq!(hubs.len(), 1);
         assert_eq!(hubs[0].items.len(), HUB_LIMIT);
@@ -330,61 +291,33 @@ mod tests {
     #[test]
     fn the_watchlist_row_is_newest_saved_first_and_capped() {
         let movies = [movie("old", 0), movie("new", 0), movie("mid", 0)];
-        let items = [
-            saved_movie("old", 10),
-            saved_movie("new", 30),
-            saved_movie("mid", 20),
-        ];
+        let items = [saved_movie("old", 10), saved_movie("new", 30), saved_movie("mid", 20)];
         let row = watchlist_row(&items, &movies, &[], 2);
-        assert_eq!(
-            shown(&row),
-            vec![("new".to_owned(), None), ("mid".to_owned(), None)]
-        );
+        assert_eq!(shown(&row), vec![("new".to_owned(), None), ("mid".to_owned(), None)]);
     }
 
     #[test]
     fn every_saved_episode_keeps_its_own_card() {
-        let cards = [
-            card("e1", Some("s1")),
-            card("e2", Some("s1")),
-            card("e3", Some("s1")),
-        ];
-        let items = [
-            saved_episode("e1", 30),
-            saved_episode("e2", 20),
-            saved_episode("e3", 10),
-        ];
+        let cards = [card("e1", Some("s1")), card("e2", Some("s1")), card("e3", Some("s1"))];
+        let items = [saved_episode("e1", 30), saved_episode("e2", 20), saved_episode("e3", 10)];
 
         let row = watchlist_row(&items, &[], &cards, 10);
 
         assert_eq!(
             shown(&row),
-            vec![
-                ("e1".to_owned(), None),
-                ("e2".to_owned(), None),
-                ("e3".to_owned(), None)
-            ],
+            vec![("e1".to_owned(), None), ("e2".to_owned(), None), ("e3".to_owned(), None)],
             "one card per saved row, so dismissing one cannot take the others"
         );
     }
 
     #[test]
     fn a_saved_episode_carries_the_context_its_card_needs() {
-        let row = watchlist_row(
-            &[saved_episode("e1", 10)],
-            &[],
-            &[card("e1", Some("s1"))],
-            10,
-        );
+        let row = watchlist_row(&[saved_episode("e1", 10)], &[], &[card("e1", Some("s1"))], 10);
 
-        match &row[..] {
-            [HubItem::Episode(card)] => {
-                assert_eq!(card.series, Some(SeriesId("s1".to_owned())));
-                assert_eq!(card.series_title.as_deref(), Some("s1"));
-                assert_eq!(card.season_number, Some(1));
-            }
-            other => panic!("unexpected watchlist row: {other:?}"),
-        }
+        let [HubItem::Episode(card)] = &row[..] else { panic!("unexpected row: {row:?}") };
+        assert_eq!(card.series, Some(SeriesId("s1".to_owned())));
+        assert_eq!(card.series_title.as_deref(), Some("s1"));
+        assert_eq!(card.season_number, Some(1));
     }
 
     #[test]
@@ -403,19 +336,10 @@ mod tests {
 
         assert_eq!(
             shown(&row),
-            vec![
-                ("kept".to_owned(), None),
-                ("stray".to_owned(), None),
-                ("e1".to_owned(), None)
-            ],
+            vec![("kept".to_owned(), None), ("stray".to_owned(), None), ("e1".to_owned(), None)],
             "a title the viewer cannot see drops out, the rest keep their place"
         );
-        match &row[1] {
-            HubItem::Episode(card) => assert!(
-                card.series_title.is_none(),
-                "the card simply carries no series context"
-            ),
-            other => panic!("unexpected row entry: {other:?}"),
-        }
+        let HubItem::Episode(card) = &row[1] else { panic!("unexpected entry: {:?}", row[1]) };
+        assert!(card.series_title.is_none(), "the card simply carries no series context");
     }
 }

@@ -122,40 +122,17 @@ fn direct_v1_detail() -> VersionDetail {
             pinned: false,
         }],
         chapters: Vec::new(),
-        markers: DetectedMarkers {
-            intros: Vec::new(),
-            credits: Vec::new(),
-        },
+        markers: DetectedMarkers { intros: Vec::new(), credits: Vec::new() },
         trickplay: Vec::new(),
     }
 }
 
 async fn seed(repos: &Repos, hash: &str) {
-    repos
-        .catalog
-        .insert_movie(fixture::movie("m1"))
-        .await
-        .unwrap();
-    repos
-        .catalog
-        .insert_series(fixture::series("s1"))
-        .await
-        .unwrap();
-    repos
-        .catalog
-        .insert_season(fixture::season("se1", "s1"))
-        .await
-        .unwrap();
-    repos
-        .catalog
-        .insert_episode(fixture::episode("e1", "se1"))
-        .await
-        .unwrap();
-    repos
-        .catalog
-        .insert_collection(fixture::saga_collection())
-        .await
-        .unwrap();
+    repos.catalog.insert_movie(fixture::movie("m1")).await.unwrap();
+    repos.catalog.insert_series(fixture::series("s1")).await.unwrap();
+    repos.catalog.insert_season(fixture::season("se1", "s1")).await.unwrap();
+    repos.catalog.insert_episode(fixture::episode("e1", "se1")).await.unwrap();
+    repos.catalog.insert_collection(fixture::saga_collection()).await.unwrap();
 
     for (owner, id) in [
         (ArtworkOwner::Movie(MovieId("m1".into())), "m1"),
@@ -163,27 +140,13 @@ async fn seed(repos: &Repos, hash: &str) {
         (ArtworkOwner::Season(SeasonId("se1".into())), "se1"),
         (ArtworkOwner::Episode(EpisodeId("e1".into())), "e1"),
         (ArtworkOwner::Collection(CollectionId("c1".into())), "c1"),
-        (
-            ArtworkOwner::Person(domain::metadata::PersonId("p1".into())),
-            "p1",
-        ),
+        (ArtworkOwner::Person(domain::metadata::PersonId("p1".into())), "p1"),
     ] {
-        repos
-            .catalog
-            .set_artwork(&owner, &fixture::artwork_set(id))
-            .await
-            .unwrap();
+        repos.catalog.set_artwork(&owner, &fixture::artwork_set(id)).await.unwrap();
     }
 
-    repos
-        .catalog
-        .insert_version_detail(direct_v1_detail())
-        .await
-        .unwrap();
-    for version in fixture::catalog_versions()
-        .into_iter()
-        .filter(|v| v.id.0 != "v1")
-    {
+    repos.catalog.insert_version_detail(direct_v1_detail()).await.unwrap();
+    for version in fixture::catalog_versions().into_iter().filter(|v| v.id.0 != "v1") {
         repos.catalog.insert_version(version).await.unwrap();
     }
 
@@ -192,10 +155,7 @@ async fn seed(repos: &Repos, hash: &str) {
     }
     repos
         .catalog
-        .set_title_enrichment(
-            &TitleRef::Movie(MovieId("m1".into())),
-            &fixture::movie_enrichment(),
-        )
+        .set_title_enrichment(&TitleRef::Movie(MovieId("m1".into())), &fixture::movie_enrichment())
         .await
         .unwrap();
     repos
@@ -208,11 +168,7 @@ async fn seed(repos: &Repos, hash: &str) {
         .unwrap();
     repos.catalog.rebuild().await.unwrap();
 
-    repos
-        .library
-        .insert_library(fixture::library("lib1"))
-        .await
-        .unwrap();
+    repos.library.insert_library(fixture::library("lib1")).await.unwrap();
     repos
         .library
         .insert_unmatched(UnmatchedFile {
@@ -230,16 +186,8 @@ async fn seed(repos: &Repos, hash: &str) {
         .await
         .unwrap();
 
-    repos
-        .users
-        .create(user("admin", "admin", Role::Admin, hash))
-        .await
-        .unwrap();
-    repos
-        .users
-        .create(user("u1", "user", Role::User, hash))
-        .await
-        .unwrap();
+    repos.users.create(user("admin", "admin", Role::Admin, hash)).await.unwrap();
+    repos.users.create(user("u1", "user", Role::User, hash)).await.unwrap();
     repos
         .users
         .set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())])
@@ -291,24 +239,15 @@ async fn seed(repos: &Repos, hash: &str) {
         .unwrap();
 
     repos.jobs.enqueue(fixture::admin_job()).await.unwrap();
-    repos
-        .jobs
-        .enqueue(fixture::admin_child_job())
-        .await
-        .unwrap();
+    repos.jobs.enqueue(fixture::admin_child_job()).await.unwrap();
 }
 
 async fn seeded(db_root: &Path, hash: &str) -> (Repos, Router) {
     let repos = Repos::connect(db_root).await.unwrap();
     seed(&repos, hash).await;
     let cfg = config(db_root);
-    let Built {
-        state,
-        stream,
-        images,
-        trickplay,
-        ..
-    } = build_state(&repos, &cfg, &CancelRegistry::default()).unwrap();
+    let Built { state, stream, images, trickplay, .. } =
+        build_state(&repos, &cfg, &CancelRegistry::default()).unwrap();
     let capabilities = server_capabilities(CapabilityInputs {
         transcription: cfg.transcription_enabled,
         translation: cfg.translation_enabled,
@@ -321,10 +260,7 @@ async fn seeded(db_root: &Path, hash: &str) -> (Repos, Router) {
         hardware_transcode_available: false,
         hardware_transcode_enabled: false,
     });
-    (
-        repos,
-        app(state, stream, images, trickplay, Vec::new(), capabilities),
-    )
+    (repos, app(state, stream, images, trickplay, Vec::new(), capabilities))
 }
 
 fn method(name: &str) -> Method {
@@ -358,11 +294,8 @@ async fn call(
     let response = router.oneshot(request).await.unwrap();
     let status = response.status();
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let value = if bytes.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&bytes).unwrap()
-    };
+    let value =
+        if bytes.is_empty() { Value::Null } else { serde_json::from_slice(&bytes).unwrap() };
     (status, value)
 }
 
@@ -508,20 +441,12 @@ async fn link_code_lifecycle_create_list_redeem_revoke() {
     let code = body["code"].as_str().unwrap().to_owned();
     assert_eq!(code.len(), 8);
 
-    let (status, body) = call(
-        router.clone(),
-        Method::GET,
-        "/api/v1/users/u1/link-codes",
-        Some(&user_access),
-        None,
-    )
-    .await;
+    let (status, body) =
+        call(router.clone(), Method::GET, "/api/v1/users/u1/link-codes", Some(&user_access), None)
+            .await;
     assert_eq!(status, StatusCode::OK);
     assert!(
-        body.as_array()
-            .unwrap()
-            .iter()
-            .any(|c| c["code"].as_str() == Some(code.as_str())),
+        body.as_array().unwrap().iter().any(|c| c["code"].as_str() == Some(code.as_str())),
         "created code should be listed as pending"
     );
 
@@ -538,14 +463,8 @@ async fn link_code_lifecycle_create_list_redeem_revoke() {
     let device_token = body["token"].as_str().unwrap().to_owned();
     assert!(device_token.starts_with("smk_"));
 
-    let (status, _) = call(
-        router.clone(),
-        Method::GET,
-        "/api/v1/movies",
-        Some(&device_token),
-        None,
-    )
-    .await;
+    let (status, _) =
+        call(router.clone(), Method::GET, "/api/v1/movies", Some(&device_token), None).await;
     assert_eq!(status, StatusCode::OK);
 
     let (status, _) = call(

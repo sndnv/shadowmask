@@ -25,16 +25,8 @@ const DURATION_BUCKETS: &[f64] = &[
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-const OWN_CRATES: [&str; 8] = [
-    "server",
-    "api",
-    "jobs",
-    "services",
-    "persistence",
-    "domain",
-    "media",
-    "metadata",
-];
+const OWN_CRATES: [&str; 8] =
+    ["server", "api", "jobs", "services", "persistence", "domain", "media", "metadata"];
 
 fn log_directives(level: &str, sqlx_level: &str) -> String {
     let mut directives = vec!["warn".to_owned()];
@@ -86,28 +78,16 @@ pub fn observability_router(handle: PrometheusHandle, repos: Repos) -> Router {
 }
 
 async fn health() -> Json<HealthBody> {
-    Json(HealthBody {
-        status: "ok",
-        version: VERSION,
-    })
+    Json(HealthBody { status: "ok", version: VERSION })
 }
 
 async fn ready(State(state): State<ObsState>) -> impl IntoResponse {
     if state.repos.ready().await {
-        (
-            StatusCode::OK,
-            Json(HealthBody {
-                status: "ok",
-                version: VERSION,
-            }),
-        )
+        (StatusCode::OK, Json(HealthBody { status: "ok", version: VERSION }))
     } else {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(HealthBody {
-                status: "unavailable",
-                version: VERSION,
-            }),
+            Json(HealthBody { status: "unavailable", version: VERSION }),
         )
     }
 }
@@ -165,12 +145,7 @@ mod tests {
         let repos = repos().await;
         let router = observability_router(local_handle(), repos.clone());
         let response = router
-            .oneshot(
-                Request::builder()
-                    .uri("/health")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -188,24 +163,14 @@ mod tests {
         let router = observability_router(local_handle(), repos.clone());
         let live = router
             .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/health/ready")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri("/health/ready").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(live.status(), StatusCode::OK);
 
         repos.close().await;
         let dead = router
-            .oneshot(
-                Request::builder()
-                    .uri("/health/ready")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri("/health/ready").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(dead.status(), StatusCode::SERVICE_UNAVAILABLE);
@@ -221,12 +186,7 @@ mod tests {
         let repos = repos().await;
         let router = observability_router(handle, repos.clone());
         let response = router
-            .oneshot(
-                Request::builder()
-                    .uri("/metrics")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri("/metrics").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);

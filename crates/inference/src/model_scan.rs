@@ -23,11 +23,9 @@ pub fn scan_translation_models(base: &Path) -> ModelScan {
 
 fn scan(base: &Path, validate: impl Fn(&Path) -> Result<(), String>) -> ModelScan {
     let mut dirs: Vec<PathBuf> = match std::fs::read_dir(base) {
-        Ok(entries) => entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.is_dir())
-            .collect(),
+        Ok(entries) => {
+            entries.flatten().map(|entry| entry.path()).filter(|path| path.is_dir()).collect()
+        }
         Err(_) => Vec::new(),
     };
     dirs.sort();
@@ -42,11 +40,7 @@ fn scan(base: &Path, validate: impl Fn(&Path) -> Result<(), String>) -> ModelSca
             Err(reason) => rejected.push(RejectedModel { dir, reason }),
         }
     }
-    ModelScan {
-        total,
-        chosen,
-        rejected,
-    }
+    ModelScan { total, chosen, rejected }
 }
 
 fn has(dir: &Path, file: &str) -> bool {
@@ -54,11 +48,7 @@ fn has(dir: &Path, file: &str) -> bool {
 }
 
 fn require(dir: &Path, file: &str) -> Result<(), String> {
-    if has(dir, file) {
-        Ok(())
-    } else {
-        Err(format!("missing {file}"))
-    }
+    if has(dir, file) { Ok(()) } else { Err(format!("missing {file}")) }
 }
 
 fn validate_transcription_dir(dir: &Path) -> Result<(), String> {
@@ -110,12 +100,7 @@ mod tests {
     #[test]
     fn picks_first_valid_alphanumeric_and_rejects_invalid() {
         let base = TempDir::new().unwrap();
-        let whisper = &[
-            "model.bin",
-            "config.json",
-            "tokenizer.json",
-            "preprocessor_config.json",
-        ];
+        let whisper = &["model.bin", "config.json", "tokenizer.json", "preprocessor_config.json"];
         write_files(&base.path().join("b-good"), whisper);
         write_files(&base.path().join("a-bad"), &["model.bin"]);
         write_files(&base.path().join("c-good"), whisper);
@@ -142,10 +127,7 @@ mod tests {
     #[test]
     fn translation_accepts_each_tokenizer_shape() {
         let base = TempDir::new().unwrap();
-        write_files(
-            &base.path().join("a-hf"),
-            &["model.bin", "config.json", "tokenizer.json"],
-        );
+        write_files(&base.path().join("a-hf"), &["model.bin", "config.json", "tokenizer.json"]);
         write_files(
             &base.path().join("b-spm"),
             &["model.bin", "config.json", "source.spm", "target.spm"],

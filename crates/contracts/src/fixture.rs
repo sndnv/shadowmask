@@ -72,10 +72,7 @@ pub fn movie(id: &str) -> Movie {
         year: Some(2020),
         overview: Some("overview".into()),
         runtime_minutes: Some(100),
-        content_rating: Some(ContentRating {
-            system: "MPAA".into(),
-            code: "PG-13".into(),
-        }),
+        content_rating: Some(ContentRating { system: "MPAA".into(), code: "PG-13".into() }),
         manually_edited: false,
         added_at: ts(1),
         updated_at: ts(1),
@@ -90,10 +87,7 @@ pub fn series(id: &str) -> Series {
         sort_title: format!("alpha {id}"),
         year: Some(2019),
         overview: None,
-        content_rating: Some(ContentRating {
-            system: "TV".into(),
-            code: "TV-14".into(),
-        }),
+        content_rating: Some(ContentRating { system: "TV".into(), code: "TV-14".into() }),
         manually_edited: false,
         added_at: ts(2),
         updated_at: ts(2),
@@ -175,17 +169,11 @@ pub fn saga_collection() -> Collection {
 }
 
 pub fn movie_art(id: &str) -> Movie {
-    Movie {
-        artwork: artwork_set(id),
-        ..movie(id)
-    }
+    Movie { artwork: artwork_set(id), ..movie(id) }
 }
 
 pub fn series_art(id: &str) -> Series {
-    Series {
-        artwork: artwork_set(id),
-        ..series(id)
-    }
+    Series { artwork: artwork_set(id), ..series(id) }
 }
 
 pub fn artwork_set(owner_id: &str) -> Vec<ArtworkRef> {
@@ -211,54 +199,33 @@ pub fn artwork_set(owner_id: &str) -> Vec<ArtworkRef> {
 }
 
 pub fn season_art(id: &str, series: &str) -> Season {
-    Season {
-        artwork: artwork_set(id),
-        ..season(id, series)
-    }
+    Season { artwork: artwork_set(id), ..season(id, series) }
 }
 
 pub fn episode_art(id: &str, season: &str) -> Episode {
-    Episode {
-        artwork: artwork_set(id),
-        ..episode(id, season)
-    }
+    Episode { artwork: artwork_set(id), ..episode(id, season) }
 }
 
 pub fn collection_art() -> Collection {
-    Collection {
-        artwork: artwork_set("c1"),
-        ..saga_collection()
-    }
+    Collection { artwork: artwork_set("c1"), ..saga_collection() }
 }
 
 pub fn catalog_versions() -> Vec<Version> {
-    let mut versions: Vec<Version> = [
-        ("v1", Quality::Sd),
-        ("v2", Quality::Hd),
-        ("v3", Quality::Fhd),
-        ("v4", Quality::Uhd),
-    ]
-    .into_iter()
-    .map(|(vid, quality)| version(vid, TitleId::Movie(MovieId("m1".into())), "lib1", quality))
-    .collect();
-    versions.push(version(
-        "ev1",
-        TitleId::Episode(EpisodeId("e1".into())),
-        "lib1",
-        Quality::Hd,
-    ));
+    let mut versions: Vec<Version> =
+        [("v1", Quality::Sd), ("v2", Quality::Hd), ("v3", Quality::Fhd), ("v4", Quality::Uhd)]
+            .into_iter()
+            .map(|(vid, quality)| {
+                version(vid, TitleId::Movie(MovieId("m1".into())), "lib1", quality)
+            })
+            .collect();
+    versions.push(version("ev1", TitleId::Episode(EpisodeId("e1".into())), "lib1", Quality::Hd));
     versions
 }
 
 pub fn version_detail(id: &str) -> VersionDetail {
     let vid = VersionId(id.into());
     VersionDetail {
-        version: version(
-            id,
-            TitleId::Movie(MovieId("m1".into())),
-            "lib1",
-            Quality::Sd,
-        ),
+        version: version(id, TitleId::Movie(MovieId("m1".into())), "lib1", Quality::Sd),
         video: vec![VideoTrack {
             index: 0,
             codec: "hevc".into(),
@@ -303,21 +270,11 @@ pub fn version_detail(id: &str) -> VersionDetail {
         ],
         subtitle_files: Vec::new(),
         chapters: vec![
-            Chapter {
-                title: "Cold Open".into(),
-                start_ms: 0,
-            },
-            Chapter {
-                title: "Main Title".into(),
-                start_ms: 60_000,
-            },
+            Chapter { title: "Cold Open".into(), start_ms: 0 },
+            Chapter { title: "Main Title".into(), start_ms: 60_000 },
         ],
         markers: DetectedMarkers {
-            intros: vec![IntroMarker {
-                version: vid.clone(),
-                start_ms: 60_000,
-                end_ms: 90_000,
-            }],
+            intros: vec![IntroMarker { version: vid.clone(), start_ms: 60_000, end_ms: 90_000 }],
             credits: vec![CreditsMarker {
                 version: vid.clone(),
                 start_ms: 900_000,
@@ -338,24 +295,13 @@ pub fn version_detail(id: &str) -> VersionDetail {
 
 pub fn people() -> Vec<Person> {
     vec![
-        Person {
-            id: PersonId("p1".into()),
-            name: "Ada Lovelace".into(),
-            ..Person::default()
-        },
-        Person {
-            id: PersonId("p2".into()),
-            name: "Bob Director".into(),
-            ..Person::default()
-        },
+        Person { id: PersonId("p1".into()), name: "Ada Lovelace".into(), ..Person::default() },
+        Person { id: PersonId("p2".into()), name: "Bob Director".into(), ..Person::default() },
     ]
 }
 
 fn genre(id: &str, name: &str) -> Genre {
-    Genre {
-        id: GenreId(id.into()),
-        name: name.into(),
-    }
+    Genre { id: GenreId(id.into()), name: name.into() }
 }
 
 fn credited(credits: &[Credit]) -> Vec<CreditedPerson> {
@@ -394,23 +340,11 @@ pub fn movie_enrichment() -> TitleEnrichment {
                 order: 1,
             },
         ],
-        studios: vec![Studio {
-            id: StudioId("st-acme".into()),
-            name: "Acme Studios".into(),
-        }],
-        ratings: vec![Rating {
-            source: "tmdb".into(),
-            value: 8.5,
-        }],
+        studios: vec![Studio { id: StudioId("st-acme".into()), name: "Acme Studios".into() }],
+        ratings: vec![Rating { source: "tmdb".into(), value: 8.5 }],
         external_ids: vec![
-            ExternalId {
-                source: "tmdb".into(),
-                value: "603".into(),
-            },
-            ExternalId {
-                source: "imdb".into(),
-                value: "tt0133093".into(),
-            },
+            ExternalId { source: "tmdb".into(), value: "603".into() },
+            ExternalId { source: "imdb".into(), value: "tt0133093".into() },
         ],
         extras: vec![Extra {
             kind: ExtraKind::Trailer,
@@ -430,14 +364,8 @@ pub fn series_enrichment() -> TitleEnrichment {
             character: Some("Lead".into()),
             order: 0,
         }],
-        ratings: vec![Rating {
-            source: "tmdb".into(),
-            value: 9.0,
-        }],
-        external_ids: vec![ExternalId {
-            source: "tvdb".into(),
-            value: "81189".into(),
-        }],
+        ratings: vec![Rating { source: "tmdb".into(), value: 9.0 }],
+        external_ids: vec![ExternalId { source: "tvdb".into(), value: "81189".into() }],
         ..TitleEnrichment::default()
     }
 }
@@ -495,8 +423,5 @@ pub fn accounts() -> Vec<SeedAccount> {
 }
 
 pub fn link_token() -> IssuedToken {
-    IssuedToken {
-        token: "player-token".into(),
-        expires_at: None,
-    }
+    IssuedToken { token: "player-token".into(), expires_at: None }
 }

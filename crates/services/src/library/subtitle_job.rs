@@ -86,11 +86,7 @@ mod tests {
     #[test]
     fn decode_defaults_missing_transcribe_on_miss_to_false() {
         let legacy = r#"{"version_id":"v1","imdb_id":null,"title":null,"languages":[],"season":null,"episode":null}"#;
-        assert!(
-            !SubtitleJobPayload::decode(legacy)
-                .unwrap()
-                .transcribe_on_miss
-        );
+        assert!(!SubtitleJobPayload::decode(legacy).unwrap().transcribe_on_miss);
     }
 
     #[test]

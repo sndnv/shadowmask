@@ -25,9 +25,7 @@ pub struct SqliteJobRepo {
 
 impl SqliteJobRepo {
     pub async fn connect(path: &Path) -> Result<Self, RepositoryError> {
-        Ok(Self {
-            pool: open(path, &MIGRATOR).await?,
-        })
+        Ok(Self { pool: open(path, &MIGRATOR).await? })
     }
 
     pub async fn ping(&self) -> Result<(), RepositoryError> {
@@ -140,12 +138,8 @@ fn row_to_job(row: &SqliteRow) -> Result<Job, RepositoryError> {
         last_error: column(row, "last_error")?,
         created_at: from_millis(column(row, "created_at")?)?,
         updated_at: from_millis(column(row, "updated_at")?)?,
-        started_at: column::<Option<i64>>(row, "started_at")?
-            .map(from_millis)
-            .transpose()?,
-        finished_at: column::<Option<i64>>(row, "finished_at")?
-            .map(from_millis)
-            .transpose()?,
+        started_at: column::<Option<i64>>(row, "started_at")?.map(from_millis).transpose()?,
+        finished_at: column::<Option<i64>>(row, "finished_at")?.map(from_millis).transpose()?,
         parent_id: column::<Option<String>>(row, "parent_id")?.map(JobId),
     })
 }
@@ -164,11 +158,7 @@ fn where_clause(query: &JobQuery) -> String {
     if query.needle().is_some() {
         parts.push(SEARCH_PREDICATE);
     }
-    if parts.is_empty() {
-        String::new()
-    } else {
-        format!(" WHERE {}", parts.join(" AND "))
-    }
+    if parts.is_empty() { String::new() } else { format!(" WHERE {}", parts.join(" AND ")) }
 }
 
 fn like_pattern(needle: &str) -> String {
@@ -268,17 +258,10 @@ impl JobRepository for SqliteJobRepo {
         for kind in &kinds {
             query = query.bind(kind_to_str(*kind));
         }
-        let rows = query
-            .bind(limit as i64)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(backend)?;
+        let rows = query.bind(limit as i64).fetch_all(&self.pool).await.map_err(backend)?;
         let mut jobs = rows.iter().map(row_to_job).collect::<Result<Vec<_>, _>>()?;
         jobs.sort_by(|a, b| {
-            b.priority
-                .cmp(&a.priority)
-                .then(a.created_at.cmp(&b.created_at))
-                .then(a.id.cmp(&b.id))
+            b.priority.cmp(&a.priority).then(a.created_at.cmp(&b.created_at)).then(a.id.cmp(&b.id))
         });
         Ok(jobs)
     }
@@ -316,10 +299,7 @@ impl JobRepository for SqliteJobRepo {
         .await
         .map_err(backend)?
         .rows_affected() as usize;
-        Ok(ReclaimOutcome {
-            requeued,
-            dead_lettered,
-        })
+        Ok(ReclaimOutcome { requeued, dead_lettered })
     }
 
     async fn update(&self, job: Job) -> Result<(), RepositoryError> {
@@ -382,13 +362,11 @@ impl JobRepository for SqliteJobRepo {
     ) -> Result<Page<JobNode>, RepositoryError> {
         let _op = DbOpGuard::new("jobs", "list_descendants");
         let cte = descendants_cte();
-        let count_row = sqlx::query(AssertSqlSafe(format!(
-            "{cte} SELECT COUNT(*) AS n FROM tree"
-        )))
-        .bind(root.0.as_str())
-        .fetch_one(&self.pool)
-        .await
-        .map_err(backend)?;
+        let count_row = sqlx::query(AssertSqlSafe(format!("{cte} SELECT COUNT(*) AS n FROM tree")))
+            .bind(root.0.as_str())
+            .fetch_one(&self.pool)
+            .await
+            .map_err(backend)?;
         let total = column::<i64>(&count_row, "n")? as u64;
         let rows = sqlx::query(AssertSqlSafe(format!(
             "{cte} SELECT j.*, t.depth AS depth FROM tree t JOIN jobs j ON j.id = t.id \
@@ -403,18 +381,10 @@ impl JobRepository for SqliteJobRepo {
         let items = rows
             .iter()
             .map(|row| {
-                Ok(JobNode {
-                    job: row_to_job(row)?,
-                    depth: column::<i64>(row, "depth")? as u32,
-                })
+                Ok(JobNode { job: row_to_job(row)?, depth: column::<i64>(row, "depth")? as u32 })
             })
             .collect::<Result<Vec<_>, RepositoryError>>()?;
-        Ok(Page {
-            items,
-            total,
-            offset: page.offset,
-            limit: page.limit,
-        })
+        Ok(Page { items, total, offset: page.offset, limit: page.limit })
     }
 
     async fn cancel(&self, id: &JobId, now: Timestamp) -> Result<bool, RepositoryError> {
@@ -473,21 +443,16 @@ mod tests {
     #[tokio::test]
     async fn claiming_ready_jobs_walks_the_ready_index() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteJobRepo::connect(&dir.path().join("jobs.db"))
+        let repo = SqliteJobRepo::connect(&dir.path().join("jobs.db")).await.unwrap();
+        let rows = sqlx::query(AssertSqlSafe(format!("EXPLAIN QUERY PLAN {}", ready_ids_sql(2))))
+            .bind("queued")
+            .bind(0_i64)
+            .bind("ingest")
+            .bind("metadata")
+            .bind(4_i64)
+            .fetch_all(&repo.pool)
             .await
             .unwrap();
-        let rows = sqlx::query(AssertSqlSafe(format!(
-            "EXPLAIN QUERY PLAN {}",
-            ready_ids_sql(2)
-        )))
-        .bind("queued")
-        .bind(0_i64)
-        .bind("ingest")
-        .bind("metadata")
-        .bind(4_i64)
-        .fetch_all(&repo.pool)
-        .await
-        .unwrap();
         let plan = rows
             .iter()
             .map(|row| column::<String>(row, "detail").unwrap())
@@ -497,6 +462,18 @@ mod tests {
             plan.contains("USING INDEX jobs_ready_idx") && !plan.contains("TEMP B-TREE"),
             "the worker claims jobs every five seconds, so this must never sort the queue: {plan}"
         );
+    }
+
+    // A worker with nothing enabled must not build a query with an empty IN list, which
+    // SQLite would refuse.
+    #[tokio::test]
+    async fn claiming_with_no_kinds_never_reaches_the_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = SqliteJobRepo::connect(&dir.path().join("jobs.db")).await.unwrap();
+
+        let claimed = repo.claim_ready(Timestamp::UNIX_EPOCH, 4, Vec::new()).await.unwrap();
+
+        assert!(claimed.is_empty());
     }
 
     #[test]
@@ -534,10 +511,7 @@ mod tests {
             assert_eq!(status_from_str(status_to_str(status)).unwrap(), status);
         }
         for priority in [JobPriority::Low, JobPriority::Normal, JobPriority::High] {
-            assert_eq!(
-                priority_from_int(priority_to_int(priority)).unwrap(),
-                priority
-            );
+            assert_eq!(priority_from_int(priority_to_int(priority)).unwrap(), priority);
         }
         assert!(kind_from_str("nope").is_err());
         assert!(status_from_str("nope").is_err());
@@ -547,9 +521,7 @@ mod tests {
     #[tokio::test]
     async fn surfaces_backend_error_after_close() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteJobRepo::connect(&dir.path().join("jobs.db"))
-            .await
-            .unwrap();
+        let repo = SqliteJobRepo::connect(&dir.path().join("jobs.db")).await.unwrap();
         repo.pool.close().await;
         assert!(repo.list().await.is_err());
         assert!(
@@ -557,45 +529,23 @@ mod tests {
             "a filtered count fails the same way"
         );
         assert!(
-            repo.list_page(
-                &JobQuery::default(),
-                PageRequest {
-                    offset: 0,
-                    limit: 1
-                }
-            )
-            .await
-            .is_err()
-        );
-        assert!(
-            repo.list_descendants(
-                &JobId("root".into()),
-                PageRequest {
-                    offset: 0,
-                    limit: 1
-                }
-            )
-            .await
-            .is_err()
-        );
-        assert!(
-            repo.delete_finished_before(Timestamp::UNIX_EPOCH)
+            repo.list_page(&JobQuery::default(), PageRequest { offset: 0, limit: 1 })
                 .await
                 .is_err()
         );
+        assert!(
+            repo.list_descendants(&JobId("root".into()), PageRequest { offset: 0, limit: 1 })
+                .await
+                .is_err()
+        );
+        assert!(repo.delete_finished_before(Timestamp::UNIX_EPOCH).await.is_err());
         let id = JobId("j1".into());
         assert!(repo.enqueue(contracts::fixture::admin_job()).await.is_err());
         assert!(
-            repo.claim_ready(Timestamp::UNIX_EPOCH, 1, vec![JobKind::LibraryScan])
-                .await
-                .is_err(),
+            repo.claim_ready(Timestamp::UNIX_EPOCH, 1, vec![JobKind::LibraryScan]).await.is_err(),
             "an empty kind list short circuits before the pool, so it proves nothing"
         );
-        assert!(
-            repo.reclaim_running(Timestamp::UNIX_EPOCH, 3)
-                .await
-                .is_err()
-        );
+        assert!(repo.reclaim_running(Timestamp::UNIX_EPOCH, 3).await.is_err());
         assert!(repo.update(contracts::fixture::admin_job()).await.is_err());
         assert!(repo.get(&id).await.is_err());
         assert!(repo.cancel(&id, Timestamp::UNIX_EPOCH).await.is_err());
@@ -611,28 +561,17 @@ mod tests {
     #[test]
     fn the_where_clause_only_carries_the_parts_it_needs() {
         assert!(where_clause(&JobQuery::default()).is_empty());
-        assert_eq!(
-            where_clause(&JobQuery::active(true)),
-            " WHERE status IN ('queued', 'running')"
-        );
-        let searched = JobQuery {
-            search: Some("scan".into()),
-            active_only: false,
-        };
+        assert_eq!(where_clause(&JobQuery::active(true)), " WHERE status IN ('queued', 'running')");
+        let searched = JobQuery { search: Some("scan".into()), active_only: false };
         assert!(where_clause(&searched).starts_with(" WHERE (LOWER(id) LIKE"));
-        let both = JobQuery {
-            search: Some("scan".into()),
-            active_only: true,
-        };
+        let both = JobQuery { search: Some("scan".into()), active_only: true };
         assert!(where_clause(&both).contains(" AND "));
     }
 
     #[tokio::test]
     async fn a_wildcard_in_the_needle_matches_literally() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteJobRepo::connect(&dir.path().join("jobs.db"))
-            .await
-            .unwrap();
+        let repo = SqliteJobRepo::connect(&dir.path().join("jobs.db")).await.unwrap();
         let now = Timestamp::UNIX_EPOCH;
         for id in ["100%-done", "anything"] {
             repo.enqueue(Job {
@@ -655,23 +594,14 @@ mod tests {
             .unwrap();
         }
 
-        let wildcard = JobQuery {
-            search: Some("%".into()),
-            active_only: false,
-        };
-        assert_eq!(
-            repo.count(&wildcard).await.unwrap(),
-            1,
-            "a bare % must not match every row"
-        );
+        let wildcard = JobQuery { search: Some("%".into()), active_only: false };
+        assert_eq!(repo.count(&wildcard).await.unwrap(), 1, "a bare % must not match every row");
     }
 
     #[tokio::test]
     async fn retention_removes_only_terminal_jobs_older_than_the_cutoff() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteJobRepo::connect(&dir.path().join("jobs.db"))
-            .await
-            .unwrap();
+        let repo = SqliteJobRepo::connect(&dir.path().join("jobs.db")).await.unwrap();
         let old = Timestamp::UNIX_EPOCH;
         let cutoff = old.checked_add(SignedDuration::from_hours(24)).unwrap();
         let recent = cutoff.checked_add(SignedDuration::from_hours(1)).unwrap();
@@ -705,32 +635,17 @@ mod tests {
             .unwrap();
         }
 
-        let mut removed: Vec<String> = repo
-            .delete_finished_before(cutoff)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|id| id.0)
-            .collect();
+        let mut removed: Vec<String> =
+            repo.delete_finished_before(cutoff).await.unwrap().into_iter().map(|id| id.0).collect();
         removed.sort();
         assert_eq!(removed, ["old-cancelled", "old-failed", "old-succeeded"]);
 
-        let mut left: Vec<String> = repo
-            .list()
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|job| job.id.0)
-            .collect();
+        let mut left: Vec<String> =
+            repo.list().await.unwrap().into_iter().map(|job| job.id.0).collect();
         left.sort();
         assert_eq!(
             left,
-            [
-                "queued",
-                "recent-succeeded",
-                "running",
-                "succeeded-unfinished"
-            ],
+            ["queued", "recent-succeeded", "running", "succeeded-unfinished"],
             "a job still running, still queued, or never finished outlives the cutoff"
         );
     }
@@ -738,14 +653,7 @@ mod tests {
     #[tokio::test]
     async fn retention_reports_nothing_when_every_job_is_young() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteJobRepo::connect(&dir.path().join("jobs.db"))
-            .await
-            .unwrap();
-        assert!(
-            repo.delete_finished_before(Timestamp::UNIX_EPOCH)
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        let repo = SqliteJobRepo::connect(&dir.path().join("jobs.db")).await.unwrap();
+        assert!(repo.delete_finished_before(Timestamp::UNIX_EPOCH).await.unwrap().is_empty());
     }
 }

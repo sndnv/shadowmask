@@ -71,9 +71,6 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), all.len());
-        assert_eq!(
-            NegotiationReason::VideoSoftwareOnly.to_string(),
-            "video_software_only"
-        );
+        assert_eq!(NegotiationReason::VideoSoftwareOnly.to_string(), "video_software_only");
     }
 }

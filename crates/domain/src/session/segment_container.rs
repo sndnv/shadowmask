@@ -17,11 +17,7 @@ pub fn segment_container_for(
     }
     let video_ok = video.is_none_or(|codec| TS_VIDEO.contains(&codec));
     let audio_ok = audio.is_none_or(|codec| TS_AUDIO.contains(&codec));
-    if video_ok && audio_ok {
-        SegmentContainer::MpegTs
-    } else {
-        SegmentContainer::Fmp4
-    }
+    if video_ok && audio_ok { SegmentContainer::MpegTs } else { SegmentContainer::Fmp4 }
 }
 
 impl SegmentContainer {
@@ -45,12 +41,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_container_names_itself_for_the_log_and_the_file() {
+        assert_eq!(SegmentContainer::MpegTs.as_str(), "mpegts");
+        assert_eq!(SegmentContainer::Fmp4.as_str(), "fmp4");
+        assert_eq!(SegmentContainer::MpegTs.segment_extension(), "ts");
+        assert_eq!(SegmentContainer::Fmp4.segment_extension(), "m4s");
+    }
+
+    #[test]
     fn a_transcode_always_uses_mpegts_whatever_the_source_codecs() {
-        for (video, audio) in [
-            (Some("vp9"), Some("opus")),
-            (Some("av1"), Some("flac")),
-            (Some("h264"), Some("aac")),
-        ] {
+        for (video, audio) in
+            [(Some("vp9"), Some("opus")), (Some("av1"), Some("flac")), (Some("h264"), Some("aac"))]
+        {
             assert_eq!(
                 segment_container_for(false, video, audio),
                 SegmentContainer::MpegTs,
@@ -96,18 +98,9 @@ mod tests {
 
     #[test]
     fn an_absent_track_does_not_force_fmp4() {
-        assert_eq!(
-            segment_container_for(true, None, Some("aac")),
-            SegmentContainer::MpegTs
-        );
-        assert_eq!(
-            segment_container_for(true, Some("h264"), None),
-            SegmentContainer::MpegTs
-        );
-        assert_eq!(
-            segment_container_for(true, None, None),
-            SegmentContainer::MpegTs
-        );
+        assert_eq!(segment_container_for(true, None, Some("aac")), SegmentContainer::MpegTs);
+        assert_eq!(segment_container_for(true, Some("h264"), None), SegmentContainer::MpegTs);
+        assert_eq!(segment_container_for(true, None, None), SegmentContainer::MpegTs);
     }
 
     #[test]

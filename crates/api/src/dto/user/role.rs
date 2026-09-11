@@ -42,10 +42,7 @@ mod tests {
         assert!(matches!(RoleDto::from(Role::Admin), RoleDto::Admin));
         assert!(matches!(RoleDto::from(Role::User), RoleDto::User));
         assert!(matches!(RoleDto::from(Role::Player), RoleDto::Player));
-        assert!(matches!(
-            RoleDto::from(Role::Automation),
-            RoleDto::Automation
-        ));
+        assert!(matches!(RoleDto::from(Role::Automation), RoleDto::Automation));
         assert!(matches!(Role::from(RoleDto::Admin), Role::Admin));
         assert!(matches!(Role::from(RoleDto::User), Role::User));
         assert!(matches!(Role::from(RoleDto::Player), Role::Player));

@@ -29,10 +29,7 @@ pub async fn libraries<S: AppServices>(
         .libraries(&principal)
         .await
         .map_err(log_fail(actor, "retrieve libraries"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} libraries",
-        libraries.len()
-    );
+    debug!("User [{actor}] retrieved {} libraries", libraries.len());
     Ok(Json(libraries.into_iter().map(Into::into).collect()))
 }
 
@@ -48,7 +45,7 @@ pub async fn library<S: AppServices>(
         .library(&principal, &id)
         .await
         .map_err(log_fail(actor, "retrieve library"))?;
-    debug!("User [{actor}] successfully retrieved library [{}]", id.0);
+    debug!("User [{actor}] retrieved library [{}]", id.0);
     Ok(Json(library.into()))
 }
 
@@ -63,10 +60,7 @@ pub async fn create_library<S: AppServices>(
         .create_library(&principal, req.into())
         .await
         .map_err(log_fail(actor, "create library"))?;
-    debug!(
-        "User [{actor}] successfully created library [{}]",
-        library.id.0
-    );
+    debug!("User [{actor}] created library [{}]", library.id.0);
     Ok((StatusCode::CREATED, Json(library.into())))
 }
 
@@ -83,7 +77,7 @@ pub async fn update_library<S: AppServices>(
         .update_library(&principal, &id, req.into())
         .await
         .map_err(log_fail(actor, "update library"))?;
-    debug!("User [{actor}] successfully updated library [{}]", id.0);
+    debug!("User [{actor}] updated library [{}]", id.0);
     Ok(Json(library.into()))
 }
 
@@ -99,7 +93,7 @@ pub async fn delete_library<S: AppServices>(
         .delete_library(&principal, &id)
         .await
         .map_err(log_fail(actor, "delete library"))?;
-    debug!("User [{actor}] successfully deleted library [{}]", id.0);
+    debug!("User [{actor}] deleted library [{}]", id.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -115,10 +109,7 @@ pub async fn scan_state<S: AppServices>(
         .scan_state(&principal, &id)
         .await
         .map_err(log_fail(actor, "retrieve scan state"))?;
-    debug!(
-        "User [{actor}] successfully retrieved scan state for library [{}]",
-        id.0
-    );
+    debug!("User [{actor}] retrieved scan state for library [{}]", id.0);
     Ok(Json(scan.into()))
 }
 
@@ -129,15 +120,8 @@ pub async fn trigger_scan<S: AppServices>(
 ) -> ApiResult<StatusCode> {
     let actor = &principal.user.0;
     let id = LibraryId(id);
-    state
-        .library()
-        .trigger_scan(&principal, &id)
-        .await
-        .map_err(log_fail(actor, "trigger scan"))?;
-    debug!(
-        "User [{actor}] successfully triggered scan for library [{}]",
-        id.0
-    );
+    state.library().trigger_scan(&principal, &id).await.map_err(log_fail(actor, "trigger scan"))?;
+    debug!("User [{actor}] triggered scan for library [{}]", id.0);
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -153,10 +137,7 @@ pub async fn refresh_metadata<S: AppServices>(
         .refresh_library_metadata(&principal, &id)
         .await
         .map_err(log_fail(actor, "refresh library metadata"))?;
-    debug!(
-        "User [{actor}] successfully queued a metadata refresh for library [{}]",
-        id.0
-    );
+    debug!("User [{actor}] queued a metadata refresh for library [{}]", id.0);
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -168,20 +149,13 @@ pub async fn unmatched<S: AppServices>(
 ) -> ApiResult<Json<PageResponse<UnmatchedFileResponse>>> {
     let actor = &principal.user.0;
     let id = LibraryId(id);
-    let unmatched = state
+    let files = state
         .library()
         .unmatched(&principal, &id, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve unmatched files"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} unmatched files for library [{}]",
-        unmatched.items.len(),
-        id.0
-    );
-    Ok(Json(PageResponse::from_page(
-        unmatched,
-        UnmatchedFileResponse::from,
-    )))
+    debug!("User [{actor}] retrieved {} unmatched files for library [{}]", files.items.len(), id.0);
+    Ok(Json(PageResponse::from_page(files, UnmatchedFileResponse::from)))
 }
 
 pub async fn duplicates<S: AppServices>(
@@ -197,15 +171,8 @@ pub async fn duplicates<S: AppServices>(
         .duplicates(&principal, &id, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve duplicate candidates"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} duplicate candidates for library [{}]",
-        duplicates.items.len(),
-        id.0
-    );
-    Ok(Json(PageResponse::from_page(
-        duplicates,
-        DuplicateCandidateResponse::from,
-    )))
+    debug!("User [{actor}] retrieved {} duplicates for library [{}]", duplicates.items.len(), id.0);
+    Ok(Json(PageResponse::from_page(duplicates, DuplicateCandidateResponse::from)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -225,10 +192,7 @@ pub async fn unmatched_candidates<S: AppServices>(
         .unmatched_candidates(&principal, &LibraryId(id), &UnmatchedFileId(uid), params.q)
         .await
         .map_err(log_fail(actor, "retrieve unmatched candidates"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} candidates for an unmatched file",
-        candidates.len()
-    );
+    debug!("User [{actor}] retrieved {} candidates for an unmatched file", candidates.len());
     Ok(Json(candidates.into_iter().map(Into::into).collect()))
 }
 
@@ -241,15 +205,10 @@ pub async fn resolve_unmatched<S: AppServices>(
     let actor = &principal.user.0;
     state
         .library()
-        .resolve_unmatched(
-            &principal,
-            &LibraryId(id),
-            &UnmatchedFileId(uid),
-            req.target.into(),
-        )
+        .resolve_unmatched(&principal, &LibraryId(id), &UnmatchedFileId(uid), req.target.into())
         .await
         .map_err(log_fail(actor, "resolve unmatched file"))?;
-    debug!("User [{actor}] successfully resolved an unmatched file");
+    debug!("User [{actor}] resolved an unmatched file");
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -264,7 +223,7 @@ pub async fn dismiss_duplicate<S: AppServices>(
         .dismiss_duplicate(&principal, &LibraryId(id), &DuplicateCandidateId(did))
         .await
         .map_err(log_fail(actor, "dismiss duplicate candidate"))?;
-    debug!("User [{actor}] successfully dismissed a duplicate candidate");
+    debug!("User [{actor}] dismissed a duplicate candidate");
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -281,12 +240,6 @@ pub async fn versions<S: AppServices>(
         .library_versions(&principal, &id, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve library versions"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} versions for library [{}]",
-        versions.items.len(),
-        id.0
-    );
-    Ok(Json(PageResponse::from_page(versions, |v| {
-        VersionResponse::with_path(v, true)
-    })))
+    debug!("User [{actor}] retrieved {} versions for library [{}]", versions.items.len(), id.0);
+    Ok(Json(PageResponse::from_page(versions, |v| VersionResponse::with_path(v, true))))
 }

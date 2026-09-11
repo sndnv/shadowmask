@@ -11,9 +11,7 @@ use persistence::server::SqliteCatalogRepo;
 #[tokio::test]
 async fn catalog_repository_contract_holds_for_sqlite() {
     let dir = tempfile::tempdir().unwrap();
-    let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db"))
-        .await
-        .unwrap();
+    let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
     catalog_repository_contract(repo, async |repo: &SqliteCatalogRepo| {
         let seed = catalog_seed();
         for movie in seed.movies {
@@ -80,20 +78,14 @@ fn movie_version(id: &str, movie: &str, available: bool) -> Version {
 #[tokio::test]
 async fn a_random_movie_is_drawn_from_the_whole_playable_pool() {
     let dir = tempfile::tempdir().unwrap();
-    let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db"))
-        .await
-        .unwrap();
+    let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
 
     for id in ["m1", "m2", "m3", "m4"] {
         repo.upsert_movie(plain_movie(id)).await.unwrap();
-        repo.upsert_version(movie_version(&format!("v-{id}"), id, true))
-            .await
-            .unwrap();
+        repo.upsert_version(movie_version(&format!("v-{id}"), id, true)).await.unwrap();
     }
     repo.upsert_movie(plain_movie("offline")).await.unwrap();
-    repo.upsert_version(movie_version("v-offline", "offline", false))
-        .await
-        .unwrap();
+    repo.upsert_version(movie_version("v-offline", "offline", false)).await.unwrap();
     repo.upsert_movie(plain_movie("fileless")).await.unwrap();
 
     let filter = TitleListFilter::default();
@@ -109,10 +101,7 @@ async fn a_random_movie_is_drawn_from_the_whole_playable_pool() {
 
     assert_eq!(
         seen,
-        ["m1", "m2", "m3", "m4"]
-            .iter()
-            .map(|id| (*id).to_owned())
-            .collect::<HashSet<String>>(),
+        ["m1", "m2", "m3", "m4"].iter().map(|id| (*id).to_owned()).collect::<HashSet<String>>(),
         "every playable movie should turn up, and nothing unplayable should"
     );
 }
@@ -120,14 +109,10 @@ async fn a_random_movie_is_drawn_from_the_whole_playable_pool() {
 #[tokio::test]
 async fn a_movie_whose_only_file_went_missing_is_never_picked() {
     let dir = tempfile::tempdir().unwrap();
-    let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db"))
-        .await
-        .unwrap();
+    let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
 
     repo.upsert_movie(plain_movie("gone")).await.unwrap();
-    repo.upsert_version(movie_version("v-gone", "gone", false))
-        .await
-        .unwrap();
+    repo.upsert_version(movie_version("v-gone", "gone", false)).await.unwrap();
 
     assert!(
         repo.random_playable_title(&RandomScope::Movies, &TitleListFilter::default())

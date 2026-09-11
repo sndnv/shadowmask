@@ -42,9 +42,7 @@ impl MockProgressRepo {
 
     pub fn seed_progress(&self, progress: PlaybackProgress) {
         let mut state = self.state.lock().unwrap();
-        state
-            .progress
-            .retain(|p| !(p.user == progress.user && p.version == progress.version));
+        state.progress.retain(|p| !(p.user == progress.user && p.version == progress.version));
         state.progress.push(progress);
     }
 
@@ -91,11 +89,7 @@ impl ProgressRepository for MockProgressRepo {
 
     async fn delete(&self, user: &UserId, version: &VersionId) -> Result<(), RepositoryError> {
         self.guard()?;
-        self.state
-            .lock()
-            .unwrap()
-            .progress
-            .retain(|p| !(&p.user == user && &p.version == version));
+        self.state.lock().unwrap().progress.retain(|p| !(&p.user == user && &p.version == version));
         Ok(())
     }
 
@@ -104,7 +98,7 @@ impl ProgressRepository for MockProgressRepo {
         user: &UserId,
     ) -> Result<Vec<PlaybackProgress>, RepositoryError> {
         self.guard()?;
-        Ok(self
+        let mut items: Vec<PlaybackProgress> = self
             .state
             .lock()
             .unwrap()
@@ -112,7 +106,9 @@ impl ProgressRepository for MockProgressRepo {
             .iter()
             .filter(|p| &p.user == user)
             .cloned()
-            .collect())
+            .collect();
+        items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at).then(a.version.0.cmp(&b.version.0)));
+        Ok(items)
     }
 
     async fn record_view(
@@ -123,10 +119,8 @@ impl ProgressRepository for MockProgressRepo {
     ) -> Result<(), RepositoryError> {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
-        if let Some(existing) = state
-            .history
-            .iter_mut()
-            .find(|h| &h.user == user && &h.title == title)
+        if let Some(existing) =
+            state.history.iter_mut().find(|h| &h.user == user && &h.title == title)
         {
             existing.watched = true;
             existing.completed = true;
@@ -153,10 +147,8 @@ impl ProgressRepository for MockProgressRepo {
     ) -> Result<(), RepositoryError> {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
-        if let Some(existing) = state
-            .history
-            .iter_mut()
-            .find(|h| &h.user == user && &h.title == title)
+        if let Some(existing) =
+            state.history.iter_mut().find(|h| &h.user == user && &h.title == title)
         {
             existing.watched = watched;
             existing.completed = watched;
@@ -177,10 +169,8 @@ impl ProgressRepository for MockProgressRepo {
     async fn delete_history(&self, user: &UserId, title_id: &str) -> Result<(), RepositoryError> {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
-        for entry in state
-            .history
-            .iter_mut()
-            .filter(|h| &h.user == user && h.title.id() == title_id)
+        for entry in
+            state.history.iter_mut().filter(|h| &h.user == user && h.title.id() == title_id)
         {
             entry.play_count = 0;
             entry.last_watched_at = None;
@@ -202,15 +192,7 @@ impl ProgressRepository for MockProgressRepo {
 
     async fn watched_state(&self, user: &UserId) -> Result<Vec<WatchHistory>, RepositoryError> {
         self.guard()?;
-        Ok(self
-            .state
-            .lock()
-            .unwrap()
-            .history
-            .iter()
-            .filter(|h| &h.user == user)
-            .cloned()
-            .collect())
+        Ok(self.state.lock().unwrap().history.iter().filter(|h| &h.user == user).cloned().collect())
     }
 
     async fn history(
@@ -219,7 +201,7 @@ impl ProgressRepository for MockProgressRepo {
         page: PageRequest,
     ) -> Result<Page<WatchHistory>, RepositoryError> {
         self.guard()?;
-        let all: Vec<WatchHistory> = self
+        let mut all: Vec<WatchHistory> = self
             .state
             .lock()
             .unwrap()
@@ -228,7 +210,21 @@ impl ProgressRepository for MockProgressRepo {
             .filter(|h| &h.user == user && h.play_count > 0)
             .cloned()
             .collect();
+        all.sort_by(|a, b| {
+            b.last_watched_at
+                .cmp(&a.last_watched_at)
+                .then_with(|| watched_order(&a.title).cmp(&watched_order(&b.title)))
+        });
         Ok(paginate(&all, page))
+    }
+}
+
+/// The stored rows carry the kind as a string, and history orders by it, so an episode sorts
+/// before a movie watched at the same moment.
+fn watched_order(title: &domain::catalog::TitleId) -> (&'static str, &str) {
+    match title {
+        domain::catalog::TitleId::Episode(id) => ("episode", id.0.as_str()),
+        domain::catalog::TitleId::Movie(id) => ("movie", id.0.as_str()),
     }
 }
 
@@ -259,40 +255,23 @@ mod tests {
     }
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        PageRequest { offset: 0, limit: 10 }
     }
 
     #[tokio::test]
     async fn progress_upsert_get_and_list() {
         let repo = MockProgressRepo::new();
-        assert!(
-            repo.get(&user(), &VersionId("v1".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(repo.get(&user(), &VersionId("v1".into())).await.unwrap().is_none());
         repo.upsert(progress("v1", 100)).await.unwrap();
         repo.upsert(progress("v1", 250)).await.unwrap();
         assert_eq!(
-            repo.get(&user(), &VersionId("v1".into()))
-                .await
-                .unwrap()
-                .unwrap()
-                .position_ms,
+            repo.get(&user(), &VersionId("v1".into())).await.unwrap().unwrap().position_ms,
             250
         );
         assert_eq!(repo.list_in_progress(&user()).await.unwrap().len(), 1);
 
         repo.delete(&user(), &VersionId("v1".into())).await.unwrap();
-        assert!(
-            repo.get(&user(), &VersionId("v1".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(repo.get(&user(), &VersionId("v1".into())).await.unwrap().is_none());
         assert!(repo.list_in_progress(&user()).await.unwrap().is_empty());
         repo.delete(&user(), &VersionId("v1".into())).await.unwrap();
     }
@@ -300,12 +279,8 @@ mod tests {
     #[tokio::test]
     async fn views_accumulate_and_paginate() {
         let repo = MockProgressRepo::new();
-        repo.record_view(&user(), &title(), Timestamp::UNIX_EPOCH)
-            .await
-            .unwrap();
-        repo.record_view(&user(), &title(), Timestamp::UNIX_EPOCH)
-            .await
-            .unwrap();
+        repo.record_view(&user(), &title(), Timestamp::UNIX_EPOCH).await.unwrap();
+        repo.record_view(&user(), &title(), Timestamp::UNIX_EPOCH).await.unwrap();
         let page = repo.history(&user(), page()).await.unwrap();
         assert_eq!(page.total, 1);
         assert_eq!(page.items[0].play_count, 2);
@@ -315,31 +290,23 @@ mod tests {
     #[tokio::test]
     async fn marking_watched_never_reaches_the_view_history() {
         let repo = MockProgressRepo::new();
-        repo.set_watched_flags(&user(), &title(), true)
-            .await
-            .unwrap();
+        repo.set_watched_flags(&user(), &title(), true).await.unwrap();
         assert_eq!(repo.history(&user(), page()).await.unwrap().total, 0);
         assert!(repo.watched_state(&user()).await.unwrap()[0].watched);
 
-        repo.set_watched_flags(&user(), &title(), false)
-            .await
-            .unwrap();
+        repo.set_watched_flags(&user(), &title(), false).await.unwrap();
         assert!(repo.watched_state(&user()).await.unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn removing_a_view_keeps_the_watched_flag() {
         let repo = MockProgressRepo::new();
-        repo.record_view(&user(), &title(), Timestamp::UNIX_EPOCH)
-            .await
-            .unwrap();
+        repo.record_view(&user(), &title(), Timestamp::UNIX_EPOCH).await.unwrap();
         repo.delete_history(&user(), "m1").await.unwrap();
         assert_eq!(repo.history(&user(), page()).await.unwrap().total, 0);
         assert!(repo.watched_state(&user()).await.unwrap()[0].watched);
 
-        repo.record_view(&user(), &title(), Timestamp::UNIX_EPOCH)
-            .await
-            .unwrap();
+        repo.record_view(&user(), &title(), Timestamp::UNIX_EPOCH).await.unwrap();
         repo.clear_history(&user()).await.unwrap();
         assert_eq!(repo.history(&user(), page()).await.unwrap().total, 0);
     }
@@ -352,16 +319,8 @@ mod tests {
         assert!(repo.upsert(progress("v1", 1)).await.is_err());
         assert!(repo.delete(&user(), &VersionId("v1".into())).await.is_err());
         assert!(repo.list_in_progress(&user()).await.is_err());
-        assert!(
-            repo.record_view(&user(), &title(), Timestamp::UNIX_EPOCH)
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.set_watched_flags(&user(), &title(), true)
-                .await
-                .is_err()
-        );
+        assert!(repo.record_view(&user(), &title(), Timestamp::UNIX_EPOCH).await.is_err());
+        assert!(repo.set_watched_flags(&user(), &title(), true).await.is_err());
         assert!(repo.delete_history(&user(), "m1").await.is_err());
         assert!(repo.clear_history(&user()).await.is_err());
         assert!(repo.watched_state(&user()).await.is_err());

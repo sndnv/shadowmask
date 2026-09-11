@@ -16,11 +16,7 @@ pub struct IngestJobHandler<R, P, E> {
 
 impl<R, P, E> IngestJobHandler<R, P, E> {
     pub fn new(repo: R, probe: P, ingester: E) -> Self {
-        Self {
-            repo,
-            probe,
-            ingester,
-        }
+        Self { repo, probe, ingester }
     }
 }
 
@@ -33,19 +29,11 @@ where
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         let payload = IngestJobPayload::decode(&job.payload)
             .map_err(|e| JobError::Permanent(format!("invalid ingest payload: {e}")))?;
-        let library = self
-            .repo
-            .get(&payload.library)
-            .await
-            .map_err(retryable)?
-            .ok_or_else(|| {
+        let library =
+            self.repo.get(&payload.library).await.map_err(retryable)?.ok_or_else(|| {
                 JobError::Permanent(format!("library not found: {}", payload.library.0))
             })?;
-        tracing::info!(
-            "ingesting [{}] into library [{}]",
-            payload.path,
-            payload.library.0
-        );
+        tracing::info!("ingesting [{}] into library [{}]", payload.path, payload.library.0);
         let probe = self
             .probe
             .probe(&payload.path)
@@ -64,10 +52,9 @@ where
             .await
             .map_err(retryable)?;
         if outcome == ResolveOutcome::Unidentified {
-            return Err(JobError::Retryable(format!(
-                "the provider returned no metadata for [{}]; the file was ingested but the title was not identified",
-                payload.path
-            )));
+            let path = &payload.path;
+            let reason = format!("the provider returned no metadata for [{path}]; not identified");
+            return Err(JobError::Retryable(reason));
         }
         self.repo
             .set_unmatched_status(&payload.unmatched, ResolutionStatus::Resolved)
@@ -115,20 +102,12 @@ mod tests {
     }
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        PageRequest { offset: 0, limit: 10 }
     }
 
     fn ingester() -> Enricher<MockCatalogRepo, MockMetadataProvider, MockJobStore, MockLibraryRepo>
     {
-        Enricher::new(
-            MockCatalogRepo::new(),
-            None,
-            MockJobStore::new(),
-            MockLibraryRepo::new(),
-        )
+        Enricher::new(MockCatalogRepo::new(), None, MockJobStore::new(), MockLibraryRepo::new())
     }
 
     fn job(payload: String) -> Job {
@@ -186,26 +165,49 @@ mod tests {
             ),
         );
 
-        handler
-            .handle(&job(payload("/m/x.mkv", "lib").encode()))
-            .await
-            .unwrap();
+        handler.handle(&job(payload("/m/x.mkv", "lib").encode())).await.unwrap();
 
         assert_eq!(
-            catalog
-                .list_library_versions(&LibraryId("lib".into()), page())
-                .await
-                .unwrap()
-                .total,
+            catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap().total,
             1
         );
         assert!(
-            repo.list_unmatched(&LibraryId("lib".into()), page())
-                .await
-                .unwrap()
-                .items
-                .is_empty()
+            repo.list_unmatched(&LibraryId("lib".into()), page()).await.unwrap().items.is_empty()
         );
+    }
+
+    // The file is on disk and in the catalog either way, but a title nobody could name is
+    // not a finished ingest, so the job has to come back rather than report success.
+    #[tokio::test]
+    async fn a_file_the_provider_cannot_identify_is_retried() {
+        use domain::metadata::ExternalId;
+
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(library());
+        repo.insert_unmatched(UnmatchedFile {
+            id: UnmatchedFileId("uf1".into()),
+            library: LibraryId("lib".into()),
+            path: "/m/x.mkv".into(),
+            candidates: Vec::new(),
+            created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+        })
+        .await
+        .unwrap();
+        let handler = IngestJobHandler::new(repo, MockMediaProbe::new(), ingester());
+        let payload = IngestJobPayload {
+            library: LibraryId("lib".into()),
+            unmatched: UnmatchedFileId("uf1".into()),
+            path: "/m/x.mkv".into(),
+            target: ResolveTarget::Provider(ExternalId {
+                source: "tmdb".into(),
+                value: "movie/603".into(),
+            }),
+        };
+
+        let error = handler.handle(&job(payload.encode())).await.unwrap_err();
+
+        assert!(matches!(error, JobError::Retryable(_)));
     }
 
     #[tokio::test]
@@ -223,10 +225,7 @@ mod tests {
         let handler =
             IngestJobHandler::new(MockLibraryRepo::new(), MockMediaProbe::new(), ingester());
         assert!(matches!(
-            handler
-                .handle(&job(payload("/m/x.mkv", "nope").encode()))
-                .await
-                .unwrap_err(),
+            handler.handle(&job(payload("/m/x.mkv", "nope").encode())).await.unwrap_err(),
             JobError::Permanent(_)
         ));
     }
@@ -240,10 +239,7 @@ mod tests {
 
         assert!(
             matches!(
-                handler
-                    .handle(&job(payload("/m/x.mkv", "lib").encode()))
-                    .await
-                    .unwrap_err(),
+                handler.handle(&job(payload("/m/x.mkv", "lib").encode())).await.unwrap_err(),
                 JobError::Retryable(_)
             ),
             "a database blip must not permanently drop the file"
@@ -254,16 +250,10 @@ mod tests {
     async fn probe_failure_is_retryable() {
         let repo = MockLibraryRepo::new();
         repo.insert_library(library());
-        let handler = IngestJobHandler::new(
-            repo,
-            MockMediaProbe::new().failing_on("/m/x.mkv"),
-            ingester(),
-        );
+        let handler =
+            IngestJobHandler::new(repo, MockMediaProbe::new().failing_on("/m/x.mkv"), ingester());
         assert!(matches!(
-            handler
-                .handle(&job(payload("/m/x.mkv", "lib").encode()))
-                .await
-                .unwrap_err(),
+            handler.handle(&job(payload("/m/x.mkv", "lib").encode())).await.unwrap_err(),
             JobError::Retryable(_)
         ));
     }

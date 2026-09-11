@@ -46,10 +46,7 @@ mod tests {
 
     #[test]
     fn defaults_to_default_limit() {
-        let params = PageParams {
-            offset: 0,
-            limit: None,
-        };
+        let params = PageParams { offset: 0, limit: None };
         let req = params.to_request();
         assert_eq!(req.offset, 0);
         assert_eq!(req.limit, DEFAULT_LIMIT);
@@ -57,10 +54,7 @@ mod tests {
 
     #[test]
     fn clamps_limit_to_max() {
-        let params = PageParams {
-            offset: 7,
-            limit: Some(10_000),
-        };
+        let params = PageParams { offset: 7, limit: Some(10_000) };
         let req = params.to_request();
         assert_eq!(req.offset, 7);
         assert_eq!(req.limit, MAX_LIMIT);
@@ -68,12 +62,7 @@ mod tests {
 
     #[test]
     fn from_page_maps_items_and_meta() {
-        let page = Page {
-            items: vec![1u32, 2, 3],
-            total: 3,
-            offset: 0,
-            limit: 50,
-        };
+        let page = Page { items: vec![1u32, 2, 3], total: 3, offset: 0, limit: 50 };
         let response = PageResponse::from_page(page, |n| n.to_string());
         assert_eq!(response.items, vec!["1", "2", "3"]);
         assert_eq!(response.total, 3);

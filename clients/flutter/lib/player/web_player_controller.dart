@@ -34,10 +34,16 @@ extension type _HlsConfig._(JSObject _) implements JSObject {
     int maxBufferLength,
     int maxMaxBufferLength,
     int maxBufferSize,
+    int manifestLoadingTimeOut,
+    int levelLoadingTimeOut,
+    int fragLoadingTimeOut,
   });
   external set maxBufferLength(int value);
   external set maxMaxBufferLength(int value);
   external set maxBufferSize(int value);
+  external set manifestLoadingTimeOut(int value);
+  external set levelLoadingTimeOut(int value);
+  external set fragLoadingTimeOut(int value);
 }
 
 extension type _HlsEvents._(JSObject _) implements JSObject {
@@ -116,6 +122,7 @@ class WebPlayerController implements PlayerController {
   _Hls? _hls;
   int _bufferSeconds = kDefaultBufferSeconds;
   int _bufferBytes = kDefaultBufferBytes;
+  int _networkTimeoutSeconds = kDefaultNetworkTimeoutSeconds;
   Timer? _timer;
   double _rate = 1;
   PlaybackMode _mode = PlaybackMode.direct;
@@ -182,6 +189,9 @@ class WebPlayerController implements PlayerController {
           maxBufferLength: _bufferSeconds,
           maxMaxBufferLength: _bufferSeconds,
           maxBufferSize: _bufferBytes,
+          manifestLoadingTimeOut: _networkTimeoutSeconds * 1000,
+          levelLoadingTimeOut: _networkTimeoutSeconds * 1000,
+          fragLoadingTimeOut: _networkTimeoutSeconds * 1000,
         ),
       );
       _hls = hls;
@@ -353,7 +363,17 @@ class WebPlayerController implements PlayerController {
   }
 
   @override
-  void setNetworkTimeout(int seconds) {}
+  void setNetworkTimeout(int seconds) {
+    _networkTimeoutSeconds = seconds;
+    final _Hls? hls = _hls;
+    if (hls == null) {
+      return;
+    }
+    hls.config
+      ..manifestLoadingTimeOut = seconds * 1000
+      ..levelLoadingTimeOut = seconds * 1000
+      ..fragLoadingTimeOut = seconds * 1000;
+  }
 
   @override
   bool get buffersAhead => _hls != null;

@@ -227,11 +227,8 @@ async fn run_bootstrap(config: &Config, repos: &Repos) -> Result<BootstrapResult
             }),
         )
     };
-    let libraries = run_one(
-        &LibraryBootstrapProvider::new(library_service()),
-        &config.bootstrap_dir,
-    )
-    .await;
+    let libraries =
+        run_one(&LibraryBootstrapProvider::new(library_service()), &config.bootstrap_dir).await;
     let users = run_one(
         &UserBootstrapProvider::new(
             UserServiceImpl::new(
@@ -320,12 +317,8 @@ impl Runtime {
             .jobs
             .reclaim_running(Timestamp::now(), RetryPolicy::default().max_attempts)
             .await?;
-        tracing::info!(
-            requeued = reclaimed.requeued,
-            dead_lettered = reclaimed.dead_lettered,
-            "startup: reclaimed [{}] stale running jobs",
-            reclaimed.total()
-        );
+        #[rustfmt::skip]
+        tracing::info!(requeued = reclaimed.requeued, dead_lettered = reclaimed.dead_lettered, "startup: reclaimed [{}] stale running jobs", reclaimed.total());
 
         match CacheEvictor::new(&config.transcode_cache).purge().await {
             Ok(purged) => {
@@ -368,14 +361,8 @@ impl Runtime {
             profile_overrides_dir: config.profile_overrides_dir.clone(),
         };
         let cancel = CancelRegistry::default();
-        let Built {
-            state,
-            stream,
-            session,
-            artwork_store,
-            images,
-            trickplay,
-        } = build_state(&repos, &wire, &cancel)?;
+        let Built { state, stream, session, artwork_store, images, trickplay } =
+            build_state(&repos, &wire, &cancel)?;
         let job_logs = FsJobLogStore::new(&config.job_log_dir);
         let transcription_dir = transcription_model_dir(&config.enrichment);
         let translation_dir = translation_model_dir(&config.enrichment);
@@ -427,10 +414,7 @@ impl Runtime {
                 FsSubtitleStore::new(&config.subtitle_cache),
             ),
         ))
-        .merge(::api::job_log_router(
-            state.clone(),
-            ::api::JobLogState::new(job_logs.clone()),
-        ))
+        .merge(::api::job_log_router(state.clone(), ::api::JobLogState::new(job_logs.clone())))
         .merge(::api::download_router(
             state.clone(),
             ::api::DownloadState::new(
@@ -508,9 +492,8 @@ impl Runtime {
         );
         let tmdb_interval = Duration::from_millis(config.tmdb_min_interval_ms);
         let omdb_interval = Duration::from_millis(config.omdb_min_interval_ms);
-        let omdb = config
-            .omdb_api_key
-            .map(|key| OmdbClient::new(key).with_min_interval(omdb_interval));
+        let omdb =
+            config.omdb_api_key.map(|key| OmdbClient::new(key).with_min_interval(omdb_interval));
         let provider = config.tmdb_api_key.map(|key| {
             CombiningProvider::new(TmdbClient::new(key).with_min_interval(tmdb_interval), omdb)
         });
@@ -760,35 +743,21 @@ impl Runtime {
         let mut tasks: JoinSet<Result<(), BoxError>> = JoinSet::new();
 
         let worker_stop = stopped(stop_tx.subscribe());
-        tasks.spawn(async move {
-            worker
-                .run(worker_period, worker_stop)
-                .await
-                .map_err(box_err)
-        });
+        tasks.spawn(async move { worker.run(worker_period, worker_stop).await.map_err(box_err) });
 
         let enrichment_stop = stopped(stop_tx.subscribe());
         tasks.spawn(async move {
-            enrichment_worker
-                .run(worker_period, enrichment_stop)
-                .await
-                .map_err(box_err)
+            enrichment_worker.run(worker_period, enrichment_stop).await.map_err(box_err)
         });
 
         let fetch_stop = stopped(stop_tx.subscribe());
-        tasks.spawn(async move {
-            fetch_worker
-                .run(worker_period, fetch_stop)
-                .await
-                .map_err(box_err)
-        });
+        tasks.spawn(
+            async move { fetch_worker.run(worker_period, fetch_stop).await.map_err(box_err) },
+        );
 
         let scheduler_stop = stopped(stop_tx.subscribe());
         tasks.spawn(async move {
-            scheduler
-                .run(scheduler_period, &queue, scheduler_stop)
-                .await
-                .map_err(box_err)
+            scheduler.run(scheduler_period, &queue, scheduler_stop).await.map_err(box_err)
         });
 
         let reaper_stop = stopped(stop_tx.subscribe());
@@ -890,6 +859,7 @@ mod tests {
     use super::*;
     use crate::api::LibrarySvc;
     use crate::bootstrap::{BootstrapMode, bootstrap_admin};
+    use tracing_test::traced_test;
 
     fn write_bootstrap(dir: &Path) {
         std::fs::write(
@@ -936,17 +906,14 @@ mod tests {
     }
 
     fn test_metrics() -> PrometheusHandle {
-        metrics_exporter_prometheus::PrometheusBuilder::new()
-            .build_recorder()
-            .handle()
+        metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder().handle()
     }
 
     #[tokio::test]
     async fn build_wires_a_working_worker() {
         let dir = tempfile::tempdir().unwrap();
-        let runtime = Runtime::build(test_config(dir.path().to_owned()), test_metrics())
-            .await
-            .unwrap();
+        let runtime =
+            Runtime::build(test_config(dir.path().to_owned()), test_metrics()).await.unwrap();
         assert_eq!(runtime.worker.run_once(Timestamp::now()).await.unwrap(), 0);
         assert_eq!(runtime.session.reap_idle().await, 0);
     }
@@ -965,6 +932,20 @@ mod tests {
         Runtime::build(config, test_metrics()).await.unwrap();
 
         assert!(!cache.join("session").exists());
+    }
+
+    // Refusing to start a media server because a stale segment could not be unlinked trades
+    // a small leak for an outage, so the failure is a warning and the boot carries on.
+    #[traced_test]
+    #[tokio::test]
+    async fn a_transcode_cache_that_cannot_be_read_warns_and_still_boots() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = test_config(dir.path().to_owned());
+        std::fs::write(&config.transcode_cache, b"not a directory").unwrap();
+
+        Runtime::build(config, test_metrics()).await.unwrap();
+
+        assert!(logs_contain("startup: could not purge the transcode cache"));
     }
 
     // The default config leaves every optional component switched off, so the
@@ -1045,18 +1026,14 @@ mod tests {
     async fn a_missing_yt_dlp_warns_instead_of_stopping_the_server() {
         // Content fetch is one optional feature; a server whose yt-dlp is gone
         // still has to boot and serve everything else.
-        assert_eq!(
-            resolve_yt_dlp_version("/definitely/not/a/binary").await,
-            None
-        );
+        assert_eq!(resolve_yt_dlp_version("/definitely/not/a/binary").await, None);
     }
 
     #[tokio::test]
     async fn run_drives_background_tasks_until_shutdown() {
         let dir = tempfile::tempdir().unwrap();
-        let mut runtime = Runtime::build(test_config(dir.path().to_owned()), test_metrics())
-            .await
-            .unwrap();
+        let mut runtime =
+            Runtime::build(test_config(dir.path().to_owned()), test_metrics()).await.unwrap();
         runtime.worker_period = Duration::from_millis(5);
         runtime.scheduler_period = Duration::from_millis(5);
         runtime.reaper_period = Duration::from_millis(5);
@@ -1085,12 +1062,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let held = ServerLock::try_acquire(dir.path()).unwrap();
         assert!(held.is_some());
-        let result = serve(
-            test_config(dir.path().to_owned()),
-            test_metrics(),
-            pending::<()>(),
-        )
-        .await;
+        let result =
+            serve(test_config(dir.path().to_owned()), test_metrics(), pending::<()>()).await;
         assert!(result.is_err());
     }
 
@@ -1107,10 +1080,7 @@ mod tests {
     #[tokio::test]
     async fn join_outcome_maps_join_error() {
         let mut set: JoinSet<Result<(), BoxError>> = JoinSet::new();
-        set.spawn(async {
-            pending::<()>().await;
-            Ok(())
-        });
+        set.spawn(pending::<Result<(), BoxError>>());
         set.abort_all();
         let joined = set.join_next().await.unwrap();
         assert!(join_outcome(joined).is_err());
@@ -1119,31 +1089,33 @@ mod tests {
     #[tokio::test]
     async fn run_surfaces_background_task_error() {
         let dir = tempfile::tempdir().unwrap();
-        let mut runtime = Runtime::build(test_config(dir.path().to_owned()), test_metrics())
-            .await
-            .unwrap();
+        let mut runtime =
+            Runtime::build(test_config(dir.path().to_owned()), test_metrics()).await.unwrap();
         runtime.worker_period = Duration::from_millis(1);
         runtime.repos.jobs.close().await;
         let result = runtime.run(pending::<()>()).await;
         assert!(result.is_err());
     }
 
+    #[traced_test]
     #[tokio::test]
     async fn run_bootstrap_creates_admin_library_and_access() {
         let db = tempfile::tempdir().unwrap();
         let boot = tempfile::tempdir().unwrap();
         write_bootstrap(boot.path());
         let repos = Repos::connect(db.path()).await.unwrap();
-        let config = bootstrap_config(db.path(), boot.path(), BootstrapMode::InitAndStart);
+        let mut config = bootstrap_config(db.path(), boot.path(), BootstrapMode::InitAndStart);
+        // Bootstrap builds its own library service, so a configured key has to reach the
+        // provider here as well as in the server the rest of the run uses.
+        config.tmdb_api_key = Some("tmdb-key".into());
 
         let result = run_bootstrap(&config, &repos).await.unwrap();
         assert_eq!(result.created, 2);
         assert_eq!(result.skipped, 0);
+        assert!(logs_contain("name=Movies"), "the library is rendered before it is created");
+        assert!(logs_contain("username=admin"), "and so is the user");
 
-        let libraries = library_service(&repos)
-            .libraries(&bootstrap_admin())
-            .await
-            .unwrap();
+        let libraries = library_service(&repos).libraries(&bootstrap_admin()).await.unwrap();
         assert_eq!(libraries.len(), 1);
         assert_eq!(libraries[0].name, "Movies");
 
@@ -1152,13 +1124,7 @@ mod tests {
             repos.auth_tokens.clone(),
             repos.user_data.clone(),
         );
-        let listed = users
-            .list(PageRequest {
-                offset: 0,
-                limit: 10,
-            })
-            .await
-            .unwrap();
+        let listed = users.list(PageRequest { offset: 0, limit: 10 }).await.unwrap();
         assert_eq!(listed.total, 1);
         let admin = &listed.items[0];
         assert_eq!(admin.username, "admin");
@@ -1189,17 +1155,7 @@ mod tests {
             repos.auth_tokens.clone(),
             repos.user_data.clone(),
         );
-        assert_eq!(
-            users
-                .list(PageRequest {
-                    offset: 0,
-                    limit: 10,
-                })
-                .await
-                .unwrap()
-                .total,
-            1
-        );
+        assert_eq!(users.list(PageRequest { offset: 0, limit: 10 }).await.unwrap().total, 1);
         repos.close().await;
     }
 
@@ -1216,10 +1172,7 @@ mod tests {
             )
             .unwrap();
             let config = bootstrap_config(db.path(), boot.path(), BootstrapMode::Init);
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
             rt.block_on(async {
                 let repos = Repos::connect(db.path()).await.unwrap();
                 let result = run_bootstrap(&config, &repos).await.unwrap();
@@ -1229,13 +1182,7 @@ mod tests {
                     repos.auth_tokens.clone(),
                     repos.user_data.clone(),
                 );
-                let listed = users
-                    .list(PageRequest {
-                        offset: 0,
-                        limit: 10,
-                    })
-                    .await
-                    .unwrap();
+                let listed = users.list(PageRequest { offset: 0, limit: 10 }).await.unwrap();
                 assert_eq!(listed.items[0].username, "admin");
                 repos.close().await;
             });
@@ -1260,17 +1207,7 @@ mod tests {
             runtime.repos.auth_tokens.clone(),
             runtime.repos.user_data.clone(),
         );
-        assert_eq!(
-            users
-                .list(PageRequest {
-                    offset: 0,
-                    limit: 10,
-                })
-                .await
-                .unwrap()
-                .total,
-            1
-        );
+        assert_eq!(users.list(PageRequest { offset: 0, limit: 10 }).await.unwrap().total, 1);
         runtime.run(pending::<()>()).await.unwrap();
     }
 
@@ -1291,23 +1228,9 @@ mod tests {
             runtime.repos.auth_tokens.clone(),
             runtime.repos.user_data.clone(),
         );
-        assert_eq!(
-            users
-                .list(PageRequest {
-                    offset: 0,
-                    limit: 10,
-                })
-                .await
-                .unwrap()
-                .total,
-            0
-        );
+        assert_eq!(users.list(PageRequest { offset: 0, limit: 10 }).await.unwrap().total, 0);
         assert!(
-            library_service(&runtime.repos)
-                .libraries(&bootstrap_admin())
-                .await
-                .unwrap()
-                .is_empty()
+            library_service(&runtime.repos).libraries(&bootstrap_admin()).await.unwrap().is_empty()
         );
         runtime.repos.close().await;
     }

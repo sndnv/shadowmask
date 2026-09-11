@@ -32,24 +32,15 @@ impl FetchJobPayload {
             return None;
         }
         if value.starts_with("tt") {
-            return Some(ExternalId {
-                source: "imdb".to_owned(),
-                value: value.to_owned(),
-            });
+            return Some(ExternalId { source: "imdb".to_owned(), value: value.to_owned() });
         }
         let endpoint = match self.kind {
             LibraryKind::Tv => "tv",
             LibraryKind::Movie => "movie",
         };
-        let value = if value.contains('/') {
-            value.to_owned()
-        } else {
-            format!("{endpoint}/{value}")
-        };
-        Some(ExternalId {
-            source: "tmdb".to_owned(),
-            value,
-        })
+        let value =
+            if value.contains('/') { value.to_owned() } else { format!("{endpoint}/{value}") };
+        Some(ExternalId { source: "tmdb".to_owned(), value })
     }
 
     pub fn filename_stem(&self) -> String {
@@ -115,11 +106,7 @@ pub fn filename_tag(id: &ExternalId) -> Option<String> {
 fn safe_segment(name: &str) -> String {
     sanitize_filename::sanitize_with_options(
         name,
-        sanitize_filename::Options {
-            windows: true,
-            truncate: true,
-            replacement: "",
-        },
+        sanitize_filename::Options { windows: true, truncate: true, replacement: "" },
     )
     .trim()
     .to_owned()
@@ -304,35 +291,23 @@ mod tests {
         let mut payload = movie("The Matrix", None, Some("tt0133093"));
         assert_eq!(
             payload.resolved_external_id(),
-            Some(domain::metadata::ExternalId {
-                source: "imdb".into(),
-                value: "tt0133093".into(),
-            })
+            Some(domain::metadata::ExternalId { source: "imdb".into(), value: "tt0133093".into() })
         );
         payload.external_id = Some("603".into());
         assert_eq!(
             payload.resolved_external_id(),
-            Some(domain::metadata::ExternalId {
-                source: "tmdb".into(),
-                value: "movie/603".into(),
-            })
+            Some(domain::metadata::ExternalId { source: "tmdb".into(), value: "movie/603".into() })
         );
         payload.kind = LibraryKind::Tv;
         payload.external_id = Some("1399".into());
         assert_eq!(
             payload.resolved_external_id(),
-            Some(domain::metadata::ExternalId {
-                source: "tmdb".into(),
-                value: "tv/1399".into(),
-            })
+            Some(domain::metadata::ExternalId { source: "tmdb".into(), value: "tv/1399".into() })
         );
         payload.external_id = Some("tv/1399".into());
         assert_eq!(
             payload.resolved_external_id(),
-            Some(domain::metadata::ExternalId {
-                source: "tmdb".into(),
-                value: "tv/1399".into(),
-            })
+            Some(domain::metadata::ExternalId { source: "tmdb".into(), value: "tv/1399".into() })
         );
         payload.external_id = Some("  ".into());
         assert_eq!(payload.resolved_external_id(), None);
@@ -377,10 +352,7 @@ mod tests {
         assert_eq!(parsed.year, None);
         assert_eq!(
             parsed.external_id,
-            Some(ExternalId {
-                source: "tmdb".into(),
-                value: "movie/603".into(),
-            })
+            Some(ExternalId { source: "tmdb".into(), value: "movie/603".into() })
         );
         assert_eq!(confidence(&parsed), 0.9);
     }
@@ -388,19 +360,13 @@ mod tests {
     #[test]
     fn an_imdb_id_is_tagged_and_read_back_as_imdb() {
         let payload = movie("The Matrix", Some(1999), Some("tt0133093"));
-        assert_eq!(
-            payload.filename_stem(),
-            "The Matrix (1999) [imdbid-tt0133093]"
-        );
+        assert_eq!(payload.filename_stem(), "The Matrix (1999) [imdbid-tt0133093]");
         let parsed = parse_filename(&format!("{}.mkv", payload.filename_stem()));
         assert_eq!(parsed.title, "The Matrix");
         assert_eq!(parsed.year, Some(1999));
         assert_eq!(
             parsed.external_id,
-            Some(ExternalId {
-                source: "imdb".into(),
-                value: "tt0133093".into(),
-            })
+            Some(ExternalId { source: "imdb".into(), value: "tt0133093".into() })
         );
     }
 
@@ -412,22 +378,13 @@ mod tests {
         assert_eq!(parsed.title, "Great Show");
         assert_eq!(
             parsed.external_id,
-            Some(ExternalId {
-                source: "tmdb".into(),
-                value: "tv/1399".into(),
-            })
+            Some(ExternalId { source: "tmdb".into(), value: "tv/1399".into() })
         );
     }
 
     #[test]
     fn a_provider_we_do_not_tag_for_leaves_the_name_alone() {
-        assert_eq!(
-            filename_tag(&ExternalId {
-                source: "tvdb".into(),
-                value: "603".into(),
-            }),
-            None
-        );
+        assert_eq!(filename_tag(&ExternalId { source: "tvdb".into(), value: "603".into() }), None);
     }
 
     #[test]
@@ -460,26 +417,17 @@ mod tests {
 
     #[test]
     fn a_title_cannot_escape_the_library_root() {
-        assert_eq!(
-            movie("../../etc", None, None).destination_dir("/ext", "job-1"),
-            "/ext/....etc"
-        );
+        assert_eq!(movie("../../etc", None, None).destination_dir("/ext", "job-1"), "/ext/....etc");
         assert_eq!(
             movie("Face/Off", Some(1997), None).destination_dir("/ext", "job-1"),
             "/ext/FaceOff (1997)"
         );
-        assert_eq!(
-            movie("Alien: Resurrection", None, None).filename_stem(),
-            "Alien Resurrection"
-        );
+        assert_eq!(movie("Alien: Resurrection", None, None).filename_stem(), "Alien Resurrection");
     }
 
     #[test]
     fn a_title_that_sanitises_to_nothing_falls_back_to_the_job_id() {
-        assert_eq!(
-            movie("///", None, None).destination_dir("/ext", "job-1"),
-            "/ext/job-1"
-        );
+        assert_eq!(movie("///", None, None).destination_dir("/ext", "job-1"), "/ext/job-1");
         assert_eq!(
             series("///", Some(2), Some(1), None).destination_dir("/ext", "job-1"),
             "/ext/job-1/Season 02"

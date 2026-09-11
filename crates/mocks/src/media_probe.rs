@@ -11,10 +11,7 @@ pub struct MockMediaProbe {
 
 impl MockMediaProbe {
     pub fn new() -> Self {
-        Self {
-            failing: HashSet::new(),
-            duration_ms: 1000,
-        }
+        Self { failing: HashSet::new(), duration_ms: 1000 }
     }
 
     pub fn failing_on(mut self, path: &str) -> Self {

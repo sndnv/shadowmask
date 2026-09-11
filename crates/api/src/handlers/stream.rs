@@ -25,10 +25,7 @@ where
 {
     let claims = state.tokens.verify(&token)?;
     let body = state.source.master_playlist(&claims)?;
-    debug!(
-        "User [{}] successfully fetched stream master playlist",
-        claims.user.0
-    );
+    debug!("User [{}] fetched stream master playlist", claims.user.0);
     Ok(([(CONTENT_TYPE, M3U8_CONTENT_TYPE)], body).into_response())
 }
 
@@ -42,22 +39,15 @@ where
     G: StreamSource + Send + Sync + 'static,
 {
     let claims = state.tokens.verify(&token)?;
-    let path = state
-        .source
-        .media_path(&claims, &variant, &file)
-        .await
-        .map_err(|err| {
-            warn!(
-                "User [{}] could not be served stream media [{variant}/{file}]: {err}",
-                claims.user.0
-            );
-            err
-        })?;
+    let path = state.source.media_path(&claims, &variant, &file).await.map_err(|err| {
+        warn!(
+            "User [{}] could not be served stream media [{variant}/{file}]: {err}",
+            claims.user.0
+        );
+        err
+    })?;
     let content_type = content_type_for(&file);
-    debug!(
-        "User [{}] successfully fetched stream media [{variant}/{file}]",
-        claims.user.0
-    );
+    debug!("User [{}] fetched stream media [{variant}/{file}]", claims.user.0);
     Ok(serve_file(path, request, content_type).await)
 }
 
@@ -72,10 +62,7 @@ where
 {
     let claims = state.tokens.verify(&token)?;
     let path = state.source.direct_file(&claims)?;
-    debug!(
-        "User [{}] successfully fetched direct-play file",
-        claims.user.0
-    );
+    debug!("User [{}] fetched direct-play file", claims.user.0);
     Ok(serve_file(path, request, None).await)
 }
 
@@ -87,9 +74,7 @@ async fn serve_file(
     let mut response = ServeFile::new(path).oneshot(request).await.into_response();
     match content_type {
         Some(content_type) if response.status().is_success() => {
-            response
-                .headers_mut()
-                .insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
+            response.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
         }
         _ => {}
     }

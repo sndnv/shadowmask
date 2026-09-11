@@ -62,32 +62,14 @@ mod tests {
     fn compiled_marks_ml_available_and_others_track_inputs() {
         let caps = select_capabilities(true, all_on());
         assert_eq!(caps.len(), 9);
-        assert_eq!(
-            find(&caps, "transcription"),
-            &Capability::new("transcription", true, true)
-        );
-        assert_eq!(
-            find(&caps, "translation"),
-            &Capability::new("translation", true, true)
-        );
-        assert_eq!(
-            find(&caps, "upscaling"),
-            &Capability::new("upscaling", true, true)
-        );
-        assert_eq!(
-            find(&caps, "opensubtitles"),
-            &Capability::new("opensubtitles", true, true)
-        );
+        assert_eq!(find(&caps, "transcription"), &Capability::new("transcription", true, true));
+        assert_eq!(find(&caps, "translation"), &Capability::new("translation", true, true));
+        assert_eq!(find(&caps, "upscaling"), &Capability::new("upscaling", true, true));
+        assert_eq!(find(&caps, "opensubtitles"), &Capability::new("opensubtitles", true, true));
         assert_eq!(find(&caps, "tmdb"), &Capability::new("tmdb", true, true));
         assert_eq!(find(&caps, "tls"), &Capability::new("tls", true, true));
-        assert_eq!(
-            find(&caps, "webhooks"),
-            &Capability::new("webhooks", true, true)
-        );
-        assert_eq!(
-            find(&caps, "content_fetch"),
-            &Capability::new("content_fetch", true, true)
-        );
+        assert_eq!(find(&caps, "webhooks"), &Capability::new("webhooks", true, true));
+        assert_eq!(find(&caps, "content_fetch"), &Capability::new("content_fetch", true, true));
         assert_eq!(
             find(&caps, "hardware_transcode"),
             &Capability::new("hardware_transcode", true, true)
@@ -97,18 +79,9 @@ mod tests {
     #[test]
     fn not_compiled_disables_ml_but_not_others() {
         let caps = select_capabilities(false, all_on());
-        assert_eq!(
-            find(&caps, "transcription"),
-            &Capability::new("transcription", false, false)
-        );
-        assert_eq!(
-            find(&caps, "translation"),
-            &Capability::new("translation", false, false)
-        );
-        assert_eq!(
-            find(&caps, "upscaling"),
-            &Capability::new("upscaling", true, true)
-        );
+        assert_eq!(find(&caps, "transcription"), &Capability::new("transcription", false, false));
+        assert_eq!(find(&caps, "translation"), &Capability::new("translation", false, false));
+        assert_eq!(find(&caps, "upscaling"), &Capability::new("upscaling", true, true));
         assert_eq!(find(&caps, "tmdb"), &Capability::new("tmdb", true, true));
     }
 
@@ -129,18 +102,9 @@ mod tests {
                 hardware_transcode_enabled: false,
             },
         );
-        assert_eq!(
-            find(&caps, "content_fetch"),
-            &Capability::new("content_fetch", true, false)
-        );
-        assert_eq!(
-            find(&caps, "transcription"),
-            &Capability::new("transcription", true, false)
-        );
-        assert_eq!(
-            find(&caps, "upscaling"),
-            &Capability::new("upscaling", true, false)
-        );
+        assert_eq!(find(&caps, "content_fetch"), &Capability::new("content_fetch", true, false));
+        assert_eq!(find(&caps, "transcription"), &Capability::new("transcription", true, false));
+        assert_eq!(find(&caps, "upscaling"), &Capability::new("upscaling", true, false));
         assert_eq!(find(&caps, "tmdb"), &Capability::new("tmdb", true, false));
         assert_eq!(
             find(&caps, "hardware_transcode"),
@@ -151,9 +115,6 @@ mod tests {
     #[test]
     fn wrapper_uses_compiled_feature_flag() {
         let caps = server_capabilities(all_on());
-        assert_eq!(
-            find(&caps, "transcription").available,
-            cfg!(feature = "enrichment")
-        );
+        assert_eq!(find(&caps, "transcription").available, cfg!(feature = "enrichment"));
     }
 }

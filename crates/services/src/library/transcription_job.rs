@@ -75,13 +75,7 @@ pub fn transcription_job(
         force,
     }
     .encode();
-    queued_job(
-        JobKind::Transcription,
-        JobPriority::Low,
-        raw,
-        None,
-        Timestamp::now(),
-    )
+    queued_job(JobKind::Transcription, JobPriority::Low, raw, None, Timestamp::now())
 }
 
 pub fn select_audio_track(tracks: &[AudioTrack], preferred: Option<&str>) -> Option<u32> {

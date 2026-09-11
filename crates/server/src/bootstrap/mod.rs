@@ -17,17 +17,11 @@ pub use library::LibraryBootstrapProvider;
 pub use user::UserBootstrapProvider;
 
 pub(crate) fn bootstrap_admin() -> Principal {
-    Principal {
-        user: UserId("bootstrap".to_owned()),
-        role: Role::Admin,
-    }
+    Principal { user: UserId("bootstrap".to_owned()), role: Role::Admin }
 }
 
 pub(crate) fn backend<E: Display>(entity: &'static str, error: E) -> BootstrapError {
-    BootstrapError::Backend {
-        entity,
-        reason: error.to_string(),
-    }
+    BootstrapError::Backend { entity, reason: error.to_string() }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,21 +91,11 @@ pub enum BootstrapError {
     #[error("failed to expand environment variables in bootstrap config: {0}")]
     EnvExpansion(#[from] subst::Error),
     #[error("invalid {entity} bootstrap entry: {reason}")]
-    Invalid {
-        entity: &'static str,
-        reason: String,
-    },
+    Invalid { entity: &'static str, reason: String },
     #[error("duplicate {field} value {value:?} across {entity} bootstrap entries")]
-    Duplicate {
-        entity: &'static str,
-        field: &'static str,
-        value: String,
-    },
+    Duplicate { entity: &'static str, field: &'static str, value: String },
     #[error("bootstrap backend failure creating {entity}: {reason}")]
-    Backend {
-        entity: &'static str,
-        reason: String,
-    },
+    Backend { entity: &'static str, reason: String },
 }
 
 pub fn require_unique<T, K, F>(
@@ -128,11 +112,7 @@ where
     for candidate in entities {
         let value = key(candidate);
         if !seen.insert(value.to_string()) {
-            return Err(BootstrapError::Duplicate {
-                entity,
-                field,
-                value: value.to_string(),
-            });
+            return Err(BootstrapError::Duplicate { entity, field, value: value.to_string() });
         }
     }
     Ok(())
@@ -177,24 +157,9 @@ mod tests {
 
     #[test]
     fn result_adds_componentwise() {
-        let a = BootstrapResult {
-            found: 2,
-            created: 1,
-            skipped: 1,
-        };
-        let b = BootstrapResult {
-            found: 3,
-            created: 2,
-            skipped: 0,
-        };
-        assert_eq!(
-            a + b,
-            BootstrapResult {
-                found: 5,
-                created: 3,
-                skipped: 1,
-            }
-        );
+        let a = BootstrapResult { found: 2, created: 1, skipped: 1 };
+        let b = BootstrapResult { found: 3, created: 2, skipped: 0 };
+        assert_eq!(a + b, BootstrapResult { found: 5, created: 3, skipped: 1 });
     }
 
     #[test]
@@ -207,13 +172,6 @@ mod tests {
     fn require_unique_rejects_duplicate() {
         let names = ["a", "b", "a"];
         let err = require_unique(&names, "widget", "name", |n| *n).unwrap_err();
-        assert!(matches!(
-            err,
-            BootstrapError::Duplicate {
-                entity: "widget",
-                field: "name",
-                ..
-            }
-        ));
+        assert!(matches!(err, BootstrapError::Duplicate { entity: "widget", field: "name", .. }));
     }
 }

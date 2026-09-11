@@ -34,11 +34,8 @@ where
         if metadata.content_rating.is_some() {
             return Ok(metadata);
         }
-        let Some(imdb) = metadata
-            .external_ids
-            .iter()
-            .find(|external| external.source == "imdb")
-            .cloned()
+        let Some(imdb) =
+            metadata.external_ids.iter().find(|external| external.source == "imdb").cloned()
         else {
             return Ok(metadata);
         };
@@ -117,24 +114,15 @@ mod tests {
     }
 
     fn imdb() -> ExternalId {
-        ExternalId {
-            source: "imdb".into(),
-            value: "tt0133093".into(),
-        }
+        ExternalId { source: "imdb".into(), value: "tt0133093".into() }
     }
 
     fn tmdb() -> ExternalId {
-        ExternalId {
-            source: "tmdb".into(),
-            value: "movie/603".into(),
-        }
+        ExternalId { source: "tmdb".into(), value: "movie/603".into() }
     }
 
     fn rating(code: &str) -> ContentRating {
-        ContentRating {
-            system: "MPAA".into(),
-            code: code.into(),
-        }
+        ContentRating { system: "MPAA".into(), code: code.into() }
     }
 
     fn primary_without_rating() -> StubProvider {
@@ -151,10 +139,7 @@ mod tests {
         StubProvider {
             metadata: TitleMetadata {
                 content_rating: Some(rating(code)),
-                ratings: vec![Rating {
-                    source: "imdb".into(),
-                    value: 8.7,
-                }],
+                ratings: vec![Rating { source: "imdb".into(), value: 8.7 }],
                 ..TitleMetadata::default()
             },
             ..StubProvider::default()
@@ -173,11 +158,7 @@ mod tests {
             ..StubProvider::default()
         };
         let provider = CombiningProvider::new(primary, Some(rating_provider("R")));
-        let query = MetadataQuery {
-            title: "matrix".into(),
-            year: None,
-            kind: MediaKind::Movie,
-        };
+        let query = MetadataQuery { title: "matrix".into(), year: None, kind: MediaKind::Movie };
         let matches = provider.search(&query).await.unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].title, "The Matrix");
@@ -185,20 +166,10 @@ mod tests {
 
     #[tokio::test]
     async fn search_propagates_primary_error() {
-        let primary = StubProvider {
-            search_err: true,
-            ..StubProvider::default()
-        };
+        let primary = StubProvider { search_err: true, ..StubProvider::default() };
         let provider = CombiningProvider::<StubProvider, StubProvider>::new(primary, None);
-        let query = MetadataQuery {
-            title: "matrix".into(),
-            year: None,
-            kind: MediaKind::Movie,
-        };
-        assert!(matches!(
-            provider.search(&query).await,
-            Err(MetadataError::Backend(_))
-        ));
+        let query = MetadataQuery { title: "matrix".into(), year: None, kind: MediaKind::Movie };
+        assert!(matches!(provider.search(&query).await, Err(MetadataError::Backend(_))));
     }
 
     #[tokio::test]
@@ -229,10 +200,7 @@ mod tests {
     async fn fetch_preserves_primary_ratings_vec() {
         let primary = StubProvider {
             metadata: TitleMetadata {
-                ratings: vec![Rating {
-                    source: "tmdb".into(),
-                    value: 9.0,
-                }],
+                ratings: vec![Rating { source: "tmdb".into(), value: 9.0 }],
                 external_ids: vec![imdb()],
                 ..TitleMetadata::default()
             },
@@ -248,10 +216,7 @@ mod tests {
     #[tokio::test]
     async fn fetch_without_imdb_id_keeps_none() {
         let primary = StubProvider {
-            metadata: TitleMetadata {
-                external_ids: vec![tmdb()],
-                ..TitleMetadata::default()
-            },
+            metadata: TitleMetadata { external_ids: vec![tmdb()], ..TitleMetadata::default() },
             ..StubProvider::default()
         };
         let provider = CombiningProvider::new(primary, Some(rating_provider("R")));
@@ -269,10 +234,7 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_swallows_rating_provider_error() {
-        let ratings = StubProvider {
-            fetch_err: true,
-            ..StubProvider::default()
-        };
+        let ratings = StubProvider { fetch_err: true, ..StubProvider::default() };
         let provider = CombiningProvider::new(primary_without_rating(), Some(ratings));
         let meta = provider.fetch(&tmdb()).await.unwrap();
         assert!(meta.content_rating.is_none());
@@ -280,24 +242,15 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_propagates_primary_error() {
-        let primary = StubProvider {
-            fetch_err: true,
-            ..StubProvider::default()
-        };
+        let primary = StubProvider { fetch_err: true, ..StubProvider::default() };
         let provider = CombiningProvider::new(primary, Some(rating_provider("R")));
-        assert!(matches!(
-            provider.fetch(&tmdb()).await,
-            Err(MetadataError::NotFound)
-        ));
+        assert!(matches!(provider.fetch(&tmdb()).await, Err(MetadataError::NotFound)));
     }
 
     #[tokio::test]
     async fn fetch_season_delegates_to_primary() {
         let primary = StubProvider {
-            season: Some(SeasonArtwork {
-                number: 2,
-                ..SeasonArtwork::default()
-            }),
+            season: Some(SeasonArtwork { number: 2, ..SeasonArtwork::default() }),
             ..StubProvider::default()
         };
         let provider = CombiningProvider::<StubProvider, StubProvider>::new(primary, None);
@@ -308,10 +261,7 @@ mod tests {
     #[tokio::test]
     async fn fetch_person_delegates_to_primary() {
         let primary = StubProvider {
-            person: Some(PersonMetadata {
-                name: "Ada".into(),
-                ..PersonMetadata::default()
-            }),
+            person: Some(PersonMetadata { name: "Ada".into(), ..PersonMetadata::default() }),
             ..StubProvider::default()
         };
         let provider = CombiningProvider::<StubProvider, StubProvider>::new(primary, None);

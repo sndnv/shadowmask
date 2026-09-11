@@ -22,6 +22,7 @@ mocks.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time", "test-util"] }
 proptest.workspace = true
 metrics-exporter-prometheus = { workspace = true }
+tracing-test = { workspace = true }
 
 [lints]
 workspace = true

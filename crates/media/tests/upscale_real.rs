@@ -21,10 +21,7 @@ fn make_small_clip(path: &str) {
         ])
         .status()
         .expect("ffmpeg should be installed and on PATH");
-    assert!(
-        status.success(),
-        "ffmpeg failed to generate the source clip"
-    );
+    assert!(status.success(), "ffmpeg failed to generate the source clip");
 }
 
 #[tokio::test]
@@ -50,12 +47,6 @@ async fn upscales_a_low_res_clip_to_the_target_height() {
         .probe(&output)
         .await
         .expect("ffprobe should read the upscaled output");
-    assert_eq!(
-        probe.video[0].height, 480,
-        "output height must match target"
-    );
-    assert_eq!(
-        probe.video[0].width, 640,
-        "output width must preserve 4:3 aspect"
-    );
+    assert_eq!(probe.video[0].height, 480, "output height must match target");
+    assert_eq!(probe.video[0].width, 640, "output width must preserve 4:3 aspect");
 }

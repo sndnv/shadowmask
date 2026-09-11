@@ -24,21 +24,14 @@ impl ArtworkStore for FsArtworkStore {
         art: &ProcessedArtwork,
     ) -> Result<(), ArtworkError> {
         let dir = self.root.join(&id.0);
-        tokio::fs::create_dir_all(&dir)
+        tokio::fs::create_dir_all(&dir).await.map_err(|e| ArtworkError::Store(e.to_string()))?;
+        tokio::fs::write(dir.join(format!("{width}.{}", art.format.extension())), &art.bytes)
             .await
-            .map_err(|e| ArtworkError::Store(e.to_string()))?;
-        tokio::fs::write(
-            dir.join(format!("{width}.{}", art.format.extension())),
-            &art.bytes,
-        )
-        .await
-        .map_err(|e| ArtworkError::Store(e.to_string()))
+            .map_err(|e| ArtworkError::Store(e.to_string()))
     }
 
     fn path_for(&self, id: &ArtworkId, width: u32, format: ArtworkFormat) -> PathBuf {
-        self.root
-            .join(&id.0)
-            .join(format!("{width}.{}", format.extension()))
+        self.root.join(&id.0).join(format!("{width}.{}", format.extension()))
     }
 }
 
@@ -69,12 +62,7 @@ mod tests {
     use super::*;
 
     fn art(format: ArtworkFormat, bytes: &[u8]) -> ProcessedArtwork {
-        ProcessedArtwork {
-            bytes: bytes.to_vec(),
-            width: 1,
-            height: 1,
-            format,
-        }
+        ProcessedArtwork { bytes: bytes.to_vec(), width: 1, height: 1, format }
     }
 
     #[test]
@@ -96,10 +84,7 @@ mod tests {
         let store = FsArtworkStore::new(dir.path());
         let id = ArtworkId("poster-1".into());
 
-        store
-            .store(&id, 180, &art(ArtworkFormat::Jpeg, b"jpeg-bytes"))
-            .await
-            .expect("store");
+        store.store(&id, 180, &art(ArtworkFormat::Jpeg, b"jpeg-bytes")).await.expect("store");
 
         let path = store.path_for(&id, 180, ArtworkFormat::Jpeg);
         assert_eq!(path, dir.path().join("poster-1").join("180.jpg"));
@@ -112,10 +97,7 @@ mod tests {
         let store = FsArtworkStore::new(dir.path());
         let id = ArtworkId("logo-1".into());
 
-        store
-            .store(&id, 180, &art(ArtworkFormat::Png, b"png-bytes"))
-            .await
-            .expect("store");
+        store.store(&id, 180, &art(ArtworkFormat::Png, b"png-bytes")).await.expect("store");
 
         assert!(dir.path().join("logo-1").join("180.png").exists());
         assert!(!dir.path().join("logo-1").join("180.jpg").exists());
@@ -127,11 +109,7 @@ mod tests {
         let store = FsArtworkStore::new(file.path());
 
         let err = store
-            .store(
-                &ArtworkId("x".into()),
-                960,
-                &art(ArtworkFormat::Jpeg, b"bytes"),
-            )
+            .store(&ArtworkId("x".into()), 960, &art(ArtworkFormat::Jpeg, b"bytes"))
             .await
             .expect_err("io error");
         assert!(matches!(err, ArtworkError::Store(_)));
@@ -143,11 +121,7 @@ mod tests {
         let store = FsArtworkStore::new(dir.path());
         assert_eq!(DerivedAssetStore::label(&store), "artwork");
         store
-            .store(
-                &ArtworkId("poster-1".into()),
-                180,
-                &art(ArtworkFormat::Jpeg, b"jpeg-bytes"),
-            )
+            .store(&ArtworkId("poster-1".into()), 180, &art(ArtworkFormat::Jpeg, b"jpeg-bytes"))
             .await
             .expect("store");
 
@@ -158,17 +132,8 @@ mod tests {
         let files = store.list_files("poster-1").await.expect("list files");
         assert_eq!(files.len(), 1);
         assert!(files[0].path.ends_with("180.jpg"));
-        store
-            .remove_file(&files[0].path)
-            .await
-            .expect("remove file");
-        assert!(
-            store
-                .list_files("poster-1")
-                .await
-                .expect("list files")
-                .is_empty()
-        );
+        store.remove_file(&files[0].path).await.expect("remove file");
+        assert!(store.list_files("poster-1").await.expect("list files").is_empty());
 
         store.remove_dir("poster-1").await.expect("remove");
         assert!(store.list_dirs().await.expect("list").is_empty());

@@ -49,11 +49,7 @@ mod tests {
     impl TranscodeCacheMaintenance for StubCache {
         async fn evict(&self, max_bytes: u64) -> Result<u64, CacheError> {
             self.calls.lock().unwrap().push(max_bytes);
-            if self.fail {
-                Err(CacheError::Io("boom".into()))
-            } else {
-                Ok(3)
-            }
+            if self.fail { Err(CacheError::Io("boom".into())) } else { Ok(3) }
         }
     }
 
@@ -86,10 +82,7 @@ mod tests {
 
     #[tokio::test]
     async fn eviction_failure_is_retryable() {
-        let cache = StubCache {
-            fail: true,
-            ..StubCache::default()
-        };
+        let cache = StubCache { fail: true, ..StubCache::default() };
         let handler = CacheEvictionHandler::new(cache, 0);
         assert!(matches!(
             handler.handle(&eviction_job()).await.unwrap_err(),

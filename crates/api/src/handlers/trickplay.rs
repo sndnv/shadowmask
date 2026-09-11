@@ -27,10 +27,7 @@ pub async fn trickplay(
     let etag = format!("\"{version_id}-{sheet}\"");
     let etag_value = HeaderValue::from_str(&etag).expect("etag is a valid header value");
 
-    if request
-        .headers()
-        .get(IF_NONE_MATCH)
-        .is_some_and(|value| value.as_bytes() == etag.as_bytes())
+    if request.headers().get(IF_NONE_MATCH).is_some_and(|value| value.as_bytes() == etag.as_bytes())
     {
         debug!("Trickplay [{version_id}/{sheet}] not modified");
         let mut response = StatusCode::NOT_MODIFIED.into_response();
@@ -40,10 +37,7 @@ pub async fn trickplay(
         return Ok(response);
     }
 
-    let path = state
-        .root
-        .join(&version_id)
-        .join(format!("sheet-{sheet:03}.jpg"));
+    let path = state.root.join(&version_id).join(format!("sheet-{sheet:03}.jpg"));
     let mut response = ServeFile::new(path).oneshot(request).await.into_response();
     if response.status().is_success() {
         let headers = response.headers_mut();

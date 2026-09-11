@@ -23,9 +23,7 @@ pub struct SqliteAuthTokenRepo {
 
 impl SqliteAuthTokenRepo {
     pub async fn connect(path: &Path) -> Result<Self, RepositoryError> {
-        Ok(Self {
-            pool: open(path, &MIGRATOR).await?,
-        })
+        Ok(Self { pool: open(path, &MIGRATOR).await? })
     }
 
     pub async fn ping(&self) -> Result<(), RepositoryError> {
@@ -58,9 +56,7 @@ fn row_to_link(row: &SqliteRow) -> Result<PendingLink, RepositoryError> {
 }
 
 fn row_to_device(row: &SqliteRow) -> Result<Device, RepositoryError> {
-    let last_seen = column::<Option<i64>>(row, "last_seen")?
-        .map(from_millis)
-        .transpose()?;
+    let last_seen = column::<Option<i64>>(row, "last_seen")?.map(from_millis).transpose()?;
     Ok(Device {
         id: DeviceId(column(row, "id")?),
         user: UserId(column(row, "user_id")?),
@@ -78,9 +74,7 @@ fn row_to_api_token(row: &SqliteRow) -> Result<ApiToken, RepositoryError> {
         device: DeviceId(column(row, "device_id")?),
         token_hash: column(row, "token_hash")?,
         created_at: from_millis(column(row, "created_at")?)?,
-        last_used_at: column::<Option<i64>>(row, "last_used_at")?
-            .map(from_millis)
-            .transpose()?,
+        last_used_at: column::<Option<i64>>(row, "last_used_at")?.map(from_millis).transpose()?,
     })
 }
 
@@ -339,38 +333,22 @@ mod tests {
     #[tokio::test]
     async fn surfaces_backend_error_after_close() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteAuthTokenRepo::connect(&dir.path().join("auth.db"))
-            .await
-            .unwrap();
+        let repo = SqliteAuthTokenRepo::connect(&dir.path().join("auth.db")).await.unwrap();
         repo.pool.close().await;
         assert!(repo.find_refresh(&AuthSessionId("x".into())).await.is_err());
-        assert!(
-            repo.list_link_codes(&UserId("u1".into()), Timestamp::UNIX_EPOCH)
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.delete_link_code("x", &UserId("u1".into()))
-                .await
-                .is_err()
-        );
+        assert!(repo.list_link_codes(&UserId("u1".into()), Timestamp::UNIX_EPOCH).await.is_err());
+        assert!(repo.delete_link_code("x", &UserId("u1".into())).await.is_err());
         assert!(repo.list_devices(&UserId("u1".into())).await.is_err());
         assert!(repo.list_api_tokens(&UserId("u1".into())).await.is_err());
         assert!(repo.delete_device(&DeviceId("d1".into())).await.is_err());
-        assert!(
-            repo.revoke_api_token(&ApiTokenId("t1".into()))
-                .await
-                .is_err()
-        );
+        assert!(repo.revoke_api_token(&ApiTokenId("t1".into())).await.is_err());
         assert!(repo.purge_user(&UserId("u1".into())).await.is_err());
     }
 
     #[tokio::test]
     async fn purge_user_clears_every_credential_and_leaves_other_accounts_alone() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteAuthTokenRepo::connect(&dir.path().join("auth.db"))
-            .await
-            .unwrap();
+        let repo = SqliteAuthTokenRepo::connect(&dir.path().join("auth.db")).await.unwrap();
         let doomed = UserId("u1".into());
         let other = UserId("u2".into());
 
@@ -416,33 +394,13 @@ mod tests {
 
         repo.purge_user(&doomed).await.unwrap();
 
-        assert!(
-            repo.find_refresh(&AuthSessionId("jti-u1".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            repo.list_link_codes(&doomed, Timestamp::UNIX_EPOCH)
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        assert!(repo.find_refresh(&AuthSessionId("jti-u1".into())).await.unwrap().is_none());
+        assert!(repo.list_link_codes(&doomed, Timestamp::UNIX_EPOCH).await.unwrap().is_empty());
         assert!(repo.list_devices(&doomed).await.unwrap().is_empty());
         assert!(repo.list_api_tokens(&doomed).await.unwrap().is_empty());
-        assert!(
-            repo.find_api_token_by_hash("hash-u1")
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(repo.find_api_token_by_hash("hash-u1").await.unwrap().is_none());
 
-        assert!(
-            repo.find_refresh(&AuthSessionId("jti-u2".into()))
-                .await
-                .unwrap()
-                .is_some()
-        );
+        assert!(repo.find_refresh(&AuthSessionId("jti-u2".into())).await.unwrap().is_some());
         assert_eq!(repo.list_devices(&other).await.unwrap().len(), 1);
         assert_eq!(repo.list_api_tokens(&other).await.unwrap().len(), 1);
     }

@@ -50,11 +50,7 @@ fn omdb_type(kind: MediaKind) -> &'static str {
 }
 
 fn rating_system(kind: &str) -> &'static str {
-    if kind.eq_ignore_ascii_case("series") {
-        "US-TV"
-    } else {
-        "MPAA"
-    }
+    if kind.eq_ignore_ascii_case("series") { "US-TV" } else { "MPAA" }
 }
 
 impl MetadataProvider for OmdbClient {
@@ -68,11 +64,8 @@ impl MetadataProvider for OmdbClient {
         if let Some(year) = query.year {
             params.push(("y", year.to_string()));
         }
-        let response: RawSearchResponse = get_json(
-            &self.limiter,
-            self.client.get(self.base_url.as_str()).query(&params),
-        )
-        .await?;
+        let response: RawSearchResponse =
+            get_json(&self.limiter, self.client.get(self.base_url.as_str()).query(&params)).await?;
         if response.response != "True" {
             return Err(MetadataError::NotFound);
         }
@@ -81,10 +74,7 @@ impl MetadataProvider for OmdbClient {
             .unwrap_or_default()
             .into_iter()
             .map(|item| MetadataMatch {
-                external_id: ExternalId {
-                    source: "imdb".to_owned(),
-                    value: item.imdb_id,
-                },
+                external_id: ExternalId { source: "imdb".to_owned(), value: item.imdb_id },
                 title: item.title,
                 year: parse_year(&item.year),
                 kind,
@@ -95,35 +85,23 @@ impl MetadataProvider for OmdbClient {
 
     async fn fetch(&self, id: &ExternalId) -> Result<TitleMetadata, MetadataError> {
         let params = [("apikey", self.api_key.as_str()), ("i", id.value.as_str())];
-        let detail: RawDetail = get_json(
-            &self.limiter,
-            self.client.get(self.base_url.as_str()).query(&params),
-        )
-        .await?;
+        let detail: RawDetail =
+            get_json(&self.limiter, self.client.get(self.base_url.as_str()).query(&params)).await?;
         if detail.response != "True" {
             return Err(MetadataError::NotFound);
         }
-        let content_rating = non_na(&detail.rated).map(|code| ContentRating {
-            system: rating_system(&detail.kind).to_owned(),
-            code,
-        });
+        let content_rating = non_na(&detail.rated)
+            .map(|code| ContentRating { system: rating_system(&detail.kind).to_owned(), code });
         let ratings = detail
             .ratings
             .into_iter()
             .filter_map(|raw| {
-                parse_leading_f32(&raw.value).map(|value| Rating {
-                    source: raw.source,
-                    value,
-                })
+                parse_leading_f32(&raw.value).map(|value| Rating { source: raw.source, value })
             })
             .collect();
         let genres = non_na(&detail.genre)
             .map(|genre| {
-                genre
-                    .split(',')
-                    .map(|g| g.trim().to_owned())
-                    .filter(|g| !g.is_empty())
-                    .collect()
+                genre.split(',').map(|g| g.trim().to_owned()).filter(|g| !g.is_empty()).collect()
             })
             .unwrap_or_default();
         let artwork = non_na(&detail.poster)
@@ -147,10 +125,7 @@ impl MetadataProvider for OmdbClient {
             cast: Vec::new(),
             studios: Vec::new(),
             artwork,
-            external_ids: vec![ExternalId {
-                source: "imdb".to_owned(),
-                value: detail.imdb_id,
-            }],
+            external_ids: vec![ExternalId { source: "imdb".to_owned(), value: detail.imdb_id }],
             collection: None,
         })
     }
@@ -216,19 +191,12 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn movie_query(title: &str, year: Option<u16>) -> MetadataQuery {
-        MetadataQuery {
-            title: title.to_owned(),
-            year,
-            kind: MediaKind::Movie,
-        }
+        MetadataQuery { title: title.to_owned(), year, kind: MediaKind::Movie }
     }
 
     async fn mock_server(body: ResponseTemplate) -> MockServer {
         let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .respond_with(body)
-            .mount(&server)
-            .await;
+        Mock::given(method("GET")).respond_with(body).mount(&server).await;
         server
     }
 
@@ -256,10 +224,7 @@ mod tests {
         })))
         .await;
         let client = OmdbClient::with_base_url("k", server.uri());
-        let matches = client
-            .search(&movie_query("the matrix", Some(1999)))
-            .await
-            .unwrap();
+        let matches = client.search(&movie_query("the matrix", Some(1999))).await.unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].title, "The Matrix");
         assert_eq!(matches[0].year, Some(1999));
@@ -276,15 +241,8 @@ mod tests {
         })))
         .await;
         let client = OmdbClient::with_base_url("k", server.uri());
-        let query = MetadataQuery {
-            title: "nope".to_owned(),
-            year: None,
-            kind: MediaKind::Series,
-        };
-        assert!(matches!(
-            client.search(&query).await,
-            Err(MetadataError::NotFound)
-        ));
+        let query = MetadataQuery { title: "nope".to_owned(), year: None, kind: MediaKind::Series };
+        assert!(matches!(client.search(&query).await, Err(MetadataError::NotFound)));
     }
 
     #[tokio::test]
@@ -307,10 +265,7 @@ mod tests {
         })))
         .await;
         let client = OmdbClient::with_base_url("k", server.uri());
-        let id = ExternalId {
-            source: "imdb".to_owned(),
-            value: "tt0133093".to_owned(),
-        };
+        let id = ExternalId { source: "imdb".to_owned(), value: "tt0133093".to_owned() };
         let meta = client.fetch(&id).await.unwrap();
         assert_eq!(meta.title, "The Matrix");
         assert_eq!(meta.year, Some(1999));
@@ -318,10 +273,7 @@ mod tests {
         assert_eq!(meta.overview.as_deref(), Some("A hacker learns the truth."));
         assert_eq!(
             meta.content_rating,
-            Some(ContentRating {
-                system: "MPAA".to_owned(),
-                code: "R".to_owned()
-            })
+            Some(ContentRating { system: "MPAA".to_owned(), code: "R".to_owned() })
         );
         assert_eq!(meta.genres, vec!["Action", "Sci-Fi"]);
         assert_eq!(meta.ratings.len(), 2);
@@ -345,17 +297,11 @@ mod tests {
         })))
         .await;
         let client = OmdbClient::with_base_url("k", server.uri());
-        let id = ExternalId {
-            source: "imdb".to_owned(),
-            value: "tt0903747".to_owned(),
-        };
+        let id = ExternalId { source: "imdb".to_owned(), value: "tt0903747".to_owned() };
         let meta = client.fetch(&id).await.unwrap();
         assert_eq!(
             meta.content_rating,
-            Some(ContentRating {
-                system: "US-TV".to_owned(),
-                code: "TV-MA".to_owned()
-            })
+            Some(ContentRating { system: "US-TV".to_owned(), code: "TV-MA".to_owned() })
         );
     }
 
@@ -376,10 +322,7 @@ mod tests {
         })))
         .await;
         let client = OmdbClient::with_base_url("k", server.uri());
-        let id = ExternalId {
-            source: "imdb".to_owned(),
-            value: "tt9999999".to_owned(),
-        };
+        let id = ExternalId { source: "imdb".to_owned(), value: "tt9999999".to_owned() };
         let meta = client.fetch(&id).await.unwrap();
         assert_eq!(meta.year, None);
         assert_eq!(meta.runtime_minutes, None);
@@ -398,14 +341,8 @@ mod tests {
         })))
         .await;
         let client = OmdbClient::with_base_url("k", server.uri());
-        let id = ExternalId {
-            source: "imdb".to_owned(),
-            value: "tt0".to_owned(),
-        };
-        assert!(matches!(
-            client.fetch(&id).await,
-            Err(MetadataError::NotFound)
-        ));
+        let id = ExternalId { source: "imdb".to_owned(), value: "tt0".to_owned() };
+        assert!(matches!(client.fetch(&id).await, Err(MetadataError::NotFound)));
     }
 
     #[tokio::test]
@@ -446,10 +383,7 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_season_is_unsupported() {
-        let id = ExternalId {
-            source: "tmdb".to_owned(),
-            value: "tv/1".to_owned(),
-        };
+        let id = ExternalId { source: "tmdb".to_owned(), value: "tv/1".to_owned() };
         assert!(matches!(
             OmdbClient::new("k").fetch_season(&id, 1).await,
             Err(MetadataError::NotFound)

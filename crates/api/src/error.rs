@@ -22,12 +22,7 @@ pub struct ApiError {
 
 impl ApiError {
     fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
-        Self {
-            status,
-            code,
-            message: message.into(),
-            active: None,
-        }
+        Self { status, code, message: message.into(), active: None }
     }
 
     pub fn unauthorized(message: impl Into<String>) -> Self {
@@ -51,11 +46,7 @@ impl ApiError {
     }
 
     pub fn internal() -> Self {
-        Self::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "internal",
-            "internal server error",
-        )
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", "internal server error")
     }
 }
 
@@ -75,13 +66,8 @@ struct ErrorEnvelope {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let body = ErrorEnvelope {
-            error: ErrorDetail {
-                code: self.code,
-                message: self.message,
-            },
-            active: self
-                .active
-                .map(|v| v.into_iter().map(PlaybackSessionResponse::from).collect()),
+            error: ErrorDetail { code: self.code, message: self.message },
+            active: self.active.map(|v| v.into_iter().map(PlaybackSessionResponse::from).collect()),
         };
         (self.status, Json(body)).into_response()
     }
@@ -313,18 +299,9 @@ mod tests {
 
     #[test]
     fn auth_error_mappings() {
-        assert_eq!(
-            ApiError::from(AuthError::InvalidCredentials).code,
-            "invalid_credentials"
-        );
-        assert_eq!(
-            ApiError::from(AuthError::TokenExpired).code,
-            "token_expired"
-        );
-        assert_eq!(
-            ApiError::from(AuthError::InvalidToken).code,
-            "invalid_token"
-        );
+        assert_eq!(ApiError::from(AuthError::InvalidCredentials).code, "invalid_credentials");
+        assert_eq!(ApiError::from(AuthError::TokenExpired).code, "token_expired");
+        assert_eq!(ApiError::from(AuthError::InvalidToken).code, "invalid_token");
         let nf = ApiError::from(AuthError::UnknownLinkCode);
         assert_eq!(nf.status, StatusCode::NOT_FOUND);
         assert_eq!(nf.code, "unknown_link_code");
@@ -365,20 +342,12 @@ mod tests {
 
     #[test]
     fn session_error_mappings() {
-        assert_eq!(
-            ApiError::from(SessionError::NotFound).code,
-            "session_not_found"
-        );
-        assert_eq!(
-            ApiError::from(SessionError::VersionNotFound).code,
-            "version_not_found"
-        );
+        assert_eq!(ApiError::from(SessionError::NotFound).code, "session_not_found");
+        assert_eq!(ApiError::from(SessionError::VersionNotFound).code, "version_not_found");
         let neg = ApiError::from(SessionError::NegotiationFailed);
         assert_eq!(neg.status, StatusCode::CONFLICT);
         assert_eq!(neg.code, "negotiation_failed");
-        let limit = ApiError::from(SessionError::ConcurrentLimit {
-            active: vec![session()],
-        });
+        let limit = ApiError::from(SessionError::ConcurrentLimit { active: vec![session()] });
         assert_eq!(limit.status, StatusCode::CONFLICT);
         assert_eq!(limit.code, "concurrent_limit");
         assert!(limit.active.is_some());
@@ -403,6 +372,9 @@ mod tests {
         let forbidden = ApiError::from(LibraryError::Forbidden);
         assert_eq!(forbidden.status, StatusCode::FORBIDDEN);
         assert_eq!(forbidden.code, "access_denied");
+        let unavailable = ApiError::from(LibraryError::Unavailable("/media is gone".into()));
+        assert_eq!(unavailable.status, StatusCode::CONFLICT);
+        assert_eq!(unavailable.code, "unavailable");
         assert_eq!(
             ApiError::from(LibraryError::Repository(repo())).status,
             StatusCode::INTERNAL_SERVER_ERROR
@@ -508,10 +480,8 @@ mod tests {
         let plain = ApiError::bad_request("nope").into_response();
         assert_eq!(plain.status(), StatusCode::BAD_REQUEST);
 
-        let with_active = ApiError::from(SessionError::ConcurrentLimit {
-            active: vec![session()],
-        })
-        .into_response();
+        let with_active = ApiError::from(SessionError::ConcurrentLimit { active: vec![session()] })
+            .into_response();
         assert_eq!(with_active.status(), StatusCode::CONFLICT);
     }
 }

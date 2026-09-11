@@ -3,10 +3,7 @@ use crate::media::{AudioTrack, EmbeddedSubtitleTrack};
 
 pub fn preferred_audio_track(tracks: &[AudioTrack], preferred: &[LanguageCode]) -> Option<u32> {
     preferred.iter().find_map(|want| {
-        tracks
-            .iter()
-            .find(|track| spoken(track.language.as_ref(), want))
-            .map(|track| track.index)
+        tracks.iter().find(|track| spoken(track.language.as_ref(), want)).map(|track| track.index)
     })
 }
 
@@ -18,11 +15,7 @@ pub fn preferred_subtitle_track(
         tracks
             .iter()
             .find(|track| !track.forced && spoken(track.language.as_ref(), want))
-            .or_else(|| {
-                tracks
-                    .iter()
-                    .find(|track| spoken(track.language.as_ref(), want))
-            })
+            .or_else(|| tracks.iter().find(|track| spoken(track.language.as_ref(), want)))
             .map(|track| track.index)
     })
 }
@@ -64,14 +57,8 @@ mod tests {
     fn the_first_listed_language_that_exists_wins() {
         let tracks = vec![audio(0, Some("eng")), audio(1, Some("jpn"))];
 
-        assert_eq!(
-            preferred_audio_track(&tracks, &want(&["jpn", "eng"])),
-            Some(1)
-        );
-        assert_eq!(
-            preferred_audio_track(&tracks, &want(&["fra", "eng"])),
-            Some(0)
-        );
+        assert_eq!(preferred_audio_track(&tracks, &want(&["jpn", "eng"])), Some(1));
+        assert_eq!(preferred_audio_track(&tracks, &want(&["fra", "eng"])), Some(0));
     }
 
     #[test]
@@ -92,10 +79,7 @@ mod tests {
 
     #[test]
     fn a_full_subtitle_track_is_preferred_over_a_forced_one() {
-        let tracks = vec![
-            subtitle(0, Some("eng"), true),
-            subtitle(1, Some("eng"), false),
-        ];
+        let tracks = vec![subtitle(0, Some("eng"), true), subtitle(1, Some("eng"), false)];
 
         assert_eq!(preferred_subtitle_track(&tracks, &want(&["eng"])), Some(1));
     }

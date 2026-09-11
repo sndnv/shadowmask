@@ -25,11 +25,7 @@ where
         year: Option<u16>,
     ) -> Option<TitleMetadata> {
         let provider = self.provider.as_ref()?;
-        let query = MetadataQuery {
-            title: title.to_owned(),
-            year,
-            kind,
-        };
+        let query = MetadataQuery { title: title.to_owned(), year, kind };
         let matches = match provider.search(&query).await {
             Ok(matches) => matches,
             Err(err) => {
@@ -109,10 +105,7 @@ mod tests {
 
     fn candidate(value: &str, title: &str, year: Option<u16>) -> MetadataMatch {
         MetadataMatch {
-            external_id: ExternalId {
-                source: "tmdb".into(),
-                value: value.to_owned(),
-            },
+            external_id: ExternalId { source: "tmdb".into(), value: value.to_owned() },
             title: title.to_owned(),
             year,
             kind: MediaKind::Movie,
@@ -126,12 +119,7 @@ mod tests {
     #[tokio::test]
     async fn a_popular_result_from_another_year_is_refused() {
         let fetcher = fetcher(vec![candidate("movie/1", "Spring Breakers", Some(2012))]);
-        assert!(
-            fetcher
-                .fetch_metadata(MediaKind::Movie, "Spring", Some(2019))
-                .await
-                .is_none()
-        );
+        assert!(fetcher.fetch_metadata(MediaKind::Movie, "Spring", Some(2019)).await.is_none());
     }
 
     #[tokio::test]
@@ -140,43 +128,25 @@ mod tests {
             candidate("movie/1", "Spring Breakers", Some(2012)),
             candidate("movie/2", "Spring", Some(2019)),
         ]);
-        assert!(
-            fetcher
-                .fetch_metadata(MediaKind::Movie, "Spring", Some(2019))
-                .await
-                .is_some()
-        );
+        assert!(fetcher.fetch_metadata(MediaKind::Movie, "Spring", Some(2019)).await.is_some());
     }
 
     #[tokio::test]
     async fn a_candidate_with_no_year_is_refused_when_we_parsed_one() {
         let fetcher = fetcher(vec![candidate("movie/1", "Spring", None)]);
-        assert!(
-            fetcher
-                .fetch_metadata(MediaKind::Movie, "Spring", Some(2019))
-                .await
-                .is_none()
-        );
+        assert!(fetcher.fetch_metadata(MediaKind::Movie, "Spring", Some(2019)).await.is_none());
     }
 
     #[tokio::test]
     async fn without_a_parsed_year_the_first_candidate_is_still_taken() {
         let fetcher = fetcher(vec![candidate("movie/1", "Spring Breakers", Some(2012))]);
-        assert!(
-            fetcher
-                .fetch_metadata(MediaKind::Movie, "Spring", None)
-                .await
-                .is_some()
-        );
+        assert!(fetcher.fetch_metadata(MediaKind::Movie, "Spring", None).await.is_some());
     }
 
     #[tokio::test]
     async fn an_admin_reidentify_overrides_the_year_filter() {
         let fetcher = fetcher(vec![candidate("movie/1", "Spring Breakers", Some(2012))]);
-        let chosen = ExternalId {
-            source: "tmdb".into(),
-            value: "movie/1".into(),
-        };
+        let chosen = ExternalId { source: "tmdb".into(), value: "movie/1".into() };
         assert!(
             fetcher
                 .fetch_refresh(MediaKind::Movie, "Spring", Some(2019), Some(&chosen))
@@ -184,10 +154,7 @@ mod tests {
                 .is_some()
         );
         assert!(
-            fetcher
-                .fetch_refresh(MediaKind::Movie, "Spring", Some(2019), None)
-                .await
-                .is_none()
+            fetcher.fetch_refresh(MediaKind::Movie, "Spring", Some(2019), None).await.is_none()
         );
     }
 }

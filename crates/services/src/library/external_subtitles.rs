@@ -6,10 +6,7 @@ const FLAG_TAGS: &[&str] = &["sdh", "cc", "forced"];
 
 pub fn discover_subtitles(video_path: &str, siblings: &[String]) -> Vec<DiscoveredSubtitle> {
     let stem = file_stem(video_path);
-    siblings
-        .iter()
-        .filter_map(|sibling| discover_one(stem, sibling))
-        .collect()
+    siblings.iter().filter_map(|sibling| discover_one(stem, sibling)).collect()
 }
 
 fn discover_one(video_stem: &str, sibling: &str) -> Option<DiscoveredSubtitle> {
@@ -20,25 +17,14 @@ fn discover_one(video_stem: &str, sibling: &str) -> Option<DiscoveredSubtitle> {
     if !suffix.is_empty() && !suffix.starts_with('.') {
         return None;
     }
-    let language = suffix
-        .split('.')
-        .find_map(parse_language_tag)
-        .map(LanguageCode);
-    Some(DiscoveredSubtitle {
-        path: sibling.to_owned(),
-        language,
-        format,
-    })
+    let language = suffix.split('.').find_map(parse_language_tag).map(LanguageCode);
+    Some(DiscoveredSubtitle { path: sibling.to_owned(), language, format })
 }
 
 fn parse_language_tag(token: &str) -> Option<String> {
     let lower = token.to_ascii_lowercase();
     let is_code = (2..=3).contains(&lower.len()) && lower.chars().all(|c| c.is_ascii_alphabetic());
-    if is_code && !FLAG_TAGS.contains(&lower.as_str()) {
-        Some(lower)
-    } else {
-        None
-    }
+    if is_code && !FLAG_TAGS.contains(&lower.as_str()) { Some(lower) } else { None }
 }
 
 fn basename(path: &str) -> &str {
@@ -79,12 +65,7 @@ mod tests {
     fn ignores_other_titles_and_non_subtitle_files() {
         let subs = discover_subtitles(
             "/m/Movie.mkv",
-            &paths(&[
-                "/m/Movie.mkv",
-                "/m/Movie.nfo",
-                "/m/Other.en.srt",
-                "/m/Movieish.en.srt",
-            ]),
+            &paths(&["/m/Movie.mkv", "/m/Movie.nfo", "/m/Other.en.srt", "/m/Movieish.en.srt"]),
         );
         assert!(subs.is_empty());
     }

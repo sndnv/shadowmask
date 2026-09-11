@@ -5,9 +5,7 @@ use persistence::server::SqliteCatalogRepo;
 #[tokio::test]
 async fn search_index_contract_holds_for_sqlite() {
     let dir = tempfile::tempdir().unwrap();
-    let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db"))
-        .await
-        .unwrap();
+    let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
     search_index_contract(repo, async |repo: &SqliteCatalogRepo| {
         let seed = search_seed();
         for movie in seed.movies {

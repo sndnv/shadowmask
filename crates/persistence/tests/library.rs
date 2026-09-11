@@ -12,9 +12,7 @@ use tempfile::TempDir;
 
 async fn repo() -> (TempDir, SqliteLibraryRepo) {
     let dir = tempfile::tempdir().unwrap();
-    let repo = SqliteLibraryRepo::connect(&dir.path().join("libraries.db"))
-        .await
-        .unwrap();
+    let repo = SqliteLibraryRepo::connect(&dir.path().join("libraries.db")).await.unwrap();
     (dir, repo)
 }
 
@@ -62,10 +60,7 @@ async fn unmatched_round_trips_with_candidates_and_paginates() {
     assert_eq!(first.items[0].id.0, "uf1");
     assert_eq!(first.items[0].candidates.len(), 2);
     assert_eq!(first.items[0].candidates[0].label, "Alpha");
-    assert_eq!(
-        first.items[0].candidates[1].title,
-        TitleId::Episode(EpisodeId("e1".into()))
-    );
+    assert_eq!(first.items[0].candidates[1].title, TitleId::Episode(EpisodeId("e1".into())));
 
     let past_end = repo.list_unmatched(&library, page(10, 2)).await.unwrap();
     assert_eq!(past_end.total, 3);
@@ -73,10 +68,7 @@ async fn unmatched_round_trips_with_candidates_and_paginates() {
     assert_eq!(past_end.offset, 10);
     assert_eq!(past_end.limit, 2);
 
-    let other = repo
-        .list_unmatched(&LibraryId("other".into()), page(0, 10))
-        .await
-        .unwrap();
+    let other = repo.list_unmatched(&LibraryId("other".into()), page(0, 10)).await.unwrap();
     assert_eq!(other.total, 0);
 }
 

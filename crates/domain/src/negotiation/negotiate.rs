@@ -109,30 +109,21 @@ fn video_reasons(
     if v.width > profile.max_width || v.height > max_height {
         reasons.push(NegotiationReason::VideoResolution);
     }
-    if profile
-        .max_frame_rate
-        .is_some_and(|max| v.frame_rate.round() as u32 > max)
-    {
+    if profile.max_frame_rate.is_some_and(|max| v.frame_rate.round() as u32 > max) {
         reasons.push(NegotiationReason::VideoFrameRate);
     }
     if v.hdr.is_some_and(|h| !profile.hdr.contains(&h)) {
         reasons.push(NegotiationReason::VideoHdr);
     }
-    if v.bitrate
-        .is_some_and(|b| b > effective_cap(profile.max_bitrate, user_cap))
-    {
+    if v.bitrate.is_some_and(|b| b > effective_cap(profile.max_bitrate, user_cap)) {
         reasons.push(NegotiationReason::VideoBitrate);
     }
     reasons
 }
 
 fn audio_reasons(a: &AudioTrack, profile: &CapabilityProfile) -> Vec<NegotiationReason> {
-    let channels = profile
-        .audio
-        .iter()
-        .filter(|c| c.codec == a.codec)
-        .map(|c| c.max_channels)
-        .max();
+    let channels =
+        profile.audio.iter().filter(|c| c.codec == a.codec).map(|c| c.max_channels).max();
     match channels {
         None => vec![NegotiationReason::AudioCodec],
         Some(max) if a.channels > max => vec![NegotiationReason::AudioChannels],
@@ -161,11 +152,7 @@ fn subtitle_delivery_for(
                 .iter()
                 .find(|s| s.index == *idx)
                 .is_some_and(|s| matches!(s.format, SubtitleFormat::Pgs | SubtitleFormat::VobSub));
-            if image {
-                SubtitleDelivery::Burned
-            } else {
-                SubtitleDelivery::HlsVtt
-            }
+            if image { SubtitleDelivery::Burned } else { SubtitleDelivery::HlsVtt }
         }
         SubtitleTrackRef::File(_) => SubtitleDelivery::HlsVtt,
     }
@@ -198,23 +185,11 @@ mod tests {
     }
 
     fn audio_track(codec: &str, channels: u8, index: u32) -> AudioTrack {
-        AudioTrack {
-            index,
-            codec: codec.to_owned(),
-            channels,
-            language: None,
-            bitrate: None,
-        }
+        AudioTrack { index, codec: codec.to_owned(), channels, language: None, bitrate: None }
     }
 
     fn subtitle(index: u32, format: SubtitleFormat) -> EmbeddedSubtitleTrack {
-        EmbeddedSubtitleTrack {
-            index,
-            language: None,
-            format,
-            forced: false,
-            default: false,
-        }
+        EmbeddedSubtitleTrack { index, language: None, format, forced: false, default: false }
     }
 
     fn profile() -> CapabilityProfile {
@@ -226,10 +201,7 @@ mod tests {
                 max_bit_depth: 8,
                 smooth: true,
             }],
-            audio: vec![AudioCodecCap {
-                codec: "aac".to_owned(),
-                max_channels: 2,
-            }],
+            audio: vec![AudioCodecCap { codec: "aac".to_owned(), max_channels: 2 }],
             hdr: vec![],
             max_width: 1920,
             max_height: 1080,
@@ -255,20 +227,14 @@ mod tests {
     }
 
     fn embedded(idx: u32) -> SubtitleSelection {
-        SubtitleSelection {
-            track: SubtitleTrackRef::Embedded(idx),
-            offset_ms: None,
-        }
+        SubtitleSelection { track: SubtitleTrackRef::Embedded(idx), offset_ms: None }
     }
 
     // The per-session escape hatch: the viewer already knows this version
     // misbehaves, so their choice beats what the capabilities imply.
     #[test]
     fn always_convert_transcodes_what_would_have_played_directly() {
-        let i = NegotiationInput {
-            delivery: DeliveryPreference::AlwaysConvert,
-            ..input()
-        };
+        let i = NegotiationInput { delivery: DeliveryPreference::AlwaysConvert, ..input() };
         let out = negotiate(&i, &profile());
         assert_eq!(out.mode, DeliveryMode::Transcode);
         assert!(out.reasons.contains(&NegotiationReason::Forced));
@@ -325,10 +291,7 @@ mod tests {
         };
         let out = negotiate(&i, &profile());
         assert_eq!(out.mode, DeliveryMode::Transcode);
-        assert_eq!(
-            out.selected.subtitle_delivery,
-            Some(SubtitleDelivery::Burned)
-        );
+        assert_eq!(out.selected.subtitle_delivery, Some(SubtitleDelivery::Burned));
     }
 
     #[test]
@@ -341,10 +304,7 @@ mod tests {
 
     #[test]
     fn remux_when_only_container_unsupported() {
-        let i = NegotiationInput {
-            container: Container::Mkv,
-            ..input()
-        };
+        let i = NegotiationInput { container: Container::Mkv, ..input() };
         assert_eq!(negotiate(&i, &profile()).mode, DeliveryMode::Remux);
     }
 
@@ -393,10 +353,7 @@ mod tests {
 
     #[test]
     fn direct_when_hdr_supported() {
-        let p = CapabilityProfile {
-            hdr: vec![HdrFormat::Hdr10],
-            ..profile()
-        };
+        let p = CapabilityProfile { hdr: vec![HdrFormat::Hdr10], ..profile() };
         let i = NegotiationInput {
             video: vec![video_track(
                 "h264",
@@ -422,10 +379,7 @@ mod tests {
 
     #[test]
     fn transcode_when_bitrate_over_user_cap() {
-        let i = NegotiationInput {
-            max_bitrate: Some(3_000_000),
-            ..input()
-        };
+        let i = NegotiationInput { max_bitrate: Some(3_000_000), ..input() };
         assert_eq!(negotiate(&i, &profile()).mode, DeliveryMode::Transcode);
     }
 
@@ -440,19 +394,13 @@ mod tests {
 
     #[test]
     fn transcode_when_audio_codec_unsupported() {
-        let i = NegotiationInput {
-            audio: vec![audio_track("eac3", 2, 1)],
-            ..input()
-        };
+        let i = NegotiationInput { audio: vec![audio_track("eac3", 2, 1)], ..input() };
         assert_eq!(negotiate(&i, &profile()).mode, DeliveryMode::Transcode);
     }
 
     #[test]
     fn transcode_when_audio_channels_exceed() {
-        let i = NegotiationInput {
-            audio: vec![audio_track("aac", 6, 1)],
-            ..input()
-        };
+        let i = NegotiationInput { audio: vec![audio_track("aac", 6, 1)], ..input() };
         assert_eq!(negotiate(&i, &profile()).mode, DeliveryMode::Transcode);
     }
 
@@ -465,14 +413,8 @@ mod tests {
         };
         let out = negotiate(&i, &profile());
         assert_eq!(out.mode, DeliveryMode::Remux);
-        assert_eq!(
-            out.selected.subtitle_track,
-            Some(SubtitleTrackRef::Embedded(2))
-        );
-        assert_eq!(
-            out.selected.subtitle_delivery,
-            Some(SubtitleDelivery::HlsVtt)
-        );
+        assert_eq!(out.selected.subtitle_track, Some(SubtitleTrackRef::Embedded(2)));
+        assert_eq!(out.selected.subtitle_delivery, Some(SubtitleDelivery::HlsVtt));
     }
 
     #[test]
@@ -484,10 +426,7 @@ mod tests {
         };
         let out = negotiate(&i, &profile());
         assert_eq!(out.mode, DeliveryMode::Transcode);
-        assert_eq!(
-            out.selected.subtitle_delivery,
-            Some(SubtitleDelivery::Burned)
-        );
+        assert_eq!(out.selected.subtitle_delivery, Some(SubtitleDelivery::Burned));
     }
 
     #[test]
@@ -501,10 +440,7 @@ mod tests {
         };
         let out = negotiate(&i, &profile());
         assert_eq!(out.mode, DeliveryMode::Remux);
-        assert_eq!(
-            out.selected.subtitle_delivery,
-            Some(SubtitleDelivery::HlsVtt)
-        );
+        assert_eq!(out.selected.subtitle_delivery, Some(SubtitleDelivery::HlsVtt));
     }
 
     #[test]
@@ -521,10 +457,7 @@ mod tests {
 
     #[test]
     fn requested_audio_index_absent_selects_none() {
-        let i = NegotiationInput {
-            requested_audio: Some(99),
-            ..input()
-        };
+        let i = NegotiationInput { requested_audio: Some(99), ..input() };
         let out = negotiate(&i, &profile());
         assert_eq!(out.selected.audio_track, None);
         assert_eq!(out.mode, DeliveryMode::Direct);
@@ -532,10 +465,7 @@ mod tests {
 
     #[test]
     fn no_video_is_supported() {
-        let i = NegotiationInput {
-            video: vec![],
-            ..input()
-        };
+        let i = NegotiationInput { video: vec![], ..input() };
         let out = negotiate(&i, &profile());
         assert_eq!(out.mode, DeliveryMode::Direct);
         assert_eq!(out.selected.audio_track, Some(1));
@@ -543,20 +473,14 @@ mod tests {
 
     #[test]
     fn target_rung_below_source_forces_transcode() {
-        let i = NegotiationInput {
-            target_height: Some(720),
-            ..input()
-        };
+        let i = NegotiationInput { target_height: Some(720), ..input() };
         assert_eq!(negotiate(&i, &profile()).mode, DeliveryMode::Transcode);
     }
 
     #[test]
     fn original_or_higher_rung_stays_direct() {
         for target in [None, Some(1080), Some(2160)] {
-            let i = NegotiationInput {
-                target_height: target,
-                ..input()
-            };
+            let i = NegotiationInput { target_height: target, ..input() };
             assert_eq!(negotiate(&i, &profile()).mode, DeliveryMode::Direct);
         }
     }
@@ -578,19 +502,13 @@ mod tests {
         };
         let out = negotiate(&i, &profile());
         assert_eq!(out.mode, DeliveryMode::Transcode);
-        assert_eq!(
-            out.selected.subtitle_delivery,
-            Some(SubtitleDelivery::Burned)
-        );
+        assert_eq!(out.selected.subtitle_delivery, Some(SubtitleDelivery::Burned));
     }
 
     #[test]
     fn downmix_forces_transcode_only_for_multichannel_audio() {
         let surround_profile = CapabilityProfile {
-            audio: vec![AudioCodecCap {
-                codec: "aac".to_owned(),
-                max_channels: 8,
-            }],
+            audio: vec![AudioCodecCap { codec: "aac".to_owned(), max_channels: 8 }],
             ..profile()
         };
         let surround = NegotiationInput {
@@ -598,19 +516,10 @@ mod tests {
             downmix_stereo: true,
             ..input()
         };
-        assert_eq!(
-            negotiate(&surround, &surround_profile).mode,
-            DeliveryMode::Transcode
-        );
+        assert_eq!(negotiate(&surround, &surround_profile).mode, DeliveryMode::Transcode);
 
-        let already_stereo = NegotiationInput {
-            downmix_stereo: true,
-            ..input()
-        };
-        assert_eq!(
-            negotiate(&already_stereo, &surround_profile).mode,
-            DeliveryMode::Direct
-        );
+        let already_stereo = NegotiationInput { downmix_stereo: true, ..input() };
+        assert_eq!(negotiate(&already_stereo, &surround_profile).mode, DeliveryMode::Direct);
     }
 
     #[test]
@@ -636,10 +545,7 @@ mod tests {
     fn frame_rate_over_the_ceiling_transcodes_and_broadcast_rates_do_not() {
         // A hardware decoder that reaches 4K30 but not 4K60 is the case a
         // resolution ceiling alone cannot express. 59.94 is 60, not 59.
-        let p = CapabilityProfile {
-            max_frame_rate: Some(30),
-            ..profile()
-        };
+        let p = CapabilityProfile { max_frame_rate: Some(30), ..profile() };
         let sixty = NegotiationInput {
             video: vec![VideoTrack {
                 frame_rate: 59.94,
@@ -701,14 +607,7 @@ mod tests {
             ),
             (
                 NegotiationInput {
-                    video: vec![video_track(
-                        "h264",
-                        1920,
-                        1080,
-                        8,
-                        Some(HdrFormat::Hdr10),
-                        None,
-                    )],
+                    video: vec![video_track("h264", 1920, 1080, 8, Some(HdrFormat::Hdr10), None)],
                     ..input()
                 },
                 NegotiationReason::VideoHdr,
@@ -721,24 +620,15 @@ mod tests {
                 NegotiationReason::VideoBitrate,
             ),
             (
-                NegotiationInput {
-                    audio: vec![audio_track("eac3", 2, 1)],
-                    ..input()
-                },
+                NegotiationInput { audio: vec![audio_track("eac3", 2, 1)], ..input() },
                 NegotiationReason::AudioCodec,
             ),
             (
-                NegotiationInput {
-                    audio: vec![audio_track("aac", 6, 1)],
-                    ..input()
-                },
+                NegotiationInput { audio: vec![audio_track("aac", 6, 1)], ..input() },
                 NegotiationReason::AudioChannels,
             ),
             (
-                NegotiationInput {
-                    container: Container::Mkv,
-                    ..input()
-                },
+                NegotiationInput { container: Container::Mkv, ..input() },
                 NegotiationReason::Container,
             ),
             (
@@ -769,24 +659,13 @@ mod tests {
 
         let base = profile();
         let surround = CapabilityProfile {
-            audio: vec![AudioCodecCap {
-                codec: "aac".to_owned(),
-                max_channels: 8,
-            }],
+            audio: vec![AudioCodecCap { codec: "aac".to_owned(), max_channels: 8 }],
             ..profile()
         };
         for (case, expected) in cases {
-            let p = if case.downmix_stereo {
-                &surround
-            } else {
-                &base
-            };
+            let p = if case.downmix_stereo { &surround } else { &base };
             let out = negotiate(&case, p);
-            assert!(
-                out.reasons.contains(&expected),
-                "expected {expected} in {:?}",
-                out.reasons
-            );
+            assert!(out.reasons.contains(&expected), "expected {expected} in {:?}", out.reasons);
         }
     }
 
@@ -811,10 +690,7 @@ mod prop_tests {
                 max_bit_depth: 8,
                 smooth: true,
             }],
-            audio: vec![AudioCodecCap {
-                codec: "aac".to_owned(),
-                max_channels: 2,
-            }],
+            audio: vec![AudioCodecCap { codec: "aac".to_owned(), max_channels: 2 }],
             hdr: vec![],
             max_width: 1920,
             max_height: 1080,

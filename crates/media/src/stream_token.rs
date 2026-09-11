@@ -17,9 +17,7 @@ pub struct HmacStreamTokens {
 
 impl HmacStreamTokens {
     pub fn new(secret: &[u8]) -> Self {
-        Self {
-            codec: HmacCodec::new(secret, STREAM_AUDIENCE),
-        }
+        Self { codec: HmacCodec::new(secret, STREAM_AUDIENCE) }
     }
 }
 
@@ -53,17 +51,12 @@ impl StreamTokens for HmacStreamTokens {
             exp: claims.expires_at.as_second(),
             nnc: claims.nonce.clone(),
         };
-        self.codec
-            .sign(&raw)
-            .map(StreamToken)
-            .map_err(StreamTokenError::Create)
+        self.codec.sign(&raw).map(StreamToken).map_err(StreamTokenError::Create)
     }
 
     fn verify(&self, token: &str) -> Result<StreamClaims, StreamTokenError> {
-        let raw: RawClaims = self
-            .codec
-            .verify(token, STREAM_TOKEN_TYPE)
-            .map_err(|failure| match failure {
+        let raw: RawClaims =
+            self.codec.verify(token, STREAM_TOKEN_TYPE).map_err(|failure| match failure {
                 TokenFailure::Expired => StreamTokenError::Expired,
                 TokenFailure::Invalid => StreamTokenError::Invalid,
             })?;
@@ -110,10 +103,7 @@ mod tests {
     fn verify_rejects_expired_token() {
         let codec = HmacStreamTokens::new(SECRET);
         let token = codec.create(&claims_expiring_in(-3600)).unwrap();
-        assert!(matches!(
-            codec.verify(&token.0),
-            Err(StreamTokenError::Expired)
-        ));
+        assert!(matches!(codec.verify(&token.0), Err(StreamTokenError::Expired)));
     }
 
     #[test]
@@ -121,36 +111,23 @@ mod tests {
         let issuer = HmacStreamTokens::new(SECRET);
         let other = HmacStreamTokens::new(b"a-different-secret");
         let token = issuer.create(&claims_expiring_in(3600)).unwrap();
-        assert!(matches!(
-            other.verify(&token.0),
-            Err(StreamTokenError::Invalid)
-        ));
+        assert!(matches!(other.verify(&token.0), Err(StreamTokenError::Invalid)));
     }
 
     #[test]
     fn verify_rejects_tampered_token() {
         let codec = HmacStreamTokens::new(SECRET);
-        let mut bytes = codec
-            .create(&claims_expiring_in(3600))
-            .unwrap()
-            .0
-            .into_bytes();
+        let mut bytes = codec.create(&claims_expiring_in(3600)).unwrap().0.into_bytes();
         let last = bytes.len() - 1;
         bytes[last] = if bytes[last] == b'a' { b'b' } else { b'a' };
         let tampered = String::from_utf8(bytes).unwrap();
-        assert!(matches!(
-            codec.verify(&tampered),
-            Err(StreamTokenError::Invalid)
-        ));
+        assert!(matches!(codec.verify(&tampered), Err(StreamTokenError::Invalid)));
     }
 
     #[test]
     fn verify_rejects_garbage() {
         let codec = HmacStreamTokens::new(SECRET);
-        assert!(matches!(
-            codec.verify("not.a.jwt"),
-            Err(StreamTokenError::Invalid)
-        ));
+        assert!(matches!(codec.verify("not.a.jwt"), Err(StreamTokenError::Invalid)));
     }
 
     #[test]
@@ -166,25 +143,13 @@ mod tests {
             exp: i64::MAX,
             nnc: String::new(),
         };
-        let token = encode(
-            &Header::new(Algorithm::HS256),
-            &raw,
-            &EncodingKey::from_secret(SECRET),
-        )
-        .unwrap();
-        assert!(matches!(
-            codec.verify(&token),
-            Err(StreamTokenError::Invalid)
-        ));
+        let token = encode(&Header::new(Algorithm::HS256), &raw, &EncodingKey::from_secret(SECRET))
+            .unwrap();
+        assert!(matches!(codec.verify(&token), Err(StreamTokenError::Invalid)));
     }
 
     fn encode_raw(raw: &RawClaims) -> String {
-        encode(
-            &Header::new(Algorithm::HS256),
-            raw,
-            &EncodingKey::from_secret(SECRET),
-        )
-        .unwrap()
+        encode(&Header::new(Algorithm::HS256), raw, &EncodingKey::from_secret(SECRET)).unwrap()
     }
 
     #[test]
@@ -200,10 +165,7 @@ mod tests {
             exp: Timestamp::now().as_second() + 3600,
             nnc: String::new(),
         });
-        assert!(matches!(
-            codec.verify(&token),
-            Err(StreamTokenError::Invalid)
-        ));
+        assert!(matches!(codec.verify(&token), Err(StreamTokenError::Invalid)));
     }
 
     #[test]
@@ -219,10 +181,7 @@ mod tests {
             exp: Timestamp::now().as_second() + 3600,
             nnc: String::new(),
         });
-        assert!(matches!(
-            codec.verify(&token),
-            Err(StreamTokenError::Invalid)
-        ));
+        assert!(matches!(codec.verify(&token), Err(StreamTokenError::Invalid)));
     }
 
     #[test]

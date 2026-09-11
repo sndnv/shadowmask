@@ -19,43 +19,20 @@ async fn migrates_server_and_all_users() {
     migrate_all(db_root).await.unwrap();
 
     let server = db_root.join("server");
-    for name in [
-        "jobs.db",
-        "libraries.db",
-        "users.db",
-        "catalog.db",
-        "auth.db",
-    ] {
-        assert!(
-            server.join(name).exists(),
-            "{name} should exist after migrate"
-        );
+    for name in ["jobs.db", "libraries.db", "users.db", "catalog.db", "auth.db"] {
+        assert!(server.join(name).exists(), "{name} should exist after migrate");
     }
     for who in ["alice", "bob"] {
         assert!(users_dir.join(who).join("progress.db").exists());
         assert!(users_dir.join(who).join("prefs.db").exists());
     }
 
-    let users = SqliteUserRepo::connect(&server.join("users.db"))
-        .await
-        .unwrap();
-    let listed = users
-        .list(PageRequest {
-            offset: 0,
-            limit: 10,
-        })
-        .await
-        .unwrap();
+    let users = SqliteUserRepo::connect(&server.join("users.db")).await.unwrap();
+    let listed = users.list(PageRequest { offset: 0, limit: 10 }).await.unwrap();
     assert_eq!(listed.total, 0);
 
     let progress = SqliteProgressRepo::new(&users_dir);
-    assert!(
-        progress
-            .list_in_progress(&UserId("alice".into()))
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    assert!(progress.list_in_progress(&UserId("alice".into())).await.unwrap().is_empty());
 }
 
 #[tokio::test]

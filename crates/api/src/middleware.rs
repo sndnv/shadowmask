@@ -25,13 +25,7 @@ where
 }
 
 fn bearer(request: &Request) -> Option<String> {
-    request
-        .headers()
-        .get(AUTHORIZATION)?
-        .to_str()
-        .ok()?
-        .strip_prefix("Bearer ")
-        .map(str::to_string)
+    request.headers().get(AUTHORIZATION)?.to_str().ok()?.strip_prefix("Bearer ").map(str::to_string)
 }
 
 pub async fn track_http(request: Request, next: Next) -> Response {
@@ -89,13 +83,7 @@ fn stream_kind(path: &str) -> &'static str {
 }
 
 fn content_length(response: &Response) -> Option<u64> {
-    response
-        .headers()
-        .get(CONTENT_LENGTH)?
-        .to_str()
-        .ok()?
-        .parse()
-        .ok()
+    response.headers().get(CONTENT_LENGTH)?.to_str().ok()?.parse().ok()
 }
 
 #[cfg(test)]
@@ -120,9 +108,7 @@ mod tests {
         let recorder = PrometheusBuilder::new().build_recorder();
         let handle = recorder.handle();
         metrics::with_local_recorder(&recorder, || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .build()
-                .unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
             rt.block_on(work());
         });
         handle.render()
@@ -153,9 +139,7 @@ mod tests {
     fn http_middleware_records_nested_template() {
         let rendered = recorded(|| async {
             let inner = Router::new().route("/movies/{id}", get(|| async {}));
-            let app = Router::new()
-                .nest("/api/v1", inner)
-                .layer(from_fn(track_http));
+            let app = Router::new().nest("/api/v1", inner).layer(from_fn(track_http));
             app.oneshot(request("/api/v1/movies/7")).await.unwrap();
         });
         assert!(rendered.contains("endpoint=\"/api/v1/movies/{id}\""));
@@ -164,9 +148,7 @@ mod tests {
     #[test]
     fn http_middleware_labels_unmatched() {
         let rendered = recorded(|| async {
-            let app = Router::new()
-                .route("/known", get(|| async {}))
-                .layer(from_fn(track_http));
+            let app = Router::new().route("/known", get(|| async {})).layer(from_fn(track_http));
             let response = app.oneshot(request("/nope")).await.unwrap();
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         });
@@ -194,9 +176,7 @@ mod tests {
                     }),
                 )
                 .layer(from_fn(track_stream_bytes));
-            app.oneshot(request("/stream/tok/master.m3u8"))
-                .await
-                .unwrap();
+            app.oneshot(request("/stream/tok/master.m3u8")).await.unwrap();
         });
         assert!(rendered.contains("stream_bytes_sent_total"));
         assert!(rendered.contains("kind=\"playlist\""));
@@ -207,10 +187,7 @@ mod tests {
     fn stream_bytes_skipped_without_content_length() {
         let rendered = recorded(|| async {
             let app = Router::new()
-                .route(
-                    "/stream/{token}/file",
-                    get(|| async { Response::new(Body::empty()) }),
-                )
+                .route("/stream/{token}/file", get(|| async { Response::new(Body::empty()) }))
                 .layer(from_fn(track_stream_bytes));
             app.oneshot(request("/stream/tok/file")).await.unwrap();
         });

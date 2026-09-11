@@ -9,9 +9,7 @@ impl TranslationProvider for DisabledTranslationProvider {
         &self,
         _request: &TranslationSpec,
     ) -> Result<FetchedSubtitle, TranslationError> {
-        Err(TranslationError::Unsupported(
-            "translation feature not built".to_owned(),
-        ))
+        Err(TranslationError::Unsupported("translation feature not built".to_owned()))
     }
 }
 
@@ -30,10 +28,7 @@ mod tests {
             source_language: Some(LanguageCode("en".into())),
             target_language: LanguageCode("fr".into()),
         };
-        let err = DisabledTranslationProvider
-            .translate(&request)
-            .await
-            .unwrap_err();
+        let err = DisabledTranslationProvider.translate(&request).await.unwrap_err();
         assert!(matches!(err, TranslationError::Unsupported(_)));
     }
 }

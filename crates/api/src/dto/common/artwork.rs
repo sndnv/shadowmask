@@ -25,10 +25,7 @@ impl ArtworkDto {
     pub fn from_refs(refs: Vec<ArtworkRef>) -> Self {
         let mut artwork = ArtworkDto::default();
         for art in refs {
-            let set = ImageSetDto {
-                base: format!("/images/{}", art.id.0),
-                widths: art.sizes(),
-            };
+            let set = ImageSetDto { base: format!("/images/{}", art.id.0), widths: art.sizes() };
             match art.kind {
                 ArtworkKind::Poster => artwork.posters.push(set),
                 ArtworkKind::Backdrop => artwork.backdrops.push(set),

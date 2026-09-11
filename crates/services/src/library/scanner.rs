@@ -34,12 +34,7 @@ impl<W: SourceWalker, P: MediaProbe> Scanner<W, P> {
 
     #[cfg(test)]
     pub fn with_extensions(walker: W, probe: P, extensions: Vec<String>) -> Self {
-        Self {
-            walker,
-            probe,
-            extensions,
-            probe_concurrency: DEFAULT_PROBE_CONCURRENCY,
-        }
+        Self { walker, probe, extensions, probe_concurrency: DEFAULT_PROBE_CONCURRENCY }
     }
 
     pub async fn scan<F, Fut>(
@@ -62,10 +57,7 @@ impl<W: SourceWalker, P: MediaProbe> Scanner<W, P> {
                 if is_media_candidate(&entry.path, &self.extensions) {
                     candidates.push(entry);
                 } else if is_subtitle_file(&entry.path) {
-                    subtitles
-                        .entry(dir_of(&entry.path).to_owned())
-                        .or_default()
-                        .push(entry.path);
+                    subtitles.entry(dir_of(&entry.path).to_owned()).or_default().push(entry.path);
                 }
             }
         }
@@ -100,21 +92,15 @@ impl<W: SourceWalker, P: MediaProbe> Scanner<W, P> {
             }
         }
 
-        Ok(ScanReport {
-            discovered,
-            skipped,
-            total_candidates,
-        })
+        Ok(ScanReport { discovered, skipped, total_candidates })
     }
 }
 
 fn default_extensions() -> Vec<String> {
-    [
-        "mkv", "mp4", "avi", "mov", "m4v", "wmv", "flv", "webm", "mpg", "mpeg", "ts", "m2ts",
-    ]
-    .iter()
-    .map(|ext| (*ext).to_owned())
-    .collect()
+    ["mkv", "mp4", "avi", "mov", "m4v", "wmv", "flv", "webm", "mpg", "mpeg", "ts", "m2ts"]
+        .iter()
+        .map(|ext| (*ext).to_owned())
+        .collect()
 }
 
 fn basename(path: &str) -> &str {
@@ -123,9 +109,9 @@ fn basename(path: &str) -> &str {
 
 fn is_media_candidate(path: &str, extensions: &[String]) -> bool {
     match basename(path).rsplit_once('.') {
-        Some((stem, ext)) if !stem.is_empty() => extensions
-            .iter()
-            .any(|allowed| allowed.eq_ignore_ascii_case(ext)),
+        Some((stem, ext)) if !stem.is_empty() => {
+            extensions.iter().any(|allowed| allowed.eq_ignore_ascii_case(ext))
+        }
         _ => false,
     }
 }
@@ -163,10 +149,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn entry(path: &str, size: u64) -> WalkedEntry {
-        WalkedEntry {
-            path: path.to_owned(),
-            size_bytes: size,
-        }
+        WalkedEntry { path: path.to_owned(), size_bytes: size }
     }
 
     fn quiet() -> impl Fn(u32, u32) -> std::future::Ready<()> {
@@ -203,12 +186,8 @@ mod tests {
     }
 
     fn many(count: usize) -> MockSourceWalker {
-        MockSourceWalker::new().with_entries(
-            "/m",
-            (0..count)
-                .map(|n| entry(&format!("/m/movie{n}.mkv"), 1))
-                .collect(),
-        )
+        MockSourceWalker::new()
+            .with_entries("/m", (0..count).map(|n| entry(&format!("/m/movie{n}.mkv"), 1)).collect())
     }
 
     #[tokio::test]
@@ -359,27 +338,11 @@ mod tests {
         let scanner = Scanner::new(walker, MockMediaProbe::new());
 
         let report = scanner.scan(&library(&["/m"]), quiet()).await.unwrap();
-        let movie = report
-            .discovered
-            .iter()
-            .find(|d| d.path == "/m/a/movie.mkv")
-            .unwrap();
+        let movie = report.discovered.iter().find(|d| d.path == "/m/a/movie.mkv").unwrap();
         assert_eq!(movie.subtitle_siblings.len(), 2);
-        assert!(
-            movie
-                .subtitle_siblings
-                .contains(&"/m/a/movie.en.srt".to_owned())
-        );
-        assert!(
-            movie
-                .subtitle_siblings
-                .contains(&"/m/a/movie.fr.srt".to_owned())
-        );
-        let other = report
-            .discovered
-            .iter()
-            .find(|d| d.path == "/m/b/other.mp4")
-            .unwrap();
+        assert!(movie.subtitle_siblings.contains(&"/m/a/movie.en.srt".to_owned()));
+        assert!(movie.subtitle_siblings.contains(&"/m/a/movie.fr.srt".to_owned()));
+        let other = report.discovered.iter().find(|d| d.path == "/m/b/other.mp4").unwrap();
         assert!(other.subtitle_siblings.is_empty());
     }
 
@@ -400,10 +363,7 @@ mod tests {
             .with_entries("/b", vec![entry("/shared/movie.mkv", 1)]);
         let scanner = Scanner::new(walker, MockMediaProbe::new());
 
-        let report = scanner
-            .scan(&library(&["/a", "/b"]), quiet())
-            .await
-            .unwrap();
+        let report = scanner.scan(&library(&["/a", "/b"]), quiet()).await.unwrap();
         assert_eq!(report.discovered.len(), 1);
     }
 
@@ -412,10 +372,7 @@ mod tests {
         let walker = MockSourceWalker::new().with_failing("/missing");
         let scanner = Scanner::new(walker, MockMediaProbe::new());
 
-        let err = scanner
-            .scan(&library(&["/missing"]), quiet())
-            .await
-            .unwrap_err();
+        let err = scanner.scan(&library(&["/missing"]), quiet()).await.unwrap_err();
         assert!(matches!(err, WalkError::RootNotFound(_)));
     }
 
@@ -429,10 +386,8 @@ mod tests {
 
     #[tokio::test]
     async fn with_extensions_overrides_the_defaults() {
-        let walker = MockSourceWalker::new().with_entries(
-            "/m",
-            vec![entry("/m/disc.iso", 1), entry("/m/movie.mkv", 1)],
-        );
+        let walker = MockSourceWalker::new()
+            .with_entries("/m", vec![entry("/m/disc.iso", 1), entry("/m/movie.mkv", 1)]);
         let scanner =
             Scanner::with_extensions(walker, MockMediaProbe::new(), vec!["iso".to_owned()]);
 

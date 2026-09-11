@@ -89,9 +89,7 @@ where
         let Some(message) = message.0 else {
             return;
         };
-        let _ = self
-            .store
-            .append_blocking(&job, Timestamp::now(), level, &message);
+        let _ = self.store.append_blocking(&job, Timestamp::now(), level, &message);
     }
 }
 
@@ -155,12 +153,6 @@ mod tests {
             tracing::info!("wrong span");
         });
 
-        assert!(
-            store
-                .read(&JobId("job-x".into()), None)
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        assert!(store.read(&JobId("job-x".into()), None).await.unwrap().is_empty());
     }
 }

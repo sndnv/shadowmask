@@ -11,16 +11,11 @@ pub struct SegmentPlan {
 
 impl SegmentPlan {
     pub fn index_at(&self, position_ms: u64) -> usize {
-        self.segments
-            .iter()
-            .rposition(|s| s.start_ms <= position_ms)
-            .unwrap_or(0)
+        self.segments.iter().rposition(|s| s.start_ms <= position_ms).unwrap_or(0)
     }
 
     pub fn from_index(&self, first: usize) -> SegmentPlan {
-        SegmentPlan {
-            segments: self.segments.get(first..).unwrap_or_default().to_vec(),
-        }
+        SegmentPlan { segments: self.segments.get(first..).unwrap_or_default().to_vec() }
     }
 
     pub fn start_of(&self, index: usize) -> u64 {
@@ -30,16 +25,11 @@ impl SegmentPlan {
 
 pub fn plan_segments(keyframes_ms: &[u64], duration_ms: u64, target_ms: u64) -> SegmentPlan {
     if duration_ms == 0 {
-        return SegmentPlan {
-            segments: Vec::new(),
-        };
+        return SegmentPlan { segments: Vec::new() };
     }
     let target = target_ms.max(1);
-    let mut boundaries: Vec<u64> = keyframes_ms
-        .iter()
-        .copied()
-        .filter(|&k| k > 0 && k < duration_ms)
-        .collect();
+    let mut boundaries: Vec<u64> =
+        keyframes_ms.iter().copied().filter(|&k| k > 0 && k < duration_ms).collect();
     boundaries.sort_unstable();
     boundaries.dedup();
 
@@ -47,17 +37,11 @@ pub fn plan_segments(keyframes_ms: &[u64], duration_ms: u64, target_ms: u64) -> 
     let mut start = 0u64;
     for boundary in boundaries {
         if boundary - start >= target {
-            segments.push(Segment {
-                start_ms: start,
-                duration_ms: boundary - start,
-            });
+            segments.push(Segment { start_ms: start, duration_ms: boundary - start });
             start = boundary;
         }
     }
-    segments.push(Segment {
-        start_ms: start,
-        duration_ms: duration_ms - start,
-    });
+    segments.push(Segment { start_ms: start, duration_ms: duration_ms - start });
     SegmentPlan { segments }
 }
 
@@ -67,16 +51,11 @@ pub fn plan_segments_on_grid(
     target_ms: u64,
 ) -> SegmentPlan {
     if duration_ms == 0 {
-        return SegmentPlan {
-            segments: Vec::new(),
-        };
+        return SegmentPlan { segments: Vec::new() };
     }
     let target = target_ms.max(1);
-    let mut keyframes: Vec<u64> = keyframes_ms
-        .iter()
-        .copied()
-        .filter(|&k| k < duration_ms)
-        .collect();
+    let mut keyframes: Vec<u64> =
+        keyframes_ms.iter().copied().filter(|&k| k < duration_ms).collect();
     keyframes.sort_unstable();
     keyframes.dedup();
     let origin = keyframes.first().copied().unwrap_or(0);
@@ -96,16 +75,10 @@ pub fn plan_segments_on_grid(
     let mut segments = Vec::new();
     let mut start = 0u64;
     for boundary in boundaries {
-        segments.push(Segment {
-            start_ms: start,
-            duration_ms: boundary - start,
-        });
+        segments.push(Segment { start_ms: start, duration_ms: boundary - start });
         start = boundary;
     }
-    segments.push(Segment {
-        start_ms: start,
-        duration_ms: duration_ms - start,
-    });
+    segments.push(Segment { start_ms: start, duration_ms: duration_ms - start });
     SegmentPlan { segments }
 }
 
@@ -184,11 +157,7 @@ mod tests {
         let plan = plan_segments_on_grid(&[0, 4_950, 8_384, 14_166], 20_000, 4_000);
         assert_eq!(plan.index_at(0), 0);
         assert_eq!(plan.index_at(4_949), 0);
-        assert_eq!(
-            plan.index_at(4_950),
-            1,
-            "a boundary belongs to the segment it opens"
-        );
+        assert_eq!(plan.index_at(4_950), 1, "a boundary belongs to the segment it opens");
         assert_eq!(plan.index_at(8_000), 1);
         assert_eq!(plan.index_at(19_999), 3);
     }
@@ -201,9 +170,7 @@ mod tests {
 
     #[test]
     fn index_at_of_an_empty_plan_is_zero() {
-        let plan = SegmentPlan {
-            segments: Vec::new(),
-        };
+        let plan = SegmentPlan { segments: Vec::new() };
         assert_eq!(plan.index_at(5_000), 0);
         assert_eq!(plan.start_of(0), 0);
     }
@@ -236,9 +203,7 @@ mod tests {
         let plan = plan_segments_on_grid(&keyframes, 45_198, 4_000);
         assert_eq!(
             starts(&plan),
-            vec![
-                0, 4_950, 8_384, 14_166, 16_233, 22_733, 25_533, 28_500, 32_267, 37_034, 40_350
-            ],
+            vec![0, 4_950, 8_384, 14_166, 16_233, 22_733, 25_533, 28_500, 32_267, 37_034, 40_350],
             "these are the boundaries ffmpeg's hls muxer actually produced for this file, \
              measured with hls_time 4; the planner must agree or the playlist lies"
         );
@@ -268,11 +233,7 @@ mod tests {
 
     #[test]
     fn the_grid_plan_of_zero_duration_is_empty() {
-        assert!(
-            plan_segments_on_grid(&[4_000], 0, 4_000)
-                .segments
-                .is_empty()
-        );
+        assert!(plan_segments_on_grid(&[4_000], 0, 4_000).segments.is_empty());
     }
 
     #[test]

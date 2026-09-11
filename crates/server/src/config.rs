@@ -221,21 +221,14 @@ impl Config {
     pub fn describe(&self, yt_dlp_version: Option<&str>) -> String {
         use std::fmt::Write as _;
         let provided = |value: &str| {
-            if value.trim().is_empty() {
-                "none"
-            } else {
-                "<provided>"
-            }
+            if value.trim().is_empty() { "none" } else { "<provided>" }
         };
         let opt_secret = |value: &Option<String>| match value {
             Some(v) if !v.trim().is_empty() => "<provided>",
             _ => "none",
         };
         let opt_path = |value: &Option<PathBuf>| {
-            value
-                .as_ref()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "none".to_owned())
+            value.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "none".to_owned())
         };
         let e = &self.enrichment;
         let mut out = String::new();
@@ -245,36 +238,22 @@ impl Config {
         let _ = writeln!(out, "    db_root:          {}", self.db_root.display());
         let _ = writeln!(out, "    access_ttl_secs:  {}", self.access_ttl_secs);
         let _ = writeln!(out, "    refresh_ttl_secs: {}", self.refresh_ttl_secs);
-        let _ = writeln!(
-            out,
-            "    shutdown_timeout: {} s",
-            self.shutdown_timeout_secs
-        );
+        let _ = writeln!(out, "    shutdown_timeout: {} s", self.shutdown_timeout_secs);
         let _ = writeln!(out, "    reindex_every:    {} s", self.reindex_every_secs);
         let _ = writeln!(
             out,
             "    daily_scan_at:    {}",
             self.daily_scan_at.as_deref().unwrap_or("off")
         );
-        let _ = writeln!(
-            out,
-            "    cache_evict_every: {} s",
-            self.cache_eviction_every_secs
-        );
+        let _ = writeln!(out, "    cache_evict_every: {} s", self.cache_eviction_every_secs);
         let _ = writeln!(out, "    log_level:        {}", self.log_level);
         let _ = writeln!(out, "    sqlx_log_level:   {}", self.sqlx_log_level);
         let _ = writeln!(out, "  caches:");
         for (key, value) in [
             ("transcode:", self.transcode_cache.display().to_string()),
-            (
-                "transcode_cap:",
-                human_bytes(self.transcode_cache_cap_bytes),
-            ),
+            ("transcode_cap:", human_bytes(self.transcode_cache_cap_bytes)),
             ("remux_read_rate:", read_rate(self.remux_read_rate)),
-            (
-                "max_transcode_height:",
-                transcode_height(self.max_transcode_height),
-            ),
+            ("max_transcode_height:", transcode_height(self.max_transcode_height)),
             ("artwork:", self.artwork_cache.display().to_string()),
             ("trickplay:", self.trickplay_cache.display().to_string()),
             ("subtitles:", self.subtitle_cache.display().to_string()),
@@ -296,32 +275,13 @@ impl Config {
             }
         );
         let _ = writeln!(out, "  transcoding:");
-        let _ = writeln!(
-            out,
-            "    hardware_acceleration: {:?}",
-            self.hardware_acceleration
-        );
-        let _ = writeln!(
-            out,
-            "    vaapi_device:          {}",
-            self.vaapi_device.display()
-        );
+        let _ = writeln!(out, "    hardware_acceleration: {:?}", self.hardware_acceleration);
+        let _ = writeln!(out, "    vaapi_device:          {}", self.vaapi_device.display());
         let _ = writeln!(out, "  metadata:");
-        let _ = writeln!(
-            out,
-            "    tmdb_api_key:          {}",
-            opt_secret(&self.tmdb_api_key)
-        );
-        let _ = writeln!(
-            out,
-            "    omdb_api_key:          {}",
-            opt_secret(&self.omdb_api_key)
-        );
-        let _ = writeln!(
-            out,
-            "    opensubtitles_api_key: {}",
-            opt_secret(&self.opensubtitles_api_key)
-        );
+        let _ = writeln!(out, "    tmdb_api_key:          {}", opt_secret(&self.tmdb_api_key));
+        let _ = writeln!(out, "    omdb_api_key:          {}", opt_secret(&self.omdb_api_key));
+        let _ =
+            writeln!(out, "    opensubtitles_api_key: {}", opt_secret(&self.opensubtitles_api_key));
         let _ = writeln!(
             out,
             "    min_interval_ms:       tmdb {} / omdb {} / opensubtitles {}",
@@ -329,20 +289,12 @@ impl Config {
             self.omdb_min_interval_ms,
             self.opensubtitles_min_interval_ms
         );
-        let _ = writeln!(
-            out,
-            "    target_languages:      {}",
-            self.target_languages.join(", ")
-        );
+        let _ = writeln!(out, "    target_languages:      {}", self.target_languages.join(", "));
         let _ = writeln!(out, "  workers:");
         let _ = writeln!(out, "    concurrency:      {}", self.worker_concurrency);
         let _ = writeln!(out, "    scan_probes:      {}", self.scan_probe_concurrency);
         let _ = writeln!(out, "    worker_period:    {} s", self.worker_period_secs);
-        let _ = writeln!(
-            out,
-            "    scheduler_period: {} s",
-            self.scheduler_period_secs
-        );
+        let _ = writeln!(out, "    scheduler_period: {} s", self.scheduler_period_secs);
         let _ = writeln!(out, "    reaper_period:    {} s", self.reaper_period_secs);
         let _ = writeln!(out, "  bootstrap:");
         let _ = writeln!(out, "    mode: {:?}", self.bootstrap_mode);
@@ -378,21 +330,9 @@ impl Config {
         );
         let _ = writeln!(out, "  fetch_providers:");
         let _ = writeln!(out, "    enabled:       {}", self.fetch_providers.enabled);
-        let _ = writeln!(
-            out,
-            "    concurrency:   {}",
-            self.fetch_providers.concurrency
-        );
-        let _ = writeln!(
-            out,
-            "    yt_dlp_binary: {}",
-            self.fetch_providers.yt_dlp_binary
-        );
-        let _ = writeln!(
-            out,
-            "    version:       {}",
-            yt_dlp_version.unwrap_or("none")
-        );
+        let _ = writeln!(out, "    concurrency:   {}", self.fetch_providers.concurrency);
+        let _ = writeln!(out, "    yt_dlp_binary: {}", self.fetch_providers.yt_dlp_binary);
+        let _ = writeln!(out, "    version:       {}", yt_dlp_version.unwrap_or("none"));
         let _ = writeln!(
             out,
             "    plugin_dir:    {}",
@@ -406,11 +346,8 @@ impl Config {
                 .map(|h| h.to_string())
                 .unwrap_or_else(|| "none".to_owned())
         );
-        let _ = writeln!(
-            out,
-            "    cookies_file:  {}",
-            opt_path(&self.fetch_providers.cookies_file)
-        );
+        let _ =
+            writeln!(out, "    cookies_file:  {}", opt_path(&self.fetch_providers.cookies_file));
         let _ = writeln!(out, "  secrets:");
         let _ = writeln!(out, "    jwt_secret:    {}", provided(&self.jwt_secret));
         let _ = writeln!(out, "    stream_secret: {}", provided(&self.stream_secret));
@@ -420,11 +357,7 @@ impl Config {
 }
 
 fn read_rate(rate: f64) -> String {
-    if rate > 0.0 {
-        format!("{rate}x realtime")
-    } else {
-        "unthrottled".to_owned()
-    }
+    if rate > 0.0 { format!("{rate}x realtime") } else { "unthrottled".to_owned() }
 }
 
 const CACHE_KEY_WIDTH: usize = "max_transcode_height:".len();
@@ -448,8 +381,7 @@ pub(crate) fn human_bytes(bytes: u64) -> String {
 }
 
 fn trim_key(key: Option<String>) -> Option<String> {
-    key.map(|key| key.trim().to_owned())
-        .filter(|key| !key.is_empty())
+    key.map(|key| key.trim().to_owned()).filter(|key| !key.is_empty())
 }
 
 #[cfg(test)]
@@ -486,10 +418,7 @@ mod tests {
             jail.set_env("SHADOWMASK_BOOTSTRAP_DIR", "/etc/shadowmask/bootstrap");
             let config = Config::load().unwrap();
             assert_eq!(config.bootstrap_mode, BootstrapMode::InitAndStart);
-            assert_eq!(
-                config.bootstrap_dir,
-                PathBuf::from("/etc/shadowmask/bootstrap")
-            );
+            assert_eq!(config.bootstrap_dir, PathBuf::from("/etc/shadowmask/bootstrap"));
             Ok(())
         });
     }
@@ -498,10 +427,7 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn load_merges_file_then_env() {
         figment::Jail::expect_with(|jail| {
-            jail.create_file(
-                "shadowmask.toml",
-                "access_ttl_secs = 7\nworker_concurrency = 2\n",
-            )?;
+            jail.create_file("shadowmask.toml", "access_ttl_secs = 7\nworker_concurrency = 2\n")?;
             jail.set_env("SHADOWMASK_WORKER_CONCURRENCY", "9");
             let config = Config::load().unwrap();
             assert_eq!(config.access_ttl_secs, 7);
@@ -515,10 +441,7 @@ mod tests {
     fn profile_overrides_are_off_unless_a_directory_is_named() {
         figment::Jail::expect_with(|jail| {
             assert_eq!(Config::load().unwrap().profile_overrides_dir, None);
-            jail.set_env(
-                "SHADOWMASK_PROFILE_OVERRIDES_DIR",
-                "/etc/shadowmask/profiles",
-            );
+            jail.set_env("SHADOWMASK_PROFILE_OVERRIDES_DIR", "/etc/shadowmask/profiles");
             assert_eq!(
                 Config::load().unwrap().profile_overrides_dir,
                 Some(PathBuf::from("/etc/shadowmask/profiles"))
@@ -535,10 +458,7 @@ mod tests {
             jail.set_env("SHADOWMASK_DAILY_SCAN_AT", "   ");
             assert_eq!(Config::load().unwrap().daily_scan_at, None);
             jail.set_env("SHADOWMASK_DAILY_SCAN_AT", " 04:00 ");
-            assert_eq!(
-                Config::load().unwrap().daily_scan_at.as_deref(),
-                Some("04:00")
-            );
+            assert_eq!(Config::load().unwrap().daily_scan_at.as_deref(), Some("04:00"));
             Ok(())
         });
     }
@@ -553,10 +473,7 @@ mod tests {
             jail.set_env("SHADOWMASK_TMDB_API_KEY", "   ");
             assert_eq!(Config::load().unwrap().tmdb_api_key, None);
             jail.set_env("SHADOWMASK_TMDB_API_KEY", "  real-key  ");
-            assert_eq!(
-                Config::load().unwrap().tmdb_api_key,
-                Some("real-key".to_owned())
-            );
+            assert_eq!(Config::load().unwrap().tmdb_api_key, Some("real-key".to_owned()));
             Ok(())
         });
     }
@@ -569,10 +486,7 @@ mod tests {
             jail.set_env("SHADOWMASK_OMDB_API_KEY", "   ");
             assert_eq!(Config::load().unwrap().omdb_api_key, None);
             jail.set_env("SHADOWMASK_OMDB_API_KEY", "  real-key  ");
-            assert_eq!(
-                Config::load().unwrap().omdb_api_key,
-                Some("real-key".to_owned())
-            );
+            assert_eq!(Config::load().unwrap().omdb_api_key, Some("real-key".to_owned()));
             Ok(())
         });
     }
@@ -585,10 +499,7 @@ mod tests {
             jail.set_env("SHADOWMASK_OPENSUBTITLES_API_KEY", "   ");
             assert_eq!(Config::load().unwrap().opensubtitles_api_key, None);
             jail.set_env("SHADOWMASK_OPENSUBTITLES_API_KEY", "  os-key  ");
-            assert_eq!(
-                Config::load().unwrap().opensubtitles_api_key,
-                Some("os-key".to_owned())
-            );
+            assert_eq!(Config::load().unwrap().opensubtitles_api_key, Some("os-key".to_owned()));
             Ok(())
         });
     }
@@ -597,20 +508,14 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn target_languages_default_then_env_comma_split() {
         figment::Jail::expect_with(|jail| {
-            assert_eq!(
-                Config::load().unwrap().target_languages,
-                vec!["en".to_owned()]
-            );
+            assert_eq!(Config::load().unwrap().target_languages, vec!["en".to_owned()]);
             jail.set_env("SHADOWMASK_TARGET_LANGUAGES", "en, es ,, fr");
             assert_eq!(
                 Config::load().unwrap().target_languages,
                 vec!["en".to_owned(), "es".to_owned(), "fr".to_owned()]
             );
             jail.set_env("SHADOWMASK_TARGET_LANGUAGES", "   ");
-            assert_eq!(
-                Config::load().unwrap().target_languages,
-                vec!["en".to_owned()]
-            );
+            assert_eq!(Config::load().unwrap().target_languages, vec!["en".to_owned()]);
             Ok(())
         });
     }
@@ -627,10 +532,7 @@ mod tests {
             let config = Config::load().unwrap();
             assert_eq!(
                 config.cors_allowed_origins,
-                vec![
-                    "http://localhost:8080".to_owned(),
-                    "https://app.example".to_owned()
-                ]
+                vec!["http://localhost:8080".to_owned(), "https://app.example".to_owned()]
             );
             assert!(config.describe(None).contains("http://localhost:8080"));
             jail.set_env("SHADOWMASK_CORS_ALLOWED_ORIGINS", "   ");
@@ -644,25 +546,13 @@ mod tests {
     fn enrichment_defaults_all_off() {
         figment::Jail::expect_with(|_jail| {
             let enrichment = Config::load().unwrap().enrichment;
-            assert_eq!(
-                enrichment.model_cache,
-                PathBuf::from("data/enrichment-models")
-            );
+            assert_eq!(enrichment.model_cache, PathBuf::from("data/enrichment-models"));
             assert!(!enrichment.transcription.enabled);
             assert!(!enrichment.translation.enabled);
             assert!(!enrichment.upscaling.enabled);
-            assert_eq!(
-                enrichment.transcription.provider,
-                crate::enrichment::ProviderChoice::None
-            );
-            assert_eq!(
-                enrichment.translation.provider,
-                crate::enrichment::ProviderChoice::None
-            );
-            assert_eq!(
-                enrichment.upscaling.provider,
-                crate::enrichment::ProviderChoice::None
-            );
+            assert_eq!(enrichment.transcription.provider, crate::enrichment::ProviderChoice::None);
+            assert_eq!(enrichment.translation.provider, crate::enrichment::ProviderChoice::None);
+            assert_eq!(enrichment.upscaling.provider, crate::enrichment::ProviderChoice::None);
             assert_eq!(enrichment.transcription.model_path, None);
             assert_eq!(enrichment.upscaling.target_height, 1080);
             Ok(())
@@ -673,10 +563,8 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn enrichment_config_round_trips_from_toml() {
         figment::Jail::expect_with(|jail| {
-            jail.create_file(
-                "shadowmask.toml",
-                "[enrichment.transcription]\nenabled = true\nprovider = \"built-in\"\nmodel_path = \"/models/transcription\"\n",
-            )?;
+            let toml = "[enrichment.transcription]\nenabled = true\nprovider = \"built-in\"\nmodel_path = \"/models/transcription\"\n";
+            jail.create_file("shadowmask.toml", toml)?;
             let enrichment = Config::load().unwrap().enrichment;
             assert!(enrichment.transcription.enabled);
             assert_eq!(
@@ -718,10 +606,7 @@ mod tests {
     #[test]
     fn nest_section_key_maps_only_boundaries() {
         assert_eq!(super::nest_section_key("jwt_secret"), "jwt_secret");
-        assert_eq!(
-            super::nest_section_key("enrichment_model_cache"),
-            "enrichment.model_cache"
-        );
+        assert_eq!(super::nest_section_key("enrichment_model_cache"), "enrichment.model_cache");
         assert_eq!(
             super::nest_section_key("enrichment_transcription_enabled"),
             "enrichment.transcription.enabled"
@@ -734,10 +619,7 @@ mod tests {
             super::nest_section_key("FETCH_PROVIDERS_YT_DLP_BINARY"),
             "fetch_providers.yt_dlp_binary"
         );
-        assert_eq!(
-            super::nest_section_key("fetch_providers_enabled"),
-            "fetch_providers.enabled"
-        );
+        assert_eq!(super::nest_section_key("fetch_providers_enabled"), "fetch_providers.enabled");
     }
 
     #[test]
@@ -798,14 +680,9 @@ mod tests {
 
     #[test]
     fn a_read_rate_of_zero_is_described_as_unthrottled() {
-        let config = Config {
-            remux_read_rate: 0.0,
-            ..Config::default()
-        };
+        let config = Config { remux_read_rate: 0.0, ..Config::default() };
         assert!(
-            config
-                .describe(None)
-                .contains(&cache_line("remux_read_rate:", "unthrottled")),
+            config.describe(None).contains(&cache_line("remux_read_rate:", "unthrottled")),
             "zero means no throttle at all, which 0x realtime would read as the opposite"
         );
     }
@@ -846,15 +723,8 @@ mod tests {
                 .contains(&cache_line("max_transcode_height:", "unbounded")),
             "an unset bound has to read as unbounded, not as a missing line"
         );
-        let bounded = Config {
-            max_transcode_height: Some(1080),
-            ..Config::default()
-        };
-        assert!(
-            bounded
-                .describe(None)
-                .contains(&cache_line("max_transcode_height:", "1080p"))
-        );
+        let bounded = Config { max_transcode_height: Some(1080), ..Config::default() };
+        assert!(bounded.describe(None).contains(&cache_line("max_transcode_height:", "1080p")));
     }
 
     // Every other section lines its values up; the cache section grew three
@@ -863,9 +733,8 @@ mod tests {
     fn the_cache_section_lines_its_values_up() {
         fn value_column(line: &str) -> usize {
             let colon = line.find(':').expect("a cache line names its setting");
-            let offset = line[colon + 1..]
-                .find(|c: char| c != ' ')
-                .expect("a cache line carries a value");
+            let offset =
+                line[colon + 1..].find(|c: char| c != ' ').expect("a cache line carries a value");
             colon + 1 + offset
         }
 
@@ -888,14 +757,8 @@ mod tests {
     #[test]
     fn model_dirs_default_under_cache_or_override() {
         let defaults = crate::enrichment::EnrichmentConfig::default();
-        assert_eq!(
-            transcription_model_dir(&defaults),
-            defaults.model_cache.join("transcription")
-        );
-        assert_eq!(
-            translation_model_dir(&defaults),
-            defaults.model_cache.join("translation")
-        );
+        assert_eq!(transcription_model_dir(&defaults), defaults.model_cache.join("transcription"));
+        assert_eq!(translation_model_dir(&defaults), defaults.model_cache.join("translation"));
         let overridden = crate::enrichment::EnrichmentConfig {
             transcription: crate::enrichment::TranscriptionConfig {
                 model_path: Some(PathBuf::from("/models/w")),
@@ -907,14 +770,8 @@ mod tests {
             },
             ..crate::enrichment::EnrichmentConfig::default()
         };
-        assert_eq!(
-            transcription_model_dir(&overridden),
-            PathBuf::from("/models/w")
-        );
-        assert_eq!(
-            translation_model_dir(&overridden),
-            PathBuf::from("/models/t")
-        );
+        assert_eq!(transcription_model_dir(&overridden), PathBuf::from("/models/w"));
+        assert_eq!(translation_model_dir(&overridden), PathBuf::from("/models/t"));
     }
 
     #[test]
@@ -944,11 +801,7 @@ mod tests {
             Some("/dev/dri/renderD128".to_owned())
         );
         assert_eq!(
-            resolve_vaapi_device(
-                HardwareAccelerationMode::Vaapi,
-                "/dev/dri/renderD128",
-                false
-            ),
+            resolve_vaapi_device(HardwareAccelerationMode::Vaapi, "/dev/dri/renderD128", false),
             None
         );
     }
@@ -958,10 +811,8 @@ mod tests {
     fn webhook_clients_default_empty_and_load_from_toml() {
         figment::Jail::expect_with(|jail| {
             assert!(Config::load().unwrap().webhook_clients.is_empty());
-            jail.create_file(
-                "shadowmask.toml",
-                "[[webhook_clients]]\nname = \"sonarr\"\nsecret = \"abc\"\nlibraries = [\"lib1\"]\n",
-            )?;
+            let toml = "[[webhook_clients]]\nname = \"sonarr\"\nsecret = \"abc\"\nlibraries = [\"lib1\"]\n";
+            jail.create_file("shadowmask.toml", toml)?;
             let config = Config::load().unwrap();
             assert_eq!(config.webhook_clients.len(), 1);
             assert_eq!(config.webhook_clients[0].name, "sonarr");
@@ -1008,14 +859,8 @@ mod tests {
             jail.set_env("SHADOWMASK_TLS_CERT", "/etc/shadowmask/cert.pem");
             jail.set_env("SHADOWMASK_TLS_KEY", "/etc/shadowmask/key.pem");
             let config = Config::load().unwrap();
-            assert_eq!(
-                config.tls_cert,
-                Some(PathBuf::from("/etc/shadowmask/cert.pem"))
-            );
-            assert_eq!(
-                config.tls_key,
-                Some(PathBuf::from("/etc/shadowmask/key.pem"))
-            );
+            assert_eq!(config.tls_cert, Some(PathBuf::from("/etc/shadowmask/cert.pem")));
+            assert_eq!(config.tls_key, Some(PathBuf::from("/etc/shadowmask/key.pem")));
             Ok(())
         });
     }

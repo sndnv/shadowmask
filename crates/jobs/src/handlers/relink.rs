@@ -16,11 +16,7 @@ pub struct RelinkJobHandler<R, P, E> {
 
 impl<R, P, E> RelinkJobHandler<R, P, E> {
     pub fn new(repo: R, probe: P, ingester: E) -> Self {
-        Self {
-            repo,
-            probe,
-            ingester,
-        }
+        Self { repo, probe, ingester }
     }
 }
 
@@ -33,19 +29,11 @@ where
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         let payload = RelinkJobPayload::decode(&job.payload)
             .map_err(|e| JobError::Permanent(format!("invalid relink payload: {e}")))?;
-        let library = self
-            .repo
-            .get(&payload.library)
-            .await
-            .map_err(retryable)?
-            .ok_or_else(|| {
+        let library =
+            self.repo.get(&payload.library).await.map_err(retryable)?.ok_or_else(|| {
                 JobError::Permanent(format!("library not found: {}", payload.library.0))
             })?;
-        tracing::info!(
-            "relinking [{}] in library [{}]",
-            payload.path,
-            payload.library.0
-        );
+        tracing::info!("relinking [{}] in library [{}]", payload.path, payload.library.0);
         let probe = self
             .probe
             .probe(&payload.path)
@@ -111,20 +99,12 @@ mod tests {
     }
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        PageRequest { offset: 0, limit: 10 }
     }
 
     fn ingester() -> Enricher<MockCatalogRepo, MockMetadataProvider, MockJobStore, MockLibraryRepo>
     {
-        Enricher::new(
-            MockCatalogRepo::new(),
-            None,
-            MockJobStore::new(),
-            MockLibraryRepo::new(),
-        )
+        Enricher::new(MockCatalogRepo::new(), None, MockJobStore::new(), MockLibraryRepo::new())
     }
 
     fn job(payload: String) -> Job {
@@ -172,20 +152,12 @@ mod tests {
             ),
         );
 
-        handler
-            .handle(&job(payload("/m/x.mkv", "lib").encode()))
-            .await
-            .unwrap();
+        handler.handle(&job(payload("/m/x.mkv", "lib").encode())).await.unwrap();
 
-        let versions = catalog
-            .list_library_versions(&LibraryId("lib".into()), page())
-            .await
-            .unwrap();
+        let versions =
+            catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap();
         assert_eq!(versions.total, 1);
-        assert_eq!(
-            versions.items[0].title,
-            TitleId::Movie(MovieId("m-new".into()))
-        );
+        assert_eq!(versions.items[0].title, TitleId::Movie(MovieId("m-new".into())));
     }
 
     #[tokio::test]
@@ -203,10 +175,7 @@ mod tests {
         let handler =
             RelinkJobHandler::new(MockLibraryRepo::new(), MockMediaProbe::new(), ingester());
         assert!(matches!(
-            handler
-                .handle(&job(payload("/m/x.mkv", "nope").encode()))
-                .await
-                .unwrap_err(),
+            handler.handle(&job(payload("/m/x.mkv", "nope").encode())).await.unwrap_err(),
             JobError::Permanent(_)
         ));
     }
@@ -220,10 +189,7 @@ mod tests {
 
         assert!(
             matches!(
-                handler
-                    .handle(&job(payload("/m/x.mkv", "lib").encode()))
-                    .await
-                    .unwrap_err(),
+                handler.handle(&job(payload("/m/x.mkv", "lib").encode())).await.unwrap_err(),
                 JobError::Retryable(_)
             ),
             "a database blip must not permanently abandon the relink"
@@ -255,19 +221,13 @@ mod tests {
             }),
         };
 
+        let error = handler.handle(&job(payload.encode())).await.unwrap_err();
         assert!(
-            matches!(
-                handler.handle(&job(payload.encode())).await.unwrap_err(),
-                JobError::Retryable(_)
-            ),
+            matches!(error, JobError::Retryable(_)),
             "a relink that could not re-identify the title must not report success"
         );
         assert_eq!(
-            catalog
-                .list_library_versions(&LibraryId("lib".into()), page())
-                .await
-                .unwrap()
-                .total,
+            catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap().total,
             1,
             "the file is still linked, so the retry only has the metadata left to do"
         );
@@ -277,16 +237,10 @@ mod tests {
     async fn probe_failure_is_retryable() {
         let repo = MockLibraryRepo::new();
         repo.insert_library(library());
-        let handler = RelinkJobHandler::new(
-            repo,
-            MockMediaProbe::new().failing_on("/m/x.mkv"),
-            ingester(),
-        );
+        let handler =
+            RelinkJobHandler::new(repo, MockMediaProbe::new().failing_on("/m/x.mkv"), ingester());
         assert!(matches!(
-            handler
-                .handle(&job(payload("/m/x.mkv", "lib").encode()))
-                .await
-                .unwrap_err(),
+            handler.handle(&job(payload("/m/x.mkv", "lib").encode())).await.unwrap_err(),
             JobError::Retryable(_)
         ));
     }

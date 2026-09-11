@@ -50,11 +50,7 @@ struct FakeSource {
 
 impl FakeSource {
     fn ensure_live(&self, claims: &StreamClaims) -> Result<(), StreamError> {
-        if claims.session.0 == "live" {
-            Ok(())
-        } else {
-            Err(StreamError::NotLive)
-        }
+        if claims.session.0 == "live" { Ok(()) } else { Err(StreamError::NotLive) }
     }
 }
 
@@ -94,13 +90,7 @@ fn app(dir: &Path) -> Router {
     std::fs::write(output_dir.join("data.bin"), b"\x00\x01\x02\x03").unwrap();
     let direct_path = dir.join("movie.mkv");
     std::fs::write(&direct_path, b"MKVDATA-DIRECT-PLAY").unwrap();
-    stream_router(StreamState::new(
-        FakeTokens,
-        FakeSource {
-            output_dir,
-            direct_path,
-        },
-    ))
+    stream_router(StreamState::new(FakeTokens, FakeSource { output_dir, direct_path }))
 }
 
 async fn send(app: Router, uri: &str, range: Option<&str>) -> (StatusCode, HeaderMap, Vec<u8>) {
@@ -108,16 +98,10 @@ async fn send(app: Router, uri: &str, range: Option<&str>) -> (StatusCode, Heade
     if let Some(range) = range {
         builder = builder.header(header::RANGE, range);
     }
-    let response = app
-        .oneshot(builder.body(Body::empty()).unwrap())
-        .await
-        .unwrap();
+    let response = app.oneshot(builder.body(Body::empty()).unwrap()).await.unwrap();
     let status = response.status();
     let headers = response.headers().clone();
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap()
-        .to_vec();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec();
     (status, headers, body)
 }
 
@@ -198,12 +182,8 @@ async fn unknown_extension_is_not_overridden() {
 #[tokio::test]
 async fn segment_range_returns_206_partial() {
     let dir = tempfile::tempdir().unwrap();
-    let (status, headers, body) = send(
-        app(dir.path()),
-        "/stream/good:live/v0/seg_00001.ts",
-        Some("bytes=0-3"),
-    )
-    .await;
+    let (status, headers, body) =
+        send(app(dir.path()), "/stream/good:live/v0/seg_00001.ts", Some("bytes=0-3")).await;
     assert_eq!(status, StatusCode::PARTIAL_CONTENT);
     assert!(headers.contains_key(header::CONTENT_RANGE));
     assert_eq!(body, b"SEGM");

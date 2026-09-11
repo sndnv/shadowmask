@@ -35,11 +35,7 @@ where
     D: DownloadTokens + Send + Sync + 'static,
 {
     let version = VersionId(id);
-    let detail = state
-        .services
-        .catalog()
-        .version(&principal, &version)
-        .await?;
+    let detail = state.services.catalog().version(&principal, &version).await?;
     let path = downloadable_path(&principal.user.0, &detail)?;
     let expires_at = Timestamp::from_second(Timestamp::now().as_second() + LINK_TTL_SECS)
         .unwrap_or(Timestamp::MAX);
@@ -49,10 +45,7 @@ where
         expires_at,
         nonce: Uuid::new_v4().to_string(),
     })?;
-    debug!(
-        "User [{}] successfully created a download link for version [{}]",
-        principal.user.0, version.0
-    );
+    debug!("User [{}] created a download link for version [{}]", principal.user.0, version.0);
     Ok(Json(DownloadLinkResponse {
         url: format!("/download/{}", token.0),
         filename: filename_of(path).to_owned(),
@@ -80,19 +73,13 @@ where
         .ok_or_else(|| ApiError::not_found("version not found"))?;
     let path = downloadable_path(&claims.user.0, &detail)?;
     let disposition = content_disposition(filename_of(path));
-    let mut response = ServeFile::new(PathBuf::from(path))
-        .oneshot(request)
-        .await
-        .into_response();
+    let mut response = ServeFile::new(PathBuf::from(path)).oneshot(request).await.into_response();
     if response.status().is_success()
         && let Ok(value) = HeaderValue::from_str(&disposition)
     {
         response.headers_mut().insert(CONTENT_DISPOSITION, value);
     }
-    debug!(
-        "User [{}] successfully downloaded version [{}]",
-        claims.user.0, claims.version.0
-    );
+    debug!("User [{}] downloaded version [{}]", claims.user.0, claims.version.0);
     Ok(response)
 }
 
@@ -108,22 +95,17 @@ fn downloadable_path<'a>(user: &str, detail: &'a VersionDetail) -> Result<&'a st
 }
 
 fn filename_of(path: &str) -> &str {
-    path.rsplit(['/', '\\'])
-        .find(|segment| !segment.is_empty())
-        .unwrap_or("download")
+    path.rsplit(['/', '\\']).find(|segment| !segment.is_empty()).unwrap_or("download")
 }
 
 fn content_disposition(filename: &str) -> String {
-    let ascii: String = filename
-        .chars()
-        .map(|c| {
-            if c.is_ascii() && c != '"' && c != '\\' && !c.is_ascii_control() {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
+    let ascii: String =
+        filename
+            .chars()
+            .map(|c| {
+                if c.is_ascii() && c != '"' && c != '\\' && !c.is_ascii_control() { c } else { '_' }
+            })
+            .collect();
     format!("attachment; filename=\"{ascii}\"")
 }
 
@@ -133,10 +115,7 @@ mod tests {
 
     #[test]
     fn filename_is_the_last_path_segment() {
-        assert_eq!(
-            filename_of("/media/movies/Big Buck Bunny.mkv"),
-            "Big Buck Bunny.mkv"
-        );
+        assert_eq!(filename_of("/media/movies/Big Buck Bunny.mkv"), "Big Buck Bunny.mkv");
     }
 
     #[test]
@@ -157,10 +136,7 @@ mod tests {
 
     #[test]
     fn disposition_keeps_a_plain_name() {
-        assert_eq!(
-            content_disposition("clip.mkv"),
-            "attachment; filename=\"clip.mkv\""
-        );
+        assert_eq!(content_disposition("clip.mkv"), "attachment; filename=\"clip.mkv\"");
     }
 
     #[test]
@@ -181,9 +157,6 @@ mod tests {
 
     #[test]
     fn disposition_replaces_non_ascii() {
-        assert_eq!(
-            content_disposition("Amélie.mkv"),
-            "attachment; filename=\"Am_lie.mkv\""
-        );
+        assert_eq!(content_disposition("Amélie.mkv"), "attachment; filename=\"Am_lie.mkv\"");
     }
 }

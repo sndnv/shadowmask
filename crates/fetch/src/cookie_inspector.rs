@@ -19,10 +19,7 @@ impl CookieInspector for CookieFileInspector {
         let Ok(contents) = std::fs::read_to_string(&self.path) else {
             return CookieVerdict::NotApplicable;
         };
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
         check_host_cookies(&contents, host, now)
     }
 }
@@ -34,10 +31,7 @@ mod tests {
     #[test]
     fn unreadable_file_is_not_applicable() {
         let inspector = CookieFileInspector::new(PathBuf::from("/no/such/shadowmask/cookies.txt"));
-        assert_eq!(
-            inspector.verdict_for("nebula.tv"),
-            CookieVerdict::NotApplicable
-        );
+        assert_eq!(inspector.verdict_for("nebula.tv"), CookieVerdict::NotApplicable);
     }
 
     #[test]
@@ -45,11 +39,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("cookies.txt");
         let far_future = i64::MAX / 2;
-        std::fs::write(
-            &path,
-            format!(".nebula.tv\tTRUE\t/\tTRUE\t{far_future}\ttoken\tvalue"),
-        )
-        .unwrap();
+        std::fs::write(&path, format!(".nebula.tv\tTRUE\t/\tTRUE\t{far_future}\ttoken\tvalue"))
+            .unwrap();
         let inspector = CookieFileInspector::new(path);
         assert_eq!(inspector.verdict_for("nebula.tv"), CookieVerdict::Live);
     }

@@ -117,9 +117,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_of_missing_binary_is_err() {
-        let result = TokioProcessSpawner
-            .run("shadowmask-no-such-binary-xyz", &[])
-            .await;
+        let result = TokioProcessSpawner.run("shadowmask-no-such-binary-xyz", &[]).await;
         assert!(result.is_err());
     }
 
@@ -166,9 +164,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_captured_of_missing_binary_is_err() {
-        let result = TokioProcessSpawner
-            .run_captured("shadowmask-no-such-binary-xyz", &[])
-            .await;
+        let result = TokioProcessSpawner.run_captured("shadowmask-no-such-binary-xyz", &[]).await;
         assert!(result.is_err());
     }
 
@@ -182,10 +178,7 @@ mod tests {
             TokioProcessSpawner
                 .run_streaming(
                     "sh",
-                    &[
-                        "-c".to_owned(),
-                        "echo out1; echo err1 1>&2; echo out2".to_owned(),
-                    ],
+                    &["-c".to_owned(), "echo out1; echo err1 1>&2; echo out2".to_owned()],
                     &mut on_line,
                 )
                 .await
@@ -254,10 +247,7 @@ mod tests {
             let mut on_line = |stream: OutputStream, line: &str| {
                 seen.push((stream, line.to_owned()));
             };
-            CapturedOnlySpawner
-                .run_streaming("x", &[], &mut on_line)
-                .await
-                .unwrap()
+            CapturedOnlySpawner.run_streaming("x", &[], &mut on_line).await.unwrap()
         };
         assert_eq!(out.stdout, "a\nb");
         assert_eq!(

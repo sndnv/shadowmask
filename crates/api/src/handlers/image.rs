@@ -30,10 +30,7 @@ pub async fn image(
     let etag = format!("\"{artwork_id}-{width}\"");
     let etag_value = HeaderValue::from_str(&etag).expect("etag is a valid header value");
 
-    if request
-        .headers()
-        .get(IF_NONE_MATCH)
-        .is_some_and(|value| value.as_bytes() == etag.as_bytes())
+    if request.headers().get(IF_NONE_MATCH).is_some_and(|value| value.as_bytes() == etag.as_bytes())
     {
         debug!("Artwork [{artwork_id}/{width}] not modified");
         let mut response = StatusCode::NOT_MODIFIED.into_response();
@@ -47,16 +44,10 @@ pub async fn image(
     let mut response = ServeFile::new(path).oneshot(request).await.into_response();
     if response.status().is_success() {
         let headers = response.headers_mut();
-        headers.insert(
-            CONTENT_TYPE,
-            HeaderValue::from_static(format.content_type()),
-        );
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static(format.content_type()));
         headers.insert(CACHE_CONTROL, HeaderValue::from_static(IMMUTABLE_CACHE));
         headers.insert(ETAG, etag_value);
-        debug!(
-            "Artwork [{artwork_id}/{width}] served as [{}]",
-            format.extension()
-        );
+        debug!("Artwork [{artwork_id}/{width}] served as [{}]", format.extension());
     }
     Ok(response)
 }
@@ -67,11 +58,7 @@ fn stored_file(
     width: u32,
 ) -> (std::path::PathBuf, ArtworkFormat) {
     let candidate = |format: ArtworkFormat| {
-        (
-            root.join(id)
-                .join(format!("{width}.{}", format.extension())),
-            format,
-        )
+        (root.join(id).join(format!("{width}.{}", format.extension())), format)
     };
     for format in SERVED_FORMATS {
         let found = candidate(format);

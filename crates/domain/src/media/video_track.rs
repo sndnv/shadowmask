@@ -29,10 +29,7 @@ mod tests {
         // both reach this function.
         assert_eq!(HdrFormat::parse("hdr10plus"), Some(HdrFormat::Hdr10Plus));
         assert_eq!(HdrFormat::parse("hdr10_plus"), Some(HdrFormat::Hdr10Plus));
-        assert_eq!(
-            HdrFormat::parse("dolby_vision"),
-            Some(HdrFormat::DolbyVision)
-        );
+        assert_eq!(HdrFormat::parse("dolby_vision"), Some(HdrFormat::DolbyVision));
         assert_eq!(HdrFormat::parse("hlg"), Some(HdrFormat::Hlg));
         assert_eq!(HdrFormat::parse("hdr11"), None);
     }

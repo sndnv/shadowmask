@@ -33,9 +33,8 @@ async fn delete_by_id(
 ) -> Result<(), RepositoryError> {
     for chunk in ids.chunks(BIND_CHUNK) {
         let placeholders = vec!["?"; chunk.len()].join(", ");
-        let mut query = sqlx::query(AssertSqlSafe(format!(
-            "DELETE FROM {table} WHERE id IN ({placeholders})"
-        )));
+        let mut query =
+            sqlx::query(AssertSqlSafe(format!("DELETE FROM {table} WHERE id IN ({placeholders})")));
         for id in chunk {
             query = query.bind(id.as_str());
         }
@@ -51,9 +50,7 @@ pub struct SqliteLibraryRepo {
 
 impl SqliteLibraryRepo {
     pub async fn connect(path: &Path) -> Result<Self, RepositoryError> {
-        Ok(Self {
-            pool: open(path, &MIGRATOR).await?,
-        })
+        Ok(Self { pool: open(path, &MIGRATOR).await? })
     }
 
     pub async fn ping(&self) -> Result<(), RepositoryError> {
@@ -125,14 +122,8 @@ impl SqliteLibraryRepo {
         query: &'static str,
         key: &str,
     ) -> Result<Vec<String>, RepositoryError> {
-        let rows = sqlx::query(query)
-            .bind(key)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(backend)?;
-        rows.iter()
-            .map(|row| column::<String>(row, "value"))
-            .collect()
+        let rows = sqlx::query(query).bind(key).fetch_all(&self.pool).await.map_err(backend)?;
+        rows.iter().map(|row| column::<String>(row, "value")).collect()
     }
 
     async fn load_library(&self, row: &SqliteRow) -> Result<Library, RepositoryError> {
@@ -198,9 +189,7 @@ impl SqliteLibraryRepo {
             }
             let rows = query.fetch_all(&self.pool).await.map_err(backend)?;
             for row in &rows {
-                out.entry(column(row, "unmatched_id")?)
-                    .or_default()
-                    .push(row_to_candidate(row)?);
+                out.entry(column(row, "unmatched_id")?).or_default().push(row_to_candidate(row)?);
             }
         }
         Ok(out)
@@ -223,9 +212,7 @@ impl SqliteLibraryRepo {
             }
             let rows = query.fetch_all(&self.pool).await.map_err(backend)?;
             for row in &rows {
-                out.entry(column(row, "duplicate_id")?)
-                    .or_default()
-                    .push(column(row, "path")?);
+                out.entry(column(row, "duplicate_id")?).or_default().push(column(row, "path")?);
             }
         }
         Ok(out)
@@ -237,12 +224,7 @@ fn join_list(values: &[String]) -> String {
 }
 
 fn split_list(value: &str) -> Vec<String> {
-    value
-        .split(',')
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .map(str::to_owned)
-        .collect()
+    value.split(',').map(str::trim).filter(|part| !part.is_empty()).map(str::to_owned).collect()
 }
 
 fn kind_to_str(kind: LibraryKind) -> &'static str {
@@ -323,10 +305,7 @@ fn resolution_status_to_str(status: ResolutionStatus) -> &'static str {
 
 fn row_to_candidate(row: &SqliteRow) -> Result<MatchCandidate, RepositoryError> {
     Ok(MatchCandidate {
-        title: title_from_parts(
-            &column::<String>(row, "title_kind")?,
-            column(row, "title_id")?,
-        )?,
+        title: title_from_parts(&column::<String>(row, "title_kind")?, column(row, "title_id")?)?,
         confidence: column::<f64>(row, "confidence")? as f32,
         label: column(row, "label")?,
     })
@@ -337,9 +316,7 @@ fn row_to_scan_state(row: &SqliteRow) -> Result<ScanState, RepositoryError> {
         library: LibraryId(column(row, "library_id")?),
         status: scan_status_from_str(&column::<String>(row, "status")?)?,
         progress: column::<f64>(row, "progress")? as f32,
-        started_at: column::<Option<i64>>(row, "started_at")?
-            .map(from_millis)
-            .transpose()?,
+        started_at: column::<Option<i64>>(row, "started_at")?.map(from_millis).transpose()?,
         last_scanned_at: column::<Option<i64>>(row, "last_scanned_at")?
             .map(from_millis)
             .transpose()?,
@@ -348,11 +325,7 @@ fn row_to_scan_state(row: &SqliteRow) -> Result<ScanState, RepositoryError> {
 }
 
 async fn count(pool: &SqlitePool, query: &'static str, key: &str) -> Result<u64, RepositoryError> {
-    let row = sqlx::query(query)
-        .bind(key)
-        .fetch_one(pool)
-        .await
-        .map_err(backend)?;
+    let row = sqlx::query(query).bind(key).fetch_one(pool).await.map_err(backend)?;
     Ok(column::<i64>(&row, "n")? as u64)
 }
 
@@ -463,10 +436,8 @@ impl LibraryRepository for SqliteLibraryRepo {
             .fetch_all(&self.pool)
             .await
             .map_err(backend)?;
-        let ids = rows
-            .iter()
-            .map(|row| column::<String>(row, "id"))
-            .collect::<Result<Vec<_>, _>>()?;
+        let ids =
+            rows.iter().map(|row| column::<String>(row, "id")).collect::<Result<Vec<_>, _>>()?;
         let mut candidates = self.candidates_for(&ids).await?;
         let mut items = Vec::with_capacity(rows.len());
         for (row, uid) in rows.iter().zip(ids) {
@@ -479,12 +450,7 @@ impl LibraryRepository for SqliteLibraryRepo {
                 id: UnmatchedFileId(uid),
             });
         }
-        Ok(Page {
-            items,
-            total,
-            offset: page.offset,
-            limit: page.limit,
-        })
+        Ok(Page { items, total, offset: page.offset, limit: page.limit })
     }
 
     async fn list_duplicates(
@@ -507,10 +473,8 @@ impl LibraryRepository for SqliteLibraryRepo {
             .fetch_all(&self.pool)
             .await
             .map_err(backend)?;
-        let ids = rows
-            .iter()
-            .map(|row| column::<String>(row, "id"))
-            .collect::<Result<Vec<_>, _>>()?;
+        let ids =
+            rows.iter().map(|row| column::<String>(row, "id")).collect::<Result<Vec<_>, _>>()?;
         let mut paths = self.paths_for(&ids).await?;
         let mut items = Vec::with_capacity(rows.len());
         for (row, did) in rows.iter().zip(ids) {
@@ -523,12 +487,7 @@ impl LibraryRepository for SqliteLibraryRepo {
                 id: DuplicateCandidateId(did),
             });
         }
-        Ok(Page {
-            items,
-            total,
-            offset: page.offset,
-            limit: page.limit,
-        })
+        Ok(Page { items, total, offset: page.offset, limit: page.limit })
     }
 
     async fn get_unmatched(
@@ -730,9 +689,7 @@ mod tests {
     #[tokio::test]
     async fn reconciling_a_backlog_deletes_more_rows_than_sqlite_allows_parameters() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteLibraryRepo::connect(&dir.path().join("libraries.db"))
-            .await
-            .unwrap();
+        let repo = SqliteLibraryRepo::connect(&dir.path().join("libraries.db")).await.unwrap();
         let rows = 40_000;
         sqlx::query(AssertSqlSafe(format!(
             "INSERT INTO unmatched_files (id, library_id, path, status, created_at, updated_at) \
@@ -752,12 +709,8 @@ mod tests {
         .unwrap();
 
         let library = LibraryId("lib-1".into());
-        repo.reconcile_unmatched(&library, &["/media/1.mkv".to_string()])
-            .await
-            .unwrap();
-        repo.reconcile_duplicates(&library, &[DuplicateCandidateId("d-1".into())])
-            .await
-            .unwrap();
+        repo.reconcile_unmatched(&library, &["/media/1.mkv".to_string()]).await.unwrap();
+        repo.reconcile_duplicates(&library, &[DuplicateCandidateId("d-1".into())]).await.unwrap();
 
         for table in ["unmatched_files", "duplicate_candidates"] {
             let left: i64 = column(
@@ -779,9 +732,7 @@ mod tests {
     #[tokio::test]
     async fn scan_backlog_listings_are_served_by_an_index() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteLibraryRepo::connect(&dir.path().join("libraries.db"))
-            .await
-            .unwrap();
+        let repo = SqliteLibraryRepo::connect(&dir.path().join("libraries.db")).await.unwrap();
         for (sql, index) in [
             (LIST_UNMATCHED_SQL, "idx_unmatched_library"),
             (LIST_DUPLICATES_SQL, "idx_duplicates_library"),
@@ -821,16 +772,10 @@ mod tests {
         ] {
             assert_eq!(watcher_from_str(watcher_to_str(watcher)).unwrap(), watcher);
         }
-        for status in [
-            ScanStatus::Idle,
-            ScanStatus::Queued,
-            ScanStatus::Running,
-            ScanStatus::Failed,
-        ] {
-            assert_eq!(
-                scan_status_from_str(scan_status_to_str(status)).unwrap(),
-                status
-            );
+        for status in
+            [ScanStatus::Idle, ScanStatus::Queued, ScanStatus::Running, ScanStatus::Failed]
+        {
+            assert_eq!(scan_status_from_str(scan_status_to_str(status)).unwrap(), status);
         }
         assert!(kind_from_str("nope").is_err());
         assert!(origin_from_str("nope").is_err());
@@ -842,15 +787,10 @@ mod tests {
     #[tokio::test]
     async fn surfaces_backend_error_after_close() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteLibraryRepo::connect(&dir.path().join("libraries.db"))
-            .await
-            .unwrap();
+        let repo = SqliteLibraryRepo::connect(&dir.path().join("libraries.db")).await.unwrap();
         repo.pool.close().await;
 
-        let page = PageRequest {
-            offset: 0,
-            limit: 10,
-        };
+        let page = PageRequest { offset: 0, limit: 10 };
         let library = LibraryId("lib1".into());
         let unmatched = UnmatchedFileId("uf1".into());
         let duplicate = DuplicateCandidateId("d1".into());
@@ -870,11 +810,7 @@ mod tests {
             .await
             .is_err()
         );
-        assert!(
-            repo.upsert(contracts::fixture::library("lib1"))
-                .await
-                .is_err()
-        );
+        assert!(repo.upsert(contracts::fixture::library("lib1")).await.is_err());
         assert!(repo.delete(&library).await.is_err());
         assert!(repo.list_unmatched(&library, page).await.is_err());
         assert!(repo.list_duplicates(&library, page).await.is_err());
@@ -903,34 +839,16 @@ mod tests {
             .await
             .is_err()
         );
-        assert!(
-            repo.set_unmatched_status(&unmatched, ResolutionStatus::Dismissed)
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.set_duplicate_status(&duplicate, ResolutionStatus::Dismissed)
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.reconcile_duplicates(&library, &[duplicate])
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.reconcile_unmatched(&library, &["/media/x.mkv".to_owned()])
-                .await
-                .is_err()
-        );
+        assert!(repo.set_unmatched_status(&unmatched, ResolutionStatus::Dismissed).await.is_err());
+        assert!(repo.set_duplicate_status(&duplicate, ResolutionStatus::Dismissed).await.is_err());
+        assert!(repo.reconcile_duplicates(&library, &[duplicate]).await.is_err());
+        assert!(repo.reconcile_unmatched(&library, &["/media/x.mkv".to_owned()]).await.is_err());
     }
 
     #[tokio::test]
     async fn library_with_roots_sources_and_schedule_round_trips() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteLibraryRepo::connect(&dir.path().join("libraries.db"))
-            .await
-            .unwrap();
+        let repo = SqliteLibraryRepo::connect(&dir.path().join("libraries.db")).await.unwrap();
         repo.insert_library(Library {
             id: LibraryId("lib1".into()),
             name: "Films".into(),
@@ -948,10 +866,7 @@ mod tests {
         .unwrap();
         let loaded = repo.get(&LibraryId("lib1".into())).await.unwrap().unwrap();
         assert_eq!(loaded.roots, vec!["/a".to_owned(), "/b".to_owned()]);
-        assert_eq!(
-            loaded.metadata_sources,
-            vec!["tmdb".to_owned(), "omdb".to_owned()]
-        );
+        assert_eq!(loaded.metadata_sources, vec!["tmdb".to_owned(), "omdb".to_owned()]);
         assert_eq!(loaded.scan_schedule, Some("0 0 * * *".to_owned()));
         assert_eq!(loaded.kind, LibraryKind::Tv);
         assert_eq!(loaded.origin, LibraryOrigin::External);
@@ -961,14 +876,9 @@ mod tests {
     #[tokio::test]
     async fn rejects_corrupt_candidate_and_duplicate_title_kind() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteLibraryRepo::connect(&dir.path().join("libraries.db"))
-            .await
-            .unwrap();
+        let repo = SqliteLibraryRepo::connect(&dir.path().join("libraries.db")).await.unwrap();
         let library = LibraryId("lib1".into());
-        let page = PageRequest {
-            offset: 0,
-            limit: 10,
-        };
+        let page = PageRequest { offset: 0, limit: 10 };
         sqlx::query(
             "INSERT INTO unmatched_files (id, library_id, path, created_at, updated_at) \
              VALUES ('uf1', 'lib1', '/x.mkv', 0, 0)",

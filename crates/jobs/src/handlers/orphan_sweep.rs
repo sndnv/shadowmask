@@ -22,13 +22,7 @@ pub struct OrphanSweepHandler<C, A, S, T> {
 
 impl<C, A, S, T> OrphanSweepHandler<C, A, S, T> {
     pub fn new(catalog: C, artwork: A, subtitles: S, trickplay: T, grace: SignedDuration) -> Self {
-        Self {
-            catalog,
-            artwork,
-            subtitles,
-            trickplay,
-            grace,
-        }
+        Self { catalog, artwork, subtitles, trickplay, grace }
     }
 }
 
@@ -50,20 +44,13 @@ where
         F: Future<Output = Result<HashSet<String>, RepositoryError>>,
         G: Future<Output = Result<HashSet<String>, RepositoryError>>,
     {
-        let dirs = store
-            .list_dirs()
-            .await
-            .map_err(|err| JobError::Retryable(err.to_string()))?;
+        let dirs = store.list_dirs().await.map_err(|err| JobError::Retryable(err.to_string()))?;
         let stale: Vec<&DerivedAssetDir> =
             dirs.iter().filter(|dir| dir.modified_at < cutoff).collect();
         let mut live = HashSet::new();
         for chunk in stale.chunks(OWNER_CHUNK) {
             let owners = chunk.iter().map(|dir| dir.owner.clone()).collect();
-            live.extend(
-                live_of(owners)
-                    .await
-                    .map_err(|err| JobError::Retryable(err.to_string()))?,
-            );
+            live.extend(live_of(owners).await.map_err(|err| JobError::Retryable(err.to_string()))?);
         }
         let mut removed = 0;
         let mut alive = Vec::new();
@@ -75,17 +62,12 @@ where
             match store.remove_dir(&dir.owner).await {
                 Ok(()) => removed += 1,
                 Err(err) => {
-                    tracing::warn!(
-                        store = store.label(),
-                        owner = %dir.owner,
-                        "removing an orphaned directory failed: {err}"
-                    );
+                    #[rustfmt::skip]
+                    tracing::warn!(store = store.label(), owner = %dir.owner, "removing an orphaned directory failed: {err}");
                 }
             }
         }
-        removed += self
-            .sweep_files(store, &alive, live_paths_of, cutoff)
-            .await?;
+        removed += self.sweep_files(store, &alive, live_paths_of, cutoff).await?;
         tracing::info!(store = store.label(), removed, "orphan sweep complete");
         Ok(removed)
     }
@@ -121,11 +103,8 @@ where
                 match store.remove_file(&file.path).await {
                     Ok(()) => removed += 1,
                     Err(err) => {
-                        tracing::warn!(
-                            store = store.label(),
-                            path = %file.path,
-                            "removing a superseded file failed: {err}"
-                        );
+                        #[rustfmt::skip]
+                        tracing::warn!(store = store.label(), path = %file.path, "removing a superseded file failed: {err}");
                     }
                 }
             }
@@ -143,9 +122,7 @@ where
 {
     async fn handle(&self, _job: &Job) -> Result<(), JobError> {
         let Ok(cutoff) = Timestamp::now().checked_sub(self.grace) else {
-            return Err(JobError::Permanent(
-                "sweep grace period is out of range".into(),
-            ));
+            return Err(JobError::Permanent("sweep grace period is out of range".into()));
         };
         let artwork =
             |owners: Vec<String>| async move { self.catalog.live_artwork_ids(&owners).await };
@@ -157,12 +134,9 @@ where
             |owners: Vec<String>| async move { self.catalog.live_subtitle_paths(&owners).await };
         let trickplay_paths =
             |owners: Vec<String>| async move { self.catalog.live_trickplay_paths(&owners).await };
-        self.sweep(&self.artwork, artwork, artwork_paths, cutoff)
-            .await?;
-        self.sweep(&self.subtitles, versions, subtitle_paths, cutoff)
-            .await?;
-        self.sweep(&self.trickplay, versions, trickplay_paths, cutoff)
-            .await?;
+        self.sweep(&self.artwork, artwork, artwork_paths, cutoff).await?;
+        self.sweep(&self.subtitles, versions, subtitle_paths, cutoff).await?;
+        self.sweep(&self.trickplay, versions, trickplay_paths, cutoff).await?;
         Ok(())
     }
 }
@@ -200,10 +174,7 @@ mod tests {
 
     impl StubStore {
         fn with(dirs: Vec<DerivedAssetDir>) -> Self {
-            Self {
-                dirs: Arc::new(Mutex::new(dirs)),
-                ..Self::default()
-            }
+            Self { dirs: Arc::new(Mutex::new(dirs)), ..Self::default() }
         }
 
         fn holding(dirs: Vec<DerivedAssetDir>, files: Vec<(&str, Vec<DerivedAssetFile>)>) -> Self {
@@ -221,17 +192,11 @@ mod tests {
         }
 
         fn failing(dirs: Vec<DerivedAssetDir>) -> Self {
-            Self {
-                fail_removal: true,
-                ..Self::with(dirs)
-            }
+            Self { fail_removal: true, ..Self::with(dirs) }
         }
 
         fn unreadable() -> Self {
-            Self {
-                fail_listing: true,
-                ..Self::with(Vec::new())
-            }
+            Self { fail_listing: true, ..Self::with(Vec::new()) }
         }
 
         fn removed(&self) -> Vec<String> {
@@ -263,13 +228,7 @@ mod tests {
             if self.fail_listing {
                 return Err(CacheError::Io("the disk went away".into()));
             }
-            Ok(self
-                .files
-                .lock()
-                .unwrap()
-                .get(owner)
-                .cloned()
-                .unwrap_or_default())
+            Ok(self.files.lock().unwrap().get(owner).cloned().unwrap_or_default())
         }
 
         async fn remove_file(&self, path: &str) -> Result<(), CacheError> {
@@ -408,10 +367,7 @@ mod tests {
     async fn a_file_written_inside_the_grace_window_is_never_removed() {
         let store = StubStore::holding(
             vec![dir("live", SignedDuration::from_hours(48))],
-            vec![(
-                "live",
-                vec![file("/art/live/1440.jpg", SignedDuration::from_secs(30))],
-            )],
+            vec![("live", vec![file("/art/live/1440.jpg", SignedDuration::from_secs(30))])],
         );
         let store = run(store, SignedDuration::from_hours(24)).await;
 
@@ -426,10 +382,7 @@ mod tests {
     async fn a_dead_owner_still_loses_its_whole_directory_without_a_per_file_pass() {
         let store = StubStore::holding(
             vec![dir("gone", SignedDuration::from_hours(48))],
-            vec![(
-                "gone",
-                vec![file("/art/gone/480.jpg", SignedDuration::from_hours(48))],
-            )],
+            vec![("gone", vec![file("/art/gone/480.jpg", SignedDuration::from_hours(48))])],
         );
         let store = run(store, SignedDuration::from_hours(24)).await;
 
@@ -443,10 +396,7 @@ mod tests {
             fail_removal: true,
             ..StubStore::holding(
                 vec![dir("live", SignedDuration::from_hours(48))],
-                vec![(
-                    "live",
-                    vec![file("/art/live/960.jpg", SignedDuration::from_hours(48))],
-                )],
+                vec![("live", vec![file("/art/live/960.jpg", SignedDuration::from_hours(48))])],
             )
         };
         let store = run(store, SignedDuration::from_hours(24)).await;
@@ -497,10 +447,7 @@ mod tests {
         .unwrap();
 
         assert!(subtitles.removed().is_empty());
-        assert_eq!(
-            subtitles.removed_files(),
-            vec!["/subs/v1/99.srt".to_owned()]
-        );
+        assert_eq!(subtitles.removed_files(), vec!["/subs/v1/99.srt".to_owned()]);
     }
 
     #[tokio::test]

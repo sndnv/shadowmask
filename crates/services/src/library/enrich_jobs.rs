@@ -52,8 +52,7 @@ where
         parent: Option<&JobId>,
     ) -> Result<(), RepositoryError> {
         let audio = &file.probe.audio;
-        self.enqueue_trickplay(version_id, &file.path, file.probe.duration_ms, parent)
-            .await?;
+        self.enqueue_trickplay(version_id, &file.path, file.probe.duration_ms, parent).await?;
         let transcription_wanted =
             self.transcription_enabled && !has_native_subtitle && !audio.is_empty();
         let opensubtitles_configured = !self.subtitle_languages.is_empty();
@@ -68,8 +67,7 @@ where
             self.enqueue_transcription(version_id, &file.path, has_native_subtitle, audio, parent)
                 .await?;
         }
-        self.enqueue_translation(version_id, has_native_subtitle, parent)
-            .await
+        self.enqueue_translation(version_id, has_native_subtitle, parent).await
     }
 
     async fn enqueue_translation(
@@ -118,13 +116,7 @@ where
         .encode();
         let now = Timestamp::now();
         self.jobs
-            .enqueue(queued_job(
-                JobKind::Transcription,
-                JobPriority::Low,
-                raw,
-                parent,
-                now,
-            ))
+            .enqueue(queued_job(JobKind::Transcription, JobPriority::Low, raw, parent, now))
             .await
     }
 
@@ -150,13 +142,7 @@ where
         .encode();
         let now = Timestamp::now();
         self.jobs
-            .enqueue(queued_job(
-                JobKind::Subtitles,
-                JobPriority::Normal,
-                raw,
-                parent,
-                now,
-            ))
+            .enqueue(queued_job(JobKind::Subtitles, JobPriority::Normal, raw, parent, now))
             .await
     }
 
@@ -175,13 +161,7 @@ where
         .encode();
         let now = Timestamp::now();
         self.jobs
-            .enqueue(queued_job(
-                JobKind::Trickplay,
-                JobPriority::Normal,
-                raw,
-                parent,
-                now,
-            ))
+            .enqueue(queued_job(JobKind::Trickplay, JobPriority::Normal, raw, parent, now))
             .await
     }
 
@@ -195,15 +175,7 @@ where
         }
         let raw = MetadataJobPayload::People { ids, force: false }.encode();
         let now = Timestamp::now();
-        self.jobs
-            .enqueue(queued_job(
-                JobKind::Metadata,
-                JobPriority::Low,
-                raw,
-                parent,
-                now,
-            ))
-            .await
+        self.jobs.enqueue(queued_job(JobKind::Metadata, JobPriority::Low, raw, parent, now)).await
     }
 
     pub(super) async fn enqueue_artwork(
@@ -226,14 +198,6 @@ where
         }
         let raw = ArtworkJobPayload { owner, items }.encode();
         let now = Timestamp::now();
-        self.jobs
-            .enqueue(queued_job(
-                JobKind::Artwork,
-                JobPriority::Normal,
-                raw,
-                parent,
-                now,
-            ))
-            .await
+        self.jobs.enqueue(queued_job(JobKind::Artwork, JobPriority::Normal, raw, parent, now)).await
     }
 }

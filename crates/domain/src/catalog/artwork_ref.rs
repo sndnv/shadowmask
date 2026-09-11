@@ -9,10 +9,7 @@ pub struct ArtworkWidth {
 
 impl ArtworkWidth {
     pub fn new(width: u32, path: impl Into<String>) -> Self {
-        Self {
-            width,
-            path: path.into(),
-        }
+        Self { width, path: path.into() }
     }
 }
 

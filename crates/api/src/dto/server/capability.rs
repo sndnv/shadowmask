@@ -9,10 +9,6 @@ pub struct Capability {
 
 impl Capability {
     pub fn new(name: impl Into<String>, available: bool, enabled: bool) -> Self {
-        Self {
-            name: name.into(),
-            available,
-            enabled,
-        }
+        Self { name: name.into(), available, enabled }
     }
 }

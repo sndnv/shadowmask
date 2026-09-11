@@ -17,11 +17,7 @@ pub struct LibraryScanHandler<R, W, P, E> {
 
 impl<R, W, P, E> LibraryScanHandler<R, W, P, E> {
     pub fn new(repo: R, scanner: Scanner<W, P>, enricher: E) -> Self {
-        Self {
-            repo,
-            scanner,
-            enricher,
-        }
+        Self { repo, scanner, enricher }
     }
 }
 
@@ -34,9 +30,7 @@ where
 {
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         if job.payload.is_empty() {
-            return Err(JobError::Permanent(
-                "library scan job has empty payload".to_owned(),
-            ));
+            return Err(JobError::Permanent("library scan job has empty payload".to_owned()));
         }
         let id = LibraryId(job.payload.clone());
         let library = self
@@ -55,10 +49,7 @@ where
         }
 
         let started = Timestamp::now();
-        self.repo
-            .save_scan_state(running(&id, started))
-            .await
-            .map_err(retryable)?;
+        self.repo.save_scan_state(running(&id, started)).await.map_err(retryable)?;
 
         let repo = &self.repo;
         let scanned = self
@@ -83,10 +74,7 @@ where
                 Ok(())
             }
             Err(err) => {
-                self.repo
-                    .save_scan_state(failed(&id, started, &err))
-                    .await
-                    .map_err(retryable)?;
+                self.repo.save_scan_state(failed(&id, started, &err)).await.map_err(retryable)?;
                 let message = err.to_string();
                 Err(match err {
                     WalkError::RootNotFound(_) => JobError::Permanent(message),
@@ -157,6 +145,7 @@ mod tests {
     };
     use mocks::{MockLibraryRepo, MockMediaProbe, MockSourceWalker};
     use services::library::NoopEnricher;
+    use tracing_test::traced_test;
 
     #[derive(Clone)]
     struct SpyEnricher {
@@ -217,22 +206,13 @@ mod tests {
     async fn happy_path_marks_idle_with_timestamp() {
         let repo = MockLibraryRepo::new();
         repo.insert_library(library(&["/m"]));
-        let walker = MockSourceWalker::new().with_entries(
-            "/m",
-            vec![WalkedEntry {
-                path: "/m/a.mkv".into(),
-                size_bytes: 1,
-            }],
-        );
+        let walker = MockSourceWalker::new()
+            .with_entries("/m", vec![WalkedEntry { path: "/m/a.mkv".into(), size_bytes: 1 }]);
         let handler = handler(repo.clone(), walker, MockMediaProbe::new());
 
         handler.handle(&scan_job("lib")).await.unwrap();
 
-        let state = repo
-            .scan_state(&LibraryId("lib".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let state = repo.scan_state(&LibraryId("lib".into())).await.unwrap().unwrap();
         assert_eq!(state.status, ScanStatus::Idle);
         assert_eq!(state.progress, 1.0);
         assert!(state.started_at.is_some());
@@ -246,10 +226,7 @@ mod tests {
         let walker = MockSourceWalker::new().with_entries(
             "/m",
             (0..500)
-                .map(|n| WalkedEntry {
-                    path: format!("/m/movie{n}.mkv"),
-                    size_bytes: 1,
-                })
+                .map(|n| WalkedEntry { path: format!("/m/movie{n}.mkv"), size_bytes: 1 })
                 .collect(),
         );
         let handler = handler(repo.clone(), walker, MockMediaProbe::new());
@@ -272,42 +249,27 @@ mod tests {
         let handler = LibraryScanHandler::new(
             repo.clone(),
             Scanner::new(MockSourceWalker::new(), MockMediaProbe::new()),
-            SpyEnricher {
-                called: Arc::clone(&called),
-            },
+            SpyEnricher { called: Arc::clone(&called) },
         );
 
         handler.handle(&scan_job("lib")).await.unwrap();
 
         assert!(called.load(Ordering::Relaxed));
-        let state = repo
-            .scan_state(&LibraryId("lib".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let state = repo.scan_state(&LibraryId("lib".into())).await.unwrap().unwrap();
         assert_eq!(state.status, ScanStatus::Idle);
     }
 
     #[tokio::test]
     async fn empty_payload_is_permanent() {
-        let handler = handler(
-            MockLibraryRepo::new(),
-            MockSourceWalker::new(),
-            MockMediaProbe::new(),
-        );
-        assert!(matches!(
-            handler.handle(&scan_job("")).await.unwrap_err(),
-            JobError::Permanent(_)
-        ));
+        let handler =
+            handler(MockLibraryRepo::new(), MockSourceWalker::new(), MockMediaProbe::new());
+        assert!(matches!(handler.handle(&scan_job("")).await.unwrap_err(), JobError::Permanent(_)));
     }
 
     #[tokio::test]
     async fn missing_library_is_permanent() {
-        let handler = handler(
-            MockLibraryRepo::new(),
-            MockSourceWalker::new(),
-            MockMediaProbe::new(),
-        );
+        let handler =
+            handler(MockLibraryRepo::new(), MockSourceWalker::new(), MockMediaProbe::new());
         assert!(matches!(
             handler.handle(&scan_job("nope")).await.unwrap_err(),
             JobError::Permanent(_)
@@ -318,18 +280,12 @@ mod tests {
     async fn already_running_is_a_benign_skip() {
         let repo = MockLibraryRepo::new();
         repo.insert_library(library(&["/m"]));
-        repo.save_scan_state(running(&LibraryId("lib".into()), Timestamp::now()))
-            .await
-            .unwrap();
+        repo.save_scan_state(running(&LibraryId("lib".into()), Timestamp::now())).await.unwrap();
         let handler = handler(repo.clone(), MockSourceWalker::new(), MockMediaProbe::new());
 
         handler.handle(&scan_job("lib")).await.unwrap();
 
-        let state = repo
-            .scan_state(&LibraryId("lib".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let state = repo.scan_state(&LibraryId("lib".into())).await.unwrap().unwrap();
         assert_eq!(state.status, ScanStatus::Running);
     }
 
@@ -351,22 +307,14 @@ mod tests {
             MockCatalogRepo::new(),
             None::<MockMetadataProvider>,
         );
-        let admin = Principal {
-            user: UserId("admin".into()),
-            role: Role::Admin,
-        };
+        let admin = Principal { user: UserId("admin".into()), role: Role::Admin };
         let id = LibraryId("lib".into());
 
         svc.trigger_scan(&admin, &id).await.unwrap();
         let job = jobs.list().await.unwrap().into_iter().next().unwrap();
 
-        let walker = MockSourceWalker::new().with_entries(
-            "/m",
-            vec![WalkedEntry {
-                path: "/m/a.mkv".into(),
-                size_bytes: 1,
-            }],
-        );
+        let walker = MockSourceWalker::new()
+            .with_entries("/m", vec![WalkedEntry { path: "/m/a.mkv".into(), size_bytes: 1 }]);
         let handler = handler(repo.clone(), walker, MockMediaProbe::new());
         handler.handle(&job).await.unwrap();
 
@@ -386,11 +334,7 @@ mod tests {
             handler.handle(&scan_job("lib")).await.unwrap_err(),
             JobError::Permanent(_)
         ));
-        let state = repo
-            .scan_state(&LibraryId("lib".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let state = repo.scan_state(&LibraryId("lib".into())).await.unwrap().unwrap();
         assert_eq!(state.status, ScanStatus::Failed);
         assert!(state.error.is_some());
     }
@@ -406,11 +350,7 @@ mod tests {
             handler.handle(&scan_job("lib")).await.unwrap_err(),
             JobError::Retryable(_)
         ));
-        let state = repo
-            .scan_state(&LibraryId("lib".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let state = repo.scan_state(&LibraryId("lib".into())).await.unwrap().unwrap();
         assert_eq!(state.status, ScanStatus::Failed);
     }
 
@@ -438,5 +378,27 @@ mod tests {
             handler.handle(&scan_job("lib")).await.unwrap_err(),
             JobError::Retryable(_)
         ));
+    }
+
+    // Progress is a courtesy to whoever is watching, so a row that cannot be written must
+    // not take the scan itself down with it.
+    #[traced_test]
+    #[tokio::test]
+    async fn a_progress_row_that_cannot_be_written_does_not_fail_the_scan() {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(library(&["/m"]));
+        let walker = MockSourceWalker::new().with_entries(
+            "/m",
+            (0..500)
+                .map(|n| WalkedEntry { path: format!("/m/movie{n}.mkv"), size_bytes: 1 })
+                .collect(),
+        );
+        let handler = handler(repo.clone(), walker, MockMediaProbe::new());
+        repo.fail_saves_after(1);
+
+        let result = handler.handle(&scan_job("lib")).await;
+
+        assert!(result.is_err(), "the final state still has to be written");
+        assert!(logs_contain("could not report scan progress"));
     }
 }

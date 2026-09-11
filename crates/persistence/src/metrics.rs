@@ -8,11 +8,7 @@ pub(crate) struct DbOpGuard {
 
 impl DbOpGuard {
     pub(crate) fn new(store: &'static str, operation: &'static str) -> Self {
-        Self {
-            store,
-            operation,
-            start: Instant::now(),
-        }
+        Self { store, operation, start: Instant::now() }
     }
 }
 

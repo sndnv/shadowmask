@@ -126,11 +126,7 @@ impl From<&ArtworkJobItem> for WireItem {
 
 impl From<WireItem> for ArtworkJobItem {
     fn from(item: WireItem) -> Self {
-        ArtworkJobItem {
-            id: ArtworkId(item.id),
-            kind: item.kind.into(),
-            url: item.url,
-        }
+        ArtworkJobItem { id: ArtworkId(item.id), kind: item.kind.into(), url: item.url }
     }
 }
 
@@ -163,11 +159,7 @@ mod tests {
     use super::*;
 
     fn item(id: &str, kind: ArtworkKind) -> ArtworkJobItem {
-        ArtworkJobItem {
-            id: ArtworkId(id.to_owned()),
-            kind,
-            url: format!("https://cdn/{id}.jpg"),
-        }
+        ArtworkJobItem { id: ArtworkId(id.to_owned()), kind, url: format!("https://cdn/{id}.jpg") }
     }
 
     #[test]

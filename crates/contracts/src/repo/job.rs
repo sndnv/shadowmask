@@ -40,69 +40,34 @@ pub async fn job_repository_contract<R: JobRepository>(repo: R) {
     assert!(repo.get(&JobId("missing".into())).await.unwrap().is_none());
     assert!(repo.list().await.unwrap().is_empty());
 
-    repo.enqueue(job("high", JobPriority::High, now, now))
-        .await
-        .unwrap();
-    repo.enqueue(job("normal-old", JobPriority::Normal, now, older))
-        .await
-        .unwrap();
-    repo.enqueue(job("normal-new", JobPriority::Normal, now, now))
-        .await
-        .unwrap();
-    repo.enqueue(job("low", JobPriority::Low, now, now))
-        .await
-        .unwrap();
-    repo.enqueue(job("future", JobPriority::High, future, now))
-        .await
-        .unwrap();
+    repo.enqueue(job("high", JobPriority::High, now, now)).await.unwrap();
+    repo.enqueue(job("normal-old", JobPriority::Normal, now, older)).await.unwrap();
+    repo.enqueue(job("normal-new", JobPriority::Normal, now, now)).await.unwrap();
+    repo.enqueue(job("low", JobPriority::Low, now, now)).await.unwrap();
+    repo.enqueue(job("future", JobPriority::High, future, now)).await.unwrap();
     let mut running = job("running", JobPriority::High, now, now);
     running.status = JobStatus::Running;
     repo.enqueue(running).await.unwrap();
 
-    let stored = repo
-        .get(&JobId("normal-old".into()))
-        .await
-        .unwrap()
-        .unwrap();
+    let stored = repo.get(&JobId("normal-old".into())).await.unwrap().unwrap();
     assert_eq!(stored.created_at, older);
     assert_eq!(stored.available_at, now);
     assert_eq!(stored.priority, JobPriority::Normal);
 
     let listed = repo.list().await.unwrap();
-    assert_eq!(
-        ids(&listed),
-        [
-            "normal-old",
-            "future",
-            "high",
-            "low",
-            "normal-new",
-            "running"
-        ]
-    );
+    assert_eq!(ids(&listed), ["normal-old", "future", "high", "low", "normal-new", "running"]);
 
-    let first = repo
-        .claim_ready(now, 1, vec![JobKind::LibraryScan])
-        .await
-        .unwrap();
+    let first = repo.claim_ready(now, 1, vec![JobKind::LibraryScan]).await.unwrap();
     assert_eq!(ids(&first), ["high"]);
     assert!(first.iter().all(|j| j.status == JobStatus::Running));
     assert!(first.iter().all(|j| j.started_at == Some(now)));
 
-    let rest = repo
-        .claim_ready(now, 10, vec![JobKind::LibraryScan])
-        .await
-        .unwrap();
+    let rest = repo.claim_ready(now, 10, vec![JobKind::LibraryScan]).await.unwrap();
     assert_eq!(ids(&rest), ["normal-old", "normal-new", "low"]);
     assert!(rest.iter().all(|j| j.status == JobStatus::Running));
     assert!(rest.iter().all(|j| j.started_at == Some(now)));
 
-    assert!(
-        repo.claim_ready(now, 10, vec![JobKind::LibraryScan])
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    assert!(repo.claim_ready(now, 10, vec![JobKind::LibraryScan]).await.unwrap().is_empty());
 
     let mut done = repo.get(&JobId("high".into())).await.unwrap().unwrap();
     done.status = JobStatus::Succeeded;
@@ -128,50 +93,25 @@ pub async fn job_repository_contract<R: JobRepository>(repo: R) {
     assert_eq!(dead_lettered.status, JobStatus::Failed);
     assert_eq!(dead_lettered.attempts, 3);
     assert_eq!(dead_lettered.finished_at, Some(now));
-    assert_eq!(
-        dead_lettered.last_error.as_deref(),
-        Some(RECLAIM_DEAD_LETTER_ERROR)
-    );
-    let reclaimed_old = repo
-        .get(&JobId("normal-old".into()))
-        .await
-        .unwrap()
-        .unwrap();
+    assert_eq!(dead_lettered.last_error.as_deref(), Some(RECLAIM_DEAD_LETTER_ERROR));
+    let reclaimed_old = repo.get(&JobId("normal-old".into())).await.unwrap().unwrap();
     assert_eq!(reclaimed_old.status, JobStatus::Queued);
     assert_eq!(reclaimed_old.attempts, 1);
     assert!(reclaimed_old.started_at.is_none());
     assert_eq!(
-        repo.get(&JobId("high".into()))
-            .await
-            .unwrap()
-            .unwrap()
-            .status,
+        repo.get(&JobId("high".into())).await.unwrap().unwrap().status,
         JobStatus::Succeeded
     );
-    let reclaimed_jobs = repo
-        .claim_ready(now, 10, vec![JobKind::LibraryScan])
-        .await
-        .unwrap();
-    assert_eq!(
-        ids(&reclaimed_jobs),
-        ["running", "normal-old", "normal-new", "low"]
-    );
+    let reclaimed_jobs = repo.claim_ready(now, 10, vec![JobKind::LibraryScan]).await.unwrap();
+    assert_eq!(ids(&reclaimed_jobs), ["running", "normal-old", "normal-new", "low"]);
 
-    repo.enqueue(job("scan-2", JobPriority::Normal, now, now))
-        .await
-        .unwrap();
+    repo.enqueue(job("scan-2", JobPriority::Normal, now, now)).await.unwrap();
     let mut transcribe = job("transcribe-1", JobPriority::High, now, now);
     transcribe.kind = JobKind::Transcription;
     repo.enqueue(transcribe).await.unwrap();
-    let scans = repo
-        .claim_ready(now, 10, vec![JobKind::LibraryScan])
-        .await
-        .unwrap();
+    let scans = repo.claim_ready(now, 10, vec![JobKind::LibraryScan]).await.unwrap();
     assert_eq!(ids(&scans), ["scan-2"]);
-    let transcribes = repo
-        .claim_ready(now, 10, vec![JobKind::Transcription])
-        .await
-        .unwrap();
+    let transcribes = repo.claim_ready(now, 10, vec![JobKind::Transcription]).await.unwrap();
     assert_eq!(ids(&transcribes), ["transcribe-1"]);
 
     let mut child = job("child-1", JobPriority::Low, now, now);
@@ -179,49 +119,22 @@ pub async fn job_repository_contract<R: JobRepository>(repo: R) {
     repo.enqueue(child).await.unwrap();
     let reloaded_child = repo.get(&JobId("child-1".into())).await.unwrap().unwrap();
     assert_eq!(reloaded_child.parent_id, Some(JobId("scan-2".into())));
-    assert!(
-        repo.get(&JobId("scan-2".into()))
-            .await
-            .unwrap()
-            .unwrap()
-            .parent_id
-            .is_none()
-    );
+    assert!(repo.get(&JobId("scan-2".into())).await.unwrap().unwrap().parent_id.is_none());
 
-    repo.enqueue(job("cancel-me", JobPriority::Normal, now, now))
-        .await
-        .unwrap();
-    assert!(
-        repo.cancel(&JobId("cancel-me".into()), future)
-            .await
-            .unwrap()
-    );
+    repo.enqueue(job("cancel-me", JobPriority::Normal, now, now)).await.unwrap();
+    assert!(repo.cancel(&JobId("cancel-me".into()), future).await.unwrap());
     let cancelled = repo.get(&JobId("cancel-me".into())).await.unwrap().unwrap();
     assert_eq!(cancelled.status, JobStatus::Cancelled);
     assert_eq!(cancelled.finished_at, Some(future));
     assert_eq!(cancelled.updated_at, future);
-    assert!(
-        !repo
-            .cancel(&JobId("cancel-me".into()), future)
-            .await
-            .unwrap()
-    );
+    assert!(!repo.cancel(&JobId("cancel-me".into()), future).await.unwrap());
 
     let mut running_2 = job("running-2", JobPriority::Normal, now, now);
     running_2.status = JobStatus::Running;
     repo.enqueue(running_2).await.unwrap();
-    assert!(
-        !repo
-            .cancel(&JobId("running-2".into()), future)
-            .await
-            .unwrap()
-    );
+    assert!(!repo.cancel(&JobId("running-2".into()), future).await.unwrap());
     assert_eq!(
-        repo.get(&JobId("running-2".into()))
-            .await
-            .unwrap()
-            .unwrap()
-            .status,
+        repo.get(&JobId("running-2".into())).await.unwrap().unwrap().status,
         JobStatus::Running
     );
 
@@ -234,34 +147,10 @@ async fn paged_and_filtered_reads<R: JobRepository>(repo: &R) {
     let now = at(1_700_000_000);
     let mut tree = vec![
         ("zz-root", JobKind::LibraryScan, JobStatus::Running, 0, None),
-        (
-            "zz-kid-a",
-            JobKind::Artwork,
-            JobStatus::Queued,
-            100,
-            Some("zz-root"),
-        ),
-        (
-            "zz-grandkid",
-            JobKind::Metadata,
-            JobStatus::Succeeded,
-            200,
-            Some("zz-kid-a"),
-        ),
-        (
-            "zz-kid-b",
-            JobKind::Artwork,
-            JobStatus::Failed,
-            300,
-            Some("zz-root"),
-        ),
-        (
-            "zz-evict",
-            JobKind::CacheEviction,
-            JobStatus::Succeeded,
-            400,
-            None,
-        ),
+        ("zz-kid-a", JobKind::Artwork, JobStatus::Queued, 100, Some("zz-root")),
+        ("zz-grandkid", JobKind::Metadata, JobStatus::Succeeded, 200, Some("zz-kid-a")),
+        ("zz-kid-b", JobKind::Artwork, JobStatus::Failed, 300, Some("zz-root")),
+        ("zz-evict", JobKind::CacheEviction, JobStatus::Succeeded, 400, None),
     ];
     for (id, kind, status, offset_secs, parent) in tree.drain(..) {
         let created = at(1_800_000_000 + offset_secs);
@@ -272,20 +161,8 @@ async fn paged_and_filtered_reads<R: JobRepository>(repo: &R) {
         repo.enqueue(entry).await.unwrap();
     }
 
-    let mine = JobQuery {
-        search: Some("zz-".into()),
-        active_only: false,
-    };
-    let page = repo
-        .list_page(
-            &mine,
-            PageRequest {
-                offset: 0,
-                limit: 50,
-            },
-        )
-        .await
-        .unwrap();
+    let mine = JobQuery { search: Some("zz-".into()), active_only: false };
+    let page = repo.list_page(&mine, PageRequest { offset: 0, limit: 50 }).await.unwrap();
     assert_eq!(
         ids(&page),
         ["zz-evict", "zz-kid-b", "zz-grandkid", "zz-kid-a", "zz-root"],
@@ -293,80 +170,32 @@ async fn paged_and_filtered_reads<R: JobRepository>(repo: &R) {
     );
     assert_eq!(repo.count(&mine).await.unwrap(), 5);
 
-    let second = repo
-        .list_page(
-            &mine,
-            PageRequest {
-                offset: 1,
-                limit: 2,
-            },
-        )
-        .await
-        .unwrap();
+    let second = repo.list_page(&mine, PageRequest { offset: 1, limit: 2 }).await.unwrap();
     assert_eq!(ids(&second), ["zz-kid-b", "zz-grandkid"]);
 
-    let active = JobQuery {
-        search: Some("zz-".into()),
-        active_only: true,
-    };
+    let active = JobQuery { search: Some("zz-".into()), active_only: true };
     assert_eq!(repo.count(&active).await.unwrap(), 2);
-    let active_page = repo
-        .list_page(
-            &active,
-            PageRequest {
-                offset: 0,
-                limit: 50,
-            },
-        )
-        .await
-        .unwrap();
+    let active_page = repo.list_page(&active, PageRequest { offset: 0, limit: 50 }).await.unwrap();
     assert_eq!(ids(&active_page), ["zz-kid-a", "zz-root"]);
 
-    let by_kind = JobQuery {
-        search: Some("cache eviction".into()),
-        active_only: false,
-    };
+    let by_kind = JobQuery { search: Some("cache eviction".into()), active_only: false };
     assert_eq!(repo.count(&by_kind).await.unwrap(), 1);
-    let underscored = JobQuery {
-        search: Some("cache_eviction".into()),
-        active_only: false,
-    };
+    let underscored = JobQuery { search: Some("cache_eviction".into()), active_only: false };
     assert_eq!(repo.count(&underscored).await.unwrap(), 1);
 
-    let no_match = JobQuery {
-        search: Some("no-such-job".into()),
-        active_only: false,
-    };
+    let no_match = JobQuery { search: Some("no-such-job".into()), active_only: false };
     assert_eq!(repo.count(&no_match).await.unwrap(), 0);
     assert!(
-        repo.list_page(
-            &no_match,
-            PageRequest {
-                offset: 0,
-                limit: 50,
-            }
-        )
-        .await
-        .unwrap()
-        .is_empty()
+        repo.list_page(&no_match, PageRequest { offset: 0, limit: 50 }).await.unwrap().is_empty()
     );
 
     let subtree = repo
-        .list_descendants(
-            &JobId("zz-root".into()),
-            PageRequest {
-                offset: 0,
-                limit: 50,
-            },
-        )
+        .list_descendants(&JobId("zz-root".into()), PageRequest { offset: 0, limit: 50 })
         .await
         .unwrap();
     assert_eq!(subtree.total, 3);
-    let shape: Vec<(&str, u32)> = subtree
-        .items
-        .iter()
-        .map(|node| (node.job.id.0.as_str(), node.depth))
-        .collect();
+    let shape: Vec<(&str, u32)> =
+        subtree.items.iter().map(|node| (node.job.id.0.as_str(), node.depth)).collect();
     assert_eq!(
         shape,
         [("zz-kid-a", 0), ("zz-grandkid", 1), ("zz-kid-b", 0)],
@@ -374,60 +203,30 @@ async fn paged_and_filtered_reads<R: JobRepository>(repo: &R) {
     );
 
     let mid = repo
-        .list_descendants(
-            &JobId("zz-kid-a".into()),
-            PageRequest {
-                offset: 0,
-                limit: 50,
-            },
-        )
+        .list_descendants(&JobId("zz-kid-a".into()), PageRequest { offset: 0, limit: 50 })
         .await
         .unwrap();
-    assert_eq!(
-        ids(&mid.items.iter().map(|n| n.job.clone()).collect::<Vec<_>>()),
-        ["zz-grandkid"]
-    );
+    assert_eq!(ids(&mid.items.iter().map(|n| n.job.clone()).collect::<Vec<_>>()), ["zz-grandkid"]);
     assert_eq!(mid.items[0].depth, 0);
 
     let paged_tree = repo
-        .list_descendants(
-            &JobId("zz-root".into()),
-            PageRequest {
-                offset: 1,
-                limit: 1,
-            },
-        )
+        .list_descendants(&JobId("zz-root".into()), PageRequest { offset: 1, limit: 1 })
         .await
         .unwrap();
     assert_eq!(paged_tree.total, 3);
     assert_eq!(paged_tree.items.len(), 1);
     assert_eq!(paged_tree.items[0].job.id.0, "zz-grandkid");
-    assert_eq!(
-        paged_tree.items[0].depth, 1,
-        "depth survives a page boundary"
-    );
+    assert_eq!(paged_tree.items[0].depth, 1, "depth survives a page boundary");
 
     let leaf = repo
-        .list_descendants(
-            &JobId("zz-grandkid".into()),
-            PageRequest {
-                offset: 0,
-                limit: 50,
-            },
-        )
+        .list_descendants(&JobId("zz-grandkid".into()), PageRequest { offset: 0, limit: 50 })
         .await
         .unwrap();
     assert!(leaf.items.is_empty());
     assert_eq!(leaf.total, 0);
 
     let missing = repo
-        .list_descendants(
-            &JobId("no-such-job".into()),
-            PageRequest {
-                offset: 0,
-                limit: 50,
-            },
-        )
+        .list_descendants(&JobId("no-such-job".into()), PageRequest { offset: 0, limit: 50 })
         .await
         .unwrap();
     assert!(missing.items.is_empty());

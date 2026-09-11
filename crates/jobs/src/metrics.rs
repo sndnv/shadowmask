@@ -10,10 +10,7 @@ pub(crate) struct ActiveJob {
 impl ActiveJob {
     pub(crate) fn start(kind: JobKind) -> Self {
         metrics::gauge!("jobs_active").increment(1.0);
-        Self {
-            job: job_label(kind),
-            start: Instant::now(),
-        }
+        Self { job: job_label(kind), start: Instant::now() }
     }
 
     pub(crate) fn finish(self, succeeded: bool) {

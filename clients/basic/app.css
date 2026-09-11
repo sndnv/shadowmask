@@ -676,6 +676,16 @@ a.sm-play:hover {
   filter: brightness(1.08);
 }
 
+.sm-versions > li {
+  margin: 10px 0;
+}
+
+.sm-versions a.sm-play,
+.sm-versions button {
+  margin-left: 10px;
+  vertical-align: middle;
+}
+
 form {
   margin: 0.5em auto 1em;
 }

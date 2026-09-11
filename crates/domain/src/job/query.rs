@@ -8,19 +8,11 @@ pub struct JobQuery {
 
 impl JobQuery {
     pub fn active(active_only: bool) -> Self {
-        JobQuery {
-            search: None,
-            active_only,
-        }
+        JobQuery { search: None, active_only }
     }
 
     pub fn needle(&self) -> Option<String> {
-        let needle = self
-            .search
-            .as_deref()?
-            .trim()
-            .to_lowercase()
-            .replace('_', " ");
+        let needle = self.search.as_deref()?.trim().to_lowercase().replace('_', " ");
         (!needle.is_empty()).then_some(needle)
     }
 
@@ -78,10 +70,7 @@ mod tests {
 
     #[test]
     fn blank_search_text_is_not_a_filter() {
-        let query = JobQuery {
-            search: Some("   ".into()),
-            active_only: false,
-        };
+        let query = JobQuery { search: Some("   ".into()), active_only: false };
         assert!(query.needle().is_none());
         assert!(query.matches(&job("a", JobKind::Artwork, JobStatus::Failed)));
     }
@@ -90,16 +79,10 @@ mod tests {
     fn search_covers_id_kind_and_status() {
         let target = job("job-7f", JobKind::LibraryScan, JobStatus::Running);
         for text in ["JOB-7F", "library scan", "library_scan", "running"] {
-            let query = JobQuery {
-                search: Some(text.into()),
-                active_only: false,
-            };
+            let query = JobQuery { search: Some(text.into()), active_only: false };
             assert!(query.matches(&target), "{text} should match");
         }
-        let query = JobQuery {
-            search: Some("artwork".into()),
-            active_only: false,
-        };
+        let query = JobQuery { search: Some("artwork".into()), active_only: false };
         assert!(!query.matches(&target));
     }
 
@@ -115,10 +98,7 @@ mod tests {
 
     #[test]
     fn active_and_search_both_apply() {
-        let query = JobQuery {
-            search: Some("artwork".into()),
-            active_only: true,
-        };
+        let query = JobQuery { search: Some("artwork".into()), active_only: true };
         assert!(query.matches(&job("a", JobKind::Artwork, JobStatus::Queued)));
         assert!(!query.matches(&job("b", JobKind::Artwork, JobStatus::Succeeded)));
         assert!(!query.matches(&job("c", JobKind::Metadata, JobStatus::Queued)));

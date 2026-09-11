@@ -62,24 +62,15 @@ struct IngestPlan {
 
 impl IngestPlan {
     fn explicit() -> Self {
-        Self {
-            mode: IngestMode::Explicit,
-            writes_title: true,
-        }
+        Self { mode: IngestMode::Explicit, writes_title: true }
     }
 
     fn scanned(mode: IngestMode, title_is_known: bool) -> Self {
-        Self {
-            mode,
-            writes_title: !title_is_known,
-        }
+        Self { mode, writes_title: !title_is_known }
     }
 
     fn unidentified(title_is_known: bool) -> Self {
-        Self {
-            mode: IngestMode::Explicit,
-            writes_title: !title_is_known,
-        }
+        Self { mode: IngestMode::Explicit, writes_title: !title_is_known }
     }
 
     fn checks_entities(&self) -> bool {
@@ -206,21 +197,14 @@ where
             .collect();
         let report = self.matcher.match_files(&report.discovered);
         for group in &report.matched {
-            if let Err(err) = self
-                .ingest_group(library, group, parent, IngestMode::Scan)
-                .await
-            {
+            if let Err(err) = self.ingest_group(library, group, parent, IngestMode::Scan).await {
                 warn!(library = %library.id.0, "scan enrichment failed: {err}");
             }
         }
         let mut detected = Vec::new();
         for duplicate in find_duplicates(&report.matched) {
             detected.push(duplicate.id.clone());
-            if let Err(err) = self
-                .libraries
-                .insert_duplicate(&library.id, duplicate)
-                .await
-            {
+            if let Err(err) = self.libraries.insert_duplicate(&library.id, duplicate).await {
                 warn!(library = %library.id.0, "persisting duplicate failed: {err}");
             }
         }
@@ -229,25 +213,13 @@ where
                 warn!(library = %library.id.0, "persisting unmatched file failed: {err}");
             }
         }
-        if let Err(err) = self
-            .catalog
-            .reconcile_library_versions(&library.id, &present)
-            .await
-        {
+        if let Err(err) = self.catalog.reconcile_library_versions(&library.id, &present).await {
             warn!(library = %library.id.0, "reconciling library versions failed: {err}");
         }
-        if let Err(err) = self
-            .libraries
-            .reconcile_duplicates(&library.id, &detected)
-            .await
-        {
+        if let Err(err) = self.libraries.reconcile_duplicates(&library.id, &detected).await {
             warn!(library = %library.id.0, "reconciling duplicates failed: {err}");
         }
-        if let Err(err) = self
-            .libraries
-            .reconcile_unmatched(&library.id, &present)
-            .await
-        {
+        if let Err(err) = self.libraries.reconcile_unmatched(&library.id, &present).await {
             warn!(library = %library.id.0, "reconciling unmatched files failed: {err}");
         }
     }
@@ -281,11 +253,7 @@ where
         mode: IngestMode,
     ) -> Result<(), RepositoryError> {
         let known = mode.skips_existing_titles()
-            && self
-                .catalog
-                .get_movie(&movie_id_of(&group.parsed))
-                .await?
-                .is_some();
+            && self.catalog.get_movie(&movie_id_of(&group.parsed)).await?.is_some();
         let metadata = if known {
             None
         } else {
@@ -319,11 +287,7 @@ where
             return Ok(IngestPlan::explicit());
         }
         let known = match library.kind {
-            LibraryKind::Movie => self
-                .catalog
-                .get_movie(&movie_id_of(parsed))
-                .await?
-                .is_some(),
+            LibraryKind::Movie => self.catalog.get_movie(&movie_id_of(parsed)).await?.is_some(),
             LibraryKind::Tv => match episode_ids_of(parsed) {
                 Some(ids) => self.catalog.get_episode(&ids.episode).await?.is_some(),
                 None => false,
@@ -390,17 +354,13 @@ where
             return Ok(());
         }
         if let Some(metadata) = &metadata {
-            self.persist_enrichment(&TitleRef::Movie(movie_id.clone()), metadata, parent)
-                .await?;
+            self.persist_enrichment(&TitleRef::Movie(movie_id.clone()), metadata, parent).await?;
             if let Some(collection) = &metadata.collection {
-                self.attach_to_collection(&movie_id, collection, parent)
-                    .await?;
+                self.attach_to_collection(&movie_id, collection, parent).await?;
             }
         }
         let artwork = metadata.map(|m| m.artwork).unwrap_or_default();
-        self.enqueue
-            .enqueue_artwork(ArtworkOwner::Movie(movie_id), artwork, parent)
-            .await
+        self.enqueue.enqueue_artwork(ArtworkOwner::Movie(movie_id), artwork, parent).await
     }
 
     async fn sorted_members(&self, members: &[MovieId]) -> Result<Vec<MovieId>, RepositoryError> {
@@ -526,13 +486,9 @@ where
             .as_ref()
             .and_then(|season| season.name.clone())
             .unwrap_or_else(|| format!("Season {season_no}"));
-        let season_overview = season_info
-            .as_ref()
-            .and_then(|season| season.overview.clone());
-        let season_artwork = season_info
-            .as_ref()
-            .map(|season| season.artwork.clone())
-            .unwrap_or_default();
+        let season_overview = season_info.as_ref().and_then(|season| season.overview.clone());
+        let season_artwork =
+            season_info.as_ref().map(|season| season.artwork.clone()).unwrap_or_default();
         let matched_episode = season_info
             .as_ref()
             .and_then(|season| season.episodes.iter().find(|ep| ep.number == episode_no));
@@ -541,12 +497,9 @@ where
             .unwrap_or_else(|| format!("Episode {episode_no}"));
         let episode_overview = matched_episode.and_then(|ep| ep.overview.clone());
         let episode_runtime = matched_episode.and_then(|ep| ep.runtime_minutes);
-        let episode_air_date = matched_episode
-            .and_then(|ep| ep.air_date.as_deref())
-            .and_then(parse_air_date);
-        let episode_artwork = matched_episode
-            .map(|ep| ep.artwork.clone())
-            .unwrap_or_default();
+        let episode_air_date =
+            matched_episode.and_then(|ep| ep.air_date.as_deref()).and_then(parse_air_date);
+        let episode_artwork = matched_episode.map(|ep| ep.artwork.clone()).unwrap_or_default();
 
         let series_title = display_title(metadata.as_ref(), &parsed.title);
         if writes_series {
@@ -615,14 +568,11 @@ where
             .await?;
         }
         if writes_series && let Some(metadata) = &metadata {
-            self.persist_enrichment(&TitleRef::Series(series_id.clone()), metadata, parent)
-                .await?;
+            self.persist_enrichment(&TitleRef::Series(series_id.clone()), metadata, parent).await?;
         }
         if writes_series {
             let artwork = metadata.map(|m| m.artwork).unwrap_or_default();
-            self.enqueue
-                .enqueue_artwork(ArtworkOwner::Series(series_id), artwork, parent)
-                .await?;
+            self.enqueue.enqueue_artwork(ArtworkOwner::Series(series_id), artwork, parent).await?;
         }
         if writes_season {
             self.enqueue
@@ -638,15 +588,7 @@ where
     }
 
     async fn ingest_file(&self, ingest: FileIngest<'_>) -> Result<(), RepositoryError> {
-        let FileIngest {
-            file,
-            title,
-            library,
-            quality,
-            subtitle,
-            parent,
-            mode,
-        } = ingest;
+        let FileIngest { file, title, library, quality, subtitle, parent, mode } = ingest;
         let version_id = VersionId(derive_id("version", &file.path));
         let existing = self.catalog.get_version(&version_id).await?;
         if mode.skips_unchanged() && is_unchanged(existing.as_ref(), file) {
@@ -693,14 +635,10 @@ where
                 })
                 .collect();
         if !subtitle_files.is_empty() {
-            self.catalog
-                .set_subtitle_files(&version_id, &subtitle_files)
-                .await?;
+            self.catalog.set_subtitle_files(&version_id, &subtitle_files).await?;
         }
         let has_native_subtitle = !subtitle_files.is_empty() || !file.probe.subtitles.is_empty();
-        self.enqueue
-            .for_file(&version_id, file, subtitle, has_native_subtitle, parent)
-            .await
+        self.enqueue.for_file(&version_id, file, subtitle, has_native_subtitle, parent).await
     }
 
     async fn persist_enrichment(
@@ -735,18 +673,12 @@ where
         let genres = metadata
             .genres
             .iter()
-            .map(|name| Genre {
-                id: GenreId(derive_id("genre", name)),
-                name: name.clone(),
-            })
+            .map(|name| Genre { id: GenreId(derive_id("genre", name)), name: name.clone() })
             .collect();
         let studios = metadata
             .studios
             .iter()
-            .map(|name| Studio {
-                id: StudioId(derive_id("studio", name)),
-                name: name.clone(),
-            })
+            .map(|name| Studio { id: StudioId(derive_id("studio", name)), name: name.clone() })
             .collect();
         let enrichment = TitleEnrichment {
             genres,
@@ -756,9 +688,7 @@ where
             external_ids: metadata.external_ids.clone(),
             extras: Vec::new(),
         };
-        self.catalog
-            .set_title_enrichment(owner, &enrichment)
-            .await?;
+        self.catalog.set_title_enrichment(owner, &enrichment).await?;
         self.enqueue.enqueue_person_metadata(people, parent).await
     }
 
@@ -779,18 +709,12 @@ where
 
     async fn stored_movie_id(&self, id: &MovieId) -> Option<ExternalId> {
         let detail = self.catalog.movie_detail(id).await.ok()??;
-        detail
-            .external_ids
-            .into_iter()
-            .find(|external| external.source == "tmdb")
+        detail.external_ids.into_iter().find(|external| external.source == "tmdb")
     }
 
     async fn stored_series_id(&self, id: &SeriesId) -> Option<ExternalId> {
         let detail = self.catalog.series_detail(id).await.ok()??;
-        detail
-            .external_ids
-            .into_iter()
-            .find(|external| external.source == "tmdb")
+        detail.external_ids.into_iter().find(|external| external.source == "tmdb")
     }
 
     async fn refresh_movie(
@@ -805,12 +729,7 @@ where
             return Ok(());
         };
         if force && existing.manually_edited {
-            self.catalog
-                .upsert_movie(Movie {
-                    manually_edited: false,
-                    ..existing.clone()
-                })
-                .await?;
+            self.catalog.upsert_movie(Movie { manually_edited: false, ..existing.clone() }).await?;
         }
         let stored = match external_id {
             Some(_) => None,
@@ -846,8 +765,7 @@ where
             updated.manually_edited = false;
             self.catalog.upsert_movie(updated).await?;
         }
-        self.persist_enrichment(&TitleRef::Movie(id.clone()), &metadata, parent)
-            .await?;
+        self.persist_enrichment(&TitleRef::Movie(id.clone()), &metadata, parent).await?;
         if let Some(collection) = &metadata.collection {
             self.attach_to_collection(id, collection, parent).await?;
         }
@@ -862,21 +780,13 @@ where
         series: &Series,
     ) -> Result<(), RepositoryError> {
         if series.manually_edited {
-            self.catalog
-                .upsert_series(Series {
-                    manually_edited: false,
-                    ..series.clone()
-                })
-                .await?;
+            self.catalog.upsert_series(Series { manually_edited: false, ..series.clone() }).await?;
         }
         for season in self.catalog.list_seasons(id).await? {
             for episode in self.catalog.list_episodes(&season.id).await? {
                 if episode.manually_edited {
                     self.catalog
-                        .upsert_episode(Episode {
-                            manually_edited: false,
-                            ..episode
-                        })
+                        .upsert_episode(Episode { manually_edited: false, ..episode })
                         .await?;
                 }
             }
@@ -931,8 +841,7 @@ where
             updated.manually_edited = false;
             self.catalog.upsert_series(updated).await?;
         }
-        self.persist_enrichment(&TitleRef::Series(id.clone()), &metadata, parent)
-            .await?;
+        self.persist_enrichment(&TitleRef::Series(id.clone()), &metadata, parent).await?;
         let series_ref = tmdb_external_id(Some(&metadata));
         self.enqueue
             .enqueue_artwork(ArtworkOwner::Series(id.clone()), metadata.artwork, parent)
@@ -965,11 +874,7 @@ where
             updated.updated_at = now;
             self.catalog.upsert_season(updated).await?;
             self.enqueue
-                .enqueue_artwork(
-                    ArtworkOwner::Season(season.id.clone()),
-                    info.artwork,
-                    parent,
-                )
+                .enqueue_artwork(ArtworkOwner::Season(season.id.clone()), info.artwork, parent)
                 .await?;
             for episode in self.catalog.list_episodes(&season.id).await? {
                 let Some(ep) = info.episodes.iter().find(|ep| ep.number == episode.number) else {
@@ -1051,12 +956,10 @@ where
                 let files = std::slice::from_ref(file);
                 match library.kind {
                     LibraryKind::Movie => {
-                        self.write_movie(library, &parsed, files, metadata, parent, plan)
-                            .await?;
+                        self.write_movie(library, &parsed, files, metadata, parent, plan).await?;
                     }
                     LibraryKind::Tv => {
-                        self.write_episode(library, &parsed, files, metadata, parent, plan)
-                            .await?;
+                        self.write_episode(library, &parsed, files, metadata, parent, plan).await?;
                     }
                 }
                 Ok(if identified {
@@ -1079,18 +982,14 @@ where
             Some(id) => self.fetch.fetch_by_id(id).await,
             None => None,
         };
-        let plan = self
-            .explicit_plan(library, parsed, metadata.is_some())
-            .await?;
+        let plan = self.explicit_plan(library, parsed, metadata.is_some()).await?;
         let files = std::slice::from_ref(file);
         match library.kind {
             LibraryKind::Movie => {
-                self.write_movie(library, parsed, files, metadata, parent, plan)
-                    .await
+                self.write_movie(library, parsed, files, metadata, parent, plan).await
             }
             LibraryKind::Tv => {
-                self.write_episode(library, parsed, files, metadata, parent, plan)
-                    .await
+                self.write_episode(library, parsed, files, metadata, parent, plan).await
             }
         }
     }
@@ -1140,10 +1039,7 @@ where
         let Some(value) = person.external_id.clone() else {
             return Ok(());
         };
-        let external_id = ExternalId {
-            source: "tmdb".to_owned(),
-            value,
-        };
+        let external_id = ExternalId { source: "tmdb".to_owned(), value };
         let Some(meta) = self.fetch.fetch_person(&external_id).await else {
             return Ok(());
         };
@@ -1167,9 +1063,7 @@ where
             updated.also_known_as = meta.also_known_as;
         }
         self.catalog.upsert_person(updated).await?;
-        self.enqueue
-            .enqueue_artwork(ArtworkOwner::Person(id.clone()), meta.artwork, parent)
-            .await
+        self.enqueue.enqueue_artwork(ArtworkOwner::Person(id.clone()), meta.artwork, parent).await
     }
 }
 
@@ -1192,18 +1086,12 @@ fn qualified_provider_id(id: &ExternalId, kind: LibraryKind) -> ExternalId {
         LibraryKind::Movie => "movie",
         LibraryKind::Tv => "tv",
     };
-    ExternalId {
-        source: id.source.clone(),
-        value: format!("{prefix}/{}", id.value),
-    }
+    ExternalId { source: id.source.clone(), value: format!("{prefix}/{}", id.value) }
 }
 
 fn movie_id_of(parsed: &ParsedMedia) -> MovieId {
     let slug = normalize_title(&parsed.title);
-    MovieId(derive_id(
-        "movie",
-        &format!("{slug}:{}", parsed.year.unwrap_or(0)),
-    ))
+    MovieId(derive_id("movie", &format!("{slug}:{}", parsed.year.unwrap_or(0))))
 }
 
 struct EpisodeIds {
@@ -1219,10 +1107,7 @@ fn episode_ids_of(parsed: &ParsedMedia) -> Option<EpisodeIds> {
     let series_key = normalize_title(&parsed.title);
     Some(EpisodeIds {
         series: SeriesId(derive_id("series", &series_key)),
-        season: SeasonId(derive_id(
-            "season",
-            &format!("{series_key}:{season_number}"),
-        )),
+        season: SeasonId(derive_id("season", &format!("{series_key}:{season_number}"))),
         episode: EpisodeId(derive_id(
             "episode",
             &format!("{series_key}:{season_number}:{episode_number}"),
@@ -1247,19 +1132,11 @@ fn is_unchanged(existing: Option<&Version>, file: &DiscoveredFile) -> bool {
 }
 
 fn imdb_id(metadata: Option<&TitleMetadata>) -> Option<String> {
-    metadata?
-        .external_ids
-        .iter()
-        .find(|id| id.source == "imdb")
-        .map(|id| id.value.clone())
+    metadata?.external_ids.iter().find(|id| id.source == "imdb").map(|id| id.value.clone())
 }
 
 fn tmdb_external_id(metadata: Option<&TitleMetadata>) -> Option<ExternalId> {
-    metadata?
-        .external_ids
-        .iter()
-        .find(|id| id.source == "tmdb")
-        .cloned()
+    metadata?.external_ids.iter().find(|id| id.source == "tmdb").cloned()
 }
 
 fn display_title(metadata: Option<&TitleMetadata>, parsed: &str) -> String {
@@ -1276,9 +1153,7 @@ fn display_year(metadata: Option<&TitleMetadata>, parsed: Option<u16>) -> Option
 
 fn parse_air_date(value: &str) -> Option<Timestamp> {
     let date: jiff::civil::Date = value.parse().ok()?;
-    date.to_zoned(jiff::tz::TimeZone::UTC)
-        .ok()
-        .map(|zoned| zoned.timestamp())
+    date.to_zoned(jiff::tz::TimeZone::UTC).ok().map(|zoned| zoned.timestamp())
 }
 
 #[cfg(test)]
@@ -1353,10 +1228,7 @@ mod tests {
                 ProviderMode::SearchErr => Err(MetadataError::Backend("boom".into())),
                 ProviderMode::Empty | ProviderMode::ByIdOnly(_) => Ok(Vec::new()),
                 _ => Ok(vec![MetadataMatch {
-                    external_id: ExternalId {
-                        source: "tmdb".into(),
-                        value: "movie/1".into(),
-                    },
+                    external_id: ExternalId { source: "tmdb".into(), value: "movie/1".into() },
                     title: "match".into(),
                     year: query.year,
                     kind: MediaKind::Movie,
@@ -1366,10 +1238,9 @@ mod tests {
 
         async fn fetch(&self, _id: &ExternalId) -> Result<TitleMetadata, MetadataError> {
             match &self.mode {
-                ProviderMode::Artwork(artwork) => Ok(TitleMetadata {
-                    artwork: artwork.clone(),
-                    ..TitleMetadata::default()
-                }),
+                ProviderMode::Artwork(artwork) => {
+                    Ok(TitleMetadata { artwork: artwork.clone(), ..TitleMetadata::default() })
+                }
                 ProviderMode::Full(metadata) => Ok((**metadata).clone()),
                 ProviderMode::ByIdOnly(metadata) => Ok((**metadata).clone()),
                 ProviderMode::Season(metadata, _) => Ok((**metadata).clone()),
@@ -1463,19 +1334,29 @@ mod tests {
     }
 
     fn page() -> domain::common::PageRequest {
-        domain::common::PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        domain::common::PageRequest { offset: 0, limit: 10 }
     }
 
     async fn count_kind(jobs: &MockJobStore, kind: JobKind) -> usize {
-        jobs.list()
-            .await
-            .unwrap()
-            .iter()
-            .filter(|j| j.kind == kind)
-            .count()
+        jobs.list().await.unwrap().iter().filter(|j| j.kind == kind).count()
+    }
+
+    // Reconciling is what drops rows the scan no longer sees. A failure there leaves stale
+    // rows behind, which is bad, but abandoning the scan halfway leaves worse, so each one
+    // is reported and the next is still attempted.
+    #[tracing_test::traced_test]
+    #[tokio::test]
+    async fn a_library_store_that_cannot_reconcile_still_finishes_the_scan() {
+        let catalog = MockCatalogRepo::new();
+        let libraries = MockLibraryRepo::new();
+        let svc = enricher_with_libraries(catalog, None, MockJobStore::new(), libraries.clone());
+        libraries.set_fail_reconcile();
+
+        svc.enrich(&library(LibraryKind::Movie), &report(&["/m/The Matrix (1999).mkv"]), None)
+            .await;
+
+        assert!(logs_contain("reconciling duplicates failed"));
+        assert!(logs_contain("reconciling unmatched files failed"));
     }
 
     #[tokio::test]
@@ -1498,20 +1379,12 @@ mod tests {
         assert!(movies.items[0].overview.is_none());
         assert!(movies.items[0].runtime_minutes.is_none());
         assert!(movies.items[0].content_rating.is_none());
-        let detail = catalog
-            .movie_detail(&movies.items[0].id)
-            .await
-            .unwrap()
-            .unwrap();
+        let detail = catalog.movie_detail(&movies.items[0].id).await.unwrap().unwrap();
         assert!(detail.genres.is_empty());
         assert!(detail.credits.is_empty());
         assert!(detail.studios.is_empty());
         assert_eq!(
-            catalog
-                .list_library_versions(&LibraryId("lib".into()), page())
-                .await
-                .unwrap()
-                .total,
+            catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap().total,
             1
         );
         assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 0);
@@ -1655,13 +1528,8 @@ mod tests {
         svc.enrich(&library(LibraryKind::Movie), &scan, None).await;
 
         assert_eq!(count_kind(&jobs, JobKind::Transcription).await, 0);
-        let subtitles = jobs
-            .list()
-            .await
-            .unwrap()
-            .into_iter()
-            .find(|j| j.kind == JobKind::Subtitles)
-            .unwrap();
+        let subtitles =
+            jobs.list().await.unwrap().into_iter().find(|j| j.kind == JobKind::Subtitles).unwrap();
         let payload = SubtitleJobPayload::decode(&subtitles.payload).unwrap();
         assert!(payload.transcribe_on_miss);
     }
@@ -1735,11 +1603,7 @@ mod tests {
 
         svc.enrich(
             &library(LibraryKind::Movie),
-            &audio_scan(
-                "/m/The Matrix (1999) 1080p.mkv",
-                Vec::new(),
-                vec![embedded_subtitle()],
-            ),
+            &audio_scan("/m/The Matrix (1999) 1080p.mkv", Vec::new(), vec![embedded_subtitle()]),
             None,
         )
         .await;
@@ -1821,14 +1685,8 @@ mod tests {
     fn imdb_id_extracts_matching_source() {
         let metadata = TitleMetadata {
             external_ids: vec![
-                ExternalId {
-                    source: "tmdb".into(),
-                    value: "movie/603".into(),
-                },
-                ExternalId {
-                    source: "imdb".into(),
-                    value: "tt0133093".into(),
-                },
+                ExternalId { source: "tmdb".into(), value: "movie/603".into() },
+                ExternalId { source: "imdb".into(), value: "tt0133093".into() },
             ],
             ..TitleMetadata::default()
         };
@@ -1846,14 +1704,8 @@ mod tests {
             year: Some(1999),
             overview: Some("Neo learns the truth.".into()),
             runtime_minutes: Some(136),
-            content_rating: Some(ContentRating {
-                system: "MPAA".into(),
-                code: "R".into(),
-            }),
-            ratings: vec![Rating {
-                source: "tmdb".into(),
-                value: 8.5,
-            }],
+            content_rating: Some(ContentRating { system: "MPAA".into(), code: "R".into() }),
+            ratings: vec![Rating { source: "tmdb".into(), value: 8.5 }],
             genres: vec!["Action".into(), "Sci-Fi".into()],
             cast: vec![
                 CreditInfo {
@@ -1879,17 +1731,12 @@ mod tests {
             ],
             studios: vec!["Warner Bros.".into()],
             artwork: vec![art(ArtworkKind::Poster)],
-            external_ids: vec![ExternalId {
-                source: "tmdb".into(),
-                value: "movie/603".into(),
-            }],
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "movie/603".into() }],
             collection: None,
         };
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Full(Box::new(metadata)),
-            }),
+            Some(MockProvider { mode: ProviderMode::Full(Box::new(metadata)) }),
             jobs.clone(),
         );
 
@@ -1916,11 +1763,8 @@ mod tests {
         assert_eq!(detail.ratings.len(), 1);
         assert_eq!(detail.external_ids.len(), 1);
 
-        let person = catalog
-            .get_person(&PersonId(derive_id("person", "person/1")))
-            .await
-            .unwrap()
-            .unwrap();
+        let person =
+            catalog.get_person(&PersonId(derive_id("person", "person/1"))).await.unwrap().unwrap();
         assert_eq!(person.name, "Keanu Reeves");
 
         assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 1);
@@ -1929,20 +1773,14 @@ mod tests {
 
     fn tmdb_collection(name: &str) -> CollectionMeta {
         CollectionMeta {
-            external_id: ExternalId {
-                source: "tmdb".into(),
-                value: "collection/2344".into(),
-            },
+            external_id: ExternalId { source: "tmdb".into(), value: "collection/2344".into() },
             name: name.into(),
             artwork: vec![art(ArtworkKind::Poster), art(ArtworkKind::Backdrop)],
         }
     }
 
     fn movie_with_collection(name: &str) -> TitleMetadata {
-        TitleMetadata {
-            collection: Some(tmdb_collection(name)),
-            ..TitleMetadata::default()
-        }
+        TitleMetadata { collection: Some(tmdb_collection(name)), ..TitleMetadata::default() }
     }
 
     fn matrix_collection_id() -> CollectionId {
@@ -1978,13 +1816,8 @@ mod tests {
         assert_eq!(collection.movies, vec![movie.id]);
 
         assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 1);
-        let artwork = jobs
-            .list()
-            .await
-            .unwrap()
-            .into_iter()
-            .find(|j| j.kind == JobKind::Artwork)
-            .unwrap();
+        let artwork =
+            jobs.list().await.unwrap().into_iter().find(|j| j.kind == JobKind::Artwork).unwrap();
         let payload = ArtworkJobPayload::decode(&artwork.payload).unwrap();
         assert!(matches!(payload.owner, ArtworkOwner::Collection(_)));
         assert_eq!(payload.items.len(), 2);
@@ -2004,10 +1837,7 @@ mod tests {
 
         svc.enrich(
             &library(LibraryKind::Movie),
-            &report(&[
-                "/m/The Matrix (1999) 1080p.mkv",
-                "/m/The Matrix Reloaded (2003) 1080p.mkv",
-            ]),
+            &report(&["/m/The Matrix (1999) 1080p.mkv", "/m/The Matrix Reloaded (2003) 1080p.mkv"]),
             None,
         )
         .await;
@@ -2037,10 +1867,7 @@ mod tests {
         // Scanned newest first, which is what left the Up next rail out of order.
         svc.enrich(
             &library(LibraryKind::Movie),
-            &report(&[
-                "/m/The Matrix Reloaded (2003) 1080p.mkv",
-                "/m/The Matrix (1999) 1080p.mkv",
-            ]),
+            &report(&["/m/The Matrix Reloaded (2003) 1080p.mkv", "/m/The Matrix (1999) 1080p.mkv"]),
             None,
         )
         .await;
@@ -2072,10 +1899,8 @@ mod tests {
         );
         let report = report(&["/m/The Matrix (1999) 1080p.mkv"]);
 
-        svc.enrich(&library(LibraryKind::Movie), &report, None)
-            .await;
-        svc.enrich(&library(LibraryKind::Movie), &report, None)
-            .await;
+        svc.enrich(&library(LibraryKind::Movie), &report, None).await;
+        svc.enrich(&library(LibraryKind::Movie), &report, None).await;
 
         let collection = catalog
             .get_collection(&matrix_collection_id())
@@ -2103,9 +1928,7 @@ mod tests {
             jobs.clone(),
         );
 
-        first
-            .enrich(&library(LibraryKind::Movie), &report, None)
-            .await;
+        first.enrich(&library(LibraryKind::Movie), &report, None).await;
         let artwork_after_first = count_kind(&jobs, JobKind::Artwork).await;
 
         let second = enricher(
@@ -2119,9 +1942,7 @@ mod tests {
             }),
             jobs.clone(),
         );
-        second
-            .enrich(&library(LibraryKind::Movie), &report, None)
-            .await;
+        second.enrich(&library(LibraryKind::Movie), &report, None).await;
 
         assert_eq!(artwork_after_first, 1);
         assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 1);
@@ -2131,10 +1952,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(movie.title, "The Matrix");
-        assert_eq!(
-            movie.overview.as_deref(),
-            Some("A hacker learns the truth.")
-        );
+        assert_eq!(movie.overview.as_deref(), Some("A hacker learns the truth."));
     }
 
     #[tokio::test]
@@ -2143,10 +1961,7 @@ mod tests {
         let jobs = MockJobStore::new();
         let metadata = TitleMetadata {
             title: "Gamma".into(),
-            external_ids: vec![ExternalId {
-                source: "tmdb".into(),
-                value: "tv/1399".into(),
-            }],
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "tv/1399".into() }],
             artwork: vec![art(ArtworkKind::Poster)],
             ..TitleMetadata::default()
         };
@@ -2170,15 +1985,12 @@ mod tests {
         };
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Season(Box::new(metadata), season),
-            }),
+            Some(MockProvider { mode: ProviderMode::Season(Box::new(metadata), season) }),
             jobs.clone(),
         );
         let library = library(LibraryKind::Tv);
 
-        svc.enrich(&library, &report(&["/tv/Gamma S01E01 720p.mkv"]), None)
-            .await;
+        svc.enrich(&library, &report(&["/tv/Gamma S01E01 720p.mkv"]), None).await;
         let after_first = count_kind(&jobs, JobKind::Artwork).await;
 
         svc.enrich(
@@ -2201,27 +2013,15 @@ mod tests {
         let series_key = normalize_title("Gamma");
         let second_episode = EpisodeId(derive_id("episode", &format!("{series_key}:1:2")));
         assert_eq!(
-            owners
-                .iter()
-                .filter(|owner| matches!(owner, ArtworkOwner::Series(_)))
-                .count(),
+            owners.iter().filter(|owner| matches!(owner, ArtworkOwner::Series(_))).count(),
             1
         );
         assert_eq!(
-            owners
-                .iter()
-                .filter(|owner| matches!(owner, ArtworkOwner::Season(_)))
-                .count(),
+            owners.iter().filter(|owner| matches!(owner, ArtworkOwner::Season(_))).count(),
             1
         );
         assert!(owners.contains(&ArtworkOwner::Episode(second_episode.clone())));
-        assert!(
-            catalog
-                .get_episode(&second_episode)
-                .await
-                .unwrap()
-                .is_some()
-        );
+        assert!(catalog.get_episode(&second_episode).await.unwrap().is_some());
     }
 
     #[tokio::test]
@@ -2231,11 +2031,9 @@ mod tests {
         let svc = enricher(catalog.clone(), None, jobs.clone());
         let report = report(&["/m/The Matrix (1999) 1080p.mkv"]);
 
-        svc.enrich(&library(LibraryKind::Movie), &report, None)
-            .await;
+        svc.enrich(&library(LibraryKind::Movie), &report, None).await;
         let after_first = count_kind(&jobs, JobKind::Trickplay).await;
-        svc.enrich(&library(LibraryKind::Movie), &report, None)
-            .await;
+        svc.enrich(&library(LibraryKind::Movie), &report, None).await;
 
         assert_eq!(after_first, 1);
         assert_eq!(count_kind(&jobs, JobKind::Trickplay).await, 1);
@@ -2250,8 +2048,7 @@ mod tests {
         let report = report(&[path]);
         let version = VersionId(derive_id("version", path));
 
-        svc.enrich(&library(LibraryKind::Movie), &report, None)
-            .await;
+        svc.enrich(&library(LibraryKind::Movie), &report, None).await;
         catalog
             .set_subtitle_files(
                 &version,
@@ -2270,15 +2067,11 @@ mod tests {
             .await
             .unwrap();
 
-        svc.enrich(&library(LibraryKind::Movie), &report, None)
-            .await;
+        svc.enrich(&library(LibraryKind::Movie), &report, None).await;
 
         let detail = catalog.version_detail(&version).await.unwrap().unwrap();
         assert_eq!(detail.subtitle_files.len(), 1);
-        assert_eq!(
-            detail.subtitle_files[0].source,
-            SubtitleSource::MachineTranslated
-        );
+        assert_eq!(detail.subtitle_files[0].source, SubtitleSource::MachineTranslated);
     }
 
     #[tokio::test]
@@ -2295,11 +2088,7 @@ mod tests {
         resized.size_bytes = 99;
         svc.enrich(
             &library,
-            &ScanReport {
-                discovered: vec![resized],
-                skipped: Vec::new(),
-                total_candidates: 1,
-            },
+            &ScanReport { discovered: vec![resized], skipped: Vec::new(), total_candidates: 1 },
             None,
         )
         .await;
@@ -2310,21 +2099,14 @@ mod tests {
         restretched.size_bytes = 99;
         svc.enrich(
             &library,
-            &ScanReport {
-                discovered: vec![restretched],
-                skipped: Vec::new(),
-                total_candidates: 1,
-            },
+            &ScanReport { discovered: vec![restretched], skipped: Vec::new(), total_candidates: 1 },
             None,
         )
         .await;
 
         assert_eq!(count_kind(&jobs, JobKind::Trickplay).await, 3);
-        let version = catalog
-            .get_version(&VersionId(derive_id("version", path)))
-            .await
-            .unwrap()
-            .unwrap();
+        let version =
+            catalog.get_version(&VersionId(derive_id("version", path))).await.unwrap().unwrap();
         assert_eq!(version.size_bytes, 99);
         assert_eq!(version.duration_ms, 4321);
     }
@@ -2349,11 +2131,8 @@ mod tests {
         .await
         .unwrap();
 
-        let version = catalog
-            .get_version(&VersionId(derive_id("version", path)))
-            .await
-            .unwrap()
-            .unwrap();
+        let version =
+            catalog.get_version(&VersionId(derive_id("version", path))).await.unwrap().unwrap();
         assert_eq!(version.title, TitleId::Movie(MovieId("other".into())));
         assert_eq!(version.size_bytes, 10);
     }
@@ -2392,11 +2171,8 @@ mod tests {
 
         svc.enrich(&library, &report, None).await;
 
-        let version = catalog
-            .get_version(&VersionId(derive_id("version", path)))
-            .await
-            .unwrap()
-            .unwrap();
+        let version =
+            catalog.get_version(&VersionId(derive_id("version", path))).await.unwrap().unwrap();
         assert_eq!(version.title, TitleId::Movie(MovieId("m-matrix".into())));
     }
 
@@ -2461,10 +2237,7 @@ mod tests {
             }),
             jobs.clone(),
         );
-        refresh
-            .refresh(&TitleRef::Movie(id.clone()), None, false, None)
-            .await
-            .unwrap();
+        refresh.refresh(&TitleRef::Movie(id.clone()), None, false, None).await.unwrap();
 
         scan.enrich(&library, &report, None).await;
 
@@ -2513,10 +2286,7 @@ mod tests {
         .await;
 
         let id = MovieId(derive_id("movie", "hdr sample:2020"));
-        assert_eq!(
-            catalog.get_movie(&id).await.unwrap().unwrap().year,
-            Some(2020)
-        );
+        assert_eq!(catalog.get_movie(&id).await.unwrap().unwrap().year, Some(2020));
 
         let refresh = enricher(
             catalog.clone(),
@@ -2528,15 +2298,9 @@ mod tests {
             }),
             jobs.clone(),
         );
-        refresh
-            .refresh(&TitleRef::Movie(id.clone()), None, false, None)
-            .await
-            .unwrap();
+        refresh.refresh(&TitleRef::Movie(id.clone()), None, false, None).await.unwrap();
 
-        assert_eq!(
-            catalog.get_movie(&id).await.unwrap().unwrap().year,
-            Some(2018)
-        );
+        assert_eq!(catalog.get_movie(&id).await.unwrap().unwrap().year, Some(2018));
     }
 
     #[tokio::test]
@@ -2570,11 +2334,7 @@ mod tests {
         )
         .await;
 
-        let collection = catalog
-            .get_collection(&matrix_collection_id())
-            .await
-            .unwrap()
-            .unwrap();
+        let collection = catalog.get_collection(&matrix_collection_id()).await.unwrap().unwrap();
         assert_eq!(collection.name, "My Curated Set");
         assert_eq!(collection.overview.as_deref(), Some("hand written"));
         assert_eq!(collection.movies.len(), 1);
@@ -2605,11 +2365,7 @@ mod tests {
                 chapters: Vec::new(),
             },
         };
-        let scan = ScanReport {
-            discovered: vec![file],
-            skipped: Vec::new(),
-            total_candidates: 1,
-        };
+        let scan = ScanReport { discovered: vec![file], skipped: Vec::new(), total_candidates: 1 };
 
         svc.enrich(&library(LibraryKind::Movie), &scan, None).await;
 
@@ -2619,10 +2375,7 @@ mod tests {
         assert_eq!(detail.audio[0].channels, 6);
 
         let enqueued = jobs.list().await.unwrap();
-        let trickplay = enqueued
-            .iter()
-            .find(|j| j.kind == JobKind::Trickplay)
-            .unwrap();
+        let trickplay = enqueued.iter().find(|j| j.kind == JobKind::Trickplay).unwrap();
         let payload = TrickplayJobPayload::decode(&trickplay.payload).unwrap();
         assert_eq!(payload.version_id, version_id);
         assert_eq!(payload.source_path, path);
@@ -2650,23 +2403,14 @@ mod tests {
                 chapters: Vec::new(),
             },
         };
-        let scan = ScanReport {
-            discovered: vec![file],
-            skipped: Vec::new(),
-            total_candidates: 1,
-        };
+        let scan = ScanReport { discovered: vec![file], skipped: Vec::new(), total_candidates: 1 };
 
         svc.enrich(&library(LibraryKind::Movie), &scan, None).await;
 
         let version_id = VersionId(derive_id("version", path));
         let detail = catalog.version_detail(&version_id).await.unwrap().unwrap();
         assert_eq!(detail.subtitle_files.len(), 2);
-        assert!(
-            detail
-                .subtitle_files
-                .iter()
-                .all(|s| matches!(s.source, SubtitleSource::External))
-        );
+        assert!(detail.subtitle_files.iter().all(|s| matches!(s.source, SubtitleSource::External)));
         let langs: Vec<_> = detail
             .subtitle_files
             .iter()
@@ -2688,11 +2432,7 @@ mod tests {
 
         assert_eq!(catalog.list_movies(page()).await.unwrap().total, 1);
         assert_eq!(
-            catalog
-                .list_library_versions(&LibraryId("lib".into()), page())
-                .await
-                .unwrap()
-                .total,
+            catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap().total,
             1
         );
     }
@@ -2705,39 +2445,22 @@ mod tests {
 
         svc.enrich(
             &lib,
-            &report(&[
-                "/m/The Matrix (1999) 1080p.mkv",
-                "/m/Alien (1979) 1080p.mkv",
-            ]),
+            &report(&["/m/The Matrix (1999) 1080p.mkv", "/m/Alien (1979) 1080p.mkv"]),
             None,
         )
         .await;
-        let seeded = catalog
-            .list_library_versions(&LibraryId("lib".into()), page())
-            .await
-            .unwrap();
+        let seeded = catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap();
         assert_eq!(seeded.total, 2);
         assert!(seeded.items.iter().all(|v| v.available));
 
-        svc.enrich(&lib, &report(&["/m/The Matrix (1999) 1080p.mkv"]), None)
-            .await;
+        svc.enrich(&lib, &report(&["/m/The Matrix (1999) 1080p.mkv"]), None).await;
 
-        let after = catalog
-            .list_library_versions(&LibraryId("lib".into()), page())
-            .await
-            .unwrap();
+        let after = catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap();
         assert_eq!(after.total, 2);
         assert_eq!(catalog.list_movies(page()).await.unwrap().total, 2);
-        let matrix = after
-            .items
-            .iter()
-            .find(|v| v.path == "/m/The Matrix (1999) 1080p.mkv")
-            .unwrap();
-        let alien = after
-            .items
-            .iter()
-            .find(|v| v.path == "/m/Alien (1979) 1080p.mkv")
-            .unwrap();
+        let matrix =
+            after.items.iter().find(|v| v.path == "/m/The Matrix (1999) 1080p.mkv").unwrap();
+        let alien = after.items.iter().find(|v| v.path == "/m/Alien (1979) 1080p.mkv").unwrap();
         assert!(matrix.available);
         assert!(!alien.available);
     }
@@ -2755,37 +2478,23 @@ mod tests {
         };
         let svc = enricher(catalog.clone(), Some(provider), jobs.clone());
 
-        svc.enrich(
-            &library(LibraryKind::Tv),
-            &report(&["/tv/Gamma S01E01 720p.mkv"]),
-            None,
-        )
-        .await;
+        svc.enrich(&library(LibraryKind::Tv), &report(&["/tv/Gamma S01E01 720p.mkv"]), None).await;
 
         let series = catalog.list_series(page()).await.unwrap();
         assert_eq!(series.total, 1);
         assert_eq!(series.items[0].title, "Gamma");
         let series_id = series.items[0].id.clone();
         assert_eq!(catalog.list_seasons(&series_id).await.unwrap().len(), 1);
-        let season_id = catalog.list_seasons(&series_id).await.unwrap()[0]
-            .id
-            .clone();
+        let season_id = catalog.list_seasons(&series_id).await.unwrap()[0].id.clone();
         assert_eq!(catalog.list_episodes(&season_id).await.unwrap().len(), 1);
         assert_eq!(
-            catalog
-                .list_library_versions(&LibraryId("lib".into()), page())
-                .await
-                .unwrap()
-                .total,
+            catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap().total,
             1
         );
 
         assert_eq!(count_kind(&jobs, JobKind::Trickplay).await, 1);
         let enqueued = jobs.list().await.unwrap();
-        let artwork = enqueued
-            .iter()
-            .find(|j| j.kind == JobKind::Artwork)
-            .unwrap();
+        let artwork = enqueued.iter().find(|j| j.kind == JobKind::Artwork).unwrap();
         let payload = ArtworkJobPayload::decode(&artwork.payload).unwrap();
         assert!(matches!(payload.owner, ArtworkOwner::Series(_)));
         assert_eq!(payload.items.len(), 2);
@@ -2802,10 +2511,7 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         let jobs = MockJobStore::new();
         let metadata = TitleMetadata {
-            external_ids: vec![ExternalId {
-                source: "tmdb".into(),
-                value: "tv/1399".into(),
-            }],
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "tv/1399".into() }],
             ..TitleMetadata::default()
         };
         let season = SeasonArtwork {
@@ -2831,18 +2537,11 @@ mod tests {
         };
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Season(Box::new(metadata), season),
-            }),
+            Some(MockProvider { mode: ProviderMode::Season(Box::new(metadata), season) }),
             jobs.clone(),
         );
 
-        svc.enrich(
-            &library(LibraryKind::Tv),
-            &report(&["/tv/Gamma S01E01 720p.mkv"]),
-            None,
-        )
-        .await;
+        svc.enrich(&library(LibraryKind::Tv), &report(&["/tv/Gamma S01E01 720p.mkv"]), None).await;
 
         let artwork_jobs: Vec<ArtworkJobPayload> = jobs
             .list()
@@ -2867,9 +2566,7 @@ mod tests {
         assert_eq!(episode_job.items.len(), 1);
         assert_eq!(episode_job.items[0].kind, ArtworkKind::Backdrop);
 
-        let series_id = catalog.list_series(page()).await.unwrap().items[0]
-            .id
-            .clone();
+        let series_id = catalog.list_series(page()).await.unwrap().items[0].id.clone();
         let season = catalog.list_seasons(&series_id).await.unwrap()[0].clone();
         assert_eq!(season.title.as_deref(), Some("First Season"));
         let episode = catalog.list_episodes(&season.id).await.unwrap()[0].clone();
@@ -2885,26 +2582,16 @@ mod tests {
         let jobs = MockJobStore::new();
         let metadata = TitleMetadata {
             artwork: vec![art(ArtworkKind::Poster)],
-            external_ids: vec![ExternalId {
-                source: "tmdb".into(),
-                value: "tv/1399".into(),
-            }],
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "tv/1399".into() }],
             ..TitleMetadata::default()
         };
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Full(Box::new(metadata)),
-            }),
+            Some(MockProvider { mode: ProviderMode::Full(Box::new(metadata)) }),
             jobs.clone(),
         );
 
-        svc.enrich(
-            &library(LibraryKind::Tv),
-            &report(&["/tv/Gamma S01E01 720p.mkv"]),
-            None,
-        )
-        .await;
+        svc.enrich(&library(LibraryKind::Tv), &report(&["/tv/Gamma S01E01 720p.mkv"]), None).await;
 
         let owners: Vec<ArtworkOwner> = jobs
             .list()
@@ -2925,26 +2612,18 @@ mod tests {
         let jobs = MockJobStore::new();
         let metadata = TitleMetadata {
             cast: vec![CreditInfo {
-                external_person_id: ExternalId {
-                    source: "tmdb".into(),
-                    value: "person/1".into(),
-                },
+                external_person_id: ExternalId { source: "tmdb".into(), value: "person/1".into() },
                 name: "Keanu Reeves".into(),
                 role: CreditRole::Actor,
                 character: None,
                 order: 0,
             }],
-            external_ids: vec![ExternalId {
-                source: "tmdb".into(),
-                value: "movie/603".into(),
-            }],
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "movie/603".into() }],
             ..TitleMetadata::default()
         };
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Full(Box::new(metadata)),
-            }),
+            Some(MockProvider { mode: ProviderMode::Full(Box::new(metadata)) }),
             jobs.clone(),
         );
 
@@ -2995,21 +2674,13 @@ mod tests {
         };
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::PersonInfo(meta),
-            }),
+            Some(MockProvider { mode: ProviderMode::PersonInfo(meta) }),
             jobs.clone(),
         );
 
-        svc.refresh_person(&PersonId("p1".into()), false, None)
-            .await
-            .unwrap();
+        svc.refresh_person(&PersonId("p1".into()), false, None).await.unwrap();
 
-        let person = catalog
-            .get_person(&PersonId("p1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let person = catalog.get_person(&PersonId("p1".into())).await.unwrap().unwrap();
         assert_eq!(person.name, "Ada Lovelace");
         assert_eq!(person.biography.as_deref(), Some("A mathematician."));
         assert_eq!(person.birthday.as_deref(), Some("1815-12-10"));
@@ -3034,15 +2705,11 @@ mod tests {
         let jobs = MockJobStore::new();
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Full(Box::default()),
-            }),
+            Some(MockProvider { mode: ProviderMode::Full(Box::default()) }),
             jobs.clone(),
         );
 
-        svc.refresh_person(&PersonId("p1".into()), true, None)
-            .await
-            .unwrap();
+        svc.refresh_person(&PersonId("p1".into()), true, None).await.unwrap();
 
         assert!(bio(&catalog, "p1").await.is_none());
         assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 0);
@@ -3062,30 +2729,21 @@ mod tests {
             .await
             .unwrap();
         let jobs = MockJobStore::new();
-        let meta = PersonMetadata {
-            biography: Some("fresh".into()),
-            ..PersonMetadata::default()
-        };
+        let meta = PersonMetadata { biography: Some("fresh".into()), ..PersonMetadata::default() };
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::PersonInfo(meta),
-            }),
+            Some(MockProvider { mode: ProviderMode::PersonInfo(meta) }),
             jobs.clone(),
         );
 
-        svc.refresh_person(&PersonId("p1".into()), false, None)
-            .await
-            .unwrap();
+        svc.refresh_person(&PersonId("p1".into()), false, None).await.unwrap();
         assert_eq!(
             bio(&catalog, "p1").await.as_deref(),
             Some("existing"),
             "unforced refresh must not overwrite an enriched person"
         );
 
-        svc.refresh_person(&PersonId("p1".into()), true, None)
-            .await
-            .unwrap();
+        svc.refresh_person(&PersonId("p1".into()), true, None).await.unwrap();
         assert_eq!(bio(&catalog, "p1").await.as_deref(), Some("fresh"));
     }
 
@@ -3095,15 +2753,11 @@ mod tests {
         let jobs = MockJobStore::new();
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::PersonInfo(PersonMetadata::default()),
-            }),
+            Some(MockProvider { mode: ProviderMode::PersonInfo(PersonMetadata::default()) }),
             jobs.clone(),
         );
 
-        svc.refresh_person(&PersonId("missing".into()), true, None)
-            .await
-            .unwrap();
+        svc.refresh_person(&PersonId("missing".into()), true, None).await.unwrap();
 
         catalog
             .upsert_person(Person {
@@ -3113,20 +2767,13 @@ mod tests {
             })
             .await
             .unwrap();
-        svc.refresh_person(&PersonId("p2".into()), true, None)
-            .await
-            .unwrap();
+        svc.refresh_person(&PersonId("p2".into()), true, None).await.unwrap();
 
         assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 0);
     }
 
     async fn bio(catalog: &MockCatalogRepo, id: &str) -> Option<String> {
-        catalog
-            .get_person(&PersonId(id.into()))
-            .await
-            .unwrap()
-            .unwrap()
-            .biography
+        catalog.get_person(&PersonId(id.into())).await.unwrap().unwrap().biography
     }
 
     #[tokio::test]
@@ -3135,20 +2782,11 @@ mod tests {
         let jobs = MockJobStore::new();
         let svc = enricher(catalog.clone(), None, jobs.clone());
 
-        svc.enrich(
-            &library(LibraryKind::Tv),
-            &report(&["/tv/The Matrix (1999).mkv"]),
-            None,
-        )
-        .await;
+        svc.enrich(&library(LibraryKind::Tv), &report(&["/tv/The Matrix (1999).mkv"]), None).await;
 
         assert_eq!(catalog.list_series(page()).await.unwrap().total, 0);
         assert_eq!(
-            catalog
-                .list_library_versions(&LibraryId("lib".into()), page())
-                .await
-                .unwrap()
-                .total,
+            catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap().total,
             0
         );
         assert!(jobs.list().await.unwrap().is_empty());
@@ -3160,9 +2798,7 @@ mod tests {
         let jobs = MockJobStore::new();
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::SearchErr,
-            }),
+            Some(MockProvider { mode: ProviderMode::SearchErr }),
             jobs.clone(),
         );
 
@@ -3184,9 +2820,7 @@ mod tests {
         let jobs = MockJobStore::new();
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Empty,
-            }),
+            Some(MockProvider { mode: ProviderMode::Empty }),
             jobs.clone(),
         );
 
@@ -3208,9 +2842,7 @@ mod tests {
         let jobs = MockJobStore::new();
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::FetchErr,
-            }),
+            Some(MockProvider { mode: ProviderMode::FetchErr }),
             jobs.clone(),
         );
 
@@ -3231,9 +2863,7 @@ mod tests {
         let jobs = MockJobStore::new();
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Artwork(vec![art(ArtworkKind::Logo)]),
-            }),
+            Some(MockProvider { mode: ProviderMode::Artwork(vec![art(ArtworkKind::Logo)]) }),
             jobs.clone(),
         );
 
@@ -3267,9 +2897,7 @@ mod tests {
 
     #[tokio::test]
     async fn noop_enricher_does_nothing() {
-        NoopEnricher
-            .enrich(&library(LibraryKind::Movie), &report(&["/m/x.mkv"]), None)
-            .await;
+        NoopEnricher.enrich(&library(LibraryKind::Movie), &report(&["/m/x.mkv"]), None).await;
     }
 
     #[tokio::test]
@@ -3282,17 +2910,9 @@ mod tests {
             libraries.clone(),
         );
 
-        svc.enrich(
-            &library(LibraryKind::Movie),
-            &report(&["/m/recording.mkv"]),
-            None,
-        )
-        .await;
+        svc.enrich(&library(LibraryKind::Movie), &report(&["/m/recording.mkv"]), None).await;
 
-        let unmatched = libraries
-            .list_unmatched(&LibraryId("lib".into()), page())
-            .await
-            .unwrap();
+        let unmatched = libraries.list_unmatched(&LibraryId("lib".into()), page()).await.unwrap();
         assert_eq!(unmatched.total, 1);
         assert_eq!(unmatched.items[0].path, "/m/recording.mkv");
     }
@@ -3309,18 +2929,12 @@ mod tests {
 
         svc.enrich(
             &library(LibraryKind::Movie),
-            &report(&[
-                "/m/The Matrix (1999) 1080p.mkv",
-                "/m/The Matrix (1999) 2160p.mkv",
-            ]),
+            &report(&["/m/The Matrix (1999) 1080p.mkv", "/m/The Matrix (1999) 2160p.mkv"]),
             None,
         )
         .await;
 
-        let duplicates = libraries
-            .list_duplicates(&LibraryId("lib".into()), page())
-            .await
-            .unwrap();
+        let duplicates = libraries.list_duplicates(&LibraryId("lib".into()), page()).await.unwrap();
         assert_eq!(duplicates.total, 1);
         assert_eq!(duplicates.items[0].paths.len(), 2);
     }
@@ -3335,23 +2949,12 @@ mod tests {
             libraries.clone(),
         );
         let id = LibraryId("lib".into());
-        let both = report(&[
-            "/m/The Matrix (1999) 1080p.mkv",
-            "/m/The Matrix (1999) 2160p.mkv",
-        ]);
+        let both = report(&["/m/The Matrix (1999) 1080p.mkv", "/m/The Matrix (1999) 2160p.mkv"]);
 
         svc.enrich(&library(LibraryKind::Movie), &both, None).await;
-        let candidate = libraries.list_duplicates(&id, page()).await.unwrap().items[0]
-            .id
-            .clone();
-        libraries
-            .set_duplicate_status(&candidate, ResolutionStatus::Dismissed)
-            .await
-            .unwrap();
-        assert_eq!(
-            libraries.list_duplicates(&id, page()).await.unwrap().total,
-            0
-        );
+        let candidate = libraries.list_duplicates(&id, page()).await.unwrap().items[0].id.clone();
+        libraries.set_duplicate_status(&candidate, ResolutionStatus::Dismissed).await.unwrap();
+        assert_eq!(libraries.list_duplicates(&id, page()).await.unwrap().total, 0);
 
         svc.enrich(&library(LibraryKind::Movie), &both, None).await;
 
@@ -3375,17 +2978,11 @@ mod tests {
 
         svc.enrich(
             &library(LibraryKind::Movie),
-            &report(&[
-                "/m/The Matrix (1999) 1080p.mkv",
-                "/m/The Matrix (1999) 2160p.mkv",
-            ]),
+            &report(&["/m/The Matrix (1999) 1080p.mkv", "/m/The Matrix (1999) 2160p.mkv"]),
             None,
         )
         .await;
-        assert_eq!(
-            libraries.list_duplicates(&id, page()).await.unwrap().total,
-            1
-        );
+        assert_eq!(libraries.list_duplicates(&id, page()).await.unwrap().total, 1);
 
         svc.enrich(
             &library(LibraryKind::Movie),
@@ -3412,19 +3009,9 @@ mod tests {
         );
         let id = LibraryId("lib".into());
 
-        svc.enrich(
-            &library(LibraryKind::Movie),
-            &report(&["/m/recording.mkv"]),
-            None,
-        )
-        .await;
-        let file = libraries.list_unmatched(&id, page()).await.unwrap().items[0]
-            .id
-            .clone();
-        libraries
-            .set_unmatched_status(&file, ResolutionStatus::Resolved)
-            .await
-            .unwrap();
+        svc.enrich(&library(LibraryKind::Movie), &report(&["/m/recording.mkv"]), None).await;
+        let file = libraries.list_unmatched(&id, page()).await.unwrap().items[0].id.clone();
+        libraries.set_unmatched_status(&file, ResolutionStatus::Resolved).await.unwrap();
 
         svc.enrich(
             &library(LibraryKind::Movie),
@@ -3462,22 +3049,8 @@ mod tests {
         .await;
 
         let id = LibraryId("lib".into());
-        assert!(
-            libraries
-                .list_unmatched(&id, page())
-                .await
-                .unwrap()
-                .items
-                .is_empty()
-        );
-        assert!(
-            libraries
-                .list_duplicates(&id, page())
-                .await
-                .unwrap()
-                .items
-                .is_empty()
-        );
+        assert!(libraries.list_unmatched(&id, page()).await.unwrap().items.is_empty());
+        assert!(libraries.list_duplicates(&id, page()).await.unwrap().items.is_empty());
     }
 
     #[tokio::test]
@@ -3497,11 +3070,7 @@ mod tests {
 
         assert_eq!(catalog.list_movies(page()).await.unwrap().total, 0);
         assert_eq!(
-            catalog
-                .list_library_versions(&LibraryId("lib".into()), page())
-                .await
-                .unwrap()
-                .total,
+            catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap().total,
             1
         );
         assert_eq!(count_kind(&jobs, JobKind::Trickplay).await, 1);
@@ -3518,9 +3087,7 @@ mod tests {
         };
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Full(Box::new(metadata)),
-            }),
+            Some(MockProvider { mode: ProviderMode::Full(Box::new(metadata)) }),
             MockJobStore::new(),
         );
 
@@ -3541,11 +3108,7 @@ mod tests {
         assert_eq!(movies.items[0].title, "The Matrix (Provider)");
         assert_eq!(movies.items[0].overview.as_deref(), Some("From provider"));
         assert_eq!(
-            catalog
-                .list_library_versions(&LibraryId("lib".into()), page())
-                .await
-                .unwrap()
-                .total,
+            catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap().total,
             1
         );
     }
@@ -3568,14 +3131,9 @@ mod tests {
             }),
             MockJobStore::new(),
         );
-        first
-            .ingest_resolved(&library(LibraryKind::Movie), &file, &target, None)
-            .await
-            .unwrap();
+        first.ingest_resolved(&library(LibraryKind::Movie), &file, &target, None).await.unwrap();
 
-        let id = catalog.list_movies(page()).await.unwrap().items[0]
-            .id
-            .clone();
+        let id = catalog.list_movies(page()).await.unwrap().items[0].id.clone();
         let mut edited = catalog.get_movie(&id).await.unwrap().unwrap();
         edited.title = "Hand Written".into();
         edited.manually_edited = true;
@@ -3591,10 +3149,7 @@ mod tests {
             }),
             MockJobStore::new(),
         );
-        second
-            .ingest_resolved(&library(LibraryKind::Movie), &file, &target, None)
-            .await
-            .unwrap();
+        second.ingest_resolved(&library(LibraryKind::Movie), &file, &target, None).await.unwrap();
 
         let relinked = catalog.get_movie(&id).await.unwrap().unwrap();
         assert_eq!(
@@ -3606,23 +3161,11 @@ mod tests {
 
     #[test]
     fn a_bare_tmdb_id_is_qualified_by_the_library_kind() {
-        let bare = ExternalId {
-            source: "tmdb".into(),
-            value: "4629".into(),
-        };
-        assert_eq!(
-            qualified_provider_id(&bare, LibraryKind::Tv).value,
-            "tv/4629"
-        );
-        assert_eq!(
-            qualified_provider_id(&bare, LibraryKind::Movie).value,
-            "movie/4629"
-        );
+        let bare = ExternalId { source: "tmdb".into(), value: "4629".into() };
+        assert_eq!(qualified_provider_id(&bare, LibraryKind::Tv).value, "tv/4629");
+        assert_eq!(qualified_provider_id(&bare, LibraryKind::Movie).value, "movie/4629");
 
-        let qualified = ExternalId {
-            source: "tmdb".into(),
-            value: "movie/4629".into(),
-        };
+        let qualified = ExternalId { source: "tmdb".into(), value: "movie/4629".into() };
         assert_eq!(
             qualified_provider_id(&qualified, LibraryKind::Tv).value,
             "movie/4629",
@@ -3630,14 +3173,8 @@ mod tests {
         );
 
         for id in [
-            ExternalId {
-                source: "imdb".into(),
-                value: "tt0118480".into(),
-            },
-            ExternalId {
-                source: "tmdb".into(),
-                value: "tt0118480".into(),
-            },
+            ExternalId { source: "imdb".into(), value: "tt0118480".into() },
+            ExternalId { source: "tmdb".into(), value: "tt0118480".into() },
         ] {
             assert_eq!(
                 qualified_provider_id(&id, LibraryKind::Tv).value,
@@ -3652,19 +3189,14 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Artwork(Vec::new()),
-            }),
+            Some(MockProvider { mode: ProviderMode::Artwork(Vec::new()) }),
             MockJobStore::new(),
         );
 
         svc.ingest_resolved(
             &library(LibraryKind::Tv),
             &discovered("/tv/Gamma S01E01 720p.mkv"),
-            &ResolveTarget::Provider(ExternalId {
-                source: "tmdb".into(),
-                value: "tv/1".into(),
-            }),
+            &ResolveTarget::Provider(ExternalId { source: "tmdb".into(), value: "tv/1".into() }),
             None,
         )
         .await
@@ -3690,16 +3222,10 @@ mod tests {
         )
         .await;
 
-        assert!(
-            provider.searched().is_empty(),
-            "a tagged file must not be guessed at by title"
-        );
+        assert!(provider.searched().is_empty(), "a tagged file must not be guessed at by title");
         assert_eq!(
             provider.fetched(),
-            vec![ExternalId {
-                source: "tmdb".into(),
-                value: "movie/603".into(),
-            }]
+            vec![ExternalId { source: "tmdb".into(), value: "movie/603".into() }]
         );
     }
 
@@ -3713,12 +3239,8 @@ mod tests {
             MockLibraryRepo::new(),
         );
 
-        svc.enrich(
-            &library(LibraryKind::Movie),
-            &report(&["/ext/The Matrix (1999).mkv"]),
-            None,
-        )
-        .await;
+        svc.enrich(&library(LibraryKind::Movie), &report(&["/ext/The Matrix (1999).mkv"]), None)
+            .await;
 
         assert_eq!(provider.searched().len(), 1);
         assert_eq!(provider.searched()[0].title, "The Matrix");
@@ -3730,17 +3252,12 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         let metadata = TitleMetadata {
             title: "Gamma".into(),
-            external_ids: vec![ExternalId {
-                source: "tmdb".into(),
-                value: "tv/1399".into(),
-            }],
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "tv/1399".into() }],
             ..TitleMetadata::default()
         };
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::ByIdOnly(Box::new(metadata)),
-            }),
+            Some(MockProvider { mode: ProviderMode::ByIdOnly(Box::new(metadata)) }),
             MockJobStore::new(),
         );
 
@@ -3753,10 +3270,7 @@ mod tests {
                 season: Some(1),
                 episode: Some(1),
                 quality: Some(Quality::Hd),
-                external_id: Some(ExternalId {
-                    source: "tmdb".into(),
-                    value: "tv/1399".into(),
-                }),
+                external_id: Some(ExternalId { source: "tmdb".into(), value: "tv/1399".into() }),
             },
             None,
         )
@@ -3768,10 +3282,7 @@ mod tests {
         assert_eq!(series.items[0].title, "Gamma");
         let seasons = catalog.list_seasons(&series.items[0].id).await.unwrap();
         assert_eq!(seasons.len(), 1);
-        assert_eq!(
-            catalog.list_episodes(&seasons[0].id).await.unwrap().len(),
-            1
-        );
+        assert_eq!(catalog.list_episodes(&seasons[0].id).await.unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -3779,9 +3290,7 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::ByIdOnly(Box::default()),
-            }),
+            Some(MockProvider { mode: ProviderMode::ByIdOnly(Box::default()) }),
             MockJobStore::new(),
         );
 
@@ -3837,9 +3346,7 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::FetchErr,
-            }),
+            Some(MockProvider { mode: ProviderMode::FetchErr }),
             MockJobStore::new(),
         );
 
@@ -3869,10 +3376,7 @@ mod tests {
             year: Some(1999),
             overview: Some("A hacker learns the truth.".into()),
             runtime_minutes: Some(136),
-            content_rating: Some(ContentRating {
-                system: "mpaa".into(),
-                code: "r".into(),
-            }),
+            content_rating: Some(ContentRating { system: "mpaa".into(), code: "r".into() }),
             manually_edited: true,
             added_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
@@ -3880,9 +3384,7 @@ mod tests {
         });
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::FetchErr,
-            }),
+            Some(MockProvider { mode: ProviderMode::FetchErr }),
             MockJobStore::new(),
         );
 
@@ -3902,10 +3404,7 @@ mod tests {
         assert_eq!(outcome, ResolveOutcome::Unidentified);
         let stored = catalog.get_movie(&id).await.unwrap().unwrap();
         assert_eq!(stored.title, "The Matrix");
-        assert_eq!(
-            stored.overview.as_deref(),
-            Some("A hacker learns the truth.")
-        );
+        assert_eq!(stored.overview.as_deref(), Some("A hacker learns the truth."));
         assert_eq!(stored.runtime_minutes, Some(136));
         assert_eq!(
             stored.content_rating.map(|rating| rating.code),
@@ -3917,11 +3416,7 @@ mod tests {
             "a provider that could not be reached must not discard a manual edit"
         );
         assert_eq!(
-            catalog
-                .list_library_versions(&LibraryId("lib".into()), page())
-                .await
-                .unwrap()
-                .total,
+            catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap().total,
             1,
             "the file half of a relink is filesystem truth and does not need the provider"
         );
@@ -3942,9 +3437,7 @@ mod tests {
         });
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::FetchErr,
-            }),
+            Some(MockProvider { mode: ProviderMode::FetchErr }),
             MockJobStore::new(),
         );
 
@@ -3973,13 +3466,7 @@ mod tests {
             "the parent rows must survive the same way the episode does"
         );
         assert_eq!(
-            catalog
-                .get_season(&ids.season)
-                .await
-                .unwrap()
-                .unwrap()
-                .title
-                .as_deref(),
+            catalog.get_season(&ids.season).await.unwrap().unwrap().title.as_deref(),
             Some("Stored Season")
         );
     }
@@ -3989,9 +3476,7 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::FetchErr,
-            }),
+            Some(MockProvider { mode: ProviderMode::FetchErr }),
             MockJobStore::new(),
         );
 
@@ -4022,10 +3507,7 @@ mod tests {
         svc.ingest_resolved(
             &library(LibraryKind::Tv),
             &discovered("/tv/The Matrix (1999).mkv"),
-            &ResolveTarget::Provider(ExternalId {
-                source: "tmdb".into(),
-                value: "tv/1".into(),
-            }),
+            &ResolveTarget::Provider(ExternalId { source: "tmdb".into(), value: "tv/1".into() }),
             None,
         )
         .await
@@ -4060,10 +3542,7 @@ mod tests {
     }
 
     fn renaming_metadata(title: &str) -> TitleMetadata {
-        TitleMetadata {
-            title: title.into(),
-            ..refresh_metadata()
-        }
+        TitleMetadata { title: title.into(), ..refresh_metadata() }
     }
 
     fn german_library() -> MockLibraryRepo {
@@ -4104,15 +3583,9 @@ mod tests {
             german_library(),
         );
 
-        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, false, None).await.unwrap();
 
-        let movie = catalog
-            .get_movie(&MovieId("m1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let movie = catalog.get_movie(&MovieId("m1".into())).await.unwrap().unwrap();
         assert_eq!(movie.title, "Das Boot");
         assert_eq!(movie.sort_title, "boot, das");
     }
@@ -4136,22 +3609,14 @@ mod tests {
         seed_version(&catalog, "v1", TitleId::Movie(MovieId("m1".into())));
         let svc = enricher_with_libraries(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Full(Box::new(refresh_metadata())),
-            }),
+            Some(MockProvider { mode: ProviderMode::Full(Box::new(refresh_metadata())) }),
             MockJobStore::new(),
             german_library(),
         );
 
-        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, false, None).await.unwrap();
 
-        let movie = catalog
-            .get_movie(&MovieId("m1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let movie = catalog.get_movie(&MovieId("m1".into())).await.unwrap().unwrap();
         assert_eq!(movie.title, "Das Boot");
         assert_eq!(movie.sort_title, "boot, das");
     }
@@ -4197,22 +3662,14 @@ mod tests {
         seed_version(&catalog, "v1", TitleId::Episode(EpisodeId("e1".into())));
         let svc = enricher_with_libraries(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Full(Box::new(refresh_metadata())),
-            }),
+            Some(MockProvider { mode: ProviderMode::Full(Box::new(refresh_metadata())) }),
             MockJobStore::new(),
             german_library(),
         );
 
-        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None).await.unwrap();
 
-        let series = catalog
-            .get_series(&SeriesId("s1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let series = catalog.get_series(&SeriesId("s1".into())).await.unwrap().unwrap();
         assert_eq!(series.title, "Die Welle");
         assert_eq!(series.sort_title, "welle, die");
     }
@@ -4230,15 +3687,9 @@ mod tests {
             german_library(),
         );
 
-        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, false, None).await.unwrap();
 
-        let movie = catalog
-            .get_movie(&MovieId("m1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let movie = catalog.get_movie(&MovieId("m1".into())).await.unwrap().unwrap();
         assert_eq!(movie.sort_title, "das boot");
     }
 
@@ -4290,15 +3741,9 @@ mod tests {
             german_library(),
         );
 
-        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None).await.unwrap();
 
-        let series = catalog
-            .get_series(&SeriesId("s1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let series = catalog.get_series(&SeriesId("s1".into())).await.unwrap().unwrap();
         assert_eq!(series.title, "Die Welle");
         assert_eq!(series.sort_title, "welle, die");
     }
@@ -4350,15 +3795,9 @@ mod tests {
             german_library(),
         );
 
-        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None).await.unwrap();
 
-        let series = catalog
-            .get_series(&SeriesId("s1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let series = catalog.get_series(&SeriesId("s1".into())).await.unwrap().unwrap();
         assert_eq!(series.sort_title, "die welle");
     }
 
@@ -4376,15 +3815,9 @@ mod tests {
             MockLibraryRepo::new(),
         );
 
-        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, false, None).await.unwrap();
 
-        let movie = catalog
-            .get_movie(&MovieId("m1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let movie = catalog.get_movie(&MovieId("m1".into())).await.unwrap().unwrap();
         assert_eq!(movie.sort_title, "das boot");
     }
 
@@ -4395,31 +3828,18 @@ mod tests {
         let jobs = MockJobStore::new();
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Full(Box::new(refresh_metadata())),
-            }),
+            Some(MockProvider { mode: ProviderMode::Full(Box::new(refresh_metadata())) }),
             jobs.clone(),
         );
 
-        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, false, None).await.unwrap();
 
-        let movie = catalog
-            .get_movie(&MovieId("m1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let movie = catalog.get_movie(&MovieId("m1".into())).await.unwrap().unwrap();
         assert_eq!(movie.overview.as_deref(), Some("Refreshed overview"));
         assert_eq!(movie.runtime_minutes, Some(120));
         assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 1);
         assert!(
-            catalog
-                .list_collections(page())
-                .await
-                .unwrap()
-                .items
-                .is_empty(),
+            catalog.list_collections(page()).await.unwrap().items.is_empty(),
             "metadata naming no collection must not invent one"
         );
     }
@@ -4453,12 +3873,7 @@ mod tests {
         svc.refresh(&movie, None, false, None).await.unwrap();
 
         assert_eq!(
-            catalog
-                .get_collection(&matrix_collection_id())
-                .await
-                .unwrap()
-                .unwrap()
-                .movies,
+            catalog.get_collection(&matrix_collection_id()).await.unwrap().unwrap().movies,
             vec![MovieId("m1".into())],
             "refreshing twice must not add the movie twice"
         );
@@ -4481,29 +3896,20 @@ mod tests {
         });
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Full(Box::new(refresh_metadata())),
-            }),
+            Some(MockProvider { mode: ProviderMode::Full(Box::new(refresh_metadata())) }),
             MockJobStore::new(),
         );
 
         svc.refresh(
             &TitleRef::Series(SeriesId("s1".into())),
-            Some(&ExternalId {
-                source: "tmdb".into(),
-                value: "tv/1".into(),
-            }),
+            Some(&ExternalId { source: "tmdb".into(), value: "tv/1".into() }),
             false,
             None,
         )
         .await
         .unwrap();
 
-        let series = catalog
-            .get_series(&SeriesId("s1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let series = catalog.get_series(&SeriesId("s1".into())).await.unwrap().unwrap();
         assert_eq!(series.overview.as_deref(), Some("Refreshed overview"));
     }
 
@@ -4557,21 +3963,13 @@ mod tests {
         catalog.add_series(stored_series("s1", "Old Series"));
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Empty,
-            }),
+            Some(MockProvider { mode: ProviderMode::Empty }),
             MockJobStore::new(),
         );
 
-        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None).await.unwrap();
 
-        let series = catalog
-            .get_series(&SeriesId("s1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let series = catalog.get_series(&SeriesId("s1".into())).await.unwrap().unwrap();
         assert_eq!(series.title, "Old Series");
         assert_eq!(
             series.overview.as_deref(),
@@ -4584,29 +3982,18 @@ mod tests {
     async fn a_season_the_provider_cannot_supply_is_left_alone() {
         let catalog = MockCatalogRepo::new();
         catalog.add_series(stored_series("s1", "Show"));
-        catalog
-            .upsert_season(stored_season("s1-1", "s1", 1))
-            .await
-            .unwrap();
-        catalog
-            .upsert_episode(stored_episode("s1-1-1", "s1-1", 1))
-            .await
-            .unwrap();
+        catalog.upsert_season(stored_season("s1-1", "s1", 1)).await.unwrap();
+        catalog.upsert_episode(stored_episode("s1-1-1", "s1-1", 1)).await.unwrap();
 
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Full(Box::new(refresh_metadata())),
-            }),
+            Some(MockProvider { mode: ProviderMode::Full(Box::new(refresh_metadata())) }),
             MockJobStore::new(),
         );
 
         svc.refresh(
             &TitleRef::Series(SeriesId("s1".into())),
-            Some(&ExternalId {
-                source: "tmdb".into(),
-                value: "tv/1".into(),
-            }),
+            Some(&ExternalId { source: "tmdb".into(), value: "tv/1".into() }),
             false,
             None,
         )
@@ -4619,11 +4006,7 @@ mod tests {
             Some("Stored Season"),
             "a failed season fetch skips that season instead of wiping it"
         );
-        let episode = catalog
-            .list_episodes(&SeasonId("s1-1".into()))
-            .await
-            .unwrap()[0]
-            .clone();
+        let episode = catalog.list_episodes(&SeasonId("s1-1".into())).await.unwrap()[0].clone();
         assert_eq!(episode.title, "Stored 1");
     }
 
@@ -4631,10 +4014,7 @@ mod tests {
     async fn an_episode_the_provider_does_not_list_is_left_alone() {
         let catalog = MockCatalogRepo::new();
         catalog.add_series(stored_series("s1", "Show"));
-        catalog
-            .upsert_season(stored_season("s1-1", "s1", 1))
-            .await
-            .unwrap();
+        catalog.upsert_season(stored_season("s1-1", "s1", 1)).await.unwrap();
         for number in [1, 2] {
             catalog
                 .upsert_episode(stored_episode(&format!("s1-1-{number}"), "s1-1", number))
@@ -4644,10 +4024,7 @@ mod tests {
 
         let metadata = TitleMetadata {
             title: "Show".into(),
-            external_ids: vec![ExternalId {
-                source: "tmdb".into(),
-                value: "tv/99".into(),
-            }],
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "tv/99".into() }],
             ..TitleMetadata::default()
         };
         let season = SeasonArtwork {
@@ -4662,20 +4039,13 @@ mod tests {
         };
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Season(Box::new(metadata), season),
-            }),
+            Some(MockProvider { mode: ProviderMode::Season(Box::new(metadata), season) }),
             MockJobStore::new(),
         );
 
-        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None).await.unwrap();
 
-        let episodes = catalog
-            .list_episodes(&SeasonId("s1-1".into()))
-            .await
-            .unwrap();
+        let episodes = catalog.list_episodes(&SeasonId("s1-1".into())).await.unwrap();
         let titles: Vec<&str> = episodes.iter().map(|e| e.title.as_str()).collect();
         assert_eq!(
             titles,
@@ -4702,10 +4072,7 @@ mod tests {
 
     fn tmdb_series_metadata() -> TitleMetadata {
         TitleMetadata {
-            external_ids: vec![ExternalId {
-                source: "tmdb".into(),
-                value: "tv/1".into(),
-            }],
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "tv/1".into() }],
             ..refresh_metadata()
         }
     }
@@ -4715,10 +4082,7 @@ mod tests {
             manually_edited: true,
             ..stored_series("s1", "Hand Titled Show")
         });
-        catalog
-            .upsert_season(stored_season("s1-1", "s1", 1))
-            .await
-            .unwrap();
+        catalog.upsert_season(stored_season("s1-1", "s1", 1)).await.unwrap();
         for number in [1u16, 2] {
             catalog
                 .upsert_episode(Episode {
@@ -4731,19 +4095,9 @@ mod tests {
     }
 
     async fn flags(catalog: &MockCatalogRepo) -> (bool, Vec<bool>) {
-        let series = catalog
-            .get_series(&SeriesId("s1".into()))
-            .await
-            .unwrap()
-            .unwrap();
-        let episodes = catalog
-            .list_episodes(&SeasonId("s1-1".into()))
-            .await
-            .unwrap();
-        (
-            series.manually_edited,
-            episodes.iter().map(|e| e.manually_edited).collect(),
-        )
+        let series = catalog.get_series(&SeriesId("s1".into())).await.unwrap().unwrap();
+        let episodes = catalog.list_episodes(&SeasonId("s1-1".into())).await.unwrap();
+        (series.manually_edited, episodes.iter().map(|e| e.manually_edited).collect())
     }
 
     #[tokio::test]
@@ -4769,9 +4123,7 @@ mod tests {
             MockJobStore::new(),
         );
 
-        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, true, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, true, None).await.unwrap();
 
         let (series, episodes) = flags(&catalog).await;
         assert!(!series, "the series flag goes on a forced refresh");
@@ -4789,15 +4141,11 @@ mod tests {
         edited_show(&catalog).await;
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Empty,
-            }),
+            Some(MockProvider { mode: ProviderMode::Empty }),
             MockJobStore::new(),
         );
 
-        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, true, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, true, None).await.unwrap();
 
         let (series, episodes) = flags(&catalog).await;
         assert!(!series);
@@ -4814,15 +4162,11 @@ mod tests {
         edited_show(&catalog).await;
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Full(Box::new(refresh_metadata())),
-            }),
+            Some(MockProvider { mode: ProviderMode::Full(Box::new(refresh_metadata())) }),
             MockJobStore::new(),
         );
 
-        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, true, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, true, None).await.unwrap();
 
         let (series, episodes) = flags(&catalog).await;
         assert!(!series);
@@ -4839,15 +4183,11 @@ mod tests {
         edited_show(&catalog).await;
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Full(Box::new(tmdb_series_metadata())),
-            }),
+            Some(MockProvider { mode: ProviderMode::Full(Box::new(tmdb_series_metadata())) }),
             MockJobStore::new(),
         );
 
-        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None).await.unwrap();
 
         let (series, episodes) = flags(&catalog).await;
         assert!(series, "only a forced refresh discards edits");
@@ -4864,21 +4204,13 @@ mod tests {
         });
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Empty,
-            }),
+            Some(MockProvider { mode: ProviderMode::Empty }),
             MockJobStore::new(),
         );
 
-        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, true, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, true, None).await.unwrap();
 
-        let movie = catalog
-            .get_movie(&MovieId("m1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let movie = catalog.get_movie(&MovieId("m1".into())).await.unwrap().unwrap();
         assert!(
             !movie.manually_edited,
             "the movie path had the same gate, and an unreachable provider must not silently keep the pin"
@@ -4936,10 +4268,7 @@ mod tests {
 
         let metadata = TitleMetadata {
             title: "Show".into(),
-            external_ids: vec![ExternalId {
-                source: "tmdb".into(),
-                value: "tv/99".into(),
-            }],
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "tv/99".into() }],
             ..TitleMetadata::default()
         };
         let season = SeasonArtwork {
@@ -4959,28 +4288,18 @@ mod tests {
         let jobs = MockJobStore::new();
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Season(Box::new(metadata), season),
-            }),
+            Some(MockProvider { mode: ProviderMode::Season(Box::new(metadata), season) }),
             jobs.clone(),
         );
 
-        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None).await.unwrap();
 
         let refreshed_season =
             catalog.list_seasons(&SeriesId("s1".into())).await.unwrap()[0].clone();
         assert_eq!(refreshed_season.title.as_deref(), Some("Named Season"));
-        assert_eq!(
-            refreshed_season.overview.as_deref(),
-            Some("Season overview")
-        );
-        let refreshed_ep = catalog
-            .list_episodes(&SeasonId("s1-1".into()))
-            .await
-            .unwrap()[0]
-            .clone();
+        assert_eq!(refreshed_season.overview.as_deref(), Some("Season overview"));
+        let refreshed_ep =
+            catalog.list_episodes(&SeasonId("s1-1".into())).await.unwrap()[0].clone();
         assert_eq!(refreshed_ep.title, "Ep One");
         assert_eq!(refreshed_ep.overview.as_deref(), Some("Ep overview"));
         assert_eq!(refreshed_ep.runtime_minutes, Some(42));
@@ -4999,11 +4318,7 @@ mod tests {
     }
 
     async fn flag_movie(catalog: &MockCatalogRepo, id: &str) {
-        let mut movie = catalog
-            .get_movie(&MovieId(id.into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let mut movie = catalog.get_movie(&MovieId(id.into())).await.unwrap().unwrap();
         movie.manually_edited = true;
         catalog.upsert_movie(movie).await.unwrap();
     }
@@ -5016,21 +4331,13 @@ mod tests {
         let jobs = MockJobStore::new();
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Full(Box::new(refresh_metadata())),
-            }),
+            Some(MockProvider { mode: ProviderMode::Full(Box::new(refresh_metadata())) }),
             jobs.clone(),
         );
 
-        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, false, None).await.unwrap();
 
-        let movie = catalog
-            .get_movie(&MovieId("m1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let movie = catalog.get_movie(&MovieId("m1".into())).await.unwrap().unwrap();
         assert_eq!(movie.title, "Old Title");
         assert_eq!(movie.overview.as_deref(), Some("Hand written"));
         assert!(movie.runtime_minutes.is_none());
@@ -5049,21 +4356,13 @@ mod tests {
         flag_movie(&catalog, "m1").await;
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Full(Box::new(refresh_metadata())),
-            }),
+            Some(MockProvider { mode: ProviderMode::Full(Box::new(refresh_metadata())) }),
             MockJobStore::new(),
         );
 
-        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, true, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, true, None).await.unwrap();
 
-        let movie = catalog
-            .get_movie(&MovieId("m1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let movie = catalog.get_movie(&MovieId("m1".into())).await.unwrap().unwrap();
         assert_eq!(movie.overview.as_deref(), Some("Refreshed overview"));
         assert_eq!(movie.runtime_minutes, Some(120));
         assert!(!movie.manually_edited);
@@ -5074,10 +4373,7 @@ mod tests {
             .set_title_enrichment(
                 &title,
                 &TitleEnrichment {
-                    external_ids: vec![ExternalId {
-                        source: "tmdb".into(),
-                        value: value.into(),
-                    }],
+                    external_ids: vec![ExternalId { source: "tmdb".into(), value: value.into() }],
                     ..TitleEnrichment::default()
                 },
             )
@@ -5090,11 +4386,7 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         seed_movie(&catalog, "m1", Some("Hand written"));
         store_tmdb_id(&catalog, TitleRef::Movie(MovieId("m1".into())), "movie/603").await;
-        let mut edited = catalog
-            .get_movie(&MovieId("m1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let mut edited = catalog.get_movie(&MovieId("m1".into())).await.unwrap().unwrap();
         edited.title = "Something The Provider Cannot Find".into();
         edited.year = Some(1234);
         edited.manually_edited = true;
@@ -5102,21 +4394,13 @@ mod tests {
 
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::ByIdOnly(Box::new(refresh_metadata())),
-            }),
+            Some(MockProvider { mode: ProviderMode::ByIdOnly(Box::new(refresh_metadata())) }),
             MockJobStore::new(),
         );
 
-        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, true, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, true, None).await.unwrap();
 
-        let movie = catalog
-            .get_movie(&MovieId("m1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let movie = catalog.get_movie(&MovieId("m1".into())).await.unwrap().unwrap();
         assert_eq!(movie.overview.as_deref(), Some("Refreshed overview"));
         assert_eq!(movie.runtime_minutes, Some(120));
         assert!(
@@ -5144,21 +4428,13 @@ mod tests {
 
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::ByIdOnly(Box::new(refresh_metadata())),
-            }),
+            Some(MockProvider { mode: ProviderMode::ByIdOnly(Box::new(refresh_metadata())) }),
             MockJobStore::new(),
         );
 
-        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, true, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, true, None).await.unwrap();
 
-        let series = catalog
-            .get_series(&SeriesId("s1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let series = catalog.get_series(&SeriesId("s1".into())).await.unwrap().unwrap();
         assert_eq!(series.overview.as_deref(), Some("Refreshed overview"));
         assert!(!series.manually_edited);
     }
@@ -5169,21 +4445,13 @@ mod tests {
         seed_movie(&catalog, "m1", None);
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Full(Box::new(refresh_metadata())),
-            }),
+            Some(MockProvider { mode: ProviderMode::Full(Box::new(refresh_metadata())) }),
             MockJobStore::new(),
         );
 
-        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, false, None).await.unwrap();
 
-        let movie = catalog
-            .get_movie(&MovieId("m1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let movie = catalog.get_movie(&MovieId("m1".into())).await.unwrap().unwrap();
         assert_eq!(movie.overview.as_deref(), Some("Refreshed overview"));
     }
 
@@ -5194,29 +4462,20 @@ mod tests {
         store_tmdb_id(&catalog, TitleRef::Movie(MovieId("m1".into())), "movie/603").await;
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::ByIdOnly(Box::new(refresh_metadata())),
-            }),
+            Some(MockProvider { mode: ProviderMode::ByIdOnly(Box::new(refresh_metadata())) }),
             MockJobStore::new(),
         );
 
         svc.refresh(
             &TitleRef::Movie(MovieId("m1".into())),
-            Some(&ExternalId {
-                source: "tmdb".into(),
-                value: "movie/999".into(),
-            }),
+            Some(&ExternalId { source: "tmdb".into(), value: "movie/999".into() }),
             false,
             None,
         )
         .await
         .unwrap();
 
-        let movie = catalog
-            .get_movie(&MovieId("m1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let movie = catalog.get_movie(&MovieId("m1".into())).await.unwrap().unwrap();
         assert_eq!(movie.overview.as_deref(), Some("Refreshed overview"));
     }
 
@@ -5237,21 +4496,13 @@ mod tests {
         });
         let svc = enricher(
             catalog.clone(),
-            Some(MockProvider {
-                mode: ProviderMode::Full(Box::new(refresh_metadata())),
-            }),
+            Some(MockProvider { mode: ProviderMode::Full(Box::new(refresh_metadata())) }),
             MockJobStore::new(),
         );
 
-        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None).await.unwrap();
 
-        let series = catalog
-            .get_series(&SeriesId("s1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let series = catalog.get_series(&SeriesId("s1".into())).await.unwrap().unwrap();
         assert_eq!(series.title, "Old Show");
         assert_eq!(series.overview.as_deref(), Some("Hand written"));
         assert!(series.manually_edited);
@@ -5264,15 +4515,9 @@ mod tests {
         let jobs = MockJobStore::new();
         let svc = enricher(catalog.clone(), None, jobs.clone());
 
-        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Movie(MovieId("m1".into())), None, false, None).await.unwrap();
 
-        let movie = catalog
-            .get_movie(&MovieId("m1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let movie = catalog.get_movie(&MovieId("m1".into())).await.unwrap().unwrap();
         assert_eq!(movie.overview.as_deref(), Some("Keep me"));
         assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 0);
     }
@@ -5324,10 +4569,7 @@ mod tests {
     fn season_refresh_provider() -> MockProvider {
         let metadata = TitleMetadata {
             title: "Show".into(),
-            external_ids: vec![ExternalId {
-                source: "tmdb".into(),
-                value: "tv/99".into(),
-            }],
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "tv/99".into() }],
             ..TitleMetadata::default()
         };
         let season = SeasonArtwork {
@@ -5344,32 +4586,20 @@ mod tests {
                 artwork: Vec::new(),
             }],
         };
-        MockProvider {
-            mode: ProviderMode::Season(Box::new(metadata), season),
-        }
+        MockProvider { mode: ProviderMode::Season(Box::new(metadata), season) }
     }
 
     async fn only_episode(catalog: &MockCatalogRepo) -> Episode {
-        catalog
-            .list_episodes(&SeasonId("s1-1".into()))
-            .await
-            .unwrap()[0]
-            .clone()
+        catalog.list_episodes(&SeasonId("s1-1".into())).await.unwrap()[0].clone()
     }
 
     #[tokio::test]
     async fn a_non_force_refresh_leaves_an_edited_episode_row_alone() {
         let catalog = MockCatalogRepo::new();
         seed_flagged_episode_show(&catalog, true).await;
-        let svc = enricher(
-            catalog.clone(),
-            Some(season_refresh_provider()),
-            MockJobStore::new(),
-        );
+        let svc = enricher(catalog.clone(), Some(season_refresh_provider()), MockJobStore::new());
 
-        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None).await.unwrap();
 
         let episode = only_episode(&catalog).await;
         assert_eq!(episode.title, "Hand Written");
@@ -5389,15 +4619,9 @@ mod tests {
     async fn a_series_force_refresh_clears_every_episode_flag_beneath_it() {
         let catalog = MockCatalogRepo::new();
         seed_flagged_episode_show(&catalog, true).await;
-        let svc = enricher(
-            catalog.clone(),
-            Some(season_refresh_provider()),
-            MockJobStore::new(),
-        );
+        let svc = enricher(catalog.clone(), Some(season_refresh_provider()), MockJobStore::new());
 
-        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, true, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, true, None).await.unwrap();
 
         let episode = only_episode(&catalog).await;
         assert_eq!(episode.title, "Ep One");
@@ -5410,15 +4634,9 @@ mod tests {
     async fn an_unedited_episode_refreshes_normally() {
         let catalog = MockCatalogRepo::new();
         seed_flagged_episode_show(&catalog, false).await;
-        let svc = enricher(
-            catalog.clone(),
-            Some(season_refresh_provider()),
-            MockJobStore::new(),
-        );
+        let svc = enricher(catalog.clone(), Some(season_refresh_provider()), MockJobStore::new());
 
-        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None)
-            .await
-            .unwrap();
+        svc.refresh(&TitleRef::Series(SeriesId("s1".into())), None, false, None).await.unwrap();
 
         let episode = only_episode(&catalog).await;
         assert_eq!(episode.title, "Ep One");
@@ -5430,17 +4648,8 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         let svc = enricher(catalog.clone(), None, MockJobStore::new());
 
-        svc.refresh(&TitleRef::Movie(MovieId("ghost".into())), None, false, None)
-            .await
-            .unwrap();
-        svc.refresh(
-            &TitleRef::Series(SeriesId("ghost".into())),
-            None,
-            false,
-            None,
-        )
-        .await
-        .unwrap();
+        svc.refresh(&TitleRef::Movie(MovieId("ghost".into())), None, false, None).await.unwrap();
+        svc.refresh(&TitleRef::Series(SeriesId("ghost".into())), None, false, None).await.unwrap();
 
         assert_eq!(catalog.list_movies(page()).await.unwrap().total, 0);
         assert_eq!(catalog.list_series(page()).await.unwrap().total, 0);
@@ -5455,13 +4664,7 @@ mod tests {
 
     #[test]
     fn derive_id_is_deterministic_and_distinct_per_kind() {
-        assert_eq!(
-            derive_id("movie", "the matrix:1999"),
-            derive_id("movie", "the matrix:1999")
-        );
-        assert_ne!(
-            derive_id("movie", "the matrix:1999"),
-            derive_id("series", "the matrix:1999")
-        );
+        assert_eq!(derive_id("movie", "the matrix:1999"), derive_id("movie", "the matrix:1999"));
+        assert_ne!(derive_id("movie", "the matrix:1999"), derive_id("series", "the matrix:1999"));
     }
 }

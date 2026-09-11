@@ -132,10 +132,7 @@ where
     }
 
     pub async fn run_once(&self, now: Timestamp) -> Result<usize, RepositoryError> {
-        let jobs = self
-            .repo
-            .claim_ready(now, self.limit, self.kinds.clone())
-            .await?;
+        let jobs = self.repo.claim_ready(now, self.limit, self.kinds.clone()).await?;
         let semaphore = Arc::new(Semaphore::new(self.limit.max(1)));
         let mut tasks: JoinSet<(Job, Outcome)> = JoinSet::new();
         for job in jobs {
@@ -150,20 +147,12 @@ where
                 let _permit = permit;
                 let span = tracing::info_span!("job", job_id = %job.id.0, kind = ?job.kind);
                 let _ = log
-                    .append(
-                        &job.id,
-                        now,
-                        JobLogLevel::Info,
-                        &format!("started {:?}", job.kind),
-                    )
+                    .append(&job.id, now, JobLogLevel::Info, &format!("started {:?}", job.kind))
                     .await;
                 let started = std::time::Instant::now();
                 let active = ActiveJob::start(job.kind);
-                let outcome = drive(
-                    Box::pin(handler.handle(&job).instrument(span)),
-                    &mut cancelled,
-                )
-                .await;
+                let outcome =
+                    drive(Box::pin(handler.handle(&job).instrument(span)), &mut cancelled).await;
                 finish_job(&*log, &job, active, started, now, &outcome).await;
                 (job, outcome)
             });
@@ -174,9 +163,7 @@ where
             self.cancel.deregister(&job.id);
             match outcome {
                 Outcome::Done(result) => {
-                    self.repo
-                        .update(apply_outcome(job, result, now, &self.policy))
-                        .await?;
+                    self.repo.update(apply_outcome(job, result, now, &self.policy)).await?;
                 }
                 Outcome::Cancelled => {
                     let mut job = job;
@@ -273,10 +260,7 @@ mod tests {
     async fn run_once_processes_success() {
         let now = Timestamp::now();
         let store = MockJobStore::new();
-        store
-            .enqueue(job("a", JobPriority::Normal, now))
-            .await
-            .unwrap();
+        store.enqueue(job("a", JobPriority::Normal, now)).await.unwrap();
         let log = MockJobLogStore::new();
         let worker = Worker::new(
             store.clone(),
@@ -301,10 +285,7 @@ mod tests {
     async fn run_once_requeues_retryable() {
         let now = Timestamp::now();
         let store = MockJobStore::new();
-        store
-            .enqueue(job("a", JobPriority::Normal, now))
-            .await
-            .unwrap();
+        store.enqueue(job("a", JobPriority::Normal, now)).await.unwrap();
         let log = MockJobLogStore::new();
         let worker = Worker::new(
             store.clone(),
@@ -331,10 +312,7 @@ mod tests {
     async fn run_once_fails_permanent() {
         let now = Timestamp::now();
         let store = MockJobStore::new();
-        store
-            .enqueue(job("a", JobPriority::Normal, now))
-            .await
-            .unwrap();
+        store.enqueue(job("a", JobPriority::Normal, now)).await.unwrap();
         let log = MockJobLogStore::new();
         let worker = Worker::new(
             store.clone(),
@@ -359,10 +337,7 @@ mod tests {
         let now = Timestamp::now();
         let store = MockJobStore::new();
         for i in 0..5 {
-            store
-                .enqueue(job(&format!("j{i}"), JobPriority::Normal, now))
-                .await
-                .unwrap();
+            store.enqueue(job(&format!("j{i}"), JobPriority::Normal, now)).await.unwrap();
         }
         let worker = Worker::new(
             store.clone(),
@@ -388,10 +363,7 @@ mod tests {
     async fn worker_claims_only_its_own_kinds() {
         let now = Timestamp::now();
         let store = MockJobStore::new();
-        store
-            .enqueue(job("scan", JobPriority::Normal, now))
-            .await
-            .unwrap();
+        store.enqueue(job("scan", JobPriority::Normal, now)).await.unwrap();
         let mut transcribe = job("transcribe", JobPriority::High, now);
         transcribe.kind = JobKind::Transcription;
         store.enqueue(transcribe).await.unwrap();
@@ -406,21 +378,11 @@ mod tests {
 
         assert_eq!(worker.run_once(now).await.unwrap(), 1);
         assert_eq!(
-            store
-                .get(&JobId("scan".into()))
-                .await
-                .unwrap()
-                .unwrap()
-                .status,
+            store.get(&JobId("scan".into())).await.unwrap().unwrap().status,
             JobStatus::Succeeded
         );
         assert_eq!(
-            store
-                .get(&JobId("transcribe".into()))
-                .await
-                .unwrap()
-                .unwrap()
-                .status,
+            store.get(&JobId("transcribe".into())).await.unwrap().unwrap().status,
             JobStatus::Queued
         );
     }
@@ -429,10 +391,7 @@ mod tests {
     async fn run_drives_until_shutdown() {
         let now = Timestamp::now();
         let store = MockJobStore::new();
-        store
-            .enqueue(job("a", JobPriority::Normal, now))
-            .await
-            .unwrap();
+        store.enqueue(job("a", JobPriority::Normal, now)).await.unwrap();
         let worker = Worker::new(
             store.clone(),
             Arc::new(OkHandler),
@@ -462,10 +421,7 @@ mod tests {
         let now = Timestamp::now();
         let store = MockJobStore::new();
         for i in 0..50 {
-            store
-                .enqueue(job(&format!("j{i:02}"), JobPriority::Normal, now))
-                .await
-                .unwrap();
+            store.enqueue(job(&format!("j{i:02}"), JobPriority::Normal, now)).await.unwrap();
         }
         let worker = Worker::new(
             store.clone(),
@@ -498,10 +454,7 @@ mod tests {
         let now = Timestamp::now();
         let store = MockJobStore::new();
         for i in 0..50 {
-            store
-                .enqueue(job(&format!("j{i:02}"), JobPriority::Normal, now))
-                .await
-                .unwrap();
+            store.enqueue(job(&format!("j{i:02}"), JobPriority::Normal, now)).await.unwrap();
         }
         let worker = Worker::new(
             store.clone(),
@@ -540,9 +493,7 @@ mod tests {
         let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
         let handle = recorder.handle();
         metrics::with_local_recorder(&recorder, || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .build()
-                .unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
             rt.block_on(work());
         });
         handle.render()
@@ -553,10 +504,7 @@ mod tests {
         let rendered = recorded(|| async {
             let now = Timestamp::now();
             let store = MockJobStore::new();
-            store
-                .enqueue(job("a", JobPriority::Normal, now))
-                .await
-                .unwrap();
+            store.enqueue(job("a", JobPriority::Normal, now)).await.unwrap();
             let worker = Worker::new(
                 store,
                 Arc::new(OkHandler),
@@ -579,10 +527,7 @@ mod tests {
         let rendered = recorded(|| async {
             let now = Timestamp::now();
             let store = MockJobStore::new();
-            store
-                .enqueue(job("a", JobPriority::Normal, now))
-                .await
-                .unwrap();
+            store.enqueue(job("a", JobPriority::Normal, now)).await.unwrap();
             let worker = Worker::new(
                 store,
                 Arc::new(PermanentHandler),
@@ -626,19 +571,13 @@ mod tests {
 
         let now = Timestamp::now();
         let store = MockJobStore::new();
-        store
-            .enqueue(job("a", JobPriority::Normal, now))
-            .await
-            .unwrap();
+        store.enqueue(job("a", JobPriority::Normal, now)).await.unwrap();
         let registry = CancelRegistry::default();
         let started = Arc::new(Notify::new());
         let dropped = Arc::new(AtomicBool::new(false));
         let worker = Worker::new(
             store.clone(),
-            Arc::new(ParkHandler {
-                started: started.clone(),
-                dropped: dropped.clone(),
-            }),
+            Arc::new(ParkHandler { started: started.clone(), dropped: dropped.clone() }),
             MockJobLogStore::new(),
             4,
             RetryPolicy::default(),
@@ -652,10 +591,7 @@ mod tests {
         let processed = run.await.unwrap().unwrap();
 
         assert_eq!(processed, 1);
-        assert!(
-            dropped.load(Ordering::SeqCst),
-            "handler future should be dropped on cancel"
-        );
+        assert!(dropped.load(Ordering::SeqCst), "handler future should be dropped on cancel");
         let stored = store.get(&JobId("a".into())).await.unwrap().unwrap();
         assert_eq!(stored.status, JobStatus::Cancelled);
         assert!(stored.finished_at.is_some());

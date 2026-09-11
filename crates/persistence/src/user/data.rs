@@ -12,10 +12,7 @@ pub struct SqliteUserData {
 
 impl SqliteUserData {
     pub fn new(progress: SqliteProgressRepo, preferences: SqlitePreferencesRepo) -> Self {
-        Self {
-            progress,
-            preferences,
-        }
+        Self { progress, preferences }
     }
 }
 
@@ -42,10 +39,7 @@ mod tests {
         assert!(dir.path().join("u1").join("progress.db").exists());
         assert!(dir.path().join("u1").join("prefs.db").exists());
 
-        SqliteUserData::new(progress, preferences)
-            .purge(&user)
-            .await
-            .unwrap();
+        SqliteUserData::new(progress, preferences).purge(&user).await.unwrap();
 
         assert!(!dir.path().join("u1").exists());
     }

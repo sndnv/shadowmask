@@ -30,10 +30,7 @@ pub(crate) async fn list_dirs(root: &Path) -> Result<Vec<DerivedAssetDir>, Cache
         let Some(owner) = entry.file_name().to_str().map(str::to_owned) else {
             continue;
         };
-        dirs.push(DerivedAssetDir {
-            owner,
-            modified_at: modified_at(&meta),
-        });
+        dirs.push(DerivedAssetDir { owner, modified_at: modified_at(&meta) });
     }
     Ok(dirs)
 }
@@ -59,10 +56,7 @@ pub(crate) async fn list_files(
         let Some(path) = entry.path().to_str().map(str::to_owned) else {
             continue;
         };
-        files.push(DerivedAssetFile {
-            path,
-            modified_at: modified_at(&meta),
-        });
+        files.push(DerivedAssetFile { path, modified_at: modified_at(&meta) });
     }
     Ok(files)
 }
@@ -92,9 +86,7 @@ fn is_inside(root: &Path, target: &Path) -> bool {
 
 pub(crate) async fn remove_dir(root: &Path, owner: &str) -> Result<(), CacheError> {
     if !is_plain_name(owner) {
-        return Err(io(format!(
-            "refusing to remove suspicious directory {owner}"
-        )));
+        return Err(io(format!("refusing to remove suspicious directory {owner}")));
     }
     match tokio::fs::remove_dir_all(root.join(owner)).await {
         Ok(()) => Ok(()),
@@ -132,12 +124,8 @@ mod tests {
     #[tokio::test]
     async fn lists_only_directories_and_removes_by_owner() {
         let root = tempfile::tempdir().unwrap();
-        tokio::fs::create_dir(root.path().join("owner-a"))
-            .await
-            .unwrap();
-        tokio::fs::write(root.path().join("loose.txt"), b"x")
-            .await
-            .unwrap();
+        tokio::fs::create_dir(root.path().join("owner-a")).await.unwrap();
+        tokio::fs::write(root.path().join("loose.txt"), b"x").await.unwrap();
 
         let dirs = list_dirs(root.path()).await.unwrap();
         assert_eq!(dirs.len(), 1);
@@ -167,28 +155,17 @@ mod tests {
         tokio::fs::write(owner.join("42.srt"), b"x").await.unwrap();
         tokio::fs::create_dir(owner.join("nested")).await.unwrap();
         tokio::fs::create_dir(root.path().join("v2")).await.unwrap();
-        tokio::fs::write(root.path().join("v2/99.srt"), b"x")
-            .await
-            .unwrap();
+        tokio::fs::write(root.path().join("v2/99.srt"), b"x").await.unwrap();
 
         let files = list_files(root.path(), "v1").await.unwrap();
-        assert_eq!(
-            files.len(),
-            1,
-            "directories and other owners are not listed"
-        );
+        assert_eq!(files.len(), 1, "directories and other owners are not listed");
         assert!(files[0].path.ends_with("42.srt"));
     }
 
     #[tokio::test]
     async fn listing_a_missing_owner_is_empty_and_traversal_is_refused() {
         let root = tempfile::tempdir().unwrap();
-        assert!(
-            list_files(root.path(), "never-created")
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        assert!(list_files(root.path(), "never-created").await.unwrap().is_empty());
         assert!(list_files(root.path(), "../etc").await.is_err());
     }
 
@@ -202,16 +179,10 @@ mod tests {
         let outside = root.path().parent().unwrap().join("outside.srt");
         tokio::fs::write(&outside, b"x").await.unwrap();
 
-        remove_file(root.path(), target.to_str().unwrap())
-            .await
-            .unwrap();
+        remove_file(root.path(), target.to_str().unwrap()).await.unwrap();
         assert!(!target.exists());
 
-        assert!(
-            remove_file(root.path(), outside.to_str().unwrap())
-                .await
-                .is_err()
-        );
+        assert!(remove_file(root.path(), outside.to_str().unwrap()).await.is_err());
         assert!(outside.exists(), "a path outside the root is never deleted");
         assert!(
             remove_file(root.path(), root.path().join("../escape").to_str().unwrap())
@@ -220,9 +191,7 @@ mod tests {
             "a traversal that textually starts with the root is still refused"
         );
         assert!(
-            remove_file(root.path(), root.path().to_str().unwrap())
-                .await
-                .is_err(),
+            remove_file(root.path(), root.path().to_str().unwrap()).await.is_err(),
             "the root itself is not a file the sweep may remove"
         );
         tokio::fs::remove_file(&outside).await.unwrap();
@@ -239,11 +208,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let owner = root.path().join("v1");
         tokio::fs::create_dir(&owner).await.unwrap();
-        assert!(
-            remove_file(root.path(), owner.to_str().unwrap())
-                .await
-                .is_err()
-        );
+        assert!(remove_file(root.path(), owner.to_str().unwrap()).await.is_err());
         assert!(owner.exists());
     }
 
@@ -252,9 +217,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let owner = root.path().join("v1");
         tokio::fs::create_dir(&owner).await.unwrap();
-        remove_file(root.path(), owner.join("missing.srt").to_str().unwrap())
-            .await
-            .unwrap();
+        remove_file(root.path(), owner.join("missing.srt").to_str().unwrap()).await.unwrap();
     }
 
     #[tokio::test]
@@ -262,11 +225,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let victim = root.path().join("keep");
         tokio::fs::create_dir(&victim).await.unwrap();
-        assert!(
-            remove_dir(&root.path().join("sub"), "../keep")
-                .await
-                .is_err()
-        );
+        assert!(remove_dir(&root.path().join("sub"), "../keep").await.is_err());
         assert!(victim.exists());
     }
 }

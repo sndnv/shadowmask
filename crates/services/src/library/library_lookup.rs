@@ -7,15 +7,9 @@ pub async fn version_library<C>(catalog: &C, title: &TitleId) -> Option<LibraryI
 where
     C: CatalogRepository + Sync,
 {
-    let first = PageRequest {
-        offset: 0,
-        limit: 1,
-    };
+    let first = PageRequest { offset: 0, limit: 1 };
     let versions = catalog.list_versions(title, first).await.ok()?;
-    versions
-        .items
-        .first()
-        .map(|version| version.library.clone())
+    versions.items.first().map(|version| version.library.clone())
 }
 
 pub async fn series_library<C>(catalog: &C, series: &SeriesId) -> Option<LibraryId>

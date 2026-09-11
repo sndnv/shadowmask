@@ -12,10 +12,7 @@ pub struct GenreDto {
 
 impl From<Genre> for GenreDto {
     fn from(g: Genre) -> Self {
-        GenreDto {
-            id: g.id.0,
-            name: g.name,
-        }
+        GenreDto { id: g.id.0, name: g.name }
     }
 }
 
@@ -27,10 +24,7 @@ pub struct StudioDto {
 
 impl From<Studio> for StudioDto {
     fn from(s: Studio) -> Self {
-        StudioDto {
-            id: s.id.0,
-            name: s.name,
-        }
+        StudioDto { id: s.id.0, name: s.name }
     }
 }
 
@@ -42,10 +36,7 @@ pub struct RatingDto {
 
 impl From<Rating> for RatingDto {
     fn from(r: Rating) -> Self {
-        RatingDto {
-            source: r.source,
-            value: r.value,
-        }
+        RatingDto { source: r.source, value: r.value }
     }
 }
 
@@ -57,10 +48,7 @@ pub struct ExternalIdDto {
 
 impl From<ExternalId> for ExternalIdDto {
     fn from(e: ExternalId) -> Self {
-        ExternalIdDto {
-            source: e.source,
-            value: e.value,
-        }
+        ExternalIdDto { source: e.source, value: e.value }
     }
 }
 
@@ -90,10 +78,7 @@ pub struct PersonRefDto {
 
 impl From<Person> for PersonRefDto {
     fn from(p: Person) -> Self {
-        PersonRefDto {
-            id: p.id.0,
-            name: p.name,
-        }
+        PersonRefDto { id: p.id.0, name: p.name }
     }
 }
 
@@ -142,10 +127,7 @@ pub struct ExtraDto {
 
 impl From<Extra> for ExtraDto {
     fn from(e: Extra) -> Self {
-        ExtraDto {
-            kind: e.kind.into(),
-            title: e.title,
-        }
+        ExtraDto { kind: e.kind.into(), title: e.title }
     }
 }
 
@@ -215,11 +197,8 @@ mod tests {
             json!({"id": "st1", "name": "Acme"})
         );
         assert_eq!(
-            serde_json::to_value(RatingDto::from(Rating {
-                source: "tmdb".into(),
-                value: 8.5,
-            }))
-            .unwrap(),
+            serde_json::to_value(RatingDto::from(Rating { source: "tmdb".into(), value: 8.5 }))
+                .unwrap(),
             json!({"source": "tmdb", "value": 8.5})
         );
         assert_eq!(

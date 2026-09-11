@@ -10,10 +10,7 @@ pub struct LinkCodeResponse {
 
 impl From<PendingLink> for LinkCodeResponse {
     fn from(link: PendingLink) -> Self {
-        LinkCodeResponse {
-            code: link.code,
-            expires_at: link.expires_at.to_string(),
-        }
+        LinkCodeResponse { code: link.code, expires_at: link.expires_at.to_string() }
     }
 }
 

@@ -29,10 +29,7 @@ fn library(id: &str) -> Library {
 }
 
 fn page() -> PageRequest {
-    PageRequest {
-        offset: 0,
-        limit: 10,
-    }
+    PageRequest { offset: 0, limit: 10 }
 }
 
 pub async fn library_repository_contract<R: LibraryRepository>(repo: R) {
@@ -47,13 +44,7 @@ pub async fn library_repository_contract<R: LibraryRepository>(repo: R) {
     assert!(empty.items.is_empty());
     assert_eq!(empty.offset, 0);
     assert_eq!(empty.limit, 10);
-    assert!(
-        repo.list_duplicates(&id, page())
-            .await
-            .unwrap()
-            .items
-            .is_empty()
-    );
+    assert!(repo.list_duplicates(&id, page()).await.unwrap().items.is_empty());
 
     repo.upsert(library("lib1")).await.unwrap();
     assert_eq!(repo.list().await.unwrap().len(), 1);
@@ -101,42 +92,17 @@ pub async fn library_repository_contract<R: LibraryRepository>(repo: R) {
     assert_eq!(fetched.path, "/media/x.mkv");
     assert_eq!(fetched.candidates.len(), 1);
     assert_eq!(fetched.candidates[0].label, "Alpha");
-    assert!(
-        repo.get_unmatched(&UnmatchedFileId("ghost".into()))
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(repo.get_unmatched(&UnmatchedFileId("ghost".into())).await.unwrap().is_none());
 
-    repo.set_unmatched_status(&unmatched_id, ResolutionStatus::Resolved)
-        .await
-        .unwrap();
-    repo.set_duplicate_status(&dup_id, ResolutionStatus::Dismissed)
-        .await
-        .unwrap();
-    assert!(
-        repo.list_unmatched(&id, page())
-            .await
-            .unwrap()
-            .items
-            .is_empty()
-    );
-    assert!(
-        repo.list_duplicates(&id, page())
-            .await
-            .unwrap()
-            .items
-            .is_empty()
-    );
+    repo.set_unmatched_status(&unmatched_id, ResolutionStatus::Resolved).await.unwrap();
+    repo.set_duplicate_status(&dup_id, ResolutionStatus::Dismissed).await.unwrap();
+    assert!(repo.list_unmatched(&id, page()).await.unwrap().items.is_empty());
+    assert!(repo.list_duplicates(&id, page()).await.unwrap().items.is_empty());
 
     repo.insert_unmatched(unmatched(Vec::new())).await.unwrap();
     repo.insert_duplicate(&id, duplicate()).await.unwrap();
     assert!(
-        repo.list_unmatched(&id, page())
-            .await
-            .unwrap()
-            .items
-            .is_empty(),
+        repo.list_unmatched(&id, page()).await.unwrap().items.is_empty(),
         "re-reading a filename the matcher still cannot parse carries no new information"
     );
     assert_eq!(
@@ -145,17 +111,11 @@ pub async fn library_repository_contract<R: LibraryRepository>(repo: R) {
         "re-detection proves both files are still there, so a dismissal is lifted"
     );
 
-    repo.set_unmatched_status(&unmatched_id, ResolutionStatus::Active)
-        .await
-        .unwrap();
+    repo.set_unmatched_status(&unmatched_id, ResolutionStatus::Active).await.unwrap();
     assert_eq!(repo.list_unmatched(&id, page()).await.unwrap().total, 1);
 
-    repo.reconcile_duplicates(&id, std::slice::from_ref(&dup_id))
-        .await
-        .unwrap();
-    repo.reconcile_unmatched(&id, &["/media/x.mkv".to_owned()])
-        .await
-        .unwrap();
+    repo.reconcile_duplicates(&id, std::slice::from_ref(&dup_id)).await.unwrap();
+    repo.reconcile_unmatched(&id, &["/media/x.mkv".to_owned()]).await.unwrap();
     assert_eq!(repo.list_unmatched(&id, page()).await.unwrap().total, 1);
     assert_eq!(repo.list_duplicates(&id, page()).await.unwrap().total, 1);
 
@@ -209,18 +169,6 @@ pub async fn library_repository_contract<R: LibraryRepository>(repo: R) {
     assert!(repo.get(&id).await.unwrap().is_none());
     assert!(repo.list().await.unwrap().is_empty());
     assert!(repo.scan_state(&id).await.unwrap().is_none());
-    assert!(
-        repo.list_unmatched(&id, page())
-            .await
-            .unwrap()
-            .items
-            .is_empty()
-    );
-    assert!(
-        repo.list_duplicates(&id, page())
-            .await
-            .unwrap()
-            .items
-            .is_empty()
-    );
+    assert!(repo.list_unmatched(&id, page()).await.unwrap().items.is_empty());
+    assert!(repo.list_duplicates(&id, page()).await.unwrap().items.is_empty());
 }

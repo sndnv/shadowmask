@@ -47,10 +47,7 @@ pub trait ProcessSpawner: Send + Sync {
     ) -> impl Future<Output = io::Result<CommandOutput>> + Send {
         async move {
             let success = self.run(program, args).await?;
-            Ok(CommandOutput {
-                success,
-                ..CommandOutput::default()
-            })
+            Ok(CommandOutput { success, ..CommandOutput::default() })
         }
     }
 
@@ -79,10 +76,7 @@ mod tests {
 
     #[test]
     fn failure_detail_tails_stderr_to_the_last_lines() {
-        let stderr = (0..20)
-            .map(|i| format!("L{i}"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let stderr = (0..20).map(|i| format!("L{i}")).collect::<Vec<_>>().join("\n");
         let detail = CommandOutput {
             success: false,
             stderr,
@@ -130,17 +124,11 @@ mod tests {
             ..CommandOutput::default()
         }
         .failure_detail(15);
-        assert_eq!(
-            detail,
-            "no diagnostic output captured (terminated by signal 4)"
-        );
+        assert_eq!(detail, "no diagnostic output captured (terminated by signal 4)");
     }
 
     #[test]
     fn failure_detail_without_output_or_status_is_labelled() {
-        assert_eq!(
-            CommandOutput::default().failure_detail(15),
-            "no diagnostic output captured"
-        );
+        assert_eq!(CommandOutput::default().failure_detail(15), "no diagnostic output captured");
     }
 }

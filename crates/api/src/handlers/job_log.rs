@@ -44,10 +44,7 @@ pub async fn read<J: JobLogStore>(
         lines = lines.split_off(lines.len() - limit);
     }
     let count = lines.len();
-    debug!(
-        "User [{}] read {count} job log lines for [{}]",
-        principal.user.0, job.0
-    );
+    debug!("User [{}] read {count} job log lines for [{}]", principal.user.0, job.0);
     Ok(Json(JobLogResponse { lines }))
 }
 

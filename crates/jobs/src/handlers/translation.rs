@@ -19,11 +19,7 @@ pub struct TranslationJobHandler<P, C, S> {
 
 impl<P, C, S> TranslationJobHandler<P, C, S> {
     pub fn new(provider: P, catalog: C, store: S) -> Self {
-        Self {
-            provider,
-            catalog,
-            store,
-        }
+        Self { provider, catalog, store }
     }
 }
 
@@ -81,11 +77,8 @@ where
                 source_language: source.language.clone(),
                 target_language: target_language.clone(),
             };
-            let source_language = source
-                .language
-                .as_ref()
-                .map(|code| code.0.as_str())
-                .unwrap_or("unknown");
+            let source_language =
+                source.language.as_ref().map(|code| code.0.as_str()).unwrap_or("unknown");
             tracing::info!(
                 "translating version [{}] subtitle [{}] ({}) to [{}]",
                 payload.version_id.0,
@@ -152,23 +145,16 @@ where
 
 fn has_language(files: &[SubtitleFile], language: &LanguageCode) -> bool {
     files.iter().any(|file| {
-        matches!(
-            file.source,
-            SubtitleSource::External | SubtitleSource::MachineTranslated
-        ) && file.language.as_ref() == Some(language)
+        matches!(file.source, SubtitleSource::External | SubtitleSource::MachineTranslated)
+            && file.language.as_ref() == Some(language)
     })
 }
 
 fn pick_source<'a>(files: &'a [SubtitleFile], target: &LanguageCode) -> Option<&'a SubtitleFile> {
-    const ORDER: [SubtitleSource; 3] = [
-        SubtitleSource::External,
-        SubtitleSource::OpenSubtitles,
-        SubtitleSource::Generated,
-    ];
+    const ORDER: [SubtitleSource; 3] =
+        [SubtitleSource::External, SubtitleSource::OpenSubtitles, SubtitleSource::Generated];
     ORDER.into_iter().find_map(|source| {
-        files
-            .iter()
-            .find(|file| file.source == source && file.language.as_ref() != Some(target))
+        files.iter().find(|file| file.source == source && file.language.as_ref() != Some(target))
     })
 }
 
@@ -211,10 +197,9 @@ mod tests {
                     ),
                     format: SubtitleFormat::Vtt,
                 }),
-                ProviderMode::Empty => Ok(FetchedSubtitle {
-                    content: "WEBVTT\n".into(),
-                    format: SubtitleFormat::Vtt,
-                }),
+                ProviderMode::Empty => {
+                    Ok(FetchedSubtitle { content: "WEBVTT\n".into(), format: SubtitleFormat::Vtt })
+                }
                 ProviderMode::Unsupported => Err(TranslationError::Unsupported("no engine".into())),
                 ProviderMode::Backend => Err(TranslationError::Backend("boom".into())),
             }
@@ -329,20 +314,12 @@ mod tests {
     async fn seed(catalog: &MockCatalogRepo, files: &[SubtitleFile]) {
         catalog.add_version(version());
         if !files.is_empty() {
-            catalog
-                .set_subtitle_files(&VersionId("v1".into()), files)
-                .await
-                .unwrap();
+            catalog.set_subtitle_files(&VersionId("v1".into()), files).await.unwrap();
         }
     }
 
     async fn files_of(catalog: &MockCatalogRepo) -> Vec<SubtitleFile> {
-        catalog
-            .version_detail(&VersionId("v1".into()))
-            .await
-            .unwrap()
-            .unwrap()
-            .subtitle_files
+        catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap().subtitle_files
     }
 
     fn handler(
@@ -370,28 +347,16 @@ mod tests {
 
         let files = files_of(&catalog).await;
         assert_eq!(files.len(), 3);
-        assert!(
-            files
-                .iter()
-                .any(|f| f.source == SubtitleSource::MachineTranslated
-                    && f.language == Some(LanguageCode("fr".into())))
-        );
-        assert!(
-            files
-                .iter()
-                .any(|f| f.source == SubtitleSource::OpenSubtitles
-                    && f.language == Some(LanguageCode("fr".into())))
-        );
+        assert!(files.iter().any(|f| f.source == SubtitleSource::MachineTranslated
+            && f.language == Some(LanguageCode("fr".into()))));
+        assert!(files.iter().any(|f| f.source == SubtitleSource::OpenSubtitles
+            && f.language == Some(LanguageCode("fr".into()))));
     }
 
     #[tokio::test]
     async fn records_translation_source_provenance() {
         let catalog = MockCatalogRepo::new();
-        seed(
-            &catalog,
-            &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))],
-        )
-        .await;
+        seed(&catalog, &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))]).await;
         let handler = handler(ProviderMode::Ok, catalog.clone(), MockStore::default());
 
         handler.handle(&job(payload(&["fr"]))).await.unwrap();
@@ -407,77 +372,46 @@ mod tests {
     #[tokio::test]
     async fn empty_translation_is_not_stored() {
         let catalog = MockCatalogRepo::new();
-        seed(
-            &catalog,
-            &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))],
-        )
-        .await;
+        seed(&catalog, &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))]).await;
         let store = MockStore::default();
         let handler = handler(
             ProviderMode::Empty,
             catalog.clone(),
-            MockStore {
-                stored: store.stored.clone(),
-                ..MockStore::default()
-            },
+            MockStore { stored: store.stored.clone(), ..MockStore::default() },
         );
 
         handler.handle(&job(payload(&["fr"]))).await.unwrap();
 
         assert!(store.stored.lock().unwrap().is_empty());
         assert!(
-            files_of(&catalog)
-                .await
-                .iter()
-                .all(|f| f.source != SubtitleSource::MachineTranslated)
+            files_of(&catalog).await.iter().all(|f| f.source != SubtitleSource::MachineTranslated)
         );
     }
 
     #[tokio::test]
     async fn explicit_source_translates_even_when_auto_pick_would_skip() {
         let catalog = MockCatalogRepo::new();
-        seed(
-            &catalog,
-            &[sub("gen-de", SubtitleSource::Generated, Some("de"))],
-        )
-        .await;
+        seed(&catalog, &[sub("gen-de", SubtitleSource::Generated, Some("de"))]).await;
         let handler = handler(ProviderMode::Ok, catalog.clone(), MockStore::default());
 
-        handler
-            .handle(&job(payload_with_source("gen-de", "de")))
-            .await
-            .unwrap();
+        handler.handle(&job(payload_with_source("gen-de", "de"))).await.unwrap();
 
         let files = files_of(&catalog).await;
-        assert!(
-            files
-                .iter()
-                .any(|f| f.source == SubtitleSource::MachineTranslated)
-        );
+        assert!(files.iter().any(|f| f.source == SubtitleSource::MachineTranslated));
     }
 
     #[tokio::test]
     async fn explicit_source_missing_is_a_noop() {
         let catalog = MockCatalogRepo::new();
-        seed(
-            &catalog,
-            &[sub("gen-de", SubtitleSource::Generated, Some("de"))],
-        )
-        .await;
+        seed(&catalog, &[sub("gen-de", SubtitleSource::Generated, Some("de"))]).await;
         let store = MockStore::default();
         let handler = handler(
             ProviderMode::Ok,
             catalog.clone(),
-            MockStore {
-                stored: store.stored.clone(),
-                ..MockStore::default()
-            },
+            MockStore { stored: store.stored.clone(), ..MockStore::default() },
         );
 
-        handler
-            .handle(&job(payload_with_source("absent", "de")))
-            .await
-            .unwrap();
+        handler.handle(&job(payload_with_source("absent", "de"))).await.unwrap();
 
         assert!(store.stored.lock().unwrap().is_empty());
         assert_eq!(files_of(&catalog).await.len(), 1);
@@ -492,29 +426,18 @@ mod tests {
         handler.handle(&job(payload(&["fr"]))).await.unwrap();
 
         let files = files_of(&catalog).await;
-        assert!(
-            files
-                .iter()
-                .any(|f| f.source == SubtitleSource::MachineTranslated)
-        );
+        assert!(files.iter().any(|f| f.source == SubtitleSource::MachineTranslated));
     }
 
     #[tokio::test]
     async fn skips_target_with_native_subtitle() {
         let catalog = MockCatalogRepo::new();
-        seed(
-            &catalog,
-            &[sub("ext", SubtitleSource::External, Some("fr"))],
-        )
-        .await;
+        seed(&catalog, &[sub("ext", SubtitleSource::External, Some("fr"))]).await;
         let store = MockStore::default();
         let handler = handler(
             ProviderMode::Ok,
             catalog.clone(),
-            MockStore {
-                stored: store.stored.clone(),
-                ..MockStore::default()
-            },
+            MockStore { stored: store.stored.clone(), ..MockStore::default() },
         );
 
         handler.handle(&job(payload(&["fr"]))).await.unwrap();
@@ -538,10 +461,7 @@ mod tests {
         let handler = handler(
             ProviderMode::Ok,
             catalog.clone(),
-            MockStore {
-                stored: store.stored.clone(),
-                ..MockStore::default()
-            },
+            MockStore { stored: store.stored.clone(), ..MockStore::default() },
         );
 
         handler.handle(&job(payload(&["fr"]))).await.unwrap();
@@ -552,19 +472,12 @@ mod tests {
     #[tokio::test]
     async fn skips_target_without_any_source() {
         let catalog = MockCatalogRepo::new();
-        seed(
-            &catalog,
-            &[sub("os-fr", SubtitleSource::OpenSubtitles, Some("fr"))],
-        )
-        .await;
+        seed(&catalog, &[sub("os-fr", SubtitleSource::OpenSubtitles, Some("fr"))]).await;
         let store = MockStore::default();
         let handler = handler(
             ProviderMode::Ok,
             catalog.clone(),
-            MockStore {
-                stored: store.stored.clone(),
-                ..MockStore::default()
-            },
+            MockStore { stored: store.stored.clone(), ..MockStore::default() },
         );
 
         handler.handle(&job(payload(&["fr"]))).await.unwrap();
@@ -575,35 +488,20 @@ mod tests {
     #[tokio::test]
     async fn unsupported_skips_target() {
         let catalog = MockCatalogRepo::new();
-        seed(
-            &catalog,
-            &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))],
-        )
-        .await;
-        let handler = handler(
-            ProviderMode::Unsupported,
-            catalog.clone(),
-            MockStore::default(),
-        );
+        seed(&catalog, &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))]).await;
+        let handler = handler(ProviderMode::Unsupported, catalog.clone(), MockStore::default());
 
         handler.handle(&job(payload(&["fr"]))).await.unwrap();
 
         assert!(
-            files_of(&catalog)
-                .await
-                .iter()
-                .all(|f| f.source != SubtitleSource::MachineTranslated)
+            files_of(&catalog).await.iter().all(|f| f.source != SubtitleSource::MachineTranslated)
         );
     }
 
     #[tokio::test]
     async fn backend_failure_is_retryable() {
         let catalog = MockCatalogRepo::new();
-        seed(
-            &catalog,
-            &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))],
-        )
-        .await;
+        seed(&catalog, &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))]).await;
         let handler = handler(ProviderMode::Backend, catalog, MockStore::default());
         assert!(matches!(
             handler.handle(&job(payload(&["fr"]))).await.unwrap_err(),
@@ -614,18 +512,11 @@ mod tests {
     #[tokio::test]
     async fn load_failure_is_retryable() {
         let catalog = MockCatalogRepo::new();
-        seed(
-            &catalog,
-            &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))],
-        )
-        .await;
+        seed(&catalog, &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))]).await;
         let handler = handler(
             ProviderMode::Ok,
             catalog,
-            MockStore {
-                load_fail: true,
-                ..MockStore::default()
-            },
+            MockStore { load_fail: true, ..MockStore::default() },
         );
         assert!(matches!(
             handler.handle(&job(payload(&["fr"]))).await.unwrap_err(),
@@ -636,18 +527,11 @@ mod tests {
     #[tokio::test]
     async fn store_failure_is_retryable() {
         let catalog = MockCatalogRepo::new();
-        seed(
-            &catalog,
-            &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))],
-        )
-        .await;
+        seed(&catalog, &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))]).await;
         let handler = handler(
             ProviderMode::Ok,
             catalog,
-            MockStore {
-                store_fail: true,
-                ..MockStore::default()
-            },
+            MockStore { store_fail: true, ..MockStore::default() },
         );
         assert!(matches!(
             handler.handle(&job(payload(&["fr"]))).await.unwrap_err(),
@@ -658,11 +542,7 @@ mod tests {
     #[tokio::test]
     async fn catalog_read_failure_is_retryable() {
         let catalog = MockCatalogRepo::new();
-        seed(
-            &catalog,
-            &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))],
-        )
-        .await;
+        seed(&catalog, &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))]).await;
         catalog.set_fail();
         let handler = handler(ProviderMode::Ok, catalog, MockStore::default());
         assert!(matches!(
@@ -674,18 +554,11 @@ mod tests {
     #[tokio::test]
     async fn catalog_write_failure_is_retryable() {
         let catalog = MockCatalogRepo::new();
-        seed(
-            &catalog,
-            &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))],
-        )
-        .await;
+        seed(&catalog, &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))]).await;
         let handler = handler(
             ProviderMode::Ok,
             catalog.clone(),
-            MockStore {
-                fail_catalog_after: Some(catalog),
-                ..MockStore::default()
-            },
+            MockStore { fail_catalog_after: Some(catalog), ..MockStore::default() },
         );
         assert!(matches!(
             handler.handle(&job(payload(&["fr"]))).await.unwrap_err(),
@@ -695,21 +568,13 @@ mod tests {
 
     #[tokio::test]
     async fn version_missing_is_a_no_op() {
-        let handler = handler(
-            ProviderMode::Ok,
-            MockCatalogRepo::new(),
-            MockStore::default(),
-        );
+        let handler = handler(ProviderMode::Ok, MockCatalogRepo::new(), MockStore::default());
         handler.handle(&job(payload(&["fr"]))).await.unwrap();
     }
 
     #[tokio::test]
     async fn invalid_payload_is_permanent() {
-        let handler = handler(
-            ProviderMode::Ok,
-            MockCatalogRepo::new(),
-            MockStore::default(),
-        );
+        let handler = handler(ProviderMode::Ok, MockCatalogRepo::new(), MockStore::default());
         assert!(matches!(
             handler.handle(&job("garbage".into())).await.unwrap_err(),
             JobError::Permanent(_)

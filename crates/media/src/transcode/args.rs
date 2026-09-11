@@ -12,13 +12,8 @@ pub(crate) fn media_playlist(
     container: SegmentContainer,
     first_index: usize,
 ) -> String {
-    let target = plan
-        .segments
-        .iter()
-        .map(|s| s.duration_ms.div_ceil(1000))
-        .max()
-        .unwrap_or(1)
-        .max(1);
+    let target =
+        plan.segments.iter().map(|s| s.duration_ms.div_ceil(1000)).max().unwrap_or(1).max(1);
     let version = match container {
         SegmentContainer::MpegTs => 3,
         SegmentContainer::Fmp4 => 7,
@@ -101,12 +96,7 @@ pub(crate) fn build_segment_args(
 ) -> Vec<String> {
     let start = segment.start_ms as f64 / 1000.0;
     let last_ms = segment.start_ms + segment.duration_ms;
-    let end = if spec.copy {
-        last_ms
-    } else {
-        last_ms.saturating_sub(1)
-    } as f64
-        / 1000.0;
+    let end = if spec.copy { last_ms } else { last_ms.saturating_sub(1) } as f64 / 1000.0;
     let mut args = vec!["-y".to_owned()];
     if let VideoEncoder::Vaapi { device } = encoder
         && !spec.copy
@@ -221,26 +211,17 @@ fn video_filter(spec: &TranscodeSpec, encoder: &VideoEncoder) -> Option<String> 
         filters.push(TONEMAP_TO_SDR.to_owned());
     }
     if let Some(path) = &spec.burn_subtitle_path {
-        filters.push(format!(
-            "subtitles=filename='{}'",
-            escape_subtitle_path(path)
-        ));
+        filters.push(format!("subtitles=filename='{}'", escape_subtitle_path(path)));
     }
     if encoder.is_hardware() {
         filters.push("format=nv12".to_owned());
         filters.push("hwupload".to_owned());
     }
-    if filters.is_empty() {
-        None
-    } else {
-        Some(filters.join(","))
-    }
+    if filters.is_empty() { None } else { Some(filters.join(",")) }
 }
 
 fn escape_subtitle_path(path: &str) -> String {
-    path.replace('\\', "\\\\")
-        .replace(':', "\\:")
-        .replace('\'', "'\\''")
+    path.replace('\\', "\\\\").replace(':', "\\:").replace('\'', "'\\''")
 }
 
 #[cfg(test)]
@@ -271,19 +252,11 @@ mod tests {
     }
 
     fn segment() -> Segment {
-        Segment {
-            start_ms: 8_000,
-            duration_ms: 4_000,
-        }
+        Segment { start_ms: 8_000, duration_ms: 4_000 }
     }
 
     fn args_for(spec: &TranscodeSpec) -> Vec<String> {
-        build_segment_args(
-            spec,
-            &segment(),
-            "/cache/s1/v0/seg_00002.ts",
-            &VideoEncoder::Software,
-        )
+        build_segment_args(spec, &segment(), "/cache/s1/v0/seg_00002.ts", &VideoEncoder::Software)
     }
 
     fn vaapi_args_for(spec: &TranscodeSpec) -> Vec<String> {
@@ -291,16 +264,12 @@ mod tests {
             spec,
             &segment(),
             "/cache/s1/v0/seg_00002.ts",
-            &VideoEncoder::Vaapi {
-                device: "/dev/dri/renderD128".to_owned(),
-            },
+            &VideoEncoder::Vaapi { device: "/dev/dri/renderD128".to_owned() },
         )
     }
 
     fn pair_after(args: &[String], flag: &str) -> Option<String> {
-        args.iter()
-            .position(|a| a == flag)
-            .map(|i| args[i + 1].clone())
+        args.iter().position(|a| a == flag).map(|i| args[i + 1].clone())
     }
 
     #[test]
@@ -314,10 +283,7 @@ mod tests {
         assert_eq!(pair_after(&args, "-c:v").as_deref(), Some("libx264"));
         assert_eq!(pair_after(&args, "-c:a").as_deref(), Some("aac"));
         assert_eq!(pair_after(&args, "-pix_fmt").as_deref(), Some("yuv420p"));
-        assert_eq!(
-            args.last().map(String::as_str),
-            Some("/cache/s1/v0/seg_00002.ts")
-        );
+        assert_eq!(args.last().map(String::as_str), Some("/cache/s1/v0/seg_00002.ts"));
         assert!(!args.iter().any(|a| a == "-force_key_frames"));
         assert!(!args.iter().any(|a| a == "-map"));
         assert!(!args.iter().any(|a| a == "-vf"));
@@ -332,13 +298,7 @@ mod tests {
         // Segments are produced by independent ffmpeg runs. Re-anchoring each one
         // to its own zero let avoid_negative_ts shift only the first segment, by
         // the B-frame reorder delay, so it overran the second by a frame.
-        for spec in [
-            base_spec(),
-            TranscodeSpec {
-                copy: true,
-                ..base_spec()
-            },
-        ] {
+        for spec in [base_spec(), TranscodeSpec { copy: true, ..base_spec() }] {
             let args = args_for(&spec);
             let input = args.iter().position(|a| a == "-i").unwrap();
             let copyts = args.iter().position(|a| a == "-copyts").unwrap();
@@ -355,15 +315,9 @@ mod tests {
         // sitting just under a rounded-up boundary was emitted by both neighbours.
         let args = args_for(&base_spec());
         assert_eq!(pair_after(&args, "-to").as_deref(), Some("11.999"));
-        assert_eq!(
-            pair_after(&args, "-avoid_negative_ts").as_deref(),
-            Some("disabled")
-        );
+        assert_eq!(pair_after(&args, "-avoid_negative_ts").as_deref(), Some("disabled"));
 
-        let copied = TranscodeSpec {
-            copy: true,
-            ..base_spec()
-        };
+        let copied = TranscodeSpec { copy: true, ..base_spec() };
         let args = args_for(&copied);
         assert_eq!(
             pair_after(&args, "-to").as_deref(),
@@ -392,10 +346,7 @@ mod tests {
 
     #[test]
     fn segment_copy_starts_on_the_keyframe_and_keeps_source_timestamps() {
-        let spec = TranscodeSpec {
-            copy: true,
-            ..base_spec()
-        };
+        let spec = TranscodeSpec { copy: true, ..base_spec() };
         let args = args_for(&spec);
         let input = args.iter().position(|a| a == "-i").unwrap();
         let noaccurate = args.iter().position(|a| a == "-noaccurate_seek").unwrap();
@@ -411,10 +362,7 @@ mod tests {
 
     #[test]
     fn segment_audio_track_maps_video_and_audio() {
-        let spec = TranscodeSpec {
-            audio_track: Some(2),
-            ..base_spec()
-        };
+        let spec = TranscodeSpec { audio_track: Some(2), ..base_spec() };
         let args = args_for(&spec);
         let maps: Vec<&String> = args
             .iter()
@@ -427,14 +375,8 @@ mod tests {
 
     #[test]
     fn segment_max_height_adds_scale_filter() {
-        let spec = TranscodeSpec {
-            max_height: Some(720),
-            ..base_spec()
-        };
-        assert_eq!(
-            pair_after(&args_for(&spec), "-vf").as_deref(),
-            Some("scale=-2:720")
-        );
+        let spec = TranscodeSpec { max_height: Some(720), ..base_spec() };
+        assert_eq!(pair_after(&args_for(&spec), "-vf").as_deref(), Some("scale=-2:720"));
     }
 
     #[test]
@@ -465,30 +407,21 @@ mod tests {
     #[test]
     fn segment_burn_escapes_hostile_paths() {
         let vf = |name: &str| {
-            let spec = TranscodeSpec {
-                burn_subtitle_path: Some(name.to_owned()),
-                ..base_spec()
-            };
+            let spec = TranscodeSpec { burn_subtitle_path: Some(name.to_owned()), ..base_spec() };
             pair_after(&args_for(&spec), "-vf").unwrap()
         };
         assert_eq!(
             vf("/m/Mission: Impossible.srt"),
             "subtitles=filename='/m/Mission\\: Impossible.srt'"
         );
-        assert_eq!(
-            vf("/m/Bob's tape.srt"),
-            "subtitles=filename='/m/Bob'\\''s tape.srt'"
-        );
+        assert_eq!(vf("/m/Bob's tape.srt"), "subtitles=filename='/m/Bob'\\''s tape.srt'");
         assert_eq!(vf("/m/a,b.srt"), "subtitles=filename='/m/a,b.srt'");
         assert_eq!(vf("/m/a\\b.srt"), "subtitles=filename='/m/a\\\\b.srt'");
     }
 
     #[test]
     fn segment_max_bitrate_adds_maxrate_and_bufsize() {
-        let spec = TranscodeSpec {
-            max_bitrate: Some(4_000_000),
-            ..base_spec()
-        };
+        let spec = TranscodeSpec { max_bitrate: Some(4_000_000), ..base_spec() };
         let args = args_for(&spec);
         assert_eq!(pair_after(&args, "-maxrate").as_deref(), Some("4000000"));
         assert_eq!(pair_after(&args, "-bufsize").as_deref(), Some("8000000"));
@@ -497,15 +430,9 @@ mod tests {
     #[test]
     fn segment_vaapi_uses_hardware_encoder_and_upload() {
         let args = vaapi_args_for(&base_spec());
-        assert_eq!(
-            pair_after(&args, "-vaapi_device").as_deref(),
-            Some("/dev/dri/renderD128")
-        );
+        assert_eq!(pair_after(&args, "-vaapi_device").as_deref(), Some("/dev/dri/renderD128"));
         assert_eq!(pair_after(&args, "-c:v").as_deref(), Some("h264_vaapi"));
-        assert_eq!(
-            pair_after(&args, "-vf").as_deref(),
-            Some("format=nv12,hwupload")
-        );
+        assert_eq!(pair_after(&args, "-vf").as_deref(), Some("format=nv12,hwupload"));
         assert!(!args.iter().any(|a| a == "libx264"));
         assert!(!args.iter().any(|a| a == "-preset"));
         assert!(!args.iter().any(|a| a == "-pix_fmt"));
@@ -529,10 +456,7 @@ mod tests {
 
     #[test]
     fn segment_vaapi_copy_skips_device_and_encoder() {
-        let spec = TranscodeSpec {
-            copy: true,
-            ..base_spec()
-        };
+        let spec = TranscodeSpec { copy: true, ..base_spec() };
         let args = vaapi_args_for(&spec);
         assert!(!args.iter().any(|a| a == "-vaapi_device"));
         assert!(!args.iter().any(|a| a == "h264_vaapi"));
@@ -541,14 +465,8 @@ mod tests {
 
     #[test]
     fn segment_hdr_source_tonemaps_to_sdr() {
-        let spec = TranscodeSpec {
-            source_hdr: Some(HdrFormat::Hdr10),
-            ..base_spec()
-        };
-        assert_eq!(
-            pair_after(&args_for(&spec), "-vf").as_deref(),
-            Some(TONEMAP_TO_SDR)
-        );
+        let spec = TranscodeSpec { source_hdr: Some(HdrFormat::Hdr10), ..base_spec() };
+        assert_eq!(pair_after(&args_for(&spec), "-vf").as_deref(), Some(TONEMAP_TO_SDR));
     }
 
     // The scale comes first so the tonemap works on the smaller picture, and the
@@ -572,10 +490,7 @@ mod tests {
 
     #[test]
     fn segment_hdr_vaapi_tonemaps_before_hwupload() {
-        let spec = TranscodeSpec {
-            source_hdr: Some(HdrFormat::DolbyVision),
-            ..base_spec()
-        };
+        let spec = TranscodeSpec { source_hdr: Some(HdrFormat::DolbyVision), ..base_spec() };
         assert_eq!(
             pair_after(&vaapi_args_for(&spec), "-vf").as_deref(),
             Some(format!("{TONEMAP_TO_SDR},format=nv12,hwupload").as_str())
@@ -584,11 +499,8 @@ mod tests {
 
     #[test]
     fn segment_copy_ignores_hdr_source() {
-        let spec = TranscodeSpec {
-            copy: true,
-            source_hdr: Some(HdrFormat::Hdr10Plus),
-            ..base_spec()
-        };
+        let spec =
+            TranscodeSpec { copy: true, source_hdr: Some(HdrFormat::Hdr10Plus), ..base_spec() };
         let args = args_for(&spec);
         assert_eq!(pair_after(&args, "-c").as_deref(), Some("copy"));
         assert!(!args.iter().any(|a| a == "-vf"));
@@ -596,20 +508,13 @@ mod tests {
 
     #[test]
     fn segment_downmix_adds_ac_two() {
-        let spec = TranscodeSpec {
-            downmix_stereo: true,
-            ..base_spec()
-        };
+        let spec = TranscodeSpec { downmix_stereo: true, ..base_spec() };
         assert_eq!(pair_after(&args_for(&spec), "-ac").as_deref(), Some("2"));
     }
 
     #[test]
     fn segment_copy_ignores_downmix() {
-        let spec = TranscodeSpec {
-            copy: true,
-            downmix_stereo: true,
-            ..base_spec()
-        };
+        let spec = TranscodeSpec { copy: true, downmix_stereo: true, ..base_spec() };
         assert!(!args_for(&spec).iter().any(|a| a == "-ac"));
     }
 
@@ -629,9 +534,7 @@ mod tests {
 
     #[test]
     fn media_playlist_empty_plan_targets_one() {
-        let plan = SegmentPlan {
-            segments: Vec::new(),
-        };
+        let plan = SegmentPlan { segments: Vec::new() };
         let playlist = media_playlist(&plan, SegmentContainer::MpegTs, 0);
         assert!(playlist.contains("#EXT-X-TARGETDURATION:1"));
         assert!(playlist.trim_end().ends_with("#EXT-X-ENDLIST"));
@@ -654,56 +557,27 @@ mod tests {
     fn an_fmp4_playlist_maps_the_init_before_the_first_segment() {
         let plan = plan_segments(&[4_000], 8_000, 4_000);
         let playlist = media_playlist(&plan, SegmentContainer::Fmp4, 0);
-        let map = playlist
-            .find("#EXT-X-MAP")
-            .expect("the map line is present");
-        let first = playlist
-            .find("seg_00000.m4s")
-            .expect("segment zero is listed");
-        assert!(
-            map < first,
-            "the map applies only to segments that follow it"
-        );
+        let map = playlist.find("#EXT-X-MAP").expect("the map line is present");
+        let first = playlist.find("seg_00000.m4s").expect("segment zero is listed");
+        assert!(map < first, "the map applies only to segments that follow it");
     }
 
     #[test]
     fn segment_file_name_is_zero_padded_and_matches_the_container() {
-        assert_eq!(
-            segment_file_name(0, SegmentContainer::MpegTs),
-            "seg_00000.ts"
-        );
-        assert_eq!(
-            segment_file_name(42, SegmentContainer::MpegTs),
-            "seg_00042.ts"
-        );
-        assert_eq!(
-            segment_file_name(0, SegmentContainer::Fmp4),
-            "seg_00000.m4s"
-        );
-        assert_eq!(
-            segment_file_name(42, SegmentContainer::Fmp4),
-            "seg_00042.m4s"
-        );
+        assert_eq!(segment_file_name(0, SegmentContainer::MpegTs), "seg_00000.ts");
+        assert_eq!(segment_file_name(42, SegmentContainer::MpegTs), "seg_00042.ts");
+        assert_eq!(segment_file_name(0, SegmentContainer::Fmp4), "seg_00000.m4s");
+        assert_eq!(segment_file_name(42, SegmentContainer::Fmp4), "seg_00042.m4s");
     }
 
     #[test]
     fn the_producer_copies_into_fmp4_and_names_segments_like_the_playlist() {
-        let spec = TranscodeSpec {
-            copy: true,
-            container: SegmentContainer::Fmp4,
-            ..base_spec()
-        };
+        let spec = TranscodeSpec { copy: true, container: SegmentContainer::Fmp4, ..base_spec() };
         let args = build_producer_args(&spec, "/cache/s1/v0", 0, 0, DEFAULT_READ_RATE);
         assert_eq!(pair_after(&args, "-c").as_deref(), Some("copy"));
         assert_eq!(pair_after(&args, "-f").as_deref(), Some("hls"));
-        assert_eq!(
-            pair_after(&args, "-hls_segment_type").as_deref(),
-            Some("fmp4")
-        );
-        assert_eq!(
-            pair_after(&args, "-hls_fmp4_init_filename").as_deref(),
-            Some("init.mp4")
-        );
+        assert_eq!(pair_after(&args, "-hls_segment_type").as_deref(), Some("fmp4"));
+        assert_eq!(pair_after(&args, "-hls_fmp4_init_filename").as_deref(), Some("init.mp4"));
         assert_eq!(
             pair_after(&args, "-hls_segment_filename").as_deref(),
             Some("/cache/s1/v0/seg_%05d.m4s"),
@@ -715,37 +589,23 @@ mod tests {
             "without an atomic rename a partly written segment would be served as complete"
         );
         assert_eq!(pair_after(&args, "-hls_time").as_deref(), Some("4"));
-        assert_eq!(
-            pair_after(&args, "-hls_playlist_type").as_deref(),
-            Some("vod")
-        );
+        assert_eq!(pair_after(&args, "-hls_playlist_type").as_deref(), Some("vod"));
     }
 
     #[test]
     fn the_producer_is_throttled_so_one_session_cannot_write_the_whole_file_at_once() {
-        let spec = TranscodeSpec {
-            copy: true,
-            container: SegmentContainer::Fmp4,
-            ..base_spec()
-        };
+        let spec = TranscodeSpec { copy: true, container: SegmentContainer::Fmp4, ..base_spec() };
         let args = build_producer_args(&spec, "/cache/s1/v0", 0, 0, DEFAULT_READ_RATE);
         let readrate = pair_after(&args, "-readrate").expect("the producer is rate limited");
         assert!(readrate.parse::<f64>().expect("a numeric rate") > 1.0);
         let rate_at = args.iter().position(|a| a == "-readrate").unwrap();
         let input_at = args.iter().position(|a| a == "-i").unwrap();
-        assert!(
-            rate_at < input_at,
-            "readrate is an input option and is ignored after -i"
-        );
+        assert!(rate_at < input_at, "readrate is an input option and is ignored after -i");
     }
 
     #[test]
     fn a_read_rate_of_zero_lets_the_producer_run_flat_out() {
-        let spec = TranscodeSpec {
-            copy: true,
-            container: SegmentContainer::Fmp4,
-            ..base_spec()
-        };
+        let spec = TranscodeSpec { copy: true, container: SegmentContainer::Fmp4, ..base_spec() };
         let args = build_producer_args(&spec, "/cache/s1/v0", 0, 0, 0.0);
         assert!(
             !args.iter().any(|a| a == "-readrate"),
@@ -755,22 +615,14 @@ mod tests {
 
     #[test]
     fn an_admin_read_rate_reaches_ffmpeg() {
-        let spec = TranscodeSpec {
-            copy: true,
-            container: SegmentContainer::Fmp4,
-            ..base_spec()
-        };
+        let spec = TranscodeSpec { copy: true, container: SegmentContainer::Fmp4, ..base_spec() };
         let args = build_producer_args(&spec, "/cache/s1/v0", 0, 0, 2.5);
         assert_eq!(pair_after(&args, "-readrate").as_deref(), Some("2.5"));
     }
 
     #[test]
     fn the_producer_writes_its_own_playlist_not_the_one_we_serve() {
-        let spec = TranscodeSpec {
-            copy: true,
-            container: SegmentContainer::Fmp4,
-            ..base_spec()
-        };
+        let spec = TranscodeSpec { copy: true, container: SegmentContainer::Fmp4, ..base_spec() };
         let args = build_producer_args(&spec, "/cache/s1/v0", 0, 0, DEFAULT_READ_RATE);
         let out = args.last().expect("the output path is last");
         assert_eq!(out, "/cache/s1/v0/producer.m3u8");
@@ -782,11 +634,7 @@ mod tests {
 
     #[test]
     fn a_producer_restarted_at_a_seek_numbers_segments_from_there() {
-        let spec = TranscodeSpec {
-            copy: true,
-            container: SegmentContainer::Fmp4,
-            ..base_spec()
-        };
+        let spec = TranscodeSpec { copy: true, container: SegmentContainer::Fmp4, ..base_spec() };
         let args = build_producer_args(&spec, "/cache/s1/v0", 8_384, 2, DEFAULT_READ_RATE);
         assert_eq!(
             pair_after(&args, "-ss").as_deref(),
@@ -808,11 +656,7 @@ mod tests {
 
     #[test]
     fn a_producer_starting_at_the_beginning_does_not_seek() {
-        let spec = TranscodeSpec {
-            copy: true,
-            container: SegmentContainer::Fmp4,
-            ..base_spec()
-        };
+        let spec = TranscodeSpec { copy: true, container: SegmentContainer::Fmp4, ..base_spec() };
         let args = build_producer_args(&spec, "/cache/s1/v0", 0, 0, DEFAULT_READ_RATE);
         assert!(!args.iter().any(|a| a == "-ss"));
         assert_eq!(pair_after(&args, "-start_number").as_deref(), Some("0"));
@@ -878,14 +722,7 @@ mod tests {
         );
         assert_eq!(
             args,
-            vec![
-                "-y",
-                "-i",
-                "/media/movie.en.srt",
-                "-f",
-                "webvtt",
-                "/cache/s1/subs/subs.vtt",
-            ]
+            vec!["-y", "-i", "/media/movie.en.srt", "-f", "webvtt", "/cache/s1/subs/subs.vtt",]
         );
         assert!(!args.iter().any(|a| a == "-map"));
     }

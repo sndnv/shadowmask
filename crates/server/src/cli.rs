@@ -41,20 +41,13 @@ pub enum Command {
 
 #[derive(Debug, PartialEq, Eq, Args)]
 pub struct BackupArgs {
-    #[arg(
-        value_name = "ARCHIVE",
-        help = "Path of the snapshot archive to create"
-    )]
+    #[arg(value_name = "ARCHIVE", help = "Path of the snapshot archive to create")]
     pub out: PathBuf,
 }
 
 #[derive(Debug, PartialEq, Eq, Args)]
 pub struct RecoverArgs {
-    #[arg(
-        long,
-        value_name = "ARCHIVE",
-        help = "Path of the snapshot archive to restore from"
-    )]
+    #[arg(long, value_name = "ARCHIVE", help = "Path of the snapshot archive to restore from")]
     pub from: PathBuf,
 }
 
@@ -80,9 +73,7 @@ mod tests {
     fn backup_takes_positional_out() {
         assert_eq!(
             resolve(&["shadowmask", "backup", "snap.tar"]),
-            Command::Backup(BackupArgs {
-                out: PathBuf::from("snap.tar"),
-            })
+            Command::Backup(BackupArgs { out: PathBuf::from("snap.tar") })
         );
     }
 
@@ -90,9 +81,7 @@ mod tests {
     fn recover_reads_from() {
         assert_eq!(
             resolve(&["shadowmask", "recover", "--from", "snap.tar"]),
-            Command::Recover(RecoverArgs {
-                from: PathBuf::from("snap.tar"),
-            })
+            Command::Recover(RecoverArgs { from: PathBuf::from("snap.tar") })
         );
     }
 
@@ -111,11 +100,7 @@ mod tests {
     fn backup_help_documents_the_process() {
         use clap::CommandFactory;
         let mut cli = Cli::command();
-        let help = cli
-            .find_subcommand_mut("backup")
-            .unwrap()
-            .render_long_help()
-            .to_string();
+        let help = cli.find_subcommand_mut("backup").unwrap().render_long_help().to_string();
         assert!(help.contains("VACUUM INTO"));
         assert!(help.contains("hot backup"));
         assert!(help.contains("docker compose exec"));
@@ -125,11 +110,7 @@ mod tests {
     fn recover_help_documents_the_process() {
         use clap::CommandFactory;
         let mut cli = Cli::command();
-        let help = cli
-            .find_subcommand_mut("recover")
-            .unwrap()
-            .render_long_help()
-            .to_string();
+        let help = cli.find_subcommand_mut("recover").unwrap().render_long_help().to_string();
         assert!(help.contains("server must be stopped"));
         assert!(help.contains("exclusive lock"));
         assert!(help.contains("--from"));

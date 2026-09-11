@@ -12,11 +12,7 @@ pub fn next_fire_after(expression: &str, after: Timestamp, tz: TimeZone) -> Opti
 
 pub fn next_daily_fire(at: &str, after: Timestamp, tz: TimeZone) -> Option<Timestamp> {
     let time: jiff::civil::Time = at.parse().ok()?;
-    next_fire_after(
-        &format!("0 {} {} * * * *", time.minute(), time.hour()),
-        after,
-        tz,
-    )
+    next_fire_after(&format!("0 {} {} * * * *", time.minute(), time.hour()), after, tz)
 }
 
 #[cfg(test)]
@@ -41,10 +37,7 @@ mod tests {
 
     #[test]
     fn invalid_expression_is_none() {
-        assert_eq!(
-            next_fire_after("not a cron", ts("2026-01-01T00:00:00Z"), TimeZone::UTC),
-            None
-        );
+        assert_eq!(next_fire_after("not a cron", ts("2026-01-01T00:00:00Z"), TimeZone::UTC), None);
     }
 
     #[test]

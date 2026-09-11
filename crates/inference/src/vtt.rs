@@ -32,11 +32,7 @@ mod tests {
     use super::*;
 
     fn segment(start_ms: u64, end_ms: u64, text: &str) -> Segment {
-        Segment {
-            start_ms,
-            end_ms,
-            text: text.to_owned(),
-        }
+        Segment { start_ms, end_ms, text: text.to_owned() }
     }
 
     #[test]
@@ -46,10 +42,8 @@ mod tests {
 
     #[test]
     fn renders_cues_with_timestamps() {
-        let vtt = segments_to_vtt(&[
-            segment(0, 2000, " Hello "),
-            segment(3_661_500, 3_662_000, "later"),
-        ]);
+        let vtt =
+            segments_to_vtt(&[segment(0, 2000, " Hello "), segment(3_661_500, 3_662_000, "later")]);
         assert_eq!(
             vtt,
             "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nHello\n\n01:01:01.500 --> 01:01:02.000\nlater\n"

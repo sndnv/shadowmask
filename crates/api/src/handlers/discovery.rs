@@ -53,14 +53,8 @@ pub async fn search<S: AppServices>(
         .search(&principal.user, &params.q, &types, page)
         .await
         .map_err(log_fail(actor, "search"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} search results",
-        results.items.len()
-    );
-    Ok(Json(PageResponse::from_page(
-        results,
-        SearchResultResponse::from,
-    )))
+    debug!("User [{actor}] retrieved {} search results", results.items.len());
+    Ok(Json(PageResponse::from_page(results, SearchResultResponse::from)))
 }
 
 pub async fn continue_watching<S: AppServices>(
@@ -74,20 +68,11 @@ pub async fn continue_watching<S: AppServices>(
 
     let sessions = state
         .session()
-        .active_sessions(
-            &principal,
-            PageRequest {
-                offset: 0,
-                limit: MAX_LIMIT,
-            },
-        )
+        .active_sessions(&principal, PageRequest { offset: 0, limit: MAX_LIMIT })
         .await
         .map_err(log_fail(actor, "retrieve continue data"))?;
-    let mine: Vec<PlaybackSession> = sessions
-        .items
-        .into_iter()
-        .filter(|s| s.user == target)
-        .collect();
+    let mine: Vec<PlaybackSession> =
+        sessions.items.into_iter().filter(|s| s.user == target).collect();
     let now_playing = state
         .discovery()
         .now_playing(mine)
@@ -110,10 +95,7 @@ pub async fn continue_watching<S: AppServices>(
         .await
         .map_err(log_fail(actor, "retrieve continue data"))?;
 
-    debug!(
-        "User [{actor}] successfully retrieved continue data for user [{}]",
-        target.0
-    );
+    debug!("User [{actor}] retrieved continue data for user [{}]", target.0);
     Ok(Json(ContinueResponse {
         now_playing: now_playing.into_iter().map(Into::into).collect(),
         in_progress: in_progress.into_iter().map(Into::into).collect(),
@@ -135,10 +117,6 @@ pub async fn hub<S: AppServices>(
         .home_hubs(&target)
         .await
         .map_err(log_fail(actor, "retrieve home hubs"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} home hubs for user [{}]",
-        hubs.len(),
-        target.0
-    );
+    debug!("User [{actor}] retrieved {} home hubs for user [{}]", hubs.len(), target.0);
     Ok(Json(hubs.into_iter().map(Into::into).collect()))
 }

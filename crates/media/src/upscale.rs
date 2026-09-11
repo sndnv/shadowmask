@@ -31,12 +31,7 @@ impl FfmpegUpscaler {
 
 impl<S, P> FfmpegUpscaler<S, P> {
     pub fn with_parts(spawner: S, probe: P) -> Self {
-        Self {
-            spawner,
-            probe,
-            binary: DEFAULT_BINARY.to_owned(),
-            encoder: VideoEncoder::Software,
-        }
+        Self { spawner, probe, binary: DEFAULT_BINARY.to_owned(), encoder: VideoEncoder::Software }
     }
 
     pub fn with_encoder(mut self, encoder: VideoEncoder) -> Self {
@@ -73,9 +68,7 @@ pub(crate) fn build_upscale_args(
             args.push("-c:v".to_owned());
             args.push("h264_vaapi".to_owned());
             args.push("-vf".to_owned());
-            args.push(format!(
-                "scale={width}:{height}:flags=lanczos,format=nv12,hwupload"
-            ));
+            args.push(format!("scale={width}:{height}:flags=lanczos,format=nv12,hwupload"));
         }
         VideoEncoder::Software => {
             args.push("-c:v".to_owned());
@@ -111,9 +104,7 @@ impl<S: ProcessSpawner, P: MediaProbe + Send + Sync> UpscaleProvider for FfmpegU
             .await
             .map_err(|e| UpscaleError::Backend(e.to_string()))?;
         let Some(video) = probe.video.first() else {
-            return Err(UpscaleError::Unsupported(
-                "source has no video track".to_owned(),
-            ));
+            return Err(UpscaleError::Unsupported("source has no video track".to_owned()));
         };
         if video.height >= request.target_height {
             return Err(UpscaleError::Unsupported(format!(
@@ -173,10 +164,7 @@ impl<S: ProcessSpawner, P: MediaProbe + Send + Sync> UpscaleProvider for FfmpegU
             .await
             .map_err(|e| UpscaleError::Backend(e.to_string()))?
             .len();
-        Ok(UpscaleOutput {
-            path: request.output_path.clone(),
-            size_bytes,
-        })
+        Ok(UpscaleOutput { path: request.output_path.clone(), size_bytes })
     }
 }
 
@@ -221,9 +209,7 @@ mod tests {
 
     impl MediaProbe for MockProbe {
         async fn probe(&self, _path: &str) -> Result<ProbeResult, ProbeError> {
-            self.result
-                .clone()
-                .map_err(|_| ProbeError::Backend("probe failed".to_owned()))
+            self.result.clone().map_err(|_| ProbeError::Backend("probe failed".to_owned()))
         }
     }
 
@@ -241,9 +227,7 @@ mod tests {
             }
             if self.write {
                 let output = args.last().expect("output arg");
-                tokio::fs::write(output, b"upscaled")
-                    .await
-                    .expect("mock writes output");
+                tokio::fs::write(output, b"upscaled").await.expect("mock writes output");
             }
             Ok(self.succeed)
         }
@@ -261,9 +245,7 @@ mod tests {
                 return Ok(false);
             }
             let output = args.last().expect("output arg");
-            tokio::fs::write(output, b"upscaled")
-                .await
-                .expect("mock writes output");
+            tokio::fs::write(output, b"upscaled").await.expect("mock writes output");
             Ok(true)
         }
     }
@@ -294,9 +276,7 @@ mod tests {
             "out.mp4",
             960,
             720,
-            &VideoEncoder::Vaapi {
-                device: "/dev/dri/renderD128".to_owned(),
-            },
+            &VideoEncoder::Vaapi { device: "/dev/dri/renderD128".to_owned() },
         );
         assert!(args.contains(&"-vaapi_device".to_owned()));
         assert!(args.contains(&"/dev/dri/renderD128".to_owned()));
@@ -313,13 +293,9 @@ mod tests {
         let spawner = FailFirstSpawner::default();
         let up = FfmpegUpscaler::with_parts(
             spawner.clone(),
-            MockProbe {
-                result: Ok(probe_of(vec![video(640, 480)])),
-            },
+            MockProbe { result: Ok(probe_of(vec![video(640, 480)])) },
         )
-        .with_encoder(VideoEncoder::Vaapi {
-            device: "/dev/dri/renderD128".to_owned(),
-        });
+        .with_encoder(VideoEncoder::Vaapi { device: "/dev/dri/renderD128".to_owned() });
         let out = up
             .upscale(&UpscaleSpec {
                 source_path: "src.mkv".to_owned(),
@@ -337,14 +313,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let output = dir.path().join("out.mp4").to_string_lossy().into_owned();
         let up = upscaler(
-            MockProbe {
-                result: Ok(probe_of(vec![video(640, 480)])),
-            },
-            MockSpawner {
-                succeed: true,
-                error: false,
-                write: true,
-            },
+            MockProbe { result: Ok(probe_of(vec![video(640, 480)])) },
+            MockSpawner { succeed: true, error: false, write: true },
         );
         let out = up
             .upscale(&UpscaleSpec {
@@ -361,14 +331,8 @@ mod tests {
     #[tokio::test]
     async fn rejects_source_without_video() {
         let up = upscaler(
-            MockProbe {
-                result: Ok(probe_of(Vec::new())),
-            },
-            MockSpawner {
-                succeed: true,
-                error: false,
-                write: true,
-            },
+            MockProbe { result: Ok(probe_of(Vec::new())) },
+            MockSpawner { succeed: true, error: false, write: true },
         );
         let err = up
             .upscale(&UpscaleSpec {
@@ -384,14 +348,8 @@ mod tests {
     #[tokio::test]
     async fn rejects_source_already_at_target() {
         let up = upscaler(
-            MockProbe {
-                result: Ok(probe_of(vec![video(1920, 1080)])),
-            },
-            MockSpawner {
-                succeed: true,
-                error: false,
-                write: true,
-            },
+            MockProbe { result: Ok(probe_of(vec![video(1920, 1080)])) },
+            MockSpawner { succeed: true, error: false, write: true },
         );
         let err = up
             .upscale(&UpscaleSpec {
@@ -410,14 +368,8 @@ mod tests {
         let output = dir.path().join("out.mp4");
         std::fs::write(&output, b"existing").unwrap();
         let up = upscaler(
-            MockProbe {
-                result: Ok(probe_of(vec![video(640, 480)])),
-            },
-            MockSpawner {
-                succeed: true,
-                error: false,
-                write: true,
-            },
+            MockProbe { result: Ok(probe_of(vec![video(640, 480)])) },
+            MockSpawner { succeed: true, error: false, write: true },
         );
         let err = up
             .upscale(&UpscaleSpec {
@@ -433,21 +385,11 @@ mod tests {
     #[tokio::test]
     async fn rejects_unwritable_target() {
         let dir = tempfile::tempdir().unwrap();
-        let output = dir
-            .path()
-            .join("missing-subdir")
-            .join("out.mp4")
-            .to_string_lossy()
-            .into_owned();
+        let output =
+            dir.path().join("missing-subdir").join("out.mp4").to_string_lossy().into_owned();
         let up = upscaler(
-            MockProbe {
-                result: Ok(probe_of(vec![video(640, 480)])),
-            },
-            MockSpawner {
-                succeed: true,
-                error: false,
-                write: true,
-            },
+            MockProbe { result: Ok(probe_of(vec![video(640, 480)])) },
+            MockSpawner { succeed: true, error: false, write: true },
         );
         let err = up
             .upscale(&UpscaleSpec {
@@ -464,11 +406,7 @@ mod tests {
     async fn probe_failure_is_backend() {
         let up = upscaler(
             MockProbe { result: Err(()) },
-            MockSpawner {
-                succeed: true,
-                error: false,
-                write: true,
-            },
+            MockSpawner { succeed: true, error: false, write: true },
         );
         let err = up
             .upscale(&UpscaleSpec {
@@ -486,14 +424,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let output = dir.path().join("out.mp4").to_string_lossy().into_owned();
         let up = upscaler(
-            MockProbe {
-                result: Ok(probe_of(vec![video(640, 480)])),
-            },
-            MockSpawner {
-                succeed: false,
-                error: false,
-                write: false,
-            },
+            MockProbe { result: Ok(probe_of(vec![video(640, 480)])) },
+            MockSpawner { succeed: false, error: false, write: false },
         );
         let err = up
             .upscale(&UpscaleSpec {
@@ -511,14 +443,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let output = dir.path().join("out.mp4").to_string_lossy().into_owned();
         let up = upscaler(
-            MockProbe {
-                result: Ok(probe_of(vec![video(640, 480)])),
-            },
-            MockSpawner {
-                succeed: false,
-                error: true,
-                write: false,
-            },
+            MockProbe { result: Ok(probe_of(vec![video(640, 480)])) },
+            MockSpawner { succeed: false, error: true, write: false },
         );
         let err = up
             .upscale(&UpscaleSpec {
@@ -536,14 +462,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let output = dir.path().join("out.mp4").to_string_lossy().into_owned();
         let up = upscaler(
-            MockProbe {
-                result: Ok(probe_of(vec![video(640, 480)])),
-            },
-            MockSpawner {
-                succeed: true,
-                error: false,
-                write: false,
-            },
+            MockProbe { result: Ok(probe_of(vec![video(640, 480)])) },
+            MockSpawner { succeed: true, error: false, write: false },
         );
         let err = up
             .upscale(&UpscaleSpec {

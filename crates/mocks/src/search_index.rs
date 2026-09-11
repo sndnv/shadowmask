@@ -91,10 +91,7 @@ mod tests {
     }
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        PageRequest { offset: 0, limit: 10 }
     }
 
     #[tokio::test]
@@ -103,10 +100,7 @@ mod tests {
         index.add(movie("Matrix"));
         index.add(movie("Inception"));
 
-        let hits = index
-            .search("matrix", &[], &TitleListFilter::default(), page())
-            .await
-            .unwrap();
+        let hits = index.search("matrix", &[], &TitleListFilter::default(), page()).await.unwrap();
         assert_eq!(hits.total, 1);
 
         assert_eq!(index.rebuild_count(), 0);
@@ -118,12 +112,7 @@ mod tests {
     async fn surfaces_failures() {
         let index = MockSearchIndex::new();
         index.set_fail();
-        assert!(
-            index
-                .search("x", &[], &TitleListFilter::default(), page())
-                .await
-                .is_err()
-        );
+        assert!(index.search("x", &[], &TitleListFilter::default(), page()).await.is_err());
         assert!(index.rebuild().await.is_err());
     }
 }

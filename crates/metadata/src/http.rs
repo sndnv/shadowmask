@@ -30,13 +30,8 @@ pub(crate) async fn get_json<T: DeserializeOwned>(
     limiter: &RateLimiter,
     request: reqwest::RequestBuilder,
 ) -> Result<T, MetadataError> {
-    let response = send_ok(limiter, request)
-        .await
-        .map_err(MetadataError::Backend)?;
-    response
-        .json::<T>()
-        .await
-        .map_err(|e| MetadataError::Parse(e.to_string()))
+    let response = send_ok(limiter, request).await.map_err(MetadataError::Backend)?;
+    response.json::<T>().await.map_err(|e| MetadataError::Parse(e.to_string()))
 }
 
 fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
@@ -58,10 +53,7 @@ mod tests {
 
     #[test]
     fn parses_integer_seconds() {
-        assert_eq!(
-            parse_retry_after(&headers("12")),
-            Some(Duration::from_secs(12))
-        );
+        assert_eq!(parse_retry_after(&headers("12")), Some(Duration::from_secs(12)));
     }
 
     #[test]
@@ -71,9 +63,6 @@ mod tests {
 
     #[test]
     fn non_numeric_header_is_none() {
-        assert_eq!(
-            parse_retry_after(&headers("Wed, 21 Oct 2015 07:28:00 GMT")),
-            None
-        );
+        assert_eq!(parse_retry_after(&headers("Wed, 21 Oct 2015 07:28:00 GMT")), None);
     }
 }

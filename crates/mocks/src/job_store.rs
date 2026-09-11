@@ -1,5 +1,6 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use domain::common::{Page, PageRequest};
@@ -13,6 +14,7 @@ use jiff::Timestamp;
 #[derive(Clone, Default)]
 pub struct MockJobStore {
     jobs: Arc<Mutex<HashMap<JobId, Job>>>,
+    fail: Arc<AtomicBool>,
 }
 
 impl MockJobStore {
@@ -24,37 +26,38 @@ impl MockJobStore {
         self.jobs.lock().unwrap().insert(job.id.clone(), job);
     }
 
+    pub fn set_fail(&self) {
+        self.fail.store(true, Ordering::Relaxed);
+    }
+
+    fn guard(&self) -> Result<(), RepositoryError> {
+        if self.fail.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend("mock job store failure".to_owned()));
+        }
+        Ok(())
+    }
+
     fn matching(&self, query: &JobQuery) -> Vec<Job> {
-        let mut all: Vec<Job> = self
-            .jobs
-            .lock()
-            .unwrap()
-            .values()
-            .filter(|job| query.matches(job))
-            .cloned()
-            .collect();
+        let mut all: Vec<Job> =
+            self.jobs.lock().unwrap().values().filter(|job| query.matches(job)).cloned().collect();
         all.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(a.id.cmp(&b.id)));
         all
     }
 }
 
 fn walk(jobs: &HashMap<JobId, Job>, parent: &JobId, depth: u32, out: &mut Vec<JobNode>) {
-    let mut children: Vec<&Job> = jobs
-        .values()
-        .filter(|job| job.parent_id.as_ref() == Some(parent))
-        .collect();
+    let mut children: Vec<&Job> =
+        jobs.values().filter(|job| job.parent_id.as_ref() == Some(parent)).collect();
     children.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
     for child in children {
-        out.push(JobNode {
-            job: child.clone(),
-            depth,
-        });
+        out.push(JobNode { job: child.clone(), depth });
         walk(jobs, &child.id, depth + 1, out);
     }
 }
 
 impl JobRepository for MockJobStore {
     async fn enqueue(&self, job: Job) -> Result<(), RepositoryError> {
+        self.guard()?;
         self.jobs.lock().unwrap().insert(job.id.clone(), job);
         Ok(())
     }
@@ -158,17 +161,9 @@ impl JobRepository for MockJobStore {
         let mut nodes: Vec<JobNode> = Vec::new();
         walk(&guard, root, 0, &mut nodes);
         let total = nodes.len() as u64;
-        let items = nodes
-            .into_iter()
-            .skip(page.offset as usize)
-            .take(page.limit as usize)
-            .collect();
-        Ok(Page {
-            items,
-            total,
-            offset: page.offset,
-            limit: page.limit,
-        })
+        let items =
+            nodes.into_iter().skip(page.offset as usize).take(page.limit as usize).collect();
+        Ok(Page { items, total, offset: page.offset, limit: page.limit })
     }
 
     async fn cancel(&self, id: &JobId, now: Timestamp) -> Result<bool, RepositoryError> {
@@ -232,27 +227,12 @@ mod tests {
         let now = Timestamp::now();
         let older = now.saturating_sub(SignedDuration::from_secs(10)).unwrap();
         let store = MockJobStore::new();
-        store
-            .enqueue(job("low", JobPriority::Low, now, now))
-            .await
-            .unwrap();
-        store
-            .enqueue(job("high", JobPriority::High, now, now))
-            .await
-            .unwrap();
-        store
-            .enqueue(job("normal-old", JobPriority::Normal, now, older))
-            .await
-            .unwrap();
-        store
-            .enqueue(job("normal-new", JobPriority::Normal, now, now))
-            .await
-            .unwrap();
+        store.enqueue(job("low", JobPriority::Low, now, now)).await.unwrap();
+        store.enqueue(job("high", JobPriority::High, now, now)).await.unwrap();
+        store.enqueue(job("normal-old", JobPriority::Normal, now, older)).await.unwrap();
+        store.enqueue(job("normal-new", JobPriority::Normal, now, now)).await.unwrap();
 
-        let claimed = store
-            .claim_ready(now, 10, vec![JobKind::LibraryScan])
-            .await
-            .unwrap();
+        let claimed = store.claim_ready(now, 10, vec![JobKind::LibraryScan]).await.unwrap();
         let ids: Vec<&str> = claimed.iter().map(|j| j.id.0.as_str()).collect();
         assert_eq!(ids, ["high", "normal-old", "normal-new", "low"]);
         assert!(claimed.iter().all(|j| j.status == JobStatus::Running));
@@ -262,19 +242,10 @@ mod tests {
     async fn claim_respects_limit_and_marks_running() {
         let now = Timestamp::now();
         let store = MockJobStore::new();
-        store
-            .enqueue(job("a", JobPriority::Normal, now, now))
-            .await
-            .unwrap();
-        store
-            .enqueue(job("b", JobPriority::Normal, now, now))
-            .await
-            .unwrap();
+        store.enqueue(job("a", JobPriority::Normal, now, now)).await.unwrap();
+        store.enqueue(job("b", JobPriority::Normal, now, now)).await.unwrap();
 
-        let claimed = store
-            .claim_ready(now, 1, vec![JobKind::LibraryScan])
-            .await
-            .unwrap();
+        let claimed = store.claim_ready(now, 1, vec![JobKind::LibraryScan]).await.unwrap();
         assert_eq!(claimed.len(), 1);
         let running = store
             .list()
@@ -291,31 +262,19 @@ mod tests {
         let now = Timestamp::now();
         let future = now.saturating_add(SignedDuration::from_secs(60)).unwrap();
         let store = MockJobStore::new();
-        store
-            .enqueue(job("future", JobPriority::High, future, now))
-            .await
-            .unwrap();
+        store.enqueue(job("future", JobPriority::High, future, now)).await.unwrap();
         let mut running = job("running", JobPriority::High, now, now);
         running.status = JobStatus::Running;
         store.enqueue(running).await.unwrap();
 
-        assert!(
-            store
-                .claim_ready(now, 10, vec![JobKind::LibraryScan])
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        assert!(store.claim_ready(now, 10, vec![JobKind::LibraryScan]).await.unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn update_and_get_round_trip() {
         let now = Timestamp::now();
         let store = MockJobStore::new();
-        store
-            .enqueue(job("a", JobPriority::Normal, now, now))
-            .await
-            .unwrap();
+        store.enqueue(job("a", JobPriority::Normal, now, now)).await.unwrap();
 
         let mut updated = store.get(&JobId("a".into())).await.unwrap().unwrap();
         updated.status = JobStatus::Succeeded;

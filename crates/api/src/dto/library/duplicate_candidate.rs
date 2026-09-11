@@ -13,10 +13,6 @@ pub struct DuplicateCandidateResponse {
 
 impl From<DuplicateCandidate> for DuplicateCandidateResponse {
     fn from(d: DuplicateCandidate) -> Self {
-        DuplicateCandidateResponse {
-            id: d.id.0,
-            title: d.title.into(),
-            paths: d.paths,
-        }
+        DuplicateCandidateResponse { id: d.id.0, title: d.title.into(), paths: d.paths }
     }
 }

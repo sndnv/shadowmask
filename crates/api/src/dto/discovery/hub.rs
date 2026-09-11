@@ -24,13 +24,12 @@ impl From<HubItem> for HubItemResponse {
     fn from(i: HubItem) -> Self {
         match i {
             HubItem::Movie(m) => HubItemResponse::Movie(Box::new(m.into())),
-            HubItem::Series {
-                series,
-                episode_count,
-            } => HubItemResponse::Series(Box::new(HubSeriesResponse {
-                series: series.into(),
-                episode_count,
-            })),
+            HubItem::Series { series, episode_count } => {
+                HubItemResponse::Series(Box::new(HubSeriesResponse {
+                    series: series.into(),
+                    episode_count,
+                }))
+            }
             HubItem::Episode(card) => HubItemResponse::Episode(Box::new((*card).into())),
         }
     }

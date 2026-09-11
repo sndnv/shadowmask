@@ -17,12 +17,7 @@ pub struct FetchJobHandler<R, F, P, E> {
 
 impl<R, F, P, E> FetchJobHandler<R, F, P, E> {
     pub fn new(repo: R, fetcher: F, probe: P, ingester: E) -> Self {
-        Self {
-            repo,
-            fetcher,
-            probe,
-            ingester,
-        }
+        Self { repo, fetcher, probe, ingester }
     }
 }
 
@@ -36,12 +31,8 @@ where
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         let payload = FetchJobPayload::decode(&job.payload)
             .map_err(|e| JobError::Permanent(format!("invalid fetch payload: {e}")))?;
-        let library = self
-            .repo
-            .get(&payload.library)
-            .await
-            .map_err(retryable)?
-            .ok_or_else(|| {
+        let library =
+            self.repo.get(&payload.library).await.map_err(retryable)?.ok_or_else(|| {
                 JobError::Permanent(format!("library not found: {}", payload.library.0))
             })?;
         if library.origin != LibraryOrigin::External {
@@ -58,11 +49,7 @@ where
         tracing::info!("fetching [{}] into [{}]", payload.source_url, dest_dir);
         let fetched = self
             .fetcher
-            .fetch(&FetchSpec {
-                url: payload.source_url.clone(),
-                dest_dir,
-                filename_stem: stem,
-            })
+            .fetch(&FetchSpec { url: payload.source_url.clone(), dest_dir, filename_stem: stem })
             .await
             .map_err(fetch_error)?;
         let probe = self
@@ -151,17 +138,11 @@ mod tests {
     }
 
     fn local_library() -> Library {
-        Library {
-            origin: LibraryOrigin::Local,
-            ..external_library()
-        }
+        Library { origin: LibraryOrigin::Local, ..external_library() }
     }
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        PageRequest { offset: 0, limit: 10 }
     }
 
     fn payload() -> FetchJobPayload {
@@ -220,11 +201,7 @@ mod tests {
             jobs.clone(),
             MockLibraryRepo::new(),
         );
-        (
-            FetchJobHandler::new(repo, MockFetcher { outcome }, probe, ingester),
-            catalog,
-            jobs,
-        )
+        (FetchJobHandler::new(repo, MockFetcher { outcome }, probe, ingester), catalog, jobs)
     }
 
     #[tokio::test]
@@ -236,20 +213,12 @@ mod tests {
         h.handle(&job(payload().encode())).await.unwrap();
 
         assert_eq!(
-            catalog
-                .list_library_versions(&LibraryId("ext".into()), page())
-                .await
-                .unwrap()
-                .total,
+            catalog.list_library_versions(&LibraryId("ext".into()), page()).await.unwrap().total,
             1
         );
         let enqueued = jobs.list().await.unwrap();
         assert!(!enqueued.is_empty());
-        assert!(
-            enqueued
-                .iter()
-                .all(|j| j.parent_id == Some(JobId("job-1".into())))
-        );
+        assert!(enqueued.iter().all(|j| j.parent_id == Some(JobId("job-1".into()))));
     }
 
     #[tokio::test]
@@ -281,10 +250,8 @@ mod tests {
         payload.external_id = Some("603".into());
         h.handle(&job(payload.encode())).await.unwrap();
 
-        let versions = catalog
-            .list_library_versions(&LibraryId("ext".into()), page())
-            .await
-            .unwrap();
+        let versions =
+            catalog.list_library_versions(&LibraryId("ext".into()), page()).await.unwrap();
         assert_eq!(
             versions.items[0].path,
             "/ext/The Matrix (1999)/The Matrix (1999) [tmdbid-603].mkv"
@@ -307,14 +274,9 @@ mod tests {
         payload.episode = Some(2);
         h.handle(&job(payload.encode())).await.unwrap();
 
-        let versions = catalog
-            .list_library_versions(&LibraryId("ext".into()), page())
-            .await
-            .unwrap();
-        assert_eq!(
-            versions.items[0].path,
-            "/ext/Great Show/Season 01/Great Show - S01E02.mkv"
-        );
+        let versions =
+            catalog.list_library_versions(&LibraryId("ext".into()), page()).await.unwrap();
+        assert_eq!(versions.items[0].path, "/ext/Great Show/Season 01/Great Show - S01E02.mkv");
     }
 
     #[tokio::test]
@@ -328,11 +290,7 @@ mod tests {
         h.handle(&job(payload.encode())).await.unwrap();
 
         assert_eq!(
-            catalog
-                .list_library_versions(&LibraryId("ext".into()), page())
-                .await
-                .unwrap()
-                .total,
+            catalog.list_library_versions(&LibraryId("ext".into()), page()).await.unwrap().total,
             1
         );
     }

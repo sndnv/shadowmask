@@ -51,22 +51,10 @@ mod tests {
 
     #[test]
     fn maps_all_statuses() {
-        assert!(matches!(
-            ScanStatusDto::from(ScanStatus::Idle),
-            ScanStatusDto::Idle
-        ));
-        assert!(matches!(
-            ScanStatusDto::from(ScanStatus::Queued),
-            ScanStatusDto::Queued
-        ));
-        assert!(matches!(
-            ScanStatusDto::from(ScanStatus::Running),
-            ScanStatusDto::Running
-        ));
-        assert!(matches!(
-            ScanStatusDto::from(ScanStatus::Failed),
-            ScanStatusDto::Failed
-        ));
+        assert!(matches!(ScanStatusDto::from(ScanStatus::Idle), ScanStatusDto::Idle));
+        assert!(matches!(ScanStatusDto::from(ScanStatus::Queued), ScanStatusDto::Queued));
+        assert!(matches!(ScanStatusDto::from(ScanStatus::Running), ScanStatusDto::Running));
+        assert!(matches!(ScanStatusDto::from(ScanStatus::Failed), ScanStatusDto::Failed));
     }
 
     #[test]

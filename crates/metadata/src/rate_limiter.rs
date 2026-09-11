@@ -9,10 +9,7 @@ pub(crate) struct RateLimiter {
 
 impl RateLimiter {
     pub(crate) fn new(min_interval: Duration) -> Self {
-        Self {
-            min_interval,
-            next_allowed: Mutex::new(None),
-        }
+        Self { min_interval, next_allowed: Mutex::new(None) }
     }
 
     pub(crate) async fn acquire(&self) {

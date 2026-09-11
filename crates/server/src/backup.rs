@@ -48,15 +48,8 @@ pub async fn snapshot(
         std::fs::create_dir_all(dest.parent().unwrap_or(work.path()))?;
         vacuum_into(&db_root.join(rel), &dest).await?;
     }
-    let manifest = Manifest {
-        version: MANIFEST_VERSION,
-        created_at_ms,
-        databases,
-    };
-    std::fs::write(
-        work.path().join(MANIFEST_NAME),
-        serde_json::to_vec_pretty(&manifest)?,
-    )?;
+    let manifest = Manifest { version: MANIFEST_VERSION, created_at_ms, databases };
+    std::fs::write(work.path().join(MANIFEST_NAME), serde_json::to_vec_pretty(&manifest)?)?;
     write_archive(work.path(), &manifest, out)?;
     Ok(manifest)
 }
@@ -151,9 +144,7 @@ pub fn restore(from: &Path, db_root: &Path) -> Result<Manifest, BackupError> {
 fn read_manifest(dir: &Path) -> Result<Manifest, BackupError> {
     let path = dir.join(MANIFEST_NAME);
     if !path.is_file() {
-        return Err(BackupError::Invalid(format!(
-            "archive is missing {MANIFEST_NAME}"
-        )));
+        return Err(BackupError::Invalid(format!("archive is missing {MANIFEST_NAME}")));
     }
     let manifest: Manifest = serde_json::from_slice(&std::fs::read(&path)?)?;
     if manifest.version != MANIFEST_VERSION {
@@ -167,13 +158,8 @@ fn read_manifest(dir: &Path) -> Result<Manifest, BackupError> {
 
 fn checked_target(db_root: &Path, rel: &str) -> Result<PathBuf, BackupError> {
     let rel_path = Path::new(rel);
-    if !rel_path
-        .components()
-        .all(|component| matches!(component, Component::Normal(_)))
-    {
-        return Err(BackupError::Invalid(format!(
-            "unsafe path in manifest: {rel}"
-        )));
+    if !rel_path.components().all(|component| matches!(component, Component::Normal(_))) {
+        return Err(BackupError::Invalid(format!("unsafe path in manifest: {rel}")));
     }
     Ok(db_root.join(rel_path))
 }
@@ -204,10 +190,7 @@ mod tests {
             .connect()
             .await
             .unwrap();
-        sqlx::query("CREATE TABLE t (v TEXT NOT NULL)")
-            .execute(&mut conn)
-            .await
-            .unwrap();
+        sqlx::query("CREATE TABLE t (v TEXT NOT NULL)").execute(&mut conn).await.unwrap();
         for row in rows {
             sqlx::query("INSERT INTO t (v) VALUES (?)")
                 .bind(*row)
@@ -255,24 +238,14 @@ mod tests {
         assert_eq!(manifest.created_at_ms, 1_700_000_000_000);
         assert_eq!(
             manifest.databases,
-            vec![
-                "server/catalog.db",
-                "server/users.db",
-                "users/alice/progress.db",
-            ]
+            vec!["server/catalog.db", "server/users.db", "users/alice/progress.db",]
         );
 
         let extracted = tempfile::tempdir().unwrap();
         let read = unpack(&out, extracted.path());
         assert_eq!(read, manifest);
-        assert_eq!(
-            rows(&extracted.path().join("server/catalog.db")).await,
-            vec!["a", "b"]
-        );
-        assert_eq!(
-            rows(&extracted.path().join("users/alice/progress.db")).await,
-            vec!["watched"]
-        );
+        assert_eq!(rows(&extracted.path().join("server/catalog.db")).await, vec!["a", "b"]);
+        assert_eq!(rows(&extracted.path().join("users/alice/progress.db")).await, vec!["watched"]);
     }
 
     #[tokio::test]
@@ -311,14 +284,8 @@ mod tests {
 
         let extracted = tempfile::tempdir().unwrap();
         unpack(&out, extracted.path());
-        assert_eq!(
-            rows(&extracted.path().join("server/catalog.db")).await,
-            vec!["live"]
-        );
-        assert_eq!(
-            rows(&extracted.path().join("users/bob/prefs.db")).await,
-            vec!["theme"]
-        );
+        assert_eq!(rows(&extracted.path().join("server/catalog.db")).await, vec!["live"]);
+        assert_eq!(rows(&extracted.path().join("users/bob/prefs.db")).await, vec!["theme"]);
     }
 
     #[tokio::test]
@@ -348,9 +315,7 @@ mod tests {
             let mut header = tar::Header::new_gnu();
             header.set_size(data.len() as u64);
             header.set_mode(0o644);
-            builder
-                .append_data(&mut header, name, data.as_slice())
-                .unwrap();
+            builder.append_data(&mut header, name, data.as_slice()).unwrap();
         }
         builder.finish().unwrap();
     }
@@ -377,15 +342,9 @@ mod tests {
         std::fs::remove_dir_all(root.join("users")).unwrap();
 
         let manifest = restore(&out, root).unwrap();
-        assert_eq!(
-            manifest.databases,
-            vec!["server/catalog.db", "users/alice/progress.db"]
-        );
+        assert_eq!(manifest.databases, vec!["server/catalog.db", "users/alice/progress.db"]);
         assert_eq!(rows(&root.join("server/catalog.db")).await, vec!["a", "b"]);
-        assert_eq!(
-            rows(&root.join("users/alice/progress.db")).await,
-            vec!["watched"]
-        );
+        assert_eq!(rows(&root.join("users/alice/progress.db")).await, vec!["watched"]);
     }
 
     #[tokio::test]
@@ -426,10 +385,7 @@ mod tests {
         let archive = dir.path().join("bad.tar");
         build_tar(&archive, &[("server/catalog.db", b"x".to_vec())]);
         let target = tempfile::tempdir().unwrap();
-        assert!(matches!(
-            restore(&archive, target.path()),
-            Err(BackupError::Invalid(_))
-        ));
+        assert!(matches!(restore(&archive, target.path()), Err(BackupError::Invalid(_))));
     }
 
     #[test]
@@ -438,10 +394,7 @@ mod tests {
         let archive = dir.path().join("bad.tar");
         build_tar(&archive, &[(MANIFEST_NAME, b"{ not json".to_vec())]);
         let target = tempfile::tempdir().unwrap();
-        assert!(matches!(
-            restore(&archive, target.path()),
-            Err(BackupError::Json(_))
-        ));
+        assert!(matches!(restore(&archive, target.path()), Err(BackupError::Json(_))));
     }
 
     #[test]
@@ -450,16 +403,10 @@ mod tests {
         let archive = dir.path().join("bad.tar");
         build_tar(
             &archive,
-            &[(
-                MANIFEST_NAME,
-                manifest_bytes(MANIFEST_VERSION + 1, &["server/catalog.db"]),
-            )],
+            &[(MANIFEST_NAME, manifest_bytes(MANIFEST_VERSION + 1, &["server/catalog.db"]))],
         );
         let target = tempfile::tempdir().unwrap();
-        assert!(matches!(
-            restore(&archive, target.path()),
-            Err(BackupError::Invalid(_))
-        ));
+        assert!(matches!(restore(&archive, target.path()), Err(BackupError::Invalid(_))));
     }
 
     #[test]
@@ -468,16 +415,10 @@ mod tests {
         let archive = dir.path().join("bad.tar");
         build_tar(
             &archive,
-            &[(
-                MANIFEST_NAME,
-                manifest_bytes(MANIFEST_VERSION, &["../escape.db"]),
-            )],
+            &[(MANIFEST_NAME, manifest_bytes(MANIFEST_VERSION, &["../escape.db"]))],
         );
         let target = tempfile::tempdir().unwrap();
-        assert!(matches!(
-            restore(&archive, target.path()),
-            Err(BackupError::Invalid(_))
-        ));
+        assert!(matches!(restore(&archive, target.path()), Err(BackupError::Invalid(_))));
     }
 
     #[test]
@@ -486,15 +427,9 @@ mod tests {
         let archive = dir.path().join("bad.tar");
         build_tar(
             &archive,
-            &[(
-                MANIFEST_NAME,
-                manifest_bytes(MANIFEST_VERSION, &["server/catalog.db"]),
-            )],
+            &[(MANIFEST_NAME, manifest_bytes(MANIFEST_VERSION, &["server/catalog.db"]))],
         );
         let target = tempfile::tempdir().unwrap();
-        assert!(matches!(
-            restore(&archive, target.path()),
-            Err(BackupError::Invalid(_))
-        ));
+        assert!(matches!(restore(&archive, target.path()), Err(BackupError::Invalid(_))));
     }
 }

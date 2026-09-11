@@ -39,9 +39,7 @@ pub struct CacheEvictor {
 
 impl CacheEvictor {
     pub fn new(cache_root: impl Into<PathBuf>) -> Self {
-        Self {
-            cache_root: cache_root.into(),
-        }
+        Self { cache_root: cache_root.into() }
     }
 
     pub fn evict_blocking(&self, max_bytes: u64) -> io::Result<usize> {
@@ -92,11 +90,7 @@ impl CacheEvictor {
             let path = entry.path();
             let size_bytes = dir_size(&path);
             let last_access = access_time(&entry.metadata()?);
-            entries.push(CacheEntry {
-                path,
-                size_bytes,
-                last_access,
-            });
+            entries.push(CacheEntry { path, size_bytes, last_access });
         }
         Ok(entries)
     }
@@ -104,8 +98,7 @@ impl CacheEvictor {
 
 impl TranscodeCacheMaintenance for CacheEvictor {
     async fn evict(&self, max_bytes: u64) -> Result<u64, CacheError> {
-        self.off_runtime(move |evictor| evictor.evict_blocking(max_bytes))
-            .await
+        self.off_runtime(move |evictor| evictor.evict_blocking(max_bytes)).await
     }
 }
 
@@ -128,11 +121,7 @@ fn access_time(meta: &Metadata) -> Timestamp {
 }
 
 fn remove(path: &Path) -> io::Result<()> {
-    if path.is_dir() {
-        std::fs::remove_dir_all(path)
-    } else {
-        std::fs::remove_file(path)
-    }
+    if path.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) }
 }
 
 #[cfg(test)]
@@ -156,11 +145,8 @@ mod tests {
 
     #[test]
     fn plan_evicts_oldest_first_until_under_cap() {
-        let entries = [
-            entry("/newest", 100, 30),
-            entry("/oldest", 100, 10),
-            entry("/middle", 100, 20),
-        ];
+        let entries =
+            [entry("/newest", 100, 30), entry("/oldest", 100, 10), entry("/middle", 100, 20)];
         let victims = plan_eviction(&entries, 250);
         assert_eq!(victims, vec![PathBuf::from("/oldest")]);
     }
@@ -219,9 +205,7 @@ mod tests {
         write_file(dir.path(), "a.ts", 1000);
         write_file(dir.path(), "b.ts", 1000);
         let evictor = CacheEvictor::new(dir.path());
-        let evicted = TranscodeCacheMaintenance::evict(&evictor, 1500)
-            .await
-            .expect("evict");
+        let evicted = TranscodeCacheMaintenance::evict(&evictor, 1500).await.expect("evict");
         assert_eq!(evicted, 1);
     }
 

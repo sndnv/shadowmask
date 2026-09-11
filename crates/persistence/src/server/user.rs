@@ -23,9 +23,7 @@ pub struct SqliteUserRepo {
 
 impl SqliteUserRepo {
     pub async fn connect(path: &Path) -> Result<Self, RepositoryError> {
-        Ok(Self {
-            pool: open(path, &MIGRATOR).await?,
-        })
+        Ok(Self { pool: open(path, &MIGRATOR).await? })
     }
 
     pub async fn ping(&self) -> Result<(), RepositoryError> {
@@ -42,11 +40,7 @@ impl SqliteUserRepo {
         query: &'static str,
         key: &str,
     ) -> Result<Vec<LanguageCode>, RepositoryError> {
-        let rows = sqlx::query(query)
-            .bind(key)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(backend)?;
+        let rows = sqlx::query(query).bind(key).fetch_all(&self.pool).await.map_err(backend)?;
         rows.iter().map(row_to_lang).collect()
     }
 
@@ -211,12 +205,7 @@ impl UserRepository for SqliteUserRepo {
         for row in &rows {
             items.push(self.load_user(row).await?);
         }
-        Ok(Page {
-            items,
-            total,
-            offset: page.offset,
-            limit: page.limit,
-        })
+        Ok(Page { items, total, offset: page.offset, limit: page.limit })
     }
 
     async fn update(&self, user: User) -> Result<(), RepositoryError> {
@@ -323,44 +312,24 @@ mod tests {
 
     #[test]
     fn non_database_errors_map_to_backend() {
-        assert!(matches!(
-            insert_error(sqlx::Error::PoolClosed),
-            RepositoryError::Backend(_)
-        ));
+        assert!(matches!(insert_error(sqlx::Error::PoolClosed), RepositoryError::Backend(_)));
     }
 
     #[tokio::test]
     async fn surfaces_backend_error_after_close() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteUserRepo::connect(&dir.path().join("users.db"))
-            .await
-            .unwrap();
+        let repo = SqliteUserRepo::connect(&dir.path().join("users.db")).await.unwrap();
         repo.pool.close().await;
         let id = UserId("u1".into());
-        assert!(
-            repo.list(PageRequest {
-                offset: 0,
-                limit: 10
-            })
-            .await
-            .is_err()
-        );
-        assert!(
-            repo.revoke_library_access(&LibraryId("lib1".into()))
-                .await
-                .is_err()
-        );
+        assert!(repo.list(PageRequest { offset: 0, limit: 10 }).await.is_err());
+        assert!(repo.revoke_library_access(&LibraryId("lib1".into())).await.is_err());
         assert!(repo.create(account("u1")).await.is_err());
         assert!(repo.get(&id).await.is_err());
         assert!(repo.find_by_username("u1").await.is_err());
         assert!(repo.update(account("u1")).await.is_err());
         assert!(repo.delete(&id).await.is_err());
         assert!(repo.list_library_access(&id).await.is_err());
-        assert!(
-            repo.set_library_access(&id, &[LibraryId("lib1".into())])
-                .await
-                .is_err()
-        );
+        assert!(repo.set_library_access(&id, &[LibraryId("lib1".into())]).await.is_err());
     }
 
     fn account(id: &str) -> User {
@@ -381,9 +350,7 @@ mod tests {
     }
 
     async fn seeded(path: &Path) -> SqliteUserRepo {
-        let repo = SqliteUserRepo::connect(&path.join("users.db"))
-            .await
-            .unwrap();
+        let repo = SqliteUserRepo::connect(&path.join("users.db")).await.unwrap();
         for id in ["u1", "u2"] {
             repo.create(User {
                 id: UserId(id.into()),
@@ -417,13 +384,7 @@ mod tests {
         repo.update(user).await.unwrap();
 
         assert!(!repo.get(&id).await.unwrap().unwrap().active);
-        assert!(
-            repo.get(&UserId("u2".into()))
-                .await
-                .unwrap()
-                .unwrap()
-                .active
-        );
+        assert!(repo.get(&UserId("u2".into())).await.unwrap().unwrap().active);
     }
 
     #[tokio::test]

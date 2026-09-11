@@ -38,9 +38,7 @@ mod tests {
     use super::*;
 
     fn parse(json: &str) -> SessionUpdate {
-        serde_json::from_str::<UpdateSessionRequest>(json)
-            .unwrap()
-            .into()
+        serde_json::from_str::<UpdateSessionRequest>(json).unwrap().into()
     }
 
     // Every client shipped before this field existed omits it, and must keep
@@ -52,17 +50,8 @@ mod tests {
 
     #[test]
     fn a_named_preference_carries_through() {
-        assert_eq!(
-            parse(r#"{"delivery":"never"}"#).delivery,
-            DeliveryPreference::NeverConvert
-        );
-        assert_eq!(
-            parse(r#"{"delivery":"always"}"#).delivery,
-            DeliveryPreference::AlwaysConvert
-        );
-        assert_eq!(
-            parse(r#"{"delivery":"nonsense"}"#).delivery,
-            DeliveryPreference::Auto
-        );
+        assert_eq!(parse(r#"{"delivery":"never"}"#).delivery, DeliveryPreference::NeverConvert);
+        assert_eq!(parse(r#"{"delivery":"always"}"#).delivery, DeliveryPreference::AlwaysConvert);
+        assert_eq!(parse(r#"{"delivery":"nonsense"}"#).delivery, DeliveryPreference::Auto);
     }
 }

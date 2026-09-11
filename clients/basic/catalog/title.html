@@ -56,38 +56,53 @@
           ? sm.el("a", { href: playHref, title: "Play", "aria-label": "Play " + d.title }, posterNode)
           : posterNode;
         main.appendChild(sm.el("div", { class: "sm-detail" }, [posterEl, info]));
-        arrays(main, d);
       }
 
-      function arrays(main, d) {
-        if (d.genres && d.genres.length) {
-          main.appendChild(sm.el("h2", { text: "Genres (" + d.genres.length + ")" }));
-          main.appendChild(
-            sm.el(
-              "ul",
-              null,
-              d.genres.map((g) =>
+      function genresInto(parent, d) {
+        if (!d.genres || !d.genres.length) return;
+        parent.appendChild(sm.el("h2", { text: "Genres (" + d.genres.length + ")" }));
+        parent.appendChild(
+          sm.el(
+            "ul",
+            null,
+            d.genres.map((g) =>
+              sm.el(
+                "li",
+                null,
                 sm.el(
-                  "li",
-                  null,
-                  sm.el(
-                    "a",
-                    {
-                      href: sm.url(
-                        (sm.qs("type") === "series"
-                          ? "catalog/series.html"
-                          : "catalog/movies.html") +
-                          "?genres=" +
-                          encodeURIComponent(g.name),
-                      ),
-                    },
-                    g.name,
-                  ),
+                  "a",
+                  {
+                    href: sm.url(
+                      (sm.qs("type") === "series"
+                        ? "catalog/series.html"
+                        : "catalog/movies.html") +
+                        "?genres=" +
+                        encodeURIComponent(g.name),
+                    ),
+                  },
+                  g.name,
                 ),
               ),
             ),
-          );
+          ),
+        );
+      }
+
+      function chipRow(main, d) {
+        const cols = sm.el("div", { class: "sm-cols" });
+        const genres = sm.el("section");
+        genresInto(genres, d);
+        const ratings = sm.el("section");
+        listOf(ratings, "Ratings", d.ratings, (r) => r.source + ": " + r.value);
+        const ids = sm.el("section");
+        externalIds(ids, d.external_ids);
+        for (const section of [genres, ratings, ids]) {
+          if (section.childNodes.length) cols.appendChild(section);
         }
+        if (cols.childNodes.length) main.appendChild(cols);
+      }
+
+      function castSection(main, d) {
         if (d.credits && d.credits.length) {
           main.appendChild(sm.el("h2", { text: "Cast and crew (" + d.credits.length + ")" }));
           main.appendChild(
@@ -104,9 +119,10 @@
             ),
           );
         }
+      }
+
+      function tailSections(main, d) {
         listOf(main, "Studios", d.studios, (s) => s.name);
-        listOf(main, "Ratings", d.ratings, (r) => r.source + ": " + r.value);
-        externalIds(main, d.external_ids);
         listOf(main, "Extras", d.extras, (x) => x.kind + ": " + x.title);
       }
 
@@ -197,6 +213,9 @@
           );
         }
         main.appendChild(picker.node);
+        chipRow(main, d);
+        castSection(main, d);
+        tailSections(main, d);
       }
 
       async function nextEpisodeHref(seriesId, seasons) {
@@ -267,21 +286,24 @@
             ),
           );
         }
+        chipRow(main, d);
+        castSection(main, d);
         main.appendChild(sm.el("h2", { text: "Seasons (" + seasons.length + ")" }));
         if (!seasons.length) {
           main.appendChild(sm.el("p", { text: "No seasons." }));
-          return;
+        } else {
+          main.appendChild(
+            sm.grid(
+              seasons.map((s) => ({
+                href: sm.href.season(s.id, id),
+                artwork: s.artwork,
+                title: s.title || "Season " + s.number,
+                subtitle: null,
+              })),
+            ),
+          );
         }
-        main.appendChild(
-          sm.grid(
-            seasons.map((s) => ({
-              href: sm.href.season(s.id, id),
-              artwork: s.artwork,
-              title: s.title || "Season " + s.number,
-              subtitle: null,
-            })),
-          ),
-        );
+        tailSections(main, d);
       }
 
     </script>

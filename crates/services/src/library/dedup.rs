@@ -9,10 +9,7 @@ pub fn find_duplicates(groups: &[MatchedGroup]) -> Vec<DuplicateCandidate> {
         let title = synthetic_title_id(group);
         let mut buckets: BTreeMap<u32, Vec<String>> = BTreeMap::new();
         for file in &group.files {
-            buckets
-                .entry(resolution(file))
-                .or_default()
-                .push(file.path.clone());
+            buckets.entry(resolution(file)).or_default().push(file.path.clone());
         }
         for (res, mut paths) in buckets {
             if paths.len() < 2 {
@@ -92,12 +89,7 @@ mod tests {
         files: Vec<DiscoveredFile>,
     ) -> MatchedGroup {
         MatchedGroup {
-            key: MatchKey {
-                title_slug: slug.to_owned(),
-                year,
-                season,
-                episode,
-            },
+            key: MatchKey { title_slug: slug.to_owned(), year, season, episode },
             parsed: ParsedMedia {
                 title: slug.to_owned(),
                 year,
@@ -118,18 +110,12 @@ mod tests {
             Some(1999),
             None,
             None,
-            vec![
-                file("/m/matrix-b.mkv", Some(1080)),
-                file("/m/matrix-a.mkv", Some(1080)),
-            ],
+            vec![file("/m/matrix-b.mkv", Some(1080)), file("/m/matrix-a.mkv", Some(1080))],
         )];
         let dupes = find_duplicates(&groups);
         assert_eq!(dupes.len(), 1);
         assert_eq!(dupes[0].id.0, "dup:scan:the-matrix:1999:1080");
-        assert_eq!(
-            dupes[0].title,
-            TitleId::Movie(MovieId("scan:the-matrix:1999".to_owned()))
-        );
+        assert_eq!(dupes[0].title, TitleId::Movie(MovieId("scan:the-matrix:1999".to_owned())));
         assert_eq!(dupes[0].paths, vec!["/m/matrix-a.mkv", "/m/matrix-b.mkv"]);
     }
 
@@ -140,23 +126,14 @@ mod tests {
             Some(1999),
             None,
             None,
-            vec![
-                file("/m/matrix.1080p.mkv", Some(1080)),
-                file("/m/matrix.2160p.mkv", Some(2160)),
-            ],
+            vec![file("/m/matrix.1080p.mkv", Some(1080)), file("/m/matrix.2160p.mkv", Some(2160))],
         )];
         assert!(find_duplicates(&groups).is_empty());
     }
 
     #[test]
     fn single_file_is_not_a_duplicate() {
-        let groups = [group(
-            "solo",
-            Some(2020),
-            None,
-            None,
-            vec![file("/m/solo.mkv", Some(1080))],
-        )];
+        let groups = [group("solo", Some(2020), None, None, vec![file("/m/solo.mkv", Some(1080))])];
         assert!(find_duplicates(&groups).is_empty());
     }
 
@@ -174,10 +151,7 @@ mod tests {
         )];
         let dupes = find_duplicates(&groups);
         assert_eq!(dupes.len(), 1);
-        assert_eq!(
-            dupes[0].title,
-            TitleId::Episode(EpisodeId("scan:show:s01e02".to_owned()))
-        );
+        assert_eq!(dupes[0].title, TitleId::Episode(EpisodeId("scan:show:s01e02".to_owned())));
     }
 
     #[test]

@@ -16,10 +16,7 @@ mod tests {
 
     #[test]
     fn a_payload_encodes_to_its_wire_shape() {
-        let encoded = encode_payload(&Wire {
-            version_id: "v1".into(),
-            target_height: 1080,
-        });
+        let encoded = encode_payload(&Wire { version_id: "v1".into(), target_height: 1080 });
 
         assert_eq!(encoded, r#"{"version_id":"v1","target_height":1080}"#);
     }

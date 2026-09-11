@@ -142,10 +142,7 @@ mod tests {
         let by_added: Vec<&str> = items.iter().map(|s| s.id.0.as_str()).collect();
         assert_eq!(by_added, ["a", "c", "b"]);
 
-        let mut tied = vec![
-            series("z", "Same", Some(2000), 5),
-            series("a", "Same", Some(2000), 5),
-        ];
+        let mut tied = vec![series("z", "Same", Some(2000), 5), series("a", "Same", Some(2000), 5)];
         sort_titles(&mut tied, TitleSort::Title, SortOrder::Desc);
         let by_id: Vec<&str> = tied.iter().map(|s| s.id.0.as_str()).collect();
         assert_eq!(by_id, ["a", "z"], "id breaks a series tie ascending too");

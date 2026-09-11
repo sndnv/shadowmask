@@ -64,46 +64,31 @@ mod tests {
     #[test]
     fn blank_host_is_not_applicable() {
         let jar = line(".bilibili.tv", NOW + 10, "SESSDATA");
-        assert_eq!(
-            check_host_cookies(&jar, "   ", NOW),
-            CookieVerdict::NotApplicable
-        );
+        assert_eq!(check_host_cookies(&jar, "   ", NOW), CookieVerdict::NotApplicable);
     }
 
     #[test]
     fn no_matching_domain_is_not_applicable() {
         let jar = line(".bilibili.tv", NOW + 10, "SESSDATA");
-        assert_eq!(
-            check_host_cookies(&jar, "youtube.com", NOW),
-            CookieVerdict::NotApplicable
-        );
+        assert_eq!(check_host_cookies(&jar, "youtube.com", NOW), CookieVerdict::NotApplicable);
     }
 
     #[test]
     fn matching_and_unexpired_is_live() {
         let jar = line(".nebula.tv", NOW + 10, "token");
-        assert_eq!(
-            check_host_cookies(&jar, "nebula.tv", NOW),
-            CookieVerdict::Live
-        );
+        assert_eq!(check_host_cookies(&jar, "nebula.tv", NOW), CookieVerdict::Live);
     }
 
     #[test]
     fn subdomain_host_matches_dotted_domain() {
         let jar = line(".bilibili.tv", NOW + 10, "SESSDATA");
-        assert_eq!(
-            check_host_cookies(&jar, "www.bilibili.tv", NOW),
-            CookieVerdict::Live
-        );
+        assert_eq!(check_host_cookies(&jar, "www.bilibili.tv", NOW), CookieVerdict::Live);
     }
 
     #[test]
     fn matching_but_all_expired_is_expired() {
         let jar = line(".nebula.tv", NOW - 10, "token");
-        assert_eq!(
-            check_host_cookies(&jar, "nebula.tv", NOW),
-            CookieVerdict::Expired
-        );
+        assert_eq!(check_host_cookies(&jar, "nebula.tv", NOW), CookieVerdict::Expired);
     }
 
     #[test]
@@ -113,28 +98,19 @@ mod tests {
             line(".nebula.tv", NOW - 10, "old"),
             line(".nebula.tv", NOW + 10, "fresh")
         );
-        assert_eq!(
-            check_host_cookies(&jar, "nebula.tv", NOW),
-            CookieVerdict::Live
-        );
+        assert_eq!(check_host_cookies(&jar, "nebula.tv", NOW), CookieVerdict::Live);
     }
 
     #[test]
     fn http_only_prefixed_lines_are_parsed() {
         let jar = line("#HttpOnly_.nebula.tv", NOW - 10, "token");
-        assert_eq!(
-            check_host_cookies(&jar, "nebula.tv", NOW),
-            CookieVerdict::Expired
-        );
+        assert_eq!(check_host_cookies(&jar, "nebula.tv", NOW), CookieVerdict::Expired);
     }
 
     #[test]
     fn session_only_cookies_are_not_applicable() {
         let jar = line(".nebula.tv", 0, "session");
-        assert_eq!(
-            check_host_cookies(&jar, "nebula.tv", NOW),
-            CookieVerdict::NotApplicable
-        );
+        assert_eq!(check_host_cookies(&jar, "nebula.tv", NOW), CookieVerdict::NotApplicable);
     }
 
     #[test]
@@ -145,13 +121,7 @@ mod tests {
             ".nebula.tv\tTRUE\t/\tTRUE\tnotanumber\tname\tvalue",
             line(".nebula.tv", NOW + 10, "good")
         );
-        assert_eq!(
-            check_host_cookies(&jar, "nebula.tv", NOW),
-            CookieVerdict::Live
-        );
-        assert_eq!(
-            check_host_cookies(&jar, "whatever.com", NOW),
-            CookieVerdict::NotApplicable
-        );
+        assert_eq!(check_host_cookies(&jar, "nebula.tv", NOW), CookieVerdict::Live);
+        assert_eq!(check_host_cookies(&jar, "whatever.com", NOW), CookieVerdict::NotApplicable);
     }
 }

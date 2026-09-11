@@ -13,10 +13,7 @@ pub struct LibraryBootstrapProvider<L> {
 
 impl<L> LibraryBootstrapProvider<L> {
     pub fn new(libraries: L) -> Self {
-        Self {
-            libraries,
-            admin: bootstrap_admin(),
-        }
+        Self { libraries, admin: bootstrap_admin() }
     }
 }
 
@@ -31,14 +28,9 @@ where
     }
 
     fn load(&self, value: &toml::Value) -> Result<NewLibrary, BootstrapError> {
-        let request: CreateLibraryRequest =
-            value
-                .clone()
-                .try_into()
-                .map_err(|error| BootstrapError::Invalid {
-                    entity: "library",
-                    reason: error.to_string(),
-                })?;
+        let request: CreateLibraryRequest = value.clone().try_into().map_err(|error| {
+            BootstrapError::Invalid { entity: "library", reason: error.to_string() }
+        })?;
         Ok(request.into())
     }
 
@@ -158,10 +150,7 @@ mod tests {
         let result = run_one(&provider, dir.path()).await;
         assert_eq!(result.created, 0);
         assert_eq!(result.skipped, 1);
-        assert_eq!(
-            service.libraries(&bootstrap_admin()).await.unwrap().len(),
-            1
-        );
+        assert_eq!(service.libraries(&bootstrap_admin()).await.unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -175,13 +164,7 @@ mod tests {
         let provider = LibraryBootstrapProvider::new(service.clone());
         let result = run_one(&provider, dir.path()).await;
         assert_eq!(result.created, 0);
-        assert!(
-            service
-                .libraries(&bootstrap_admin())
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        assert!(service.libraries(&bootstrap_admin()).await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -218,10 +201,7 @@ mod tests {
 
         assert!(matches!(
             provider.create(entity).await,
-            Err(BootstrapError::Backend {
-                entity: "library",
-                ..
-            })
+            Err(BootstrapError::Backend { entity: "library", .. })
         ));
     }
 }

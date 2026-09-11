@@ -114,10 +114,7 @@ fn unreadable(path: &Path, error: &std::io::Error) -> ProfileError {
 
 impl ProfileRegistry for BuiltinProfiles {
     fn resolve(&self, platform: &str) -> CapabilityProfile {
-        self.profiles
-            .get(platform)
-            .cloned()
-            .unwrap_or_else(|| self.generic.clone())
+        self.profiles.get(platform).cloned().unwrap_or_else(|| self.generic.clone())
     }
 }
 
@@ -128,16 +125,9 @@ fn parse_profile(json: &str) -> Result<CapabilityProfile, ProfileError> {
 }
 
 fn to_domain(raw: RawProfile) -> Result<CapabilityProfile, ProfileError> {
-    let containers = raw
-        .containers
-        .iter()
-        .map(|c| map_container(c))
-        .collect::<Result<Vec<_>, _>>()?;
-    let hdr = raw
-        .hdr
-        .iter()
-        .map(|h| map_hdr(h))
-        .collect::<Result<Vec<_>, _>>()?;
+    let containers =
+        raw.containers.iter().map(|c| map_container(c)).collect::<Result<Vec<_>, _>>()?;
+    let hdr = raw.hdr.iter().map(|h| map_hdr(h)).collect::<Result<Vec<_>, _>>()?;
     let video = raw
         .video
         .into_iter()
@@ -151,10 +141,7 @@ fn to_domain(raw: RawProfile) -> Result<CapabilityProfile, ProfileError> {
     let audio = raw
         .audio
         .into_iter()
-        .map(|a| AudioCodecCap {
-            codec: a.codec,
-            max_channels: a.max_channels,
-        })
+        .map(|a| AudioCodecCap { codec: a.codec, max_channels: a.max_channels })
         .collect();
     let profile = CapabilityProfile {
         containers,
@@ -218,11 +205,7 @@ mod tests {
         let desktop = registry.resolve("desktop");
         // mpv decodes these natively, so anything narrower here makes the
         // server tone map and downscale 4K HDR in real time for nothing.
-        let hevc = desktop
-            .video
-            .iter()
-            .find(|v| v.codec == "hevc")
-            .expect("hevc present");
+        let hevc = desktop.video.iter().find(|v| v.codec == "hevc").expect("hevc present");
         assert!(hevc.max_bit_depth >= 10);
         assert_eq!(desktop.max_height, 2160);
         assert!(desktop.hdr.contains(&HdrFormat::Hdr10));
@@ -253,10 +236,7 @@ mod tests {
     #[test]
     fn unknown_platform_falls_back_to_generic() {
         let registry = BuiltinProfiles::load().unwrap();
-        assert_eq!(
-            registry.resolve("nintendo-switch"),
-            registry.resolve(GENERIC)
-        );
+        assert_eq!(registry.resolve("nintendo-switch"), registry.resolve(GENERIC));
     }
 
     #[test]
@@ -269,10 +249,7 @@ mod tests {
                 max_bit_depth: 10,
                 smooth: true,
             }],
-            audio: vec![AudioCodecCap {
-                codec: "opus".to_owned(),
-                max_channels: 2,
-            }],
+            audio: vec![AudioCodecCap { codec: "opus".to_owned(), max_channels: 2 }],
             hdr: vec![HdrFormat::Hdr10],
             max_width: 7680,
             max_height: 4320,
@@ -342,10 +319,7 @@ mod tests {
 
     #[test]
     fn malformed_json_is_parse_error() {
-        assert!(matches!(
-            parse_profile("not json"),
-            Err(ProfileError::Parse(_))
-        ));
+        assert!(matches!(parse_profile("not json"), Err(ProfileError::Parse(_))));
     }
 
     #[test]
@@ -365,10 +339,7 @@ mod tests {
     #[test]
     fn without_a_directory_only_the_built_ins_load() {
         let registry = BuiltinProfiles::load_from_dir(None).unwrap();
-        assert_eq!(
-            registry.resolve("roku"),
-            BuiltinProfiles::load().unwrap().resolve("roku")
-        );
+        assert_eq!(registry.resolve("roku"), BuiltinProfiles::load().unwrap().resolve("roku"));
     }
 
     #[test]
@@ -391,10 +362,9 @@ mod tests {
     fn a_missing_directory_refuses_to_start() {
         // A silently ignored override is worse than a refusal to boot: the
         // operator would be reading a profile they think they replaced.
-        let Err(error) = BuiltinProfiles::load_from_dir(Some(std::path::Path::new("/no/such/dir")))
-        else {
-            panic!("a missing directory should not be ignored");
-        };
+        let error = BuiltinProfiles::load_from_dir(Some(std::path::Path::new("/no/such/dir")))
+            .err()
+            .expect("a missing directory should not be ignored");
         assert!(matches!(error, ProfileError::Unreadable(_)));
         assert!(error.to_string().contains("/no/such/dir"));
     }
@@ -413,9 +383,9 @@ mod tests {
     fn a_broken_file_names_itself() {
         let dir = tempfile::tempdir().unwrap();
         write_profile(dir.path(), "roku.json", "not json");
-        let Err(error) = BuiltinProfiles::load_from_dir(Some(dir.path())) else {
-            panic!("a broken override should not be ignored");
-        };
+        let error = BuiltinProfiles::load_from_dir(Some(dir.path()))
+            .err()
+            .expect("a broken override should not be ignored");
         assert!(error.to_string().contains("roku.json"));
     }
 }

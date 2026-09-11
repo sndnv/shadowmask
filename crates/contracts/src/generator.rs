@@ -138,15 +138,13 @@ impl Generator {
                 updated_at: ts(0),
             };
             self.users_repo.insert(row);
-            self.users_repo
-                .grant(&account.user_id, &[LibraryId("lib1".into())]);
+            self.users_repo.grant(&account.user_id, &[LibraryId("lib1".into())]);
         }
     }
 
     fn generate_catalog(&self) {
         self.catalog_repo.seed_movie_detail(fixture::movie_detail());
-        self.catalog_repo
-            .seed_series_detail(fixture::series_detail_aggregate());
+        self.catalog_repo.seed_series_detail(fixture::series_detail_aggregate());
         self.catalog_repo.add_season(season_art("se1", "s1"));
         self.catalog_repo.add_episode(episode_art("e1", "se1"));
         self.catalog_repo.add_collection(collection_art());
@@ -156,8 +154,7 @@ impl Generator {
         for version in fixture::catalog_versions() {
             self.catalog_repo.add_version(version);
         }
-        self.catalog_repo
-            .seed_version_detail(fixture::version_detail("v1"));
+        self.catalog_repo.seed_version_detail(fixture::version_detail("v1"));
     }
 
     fn generate_library(&self) {
@@ -213,8 +210,7 @@ impl Generator {
         let u1 = UserId("u1".into());
         self.search_index.add(SearchResult::Movie(movie("m1")));
         self.search_index.add(SearchResult::Series(series("s1")));
-        self.search_index
-            .add(SearchResult::Episode(episode("e1", "se1")));
+        self.search_index.add(SearchResult::Episode(episode("e1", "se1")));
         self.search_index.add(SearchResult::Person(Person {
             id: PersonId("p1".into()),
             name: "Alpha Person".into(),
@@ -238,12 +234,7 @@ impl Generator {
 fn seeded_auth() -> MockAuthService {
     let auth = MockAuthService::new();
     for account in fixture::accounts() {
-        auth.add_account(
-            account.username,
-            account.password,
-            account.user_id,
-            account.role,
-        );
+        auth.add_account(account.username, account.password, account.user_id, account.role);
     }
     auth.add_link_code(fixture::LINK_CODE, fixture::link_token());
     auth

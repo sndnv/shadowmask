@@ -20,13 +20,7 @@ pub struct TrickplayConfig {
 
 impl Default for TrickplayConfig {
     fn default() -> Self {
-        Self {
-            interval_ms: 10_000,
-            columns: 10,
-            rows: 10,
-            tile_width: 320,
-            tile_height: 180,
-        }
+        Self { interval_ms: 10_000, columns: 10, rows: 10, tile_width: 320, tile_height: 180 }
     }
 }
 
@@ -114,9 +108,7 @@ fn plan_trickplay(
     let tiles = duration_ms.div_ceil(config.interval_ms.max(1));
     let sheets = tiles.div_ceil(per_sheet);
     let dir = output_dir.to_string_lossy();
-    let sheet_paths = (1..=sheets)
-        .map(|i| format!("{dir}/sheet-{i:03}.jpg"))
-        .collect();
+    let sheet_paths = (1..=sheets).map(|i| format!("{dir}/sheet-{i:03}.jpg")).collect();
     let filter = format!(
         "fps=1/{},scale={}:{},tile={}x{}",
         config.interval_ms as f64 / 1000.0,
@@ -220,10 +212,7 @@ mod tests {
     async fn generate_fails_when_output_dir_cannot_be_created() {
         let file = tempfile::NamedTempFile::new().expect("tempfile");
         let generator = FfmpegTrickplayGenerator::new(file.path());
-        let err = generator
-            .generate("/media/movie.mkv", &version(), 10_000)
-            .await
-            .unwrap_err();
+        let err = generator.generate("/media/movie.mkv", &version(), 10_000).await.unwrap_err();
         assert!(matches!(err, TrickplayError::Backend(_)));
     }
 
@@ -234,9 +223,7 @@ mod tests {
         assert_eq!(DerivedAssetStore::label(&generator), "trickplay");
         let sheets = dir.path().join("v1");
         tokio::fs::create_dir(&sheets).await.expect("create");
-        tokio::fs::write(sheets.join("0.jpg"), b"jpg")
-            .await
-            .expect("write");
+        tokio::fs::write(sheets.join("0.jpg"), b"jpg").await.expect("write");
 
         let dirs = generator.list_dirs().await.expect("list");
         assert_eq!(dirs.len(), 1);
@@ -245,17 +232,8 @@ mod tests {
         let files = generator.list_files("v1").await.expect("list files");
         assert_eq!(files.len(), 1);
         assert!(files[0].path.ends_with("0.jpg"));
-        generator
-            .remove_file(&files[0].path)
-            .await
-            .expect("remove file");
-        assert!(
-            generator
-                .list_files("v1")
-                .await
-                .expect("list files")
-                .is_empty()
-        );
+        generator.remove_file(&files[0].path).await.expect("remove file");
+        assert!(generator.list_files("v1").await.expect("list files").is_empty());
 
         generator.remove_dir("v1").await.expect("remove");
         assert!(generator.list_dirs().await.expect("list").is_empty());

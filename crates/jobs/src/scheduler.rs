@@ -32,12 +32,7 @@ impl Scheduler {
         for schedule in &mut self.schedules {
             if schedule.next_fire_at <= now {
                 queue
-                    .enqueue(
-                        schedule.kind,
-                        schedule.priority,
-                        schedule.payload.clone(),
-                        now,
-                    )
+                    .enqueue(schedule.kind, schedule.priority, schedule.payload.clone(), now)
                     .await?;
                 schedule.next_fire_at = schedule
                     .next_fire_at

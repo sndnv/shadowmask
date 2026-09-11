@@ -40,12 +40,7 @@ pub async fn auth_token_repository_contract<R: AuthTokenRepository>(repo: R) {
     assert_eq!(updated.created_at, at(5));
     assert!(updated.last_seen.is_none());
 
-    assert!(
-        repo.find_api_token_by_hash("hash-1")
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(repo.find_api_token_by_hash("hash-1").await.unwrap().is_none());
     repo.store_api_token(ApiToken {
         id: ApiTokenId("tok1".into()),
         user: UserId("u1".into()),
@@ -56,24 +51,14 @@ pub async fn auth_token_repository_contract<R: AuthTokenRepository>(repo: R) {
     })
     .await
     .unwrap();
-    let token = repo
-        .find_api_token_by_hash("hash-1")
-        .await
-        .unwrap()
-        .unwrap();
+    let token = repo.find_api_token_by_hash("hash-1").await.unwrap().unwrap();
     assert_eq!(token.id, ApiTokenId("tok1".into()));
     assert_eq!(token.device, device_id);
     assert_eq!(token.created_at, at(20));
     assert!(token.last_used_at.is_none());
 
-    repo.touch_api_token(&ApiTokenId("tok1".into()), at(40))
-        .await
-        .unwrap();
-    let touched = repo
-        .find_api_token_by_hash("hash-1")
-        .await
-        .unwrap()
-        .unwrap();
+    repo.touch_api_token(&ApiTokenId("tok1".into()), at(40)).await.unwrap();
+    let touched = repo.find_api_token_by_hash("hash-1").await.unwrap().unwrap();
     assert_eq!(touched.created_at, at(20));
     assert_eq!(touched.last_used_at, Some(at(40)));
 
@@ -106,19 +91,10 @@ pub async fn auth_token_repository_contract<R: AuthTokenRepository>(repo: R) {
     assert_eq!(tokens.len(), 1);
     assert_eq!(tokens[0].id, ApiTokenId("tok1".into()));
 
-    repo.revoke_api_token(&ApiTokenId("tok1".into()))
-        .await
-        .unwrap();
+    repo.revoke_api_token(&ApiTokenId("tok1".into())).await.unwrap();
     assert!(repo.list_api_tokens(&u1).await.unwrap().is_empty());
-    assert!(
-        repo.find_api_token_by_hash("hash-1")
-            .await
-            .unwrap()
-            .is_none()
-    );
-    repo.revoke_api_token(&ApiTokenId("tok1".into()))
-        .await
-        .unwrap();
+    assert!(repo.find_api_token_by_hash("hash-1").await.unwrap().is_none());
+    repo.revoke_api_token(&ApiTokenId("tok1".into())).await.unwrap();
 
     repo.delete_device(&device_id).await.unwrap();
     assert!(repo.list_devices(&u1).await.unwrap().is_empty());

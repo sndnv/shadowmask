@@ -5,37 +5,24 @@ pub fn plan_for(library: &Library) -> Result<WatchPlan, WatchPlanError> {
     match library.watcher {
         WatcherStrategy::Local => {
             require_roots(library)?;
-            Ok(WatchPlan::FsEvents {
-                roots: library.roots.clone(),
-            })
+            Ok(WatchPlan::FsEvents { roots: library.roots.clone() })
         }
         WatcherStrategy::Polling => {
             require_roots(library)?;
-            Ok(WatchPlan::Poll {
-                roots: library.roots.clone(),
-            })
+            Ok(WatchPlan::Poll { roots: library.roots.clone() })
         }
         WatcherStrategy::Scheduled => {
             require_roots(library)?;
-            let expression = library
-                .scan_schedule
-                .clone()
-                .ok_or(WatchPlanError::MissingSchedule)?;
-            Ok(WatchPlan::Cron {
-                expression,
-                roots: library.roots.clone(),
-            })
+            let expression =
+                library.scan_schedule.clone().ok_or(WatchPlanError::MissingSchedule)?;
+            Ok(WatchPlan::Cron { expression, roots: library.roots.clone() })
         }
         WatcherStrategy::Manual => Ok(WatchPlan::Manual),
     }
 }
 
 fn require_roots(library: &Library) -> Result<(), WatchPlanError> {
-    if library.roots.is_empty() {
-        Err(WatchPlanError::NoRoots)
-    } else {
-        Ok(())
-    }
+    if library.roots.is_empty() { Err(WatchPlanError::NoRoots) } else { Ok(()) }
 }
 
 #[cfg(test)]
@@ -63,39 +50,22 @@ mod tests {
     #[test]
     fn local_with_roots_is_fs_events() {
         let plan = plan_for(&library(WatcherStrategy::Local, &["/m"], None)).unwrap();
-        assert_eq!(
-            plan,
-            WatchPlan::FsEvents {
-                roots: vec!["/m".into()]
-            }
-        );
+        assert_eq!(plan, WatchPlan::FsEvents { roots: vec!["/m".into()] });
     }
 
     #[test]
     fn polling_with_roots_is_poll() {
         let plan = plan_for(&library(WatcherStrategy::Polling, &["/m"], None)).unwrap();
-        assert_eq!(
-            plan,
-            WatchPlan::Poll {
-                roots: vec!["/m".into()]
-            }
-        );
+        assert_eq!(plan, WatchPlan::Poll { roots: vec!["/m".into()] });
     }
 
     #[test]
     fn scheduled_with_schedule_is_cron() {
-        let plan = plan_for(&library(
-            WatcherStrategy::Scheduled,
-            &["/m"],
-            Some("0 0 3 * * * *"),
-        ))
-        .unwrap();
+        let plan =
+            plan_for(&library(WatcherStrategy::Scheduled, &["/m"], Some("0 0 3 * * * *"))).unwrap();
         assert_eq!(
             plan,
-            WatchPlan::Cron {
-                expression: "0 0 3 * * * *".into(),
-                roots: vec!["/m".into()]
-            }
+            WatchPlan::Cron { expression: "0 0 3 * * * *".into(), roots: vec!["/m".into()] }
         );
     }
 
@@ -113,11 +83,9 @@ mod tests {
 
     #[test]
     fn event_strategies_require_roots() {
-        for watcher in [
-            WatcherStrategy::Local,
-            WatcherStrategy::Polling,
-            WatcherStrategy::Scheduled,
-        ] {
+        for watcher in
+            [WatcherStrategy::Local, WatcherStrategy::Polling, WatcherStrategy::Scheduled]
+        {
             let err = plan_for(&library(watcher, &[], Some("0 0 3 * * * *"))).unwrap_err();
             assert_eq!(err, WatchPlanError::NoRoots);
         }

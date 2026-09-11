@@ -12,9 +12,6 @@ pub struct SubtitleSelectionDto {
 
 impl From<SubtitleSelectionDto> for SubtitleSelection {
     fn from(s: SubtitleSelectionDto) -> Self {
-        SubtitleSelection {
-            track: s.track.into(),
-            offset_ms: s.offset_ms,
-        }
+        SubtitleSelection { track: s.track.into(), offset_ms: s.offset_ms }
     }
 }

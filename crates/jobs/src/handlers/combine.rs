@@ -18,11 +18,7 @@ pub struct CombineJobHandler<Cmb, C, S> {
 
 impl<Cmb, C, S> CombineJobHandler<Cmb, C, S> {
     pub fn new(combiner: Cmb, catalog: C, store: S) -> Self {
-        Self {
-            combiner,
-            catalog,
-            store,
-        }
+        Self { combiner, catalog, store }
     }
 }
 
@@ -47,16 +43,11 @@ where
         };
         let existing = detail.subtitle_files;
 
-        let Some(top) = existing
-            .iter()
-            .find(|file| file.id.0 == payload.top_subtitle_id)
-        else {
+        let Some(top) = existing.iter().find(|file| file.id.0 == payload.top_subtitle_id) else {
             tracing::debug!("top subtitle not found; skipping combine");
             return Ok(());
         };
-        let Some(bottom) = existing
-            .iter()
-            .find(|file| file.id.0 == payload.bottom_subtitle_id)
+        let Some(bottom) = existing.iter().find(|file| file.id.0 == payload.bottom_subtitle_id)
         else {
             tracing::debug!("bottom subtitle not found; skipping combine");
             return Ok(());
@@ -77,11 +68,8 @@ where
             payload.bottom_subtitle_id,
             payload.version_id.0
         );
-        let language = Some(LanguageCode(format!(
-            "{}+{}",
-            language_code(top),
-            language_code(bottom)
-        )));
+        let language =
+            Some(LanguageCode(format!("{}+{}", language_code(top), language_code(bottom))));
         let top_input = self.load(top).await?;
         let bottom_input = self.load(bottom).await?;
 
@@ -94,10 +82,7 @@ where
             .store
             .store(
                 &payload.version_id,
-                &format!(
-                    "combined:{}:{}",
-                    payload.top_subtitle_id, payload.bottom_subtitle_id
-                ),
+                &format!("combined:{}:{}", payload.top_subtitle_id, payload.bottom_subtitle_id),
                 combined.format,
                 &combined.content,
             )
@@ -128,23 +113,14 @@ where
     S: SubtitleReader + Send + Sync,
 {
     async fn load(&self, file: &SubtitleFile) -> Result<FetchedSubtitle, JobError> {
-        let content = self
-            .store
-            .load(&file.path)
-            .await
-            .map_err(|e| JobError::Retryable(e.to_string()))?;
-        Ok(FetchedSubtitle {
-            content,
-            format: file.format,
-        })
+        let content =
+            self.store.load(&file.path).await.map_err(|e| JobError::Retryable(e.to_string()))?;
+        Ok(FetchedSubtitle { content, format: file.format })
     }
 }
 
 fn language_code(file: &SubtitleFile) -> String {
-    file.language
-        .as_ref()
-        .map(|code| code.0.clone())
-        .unwrap_or_else(|| "und".to_owned())
+    file.language.as_ref().map(|code| code.0.clone()).unwrap_or_else(|| "und".to_owned())
 }
 
 #[cfg(test)]
@@ -281,20 +257,12 @@ mod tests {
     async fn seed(catalog: &MockCatalogRepo, files: &[SubtitleFile]) {
         catalog.add_version(version());
         if !files.is_empty() {
-            catalog
-                .set_subtitle_files(&VersionId("v1".into()), files)
-                .await
-                .unwrap();
+            catalog.set_subtitle_files(&VersionId("v1".into()), files).await.unwrap();
         }
     }
 
     async fn files_of(catalog: &MockCatalogRepo) -> Vec<SubtitleFile> {
-        catalog
-            .version_detail(&VersionId("v1".into()))
-            .await
-            .unwrap()
-            .unwrap()
-            .subtitle_files
+        catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap().subtitle_files
     }
 
     fn handler(
@@ -316,23 +284,13 @@ mod tests {
             ],
         )
         .await;
-        let handler = handler(
-            MockCombiner { fail: false },
-            catalog.clone(),
-            MockStore::default(),
-        );
+        let handler = handler(MockCombiner { fail: false }, catalog.clone(), MockStore::default());
 
-        handler
-            .handle(&job(payload("sf-en", "sf-fr")))
-            .await
-            .unwrap();
+        handler.handle(&job(payload("sf-en", "sf-fr"))).await.unwrap();
 
         let files = files_of(&catalog).await;
         assert_eq!(files.len(), 3);
-        let combined = files
-            .iter()
-            .find(|f| f.source == SubtitleSource::Combined)
-            .unwrap();
+        let combined = files.iter().find(|f| f.source == SubtitleSource::Combined).unwrap();
         assert_eq!(combined.language, Some(LanguageCode("en+fr".into())));
         assert_eq!(combined.format, SubtitleFormat::Vtt);
     }
@@ -348,47 +306,27 @@ mod tests {
             ],
         )
         .await;
-        let handler = handler(
-            MockCombiner { fail: false },
-            catalog.clone(),
-            MockStore::default(),
-        );
+        let handler = handler(MockCombiner { fail: false }, catalog.clone(), MockStore::default());
 
-        handler
-            .handle(&job(payload("sf-en", "sf-x")))
-            .await
-            .unwrap();
+        handler.handle(&job(payload("sf-en", "sf-x"))).await.unwrap();
 
         let files = files_of(&catalog).await;
-        let combined = files
-            .iter()
-            .find(|f| f.source == SubtitleSource::Combined)
-            .unwrap();
+        let combined = files.iter().find(|f| f.source == SubtitleSource::Combined).unwrap();
         assert_eq!(combined.language, Some(LanguageCode("en+und".into())));
     }
 
     #[tokio::test]
     async fn missing_primary_is_a_noop() {
         let catalog = MockCatalogRepo::new();
-        seed(
-            &catalog,
-            &[sub("sf-fr", SubtitleSource::External, Some("fr"))],
-        )
-        .await;
+        seed(&catalog, &[sub("sf-fr", SubtitleSource::External, Some("fr"))]).await;
         let store = MockStore::default();
         let handler = handler(
             MockCombiner { fail: false },
             catalog.clone(),
-            MockStore {
-                stored: store.stored.clone(),
-                ..MockStore::default()
-            },
+            MockStore { stored: store.stored.clone(), ..MockStore::default() },
         );
 
-        handler
-            .handle(&job(payload("absent", "sf-fr")))
-            .await
-            .unwrap();
+        handler.handle(&job(payload("absent", "sf-fr"))).await.unwrap();
 
         assert!(store.stored.lock().unwrap().is_empty());
         assert_eq!(files_of(&catalog).await.len(), 1);
@@ -397,25 +335,15 @@ mod tests {
     #[tokio::test]
     async fn missing_secondary_is_a_noop() {
         let catalog = MockCatalogRepo::new();
-        seed(
-            &catalog,
-            &[sub("sf-en", SubtitleSource::External, Some("en"))],
-        )
-        .await;
+        seed(&catalog, &[sub("sf-en", SubtitleSource::External, Some("en"))]).await;
         let store = MockStore::default();
         let handler = handler(
             MockCombiner { fail: false },
             catalog.clone(),
-            MockStore {
-                stored: store.stored.clone(),
-                ..MockStore::default()
-            },
+            MockStore { stored: store.stored.clone(), ..MockStore::default() },
         );
 
-        handler
-            .handle(&job(payload("sf-en", "absent")))
-            .await
-            .unwrap();
+        handler.handle(&job(payload("sf-en", "absent"))).await.unwrap();
 
         assert!(store.stored.lock().unwrap().is_empty());
     }
@@ -428,11 +356,7 @@ mod tests {
             &[
                 sub("sf-en", SubtitleSource::External, Some("en")),
                 sub("sf-fr", SubtitleSource::External, Some("fr")),
-                sub(
-                    "combined:v1:sf-en:sf-fr",
-                    SubtitleSource::Combined,
-                    Some("en+fr"),
-                ),
+                sub("combined:v1:sf-en:sf-fr", SubtitleSource::Combined, Some("en+fr")),
             ],
         )
         .await;
@@ -440,16 +364,10 @@ mod tests {
         let handler = handler(
             MockCombiner { fail: false },
             catalog.clone(),
-            MockStore {
-                stored: store.stored.clone(),
-                ..MockStore::default()
-            },
+            MockStore { stored: store.stored.clone(), ..MockStore::default() },
         );
 
-        handler
-            .handle(&job(payload("sf-en", "sf-fr")))
-            .await
-            .unwrap();
+        handler.handle(&job(payload("sf-en", "sf-fr"))).await.unwrap();
 
         assert!(store.stored.lock().unwrap().is_empty());
         assert_eq!(files_of(&catalog).await.len(), 3);
@@ -468,10 +386,7 @@ mod tests {
         .await;
         let handler = handler(MockCombiner { fail: true }, catalog, MockStore::default());
         assert!(matches!(
-            handler
-                .handle(&job(payload("sf-en", "sf-fr")))
-                .await
-                .unwrap_err(),
+            handler.handle(&job(payload("sf-en", "sf-fr"))).await.unwrap_err(),
             JobError::Retryable(_)
         ));
     }
@@ -490,16 +405,10 @@ mod tests {
         let handler = handler(
             MockCombiner { fail: false },
             catalog,
-            MockStore {
-                load_fail: true,
-                ..MockStore::default()
-            },
+            MockStore { load_fail: true, ..MockStore::default() },
         );
         assert!(matches!(
-            handler
-                .handle(&job(payload("sf-en", "sf-fr")))
-                .await
-                .unwrap_err(),
+            handler.handle(&job(payload("sf-en", "sf-fr"))).await.unwrap_err(),
             JobError::Retryable(_)
         ));
     }
@@ -518,16 +427,10 @@ mod tests {
         let handler = handler(
             MockCombiner { fail: false },
             catalog,
-            MockStore {
-                store_fail: true,
-                ..MockStore::default()
-            },
+            MockStore { store_fail: true, ..MockStore::default() },
         );
         assert!(matches!(
-            handler
-                .handle(&job(payload("sf-en", "sf-fr")))
-                .await
-                .unwrap_err(),
+            handler.handle(&job(payload("sf-en", "sf-fr"))).await.unwrap_err(),
             JobError::Retryable(_)
         ));
     }
@@ -546,16 +449,10 @@ mod tests {
         let handler = handler(
             MockCombiner { fail: false },
             catalog.clone(),
-            MockStore {
-                fail_catalog_after: Some(catalog),
-                ..MockStore::default()
-            },
+            MockStore { fail_catalog_after: Some(catalog), ..MockStore::default() },
         );
         assert!(matches!(
-            handler
-                .handle(&job(payload("sf-en", "sf-fr")))
-                .await
-                .unwrap_err(),
+            handler.handle(&job(payload("sf-en", "sf-fr"))).await.unwrap_err(),
             JobError::Retryable(_)
         ));
     }
@@ -574,34 +471,22 @@ mod tests {
         catalog.set_fail();
         let handler = handler(MockCombiner { fail: false }, catalog, MockStore::default());
         assert!(matches!(
-            handler
-                .handle(&job(payload("sf-en", "sf-fr")))
-                .await
-                .unwrap_err(),
+            handler.handle(&job(payload("sf-en", "sf-fr"))).await.unwrap_err(),
             JobError::Retryable(_)
         ));
     }
 
     #[tokio::test]
     async fn version_missing_is_a_noop() {
-        let handler = handler(
-            MockCombiner { fail: false },
-            MockCatalogRepo::new(),
-            MockStore::default(),
-        );
-        handler
-            .handle(&job(payload("sf-en", "sf-fr")))
-            .await
-            .unwrap();
+        let handler =
+            handler(MockCombiner { fail: false }, MockCatalogRepo::new(), MockStore::default());
+        handler.handle(&job(payload("sf-en", "sf-fr"))).await.unwrap();
     }
 
     #[tokio::test]
     async fn invalid_payload_is_permanent() {
-        let handler = handler(
-            MockCombiner { fail: false },
-            MockCatalogRepo::new(),
-            MockStore::default(),
-        );
+        let handler =
+            handler(MockCombiner { fail: false }, MockCatalogRepo::new(), MockStore::default());
         assert!(matches!(
             handler.handle(&job("garbage".into())).await.unwrap_err(),
             JobError::Permanent(_)

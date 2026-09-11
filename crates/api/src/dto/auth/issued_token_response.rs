@@ -10,10 +10,7 @@ pub struct IssuedTokenResponse {
 
 impl From<IssuedToken> for IssuedTokenResponse {
     fn from(t: IssuedToken) -> Self {
-        IssuedTokenResponse {
-            token: t.token,
-            expires_at: t.expires_at.map(|ts| ts.to_string()),
-        }
+        IssuedTokenResponse { token: t.token, expires_at: t.expires_at.map(|ts| ts.to_string()) }
     }
 }
 
@@ -34,10 +31,8 @@ mod tests {
 
     #[test]
     fn maps_none_expiry_to_none() {
-        let out = IssuedTokenResponse::from(IssuedToken {
-            token: "tok".to_owned(),
-            expires_at: None,
-        });
+        let out =
+            IssuedTokenResponse::from(IssuedToken { token: "tok".to_owned(), expires_at: None });
         assert!(out.expires_at.is_none());
     }
 }

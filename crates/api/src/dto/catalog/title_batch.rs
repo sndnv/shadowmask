@@ -41,10 +41,7 @@ mod tests {
         let req: TitleBatchRequest =
             serde_json::from_str(r#"{"titles":[{"type":"episode","id":"e1"}]}"#).unwrap();
         assert_eq!(req.titles.len(), 1);
-        assert_eq!(
-            TitleId::from(req.titles[0].clone()),
-            TitleId::Episode(EpisodeId("e1".into()))
-        );
+        assert_eq!(TitleId::from(req.titles[0].clone()), TitleId::Episode(EpisodeId("e1".into())));
     }
 
     #[test]

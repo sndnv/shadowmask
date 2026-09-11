@@ -17,10 +17,7 @@ pub struct ExternalIdInput {
 
 impl From<ExternalIdInput> for ExternalId {
     fn from(input: ExternalIdInput) -> Self {
-        ExternalId {
-            source: input.source,
-            value: input.value,
-        }
+        ExternalId { source: input.source, value: input.value }
     }
 }
 
@@ -40,10 +37,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             ExternalId::from(forced.external_id.unwrap()),
-            ExternalId {
-                source: "tmdb".into(),
-                value: "movie/603".into(),
-            }
+            ExternalId { source: "tmdb".into(), value: "movie/603".into() }
         );
     }
 

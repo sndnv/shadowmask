@@ -54,6 +54,7 @@ abstract class PlayerController {
 
 const int kDefaultBufferBytes = 256 * 1024 * 1024;
 const int kDefaultBufferSeconds = 60;
+const int kDefaultNetworkTimeoutSeconds = 10;
 
 typedef PlayerControllerFactory = PlayerController Function(String baseUrl);
 

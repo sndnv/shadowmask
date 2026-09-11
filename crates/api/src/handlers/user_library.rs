@@ -34,11 +34,7 @@ pub async fn watchlist<S: AppServices>(
         .watchlist(&target)
         .await
         .map_err(log_fail(actor, "retrieve watchlist"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} watchlist items for user [{}]",
-        items.len(),
-        target.0
-    );
+    debug!("User [{actor}] retrieved {} watchlist items for user [{}]", items.len(), target.0);
     Ok(Json(items.into_iter().map(Into::into).collect()))
 }
 
@@ -57,11 +53,7 @@ pub async fn add_to_watchlist<S: AppServices>(
         .add_to_watchlist(&target, &title)
         .await
         .map_err(log_fail(actor, "add to watchlist"))?;
-    debug!(
-        "User [{actor}] successfully added title [{}] to watchlist for user [{}]",
-        title.id(),
-        target.0
-    );
+    debug!("User [{actor}] added title [{}] to watchlist for user [{}]", title.id(), target.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -78,10 +70,7 @@ pub async fn remove_from_watchlist<S: AppServices>(
         .remove_from_watchlist(&target, &title_id)
         .await
         .map_err(log_fail(actor, "remove from watchlist"))?;
-    debug!(
-        "User [{actor}] successfully removed title [{title_id}] from watchlist for user [{}]",
-        target.0
-    );
+    debug!("User [{actor}] removed title [{title_id}] from watchlist for user [{}]", target.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -98,11 +87,7 @@ pub async fn favorites<S: AppServices>(
         .favorites(&target)
         .await
         .map_err(log_fail(actor, "retrieve favorites"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} favorites for user [{}]",
-        items.len(),
-        target.0
-    );
+    debug!("User [{actor}] retrieved {} favorites for user [{}]", items.len(), target.0);
     Ok(Json(items.into_iter().map(Into::into).collect()))
 }
 
@@ -121,11 +106,7 @@ pub async fn add_favorite<S: AppServices>(
         .add_favorite(&target, &title)
         .await
         .map_err(log_fail(actor, "add a favorite"))?;
-    debug!(
-        "User [{actor}] successfully added title [{}] to favorites for user [{}]",
-        title.id(),
-        target.0
-    );
+    debug!("User [{actor}] added title [{}] to favorites for user [{}]", title.id(), target.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -142,10 +123,7 @@ pub async fn remove_favorite<S: AppServices>(
         .remove_favorite(&target, &title_id)
         .await
         .map_err(log_fail(actor, "remove a favorite"))?;
-    debug!(
-        "User [{actor}] successfully removed title [{title_id}] from favorites for user [{}]",
-        target.0
-    );
+    debug!("User [{actor}] removed title [{title_id}] from favorites for user [{}]", target.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -163,15 +141,8 @@ pub async fn history<S: AppServices>(
         .history(&target, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve history"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} history entries for user [{}]",
-        page.items.len(),
-        target.0
-    );
-    Ok(Json(PageResponse::from_page(
-        page,
-        WatchHistoryResponse::from,
-    )))
+    debug!("User [{actor}] retrieved {} history entries for user [{}]", page.items.len(), target.0);
+    Ok(Json(PageResponse::from_page(page, WatchHistoryResponse::from)))
 }
 
 pub async fn remove_from_history<S: AppServices>(
@@ -187,10 +158,7 @@ pub async fn remove_from_history<S: AppServices>(
         .remove_from_history(&target, &title_id)
         .await
         .map_err(log_fail(actor, "remove from history"))?;
-    debug!(
-        "User [{actor}] successfully removed title [{title_id}] from history for user [{}]",
-        target.0
-    );
+    debug!("User [{actor}] removed title [{title_id}] from history for user [{}]", target.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -202,15 +170,8 @@ pub async fn clear_history<S: AppServices>(
     let actor = &principal.user.0;
     let target = UserId(user_id);
     require_admin_or_self(&principal, &target)?;
-    state
-        .user_library()
-        .clear_history(&target)
-        .await
-        .map_err(log_fail(actor, "clear history"))?;
-    debug!(
-        "User [{actor}] successfully cleared history for user [{}]",
-        target.0
-    );
+    state.user_library().clear_history(&target).await.map_err(log_fail(actor, "clear history"))?;
+    debug!("User [{actor}] cleared history for user [{}]", target.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -228,10 +189,7 @@ pub async fn progress<S: AppServices>(
         .progress(&target, &version)
         .await
         .map_err(log_fail(actor, "retrieve progress"))?;
-    debug!(
-        "User [{actor}] successfully retrieved progress for version [{}] of user [{}]",
-        version.0, target.0
-    );
+    debug!("User [{actor}] retrieved progress for version [{}] of user [{}]", version.0, target.0);
     Ok(Json(progress.map(Into::into)))
 }
 
@@ -249,10 +207,7 @@ pub async fn clear_progress<S: AppServices>(
         .clear_progress(&target, &version)
         .await
         .map_err(log_fail(actor, "clear progress"))?;
-    debug!(
-        "User [{actor}] successfully cleared progress for version [{}] of user [{}]",
-        version.0, target.0
-    );
+    debug!("User [{actor}] cleared progress for version [{}] of user [{}]", version.0, target.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -272,10 +227,7 @@ pub async fn set_watched<S: AppServices>(
         .set_watched(&target, &watch_target, watched)
         .await
         .map_err(log_fail(actor, "set watched state"))?;
-    debug!(
-        "User [{actor}] successfully set watched={watched} for user [{}]",
-        target.0
-    );
+    debug!("User [{actor}] set watched={watched} for user [{}]", target.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -300,11 +252,7 @@ pub async fn state_batch<S: AppServices>(
         .title_states(&target, &titles)
         .await
         .map_err(log_fail(actor, "retrieve title states"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} title states for user [{}]",
-        states.len(),
-        target.0
-    );
+    debug!("User [{actor}] retrieved {} title states for user [{}]", states.len(), target.0);
     Ok(Json(states.into_iter().map(Into::into).collect()))
 }
 
@@ -328,9 +276,7 @@ pub async fn state_rollup<S: AppServices>(
         .iter()
         .any(|t| matches!(t.kind, WatchTargetKind::Movie | WatchTargetKind::Episode))
     {
-        return Err(ApiError::bad_request(
-            "rollup targets must be a season or series",
-        ));
+        return Err(ApiError::bad_request("rollup targets must be a season or series"));
     }
     let targets: Vec<_> = req.targets.into_iter().map(|t| t.into_target()).collect();
     let rollups = state
@@ -338,10 +284,6 @@ pub async fn state_rollup<S: AppServices>(
         .watched_rollups(&target, &targets)
         .await
         .map_err(log_fail(actor, "retrieve watched rollups"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} watched rollups for user [{}]",
-        rollups.len(),
-        target.0
-    );
+    debug!("User [{actor}] retrieved {} watched rollups for user [{}]", rollups.len(), target.0);
     Ok(Json(rollups.into_iter().map(Into::into).collect()))
 }

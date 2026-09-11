@@ -57,10 +57,7 @@ impl ContentRating {
         AGE_TABLE
             .iter()
             .filter(|entry| entry.2 > cap_floor)
-            .map(|entry| ContentRating {
-                system: entry.0.to_owned(),
-                code: entry.1.to_owned(),
-            })
+            .map(|entry| ContentRating { system: entry.0.to_owned(), code: entry.1.to_owned() })
             .collect()
     }
 }
@@ -70,10 +67,7 @@ mod tests {
     use super::*;
 
     fn rating(system: &str, code: &str) -> ContentRating {
-        ContentRating {
-            system: system.to_owned(),
-            code: code.to_owned(),
-        }
+        ContentRating { system: system.to_owned(), code: code.to_owned() }
     }
 
     #[test]

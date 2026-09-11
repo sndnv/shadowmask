@@ -18,10 +18,7 @@ pub fn can_access_library(access: &[LibraryId], library: &LibraryId) -> bool {
 }
 
 pub fn rating_permits(cap: Option<&ContentRating>, item: Option<&ContentRating>) -> bool {
-    match (
-        cap.and_then(ContentRating::age_floor),
-        item.and_then(ContentRating::age_floor),
-    ) {
+    match (cap.and_then(ContentRating::age_floor), item.and_then(ContentRating::age_floor)) {
         (Some(cap), Some(item)) => item <= cap,
         _ => true,
     }
@@ -37,16 +34,9 @@ where
     U: UserRepository + Sync,
 {
     let account = users.get(user).await?;
-    let access = users
-        .list_library_access(user)
-        .await?
-        .into_iter()
-        .map(|entry| entry.library)
-        .collect();
-    Ok(Viewer {
-        cap: account.and_then(|account| account.max_content_rating),
-        access,
-    })
+    let access =
+        users.list_library_access(user).await?.into_iter().map(|entry| entry.library).collect();
+    Ok(Viewer { cap: account.and_then(|account| account.max_content_rating), access })
 }
 
 impl Viewer {
@@ -100,26 +90,18 @@ mod tests {
         let id = user.id.clone();
         let users = MockUserRepo::new();
         users.insert(user);
-        let grants: Vec<LibraryId> = libraries
-            .iter()
-            .map(|lib| LibraryId((*lib).to_owned()))
-            .collect();
+        let grants: Vec<LibraryId> =
+            libraries.iter().map(|lib| LibraryId((*lib).to_owned())).collect();
         users.set_library_access(&id, &grants).await.unwrap();
         users
     }
 
     fn principal(role: Role) -> Principal {
-        Principal {
-            user: UserId("u1".to_owned()),
-            role,
-        }
+        Principal { user: UserId("u1".to_owned()), role }
     }
 
     fn rating(system: &str, code: &str) -> ContentRating {
-        ContentRating {
-            system: system.to_owned(),
-            code: code.to_owned(),
-        }
+        ContentRating { system: system.to_owned(), code: code.to_owned() }
     }
 
     #[test]
@@ -165,16 +147,10 @@ mod tests {
     #[tokio::test]
     async fn a_capped_viewer_is_scoped_to_granted_libraries_and_blocked_ratings() {
         let pg13 = rating("MPAA", "PG-13");
-        let users = repo_with(
-            account("u1", Role::User, Some(pg13.clone())),
-            &["lib1", "lib2"],
-        )
-        .await;
+        let users =
+            repo_with(account("u1", Role::User, Some(pg13.clone())), &["lib1", "lib2"]).await;
 
-        let filter = viewer(&users, &UserId("u1".into()))
-            .await
-            .unwrap()
-            .filter(None);
+        let filter = viewer(&users, &UserId("u1".into())).await.unwrap().filter(None);
 
         assert_eq!(
             filter.libraries,
@@ -188,10 +164,7 @@ mod tests {
     async fn an_admin_is_scoped_to_their_grants_like_anyone_else() {
         let users = repo_with(account("boss", Role::Admin, None), &["lib1"]).await;
 
-        let filter = viewer(&users, &UserId("boss".into()))
-            .await
-            .unwrap()
-            .filter(None);
+        let filter = viewer(&users, &UserId("boss".into())).await.unwrap().filter(None);
 
         assert_eq!(
             filter.libraries,
@@ -204,10 +177,7 @@ mod tests {
     async fn an_admin_with_no_grants_sees_nothing_rather_than_everything() {
         let users = repo_with(account("boss", Role::Admin, None), &[]).await;
 
-        let filter = viewer(&users, &UserId("boss".into()))
-            .await
-            .unwrap()
-            .filter(None);
+        let filter = viewer(&users, &UserId("boss".into())).await.unwrap().filter(None);
 
         assert_eq!(
             filter.libraries,
@@ -256,11 +226,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_viewer_gates_ratings_and_libraries_together() {
-        let users = repo_with(
-            account("u1", Role::User, Some(rating("MPAA", "PG-13"))),
-            &["lib1"],
-        )
-        .await;
+        let users =
+            repo_with(account("u1", Role::User, Some(rating("MPAA", "PG-13"))), &["lib1"]).await;
 
         let seen = viewer(&users, &UserId("u1".into())).await.unwrap();
 
@@ -272,11 +239,8 @@ mod tests {
 
     #[tokio::test]
     async fn an_admin_is_gated_by_both_their_grants_and_their_cap() {
-        let users = repo_with(
-            account("boss", Role::Admin, Some(rating("MPAA", "G"))),
-            &["lib1"],
-        )
-        .await;
+        let users =
+            repo_with(account("boss", Role::Admin, Some(rating("MPAA", "G"))), &["lib1"]).await;
 
         let seen = viewer(&users, &UserId("boss".into())).await.unwrap();
 
@@ -288,10 +252,7 @@ mod tests {
     #[tokio::test]
     async fn a_view_is_the_same_whoever_asks_for_it() {
         let users = repo_with(account("u1", Role::User, None), &["lib1"]).await;
-        let elevated = Principal {
-            user: UserId("u1".into()),
-            role: Role::Admin,
-        };
+        let elevated = Principal { user: UserId("u1".into()), role: Role::Admin };
 
         let as_caller = viewer(&users, &elevated.user).await.unwrap();
         let as_target = viewer(&users, &UserId("u1".into())).await.unwrap();

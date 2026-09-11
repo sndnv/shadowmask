@@ -10,9 +10,6 @@ pub struct DeviceRegistrationDto {
 
 impl From<DeviceRegistrationDto> for DeviceRegistration {
     fn from(d: DeviceRegistrationDto) -> Self {
-        DeviceRegistration {
-            name: d.name,
-            platform: d.platform,
-        }
+        DeviceRegistration { name: d.name, platform: d.platform }
     }
 }

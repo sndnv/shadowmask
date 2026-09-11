@@ -55,11 +55,7 @@ impl GenreParams {
 }
 
 fn parse_genres(raw: &str) -> Vec<String> {
-    raw.split(',')
-        .map(str::trim)
-        .filter(|genre| !genre.is_empty())
-        .map(str::to_owned)
-        .collect()
+    raw.split(',').map(str::trim).filter(|genre| !genre.is_empty()).map(str::to_owned).collect()
 }
 
 impl CatalogListParams {
@@ -96,10 +92,7 @@ pub async fn movies<S: AppServices>(
         .movies(&principal, &query, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve movies"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} movies",
-        page.items.len()
-    );
+    debug!("User [{actor}] retrieved {} movies", page.items.len());
     Ok(Json(PageResponse::from_page(page, MovieResponse::from)))
 }
 
@@ -121,10 +114,7 @@ pub async fn title_cards<S: AppServices>(
         .title_cards(&principal, &ids)
         .await
         .map_err(log_fail(actor, "resolve title cards"))?;
-    debug!(
-        "User [{actor}] successfully resolved {} title cards",
-        cards.len()
-    );
+    debug!("User [{actor}] resolved {} title cards", cards.len());
     Ok(Json(cards.into_iter().map(Into::into).collect()))
 }
 
@@ -135,12 +125,9 @@ pub async fn movie<S: AppServices>(
 ) -> ApiResult<Json<MovieDetailResponse>> {
     let actor = &principal.user.0;
     let id = MovieId(id);
-    let movie = state
-        .catalog()
-        .movie(&principal, &id)
-        .await
-        .map_err(log_fail(actor, "retrieve movie"))?;
-    debug!("User [{actor}] successfully retrieved movie [{}]", id.0);
+    let movie =
+        state.catalog().movie(&principal, &id).await.map_err(log_fail(actor, "retrieve movie"))?;
+    debug!("User [{actor}] retrieved movie [{}]", id.0);
     Ok(Json(movie.into()))
 }
 
@@ -157,15 +144,9 @@ pub async fn movie_versions<S: AppServices>(
         .versions(&principal, &title, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve movie versions"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} versions for movie [{}]",
-        versions.items.len(),
-        title.id()
-    );
+    debug!("User [{actor}] retrieved {} versions for movie [{}]", versions.items.len(), title.id());
     let include_path = principal.role == Role::Admin;
-    Ok(Json(PageResponse::from_page(versions, |v| {
-        VersionResponse::with_path(v, include_path)
-    })))
+    Ok(Json(PageResponse::from_page(versions, |v| VersionResponse::with_path(v, include_path))))
 }
 
 pub async fn refresh_movie<S: AppServices>(
@@ -184,7 +165,7 @@ pub async fn refresh_movie<S: AppServices>(
         .reidentify(&principal, TitleRef::Movie(MovieId(id)), external_id, force)
         .await
         .map_err(log_fail(actor, "refresh movie"))?;
-    debug!("User [{actor}] successfully queued a metadata refresh for a movie force [{force}]");
+    debug!("User [{actor}] queued a metadata refresh for a movie force [{force}]");
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -201,15 +182,10 @@ pub async fn refresh_series<S: AppServices>(
     };
     state
         .library()
-        .reidentify(
-            &principal,
-            TitleRef::Series(SeriesId(id)),
-            external_id,
-            force,
-        )
+        .reidentify(&principal, TitleRef::Series(SeriesId(id)), external_id, force)
         .await
         .map_err(log_fail(actor, "refresh series"))?;
-    debug!("User [{actor}] successfully queued a metadata refresh for a series force [{force}]");
+    debug!("User [{actor}] queued a metadata refresh for a series force [{force}]");
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -226,7 +202,7 @@ pub async fn edit_movie<S: AppServices>(
         .edit_movie(&principal, &id, req.into())
         .await
         .map_err(log_fail(actor, "edit movie"))?;
-    debug!("User [{actor}] successfully edited movie [{}]", id.0);
+    debug!("User [{actor}] edited movie [{}]", id.0);
     Ok(Json(movie.into()))
 }
 
@@ -243,7 +219,7 @@ pub async fn edit_series<S: AppServices>(
         .edit_series(&principal, &id, req.into())
         .await
         .map_err(log_fail(actor, "edit series"))?;
-    debug!("User [{actor}] successfully edited series [{}]", id.0);
+    debug!("User [{actor}] edited series [{}]", id.0);
     Ok(Json(series.into()))
 }
 
@@ -260,7 +236,7 @@ pub async fn edit_episode<S: AppServices>(
         .edit_episode(&principal, &id, req.try_into()?)
         .await
         .map_err(log_fail(actor, "edit episode"))?;
-    debug!("User [{actor}] successfully edited episode [{}]", id.0);
+    debug!("User [{actor}] edited episode [{}]", id.0);
     Ok(Json(episode.into()))
 }
 
@@ -276,7 +252,7 @@ pub async fn version_detail<S: AppServices>(
         .version(&principal, &id)
         .await
         .map_err(log_fail(actor, "retrieve version"))?;
-    debug!("User [{actor}] successfully retrieved version [{}]", id.0);
+    debug!("User [{actor}] retrieved version [{}]", id.0);
     let include_path = principal.role == Role::Admin;
     Ok(Json(VersionDetailResponse::with_path(detail, include_path)))
 }
@@ -294,10 +270,7 @@ pub async fn relink_version<S: AppServices>(
         .relink_version(&principal, &id, req.target.into())
         .await
         .map_err(log_fail(actor, "relink version"))?;
-    debug!(
-        "User [{actor}] successfully queued a relink for version [{}]",
-        id.0
-    );
+    debug!("User [{actor}] queued a relink for version [{}]", id.0);
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -314,10 +287,7 @@ pub async fn relink_series<S: AppServices>(
         .relink_series(&principal, &id, req.target.into())
         .await
         .map_err(log_fail(actor, "relink series"))?;
-    debug!(
-        "User [{actor}] successfully queued a relink for every version of series [{}]",
-        id.0
-    );
+    debug!("User [{actor}] queued a relink for every version of series [{}]", id.0);
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -332,14 +302,8 @@ pub async fn collections<S: AppServices>(
         .collections(&principal, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve collections"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} collections",
-        page.items.len()
-    );
-    Ok(Json(PageResponse::from_page(
-        page,
-        CollectionResponse::from,
-    )))
+    debug!("User [{actor}] retrieved {} collections", page.items.len());
+    Ok(Json(PageResponse::from_page(page, CollectionResponse::from)))
 }
 
 pub async fn collection<S: AppServices>(
@@ -354,10 +318,7 @@ pub async fn collection<S: AppServices>(
         .collection(&principal, &id)
         .await
         .map_err(log_fail(actor, "retrieve collection"))?;
-    debug!(
-        "User [{actor}] successfully retrieved collection [{}]",
-        id.0
-    );
+    debug!("User [{actor}] retrieved collection [{}]", id.0);
     Ok(Json(collection.into()))
 }
 
@@ -379,10 +340,7 @@ pub async fn people_batch<S: AppServices>(
         .people_cards(&principal, &ids)
         .await
         .map_err(log_fail(actor, "resolve people cards"))?;
-    debug!(
-        "User [{actor}] successfully resolved {} people cards",
-        people.len()
-    );
+    debug!("User [{actor}] resolved {} people cards", people.len());
     Ok(Json(people.into_iter().map(PersonResponse::from).collect()))
 }
 
@@ -398,14 +356,8 @@ pub async fn movie_collections<S: AppServices>(
         .movie_collections(&principal, &movie)
         .await
         .map_err(log_fail(actor, "retrieve the collections of a movie"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} collections of movie [{}]",
-        found.len(),
-        movie.0
-    );
-    Ok(Json(
-        found.into_iter().map(CollectionResponse::from).collect(),
-    ))
+    debug!("User [{actor}] retrieved {} collections of movie [{}]", found.len(), movie.0);
+    Ok(Json(found.into_iter().map(CollectionResponse::from).collect()))
 }
 
 pub async fn create_collection<S: AppServices>(
@@ -419,10 +371,7 @@ pub async fn create_collection<S: AppServices>(
         .create_collection(&principal, req.into())
         .await
         .map_err(log_fail(actor, "create collection"))?;
-    debug!(
-        "User [{actor}] successfully created collection [{}]",
-        collection.id.0
-    );
+    debug!("User [{actor}] created collection [{}]", collection.id.0);
     Ok((StatusCode::CREATED, Json(collection.into())))
 }
 
@@ -439,7 +388,7 @@ pub async fn update_collection<S: AppServices>(
         .update_collection(&principal, &id, req.into())
         .await
         .map_err(log_fail(actor, "update collection"))?;
-    debug!("User [{actor}] successfully updated collection [{}]", id.0);
+    debug!("User [{actor}] updated collection [{}]", id.0);
     Ok(Json(collection.into()))
 }
 
@@ -455,7 +404,7 @@ pub async fn delete_collection<S: AppServices>(
         .delete_collection(&principal, &id)
         .await
         .map_err(log_fail(actor, "delete collection"))?;
-    debug!("User [{actor}] successfully deleted collection [{}]", id.0);
+    debug!("User [{actor}] deleted collection [{}]", id.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -472,10 +421,7 @@ pub async fn series<S: AppServices>(
         .series(&principal, &query, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve series"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} series",
-        page.items.len()
-    );
+    debug!("User [{actor}] retrieved {} series", page.items.len());
     Ok(Json(PageResponse::from_page(page, SeriesResponse::from)))
 }
 
@@ -491,7 +437,7 @@ pub async fn series_detail<S: AppServices>(
         .series_detail(&principal, &id)
         .await
         .map_err(log_fail(actor, "retrieve series"))?;
-    debug!("User [{actor}] successfully retrieved series [{}]", id.0);
+    debug!("User [{actor}] retrieved series [{}]", id.0);
     Ok(Json(series.into()))
 }
 
@@ -507,7 +453,7 @@ pub async fn person<S: AppServices>(
         .person(&principal, &id)
         .await
         .map_err(log_fail(actor, "retrieve person"))?;
-    debug!("User [{actor}] successfully retrieved person [{}]", id.0);
+    debug!("User [{actor}] retrieved person [{}]", id.0);
     Ok(Json(profile.into()))
 }
 
@@ -523,7 +469,7 @@ pub async fn refresh_person<S: AppServices>(
         .refresh_person(&principal, &id)
         .await
         .map_err(log_fail(actor, "refresh person"))?;
-    debug!("User [{actor}] successfully queued a metadata refresh for a person");
+    debug!("User [{actor}] queued a metadata refresh for a person");
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -539,10 +485,7 @@ pub async fn genres<S: AppServices>(
         .genres(&principal, kind)
         .await
         .map_err(log_fail(actor, "retrieve genres"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} genres",
-        genres.len()
-    );
+    debug!("User [{actor}] retrieved {} genres", genres.len());
     Ok(Json(genres.into_iter().map(Into::into).collect()))
 }
 
@@ -558,11 +501,7 @@ pub async fn seasons<S: AppServices>(
         .seasons(&principal, &series_id)
         .await
         .map_err(log_fail(actor, "retrieve seasons"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} seasons for series [{}]",
-        seasons.len(),
-        series_id.0
-    );
+    debug!("User [{actor}] retrieved {} seasons for series [{}]", seasons.len(), series_id.0);
     Ok(Json(seasons.into_iter().map(Into::into).collect()))
 }
 
@@ -578,10 +517,7 @@ pub async fn season<S: AppServices>(
         .season(&principal, &season_id)
         .await
         .map_err(log_fail(actor, "retrieve season"))?;
-    debug!(
-        "User [{actor}] successfully retrieved season [{}]",
-        season_id.0
-    );
+    debug!("User [{actor}] retrieved season [{}]", season_id.0);
     Ok(Json(season.into()))
 }
 
@@ -597,11 +533,7 @@ pub async fn episodes<S: AppServices>(
         .episodes(&principal, &season_id)
         .await
         .map_err(log_fail(actor, "retrieve episodes"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} episodes for season [{}]",
-        episodes.len(),
-        season_id.0
-    );
+    debug!("User [{actor}] retrieved {} episodes for season [{}]", episodes.len(), season_id.0);
     Ok(Json(episodes.into_iter().map(Into::into).collect()))
 }
 
@@ -617,10 +549,7 @@ pub async fn episode<S: AppServices>(
         .episode(&principal, &episode_id)
         .await
         .map_err(log_fail(actor, "retrieve episode"))?;
-    debug!(
-        "User [{actor}] successfully retrieved episode [{}]",
-        episode_id.0
-    );
+    debug!("User [{actor}] retrieved episode [{}]", episode_id.0);
     Ok(Json(episode.into()))
 }
 
@@ -637,15 +566,10 @@ pub async fn episode_versions<S: AppServices>(
         .versions(&principal, &title, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve episode versions"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} versions for episode [{}]",
-        versions.items.len(),
-        title.id()
-    );
+    let id = title.id();
+    debug!("User [{actor}] retrieved {} versions for episode [{id}]", versions.items.len());
     let include_path = principal.role == Role::Admin;
-    Ok(Json(PageResponse::from_page(versions, |v| {
-        VersionResponse::with_path(v, include_path)
-    })))
+    Ok(Json(PageResponse::from_page(versions, |v| VersionResponse::with_path(v, include_path))))
 }
 
 async fn pick<S: AppServices>(
@@ -657,18 +581,10 @@ async fn pick<S: AppServices>(
 ) -> ApiResult<Json<RandomPickResponse>> {
     let actor = &principal.user.0;
     let action = format!("pick a random title from {surface}");
-    let version = state
-        .catalog()
-        .random(principal, &scope, query)
-        .await
-        .map_err(log_fail(actor, &action))?;
-    debug!(
-        "User [{actor}] successfully picked version [{}] at random",
-        version.0
-    );
-    Ok(Json(RandomPickResponse {
-        version_id: version.0,
-    }))
+    let version =
+        state.catalog().random(principal, &scope, query).await.map_err(log_fail(actor, &action))?;
+    debug!("User [{actor}] picked version [{}] at random", version.0);
+    Ok(Json(RandomPickResponse { version_id: version.0 }))
 }
 
 pub async fn random_movie<S: AppServices>(
@@ -695,14 +611,7 @@ pub async fn random_in_collection<S: AppServices>(
     Path(id): Path<String>,
 ) -> ApiResult<Json<RandomPickResponse>> {
     let scope = RandomScope::Collection(CollectionId(id));
-    pick(
-        &state,
-        &principal,
-        scope,
-        &TitleListQuery::default(),
-        "a collection",
-    )
-    .await
+    pick(&state, &principal, scope, &TitleListQuery::default(), "a collection").await
 }
 
 pub async fn random_in_series<S: AppServices>(
@@ -711,14 +620,7 @@ pub async fn random_in_series<S: AppServices>(
     Path(id): Path<String>,
 ) -> ApiResult<Json<RandomPickResponse>> {
     let scope = RandomScope::Series(SeriesId(id));
-    pick(
-        &state,
-        &principal,
-        scope,
-        &TitleListQuery::default(),
-        "a series",
-    )
-    .await
+    pick(&state, &principal, scope, &TitleListQuery::default(), "a series").await
 }
 
 pub async fn random_in_season<S: AppServices>(
@@ -727,14 +629,7 @@ pub async fn random_in_season<S: AppServices>(
     Path((_series_id, season_id)): Path<(String, String)>,
 ) -> ApiResult<Json<RandomPickResponse>> {
     let scope = RandomScope::Season(SeasonId(season_id));
-    pick(
-        &state,
-        &principal,
-        scope,
-        &TitleListQuery::default(),
-        "a season",
-    )
-    .await
+    pick(&state, &principal, scope, &TitleListQuery::default(), "a season").await
 }
 
 #[cfg(test)]
@@ -746,10 +641,7 @@ mod tests {
         assert!(parse_genres("").is_empty());
         assert!(parse_genres("   ").is_empty());
         assert_eq!(parse_genres("Action"), vec!["Action".to_owned()]);
-        assert_eq!(
-            parse_genres("Action, Drama"),
-            vec!["Action".to_owned(), "Drama".to_owned()]
-        );
+        assert_eq!(parse_genres("Action, Drama"), vec!["Action".to_owned(), "Drama".to_owned()]);
         assert_eq!(
             parse_genres("Action, ,  Science Fiction ,"),
             vec!["Action".to_owned(), "Science Fiction".to_owned()]

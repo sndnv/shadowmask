@@ -1834,6 +1834,15 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.settings).first);
     await tester.pumpAndSettle();
+
+    expect(
+      find.text(Strings.playerNetworkTimeout),
+      findsOneWidget,
+      reason:
+          'the control is offered when the engine can honour it, which is what '
+          'makes its absence on a native-HLS path mean something',
+    );
+
     await tester.tap(
       find
           .text(
@@ -1964,6 +1973,32 @@ void main() {
     );
     expect(find.text(Strings.playerBufferTarget), findsNothing);
     expect(find.text(Strings.playerWaitForBuffer), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  // The same rule as the buffering section above, for the same reason: without
+  // an hls.js instance the wait belongs to the browser, and no setting here can
+  // move it. Shipping the control anyway is what made it look broken on web.
+  testWidgets('a network wait that cannot reach the engine is not offered', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController()
+      ..hlsBuffers = false;
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.settings).first);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(Strings.playerNetworkTimeout),
+      findsNothing,
+      reason:
+          'the browser owns the timeout on a native-HLS path, so offering a '
+          'choice that changes nothing is worse than offering none',
+    );
 
     await tester.pumpWidget(const SizedBox());
     await tester.pumpAndSettle();

@@ -52,11 +52,8 @@ async fn call(
     let response = app.oneshot(request).await.unwrap();
     let status = response.status();
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let value = if bytes.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&bytes).unwrap()
-    };
+    let value =
+        if bytes.is_empty() { Value::Null } else { serde_json::from_slice(&bytes).unwrap() };
     (status, value)
 }
 
@@ -152,24 +149,12 @@ async fn endpoint_success_snapshots() {
 async fn endpoint_error_snapshots() {
     let shared = Generator::new();
     let generator = Generator::from_auth(shared.auth.clone());
-    let (status, body) = call(
-        build_app(&generator),
-        Method::GET,
-        "/api/v1/movies",
-        None,
-        None,
-    )
-    .await;
+    let (status, body) =
+        call(build_app(&generator), Method::GET, "/api/v1/movies", None, None).await;
     snapshot("err_missing_token", status, body);
 
-    let (status, body) = call(
-        build_app(&generator),
-        Method::GET,
-        "/api/v1/movies",
-        Some("garbage"),
-        None,
-    )
-    .await;
+    let (status, body) =
+        call(build_app(&generator), Method::GET, "/api/v1/movies", Some("garbage"), None).await;
     snapshot("err_invalid_token", status, body);
 
     let (status, body) = call(
@@ -192,34 +177,18 @@ async fn endpoint_error_snapshots() {
     .await;
     snapshot("err_unknown_link_code", status, body);
 
-    let (status, body) = call(
-        build_app(&generator),
-        Method::GET,
-        "/api/v1/users",
-        Some("access:u1"),
-        None,
-    )
-    .await;
+    let (status, body) =
+        call(build_app(&generator), Method::GET, "/api/v1/users", Some("access:u1"), None).await;
     snapshot("err_forbidden", status, body);
 
-    let (status, body) = call(
-        build_app(&generator),
-        Method::GET,
-        "/api/v1/movies/ghost",
-        Some("access:u1"),
-        None,
-    )
-    .await;
+    let (status, body) =
+        call(build_app(&generator), Method::GET, "/api/v1/movies/ghost", Some("access:u1"), None)
+            .await;
     snapshot("err_not_found", status, body);
 
-    let (status, body) = call(
-        build_app(&generator),
-        Method::GET,
-        "/api/v1/versions/ghost",
-        Some("access:u1"),
-        None,
-    )
-    .await;
+    let (status, body) =
+        call(build_app(&generator), Method::GET, "/api/v1/versions/ghost", Some("access:u1"), None)
+            .await;
     snapshot("err_version_not_found", status, body);
 
     let (status, body) = call(
@@ -262,14 +231,9 @@ async fn endpoint_error_snapshots() {
     )
     .await;
     assert_eq!(accepted, StatusCode::ACCEPTED);
-    let (status, body) = call(
-        scanning,
-        Method::POST,
-        "/api/v1/libraries/lib1/scan",
-        Some("access:admin"),
-        None,
-    )
-    .await;
+    let (status, body) =
+        call(scanning, Method::POST, "/api/v1/libraries/lib1/scan", Some("access:admin"), None)
+            .await;
     snapshot("err_scan_in_progress", status, body);
 
     let limited = Generator::from_auth(shared.auth.clone());
@@ -281,28 +245,16 @@ async fn endpoint_error_snapshots() {
         "audio_track": 0,
         "subtitle": null
     });
-    let (first, _) = call(
-        app.clone(),
-        Method::POST,
-        "/api/v1/sessions",
-        Some("access:u1"),
-        Some(start.clone()),
-    )
-    .await;
+    let (first, _) =
+        call(app.clone(), Method::POST, "/api/v1/sessions", Some("access:u1"), Some(start.clone()))
+            .await;
     assert_eq!(first, StatusCode::CREATED);
-    let (status, body) = call(
-        app,
-        Method::POST,
-        "/api/v1/sessions",
-        Some("access:u1"),
-        Some(start),
-    )
-    .await;
+    let (status, body) =
+        call(app, Method::POST, "/api/v1/sessions", Some("access:u1"), Some(start)).await;
     snapshot("err_concurrent_limit", status, body);
 
-    let titles: Vec<Value> = (0..201)
-        .map(|i| json!({"type": "movie", "id": format!("m{i}")}))
-        .collect();
+    let titles: Vec<Value> =
+        (0..201).map(|i| json!({"type": "movie", "id": format!("m{i}")})).collect();
     let (status, body) = call(
         build_app(&generator),
         Method::POST,
@@ -337,9 +289,7 @@ async fn endpoint_error_snapshots() {
 #[tokio::test]
 async fn player_sessions_cannot_manage_account() {
     let generator = Generator::new();
-    generator
-        .auth
-        .add_account("player", "pw", UserId("pl".into()), Role::Player);
+    generator.auth.add_account("player", "pw", UserId("pl".into()), Role::Player);
     let app = build_app(&generator);
 
     let cases = [
@@ -348,22 +298,14 @@ async fn player_sessions_cannot_manage_account() {
             "/api/v1/users/pl/password".to_owned(),
             Some(json!({"current_password": "pw", "new_password": "fresh"})),
         ),
-        (
-            Method::POST,
-            "/api/v1/auth/link/create".to_owned(),
-            Some(json!({})),
-        ),
+        (Method::POST, "/api/v1/auth/link/create".to_owned(), Some(json!({}))),
         (
             Method::PUT,
             "/api/v1/users/pl".to_owned(),
             Some(json!({"preferred_audio": [], "preferred_subtitle": []})),
         ),
         (Method::GET, "/api/v1/users/pl/link-codes".to_owned(), None),
-        (
-            Method::DELETE,
-            "/api/v1/users/pl/link-codes/ABCD".to_owned(),
-            None,
-        ),
+        (Method::DELETE, "/api/v1/users/pl/link-codes/ABCD".to_owned(), None),
     ];
 
     for (method, path, body) in cases {
@@ -387,14 +329,9 @@ async fn link_codes_listed_and_revoked_for_self() {
     .await;
     assert_eq!(created, StatusCode::OK);
 
-    let (status, body) = call(
-        app.clone(),
-        Method::GET,
-        "/api/v1/users/u1/link-codes",
-        Some("access:u1"),
-        None,
-    )
-    .await;
+    let (status, body) =
+        call(app.clone(), Method::GET, "/api/v1/users/u1/link-codes", Some("access:u1"), None)
+            .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body.as_array().unwrap().len(), 1);
     let code = body[0]["code"].as_str().unwrap().to_owned();
@@ -410,14 +347,9 @@ async fn link_codes_listed_and_revoked_for_self() {
     .await;
     assert_eq!(revoked, StatusCode::NO_CONTENT);
 
-    let (status, body) = call(
-        app.clone(),
-        Method::GET,
-        "/api/v1/users/u1/link-codes",
-        Some("access:u1"),
-        None,
-    )
-    .await;
+    let (status, body) =
+        call(app.clone(), Method::GET, "/api/v1/users/u1/link-codes", Some("access:u1"), None)
+            .await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.as_array().unwrap().is_empty());
 }

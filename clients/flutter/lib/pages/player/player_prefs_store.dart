@@ -31,7 +31,7 @@ const PlayerPrefs kDefaultPlayerPrefs = (
   remaining: false,
   wide: false,
   autoplaySeconds: 10,
-  networkTimeoutSeconds: 10,
+  networkTimeoutSeconds: kDefaultNetworkTimeoutSeconds,
   bufferSeconds: kDefaultBufferSeconds,
   bufferBytes: kDefaultBufferBytes,
   waitForBuffer: false,
