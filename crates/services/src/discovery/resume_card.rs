@@ -123,16 +123,9 @@ mod tests {
         )
         .await
         .unwrap();
-        repo.add_version(version(
-            "v1",
-            TitleId::Movie(MovieId("m1".to_owned())),
-            1000,
-        ));
+        repo.add_version(version("v1", TitleId::Movie(MovieId("m1".to_owned())), 1000));
 
-        let card = resume_card(&repo, &VersionId("v1".to_owned()), 250)
-            .await
-            .unwrap()
-            .unwrap();
+        let card = resume_card(&repo, &VersionId("v1".to_owned()), 250).await.unwrap().unwrap();
         assert_eq!(card.display_title, "Alpha");
         assert_eq!(card.duration_ms, 1000);
         assert_eq!(card.progress_percent, 25);
@@ -184,16 +177,9 @@ mod tests {
             updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
-        repo.add_version(version(
-            "ev1",
-            TitleId::Episode(EpisodeId("e1".to_owned())),
-            2000,
-        ));
+        repo.add_version(version("ev1", TitleId::Episode(EpisodeId("e1".to_owned())), 2000));
 
-        let card = resume_card(&repo, &VersionId("ev1".to_owned()), 1000)
-            .await
-            .unwrap()
-            .unwrap();
+        let card = resume_card(&repo, &VersionId("ev1".to_owned()), 1000).await.unwrap().unwrap();
         assert_eq!(card.display_title, "Pilot");
         assert_eq!(card.progress_percent, 50);
         assert_eq!(card.series_title.as_deref(), Some("Show ABC"));
@@ -219,16 +205,9 @@ mod tests {
             updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         });
-        repo.add_version(version(
-            "ev1",
-            TitleId::Episode(EpisodeId("e1".to_owned())),
-            2000,
-        ));
+        repo.add_version(version("ev1", TitleId::Episode(EpisodeId("e1".to_owned())), 2000));
 
-        let card = resume_card(&repo, &VersionId("ev1".to_owned()), 1000)
-            .await
-            .unwrap()
-            .unwrap();
+        let card = resume_card(&repo, &VersionId("ev1".to_owned()), 1000).await.unwrap().unwrap();
         assert_eq!(card.episode_number, Some(3));
         assert_eq!(card.season_number, None);
         assert_eq!(card.series_title, None);
@@ -238,16 +217,9 @@ mod tests {
     #[tokio::test]
     async fn falls_back_when_title_row_absent() {
         let repo = MockCatalogRepo::new();
-        repo.add_version(version(
-            "v1",
-            TitleId::Movie(MovieId("gone".to_owned())),
-            1000,
-        ));
+        repo.add_version(version("v1", TitleId::Movie(MovieId("gone".to_owned())), 1000));
 
-        let card = resume_card(&repo, &VersionId("v1".to_owned()), 0)
-            .await
-            .unwrap()
-            .unwrap();
+        let card = resume_card(&repo, &VersionId("v1".to_owned()), 0).await.unwrap().unwrap();
         assert_eq!(card.display_title, "gone");
         assert!(card.artwork.is_empty());
     }
@@ -255,11 +227,6 @@ mod tests {
     #[tokio::test]
     async fn none_when_version_missing() {
         let repo = MockCatalogRepo::new();
-        assert!(
-            resume_card(&repo, &VersionId("ghost".to_owned()), 0)
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(resume_card(&repo, &VersionId("ghost".to_owned()), 0).await.unwrap().is_none());
     }
 }

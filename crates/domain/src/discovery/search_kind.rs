@@ -33,12 +33,8 @@ mod tests {
 
     #[test]
     fn parse_round_trips_known_values() {
-        for kind in [
-            SearchKind::Movie,
-            SearchKind::Series,
-            SearchKind::Episode,
-            SearchKind::Person,
-        ] {
+        for kind in [SearchKind::Movie, SearchKind::Series, SearchKind::Episode, SearchKind::Person]
+        {
             assert_eq!(SearchKind::parse(kind.as_str()), Some(kind));
         }
     }

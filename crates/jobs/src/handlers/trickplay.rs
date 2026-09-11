@@ -32,11 +32,7 @@ where
         );
         let asset = self
             .generator
-            .generate(
-                &payload.source_path,
-                &payload.version_id,
-                payload.duration_ms,
-            )
+            .generate(&payload.source_path, &payload.version_id, payload.duration_ms)
             .await
             .map_err(|e| JobError::Retryable(e.to_string()))?;
         self.catalog
@@ -139,20 +135,12 @@ mod tests {
     async fn generates_and_persists_trickplay() {
         let catalog = MockCatalogRepo::new();
         catalog.add_version(version());
-        let handler = TrickplayJobHandler::new(
-            catalog.clone(),
-            MockGenerator {
-                mode: GenerationMode::Ok,
-            },
-        );
+        let handler =
+            TrickplayJobHandler::new(catalog.clone(), MockGenerator { mode: GenerationMode::Ok });
 
         handler.handle(&job(payload())).await.unwrap();
 
-        let detail = catalog
-            .version_detail(&VersionId("v1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let detail = catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap();
         assert_eq!(detail.trickplay.len(), 1);
         assert_eq!(detail.trickplay[0].columns, 10);
         assert_eq!(detail.trickplay[0].sheet_paths.len(), 1);
@@ -162,9 +150,7 @@ mod tests {
     async fn backend_failure_is_retryable() {
         let handler = TrickplayJobHandler::new(
             MockCatalogRepo::new(),
-            MockGenerator {
-                mode: GenerationMode::Backend,
-            },
+            MockGenerator { mode: GenerationMode::Backend },
         );
         assert!(matches!(
             handler.handle(&job(payload())).await.unwrap_err(),
@@ -176,12 +162,7 @@ mod tests {
     async fn set_trickplay_failure_is_retryable() {
         let catalog = MockCatalogRepo::new();
         catalog.set_fail();
-        let handler = TrickplayJobHandler::new(
-            catalog,
-            MockGenerator {
-                mode: GenerationMode::Ok,
-            },
-        );
+        let handler = TrickplayJobHandler::new(catalog, MockGenerator { mode: GenerationMode::Ok });
         assert!(matches!(
             handler.handle(&job(payload())).await.unwrap_err(),
             JobError::Retryable(_)
@@ -192,9 +173,7 @@ mod tests {
     async fn invalid_payload_is_permanent() {
         let handler = TrickplayJobHandler::new(
             MockCatalogRepo::new(),
-            MockGenerator {
-                mode: GenerationMode::Ok,
-            },
+            MockGenerator { mode: GenerationMode::Ok },
         );
         assert!(matches!(
             handler.handle(&job("garbage".into())).await.unwrap_err(),

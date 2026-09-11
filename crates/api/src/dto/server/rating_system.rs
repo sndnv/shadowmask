@@ -31,12 +31,6 @@ mod tests {
         let systems = value.as_array().unwrap();
         assert_eq!(systems.len(), 4);
         assert_eq!(systems[0]["system"], "mpaa");
-        assert!(
-            systems[0]["codes"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|c| c == "pg-13")
-        );
+        assert!(systems[0]["codes"].as_array().unwrap().iter().any(|c| c == "pg-13"));
     }
 }

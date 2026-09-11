@@ -98,10 +98,7 @@ impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> Clone
     for DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf>
 {
     fn clone(&self) -> Self {
-        Self {
-            inner: Arc::clone(&self.inner),
-            max_transcode_height: self.max_transcode_height,
-        }
+        Self { inner: Arc::clone(&self.inner), max_transcode_height: self.max_transcode_height }
     }
 }
 
@@ -178,11 +175,7 @@ fn combine_caps(a: Option<u64>, b: Option<u64>) -> Option<u64> {
 }
 
 fn bandwidth_of(detail: &VersionDetail) -> u64 {
-    detail
-        .video
-        .first()
-        .and_then(|v| v.bitrate)
-        .unwrap_or(DEFAULT_BANDWIDTH)
+    detail.video.first().and_then(|v| v.bitrate).unwrap_or(DEFAULT_BANDWIDTH)
 }
 
 fn subtitle_rendition(
@@ -207,10 +200,7 @@ fn subtitle_rendition(
             .map(|l| l.0.clone()),
     };
     let language = language.unwrap_or_else(|| "und".to_owned());
-    Some(SubtitleRendition {
-        name: language.clone(),
-        language,
-    })
+    Some(SubtitleRendition { name: language.clone(), language })
 }
 
 fn burn_path_for(selected: &SelectedTracks, detail: &VersionDetail) -> Option<String> {
@@ -219,11 +209,9 @@ fn burn_path_for(selected: &SelectedTracks, detail: &VersionDetail) -> Option<St
     }
     match selected.subtitle_track.as_ref()? {
         SubtitleTrackRef::Embedded(_) => Some(detail.version.path.clone()),
-        SubtitleTrackRef::File(id) => detail
-            .subtitle_files
-            .iter()
-            .find(|f| &f.id == id)
-            .map(|f| f.path.clone()),
+        SubtitleTrackRef::File(id) => {
+            detail.subtitle_files.iter().find(|f| &f.id == id).map(|f| f.path.clone())
+        }
     }
 }
 
@@ -244,12 +232,7 @@ where
         caller: &Principal,
         session: &SessionId,
     ) -> Result<PlaybackSession, SessionError> {
-        let playback = self
-            .inner
-            .sessions
-            .get(session)
-            .await?
-            .ok_or(SessionError::NotFound)?;
+        let playback = self.inner.sessions.get(session).await?.ok_or(SessionError::NotFound)?;
         if playback.user != caller.user {
             warn!(
                 "User [{}] tried to control session [{}], which belongs to user [{}]",
@@ -304,12 +287,7 @@ where
         let source = match track {
             SubtitleTrackRef::Embedded(idx) => SoftSubtitleSource::Embedded(*idx),
             SubtitleTrackRef::File(id) => {
-                let path = detail
-                    .subtitle_files
-                    .iter()
-                    .find(|f| &f.id == id)?
-                    .path
-                    .clone();
+                let path = detail.subtitle_files.iter().find(|f| &f.id == id)?.path.clone();
                 SoftSubtitleSource::File(path)
             }
         };
@@ -412,20 +390,12 @@ where
             Some(rate) => format!("{}x{}@{rate}", profile.max_width, profile.max_height),
             None => format!("{}x{}", profile.max_width, profile.max_height),
         };
-        let reasons: Vec<&str> = outcome
-            .reasons
-            .iter()
-            .map(NegotiationReason::as_str)
-            .collect();
+        let reasons: Vec<&str> = outcome.reasons.iter().map(NegotiationReason::as_str).collect();
         let bandwidth = bandwidth_of(detail);
         let cap = effective_max_height(profile.max_height, ctx.target_height)
             .min(self.max_transcode_height.unwrap_or(u32::MAX));
-        let scale_to = detail
-            .video
-            .first()
-            .map(|v| v.height)
-            .filter(|height| *height > cap)
-            .map(|_| cap);
+        let scale_to =
+            detail.video.first().map(|v| v.height).filter(|height| *height > cap).map(|_| cap);
         let height = match scale_to {
             Some(height) => height.to_string(),
             None => "source".to_owned(),
@@ -442,15 +412,8 @@ where
                     .map(|a| a.codec.as_str()),
             )
         });
-        info!(
-            "negotiated session [{}] generation [{}]: platform [{}] report [{report}] ceiling [{ceiling}] height [{height}] mode [{:?}] container [{}] reasons [{}]",
-            session_id.0,
-            generation.0,
-            ctx.capabilities.platform,
-            outcome.mode,
-            segments.map_or("none", SegmentContainer::as_str),
-            reasons.join(", ")
-        );
+        #[rustfmt::skip]
+        info!("negotiated session [{}] generation [{}]: platform [{}] report [{report}] ceiling [{ceiling}] height [{height}] mode [{:?}] container [{}] reasons [{}]", session_id.0, generation.0, ctx.capabilities.platform, outcome.mode, segments.map_or("none", SegmentContainer::as_str), reasons.join(", "));
 
         let mut origin_ms = 0;
         let mut sequential = false;
@@ -509,10 +472,7 @@ where
             mode: outcome.mode,
             container: segments,
             selected: outcome.selected,
-            timeline: Timeline {
-                origin_ms,
-                sequential,
-            },
+            timeline: Timeline { origin_ms, sequential },
         })
     }
 }
@@ -571,18 +531,11 @@ where
                 .await?
                 .is_some_and(|other| other.title == started_title);
             if same_title {
-                self.inner
-                    .progress
-                    .delete(&caller.user, &row.version)
-                    .await?;
+                self.inner.progress.delete(&caller.user, &row.version).await?;
             }
         }
 
-        let stored = self
-            .inner
-            .progress
-            .get(&caller.user, &request.version)
-            .await?;
+        let stored = self.inner.progress.get(&caller.user, &request.version).await?;
         let audio = resolve_audio(
             &request.audio,
             stored.as_ref().and_then(|row| row.audio_track),
@@ -592,10 +545,7 @@ where
         let subtitle = resolve_subtitle(
             &request.subtitle,
             stored.as_ref().and_then(|row| row.subtitle.as_ref()),
-            &AvailableSubtitles {
-                embedded: &detail.subtitles,
-                files: &detail.subtitle_files,
-            },
+            &AvailableSubtitles { embedded: &detail.subtitles, files: &detail.subtitle_files },
             user.as_ref().map_or(&[], |u| &u.preferred_subtitle),
         );
 
@@ -617,27 +567,11 @@ where
             downmix_stereo: request.downmix_stereo,
             delivery: request.delivery,
         };
-        let Launched {
-            mode,
-            container,
-            selected,
-            timeline,
-        } = self
-            .launch(
-                &session_id,
-                generation,
-                &detail,
-                &ctx,
-                request.start_position_ms,
-            )
-            .await?;
+        let Launched { mode, container, selected, timeline } =
+            self.launch(&session_id, generation, &detail, &ctx, request.start_position_ms).await?;
         let manifest_url = manifest_path(mode, &token);
 
-        self.inner
-            .contexts
-            .write()
-            .unwrap()
-            .insert(session_id.clone(), ctx);
+        self.inner.contexts.write().unwrap().insert(session_id.clone(), ctx);
         self.inner
             .sessions
             .insert(PlaybackSession {
@@ -699,10 +633,7 @@ where
         if let Some(title) = completed_title {
             if !already_counted {
                 self.inner.progress.record_view(&owner, &title, now).await?;
-                self.inner
-                    .preferences
-                    .remove_watchlist(&owner, title.id())
-                    .await?;
+                self.inner.preferences.remove_watchlist(&owner, title.id()).await?;
             }
             self.inner.progress.delete(&owner, &version).await?;
         } else if is_started(position_ms, duration_ms)
@@ -722,9 +653,7 @@ where
                 .await?;
         }
 
-        Ok(HeartbeatAck {
-            heartbeat_interval_s: HEARTBEAT_INTERVAL_S,
-        })
+        Ok(HeartbeatAck { heartbeat_interval_s: HEARTBEAT_INTERVAL_S })
     }
 
     async fn seek(
@@ -751,14 +680,8 @@ where
 
         let generation = self.next_generation(session);
         let token = self.create_token(session, generation, &playback.user, &playback.version)?;
-        let Launched {
-            mode,
-            container,
-            selected,
-            timeline,
-        } = self
-            .launch(session, generation, &detail, &ctx, position_ms)
-            .await?;
+        let Launched { mode, container, selected, timeline } =
+            self.launch(session, generation, &detail, &ctx, position_ms).await?;
         let manifest_url = manifest_path(mode, &token);
 
         playback.position_ms = position_ms;
@@ -800,10 +723,8 @@ where
             .version_detail(&playback.version)
             .await?
             .ok_or(SessionError::VersionNotFound)?;
-        let available = AvailableSubtitles {
-            embedded: &detail.subtitles,
-            files: &detail.subtitle_files,
-        };
+        let available =
+            AvailableSubtitles { embedded: &detail.subtitles, files: &detail.subtitle_files };
 
         if let Some(audio) = update
             .audio_track
@@ -845,14 +766,8 @@ where
 
         let generation = self.next_generation(session);
         let token = self.create_token(session, generation, &playback.user, &playback.version)?;
-        let Launched {
-            mode,
-            container,
-            selected,
-            timeline,
-        } = self
-            .launch(session, generation, &detail, &ctx, playback.position_ms)
-            .await?;
+        let Launched { mode, container, selected, timeline } =
+            self.launch(session, generation, &detail, &ctx, playback.position_ms).await?;
         let manifest_url = manifest_path(mode, &token);
 
         playback.mode = mode;
@@ -860,11 +775,7 @@ where
         playback.last_heartbeat_at = Timestamp::now();
         let position_ms = playback.position_ms;
         self.remember_tracks(&ctx, position_ms).await?;
-        self.inner
-            .contexts
-            .write()
-            .unwrap()
-            .insert(session.clone(), ctx);
+        self.inner.contexts.write().unwrap().insert(session.clone(), ctx);
         self.inner.sessions.insert(playback).await?;
 
         Ok(Renegotiated {
@@ -999,10 +910,7 @@ mod tests {
                 max_bit_depth: 8,
                 smooth: true,
             }],
-            audio: vec![AudioCodecCap {
-                codec: "aac".to_owned(),
-                max_channels: 2,
-            }],
+            audio: vec![AudioCodecCap { codec: "aac".to_owned(), max_channels: 2 }],
             hdr: vec![],
             max_width: 1920,
             max_height: 1080,
@@ -1025,20 +933,11 @@ mod tests {
     }
 
     fn audio(index: u32) -> AudioTrack {
-        AudioTrack {
-            index,
-            codec: "aac".to_owned(),
-            channels: 2,
-            language: None,
-            bitrate: None,
-        }
+        AudioTrack { index, codec: "aac".to_owned(), channels: 2, language: None, bitrate: None }
     }
 
     fn audio_in(index: u32, language: Option<&str>) -> AudioTrack {
-        AudioTrack {
-            language: language.map(|l| LanguageCode(l.to_owned())),
-            ..audio(index)
-        }
+        AudioTrack { language: language.map(|l| LanguageCode(l.to_owned())), ..audio(index) }
     }
 
     fn subtitle(
@@ -1087,23 +986,11 @@ mod tests {
     }
 
     fn direct_detail() -> VersionDetail {
-        detail_with(
-            "mp4",
-            100_000,
-            vec![video("h264", Some(5_000_000))],
-            vec![audio(1)],
-            vec![],
-        )
+        detail_with("mp4", 100_000, vec![video("h264", Some(5_000_000))], vec![audio(1)], vec![])
     }
 
     fn transcode_detail() -> VersionDetail {
-        detail_with(
-            "mp4",
-            100_000,
-            vec![video("vp9", Some(5_000_000))],
-            vec![audio(1)],
-            vec![],
-        )
+        detail_with("mp4", 100_000, vec![video("vp9", Some(5_000_000))], vec![audio(1)], vec![])
     }
 
     fn make_user(limit: Option<u32>, bitrate_cap: Option<u64>) -> User {
@@ -1124,10 +1011,7 @@ mod tests {
     }
 
     fn principal() -> Principal {
-        Principal {
-            user: UserId("u1".to_owned()),
-            role: Role::User,
-        }
+        Principal { user: UserId("u1".to_owned()), role: Role::User }
     }
 
     fn caps(max_bitrate: Option<u64>) -> ClientCapabilities {
@@ -1174,10 +1058,7 @@ mod tests {
     }
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        PageRequest { offset: 0, limit: 10 }
     }
 
     fn token_of(url: &str) -> &str {
@@ -1188,11 +1069,7 @@ mod tests {
         delivery: Option<SubtitleDelivery>,
         track: Option<SubtitleTrackRef>,
     ) -> SelectedTracks {
-        SelectedTracks {
-            audio_track: None,
-            subtitle_track: track,
-            subtitle_delivery: delivery,
-        }
+        SelectedTracks { audio_track: None, subtitle_track: track, subtitle_delivery: delivery }
     }
 
     #[test]
@@ -1205,29 +1082,15 @@ mod tests {
 
     #[test]
     fn manifest_path_varies_by_mode() {
-        assert_eq!(
-            manifest_path(DeliveryMode::Direct, "tok"),
-            "/stream/tok/file"
-        );
-        assert_eq!(
-            manifest_path(DeliveryMode::Remux, "tok"),
-            "/stream/tok/master.m3u8"
-        );
-        assert_eq!(
-            manifest_path(DeliveryMode::Transcode, "tok"),
-            "/stream/tok/master.m3u8"
-        );
+        assert_eq!(manifest_path(DeliveryMode::Direct, "tok"), "/stream/tok/file");
+        assert_eq!(manifest_path(DeliveryMode::Remux, "tok"), "/stream/tok/master.m3u8");
+        assert_eq!(manifest_path(DeliveryMode::Transcode, "tok"), "/stream/tok/master.m3u8");
     }
 
     #[test]
     fn bandwidth_uses_first_video_bitrate_or_default() {
-        let with_bitrate = detail_with(
-            "mp4",
-            1,
-            vec![video("h264", Some(6_000_000))],
-            vec![],
-            vec![],
-        );
+        let with_bitrate =
+            detail_with("mp4", 1, vec![video("h264", Some(6_000_000))], vec![], vec![]);
         assert_eq!(bandwidth_of(&with_bitrate), 6_000_000);
         let no_bitrate = detail_with("mp4", 1, vec![video("h264", None)], vec![], vec![]);
         assert_eq!(bandwidth_of(&no_bitrate), DEFAULT_BANDWIDTH);
@@ -1241,10 +1104,7 @@ mod tests {
         assert!(subtitle_rendition(&selected(None, None), &detail).is_none());
         assert!(
             subtitle_rendition(
-                &selected(
-                    Some(SubtitleDelivery::Burned),
-                    Some(SubtitleTrackRef::Embedded(0))
-                ),
+                &selected(Some(SubtitleDelivery::Burned), Some(SubtitleTrackRef::Embedded(0))),
                 &detail
             )
             .is_none()
@@ -1264,10 +1124,7 @@ mod tests {
             vec![subtitle(2, Some("eng"), SubtitleFormat::Srt)],
         );
         let rendition = subtitle_rendition(
-            &selected(
-                Some(SubtitleDelivery::HlsVtt),
-                Some(SubtitleTrackRef::Embedded(2)),
-            ),
+            &selected(Some(SubtitleDelivery::HlsVtt), Some(SubtitleTrackRef::Embedded(2))),
             &detail,
         )
         .unwrap();
@@ -1277,28 +1134,17 @@ mod tests {
 
     #[test]
     fn subtitle_rendition_defaults_to_und() {
-        let detail = detail_with(
-            "mp4",
-            1,
-            vec![],
-            vec![],
-            vec![subtitle(3, None, SubtitleFormat::Srt)],
-        );
+        let detail =
+            detail_with("mp4", 1, vec![], vec![], vec![subtitle(3, None, SubtitleFormat::Srt)]);
         let embedded_missing = subtitle_rendition(
-            &selected(
-                Some(SubtitleDelivery::HlsVtt),
-                Some(SubtitleTrackRef::Embedded(9)),
-            ),
+            &selected(Some(SubtitleDelivery::HlsVtt), Some(SubtitleTrackRef::Embedded(9))),
             &detail,
         )
         .unwrap();
         assert_eq!(embedded_missing.language, "und");
 
         let embedded_no_lang = subtitle_rendition(
-            &selected(
-                Some(SubtitleDelivery::HlsVtt),
-                Some(SubtitleTrackRef::Embedded(3)),
-            ),
+            &selected(Some(SubtitleDelivery::HlsVtt), Some(SubtitleTrackRef::Embedded(3))),
             &detail,
         )
         .unwrap();
@@ -1319,6 +1165,18 @@ mod tests {
     async fn reap_idle_delegates_to_transcode_manager() {
         let harness = Harness::new();
         assert_eq!(harness.service.reap_idle().await, 0);
+        assert_eq!(harness.transcode.reaped(), 1);
+    }
+
+    // The reaper runs on a timer with nobody waiting on its result, so a session store that
+    // is down must not stop the transcodes from being reaped.
+    #[tokio::test]
+    async fn a_session_store_that_is_down_still_reaps_the_transcodes() {
+        let harness = Harness::new();
+        harness.sessions.set_fail();
+
+        assert_eq!(harness.service.reap_idle().await, 0);
+
         assert_eq!(harness.transcode.reaped(), 1);
     }
 
@@ -1355,13 +1213,7 @@ mod tests {
 
         harness.service.reap_idle().await;
 
-        assert!(
-            harness
-                .service
-                .start(&principal(), start_request(0))
-                .await
-                .is_ok()
-        );
+        assert!(harness.service.start(&principal(), start_request(0)).await.is_ok());
     }
 
     #[tokio::test]
@@ -1370,11 +1222,7 @@ mod tests {
         harness.catalog.insert(direct_detail());
         harness.users.grant(&UserId("u1".to_owned()), &[]);
 
-        let refused = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap_err();
+        let refused = harness.service.start(&principal(), start_request(0)).await.unwrap_err();
 
         assert!(
             matches!(refused, SessionError::VersionNotFound),
@@ -1391,10 +1239,7 @@ mod tests {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
         harness.users.grant(&UserId("u1".to_owned()), &[]);
-        let boss = Principal {
-            user: UserId("u1".to_owned()),
-            role: Role::Admin,
-        };
+        let boss = Principal { user: UserId("u1".to_owned()), role: Role::Admin };
 
         assert!(matches!(
             harness.service.start(&boss, start_request(0)).await,
@@ -1406,30 +1251,16 @@ mod tests {
     async fn start_direct_play() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         assert_eq!(started.mode, DeliveryMode::Direct);
         assert!(started.manifest_url.ends_with("/file"));
         assert_eq!(started.heartbeat_interval_s, HEARTBEAT_INTERVAL_S);
-        assert!(
-            harness
-                .sessions
-                .get(&started.session_id)
-                .await
-                .unwrap()
-                .is_some()
-        );
+        assert!(harness.sessions.get(&started.session_id).await.unwrap().is_some());
         let registration = harness.streams.registration(&started.session_id).unwrap();
         assert_eq!(registration.mode, DeliveryMode::Direct);
         assert!(registration.direct_path.is_some());
         assert!(harness.transcode.started().is_empty());
-        let claims = harness
-            .tokens
-            .verify(token_of(&started.manifest_url))
-            .unwrap();
+        let claims = harness.tokens.verify(token_of(&started.manifest_url)).unwrap();
         assert_eq!(claims.session, started.session_id);
         assert_eq!(claims.version, VersionId("v1".to_owned()));
     }
@@ -1481,11 +1312,7 @@ mod tests {
     async fn start_transcode() {
         let harness = Harness::new();
         harness.catalog.insert(transcode_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         assert_eq!(started.mode, DeliveryMode::Transcode);
         assert!(started.manifest_url.ends_with("/master.m3u8"));
         let specs = harness.transcode.started();
@@ -1507,29 +1334,17 @@ mod tests {
     async fn start_transcode_passes_seek_position() {
         let harness = Harness::new();
         harness.catalog.insert(transcode_detail());
-        harness
-            .service
-            .start(&principal(), start_request(5_000))
-            .await
-            .unwrap();
+        harness.service.start(&principal(), start_request(5_000)).await.unwrap();
         assert_eq!(harness.transcode.started()[0].seek_ms, Some(5_000));
     }
 
     fn video_cap(codec: &str, smooth: bool) -> VideoCodecCap {
-        VideoCodecCap {
-            codec: codec.to_owned(),
-            max_level: None,
-            max_bit_depth: 8,
-            smooth,
-        }
+        VideoCodecCap { codec: codec.to_owned(), max_level: None, max_bit_depth: 8, smooth }
     }
 
     fn reporting(decoding: ClientDecoding) -> SessionStartInput {
         SessionStartInput {
-            capabilities: ClientCapabilities {
-                decoding: Some(decoding),
-                ..caps(None)
-            },
+            capabilities: ClientCapabilities { decoding: Some(decoding), ..caps(None) },
             ..start_request(0)
         }
     }
@@ -1584,10 +1399,7 @@ mod tests {
             .service
             .start(
                 &principal(),
-                reporting(ClientDecoding {
-                    video: Some(Vec::new()),
-                    ..ClientDecoding::default()
-                }),
+                reporting(ClientDecoding { video: Some(Vec::new()), ..ClientDecoding::default() }),
             )
             .await
             .unwrap();
@@ -1602,10 +1414,7 @@ mod tests {
             .service
             .start(
                 &principal(),
-                reporting(ClientDecoding {
-                    max_frame_rate: Some(24),
-                    ..ClientDecoding::default()
-                }),
+                reporting(ClientDecoding { max_frame_rate: Some(24), ..ClientDecoding::default() }),
             )
             .await
             .unwrap();
@@ -1618,10 +1427,7 @@ mod tests {
             .service
             .start(
                 &principal(),
-                reporting(ClientDecoding {
-                    max_frame_rate: Some(24),
-                    ..ClientDecoding::default()
-                }),
+                reporting(ClientDecoding { max_frame_rate: Some(24), ..ClientDecoding::default() }),
             )
             .await
             .unwrap();
@@ -1638,11 +1444,7 @@ mod tests {
             vec![audio(1)],
             vec![],
         ));
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         assert_eq!(started.mode, DeliveryMode::Remux);
         assert!(started.manifest_url.ends_with("/master.m3u8"));
         assert_eq!(harness.transcode.started().len(), 1);
@@ -1665,18 +1467,8 @@ mod tests {
         });
         let started = harness.service.start(&principal(), request).await.unwrap();
         assert_eq!(started.mode, DeliveryMode::Transcode);
-        assert_eq!(
-            harness.transcode.started()[0].burn_subtitle_path,
-            Some("/media/m1".to_owned())
-        );
-        assert!(
-            harness
-                .streams
-                .registration(&started.session_id)
-                .unwrap()
-                .subtitle
-                .is_none()
-        );
+        assert_eq!(harness.transcode.started()[0].burn_subtitle_path, Some("/media/m1".to_owned()));
+        assert!(harness.streams.registration(&started.session_id).unwrap().subtitle.is_none());
     }
 
     #[tokio::test]
@@ -1825,15 +1617,7 @@ mod tests {
             harness.service.start(&principal(), start_request(0)).await,
             Err(SessionError::NegotiationFailed)
         ));
-        assert!(
-            harness
-                .sessions
-                .list_all(page())
-                .await
-                .unwrap()
-                .items
-                .is_empty()
-        );
+        assert!(harness.sessions.list_all(page()).await.unwrap().items.is_empty());
     }
 
     #[tokio::test]
@@ -1845,15 +1629,7 @@ mod tests {
             harness.service.start(&principal(), start_request(0)).await,
             Err(SessionError::NegotiationFailed)
         ));
-        assert!(
-            harness
-                .sessions
-                .list_all(page())
-                .await
-                .unwrap()
-                .items
-                .is_empty()
-        );
+        assert!(harness.sessions.list_all(page()).await.unwrap().items.is_empty());
     }
 
     #[tokio::test]
@@ -1865,15 +1641,7 @@ mod tests {
             harness.service.start(&principal(), start_request(0)).await,
             Err(SessionError::NegotiationFailed)
         ));
-        assert!(
-            harness
-                .sessions
-                .list_all(page())
-                .await
-                .unwrap()
-                .items
-                .is_empty()
-        );
+        assert!(harness.sessions.list_all(page()).await.unwrap().items.is_empty());
         assert!(harness.transcode.started().is_empty());
     }
 
@@ -1914,11 +1682,7 @@ mod tests {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
         harness.users.insert(make_user(Some(1), None));
-        harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        harness.service.start(&principal(), start_request(0)).await.unwrap();
         match harness.service.start(&principal(), start_request(0)).await {
             Err(SessionError::ConcurrentLimit { active }) => assert_eq!(active.len(), 1),
             other => panic!("expected ConcurrentLimit, got {other:?}"),
@@ -1936,11 +1700,7 @@ mod tests {
             vec![],
         ));
         harness.users.insert(make_user(None, Some(1_000_000)));
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         assert_eq!(started.mode, DeliveryMode::Transcode);
         assert_eq!(harness.transcode.started()[0].max_bitrate, Some(1_000_000));
     }
@@ -1950,11 +1710,7 @@ mod tests {
             "mp4",
             100_000,
             vec![video("h264", Some(5_000_000))],
-            vec![
-                audio_in(0, Some("eng")),
-                audio_in(1, Some("jpn")),
-                audio_in(2, Some("fra")),
-            ],
+            vec![audio_in(0, Some("eng")), audio_in(1, Some("jpn")), audio_in(2, Some("fra"))],
             vec![
                 subtitle(0, Some("eng"), SubtitleFormat::Srt),
                 subtitle(1, Some("fra"), SubtitleFormat::Srt),
@@ -1964,14 +1720,8 @@ mod tests {
 
     fn user_who_prefers(audio: &[&str], subtitle: &[&str]) -> User {
         let mut user = make_user(None, None);
-        user.preferred_audio = audio
-            .iter()
-            .map(|c| LanguageCode((*c).to_owned()))
-            .collect();
-        user.preferred_subtitle = subtitle
-            .iter()
-            .map(|c| LanguageCode((*c).to_owned()))
-            .collect();
+        user.preferred_audio = audio.iter().map(|c| LanguageCode((*c).to_owned())).collect();
+        user.preferred_subtitle = subtitle.iter().map(|c| LanguageCode((*c).to_owned())).collect();
         user
     }
 
@@ -1981,17 +1731,10 @@ mod tests {
         harness.catalog.insert(multilingual_detail());
         harness.users.insert(user_who_prefers(&["jpn"], &["fra"]));
 
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
 
         assert_eq!(started.selected.audio_track, Some(1));
-        assert_eq!(
-            started.selected.subtitle_track,
-            Some(SubtitleTrackRef::Embedded(1))
-        );
+        assert_eq!(started.selected.subtitle_track, Some(SubtitleTrackRef::Embedded(1)));
     }
 
     #[tokio::test]
@@ -2009,10 +1752,7 @@ mod tests {
         let started = harness.service.start(&principal(), request).await.unwrap();
 
         assert_eq!(started.selected.audio_track, Some(2));
-        assert_eq!(
-            started.selected.subtitle_track,
-            Some(SubtitleTrackRef::Embedded(0))
-        );
+        assert_eq!(started.selected.subtitle_track, Some(SubtitleTrackRef::Embedded(0)));
     }
 
     #[tokio::test]
@@ -2021,11 +1761,7 @@ mod tests {
         harness.catalog.insert(multilingual_detail());
         harness.users.insert(user_who_prefers(&["deu"], &["deu"]));
 
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
 
         assert_eq!(started.selected.audio_track, Some(0));
         assert_eq!(started.selected.subtitle_track, None);
@@ -2046,11 +1782,7 @@ mod tests {
     async fn a_started_session_reports_the_container_it_resolved() {
         let harness = Harness::new();
         harness.catalog.insert(transcode_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         assert_eq!(started.mode, DeliveryMode::Transcode);
         assert_eq!(started.container, Some(SegmentContainer::MpegTs));
     }
@@ -2060,11 +1792,7 @@ mod tests {
     async fn a_direct_session_reports_no_container() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         assert_eq!(started.mode, DeliveryMode::Direct);
         assert_eq!(started.container, None);
     }
@@ -2115,11 +1843,7 @@ mod tests {
     async fn a_transcode_bound_lowers_the_output_height() {
         let harness = Harness::bounded(Some(720));
         harness.catalog.insert(transcode_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         assert_eq!(started.mode, DeliveryMode::Transcode);
         assert_eq!(harness.transcode.started()[0].max_height, Some(720));
     }
@@ -2128,11 +1852,7 @@ mod tests {
     async fn a_transcode_bound_above_the_source_changes_nothing() {
         let harness = Harness::bounded(Some(2160));
         harness.catalog.insert(transcode_detail());
-        harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        harness.service.start(&principal(), start_request(0)).await.unwrap();
         assert_eq!(harness.transcode.started()[0].max_height, None);
     }
 
@@ -2146,11 +1866,7 @@ mod tests {
             vec![audio(1)],
             vec![],
         ));
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         assert_eq!(started.mode, DeliveryMode::Remux);
         assert_eq!(harness.transcode.started()[0].max_height, None);
     }
@@ -2171,10 +1887,7 @@ mod tests {
             offset_ms: None,
         });
         let started = harness.service.start(&principal(), request).await.unwrap();
-        assert_eq!(
-            started.selected.subtitle_delivery,
-            Some(SubtitleDelivery::HlsVtt)
-        );
+        assert_eq!(started.selected.subtitle_delivery, Some(SubtitleDelivery::HlsVtt));
         let renegotiated = harness
             .service
             .update(
@@ -2192,17 +1905,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(renegotiated.mode, DeliveryMode::Transcode);
+        assert_eq!(renegotiated.selected.subtitle_delivery, Some(SubtitleDelivery::Burned));
         assert_eq!(
-            renegotiated.selected.subtitle_delivery,
-            Some(SubtitleDelivery::Burned)
-        );
-        assert_eq!(
-            harness
-                .transcode
-                .started()
-                .last()
-                .unwrap()
-                .burn_subtitle_path,
+            harness.transcode.started().last().unwrap().burn_subtitle_path,
             Some("/media/m1".to_owned())
         );
     }
@@ -2211,11 +1916,7 @@ mod tests {
     async fn update_downmix_passes_flag_to_spec() {
         let harness = Harness::new();
         harness.catalog.insert(transcode_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         assert!(!harness.transcode.started().last().unwrap().downmix_stereo);
         harness
             .service
@@ -2240,19 +1941,10 @@ mod tests {
     async fn heartbeat_records_completion_at_ninety_percent() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         let ack = harness
             .service
-            .heartbeat(
-                &principal(),
-                &started.session_id,
-                90_000,
-                PlaybackState::Playing,
-            )
+            .heartbeat(&principal(), &started.session_id, 90_000, PlaybackState::Playing)
             .await
             .unwrap();
         assert_eq!(ack.heartbeat_interval_s, HEARTBEAT_INTERVAL_S);
@@ -2264,11 +1956,7 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        let history = harness
-            .progress
-            .history(&principal().user, page())
-            .await
-            .unwrap();
+        let history = harness.progress.history(&principal().user, page()).await.unwrap();
         assert_eq!(history.total, 1);
         assert!(history.items[0].completed);
     }
@@ -2287,30 +1975,16 @@ mod tests {
             })
             .await
             .unwrap();
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
 
         harness
             .service
-            .heartbeat(
-                &principal(),
-                &started.session_id,
-                90_000,
-                PlaybackState::Playing,
-            )
+            .heartbeat(&principal(), &started.session_id, 90_000, PlaybackState::Playing)
             .await
             .unwrap();
 
         assert!(
-            harness
-                .preferences
-                .list_watchlist(&principal().user)
-                .await
-                .unwrap()
-                .is_empty(),
+            harness.preferences.list_watchlist(&principal().user).await.unwrap().is_empty(),
             "watching a title to the end is the clearest signal it can leave the queue"
         );
     }
@@ -2328,61 +2002,31 @@ mod tests {
             })
             .await
             .unwrap();
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
 
         harness
             .service
-            .heartbeat(
-                &principal(),
-                &started.session_id,
-                30_000,
-                PlaybackState::Playing,
-            )
+            .heartbeat(&principal(), &started.session_id, 30_000, PlaybackState::Playing)
             .await
             .unwrap();
 
-        assert_eq!(
-            harness
-                .preferences
-                .list_watchlist(&principal().user)
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
+        assert_eq!(harness.preferences.list_watchlist(&principal().user).await.unwrap().len(), 1);
     }
 
     #[tokio::test]
     async fn every_heartbeat_past_the_threshold_counts_one_view() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         for position in [90_000, 93_000, 96_000, 99_000, 100_000] {
             harness
                 .service
-                .heartbeat(
-                    &principal(),
-                    &started.session_id,
-                    position,
-                    PlaybackState::Playing,
-                )
+                .heartbeat(&principal(), &started.session_id, position, PlaybackState::Playing)
                 .await
                 .unwrap();
         }
 
-        let history = harness
-            .progress
-            .history(&principal().user, page())
-            .await
-            .unwrap();
+        let history = harness.progress.history(&principal().user, page()).await.unwrap();
         assert_eq!(history.total, 1);
         assert_eq!(history.items[0].play_count, 1);
         assert!(
@@ -2401,28 +2045,15 @@ mod tests {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
         for _ in 0..2 {
-            let started = harness
-                .service
-                .start(&principal(), start_request(0))
-                .await
-                .unwrap();
+            let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
             harness
                 .service
-                .heartbeat(
-                    &principal(),
-                    &started.session_id,
-                    99_000,
-                    PlaybackState::Playing,
-                )
+                .heartbeat(&principal(), &started.session_id, 99_000, PlaybackState::Playing)
                 .await
                 .unwrap();
         }
 
-        let history = harness
-            .progress
-            .history(&principal().user, page())
-            .await
-            .unwrap();
+        let history = harness.progress.history(&principal().user, page()).await.unwrap();
         assert_eq!(history.total, 1);
         assert_eq!(history.items[0].play_count, 2);
     }
@@ -2431,19 +2062,10 @@ mod tests {
     async fn heartbeat_clears_a_resume_point_once_complete() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         harness
             .service
-            .heartbeat(
-                &principal(),
-                &started.session_id,
-                42_000,
-                PlaybackState::Playing,
-            )
+            .heartbeat(&principal(), &started.session_id, 42_000, PlaybackState::Playing)
             .await
             .unwrap();
         assert_eq!(
@@ -2459,12 +2081,7 @@ mod tests {
 
         harness
             .service
-            .heartbeat(
-                &principal(),
-                &started.session_id,
-                99_000,
-                PlaybackState::Playing,
-            )
+            .heartbeat(&principal(), &started.session_id, 99_000, PlaybackState::Playing)
             .await
             .unwrap();
         assert!(
@@ -2481,66 +2098,30 @@ mod tests {
     async fn heartbeat_no_completion_below_threshold() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         harness
             .service
-            .heartbeat(
-                &principal(),
-                &started.session_id,
-                89_000,
-                PlaybackState::Paused,
-            )
+            .heartbeat(&principal(), &started.session_id, 89_000, PlaybackState::Paused)
             .await
             .unwrap();
-        assert_eq!(
-            harness
-                .progress
-                .history(&principal().user, page())
-                .await
-                .unwrap()
-                .total,
-            0
-        );
+        assert_eq!(harness.progress.history(&principal().user, page()).await.unwrap().total, 0);
     }
 
     fn feature_length() -> VersionDetail {
-        detail_with(
-            "mp4",
-            7_200_000,
-            vec![video("h264", Some(5_000_000))],
-            vec![audio(1)],
-            vec![],
-        )
+        detail_with("mp4", 7_200_000, vec![video("h264", Some(5_000_000))], vec![audio(1)], vec![])
     }
 
     async fn beat_at(harness: &Harness, position_ms: u64) {
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         harness
             .service
-            .heartbeat(
-                &principal(),
-                &started.session_id,
-                position_ms,
-                PlaybackState::Playing,
-            )
+            .heartbeat(&principal(), &started.session_id, position_ms, PlaybackState::Playing)
             .await
             .unwrap();
     }
 
     async fn stored_progress(harness: &Harness) -> Option<PlaybackProgress> {
-        harness
-            .progress
-            .get(&principal().user, &VersionId("v1".to_owned()))
-            .await
-            .unwrap()
+        harness.progress.get(&principal().user, &VersionId("v1".to_owned())).await.unwrap()
     }
 
     #[tokio::test]
@@ -2559,10 +2140,7 @@ mod tests {
         let harness = Harness::new();
         harness.catalog.insert(feature_length());
         beat_at(&harness, 60_000).await;
-        assert_eq!(
-            stored_progress(&harness).await.map(|p| p.position_ms),
-            Some(60_000)
-        );
+        assert_eq!(stored_progress(&harness).await.map(|p| p.position_ms), Some(60_000));
     }
 
     #[tokio::test]
@@ -2609,20 +2187,13 @@ mod tests {
     async fn changing_tracks_early_writes_the_override_immediately() {
         let harness = Harness::new();
         harness.catalog.insert(multilingual_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
 
         track_choice(&harness, &started.session_id, 2).await;
 
         let row = stored_progress(&harness).await.expect("row forced");
         assert_eq!(row.audio_track, Some(2));
-        assert_eq!(
-            row.subtitle,
-            Some(SubtitleOverride::Track(SubtitleTrackRef::Embedded(1)))
-        );
+        assert_eq!(row.subtitle, Some(SubtitleOverride::Track(SubtitleTrackRef::Embedded(1))));
     }
 
     #[tokio::test]
@@ -2630,29 +2201,14 @@ mod tests {
         let harness = Harness::new();
         harness.catalog.insert(multilingual_detail());
         harness.users.insert(user_who_prefers(&["eng"], &["eng"]));
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         track_choice(&harness, &started.session_id, 2).await;
-        harness
-            .service
-            .end(&principal(), &started.session_id)
-            .await
-            .unwrap();
+        harness.service.end(&principal(), &started.session_id).await.unwrap();
 
-        let again = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let again = harness.service.start(&principal(), start_request(0)).await.unwrap();
 
         assert_eq!(again.selected.audio_track, Some(2));
-        assert_eq!(
-            again.selected.subtitle_track,
-            Some(SubtitleTrackRef::Embedded(1))
-        );
+        assert_eq!(again.selected.subtitle_track, Some(SubtitleTrackRef::Embedded(1)));
     }
 
     // The account preference is applied but never hardened, or it would stop
@@ -2662,21 +2218,12 @@ mod tests {
         let harness = Harness::new();
         harness.catalog.insert(multilingual_detail());
         harness.users.insert(user_who_prefers(&["jpn"], &["fra"]));
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         assert_eq!(started.selected.audio_track, Some(1));
 
         harness
             .service
-            .heartbeat(
-                &principal(),
-                &started.session_id,
-                50_000,
-                PlaybackState::Playing,
-            )
+            .heartbeat(&principal(), &started.session_id, 50_000, PlaybackState::Playing)
             .await
             .unwrap();
 
@@ -2689,22 +2236,13 @@ mod tests {
     async fn finishing_a_version_drops_its_override() {
         let harness = Harness::new();
         harness.catalog.insert(multilingual_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         track_choice(&harness, &started.session_id, 2).await;
         assert!(stored_progress(&harness).await.is_some());
 
         harness
             .service
-            .heartbeat(
-                &principal(),
-                &started.session_id,
-                95_000,
-                PlaybackState::Playing,
-            )
+            .heartbeat(&principal(), &started.session_id, 95_000, PlaybackState::Playing)
             .await
             .unwrap();
 
@@ -2744,10 +2282,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(
-            renegotiated.selected.subtitle_track,
-            Some(SubtitleTrackRef::Embedded(1))
-        );
+        assert_eq!(renegotiated.selected.subtitle_track, Some(SubtitleTrackRef::Embedded(1)));
         assert!(
             harness
                 .preferences
@@ -2768,11 +2303,7 @@ mod tests {
     async fn an_override_survives_a_rewind_to_the_start() {
         let harness = Harness::new();
         harness.catalog.insert(multilingual_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         track_choice(&harness, &started.session_id, 2).await;
 
         harness
@@ -2807,52 +2338,26 @@ mod tests {
             vec![audio(1)],
             vec![],
         ));
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         harness
             .service
-            .heartbeat(
-                &principal(),
-                &started.session_id,
-                10_000,
-                PlaybackState::Playing,
-            )
+            .heartbeat(&principal(), &started.session_id, 10_000, PlaybackState::Playing)
             .await
             .unwrap();
-        assert_eq!(
-            harness
-                .progress
-                .history(&principal().user, page())
-                .await
-                .unwrap()
-                .total,
-            0
-        );
+        assert_eq!(harness.progress.history(&principal().user, page()).await.unwrap().total, 0);
     }
 
     #[tokio::test]
     async fn a_heartbeat_never_loads_the_full_version_detail() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         let after_start = harness.catalog.detail_lookup_count();
 
         for _ in 0..5 {
             harness
                 .service
-                .heartbeat(
-                    &principal(),
-                    &started.session_id,
-                    1_000,
-                    PlaybackState::Playing,
-                )
+                .heartbeat(&principal(), &started.session_id, 1_000, PlaybackState::Playing)
                 .await
                 .unwrap();
         }
@@ -2869,19 +2374,10 @@ mod tests {
     async fn heartbeat_touches_active_transcode() {
         let harness = Harness::new();
         harness.catalog.insert(transcode_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         harness
             .service
-            .heartbeat(
-                &principal(),
-                &started.session_id,
-                1_000,
-                PlaybackState::Playing,
-            )
+            .heartbeat(&principal(), &started.session_id, 1_000, PlaybackState::Playing)
             .await
             .unwrap();
         assert_eq!(harness.transcode.touched(), vec![started.session_id]);
@@ -2891,31 +2387,14 @@ mod tests {
     async fn heartbeat_tolerates_missing_version() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         harness.catalog.remove(&VersionId("v1".to_owned()));
         harness
             .service
-            .heartbeat(
-                &principal(),
-                &started.session_id,
-                95_000,
-                PlaybackState::Playing,
-            )
+            .heartbeat(&principal(), &started.session_id, 95_000, PlaybackState::Playing)
             .await
             .unwrap();
-        assert_eq!(
-            harness
-                .progress
-                .history(&principal().user, page())
-                .await
-                .unwrap()
-                .total,
-            0
-        );
+        assert_eq!(harness.progress.history(&principal().user, page()).await.unwrap().total, 0);
     }
 
     #[tokio::test]
@@ -2924,12 +2403,7 @@ mod tests {
         assert!(matches!(
             harness
                 .service
-                .heartbeat(
-                    &principal(),
-                    &SessionId("nope".to_owned()),
-                    0,
-                    PlaybackState::Playing
-                )
+                .heartbeat(&principal(), &SessionId("nope".to_owned()), 0, PlaybackState::Playing)
                 .await,
             Err(SessionError::NotFound)
         ));
@@ -2939,32 +2413,16 @@ mod tests {
     async fn seek_issues_fresh_url_and_token() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         let first_url = started.manifest_url.clone();
-        let renegotiated = harness
-            .service
-            .seek(&principal(), &started.session_id, 30_000)
-            .await
-            .unwrap();
+        let renegotiated =
+            harness.service.seek(&principal(), &started.session_id, 30_000).await.unwrap();
         assert_ne!(renegotiated.manifest_url, first_url);
-        let claims = harness
-            .tokens
-            .verify(token_of(&renegotiated.manifest_url))
-            .unwrap();
+        let claims = harness.tokens.verify(token_of(&renegotiated.manifest_url)).unwrap();
         assert_eq!(claims.session, started.session_id);
         assert_eq!(claims.version, VersionId("v1".to_owned()));
         assert_eq!(
-            harness
-                .sessions
-                .get(&started.session_id)
-                .await
-                .unwrap()
-                .unwrap()
-                .position_ms,
+            harness.sessions.get(&started.session_id).await.unwrap().unwrap().position_ms,
             30_000
         );
     }
@@ -2973,10 +2431,7 @@ mod tests {
     async fn seek_not_found() {
         let harness = Harness::new();
         assert!(matches!(
-            harness
-                .service
-                .seek(&principal(), &SessionId("nope".to_owned()), 0)
-                .await,
+            harness.service.seek(&principal(), &SessionId("nope".to_owned()), 0).await,
             Err(SessionError::NotFound)
         ));
     }
@@ -2987,10 +2442,7 @@ mod tests {
         harness.catalog.insert(direct_detail());
         harness.sessions.insert(bare_session("s1")).await.unwrap();
         assert!(matches!(
-            harness
-                .service
-                .seek(&principal(), &SessionId("s1".to_owned()), 0)
-                .await,
+            harness.service.seek(&principal(), &SessionId("s1".to_owned()), 0).await,
             Err(SessionError::NotFound)
         ));
     }
@@ -2999,17 +2451,10 @@ mod tests {
     async fn seek_version_not_found() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         harness.catalog.remove(&VersionId("v1".to_owned()));
         assert!(matches!(
-            harness
-                .service
-                .seek(&principal(), &started.session_id, 10_000)
-                .await,
+            harness.service.seek(&principal(), &started.session_id, 10_000).await,
             Err(SessionError::VersionNotFound)
         ));
     }
@@ -3024,11 +2469,7 @@ mod tests {
             vec![audio(1), audio(2)],
             vec![],
         ));
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         let renegotiated = harness
             .service
             .update(
@@ -3058,11 +2499,7 @@ mod tests {
             vec![audio(1)],
             vec![subtitle(2, Some("eng"), SubtitleFormat::Srt)],
         ));
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         let set = harness
             .service
             .update(
@@ -3082,10 +2519,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(
-            set.selected.subtitle_delivery,
-            Some(SubtitleDelivery::HlsVtt)
-        );
+        assert_eq!(set.selected.subtitle_delivery, Some(SubtitleDelivery::HlsVtt));
         let disabled = harness
             .service
             .update(
@@ -3157,11 +2591,7 @@ mod tests {
     async fn update_version_not_found() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         harness.catalog.remove(&VersionId("v1".to_owned()));
         assert!(matches!(
             harness
@@ -3187,75 +2617,35 @@ mod tests {
     async fn end_stops_transcode_and_removes_session() {
         let harness = Harness::new();
         harness.catalog.insert(transcode_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
-        harness
-            .service
-            .end(&principal(), &started.session_id)
-            .await
-            .unwrap();
-        assert_eq!(
-            harness.transcode.stopped(),
-            vec![started.session_id.clone()]
-        );
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
+        harness.service.end(&principal(), &started.session_id).await.unwrap();
+        assert_eq!(harness.transcode.stopped(), vec![started.session_id.clone()]);
         assert_eq!(harness.streams.removed(), vec![started.session_id.clone()]);
-        assert!(
-            harness
-                .sessions
-                .get(&started.session_id)
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(harness.sessions.get(&started.session_id).await.unwrap().is_none());
     }
 
     #[tokio::test]
     async fn end_all_for_user_tears_down_the_stream_not_just_the_session_row() {
         let harness = Harness::new();
         harness.catalog.insert(transcode_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
 
-        harness
-            .service
-            .end_all_for_user(&UserId("u1".to_owned()))
-            .await
-            .unwrap();
+        harness.service.end_all_for_user(&UserId("u1".to_owned())).await.unwrap();
 
         assert_eq!(
             harness.streams.removed(),
             vec![started.session_id.clone()],
             "the stream registration is what makes playback stop"
         );
-        assert_eq!(
-            harness.transcode.stopped(),
-            vec![started.session_id.clone()]
-        );
-        assert!(
-            harness
-                .sessions
-                .get(&started.session_id)
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert_eq!(harness.transcode.stopped(), vec![started.session_id.clone()]);
+        assert!(harness.sessions.get(&started.session_id).await.unwrap().is_none());
     }
 
     #[tokio::test]
     async fn end_all_for_a_user_with_nothing_playing_is_a_no_op() {
         let harness = Harness::new();
 
-        harness
-            .service
-            .end_all_for_user(&UserId("nobody".to_owned()))
-            .await
-            .unwrap();
+        harness.service.end_all_for_user(&UserId("nobody".to_owned())).await.unwrap();
 
         assert!(harness.streams.removed().is_empty());
     }
@@ -3264,16 +2654,8 @@ mod tests {
     async fn end_direct_session_ignores_missing_transcode() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
-        harness
-            .service
-            .end(&principal(), &started.session_id)
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
+        harness.service.end(&principal(), &started.session_id).await.unwrap();
         assert!(harness.transcode.stopped().is_empty());
         assert_eq!(harness.streams.removed(), vec![started.session_id]);
     }
@@ -3282,58 +2664,34 @@ mod tests {
     async fn end_not_found() {
         let harness = Harness::new();
         assert!(matches!(
-            harness
-                .service
-                .end(&principal(), &SessionId("nope".to_owned()))
-                .await,
+            harness.service.end(&principal(), &SessionId("nope".to_owned())).await,
             Err(SessionError::NotFound)
         ));
     }
 
     fn intruder() -> Principal {
-        Principal {
-            user: UserId("u2".to_owned()),
-            role: Role::User,
-        }
+        Principal { user: UserId("u2".to_owned()), role: Role::User }
     }
 
     fn admin() -> Principal {
-        Principal {
-            user: UserId("boss".to_owned()),
-            role: Role::Admin,
-        }
+        Principal { user: UserId("boss".to_owned()), role: Role::Admin }
     }
 
     #[tokio::test]
     async fn a_heartbeat_from_another_user_moves_nothing() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
 
         assert!(matches!(
             harness
                 .service
-                .heartbeat(
-                    &intruder(),
-                    &started.session_id,
-                    42_000,
-                    PlaybackState::Playing
-                )
+                .heartbeat(&intruder(), &started.session_id, 42_000, PlaybackState::Playing)
                 .await,
             Err(SessionError::NotFound)
         ));
         assert_eq!(
-            harness
-                .sessions
-                .get(&started.session_id)
-                .await
-                .unwrap()
-                .unwrap()
-                .position_ms,
+            harness.sessions.get(&started.session_id).await.unwrap().unwrap().position_ms,
             0,
             "a stranger's heartbeat must not move the owner's playhead"
         );
@@ -3352,16 +2710,9 @@ mod tests {
     async fn seeking_another_users_session_is_not_found() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         assert!(matches!(
-            harness
-                .service
-                .seek(&intruder(), &started.session_id, 42_000)
-                .await,
+            harness.service.seek(&intruder(), &started.session_id, 42_000).await,
             Err(SessionError::NotFound)
         ));
     }
@@ -3370,11 +2721,7 @@ mod tests {
     async fn updating_another_users_session_is_not_found() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         assert!(matches!(
             harness
                 .service
@@ -3399,54 +2746,31 @@ mod tests {
     async fn ending_another_users_session_leaves_it_playing() {
         let harness = Harness::new();
         harness.catalog.insert(transcode_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
 
         assert!(matches!(
             harness.service.end(&intruder(), &started.session_id).await,
             Err(SessionError::NotFound)
         ));
         assert!(
-            harness
-                .sessions
-                .get(&started.session_id)
-                .await
-                .unwrap()
-                .is_some(),
+            harness.sessions.get(&started.session_id).await.unwrap().is_some(),
             "the owner's session survives a stranger's delete"
         );
-        assert!(
-            harness.transcode.stopped().is_empty(),
-            "and their transcode keeps running"
-        );
+        assert!(harness.transcode.stopped().is_empty(), "and their transcode keeps running");
     }
 
     #[tokio::test]
     async fn a_non_admin_sees_only_their_own_active_sessions() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        harness.service.start(&principal(), start_request(0)).await.unwrap();
         harness
             .sessions
-            .insert(PlaybackSession {
-                user: intruder().user,
-                ..bare_session("theirs")
-            })
+            .insert(PlaybackSession { user: intruder().user, ..bare_session("theirs") })
             .await
             .unwrap();
 
-        let listing = harness
-            .service
-            .active_sessions(&principal(), page())
-            .await
-            .unwrap();
+        let listing = harness.service.active_sessions(&principal(), page()).await.unwrap();
 
         assert_eq!(listing.total, 1);
         assert!(listing.items.iter().all(|s| s.user == principal().user));
@@ -3456,25 +2780,14 @@ mod tests {
     async fn an_admin_sees_every_active_session() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        harness.service.start(&principal(), start_request(0)).await.unwrap();
         harness
             .sessions
-            .insert(PlaybackSession {
-                user: intruder().user,
-                ..bare_session("theirs")
-            })
+            .insert(PlaybackSession { user: intruder().user, ..bare_session("theirs") })
             .await
             .unwrap();
 
-        let listing = harness
-            .service
-            .active_sessions(&admin(), page())
-            .await
-            .unwrap();
+        let listing = harness.service.active_sessions(&admin(), page()).await.unwrap();
 
         assert_eq!(listing.total, 2);
     }
@@ -3483,21 +2796,9 @@ mod tests {
     async fn active_sessions_lists_all() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
-        harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
-        let listing = harness
-            .service
-            .active_sessions(&principal(), page())
-            .await
-            .unwrap();
+        harness.service.start(&principal(), start_request(0)).await.unwrap();
+        harness.service.start(&principal(), start_request(0)).await.unwrap();
+        let listing = harness.service.active_sessions(&principal(), page()).await.unwrap();
         assert_eq!(listing.total, 2);
     }
 
@@ -3505,11 +2806,7 @@ mod tests {
     async fn clone_shares_inner_state() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         let cloned = harness.service.clone();
         let listing = cloned.active_sessions(&principal(), page()).await.unwrap();
         assert_eq!(listing.total, 1);
@@ -3531,38 +2828,19 @@ mod tests {
     async fn every_renegotiation_launches_a_new_generation() {
         let harness = Harness::new();
         harness.catalog.insert(transcode_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
-        harness
-            .service
-            .update(&principal(), &started.session_id, keep_everything())
-            .await
-            .unwrap();
-        harness
-            .service
-            .seek(&principal(), &started.session_id, 5_000)
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
+        harness.service.update(&principal(), &started.session_id, keep_everything()).await.unwrap();
+        harness.service.seek(&principal(), &started.session_id, 5_000).await.unwrap();
 
-        let generations: Vec<u32> = harness
-            .transcode
-            .started()
-            .iter()
-            .map(|spec| spec.generation.0)
-            .collect();
+        let generations: Vec<u32> =
+            harness.transcode.started().iter().map(|spec| spec.generation.0).collect();
         assert_eq!(
             generations,
             vec![1, 2, 3],
             "a generation directory is written once, so every launch has to claim a fresh one"
         );
         assert_eq!(
-            harness
-                .streams
-                .registered_generation(&started.session_id)
-                .map(|g| g.0),
+            harness.streams.registered_generation(&started.session_id).map(|g| g.0),
             Some(3),
             "the registration follows the newest launch"
         );
@@ -3572,11 +2850,7 @@ mod tests {
     async fn the_token_names_the_generation_it_was_minted_for() {
         let harness = Harness::new();
         harness.catalog.insert(transcode_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         let renegotiated = harness
             .service
             .update(&principal(), &started.session_id, keep_everything())
@@ -3599,17 +2873,10 @@ mod tests {
     async fn a_direct_session_is_registered_under_a_generation_too() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         assert_eq!(started.mode, DeliveryMode::Direct);
         assert_eq!(
-            harness
-                .streams
-                .registered_generation(&started.session_id)
-                .map(|g| g.0),
+            harness.streams.registered_generation(&started.session_id).map(|g| g.0),
             Some(1),
             "direct play spawns no transcode, but its token still has to resolve to something"
         );
@@ -3619,25 +2886,10 @@ mod tests {
     async fn ending_a_session_forgets_its_generation_counter() {
         let harness = Harness::new();
         harness.catalog.insert(transcode_detail());
-        let started = harness
-            .service
-            .start(&principal(), start_request(0))
-            .await
-            .unwrap();
-        harness
-            .service
-            .end(&principal(), &started.session_id)
-            .await
-            .unwrap();
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
+        harness.service.end(&principal(), &started.session_id).await.unwrap();
         assert!(
-            harness
-                .service
-                .inner
-                .generations
-                .read()
-                .unwrap()
-                .get(&started.session_id)
-                .is_none()
+            harness.service.inner.generations.read().unwrap().get(&started.session_id).is_none()
         );
     }
 

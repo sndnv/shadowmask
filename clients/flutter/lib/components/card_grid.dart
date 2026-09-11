@@ -57,19 +57,22 @@ class CardGrid extends StatelessWidget {
     required this.imageBase,
     this.trailing,
     this.aspect,
+    this.cardWidth,
   });
 
   final List<CatalogCard> cards;
   final String imageBase;
   final List<Widget> Function(double width)? trailing;
   final CardAspect? aspect;
+  final double? cardWidth;
 
   @override
   Widget build(BuildContext context) {
     final CardAspect aspect = this.aspect ?? aspectOf(cards);
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
-        final double width = fittedCardWidth(constraints.maxWidth, aspect);
+        final double width =
+            cardWidth ?? fittedCardWidth(constraints.maxWidth, aspect);
         return Wrap(
           spacing: Space.s4,
           runSpacing: Space.s4,

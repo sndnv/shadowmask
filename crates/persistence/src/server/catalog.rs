@@ -96,9 +96,7 @@ pub struct SqliteCatalogRepo {
 
 impl SqliteCatalogRepo {
     pub async fn connect(path: &Path) -> Result<Self, RepositoryError> {
-        Ok(Self {
-            pool: open(path, &MIGRATOR).await?,
-        })
+        Ok(Self { pool: open(path, &MIGRATOR).await? })
     }
 
     pub async fn ping(&self) -> Result<(), RepositoryError> {
@@ -177,13 +175,7 @@ impl SqliteCatalogRepo {
         .execute(&mut *tx)
         .await
         .map_err(backend)?;
-        sync_search_row(
-            &mut tx,
-            "series",
-            series.id.0.as_str(),
-            series.title.as_str(),
-        )
-        .await?;
+        sync_search_row(&mut tx, "series", series.id.0.as_str(), series.title.as_str()).await?;
         tx.commit().await.map_err(backend)?;
         Ok(())
     }
@@ -243,13 +235,7 @@ impl SqliteCatalogRepo {
         .execute(&mut *tx)
         .await
         .map_err(backend)?;
-        sync_search_row(
-            &mut tx,
-            "episode",
-            episode.id.0.as_str(),
-            episode.title.as_str(),
-        )
-        .await?;
+        sync_search_row(&mut tx, "episode", episode.id.0.as_str(), episode.title.as_str()).await?;
         tx.commit().await.map_err(backend)?;
         Ok(())
     }
@@ -454,20 +440,15 @@ impl SqliteCatalogRepo {
     }
 
     async fn load_collection(&self, row: &SqliteRow) -> Result<Collection, RepositoryError> {
-        Ok(self
-            .load_collections(std::slice::from_ref(row))
-            .await?
-            .remove(0))
+        Ok(self.load_collections(std::slice::from_ref(row)).await?.remove(0))
     }
 
     async fn load_collections(
         &self,
         rows: &[SqliteRow],
     ) -> Result<Vec<Collection>, RepositoryError> {
-        let ids = rows
-            .iter()
-            .map(|row| column::<String>(row, "id"))
-            .collect::<Result<Vec<_>, _>>()?;
+        let ids =
+            rows.iter().map(|row| column::<String>(row, "id")).collect::<Result<Vec<_>, _>>()?;
         let mut members = self.collection_members(&ids).await?;
         let mut artwork = self.load_artwork_batch("collection", &ids).await?;
         rows.iter()
@@ -575,11 +556,7 @@ impl SqliteCatalogRepo {
         for bind in gate {
             query = query.bind(bind);
         }
-        query
-            .bind(ceiling)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(backend)
+        query.bind(ceiling).fetch_all(&self.pool).await.map_err(backend)
     }
 
     async fn hydrate_search_artwork(
@@ -597,10 +574,7 @@ impl SqliteCatalogRepo {
         }
         for item in items.iter_mut() {
             let (kind, id) = search_artwork_owner(item);
-            let found = loaded
-                .get_mut(kind)
-                .and_then(|group| group.remove(id))
-                .unwrap_or_default();
+            let found = loaded.get_mut(kind).and_then(|group| group.remove(id)).unwrap_or_default();
             match item {
                 SearchResult::Movie(movie) => movie.artwork = found,
                 SearchResult::Series(series) => series.artwork = found,
@@ -619,9 +593,8 @@ impl SqliteCatalogRepo {
         let mut out: HashMap<String, Vec<EpisodeId>> = HashMap::new();
         for chunk in ids.chunks(BIND_CHUNK) {
             let placeholders = vec!["?"; chunk.len()].join(", ");
-            let mut query = sqlx::query(AssertSqlSafe(
-                template.replace("{}", &placeholders).to_string(),
-            ));
+            let mut query =
+                sqlx::query(AssertSqlSafe(template.replace("{}", &placeholders).to_string()));
             for id in chunk {
                 query = query.bind(*id);
             }
@@ -734,10 +707,7 @@ impl SqliteCatalogRepo {
     }
 
     async fn hydrate_movies(&self, rows: Vec<SqliteRow>) -> Result<Vec<Movie>, RepositoryError> {
-        let mut items = rows
-            .iter()
-            .map(row_to_movie)
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut items = rows.iter().map(row_to_movie).collect::<Result<Vec<_>, _>>()?;
         let ids: Vec<String> = items.iter().map(|movie| movie.id.0.clone()).collect();
         let mut artwork = self.load_artwork_batch("movie", &ids).await?;
         for movie in &mut items {
@@ -747,10 +717,7 @@ impl SqliteCatalogRepo {
     }
 
     async fn hydrate_series(&self, rows: Vec<SqliteRow>) -> Result<Vec<Series>, RepositoryError> {
-        let mut items = rows
-            .iter()
-            .map(row_to_series)
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut items = rows.iter().map(row_to_series).collect::<Result<Vec<_>, _>>()?;
         let ids: Vec<String> = items.iter().map(|series| series.id.0.clone()).collect();
         let mut artwork = self.load_artwork_batch("series", &ids).await?;
         for series in &mut items {
@@ -905,12 +872,7 @@ impl SqliteCatalogRepo {
             return Ok(false);
         }
         for sql in TITLE_ATTRIBUTE_CLEANUP {
-            sqlx::query(sql)
-                .bind(kind)
-                .bind(id)
-                .execute(&mut *tx)
-                .await
-                .map_err(backend)?;
+            sqlx::query(sql).bind(kind).bind(id).execute(&mut *tx).await.map_err(backend)?;
         }
         if kind == "movie" {
             sqlx::query("DELETE FROM collection_movies WHERE movie_id = ?")
@@ -945,12 +907,7 @@ impl SqliteCatalogRepo {
         .await
         .map_err(backend)?;
         rows.iter()
-            .map(|row| {
-                Ok(Genre {
-                    id: GenreId(column(row, "id")?),
-                    name: column(row, "name")?,
-                })
-            })
+            .map(|row| Ok(Genre { id: GenreId(column(row, "id")?), name: column(row, "name")? }))
             .collect()
     }
 
@@ -996,12 +953,7 @@ impl SqliteCatalogRepo {
         .await
         .map_err(backend)?;
         rows.iter()
-            .map(|row| {
-                Ok(Studio {
-                    id: StudioId(column(row, "id")?),
-                    name: column(row, "name")?,
-                })
-            })
+            .map(|row| Ok(Studio { id: StudioId(column(row, "id")?), name: column(row, "name")? }))
             .collect()
     }
 
@@ -1041,10 +993,7 @@ impl SqliteCatalogRepo {
         .map_err(backend)?;
         rows.iter()
             .map(|row| {
-                Ok(ExternalId {
-                    source: column(row, "source")?,
-                    value: column(row, "value")?,
-                })
+                Ok(ExternalId { source: column(row, "source")?, value: column(row, "value")? })
             })
             .collect()
     }
@@ -1236,10 +1185,7 @@ impl SearchIndex for SqliteCatalogRepo {
     async fn rebuild(&self) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("catalog", "rebuild");
         let mut tx = self.pool.begin().await.map_err(backend)?;
-        sqlx::query("DELETE FROM search_index")
-            .execute(&mut *tx)
-            .await
-            .map_err(backend)?;
+        sqlx::query("DELETE FROM search_index").execute(&mut *tx).await.map_err(backend)?;
         reindex_kind(&mut tx, "movie", "SELECT id, title FROM movies").await?;
         reindex_kind(&mut tx, "series", "SELECT id, title FROM series").await?;
         reindex_kind(&mut tx, "episode", "SELECT id, title FROM episodes").await?;
@@ -1276,17 +1222,11 @@ async fn reindex_kind(
     kind: &str,
     select: &'static str,
 ) -> Result<(), RepositoryError> {
-    let rows = sqlx::query(select)
-        .fetch_all(&mut *conn)
-        .await
-        .map_err(backend)?;
+    let rows = sqlx::query(select).fetch_all(&mut *conn).await.map_err(backend)?;
     let indexed = rows
         .iter()
         .map(|row| {
-            Ok((
-                column::<String>(row, "id")?,
-                normalize_title(&column::<String>(row, "title")?),
-            ))
+            Ok((column::<String>(row, "id")?, normalize_title(&column::<String>(row, "title")?)))
         })
         .collect::<Result<Vec<_>, RepositoryError>>()?;
     for chunk in indexed.chunks(REINDEX_CHUNK) {
@@ -1323,8 +1263,7 @@ fn rank_where(needle: &str) -> &'static str {
     if needle.contains(' ') {
         " AND (s.title = ? OR s.title LIKE ? || '%')"
     } else {
-        " AND (s.title = ? OR s.title LIKE ? || '%' \
-           OR s.title LIKE '% ' || ? || ' %' OR s.title LIKE '% ' || ?)"
+        " AND (s.title = ? OR s.title LIKE ? || '%' OR s.title LIKE '% ' || ? || '%')"
     }
 }
 
@@ -1349,18 +1288,15 @@ fn search_branch(
              CASE WHEN s.title = ? THEN 0 WHEN s.title LIKE ? || '%' THEN 1 ELSE 2 END AS tier \
              {body} ORDER BY tier, s.title, {alias}.id LIMIT ?"
         ),
-        rank_binds: if needle.contains(' ') { 2 } else { 4 },
+        rank_binds: if needle.contains(' ') { 2 } else { 3 },
         needle: needle.to_owned(),
         match_query: fts_match(kind, needle),
     }
 }
 
 fn fts_match(kind: &str, needle: &str) -> String {
-    let terms = needle
-        .split_whitespace()
-        .map(|token| format!("{token}*"))
-        .collect::<Vec<_>>()
-        .join(" ");
+    let terms =
+        needle.split_whitespace().map(|token| format!("{token}*")).collect::<Vec<_>>().join(" ");
     format!("kind:{kind} AND title:({terms})")
 }
 
@@ -1416,9 +1352,7 @@ fn row_to_episode(row: &SqliteRow) -> Result<Episode, RepositoryError> {
         title: column(row, "title")?,
         overview: column(row, "overview")?,
         runtime_minutes: column::<Option<i64>>(row, "runtime_minutes")?.map(|v| v as u32),
-        air_date: column::<Option<i64>>(row, "air_date")?
-            .map(from_millis)
-            .transpose()?,
+        air_date: column::<Option<i64>>(row, "air_date")?.map(from_millis).transpose()?,
         manually_edited: column::<i64>(row, "manually_edited")? != 0,
         added_at: from_millis(column(row, "added_at")?)?,
         updated_at: from_millis(column(row, "updated_at")?)?,
@@ -1429,10 +1363,7 @@ fn row_to_episode(row: &SqliteRow) -> Result<Episode, RepositoryError> {
 fn row_to_version(row: &SqliteRow) -> Result<Version, RepositoryError> {
     Ok(Version {
         id: VersionId(column(row, "id")?),
-        title: title_from_parts(
-            &column::<String>(row, "title_kind")?,
-            column(row, "title_id")?,
-        )?,
+        title: title_from_parts(&column::<String>(row, "title_kind")?, column(row, "title_id")?)?,
         library: LibraryId(column(row, "library_id")?),
         quality: quality_from_str(&column::<String>(row, "quality")?)?,
         container: column(row, "container")?,
@@ -1452,9 +1383,7 @@ fn row_to_video(row: &SqliteRow) -> Result<VideoTrack, RepositoryError> {
         width: column::<i64>(row, "width")? as u32,
         height: column::<i64>(row, "height")? as u32,
         bit_depth: column::<i64>(row, "bit_depth")? as u8,
-        hdr: column::<Option<String>>(row, "hdr")?
-            .map(|value| hdr_from_str(&value))
-            .transpose()?,
+        hdr: column::<Option<String>>(row, "hdr")?.map(|value| hdr_from_str(&value)).transpose()?,
         frame_rate: column::<f64>(row, "frame_rate")? as f32,
         bitrate: column::<Option<i64>>(row, "bitrate")?.map(|b| b as u64),
     })
@@ -1495,10 +1424,7 @@ fn row_to_subtitle_file(row: &SqliteRow) -> Result<SubtitleFile, RepositoryError
 }
 
 fn row_to_chapter(row: &SqliteRow) -> Result<Chapter, RepositoryError> {
-    Ok(Chapter {
-        title: column(row, "title")?,
-        start_ms: column::<i64>(row, "start_ms")? as u64,
-    })
+    Ok(Chapter { title: column(row, "title")?, start_ms: column::<i64>(row, "start_ms")? as u64 })
 }
 
 async fn insert_version_row<'e, E>(executor: E, version: &Version) -> Result<(), RepositoryError>
@@ -1612,11 +1538,7 @@ fn rating_clause(
     }
     let placeholders = vec!["?"; blocked.len()].join(", ");
     for rating in blocked {
-        binds.push(format!(
-            "{}::{}",
-            rating.system.to_lowercase(),
-            rating.code.to_lowercase()
-        ));
+        binds.push(format!("{}::{}", rating.system.to_lowercase(), rating.code.to_lowercase()));
     }
     Some(format!(
         "({alias}.rating_system IS NULL OR \
@@ -1655,11 +1577,7 @@ fn library_clause(scope: &str, binds: &mut Vec<String>, libraries: &[LibraryId])
 }
 
 fn where_sql(clauses: Vec<String>) -> String {
-    if clauses.is_empty() {
-        String::new()
-    } else {
-        format!(" WHERE {}", clauses.join(" AND "))
-    }
+    if clauses.is_empty() { String::new() } else { format!(" WHERE {}", clauses.join(" AND ")) }
 }
 
 fn movie_filter_where(filter: &TitleListFilter) -> (String, Vec<String>) {
@@ -1748,11 +1666,7 @@ fn episode_gate(filter: &TitleListFilter, binds: &mut Vec<String>) -> String {
 }
 
 fn prefixed_and(clauses: Vec<String>) -> String {
-    if clauses.is_empty() {
-        String::new()
-    } else {
-        format!(" AND {}", clauses.join(" AND "))
-    }
+    if clauses.is_empty() { String::new() } else { format!(" AND {}", clauses.join(" AND ")) }
 }
 
 fn playable_clause(
@@ -1791,10 +1705,7 @@ fn random_movie_sql(
         filter.libraries.as_ref(),
     ));
     (
-        format!(
-            "SELECT m.id AS id FROM {from}{} ORDER BY RANDOM() LIMIT 1",
-            where_sql(clauses)
-        ),
+        format!("SELECT m.id AS id FROM {from}{} ORDER BY RANDOM() LIMIT 1", where_sql(clauses)),
         binds,
     )
 }
@@ -1872,12 +1783,7 @@ impl CatalogRepository for SqliteCatalogRepo {
                 .await
                 .map_err(backend)?;
         let items = self.hydrate_movies(rows).await?;
-        Ok(Page {
-            items,
-            total,
-            offset: page.offset,
-            limit: page.limit,
-        })
+        Ok(Page { items, total, offset: page.offset, limit: page.limit })
     }
 
     async fn get_movie(&self, id: &MovieId) -> Result<Option<Movie>, RepositoryError> {
@@ -1915,10 +1821,7 @@ impl CatalogRepository for SqliteCatalogRepo {
                 found.insert(movie.id.0.clone(), movie);
             }
         }
-        Ok(ids
-            .iter()
-            .filter_map(|id| found.remove(&id.0))
-            .collect::<Vec<_>>())
+        Ok(ids.iter().filter_map(|id| found.remove(&id.0)).collect::<Vec<_>>())
     }
 
     async fn list_series(&self, page: PageRequest) -> Result<Page<Series>, RepositoryError> {
@@ -1932,12 +1835,7 @@ impl CatalogRepository for SqliteCatalogRepo {
                 .await
                 .map_err(backend)?;
         let items = self.hydrate_series(rows).await?;
-        Ok(Page {
-            items,
-            total,
-            offset: page.offset,
-            limit: page.limit,
-        })
+        Ok(Page { items, total, offset: page.offset, limit: page.limit })
     }
 
     async fn get_series(&self, id: &SeriesId) -> Result<Option<Series>, RepositoryError> {
@@ -1968,10 +1866,7 @@ impl CatalogRepository for SqliteCatalogRepo {
                 found.insert(series.id.0.clone(), series);
             }
         }
-        Ok(ids
-            .iter()
-            .filter_map(|id| found.remove(&id.0))
-            .collect::<Vec<_>>())
+        Ok(ids.iter().filter_map(|id| found.remove(&id.0)).collect::<Vec<_>>())
     }
 
     async fn list_seasons(&self, series: &SeriesId) -> Result<Vec<Season>, RepositoryError> {
@@ -1981,10 +1876,8 @@ impl CatalogRepository for SqliteCatalogRepo {
             .fetch_all(&self.pool)
             .await
             .map_err(backend)?;
-        let mut seasons = rows
-            .iter()
-            .map(row_to_season)
-            .collect::<Result<Vec<_>, RepositoryError>>()?;
+        let mut seasons =
+            rows.iter().map(row_to_season).collect::<Result<Vec<_>, RepositoryError>>()?;
         let ids: Vec<String> = seasons.iter().map(|season| season.id.0.clone()).collect();
         let mut artwork = self.load_artwork_batch("season", &ids).await?;
         for season in &mut seasons {
@@ -2000,14 +1893,9 @@ impl CatalogRepository for SqliteCatalogRepo {
             .fetch_all(&self.pool)
             .await
             .map_err(backend)?;
-        let mut episodes = rows
-            .iter()
-            .map(row_to_episode)
-            .collect::<Result<Vec<_>, RepositoryError>>()?;
-        let ids: Vec<String> = episodes
-            .iter()
-            .map(|episode| episode.id.0.clone())
-            .collect();
+        let mut episodes =
+            rows.iter().map(row_to_episode).collect::<Result<Vec<_>, RepositoryError>>()?;
+        let ids: Vec<String> = episodes.iter().map(|episode| episode.id.0.clone()).collect();
         let mut artwork = self.load_artwork_batch("episode", &ids).await?;
         for episode in &mut episodes {
             episode.artwork = artwork.remove(&episode.id.0).unwrap_or_default();
@@ -2055,11 +1943,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         for bind in &binds {
             query = query.bind(bind);
         }
-        let rows = query
-            .bind(i64::from(limit))
-            .fetch_all(&self.pool)
-            .await
-            .map_err(backend)?;
+        let rows = query.bind(i64::from(limit)).fetch_all(&self.pool).await.map_err(backend)?;
         self.hydrate_contexts(rows).await
     }
 
@@ -2157,12 +2041,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         .await
         .map_err(backend)?;
         let items = self.load_collections(&rows).await?;
-        Ok(Page {
-            items,
-            total,
-            offset: page.offset,
-            limit: page.limit,
-        })
+        Ok(Page { items, total, offset: page.offset, limit: page.limit })
     }
 
     async fn get_collection(
@@ -2267,16 +2146,8 @@ impl CatalogRepository for SqliteCatalogRepo {
             .fetch_all(&self.pool)
             .await
             .map_err(backend)?;
-        let items = rows
-            .iter()
-            .map(row_to_version)
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Page {
-            items,
-            total,
-            offset: page.offset,
-            limit: page.limit,
-        })
+        let items = rows.iter().map(row_to_version).collect::<Result<Vec<_>, _>>()?;
+        Ok(Page { items, total, offset: page.offset, limit: page.limit })
     }
 
     async fn list_library_versions(
@@ -2299,16 +2170,8 @@ impl CatalogRepository for SqliteCatalogRepo {
                 .fetch_all(&self.pool)
                 .await
                 .map_err(backend)?;
-        let items = rows
-            .iter()
-            .map(row_to_version)
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Page {
-            items,
-            total,
-            offset: page.offset,
-            limit: page.limit,
-        })
+        let items = rows.iter().map(row_to_version).collect::<Result<Vec<_>, _>>()?;
+        Ok(Page { items, total, offset: page.offset, limit: page.limit })
     }
 
     async fn list_all_versions(&self, page: PageRequest) -> Result<Page<Version>, RepositoryError> {
@@ -2324,16 +2187,8 @@ impl CatalogRepository for SqliteCatalogRepo {
             .fetch_all(&self.pool)
             .await
             .map_err(backend)?;
-        let items = rows
-            .iter()
-            .map(row_to_version)
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Page {
-            items,
-            total,
-            offset: page.offset,
-            limit: page.limit,
-        })
+        let items = rows.iter().map(row_to_version).collect::<Result<Vec<_>, _>>()?;
+        Ok(Page { items, total, offset: page.offset, limit: page.limit })
     }
 
     async fn version_detail(
@@ -2392,26 +2247,22 @@ impl CatalogRepository for SqliteCatalogRepo {
 
     async fn delete_movie(&self, id: &MovieId) -> Result<bool, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "delete_movie");
-        self.delete_empty_title(DELETE_MOVIE_SQL, "movie", id.0.as_str())
-            .await
+        self.delete_empty_title(DELETE_MOVIE_SQL, "movie", id.0.as_str()).await
     }
 
     async fn delete_series(&self, id: &SeriesId) -> Result<bool, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "delete_series");
-        self.delete_empty_title(DELETE_SERIES_SQL, "series", id.0.as_str())
-            .await
+        self.delete_empty_title(DELETE_SERIES_SQL, "series", id.0.as_str()).await
     }
 
     async fn delete_season(&self, id: &SeasonId) -> Result<bool, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "delete_season");
-        self.delete_empty_title(DELETE_SEASON_SQL, "season", id.0.as_str())
-            .await
+        self.delete_empty_title(DELETE_SEASON_SQL, "season", id.0.as_str()).await
     }
 
     async fn delete_episode(&self, id: &EpisodeId) -> Result<bool, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "delete_episode");
-        self.delete_empty_title(DELETE_EPISODE_SQL, "episode", id.0.as_str())
-            .await
+        self.delete_empty_title(DELETE_EPISODE_SQL, "episode", id.0.as_str()).await
     }
 
     async fn upsert_movie(&self, movie: Movie) -> Result<(), RepositoryError> {
@@ -2529,10 +2380,8 @@ impl CatalogRepository for SqliteCatalogRepo {
 
     async fn all_version_ids(&self) -> Result<Vec<VersionId>, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "all_version_ids");
-        let rows = sqlx::query("SELECT id FROM versions")
-            .fetch_all(&self.pool)
-            .await
-            .map_err(backend)?;
+        let rows =
+            sqlx::query("SELECT id FROM versions").fetch_all(&self.pool).await.map_err(backend)?;
         let mut ids = Vec::with_capacity(rows.len());
         for row in &rows {
             ids.push(VersionId(column::<String>(row, "id")?));
@@ -2542,26 +2391,17 @@ impl CatalogRepository for SqliteCatalogRepo {
 
     async fn live_artwork_ids(&self, ids: &[String]) -> Result<HashSet<String>, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "live_artwork_ids");
-        self.live_ids(
-            "SELECT artwork_id AS id FROM artwork WHERE artwork_id IN",
-            ids,
-        )
-        .await
+        self.live_ids("SELECT artwork_id AS id FROM artwork WHERE artwork_id IN", ids).await
     }
 
     async fn live_version_ids(&self, ids: &[String]) -> Result<HashSet<String>, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "live_version_ids");
-        self.live_ids("SELECT id FROM versions WHERE id IN", ids)
-            .await
+        self.live_ids("SELECT id FROM versions WHERE id IN", ids).await
     }
 
     async fn live_artwork_paths(&self, ids: &[String]) -> Result<HashSet<String>, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "live_artwork_paths");
-        self.live_ids(
-            "SELECT path AS id FROM artwork_widths WHERE artwork_id IN",
-            ids,
-        )
-        .await
+        self.live_ids("SELECT path AS id FROM artwork_widths WHERE artwork_id IN", ids).await
     }
 
     async fn live_subtitle_paths(
@@ -2569,11 +2409,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         ids: &[String],
     ) -> Result<HashSet<String>, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "live_subtitle_paths");
-        self.live_ids(
-            "SELECT path AS id FROM subtitle_files WHERE version_id IN",
-            ids,
-        )
-        .await
+        self.live_ids("SELECT path AS id FROM subtitle_files WHERE version_id IN", ids).await
     }
 
     async fn live_trickplay_paths(
@@ -2581,11 +2417,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         ids: &[String],
     ) -> Result<HashSet<String>, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "live_trickplay_paths");
-        self.live_ids(
-            "SELECT path AS id FROM trickplay_sheets WHERE version_id IN",
-            ids,
-        )
-        .await
+        self.live_ids("SELECT path AS id FROM trickplay_sheets WHERE version_id IN", ids).await
     }
 
     async fn set_version_tracks(
@@ -2599,19 +2431,12 @@ impl CatalogRepository for SqliteCatalogRepo {
         let _op = DbOpGuard::new("catalog", "set_version_tracks");
         let vid = version.0.as_str();
         let mut tx = self.pool.begin().await.map_err(backend)?;
-        for table in [
-            "video_tracks",
-            "audio_tracks",
-            "subtitle_tracks",
-            "chapters",
-        ] {
-            sqlx::query(AssertSqlSafe(format!(
-                "DELETE FROM {table} WHERE version_id = ?"
-            )))
-            .bind(vid)
-            .execute(&mut *tx)
-            .await
-            .map_err(backend)?;
+        for table in ["video_tracks", "audio_tracks", "subtitle_tracks", "chapters"] {
+            sqlx::query(AssertSqlSafe(format!("DELETE FROM {table} WHERE version_id = ?")))
+                .bind(vid)
+                .execute(&mut *tx)
+                .await
+                .map_err(backend)?;
         }
         for (ordinal, track) in video.iter().enumerate() {
             sqlx::query(
@@ -2693,13 +2518,11 @@ impl CatalogRepository for SqliteCatalogRepo {
         let vid = version.0.as_str();
         let mut tx = self.pool.begin().await.map_err(backend)?;
         for table in ["trickplay_sheets", "trickplay_assets"] {
-            sqlx::query(AssertSqlSafe(format!(
-                "DELETE FROM {table} WHERE version_id = ?"
-            )))
-            .bind(vid)
-            .execute(&mut *tx)
-            .await
-            .map_err(backend)?;
+            sqlx::query(AssertSqlSafe(format!("DELETE FROM {table} WHERE version_id = ?")))
+                .bind(vid)
+                .execute(&mut *tx)
+                .await
+                .map_err(backend)?;
         }
         for (ordinal, asset) in assets.iter().enumerate() {
             sqlx::query(
@@ -2845,13 +2668,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         .execute(&mut *tx)
         .await
         .map_err(backend)?;
-        sync_search_row(
-            &mut tx,
-            "person",
-            person.id.0.as_str(),
-            person.name.as_str(),
-        )
-        .await?;
+        sync_search_row(&mut tx, "person", person.id.0.as_str(), person.name.as_str()).await?;
         tx.commit().await.map_err(backend)?;
         Ok(())
     }
@@ -3033,15 +2850,7 @@ impl CatalogRepository for SqliteCatalogRepo {
             self.load_external_ids("movie", tid),
             self.load_extras("movie", tid),
         )?;
-        Ok(Some(MovieDetail {
-            genres,
-            credits,
-            studios,
-            ratings,
-            external_ids,
-            extras,
-            movie,
-        }))
+        Ok(Some(MovieDetail { genres, credits, studios, ratings, external_ids, extras, movie }))
     }
 
     async fn series_detail(&self, id: &SeriesId) -> Result<Option<SeriesDetail>, RepositoryError> {
@@ -3120,12 +2929,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         }
         .map_err(backend)?;
         rows.iter()
-            .map(|row| {
-                Ok(Genre {
-                    id: GenreId(column(row, "id")?),
-                    name: column(row, "name")?,
-                })
-            })
+            .map(|row| Ok(Genre { id: GenreId(column(row, "id")?), name: column(row, "name")? }))
             .collect()
     }
 
@@ -3149,12 +2953,7 @@ impl CatalogRepository for SqliteCatalogRepo {
             .await
             .map_err(backend)?;
         let items = self.hydrate_movies(rows).await?;
-        Ok(Page {
-            items,
-            total,
-            offset: page.offset,
-            limit: page.limit,
-        })
+        Ok(Page { items, total, offset: page.offset, limit: page.limit })
     }
 
     async fn list_series_filtered(
@@ -3177,12 +2976,7 @@ impl CatalogRepository for SqliteCatalogRepo {
             .await
             .map_err(backend)?;
         let items = self.hydrate_series(rows).await?;
-        Ok(Page {
-            items,
-            total,
-            offset: page.offset,
-            limit: page.limit,
-        })
+        Ok(Page { items, total, offset: page.offset, limit: page.limit })
     }
 
     async fn random_playable_title(
@@ -3239,9 +3033,7 @@ mod tests {
         collections: u32,
         members: u32,
     ) -> SqliteCatalogRepo {
-        let repo = SqliteCatalogRepo::connect(&dir.join("catalog.db"))
-            .await
-            .unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.join("catalog.db")).await.unwrap();
         sqlx::query(AssertSqlSafe(format!(
             "INSERT INTO collections (id, name, overview, added_at, updated_at) \
              WITH RECURSIVE c(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM c WHERE i < {}) \
@@ -3268,20 +3060,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo = collections_repo(dir.path(), 30, 20).await;
 
-        let page = repo
-            .list_collections(PageRequest {
-                offset: 0,
-                limit: 30,
-            })
-            .await
-            .unwrap();
+        let page = repo.list_collections(PageRequest { offset: 0, limit: 30 }).await.unwrap();
 
         assert_eq!(page.items.len(), 30);
         for collection in &page.items {
             let index: u32 = collection.id.0.trim_start_matches("col").parse().unwrap();
-            let expected: Vec<MovieId> = (0..20)
-                .map(|ordinal| MovieId(format!("mv{}", index * 20 + ordinal)))
-                .collect();
+            let expected: Vec<MovieId> =
+                (0..20).map(|ordinal| MovieId(format!("mv{}", index * 20 + ordinal))).collect();
             assert_eq!(
                 collection.movies, expected,
                 "batching must not cross members between collections, nor lose ordinal order"
@@ -3298,13 +3083,7 @@ mod tests {
             .await
             .unwrap();
 
-        let page = repo
-            .list_collections(PageRequest {
-                offset: 0,
-                limit: 10,
-            })
-            .await
-            .unwrap();
+        let page = repo.list_collections(PageRequest { offset: 0, limit: 10 }).await.unwrap();
 
         let empty = page
             .items
@@ -3319,9 +3098,7 @@ mod tests {
     #[tokio::test]
     async fn artwork_hydration_survives_more_ids_than_sqlite_allows_parameters() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db"))
-            .await
-            .unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
         let rows = 40_000;
         sqlx::query(AssertSqlSafe(format!(
             "INSERT INTO artwork (artwork_id, title_kind, title_id, ordinal, kind) \
@@ -3357,9 +3134,7 @@ mod tests {
     }
 
     async fn searchable_repo(dir: &std::path::Path, titles: &[&str]) -> SqliteCatalogRepo {
-        let repo = SqliteCatalogRepo::connect(&dir.join("catalog.db"))
-            .await
-            .unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.join("catalog.db")).await.unwrap();
         for (n, title) in titles.iter().enumerate() {
             sqlx::query(
                 "INSERT INTO movies (id, title, sort_title, added_at, updated_at) \
@@ -3394,9 +3169,9 @@ mod tests {
     fn found(page: &Page<SearchResult>) -> Vec<String> {
         page.items
             .iter()
-            .map(|item| match item {
-                SearchResult::Movie(movie) => movie.title.clone(),
-                other => panic!("unexpected result kind: {other:?}"),
+            .map(|item| {
+                let SearchResult::Movie(movie) = item else { panic!("not a movie: {item:?}") };
+                movie.title.clone()
             })
             .collect()
     }
@@ -3404,9 +3179,7 @@ mod tests {
     #[tokio::test]
     async fn search_reads_only_as_far_as_the_page_it_was_asked_for() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db"))
-            .await
-            .unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
         let rows = 5_000;
         for sql in [
             format!(
@@ -3420,10 +3193,7 @@ mod tests {
                  SELECT 'movie', 'm-' || i, 'shared ' || i FROM c"
             ),
         ] {
-            sqlx::query(AssertSqlSafe(sql))
-                .execute(&repo.pool)
-                .await
-                .unwrap();
+            sqlx::query(AssertSqlSafe(sql)).execute(&repo.pool).await.unwrap();
         }
         let branch = search_branch("movie", "movies m", "m", "", "m.*", "shared", "");
 
@@ -3435,15 +3205,7 @@ mod tests {
              and keep fifty; one common word matched the whole catalog"
         );
         let hits = repo
-            .search(
-                "shared",
-                &[],
-                &unfiltered(),
-                PageRequest {
-                    offset: 0,
-                    limit: 10,
-                },
-            )
+            .search("shared", &[], &unfiltered(), PageRequest { offset: 0, limit: 10 })
             .await
             .unwrap();
         assert_eq!(hits.items.len(), 10);
@@ -3458,38 +3220,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo = searchable_repo(
             dir.path(),
-            &[
-                "Rematrix",
-                "The Matrix",
-                "Matrix Reloaded",
-                "Matrix",
-                "Watch Matrix Now",
-            ],
+            &["Rematrix", "The Matrix", "Matrix Reloaded", "Matrix", "Watch Matrix Now"],
         )
         .await;
 
         let hits = repo
-            .search(
-                "matrix",
-                &[],
-                &unfiltered(),
-                PageRequest {
-                    offset: 0,
-                    limit: 10,
-                },
-            )
+            .search("matrix", &[], &unfiltered(), PageRequest { offset: 0, limit: 10 })
             .await
             .unwrap();
 
         assert_eq!(
             found(&hits),
-            vec![
-                "Matrix",
-                "Matrix Reloaded",
-                "The Matrix",
-                "Watch Matrix Now"
-            ],
-            "exact first, then whole title prefix, then whole word, each group \
+            vec!["Matrix", "Matrix Reloaded", "The Matrix", "Watch Matrix Now"],
+            "exact first, then whole title prefix, then word prefix, each group \
              alphabetical; Rematrix is a substring only and never matched"
         );
         assert_eq!(hits.total, 4);
@@ -3500,22 +3243,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut titles: Vec<String> = (0..20).map(|n| format!("Aaa Matrix Bbb {n}")).collect();
         titles.push("Matrix".to_owned());
-        let repo = searchable_repo(
-            dir.path(),
-            &titles.iter().map(String::as_str).collect::<Vec<_>>(),
-        )
-        .await;
+        let repo =
+            searchable_repo(dir.path(), &titles.iter().map(String::as_str).collect::<Vec<_>>())
+                .await;
 
         let hits = repo
-            .search(
-                "matrix",
-                &[],
-                &unfiltered(),
-                PageRequest {
-                    offset: 0,
-                    limit: 1,
-                },
-            )
+            .search("matrix", &[], &unfiltered(), PageRequest { offset: 0, limit: 1 })
             .await
             .unwrap();
 
@@ -3531,32 +3264,22 @@ mod tests {
     #[tokio::test]
     async fn a_small_page_is_not_filled_with_rows_the_ranker_throws_away() {
         let dir = tempfile::tempdir().unwrap();
-        let mut titles: Vec<String> = (0..20).map(|n| format!("The Matrix Chapter {n}")).collect();
-        titles.push("Mat Man".to_owned());
-        let repo = searchable_repo(
-            dir.path(),
-            &titles.iter().map(String::as_str).collect::<Vec<_>>(),
-        )
-        .await;
+        let mut titles: Vec<String> = (0..20).map(|n| format!("Chapter {n} The Matrix")).collect();
+        titles.push("The Matrix".to_owned());
+        let repo =
+            searchable_repo(dir.path(), &titles.iter().map(String::as_str).collect::<Vec<_>>())
+                .await;
 
         let hits = repo
-            .search(
-                "mat",
-                &[],
-                &unfiltered(),
-                PageRequest {
-                    offset: 0,
-                    limit: 1,
-                },
-            )
+            .search("the matrix", &[], &unfiltered(), PageRequest { offset: 0, limit: 1 })
             .await
             .unwrap();
 
         assert_eq!(
             found(&hits),
-            vec!["Mat Man"],
-            "the full text index matches a prefix of any word, but a hit has to \
-             start the title or be a whole word in it, so SQL has to apply that \
+            vec!["The Matrix"],
+            "the full text index matches every title carrying both words, but a \
+             multi word query has to start the title, so SQL has to apply that \
              rule before the limit or the page comes back empty"
         );
         assert_eq!(hits.total, 1);
@@ -3568,15 +3291,7 @@ mod tests {
         let repo = searchable_repo(dir.path(), &["Casablanca", "Movie Night"]).await;
 
         let hits = repo
-            .search(
-                "movie",
-                &[],
-                &unfiltered(),
-                PageRequest {
-                    offset: 0,
-                    limit: 10,
-                },
-            )
+            .search("movie", &[], &unfiltered(), PageRequest { offset: 0, limit: 10 })
             .await
             .unwrap();
 
@@ -3592,9 +3307,31 @@ mod tests {
              scope and a query like ep matches the kind column of every episode, \
              putting the whole catalog back in front of the row filter"
         );
-        assert_eq!(
-            fts_match("movie", "the matrix"),
-            "kind:movie AND title:(the* matrix*)"
+        assert_eq!(fts_match("movie", "the matrix"), "kind:movie AND title:(the* matrix*)");
+    }
+
+    #[tokio::test]
+    async fn a_partial_word_matches_the_word_it_starts() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = searchable_repo(
+            dir.path(),
+            &["The Matrix", "Children of the Gods", "Rematrix", "Inception"],
+        )
+        .await;
+        let page = PageRequest { offset: 0, limit: 10 };
+
+        let partial = repo.search("mat", &[], &unfiltered(), page).await.unwrap();
+        let plural = repo.search("god", &[], &unfiltered(), page).await.unwrap();
+        let infix = repo.search("atrix", &[], &unfiltered(), page).await.unwrap();
+
+        assert_eq!(found(&partial), vec!["The Matrix"]);
+        assert_eq!(found(&plural), vec!["Children of the Gods"]);
+        assert_eq!(partial.total, 1);
+        assert_eq!(plural.total, 1);
+        assert!(
+            infix.items.is_empty(),
+            "the row filter has to stay a prefix test; matching anywhere in a word \
+             would pull in Rematrix, which the full text index cannot return either"
         );
     }
 
@@ -3604,23 +3341,15 @@ mod tests {
         let repo = searchable_repo(dir.path(), &["Watch The Matrix Now", "The Matrix"]).await;
 
         let hits = repo
-            .search(
-                "the matrix",
-                &[],
-                &unfiltered(),
-                PageRequest {
-                    offset: 0,
-                    limit: 10,
-                },
-            )
+            .search("the matrix", &[], &unfiltered(), PageRequest { offset: 0, limit: 10 })
             .await
             .unwrap();
 
         assert_eq!(
             found(&hits),
             vec!["The Matrix"],
-            "a whole word match is only ever a single word, so a two word query \
-             matches a prefix or nothing"
+            "a word prefix match never spans a space, so a two word query \
+             matches the start of the title or nothing"
         );
     }
 
@@ -3630,15 +3359,7 @@ mod tests {
         let repo = searchable_repo(dir.path(), &["Apple Pie", "A E I O U"]).await;
 
         let hits = repo
-            .search(
-                "a%e",
-                &[],
-                &unfiltered(),
-                PageRequest {
-                    offset: 0,
-                    limit: 10,
-                },
-            )
+            .search("a%e", &[], &unfiltered(), PageRequest { offset: 0, limit: 10 })
             .await
             .unwrap();
 
@@ -3654,9 +3375,7 @@ mod tests {
     #[tokio::test]
     async fn episode_ids_group_by_parent_past_the_bind_limit() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db"))
-            .await
-            .unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
         let parents = 2_000;
         for sql in [
             format!(
@@ -3680,10 +3399,7 @@ mod tests {
                  SELECT 'first-' || i, 'se-' || i, 1, 'Ep ' || i, i, i FROM c"
             ),
         ] {
-            sqlx::query(AssertSqlSafe(sql))
-                .execute(&repo.pool)
-                .await
-                .unwrap();
+            sqlx::query(AssertSqlSafe(sql)).execute(&repo.pool).await.unwrap();
         }
         let series: Vec<SeriesId> = (1..parents).map(|i| SeriesId(format!("sr-{i}"))).collect();
         let seasons: Vec<SeasonId> = (1..parents).map(|i| SeasonId(format!("se-{i}"))).collect();
@@ -3709,9 +3425,7 @@ mod tests {
     #[tokio::test]
     async fn reconciling_more_paths_than_sqlite_allows_parameters_marks_exactly_those_present() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db"))
-            .await
-            .unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
         let rows = 40_000;
         sqlx::query(AssertSqlSafe(format!(
             "INSERT INTO versions \
@@ -3726,9 +3440,7 @@ mod tests {
         .unwrap();
 
         let present: Vec<String> = (1..rows).map(|i| format!("/media/{i}.mkv")).collect();
-        repo.reconcile_library_versions(&LibraryId("lib-1".into()), &present)
-            .await
-            .unwrap();
+        repo.reconcile_library_versions(&LibraryId("lib-1".into()), &present).await.unwrap();
 
         let available: i64 = column(
             &sqlx::query("SELECT COUNT(*) AS n FROM versions WHERE available = 1")
@@ -3763,9 +3475,7 @@ mod tests {
     #[tokio::test]
     async fn hot_read_paths_are_served_by_an_index() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db"))
-            .await
-            .unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
         let pool = &repo.pool;
 
         for (sort, index) in [
@@ -3818,11 +3528,7 @@ mod tests {
         let (where_sql, binds) = series_filter_where(&filter);
         let refs: Vec<&str> = binds.iter().map(String::as_str).collect();
         let counted = plan(pool, &count_filtered_sql("series s", &where_sql), &refs).await;
-        for index in [
-            "idx_seasons_series",
-            "idx_episodes_season",
-            "idx_versions_title",
-        ] {
+        for index in ["idx_seasons_series", "idx_episodes_season", "idx_versions_title"] {
             assert!(
                 counted.contains(index),
                 "the series entitlement subquery must start at seasons and seek down; \
@@ -3831,21 +3537,9 @@ mod tests {
         }
 
         for (sql, index, args) in [
-            (
-                LIST_SEASONS_SQL.to_string(),
-                "idx_seasons_series",
-                vec!["s1"],
-            ),
-            (
-                LIST_EPISODES_SQL.to_string(),
-                "idx_episodes_season",
-                vec!["se1"],
-            ),
-            (
-                LIST_VERSIONS_SQL.to_string(),
-                "idx_versions_title",
-                vec!["movie", "m1", "50", "0"],
-            ),
+            (LIST_SEASONS_SQL.to_string(), "idx_seasons_series", vec!["s1"]),
+            (LIST_EPISODES_SQL.to_string(), "idx_episodes_season", vec!["se1"]),
+            (LIST_VERSIONS_SQL.to_string(), "idx_versions_title", vec!["movie", "m1", "50", "0"]),
             (
                 mark_present_sql(2),
                 "idx_versions_library_path",
@@ -3865,12 +3559,8 @@ mod tests {
         for quality in [Quality::Sd, Quality::Hd, Quality::Fhd, Quality::Uhd] {
             assert_eq!(quality_from_str(quality_to_str(quality)).unwrap(), quality);
         }
-        for hdr in [
-            HdrFormat::Hdr10,
-            HdrFormat::Hdr10Plus,
-            HdrFormat::DolbyVision,
-            HdrFormat::Hlg,
-        ] {
+        for hdr in [HdrFormat::Hdr10, HdrFormat::Hdr10Plus, HdrFormat::DolbyVision, HdrFormat::Hlg]
+        {
             assert_eq!(hdr_from_str(hdr_to_str(hdr)).unwrap(), hdr);
         }
         for format in [
@@ -3880,10 +3570,7 @@ mod tests {
             SubtitleFormat::Pgs,
             SubtitleFormat::VobSub,
         ] {
-            assert_eq!(
-                subtitle_format_from_str(subtitle_format_to_str(format)).unwrap(),
-                format
-            );
+            assert_eq!(subtitle_format_from_str(subtitle_format_to_str(format)).unwrap(), format);
         }
         for source in [
             SubtitleSource::OpenSubtitles,
@@ -3892,10 +3579,7 @@ mod tests {
             SubtitleSource::MachineTranslated,
             SubtitleSource::Combined,
         ] {
-            assert_eq!(
-                subtitle_source_from_str(subtitle_source_to_str(source)).unwrap(),
-                source
-            );
+            assert_eq!(subtitle_source_from_str(subtitle_source_to_str(source)).unwrap(), source);
         }
         assert!(quality_from_str("nope").is_err());
         assert!(hdr_from_str("nope").is_err());
@@ -3910,15 +3594,10 @@ mod tests {
     #[tokio::test]
     async fn surfaces_backend_error_after_close() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db"))
-            .await
-            .unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
         repo.pool.close().await;
 
-        let page = PageRequest {
-            offset: 0,
-            limit: 10,
-        };
+        let page = PageRequest { offset: 0, limit: 10 };
         let movie_id = MovieId("m1".into());
         let series_id = SeriesId("s1".into());
         let season_id = SeasonId("se1".into());
@@ -3933,54 +3612,22 @@ mod tests {
 
         assert!(repo.list_movies(page).await.is_err());
         assert!(repo.get_movie(&movie_id).await.is_err());
-        assert!(
-            repo.movies_by_ids(std::slice::from_ref(&movie_id))
-                .await
-                .is_err()
-        );
+        assert!(repo.movies_by_ids(std::slice::from_ref(&movie_id)).await.is_err());
         assert!(repo.list_series(page).await.is_err());
         assert!(repo.get_series(&series_id).await.is_err());
-        assert!(
-            repo.series_by_ids(std::slice::from_ref(&series_id))
-                .await
-                .is_err()
-        );
+        assert!(repo.series_by_ids(std::slice::from_ref(&series_id)).await.is_err());
         assert!(repo.list_seasons(&series_id).await.is_err());
         assert!(repo.list_episodes(&season_id).await.is_err());
-        assert!(
-            repo.episode_ids_for_series(std::slice::from_ref(&series_id))
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.episode_ids_for_seasons(std::slice::from_ref(&season_id))
-                .await
-                .is_err()
-        );
+        assert!(repo.episode_ids_for_series(std::slice::from_ref(&series_id)).await.is_err());
+        assert!(repo.episode_ids_for_seasons(std::slice::from_ref(&season_id)).await.is_err());
         assert!(repo.recent_episodes(&filter, 5).await.is_err());
-        assert!(
-            repo.visible_movies(std::slice::from_ref(&movie_id), &filter)
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.visible_episodes(std::slice::from_ref(&episode_id), &filter)
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.next_episode_in_series(&series_id, 1, 1, &filter)
-                .await
-                .is_err()
-        );
+        assert!(repo.visible_movies(std::slice::from_ref(&movie_id), &filter).await.is_err());
+        assert!(repo.visible_episodes(std::slice::from_ref(&episode_id), &filter).await.is_err());
+        assert!(repo.next_episode_in_series(&series_id, 1, 1, &filter).await.is_err());
         assert!(repo.get_episode(&episode_id).await.is_err());
         assert!(repo.list_collections(page).await.is_err());
         assert!(repo.get_collection(&collection_id).await.is_err());
-        assert!(
-            repo.upsert_collection(contracts::fixture::saga_collection())
-                .await
-                .is_err()
-        );
+        assert!(repo.upsert_collection(contracts::fixture::saga_collection()).await.is_err());
         assert!(repo.delete_collection(&collection_id).await.is_err());
         assert!(repo.collections_of_movie(&movie_id).await.is_err());
         assert!(repo.get_season(&season_id).await.is_err());
@@ -3995,26 +3642,10 @@ mod tests {
         assert!(repo.delete_series(&series_id).await.is_err());
         assert!(repo.delete_season(&season_id).await.is_err());
         assert!(repo.delete_episode(&episode_id).await.is_err());
-        assert!(
-            repo.upsert_movie(contracts::fixture::movie("m1"))
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.upsert_series(contracts::fixture::series("s1"))
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.upsert_season(contracts::fixture::season("se1", "s1"))
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.upsert_episode(contracts::fixture::episode("e1", "se1"))
-                .await
-                .is_err()
-        );
+        assert!(repo.upsert_movie(contracts::fixture::movie("m1")).await.is_err());
+        assert!(repo.upsert_series(contracts::fixture::series("s1")).await.is_err());
+        assert!(repo.upsert_season(contracts::fixture::season("se1", "s1")).await.is_err());
+        assert!(repo.upsert_episode(contracts::fixture::episode("e1", "se1")).await.is_err());
         assert!(
             repo.upsert_version(contracts::fixture::version(
                 "v1",
@@ -4025,17 +3656,9 @@ mod tests {
             .await
             .is_err()
         );
-        assert!(
-            repo.reconcile_library_versions(&library_id, &ids)
-                .await
-                .is_err()
-        );
+        assert!(repo.reconcile_library_versions(&library_id, &ids).await.is_err());
         let owner = ArtworkOwner::Movie(movie_id.clone());
-        assert!(
-            repo.set_artwork(&owner, &contracts::fixture::artwork_set("m1"))
-                .await
-                .is_err()
-        );
+        assert!(repo.set_artwork(&owner, &contracts::fixture::artwork_set("m1")).await.is_err());
         assert!(repo.list_artwork(&owner).await.is_err());
         assert!(repo.all_artwork_ids().await.is_err());
         assert!(repo.all_version_ids().await.is_err());
@@ -4044,11 +3667,7 @@ mod tests {
         assert!(repo.live_artwork_paths(&ids).await.is_err());
         assert!(repo.live_subtitle_paths(&ids).await.is_err());
         assert!(repo.live_trickplay_paths(&ids).await.is_err());
-        assert!(
-            repo.set_version_tracks(&version_id, &[], &[], &[], &[])
-                .await
-                .is_err()
-        );
+        assert!(repo.set_version_tracks(&version_id, &[], &[], &[], &[]).await.is_err());
         assert!(repo.set_trickplay(&version_id, &[]).await.is_err());
         assert!(repo.set_subtitle_files(&version_id, &[]).await.is_err());
         let subtitle = SubtitleFile {
@@ -4062,16 +3681,8 @@ mod tests {
             label: None,
             pinned: false,
         };
-        assert!(
-            repo.add_subtitle_file(&version_id, &subtitle)
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.upsert_person(contracts::fixture::people()[0].clone())
-                .await
-                .is_err()
-        );
+        assert!(repo.add_subtitle_file(&version_id, &subtitle).await.is_err());
+        assert!(repo.upsert_person(contracts::fixture::people()[0].clone()).await.is_err());
         assert!(repo.get_person(&person_id).await.is_err());
         assert!(
             repo.set_title_enrichment(
@@ -4087,20 +3698,14 @@ mod tests {
         assert!(repo.list_genres(None).await.is_err());
         assert!(repo.list_movies_filtered(&filter, page).await.is_err());
         assert!(repo.list_series_filtered(&filter, page).await.is_err());
-        assert!(
-            repo.random_playable_title(&RandomScope::Movies, &filter)
-                .await
-                .is_err()
-        );
+        assert!(repo.random_playable_title(&RandomScope::Movies, &filter).await.is_err());
         assert!(repo.search("q", &[], &filter, page).await.is_err());
     }
 
     #[tokio::test]
     async fn rejects_corrupt_title_kind() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db"))
-            .await
-            .unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
         sqlx::query(
             "INSERT INTO versions \
              (id, title_kind, title_id, library_id, quality, container, path, size_bytes, \
@@ -4116,9 +3721,7 @@ mod tests {
     #[tokio::test]
     async fn rejects_corrupt_credit_role() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db"))
-            .await
-            .unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
         sqlx::query("INSERT INTO people (id, name) VALUES ('p1', 'Person')")
             .execute(&repo.pool)
             .await
@@ -4137,9 +3740,7 @@ mod tests {
     #[tokio::test]
     async fn rejects_corrupt_filmography_title_kind() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db"))
-            .await
-            .unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
         sqlx::query("INSERT INTO people (id, name) VALUES ('p1', 'Person')")
             .execute(&repo.pool)
             .await
@@ -4158,9 +3759,7 @@ mod tests {
     #[tokio::test]
     async fn rejects_corrupt_extra_kind() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db"))
-            .await
-            .unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
         repo.insert_movie(Movie {
             id: MovieId("m1".into()),
             title: "Alpha".into(),

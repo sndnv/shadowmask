@@ -17,9 +17,7 @@ pub struct HmacDownloadTokens {
 
 impl HmacDownloadTokens {
     pub fn new(secret: &[u8]) -> Self {
-        Self {
-            codec: HmacCodec::new(secret, DOWNLOAD_AUDIENCE),
-        }
+        Self { codec: HmacCodec::new(secret, DOWNLOAD_AUDIENCE) }
     }
 }
 
@@ -49,17 +47,12 @@ impl DownloadTokens for HmacDownloadTokens {
             exp: claims.expires_at.as_second(),
             nnc: claims.nonce.clone(),
         };
-        self.codec
-            .sign(&raw)
-            .map(DownloadToken)
-            .map_err(DownloadTokenError::Create)
+        self.codec.sign(&raw).map(DownloadToken).map_err(DownloadTokenError::Create)
     }
 
     fn verify(&self, token: &str) -> Result<DownloadClaims, DownloadTokenError> {
-        let raw: RawClaims = self
-            .codec
-            .verify(token, DOWNLOAD_TOKEN_TYPE)
-            .map_err(|failure| match failure {
+        let raw: RawClaims =
+            self.codec.verify(token, DOWNLOAD_TOKEN_TYPE).map_err(|failure| match failure {
                 TokenFailure::Expired => DownloadTokenError::Expired,
                 TokenFailure::Invalid => DownloadTokenError::Invalid,
             })?;
@@ -91,12 +84,7 @@ mod tests {
     }
 
     fn encode_raw(raw: &RawClaims) -> String {
-        encode(
-            &Header::new(Algorithm::HS256),
-            raw,
-            &EncodingKey::from_secret(SECRET),
-        )
-        .unwrap()
+        encode(&Header::new(Algorithm::HS256), raw, &EncodingKey::from_secret(SECRET)).unwrap()
     }
 
     #[test]
@@ -112,10 +100,7 @@ mod tests {
         let codec = HmacDownloadTokens::new(SECRET);
         let token = codec.create(&claims_expiring_in(3600)).unwrap();
         assert!(
-            token
-                .0
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.')),
+            token.0.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.')),
             "the link is handed to a browser as a path segment: {}",
             token.0
         );
@@ -125,10 +110,7 @@ mod tests {
     fn verify_rejects_expired_token() {
         let codec = HmacDownloadTokens::new(SECRET);
         let token = codec.create(&claims_expiring_in(-3600)).unwrap();
-        assert!(matches!(
-            codec.verify(&token.0),
-            Err(DownloadTokenError::Expired)
-        ));
+        assert!(matches!(codec.verify(&token.0), Err(DownloadTokenError::Expired)));
     }
 
     #[test]
@@ -136,36 +118,23 @@ mod tests {
         let issuer = HmacDownloadTokens::new(SECRET);
         let other = HmacDownloadTokens::new(b"a-different-secret");
         let token = issuer.create(&claims_expiring_in(3600)).unwrap();
-        assert!(matches!(
-            other.verify(&token.0),
-            Err(DownloadTokenError::Invalid)
-        ));
+        assert!(matches!(other.verify(&token.0), Err(DownloadTokenError::Invalid)));
     }
 
     #[test]
     fn verify_rejects_tampered_token() {
         let codec = HmacDownloadTokens::new(SECRET);
-        let mut bytes = codec
-            .create(&claims_expiring_in(3600))
-            .unwrap()
-            .0
-            .into_bytes();
+        let mut bytes = codec.create(&claims_expiring_in(3600)).unwrap().0.into_bytes();
         let last = bytes.len() - 1;
         bytes[last] = if bytes[last] == b'a' { b'b' } else { b'a' };
         let tampered = String::from_utf8(bytes).unwrap();
-        assert!(matches!(
-            codec.verify(&tampered),
-            Err(DownloadTokenError::Invalid)
-        ));
+        assert!(matches!(codec.verify(&tampered), Err(DownloadTokenError::Invalid)));
     }
 
     #[test]
     fn verify_rejects_garbage() {
         let codec = HmacDownloadTokens::new(SECRET);
-        assert!(matches!(
-            codec.verify("not.a.jwt"),
-            Err(DownloadTokenError::Invalid)
-        ));
+        assert!(matches!(codec.verify("not.a.jwt"), Err(DownloadTokenError::Invalid)));
     }
 
     #[test]
@@ -179,10 +148,7 @@ mod tests {
             exp: i64::MAX,
             nnc: String::new(),
         });
-        assert!(matches!(
-            codec.verify(&token),
-            Err(DownloadTokenError::Invalid)
-        ));
+        assert!(matches!(codec.verify(&token), Err(DownloadTokenError::Invalid)));
     }
 
     #[test]
@@ -196,10 +162,7 @@ mod tests {
             exp: Timestamp::now().as_second() + 3600,
             nnc: String::new(),
         });
-        assert!(matches!(
-            codec.verify(&token),
-            Err(DownloadTokenError::Invalid)
-        ));
+        assert!(matches!(codec.verify(&token), Err(DownloadTokenError::Invalid)));
     }
 
     #[test]
@@ -213,10 +176,7 @@ mod tests {
             exp: Timestamp::now().as_second() + 3600,
             nnc: String::new(),
         });
-        assert!(matches!(
-            codec.verify(&token),
-            Err(DownloadTokenError::Invalid)
-        ));
+        assert!(matches!(codec.verify(&token), Err(DownloadTokenError::Invalid)));
     }
 
     #[test]
@@ -235,9 +195,6 @@ mod tests {
                 nonce: "nonce-1".into(),
             })
             .unwrap();
-        assert!(matches!(
-            downloads.verify(&token.0),
-            Err(DownloadTokenError::Invalid)
-        ));
+        assert!(matches!(downloads.verify(&token.0), Err(DownloadTokenError::Invalid)));
     }
 }

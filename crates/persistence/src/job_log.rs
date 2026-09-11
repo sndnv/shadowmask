@@ -22,10 +22,8 @@ impl FsJobLogStore {
 
     fn path_for(&self, job: &JobId) -> Result<PathBuf, JobLogError> {
         let id = job.0.as_str();
-        let safe = !id.is_empty()
-            && id
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        let safe =
+            !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
         if !safe {
             return Err(JobLogError::InvalidId);
         }
@@ -34,20 +32,13 @@ impl FsJobLogStore {
 
     async fn write_line(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         tokio::fs::create_dir_all(&self.root).await?;
-        let mut file = tokio::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .await?;
+        let mut file = tokio::fs::OpenOptions::new().create(true).append(true).open(path).await?;
         file.write_all(bytes).await
     }
 
     fn write_line_blocking(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         std::fs::create_dir_all(&self.root)?;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)?;
+        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
         file.write_all(bytes)
     }
 
@@ -121,14 +112,8 @@ mod tests {
         let (_dir, store) = store();
         let job = JobId("job-1".into());
         let at = Timestamp::UNIX_EPOCH;
-        store
-            .append(&job, at, JobLogLevel::Info, "started")
-            .await
-            .unwrap();
-        store
-            .append(&job, at, JobLogLevel::Error, "boom\nmid\nline")
-            .await
-            .unwrap();
+        store.append(&job, at, JobLogLevel::Info, "started").await.unwrap();
+        store.append(&job, at, JobLogLevel::Error, "boom\nmid\nline").await.unwrap();
 
         let lines = store.read(&job, None).await.unwrap();
         assert_eq!(
@@ -148,10 +133,7 @@ mod tests {
             .append_blocking(&job, Timestamp::UNIX_EPOCH, JobLogLevel::Warn, "sync\nline")
             .unwrap();
         let lines = store.read(&job, None).await.unwrap();
-        assert_eq!(
-            lines,
-            vec!["1970-01-01T00:00:00Z WARN sync line".to_owned()]
-        );
+        assert_eq!(lines, vec!["1970-01-01T00:00:00Z WARN sync line".to_owned()]);
     }
 
     #[test]
@@ -159,12 +141,7 @@ mod tests {
         let file = tempfile::NamedTempFile::new().expect("tempfile");
         let store = FsJobLogStore::new(file.path().join("nested"));
         let err = store
-            .append_blocking(
-                &JobId("job-1".into()),
-                Timestamp::UNIX_EPOCH,
-                JobLogLevel::Info,
-                "x",
-            )
+            .append_blocking(&JobId("job-1".into()), Timestamp::UNIX_EPOCH, JobLogLevel::Info, "x")
             .expect_err("backend error");
         assert!(matches!(err, JobLogError::Backend(_)));
     }
@@ -189,10 +166,7 @@ mod tests {
         let job = JobId("job-2".into());
         let at = Timestamp::UNIX_EPOCH;
         for n in 0..5 {
-            store
-                .append(&job, at, JobLogLevel::Info, &format!("line {n}"))
-                .await
-                .unwrap();
+            store.append(&job, at, JobLogLevel::Info, &format!("line {n}")).await.unwrap();
         }
 
         let lines = store.read(&job, Some(2)).await.unwrap();
@@ -215,10 +189,7 @@ mod tests {
     async fn wipe_removes_file_and_is_idempotent() {
         let (_dir, store) = store();
         let job = JobId("job-3".into());
-        store
-            .append(&job, Timestamp::UNIX_EPOCH, JobLogLevel::Info, "x")
-            .await
-            .unwrap();
+        store.append(&job, Timestamp::UNIX_EPOCH, JobLogLevel::Info, "x").await.unwrap();
         assert_eq!(store.read(&job, None).await.unwrap().len(), 1);
         store.wipe(&job).await.unwrap();
         assert!(store.read(&job, None).await.unwrap().is_empty());
@@ -231,19 +202,11 @@ mod tests {
         for bad in ["", "../escape", "a/b", "with.dot"] {
             let job = JobId(bad.into());
             assert!(matches!(
-                store
-                    .append(&job, Timestamp::UNIX_EPOCH, JobLogLevel::Info, "x")
-                    .await,
+                store.append(&job, Timestamp::UNIX_EPOCH, JobLogLevel::Info, "x").await,
                 Err(JobLogError::InvalidId)
             ));
-            assert!(matches!(
-                store.read(&job, None).await,
-                Err(JobLogError::InvalidId)
-            ));
-            assert!(matches!(
-                store.wipe(&job).await,
-                Err(JobLogError::InvalidId)
-            ));
+            assert!(matches!(store.read(&job, None).await, Err(JobLogError::InvalidId)));
+            assert!(matches!(store.wipe(&job).await, Err(JobLogError::InvalidId)));
         }
     }
 
@@ -252,12 +215,7 @@ mod tests {
         let file = tempfile::NamedTempFile::new().expect("tempfile");
         let store = FsJobLogStore::new(file.path().join("nested"));
         let err = store
-            .append(
-                &JobId("job-1".into()),
-                Timestamp::UNIX_EPOCH,
-                JobLogLevel::Info,
-                "x",
-            )
+            .append(&JobId("job-1".into()), Timestamp::UNIX_EPOCH, JobLogLevel::Info, "x")
             .await
             .expect_err("backend error");
         assert!(matches!(err, JobLogError::Backend(_)));
@@ -280,18 +238,10 @@ mod tests {
         tokio::fs::create_dir_all(&path).await.unwrap();
 
         assert!(matches!(
-            store
-                .append(&job, Timestamp::UNIX_EPOCH, JobLogLevel::Info, "x")
-                .await,
+            store.append(&job, Timestamp::UNIX_EPOCH, JobLogLevel::Info, "x").await,
             Err(JobLogError::Backend(_))
         ));
-        assert!(matches!(
-            store.read(&job, None).await,
-            Err(JobLogError::Backend(_))
-        ));
-        assert!(matches!(
-            store.wipe(&job).await,
-            Err(JobLogError::Backend(_))
-        ));
+        assert!(matches!(store.read(&job, None).await, Err(JobLogError::Backend(_))));
+        assert!(matches!(store.wipe(&job).await, Err(JobLogError::Backend(_))));
     }
 }

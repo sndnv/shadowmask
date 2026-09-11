@@ -37,19 +37,10 @@ mod tests {
     // client on a newer build must not be able to break playback outright.
     #[test]
     fn an_unknown_preference_reads_as_auto() {
-        assert_eq!(
-            DeliveryPreference::parse("never"),
-            DeliveryPreference::NeverConvert
-        );
-        assert_eq!(
-            DeliveryPreference::parse("always"),
-            DeliveryPreference::AlwaysConvert
-        );
+        assert_eq!(DeliveryPreference::parse("never"), DeliveryPreference::NeverConvert);
+        assert_eq!(DeliveryPreference::parse("always"), DeliveryPreference::AlwaysConvert);
         assert_eq!(DeliveryPreference::parse("auto"), DeliveryPreference::Auto);
-        assert_eq!(
-            DeliveryPreference::parse("nonsense"),
-            DeliveryPreference::Auto
-        );
+        assert_eq!(DeliveryPreference::parse("nonsense"), DeliveryPreference::Auto);
     }
 
     #[test]

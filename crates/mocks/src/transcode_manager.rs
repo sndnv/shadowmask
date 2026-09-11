@@ -57,12 +57,7 @@ impl TranscodeManager for MockTranscodeManager {
         let mut state = self.state.lock().unwrap();
         state.active.insert(session.clone(), output_dir.clone());
         state.started.push(spec);
-        Ok(TranscodeStarted {
-            session,
-            output_dir,
-            origin_ms,
-            sequential: false,
-        })
+        Ok(TranscodeStarted { session, output_dir, origin_ms, sequential: false })
     }
 
     async fn touch(&self, session: &SessionId) -> Result<(), TranscodeError> {
@@ -137,23 +132,14 @@ mod tests {
     async fn touch_and_stop_unknown_error() {
         let manager = MockTranscodeManager::new();
         let missing = SessionId("nope".to_owned());
-        assert!(matches!(
-            manager.touch(&missing).await.unwrap_err(),
-            TranscodeError::NotFound
-        ));
-        assert!(matches!(
-            manager.stop(&missing).await.unwrap_err(),
-            TranscodeError::NotFound
-        ));
+        assert!(matches!(manager.touch(&missing).await.unwrap_err(), TranscodeError::NotFound));
+        assert!(matches!(manager.stop(&missing).await.unwrap_err(), TranscodeError::NotFound));
     }
 
     #[tokio::test]
     async fn start_failure_maps_to_spawn_error() {
         let manager = MockTranscodeManager::new();
         manager.set_fail();
-        assert!(matches!(
-            manager.start(spec("s1")).await.unwrap_err(),
-            TranscodeError::Spawn(_)
-        ));
+        assert!(matches!(manager.start(spec("s1")).await.unwrap_err(), TranscodeError::Spawn(_)));
     }
 }

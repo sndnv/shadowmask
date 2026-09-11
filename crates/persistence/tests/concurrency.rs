@@ -35,9 +35,7 @@ fn job(id: &str, now: Timestamp) -> Job {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_claim_ready_never_double_claims() {
     let dir = tempfile::tempdir().unwrap();
-    let repo = SqliteJobRepo::connect(&dir.path().join("jobs.db"))
-        .await
-        .unwrap();
+    let repo = SqliteJobRepo::connect(&dir.path().join("jobs.db")).await.unwrap();
     let now = at(1_700_000_000);
     for i in 0..12 {
         repo.enqueue(job(&format!("j{i}"), now)).await.unwrap();
@@ -47,9 +45,7 @@ async fn concurrent_claim_ready_never_double_claims() {
     for _ in 0..12 {
         let repo = repo.clone();
         handles.push(tokio::spawn(async move {
-            repo.claim_ready(now, 1, vec![JobKind::LibraryScan])
-                .await
-                .unwrap()
+            repo.claim_ready(now, 1, vec![JobKind::LibraryScan]).await.unwrap()
         }));
     }
 

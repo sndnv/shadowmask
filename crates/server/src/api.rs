@@ -228,25 +228,10 @@ pub fn build_state(
         repos.users.clone(),
     );
 
-    let state = AppState::new(
-        auth,
-        catalog,
-        session.clone(),
-        library,
-        user,
-        user_library,
-        discovery,
-        job,
-    );
+    let state =
+        AppState::new(auth, catalog, session.clone(), library, user, user_library, discovery, job);
     let stream = StreamState::new(HmacStreamTokens::new(&cfg.stream_secret), hls);
-    Ok(Built {
-        state,
-        stream,
-        session,
-        artwork_store,
-        images,
-        trickplay,
-    })
+    Ok(Built { state, stream, session, artwork_store, images, trickplay })
 }
 
 pub fn app(

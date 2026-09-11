@@ -23,10 +23,7 @@ pub fn is_hallucinated_text(text: &str) -> bool {
     if normalized.is_empty() {
         return false;
     }
-    if HALLUCINATION_SUBSTRINGS
-        .iter()
-        .any(|needle| normalized.contains(needle))
-    {
+    if HALLUCINATION_SUBSTRINGS.iter().any(|needle| normalized.contains(needle)) {
         return true;
     }
     is_repetitive(&normalized.split(' ').collect::<Vec<_>>()) || is_low_diversity(&normalized)
@@ -106,10 +103,7 @@ mod tests {
     use super::*;
 
     fn vtt(content: &str) -> FetchedSubtitle {
-        FetchedSubtitle {
-            content: content.into(),
-            format: SubtitleFormat::Vtt,
-        }
+        FetchedSubtitle { content: content.into(), format: SubtitleFormat::Vtt }
     }
 
     #[test]

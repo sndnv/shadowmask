@@ -119,6 +119,12 @@ Refer to the [CONTRIBUTING.md](CONTRIBUTING.md) file for more details.
 
 Refer to the [SECURITY.md](SECURITY.md) file for how to report a vulnerability.
 
+## Privacy
+
+Shadowmask is self-hosted software, not a service: there is no telemetry, no analytics and no
+account with us, and every outbound integration is off until an operator turns it on. Refer to the
+[PRIVACY.md](PRIVACY.md) file for what is stored and what leaves your server.
+
 ## Versioning
 
 We use [SemVer](http://semver.org/) for versioning.

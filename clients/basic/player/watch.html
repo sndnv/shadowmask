@@ -32,7 +32,7 @@
       let diagTimer = null;
       let screenLock = null;
       let awake = false;
-      const controls = { height: null, burn: false, downmix: false };
+      const controls = { height: null, burn: false, downmix: false, delivery: "auto" };
       let selAudio = null;
       let selSub = "";
       let selOffset = 0;
@@ -42,17 +42,18 @@
       let restarting = false;
       let playbackRate = 1;
       const networkTimeouts = [10, 30, 60, 90];
+      const deliveryModes = ["auto", "never", "always"];
       const timeoutKey = "shadowmask.player.network_timeout";
-      let networkTimeout = loadNetworkTimeout();
+      let networkTimeout = loadChoice(timeoutKey, networkTimeouts, networkTimeouts[0]);
 
-      function loadNetworkTimeout() {
+      function loadChoice(key, options, fallback) {
         let stored = null;
         try {
-          stored = parseInt(localStorage.getItem(timeoutKey), 10);
+          stored = parseInt(localStorage.getItem(key), 10);
         } catch (_) {
           stored = null;
         }
-        return networkTimeouts.indexOf(stored) >= 0 ? stored : networkTimeouts[0];
+        return options.indexOf(stored) >= 0 ? stored : fallback;
       }
 
       function readParams() {
@@ -61,6 +62,7 @@
         controls.height = asInt(p.get("height"));
         controls.burn = p.get("burn") === "1";
         controls.downmix = p.get("downmix") === "1";
+        controls.delivery = deliveryModes.indexOf(p.get("delivery")) > 0 ? p.get("delivery") : "auto";
         selAudio = p.has("audio") ? asInt(p.get("audio")) : null;
         selSub = p.get("sub") || "";
         selOffset = asInt(p.get("offset")) || 0;
@@ -72,6 +74,7 @@
         if (controls.height != null) p.set("height", String(controls.height));
         if (controls.burn) p.set("burn", "1");
         if (controls.downmix) p.set("downmix", "1");
+        if (controls.delivery !== "auto") p.set("delivery", controls.delivery);
         if (selAudio != null) p.set("audio", String(selAudio));
         if (selSub) p.set("sub", selSub);
         if (selOffset) p.set("offset", String(selOffset));
@@ -109,15 +112,20 @@
           resumeMs = startPos;
           session = await sm.json("/api/v1/sessions", {
             method: "POST",
-            body: JSON.stringify({
-              version_id: versionId,
-              start_position_ms: startPos,
-              capabilities: { platform: clientPlatform(), profile_version: info.profile_version || 1 },
-            }),
+            body: JSON.stringify(
+              Object.assign(
+                {
+                  version_id: versionId,
+                  start_position_ms: startPos,
+                  capabilities: { platform: clientPlatform(), profile_version: info.profile_version || 1 },
+                },
+                controls.delivery !== "auto" ? { delivery: controls.delivery } : {},
+              ),
+            ),
           });
           originMs = session.origin_ms || 0;
           sequential = session.sequential === true;
-          status.textContent = "Mode: " + session.mode;
+          status.textContent = modeLine(session);
           await attach(session.manifest_url, session.mode, startPos - originMs);
           wireSequentialSeeks();
           startHeartbeat(session.heartbeat_interval_s || 10);
@@ -129,6 +137,10 @@
         } catch (err) {
           status.textContent = "Could not start playback (" + err.message + ").";
         }
+      }
+
+      function modeLine(s) {
+        return "Mode: " + s.mode + (s.container ? " (" + s.container + ")" : "");
       }
 
       function autostart(video) {
@@ -381,6 +393,7 @@
               force_burn: controls.burn,
               downmix_stereo: controls.downmix,
             },
+            controls.delivery !== "auto" ? { delivery: controls.delivery } : {},
             extra || {},
           ),
           forcedPositionMs,
@@ -392,6 +405,7 @@
           controls.height != null ||
           controls.burn ||
           controls.downmix ||
+          controls.delivery !== "auto" ||
           selAudio != null ||
           selSub !== "";
         if (!hasParams) return;
@@ -421,7 +435,7 @@
           session.selected = r.selected;
           originMs = r.origin_ms || 0;
           sequential = r.sequential === true;
-          document.getElementById("status").textContent = "Mode: " + r.mode;
+          document.getElementById("status").textContent = modeLine(r);
           await attach(r.manifest_url, r.mode, keepPos - originMs);
         } catch (err) {
           document.getElementById("status").textContent = "Renegotiation failed (" + err.message + ").";
@@ -678,6 +692,20 @@
             }
           });
           rowTop.appendChild(sm.el("label", null, ["Diagnostics ", diag]));
+        }
+        {
+          const select = sm.el(
+            "select",
+            null,
+            deliveryModes.map((mode) => sm.el("option", { value: mode }, mode)),
+          );
+          select.value = controls.delivery;
+          select.addEventListener("change", () => {
+            controls.delivery = select.value;
+            writeParams();
+            sendUpdate({});
+          });
+          rowTop.appendChild(sm.el("label", null, ["Delivery ", select]));
         }
       }
     </script>

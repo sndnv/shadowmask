@@ -37,10 +37,7 @@ impl JobsParams {
                 return Err(ApiError::bad_request(format!("unknown job state: {other}")));
             }
         };
-        Ok(JobQuery {
-            search: self.filter.clone(),
-            active_only,
-        })
+        Ok(JobQuery { search: self.filter.clone(), active_only })
     }
 }
 
@@ -58,7 +55,7 @@ pub async fn jobs<S: AppServices>(
         .await
         .map_err(log_fail(actor, "retrieve jobs"))?;
     let (shown, total) = (jobs.page.items.len(), jobs.page.total);
-    debug!("User [{actor}] successfully retrieved {shown} of {total} jobs");
+    debug!("User [{actor}] retrieved {shown} of {total} jobs");
     Ok(Json(jobs.into()))
 }
 
@@ -76,7 +73,7 @@ pub async fn job_children<S: AppServices>(
         .await
         .map_err(log_fail(actor, "retrieve job children"))?;
     let (shown, id) = (children.items.len(), &job_id.0);
-    debug!("User [{actor}] successfully retrieved {shown} children of job [{id}]");
+    debug!("User [{actor}] retrieved {shown} children of job [{id}]");
     Ok(Json(PageResponse::from_page(children, Into::into)))
 }
 
@@ -93,7 +90,7 @@ pub async fn job<S: AppServices>(
         .await
         .map_err(log_fail(actor, "retrieve job"))?
         .ok_or_else(|| ApiError::not_found("job not found"))?;
-    debug!("User [{actor}] successfully retrieved job [{}]", job_id.0);
+    debug!("User [{actor}] retrieved job [{}]", job_id.0);
     Ok(Json(job.into()))
 }
 
@@ -104,12 +101,8 @@ pub async fn cancel_job<S: AppServices>(
 ) -> ApiResult<StatusCode> {
     let actor = &principal.user.0;
     let job_id = JobId(id);
-    state
-        .job()
-        .cancel_job(&principal, &job_id)
-        .await
-        .map_err(log_fail(actor, "cancel job"))?;
-    debug!("User [{actor}] successfully cancelled job [{}]", job_id.0);
+    state.job().cancel_job(&principal, &job_id).await.map_err(log_fail(actor, "cancel job"))?;
+    debug!("User [{actor}] cancelled job [{}]", job_id.0);
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -124,13 +117,8 @@ pub async fn versions<S: AppServices>(
         .all_versions(&principal, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve versions"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} versions",
-        versions.items.len()
-    );
-    Ok(Json(PageResponse::from_page(versions, |v| {
-        VersionResponse::with_path(v, true)
-    })))
+    debug!("User [{actor}] retrieved {} versions", versions.items.len());
+    Ok(Json(PageResponse::from_page(versions, |v| VersionResponse::with_path(v, true))))
 }
 
 pub async fn delete_version<S: AppServices>(
@@ -145,10 +133,7 @@ pub async fn delete_version<S: AppServices>(
         .delete_version(&principal, &version)
         .await
         .map_err(log_fail(actor, "delete version"))?;
-    debug!(
-        "User [{actor}] successfully deleted version [{}]",
-        version.0
-    );
+    debug!("User [{actor}] deleted version [{}]", version.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -164,7 +149,7 @@ pub async fn delete_movie<S: AppServices>(
         .delete_movie(&principal, &movie)
         .await
         .map_err(log_fail(actor, "delete movie"))?;
-    debug!("User [{actor}] successfully deleted movie [{}]", movie.0);
+    debug!("User [{actor}] deleted movie [{}]", movie.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -180,7 +165,7 @@ pub async fn delete_series<S: AppServices>(
         .delete_series(&principal, &series)
         .await
         .map_err(log_fail(actor, "delete series"))?;
-    debug!("User [{actor}] successfully deleted series [{}]", series.0);
+    debug!("User [{actor}] deleted series [{}]", series.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -196,7 +181,7 @@ pub async fn delete_season<S: AppServices>(
         .delete_season(&principal, &season)
         .await
         .map_err(log_fail(actor, "delete season"))?;
-    debug!("User [{actor}] successfully deleted season [{}]", season.0);
+    debug!("User [{actor}] deleted season [{}]", season.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -212,10 +197,7 @@ pub async fn delete_episode<S: AppServices>(
         .delete_episode(&principal, &episode)
         .await
         .map_err(log_fail(actor, "delete episode"))?;
-    debug!(
-        "User [{actor}] successfully deleted episode [{}]",
-        episode.0
-    );
+    debug!("User [{actor}] deleted episode [{}]", episode.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -229,18 +211,10 @@ pub async fn transcribe_version<S: AppServices>(
     let version = VersionId(id);
     state
         .library()
-        .trigger_transcription(
-            &principal,
-            &version,
-            req.audio_track_index,
-            req.source_language,
-        )
+        .trigger_transcription(&principal, &version, req.audio_track_index, req.source_language)
         .await
         .map_err(log_fail(actor, "trigger transcription"))?;
-    debug!(
-        "User [{actor}] successfully triggered transcription for version [{}]",
-        version.0
-    );
+    debug!("User [{actor}] triggered transcription for version [{}]", version.0);
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -262,10 +236,7 @@ pub async fn translate_version<S: AppServices>(
         )
         .await
         .map_err(log_fail(actor, "trigger translation"))?;
-    debug!(
-        "User [{actor}] successfully triggered translation for version [{}]",
-        version.0
-    );
+    debug!("User [{actor}] triggered translation for version [{}]", version.0);
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -285,10 +256,7 @@ pub async fn upscale_version<S: AppServices>(
         .trigger_upscale(&principal, &version, req.target_height)
         .await
         .map_err(log_fail(actor, "trigger upscale"))?;
-    debug!(
-        "User [{actor}] successfully triggered upscale for version [{}]",
-        version.0
-    );
+    debug!("User [{actor}] triggered upscale for version [{}]", version.0);
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -305,10 +273,7 @@ pub async fn create_fetch<S: AppServices>(
         .create_fetch(&principal, &library, req.into_input())
         .await
         .map_err(log_fail(actor, "trigger content fetch"))?;
-    debug!(
-        "User [{actor}] successfully triggered content fetch into library [{}]",
-        library.0
-    );
+    debug!("User [{actor}] triggered content fetch into library [{}]", library.0);
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -320,9 +285,7 @@ pub async fn combine_subtitles<S: AppServices>(
 ) -> ApiResult<StatusCode> {
     let actor = &principal.user.0;
     if req.top_subtitle_id == req.bottom_subtitle_id {
-        return Err(ApiError::bad_request(
-            "top and bottom subtitles must differ",
-        ));
+        return Err(ApiError::bad_request("top and bottom subtitles must differ"));
     }
     let version = VersionId(id);
     state
@@ -335,9 +298,6 @@ pub async fn combine_subtitles<S: AppServices>(
         )
         .await
         .map_err(log_fail(actor, "trigger combine"))?;
-    debug!(
-        "User [{actor}] successfully triggered subtitle combine for version [{}]",
-        version.0
-    );
+    debug!("User [{actor}] triggered subtitle combine for version [{}]", version.0);
     Ok(StatusCode::ACCEPTED)
 }

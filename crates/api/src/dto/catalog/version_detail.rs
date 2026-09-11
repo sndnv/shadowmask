@@ -251,10 +251,7 @@ impl From<SubtitleSource> for SubtitleSourceDto {
 
 impl From<Chapter> for ChapterDto {
     fn from(c: Chapter) -> Self {
-        ChapterDto {
-            title: c.title,
-            start_ms: c.start_ms,
-        }
+        ChapterDto { title: c.title, start_ms: c.start_ms }
     }
 }
 
@@ -264,18 +261,12 @@ impl From<DetectedMarkers> for MarkersDto {
             intro: m
                 .intros
                 .into_iter()
-                .map(|i| MarkerDto {
-                    start_ms: i.start_ms,
-                    end_ms: i.end_ms,
-                })
+                .map(|i| MarkerDto { start_ms: i.start_ms, end_ms: i.end_ms })
                 .collect(),
             credits: m
                 .credits
                 .into_iter()
-                .map(|c| MarkerDto {
-                    start_ms: c.start_ms,
-                    end_ms: c.end_ms,
-                })
+                .map(|c| MarkerDto { start_ms: c.start_ms, end_ms: c.end_ms })
                 .collect(),
         }
     }
@@ -322,10 +313,7 @@ mod tests {
             subtitles: Vec::new(),
             subtitle_files: Vec::new(),
             chapters: Vec::new(),
-            markers: DetectedMarkers {
-                intros: Vec::new(),
-                credits: Vec::new(),
-            },
+            markers: DetectedMarkers { intros: Vec::new(), credits: Vec::new() },
             trickplay: Vec::new(),
         }
     }
@@ -334,11 +322,7 @@ mod tests {
     fn with_path_gates_path_on_admin() {
         let hidden = VersionDetailResponse::with_path(detail(), false);
         assert_eq!(hidden.path, None);
-        assert!(
-            !serde_json::to_string(&hidden)
-                .unwrap()
-                .contains("/media/v1.mkv")
-        );
+        assert!(!serde_json::to_string(&hidden).unwrap().contains("/media/v1.mkv"));
 
         let shown = VersionDetailResponse::with_path(detail(), true);
         assert_eq!(shown.path.as_deref(), Some("/media/v1.mkv"));
@@ -378,16 +362,10 @@ mod tests {
     #[test]
     fn subtitle_source_maps_every_variant() {
         for (domain, dto) in [
-            (
-                SubtitleSource::OpenSubtitles,
-                SubtitleSourceDto::OpenSubtitles,
-            ),
+            (SubtitleSource::OpenSubtitles, SubtitleSourceDto::OpenSubtitles),
             (SubtitleSource::External, SubtitleSourceDto::External),
             (SubtitleSource::Generated, SubtitleSourceDto::Generated),
-            (
-                SubtitleSource::MachineTranslated,
-                SubtitleSourceDto::MachineTranslated,
-            ),
+            (SubtitleSource::MachineTranslated, SubtitleSourceDto::MachineTranslated),
             (SubtitleSource::Combined, SubtitleSourceDto::Combined),
         ] {
             assert_eq!(

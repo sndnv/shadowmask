@@ -35,10 +35,7 @@ mod tests {
     use super::*;
 
     fn request(kind: WatchTargetKind) -> WatchTargetRequest {
-        WatchTargetRequest {
-            kind,
-            watched: true,
-        }
+        WatchTargetRequest { kind, watched: true }
     }
 
     #[test]
@@ -66,9 +63,6 @@ mod tests {
         let req: WatchTargetRequest =
             serde_json::from_str(r#"{"type":"series","watched":false}"#).unwrap();
         assert!(!req.watched);
-        assert_eq!(
-            req.into_target("sr1".into()),
-            WatchTarget::Series(SeriesId("sr1".into()))
-        );
+        assert_eq!(req.into_target("sr1".into()), WatchTarget::Series(SeriesId("sr1".into())));
     }
 }

@@ -46,9 +46,7 @@ impl StreamTokens for MockStreamTokens {
         let [session, generation, user, version, exp, nonce] = parts.as_slice() else {
             return Err(StreamTokenError::Invalid);
         };
-        let generation = generation
-            .parse::<u32>()
-            .map_err(|_| StreamTokenError::Invalid)?;
+        let generation = generation.parse::<u32>().map_err(|_| StreamTokenError::Invalid)?;
         let exp = exp.parse::<i64>().map_err(|_| StreamTokenError::Invalid)?;
         let expires_at = Timestamp::from_second(exp).map_err(|_| StreamTokenError::Invalid)?;
         Ok(StreamClaims {
@@ -95,34 +93,19 @@ mod tests {
     #[test]
     fn verify_rejects_malformed_tokens() {
         let tokens = MockStreamTokens::new();
-        assert!(matches!(
-            tokens.verify("too-few-fields"),
-            Err(StreamTokenError::Invalid)
-        ));
+        assert!(matches!(tokens.verify("too-few-fields"), Err(StreamTokenError::Invalid)));
         let bad_exp = format!("s1{SEP}2{SEP}u1{SEP}v1{SEP}not-a-number{SEP}n1");
-        assert!(matches!(
-            tokens.verify(&bad_exp),
-            Err(StreamTokenError::Invalid)
-        ));
+        assert!(matches!(tokens.verify(&bad_exp), Err(StreamTokenError::Invalid)));
         let out_of_range = format!("s1{SEP}2{SEP}u1{SEP}v1{SEP}{}{SEP}n1", i64::MAX);
-        assert!(matches!(
-            tokens.verify(&out_of_range),
-            Err(StreamTokenError::Invalid)
-        ));
+        assert!(matches!(tokens.verify(&out_of_range), Err(StreamTokenError::Invalid)));
         let bad_generation = format!("s1{SEP}not-a-number{SEP}u1{SEP}v1{SEP}1700000000{SEP}n1");
-        assert!(matches!(
-            tokens.verify(&bad_generation),
-            Err(StreamTokenError::Invalid)
-        ));
+        assert!(matches!(tokens.verify(&bad_generation), Err(StreamTokenError::Invalid)));
     }
 
     #[test]
     fn create_failure_maps_to_error() {
         let tokens = MockStreamTokens::new();
         tokens.set_fail();
-        assert!(matches!(
-            tokens.create(&claims("n1")),
-            Err(StreamTokenError::Create(_))
-        ));
+        assert!(matches!(tokens.create(&claims("n1")), Err(StreamTokenError::Create(_))));
     }
 }

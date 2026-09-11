@@ -10,9 +10,6 @@ pub struct TokenPairResponse {
 
 impl From<TokenPair> for TokenPairResponse {
     fn from(t: TokenPair) -> Self {
-        TokenPairResponse {
-            access_token: t.access_token,
-            refresh_token: t.refresh_token,
-        }
+        TokenPairResponse { access_token: t.access_token, refresh_token: t.refresh_token }
     }
 }

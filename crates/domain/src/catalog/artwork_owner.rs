@@ -46,10 +46,7 @@ mod tests {
             (ArtworkOwner::Series(SeriesId("s1".to_owned())), "series"),
             (ArtworkOwner::Season(SeasonId("se1".to_owned())), "season"),
             (ArtworkOwner::Episode(EpisodeId("e1".to_owned())), "episode"),
-            (
-                ArtworkOwner::Collection(CollectionId("c1".to_owned())),
-                "collection",
-            ),
+            (ArtworkOwner::Collection(CollectionId("c1".to_owned())), "collection"),
             (ArtworkOwner::Person(PersonId("p1".to_owned())), "person"),
         ];
         for (owner, kind) in owners {

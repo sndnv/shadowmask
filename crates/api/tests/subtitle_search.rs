@@ -25,6 +25,7 @@ use domain::metadata::{ExternalId, TitleEnrichment};
 use domain::repository::CatalogRepository;
 use jiff::Timestamp;
 use mocks::MockCatalogRepo;
+use tracing_test::traced_test;
 
 const ADMIN: &str = "Bearer access:admin";
 const USER: &str = "Bearer access:u1";
@@ -37,10 +38,7 @@ struct MockStore {
 
 impl MockStore {
     fn failing() -> Self {
-        Self {
-            fail: true,
-            ..Self::default()
-        }
+        Self { fail: true, ..Self::default() }
     }
 }
 
@@ -56,10 +54,7 @@ impl SubtitleStore for MockStore {
             return Err(SubtitleError::Store("disk full".into()));
         }
         let path = format!("/subs/{}/{file_id}.{}", version.0, format.extension());
-        self.files
-            .lock()
-            .unwrap()
-            .insert(path.clone(), content.to_owned());
+        self.files.lock().unwrap().insert(path.clone(), content.to_owned());
         Ok(path)
     }
 }
@@ -166,19 +161,13 @@ fn subtitle(id: &str, source: SubtitleSource, path: &str) -> SubtitleFile {
 async fn seeded(files: &[SubtitleFile]) -> MockCatalogRepo {
     let catalog = MockCatalogRepo::new();
     catalog.add_version(version());
-    catalog
-        .set_subtitle_files(&VersionId("v1".into()), files)
-        .await
-        .unwrap();
+    catalog.set_subtitle_files(&VersionId("v1".into()), files).await.unwrap();
     catalog
 }
 
 fn imdb(value: &str) -> TitleEnrichment {
     TitleEnrichment {
-        external_ids: vec![ExternalId {
-            source: "imdb".into(),
-            value: value.into(),
-        }],
+        external_ids: vec![ExternalId { source: "imdb".into(), value: value.into() }],
         ..TitleEnrichment::default()
     }
 }
@@ -209,10 +198,7 @@ async fn seeded_movie(external: Option<&str>) -> MockCatalogRepo {
 
 async fn seeded_episode() -> MockCatalogRepo {
     let catalog = MockCatalogRepo::new();
-    catalog.add_version(Version {
-        title: TitleId::Episode(EpisodeId("e1".into())),
-        ..version()
-    });
+    catalog.add_version(Version { title: TitleId::Episode(EpisodeId("e1".into())), ..version() });
     catalog.add_series(Series {
         id: SeriesId("sh1".into()),
         title: "The Expanse".into(),
@@ -249,10 +235,7 @@ async fn seeded_episode() -> MockCatalogRepo {
         artwork: Vec::new(),
     });
     catalog
-        .set_title_enrichment(
-            &TitleRef::Series(SeriesId("sh1".into())),
-            &imdb("tt3230854"),
-        )
+        .set_title_enrichment(&TitleRef::Series(SeriesId("sh1".into())), &imdb("tt3230854"))
         .await
         .unwrap();
     catalog
@@ -278,35 +261,21 @@ async fn get(app: Router, uri: &str, auth: Option<&str>) -> (StatusCode, Vec<u8>
     if let Some(token) = auth {
         builder = builder.header(header::AUTHORIZATION, token);
     }
-    let response = app
-        .oneshot(builder.body(Body::empty()).unwrap())
-        .await
-        .unwrap();
+    let response = app.oneshot(builder.body(Body::empty()).unwrap()).await.unwrap();
     let status = response.status();
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap()
-        .to_vec();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec();
     (status, body)
 }
 
 async fn post(app: Router, uri: &str, auth: Option<&str>, body: &str) -> (StatusCode, Vec<u8>) {
-    let mut builder = Request::builder()
-        .method("POST")
-        .uri(uri)
-        .header(header::CONTENT_TYPE, "application/json");
+    let mut builder =
+        Request::builder().method("POST").uri(uri).header(header::CONTENT_TYPE, "application/json");
     if let Some(token) = auth {
         builder = builder.header(header::AUTHORIZATION, token);
     }
-    let response = app
-        .oneshot(builder.body(Body::from(body.to_owned())).unwrap())
-        .await
-        .unwrap();
+    let response = app.oneshot(builder.body(Body::from(body.to_owned())).unwrap()).await.unwrap();
     let status = response.status();
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap()
-        .to_vec();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec();
     (status, body)
 }
 
@@ -314,24 +283,16 @@ const SEARCH: &str = "/api/v1/admin/versions/v1/subtitles/search";
 const DOWNLOAD: &str = "/api/v1/admin/versions/v1/subtitles/download";
 
 async fn files(catalog: &MockCatalogRepo) -> Vec<SubtitleFile> {
-    catalog
-        .version_detail(&VersionId("v1".into()))
-        .await
-        .unwrap()
-        .unwrap()
-        .subtitle_files
+    catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap().subtitle_files
 }
 
 #[tokio::test]
 async fn an_empty_query_searches_on_the_matched_title() {
     let provider = MockProvider::default();
     let seen = provider.seen.clone();
-    let (status, _) = get(
-        app(seeded_movie(None).await, MockStore::default(), provider),
-        SEARCH,
-        Some(ADMIN),
-    )
-    .await;
+    let (status, _) =
+        get(app(seeded_movie(None).await, MockStore::default(), provider), SEARCH, Some(ADMIN))
+            .await;
 
     assert_eq!(status, StatusCode::OK);
     let query = seen.take();
@@ -346,11 +307,7 @@ async fn an_empty_query_prefers_the_imdb_id_over_the_title() {
     let provider = MockProvider::default();
     let seen = provider.seen.clone();
     let (status, _) = get(
-        app(
-            seeded_movie(Some("tt0133093")).await,
-            MockStore::default(),
-            provider,
-        ),
+        app(seeded_movie(Some("tt0133093")).await, MockStore::default(), provider),
         SEARCH,
         Some(ADMIN),
     )
@@ -366,12 +323,8 @@ async fn an_empty_query_prefers_the_imdb_id_over_the_title() {
 async fn an_episode_carries_its_series_id_season_and_number() {
     let provider = MockProvider::default();
     let seen = provider.seen.clone();
-    let (status, _) = get(
-        app(seeded_episode().await, MockStore::default(), provider),
-        SEARCH,
-        Some(ADMIN),
-    )
-    .await;
+    let (status, _) =
+        get(app(seeded_episode().await, MockStore::default(), provider), SEARCH, Some(ADMIN)).await;
 
     assert_eq!(status, StatusCode::OK);
     let query = seen.take();
@@ -381,15 +334,56 @@ async fn an_episode_carries_its_series_id_season_and_number() {
 }
 
 #[tokio::test]
+async fn an_episode_the_catalog_does_not_have_searches_on_nothing() {
+    let catalog = MockCatalogRepo::new();
+    catalog.add_version(Version { title: TitleId::Episode(EpisodeId("e1".into())), ..version() });
+    let provider = MockProvider::default();
+    let seen = provider.seen.clone();
+
+    let (status, _) = get(app(catalog, MockStore::default(), provider), SEARCH, Some(ADMIN)).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let query = seen.take();
+    assert_eq!(query.imdb_id, None);
+    assert_eq!(query.season, None);
+    assert_eq!(query.episode, None);
+}
+
+#[tokio::test]
+async fn an_episode_whose_season_is_gone_still_carries_its_own_number() {
+    let catalog = MockCatalogRepo::new();
+    catalog.add_version(Version { title: TitleId::Episode(EpisodeId("e1".into())), ..version() });
+    catalog.add_episode(Episode {
+        id: EpisodeId("e1".into()),
+        season: SeasonId("missing".into()),
+        number: 4,
+        title: "Home".into(),
+        overview: None,
+        runtime_minutes: None,
+        air_date: None,
+        manually_edited: false,
+        added_at: Timestamp::UNIX_EPOCH,
+        updated_at: Timestamp::UNIX_EPOCH,
+        artwork: Vec::new(),
+    });
+    let provider = MockProvider::default();
+    let seen = provider.seen.clone();
+
+    let (status, _) = get(app(catalog, MockStore::default(), provider), SEARCH, Some(ADMIN)).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let query = seen.take();
+    assert_eq!(query.episode, Some(4));
+    assert_eq!(query.season, None, "a season that is not there names no number");
+    assert_eq!(query.imdb_id, None, "and no series means no imdb id to search on");
+}
+
+#[tokio::test]
 async fn a_typed_query_replaces_the_matched_title_and_drops_the_imdb_id() {
     let provider = MockProvider::default();
     let seen = provider.seen.clone();
     let (status, _) = get(
-        app(
-            seeded_movie(Some("tt0133093")).await,
-            MockStore::default(),
-            provider,
-        ),
+        app(seeded_movie(Some("tt0133093")).await, MockStore::default(), provider),
         &format!("{SEARCH}?q=matrix%20reloaded"),
         Some(ADMIN),
     )
@@ -418,14 +412,12 @@ async fn admin_search_returns_mapped_candidates() {
     assert_eq!(items[0]["file_id"].as_str().unwrap(), "42");
     assert_eq!(items[0]["language"].as_str().unwrap(), "en");
     assert_eq!(items[0]["format"].as_str().unwrap(), "srt");
-    assert_eq!(
-        items[0]["release_name"].as_str().unwrap(),
-        "The.Matrix.1999.BluRay"
-    );
+    assert_eq!(items[0]["release_name"].as_str().unwrap(), "The.Matrix.1999.BluRay");
     assert_eq!(items[0]["download_count"].as_u64().unwrap(), 9999);
     assert!((items[0]["rating"].as_f64().unwrap() - 8.5).abs() < 1e-6);
 }
 
+#[traced_test]
 #[tokio::test]
 async fn search_orders_by_download_count_descending() {
     let catalog = seeded(&[]).await;
@@ -441,28 +433,21 @@ async fn search_orders_by_download_count_descending() {
         search: SearchMode::Ok(vec![candidate("low", 5), candidate("high", 900)]),
         ..MockProvider::default()
     };
-    let (status, body) = get(
-        app(catalog, MockStore::default(), provider),
-        SEARCH,
-        Some(ADMIN),
-    )
-    .await;
+    let (status, body) =
+        get(app(catalog, MockStore::default(), provider), SEARCH, Some(ADMIN)).await;
     assert_eq!(status, StatusCode::OK);
     let value: Value = serde_json::from_slice(&body).unwrap();
     let items = value.as_array().unwrap();
     assert_eq!(items[0]["file_id"].as_str().unwrap(), "high");
     assert_eq!(items[1]["file_id"].as_str().unwrap(), "low");
+    assert!(logs_contain("user [admin] subtitle search for version [v1]: 2 hits"));
 }
 
 #[tokio::test]
 async fn search_without_params_still_queries() {
     let catalog = seeded(&[]).await;
-    let (status, body) = get(
-        app(catalog, MockStore::default(), MockProvider::default()),
-        SEARCH,
-        Some(ADMIN),
-    )
-    .await;
+    let (status, body) =
+        get(app(catalog, MockStore::default(), MockProvider::default()), SEARCH, Some(ADMIN)).await;
     assert_eq!(status, StatusCode::OK);
     let value: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(value.as_array().unwrap().len(), 1);
@@ -471,16 +456,9 @@ async fn search_without_params_still_queries() {
 #[tokio::test]
 async fn search_not_found_is_empty_list() {
     let catalog = seeded(&[]).await;
-    let provider = MockProvider {
-        search: SearchMode::NotFound,
-        ..MockProvider::default()
-    };
-    let (status, body) = get(
-        app(catalog, MockStore::default(), provider),
-        SEARCH,
-        Some(ADMIN),
-    )
-    .await;
+    let provider = MockProvider { search: SearchMode::NotFound, ..MockProvider::default() };
+    let (status, body) =
+        get(app(catalog, MockStore::default(), provider), SEARCH, Some(ADMIN)).await;
     assert_eq!(status, StatusCode::OK);
     let value: Value = serde_json::from_slice(&body).unwrap();
     assert!(value.as_array().unwrap().is_empty());
@@ -489,27 +467,15 @@ async fn search_not_found_is_empty_list() {
 #[tokio::test]
 async fn search_provider_backend_error_is_bad_gateway() {
     let catalog = seeded(&[]).await;
-    let provider = MockProvider {
-        search: SearchMode::Backend,
-        ..MockProvider::default()
-    };
-    let (status, _) = get(
-        app(catalog, MockStore::default(), provider),
-        SEARCH,
-        Some(ADMIN),
-    )
-    .await;
+    let provider = MockProvider { search: SearchMode::Backend, ..MockProvider::default() };
+    let (status, _) = get(app(catalog, MockStore::default(), provider), SEARCH, Some(ADMIN)).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
 }
 
 #[tokio::test]
 async fn search_unknown_version_is_not_found() {
     let (status, _) = get(
-        app(
-            MockCatalogRepo::new(),
-            MockStore::default(),
-            MockProvider::default(),
-        ),
+        app(MockCatalogRepo::new(), MockStore::default(), MockProvider::default()),
         SEARCH,
         Some(ADMIN),
     )
@@ -521,12 +487,8 @@ async fn search_unknown_version_is_not_found() {
 async fn search_catalog_error_is_internal() {
     let catalog = seeded(&[]).await;
     catalog.set_fail();
-    let (status, _) = get(
-        app(catalog, MockStore::default(), MockProvider::default()),
-        SEARCH,
-        Some(ADMIN),
-    )
-    .await;
+    let (status, _) =
+        get(app(catalog, MockStore::default(), MockProvider::default()), SEARCH, Some(ADMIN)).await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
 }
 
@@ -534,20 +496,12 @@ async fn search_catalog_error_is_internal() {
 async fn admin_download_adds_row_keeping_others() {
     let catalog = seeded(&[
         subtitle("sidecar", SubtitleSource::External, "/m/v1.en.srt"),
-        subtitle(
-            "opensubtitles:v1:99",
-            SubtitleSource::OpenSubtitles,
-            "/subs/v1/99.srt",
-        ),
+        subtitle("opensubtitles:v1:99", SubtitleSource::OpenSubtitles, "/subs/v1/99.srt"),
     ])
     .await;
 
     let (status, _) = post(
-        app(
-            catalog.clone(),
-            MockStore::default(),
-            MockProvider::default(),
-        ),
+        app(catalog.clone(), MockStore::default(), MockProvider::default()),
         DOWNLOAD,
         Some(ADMIN),
         r#"{"file_id":"42","language":"en"}"#,
@@ -557,10 +511,7 @@ async fn admin_download_adds_row_keeping_others() {
     assert_eq!(status, StatusCode::NO_CONTENT);
     let files = files(&catalog).await;
     assert_eq!(files.len(), 3);
-    let added = files
-        .iter()
-        .find(|file| file.id.0 == "opensubtitles:v1:42")
-        .unwrap();
+    let added = files.iter().find(|file| file.id.0 == "opensubtitles:v1:42").unwrap();
     assert_eq!(added.source, SubtitleSource::OpenSubtitles);
     assert_eq!(added.language.as_ref().unwrap().0, "en");
     assert!(files.iter().any(|file| file.id.0 == "sidecar"));
@@ -580,13 +531,9 @@ async fn downloading_a_file_the_version_already_holds_spends_no_quota() {
     let store = MockStore::default();
     let written = store.files.clone();
 
-    let (status, _) = post(
-        app(catalog.clone(), store, provider),
-        DOWNLOAD,
-        Some(ADMIN),
-        r#"{"file_id":"42"}"#,
-    )
-    .await;
+    let (status, _) =
+        post(app(catalog.clone(), store, provider), DOWNLOAD, Some(ADMIN), r#"{"file_id":"42"}"#)
+            .await;
 
     assert_eq!(status, StatusCode::NO_CONTENT);
     assert_eq!(downloads.load(Ordering::SeqCst), 0);
@@ -619,10 +566,7 @@ async fn downloading_a_file_the_version_lacks_calls_the_provider_once() {
     assert_eq!(downloads.load(Ordering::SeqCst), 1);
     let files = files(&catalog).await;
     assert_eq!(files.len(), 2);
-    let added = files
-        .iter()
-        .find(|file| file.id.0 == "opensubtitles:v1:42")
-        .unwrap();
+    let added = files.iter().find(|file| file.id.0 == "opensubtitles:v1:42").unwrap();
     assert_eq!(added.path, "/subs/v1/42.srt");
     assert!(added.language.is_none());
 }
@@ -632,11 +576,7 @@ async fn a_hand_picked_download_is_stored_pinned_and_labelled() {
     let catalog = seeded(&[]).await;
 
     let (status, _) = post(
-        app(
-            catalog.clone(),
-            MockStore::default(),
-            MockProvider::default(),
-        ),
+        app(catalog.clone(), MockStore::default(), MockProvider::default()),
         DOWNLOAD,
         Some(ADMIN),
         r#"{"file_id":"42","language":"en","release_name":"The.Matrix.1999.BluRay"}"#,
@@ -646,10 +586,7 @@ async fn a_hand_picked_download_is_stored_pinned_and_labelled() {
     assert_eq!(status, StatusCode::NO_CONTENT);
     let files = files(&catalog).await;
     assert_eq!(files[0].label.as_deref(), Some("The.Matrix.1999.BluRay"));
-    assert!(
-        files[0].pinned,
-        "an admin's pick must survive the automatic job"
-    );
+    assert!(files[0].pinned, "an admin's pick must survive the automatic job");
 }
 
 #[tokio::test]
@@ -657,11 +594,7 @@ async fn a_download_without_a_release_name_is_still_pinned() {
     let catalog = seeded(&[]).await;
 
     let (status, _) = post(
-        app(
-            catalog.clone(),
-            MockStore::default(),
-            MockProvider::default(),
-        ),
+        app(catalog.clone(), MockStore::default(), MockProvider::default()),
         DOWNLOAD,
         Some(ADMIN),
         r#"{"file_id":"42","release_name":"  "}"#,
@@ -678,11 +611,7 @@ async fn a_download_without_a_release_name_is_still_pinned() {
 async fn download_blank_language_stores_none() {
     let catalog = seeded(&[]).await;
     let (status, _) = post(
-        app(
-            catalog.clone(),
-            MockStore::default(),
-            MockProvider::default(),
-        ),
+        app(catalog.clone(), MockStore::default(), MockProvider::default()),
         DOWNLOAD,
         Some(ADMIN),
         r#"{"file_id":"42","language":"   "}"#,
@@ -708,10 +637,7 @@ async fn download_blank_file_id_is_bad_request() {
 #[tokio::test]
 async fn download_provider_not_found_is_not_found() {
     let catalog = seeded(&[]).await;
-    let provider = MockProvider {
-        download: DownloadMode::NotFound,
-        ..MockProvider::default()
-    };
+    let provider = MockProvider { download: DownloadMode::NotFound, ..MockProvider::default() };
     let (status, _) = post(
         app(catalog, MockStore::default(), provider),
         DOWNLOAD,
@@ -725,10 +651,7 @@ async fn download_provider_not_found_is_not_found() {
 #[tokio::test]
 async fn download_provider_backend_error_is_bad_gateway() {
     let catalog = seeded(&[]).await;
-    let provider = MockProvider {
-        download: DownloadMode::Backend,
-        ..MockProvider::default()
-    };
+    let provider = MockProvider { download: DownloadMode::Backend, ..MockProvider::default() };
     let (status, _) = post(
         app(catalog, MockStore::default(), provider),
         DOWNLOAD,
@@ -769,11 +692,7 @@ async fn download_write_error_is_internal() {
 #[tokio::test]
 async fn download_unknown_version_is_not_found() {
     let (status, _) = post(
-        app(
-            MockCatalogRepo::new(),
-            MockStore::default(),
-            MockProvider::default(),
-        ),
+        app(MockCatalogRepo::new(), MockStore::default(), MockProvider::default()),
         DOWNLOAD,
         Some(ADMIN),
         r#"{"file_id":"42"}"#,
@@ -799,23 +718,15 @@ async fn download_catalog_read_error_is_internal() {
 #[tokio::test]
 async fn non_admin_is_forbidden() {
     let catalog = seeded(&[]).await;
-    let (status, _) = get(
-        app(catalog, MockStore::default(), MockProvider::default()),
-        SEARCH,
-        Some(USER),
-    )
-    .await;
+    let (status, _) =
+        get(app(catalog, MockStore::default(), MockProvider::default()), SEARCH, Some(USER)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
 async fn missing_auth_is_unauthorized() {
     let catalog = seeded(&[]).await;
-    let (status, _) = get(
-        app(catalog, MockStore::default(), MockProvider::default()),
-        SEARCH,
-        None,
-    )
-    .await;
+    let (status, _) =
+        get(app(catalog, MockStore::default(), MockProvider::default()), SEARCH, None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }

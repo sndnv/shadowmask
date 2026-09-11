@@ -42,11 +42,7 @@ fn distribute_time(segment: &Segment, pieces: &[String]) -> Vec<Segment> {
         } else {
             (segment.start_ms + span * consumed / total).max(cursor)
         };
-        out.push(Segment {
-            start_ms: cursor,
-            end_ms: end,
-            text: piece.clone(),
-        });
+        out.push(Segment { start_ms: cursor, end_ms: end, text: piece.clone() });
         cursor = end;
     }
     out
@@ -173,16 +169,8 @@ mod tests {
         assert_eq!(
             segments,
             vec![
-                Segment {
-                    start_ms: 0,
-                    end_ms: 2000,
-                    text: "Hello there.".to_owned(),
-                },
-                Segment {
-                    start_ms: 2000,
-                    end_ms: 4500,
-                    text: "Second line.".to_owned(),
-                },
+                Segment { start_ms: 0, end_ms: 2000, text: "Hello there.".to_owned() },
+                Segment { start_ms: 2000, end_ms: 4500, text: "Second line.".to_owned() },
             ]
         );
     }
@@ -218,11 +206,7 @@ mod tests {
         let segments = parse_segments(&outputs, 30.0);
         assert_eq!(
             segments,
-            vec![Segment {
-                start_ms: 0,
-                end_ms: 30_000,
-                text: "no timestamps here".to_owned(),
-            }]
+            vec![Segment { start_ms: 0, end_ms: 30_000, text: "no timestamps here".to_owned() }]
         );
     }
 
@@ -293,10 +277,7 @@ mod tests {
     #[test]
     fn split_text_prefers_sentence_boundaries() {
         let pieces = split_text("First one. Second two.", 14);
-        assert_eq!(
-            pieces,
-            vec!["First one.".to_owned(), "Second two.".to_owned()]
-        );
+        assert_eq!(pieces, vec!["First one.".to_owned(), "Second two.".to_owned()]);
     }
 
     #[test]
@@ -313,11 +294,7 @@ mod tests {
 
     #[test]
     fn distribute_time_splits_span_by_character_share() {
-        let segment = Segment {
-            start_ms: 0,
-            end_ms: 10_000,
-            text: String::new(),
-        };
+        let segment = Segment { start_ms: 0, end_ms: 10_000, text: String::new() };
         let pieces = vec!["a".repeat(10), "b".repeat(90)];
         let out = distribute_time(&segment, &pieces);
         assert_eq!(out.len(), 2);

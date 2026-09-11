@@ -33,16 +33,10 @@ async fn get(app: Router, uri: &str, range: Option<&str>) -> (StatusCode, Header
     if let Some(range) = range {
         builder = builder.header(header::RANGE, range);
     }
-    let response = app
-        .oneshot(builder.body(Body::empty()).unwrap())
-        .await
-        .unwrap();
+    let response = app.oneshot(builder.body(Body::empty()).unwrap()).await.unwrap();
     let status = response.status();
     let headers = response.headers().clone();
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap()
-        .to_vec();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec();
     (status, headers, body)
 }
 
@@ -96,10 +90,7 @@ async fn serves_a_jit_segment_end_to_end() {
     );
 
     let playlist = std::fs::read_to_string(output_dir.join("v0").join("index.m3u8")).unwrap();
-    assert!(
-        playlist.contains("#EXT-X-ENDLIST"),
-        "playlist must be a finished VOD from the start"
-    );
+    assert!(playlist.contains("#EXT-X-ENDLIST"), "playlist must be a finished VOD from the start");
     let segment = playlist
         .lines()
         .rfind(|line| line.starts_with("seg_") && line.ends_with(".ts"))
@@ -124,10 +115,7 @@ async fn serves_a_jit_segment_end_to_end() {
     let (status, headers, body) =
         get(app.clone(), &format!("/stream/{token}/master.m3u8"), None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        headers.get(header::CONTENT_TYPE).unwrap(),
-        "application/vnd.apple.mpegurl"
-    );
+    assert_eq!(headers.get(header::CONTENT_TYPE).unwrap(), "application/vnd.apple.mpegurl");
     assert!(body.starts_with(b"#EXTM3U"));
     assert!(String::from_utf8_lossy(&body).contains("v0/index.m3u8"));
 

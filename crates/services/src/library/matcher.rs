@@ -17,9 +17,7 @@ pub struct Matcher {
 
 impl Matcher {
     pub fn new() -> Self {
-        Self {
-            threshold: DEFAULT_THRESHOLD,
-        }
+        Self { threshold: DEFAULT_THRESHOLD }
     }
 
     #[cfg(test)]
@@ -52,9 +50,7 @@ impl Matcher {
                 season: parsed.season,
                 episode: parsed.episode,
             };
-            let entry = groups
-                .entry(key)
-                .or_insert_with(|| (parsed.clone(), score, Vec::new()));
+            let entry = groups.entry(key).or_insert_with(|| (parsed.clone(), score, Vec::new()));
             entry.1 = entry.1.min(score);
             entry.2.push(file.clone());
         }
@@ -63,12 +59,7 @@ impl Matcher {
             .into_iter()
             .map(|(key, (parsed, confidence, mut files))| {
                 files.sort_by(|a, b| a.path.cmp(&b.path));
-                MatchedGroup {
-                    key,
-                    parsed,
-                    confidence,
-                    files,
-                }
+                MatchedGroup { key, parsed, confidence, files }
             })
             .collect();
         matched.sort_by(|a, b| a.key.cmp(&b.key));

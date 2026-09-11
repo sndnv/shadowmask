@@ -5,8 +5,5 @@ pub struct PageRequest {
 }
 
 impl PageRequest {
-    pub const ALL: Self = Self {
-        offset: 0,
-        limit: u32::MAX,
-    };
+    pub const ALL: Self = Self { offset: 0, limit: u32::MAX };
 }

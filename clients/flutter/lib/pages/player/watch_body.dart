@@ -1070,9 +1070,12 @@ class _WatchBodyState extends State<WatchBody>
                                             ? _autoplaySeconds
                                             : null,
                                         onAutoplaySeconds: _changeAutoplay,
-                                        networkTimeoutSeconds: _networkTimeout,
-                                        onNetworkTimeoutSeconds:
-                                            _changeNetworkTimeout,
+                                        networkTimeoutSeconds: _canBuffer
+                                            ? _networkTimeout
+                                            : null,
+                                        onNetworkTimeoutSeconds: _canBuffer
+                                            ? _changeNetworkTimeout
+                                            : null,
                                         bufferSeconds: _canBuffer
                                             ? _bufferSeconds
                                             : null,

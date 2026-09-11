@@ -25,15 +25,9 @@ pub async fn list<S: AppServices>(
     Query(page): Query<PageParams>,
 ) -> ApiResult<Json<PageResponse<UserResponse>>> {
     let actor = &principal.user.0;
-    let users = state
-        .user()
-        .list(page.to_request())
-        .await
-        .map_err(log_fail(actor, "list users"))?;
-    debug!(
-        "User [{actor}] successfully listed {} users",
-        users.items.len()
-    );
+    let users =
+        state.user().list(page.to_request()).await.map_err(log_fail(actor, "list users"))?;
+    debug!("User [{actor}] listed {} users", users.items.len());
     Ok(Json(PageResponse::from_page(users, UserResponse::from)))
 }
 
@@ -44,16 +38,10 @@ pub async fn create<S: AppServices>(
 ) -> ApiResult<(StatusCode, Json<UserResponse>)> {
     let actor = &principal.user.0;
     if matches!(req.role, RoleDto::Automation) {
-        return Err(ApiError::bad_request(
-            "the automation role cannot be assigned to a user",
-        ));
+        return Err(ApiError::bad_request("the automation role cannot be assigned to a user"));
     }
-    let user = state
-        .user()
-        .create(req.into())
-        .await
-        .map_err(log_fail(actor, "create a user"))?;
-    debug!("User [{actor}] successfully created user [{}]", user.id.0);
+    let user = state.user().create(req.into()).await.map_err(log_fail(actor, "create a user"))?;
+    debug!("User [{actor}] created user [{}]", user.id.0);
     Ok((StatusCode::CREATED, Json(user.into())))
 }
 
@@ -76,15 +64,9 @@ pub async fn activity<S: AppServices>(
         .now_playing(sessions.items)
         .await
         .map_err(log_fail(actor, "retrieve active sessions"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} active sessions",
-        now_playing.len()
-    );
+    debug!("User [{actor}] retrieved {} active sessions", now_playing.len());
     Ok(Json(PageResponse {
-        items: now_playing
-            .into_iter()
-            .map(PlaybackSessionResponse::from)
-            .collect(),
+        items: now_playing.into_iter().map(PlaybackSessionResponse::from).collect(),
         total,
         offset,
         limit,
@@ -99,12 +81,8 @@ pub async fn get<S: AppServices>(
     let actor = &principal.user.0;
     let target = UserId(id);
     require_admin_or_self(&principal, &target)?;
-    let user = state
-        .user()
-        .get(&target)
-        .await
-        .map_err(log_fail(actor, "retrieve a user"))?;
-    debug!("User [{actor}] successfully retrieved user [{}]", target.0);
+    let user = state.user().get(&target).await.map_err(log_fail(actor, "retrieve a user"))?;
+    debug!("User [{actor}] retrieved user [{}]", target.0);
     Ok(Json(user.into()))
 }
 
@@ -118,11 +96,8 @@ pub async fn current<S: AppServices>(
         .get(&principal.user)
         .await
         .map_err(log_fail(actor, "retrieve current user"))?;
-    debug!("User [{actor}] successfully retrieved self");
-    Ok(Json(UserResponse {
-        role: principal.role.into(),
-        ..UserResponse::from(user)
-    }))
+    debug!("User [{actor}] retrieved self");
+    Ok(Json(UserResponse { role: principal.role.into(), ..UserResponse::from(user) }))
 }
 
 pub async fn update_profile<S: AppServices>(
@@ -140,7 +115,7 @@ pub async fn update_profile<S: AppServices>(
         .update_profile(&target, req.into())
         .await
         .map_err(log_fail(actor, "update a user"))?;
-    debug!("User [{actor}] successfully updated user [{}]", target.0);
+    debug!("User [{actor}] updated user [{}]", target.0);
     Ok(Json(user.into()))
 }
 
@@ -151,17 +126,13 @@ pub async fn delete<S: AppServices>(
 ) -> ApiResult<StatusCode> {
     let actor = &principal.user.0;
     let target = UserId(id);
-    state
-        .user()
-        .delete(&principal, &target)
-        .await
-        .map_err(log_fail(actor, "delete a user"))?;
+    state.user().delete(&principal, &target).await.map_err(log_fail(actor, "delete a user"))?;
     state
         .session()
         .end_all_for_user(&target)
         .await
         .map_err(log_fail(actor, "stop playback for a deleted user"))?;
-    debug!("User [{actor}] successfully deleted user [{}]", target.0);
+    debug!("User [{actor}] deleted user [{}]", target.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -179,16 +150,10 @@ pub async fn set_active<S: AppServices>(
         .await
         .map_err(log_fail(actor, "change whether a user is active"))?;
     if !req.active {
-        state
-            .session()
-            .end_all_for_user(&target)
-            .await
-            .map_err(log_fail(actor, "stop playback for a deactivated user"))?;
+        let stopped = state.session().end_all_for_user(&target).await;
+        stopped.map_err(log_fail(actor, "stop playback for a deactivated user"))?;
     }
-    debug!(
-        "User [{actor}] successfully set user [{}] active to [{}]",
-        target.0, req.active
-    );
+    debug!("User [{actor}] set user [{}] active to [{}]", target.0, req.active);
     Ok(Json(user.into()))
 }
 
@@ -204,11 +169,7 @@ pub async fn library_access<S: AppServices>(
         .library_access(&target)
         .await
         .map_err(log_fail(actor, "retrieve library access"))?;
-    debug!(
-        "User [{actor}] successfully retrieved {} library access entries for user [{}]",
-        access.len(),
-        target.0
-    );
+    debug!("User [{actor}] retrieved {} library grants for user [{}]", access.len(), target.0);
     Ok(Json(access.into_iter().map(Into::into).collect()))
 }
 
@@ -224,12 +185,7 @@ pub async fn change_password<S: AppServices>(
     require_admin_or_self(&principal, &target)?;
     state
         .user()
-        .change_password(
-            &principal,
-            &target,
-            req.current_password.as_deref(),
-            &req.new_password,
-        )
+        .change_password(&principal, &target, req.current_password.as_deref(), &req.new_password)
         .await
         .map_err(log_fail(actor, "change password"))?;
     state
@@ -237,10 +193,7 @@ pub async fn change_password<S: AppServices>(
         .logout_all(&target)
         .await
         .map_err(log_fail(actor, "revoke sessions after password change"))?;
-    debug!(
-        "User [{actor}] successfully changed password for user [{}]",
-        target.0
-    );
+    debug!("User [{actor}] changed password for user [{}]", target.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -258,9 +211,6 @@ pub async fn set_library_access<S: AppServices>(
         .set_library_access(&target, &libraries)
         .await
         .map_err(log_fail(actor, "set library access"))?;
-    debug!(
-        "User [{actor}] successfully set library access for user [{}]",
-        target.0
-    );
+    debug!("User [{actor}] set library access for user [{}]", target.0);
     Ok(StatusCode::NO_CONTENT)
 }

@@ -22,10 +22,7 @@ async fn probe(name: &str) -> ProbeResult {
 
 fn assert_duration_near(actual_ms: u64, expected_ms: u64) {
     let diff = actual_ms.abs_diff(expected_ms);
-    assert!(
-        diff <= 200,
-        "duration {actual_ms}ms is not within 200ms of expected {expected_ms}ms"
-    );
+    assert!(diff <= 200, "duration {actual_ms}ms is not within 200ms of expected {expected_ms}ms");
 }
 
 #[tokio::test]

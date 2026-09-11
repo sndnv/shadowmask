@@ -15,13 +15,10 @@ pub enum ResolveTargetDto {
 impl From<ResolveTarget> for ResolveTargetDto {
     fn from(target: ResolveTarget) -> Self {
         match target {
-            ResolveTarget::Existing(title) => ResolveTargetDto::Existing {
-                title: title.into(),
-            },
-            ResolveTarget::Provider(id) => ResolveTargetDto::Provider {
-                source: id.source,
-                value: id.value,
-            },
+            ResolveTarget::Existing(title) => ResolveTargetDto::Existing { title: title.into() },
+            ResolveTarget::Provider(id) => {
+                ResolveTargetDto::Provider { source: id.source, value: id.value }
+            }
         }
     }
 }

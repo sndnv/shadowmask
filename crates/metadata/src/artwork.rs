@@ -13,9 +13,7 @@ pub struct ImageArtworkPipeline {
 
 impl ImageArtworkPipeline {
     pub fn new() -> Self {
-        Self {
-            client: reqwest::Client::new(),
-        }
+        Self { client: reqwest::Client::new() }
     }
 }
 
@@ -44,27 +42,15 @@ fn encode(
             .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
             .map_err(|e| ArtworkError::Decode(e.to_string()))?,
     }
-    Ok(ProcessedArtwork {
-        width: resized.width(),
-        height: resized.height(),
-        bytes,
-        format,
-    })
+    Ok(ProcessedArtwork { width: resized.width(), height: resized.height(), bytes, format })
 }
 
 impl ImageArtworkPipeline {
     async fn download(&self, url: &str) -> Result<Vec<u8>, ArtworkError> {
-        let response = self
-            .client
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| ArtworkError::Download(e.to_string()))?;
+        let response =
+            self.client.get(url).send().await.map_err(|e| ArtworkError::Download(e.to_string()))?;
         if !response.status().is_success() {
-            return Err(ArtworkError::Download(format!(
-                "http status {}",
-                response.status()
-            )));
+            return Err(ArtworkError::Download(format!("http status {}", response.status())));
         }
         response
             .bytes()
@@ -85,15 +71,8 @@ impl ArtworkPipeline for ImageArtworkPipeline {
         tokio::task::spawn_blocking(move || {
             let image =
                 image::load_from_memory(&bytes).map_err(|e| ArtworkError::Decode(e.to_string()))?;
-            let format = if needs_alpha(&image) {
-                ArtworkFormat::Png
-            } else {
-                ArtworkFormat::Jpeg
-            };
-            specs
-                .into_iter()
-                .map(|spec| encode(&image, spec, format))
-                .collect()
+            let format = if needs_alpha(&image) { ArtworkFormat::Png } else { ArtworkFormat::Jpeg };
+            specs.into_iter().map(|spec| encode(&image, spec, format)).collect()
         })
         .await
         .map_err(|e| ArtworkError::Decode(e.to_string()))?
@@ -108,18 +87,9 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     const RUNGS: [ArtworkSpec; 3] = [
-        ArtworkSpec {
-            max_width: 180,
-            max_height: 540,
-        },
-        ArtworkSpec {
-            max_width: 480,
-            max_height: 1440,
-        },
-        ArtworkSpec {
-            max_width: 960,
-            max_height: 2880,
-        },
+        ArtworkSpec { max_width: 180, max_height: 540 },
+        ArtworkSpec { max_width: 480, max_height: 1440 },
+        ArtworkSpec { max_width: 960, max_height: 2880 },
     ];
 
     fn png_bytes(width: u32, height: u32) -> Vec<u8> {
@@ -147,18 +117,12 @@ mod tests {
     }
 
     fn one_spec(max_width: u32, max_height: u32) -> [ArtworkSpec; 1] {
-        [ArtworkSpec {
-            max_width,
-            max_height,
-        }]
+        [ArtworkSpec { max_width, max_height }]
     }
 
     async fn serve(body: ResponseTemplate) -> MockServer {
         let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .respond_with(body)
-            .mount(&server)
-            .await;
+        Mock::given(method("GET")).respond_with(body).mount(&server).await;
         server
     }
 
@@ -184,19 +148,13 @@ mod tests {
         let server = serve(ResponseTemplate::new(200).set_body_bytes(png_bytes(1000, 1500))).await;
         let url = format!("{}/poster.png", server.uri());
 
-        let rendered = ImageArtworkPipeline::new()
-            .process_all(&url, &RUNGS)
-            .await
-            .unwrap();
+        let rendered = ImageArtworkPipeline::new().process_all(&url, &RUNGS).await.unwrap();
 
         assert_eq!(rendered.len(), RUNGS.len());
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
         for (art, spec) in rendered.iter().zip(RUNGS) {
             assert!(art.width <= spec.max_width);
-            assert_eq!(
-                image::load_from_memory(&art.bytes).unwrap().width(),
-                art.width
-            );
+            assert_eq!(image::load_from_memory(&art.bytes).unwrap().width(), art.width);
         }
     }
 
@@ -228,12 +186,7 @@ mod tests {
             .remove(0);
 
         assert_eq!(art.format, ArtworkFormat::Png);
-        assert!(
-            image::load_from_memory(&art.bytes)
-                .unwrap()
-                .color()
-                .has_alpha()
-        );
+        assert!(image::load_from_memory(&art.bytes).unwrap().color().has_alpha());
     }
 
     #[tokio::test]
@@ -255,9 +208,7 @@ mod tests {
     async fn non_success_status_is_download_error() {
         let server = serve(ResponseTemplate::new(404)).await;
         let url = format!("{}/missing.png", server.uri());
-        let result = ImageArtworkPipeline::default()
-            .process_all(&url, &one_spec(50, 50))
-            .await;
+        let result = ImageArtworkPipeline::default().process_all(&url, &one_spec(50, 50)).await;
         assert!(matches!(result, Err(ArtworkError::Download(_))));
     }
 
@@ -265,9 +216,7 @@ mod tests {
     async fn non_image_body_is_decode_error() {
         let server = serve(ResponseTemplate::new(200).set_body_string("not an image")).await;
         let url = format!("{}/bad.png", server.uri());
-        let result = ImageArtworkPipeline::new()
-            .process_all(&url, &one_spec(50, 50))
-            .await;
+        let result = ImageArtworkPipeline::new().process_all(&url, &one_spec(50, 50)).await;
         assert!(matches!(result, Err(ArtworkError::Decode(_))));
     }
 

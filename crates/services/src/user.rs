@@ -18,11 +18,7 @@ pub struct UserServiceImpl<U, T, D> {
 
 impl<U, T, D> UserServiceImpl<U, T, D> {
     pub fn new(users: U, tokens: T, data: D) -> Self {
-        Self {
-            users,
-            tokens,
-            data,
-        }
+        Self { users, tokens, data }
     }
 }
 
@@ -187,18 +183,11 @@ mod tests {
     }
 
     fn new_user(name: &str) -> NewUser {
-        NewUser {
-            username: name.to_owned(),
-            password: "secret".to_owned(),
-            role: Role::User,
-        }
+        NewUser { username: name.to_owned(), password: "secret".to_owned(), role: Role::User }
     }
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        PageRequest { offset: 0, limit: 10 }
     }
 
     #[tokio::test]
@@ -218,36 +207,23 @@ mod tests {
     async fn duplicate_username_maps_to_username_taken() {
         let svc = service();
         svc.create(new_user("bob")).await.unwrap();
-        assert!(matches!(
-            svc.create(new_user("bob")).await.unwrap_err(),
-            UserError::UsernameTaken
-        ));
+        assert!(matches!(svc.create(new_user("bob")).await.unwrap_err(), UserError::UsernameTaken));
     }
 
     #[tokio::test]
     async fn missing_paths_return_not_found() {
         let svc = service();
         let missing = UserId("nope".into());
+        assert!(matches!(svc.get(&missing).await.unwrap_err(), UserError::NotFound));
         assert!(matches!(
-            svc.get(&missing).await.unwrap_err(),
+            svc.update_profile(&missing, UserProfileUpdate::default()).await.unwrap_err(),
             UserError::NotFound
         ));
         assert!(matches!(
-            svc.update_profile(&missing, UserProfileUpdate::default())
-                .await
-                .unwrap_err(),
+            svc.delete(&principal("admin", Role::Admin), &missing).await.unwrap_err(),
             UserError::NotFound
         ));
-        assert!(matches!(
-            svc.delete(&principal("admin", Role::Admin), &missing)
-                .await
-                .unwrap_err(),
-            UserError::NotFound
-        ));
-        assert!(matches!(
-            svc.library_access(&missing).await.unwrap_err(),
-            UserError::NotFound
-        ));
+        assert!(matches!(svc.library_access(&missing).await.unwrap_err(), UserError::NotFound));
         assert!(matches!(
             svc.set_library_access(&missing, &[]).await.unwrap_err(),
             UserError::NotFound
@@ -278,9 +254,7 @@ mod tests {
         assert_eq!(updated.concurrent_stream_limit, Some(2));
         assert_eq!(updated.bitrate_cap, Some(8_000_000));
 
-        svc.delete(&principal("admin", Role::Admin), &user.id)
-            .await
-            .unwrap();
+        svc.delete(&principal("admin", Role::Admin), &user.id).await.unwrap();
         assert!(svc.list(page()).await.unwrap().items.is_empty());
     }
 
@@ -377,9 +351,7 @@ mod tests {
         let admin = principal("admin", Role::Admin);
 
         assert!(matches!(
-            svc.set_active(&admin, &UserId("ghost".into()), false)
-                .await
-                .unwrap_err(),
+            svc.set_active(&admin, &UserId("ghost".into()), false).await.unwrap_err(),
             UserError::NotFound
         ));
     }
@@ -389,17 +361,12 @@ mod tests {
         let svc = service();
         let user = svc.create(new_user("erin")).await.unwrap();
         assert!(svc.library_access(&user.id).await.unwrap().is_empty());
-        svc.set_library_access(&user.id, &[LibraryId("lib1".into())])
-            .await
-            .unwrap();
+        svc.set_library_access(&user.id, &[LibraryId("lib1".into())]).await.unwrap();
         assert_eq!(svc.library_access(&user.id).await.unwrap().len(), 1);
     }
 
     fn principal(id: &str, role: Role) -> Principal {
-        Principal {
-            user: UserId(id.into()),
-            role,
-        }
+        Principal { user: UserId(id.into()), role }
     }
 
     #[tokio::test]
@@ -407,9 +374,7 @@ mod tests {
         let svc = service();
         let user = svc.create(new_user("frank")).await.unwrap();
         let actor = principal(&user.id.0, Role::User);
-        svc.change_password(&actor, &user.id, Some("secret"), "fresh")
-            .await
-            .unwrap();
+        svc.change_password(&actor, &user.id, Some("secret"), "fresh").await.unwrap();
         let stored = svc.get(&user.id).await.unwrap();
         assert!(password::verify("fresh", &stored.password_hash).unwrap());
     }
@@ -420,15 +385,11 @@ mod tests {
         let user = svc.create(new_user("grace")).await.unwrap();
         let actor = principal(&user.id.0, Role::User);
         assert!(matches!(
-            svc.change_password(&actor, &user.id, Some("nope"), "fresh")
-                .await
-                .unwrap_err(),
+            svc.change_password(&actor, &user.id, Some("nope"), "fresh").await.unwrap_err(),
             UserError::InvalidPassword
         ));
         assert!(matches!(
-            svc.change_password(&actor, &user.id, None, "fresh")
-                .await
-                .unwrap_err(),
+            svc.change_password(&actor, &user.id, None, "fresh").await.unwrap_err(),
             UserError::InvalidPassword
         ));
     }
@@ -438,9 +399,7 @@ mod tests {
         let svc = service();
         let user = svc.create(new_user("heidi")).await.unwrap();
         let admin = principal("admin", Role::Admin);
-        svc.change_password(&admin, &user.id, None, "reset")
-            .await
-            .unwrap();
+        svc.change_password(&admin, &user.id, None, "reset").await.unwrap();
         let stored = svc.get(&user.id).await.unwrap();
         assert!(password::verify("reset", &stored.password_hash).unwrap());
     }
@@ -451,14 +410,10 @@ mod tests {
         let admin_user = svc.create(new_user("ivan")).await.unwrap();
         let admin = principal(&admin_user.id.0, Role::Admin);
         assert!(matches!(
-            svc.change_password(&admin, &admin_user.id, Some("wrong"), "fresh")
-                .await
-                .unwrap_err(),
+            svc.change_password(&admin, &admin_user.id, Some("wrong"), "fresh").await.unwrap_err(),
             UserError::InvalidPassword
         ));
-        svc.change_password(&admin, &admin_user.id, Some("secret"), "fresh")
-            .await
-            .unwrap();
+        svc.change_password(&admin, &admin_user.id, Some("secret"), "fresh").await.unwrap();
     }
 
     #[tokio::test]
@@ -466,9 +421,7 @@ mod tests {
         let svc = service();
         let admin = principal("admin", Role::Admin);
         assert!(matches!(
-            svc.change_password(&admin, &UserId("nope".into()), None, "x")
-                .await
-                .unwrap_err(),
+            svc.change_password(&admin, &UserId("nope".into()), None, "x").await.unwrap_err(),
             UserError::NotFound
         ));
     }
@@ -479,10 +432,7 @@ mod tests {
         for blank in ["", "   "] {
             let mut input = new_user("alice");
             input.password = blank.to_owned();
-            assert!(matches!(
-                svc.create(input).await.unwrap_err(),
-                UserError::EmptyPassword
-            ));
+            assert!(matches!(svc.create(input).await.unwrap_err(), UserError::EmptyPassword));
         }
         assert!(svc.list(page()).await.unwrap().items.is_empty());
     }
@@ -504,9 +454,7 @@ mod tests {
         let svc = service();
         let user = svc.create(new_user("alice")).await.unwrap();
         let admin = principal("admin", Role::Admin);
-        svc.change_password(&admin, &user.id, None, "  my-pass  ")
-            .await
-            .unwrap();
+        svc.change_password(&admin, &user.id, None, "  my-pass  ").await.unwrap();
         let stored = svc.get(&user.id).await.unwrap();
         assert!(password::verify("  my-pass  ", &stored.password_hash).unwrap());
         assert!(!password::verify("my-pass", &stored.password_hash).unwrap());
@@ -520,9 +468,7 @@ mod tests {
         let admin = principal("admin", Role::Admin);
         for blank in ["", "   "] {
             assert!(matches!(
-                svc.change_password(&admin, &user.id, None, blank)
-                    .await
-                    .unwrap_err(),
+                svc.change_password(&admin, &user.id, None, blank).await.unwrap_err(),
                 UserError::EmptyPassword
             ));
         }
@@ -531,10 +477,7 @@ mod tests {
 
     #[test]
     fn backend_maps_to_repository_error() {
-        assert!(matches!(
-            backend("boom"),
-            UserError::Repository(RepositoryError::Backend(_))
-        ));
+        assert!(matches!(backend("boom"), UserError::Repository(RepositoryError::Backend(_))));
     }
 
     #[tokio::test]
@@ -542,27 +485,16 @@ mod tests {
         let repo = MockUserRepo::new();
         repo.set_fail();
         let svc = UserServiceImpl::new(repo, MockAuthTokenRepo::new(), MockUserDataStore::new());
-        assert!(matches!(
-            svc.create(new_user("x")).await.unwrap_err(),
-            UserError::Repository(_)
-        ));
-        assert!(matches!(
-            svc.list(page()).await.unwrap_err(),
-            UserError::Repository(_)
-        ));
+        assert!(matches!(svc.create(new_user("x")).await.unwrap_err(), UserError::Repository(_)));
+        assert!(matches!(svc.list(page()).await.unwrap_err(), UserError::Repository(_)));
         assert!(matches!(
             svc.get(&UserId("x".into())).await.unwrap_err(),
             UserError::Repository(_)
         ));
         assert!(matches!(
-            svc.change_password(
-                &principal("admin", Role::Admin),
-                &UserId("x".into()),
-                None,
-                "new"
-            )
-            .await
-            .unwrap_err(),
+            svc.change_password(&principal("admin", Role::Admin), &UserId("x".into()), None, "new")
+                .await
+                .unwrap_err(),
             UserError::Repository(_)
         ));
 

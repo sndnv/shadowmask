@@ -66,47 +66,29 @@ mod tests {
             movie("first", "Part One", Some(1999)),
             movie("second", "Part Two", Some(2001)),
         ];
-        let members = vec![
-            MovieId("third".into()),
-            MovieId("first".into()),
-            MovieId("second".into()),
-        ];
-        assert_eq!(
-            ids(&in_year_order(&members, &known)),
-            vec!["first", "second", "third"]
-        );
+        let members =
+            vec![MovieId("third".into()), MovieId("first".into()), MovieId("second".into())];
+        assert_eq!(ids(&in_year_order(&members, &known)), vec!["first", "second", "third"]);
     }
 
     #[test]
     fn a_shared_year_falls_back_to_the_sort_title() {
-        let known = [
-            movie("b", "Beta", Some(2010)),
-            movie("a", "Alpha", Some(2010)),
-        ];
+        let known = [movie("b", "Beta", Some(2010)), movie("a", "Alpha", Some(2010))];
         let members = vec![MovieId("b".into()), MovieId("a".into())];
         assert_eq!(ids(&in_year_order(&members, &known)), vec!["a", "b"]);
     }
 
     #[test]
     fn an_unknown_year_sorts_last_rather_than_first() {
-        let known = [
-            movie("undated", "Zeta", None),
-            movie("dated", "Alpha", Some(2010)),
-        ];
+        let known = [movie("undated", "Zeta", None), movie("dated", "Alpha", Some(2010))];
         let members = vec![MovieId("undated".into()), MovieId("dated".into())];
-        assert_eq!(
-            ids(&in_year_order(&members, &known)),
-            vec!["dated", "undated"]
-        );
+        assert_eq!(ids(&in_year_order(&members, &known)), vec!["dated", "undated"]);
     }
 
     #[test]
     fn a_member_with_no_movie_record_is_kept_not_dropped() {
         let known = [movie("dated", "Alpha", Some(2010))];
         let members = vec![MovieId("ghost".into()), MovieId("dated".into())];
-        assert_eq!(
-            ids(&in_year_order(&members, &known)),
-            vec!["dated", "ghost"]
-        );
+        assert_eq!(ids(&in_year_order(&members, &known)), vec!["dated", "ghost"]);
     }
 }

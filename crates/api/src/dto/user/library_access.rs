@@ -10,9 +10,6 @@ pub struct LibraryAccessResponse {
 
 impl From<LibraryAccess> for LibraryAccessResponse {
     fn from(a: LibraryAccess) -> Self {
-        LibraryAccessResponse {
-            user_id: a.user.0,
-            library_id: a.library.0,
-        }
+        LibraryAccessResponse { user_id: a.user.0, library_id: a.library.0 }
     }
 }

@@ -59,14 +59,10 @@ mod tests {
         let store = MockJobStore::new();
         let queue = JobQueue::new(store.clone());
 
-        let first = queue
-            .enqueue(JobKind::Metadata, JobPriority::Low, String::new(), now)
-            .await
-            .unwrap();
-        let second = queue
-            .enqueue(JobKind::Artwork, JobPriority::High, String::new(), now)
-            .await
-            .unwrap();
+        let first =
+            queue.enqueue(JobKind::Metadata, JobPriority::Low, String::new(), now).await.unwrap();
+        let second =
+            queue.enqueue(JobKind::Artwork, JobPriority::High, String::new(), now).await.unwrap();
         assert_ne!(first, second);
         assert!(!first.0.is_empty() && !second.0.is_empty());
         assert_eq!(store.list().await.unwrap().len(), 2);

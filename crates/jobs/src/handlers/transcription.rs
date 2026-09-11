@@ -19,12 +19,7 @@ pub struct TranscriptionJobHandler<P, C, S, T> {
 
 impl<P, C, S, T> TranscriptionJobHandler<P, C, S, T> {
     pub fn new(provider: P, catalog: C, store: S, trigger: T) -> Self {
-        Self {
-            provider,
-            catalog,
-            store,
-            trigger,
-        }
+        Self { provider, catalog, store, trigger }
     }
 }
 
@@ -101,12 +96,7 @@ where
 
         let path = self
             .store
-            .store(
-                &payload.version_id,
-                "generated",
-                subtitle.format,
-                &subtitle.content,
-            )
+            .store(&payload.version_id, "generated", subtitle.format, &subtitle.content)
             .await
             .map_err(|e| JobError::Retryable(e.to_string()))?;
         let file = SubtitleFile {
@@ -179,10 +169,9 @@ mod tests {
                     content: "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhi\n".into(),
                     format: SubtitleFormat::Vtt,
                 }),
-                ProviderMode::Empty => Ok(FetchedSubtitle {
-                    content: "WEBVTT\n".into(),
-                    format: SubtitleFormat::Vtt,
-                }),
+                ProviderMode::Empty => {
+                    Ok(FetchedSubtitle { content: "WEBVTT\n".into(), format: SubtitleFormat::Vtt })
+                }
                 ProviderMode::Unsupported => {
                     Err(TranscriptionError::Unsupported("no engine".into()))
                 }
@@ -229,11 +218,7 @@ mod tests {
             _version_id: &VersionId,
             _parent: Option<&JobId>,
         ) -> Result<(), RepositoryError> {
-            if self.fail {
-                Err(RepositoryError::Backend("trigger boom".into()))
-            } else {
-                Ok(())
-            }
+            if self.fail { Err(RepositoryError::Backend("trigger boom".into())) } else { Ok(()) }
         }
     }
 
@@ -308,25 +293,16 @@ mod tests {
         catalog.add_version(version());
         let store = MockStore::default();
         let handler = TranscriptionJobHandler::new(
-            MockProvider {
-                mode: ProviderMode::Ok,
-            },
+            MockProvider { mode: ProviderMode::Ok },
             catalog.clone(),
-            MockStore {
-                stored: store.stored.clone(),
-                ..MockStore::default()
-            },
+            MockStore { stored: store.stored.clone(), ..MockStore::default() },
             MockTrigger::default(),
         );
 
         handler.handle(&job(payload())).await.unwrap();
 
         assert_eq!(store.stored.lock().unwrap().len(), 1);
-        let detail = catalog
-            .version_detail(&VersionId("v1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let detail = catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap();
         assert_eq!(detail.subtitle_files.len(), 1);
         assert_eq!(detail.subtitle_files[0].source, SubtitleSource::Generated);
         assert_eq!(detail.subtitle_files[0].format, SubtitleFormat::Vtt);
@@ -338,25 +314,16 @@ mod tests {
         catalog.add_version(version());
         let store = MockStore::default();
         let handler = TranscriptionJobHandler::new(
-            MockProvider {
-                mode: ProviderMode::Empty,
-            },
+            MockProvider { mode: ProviderMode::Empty },
             catalog.clone(),
-            MockStore {
-                stored: store.stored.clone(),
-                ..MockStore::default()
-            },
+            MockStore { stored: store.stored.clone(), ..MockStore::default() },
             MockTrigger::default(),
         );
 
         handler.handle(&job(payload())).await.unwrap();
 
         assert!(store.stored.lock().unwrap().is_empty());
-        let detail = catalog
-            .version_detail(&VersionId("v1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let detail = catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap();
         assert!(detail.subtitle_files.is_empty());
     }
 
@@ -383,25 +350,16 @@ mod tests {
             .unwrap();
         let store = MockStore::default();
         let handler = TranscriptionJobHandler::new(
-            MockProvider {
-                mode: ProviderMode::Ok,
-            },
+            MockProvider { mode: ProviderMode::Ok },
             catalog.clone(),
-            MockStore {
-                stored: store.stored.clone(),
-                ..MockStore::default()
-            },
+            MockStore { stored: store.stored.clone(), ..MockStore::default() },
             MockTrigger::default(),
         );
 
         handler.handle(&job(payload())).await.unwrap();
 
         assert!(store.stored.lock().unwrap().is_empty());
-        let detail = catalog
-            .version_detail(&VersionId("v1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let detail = catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap();
         assert_eq!(detail.subtitle_files.len(), 1);
         assert_eq!(detail.subtitle_files[0].source, SubtitleSource::External);
     }
@@ -413,37 +371,22 @@ mod tests {
         catalog
             .set_subtitle_files(
                 &VersionId("v1".into()),
-                &[subtitle(
-                    "opensubtitles:v1:1",
-                    SubtitleSource::OpenSubtitles,
-                )],
+                &[subtitle("opensubtitles:v1:1", SubtitleSource::OpenSubtitles)],
             )
             .await
             .unwrap();
         let store = MockStore::default();
         let handler = TranscriptionJobHandler::new(
-            MockProvider {
-                mode: ProviderMode::Ok,
-            },
+            MockProvider { mode: ProviderMode::Ok },
             catalog.clone(),
-            MockStore {
-                stored: store.stored.clone(),
-                ..MockStore::default()
-            },
+            MockStore { stored: store.stored.clone(), ..MockStore::default() },
             MockTrigger::default(),
         );
 
-        handler
-            .handle(&job(payload_with_force(true)))
-            .await
-            .unwrap();
+        handler.handle(&job(payload_with_force(true))).await.unwrap();
 
         assert_eq!(store.stored.lock().unwrap().len(), 1);
-        let detail = catalog
-            .version_detail(&VersionId("v1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let detail = catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap();
         let sources: Vec<SubtitleSource> = detail.subtitle_files.iter().map(|f| f.source).collect();
         assert!(
             sources.contains(&SubtitleSource::Generated),
@@ -470,34 +413,21 @@ mod tests {
             .await
             .unwrap();
         let handler = TranscriptionJobHandler::new(
-            MockProvider {
-                mode: ProviderMode::Ok,
-            },
+            MockProvider { mode: ProviderMode::Ok },
             catalog.clone(),
             MockStore::default(),
             MockTrigger::default(),
         );
 
-        handler
-            .handle(&job(payload_with_force(true)))
-            .await
-            .unwrap();
+        handler.handle(&job(payload_with_force(true))).await.unwrap();
 
-        let detail = catalog
-            .version_detail(&VersionId("v1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let detail = catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap();
         let generated: Vec<&SubtitleFile> = detail
             .subtitle_files
             .iter()
             .filter(|f| f.source == SubtitleSource::Generated)
             .collect();
-        assert_eq!(
-            generated.len(),
-            1,
-            "re-running must not stack up a second generated track"
-        );
+        assert_eq!(generated.len(), 1, "re-running must not stack up a second generated track");
         assert_eq!(
             generated[0].format,
             SubtitleFormat::Vtt,
@@ -510,14 +440,9 @@ mod tests {
     async fn no_op_when_version_missing() {
         let store = MockStore::default();
         let handler = TranscriptionJobHandler::new(
-            MockProvider {
-                mode: ProviderMode::Ok,
-            },
+            MockProvider { mode: ProviderMode::Ok },
             MockCatalogRepo::new(),
-            MockStore {
-                stored: store.stored.clone(),
-                ..MockStore::default()
-            },
+            MockStore { stored: store.stored.clone(), ..MockStore::default() },
             MockTrigger::default(),
         );
 
@@ -532,25 +457,16 @@ mod tests {
         catalog.add_version(version());
         let store = MockStore::default();
         let handler = TranscriptionJobHandler::new(
-            MockProvider {
-                mode: ProviderMode::Unsupported,
-            },
+            MockProvider { mode: ProviderMode::Unsupported },
             catalog.clone(),
-            MockStore {
-                stored: store.stored.clone(),
-                ..MockStore::default()
-            },
+            MockStore { stored: store.stored.clone(), ..MockStore::default() },
             MockTrigger::default(),
         );
 
         handler.handle(&job(payload())).await.unwrap();
 
         assert!(store.stored.lock().unwrap().is_empty());
-        let detail = catalog
-            .version_detail(&VersionId("v1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let detail = catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap();
         assert!(detail.subtitle_files.is_empty());
     }
 
@@ -559,9 +475,7 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         catalog.add_version(version());
         let handler = TranscriptionJobHandler::new(
-            MockProvider {
-                mode: ProviderMode::Backend,
-            },
+            MockProvider { mode: ProviderMode::Backend },
             catalog,
             MockStore::default(),
             MockTrigger::default(),
@@ -577,14 +491,9 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         catalog.add_version(version());
         let handler = TranscriptionJobHandler::new(
-            MockProvider {
-                mode: ProviderMode::Ok,
-            },
+            MockProvider { mode: ProviderMode::Ok },
             catalog,
-            MockStore {
-                fail: true,
-                ..MockStore::default()
-            },
+            MockStore { fail: true, ..MockStore::default() },
             MockTrigger::default(),
         );
         assert!(matches!(
@@ -599,9 +508,7 @@ mod tests {
         catalog.add_version(version());
         catalog.set_fail();
         let handler = TranscriptionJobHandler::new(
-            MockProvider {
-                mode: ProviderMode::Ok,
-            },
+            MockProvider { mode: ProviderMode::Ok },
             catalog,
             MockStore::default(),
             MockTrigger::default(),
@@ -617,14 +524,9 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         catalog.add_version(version());
         let handler = TranscriptionJobHandler::new(
-            MockProvider {
-                mode: ProviderMode::Ok,
-            },
+            MockProvider { mode: ProviderMode::Ok },
             catalog.clone(),
-            MockStore {
-                fail_catalog_after: Some(catalog),
-                ..MockStore::default()
-            },
+            MockStore { fail_catalog_after: Some(catalog), ..MockStore::default() },
             MockTrigger::default(),
         );
         assert!(matches!(
@@ -702,11 +604,7 @@ mod tests {
         handler.handle(&job(raw)).await.unwrap();
 
         assert_eq!(*provider.seen_language.lock().unwrap(), Some(None));
-        let detail = catalog
-            .version_detail(&VersionId("v1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let detail = catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap();
         assert_eq!(detail.subtitle_files[0].language, None);
     }
 
@@ -715,9 +613,7 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         catalog.add_version(version());
         let handler = TranscriptionJobHandler::new(
-            MockProvider {
-                mode: ProviderMode::Ok,
-            },
+            MockProvider { mode: ProviderMode::Ok },
             catalog.clone(),
             MockStore::default(),
             MockTrigger::default(),
@@ -733,20 +629,14 @@ mod tests {
 
         handler.handle(&job(raw)).await.unwrap();
 
-        let detail = catalog
-            .version_detail(&VersionId("v1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let detail = catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap();
         assert_eq!(detail.subtitle_files[0].language, None);
     }
 
     #[tokio::test]
     async fn invalid_payload_is_permanent() {
         let handler = TranscriptionJobHandler::new(
-            MockProvider {
-                mode: ProviderMode::Ok,
-            },
+            MockProvider { mode: ProviderMode::Ok },
             MockCatalogRepo::new(),
             MockStore::default(),
             MockTrigger::default(),
@@ -762,9 +652,7 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         catalog.add_version(version());
         let handler = TranscriptionJobHandler::new(
-            MockProvider {
-                mode: ProviderMode::Ok,
-            },
+            MockProvider { mode: ProviderMode::Ok },
             catalog,
             MockStore::default(),
             MockTrigger { fail: true },

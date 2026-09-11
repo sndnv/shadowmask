@@ -31,16 +31,10 @@ struct MockStore {
 
 impl MockStore {
     fn failing_remove() -> Self {
-        Self {
-            fail_remove: true,
-            ..Self::default()
-        }
+        Self { fail_remove: true, ..Self::default() }
     }
     fn seed(&self, path: &str, content: &str) {
-        self.files
-            .lock()
-            .unwrap()
-            .insert(path.to_owned(), content.to_owned());
+        self.files.lock().unwrap().insert(path.to_owned(), content.to_owned());
     }
     fn has(&self, path: &str) -> bool {
         self.files.lock().unwrap().contains_key(path)
@@ -56,10 +50,7 @@ impl SubtitleStore for MockStore {
         content: &str,
     ) -> Result<String, SubtitleError> {
         let path = format!("/subs/{}/{file_id}.{}", version.0, format.extension());
-        self.files
-            .lock()
-            .unwrap()
-            .insert(path.clone(), content.to_owned());
+        self.files.lock().unwrap().insert(path.clone(), content.to_owned());
         Ok(path)
     }
 
@@ -121,10 +112,7 @@ fn file(
 async fn seed(files: &[SubtitleFile]) -> (MockCatalogRepo, MockStore) {
     let catalog = MockCatalogRepo::new();
     catalog.add_version(version());
-    catalog
-        .set_subtitle_files(&VersionId("v1".into()), files)
-        .await
-        .unwrap();
+    catalog.set_subtitle_files(&VersionId("v1".into()), files).await.unwrap();
     (catalog, MockStore::default())
 }
 
@@ -148,15 +136,9 @@ async fn send(app: Router, method: &str, uri: &str, auth: Option<&str>) -> (Stat
     if let Some(token) = auth {
         builder = builder.header(header::AUTHORIZATION, token);
     }
-    let response = app
-        .oneshot(builder.body(Body::empty()).unwrap())
-        .await
-        .unwrap();
+    let response = app.oneshot(builder.body(Body::empty()).unwrap()).await.unwrap();
     let status = response.status();
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap()
-        .to_vec();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec();
     (status, body)
 }
 
@@ -167,22 +149,14 @@ async fn send_body(
     auth: Option<&str>,
     body: &str,
 ) -> (StatusCode, Vec<u8>) {
-    let mut builder = Request::builder()
-        .method(method)
-        .uri(uri)
-        .header(header::CONTENT_TYPE, "application/json");
+    let mut builder =
+        Request::builder().method(method).uri(uri).header(header::CONTENT_TYPE, "application/json");
     if let Some(token) = auth {
         builder = builder.header(header::AUTHORIZATION, token);
     }
-    let response = app
-        .oneshot(builder.body(Body::from(body.to_owned())).unwrap())
-        .await
-        .unwrap();
+    let response = app.oneshot(builder.body(Body::from(body.to_owned())).unwrap()).await.unwrap();
     let status = response.status();
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap()
-        .to_vec();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec();
     (status, body)
 }
 
@@ -206,22 +180,11 @@ async fn language_of(catalog: &MockCatalogRepo, subtitle: &str) -> Option<String
 
 #[tokio::test]
 async fn admin_views_subtitle_text() {
-    let (catalog, store) = seed(&[file(
-        "generated:v1",
-        SubtitleSource::Generated,
-        "/subs/v1/gen.vtt",
-        None,
-    )])
-    .await;
+    let (catalog, store) =
+        seed(&[file("generated:v1", SubtitleSource::Generated, "/subs/v1/gen.vtt", None)]).await;
     store.seed("/subs/v1/gen.vtt", "WEBVTT\n\nhello\n");
 
-    let (status, body) = send(
-        app(catalog, store),
-        "GET",
-        &uri("generated:v1"),
-        Some(ADMIN),
-    )
-    .await;
+    let (status, body) = send(app(catalog, store), "GET", &uri("generated:v1"), Some(ADMIN)).await;
 
     assert_eq!(status, StatusCode::OK);
     let value: Value = serde_json::from_slice(&body).unwrap();
@@ -238,42 +201,24 @@ async fn view_unknown_subtitle_is_not_found() {
 #[tokio::test]
 async fn view_unknown_version_is_not_found() {
     let catalog = MockCatalogRepo::new();
-    let (status, _) = send(
-        app(catalog, MockStore::default()),
-        "GET",
-        &uri("generated:v1"),
-        Some(ADMIN),
-    )
-    .await;
+    let (status, _) =
+        send(app(catalog, MockStore::default()), "GET", &uri("generated:v1"), Some(ADMIN)).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
 async fn admin_deletes_generated_subtitle_and_file() {
-    let (catalog, store) = seed(&[file(
-        "generated:v1",
-        SubtitleSource::Generated,
-        "/subs/v1/gen.vtt",
-        None,
-    )])
-    .await;
+    let (catalog, store) =
+        seed(&[file("generated:v1", SubtitleSource::Generated, "/subs/v1/gen.vtt", None)]).await;
     store.seed("/subs/v1/gen.vtt", "WEBVTT\n\nhello\n");
 
-    let (status, _) = send(
-        app(catalog.clone(), store.clone()),
-        "DELETE",
-        &uri("generated:v1"),
-        Some(ADMIN),
-    )
-    .await;
+    let (status, _) =
+        send(app(catalog.clone(), store.clone()), "DELETE", &uri("generated:v1"), Some(ADMIN))
+            .await;
 
     assert_eq!(status, StatusCode::NO_CONTENT);
-    let remaining = catalog
-        .version_detail(&VersionId("v1".into()))
-        .await
-        .unwrap()
-        .unwrap()
-        .subtitle_files;
+    let remaining =
+        catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap().subtitle_files;
     assert!(remaining.is_empty());
     assert!(!store.has("/subs/v1/gen.vtt"));
 }
@@ -281,12 +226,7 @@ async fn admin_deletes_generated_subtitle_and_file() {
 #[tokio::test]
 async fn deleting_a_source_prunes_orphaned_translations() {
     let (catalog, store) = seed(&[
-        file(
-            "opensubtitles:v1:42",
-            SubtitleSource::OpenSubtitles,
-            "/subs/v1/os.srt",
-            None,
-        ),
+        file("opensubtitles:v1:42", SubtitleSource::OpenSubtitles, "/subs/v1/os.srt", None),
         file(
             "machine:v1:fr",
             SubtitleSource::MachineTranslated,
@@ -307,12 +247,8 @@ async fn deleting_a_source_prunes_orphaned_translations() {
     .await;
 
     assert_eq!(status, StatusCode::NO_CONTENT);
-    let remaining = catalog
-        .version_detail(&VersionId("v1".into()))
-        .await
-        .unwrap()
-        .unwrap()
-        .subtitle_files;
+    let remaining =
+        catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap().subtitle_files;
     assert!(remaining.is_empty());
     assert!(!store.has("/subs/v1/os.srt"));
     assert!(!store.has("/subs/v1/fr.vtt"));
@@ -320,21 +256,11 @@ async fn deleting_a_source_prunes_orphaned_translations() {
 
 #[tokio::test]
 async fn deleting_an_external_sidecar_is_forbidden() {
-    let (catalog, store) = seed(&[file(
-        "sidecar",
-        SubtitleSource::External,
-        "/m/v1.en.srt",
-        None,
-    )])
-    .await;
+    let (catalog, store) =
+        seed(&[file("sidecar", SubtitleSource::External, "/m/v1.en.srt", None)]).await;
 
-    let (status, _) = send(
-        app(catalog.clone(), store),
-        "DELETE",
-        &uri("sidecar"),
-        Some(ADMIN),
-    )
-    .await;
+    let (status, _) =
+        send(app(catalog.clone(), store), "DELETE", &uri("sidecar"), Some(ADMIN)).await;
 
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(
@@ -358,82 +284,39 @@ async fn delete_unknown_subtitle_is_not_found() {
 
 #[tokio::test]
 async fn view_catalog_error_is_internal() {
-    let (catalog, store) = seed(&[file(
-        "generated:v1",
-        SubtitleSource::Generated,
-        "/subs/v1/gen.vtt",
-        None,
-    )])
-    .await;
+    let (catalog, store) =
+        seed(&[file("generated:v1", SubtitleSource::Generated, "/subs/v1/gen.vtt", None)]).await;
     catalog.set_fail();
-    let (status, _) = send(
-        app(catalog, store),
-        "GET",
-        &uri("generated:v1"),
-        Some(ADMIN),
-    )
-    .await;
+    let (status, _) = send(app(catalog, store), "GET", &uri("generated:v1"), Some(ADMIN)).await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 #[tokio::test]
 async fn view_missing_file_is_internal() {
-    let (catalog, store) = seed(&[file(
-        "generated:v1",
-        SubtitleSource::Generated,
-        "/subs/v1/gone.vtt",
-        None,
-    )])
-    .await;
-    let (status, _) = send(
-        app(catalog, store),
-        "GET",
-        &uri("generated:v1"),
-        Some(ADMIN),
-    )
-    .await;
+    let (catalog, store) =
+        seed(&[file("generated:v1", SubtitleSource::Generated, "/subs/v1/gone.vtt", None)]).await;
+    let (status, _) = send(app(catalog, store), "GET", &uri("generated:v1"), Some(ADMIN)).await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 #[tokio::test]
 async fn delete_catalog_error_is_internal() {
-    let (catalog, store) = seed(&[file(
-        "generated:v1",
-        SubtitleSource::Generated,
-        "/subs/v1/gen.vtt",
-        None,
-    )])
-    .await;
+    let (catalog, store) =
+        seed(&[file("generated:v1", SubtitleSource::Generated, "/subs/v1/gen.vtt", None)]).await;
     catalog.set_fail();
-    let (status, _) = send(
-        app(catalog, store),
-        "DELETE",
-        &uri("generated:v1"),
-        Some(ADMIN),
-    )
-    .await;
+    let (status, _) = send(app(catalog, store), "DELETE", &uri("generated:v1"), Some(ADMIN)).await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 #[tokio::test]
 async fn delete_succeeds_even_if_file_removal_fails() {
-    let (catalog, _) = seed(&[file(
-        "generated:v1",
-        SubtitleSource::Generated,
-        "/subs/v1/gen.vtt",
-        None,
-    )])
-    .await;
+    let (catalog, _) =
+        seed(&[file("generated:v1", SubtitleSource::Generated, "/subs/v1/gen.vtt", None)]).await;
     let store = MockStore::failing_remove();
     store.seed("/subs/v1/gen.vtt", "WEBVTT\n\nhello\n");
 
-    let (status, _) = send(
-        app(catalog.clone(), store),
-        "DELETE",
-        &uri("generated:v1"),
-        Some(ADMIN),
-    )
-    .await;
+    let (status, _) =
+        send(app(catalog.clone(), store), "DELETE", &uri("generated:v1"), Some(ADMIN)).await;
 
     assert_eq!(status, StatusCode::NO_CONTENT);
     assert!(
@@ -450,18 +333,8 @@ async fn delete_succeeds_even_if_file_removal_fails() {
 #[tokio::test]
 async fn admin_renames_a_generated_subtitle_and_leaves_others() {
     let (catalog, store) = seed(&[
-        file(
-            "generated:v1",
-            SubtitleSource::Generated,
-            "/subs/v1/gen.vtt",
-            None,
-        ),
-        file(
-            "opensubtitles:v1:42",
-            SubtitleSource::OpenSubtitles,
-            "/subs/v1/os.srt",
-            None,
-        ),
+        file("generated:v1", SubtitleSource::Generated, "/subs/v1/gen.vtt", None),
+        file("opensubtitles:v1:42", SubtitleSource::OpenSubtitles, "/subs/v1/os.srt", None),
     ])
     .await;
 
@@ -475,25 +348,14 @@ async fn admin_renames_a_generated_subtitle_and_leaves_others() {
     .await;
 
     assert_eq!(status, StatusCode::NO_CONTENT);
-    assert_eq!(
-        language_of(&catalog, "generated:v1").await,
-        Some("fr".to_owned())
-    );
-    assert_eq!(
-        language_of(&catalog, "opensubtitles:v1:42").await,
-        Some("en".to_owned())
-    );
+    assert_eq!(language_of(&catalog, "generated:v1").await, Some("fr".to_owned()));
+    assert_eq!(language_of(&catalog, "opensubtitles:v1:42").await, Some("en".to_owned()));
 }
 
 #[tokio::test]
 async fn renaming_to_blank_clears_the_language() {
-    let (catalog, store) = seed(&[file(
-        "generated:v1",
-        SubtitleSource::Generated,
-        "/subs/v1/gen.vtt",
-        None,
-    )])
-    .await;
+    let (catalog, store) =
+        seed(&[file("generated:v1", SubtitleSource::Generated, "/subs/v1/gen.vtt", None)]).await;
 
     let (status, _) = send_body(
         app(catalog.clone(), store),
@@ -510,22 +372,12 @@ async fn renaming_to_blank_clears_the_language() {
 
 #[tokio::test]
 async fn renaming_an_external_sidecar_is_forbidden() {
-    let (catalog, store) = seed(&[file(
-        "sidecar",
-        SubtitleSource::External,
-        "/m/v1.en.srt",
-        None,
-    )])
-    .await;
+    let (catalog, store) =
+        seed(&[file("sidecar", SubtitleSource::External, "/m/v1.en.srt", None)]).await;
 
-    let (status, _) = send_body(
-        app(catalog, store),
-        "PUT",
-        &uri("sidecar"),
-        Some(ADMIN),
-        r#"{"language":"fr"}"#,
-    )
-    .await;
+    let (status, _) =
+        send_body(app(catalog, store), "PUT", &uri("sidecar"), Some(ADMIN), r#"{"language":"fr"}"#)
+            .await;
 
     assert_eq!(status, StatusCode::FORBIDDEN);
 }
@@ -533,14 +385,9 @@ async fn renaming_an_external_sidecar_is_forbidden() {
 #[tokio::test]
 async fn rename_unknown_subtitle_is_not_found() {
     let (catalog, store) = seed(&[]).await;
-    let (status, _) = send_body(
-        app(catalog, store),
-        "PUT",
-        &uri("nope"),
-        Some(ADMIN),
-        r#"{"language":"fr"}"#,
-    )
-    .await;
+    let (status, _) =
+        send_body(app(catalog, store), "PUT", &uri("nope"), Some(ADMIN), r#"{"language":"fr"}"#)
+            .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
@@ -560,13 +407,8 @@ async fn rename_unknown_version_is_not_found() {
 
 #[tokio::test]
 async fn rename_read_error_is_internal() {
-    let (catalog, store) = seed(&[file(
-        "generated:v1",
-        SubtitleSource::Generated,
-        "/subs/v1/gen.vtt",
-        None,
-    )])
-    .await;
+    let (catalog, store) =
+        seed(&[file("generated:v1", SubtitleSource::Generated, "/subs/v1/gen.vtt", None)]).await;
     catalog.set_fail();
     let (status, _) = send_body(
         app(catalog, store),
@@ -581,13 +423,8 @@ async fn rename_read_error_is_internal() {
 
 #[tokio::test]
 async fn rename_write_error_is_internal() {
-    let (catalog, store) = seed(&[file(
-        "generated:v1",
-        SubtitleSource::Generated,
-        "/subs/v1/gen.vtt",
-        None,
-    )])
-    .await;
+    let (catalog, store) =
+        seed(&[file("generated:v1", SubtitleSource::Generated, "/subs/v1/gen.vtt", None)]).await;
     catalog.set_fail_writes();
     let (status, _) = send_body(
         app(catalog, store),

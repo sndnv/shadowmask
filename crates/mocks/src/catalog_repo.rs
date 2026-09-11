@@ -129,21 +129,13 @@ impl MockCatalogRepo {
 
     pub fn add_season(&self, season: Season) {
         let mut state = self.state.lock().unwrap();
-        remember_artwork(
-            &mut state,
-            ArtworkOwner::Season(season.id.clone()),
-            &season.artwork,
-        );
+        remember_artwork(&mut state, ArtworkOwner::Season(season.id.clone()), &season.artwork);
         state.seasons.push(season);
     }
 
     pub fn add_episode(&self, episode: Episode) {
         let mut state = self.state.lock().unwrap();
-        remember_artwork(
-            &mut state,
-            ArtworkOwner::Episode(episode.id.clone()),
-            &episode.artwork,
-        );
+        remember_artwork(&mut state, ArtworkOwner::Episode(episode.id.clone()), &episode.artwork);
         state.episodes.push(episode);
     }
 
@@ -169,11 +161,7 @@ impl MockCatalogRepo {
         let id = detail.movie.id.clone();
         let owner = TitleRef::Movie(id.clone());
         let mut state = self.state.lock().unwrap();
-        remember_artwork(
-            &mut state,
-            ArtworkOwner::Movie(id.clone()),
-            &detail.movie.artwork,
-        );
+        remember_artwork(&mut state, ArtworkOwner::Movie(id.clone()), &detail.movie.artwork);
         if !state.movies.iter().any(|m| m.id == id) {
             state.movies.push(detail.movie);
         }
@@ -195,11 +183,7 @@ impl MockCatalogRepo {
         let id = detail.series.id.clone();
         let owner = TitleRef::Series(id.clone());
         let mut state = self.state.lock().unwrap();
-        remember_artwork(
-            &mut state,
-            ArtworkOwner::Series(id.clone()),
-            &detail.series.artwork,
-        );
+        remember_artwork(&mut state, ArtworkOwner::Series(id.clone()), &detail.series.artwork);
         if !state.series.iter().any(|s| s.id == id) {
             state.series.push(detail.series);
         }
@@ -232,19 +216,13 @@ impl MockCatalogRepo {
                 chapters: detail.chapters,
             },
         );
-        state
-            .subtitle_files
-            .insert(id.clone(), detail.subtitle_files);
+        state.subtitle_files.insert(id.clone(), detail.subtitle_files);
         state.trickplay.insert(id.clone(), detail.trickplay);
         state.markers.insert(id, detail.markers);
     }
 
     pub fn seed_markers(&self, version: &VersionId, markers: DetectedMarkers) {
-        self.state
-            .lock()
-            .unwrap()
-            .markers
-            .insert(version.clone(), markers);
+        self.state.lock().unwrap().markers.insert(version.clone(), markers);
     }
 
     pub fn set_fail(&self) {
@@ -281,24 +259,15 @@ impl CatalogRepository for MockCatalogRepo {
     async fn list_movies(&self, page: PageRequest) -> Result<Page<Movie>, RepositoryError> {
         self.guard()?;
         let state = self.state.lock().unwrap();
-        let movies: Vec<Movie> = state
-            .movies
-            .iter()
-            .cloned()
-            .map(|m| state.hydrate_movie(m))
-            .collect();
+        let movies: Vec<Movie> =
+            state.movies.iter().cloned().map(|m| state.hydrate_movie(m)).collect();
         Ok(paginate(&movies, page))
     }
 
     async fn get_movie(&self, id: &MovieId) -> Result<Option<Movie>, RepositoryError> {
         self.guard()?;
         let state = self.state.lock().unwrap();
-        Ok(state
-            .movies
-            .iter()
-            .find(|m| &m.id == id)
-            .cloned()
-            .map(|m| state.hydrate_movie(m)))
+        Ok(state.movies.iter().find(|m| &m.id == id).cloned().map(|m| state.hydrate_movie(m)))
     }
 
     async fn movies_by_ids(&self, ids: &[MovieId]) -> Result<Vec<Movie>, RepositoryError> {
@@ -324,19 +293,13 @@ impl CatalogRepository for MockCatalogRepo {
     async fn series_versions(&self, series: &SeriesId) -> Result<Vec<Version>, RepositoryError> {
         self.guard()?;
         let state = self.state.lock().unwrap();
-        let mut seasons: Vec<_> = state
-            .seasons
-            .iter()
-            .filter(|season| &season.series == series)
-            .collect();
+        let mut seasons: Vec<_> =
+            state.seasons.iter().filter(|season| &season.series == series).collect();
         seasons.sort_by_key(|season| season.number);
         let mut found = Vec::new();
         for season in seasons {
-            let mut episodes: Vec<_> = state
-                .episodes
-                .iter()
-                .filter(|episode| episode.season == season.id)
-                .collect();
+            let mut episodes: Vec<_> =
+                state.episodes.iter().filter(|episode| episode.season == season.id).collect();
             episodes.sort_by(|a, b| a.number.cmp(&b.number).then_with(|| a.id.0.cmp(&b.id.0)));
             for episode in episodes {
                 found.extend(
@@ -354,24 +317,15 @@ impl CatalogRepository for MockCatalogRepo {
     async fn list_series(&self, page: PageRequest) -> Result<Page<Series>, RepositoryError> {
         self.guard()?;
         let state = self.state.lock().unwrap();
-        let series: Vec<Series> = state
-            .series
-            .iter()
-            .cloned()
-            .map(|s| state.hydrate_series(s))
-            .collect();
+        let series: Vec<Series> =
+            state.series.iter().cloned().map(|s| state.hydrate_series(s)).collect();
         Ok(paginate(&series, page))
     }
 
     async fn get_series(&self, id: &SeriesId) -> Result<Option<Series>, RepositoryError> {
         self.guard()?;
         let state = self.state.lock().unwrap();
-        Ok(state
-            .series
-            .iter()
-            .find(|s| &s.id == id)
-            .cloned()
-            .map(|s| state.hydrate_series(s)))
+        Ok(state.series.iter().find(|s| &s.id == id).cloned().map(|s| state.hydrate_series(s)))
     }
 
     async fn list_seasons(&self, series: &SeriesId) -> Result<Vec<Season>, RepositoryError> {
@@ -410,9 +364,7 @@ impl CatalogRepository for MockCatalogRepo {
                 continue;
             }
             for episode in state.episodes.iter().filter(|e| e.season == season.id) {
-                out.entry(season.series.clone())
-                    .or_default()
-                    .push(episode.id.clone());
+                out.entry(season.series.clone()).or_default().push(episode.id.clone());
             }
         }
         Ok(out)
@@ -427,9 +379,7 @@ impl CatalogRepository for MockCatalogRepo {
         let mut out: HashMap<SeasonId, Vec<EpisodeId>> = HashMap::new();
         for episode in &state.episodes {
             if seasons.contains(&episode.season) {
-                out.entry(episode.season.clone())
-                    .or_default()
-                    .push(episode.id.clone());
+                out.entry(episode.season.clone()).or_default().push(episode.id.clone());
             }
         }
         Ok(out)
@@ -515,12 +465,7 @@ impl CatalogRepository for MockCatalogRepo {
     async fn get_episode(&self, id: &EpisodeId) -> Result<Option<Episode>, RepositoryError> {
         self.guard()?;
         let state = self.state.lock().unwrap();
-        Ok(state
-            .episodes
-            .iter()
-            .find(|e| &e.id == id)
-            .cloned()
-            .map(|e| state.hydrate_episode(e)))
+        Ok(state.episodes.iter().find(|e| &e.id == id).cloned().map(|e| state.hydrate_episode(e)))
     }
 
     async fn list_collections(
@@ -529,17 +474,10 @@ impl CatalogRepository for MockCatalogRepo {
     ) -> Result<Page<Collection>, RepositoryError> {
         self.guard()?;
         let state = self.state.lock().unwrap();
-        let mut collections: Vec<Collection> = state
-            .collections
-            .iter()
-            .cloned()
-            .map(|c| state.hydrate_collection(c))
-            .collect();
+        let mut collections: Vec<Collection> =
+            state.collections.iter().cloned().map(|c| state.hydrate_collection(c)).collect();
         collections.sort_by(|a, b| {
-            a.name
-                .to_lowercase()
-                .cmp(&b.name.to_lowercase())
-                .then_with(|| a.id.0.cmp(&b.id.0))
+            a.name.to_lowercase().cmp(&b.name.to_lowercase()).then_with(|| a.id.0.cmp(&b.id.0))
         });
         Ok(paginate(&collections, page))
     }
@@ -573,11 +511,7 @@ impl CatalogRepository for MockCatalogRepo {
 
     async fn delete_collection(&self, id: &CollectionId) -> Result<(), RepositoryError> {
         self.guard()?;
-        self.state
-            .lock()
-            .unwrap()
-            .collections
-            .retain(|c| &c.id != id);
+        self.state.lock().unwrap().collections.retain(|c| &c.id != id);
         Ok(())
     }
 
@@ -600,12 +534,7 @@ impl CatalogRepository for MockCatalogRepo {
     async fn get_season(&self, id: &SeasonId) -> Result<Option<Season>, RepositoryError> {
         self.guard()?;
         let state = self.state.lock().unwrap();
-        Ok(state
-            .seasons
-            .iter()
-            .find(|s| &s.id == id)
-            .cloned()
-            .map(|s| state.hydrate_season(s)))
+        Ok(state.seasons.iter().find(|s| &s.id == id).cloned().map(|s| state.hydrate_season(s)))
     }
 
     async fn list_versions(
@@ -614,7 +543,7 @@ impl CatalogRepository for MockCatalogRepo {
         page: PageRequest,
     ) -> Result<Page<Version>, RepositoryError> {
         self.guard()?;
-        let matched: Vec<Version> = self
+        let mut matched: Vec<Version> = self
             .state
             .lock()
             .unwrap()
@@ -623,6 +552,7 @@ impl CatalogRepository for MockCatalogRepo {
             .filter(|v| &v.title == title)
             .cloned()
             .collect();
+        matched.sort_by(|a, b| a.id.0.cmp(&b.id.0));
         Ok(paginate(&matched, page))
     }
 
@@ -632,7 +562,7 @@ impl CatalogRepository for MockCatalogRepo {
         page: PageRequest,
     ) -> Result<Page<Version>, RepositoryError> {
         self.guard()?;
-        let matched: Vec<Version> = self
+        let mut matched: Vec<Version> = self
             .state
             .lock()
             .unwrap()
@@ -641,12 +571,14 @@ impl CatalogRepository for MockCatalogRepo {
             .filter(|v| &v.library == library)
             .cloned()
             .collect();
+        matched.sort_by(|a, b| a.id.0.cmp(&b.id.0));
         Ok(paginate(&matched, page))
     }
 
     async fn list_all_versions(&self, page: PageRequest) -> Result<Page<Version>, RepositoryError> {
         self.guard()?;
-        let all: Vec<Version> = self.state.lock().unwrap().versions.to_vec();
+        let mut all: Vec<Version> = self.state.lock().unwrap().versions.to_vec();
+        all.sort_by(|a, b| a.id.0.cmp(&b.id.0));
         Ok(paginate(&all, page))
     }
 
@@ -675,14 +607,7 @@ impl CatalogRepository for MockCatalogRepo {
 
     async fn get_version(&self, id: &VersionId) -> Result<Option<Version>, RepositoryError> {
         self.guard()?;
-        let found = self
-            .state
-            .lock()
-            .unwrap()
-            .versions
-            .iter()
-            .find(|v| &v.id == id)
-            .cloned();
+        let found = self.state.lock().unwrap().versions.iter().find(|v| &v.id == id).cloned();
         Ok(found)
     }
 
@@ -834,11 +759,7 @@ impl CatalogRepository for MockCatalogRepo {
         refs: &[ArtworkRef],
     ) -> Result<(), RepositoryError> {
         self.guard()?;
-        self.state
-            .lock()
-            .unwrap()
-            .artwork
-            .insert(owner.clone(), refs.to_vec());
+        self.state.lock().unwrap().artwork.insert(owner.clone(), refs.to_vec());
         Ok(())
     }
 
@@ -862,32 +783,17 @@ impl CatalogRepository for MockCatalogRepo {
 
     async fn all_version_ids(&self) -> Result<Vec<VersionId>, RepositoryError> {
         self.guard()?;
-        Ok(self
-            .state
-            .lock()
-            .unwrap()
-            .versions
-            .iter()
-            .map(|version| version.id.clone())
-            .collect())
+        Ok(self.state.lock().unwrap().versions.iter().map(|version| version.id.clone()).collect())
     }
 
     async fn live_artwork_ids(&self, ids: &[String]) -> Result<HashSet<String>, RepositoryError> {
         let live = self.all_artwork_ids().await?;
-        Ok(ids
-            .iter()
-            .filter(|id| live.iter().any(|art| &art.0 == *id))
-            .cloned()
-            .collect())
+        Ok(ids.iter().filter(|id| live.iter().any(|art| &art.0 == *id)).cloned().collect())
     }
 
     async fn live_version_ids(&self, ids: &[String]) -> Result<HashSet<String>, RepositoryError> {
         let live = self.all_version_ids().await?;
-        Ok(ids
-            .iter()
-            .filter(|id| live.iter().any(|version| &version.0 == *id))
-            .cloned()
-            .collect())
+        Ok(ids.iter().filter(|id| live.iter().any(|version| &version.0 == *id)).cloned().collect())
     }
 
     async fn live_artwork_paths(&self, ids: &[String]) -> Result<HashSet<String>, RepositoryError> {
@@ -954,11 +860,7 @@ impl CatalogRepository for MockCatalogRepo {
         assets: &[TrickplayAsset],
     ) -> Result<(), RepositoryError> {
         self.guard()?;
-        self.state
-            .lock()
-            .unwrap()
-            .trickplay
-            .insert(version.clone(), assets.to_vec());
+        self.state.lock().unwrap().trickplay.insert(version.clone(), assets.to_vec());
         Ok(())
     }
 
@@ -969,15 +871,9 @@ impl CatalogRepository for MockCatalogRepo {
     ) -> Result<(), RepositoryError> {
         self.guard()?;
         if self.fail_writes.load(Ordering::Relaxed) {
-            return Err(RepositoryError::Backend(
-                "mock catalog write failure".to_owned(),
-            ));
+            return Err(RepositoryError::Backend("mock catalog write failure".to_owned()));
         }
-        self.state
-            .lock()
-            .unwrap()
-            .subtitle_files
-            .insert(version.clone(), files.to_vec());
+        self.state.lock().unwrap().subtitle_files.insert(version.clone(), files.to_vec());
         Ok(())
     }
 
@@ -988,9 +884,7 @@ impl CatalogRepository for MockCatalogRepo {
     ) -> Result<(), RepositoryError> {
         self.guard()?;
         if self.fail_writes.load(Ordering::Relaxed) {
-            return Err(RepositoryError::Backend(
-                "mock catalog write failure".to_owned(),
-            ));
+            return Err(RepositoryError::Backend("mock catalog write failure".to_owned()));
         }
         let mut state = self.state.lock().unwrap();
         let files = state.subtitle_files.entry(version.clone()).or_default();
@@ -1033,15 +927,10 @@ impl CatalogRepository for MockCatalogRepo {
     async fn get_person(&self, id: &PersonId) -> Result<Option<Person>, RepositoryError> {
         self.guard()?;
         let state = self.state.lock().unwrap();
-        Ok(state
-            .people
-            .iter()
-            .find(|p| &p.id == id)
-            .cloned()
-            .map(|mut person| {
-                person.artwork = state.artwork_for(&ArtworkOwner::Person(person.id.clone()));
-                person
-            }))
+        Ok(state.people.iter().find(|p| &p.id == id).cloned().map(|mut person| {
+            person.artwork = state.artwork_for(&ArtworkOwner::Person(person.id.clone()));
+            person
+        }))
     }
 
     async fn set_title_enrichment(
@@ -1050,23 +939,15 @@ impl CatalogRepository for MockCatalogRepo {
         enrichment: &TitleEnrichment,
     ) -> Result<(), RepositoryError> {
         self.guard()?;
-        self.state
-            .lock()
-            .unwrap()
-            .enrichment
-            .insert(owner.clone(), enrichment.clone());
+        self.state.lock().unwrap().enrichment.insert(owner.clone(), enrichment.clone());
         Ok(())
     }
 
     async fn movie_detail(&self, id: &MovieId) -> Result<Option<MovieDetail>, RepositoryError> {
         self.guard()?;
         let state = self.state.lock().unwrap();
-        let Some(movie) = state
-            .movies
-            .iter()
-            .find(|m| &m.id == id)
-            .cloned()
-            .map(|m| state.hydrate_movie(m))
+        let Some(movie) =
+            state.movies.iter().find(|m| &m.id == id).cloned().map(|m| state.hydrate_movie(m))
         else {
             return Ok(None);
         };
@@ -1085,12 +966,8 @@ impl CatalogRepository for MockCatalogRepo {
     async fn series_detail(&self, id: &SeriesId) -> Result<Option<SeriesDetail>, RepositoryError> {
         self.guard()?;
         let state = self.state.lock().unwrap();
-        let Some(series) = state
-            .series
-            .iter()
-            .find(|s| &s.id == id)
-            .cloned()
-            .map(|s| state.hydrate_series(s))
+        let Some(series) =
+            state.series.iter().find(|s| &s.id == id).cloned().map(|s| state.hydrate_series(s))
         else {
             return Ok(None);
         };
@@ -1100,20 +977,14 @@ impl CatalogRepository for MockCatalogRepo {
             .iter()
             .filter(|season| &season.series == id)
             .flat_map(|season| {
-                state
-                    .episodes
-                    .iter()
-                    .filter(move |episode| episode.season == season.id)
+                state.episodes.iter().filter(move |episode| episode.season == season.id)
             })
             .collect();
         let playable = episodes
             .iter()
             .filter(|episode| {
                 let title = TitleId::Episode(episode.id.clone());
-                state
-                    .versions
-                    .iter()
-                    .any(|version| version.title == title && version.available)
+                state.versions.iter().any(|version| version.title == title && version.available)
             })
             .count();
         Ok(Some(SeriesDetail {
@@ -1264,11 +1135,7 @@ fn playable(state: &State, title: &TitleId, libraries: Option<&Vec<LibraryId>>) 
 fn movie_playable(state: &State, movie: &Movie, filter: &TitleListFilter) -> bool {
     genre_matches(state, &TitleRef::Movie(movie.id.clone()), &filter.genres)
         && !rating_blocked(movie.content_rating.as_ref(), &filter.blocked_ratings)
-        && playable(
-            state,
-            &TitleId::Movie(movie.id.clone()),
-            filter.libraries.as_ref(),
-        )
+        && playable(state, &TitleId::Movie(movie.id.clone()), filter.libraries.as_ref())
 }
 
 fn episode_series<'a>(state: &'a State, episode: &Episode) -> Option<&'a Series> {
@@ -1295,11 +1162,7 @@ fn episode_playable(state: &State, episode: &Episode, filter: &TitleListFilter) 
     };
     genre_matches(state, &TitleRef::Series(series.id.clone()), &filter.genres)
         && !rating_blocked(series.content_rating.as_ref(), &filter.blocked_ratings)
-        && playable(
-            state,
-            &TitleId::Episode(episode.id.clone()),
-            filter.libraries.as_ref(),
-        )
+        && playable(state, &TitleId::Episode(episode.id.clone()), filter.libraries.as_ref())
 }
 
 fn genre_matches(state: &State, title: &TitleRef, genres: &[String]) -> bool {
@@ -1309,9 +1172,7 @@ fn genre_matches(state: &State, title: &TitleRef, genres: &[String]) -> bool {
     let Some(enrichment) = state.enrichment.get(title) else {
         return false;
     };
-    genres
-        .iter()
-        .all(|name| enrichment.genres.iter().any(|g| &g.name == name))
+    genres.iter().all(|name| enrichment.genres.iter().any(|g| &g.name == name))
 }
 
 fn remember_artwork(state: &mut State, owner: ArtworkOwner, artwork: &[ArtworkRef]) {
@@ -1378,13 +1239,12 @@ fn visible_contexts(state: &State, filter: &TitleListFilter) -> Vec<EpisodeConte
 }
 
 fn episode_in_libraries(state: &State, id: &EpisodeId, libraries: Option<&Vec<LibraryId>>) -> bool {
-    match libraries {
-        None => true,
-        Some(libraries) => state.versions.iter().any(|version| {
+    libraries.is_none_or(|allowed| {
+        state.versions.iter().any(|version| {
             matches!(&version.title, TitleId::Episode(episode) if episode == id)
-                && libraries.contains(&version.library)
-        }),
-    }
+                && allowed.contains(&version.library)
+        })
+    })
 }
 
 fn movie_in_libraries(state: &State, id: &MovieId, libraries: Option<&Vec<LibraryId>>) -> bool {
@@ -1424,10 +1284,7 @@ mod tests {
     use jiff::Timestamp;
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        PageRequest { offset: 0, limit: 10 }
     }
 
     fn movie(id: &str) -> Movie {
@@ -1525,84 +1382,26 @@ mod tests {
         repo.add_version(version("v1"));
 
         assert_eq!(repo.list_movies(page()).await.unwrap().total, 1);
-        assert!(
-            repo.get_movie(&MovieId("m1".into()))
-                .await
-                .unwrap()
-                .is_some()
-        );
-        assert!(
-            repo.get_movie(&MovieId("x".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(repo.get_movie(&MovieId("m1".into())).await.unwrap().is_some());
+        assert!(repo.get_movie(&MovieId("x".into())).await.unwrap().is_none());
         assert_eq!(repo.list_series(page()).await.unwrap().total, 1);
-        assert!(
-            repo.get_series(&SeriesId("s1".into()))
-                .await
-                .unwrap()
-                .is_some()
-        );
-        assert_eq!(
-            repo.list_seasons(&SeriesId("s1".into()))
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
-        assert!(
-            repo.get_season(&SeasonId("se1".into()))
-                .await
-                .unwrap()
-                .is_some()
-        );
-        assert_eq!(
-            repo.list_episodes(&SeasonId("se1".into()))
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
-        assert!(
-            repo.get_episode(&EpisodeId("e1".into()))
-                .await
-                .unwrap()
-                .is_some()
-        );
+        assert!(repo.get_series(&SeriesId("s1".into())).await.unwrap().is_some());
+        assert_eq!(repo.list_seasons(&SeriesId("s1".into())).await.unwrap().len(), 1);
+        assert!(repo.get_season(&SeasonId("se1".into())).await.unwrap().is_some());
+        assert_eq!(repo.list_episodes(&SeasonId("se1".into())).await.unwrap().len(), 1);
+        assert!(repo.get_episode(&EpisodeId("e1".into())).await.unwrap().is_some());
         assert_eq!(repo.list_collections(page()).await.unwrap().total, 1);
-        assert!(
-            repo.get_collection(&CollectionId("c1".into()))
-                .await
-                .unwrap()
-                .is_some()
-        );
+        assert!(repo.get_collection(&CollectionId("c1".into())).await.unwrap().is_some());
         assert_eq!(
-            repo.list_versions(&TitleId::Movie(MovieId("m1".into())), page())
-                .await
-                .unwrap()
-                .total,
+            repo.list_versions(&TitleId::Movie(MovieId("m1".into())), page()).await.unwrap().total,
             1
         );
         assert_eq!(
-            repo.list_library_versions(&LibraryId("lib1".into()), page())
-                .await
-                .unwrap()
-                .total,
+            repo.list_library_versions(&LibraryId("lib1".into()), page()).await.unwrap().total,
             1
         );
-        assert!(
-            repo.version_detail(&VersionId("v1".into()))
-                .await
-                .unwrap()
-                .is_some()
-        );
-        assert!(
-            repo.version_detail(&VersionId("x".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(repo.version_detail(&VersionId("v1".into())).await.unwrap().is_some());
+        assert!(repo.version_detail(&VersionId("x".into())).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -1635,44 +1434,24 @@ mod tests {
         .await
         .unwrap();
 
-        let listed = repo
-            .list_artwork(&ArtworkOwner::Movie(MovieId("m1".into())))
-            .await
-            .unwrap();
+        let listed = repo.list_artwork(&ArtworkOwner::Movie(MovieId("m1".into()))).await.unwrap();
         assert_eq!(listed, vec![poster.clone(), backdrop.clone()]);
 
-        let hydrated = repo
-            .get_movie(&MovieId("m1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let hydrated = repo.get_movie(&MovieId("m1".into())).await.unwrap().unwrap();
         assert_eq!(hydrated.artwork, vec![poster.clone(), backdrop.clone()]);
 
         let listed_movies = repo.list_movies(page()).await.unwrap();
-        assert_eq!(
-            listed_movies.items[0].artwork,
-            vec![poster.clone(), backdrop.clone()]
-        );
+        assert_eq!(listed_movies.items[0].artwork, vec![poster.clone(), backdrop.clone()]);
         assert!(listed_movies.items[1].artwork.is_empty());
 
-        repo.set_artwork(
-            &ArtworkOwner::Movie(MovieId("m1".into())),
-            std::slice::from_ref(&poster),
-        )
-        .await
-        .unwrap();
-        let replaced = repo
-            .get_movie(&MovieId("m1".into()))
+        repo.set_artwork(&ArtworkOwner::Movie(MovieId("m1".into())), std::slice::from_ref(&poster))
             .await
-            .unwrap()
             .unwrap();
+        let replaced = repo.get_movie(&MovieId("m1".into())).await.unwrap().unwrap();
         assert_eq!(replaced.artwork, vec![poster]);
 
         assert!(
-            repo.list_artwork(&ArtworkOwner::Movie(MovieId("m2".into())))
-                .await
-                .unwrap()
-                .is_empty()
+            repo.list_artwork(&ArtworkOwner::Movie(MovieId("m2".into()))).await.unwrap().is_empty()
         );
     }
 
@@ -1701,11 +1480,7 @@ mod tests {
         })
         .await
         .unwrap();
-        let stored = repo
-            .get_collection(&CollectionId("c1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let stored = repo.get_collection(&CollectionId("c1".into())).await.unwrap().unwrap();
         assert_eq!(stored.name, "Renamed");
 
         repo.upsert_collection(Collection {
@@ -1721,27 +1496,14 @@ mod tests {
         .unwrap();
         let listed = repo.list_collections(PageRequest::ALL).await.unwrap();
         assert_eq!(
-            listed
-                .items
-                .iter()
-                .map(|c| c.id.0.as_str())
-                .collect::<Vec<_>>(),
+            listed.items.iter().map(|c| c.id.0.as_str()).collect::<Vec<_>>(),
             ["c2", "c1"],
             "collections list by name, case-insensitively, not by insertion"
         );
-        repo.delete_collection(&CollectionId("c2".into()))
-            .await
-            .unwrap();
+        repo.delete_collection(&CollectionId("c2".into())).await.unwrap();
 
-        repo.delete_collection(&CollectionId("c1".into()))
-            .await
-            .unwrap();
-        assert!(
-            repo.get_collection(&CollectionId("c1".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        repo.delete_collection(&CollectionId("c1".into())).await.unwrap();
+        assert!(repo.get_collection(&CollectionId("c1".into())).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -1756,11 +1518,7 @@ mod tests {
         assert!(repo.list_episodes(&SeasonId("se1".into())).await.is_err());
         assert!(repo.get_episode(&EpisodeId("e1".into())).await.is_err());
         assert!(repo.list_collections(page()).await.is_err());
-        assert!(
-            repo.get_collection(&CollectionId("c1".into()))
-                .await
-                .is_err()
-        );
+        assert!(repo.get_collection(&CollectionId("c1".into())).await.is_err());
         assert!(
             repo.upsert_collection(Collection {
                 id: CollectionId("c1".into()),
@@ -1774,43 +1532,17 @@ mod tests {
             .await
             .is_err()
         );
-        assert!(
-            repo.delete_collection(&CollectionId("c1".into()))
-                .await
-                .is_err()
-        );
+        assert!(repo.delete_collection(&CollectionId("c1".into())).await.is_err());
         assert!(repo.get_season(&SeasonId("se1".into())).await.is_err());
-        assert!(
-            repo.list_versions(&TitleId::Movie(MovieId("m1".into())), page())
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.list_library_versions(&LibraryId("lib1".into()), page())
-                .await
-                .is_err()
-        );
+        assert!(repo.list_versions(&TitleId::Movie(MovieId("m1".into())), page()).await.is_err());
+        assert!(repo.list_library_versions(&LibraryId("lib1".into()), page()).await.is_err());
         assert!(repo.version_detail(&VersionId("v1".into())).await.is_err());
+        assert!(repo.set_artwork(&ArtworkOwner::Movie(MovieId("m1".into())), &[]).await.is_err());
+        assert!(repo.list_artwork(&ArtworkOwner::Movie(MovieId("m1".into()))).await.is_err());
         assert!(
-            repo.set_artwork(&ArtworkOwner::Movie(MovieId("m1".into())), &[])
-                .await
-                .is_err()
+            repo.set_version_tracks(&VersionId("v1".into()), &[], &[], &[], &[]).await.is_err()
         );
-        assert!(
-            repo.list_artwork(&ArtworkOwner::Movie(MovieId("m1".into())))
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.set_version_tracks(&VersionId("v1".into()), &[], &[], &[], &[])
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.set_trickplay(&VersionId("v1".into()), &[])
-                .await
-                .is_err()
-        );
+        assert!(repo.set_trickplay(&VersionId("v1".into()), &[]).await.is_err());
         assert!(repo.upsert_movie(movie("m1")).await.is_err());
         assert!(repo.upsert_series(series("s1")).await.is_err());
         assert!(repo.upsert_season(season("se1", "s1")).await.is_err());
@@ -1838,16 +1570,8 @@ mod tests {
         assert!(repo.series_detail(&SeriesId("s1".into())).await.is_err());
         assert!(repo.filmography(&PersonId("p1".into())).await.is_err());
         assert!(repo.list_genres(None).await.is_err());
-        assert!(
-            repo.list_movies_filtered(&TitleListFilter::default(), page())
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.list_series_filtered(&TitleListFilter::default(), page())
-                .await
-                .is_err()
-        );
+        assert!(repo.list_movies_filtered(&TitleListFilter::default(), page()).await.is_err());
+        assert!(repo.list_series_filtered(&TitleListFilter::default(), page()).await.is_err());
     }
 
     #[tokio::test]
@@ -1877,13 +1601,7 @@ mod tests {
         let movies = repo.list_movies_filtered(&in_lib1, page()).await.unwrap();
         assert_eq!(movies.total, 1);
         assert_eq!(movies.items[0].id, MovieId("m1".into()));
-        assert!(
-            repo.list_series_filtered(&in_lib1, page())
-                .await
-                .unwrap()
-                .items
-                .is_empty()
-        );
+        assert!(repo.list_series_filtered(&in_lib1, page()).await.unwrap().items.is_empty());
 
         let in_lib2 = TitleListFilter {
             libraries: Some(vec![LibraryId("lib2".into())]),
@@ -1893,38 +1611,18 @@ mod tests {
         assert_eq!(series.total, 1);
         assert_eq!(series.items[0].id, SeriesId("s1".into()));
 
-        let none_scope = TitleListFilter {
-            libraries: Some(Vec::new()),
-            ..TitleListFilter::default()
-        };
-        assert!(
-            repo.list_movies_filtered(&none_scope, page())
-                .await
-                .unwrap()
-                .items
-                .is_empty()
-        );
+        let none_scope =
+            TitleListFilter { libraries: Some(Vec::new()), ..TitleListFilter::default() };
+        assert!(repo.list_movies_filtered(&none_scope, page()).await.unwrap().items.is_empty());
     }
 
     #[tokio::test]
     async fn upsert_replaces_by_id_and_is_idempotent() {
         let repo = MockCatalogRepo::new();
         repo.upsert_movie(movie("m1")).await.unwrap();
-        repo.upsert_movie(Movie {
-            title: "renamed".into(),
-            ..movie("m1")
-        })
-        .await
-        .unwrap();
+        repo.upsert_movie(Movie { title: "renamed".into(), ..movie("m1") }).await.unwrap();
         assert_eq!(repo.list_movies(page()).await.unwrap().total, 1);
-        assert_eq!(
-            repo.get_movie(&MovieId("m1".into()))
-                .await
-                .unwrap()
-                .unwrap()
-                .title,
-            "renamed"
-        );
+        assert_eq!(repo.get_movie(&MovieId("m1".into())).await.unwrap().unwrap().title, "renamed");
 
         repo.upsert_series(series("s1")).await.unwrap();
         repo.upsert_series(series("s1")).await.unwrap();
@@ -1932,31 +1630,16 @@ mod tests {
 
         repo.upsert_season(season("se1", "s1")).await.unwrap();
         repo.upsert_season(season("se1", "s1")).await.unwrap();
-        assert_eq!(
-            repo.list_seasons(&SeriesId("s1".into()))
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
+        assert_eq!(repo.list_seasons(&SeriesId("s1".into())).await.unwrap().len(), 1);
 
         repo.upsert_episode(episode("e1", "se1")).await.unwrap();
         repo.upsert_episode(episode("e1", "se1")).await.unwrap();
-        assert_eq!(
-            repo.list_episodes(&SeasonId("se1".into()))
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
+        assert_eq!(repo.list_episodes(&SeasonId("se1".into())).await.unwrap().len(), 1);
 
         repo.upsert_version(version("v1")).await.unwrap();
         repo.upsert_version(version("v1")).await.unwrap();
         assert_eq!(
-            repo.list_versions(&TitleId::Movie(MovieId("m1".into())), page())
-                .await
-                .unwrap()
-                .total,
+            repo.list_versions(&TitleId::Movie(MovieId("m1".into())), page()).await.unwrap().total,
             1
         );
     }
@@ -1989,14 +1672,8 @@ mod tests {
 
         let movie_enrichment = TitleEnrichment {
             genres: vec![
-                Genre {
-                    id: GenreId("g2".into()),
-                    name: "Drama".into(),
-                },
-                Genre {
-                    id: GenreId("g1".into()),
-                    name: "Action".into(),
-                },
+                Genre { id: GenreId("g2".into()), name: "Drama".into() },
+                Genre { id: GenreId("g1".into()), name: "Action".into() },
             ],
             credits: vec![
                 Credit {
@@ -2021,18 +1698,9 @@ mod tests {
                     order: 2,
                 },
             ],
-            studios: vec![Studio {
-                id: StudioId("st1".into()),
-                name: "Acme".into(),
-            }],
-            ratings: vec![Rating {
-                source: "tmdb".into(),
-                value: 8.5,
-            }],
-            external_ids: vec![ExternalId {
-                source: "tmdb".into(),
-                value: "100".into(),
-            }],
+            studios: vec![Studio { id: StudioId("st1".into()), name: "Acme".into() }],
+            ratings: vec![Rating { source: "tmdb".into(), value: 8.5 }],
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "100".into() }],
             extras: vec![Extra {
                 kind: ExtraKind::Trailer,
                 title: "Teaser".into(),
@@ -2045,10 +1713,7 @@ mod tests {
         repo.set_title_enrichment(
             &TitleRef::Series(SeriesId("s1".into())),
             &TitleEnrichment {
-                genres: vec![Genre {
-                    id: GenreId("g1".into()),
-                    name: "Action".into(),
-                }],
+                genres: vec![Genre { id: GenreId("g1".into()), name: "Action".into() }],
                 credits: vec![Credit {
                     person: PersonId("p1".into()),
                     title: TitleRef::Series(SeriesId("s1".into())),
@@ -2062,11 +1727,7 @@ mod tests {
         .await
         .unwrap();
 
-        let detail = repo
-            .movie_detail(&MovieId("m1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let detail = repo.movie_detail(&MovieId("m1".into())).await.unwrap().unwrap();
         assert_eq!(detail.genres.len(), 2);
         assert_eq!(detail.credits.len(), 2);
         assert_eq!(detail.credits[0].person.name, "Ada");
@@ -2077,27 +1738,13 @@ mod tests {
         assert_eq!(detail.ratings[0].value, 8.5);
         assert_eq!(detail.external_ids[0].value, "100");
         assert_eq!(detail.extras[0].title, "Teaser");
-        assert!(
-            repo.movie_detail(&MovieId("nope".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(repo.movie_detail(&MovieId("nope".into())).await.unwrap().is_none());
 
-        let series_detail = repo
-            .series_detail(&SeriesId("s1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let series_detail = repo.series_detail(&SeriesId("s1".into())).await.unwrap().unwrap();
         assert_eq!(series_detail.genres.len(), 1);
         assert_eq!(series_detail.credits.len(), 1);
         assert_eq!(series_detail.credits[0].character, Some("Guest".to_owned()));
-        assert!(
-            repo.series_detail(&SeriesId("nope".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(repo.series_detail(&SeriesId("nope".into())).await.unwrap().is_none());
 
         let p1_film = repo.filmography(&PersonId("p1".into())).await.unwrap();
         assert_eq!(p1_film.len(), 2);
@@ -2107,55 +1754,24 @@ mod tests {
         assert_eq!(p2_film.len(), 1);
         assert_eq!(p2_film[0].role, CreditRole::Director);
 
-        assert_eq!(
-            repo.get_person(&PersonId("p1".into()))
-                .await
-                .unwrap()
-                .unwrap()
-                .name,
-            "Ada"
-        );
-        assert!(
-            repo.get_person(&PersonId("nope".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert_eq!(repo.get_person(&PersonId("p1".into())).await.unwrap().unwrap().name, "Ada");
+        assert!(repo.get_person(&PersonId("nope".into())).await.unwrap().is_none());
 
         let genres = repo.list_genres(None).await.unwrap();
-        assert_eq!(
-            genres.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(),
-            ["Action", "Drama"]
-        );
+        assert_eq!(genres.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(), ["Action", "Drama"]);
 
         let genre_filter = |name: &str| TitleListFilter {
             genres: vec![name.into()],
             ..TitleListFilter::default()
         };
-        let by_g1 = repo
-            .list_movies_filtered(&genre_filter("Action"), page())
-            .await
-            .unwrap();
+        let by_g1 = repo.list_movies_filtered(&genre_filter("Action"), page()).await.unwrap();
+        assert_eq!(by_g1.items.iter().map(|m| m.id.0.as_str()).collect::<Vec<_>>(), ["m1"]);
         assert_eq!(
-            by_g1
-                .items
-                .iter()
-                .map(|m| m.id.0.as_str())
-                .collect::<Vec<_>>(),
-            ["m1"]
-        );
-        assert_eq!(
-            repo.list_movies_filtered(&genre_filter("Drama"), page())
-                .await
-                .unwrap()
-                .total,
+            repo.list_movies_filtered(&genre_filter("Drama"), page()).await.unwrap().total,
             1
         );
         assert_eq!(
-            repo.list_movies_filtered(&genre_filter("nope"), page())
-                .await
-                .unwrap()
-                .total,
+            repo.list_movies_filtered(&genre_filter("nope"), page()).await.unwrap().total,
             0
         );
         assert_eq!(
@@ -2169,10 +1785,7 @@ mod tests {
             ["s1"]
         );
         assert_eq!(
-            repo.list_series_filtered(&genre_filter("Drama"), page())
-                .await
-                .unwrap()
-                .total,
+            repo.list_series_filtered(&genre_filter("Drama"), page()).await.unwrap().total,
             0
         );
 
@@ -2182,11 +1795,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let cleared = repo
-            .movie_detail(&MovieId("m1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let cleared = repo.movie_detail(&MovieId("m1".into())).await.unwrap().unwrap();
         assert!(cleared.genres.is_empty());
         assert!(cleared.credits.is_empty());
     }
@@ -2225,10 +1834,7 @@ mod tests {
                 forced: false,
                 default: true,
             }],
-            &[Chapter {
-                title: "One".into(),
-                start_ms: 0,
-            }],
+            &[Chapter { title: "One".into(), start_ms: 0 }],
         )
         .await
         .unwrap();
@@ -2249,11 +1855,7 @@ mod tests {
         repo.seed_markers(
             &v1,
             DetectedMarkers {
-                intros: vec![IntroMarker {
-                    version: v1.clone(),
-                    start_ms: 0,
-                    end_ms: 5_000,
-                }],
+                intros: vec![IntroMarker { version: v1.clone(), start_ms: 0, end_ms: 5_000 }],
                 credits: Vec::new(),
             },
         );
@@ -2267,20 +1869,13 @@ mod tests {
         assert_eq!(detail.trickplay[0].columns, 10);
         assert_eq!(detail.markers.intros.len(), 1);
 
-        repo.set_version_tracks(&v1, &[], &[], &[], &[])
-            .await
-            .unwrap();
+        repo.set_version_tracks(&v1, &[], &[], &[], &[]).await.unwrap();
         repo.set_trickplay(&v1, &[]).await.unwrap();
         let cleared = repo.version_detail(&v1).await.unwrap().unwrap();
         assert!(cleared.video.is_empty());
         assert!(cleared.trickplay.is_empty());
 
-        assert!(
-            repo.version_detail(&VersionId("nope".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(repo.version_detail(&VersionId("nope".into())).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -2292,26 +1887,15 @@ mod tests {
         repo.add_version(version("v2"));
         let v1 = VersionId("v1".to_owned());
 
-        assert_eq!(
-            repo.get_version(&v1).await.unwrap().unwrap().path,
-            "/media/v1.mkv"
-        );
-        assert!(
-            repo.get_version(&VersionId("nope".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert_eq!(repo.get_version(&v1).await.unwrap().unwrap().path, "/media/v1.mkv");
+        assert!(repo.get_version(&VersionId("nope".into())).await.unwrap().is_none());
 
         repo.set_version_tracks(
             &v1,
             &[],
             &[],
             &[],
-            &[Chapter {
-                title: "One".into(),
-                start_ms: 0,
-            }],
+            &[Chapter { title: "One".into(), start_ms: 0 }],
         )
         .await
         .unwrap();
@@ -2348,11 +1932,7 @@ mod tests {
         repo.seed_markers(
             &v1,
             DetectedMarkers {
-                intros: vec![IntroMarker {
-                    version: v1.clone(),
-                    start_ms: 0,
-                    end_ms: 5_000,
-                }],
+                intros: vec![IntroMarker { version: v1.clone(), start_ms: 0, end_ms: 5_000 }],
                 credits: Vec::new(),
             },
         );
@@ -2361,12 +1941,7 @@ mod tests {
 
         assert!(repo.get_version(&v1).await.unwrap().is_none());
         assert!(repo.version_detail(&v1).await.unwrap().is_none());
-        assert!(
-            repo.get_version(&VersionId("v2".into()))
-                .await
-                .unwrap()
-                .is_some()
-        );
+        assert!(repo.get_version(&VersionId("v2".into())).await.unwrap().is_some());
         repo.delete_version(&v1).await.unwrap();
 
         repo.add_version(version("v1"));
@@ -2396,34 +1971,16 @@ mod tests {
             pinned: false,
         };
 
-        repo.add_subtitle_file(&v1, &file("sf1", "/subs/one.srt"))
-            .await
-            .unwrap();
-        repo.add_subtitle_file(&v1, &file("sf2", "/subs/two.srt"))
-            .await
-            .unwrap();
-        repo.add_subtitle_file(&v1, &file("sf1", "/subs/one.v2.srt"))
-            .await
-            .unwrap();
+        repo.add_subtitle_file(&v1, &file("sf1", "/subs/one.srt")).await.unwrap();
+        repo.add_subtitle_file(&v1, &file("sf2", "/subs/two.srt")).await.unwrap();
+        repo.add_subtitle_file(&v1, &file("sf1", "/subs/one.v2.srt")).await.unwrap();
 
-        let files = repo
-            .version_detail(&v1)
-            .await
-            .unwrap()
-            .unwrap()
-            .subtitle_files;
-        assert_eq!(
-            files.iter().map(|f| f.id.0.as_str()).collect::<Vec<_>>(),
-            vec!["sf1", "sf2"]
-        );
+        let files = repo.version_detail(&v1).await.unwrap().unwrap().subtitle_files;
+        assert_eq!(files.iter().map(|f| f.id.0.as_str()).collect::<Vec<_>>(), vec!["sf1", "sf2"]);
         assert_eq!(files[0].path, "/subs/one.v2.srt");
 
         repo.set_fail_writes();
-        assert!(
-            repo.add_subtitle_file(&v1, &file("sf3", "/subs/three.srt"))
-                .await
-                .is_err()
-        );
+        assert!(repo.add_subtitle_file(&v1, &file("sf3", "/subs/three.srt")).await.is_err());
     }
 
     #[tokio::test]
@@ -2448,25 +2005,14 @@ mod tests {
         }
 
         assert_eq!(
-            repo.collections_of_movie(&MovieId("m1".into()))
-                .await
-                .unwrap(),
+            repo.collections_of_movie(&MovieId("m1".into())).await.unwrap(),
             vec![CollectionId("c-a".into()), CollectionId("c-z".into())],
             "membership is reported for every collection, ordered by id"
         );
-        assert!(
-            repo.collections_of_movie(&MovieId("ghost".into()))
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        assert!(repo.collections_of_movie(&MovieId("ghost".into())).await.unwrap().is_empty());
 
         repo.set_fail();
-        assert!(
-            repo.collections_of_movie(&MovieId("m1".into()))
-                .await
-                .is_err()
-        );
+        assert!(repo.collections_of_movie(&MovieId("m1".into())).await.is_err());
     }
 
     #[tokio::test]
@@ -2519,11 +2065,7 @@ mod tests {
 
         assert!(repo.delete_movie(&MovieId("m1".into())).await.unwrap());
         assert_eq!(
-            repo.get_collection(&CollectionId("c1".into()))
-                .await
-                .unwrap()
-                .unwrap()
-                .movies,
+            repo.get_collection(&CollectionId("c1".into())).await.unwrap().unwrap().movies,
             vec![MovieId("m2".into())],
             "a deleted movie leaves no dangling membership behind"
         );
@@ -2544,11 +2086,7 @@ mod tests {
         missing.available = false;
         repo.add_version(missing);
 
-        let detail = repo
-            .series_detail(&SeriesId("s1".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let detail = repo.series_detail(&SeriesId("s1".into())).await.unwrap().unwrap();
         assert_eq!(detail.episodes_total, 2);
         assert_eq!(
             detail.episodes_with_available_version, 1,

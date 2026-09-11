@@ -36,10 +36,7 @@ pub struct JobNodeResponse {
 
 impl From<JobNode> for JobNodeResponse {
     fn from(n: JobNode) -> Self {
-        JobNodeResponse {
-            job: n.job.into(),
-            depth: n.depth,
-        }
+        JobNodeResponse { job: n.job.into(), depth: n.depth }
     }
 }
 
@@ -72,12 +69,7 @@ mod tests {
     #[test]
     fn carries_both_tab_counts_alongside_the_page() {
         let response = JobsResponse::from(JobPage {
-            page: Page {
-                items: vec![job("a")],
-                total: 9,
-                offset: 50,
-                limit: 50,
-            },
+            page: Page { items: vec![job("a")], total: 9, offset: 50, limit: 50 },
             active_total: 2,
             all_total: 9,
         });
@@ -91,11 +83,9 @@ mod tests {
 
     #[test]
     fn a_node_flattens_the_job_and_adds_its_depth() {
-        let value = serde_json::to_value(JobNodeResponse::from(JobNode {
-            job: job("child"),
-            depth: 2,
-        }))
-        .unwrap();
+        let value =
+            serde_json::to_value(JobNodeResponse::from(JobNode { job: job("child"), depth: 2 }))
+                .unwrap();
         assert_eq!(value["id"], "child");
         assert_eq!(value["depth"], 2);
     }

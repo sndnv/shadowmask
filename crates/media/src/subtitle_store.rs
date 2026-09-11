@@ -34,13 +34,9 @@ impl SubtitleStore for FsSubtitleStore {
             ));
         }
         let dir = self.root.join(&version.0);
-        tokio::fs::create_dir_all(&dir)
-            .await
-            .map_err(|e| SubtitleError::Store(e.to_string()))?;
+        tokio::fs::create_dir_all(&dir).await.map_err(|e| SubtitleError::Store(e.to_string()))?;
         let path = dir.join(format!("{file_id}.{}", format.extension()));
-        tokio::fs::write(&path, content)
-            .await
-            .map_err(|e| SubtitleError::Store(e.to_string()))?;
+        tokio::fs::write(&path, content).await.map_err(|e| SubtitleError::Store(e.to_string()))?;
         Ok(path.to_string_lossy().into_owned())
     }
 
@@ -77,9 +73,7 @@ impl DerivedAssetStore for FsSubtitleStore {
 
 impl SubtitleReader for FsSubtitleStore {
     async fn load(&self, path: &str) -> Result<String, SubtitleError> {
-        tokio::fs::read_to_string(path)
-            .await
-            .map_err(|e| SubtitleError::Backend(e.to_string()))
+        tokio::fs::read_to_string(path).await.map_err(|e| SubtitleError::Backend(e.to_string()))
     }
 }
 
@@ -100,10 +94,7 @@ mod tests {
 
         let expected = dir.path().join("v1").join("file-42.srt");
         assert_eq!(PathBuf::from(&path), expected);
-        assert_eq!(
-            std::fs::read_to_string(&expected).expect("read"),
-            "1\nhello\n"
-        );
+        assert_eq!(std::fs::read_to_string(&expected).expect("read"), "1\nhello\n");
     }
 
     #[tokio::test]
@@ -114,12 +105,7 @@ mod tests {
         let store = FsSubtitleStore::new(&file);
 
         let err = store
-            .store(
-                &VersionId("v1".to_owned()),
-                "file-42",
-                SubtitleFormat::Vtt,
-                "WEBVTT\n",
-            )
+            .store(&VersionId("v1".to_owned()), "file-42", SubtitleFormat::Vtt, "WEBVTT\n")
             .await
             .expect_err("store under a file path must fail");
         assert!(matches!(err, SubtitleError::Store(_)));
@@ -132,29 +118,18 @@ mod tests {
         let store = FsSubtitleStore::new(&root);
         let outside = dir.path().join("escaped.srt");
 
-        for (version, file_id) in [
-            ("v1", "../../escaped"),
-            ("../..", "file-42"),
-            ("v1", ".."),
-            ("v1", "nested/file-42"),
-        ] {
+        for (version, file_id) in
+            [("v1", "../../escaped"), ("../..", "file-42"), ("v1", ".."), ("v1", "nested/file-42")]
+        {
             let err = store
-                .store(
-                    &VersionId(version.to_owned()),
-                    file_id,
-                    SubtitleFormat::Srt,
-                    "1\npwned\n",
-                )
+                .store(&VersionId(version.to_owned()), file_id, SubtitleFormat::Srt, "1\npwned\n")
                 .await
                 .expect_err("a path component that is not a plain name must be refused");
             assert!(matches!(err, SubtitleError::Store(_)));
         }
 
         assert!(!outside.exists(), "nothing is written outside the root");
-        assert!(
-            !root.exists(),
-            "a refused write does not even create the root"
-        );
+        assert!(!root.exists(), "a refused write does not even create the root");
     }
 
     #[tokio::test]
@@ -162,12 +137,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let store = FsSubtitleStore::new(dir.path());
         let path = store
-            .store(
-                &VersionId("v1".to_owned()),
-                "file-42",
-                SubtitleFormat::Vtt,
-                "WEBVTT\n\nhello\n",
-            )
+            .store(&VersionId("v1".to_owned()), "file-42", SubtitleFormat::Vtt, "WEBVTT\n\nhello\n")
             .await
             .expect("store");
 
@@ -181,10 +151,7 @@ mod tests {
         let store = FsSubtitleStore::new(dir.path());
         let missing = dir.path().join("nope.vtt");
 
-        let err = store
-            .load(&missing.to_string_lossy())
-            .await
-            .expect_err("missing file must fail");
+        let err = store.load(&missing.to_string_lossy()).await.expect_err("missing file must fail");
         assert!(matches!(err, SubtitleError::Backend(_)));
     }
 
@@ -193,21 +160,13 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let store = FsSubtitleStore::new(dir.path());
         let path = store
-            .store(
-                &VersionId("v1".to_owned()),
-                "file-42",
-                SubtitleFormat::Vtt,
-                "WEBVTT\n",
-            )
+            .store(&VersionId("v1".to_owned()), "file-42", SubtitleFormat::Vtt, "WEBVTT\n")
             .await
             .expect("store");
 
         store.remove(&path).await.expect("remove");
         assert!(!PathBuf::from(&path).exists());
-        store
-            .remove(&path)
-            .await
-            .expect("removing a missing file is ok");
+        store.remove(&path).await.expect("removing a missing file is ok");
     }
 
     #[tokio::test]
@@ -227,12 +186,7 @@ mod tests {
         let store = FsSubtitleStore::new(dir.path());
         assert_eq!(DerivedAssetStore::label(&store), "subtitles");
         store
-            .store(
-                &VersionId("v1".to_owned()),
-                "file-42",
-                SubtitleFormat::Vtt,
-                "WEBVTT\n",
-            )
+            .store(&VersionId("v1".to_owned()), "file-42", SubtitleFormat::Vtt, "WEBVTT\n")
             .await
             .expect("store");
 
@@ -243,10 +197,7 @@ mod tests {
         let files = store.list_files("v1").await.expect("list files");
         assert_eq!(files.len(), 1);
         assert!(files[0].path.ends_with("file-42.vtt"));
-        store
-            .remove_file(&files[0].path)
-            .await
-            .expect("remove file");
+        store.remove_file(&files[0].path).await.expect("remove file");
         assert!(store.list_files("v1").await.expect("list files").is_empty());
 
         store.remove_dir("v1").await.expect("remove");

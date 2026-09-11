@@ -28,21 +28,12 @@ pub fn resolve_audio(
     preferred: &[LanguageCode],
 ) -> ResolvedAudio {
     if let Some(index) = requested_audio(request, tracks) {
-        return ResolvedAudio {
-            selected: Some(index),
-            remembered: Some(index),
-        };
+        return ResolvedAudio { selected: Some(index), remembered: Some(index) };
     }
     if let Some(index) = stored.filter(|index| has_audio(tracks, *index)) {
-        return ResolvedAudio {
-            selected: Some(index),
-            remembered: Some(index),
-        };
+        return ResolvedAudio { selected: Some(index), remembered: Some(index) };
     }
-    ResolvedAudio {
-        selected: preferred_audio_track(tracks, preferred),
-        remembered: None,
-    }
+    ResolvedAudio { selected: preferred_audio_track(tracks, preferred), remembered: None }
 }
 
 pub fn resolve_subtitle(
@@ -105,9 +96,7 @@ fn by_language(
             .files
             .iter()
             .find(|file| {
-                file.language
-                    .as_ref()
-                    .is_some_and(|code| code.0.eq_ignore_ascii_case(&want.0))
+                file.language.as_ref().is_some_and(|code| code.0.eq_ignore_ascii_case(&want.0))
             })
             .map(|file| SubtitleTrackRef::File(file.id.clone()))
     })
@@ -127,10 +116,7 @@ fn has_audio(tracks: &[AudioTrack], index: u32) -> bool {
 }
 
 fn selection(track: SubtitleTrackRef) -> SubtitleSelection {
-    SubtitleSelection {
-        track,
-        offset_ms: None,
-    }
+    SubtitleSelection { track, offset_ms: None }
 }
 
 fn chosen(track: SubtitleTrackRef) -> ResolvedSubtitle {
@@ -141,10 +127,7 @@ fn chosen(track: SubtitleTrackRef) -> ResolvedSubtitle {
 }
 
 fn off() -> ResolvedSubtitle {
-    ResolvedSubtitle {
-        selected: None,
-        remembered: Some(SubtitleOverride::Off),
-    }
+    ResolvedSubtitle { selected: None, remembered: Some(SubtitleOverride::Off) }
 }
 
 #[cfg(test)]
@@ -196,10 +179,7 @@ mod tests {
     }
 
     fn embedded(tracks: &[EmbeddedSubtitleTrack]) -> AvailableSubtitles<'_> {
-        AvailableSubtitles {
-            embedded: tracks,
-            files: &[],
-        }
+        AvailableSubtitles { embedded: tracks, files: &[] }
     }
 
     #[test]
@@ -228,12 +208,7 @@ mod tests {
     #[test]
     fn the_stored_override_beats_the_account_preference() {
         let tracks = vec![audio(0, Some("eng")), audio(1, Some("jpn"))];
-        let resolved = resolve_audio(
-            &AudioRequest::Unspecified,
-            Some(1),
-            &tracks,
-            &want(&["eng"]),
-        );
+        let resolved = resolve_audio(&AudioRequest::Unspecified, Some(1), &tracks, &want(&["eng"]));
 
         assert_eq!(resolved.selected, Some(1));
         assert_eq!(resolved.remembered, Some(1));
@@ -262,12 +237,8 @@ mod tests {
     #[test]
     fn a_carried_language_that_is_absent_falls_through_to_the_account() {
         let tracks = vec![audio(0, Some("jpn")), audio(1, Some("eng"))];
-        let resolved = resolve_audio(
-            &AudioRequest::Language(language("fra")),
-            None,
-            &tracks,
-            &want(&["eng"]),
-        );
+        let resolved =
+            resolve_audio(&AudioRequest::Language(language("fra")), None, &tracks, &want(&["eng"]));
 
         assert_eq!(resolved.selected, Some(1));
         assert_eq!(resolved.remembered, None);
@@ -276,12 +247,7 @@ mod tests {
     #[test]
     fn a_stored_audio_override_pointing_at_a_missing_track_falls_through() {
         let tracks = vec![audio(0, Some("eng"))];
-        let resolved = resolve_audio(
-            &AudioRequest::Unspecified,
-            Some(7),
-            &tracks,
-            &want(&["eng"]),
-        );
+        let resolved = resolve_audio(&AudioRequest::Unspecified, Some(7), &tracks, &want(&["eng"]));
 
         assert_eq!(resolved.selected, Some(0));
         assert_eq!(resolved.remembered, None);
@@ -290,12 +256,8 @@ mod tests {
     #[test]
     fn subtitles_switched_off_are_remembered_as_off() {
         let tracks = vec![subtitle(2, Some("eng"))];
-        let resolved = resolve_subtitle(
-            &SubtitleRequest::Off,
-            None,
-            &embedded(&tracks),
-            &want(&["eng"]),
-        );
+        let resolved =
+            resolve_subtitle(&SubtitleRequest::Off, None, &embedded(&tracks), &want(&["eng"]));
 
         assert_eq!(resolved.selected, None);
         assert_eq!(resolved.remembered, Some(SubtitleOverride::Off));
@@ -340,18 +302,13 @@ mod tests {
         let resolved = resolve_subtitle(
             &SubtitleRequest::Language(language("fra")),
             None,
-            &AvailableSubtitles {
-                embedded: &tracks,
-                files: &files,
-            },
+            &AvailableSubtitles { embedded: &tracks, files: &files },
             &want(&["eng"]),
         );
 
         assert_eq!(
             resolved.remembered,
-            Some(SubtitleOverride::Track(SubtitleTrackRef::File(
-                SubtitleFileId("sf1".into())
-            )))
+            Some(SubtitleOverride::Track(SubtitleTrackRef::File(SubtitleFileId("sf1".into()))))
         );
     }
 
@@ -392,12 +349,8 @@ mod tests {
 
     #[test]
     fn nothing_matches_and_nothing_is_selected() {
-        let resolved = resolve_subtitle(
-            &SubtitleRequest::Unspecified,
-            None,
-            &embedded(&[]),
-            &want(&["eng"]),
-        );
+        let resolved =
+            resolve_subtitle(&SubtitleRequest::Unspecified, None, &embedded(&[]), &want(&["eng"]));
 
         assert_eq!(resolved.selected, None);
         assert_eq!(resolved.remembered, None);

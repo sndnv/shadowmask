@@ -13,9 +13,6 @@ pub struct ContinueWatchingItemResponse {
 
 impl From<ContinueWatchingItem> for ContinueWatchingItemResponse {
     fn from(c: ContinueWatchingItem) -> Self {
-        ContinueWatchingItemResponse {
-            progress: c.progress.into(),
-            card: c.card.into(),
-        }
+        ContinueWatchingItemResponse { progress: c.progress.into(), card: c.card.into() }
     }
 }

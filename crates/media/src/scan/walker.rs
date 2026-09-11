@@ -37,10 +37,7 @@ fn walk_blocking(root: &str) -> Result<Vec<WalkedEntry>, WalkError> {
         let Ok(metadata) = entry.metadata() else {
             continue;
         };
-        entries.push(WalkedEntry {
-            path: path.to_owned(),
-            size_bytes: metadata.len(),
-        });
+        entries.push(WalkedEntry { path: path.to_owned(), size_bytes: metadata.len() });
     }
     Ok(entries)
 }
@@ -59,28 +56,19 @@ mod tests {
         fs::create_dir(root.join("season")).unwrap();
         fs::write(root.join("season").join("ep.mp4"), b"xyzw").unwrap();
 
-        let entries = WalkdirSourceWalker
-            .walk(root.to_str().unwrap())
-            .await
-            .unwrap();
+        let entries = WalkdirSourceWalker.walk(root.to_str().unwrap()).await.unwrap();
 
         let mut paths: Vec<String> = entries.iter().map(|e| e.path.clone()).collect();
         paths.sort();
         assert_eq!(paths.len(), 3);
-        let movie = entries
-            .iter()
-            .find(|e| e.path.ends_with("movie.mkv"))
-            .unwrap();
+        let movie = entries.iter().find(|e| e.path.ends_with("movie.mkv")).unwrap();
         assert_eq!(movie.size_bytes, 3);
         assert!(paths.iter().any(|p| p.ends_with("ep.mp4")));
     }
 
     #[tokio::test]
     async fn missing_root_is_not_found() {
-        let err = WalkdirSourceWalker
-            .walk("/no/such/shadowmask/root")
-            .await
-            .unwrap_err();
+        let err = WalkdirSourceWalker.walk("/no/such/shadowmask/root").await.unwrap_err();
         assert!(matches!(err, WalkError::RootNotFound(_)));
     }
 
@@ -93,10 +81,7 @@ mod tests {
         fs::write(dir.path().join("real.mkv"), b"ok").unwrap();
         std::os::unix::fs::symlink(outside.path(), dir.path().join("link")).unwrap();
 
-        let entries = WalkdirSourceWalker
-            .walk(dir.path().to_str().unwrap())
-            .await
-            .unwrap();
+        let entries = WalkdirSourceWalker.walk(dir.path().to_str().unwrap()).await.unwrap();
 
         assert!(entries.iter().any(|e| e.path.ends_with("real.mkv")));
         assert!(!entries.iter().any(|e| e.path.ends_with("hidden.mkv")));
@@ -124,10 +109,7 @@ mod tests {
         let locked = root.join("locked");
         fs::create_dir(&locked).unwrap();
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
-        let entries = WalkdirSourceWalker
-            .walk(root.to_str().unwrap())
-            .await
-            .unwrap();
+        let entries = WalkdirSourceWalker.walk(root.to_str().unwrap()).await.unwrap();
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
         assert!(entries.iter().any(|e| e.path.ends_with("ok.mkv")));
     }

@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-FAIL_UNDER_LINES = "99.5"
+FAIL_UNDER_LINES = "99.6"
 IGNORE_COVERAGE = r"crates/server/src/main\.rs$"
 
 STEPS = [

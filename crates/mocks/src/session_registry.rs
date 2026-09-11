@@ -37,11 +37,7 @@ impl MockSessionRegistry {
     fn sorted(&self) -> Vec<PlaybackSession> {
         let mut items: Vec<PlaybackSession> =
             self.sessions.lock().unwrap().values().cloned().collect();
-        items.sort_by(|a, b| {
-            a.started_at
-                .cmp(&b.started_at)
-                .then_with(|| a.id.0.cmp(&b.id.0))
-        });
+        items.sort_by(|a, b| a.started_at.cmp(&b.started_at).then_with(|| a.id.0.cmp(&b.id.0)));
         items
     }
 }
@@ -49,10 +45,7 @@ impl MockSessionRegistry {
 impl SessionRegistry for MockSessionRegistry {
     async fn insert(&self, session: PlaybackSession) -> Result<(), RepositoryError> {
         self.guard()?;
-        self.sessions
-            .lock()
-            .unwrap()
-            .insert(session.id.clone(), session);
+        self.sessions.lock().unwrap().insert(session.id.clone(), session);
         Ok(())
     }
 
@@ -63,11 +56,7 @@ impl SessionRegistry for MockSessionRegistry {
 
     async fn list_for_user(&self, user: &UserId) -> Result<Vec<PlaybackSession>, RepositoryError> {
         self.guard()?;
-        Ok(self
-            .sorted()
-            .into_iter()
-            .filter(|s| &s.user == user)
-            .collect())
+        Ok(self.sorted().into_iter().filter(|s| &s.user == user).collect())
     }
 
     async fn list_all(&self, page: PageRequest) -> Result<Page<PlaybackSession>, RepositoryError> {
@@ -118,10 +107,7 @@ mod tests {
     }
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        PageRequest { offset: 0, limit: 10 }
     }
 
     #[tokio::test]
@@ -131,20 +117,8 @@ mod tests {
         registry.insert(session("s1", "u1", 1)).await.unwrap();
         registry.insert(session("s3", "u2", 3)).await.unwrap();
 
-        assert!(
-            registry
-                .get(&SessionId("s1".into()))
-                .await
-                .unwrap()
-                .is_some()
-        );
-        assert!(
-            registry
-                .get(&SessionId("x".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(registry.get(&SessionId("s1".into())).await.unwrap().is_some());
+        assert!(registry.get(&SessionId("x".into())).await.unwrap().is_none());
 
         let mine = registry.list_for_user(&UserId("u1".into())).await.unwrap();
         let ids: Vec<String> = mine.iter().map(|s| s.id.0.clone()).collect();
@@ -153,13 +127,7 @@ mod tests {
         assert_eq!(registry.list_all(page()).await.unwrap().total, 3);
 
         registry.remove(&SessionId("s1".into())).await.unwrap();
-        assert!(
-            registry
-                .get(&SessionId("s1".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(registry.get(&SessionId("s1".into())).await.unwrap().is_none());
     }
 
     #[tokio::test]

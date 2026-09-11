@@ -64,16 +64,13 @@ pub async fn progress_repository_contract<R: ProgressRepository>(repo: R) {
     .unwrap();
     let got = repo.get(&u1, &v1).await.unwrap().unwrap();
     assert_eq!(got.audio_track, Some(2));
-    assert_eq!(
-        got.subtitle,
-        Some(SubtitleOverride::Track(SubtitleTrackRef::Embedded(4)))
-    );
+    assert_eq!(got.subtitle, Some(SubtitleOverride::Track(SubtitleTrackRef::Embedded(4))));
     assert!(got.has_override());
 
     repo.upsert(PlaybackProgress {
-        subtitle: Some(SubtitleOverride::Track(SubtitleTrackRef::File(
-            SubtitleFileId("sf1".into()),
-        ))),
+        subtitle: Some(SubtitleOverride::Track(SubtitleTrackRef::File(SubtitleFileId(
+            "sf1".into(),
+        )))),
         ..progress("u1", "v1", 2500, 20)
     })
     .await
@@ -82,9 +79,7 @@ pub async fn progress_repository_contract<R: ProgressRepository>(repo: R) {
     assert_eq!(got.audio_track, None);
     assert_eq!(
         got.subtitle,
-        Some(SubtitleOverride::Track(SubtitleTrackRef::File(
-            SubtitleFileId("sf1".into())
-        )))
+        Some(SubtitleOverride::Track(SubtitleTrackRef::File(SubtitleFileId("sf1".into()))))
     );
 
     // Off is a stored choice, distinct from having no override at all.
@@ -110,17 +105,11 @@ pub async fn progress_repository_contract<R: ProgressRepository>(repo: R) {
     assert_eq!(versions, ["v2", "v3", "v1"]);
 
     repo.record_view(&u1, &movie("m1"), ts(100)).await.unwrap();
-    repo.record_view(&u1, &episode("e1"), ts(200))
-        .await
-        .unwrap();
+    repo.record_view(&u1, &episode("e1"), ts(200)).await.unwrap();
     repo.record_view(&u1, &movie("m2"), ts(50)).await.unwrap();
     let listed = repo.history(&u1, page(0, 10)).await.unwrap();
     assert_eq!(listed.total, 3);
-    let titles: Vec<_> = listed
-        .items
-        .iter()
-        .map(|h| h.title.id().to_owned())
-        .collect();
+    let titles: Vec<_> = listed.items.iter().map(|h| h.title.id().to_owned()).collect();
     assert_eq!(titles, ["e1", "m1", "m2"]);
     let first = &listed.items[0];
     assert_eq!(first.play_count, 1);
@@ -128,6 +117,13 @@ pub async fn progress_repository_contract<R: ProgressRepository>(repo: R) {
     assert!(first.watched);
     assert_eq!(first.last_watched_at, Some(ts(200)));
     assert_eq!(first.user, u1);
+
+    // Two titles watched in the same instant still have to come back in a fixed order, or the
+    // history page reshuffles itself between reloads.
+    repo.record_view(&u1, &movie("m2"), ts(200)).await.unwrap();
+    let tied = repo.history(&u1, page(0, 10)).await.unwrap();
+    let tied_titles: Vec<_> = tied.items.iter().map(|h| h.title.id().to_owned()).collect();
+    assert_eq!(tied_titles, ["e1", "m2", "m1"]);
 
     repo.record_view(&u1, &movie("m1"), ts(300)).await.unwrap();
     repo.record_view(&u1, &movie("m1"), ts(400)).await.unwrap();
@@ -137,27 +133,17 @@ pub async fn progress_repository_contract<R: ProgressRepository>(repo: R) {
     assert_eq!(m1.play_count, 3);
     assert_eq!(m1.last_watched_at, Some(ts(400)));
 
-    repo.set_watched_flags(&u1, &movie("m1"), false)
-        .await
-        .unwrap();
+    repo.set_watched_flags(&u1, &movie("m1"), false).await.unwrap();
     let unmarked = repo.history(&u1, page(0, 10)).await.unwrap();
     assert_eq!(unmarked.total, 3);
-    let m1 = unmarked
-        .items
-        .iter()
-        .find(|h| h.title.id() == "m1")
-        .unwrap();
+    let m1 = unmarked.items.iter().find(|h| h.title.id() == "m1").unwrap();
     assert_eq!(m1.play_count, 3);
     assert_eq!(m1.last_watched_at, Some(ts(400)));
     assert!(!m1.watched);
 
-    repo.set_watched_flags(&u1, &movie("m3"), true)
-        .await
-        .unwrap();
+    repo.set_watched_flags(&u1, &movie("m3"), true).await.unwrap();
     assert_eq!(repo.history(&u1, page(0, 10)).await.unwrap().total, 3);
-    repo.set_watched_flags(&u1, &movie("m3"), false)
-        .await
-        .unwrap();
+    repo.set_watched_flags(&u1, &movie("m3"), false).await.unwrap();
     assert_eq!(repo.history(&u1, page(0, 10)).await.unwrap().total, 3);
 
     let paged = repo.history(&u1, page(1, 1)).await.unwrap();
@@ -178,13 +164,8 @@ pub async fn progress_repository_contract<R: ProgressRepository>(repo: R) {
 
     repo.delete(&u1, &v1).await.unwrap();
     assert!(repo.get(&u1, &v1).await.unwrap().is_none());
-    let remaining: Vec<_> = repo
-        .list_in_progress(&u1)
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|p| p.version.0)
-        .collect();
+    let remaining: Vec<_> =
+        repo.list_in_progress(&u1).await.unwrap().into_iter().map(|p| p.version.0).collect();
     assert_eq!(remaining, ["v2", "v3"]);
     assert_eq!(repo.get(&u2, &v1).await.unwrap().unwrap().position_ms, 42);
     repo.delete(&u1, &v1).await.unwrap();
@@ -192,18 +173,12 @@ pub async fn progress_repository_contract<R: ProgressRepository>(repo: R) {
     repo.delete_history(&u1, "m2").await.unwrap();
     let after = repo.history(&u1, page(0, 10)).await.unwrap();
     assert_eq!(after.total, 2);
-    let titles: Vec<_> = after
-        .items
-        .iter()
-        .map(|h| h.title.id().to_owned())
-        .collect();
+    let titles: Vec<_> = after.items.iter().map(|h| h.title.id().to_owned()).collect();
     assert_eq!(titles, ["m1", "e1"]);
     repo.delete_history(&u1, "m2").await.unwrap();
     assert_eq!(repo.history(&u1, page(0, 10)).await.unwrap().total, 2);
 
-    repo.set_watched_flags(&u1, &episode("e1"), true)
-        .await
-        .unwrap();
+    repo.set_watched_flags(&u1, &episode("e1"), true).await.unwrap();
     repo.clear_history(&u1).await.unwrap();
     assert_eq!(repo.history(&u1, page(0, 10)).await.unwrap().total, 0);
     let states = repo.watched_state(&u1).await.unwrap();

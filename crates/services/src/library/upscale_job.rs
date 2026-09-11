@@ -22,18 +22,8 @@ impl UpscaleJobPayload {
 }
 
 pub fn upscale_job(version_id: &VersionId, target_height: u32) -> Job {
-    let raw = UpscaleJobPayload {
-        version_id: version_id.clone(),
-        target_height,
-    }
-    .encode();
-    queued_job(
-        JobKind::Upscale,
-        JobPriority::Low,
-        raw,
-        None,
-        Timestamp::now(),
-    )
+    let raw = UpscaleJobPayload { version_id: version_id.clone(), target_height }.encode();
+    queued_job(JobKind::Upscale, JobPriority::Low, raw, None, Timestamp::now())
 }
 
 #[derive(Serialize, Deserialize)]
@@ -44,10 +34,7 @@ struct Wire {
 
 impl From<&UpscaleJobPayload> for Wire {
     fn from(payload: &UpscaleJobPayload) -> Self {
-        Wire {
-            version_id: payload.version_id.0.clone(),
-            target_height: payload.target_height,
-        }
+        Wire { version_id: payload.version_id.0.clone(), target_height: payload.target_height }
     }
 }
 
@@ -66,10 +53,7 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let payload = UpscaleJobPayload {
-            version_id: VersionId("v1".into()),
-            target_height: 1080,
-        };
+        let payload = UpscaleJobPayload { version_id: VersionId("v1".into()), target_height: 1080 };
         let encoded = payload.encode();
         assert_eq!(UpscaleJobPayload::decode(&encoded).unwrap(), payload);
     }

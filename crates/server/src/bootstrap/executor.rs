@@ -43,11 +43,7 @@ where
         }
     };
 
-    let section = root
-        .get(name)
-        .and_then(toml::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    let section = root.get(name).and_then(toml::Value::as_array).cloned().unwrap_or_default();
 
     let mut entities = provider.defaults();
     for value in &section {
@@ -78,11 +74,7 @@ where
             }
             Ok(Created::Skipped) => {
                 skipped += 1;
-                tracing::info!(
-                    provider = name,
-                    id,
-                    "bootstrap: entity already exists, skipped"
-                );
+                tracing::info!(provider = name, id, "bootstrap: entity already exists, skipped");
             }
             Err(error) => {
                 tracing::error!(provider = name, id, %error, "bootstrap: failed to create entity");
@@ -90,19 +82,9 @@ where
         }
     }
 
-    tracing::info!(
-        provider = name,
-        found,
-        created,
-        skipped,
-        "bootstrap: provider finished"
-    );
+    tracing::info!(provider = name, found, created, skipped, "bootstrap: provider finished");
 
-    BootstrapResult {
-        found,
-        created,
-        skipped,
-    }
+    BootstrapResult { found, created, skipped }
 }
 
 pub fn complete(total: BootstrapResult) -> BootstrapResult {
@@ -121,6 +103,7 @@ mod tests {
 
     use super::super::require_unique;
     use super::*;
+    use tracing_test::traced_test;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct Widget {
@@ -136,11 +119,7 @@ mod tests {
 
     impl WidgetProvider {
         fn new() -> Self {
-            Self {
-                store: Mutex::new(Vec::new()),
-                preexisting: Vec::new(),
-                defaults: Vec::new(),
-            }
+            Self { store: Mutex::new(Vec::new()), preexisting: Vec::new(), defaults: Vec::new() }
         }
 
         fn created(&self) -> Vec<Widget> {
@@ -161,19 +140,14 @@ mod tests {
 
         fn load(&self, value: &toml::Value) -> Result<Widget, BootstrapError> {
             let field = |key: &str| {
-                value
-                    .get(key)
-                    .and_then(toml::Value::as_str)
-                    .map(str::to_owned)
-                    .ok_or_else(|| BootstrapError::Invalid {
+                value.get(key).and_then(toml::Value::as_str).map(str::to_owned).ok_or_else(|| {
+                    BootstrapError::Invalid {
                         entity: "widget",
                         reason: format!("missing string field {key}"),
-                    })
+                    }
+                })
             };
-            Ok(Widget {
-                id: field("id")?,
-                label: field("label")?,
-            })
+            Ok(Widget { id: field("id")?, label: field("label")? })
         }
 
         fn validate(&self, entities: &[Widget]) -> Result<(), BootstrapError> {
@@ -201,6 +175,7 @@ mod tests {
         std::fs::write(dir.join("widgets.toml"), body).unwrap();
     }
 
+    #[traced_test]
     #[tokio::test]
     async fn creates_configured_entities() {
         let dir = tempfile::tempdir().unwrap();
@@ -214,6 +189,10 @@ mod tests {
         assert_eq!(result.created, 2);
         assert_eq!(result.skipped, 0);
         assert_eq!(provider.created().len(), 2);
+        // The rendered entity is what an operator reads to see what bootstrap is about to
+        // create, and it is only built when the log level asks for it.
+        assert!(logs_contain("entity=a=Alpha"));
+        assert!(logs_contain("bootstrap: created entity"));
     }
 
     #[tokio::test]
@@ -221,10 +200,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("widgets.toml")).unwrap();
         let mut provider = WidgetProvider::new();
-        provider.defaults = vec![Widget {
-            id: "built-in".to_owned(),
-            label: "Built In".to_owned(),
-        }];
+        provider.defaults =
+            vec![Widget { id: "built-in".to_owned(), label: "Built In".to_owned() }];
 
         let result = run_one(&provider, dir.path()).await;
 
@@ -240,10 +217,7 @@ mod tests {
     async fn missing_file_creates_only_defaults() {
         let dir = tempfile::tempdir().unwrap();
         let mut provider = WidgetProvider::new();
-        provider.defaults = vec![Widget {
-            id: "default".to_owned(),
-            label: "Default".to_owned(),
-        }];
+        provider.defaults = vec![Widget { id: "default".to_owned(), label: "Default".to_owned() }];
         let result = run_one(&provider, dir.path()).await;
         assert_eq!(result.found, 1);
         assert_eq!(result.created, 1);

@@ -26,10 +26,7 @@ pub struct JobServiceImpl<J> {
 
 impl<J> JobServiceImpl<J> {
     pub fn new(jobs: J) -> Self {
-        Self {
-            jobs,
-            canceller: Arc::new(NoopCanceller),
-        }
+        Self { jobs, canceller: Arc::new(NoopCanceller) }
     }
 
     pub fn with_canceller(mut self, canceller: Arc<dyn JobCanceller>) -> Self {
@@ -52,28 +49,14 @@ where
             return Err(JobServiceError::Forbidden);
         }
         let items = self.jobs.list_page(query, page).await?;
-        let active_total = self
-            .jobs
-            .count(&JobQuery {
-                search: query.search.clone(),
-                active_only: true,
-            })
-            .await?;
-        let all_total = self
-            .jobs
-            .count(&JobQuery {
-                search: query.search.clone(),
-                active_only: false,
-            })
-            .await?;
+        let active_total =
+            self.jobs.count(&JobQuery { search: query.search.clone(), active_only: true }).await?;
+        let all_total =
+            self.jobs.count(&JobQuery { search: query.search.clone(), active_only: false }).await?;
         Ok(JobPage {
             page: Page {
                 items,
-                total: if query.active_only {
-                    active_total
-                } else {
-                    all_total
-                },
+                total: if query.active_only { active_total } else { all_total },
                 offset: page.offset,
                 limit: page.limit,
             },
@@ -127,23 +110,14 @@ mod tests {
     use domain::user::{Role, UserId};
     use mocks::MockJobStore;
 
-    const PAGE: PageRequest = PageRequest {
-        offset: 0,
-        limit: 50,
-    };
+    const PAGE: PageRequest = PageRequest { offset: 0, limit: 50 };
 
     fn admin() -> Principal {
-        Principal {
-            user: UserId("admin".into()),
-            role: Role::Admin,
-        }
+        Principal { user: UserId("admin".into()), role: Role::Admin }
     }
 
     fn member() -> Principal {
-        Principal {
-            user: UserId("u1".into()),
-            role: Role::User,
-        }
+        Principal { user: UserId("u1".into()), role: Role::User }
     }
 
     fn job_with(id: &str, kind: JobKind, status: JobStatus) -> Job {
@@ -185,21 +159,13 @@ mod tests {
     #[tokio::test]
     async fn jobs_admin_only() {
         let svc = svc();
-        svc.jobs
-            .enqueue(job_with("j1", JobKind::LibraryScan, JobStatus::Queued))
-            .await
-            .unwrap();
-        let page = svc
-            .jobs(&admin(), &JobQuery::default(), PAGE)
-            .await
-            .unwrap();
+        svc.jobs.enqueue(job_with("j1", JobKind::LibraryScan, JobStatus::Queued)).await.unwrap();
+        let page = svc.jobs(&admin(), &JobQuery::default(), PAGE).await.unwrap();
         assert_eq!(page.page.items.len(), 1);
         assert_eq!(page.all_total, 1);
         assert_eq!(page.active_total, 1);
         assert!(matches!(
-            svc.jobs(&member(), &JobQuery::default(), PAGE)
-                .await
-                .unwrap_err(),
+            svc.jobs(&member(), &JobQuery::default(), PAGE).await.unwrap_err(),
             JobServiceError::Forbidden
         ));
     }
@@ -215,23 +181,13 @@ mod tests {
             svc.jobs.enqueue(job_with(id, kind, status)).await.unwrap();
         }
 
-        let active = svc
-            .jobs(&admin(), &JobQuery::active(true), PAGE)
-            .await
-            .unwrap();
+        let active = svc.jobs(&admin(), &JobQuery::active(true), PAGE).await.unwrap();
         assert_eq!(active.page.total, 2);
         assert_eq!(active.active_total, 2);
         assert_eq!(active.all_total, 3);
 
         let artwork = svc
-            .jobs(
-                &admin(),
-                &JobQuery {
-                    search: Some("artwork".into()),
-                    active_only: false,
-                },
-                PAGE,
-            )
+            .jobs(&admin(), &JobQuery { search: Some("artwork".into()), active_only: false }, PAGE)
             .await
             .unwrap();
         assert_eq!(artwork.page.total, 2);
@@ -239,14 +195,7 @@ mod tests {
         assert_eq!(artwork.all_total, 2);
 
         let second = svc
-            .jobs(
-                &admin(),
-                &JobQuery::default(),
-                PageRequest {
-                    offset: 2,
-                    limit: 2,
-                },
-            )
+            .jobs(&admin(), &JobQuery::default(), PageRequest { offset: 2, limit: 2 })
             .await
             .unwrap();
         assert_eq!(second.page.items.len(), 1);
@@ -256,25 +205,17 @@ mod tests {
     #[tokio::test]
     async fn job_descendants_admin_only() {
         let svc = svc();
-        svc.jobs
-            .enqueue(job_with("root", JobKind::LibraryScan, JobStatus::Running))
-            .await
-            .unwrap();
+        svc.jobs.enqueue(job_with("root", JobKind::LibraryScan, JobStatus::Running)).await.unwrap();
         let mut child = job_with("child", JobKind::Artwork, JobStatus::Queued);
         child.parent_id = Some(JobId("root".into()));
         svc.jobs.enqueue(child).await.unwrap();
 
-        let tree = svc
-            .job_descendants(&admin(), &JobId("root".into()), PAGE)
-            .await
-            .unwrap();
+        let tree = svc.job_descendants(&admin(), &JobId("root".into()), PAGE).await.unwrap();
         assert_eq!(tree.total, 1);
         assert_eq!(tree.items[0].job.id.0, "child");
         assert_eq!(tree.items[0].depth, 0);
         assert!(matches!(
-            svc.job_descendants(&member(), &JobId("root".into()), PAGE)
-                .await
-                .unwrap_err(),
+            svc.job_descendants(&member(), &JobId("root".into()), PAGE).await.unwrap_err(),
             JobServiceError::Forbidden
         ));
     }
@@ -282,24 +223,12 @@ mod tests {
     #[tokio::test]
     async fn job_admin_only() {
         let svc = svc();
-        svc.jobs
-            .enqueue(job_with("j1", JobKind::LibraryScan, JobStatus::Queued))
-            .await
-            .unwrap();
+        svc.jobs.enqueue(job_with("j1", JobKind::LibraryScan, JobStatus::Queued)).await.unwrap();
         assert_eq!(
-            svc.job(&admin(), &JobId("j1".into()))
-                .await
-                .unwrap()
-                .unwrap()
-                .id,
+            svc.job(&admin(), &JobId("j1".into())).await.unwrap().unwrap().id,
             JobId("j1".into())
         );
-        assert!(
-            svc.job(&admin(), &JobId("nope".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(svc.job(&admin(), &JobId("nope".into())).await.unwrap().is_none());
         assert!(matches!(
             svc.job(&member(), &JobId("j1".into())).await.unwrap_err(),
             JobServiceError::Forbidden
@@ -310,9 +239,7 @@ mod tests {
     async fn cancel_job_requires_admin() {
         let svc = svc();
         assert!(matches!(
-            svc.cancel_job(&member(), &JobId("x".into()))
-                .await
-                .unwrap_err(),
+            svc.cancel_job(&member(), &JobId("x".into())).await.unwrap_err(),
             JobServiceError::Forbidden
         ));
     }
@@ -320,10 +247,7 @@ mod tests {
     #[tokio::test]
     async fn cancel_job_queued_marks_cancelled() {
         let svc = svc();
-        svc.jobs
-            .enqueue(job_with("q", JobKind::LibraryScan, JobStatus::Queued))
-            .await
-            .unwrap();
+        svc.jobs.enqueue(job_with("q", JobKind::LibraryScan, JobStatus::Queued)).await.unwrap();
         svc.cancel_job(&admin(), &JobId("q".into())).await.unwrap();
         let stored = svc.jobs.get(&JobId("q".into())).await.unwrap().unwrap();
         assert_eq!(stored.status, JobStatus::Cancelled);
@@ -334,9 +258,7 @@ mod tests {
     async fn cancel_job_missing_is_not_found() {
         let svc = svc();
         assert!(matches!(
-            svc.cancel_job(&admin(), &JobId("nope".into()))
-                .await
-                .unwrap_err(),
+            svc.cancel_job(&admin(), &JobId("nope".into())).await.unwrap_err(),
             JobServiceError::NotFound
         ));
     }
@@ -344,9 +266,7 @@ mod tests {
     #[tokio::test]
     async fn cancel_job_running_killable_signals_canceller() {
         let jobs = MockJobStore::new();
-        jobs.enqueue(job_with("f", JobKind::Fetch, JobStatus::Running))
-            .await
-            .unwrap();
+        jobs.enqueue(job_with("f", JobKind::Fetch, JobStatus::Running)).await.unwrap();
         let canceller = RecordingCanceller::default();
         let svc = JobServiceImpl::new(jobs).with_canceller(Arc::new(canceller.clone()));
         svc.cancel_job(&admin(), &JobId("f".into())).await.unwrap();
@@ -358,24 +278,16 @@ mod tests {
     #[tokio::test]
     async fn cancel_job_running_killable_default_canceller_is_ok() {
         let svc = svc();
-        svc.jobs
-            .enqueue(job_with("t", JobKind::Trickplay, JobStatus::Running))
-            .await
-            .unwrap();
+        svc.jobs.enqueue(job_with("t", JobKind::Trickplay, JobStatus::Running)).await.unwrap();
         svc.cancel_job(&admin(), &JobId("t".into())).await.unwrap();
     }
 
     #[tokio::test]
     async fn cancel_job_running_non_killable_conflicts() {
         let svc = svc();
-        svc.jobs
-            .enqueue(job_with("s", JobKind::LibraryScan, JobStatus::Running))
-            .await
-            .unwrap();
+        svc.jobs.enqueue(job_with("s", JobKind::LibraryScan, JobStatus::Running)).await.unwrap();
         assert!(matches!(
-            svc.cancel_job(&admin(), &JobId("s".into()))
-                .await
-                .unwrap_err(),
+            svc.cancel_job(&admin(), &JobId("s".into())).await.unwrap_err(),
             JobServiceError::NotCancellable
         ));
     }
@@ -383,24 +295,16 @@ mod tests {
     #[tokio::test]
     async fn cancel_job_already_cancelled_is_idempotent() {
         let svc = svc();
-        svc.jobs
-            .enqueue(job_with("c", JobKind::Fetch, JobStatus::Cancelled))
-            .await
-            .unwrap();
+        svc.jobs.enqueue(job_with("c", JobKind::Fetch, JobStatus::Cancelled)).await.unwrap();
         svc.cancel_job(&admin(), &JobId("c".into())).await.unwrap();
     }
 
     #[tokio::test]
     async fn cancel_job_terminal_conflicts() {
         let svc = svc();
-        svc.jobs
-            .enqueue(job_with("d", JobKind::Fetch, JobStatus::Succeeded))
-            .await
-            .unwrap();
+        svc.jobs.enqueue(job_with("d", JobKind::Fetch, JobStatus::Succeeded)).await.unwrap();
         assert!(matches!(
-            svc.cancel_job(&admin(), &JobId("d".into()))
-                .await
-                .unwrap_err(),
+            svc.cancel_job(&admin(), &JobId("d".into())).await.unwrap_err(),
             JobServiceError::NotCancellable
         ));
     }

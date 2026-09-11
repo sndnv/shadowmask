@@ -66,10 +66,7 @@ mod tests {
     use super::*;
 
     fn ref_dto(kind: WatchTargetKind, id: &str) -> WatchTargetRefDto {
-        WatchTargetRefDto {
-            kind,
-            id: id.into(),
-        }
+        WatchTargetRefDto { kind, id: id.into() }
     }
 
     #[test]
@@ -128,10 +125,7 @@ mod tests {
             total_episodes: 10,
         });
         let value = serde_json::to_value(response).unwrap();
-        assert_eq!(
-            value["target"],
-            serde_json::json!({"type": "series", "id": "s1"})
-        );
+        assert_eq!(value["target"], serde_json::json!({"type": "series", "id": "s1"}));
         assert_eq!(value["watched"], false);
         assert_eq!(value["completed"], false);
         assert_eq!(value["watched_episodes"], 3);

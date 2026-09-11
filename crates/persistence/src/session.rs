@@ -21,11 +21,7 @@ impl InMemorySessionRegistry {
     fn sorted(&self) -> Vec<PlaybackSession> {
         let mut items: Vec<PlaybackSession> =
             self.sessions.read().unwrap().values().cloned().collect();
-        items.sort_by(|a, b| {
-            a.started_at
-                .cmp(&b.started_at)
-                .then_with(|| a.id.0.cmp(&b.id.0))
-        });
+        items.sort_by(|a, b| a.started_at.cmp(&b.started_at).then_with(|| a.id.0.cmp(&b.id.0)));
         items
     }
 }
@@ -67,11 +63,7 @@ impl SessionRegistry for InMemorySessionRegistry {
     }
 
     async fn list_for_user(&self, user: &UserId) -> Result<Vec<PlaybackSession>, RepositoryError> {
-        Ok(self
-            .sorted()
-            .into_iter()
-            .filter(|s| &s.user == user)
-            .collect())
+        Ok(self.sorted().into_iter().filter(|s| &s.user == user).collect())
     }
 
     async fn list_all(&self, page: PageRequest) -> Result<Page<PlaybackSession>, RepositoryError> {
@@ -131,11 +123,7 @@ mod tests {
         mode: DeliveryMode,
         device: Option<&str>,
     ) -> PlaybackSession {
-        PlaybackSession {
-            device: device.map(|d| DeviceId(d.into())),
-            mode,
-            ..session(id, user, 0)
-        }
+        PlaybackSession { device: device.map(|d| DeviceId(d.into())), mode, ..session(id, user, 0) }
     }
 
     fn page(offset: u32, limit: u32) -> PageRequest {
@@ -148,21 +136,9 @@ mod tests {
         registry.insert(session("s1", "u1", 0)).await.unwrap();
         let found = registry.get(&SessionId("s1".into())).await.unwrap();
         assert_eq!(found.unwrap().id, SessionId("s1".into()));
-        assert!(
-            registry
-                .get(&SessionId("missing".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(registry.get(&SessionId("missing".into())).await.unwrap().is_none());
         registry.remove(&SessionId("s1".into())).await.unwrap();
-        assert!(
-            registry
-                .get(&SessionId("s1".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(registry.get(&SessionId("s1".into())).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -223,9 +199,7 @@ mod tests {
         let recorder = PrometheusBuilder::new().build_recorder();
         let handle = recorder.handle();
         metrics::with_local_recorder(&recorder, || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .build()
-                .unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
             rt.block_on(work());
         });
         handle.render()
@@ -235,21 +209,13 @@ mod tests {
     fn insert_records_session_gauges() {
         let rendered = recorded(|| async {
             let registry = InMemorySessionRegistry::new();
-            registry
-                .insert(session_mode("s1", "u1", DeliveryMode::Direct, None))
-                .await
-                .unwrap();
+            registry.insert(session_mode("s1", "u1", DeliveryMode::Direct, None)).await.unwrap();
             registry
                 .insert(session_mode("s2", "u1", DeliveryMode::Remux, Some("d1")))
                 .await
                 .unwrap();
             registry
-                .insert(session_mode(
-                    "s3",
-                    "u2",
-                    DeliveryMode::Transcode,
-                    Some("d1"),
-                ))
+                .insert(session_mode("s3", "u2", DeliveryMode::Transcode, Some("d1")))
                 .await
                 .unwrap();
         });
@@ -264,10 +230,7 @@ mod tests {
     fn remove_updates_session_gauges() {
         let rendered = recorded(|| async {
             let registry = InMemorySessionRegistry::new();
-            registry
-                .insert(session_mode("s1", "u1", DeliveryMode::Direct, None))
-                .await
-                .unwrap();
+            registry.insert(session_mode("s1", "u1", DeliveryMode::Direct, None)).await.unwrap();
             registry.remove(&SessionId("s1".into())).await.unwrap();
         });
         assert!(rendered.contains("sessions_active{mode=\"direct\"} 0"));

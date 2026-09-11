@@ -9,14 +9,7 @@ pub fn queued_job(
     parent: Option<&JobId>,
     now: Timestamp,
 ) -> Job {
-    Job::queued(
-        JobId(Uuid::new_v4().to_string()),
-        kind,
-        priority,
-        payload,
-        parent.cloned(),
-        now,
-    )
+    Job::queued(JobId(Uuid::new_v4().to_string()), kind, priority, payload, parent.cloned(), now)
 }
 
 #[cfg(test)]
@@ -28,13 +21,7 @@ mod tests {
     fn a_queued_job_starts_unattempted_and_available_now() {
         let now = Timestamp::UNIX_EPOCH;
 
-        let job = queued_job(
-            JobKind::Metadata,
-            JobPriority::Normal,
-            "payload".into(),
-            None,
-            now,
-        );
+        let job = queued_job(JobKind::Metadata, JobPriority::Normal, "payload".into(), None, now);
 
         assert_eq!(job.status, JobStatus::Queued);
         assert_eq!(job.attempts, 0);

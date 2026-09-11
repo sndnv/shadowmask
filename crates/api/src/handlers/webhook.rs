@@ -39,11 +39,7 @@ fn authorize<'a>(
 }
 
 fn bearer(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get(header::AUTHORIZATION)?
-        .to_str()
-        .ok()?
-        .strip_prefix("Bearer ")
+    headers.get(header::AUTHORIZATION)?.to_str().ok()?.strip_prefix("Bearer ")
 }
 
 fn is_test_event(body: &[u8]) -> bool {
@@ -71,23 +67,12 @@ pub async fn scan<S: AppServices>(
         AuthorizationOutcome::Authorized(client) => client,
     };
     if is_test_event(&body) {
-        debug!(
-            "Webhook client [{}] sent a test event for library [{id}]",
-            client.name
-        );
+        debug!("Webhook client [{}] sent a test event for library [{id}]", client.name);
         return StatusCode::OK.into_response();
     }
-    let principal = Principal {
-        user: UserId(client.name.clone()),
-        role: Role::Automation,
-    };
+    let principal = Principal { user: UserId(client.name.clone()), role: Role::Automation };
     let library = LibraryId(id);
-    match state
-        .services
-        .library()
-        .trigger_scan(&principal, &library)
-        .await
-    {
+    match state.services.library().trigger_scan(&principal, &library).await {
         Ok(()) | Err(LibraryError::ScanInProgress) => {
             debug!(
                 "Webhook client [{}] triggered scan for library [{}]",
@@ -122,18 +107,9 @@ mod tests {
             authorize(&clients, Some("sec"), "lib2"),
             AuthorizationOutcome::OutOfScope
         ));
-        assert!(matches!(
-            authorize(&clients, Some("nope"), "lib1"),
-            AuthorizationOutcome::Denied
-        ));
-        assert!(matches!(
-            authorize(&clients, None, "lib1"),
-            AuthorizationOutcome::Denied
-        ));
-        assert!(matches!(
-            authorize(&clients, Some(""), "lib1"),
-            AuthorizationOutcome::Denied
-        ));
+        assert!(matches!(authorize(&clients, Some("nope"), "lib1"), AuthorizationOutcome::Denied));
+        assert!(matches!(authorize(&clients, None, "lib1"), AuthorizationOutcome::Denied));
+        assert!(matches!(authorize(&clients, Some(""), "lib1"), AuthorizationOutcome::Denied));
     }
 
     #[test]

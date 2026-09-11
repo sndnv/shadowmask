@@ -56,10 +56,7 @@ impl TmdbClient {
     async fn resolve_ref(&self, id: &ExternalId) -> Result<(String, String), MetadataError> {
         if id.source == "imdb" || id.value.starts_with("tt") {
             let url = format!("{}/find/{}", self.base_url, id.value);
-            let params = [
-                ("api_key", self.api_key.as_str()),
-                ("external_source", "imdb_id"),
-            ];
+            let params = [("api_key", self.api_key.as_str()), ("external_source", "imdb_id")];
             let found: RawFindResponse =
                 get_json(&self.limiter, self.client.get(url.as_str()).query(&params)).await?;
             if let Some(item) = found.movie_results.first() {
@@ -84,10 +81,7 @@ fn tmdb_endpoint(kind: MediaKind) -> &'static str {
 }
 
 fn person_external_id(id: u64) -> ExternalId {
-    ExternalId {
-        source: "tmdb".to_owned(),
-        value: format!("person/{id}"),
-    }
+    ExternalId { source: "tmdb".to_owned(), value: format!("person/{id}") }
 }
 
 fn crew_role(job: &str) -> Option<CreditRole> {
@@ -103,15 +97,9 @@ impl MetadataProvider for TmdbClient {
         let kind = query.kind;
         let endpoint = tmdb_endpoint(kind);
         let url = format!("{}/search/{}", self.base_url, endpoint);
-        let year_param = if endpoint == "movie" {
-            "year"
-        } else {
-            "first_air_date_year"
-        };
-        let mut params: Vec<(&str, String)> = vec![
-            ("api_key", self.api_key.clone()),
-            ("query", query.title.clone()),
-        ];
+        let year_param = if endpoint == "movie" { "year" } else { "first_air_date_year" };
+        let mut params: Vec<(&str, String)> =
+            vec![("api_key", self.api_key.clone()), ("query", query.title.clone())];
         if let Some(year) = query.year {
             params.push((year_param, year.to_string()));
         }
@@ -129,11 +117,7 @@ impl MetadataProvider for TmdbClient {
                     value: format!("{}/{}", endpoint, item.id),
                 },
                 title: item.title.or(item.name).unwrap_or_default(),
-                year: item
-                    .release_date
-                    .or(item.first_air_date)
-                    .as_deref()
-                    .and_then(parse_year),
+                year: item.release_date.or(item.first_air_date).as_deref().and_then(parse_year),
                 kind,
             })
             .collect();
@@ -143,10 +127,8 @@ impl MetadataProvider for TmdbClient {
     async fn fetch(&self, id: &ExternalId) -> Result<TitleMetadata, MetadataError> {
         let (endpoint, tmdb_id) = self.resolve_ref(id).await?;
         let url = format!("{}/{}/{}", self.base_url, endpoint, tmdb_id);
-        let params = [
-            ("api_key", self.api_key.as_str()),
-            ("append_to_response", "credits,external_ids"),
-        ];
+        let params =
+            [("api_key", self.api_key.as_str()), ("append_to_response", "credits,external_ids")];
         let detail: RawDetail =
             get_json(&self.limiter, self.client.get(url.as_str()).query(&params)).await?;
 
@@ -167,9 +149,7 @@ impl MetadataProvider for TmdbClient {
                 url: self.image_url(path),
             });
         }
-        let runtime_minutes = detail
-            .runtime
-            .or_else(|| detail.episode_run_time.first().copied());
+        let runtime_minutes = detail.runtime.or_else(|| detail.episode_run_time.first().copied());
         let credits = detail.credits.unwrap_or_default();
         let mut cast: Vec<CreditInfo> = credits
             .cast
@@ -223,38 +203,22 @@ impl MetadataProvider for TmdbClient {
         } else {
             id.value.clone()
         };
-        let mut external_ids = vec![ExternalId {
-            source: "tmdb".to_owned(),
-            value: tmdb_value,
-        }];
-        if let Some(imdb_id) = detail
-            .external_ids
-            .and_then(|ids| ids.imdb_id)
-            .and_then(|value| non_empty(&value))
+        let mut external_ids = vec![ExternalId { source: "tmdb".to_owned(), value: tmdb_value }];
+        if let Some(imdb_id) =
+            detail.external_ids.and_then(|ids| ids.imdb_id).and_then(|value| non_empty(&value))
         {
-            external_ids.push(ExternalId {
-                source: "imdb".to_owned(),
-                value: imdb_id,
-            });
+            external_ids.push(ExternalId { source: "imdb".to_owned(), value: imdb_id });
         }
         Ok(TitleMetadata {
             title: detail.title.or(detail.name).unwrap_or_default(),
-            year: detail
-                .release_date
-                .or(detail.first_air_date)
-                .as_deref()
-                .and_then(parse_year),
+            year: detail.release_date.or(detail.first_air_date).as_deref().and_then(parse_year),
             overview: detail.overview.and_then(|o| non_empty(&o)),
             runtime_minutes,
             content_rating: None,
             ratings: Vec::new(),
             genres: detail.genres.into_iter().map(|g| g.name).collect(),
             cast,
-            studios: detail
-                .production_companies
-                .into_iter()
-                .map(|c| c.name)
-                .collect(),
+            studios: detail.production_companies.into_iter().map(|c| c.name).collect(),
             artwork,
             external_ids,
             collection,
@@ -267,10 +231,7 @@ impl MetadataProvider for TmdbClient {
         season: u16,
     ) -> Result<SeasonArtwork, MetadataError> {
         let (endpoint, tmdb_id) = self.resolve_ref(id).await?;
-        let url = format!(
-            "{}/{}/{}/season/{}",
-            self.base_url, endpoint, tmdb_id, season
-        );
+        let url = format!("{}/{}/{}/season/{}", self.base_url, endpoint, tmdb_id, season);
         let params = [("api_key", self.api_key.as_str())];
         let detail: RawSeasonDetail =
             get_json(&self.limiter, self.client.get(url.as_str()).query(&params)).await?;
@@ -588,15 +549,8 @@ mod tests {
             ResponseTemplate::new(200).set_body_json(json!({ "results": [] })),
         )
         .await;
-        let query = MetadataQuery {
-            title: "nope".to_owned(),
-            year: None,
-            kind: MediaKind::Movie,
-        };
-        assert!(matches!(
-            client(&server).search(&query).await,
-            Err(MetadataError::NotFound)
-        ));
+        let query = MetadataQuery { title: "nope".to_owned(), year: None, kind: MediaKind::Movie };
+        assert!(matches!(client(&server).search(&query).await, Err(MetadataError::NotFound)));
     }
 
     #[tokio::test]
@@ -615,10 +569,7 @@ mod tests {
             })),
         )
         .await;
-        let id = ExternalId {
-            source: "tmdb".to_owned(),
-            value: "movie/603".to_owned(),
-        };
+        let id = ExternalId { source: "tmdb".to_owned(), value: "movie/603".to_owned() };
         let meta = client(&server).fetch(&id).await.unwrap();
         assert_eq!(meta.title, "The Matrix");
         assert_eq!(meta.year, Some(1999));
@@ -653,10 +604,7 @@ mod tests {
             })),
         )
         .await;
-        let id = ExternalId {
-            source: "tmdb".to_owned(),
-            value: "movie/603".to_owned(),
-        };
+        let id = ExternalId { source: "tmdb".to_owned(), value: "movie/603".to_owned() };
         let meta = client(&server).fetch(&id).await.unwrap();
         let collection = meta.collection.expect("collection");
         assert_eq!(collection.name, "The Matrix Collection");
@@ -694,10 +642,7 @@ mod tests {
             })),
         )
         .await;
-        let id = ExternalId {
-            source: "tmdb".to_owned(),
-            value: "movie/603".to_owned(),
-        };
+        let id = ExternalId { source: "tmdb".to_owned(), value: "movie/603".to_owned() };
         let meta = client(&server).fetch(&id).await.unwrap();
         assert_eq!(meta.studios, vec!["Warner Bros.", "Village Roadshow"]);
         assert_eq!(meta.cast.len(), 5);
@@ -721,10 +666,7 @@ mod tests {
             ResponseTemplate::new(200).set_body_json(json!({"title": "Bare"})),
         )
         .await;
-        let id = ExternalId {
-            source: "tmdb".to_owned(),
-            value: "movie/1".to_owned(),
-        };
+        let id = ExternalId { source: "tmdb".to_owned(), value: "movie/1".to_owned() };
         let meta = client(&server).fetch(&id).await.unwrap();
         assert!(meta.cast.is_empty());
         assert!(meta.studios.is_empty());
@@ -743,10 +685,7 @@ mod tests {
             })),
         )
         .await;
-        let id = ExternalId {
-            source: "tmdb".to_owned(),
-            value: "tv/1399".to_owned(),
-        };
+        let id = ExternalId { source: "tmdb".to_owned(), value: "tv/1399".to_owned() };
         let meta = client(&server).fetch(&id).await.unwrap();
         assert_eq!(meta.title, "Game of Thrones");
         assert_eq!(meta.year, Some(2011));
@@ -759,15 +698,9 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_bare_id_defaults_to_movie_endpoint() {
-        let server = mock_path(
-            "/movie/12345",
-            ResponseTemplate::new(200).set_body_json(json!({})),
-        )
-        .await;
-        let id = ExternalId {
-            source: "tmdb".to_owned(),
-            value: "12345".to_owned(),
-        };
+        let server =
+            mock_path("/movie/12345", ResponseTemplate::new(200).set_body_json(json!({}))).await;
+        let id = ExternalId { source: "tmdb".to_owned(), value: "12345".to_owned() };
         let meta = client(&server).fetch(&id).await.unwrap();
         assert_eq!(meta.title, "");
         assert_eq!(meta.year, None);
@@ -797,19 +730,12 @@ mod tests {
             })))
             .mount(&server)
             .await;
-        let id = ExternalId {
-            source: "imdb".to_owned(),
-            value: "tt0133093".to_owned(),
-        };
+        let id = ExternalId { source: "imdb".to_owned(), value: "tt0133093".to_owned() };
         let meta = client(&server).fetch(&id).await.unwrap();
         assert_eq!(meta.title, "The Matrix");
         assert_eq!(meta.external_ids[0].source, "tmdb");
         assert_eq!(meta.external_ids[0].value, "movie/603");
-        assert!(
-            meta.external_ids
-                .iter()
-                .any(|e| e.source == "imdb" && e.value == "tt0133093")
-        );
+        assert!(meta.external_ids.iter().any(|e| e.source == "imdb" && e.value == "tt0133093"));
     }
 
     #[tokio::test]
@@ -830,10 +756,7 @@ mod tests {
             )
             .mount(&server)
             .await;
-        let id = ExternalId {
-            source: "external".to_owned(),
-            value: "tt0944947".to_owned(),
-        };
+        let id = ExternalId { source: "external".to_owned(), value: "tt0944947".to_owned() };
         let meta = client(&server).fetch(&id).await.unwrap();
         assert_eq!(meta.title, "Game of Thrones");
         assert_eq!(meta.external_ids[0].value, "tv/1399");
@@ -847,14 +770,8 @@ mod tests {
                 .set_body_json(json!({"movie_results": [], "tv_results": []})),
         )
         .await;
-        let id = ExternalId {
-            source: "imdb".to_owned(),
-            value: "tt0000000".to_owned(),
-        };
-        assert!(matches!(
-            client(&server).fetch(&id).await,
-            Err(MetadataError::NotFound)
-        ));
+        let id = ExternalId { source: "imdb".to_owned(), value: "tt0000000".to_owned() };
+        assert!(matches!(client(&server).fetch(&id).await, Err(MetadataError::NotFound)));
     }
 
     #[tokio::test]
@@ -880,10 +797,7 @@ mod tests {
             })),
         )
         .await;
-        let id = ExternalId {
-            source: "tmdb".to_owned(),
-            value: "tv/1399".to_owned(),
-        };
+        let id = ExternalId { source: "tmdb".to_owned(), value: "tv/1399".to_owned() };
         let season = client(&server).fetch_season(&id, 1).await.unwrap();
         assert_eq!(season.number, 1);
         assert_eq!(season.name.as_deref(), Some("Season 1"));
@@ -920,10 +834,7 @@ mod tests {
             })),
         )
         .await;
-        let id = ExternalId {
-            source: "tmdb".to_owned(),
-            value: "person/6384".to_owned(),
-        };
+        let id = ExternalId { source: "tmdb".to_owned(), value: "person/6384".to_owned() };
         let person = client(&server).fetch_person(&id).await.unwrap();
         assert_eq!(person.name, "Keanu Reeves");
         assert_eq!(person.biography.as_deref(), Some("A Canadian actor."));

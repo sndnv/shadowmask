@@ -10,9 +10,7 @@ fn ts(second: i64) -> Timestamp {
 
 async fn repo() -> (tempfile::TempDir, SqliteAuthTokenRepo) {
     let dir = tempfile::tempdir().unwrap();
-    let repo = SqliteAuthTokenRepo::connect(&dir.path().join("auth.db"))
-        .await
-        .unwrap();
+    let repo = SqliteAuthTokenRepo::connect(&dir.path().join("auth.db")).await.unwrap();
     (dir, repo)
 }
 
@@ -29,32 +27,16 @@ fn session(jti: &str, user: &str) -> AuthSession {
 #[tokio::test]
 async fn refresh_store_find_revoke() {
     let (_dir, repo) = repo().await;
-    assert!(
-        repo.find_refresh(&AuthSessionId("j1".into()))
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(repo.find_refresh(&AuthSessionId("j1".into())).await.unwrap().is_none());
 
     repo.store_refresh(session("j1", "u1")).await.unwrap();
-    let found = repo
-        .find_refresh(&AuthSessionId("j1".into()))
-        .await
-        .unwrap()
-        .unwrap();
+    let found = repo.find_refresh(&AuthSessionId("j1".into())).await.unwrap().unwrap();
     assert_eq!(found.user, UserId("u1".into()));
     assert_eq!(found.refresh_token_hash, "hash-j1");
     assert_eq!(found.expires_at, ts(1_700_100_000));
 
-    repo.revoke_refresh(&AuthSessionId("j1".into()))
-        .await
-        .unwrap();
-    assert!(
-        repo.find_refresh(&AuthSessionId("j1".into()))
-            .await
-            .unwrap()
-            .is_none()
-    );
+    repo.revoke_refresh(&AuthSessionId("j1".into())).await.unwrap();
+    assert!(repo.find_refresh(&AuthSessionId("j1".into())).await.unwrap().is_none());
 }
 
 #[tokio::test]
@@ -64,28 +46,11 @@ async fn revoke_all_for_user_clears_only_that_user() {
     repo.store_refresh(session("j2", "u1")).await.unwrap();
     repo.store_refresh(session("j3", "u2")).await.unwrap();
 
-    repo.revoke_all_for_user(&UserId("u1".into()))
-        .await
-        .unwrap();
+    repo.revoke_all_for_user(&UserId("u1".into())).await.unwrap();
 
-    assert!(
-        repo.find_refresh(&AuthSessionId("j1".into()))
-            .await
-            .unwrap()
-            .is_none()
-    );
-    assert!(
-        repo.find_refresh(&AuthSessionId("j2".into()))
-            .await
-            .unwrap()
-            .is_none()
-    );
-    assert!(
-        repo.find_refresh(&AuthSessionId("j3".into()))
-            .await
-            .unwrap()
-            .is_some()
-    );
+    assert!(repo.find_refresh(&AuthSessionId("j1".into())).await.unwrap().is_none());
+    assert!(repo.find_refresh(&AuthSessionId("j2".into())).await.unwrap().is_none());
+    assert!(repo.find_refresh(&AuthSessionId("j3".into())).await.unwrap().is_some());
 }
 
 #[tokio::test]
@@ -100,20 +65,11 @@ async fn link_code_redeemed_once_and_respects_expiry() {
     .await
     .unwrap();
 
-    let redeemed = repo
-        .redeem_link_code("ABCD", ts(1_700_000_000))
-        .await
-        .unwrap()
-        .unwrap();
+    let redeemed = repo.redeem_link_code("ABCD", ts(1_700_000_000)).await.unwrap().unwrap();
     assert_eq!(redeemed.user, UserId("u1".into()));
     assert_eq!(redeemed.role, Role::Player);
 
-    assert!(
-        repo.redeem_link_code("ABCD", ts(1_700_000_000))
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(repo.redeem_link_code("ABCD", ts(1_700_000_000)).await.unwrap().is_none());
 
     repo.store_link_code(PendingLink {
         code: "EXP".into(),
@@ -123,12 +79,7 @@ async fn link_code_redeemed_once_and_respects_expiry() {
     })
     .await
     .unwrap();
-    assert!(
-        repo.redeem_link_code("EXP", ts(1_700_050_000))
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(repo.redeem_link_code("EXP", ts(1_700_050_000)).await.unwrap().is_none());
 }
 
 #[tokio::test]
@@ -149,31 +100,18 @@ async fn list_and_delete_link_codes_scoped_to_owner() {
         .unwrap();
     }
 
-    let live = repo
-        .list_link_codes(&UserId("u1".into()), ts(1_700_050_000))
-        .await
-        .unwrap();
+    let live = repo.list_link_codes(&UserId("u1".into()), ts(1_700_050_000)).await.unwrap();
     assert_eq!(live.len(), 1);
     assert_eq!(live[0].code, "LIVE");
 
-    repo.delete_link_code("LIVE", &UserId("u2".into()))
-        .await
-        .unwrap();
+    repo.delete_link_code("LIVE", &UserId("u2".into())).await.unwrap();
     assert_eq!(
-        repo.list_link_codes(&UserId("u1".into()), ts(1_700_050_000))
-            .await
-            .unwrap()
-            .len(),
+        repo.list_link_codes(&UserId("u1".into()), ts(1_700_050_000)).await.unwrap().len(),
         1
     );
-    repo.delete_link_code("LIVE", &UserId("u1".into()))
-        .await
-        .unwrap();
+    repo.delete_link_code("LIVE", &UserId("u1".into())).await.unwrap();
     assert!(
-        repo.list_link_codes(&UserId("u1".into()), ts(1_700_050_000))
-            .await
-            .unwrap()
-            .is_empty()
+        repo.list_link_codes(&UserId("u1".into()), ts(1_700_050_000)).await.unwrap().is_empty()
     );
 }
 

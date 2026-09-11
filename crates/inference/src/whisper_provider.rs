@@ -28,20 +28,13 @@ where
         &self,
         request: &TranscriptionSpec,
     ) -> Result<FetchedSubtitle, TranscriptionError> {
-        let samples = decode_audio(
-            &self.spawner,
-            "ffmpeg",
-            &request.audio_path,
-            request.audio_track_index,
-        )
-        .await?;
+        let samples =
+            decode_audio(&self.spawner, "ffmpeg", &request.audio_path, request.audio_track_index)
+                .await?;
         let language = request.source_language.as_ref().map(|code| code.0.clone());
         let mut segments = self.engine.transcribe(samples, language).await?;
         segments.retain(|segment| !is_hallucinated_text(&segment.text));
-        Ok(FetchedSubtitle {
-            content: segments_to_vtt(&segments),
-            format: SubtitleFormat::Vtt,
-        })
+        Ok(FetchedSubtitle { content: segments_to_vtt(&segments), format: SubtitleFormat::Vtt })
     }
 }
 
@@ -95,11 +88,7 @@ mod tests {
     async fn produces_vtt_from_engine_segments() {
         let provider = WhisperProvider::new(
             MockEngine {
-                result: Ok(vec![Segment {
-                    start_ms: 0,
-                    end_ms: 1000,
-                    text: "hello".to_owned(),
-                }]),
+                result: Ok(vec![Segment { start_ms: 0, end_ms: 1000, text: "hello".to_owned() }]),
             },
             MockSpawner { ok: true },
         );
@@ -116,11 +105,7 @@ mod tests {
         let provider = WhisperProvider::new(
             MockEngine {
                 result: Ok(vec![
-                    Segment {
-                        start_ms: 0,
-                        end_ms: 1000,
-                        text: "Real dialogue here".to_owned(),
-                    },
+                    Segment { start_ms: 0, end_ms: 1000, text: "Real dialogue here".to_owned() },
                     Segment {
                         start_ms: 1000,
                         end_ms: 2000,
@@ -174,9 +159,7 @@ mod tests {
     #[tokio::test]
     async fn propagates_engine_error() {
         let provider = WhisperProvider::new(
-            MockEngine {
-                result: Err("boom".to_owned()),
-            },
+            MockEngine { result: Err("boom".to_owned()) },
             MockSpawner { ok: true },
         );
         assert!(matches!(

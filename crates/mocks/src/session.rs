@@ -6,9 +6,9 @@ use domain::error::SessionError;
 use domain::media::{CreditsMarker, DetectedMarkers, IntroMarker, TrickplayAsset};
 use domain::service::SessionService;
 use domain::session::{
-    AudioRequest, DeliveryMode, HeartbeatAck, PlaybackSession, PlaybackState, Renegotiated,
-    SegmentContainer, SelectedTracks, SessionId, SessionStartInput, SessionStarted, SessionUpdate,
-    SubtitleChange, SubtitleDelivery, SubtitleRequest,
+    AudioRequest, DeliveryMode, DeliveryPreference, HeartbeatAck, PlaybackSession, PlaybackState,
+    Renegotiated, SegmentContainer, SelectedTracks, SessionId, SessionStartInput, SessionStarted,
+    SessionUpdate, SubtitleChange, SubtitleDelivery, SubtitleRequest,
 };
 use domain::user::{Principal, UserId};
 use jiff::Timestamp;
@@ -68,12 +68,8 @@ impl SessionService for MockSessionService {
         let user = &caller.user;
         let mut state = self.state.lock().unwrap();
         if let Some(limit) = state.concurrent_limit {
-            let active: Vec<PlaybackSession> = state
-                .sessions
-                .values()
-                .filter(|s| &s.user == user)
-                .cloned()
-                .collect();
+            let active: Vec<PlaybackSession> =
+                state.sessions.values().filter(|s| &s.user == user).cloned().collect();
             if active.len() >= limit {
                 return Err(SessionError::ConcurrentLimit { active });
             }
@@ -89,18 +85,22 @@ impl SessionService for MockSessionService {
                 AudioRequest::Track(index) => Some(index),
                 _ => None,
             },
-            subtitle_delivery: requested_subtitle
-                .as_ref()
-                .map(|_| SubtitleDelivery::HlsVtt),
+            subtitle_delivery: requested_subtitle.as_ref().map(|_| SubtitleDelivery::HlsVtt),
             subtitle_track: requested_subtitle,
         };
         let version = request.version.clone();
+        // The one knob a client has over the outcome, so the mock honours it rather than
+        // leaving every session direct and the converting paths unreachable.
+        let mode = match request.delivery {
+            DeliveryPreference::AlwaysConvert => DeliveryMode::Transcode,
+            _ => DeliveryMode::Direct,
+        };
         let session = PlaybackSession {
             id: id.clone(),
             user: user.clone(),
             device: None,
             version: request.version,
-            mode: DeliveryMode::Direct,
+            mode,
             position_ms: request.start_position_ms,
             state: PlaybackState::Playing,
             selected: selected.clone(),
@@ -111,8 +111,8 @@ impl SessionService for MockSessionService {
         state.sessions.insert(id.clone(), session);
         Ok(SessionStarted {
             session_id: id.clone(),
-            mode: DeliveryMode::Direct,
-            container: None,
+            mode,
+            container: container_for(mode),
             manifest_url: manifest_url(&id),
             origin_ms: 0,
             sequential: false,
@@ -150,16 +150,11 @@ impl SessionService for MockSessionService {
         state: PlaybackState,
     ) -> Result<HeartbeatAck, SessionError> {
         let mut guard = self.state.lock().unwrap();
-        let s = guard
-            .sessions
-            .get_mut(session)
-            .ok_or(SessionError::NotFound)?;
+        let s = guard.sessions.get_mut(session).ok_or(SessionError::NotFound)?;
         s.position_ms = position_ms;
         s.state = state;
         s.last_heartbeat_at = Timestamp::now();
-        Ok(HeartbeatAck {
-            heartbeat_interval_s: HEARTBEAT_INTERVAL_S,
-        })
+        Ok(HeartbeatAck { heartbeat_interval_s: HEARTBEAT_INTERVAL_S })
     }
 
     async fn seek(
@@ -169,10 +164,7 @@ impl SessionService for MockSessionService {
         position_ms: u64,
     ) -> Result<Renegotiated, SessionError> {
         let mut guard = self.state.lock().unwrap();
-        let s = guard
-            .sessions
-            .get_mut(session)
-            .ok_or(SessionError::NotFound)?;
+        let s = guard.sessions.get_mut(session).ok_or(SessionError::NotFound)?;
         s.position_ms = position_ms;
         s.last_heartbeat_at = Timestamp::now();
         Ok(renegotiated(s))
@@ -185,10 +177,7 @@ impl SessionService for MockSessionService {
         update: SessionUpdate,
     ) -> Result<Renegotiated, SessionError> {
         let mut guard = self.state.lock().unwrap();
-        let s = guard
-            .sessions
-            .get_mut(session)
-            .ok_or(SessionError::NotFound)?;
+        let s = guard.sessions.get_mut(session).ok_or(SessionError::NotFound)?;
         if let Some(audio) = update.audio_track {
             s.selected.audio_track = Some(audio);
         }
@@ -207,11 +196,7 @@ impl SessionService for MockSessionService {
     }
 
     async fn end_all_for_user(&self, user: &UserId) -> Result<(), SessionError> {
-        self.state
-            .lock()
-            .unwrap()
-            .sessions
-            .retain(|_, s| &s.user != user);
+        self.state.lock().unwrap().sessions.retain(|_, s| &s.user != user);
         Ok(())
     }
 
@@ -230,14 +215,8 @@ impl SessionService for MockSessionService {
         _caller: &Principal,
         page: PageRequest,
     ) -> Result<Page<PlaybackSession>, SessionError> {
-        let all: Vec<PlaybackSession> = self
-            .state
-            .lock()
-            .unwrap()
-            .sessions
-            .values()
-            .cloned()
-            .collect();
+        let all: Vec<PlaybackSession> =
+            self.state.lock().unwrap().sessions.values().cloned().collect();
         Ok(paginate(&all, page))
     }
 }
@@ -247,21 +226,15 @@ mod tests {
     use super::*;
     use domain::catalog::VersionId;
     use domain::playback::SubtitleTrackRef;
-    use domain::session::{ClientCapabilities, DeliveryPreference, SubtitleSelection};
+    use domain::session::{ClientCapabilities, SubtitleSelection};
     use domain::user::{Role, UserId};
 
     fn principal(user: &str) -> Principal {
-        Principal {
-            user: UserId(user.into()),
-            role: Role::User,
-        }
+        Principal { user: UserId(user.into()), role: Role::User }
     }
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        PageRequest { offset: 0, limit: 10 }
     }
 
     fn start_request() -> SessionStartInput {
@@ -309,37 +282,23 @@ mod tests {
             ..start_request()
         };
         let started = svc.start(&principal("u1"), request).await.unwrap();
-        assert_eq!(
-            started.selected.subtitle_track,
-            Some(SubtitleTrackRef::Embedded(2))
-        );
-        assert_eq!(
-            started.selected.subtitle_delivery,
-            Some(SubtitleDelivery::HlsVtt)
-        );
+        assert_eq!(started.selected.subtitle_track, Some(SubtitleTrackRef::Embedded(2)));
+        assert_eq!(started.selected.subtitle_delivery, Some(SubtitleDelivery::HlsVtt));
     }
 
     #[tokio::test]
     async fn heartbeat_updates_position() {
         let (svc, id) = started_session().await;
-        let ack = svc
-            .heartbeat(&principal("u1"), &id, 5000, PlaybackState::Paused)
-            .await
-            .unwrap();
+        let ack = svc.heartbeat(&principal("u1"), &id, 5000, PlaybackState::Paused).await.unwrap();
         assert_eq!(ack.heartbeat_interval_s, HEARTBEAT_INTERVAL_S);
         let active = svc.active_sessions(&principal("u1"), page()).await.unwrap();
         assert_eq!(active.items[0].position_ms, 5000);
         assert_eq!(active.items[0].state, PlaybackState::Paused);
 
         assert!(matches!(
-            svc.heartbeat(
-                &principal("u1"),
-                &SessionId("x".into()),
-                0,
-                PlaybackState::Playing
-            )
-            .await
-            .unwrap_err(),
+            svc.heartbeat(&principal("u1"), &SessionId("x".into()), 0, PlaybackState::Playing)
+                .await
+                .unwrap_err(),
             SessionError::NotFound
         ));
     }
@@ -350,18 +309,12 @@ mod tests {
         let nego = svc.seek(&principal("u1"), &id, 12345).await.unwrap();
         assert_eq!(nego.session_id, id);
         assert_eq!(
-            svc.active_sessions(&principal("u1"), page())
-                .await
-                .unwrap()
-                .items[0]
-                .position_ms,
+            svc.active_sessions(&principal("u1"), page()).await.unwrap().items[0].position_ms,
             12345
         );
 
         assert!(matches!(
-            svc.seek(&principal("u1"), &SessionId("x".into()), 0)
-                .await
-                .unwrap_err(),
+            svc.seek(&principal("u1"), &SessionId("x".into()), 0).await.unwrap_err(),
             SessionError::NotFound
         ));
     }
@@ -385,10 +338,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(
-            svc.active_sessions(&principal("u1"), page())
-                .await
-                .unwrap()
-                .items[0]
+            svc.active_sessions(&principal("u1"), page()).await.unwrap().items[0]
                 .selected
                 .audio_track,
             Some(0)
@@ -411,13 +361,8 @@ mod tests {
         )
         .await
         .unwrap();
-        let selected = svc
-            .active_sessions(&principal("u1"), page())
-            .await
-            .unwrap()
-            .items[0]
-            .selected
-            .clone();
+        let selected =
+            svc.active_sessions(&principal("u1"), page()).await.unwrap().items[0].selected.clone();
         assert_eq!(selected.audio_track, Some(2));
         assert_eq!(selected.subtitle_track, Some(SubtitleTrackRef::Embedded(1)));
         assert_eq!(selected.subtitle_delivery, Some(SubtitleDelivery::HlsVtt));
@@ -436,13 +381,8 @@ mod tests {
         )
         .await
         .unwrap();
-        let selected = svc
-            .active_sessions(&principal("u1"), page())
-            .await
-            .unwrap()
-            .items[0]
-            .selected
-            .clone();
+        let selected =
+            svc.active_sessions(&principal("u1"), page()).await.unwrap().items[0].selected.clone();
         assert_eq!(selected.subtitle_track, None);
         assert_eq!(selected.subtitle_delivery, None);
 
@@ -483,13 +423,7 @@ mod tests {
     async fn end_removes_session() {
         let (svc, id) = started_session().await;
         svc.end(&principal("u1"), &id).await.unwrap();
-        assert!(
-            svc.active_sessions(&principal("u1"), page())
-                .await
-                .unwrap()
-                .items
-                .is_empty()
-        );
+        assert!(svc.active_sessions(&principal("u1"), page()).await.unwrap().items.is_empty());
         assert!(matches!(
             svc.end(&principal("u1"), &id).await.unwrap_err(),
             SessionError::NotFound

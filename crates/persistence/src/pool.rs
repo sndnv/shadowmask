@@ -51,20 +51,13 @@ async fn open_with(
     path: &Path,
     migrator: &Migrator,
 ) -> Result<SqlitePool, RepositoryError> {
-    let pool = options
-        .connect_with(connect_options(path))
-        .await
-        .map_err(backend)?;
+    let pool = options.connect_with(connect_options(path)).await.map_err(backend)?;
     let store = store_label(path);
     let applied = applied_migrations(&pool).await;
     check_applied_migrations(&store, path, migrator, &applied)?;
     let pending: Vec<(i64, String)> = migrator
         .iter()
-        .filter(|migration| {
-            !applied
-                .iter()
-                .any(|(version, _)| *version == migration.version)
-        })
+        .filter(|migration| !applied.iter().any(|(version, _)| *version == migration.version))
         .map(|migration| (migration.version, migration.description.to_string()))
         .collect();
     migrator
@@ -72,11 +65,9 @@ async fn open_with(
         .await
         .map_err(|error| backend(format!("store [{store}] migrations failed: {error}")))?;
     if pending.is_empty() {
-        tracing::debug!(
-            "Store [{store}] is up to date at migration [{}] of [{}] applied",
-            applied.last().map(|(version, _)| *version).unwrap_or(0),
-            applied.len()
-        );
+        let at = applied.last().map(|(version, _)| *version).unwrap_or(0);
+        let count = applied.len();
+        tracing::debug!("Store [{store}] is up to date at migration [{at}] of [{count}] applied");
     } else {
         for (version, description) in &pending {
             tracing::info!("Store [{store}] applied migration [{version}] [{description}]");
@@ -110,9 +101,7 @@ fn check_applied_migrations(
 ) -> Result<(), RepositoryError> {
     for (version, checksum) in applied {
         let db = path.display();
-        let Some(migration) = migrator
-            .iter()
-            .find(|migration| migration.version == *version)
+        let Some(migration) = migrator.iter().find(|migration| migration.version == *version)
         else {
             return Err(backend(format!(
                 "store [{store}] at [{db}]: migration [{version}] is applied but is not in this \
@@ -131,23 +120,16 @@ fn check_applied_migrations(
 }
 
 fn store_label(path: &Path) -> String {
-    path.file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
-        .unwrap_or_default()
+    path.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 pub(crate) async fn ping(pool: &SqlitePool) -> Result<(), RepositoryError> {
-    sqlx::query("SELECT 1")
-        .execute(pool)
-        .await
-        .map_err(backend)?;
+    sqlx::query("SELECT 1").execute(pool).await.map_err(backend)?;
     Ok(())
 }
 
 pub(crate) async fn checkpoint(pool: &SqlitePool) {
-    let _ = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
-        .execute(pool)
-        .await;
+    let _ = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)").execute(pool).await;
 }
 
 #[derive(Clone)]
@@ -257,34 +239,17 @@ mod tests {
     #[tokio::test]
     async fn a_pool_commits_without_fsyncing_every_transaction() {
         let dir = tempfile::tempdir().unwrap();
-        let pool = open(&dir.path().join("pragmas.db"), &TEST_MIGRATOR)
-            .await
-            .unwrap();
+        let pool = open(&dir.path().join("pragmas.db"), &TEST_MIGRATOR).await.unwrap();
 
-        let synchronous: i64 = sqlx::query("PRAGMA synchronous")
-            .fetch_one(&pool)
-            .await
-            .unwrap()
-            .try_get(0)
-            .unwrap();
-        let temp_store: i64 = sqlx::query("PRAGMA temp_store")
-            .fetch_one(&pool)
-            .await
-            .unwrap()
-            .try_get(0)
-            .unwrap();
-        let cache_size: i64 = sqlx::query("PRAGMA cache_size")
-            .fetch_one(&pool)
-            .await
-            .unwrap()
-            .try_get(0)
-            .unwrap();
+        let synchronous: i64 =
+            sqlx::query("PRAGMA synchronous").fetch_one(&pool).await.unwrap().try_get(0).unwrap();
+        let temp_store: i64 =
+            sqlx::query("PRAGMA temp_store").fetch_one(&pool).await.unwrap().try_get(0).unwrap();
+        let cache_size: i64 =
+            sqlx::query("PRAGMA cache_size").fetch_one(&pool).await.unwrap().try_get(0).unwrap();
 
         assert_eq!(synchronous, 1, "NORMAL, the documented setting under WAL");
-        assert_eq!(
-            temp_store, 2,
-            "MEMORY, so ORDER BY temp b-trees stay in RAM"
-        );
+        assert_eq!(temp_store, 2, "MEMORY, so ORDER BY temp b-trees stay in RAM");
         assert_eq!(
             cache_size,
             -i64::from(CACHE_KIB),
@@ -378,6 +343,19 @@ mod tests {
         cache.purge(&UserId("never-seen".into())).await.unwrap();
     }
 
+    // Deleting an account is destructive, so a removal that fails for any reason other than
+    // the directory already being gone has to say so rather than report success.
+    #[tokio::test]
+    async fn a_purge_that_cannot_remove_the_directory_reports_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = pools(dir.path(), DEFAULT_USER_POOL_CAPACITY);
+        std::fs::write(dir.path().join("u1"), b"not a directory").unwrap();
+
+        let error = cache.purge(&UserId("u1".into())).await.unwrap_err();
+
+        assert!(matches!(error, RepositoryError::Backend(_)));
+    }
+
     #[tokio::test]
     async fn a_purged_user_can_be_opened_again_from_scratch() {
         let dir = tempfile::tempdir().unwrap();
@@ -437,15 +415,10 @@ mod tests {
 
         let error = open(&path, &TEST_MIGRATOR).await.unwrap_err();
 
-        let RepositoryError::Backend(message) = error else {
-            panic!("expected a backend error");
-        };
+        let RepositoryError::Backend(message) = error else { panic!("expected a backend error") };
         assert!(message.contains("store [catalog]"), "{message}");
         assert!(message.contains("migration [1]"), "{message}");
-        assert!(
-            message.contains("changed since it was applied"),
-            "{message}"
-        );
+        assert!(message.contains("changed since it was applied"), "{message}");
         assert!(message.contains(&path.display().to_string()), "{message}");
     }
 
@@ -467,9 +440,7 @@ mod tests {
 
         let error = open(&path, &TEST_MIGRATOR).await.unwrap_err();
 
-        let RepositoryError::Backend(message) = error else {
-            panic!("expected a backend error");
-        };
+        let RepositoryError::Backend(message) = error else { panic!("expected a backend error") };
         assert!(message.contains("store [progress]"), "{message}");
         assert!(
             message.contains("migration [9999] is applied but is not in this build"),
@@ -491,9 +462,6 @@ mod tests {
         let file = dir.path().join("not-a-dir");
         tokio::fs::write(&file, b"x").await.unwrap();
         let cache = pools(&file, DEFAULT_USER_POOL_CAPACITY);
-        assert!(matches!(
-            cache.get(&UserId("u1".into())).await,
-            Err(RepositoryError::Backend(_))
-        ));
+        assert!(matches!(cache.get(&UserId("u1".into())).await, Err(RepositoryError::Backend(_))));
     }
 }

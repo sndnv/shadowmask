@@ -40,11 +40,7 @@ impl MockUserRepo {
     }
 
     pub fn grant(&self, id: &UserId, libraries: &[LibraryId]) {
-        self.state
-            .lock()
-            .unwrap()
-            .access
-            .insert(id.clone(), libraries.to_vec());
+        self.state.lock().unwrap().access.insert(id.clone(), libraries.to_vec());
     }
 
     pub fn set_fail(&self) {
@@ -73,26 +69,12 @@ impl UserRepository for MockUserRepo {
 
     async fn get(&self, id: &UserId) -> Result<Option<User>, RepositoryError> {
         self.guard()?;
-        Ok(self
-            .state
-            .lock()
-            .unwrap()
-            .users
-            .iter()
-            .find(|u| &u.id == id)
-            .cloned())
+        Ok(self.state.lock().unwrap().users.iter().find(|u| &u.id == id).cloned())
     }
 
     async fn find_by_username(&self, username: &str) -> Result<Option<User>, RepositoryError> {
         self.guard()?;
-        Ok(self
-            .state
-            .lock()
-            .unwrap()
-            .users
-            .iter()
-            .find(|u| u.username == username)
-            .cloned())
+        Ok(self.state.lock().unwrap().users.iter().find(|u| u.username == username).cloned())
     }
 
     async fn list(&self, page: PageRequest) -> Result<Page<User>, RepositoryError> {
@@ -130,10 +112,7 @@ impl UserRepository for MockUserRepo {
             .get(id)
             .into_iter()
             .flatten()
-            .map(|library| LibraryAccess {
-                user: id.clone(),
-                library: library.clone(),
-            })
+            .map(|library| LibraryAccess { user: id.clone(), library: library.clone() })
             .collect())
     }
 
@@ -143,11 +122,7 @@ impl UserRepository for MockUserRepo {
         libraries: &[LibraryId],
     ) -> Result<(), RepositoryError> {
         self.guard()?;
-        self.state
-            .lock()
-            .unwrap()
-            .access
-            .insert(id.clone(), libraries.to_vec());
+        self.state.lock().unwrap().access.insert(id.clone(), libraries.to_vec());
         Ok(())
     }
 
@@ -184,10 +159,7 @@ mod tests {
     }
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        PageRequest { offset: 0, limit: 10 }
     }
 
     #[tokio::test]
@@ -209,31 +181,11 @@ mod tests {
         updated.bitrate_cap = Some(42);
         repo.update(updated).await.unwrap();
         repo.update(user("missing", "nobody")).await.unwrap();
-        assert_eq!(
-            repo.get(&UserId("u1".into()))
-                .await
-                .unwrap()
-                .unwrap()
-                .bitrate_cap,
-            Some(42)
-        );
+        assert_eq!(repo.get(&UserId("u1".into())).await.unwrap().unwrap().bitrate_cap, Some(42));
 
-        assert!(
-            repo.list_library_access(&UserId("u1".into()))
-                .await
-                .unwrap()
-                .is_empty()
-        );
-        repo.set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())])
-            .await
-            .unwrap();
-        assert_eq!(
-            repo.list_library_access(&UserId("u1".into()))
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
+        assert!(repo.list_library_access(&UserId("u1".into())).await.unwrap().is_empty());
+        repo.set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())]).await.unwrap();
+        assert_eq!(repo.list_library_access(&UserId("u1".into())).await.unwrap().len(), 1);
 
         repo.delete(&UserId("u1".into())).await.unwrap();
         assert!(repo.get(&UserId("u1".into())).await.unwrap().is_none());
@@ -249,15 +201,7 @@ mod tests {
         assert!(repo.list(page()).await.is_err());
         assert!(repo.update(user("u1", "alice")).await.is_err());
         assert!(repo.delete(&UserId("u1".into())).await.is_err());
-        assert!(
-            repo.list_library_access(&UserId("u1".into()))
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.set_library_access(&UserId("u1".into()), &[])
-                .await
-                .is_err()
-        );
+        assert!(repo.list_library_access(&UserId("u1".into())).await.is_err());
+        assert!(repo.set_library_access(&UserId("u1".into()), &[]).await.is_err());
     }
 }

@@ -84,11 +84,7 @@ fn episode(id: &str, season: &str, title: &str) -> Episode {
 }
 
 fn person(id: &str, name: &str) -> Person {
-    Person {
-        id: PersonId(id.into()),
-        name: name.into(),
-        ..Person::default()
-    }
+    Person { id: PersonId(id.into()), name: name.into(), ..Person::default() }
 }
 
 fn version(id: &str, title: TitleId, library: &str) -> Version {
@@ -150,24 +146,15 @@ fn open() -> TitleListFilter {
 }
 
 fn adult() -> ContentRating {
-    ContentRating {
-        system: "mpaa".into(),
-        code: "r".into(),
-    }
+    ContentRating { system: "mpaa".into(), code: "r".into() }
 }
 
 fn capped() -> TitleListFilter {
-    TitleListFilter {
-        blocked_ratings: vec![adult()],
-        ..TitleListFilter::default()
-    }
+    TitleListFilter { blocked_ratings: vec![adult()], ..TitleListFilter::default() }
 }
 
 fn without_library_access() -> TitleListFilter {
-    TitleListFilter {
-        libraries: Some(Vec::new()),
-        ..TitleListFilter::default()
-    }
+    TitleListFilter { libraries: Some(Vec::new()), ..TitleListFilter::default() }
 }
 
 fn granted(library: &str) -> TitleListFilter {
@@ -203,10 +190,7 @@ fn keys(page: &Page<SearchResult>) -> Vec<String> {
 }
 
 pub async fn search_index_contract<R: SearchIndex>(index: R, seed: impl AsyncFn(&R)) {
-    let before = index
-        .search("matrix", &[], &open(), page(0, 10))
-        .await
-        .unwrap();
+    let before = index.search("matrix", &[], &open(), page(0, 10)).await.unwrap();
     assert_eq!(before.total, 0);
     assert!(before.items.is_empty());
 
@@ -215,63 +199,37 @@ pub async fn search_index_contract<R: SearchIndex>(index: R, seed: impl AsyncFn(
     let fixture = search_seed();
     let all = all_results(&fixture);
 
-    let blank = index
-        .search("   ", &[], &open(), page(0, 10))
-        .await
-        .unwrap();
+    let blank = index.search("   ", &[], &open(), page(0, 10)).await.unwrap();
     assert_eq!(blank.total, 0);
     assert!(blank.items.is_empty());
 
-    let hits = index
-        .search("matrix", &[], &open(), page(0, 10))
-        .await
-        .unwrap();
-    assert_eq!(
-        titles(&hits),
-        ["Matrix", "Matrix Origins", "Matrix Reloaded", "The Matrix"]
-    );
+    let hits = index.search("matrix", &[], &open(), page(0, 10)).await.unwrap();
+    assert_eq!(titles(&hits), ["Matrix", "Matrix Origins", "Matrix Reloaded", "The Matrix"]);
     assert_eq!(hits.total, 4);
-    assert!(
-        titles(&hits).iter().all(|t| t != "Rematrix"),
-        "substring-only matches are excluded"
-    );
+    assert!(titles(&hits).iter().all(|t| t != "Rematrix"), "substring-only matches are excluded");
 
     assert_eq!(keys(&hits), keys(&search(&all, "matrix", &[], page(0, 10))));
 
-    let reloaded = index
-        .search("reloaded", &[], &open(), page(0, 10))
-        .await
-        .unwrap();
+    let reloaded = index.search("reloaded", &[], &open(), page(0, 10)).await.unwrap();
     assert_eq!(titles(&reloaded), ["Matrix Reloaded"]);
 
-    let movies_only = index
-        .search("matrix", &[SearchKind::Movie], &open(), page(0, 10))
-        .await
-        .unwrap();
+    let movies_only =
+        index.search("matrix", &[SearchKind::Movie], &open(), page(0, 10)).await.unwrap();
     assert_eq!(titles(&movies_only), ["Matrix", "Matrix Reloaded"]);
 
-    let series_only = index
-        .search("matrix", &[SearchKind::Series], &open(), page(0, 10))
-        .await
-        .unwrap();
+    let series_only =
+        index.search("matrix", &[SearchKind::Series], &open(), page(0, 10)).await.unwrap();
     assert_eq!(titles(&series_only), ["The Matrix"]);
 
-    let episode_only = index
-        .search("matrix", &[SearchKind::Episode], &open(), page(0, 10))
-        .await
-        .unwrap();
+    let episode_only =
+        index.search("matrix", &[SearchKind::Episode], &open(), page(0, 10)).await.unwrap();
     assert_eq!(titles(&episode_only), ["Matrix Origins"]);
 
-    let neo = index
-        .search("neo", &[], &open(), page(0, 10))
-        .await
-        .unwrap();
+    let neo = index.search("neo", &[], &open(), page(0, 10)).await.unwrap();
     assert_eq!(titles(&neo), ["Neo Anderson"]);
     assert_eq!(keys(&neo), ["person:p1"]);
-    let people_only = index
-        .search("neo", &[SearchKind::Person], &open(), page(0, 10))
-        .await
-        .unwrap();
+    let people_only =
+        index.search("neo", &[SearchKind::Person], &open(), page(0, 10)).await.unwrap();
     assert_eq!(titles(&people_only), ["Neo Anderson"]);
     assert!(
         index
@@ -282,26 +240,15 @@ pub async fn search_index_contract<R: SearchIndex>(index: R, seed: impl AsyncFn(
             .is_empty()
     );
 
-    let paged = index
-        .search("matrix", &[], &open(), page(1, 2))
-        .await
-        .unwrap();
+    let paged = index.search("matrix", &[], &open(), page(1, 2)).await.unwrap();
     assert_eq!(titles(&paged), ["Matrix Origins", "Matrix Reloaded"]);
     assert_eq!(paged.total, 4);
 
     assert!(
-        index
-            .search("nothing-here", &[], &open(), page(0, 10))
-            .await
-            .unwrap()
-            .items
-            .is_empty()
+        index.search("nothing-here", &[], &open(), page(0, 10)).await.unwrap().items.is_empty()
     );
 
-    let under_cap = index
-        .search("matrix", &[], &capped(), page(0, 10))
-        .await
-        .unwrap();
+    let under_cap = index.search("matrix", &[], &capped(), page(0, 10)).await.unwrap();
     assert_eq!(
         titles(&under_cap),
         ["Matrix", "Matrix Origins", "The Matrix"],
@@ -313,36 +260,20 @@ pub async fn search_index_contract<R: SearchIndex>(index: R, seed: impl AsyncFn(
     );
 
     let capped_series = TitleListFilter {
-        blocked_ratings: vec![ContentRating {
-            system: "mpaa".into(),
-            code: "nc-17".into(),
-        }],
+        blocked_ratings: vec![ContentRating { system: "mpaa".into(), code: "nc-17".into() }],
         ..TitleListFilter::default()
     };
     assert_eq!(
-        titles(
-            &index
-                .search("matrix", &[], &capped_series, page(0, 10))
-                .await
-                .unwrap()
-        ),
+        titles(&index.search("matrix", &[], &capped_series, page(0, 10)).await.unwrap()),
         ["Matrix", "Matrix Origins", "Matrix Reloaded", "The Matrix"],
         "blocking a rating nothing carries must not drop anything"
     );
 
-    let no_access = index
-        .search("matrix", &[], &without_library_access(), page(0, 10))
-        .await
-        .unwrap();
-    assert!(
-        no_access.items.is_empty(),
-        "a user granted no library sees no titles through search"
-    );
+    let no_access =
+        index.search("matrix", &[], &without_library_access(), page(0, 10)).await.unwrap();
+    assert!(no_access.items.is_empty(), "a user granted no library sees no titles through search");
 
-    let one_library = index
-        .search("matrix", &[], &granted("lib1"), page(0, 10))
-        .await
-        .unwrap();
+    let one_library = index.search("matrix", &[], &granted("lib1"), page(0, 10)).await.unwrap();
     assert_eq!(
         titles(&one_library),
         ["Matrix", "Matrix Origins", "The Matrix"],
@@ -350,25 +281,14 @@ pub async fn search_index_contract<R: SearchIndex>(index: R, seed: impl AsyncFn(
     );
 
     assert_eq!(
-        titles(
-            &index
-                .search("neo", &[], &without_library_access(), page(0, 10))
-                .await
-                .unwrap()
-        ),
+        titles(&index.search("neo", &[], &without_library_access(), page(0, 10)).await.unwrap()),
         ["Neo Anderson"],
         "people carry no rating and belong to no library, so they are never gated"
     );
 
     index.rebuild().await.unwrap();
-    let after = index
-        .search("matrix", &[], &open(), page(0, 10))
-        .await
-        .unwrap();
+    let after = index.search("matrix", &[], &open(), page(0, 10)).await.unwrap();
     assert_eq!(keys(&after), keys(&hits));
-    let neo_after = index
-        .search("neo", &[], &open(), page(0, 10))
-        .await
-        .unwrap();
+    let neo_after = index.search("neo", &[], &open(), page(0, 10)).await.unwrap();
     assert_eq!(keys(&neo_after), ["person:p1"]);
 }

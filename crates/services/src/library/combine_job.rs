@@ -29,13 +29,7 @@ pub fn combine_job(version_id: &VersionId, top_id: &str, bottom_id: &str) -> Job
         bottom_subtitle_id: bottom_id.to_owned(),
     }
     .encode();
-    queued_job(
-        JobKind::Combine,
-        JobPriority::Low,
-        raw,
-        None,
-        Timestamp::now(),
-    )
+    queued_job(JobKind::Combine, JobPriority::Low, raw, None, Timestamp::now())
 }
 
 #[derive(Serialize, Deserialize)]

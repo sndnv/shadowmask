@@ -20,11 +20,7 @@ pub struct UpscaleJobHandler<P, C, M> {
 
 impl<P, C, M> UpscaleJobHandler<P, C, M> {
     pub fn new(provider: P, catalog: C, probe: M) -> Self {
-        Self {
-            provider,
-            catalog,
-            probe,
-        }
+        Self { provider, catalog, probe }
     }
 }
 
@@ -49,11 +45,8 @@ where
         };
 
         let target_quality = quality_from_height(payload.target_height);
-        let output_path = upscaled_output_path(
-            &detail.version.path,
-            target_quality,
-            &Uuid::new_v4().to_string(),
-        );
+        let output_path =
+            upscaled_output_path(&detail.version.path, target_quality, &Uuid::new_v4().to_string());
         let request = UpscaleSpec {
             source_path: detail.version.path.clone(),
             target_height: payload.target_height,
@@ -71,18 +64,13 @@ where
                 return Ok(());
             }
             Err(UpscaleError::Precondition(reason)) => {
-                return Err(JobError::Permanent(format!(
-                    "upscale precondition: {reason}"
-                )));
+                return Err(JobError::Permanent(format!("upscale precondition: {reason}")));
             }
             Err(UpscaleError::Backend(reason)) => return Err(JobError::Retryable(reason)),
         };
 
-        let probe = self
-            .probe
-            .probe(&output.path)
-            .await
-            .map_err(|e| JobError::Retryable(e.to_string()))?;
+        let probe =
+            self.probe.probe(&output.path).await.map_err(|e| JobError::Retryable(e.to_string()))?;
 
         let now = Timestamp::now();
         let version_id = VersionId(derive_id("version", &output.path));
@@ -147,10 +135,9 @@ mod tests {
         async fn upscale(&self, request: &UpscaleSpec) -> Result<UpscaleOutput, UpscaleError> {
             *self.captured.lock().unwrap() = Some(request.output_path.clone());
             match self.mode {
-                Mode::Ok => Ok(UpscaleOutput {
-                    path: request.output_path.clone(),
-                    size_bytes: 4242,
-                }),
+                Mode::Ok => {
+                    Ok(UpscaleOutput { path: request.output_path.clone(), size_bytes: 4242 })
+                }
                 Mode::Unsupported => Err(UpscaleError::Unsupported("already large".into())),
                 Mode::Precondition => Err(UpscaleError::Precondition("read only".into())),
                 Mode::Backend => Err(UpscaleError::Backend("boom".into())),
@@ -193,13 +180,7 @@ mod tests {
 
     fn provider(mode: Mode) -> (MockUpscaleProvider, Arc<Mutex<Option<String>>>) {
         let captured = Arc::new(Mutex::new(None));
-        (
-            MockUpscaleProvider {
-                mode,
-                captured: captured.clone(),
-            },
-            captured,
-        )
+        (MockUpscaleProvider { mode, captured: captured.clone() }, captured)
     }
 
     fn source_version() -> Version {
@@ -239,11 +220,7 @@ mod tests {
     }
 
     fn payload() -> String {
-        UpscaleJobPayload {
-            version_id: VersionId("v1".into()),
-            target_height: 1080,
-        }
-        .encode()
+        UpscaleJobPayload { version_id: VersionId("v1".into()), target_height: 1080 }.encode()
     }
 
     #[tokio::test]
@@ -323,14 +300,8 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         catalog.add_version(source_version());
         let (prov, _) = provider(Mode::Ok);
-        let handler = UpscaleJobHandler::new(
-            prov,
-            catalog,
-            MockProbe {
-                fail: true,
-                ..MockProbe::default()
-            },
-        );
+        let handler =
+            UpscaleJobHandler::new(prov, catalog, MockProbe { fail: true, ..MockProbe::default() });
         assert!(matches!(
             handler.handle(&job(payload())).await.unwrap_err(),
             JobError::Retryable(_)
@@ -358,10 +329,7 @@ mod tests {
         let handler = UpscaleJobHandler::new(
             prov,
             catalog.clone(),
-            MockProbe {
-                fail_catalog_after: Some(catalog),
-                ..MockProbe::default()
-            },
+            MockProbe { fail_catalog_after: Some(catalog), ..MockProbe::default() },
         );
         assert!(matches!(
             handler.handle(&job(payload())).await.unwrap_err(),

@@ -122,9 +122,7 @@ pub(crate) fn subtitle_override_from_parts(
             .parse::<u32>()
             .map(|index| SubtitleOverride::Track(SubtitleTrackRef::Embedded(index)))
             .map_err(|_| backend(format!("unreadable embedded subtitle index: {value}"))),
-        "file" => Ok(SubtitleOverride::Track(SubtitleTrackRef::File(
-            SubtitleFileId(value),
-        ))),
+        "file" => Ok(SubtitleOverride::Track(SubtitleTrackRef::File(SubtitleFileId(value)))),
         other => Err(backend(format!("unknown subtitle kind: {other}"))),
     }
 }
@@ -195,10 +193,7 @@ mod tests {
             SubtitleOverride::Track(SubtitleTrackRef::File(SubtitleFileId("sub-1".into()))),
         ] {
             let (kind, reference) = subtitle_override_parts(&value);
-            assert_eq!(
-                subtitle_override_from_parts(kind, reference).unwrap(),
-                value
-            );
+            assert_eq!(subtitle_override_from_parts(kind, reference).unwrap(), value);
         }
         assert_eq!(subtitle_override_parts(&SubtitleOverride::Off).1, None);
     }
@@ -219,10 +214,7 @@ mod tests {
             ArtworkKind::Logo,
             ArtworkKind::ClearArt,
         ] {
-            assert_eq!(
-                artwork_kind_from_str(artwork_kind_to_str(kind)).unwrap(),
-                kind
-            );
+            assert_eq!(artwork_kind_from_str(artwork_kind_to_str(kind)).unwrap(), kind);
         }
         assert!(artwork_kind_from_str("nope").is_err());
     }
@@ -251,21 +243,14 @@ mod tests {
     #[test]
     fn credit_role_round_trips_and_rejects_unknown() {
         for role in [CreditRole::Actor, CreditRole::Director, CreditRole::Writer] {
-            assert_eq!(
-                credit_role_from_str(credit_role_to_str(role)).unwrap(),
-                role
-            );
+            assert_eq!(credit_role_from_str(credit_role_to_str(role)).unwrap(), role);
         }
         assert!(credit_role_from_str("nope").is_err());
     }
 
     #[test]
     fn extra_kind_round_trips_and_rejects_unknown() {
-        for kind in [
-            ExtraKind::Trailer,
-            ExtraKind::Featurette,
-            ExtraKind::BehindTheScenes,
-        ] {
+        for kind in [ExtraKind::Trailer, ExtraKind::Featurette, ExtraKind::BehindTheScenes] {
             assert_eq!(extra_kind_from_str(extra_kind_to_str(kind)).unwrap(), kind);
         }
         assert!(extra_kind_from_str("nope").is_err());
@@ -296,9 +281,7 @@ mod tests {
             ("collection", "c1")
         );
         assert_eq!(
-            artwork_owner_parts(&ArtworkOwner::Person(domain::metadata::PersonId(
-                "p1".into()
-            ))),
+            artwork_owner_parts(&ArtworkOwner::Person(domain::metadata::PersonId("p1".into()))),
             ("person", "p1")
         );
     }

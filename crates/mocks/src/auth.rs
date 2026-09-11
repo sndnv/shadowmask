@@ -44,11 +44,7 @@ impl MockAuthService {
     }
 
     pub fn add_link_code(&self, code: &str, token: IssuedToken) {
-        self.state
-            .lock()
-            .unwrap()
-            .link_codes
-            .insert(code.to_string(), token);
+        self.state.lock().unwrap().link_codes.insert(code.to_string(), token);
     }
 }
 
@@ -73,9 +69,7 @@ impl AuthService for MockAuthService {
     }
 
     async fn refresh(&self, refresh_token: &str) -> Result<TokenPair, AuthError> {
-        let id = refresh_token
-            .strip_prefix("refresh:")
-            .ok_or(AuthError::InvalidToken)?;
+        let id = refresh_token.strip_prefix("refresh:").ok_or(AuthError::InvalidToken)?;
         let state = self.state.lock().unwrap();
         if !state.accounts.iter().any(|a| a.user.0 == id) {
             return Err(AuthError::InvalidToken);
@@ -91,29 +85,15 @@ impl AuthService for MockAuthService {
         code: &str,
         _device: DeviceRegistration,
     ) -> Result<IssuedToken, AuthError> {
-        self.state
-            .lock()
-            .unwrap()
-            .link_codes
-            .get(code)
-            .cloned()
-            .ok_or(AuthError::UnknownLinkCode)
+        self.state.lock().unwrap().link_codes.get(code).cloned().ok_or(AuthError::UnknownLinkCode)
     }
 
     async fn authenticate(&self, access_token: &str) -> Result<Principal, AuthError> {
-        let id = access_token
-            .strip_prefix("access:")
-            .ok_or(AuthError::InvalidToken)?;
+        let id = access_token.strip_prefix("access:").ok_or(AuthError::InvalidToken)?;
         let state = self.state.lock().unwrap();
-        let account = state
-            .accounts
-            .iter()
-            .find(|a| a.user.0 == id)
-            .ok_or(AuthError::InvalidToken)?;
-        Ok(Principal {
-            user: account.user.clone(),
-            role: account.role,
-        })
+        let account =
+            state.accounts.iter().find(|a| a.user.0 == id).ok_or(AuthError::InvalidToken)?;
+        Ok(Principal { user: account.user.clone(), role: account.role })
     }
 
     async fn create_link_code(
@@ -128,11 +108,7 @@ impl AuthService for MockAuthService {
             role: Role::Player,
             expires_at: Timestamp::from_second(4_102_444_800).unwrap(),
         };
-        self.state
-            .lock()
-            .unwrap()
-            .pending
-            .insert(link.code.clone(), link.clone());
+        self.state.lock().unwrap().pending.insert(link.code.clone(), link.clone());
         Ok(link)
     }
 
@@ -160,9 +136,7 @@ impl AuthService for MockAuthService {
     }
 
     async fn logout(&self, refresh_token: &str) -> Result<(), AuthError> {
-        let id = refresh_token
-            .strip_prefix("refresh:")
-            .ok_or(AuthError::InvalidToken)?;
+        let id = refresh_token.strip_prefix("refresh:").ok_or(AuthError::InvalidToken)?;
         let state = self.state.lock().unwrap();
         if !state.accounts.iter().any(|a| a.user.0 == id) {
             return Err(AuthError::InvalidToken);
@@ -231,14 +205,8 @@ mod tests {
         assert_eq!(tokens.access_token, "access:u1");
         assert_eq!(tokens.refresh_token, "refresh:u1");
 
-        assert!(matches!(
-            svc.refresh("garbage").await.unwrap_err(),
-            AuthError::InvalidToken
-        ));
-        assert!(matches!(
-            svc.refresh("refresh:ghost").await.unwrap_err(),
-            AuthError::InvalidToken
-        ));
+        assert!(matches!(svc.refresh("garbage").await.unwrap_err(), AuthError::InvalidToken));
+        assert!(matches!(svc.refresh("refresh:ghost").await.unwrap_err(), AuthError::InvalidToken));
     }
 
     #[tokio::test]
@@ -248,10 +216,7 @@ mod tests {
         assert_eq!(principal.user, UserId("u1".into()));
         assert_eq!(principal.role, Role::Admin);
 
-        assert!(matches!(
-            svc.authenticate("garbage").await.unwrap_err(),
-            AuthError::InvalidToken
-        ));
+        assert!(matches!(svc.authenticate("garbage").await.unwrap_err(), AuthError::InvalidToken));
         assert!(matches!(
             svc.authenticate("access:ghost").await.unwrap_err(),
             AuthError::InvalidToken
@@ -261,17 +226,8 @@ mod tests {
     #[tokio::test]
     async fn redeem_link_code_success_and_failure() {
         let svc = service();
-        svc.add_link_code(
-            "ABCD",
-            IssuedToken {
-                token: "player-token".into(),
-                expires_at: None,
-            },
-        );
-        let device = DeviceRegistration {
-            name: "Roku".into(),
-            platform: "roku".into(),
-        };
+        svc.add_link_code("ABCD", IssuedToken { token: "player-token".into(), expires_at: None });
+        let device = DeviceRegistration { name: "Roku".into(), platform: "roku".into() };
         let issued = svc.redeem_link_code("ABCD", device.clone()).await.unwrap();
         assert_eq!(issued.token, "player-token");
 
@@ -286,14 +242,8 @@ mod tests {
         let svc = service();
         svc.logout("refresh:u1").await.unwrap();
         svc.logout_all(&UserId("u1".into())).await.unwrap();
-        assert!(matches!(
-            svc.logout("garbage").await.unwrap_err(),
-            AuthError::InvalidToken
-        ));
-        assert!(matches!(
-            svc.logout("refresh:ghost").await.unwrap_err(),
-            AuthError::InvalidToken
-        ));
+        assert!(matches!(svc.logout("garbage").await.unwrap_err(), AuthError::InvalidToken));
+        assert!(matches!(svc.logout("refresh:ghost").await.unwrap_err(), AuthError::InvalidToken));
     }
 
     #[tokio::test]
@@ -302,21 +252,14 @@ mod tests {
         let user = UserId("u1".into());
         assert!(svc.list_devices(&user).await.unwrap().is_empty());
         assert!(svc.list_api_tokens(&user).await.unwrap().is_empty());
-        svc.revoke_device(&user, &DeviceId("d1".into()))
-            .await
-            .unwrap();
-        svc.revoke_api_token(&user, &ApiTokenId("t1".into()))
-            .await
-            .unwrap();
+        svc.revoke_device(&user, &DeviceId("d1".into())).await.unwrap();
+        svc.revoke_api_token(&user, &ApiTokenId("t1".into())).await.unwrap();
     }
 
     #[tokio::test]
     async fn create_link_code_returns_code() {
         let svc = service();
-        let caller = Principal {
-            user: UserId("admin".into()),
-            role: Role::Admin,
-        };
+        let caller = Principal { user: UserId("admin".into()), role: Role::Admin };
         let link = svc.create_link_code(&caller, None, None).await.unwrap();
         assert_eq!(link.code, "link-code");
         assert_eq!(link.role, Role::Player);
@@ -325,10 +268,7 @@ mod tests {
     #[tokio::test]
     async fn create_lists_then_revokes_link_code() {
         let svc = service();
-        let caller = Principal {
-            user: UserId("u1".into()),
-            role: Role::Admin,
-        };
+        let caller = Principal { user: UserId("u1".into()), role: Role::Admin };
         svc.create_link_code(&caller, None, None).await.unwrap();
         let user = UserId("u1".into());
         let listed = svc.list_link_codes(&user).await.unwrap();

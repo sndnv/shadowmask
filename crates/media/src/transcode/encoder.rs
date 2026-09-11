@@ -32,9 +32,7 @@ mod tests {
 
     #[test]
     fn vaapi_is_hardware() {
-        let encoder = VideoEncoder::Vaapi {
-            device: "/dev/dri/renderD128".to_owned(),
-        };
+        let encoder = VideoEncoder::Vaapi { device: "/dev/dri/renderD128".to_owned() };
         assert!(encoder.is_hardware());
     }
 
@@ -43,9 +41,7 @@ mod tests {
         assert_eq!(VideoEncoder::from_device(None), VideoEncoder::Software);
         assert_eq!(
             VideoEncoder::from_device(Some("/dev/dri/renderD128".to_owned())),
-            VideoEncoder::Vaapi {
-                device: "/dev/dri/renderD128".to_owned()
-            }
+            VideoEncoder::Vaapi { device: "/dev/dri/renderD128".to_owned() }
         );
     }
 }

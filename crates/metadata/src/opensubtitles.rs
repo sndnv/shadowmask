@@ -42,17 +42,11 @@ impl OpenSubtitlesClient {
     }
 
     fn get(&self, url: &str) -> reqwest::RequestBuilder {
-        self.client
-            .get(url)
-            .header("Api-Key", &self.api_key)
-            .header("User-Agent", USER_AGENT)
+        self.client.get(url).header("Api-Key", &self.api_key).header("User-Agent", USER_AGENT)
     }
 
     fn post(&self, url: &str) -> reqwest::RequestBuilder {
-        self.client
-            .post(url)
-            .header("Api-Key", &self.api_key)
-            .header("User-Agent", USER_AGENT)
+        self.client.post(url).header("Api-Key", &self.api_key).header("User-Agent", USER_AGENT)
     }
 }
 
@@ -63,24 +57,15 @@ fn format_from_name(name: Option<&str>) -> SubtitleFormat {
 }
 
 fn join_languages(languages: &[LanguageCode]) -> String {
-    languages
-        .iter()
-        .map(|language| language.0.as_str())
-        .collect::<Vec<_>>()
-        .join(",")
+    languages.iter().map(|language| language.0.as_str()).collect::<Vec<_>>().join(",")
 }
 
 async fn json<T: DeserializeOwned>(
     limiter: &RateLimiter,
     request: reqwest::RequestBuilder,
 ) -> Result<T, SubtitleError> {
-    let response = send_ok(limiter, request)
-        .await
-        .map_err(SubtitleError::Backend)?;
-    response
-        .json::<T>()
-        .await
-        .map_err(|e| SubtitleError::Parse(e.to_string()))
+    let response = send_ok(limiter, request).await.map_err(SubtitleError::Backend)?;
+    response.json::<T>().await.map_err(|e| SubtitleError::Parse(e.to_string()))
 }
 
 impl SubtitleProvider for OpenSubtitlesClient {
@@ -112,17 +97,14 @@ impl SubtitleProvider for OpenSubtitlesClient {
                 let release = sub.attributes.release;
                 let download_count = sub.attributes.download_count;
                 let rating = sub.attributes.ratings.filter(|value| *value > 0.0);
-                sub.attributes
-                    .files
-                    .into_iter()
-                    .map(move |file| SubtitleCandidate {
-                        file_id: file.file_id.to_string(),
-                        language: language.clone(),
-                        format: format_from_name(file.file_name.as_deref()),
-                        release_name: release.clone(),
-                        download_count,
-                        rating,
-                    })
+                sub.attributes.files.into_iter().map(move |file| SubtitleCandidate {
+                    file_id: file.file_id.to_string(),
+                    language: language.clone(),
+                    format: format_from_name(file.file_name.as_deref()),
+                    release_name: release.clone(),
+                    download_count,
+                    rating,
+                })
             })
             .collect();
         if candidates.is_empty() {
@@ -138,14 +120,8 @@ impl SubtitleProvider for OpenSubtitlesClient {
         let response = send_ok(&self.limiter, self.client.get(&download.link))
             .await
             .map_err(SubtitleError::Backend)?;
-        let content = response
-            .text()
-            .await
-            .map_err(|e| SubtitleError::Parse(e.to_string()))?;
-        Ok(FetchedSubtitle {
-            content,
-            format: format_from_name(download.file_name.as_deref()),
-        })
+        let content = response.text().await.map_err(|e| SubtitleError::Parse(e.to_string()))?;
+        Ok(FetchedSubtitle { content, format: format_from_name(download.file_name.as_deref()) })
     }
 }
 
@@ -212,10 +188,7 @@ mod tests {
 
     async fn serve_get(body: ResponseTemplate) -> MockServer {
         let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .respond_with(body)
-            .mount(&server)
-            .await;
+        Mock::given(method("GET")).respond_with(body).mount(&server).await;
         server
     }
 
@@ -242,10 +215,7 @@ mod tests {
         assert_eq!(candidates[0].file_id, "42");
         assert_eq!(candidates[0].language, Some(LanguageCode("en".to_owned())));
         assert_eq!(candidates[0].format, SubtitleFormat::Vtt);
-        assert_eq!(
-            candidates[0].release_name.as_deref(),
-            Some("The.Matrix.1999.BluRay")
-        );
+        assert_eq!(candidates[0].release_name.as_deref(), Some("The.Matrix.1999.BluRay"));
         assert_eq!(candidates[0].download_count, Some(1234));
         assert_eq!(candidates[0].rating, Some(8.5));
         assert_eq!(candidates[1].file_id, "43");
@@ -257,39 +227,27 @@ mod tests {
         let server =
             serve_get(ResponseTemplate::new(200).set_body_json(json!({ "data": [] }))).await;
         let client = OpenSubtitlesClient::with_base_url("k", server.uri());
-        assert!(matches!(
-            client.search(&query()).await,
-            Err(SubtitleError::NotFound)
-        ));
+        assert!(matches!(client.search(&query()).await, Err(SubtitleError::NotFound)));
     }
 
     #[tokio::test]
     async fn search_non_success_is_backend_error() {
         let server = serve_get(ResponseTemplate::new(500)).await;
         let client = OpenSubtitlesClient::with_base_url("k", server.uri());
-        assert!(matches!(
-            client.search(&query()).await,
-            Err(SubtitleError::Backend(_))
-        ));
+        assert!(matches!(client.search(&query()).await, Err(SubtitleError::Backend(_))));
     }
 
     #[tokio::test]
     async fn search_malformed_body_is_parse_error() {
         let server = serve_get(ResponseTemplate::new(200).set_body_string("not json")).await;
         let client = OpenSubtitlesClient::with_base_url("k", server.uri());
-        assert!(matches!(
-            client.search(&query()).await,
-            Err(SubtitleError::Parse(_))
-        ));
+        assert!(matches!(client.search(&query()).await, Err(SubtitleError::Parse(_))));
     }
 
     #[tokio::test]
     async fn search_transport_failure_is_backend_error() {
         let client = OpenSubtitlesClient::with_base_url("k", "http://127.0.0.1:1");
-        assert!(matches!(
-            client.search(&query()).await,
-            Err(SubtitleError::Backend(_))
-        ));
+        assert!(matches!(client.search(&query()).await, Err(SubtitleError::Backend(_))));
     }
 
     #[tokio::test]
@@ -326,10 +284,7 @@ mod tests {
             .mount(&server)
             .await;
         let client = OpenSubtitlesClient::with_base_url("k", server.uri());
-        assert!(matches!(
-            client.download("42").await,
-            Err(SubtitleError::Backend(_))
-        ));
+        assert!(matches!(client.download("42").await, Err(SubtitleError::Backend(_))));
     }
 
     #[tokio::test]
@@ -349,10 +304,7 @@ mod tests {
             .mount(&server)
             .await;
         let client = OpenSubtitlesClient::with_base_url("k", server.uri());
-        assert!(matches!(
-            client.download("42").await,
-            Err(SubtitleError::Backend(_))
-        ));
+        assert!(matches!(client.download("42").await, Err(SubtitleError::Backend(_))));
     }
 
     #[tokio::test]

@@ -18,11 +18,7 @@ impl Ct2TranslationEngine {
         source_prefix: Option<String>,
         target_prefix: Option<String>,
     ) -> Self {
-        Self {
-            model_path: model_path.into(),
-            source_prefix,
-            target_prefix,
-        }
+        Self { model_path: model_path.into(), source_prefix, target_prefix }
     }
 }
 
@@ -44,10 +40,7 @@ impl TranslationEngine for Ct2TranslationEngine {
             let translator = Translator::new(&model_path, &Config::default())
                 .map_err(|e| TranslationError::Backend(e.to_string()))?;
             let inputs: Vec<String> = match &source_prefix {
-                Some(prefix) => texts
-                    .into_iter()
-                    .map(|text| format!("{prefix} {text}"))
-                    .collect(),
+                Some(prefix) => texts.into_iter().map(|text| format!("{prefix} {text}")).collect(),
                 None => texts,
             };
             let options: TranslationOptions<String, String> = TranslationOptions::default();

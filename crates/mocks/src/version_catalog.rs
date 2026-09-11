@@ -19,10 +19,7 @@ impl MockVersionCatalog {
     }
 
     pub fn insert(&self, detail: VersionDetail) {
-        self.versions
-            .lock()
-            .unwrap()
-            .insert(detail.version.id.clone(), detail);
+        self.versions.lock().unwrap().insert(detail.version.id.clone(), detail);
     }
 
     pub fn remove(&self, id: &VersionId) {
@@ -39,9 +36,7 @@ impl MockVersionCatalog {
 
     fn guard(&self) -> Result<(), RepositoryError> {
         if self.fail.load(Ordering::Relaxed) {
-            Err(RepositoryError::Backend(
-                "mock version catalog failure".to_owned(),
-            ))
+            Err(RepositoryError::Backend("mock version catalog failure".to_owned()))
         } else {
             Ok(())
         }
@@ -60,12 +55,7 @@ impl VersionCatalog for MockVersionCatalog {
 
     async fn get_version(&self, id: &VersionId) -> Result<Option<Version>, RepositoryError> {
         self.guard()?;
-        Ok(self
-            .versions
-            .lock()
-            .unwrap()
-            .get(id)
-            .map(|detail| detail.version.clone()))
+        Ok(self.versions.lock().unwrap().get(id).map(|detail| detail.version.clone()))
     }
 }
 
@@ -106,40 +96,17 @@ mod tests {
     #[tokio::test]
     async fn insert_get_remove() {
         let catalog = MockVersionCatalog::new();
-        assert!(
-            catalog
-                .version_detail(&VersionId("v1".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(catalog.version_detail(&VersionId("v1".into())).await.unwrap().is_none());
         catalog.insert(detail("v1"));
-        assert!(
-            catalog
-                .version_detail(&VersionId("v1".into()))
-                .await
-                .unwrap()
-                .is_some()
-        );
+        assert!(catalog.version_detail(&VersionId("v1".into())).await.unwrap().is_some());
         catalog.remove(&VersionId("v1".into()));
-        assert!(
-            catalog
-                .version_detail(&VersionId("v1".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(catalog.version_detail(&VersionId("v1".into())).await.unwrap().is_none());
     }
 
     #[tokio::test]
     async fn surfaces_backend_failure() {
         let catalog = MockVersionCatalog::new();
         catalog.set_fail();
-        assert!(
-            catalog
-                .version_detail(&VersionId("v1".into()))
-                .await
-                .is_err()
-        );
+        assert!(catalog.version_detail(&VersionId("v1".into())).await.is_err());
     }
 }

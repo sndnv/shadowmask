@@ -9,9 +9,7 @@ pub struct MockProfileRegistry {
 
 impl MockProfileRegistry {
     pub fn new(profile: CapabilityProfile) -> Self {
-        Self {
-            profile: Arc::new(profile),
-        }
+        Self { profile: Arc::new(profile) }
     }
 }
 
@@ -35,10 +33,7 @@ mod tests {
                 max_bit_depth: 8,
                 smooth: true,
             }],
-            audio: vec![AudioCodecCap {
-                codec: "aac".to_owned(),
-                max_channels: 2,
-            }],
+            audio: vec![AudioCodecCap { codec: "aac".to_owned(), max_channels: 2 }],
             hdr: vec![],
             max_width: 1920,
             max_height: 1080,

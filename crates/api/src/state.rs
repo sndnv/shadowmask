@@ -32,16 +32,7 @@ impl<A, C, Se, L, U, Ul, D, Jb> AppState<A, C, Se, L, U, Ul, D, Jb> {
         discovery: D,
         job: Jb,
     ) -> Self {
-        Self {
-            auth,
-            catalog,
-            session,
-            library,
-            user,
-            user_library,
-            discovery,
-            job,
-        }
+        Self { auth, catalog, session, library, user, user_library, discovery, job }
     }
 }
 
@@ -52,19 +43,13 @@ pub struct StreamState<T, G> {
 
 impl<T, G> StreamState<T, G> {
     pub fn new(tokens: T, source: G) -> Self {
-        Self {
-            tokens: Arc::new(tokens),
-            source: Arc::new(source),
-        }
+        Self { tokens: Arc::new(tokens), source: Arc::new(source) }
     }
 }
 
 impl<T, G> Clone for StreamState<T, G> {
     fn clone(&self) -> Self {
-        Self {
-            tokens: Arc::clone(&self.tokens),
-            source: Arc::clone(&self.source),
-        }
+        Self { tokens: Arc::clone(&self.tokens), source: Arc::clone(&self.source) }
     }
 }
 
@@ -75,9 +60,7 @@ pub struct ImageState {
 
 impl ImageState {
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self {
-            root: Arc::new(root.into()),
-        }
+        Self { root: Arc::new(root.into()) }
     }
 }
 
@@ -88,9 +71,7 @@ pub struct TrickplayState {
 
 impl TrickplayState {
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self {
-            root: Arc::new(root.into()),
-        }
+        Self { root: Arc::new(root.into()) }
     }
 }
 
@@ -100,17 +81,13 @@ pub struct JobLogState<J> {
 
 impl<J> JobLogState<J> {
     pub fn new(store: J) -> Self {
-        Self {
-            store: Arc::new(store),
-        }
+        Self { store: Arc::new(store) }
     }
 }
 
 impl<J> Clone for JobLogState<J> {
     fn clone(&self) -> Self {
-        Self {
-            store: Arc::clone(&self.store),
-        }
+        Self { store: Arc::clone(&self.store) }
     }
 }
 
@@ -122,11 +99,7 @@ pub struct DownloadState<S, C, D> {
 
 impl<S, C, D> DownloadState<S, C, D> {
     pub fn new(services: S, catalog: C, tokens: D) -> Self {
-        Self {
-            services,
-            catalog: Arc::new(catalog),
-            tokens: Arc::new(tokens),
-        }
+        Self { services, catalog: Arc::new(catalog), tokens: Arc::new(tokens) }
     }
 }
 
@@ -147,19 +120,13 @@ pub struct SubtitleState<C, S> {
 
 impl<C, S> SubtitleState<C, S> {
     pub fn new(catalog: C, subtitles: S) -> Self {
-        Self {
-            catalog: Arc::new(catalog),
-            subtitles: Arc::new(subtitles),
-        }
+        Self { catalog: Arc::new(catalog), subtitles: Arc::new(subtitles) }
     }
 }
 
 impl<C, S> Clone for SubtitleState<C, S> {
     fn clone(&self) -> Self {
-        Self {
-            catalog: Arc::clone(&self.catalog),
-            subtitles: Arc::clone(&self.subtitles),
-        }
+        Self { catalog: Arc::clone(&self.catalog), subtitles: Arc::clone(&self.subtitles) }
     }
 }
 

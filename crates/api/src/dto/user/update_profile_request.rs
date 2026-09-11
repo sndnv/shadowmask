@@ -17,9 +17,7 @@ pub struct UpdateProfileRequest {
 impl From<UpdateProfileRequest> for UserProfileUpdate {
     fn from(r: UpdateProfileRequest) -> Self {
         UserProfileUpdate {
-            preferred_audio: r
-                .preferred_audio
-                .map(|v| v.into_iter().map(LanguageCode).collect()),
+            preferred_audio: r.preferred_audio.map(|v| v.into_iter().map(LanguageCode).collect()),
             preferred_subtitle: r
                 .preferred_subtitle
                 .map(|v| v.into_iter().map(LanguageCode).collect()),

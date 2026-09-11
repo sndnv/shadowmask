@@ -12,10 +12,7 @@ pub struct TranslationEnqueuer<J> {
 
 impl<J> TranslationEnqueuer<J> {
     pub fn new(jobs: J, target_languages: Vec<String>) -> Self {
-        Self {
-            jobs,
-            target_languages,
-        }
+        Self { jobs, target_languages }
     }
 }
 
@@ -50,10 +47,7 @@ mod tests {
         let jobs = MockJobStore::new();
         let enqueuer = TranslationEnqueuer::new(jobs.clone(), vec!["fr".into()]);
 
-        enqueuer
-            .trigger(&VersionId("v1".into()), None)
-            .await
-            .unwrap();
+        enqueuer.trigger(&VersionId("v1".into()), None).await.unwrap();
 
         let enqueued = jobs.list().await.unwrap();
         assert_eq!(enqueued.len(), 1);
@@ -65,10 +59,7 @@ mod tests {
         let jobs = MockJobStore::new();
         let enqueuer = TranslationEnqueuer::new(jobs.clone(), vec!["fr".into()]);
 
-        enqueuer
-            .trigger(&VersionId("v1".into()), Some(&JobId("parent".into())))
-            .await
-            .unwrap();
+        enqueuer.trigger(&VersionId("v1".into()), Some(&JobId("parent".into()))).await.unwrap();
 
         let enqueued = jobs.list().await.unwrap();
         assert_eq!(enqueued[0].parent_id, Some(JobId("parent".into())));
@@ -79,10 +70,7 @@ mod tests {
         let jobs = MockJobStore::new();
         let enqueuer = TranslationEnqueuer::new(jobs.clone(), Vec::new());
 
-        enqueuer
-            .trigger(&VersionId("v1".into()), None)
-            .await
-            .unwrap();
+        enqueuer.trigger(&VersionId("v1".into()), None).await.unwrap();
 
         assert!(jobs.list().await.unwrap().is_empty());
     }

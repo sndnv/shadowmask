@@ -33,13 +33,7 @@ pub struct DiscoveryServiceImpl<C, Se, Pr, Pf, U> {
 
 impl<C, Se, Pr, Pf, U> DiscoveryServiceImpl<C, Se, Pr, Pf, U> {
     pub fn new(catalog: C, search_index: Se, progress: Pr, preferences: Pf, users: U) -> Self {
-        Self {
-            catalog,
-            search_index,
-            progress,
-            preferences,
-            users,
-        }
+        Self { catalog, search_index, progress, preferences, users }
     }
 }
 
@@ -56,20 +50,11 @@ where
     }
 
     async fn recent_movies(&self, filter: &TitleListFilter) -> Result<Vec<Movie>, RepositoryError> {
-        let newest = TitleListFilter {
-            sort: TitleSort::AddedAt,
-            order: SortOrder::Desc,
-            ..filter.clone()
-        };
+        let newest =
+            TitleListFilter { sort: TitleSort::AddedAt, order: SortOrder::Desc, ..filter.clone() };
         Ok(self
             .catalog
-            .list_movies_filtered(
-                &newest,
-                PageRequest {
-                    offset: 0,
-                    limit: RECENT_ROW as u32,
-                },
-            )
+            .list_movies_filtered(&newest, PageRequest { offset: 0, limit: RECENT_ROW as u32 })
             .await?
             .items)
     }
@@ -82,10 +67,7 @@ where
         let mut row = Vec::new();
         for (series, episodes) in recently_added_shows(&window, RECENT_ROW) {
             if let Some(series) = self.catalog.get_series(&series).await? {
-                row.push(HubItem::Series {
-                    series,
-                    episode_count: Some(episodes),
-                });
+                row.push(HubItem::Series { series, episode_count: Some(episodes) });
             }
         }
         Ok(row)
@@ -128,10 +110,8 @@ where
         let seen = self.catalog.visible_episodes(&watched, filter).await?;
         let mut found = Vec::new();
         for (series, season, number) in furthest_watched(&seen) {
-            if let Some(next) = self
-                .catalog
-                .next_episode_in_series(&series, season, number, filter)
-                .await?
+            if let Some(next) =
+                self.catalog.next_episode_in_series(&series, season, number, filter).await?
             {
                 found.push(next);
             }
@@ -185,10 +165,7 @@ where
                 continue;
             }
             let card = resume_card_from(&self.catalog, played, entry.position_ms).await?;
-            items.push(ContinueWatchingItem {
-                progress: entry,
-                card,
-            });
+            items.push(ContinueWatchingItem { progress: entry, card });
         }
         Ok(items)
     }
@@ -210,10 +187,7 @@ where
         page: PageRequest,
     ) -> Result<Page<SearchResult>, DiscoveryError> {
         let filter = self.viewer_filter(user).await?;
-        Ok(self
-            .search_index
-            .search(query, types, &filter, page)
-            .await?)
+        Ok(self.search_index.search(query, types, &filter, page).await?)
     }
 
     async fn continue_watching(
@@ -258,12 +232,8 @@ where
         let watchlist = self.watchlist(&saved, &filter).await?;
         let recent_movies = recently_added_movies(&self.recent_movies(&filter).await?, RECENT_ROW);
         let recent_shows = self.recent_shows(&filter).await?;
-        let on_deck: Vec<HubItem> = self
-            .on_deck(user, &filter)
-            .await?
-            .into_iter()
-            .map(HubItem::Movie)
-            .collect();
+        let on_deck: Vec<HubItem> =
+            self.on_deck(user, &filter).await?.into_iter().map(HubItem::Movie).collect();
 
         let started: Vec<MovieId> = self
             .continue_items(user)
@@ -281,13 +251,7 @@ where
             .filter_map(|id| by_id.get(id).map(|m| HubItem::Movie((*m).clone())))
             .collect();
 
-        Ok(home_hubs(
-            watchlist,
-            recent_movies,
-            recent_shows,
-            on_deck,
-            continue_row,
-        ))
+        Ok(home_hubs(watchlist, recent_movies, recent_shows, on_deck, continue_row))
     }
 }
 
@@ -352,10 +316,7 @@ mod tests {
         let users = MockUserRepo::new();
         users.insert(account(
             Role::User,
-            cap.map(|code| ContentRating {
-                system: "mpaa".into(),
-                code: code.into(),
-            }),
+            cap.map(|code| ContentRating { system: "mpaa".into(), code: code.into() }),
         ));
         let granted: Vec<LibraryId> = libraries.iter().map(|l| LibraryId((*l).into())).collect();
         users.set_library_access(&user(), &granted).await.unwrap();
@@ -363,10 +324,7 @@ mod tests {
     }
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        PageRequest { offset: 0, limit: 10 }
     }
 
     fn movie(id: &str, seconds: i64) -> Movie {
@@ -496,19 +454,9 @@ mod tests {
             .await
             .unwrap();
         progress.seed_history(history(TitleId::Movie(MovieId("m1".into())), true, false));
-        progress.seed_history(history(
-            TitleId::Episode(EpisodeId("e1".into())),
-            true,
-            false,
-        ));
+        progress.seed_history(history(TitleId::Episode(EpisodeId("e1".into())), true, false));
 
-        DiscoveryServiceImpl::new(
-            catalog,
-            search,
-            progress,
-            MockPreferencesRepo::new(),
-            admins(),
-        )
+        DiscoveryServiceImpl::new(catalog, search, progress, MockPreferencesRepo::new(), admins())
     }
 
     #[tokio::test]
@@ -601,15 +549,9 @@ mod tests {
     #[tokio::test]
     async fn a_session_that_finished_its_title_is_no_longer_playing() {
         let svc = seeded().await;
-        let finished = PlaybackSession {
-            completed: true,
-            ..session("s1", "v1", 1000)
-        };
+        let finished = PlaybackSession { completed: true, ..session("s1", "v1", 1000) };
 
-        let now = svc
-            .now_playing(vec![finished, session("s2", "v1", 500)])
-            .await
-            .unwrap();
+        let now = svc.now_playing(vec![finished, session("s2", "v1", 500)]).await.unwrap();
 
         assert_eq!(
             now.len(),
@@ -771,11 +713,7 @@ mod tests {
         catalog.add_version(version("ev1", TitleId::Episode(EpisodeId("e1".into()))));
 
         let progress = MockProgressRepo::new();
-        progress.seed_history(history(
-            TitleId::Episode(EpisodeId("e1".into())),
-            true,
-            false,
-        ));
+        progress.seed_history(history(TitleId::Episode(EpisodeId("e1".into())), true, false));
 
         let svc = DiscoveryServiceImpl::new(
             catalog,
@@ -816,22 +754,13 @@ mod tests {
         });
 
         let progress = MockProgressRepo::new();
-        for title in [
-            TitleId::Episode(EpisodeId("e1".into())),
-            TitleId::Movie(MovieId("m1".into())),
-        ] {
-            progress
-                .set_watched_flags(&user(), &title, true)
-                .await
-                .unwrap();
+        for title in
+            [TitleId::Episode(EpisodeId("e1".into())), TitleId::Movie(MovieId("m1".into()))]
+        {
+            progress.set_watched_flags(&user(), &title, true).await.unwrap();
         }
         assert!(
-            progress
-                .history(&user(), PageRequest::ALL)
-                .await
-                .unwrap()
-                .items
-                .is_empty(),
+            progress.history(&user(), PageRequest::ALL).await.unwrap().items.is_empty(),
             "the fixture must be the hand-marked case, which history() excludes"
         );
 
@@ -868,17 +797,9 @@ mod tests {
         assert!(ids.contains(&"recently_added_shows"));
         assert!(ids.contains(&"continue_watching"));
 
-        let shows = hubs
-            .iter()
-            .find(|h| h.id == "recently_added_shows")
-            .unwrap();
+        let shows = hubs.iter().find(|h| h.id == "recently_added_shows").unwrap();
         match &shows.items[..] {
-            [
-                HubItem::Series {
-                    series,
-                    episode_count,
-                },
-            ] => {
+            [HubItem::Series { series, episode_count }] => {
                 assert_eq!(series.id, SeriesId("s1".into()));
                 assert_eq!(*episode_count, Some(2));
             }
@@ -927,10 +848,7 @@ mod tests {
         );
         let hubs = svc.home_hubs(&user()).await.unwrap();
 
-        assert_eq!(
-            hubs[0].id, "watchlist",
-            "the rail sits above recently added"
-        );
+        assert_eq!(hubs[0].id, "watchlist", "the rail sits above recently added");
         match &hubs[0].items[..] {
             [HubItem::Episode(card), HubItem::Movie(m)] => {
                 assert_eq!(card.episode.id, EpisodeId("e1".into()));
@@ -989,10 +907,7 @@ mod tests {
 
     fn rated_movie(id: &str, seconds: i64, code: &str) -> Movie {
         Movie {
-            content_rating: Some(ContentRating {
-                system: "mpaa".into(),
-                code: code.into(),
-            }),
+            content_rating: Some(ContentRating { system: "mpaa".into(), code: code.into() }),
             ..movie(id, seconds)
         }
     }
@@ -1093,10 +1008,7 @@ mod tests {
     async fn a_capped_viewer_loses_the_whole_tree_under_a_blocked_series() {
         let catalog = MockCatalogRepo::new();
         catalog.add_series(Series {
-            content_rating: Some(ContentRating {
-                system: "mpaa".into(),
-                code: "r".into(),
-            }),
+            content_rating: Some(ContentRating { system: "mpaa".into(), code: "r".into() }),
             ..series("s1")
         });
         catalog.add_season(season("se1", "s1"));
@@ -1155,10 +1067,7 @@ mod tests {
             "search has to carry the same library scope the catalog lists use"
         );
         assert!(
-            filter
-                .blocked_ratings
-                .iter()
-                .any(|rating| rating.code.eq_ignore_ascii_case("r")),
+            filter.blocked_ratings.iter().any(|rating| rating.code.eq_ignore_ascii_case("r")),
             "the cap must reach the index, not be applied after paging"
         );
     }
@@ -1244,11 +1153,7 @@ mod tests {
                 .await
                 .unwrap();
             progress.seed_history(history(TitleId::Movie(MovieId("m1".into())), true, false));
-            progress.seed_history(history(
-                TitleId::Episode(EpisodeId("e1".into())),
-                true,
-                false,
-            ));
+            progress.seed_history(history(TitleId::Episode(EpisodeId("e1".into())), true, false));
             progress
         };
 

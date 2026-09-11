@@ -123,14 +123,8 @@ mod tests {
 
     #[test]
     fn maps_all_kinds_and_watchers() {
-        assert!(matches!(
-            LibraryKindDto::from(LibraryKind::Movie),
-            LibraryKindDto::Movie
-        ));
-        assert!(matches!(
-            LibraryKindDto::from(LibraryKind::Tv),
-            LibraryKindDto::Tv
-        ));
+        assert!(matches!(LibraryKindDto::from(LibraryKind::Movie), LibraryKindDto::Movie));
+        assert!(matches!(LibraryKindDto::from(LibraryKind::Tv), LibraryKindDto::Tv));
         assert!(matches!(
             WatcherStrategyDto::from(WatcherStrategy::Local),
             WatcherStrategyDto::Local
@@ -151,47 +145,26 @@ mod tests {
 
     #[test]
     fn maps_origins_both_ways() {
-        assert!(matches!(
-            LibraryOriginDto::from(LibraryOrigin::Local),
-            LibraryOriginDto::Local
-        ));
+        assert!(matches!(LibraryOriginDto::from(LibraryOrigin::Local), LibraryOriginDto::Local));
         assert!(matches!(
             LibraryOriginDto::from(LibraryOrigin::External),
             LibraryOriginDto::External
         ));
-        assert_eq!(
-            LibraryOrigin::from(LibraryOriginDto::Local),
-            LibraryOrigin::Local
-        );
-        assert_eq!(
-            LibraryOrigin::from(LibraryOriginDto::External),
-            LibraryOrigin::External
-        );
-        assert!(matches!(
-            LibraryOriginDto::default(),
-            LibraryOriginDto::Local
-        ));
+        assert_eq!(LibraryOrigin::from(LibraryOriginDto::Local), LibraryOrigin::Local);
+        assert_eq!(LibraryOrigin::from(LibraryOriginDto::External), LibraryOrigin::External);
+        assert!(matches!(LibraryOriginDto::default(), LibraryOriginDto::Local));
     }
 
     #[test]
     fn maps_dto_kinds_and_watchers_back() {
         assert_eq!(LibraryKind::from(LibraryKindDto::Movie), LibraryKind::Movie);
         assert_eq!(LibraryKind::from(LibraryKindDto::Tv), LibraryKind::Tv);
-        assert_eq!(
-            WatcherStrategy::from(WatcherStrategyDto::Local),
-            WatcherStrategy::Local
-        );
-        assert_eq!(
-            WatcherStrategy::from(WatcherStrategyDto::Polling),
-            WatcherStrategy::Polling
-        );
+        assert_eq!(WatcherStrategy::from(WatcherStrategyDto::Local), WatcherStrategy::Local);
+        assert_eq!(WatcherStrategy::from(WatcherStrategyDto::Polling), WatcherStrategy::Polling);
         assert_eq!(
             WatcherStrategy::from(WatcherStrategyDto::Scheduled),
             WatcherStrategy::Scheduled
         );
-        assert_eq!(
-            WatcherStrategy::from(WatcherStrategyDto::Manual),
-            WatcherStrategy::Manual
-        );
+        assert_eq!(WatcherStrategy::from(WatcherStrategyDto::Manual), WatcherStrategy::Manual);
     }
 }

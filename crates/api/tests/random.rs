@@ -45,29 +45,19 @@ async fn get(app: Router, uri: &str, token: Option<&str>) -> (StatusCode, Value)
     if let Some(token) = token {
         builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
     }
-    let response = app
-        .oneshot(builder.body(Body::empty()).unwrap())
-        .await
-        .unwrap();
+    let response = app.oneshot(builder.body(Body::empty()).unwrap()).await.unwrap();
     let status = response.status();
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let value = if bytes.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&bytes).unwrap()
-    };
+    let value =
+        if bytes.is_empty() { Value::Null } else { serde_json::from_slice(&bytes).unwrap() };
     (status, value)
 }
 
 #[tokio::test]
 async fn a_random_pick_returns_a_version_to_play() {
     let generator = Generator::new();
-    let (status, body) = get(
-        build_app(&generator),
-        "/api/v1/movies/random",
-        Some("access:u1"),
-    )
-    .await;
+    let (status, body) =
+        get(build_app(&generator), "/api/v1/movies/random", Some("access:u1")).await;
 
     assert_eq!(status, StatusCode::OK);
     assert!(
@@ -87,11 +77,7 @@ async fn random_play_needs_a_signed_in_reader() {
     ] {
         let generator = Generator::new();
         let (status, _) = get(build_app(&generator), path, None).await;
-        assert_eq!(
-            status,
-            StatusCode::UNAUTHORIZED,
-            "{path} must require a token"
-        );
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{path} must require a token");
     }
 }
 
@@ -130,10 +116,7 @@ async fn a_movie_whose_id_is_random_does_not_capture_the_random_route() {
     let (status, body) = get(app, "/api/v1/movies/random", Some("access:u1")).await;
 
     assert_eq!(status, StatusCode::OK);
-    assert!(
-        body.get("version_id").is_some(),
-        "the static segment must win over the id parameter"
-    );
+    assert!(body.get("version_id").is_some(), "the static segment must win over the id parameter");
     assert!(
         body.get("title").is_none(),
         "falling through to movie detail would return Random Harvest instead of a pick"
@@ -143,12 +126,8 @@ async fn a_movie_whose_id_is_random_does_not_capture_the_random_route() {
 #[tokio::test]
 async fn a_bad_sort_on_the_random_route_is_rejected_like_any_list() {
     let generator = Generator::new();
-    let (status, _) = get(
-        build_app(&generator),
-        "/api/v1/movies/random?sort=nonsense",
-        Some("access:u1"),
-    )
-    .await;
+    let (status, _) =
+        get(build_app(&generator), "/api/v1/movies/random?sort=nonsense", Some("access:u1")).await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }

@@ -34,14 +34,8 @@ struct Wire {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum TargetWire {
-    Existing {
-        title_kind: String,
-        title_id: String,
-    },
-    Provider {
-        source: String,
-        value: String,
-    },
+    Existing { title_kind: String, title_id: String },
+    Provider { source: String, value: String },
 }
 
 impl From<&IngestJobPayload> for Wire {
@@ -54,10 +48,9 @@ impl From<&IngestJobPayload> for Wire {
                 },
                 title_id: title.id().to_owned(),
             },
-            ResolveTarget::Provider(id) => TargetWire::Provider {
-                source: id.source.clone(),
-                value: id.value.clone(),
-            },
+            ResolveTarget::Provider(id) => {
+                TargetWire::Provider { source: id.source.clone(), value: id.value.clone() }
+            }
         };
         Wire {
             library: payload.library.0.clone(),
@@ -71,13 +64,12 @@ impl From<&IngestJobPayload> for Wire {
 impl From<Wire> for IngestJobPayload {
     fn from(wire: Wire) -> Self {
         let target = match wire.target {
-            TargetWire::Existing {
-                title_kind,
-                title_id,
-            } => ResolveTarget::Existing(match title_kind.as_str() {
-                "episode" => TitleId::Episode(EpisodeId(title_id)),
-                _ => TitleId::Movie(MovieId(title_id)),
-            }),
+            TargetWire::Existing { title_kind, title_id } => {
+                ResolveTarget::Existing(match title_kind.as_str() {
+                    "episode" => TitleId::Episode(EpisodeId(title_id)),
+                    _ => TitleId::Movie(MovieId(title_id)),
+                })
+            }
             TargetWire::Provider { source, value } => {
                 ResolveTarget::Provider(ExternalId { source, value })
             }

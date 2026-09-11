@@ -49,6 +49,7 @@ jiff = { workspace = true }
 contracts = { workspace = true }
 insta = { workspace = true }
 figment = { workspace = true, features = ["test"] }
+tracing-test = { workspace = true }
 
 [lints]
 workspace = true

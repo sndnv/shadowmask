@@ -15,17 +15,13 @@ pub struct FfprobeMediaProbe {
 
 impl Default for FfprobeMediaProbe {
     fn default() -> Self {
-        Self {
-            binary: "ffprobe".to_owned(),
-        }
+        Self { binary: "ffprobe".to_owned() }
     }
 }
 
 impl FfprobeMediaProbe {
     pub fn with_binary(binary: impl Into<String>) -> Self {
-        Self {
-            binary: binary.into(),
-        }
+        Self { binary: binary.into() }
     }
 }
 
@@ -46,9 +42,7 @@ impl MediaProbe for FfprobeMediaProbe {
             .await
             .map_err(|e| ProbeError::Backend(e.to_string()))?;
         if !output.status.success() {
-            return Err(ProbeError::Backend(
-                String::from_utf8_lossy(&output.stderr).into_owned(),
-            ));
+            return Err(ProbeError::Backend(String::from_utf8_lossy(&output.stderr).into_owned()));
         }
         parse_probe(&output.stdout)
     }
@@ -72,9 +66,7 @@ impl KeyframeProbe for FfprobeMediaProbe {
             .await
             .map_err(|e| ProbeError::Backend(e.to_string()))?;
         if !output.status.success() {
-            return Err(ProbeError::Backend(
-                String::from_utf8_lossy(&output.stderr).into_owned(),
-            ));
+            return Err(ProbeError::Backend(String::from_utf8_lossy(&output.stderr).into_owned()));
         }
         parse_keyframes(&output.stdout)
     }
@@ -181,13 +173,7 @@ fn parse_probe(json: &[u8]) -> Result<ProbeResult, ProbeError> {
 
     let chapters = parsed.chapters.into_iter().map(chapter).collect();
 
-    Ok(ProbeResult {
-        duration_ms,
-        video,
-        audio,
-        subtitles,
-        chapters,
-    })
+    Ok(ProbeResult { duration_ms, video, audio, subtitles, chapters })
 }
 
 fn video_track(s: FfStream) -> VideoTrack {
@@ -196,11 +182,7 @@ fn video_track(s: FfStream) -> VideoTrack {
         codec: s.codec_name.unwrap_or_default(),
         width: s.width.unwrap_or(0),
         height: s.height.unwrap_or(0),
-        bit_depth: s
-            .bits_per_raw_sample
-            .as_deref()
-            .and_then(|b| b.parse().ok())
-            .unwrap_or(8),
+        bit_depth: s.bits_per_raw_sample.as_deref().and_then(|b| b.parse().ok()).unwrap_or(8),
         hdr: hdr_format(s.color_transfer.as_deref(), &s.side_data_list),
         frame_rate: parse_frame_rate(s.r_frame_rate.as_deref()),
         bitrate: parse_bitrate(s.bit_rate.as_deref()),
@@ -235,9 +217,7 @@ fn chapter(c: FfChapter) -> Chapter {
 }
 
 fn seconds_to_ms(raw: Option<&str>) -> u64 {
-    raw.and_then(|s| s.parse::<f64>().ok())
-        .map(|secs| (secs * 1000.0) as u64)
-        .unwrap_or(0)
+    raw.and_then(|s| s.parse::<f64>().ok()).map(|secs| (secs * 1000.0) as u64).unwrap_or(0)
 }
 
 fn parse_bitrate(raw: Option<&str>) -> Option<u64> {
@@ -264,10 +244,7 @@ fn subtitle_format(codec: Option<&str>) -> SubtitleFormat {
 
 fn hdr_format(transfer: Option<&str>, side_data: &[FfSideData]) -> Option<HdrFormat> {
     let has = |needle: &str| {
-        side_data
-            .iter()
-            .filter_map(|s| s.side_data_type.as_deref())
-            .any(|t| t.contains(needle))
+        side_data.iter().filter_map(|s| s.side_data_type.as_deref()).any(|t| t.contains(needle))
     };
     if has("Dolby Vision") {
         return Some(HdrFormat::DolbyVision);
@@ -354,14 +331,8 @@ mod tests {
         assert_eq!(subtitle_format(Some("ass")), SubtitleFormat::Ass);
         assert_eq!(subtitle_format(Some("ssa")), SubtitleFormat::Ass);
         assert_eq!(subtitle_format(Some("webvtt")), SubtitleFormat::Vtt);
-        assert_eq!(
-            subtitle_format(Some("hdmv_pgs_subtitle")),
-            SubtitleFormat::Pgs
-        );
-        assert_eq!(
-            subtitle_format(Some("dvd_subtitle")),
-            SubtitleFormat::VobSub
-        );
+        assert_eq!(subtitle_format(Some("hdmv_pgs_subtitle")), SubtitleFormat::Pgs);
+        assert_eq!(subtitle_format(Some("dvd_subtitle")), SubtitleFormat::VobSub);
         assert_eq!(subtitle_format(Some("subrip")), SubtitleFormat::Srt);
         assert_eq!(subtitle_format(None), SubtitleFormat::Srt);
     }

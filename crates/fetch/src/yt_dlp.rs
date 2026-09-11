@@ -21,13 +21,7 @@ impl<P> YtDlpFetcher<P> {
         max_height: Option<u32>,
         cookies_file: Option<PathBuf>,
     ) -> Self {
-        Self {
-            spawner,
-            binary: binary.into(),
-            plugin_dir,
-            max_height,
-            cookies_file,
-        }
+        Self { spawner, binary: binary.into(), plugin_dir, max_height, cookies_file }
     }
 }
 
@@ -65,9 +59,7 @@ fn build_args(
     ];
     if let Some(height) = max_height {
         args.push("-f".to_owned());
-        args.push(format!(
-            "bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
-        ));
+        args.push(format!("bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"));
     }
     if let Some(dir) = plugin_dir {
         args.push("--plugin-dirs".to_owned());
@@ -97,19 +89,9 @@ fn log_line(url: &str, stream: OutputStream, line: &str) {
 const DIAGNOSTIC_LINES: usize = 15;
 
 async fn first_media_file(dir: &str) -> Result<FetchedMedia, FetchError> {
-    let mut entries = tokio::fs::read_dir(dir)
-        .await
-        .map_err(|e| FetchError::Io(e.to_string()))?;
-    while let Some(entry) = entries
-        .next_entry()
-        .await
-        .map_err(|e| FetchError::Io(e.to_string()))?
-    {
-        let is_file = entry
-            .file_type()
-            .await
-            .map_err(|e| FetchError::Io(e.to_string()))?
-            .is_file();
+    let mut entries = tokio::fs::read_dir(dir).await.map_err(|e| FetchError::Io(e.to_string()))?;
+    while let Some(entry) = entries.next_entry().await.map_err(|e| FetchError::Io(e.to_string()))? {
+        let is_file = entry.file_type().await.map_err(|e| FetchError::Io(e.to_string()))?.is_file();
         if is_file {
             let size_bytes = entry.metadata().await.map(|m| m.len()).unwrap_or(0);
             return Ok(FetchedMedia {
@@ -118,9 +100,7 @@ async fn first_media_file(dir: &str) -> Result<FetchedMedia, FetchError> {
             });
         }
     }
-    Err(FetchError::NoOutput(format!(
-        "no media produced in [{dir}]"
-    )))
+    Err(FetchError::NoOutput(format!("no media produced in [{dir}]")))
 }
 
 impl<P: ProcessSpawner> MediaFetcher for YtDlpFetcher<P> {
@@ -212,15 +192,9 @@ mod tests {
             on_line: &mut (dyn FnMut(OutputStream, &str) + Send),
         ) -> std::io::Result<CommandOutput> {
             let success = self.run(program, args).await?;
-            on_line(
-                OutputStream::Stderr,
-                "[download]  50.0% of 1.00MiB at 1.00MiB/s",
-            );
+            on_line(OutputStream::Stderr, "[download]  50.0% of 1.00MiB at 1.00MiB/s");
             on_line(OutputStream::Stderr, "[debug] some verbose detail");
-            Ok(CommandOutput {
-                success,
-                ..CommandOutput::default()
-            })
+            Ok(CommandOutput { success, ..CommandOutput::default() })
         }
     }
 
@@ -277,10 +251,7 @@ mod tests {
             filename_stem: "x".to_owned(),
         };
         let args = build_args(&req, None, None, Some(Path::new("/secrets/cookies.txt")));
-        let cookies_index = args
-            .iter()
-            .position(|a| a == "--cookies")
-            .expect("--cookies present");
+        let cookies_index = args.iter().position(|a| a == "--cookies").expect("--cookies present");
         assert_eq!(args[cookies_index + 1], "/secrets/cookies.txt");
         assert_eq!(args.last().unwrap(), "u");
     }
@@ -304,10 +275,7 @@ mod tests {
     async fn returns_the_downloaded_file_on_success() {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("job1").to_string_lossy().into_owned();
-        let out = fetcher(Mode::WriteThenOk)
-            .fetch(&request(dest))
-            .await
-            .unwrap();
+        let out = fetcher(Mode::WriteThenOk).fetch(&request(dest)).await.unwrap();
         assert!(out.path.ends_with("Movie (2020).mkv"));
         assert!(Path::new(&out.path).exists());
         assert_eq!(out.size_bytes, b"video".len() as u64);
@@ -331,16 +299,8 @@ mod tests {
 
     #[test]
     fn log_line_routes_progress_and_diagnostics() {
-        log_line(
-            "https://x/v",
-            OutputStream::Stderr,
-            "[download]  50.0% of 1.00MiB",
-        );
-        log_line(
-            "https://x/v",
-            OutputStream::Stderr,
-            "[debug] verbose detail",
-        );
+        log_line("https://x/v", OutputStream::Stderr, "[download]  50.0% of 1.00MiB");
+        log_line("https://x/v", OutputStream::Stderr, "[debug] verbose detail");
     }
 
     #[tokio::test]
@@ -355,10 +315,7 @@ mod tests {
     async fn empty_output_is_no_output() {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("job1").to_string_lossy().into_owned();
-        let err = fetcher(Mode::OkButEmpty)
-            .fetch(&request(dest))
-            .await
-            .unwrap_err();
+        let err = fetcher(Mode::OkButEmpty).fetch(&request(dest)).await.unwrap_err();
         assert!(matches!(err, FetchError::NoOutput(_)));
     }
 
@@ -368,30 +325,20 @@ mod tests {
         let blocker = dir.path().join("blocker");
         tokio::fs::write(&blocker, b"x").await.unwrap();
         let dest = blocker.join("nested").to_string_lossy().into_owned();
-        let err = fetcher(Mode::WriteThenOk)
-            .fetch(&request(dest))
-            .await
-            .unwrap_err();
+        let err = fetcher(Mode::WriteThenOk).fetch(&request(dest)).await.unwrap_err();
         assert!(matches!(err, FetchError::Io(_)));
     }
 
     #[tokio::test]
     async fn first_media_file_on_missing_dir_is_io() {
-        let err = first_media_file("/no/such/shadowmask/dir")
-            .await
-            .unwrap_err();
+        let err = first_media_file("/no/such/shadowmask/dir").await.unwrap_err();
         assert!(matches!(err, FetchError::Io(_)));
     }
 
     #[tokio::test]
     async fn version_reports_what_the_binary_printed() {
-        let spawner = MockSpawner {
-            mode: Mode::Version,
-        };
-        assert_eq!(
-            yt_dlp_version(&spawner, "yt-dlp").await.unwrap(),
-            "2026.08.19"
-        );
+        let spawner = MockSpawner { mode: Mode::Version };
+        assert_eq!(yt_dlp_version(&spawner, "yt-dlp").await.unwrap(), "2026.08.19");
     }
 
     #[tokio::test]
@@ -414,9 +361,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_silent_binary_is_no_output() {
-        let spawner = MockSpawner {
-            mode: Mode::OkButEmpty,
-        };
+        let spawner = MockSpawner { mode: Mode::OkButEmpty };
         assert!(matches!(
             yt_dlp_version(&spawner, "yt-dlp").await.unwrap_err(),
             FetchError::NoOutput(_)
@@ -427,12 +372,8 @@ mod tests {
     async fn first_media_file_skips_subdirectories() {
         let dir = tempfile::tempdir().unwrap();
         tokio::fs::create_dir(dir.path().join("sub")).await.unwrap();
-        tokio::fs::write(dir.path().join("movie.mkv"), b"v")
-            .await
-            .unwrap();
-        let out = first_media_file(&dir.path().to_string_lossy())
-            .await
-            .unwrap();
+        tokio::fs::write(dir.path().join("movie.mkv"), b"v").await.unwrap();
+        let out = first_media_file(&dir.path().to_string_lossy()).await.unwrap();
         assert!(out.path.ends_with("movie.mkv"));
     }
 }

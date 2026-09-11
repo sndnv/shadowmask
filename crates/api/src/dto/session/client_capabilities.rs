@@ -72,15 +72,10 @@ impl From<ClientDecodingDto> for ClientDecoding {
             }),
             audio: d.audio.map(|list| {
                 list.into_iter()
-                    .map(|a| AudioCodecCap {
-                        codec: a.codec,
-                        max_channels: a.max_channels,
-                    })
+                    .map(|a| AudioCodecCap { codec: a.codec, max_channels: a.max_channels })
                     .collect()
             }),
-            hdr: d
-                .hdr
-                .map(|list| list.iter().filter_map(|h| HdrFormat::parse(h)).collect()),
+            hdr: d.hdr.map(|list| list.iter().filter_map(|h| HdrFormat::parse(h)).collect()),
             max_width: d.max_width,
             max_height: d.max_height,
             max_bitrate: d.max_bitrate,
@@ -94,9 +89,7 @@ mod tests {
     use super::*;
 
     fn parse(json: &str) -> ClientCapabilities {
-        serde_json::from_str::<ClientCapabilitiesDto>(json)
-            .unwrap()
-            .into()
+        serde_json::from_str::<ClientCapabilitiesDto>(json).unwrap().into()
     }
 
     #[test]
@@ -119,10 +112,7 @@ mod tests {
                 "max_width":3840,"max_height":2160,"max_frame_rate":30}}"#,
         );
         let decoding = caps.decoding.expect("a report was sent");
-        assert_eq!(
-            decoding.containers,
-            Some(vec![Container::Mp4, Container::Mkv])
-        );
+        assert_eq!(decoding.containers, Some(vec![Container::Mp4, Container::Mkv]));
         let video = decoding.video.expect("video was measured");
         assert!(video[0].smooth);
         assert!(!video[1].smooth);

@@ -24,7 +24,7 @@ jobs:
       - name: Verify assets
         run: ./assets/refresh_assets.py --verify
 
-  qa:
+  rust-qa:
     needs:
       - assets
     strategy:
@@ -53,7 +53,7 @@ jobs:
 
       - run: python3 qa.py
 
-  flutter:
+  flutter-qa:
     needs:
       - assets
     runs-on: ubuntu-latest
@@ -76,7 +76,7 @@ jobs:
 
   flutter-build:
     needs:
-      - flutter
+      - flutter-qa
     strategy:
       fail-fast: false
       matrix:

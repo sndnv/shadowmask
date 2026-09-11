@@ -35,9 +35,7 @@ impl MockPreferencesRepo {
 
     fn guard(&self) -> Result<(), RepositoryError> {
         if self.fail.load(Ordering::Relaxed) {
-            Err(RepositoryError::Backend(
-                "mock preferences failure".to_owned(),
-            ))
+            Err(RepositoryError::Backend("mock preferences failure".to_owned()))
         } else {
             Ok(())
         }
@@ -47,7 +45,7 @@ impl MockPreferencesRepo {
 impl PreferencesRepository for MockPreferencesRepo {
     async fn list_watchlist(&self, user: &UserId) -> Result<Vec<WatchlistItem>, RepositoryError> {
         self.guard()?;
-        Ok(self
+        let mut items: Vec<WatchlistItem> = self
             .state
             .lock()
             .unwrap()
@@ -55,18 +53,21 @@ impl PreferencesRepository for MockPreferencesRepo {
             .iter()
             .filter(|i| &i.user == user)
             .cloned()
-            .collect())
+            .collect();
+        items.sort_by(|a, b| {
+            a.added_at
+                .cmp(&b.added_at)
+                .then_with(|| saved_order(&a.title).cmp(&saved_order(&b.title)))
+        });
+        Ok(items)
     }
 
     async fn add_watchlist(&self, item: WatchlistItem) -> Result<(), RepositoryError> {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
-        if !state
-            .watchlist
-            .iter()
-            .any(|i| i.user == item.user && i.title == item.title)
-        {
-            state.watchlist.push(item);
+        match state.watchlist.iter_mut().find(|i| i.user == item.user && i.title == item.title) {
+            Some(existing) => *existing = item,
+            None => state.watchlist.push(item),
         }
         Ok(())
     }
@@ -83,7 +84,7 @@ impl PreferencesRepository for MockPreferencesRepo {
 
     async fn list_favorites(&self, user: &UserId) -> Result<Vec<Favorite>, RepositoryError> {
         self.guard()?;
-        Ok(self
+        let mut items: Vec<Favorite> = self
             .state
             .lock()
             .unwrap()
@@ -91,18 +92,21 @@ impl PreferencesRepository for MockPreferencesRepo {
             .iter()
             .filter(|i| &i.user == user)
             .cloned()
-            .collect())
+            .collect();
+        items.sort_by(|a, b| {
+            a.added_at
+                .cmp(&b.added_at)
+                .then_with(|| saved_order(&a.title).cmp(&saved_order(&b.title)))
+        });
+        Ok(items)
     }
 
     async fn add_favorite(&self, item: Favorite) -> Result<(), RepositoryError> {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
-        if !state
-            .favorites
-            .iter()
-            .any(|i| i.user == item.user && i.title == item.title)
-        {
-            state.favorites.push(item);
+        match state.favorites.iter_mut().find(|i| i.user == item.user && i.title == item.title) {
+            Some(existing) => *existing = item,
+            None => state.favorites.push(item),
         }
         Ok(())
     }
@@ -148,6 +152,15 @@ impl PreferencesRepository for MockPreferencesRepo {
     }
 }
 
+/// The stored rows carry the kind as a string, and the listings order by it, so an episode
+/// sorts before a movie added at the same moment.
+fn saved_order(title: &domain::catalog::TitleId) -> (&'static str, &str) {
+    match title {
+        domain::catalog::TitleId::Episode(id) => ("episode", id.0.as_str()),
+        domain::catalog::TitleId::Movie(id) => ("movie", id.0.as_str()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,19 +176,11 @@ mod tests {
     }
 
     fn watchlist_item() -> WatchlistItem {
-        WatchlistItem {
-            user: user(),
-            title: title(),
-            added_at: Timestamp::UNIX_EPOCH,
-        }
+        WatchlistItem { user: user(), title: title(), added_at: Timestamp::UNIX_EPOCH }
     }
 
     fn favorite() -> Favorite {
-        Favorite {
-            user: user(),
-            title: title(),
-            added_at: Timestamp::UNIX_EPOCH,
-        }
+        Favorite { user: user(), title: title(), added_at: Timestamp::UNIX_EPOCH }
     }
 
     fn offset() -> UserSubtitleOffset {
@@ -213,22 +218,13 @@ mod tests {
         let repo = MockPreferencesRepo::new();
         let version = VersionId("v1".to_owned());
         let track = SubtitleTrackRef::Embedded(1);
-        assert!(
-            repo.get_subtitle_offset(&user(), &version, &track)
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(repo.get_subtitle_offset(&user(), &version, &track).await.unwrap().is_none());
         repo.set_subtitle_offset(offset()).await.unwrap();
         let mut updated = offset();
         updated.offset_ms = 750;
         repo.set_subtitle_offset(updated).await.unwrap();
         assert_eq!(
-            repo.get_subtitle_offset(&user(), &version, &track)
-                .await
-                .unwrap()
-                .unwrap()
-                .offset_ms,
+            repo.get_subtitle_offset(&user(), &version, &track).await.unwrap().unwrap().offset_ms,
             750
         );
     }

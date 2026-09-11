@@ -8,11 +8,7 @@ pub struct Debouncer {
 
 impl Debouncer {
     pub fn new(window: SignedDuration) -> Self {
-        Self {
-            window,
-            pending: false,
-            deadline: None,
-        }
+        Self { window, pending: false, deadline: None }
     }
 
     pub fn offer(&mut self, now: Timestamp) {

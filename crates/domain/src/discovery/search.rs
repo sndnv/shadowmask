@@ -20,11 +20,7 @@ pub fn search(
                 ranked.push((tier, haystack, id(candidate), candidate));
             }
         }
-        ranked.sort_by(|a, b| {
-            a.0.cmp(&b.0)
-                .then_with(|| a.1.cmp(&b.1))
-                .then_with(|| a.2.cmp(b.2))
-        });
+        ranked.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)).then_with(|| a.2.cmp(b.2)));
     }
     let matches: Vec<SearchResult> = ranked.into_iter().map(|(_, _, _, c)| c.clone()).collect();
     paginate(&matches, page)
@@ -35,7 +31,7 @@ fn rank(needle: &str, haystack: &str) -> Option<u8> {
         Some(0)
     } else if haystack.starts_with(needle) {
         Some(1)
-    } else if haystack.split(' ').any(|word| word == needle) {
+    } else if haystack.split(' ').any(|word| word.starts_with(needle)) {
         Some(2)
     } else {
         None
@@ -124,17 +120,11 @@ mod tests {
     }
 
     fn titles(page: &Page<SearchResult>) -> Vec<String> {
-        page.items
-            .iter()
-            .map(|r| searchable(r).to_owned())
-            .collect()
+        page.items.iter().map(|r| searchable(r).to_owned()).collect()
     }
 
     fn all() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 100,
-        }
+        PageRequest { offset: 0, limit: 100 }
     }
 
     fn search(candidates: &[SearchResult], query: &str, page: PageRequest) -> Page<SearchResult> {
@@ -155,12 +145,8 @@ mod tests {
         let people = super::search(&candidates, "matrix", &[SearchKind::Person], all());
         assert_eq!(titles(&people), vec!["Matrix Guy"]);
 
-        let two = super::search(
-            &candidates,
-            "matrix",
-            &[SearchKind::Series, SearchKind::Episode],
-            all(),
-        );
+        let two =
+            super::search(&candidates, "matrix", &[SearchKind::Series, SearchKind::Episode], all());
         assert_eq!(two.total, 2);
 
         let unfiltered = super::search(&candidates, "matrix", &[], all());
@@ -168,7 +154,7 @@ mod tests {
     }
 
     #[test]
-    fn ranks_exact_then_prefix_then_token() {
+    fn ranks_exact_then_title_prefix_then_word_prefix() {
         let candidates = [
             series("The Matrix"),
             movie("Matrix"),
@@ -178,10 +164,7 @@ mod tests {
         ];
         let hits = search(&candidates, "matrix", all());
         assert_eq!(hits.total, 3);
-        assert_eq!(
-            titles(&hits),
-            vec!["Matrix", "Matrix Reloaded", "The Matrix"]
-        );
+        assert_eq!(titles(&hits), vec!["Matrix", "Matrix Reloaded", "The Matrix"]);
     }
 
     #[test]
@@ -190,6 +173,18 @@ mod tests {
         let hits = search(&candidates, "matrix", all());
         assert_eq!(hits.total, 1);
         assert_eq!(titles(&hits), vec!["Matrix"]);
+    }
+
+    #[test]
+    fn a_partial_word_matches_the_word_it_starts() {
+        let candidates =
+            [series("The Matrix"), episode("Children of the Gods"), movie("Inception")];
+        assert_eq!(titles(&search(&candidates, "mat", all())), vec!["The Matrix"]);
+        assert_eq!(titles(&search(&candidates, "god", all())), vec!["Children of the Gods"]);
+        assert!(
+            search(&candidates, "atrix", all()).items.is_empty(),
+            "a partial word still has to start one, or every query becomes a substring search"
+        );
     }
 
     #[test]
@@ -215,20 +210,9 @@ mod tests {
 
     #[test]
     fn paginates_ranked_matches() {
-        let candidates = [
-            series("The Matrix"),
-            movie("Matrix"),
-            movie("Rematrix"),
-            movie("Matrix Reloaded"),
-        ];
-        let page = search(
-            &candidates,
-            "matrix",
-            PageRequest {
-                offset: 1,
-                limit: 2,
-            },
-        );
+        let candidates =
+            [series("The Matrix"), movie("Matrix"), movie("Rematrix"), movie("Matrix Reloaded")];
+        let page = search(&candidates, "matrix", PageRequest { offset: 1, limit: 2 });
         assert_eq!(page.total, 3);
         assert_eq!(titles(&page), vec!["Matrix Reloaded", "The Matrix"]);
     }
@@ -259,10 +243,7 @@ mod prop_tests {
     }
 
     fn all_pages() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 1000,
-        }
+        PageRequest { offset: 0, limit: 1000 }
     }
 
     fn search(candidates: &[SearchResult], query: &str, page: PageRequest) -> Page<SearchResult> {

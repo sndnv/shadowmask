@@ -24,14 +24,9 @@ impl JobLogLevel {
     }
 
     pub fn parse(token: &str) -> Option<Self> {
-        [
-            JobLogLevel::Debug,
-            JobLogLevel::Info,
-            JobLogLevel::Warn,
-            JobLogLevel::Error,
-        ]
-        .into_iter()
-        .find(|level| token.eq_ignore_ascii_case(level.as_str()))
+        [JobLogLevel::Debug, JobLogLevel::Info, JobLogLevel::Warn, JobLogLevel::Error]
+            .into_iter()
+            .find(|level| token.eq_ignore_ascii_case(level.as_str()))
     }
 }
 
@@ -57,12 +52,8 @@ mod tests {
 
     #[test]
     fn parse_round_trips_and_orders() {
-        for level in [
-            JobLogLevel::Debug,
-            JobLogLevel::Info,
-            JobLogLevel::Warn,
-            JobLogLevel::Error,
-        ] {
+        for level in [JobLogLevel::Debug, JobLogLevel::Info, JobLogLevel::Warn, JobLogLevel::Error]
+        {
             assert_eq!(JobLogLevel::parse(level.as_str()), Some(level));
         }
         assert_eq!(JobLogLevel::parse("info"), Some(JobLogLevel::Info));

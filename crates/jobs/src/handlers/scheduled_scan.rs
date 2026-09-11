@@ -22,11 +22,8 @@ where
     J: JobRepository + Send + Sync,
 {
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
-        let libraries = self
-            .libraries
-            .list()
-            .await
-            .map_err(|err| JobError::Retryable(err.to_string()))?;
+        let libraries =
+            self.libraries.list().await.map_err(|err| JobError::Retryable(err.to_string()))?;
         let mut queued = 0usize;
         let mut skipped = 0usize;
         for library in libraries.iter().filter(|l| is_nightly_library(l)) {
@@ -100,16 +97,8 @@ mod tests {
             WatcherStrategy::Scheduled,
             LibraryOrigin::Local,
         ));
-        libraries.insert_library(library(
-            "manual",
-            WatcherStrategy::Manual,
-            LibraryOrigin::Local,
-        ));
-        libraries.insert_library(library(
-            "watched",
-            WatcherStrategy::Local,
-            LibraryOrigin::Local,
-        ));
+        libraries.insert_library(library("manual", WatcherStrategy::Manual, LibraryOrigin::Local));
+        libraries.insert_library(library("watched", WatcherStrategy::Local, LibraryOrigin::Local));
         libraries.insert_library(library(
             "external",
             WatcherStrategy::Scheduled,
@@ -128,12 +117,7 @@ mod tests {
         assert_eq!(queued[0].payload, "nightly");
         assert_eq!(queued[0].parent_id, Some(JobId("nightly".to_owned())));
         assert_eq!(
-            libraries
-                .scan_state(&LibraryId("nightly".to_owned()))
-                .await
-                .unwrap()
-                .unwrap()
-                .status,
+            libraries.scan_state(&LibraryId("nightly".to_owned())).await.unwrap().unwrap().status,
             ScanStatus::Queued
         );
     }

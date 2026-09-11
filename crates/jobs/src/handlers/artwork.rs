@@ -16,11 +16,7 @@ pub struct ArtworkJobHandler<C, P, S> {
 
 impl<C, P, S> ArtworkJobHandler<C, P, S> {
     pub fn new(catalog: C, pipeline: P, store: S) -> Self {
-        Self {
-            catalog,
-            pipeline,
-            store,
-        }
+        Self { catalog, pipeline, store }
     }
 }
 
@@ -33,17 +29,12 @@ where
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         let payload = ArtworkJobPayload::decode(&job.payload)
             .map_err(|e| JobError::Permanent(format!("invalid artwork payload: {e}")))?;
-        tracing::info!(
-            "generating artwork for {} [{}] ({} item(s))",
-            payload.owner.kind(),
-            payload.owner.id(),
-            payload.items.len()
-        );
+        let owner = &payload.owner;
+        let items = payload.items.len();
+        tracing::info!("generating artwork for {} [{}], {items} items", owner.kind(), owner.id());
 
-        let specs = ARTWORK_WIDTHS.map(|width| ArtworkSpec {
-            max_width: width,
-            max_height: width.saturating_mul(3),
-        });
+        let specs = ARTWORK_WIDTHS
+            .map(|width| ArtworkSpec { max_width: width, max_height: width.saturating_mul(3) });
 
         let mut refs = Vec::new();
         for item in &payload.items {
@@ -62,17 +53,10 @@ where
                     .map_err(|e| JobError::Retryable(e.to_string()))?;
                 widths.push(ArtworkWidth::new(
                     width,
-                    self.store
-                        .path_for(&item.id, width, art.format)
-                        .to_string_lossy()
-                        .into_owned(),
+                    self.store.path_for(&item.id, width, art.format).to_string_lossy().into_owned(),
                 ));
             }
-            refs.push(ArtworkRef {
-                id: item.id.clone(),
-                kind: item.kind,
-                widths,
-            });
+            refs.push(ArtworkRef { id: item.id.clone(), kind: item.kind, widths });
         }
 
         self.catalog
@@ -112,10 +96,7 @@ mod tests {
 
     impl MockPipeline {
         fn new(mode: PipelineMode) -> Self {
-            Self {
-                mode,
-                fetches: Arc::new(AtomicUsize::new(0)),
-            }
+            Self { mode, fetches: Arc::new(AtomicUsize::new(0)) }
         }
     }
 
@@ -158,10 +139,7 @@ mod tests {
             if self.fail {
                 return Err(ArtworkError::Store("disk full".into()));
             }
-            self.stored
-                .lock()
-                .unwrap()
-                .push((id.0.clone(), width, art.format));
+            self.stored.lock().unwrap().push((id.0.clone(), width, art.format));
             Ok(())
         }
 
@@ -218,10 +196,7 @@ mod tests {
             store.path_for(&ArtworkId("art-1".into()), 480, ArtworkFormat::Jpeg),
             PathBuf::from("art-1/480.jpg")
         );
-        let refs = catalog
-            .list_artwork(&ArtworkOwner::Movie(MovieId("m1".into())))
-            .await
-            .unwrap();
+        let refs = catalog.list_artwork(&ArtworkOwner::Movie(MovieId("m1".into()))).await.unwrap();
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].kind, ArtworkKind::Poster);
         assert_eq!(refs[0].sizes(), ARTWORK_WIDTHS.to_vec());
@@ -306,10 +281,7 @@ mod tests {
 
     #[tokio::test]
     async fn store_failure_is_retryable() {
-        let store = MockStore {
-            fail: true,
-            ..MockStore::default()
-        };
+        let store = MockStore { fail: true, ..MockStore::default() };
         let handler = ArtworkJobHandler::new(
             MockCatalogRepo::new(),
             MockPipeline::new(PipelineMode::Ok),

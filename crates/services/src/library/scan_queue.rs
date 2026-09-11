@@ -37,13 +37,7 @@ where
         })
         .await?;
     let now = Timestamp::now();
-    jobs.enqueue(queued_job(
-        JobKind::LibraryScan,
-        JobPriority::Normal,
-        id.0.clone(),
-        parent,
-        now,
-    ))
-    .await?;
+    jobs.enqueue(queued_job(JobKind::LibraryScan, JobPriority::Normal, id.0.clone(), parent, now))
+        .await?;
     Ok(true)
 }

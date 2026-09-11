@@ -35,18 +35,15 @@ pub async fn decode_audio<S: ProcessSpawner>(
         "-y".to_owned(),
         out_arg,
     ]);
-    let ok = spawner
-        .run(ffmpeg, &args)
-        .await
-        .map_err(|e| TranscriptionError::Backend(e.to_string()))?;
+    let ok =
+        spawner.run(ffmpeg, &args).await.map_err(|e| TranscriptionError::Backend(e.to_string()))?;
     if !ok {
         return Err(TranscriptionError::Backend(format!(
             "ffmpeg failed to decode audio from {input_path}"
         )));
     }
-    let bytes = tokio::fs::read(&out)
-        .await
-        .map_err(|e| TranscriptionError::Backend(e.to_string()))?;
+    let bytes =
+        tokio::fs::read(&out).await.map_err(|e| TranscriptionError::Backend(e.to_string()))?;
     let _ = tokio::fs::remove_file(&out).await;
     Ok(pcm_to_samples(&bytes))
 }
@@ -110,12 +107,8 @@ mod tests {
 
     #[tokio::test]
     async fn decode_audio_returns_samples_on_success() {
-        let spawner = MockSpawner {
-            mode: Mode::Writes(vec![0x00, 0x40]),
-        };
-        let samples = decode_audio(&spawner, "ffmpeg", "/media/v1.mkv", None)
-            .await
-            .unwrap();
+        let spawner = MockSpawner { mode: Mode::Writes(vec![0x00, 0x40]) };
+        let samples = decode_audio(&spawner, "ffmpeg", "/media/v1.mkv", None).await.unwrap();
         assert_eq!(samples.len(), 1);
         assert!((samples[0] - 0.5).abs() < 1e-6);
     }
@@ -123,38 +116,28 @@ mod tests {
     #[tokio::test]
     async fn decode_audio_errors_when_ffmpeg_fails() {
         let spawner = MockSpawner { mode: Mode::Fails };
-        let err = decode_audio(&spawner, "ffmpeg", "/media/v1.mkv", None)
-            .await
-            .unwrap_err();
+        let err = decode_audio(&spawner, "ffmpeg", "/media/v1.mkv", None).await.unwrap_err();
         assert!(matches!(err, TranscriptionError::Backend(_)));
     }
 
     #[tokio::test]
     async fn decode_audio_errors_when_spawn_errors() {
         let spawner = MockSpawner { mode: Mode::Errors };
-        let err = decode_audio(&spawner, "ffmpeg", "/media/v1.mkv", None)
-            .await
-            .unwrap_err();
+        let err = decode_audio(&spawner, "ffmpeg", "/media/v1.mkv", None).await.unwrap_err();
         assert!(matches!(err, TranscriptionError::Backend(_)));
     }
 
     #[tokio::test]
     async fn decode_audio_errors_when_output_missing() {
-        let spawner = MockSpawner {
-            mode: Mode::NoWrite,
-        };
-        let err = decode_audio(&spawner, "ffmpeg", "/media/v1.mkv", None)
-            .await
-            .unwrap_err();
+        let spawner = MockSpawner { mode: Mode::NoWrite };
+        let err = decode_audio(&spawner, "ffmpeg", "/media/v1.mkv", None).await.unwrap_err();
         assert!(matches!(err, TranscriptionError::Backend(_)));
     }
 
     #[tokio::test]
     async fn decode_audio_maps_specific_track_when_index_given() {
         let spawner = CapturingSpawner::default();
-        decode_audio(&spawner, "ffmpeg", "/media/v1.mkv", Some(2))
-            .await
-            .unwrap();
+        decode_audio(&spawner, "ffmpeg", "/media/v1.mkv", Some(2)).await.unwrap();
         let args = spawner.args.lock().unwrap().clone();
         let map = args.iter().position(|a| a == "-map").expect("-map present");
         assert_eq!(args[map + 1], "0:2");
@@ -163,9 +146,7 @@ mod tests {
     #[tokio::test]
     async fn decode_audio_omits_map_without_an_index() {
         let spawner = CapturingSpawner::default();
-        decode_audio(&spawner, "ffmpeg", "/media/v1.mkv", None)
-            .await
-            .unwrap();
+        decode_audio(&spawner, "ffmpeg", "/media/v1.mkv", None).await.unwrap();
         let args = spawner.args.lock().unwrap().clone();
         assert!(!args.iter().any(|a| a == "-map"));
     }

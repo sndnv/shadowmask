@@ -18,14 +18,8 @@ async fn seeded_store() -> MockJobLogStore {
     let store = MockJobLogStore::new();
     let job = JobId(JOB.into());
     let at = Timestamp::UNIX_EPOCH;
-    store
-        .append(&job, at, JobLogLevel::Info, "started LibraryScan")
-        .await
-        .unwrap();
-    store
-        .append(&job, at, JobLogLevel::Info, "succeeded")
-        .await
-        .unwrap();
+    store.append(&job, at, JobLogLevel::Info, "started LibraryScan").await.unwrap();
+    store.append(&job, at, JobLogLevel::Info, "succeeded").await.unwrap();
     store
 }
 
@@ -64,38 +58,22 @@ async fn send(app: Router, method: &str, uri: &str, auth: Option<&str>) -> (Stat
     if let Some(token) = auth {
         builder = builder.header(header::AUTHORIZATION, token);
     }
-    let response = app
-        .oneshot(builder.body(Body::empty()).unwrap())
-        .await
-        .unwrap();
+    let response = app.oneshot(builder.body(Body::empty()).unwrap()).await.unwrap();
     let status = response.status();
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap()
-        .to_vec();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec();
     (status, body)
 }
 
 fn lines(body: &[u8]) -> Vec<String> {
     let value: Value = serde_json::from_slice(body).unwrap();
-    value["lines"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|l| l.as_str().unwrap().to_owned())
-        .collect()
+    value["lines"].as_array().unwrap().iter().map(|l| l.as_str().unwrap().to_owned()).collect()
 }
 
 #[tokio::test]
 async fn admin_reads_seeded_lines() {
     let store = seeded_store().await;
-    let (status, body) = send(
-        app(store),
-        "GET",
-        "/api/v1/admin/jobs/job-scan/logs",
-        Some(ADMIN),
-    )
-    .await;
+    let (status, body) =
+        send(app(store), "GET", "/api/v1/admin/jobs/job-scan/logs", Some(ADMIN)).await;
     assert_eq!(status, StatusCode::OK);
     let lines = lines(&body);
     assert_eq!(lines.len(), 2);
@@ -106,13 +84,8 @@ async fn admin_reads_seeded_lines() {
 #[tokio::test]
 async fn tail_limits_returned_lines() {
     let store = seeded_store().await;
-    let (status, body) = send(
-        app(store),
-        "GET",
-        "/api/v1/admin/jobs/job-scan/logs?tail=1",
-        Some(ADMIN),
-    )
-    .await;
+    let (status, body) =
+        send(app(store), "GET", "/api/v1/admin/jobs/job-scan/logs?tail=1", Some(ADMIN)).await;
     assert_eq!(status, StatusCode::OK);
     let lines = lines(&body);
     assert_eq!(lines.len(), 1);
@@ -122,22 +95,12 @@ async fn tail_limits_returned_lines() {
 #[tokio::test]
 async fn wipe_clears_then_read_is_empty() {
     let store = seeded_store().await;
-    let (status, _) = send(
-        app(store.clone()),
-        "DELETE",
-        "/api/v1/admin/jobs/job-scan/logs",
-        Some(ADMIN),
-    )
-    .await;
+    let (status, _) =
+        send(app(store.clone()), "DELETE", "/api/v1/admin/jobs/job-scan/logs", Some(ADMIN)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 
-    let (status, body) = send(
-        app(store),
-        "GET",
-        "/api/v1/admin/jobs/job-scan/logs",
-        Some(ADMIN),
-    )
-    .await;
+    let (status, body) =
+        send(app(store), "GET", "/api/v1/admin/jobs/job-scan/logs", Some(ADMIN)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(lines(&body).is_empty());
 }
@@ -145,13 +108,8 @@ async fn wipe_clears_then_read_is_empty() {
 #[tokio::test]
 async fn level_filter_returns_that_severity_and_above() {
     let store = seeded_multi_level_store().await;
-    let (status, body) = send(
-        app(store),
-        "GET",
-        "/api/v1/admin/jobs/job-scan/logs?level=warn",
-        Some(ADMIN),
-    )
-    .await;
+    let (status, body) =
+        send(app(store), "GET", "/api/v1/admin/jobs/job-scan/logs?level=warn", Some(ADMIN)).await;
     assert_eq!(status, StatusCode::OK);
     let lines = lines(&body);
     assert_eq!(lines.len(), 2);
@@ -162,13 +120,8 @@ async fn level_filter_returns_that_severity_and_above() {
 #[tokio::test]
 async fn level_debug_returns_everything() {
     let store = seeded_multi_level_store().await;
-    let (status, body) = send(
-        app(store),
-        "GET",
-        "/api/v1/admin/jobs/job-scan/logs?level=debug",
-        Some(ADMIN),
-    )
-    .await;
+    let (status, body) =
+        send(app(store), "GET", "/api/v1/admin/jobs/job-scan/logs?level=debug", Some(ADMIN)).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(lines(&body).len(), 4);
 }
@@ -176,26 +129,16 @@ async fn level_debug_returns_everything() {
 #[tokio::test]
 async fn unknown_level_is_bad_request() {
     let store = seeded_multi_level_store().await;
-    let (status, _) = send(
-        app(store),
-        "GET",
-        "/api/v1/admin/jobs/job-scan/logs?level=verbose",
-        Some(ADMIN),
-    )
-    .await;
+    let (status, _) =
+        send(app(store), "GET", "/api/v1/admin/jobs/job-scan/logs?level=verbose", Some(ADMIN))
+            .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
 async fn non_admin_is_forbidden() {
     let store = seeded_store().await;
-    let (status, _) = send(
-        app(store),
-        "GET",
-        "/api/v1/admin/jobs/job-scan/logs",
-        Some(USER),
-    )
-    .await;
+    let (status, _) = send(app(store), "GET", "/api/v1/admin/jobs/job-scan/logs", Some(USER)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 }
 

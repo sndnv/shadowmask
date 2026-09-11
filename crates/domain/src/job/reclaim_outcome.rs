@@ -19,10 +19,7 @@ mod tests {
 
     #[test]
     fn total_counts_both_outcomes() {
-        let outcome = ReclaimOutcome {
-            requeued: 2,
-            dead_lettered: 3,
-        };
+        let outcome = ReclaimOutcome { requeued: 2, dead_lettered: 3 };
         assert_eq!(outcome.total(), 5);
         assert_eq!(ReclaimOutcome::default().total(), 0);
     }

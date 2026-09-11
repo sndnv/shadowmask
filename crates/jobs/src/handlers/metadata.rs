@@ -22,16 +22,10 @@ where
         let payload = MetadataJobPayload::decode(&job.payload)
             .map_err(|e| JobError::Permanent(format!("invalid metadata payload: {e}")))?;
         match payload {
-            MetadataJobPayload::Title {
-                title,
-                external_id,
-                force,
-            } => {
-                tracing::info!(
-                    "refreshing metadata for {} [{}] force [{force}]",
-                    title.kind().as_str(),
-                    title.id()
-                );
+            MetadataJobPayload::Title { title, external_id, force } => {
+                let kind = title.kind().as_str();
+                let id = title.id();
+                tracing::info!("refreshing metadata for {kind} [{id}] force [{force}]");
                 self.refresher
                     .refresh(&title, external_id.as_ref(), force, Some(&job.id))
                     .await
@@ -66,12 +60,7 @@ mod tests {
         catalog: MockCatalogRepo,
         provider: Option<MockMetadataProvider>,
     ) -> Enricher<MockCatalogRepo, MockMetadataProvider, MockJobStore, MockLibraryRepo> {
-        Enricher::new(
-            catalog,
-            provider,
-            MockJobStore::new(),
-            MockLibraryRepo::new(),
-        )
+        Enricher::new(catalog, provider, MockJobStore::new(), MockLibraryRepo::new())
     }
 
     fn job(payload: String) -> Job {
@@ -111,10 +100,7 @@ mod tests {
             artwork: Vec::new(),
         });
         let provider = MockMetadataProvider::with_matches(vec![MetadataMatch {
-            external_id: ExternalId {
-                source: "tmdb".into(),
-                value: "movie/603".into(),
-            },
+            external_id: ExternalId { source: "tmdb".into(), value: "movie/603".into() },
             title: "New".into(),
             year: Some(1999),
             kind: MediaKind::Movie,
@@ -129,23 +115,14 @@ mod tests {
 
         handler.handle(&job(payload)).await.unwrap();
 
-        assert!(
-            catalog
-                .get_movie(&MovieId("m1".into()))
-                .await
-                .unwrap()
-                .is_some()
-        );
+        assert!(catalog.get_movie(&MovieId("m1".into())).await.unwrap().is_some());
     }
 
     #[tokio::test]
     async fn refreshes_people_payload() {
         let handler = MetadataJobHandler::new(enricher(MockCatalogRepo::new(), None));
-        let payload = MetadataJobPayload::People {
-            ids: vec![PersonId("p1".into())],
-            force: true,
-        }
-        .encode();
+        let payload =
+            MetadataJobPayload::People { ids: vec![PersonId("p1".into())], force: true }.encode();
         handler.handle(&job(payload)).await.unwrap();
     }
 
@@ -169,9 +146,6 @@ mod tests {
             force: false,
         }
         .encode();
-        assert!(matches!(
-            handler.handle(&job(payload)).await.unwrap_err(),
-            JobError::Retryable(_)
-        ));
+        assert!(matches!(handler.handle(&job(payload)).await.unwrap_err(), JobError::Retryable(_)));
     }
 }

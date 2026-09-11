@@ -50,9 +50,7 @@ pub fn apply_outcome(
             job.last_error = Some(err.to_string());
             if retryable && job.attempts < policy.max_attempts {
                 job.status = JobStatus::Queued;
-                job.available_at = now
-                    .saturating_add(backoff(job.attempts, policy))
-                    .unwrap_or(now);
+                job.available_at = now.saturating_add(backoff(job.attempts, policy)).unwrap_or(now);
             } else {
                 job.status = JobStatus::Failed;
                 job.finished_at = Some(now);
@@ -126,22 +124,11 @@ mod tests {
     #[test]
     fn retryable_under_max_requeues_with_backoff() {
         let now = Timestamp::now();
-        let out = apply_outcome(
-            job(now),
-            Err(JobError::Retryable("boom".into())),
-            now,
-            &policy(),
-        );
+        let out = apply_outcome(job(now), Err(JobError::Retryable("boom".into())), now, &policy());
         assert_eq!(out.status, JobStatus::Queued);
         assert_eq!(out.attempts, 1);
-        assert_eq!(
-            out.available_at,
-            now.saturating_add(SignedDuration::from_secs(1)).unwrap()
-        );
-        assert_eq!(
-            out.last_error.as_deref(),
-            Some("retryable job failure: boom")
-        );
+        assert_eq!(out.available_at, now.saturating_add(SignedDuration::from_secs(1)).unwrap());
+        assert_eq!(out.last_error.as_deref(), Some("retryable job failure: boom"));
     }
 
     #[test]
@@ -149,12 +136,7 @@ mod tests {
         let now = Timestamp::now();
         let mut at_last = job(now);
         at_last.attempts = 2;
-        let out = apply_outcome(
-            at_last,
-            Err(JobError::Retryable("boom".into())),
-            now,
-            &policy(),
-        );
+        let out = apply_outcome(at_last, Err(JobError::Retryable("boom".into())), now, &policy());
         assert_eq!(out.status, JobStatus::Failed);
         assert_eq!(out.attempts, 3);
     }
@@ -162,18 +144,10 @@ mod tests {
     #[test]
     fn permanent_fails_immediately() {
         let now = Timestamp::now();
-        let out = apply_outcome(
-            job(now),
-            Err(JobError::Permanent("nope".into())),
-            now,
-            &policy(),
-        );
+        let out = apply_outcome(job(now), Err(JobError::Permanent("nope".into())), now, &policy());
         assert_eq!(out.status, JobStatus::Failed);
         assert_eq!(out.attempts, 1);
-        assert_eq!(
-            out.last_error.as_deref(),
-            Some("permanent job failure: nope")
-        );
+        assert_eq!(out.last_error.as_deref(), Some("permanent job failure: nope"));
     }
 }
 

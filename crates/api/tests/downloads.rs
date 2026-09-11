@@ -59,10 +59,7 @@ fn harness(extra: &[Version], repo_versions: &[Version]) -> Harness {
         repo.add_version(version.clone());
     }
     let tokens = MockDownloadTokens::new();
-    let app = download_router(
-        state.clone(),
-        DownloadState::new(state, repo, tokens.clone()),
-    );
+    let app = download_router(state.clone(), DownloadState::new(state, repo, tokens.clone()));
     Harness { app, tokens }
 }
 
@@ -82,16 +79,10 @@ async fn send(
     for (name, value) in headers {
         builder = builder.header(name, *value);
     }
-    let response = app
-        .oneshot(builder.body(Body::empty()).unwrap())
-        .await
-        .unwrap();
+    let response = app.oneshot(builder.body(Body::empty()).unwrap()).await.unwrap();
     let status = response.status();
     let response_headers = response.headers().clone();
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap()
-        .to_vec();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec();
     (status, response_headers, body)
 }
 
@@ -106,22 +97,16 @@ fn header_str(headers: &HeaderMap, name: header::HeaderName) -> &str {
 #[tokio::test]
 async fn a_link_names_the_file_and_carries_a_token_for_that_version() {
     let harness = harness(&[], &[]);
-    let (status, _, body) = send(
-        harness.app,
-        "POST",
-        "/api/v1/versions/v1/download",
-        &[(header::AUTHORIZATION, USER)],
-    )
-    .await;
+    let (status, _, body) =
+        send(harness.app, "POST", "/api/v1/versions/v1/download", &[(header::AUTHORIZATION, USER)])
+            .await;
 
     assert_eq!(status, StatusCode::OK);
     let body = json(&body);
     assert_eq!(body["filename"], "v1.mkv");
     assert_eq!(body["size_bytes"], 1);
     let url = body["url"].as_str().unwrap();
-    let token = url
-        .strip_prefix("/download/")
-        .expect("url is a download url");
+    let token = url.strip_prefix("/download/").expect("url is a download url");
     let claims = harness.tokens.verify(token).unwrap();
     assert_eq!(claims.version.0, "v1");
     assert_eq!(claims.user.0, "u1");
@@ -131,19 +116,12 @@ async fn a_link_names_the_file_and_carries_a_token_for_that_version() {
 #[tokio::test]
 async fn a_link_never_reveals_the_source_path() {
     let harness = harness(&[], &[]);
-    let (_, _, body) = send(
-        harness.app,
-        "POST",
-        "/api/v1/versions/v1/download",
-        &[(header::AUTHORIZATION, USER)],
-    )
-    .await;
+    let (_, _, body) =
+        send(harness.app, "POST", "/api/v1/versions/v1/download", &[(header::AUTHORIZATION, USER)])
+            .await;
 
     let text = String::from_utf8(body).unwrap();
-    assert!(
-        !text.contains("/media/"),
-        "the response leaked a filesystem path: {text}"
-    );
+    assert!(!text.contains("/media/"), "the response leaked a filesystem path: {text}");
 }
 
 #[tokio::test]
@@ -231,11 +209,7 @@ async fn a_download_supports_range_requests() {
     )
     .await;
 
-    assert_eq!(
-        status,
-        StatusCode::PARTIAL_CONTENT,
-        "a paused download must be resumable"
-    );
+    assert_eq!(status, StatusCode::PARTIAL_CONTENT, "a paused download must be resumable");
     assert_eq!(body, &PAYLOAD[0..4]);
 }
 
@@ -319,12 +293,8 @@ async fn a_token_for_an_unavailable_version_is_not_found() {
 async fn a_failing_codec_is_an_internal_error() {
     let harness = harness(&[], &[]);
     harness.tokens.set_fail();
-    let (status, _, _) = send(
-        harness.app,
-        "POST",
-        "/api/v1/versions/v1/download",
-        &[(header::AUTHORIZATION, USER)],
-    )
-    .await;
+    let (status, _, _) =
+        send(harness.app, "POST", "/api/v1/versions/v1/download", &[(header::AUTHORIZATION, USER)])
+            .await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
 }

@@ -10,18 +10,12 @@ pub struct ContentRatingDto {
 
 impl From<ContentRating> for ContentRatingDto {
     fn from(r: ContentRating) -> Self {
-        ContentRatingDto {
-            system: r.system,
-            code: r.code,
-        }
+        ContentRatingDto { system: r.system, code: r.code }
     }
 }
 
 impl From<ContentRatingDto> for ContentRating {
     fn from(r: ContentRatingDto) -> Self {
-        ContentRating {
-            system: r.system,
-            code: r.code,
-        }
+        ContentRating { system: r.system, code: r.code }
     }
 }

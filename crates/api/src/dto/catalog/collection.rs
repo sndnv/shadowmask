@@ -36,9 +36,6 @@ impl From<Collection> for CollectionResponse {
 impl From<CollectionDetail> for CollectionResponse {
     fn from(d: CollectionDetail) -> Self {
         let items = d.movies.into_iter().map(MovieResponse::from).collect();
-        CollectionResponse {
-            items,
-            ..CollectionResponse::from(d.collection)
-        }
+        CollectionResponse { items, ..CollectionResponse::from(d.collection) }
     }
 }

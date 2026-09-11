@@ -9,8 +9,6 @@ pub struct HeartbeatAckResponse {
 
 impl From<HeartbeatAck> for HeartbeatAckResponse {
     fn from(a: HeartbeatAck) -> Self {
-        HeartbeatAckResponse {
-            heartbeat_interval_s: a.heartbeat_interval_s,
-        }
+        HeartbeatAckResponse { heartbeat_interval_s: a.heartbeat_interval_s }
     }
 }

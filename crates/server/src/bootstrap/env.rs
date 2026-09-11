@@ -9,18 +9,12 @@ pub fn load_expanded(path: &Path) -> Result<toml::Value, BootstrapError> {
             return Ok(toml::Value::Table(toml::value::Table::new()));
         }
         Err(source) => {
-            return Err(BootstrapError::ReadFile {
-                path: path.to_path_buf(),
-                source,
-            });
+            return Err(BootstrapError::ReadFile { path: path.to_path_buf(), source });
         }
     };
 
-    let mut value: toml::Value =
-        toml::from_str(&text).map_err(|source| BootstrapError::ParseFile {
-            path: path.to_path_buf(),
-            source,
-        })?;
+    let mut value: toml::Value = toml::from_str(&text)
+        .map_err(|source| BootstrapError::ParseFile { path: path.to_path_buf(), source })?;
     expand(&mut value)?;
     Ok(value)
 }
@@ -73,10 +67,8 @@ mod tests {
     fn expands_env_reference() {
         figment::Jail::expect_with(|jail| {
             jail.set_env("SHADOWMASK_TEST_SECRET", "hunter2");
-            jail.create_file(
-                "users.toml",
-                "[[users]]\npassword = \"${SHADOWMASK_TEST_SECRET}\"\n",
-            )?;
+            let toml = "[[users]]\npassword = \"${SHADOWMASK_TEST_SECRET}\"\n";
+            jail.create_file("users.toml", toml)?;
             let value = load_expanded(Path::new("users.toml")).unwrap();
             let password = value["users"][0]["password"].as_str().unwrap();
             assert_eq!(password, "hunter2");

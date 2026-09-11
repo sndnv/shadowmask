@@ -18,9 +18,7 @@ pub fn hash(password: &str) -> Result<String, PasswordError> {
 
 pub fn verify(password: &str, hash: &str) -> Result<bool, PasswordError> {
     let parsed = PasswordHash::new(hash).map_err(|e| PasswordError::Hash(e.to_string()))?;
-    Ok(Argon2::default()
-        .verify_password(password.as_bytes(), &parsed)
-        .is_ok())
+    Ok(Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok())
 }
 
 #[cfg(test)]

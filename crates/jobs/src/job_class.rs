@@ -49,24 +49,15 @@ fn is_fetch_job(kind: JobKind) -> bool {
 }
 
 pub fn enrichment_kinds() -> Vec<JobKind> {
-    ALL_KINDS
-        .into_iter()
-        .filter(|kind| is_enrichment_job(*kind))
-        .collect()
+    ALL_KINDS.into_iter().filter(|kind| is_enrichment_job(*kind)).collect()
 }
 
 pub fn fetch_kinds() -> Vec<JobKind> {
-    ALL_KINDS
-        .into_iter()
-        .filter(|kind| is_fetch_job(*kind))
-        .collect()
+    ALL_KINDS.into_iter().filter(|kind| is_fetch_job(*kind)).collect()
 }
 
 pub fn normal_kinds() -> Vec<JobKind> {
-    ALL_KINDS
-        .into_iter()
-        .filter(|kind| !is_enrichment_job(*kind) && !is_fetch_job(*kind))
-        .collect()
+    ALL_KINDS.into_iter().filter(|kind| !is_enrichment_job(*kind) && !is_fetch_job(*kind)).collect()
 }
 
 #[cfg(test)]
@@ -79,20 +70,13 @@ mod tests {
         let enrichment = enrichment_kinds();
         let fetch = fetch_kinds();
         let normal = normal_kinds();
-        assert_eq!(
-            enrichment.len() + fetch.len() + normal.len(),
-            ALL_KINDS.len()
-        );
+        assert_eq!(enrichment.len() + fetch.len() + normal.len(), ALL_KINDS.len());
         assert!(enrichment.iter().all(|kind| !normal.contains(kind)));
         assert!(enrichment.iter().all(|kind| !fetch.contains(kind)));
         assert!(fetch.iter().all(|kind| !normal.contains(kind)));
         assert_eq!(
             enrichment,
-            vec![
-                JobKind::Transcription,
-                JobKind::Translation,
-                JobKind::Upscale
-            ]
+            vec![JobKind::Transcription, JobKind::Translation, JobKind::Upscale]
         );
         assert_eq!(fetch, vec![JobKind::Fetch]);
     }

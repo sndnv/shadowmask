@@ -28,10 +28,7 @@ pub enum JobKind {
 
 impl JobKind {
     pub fn is_process_killable(&self) -> bool {
-        matches!(
-            self,
-            JobKind::Trickplay | JobKind::Upscale | JobKind::Subtitles | JobKind::Fetch
-        )
+        matches!(self, JobKind::Trickplay | JobKind::Upscale | JobKind::Subtitles | JobKind::Fetch)
     }
 
     pub fn slug(&self) -> &'static str {
@@ -187,12 +184,7 @@ mod tests {
 
     #[test]
     fn process_killable_kinds() {
-        for kind in [
-            JobKind::Trickplay,
-            JobKind::Upscale,
-            JobKind::Subtitles,
-            JobKind::Fetch,
-        ] {
+        for kind in [JobKind::Trickplay, JobKind::Upscale, JobKind::Subtitles, JobKind::Fetch] {
             assert!(kind.is_process_killable(), "{kind:?} should be killable");
         }
         for kind in [
@@ -210,10 +202,7 @@ mod tests {
             JobKind::Combine,
             JobKind::ScheduledScan,
         ] {
-            assert!(
-                !kind.is_process_killable(),
-                "{kind:?} should not be killable"
-            );
+            assert!(!kind.is_process_killable(), "{kind:?} should not be killable");
         }
     }
 }

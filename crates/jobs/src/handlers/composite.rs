@@ -198,9 +198,7 @@ where
             JobKind::ScheduledScan => self.nightly.handle(job).await,
             JobKind::Retention => self.retention.handle(job).await,
             JobKind::OrphanSweep => self.sweep.handle(job).await,
-            other => Err(JobError::Permanent(format!(
-                "no handler for job kind: {other:?}"
-            ))),
+            other => Err(JobError::Permanent(format!("no handler for job kind: {other:?}"))),
         }
     }
 }
@@ -299,180 +297,126 @@ mod tests {
     #[tokio::test]
     async fn routes_library_scan_to_scan_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::LibraryScan))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::LibraryScan)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["scan"]);
     }
 
     #[tokio::test]
     async fn routes_search_reindex_to_reindex_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::SearchReindex))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::SearchReindex)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["reindex"]);
     }
 
     #[tokio::test]
     async fn routes_artwork_to_artwork_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::Artwork))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::Artwork)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["artwork"]);
     }
 
     #[tokio::test]
     async fn routes_trickplay_to_trickplay_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::Trickplay))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::Trickplay)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["trickplay"]);
     }
 
     #[tokio::test]
     async fn routes_ingest_to_ingest_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::Ingest))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::Ingest)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["ingest"]);
     }
 
     #[tokio::test]
     async fn routes_metadata_to_metadata_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::Metadata))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::Metadata)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["metadata"]);
     }
 
     #[tokio::test]
     async fn routes_relink_to_relink_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::Relink))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::Relink)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["relink"]);
     }
 
     #[tokio::test]
     async fn routes_subtitles_to_subtitles_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::Subtitles))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::Subtitles)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["subtitles"]);
     }
 
     #[tokio::test]
     async fn routes_transcription_to_transcription_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::Transcription))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::Transcription)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["transcription"]);
     }
 
     #[tokio::test]
     async fn routes_translation_to_translation_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::Translation))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::Translation)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["translation"]);
     }
 
     #[tokio::test]
     async fn routes_upscale_to_upscale_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::Upscale))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::Upscale)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["upscale"]);
     }
 
     #[tokio::test]
     async fn routes_combine_to_combine_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::Combine))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::Combine)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["combine"]);
     }
 
     #[tokio::test]
     async fn routes_fetch_to_fetch_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::Fetch))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::Fetch)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["fetch"]);
     }
 
     #[tokio::test]
     async fn routes_cache_eviction_to_eviction_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::CacheEviction))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::CacheEviction)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["eviction"]);
     }
 
     #[tokio::test]
     async fn routes_scheduled_scan_to_nightly_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::ScheduledScan))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::ScheduledScan)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["nightly"]);
     }
 
     #[tokio::test]
     async fn routes_retention_to_retention_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::Retention))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::Retention)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["retention"]);
     }
 
     #[tokio::test]
     async fn routes_orphan_sweep_to_sweep_handler() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        composite(&calls)
-            .handle(&job(JobKind::OrphanSweep))
-            .await
-            .unwrap();
+        composite(&calls).handle(&job(JobKind::OrphanSweep)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["sweep"]);
     }
 
     #[tokio::test]
     async fn unhandled_kind_is_permanent_and_routes_nowhere() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        let error = composite(&calls)
-            .handle(&job(JobKind::Fingerprint))
-            .await
-            .unwrap_err();
+        let error = composite(&calls).handle(&job(JobKind::Fingerprint)).await.unwrap_err();
         assert!(matches!(error, JobError::Permanent(_)));
         assert!(calls.lock().unwrap().is_empty());
     }

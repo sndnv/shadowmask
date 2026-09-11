@@ -129,16 +129,8 @@ where
         caller: &Principal,
         id: &LibraryId,
     ) -> Result<Library, LibraryError> {
-        let library = self
-            .libraries
-            .get(id)
-            .await?
-            .ok_or(LibraryError::NotFound)?;
-        if self.visible_to(caller, id).await? {
-            Ok(library)
-        } else {
-            Err(LibraryError::NotFound)
-        }
+        let library = self.libraries.get(id).await?.ok_or(LibraryError::NotFound)?;
+        if self.visible_to(caller, id).await? { Ok(library) } else { Err(LibraryError::NotFound) }
     }
 
     async fn title_display(
@@ -146,16 +138,12 @@ where
         title: &TitleId,
     ) -> Result<Option<(String, Option<u16>, MediaKind)>, LibraryError> {
         Ok(match title {
-            TitleId::Movie(id) => self
-                .catalog
-                .get_movie(id)
-                .await?
-                .map(|m| (m.title, m.year, MediaKind::Movie)),
-            TitleId::Episode(id) => self
-                .catalog
-                .get_episode(id)
-                .await?
-                .map(|e| (e.title, None, MediaKind::Series)),
+            TitleId::Movie(id) => {
+                self.catalog.get_movie(id).await?.map(|m| (m.title, m.year, MediaKind::Movie))
+            }
+            TitleId::Episode(id) => {
+                self.catalog.get_episode(id).await?.map(|e| (e.title, None, MediaKind::Series))
+            }
         })
     }
 
@@ -177,13 +165,7 @@ where
         .encode();
         let now = Timestamp::now();
         self.jobs
-            .enqueue(queued_job(
-                JobKind::Relink,
-                JobPriority::Normal,
-                payload,
-                None,
-                now,
-            ))
+            .enqueue(queued_job(JobKind::Relink, JobPriority::Normal, payload, None, now))
             .await?;
         Ok(())
     }
@@ -269,11 +251,7 @@ where
         if !acl::is_admin(caller) {
             return Err(LibraryError::Forbidden);
         }
-        let existing = self
-            .libraries
-            .get(id)
-            .await?
-            .ok_or(LibraryError::NotFound)?;
+        let existing = self.libraries.get(id).await?.ok_or(LibraryError::NotFound)?;
         let now = Timestamp::now();
         let library = Library {
             id: id.clone(),
@@ -296,10 +274,7 @@ where
         if !acl::is_admin(caller) {
             return Err(LibraryError::Forbidden);
         }
-        self.libraries
-            .get(id)
-            .await?
-            .ok_or(LibraryError::NotFound)?;
+        self.libraries.get(id).await?.ok_or(LibraryError::NotFound)?;
         self.catalog.reconcile_library_versions(id, &[]).await?;
         self.users.revoke_library_access(id).await?;
         self.libraries.delete(id).await?;
@@ -382,11 +357,8 @@ where
                 LibraryKind::Movie => MediaKind::Movie,
                 LibraryKind::Tv => MediaKind::Series,
             };
-            let search = MetadataQuery {
-                title: query.unwrap_or(parsed.title),
-                year: parsed.year,
-                kind,
-            };
+            let search =
+                MetadataQuery { title: query.unwrap_or(parsed.title), year: parsed.year, kind };
             if let Ok(matches) = provider.search(&search).await {
                 for candidate in matches {
                     candidates.push(ResolveCandidate {
@@ -424,13 +396,7 @@ where
         .encode();
         let now = Timestamp::now();
         self.jobs
-            .enqueue(queued_job(
-                JobKind::Ingest,
-                JobPriority::Normal,
-                payload,
-                None,
-                now,
-            ))
+            .enqueue(queued_job(JobKind::Ingest, JobPriority::Normal, payload, None, now))
             .await?;
         Ok(())
     }
@@ -447,11 +413,7 @@ where
         if !self.content_fetch_enabled {
             return Err(LibraryError::Disabled);
         }
-        let target = self
-            .libraries
-            .get(library)
-            .await?
-            .ok_or(LibraryError::NotFound)?;
+        let target = self.libraries.get(library).await?.ok_or(LibraryError::NotFound)?;
         if target.origin != LibraryOrigin::External {
             return Err(LibraryError::Forbidden);
         }
@@ -484,13 +446,7 @@ where
         .encode();
         let now = Timestamp::now();
         self.jobs
-            .enqueue(queued_job(
-                JobKind::Fetch,
-                JobPriority::Normal,
-                payload,
-                None,
-                now,
-            ))
+            .enqueue(queued_job(JobKind::Fetch, JobPriority::Normal, payload, None, now))
             .await?;
         Ok(())
     }
@@ -502,9 +458,7 @@ where
         duplicate: &DuplicateCandidateId,
     ) -> Result<(), LibraryError> {
         self.require_library(caller, id).await?;
-        self.libraries
-            .set_duplicate_status(duplicate, ResolutionStatus::Dismissed)
-            .await?;
+        self.libraries.set_duplicate_status(duplicate, ResolutionStatus::Dismissed).await?;
         Ok(())
     }
 
@@ -518,12 +472,7 @@ where
         if !acl::is_admin(caller) {
             return Err(LibraryError::Forbidden);
         }
-        self.enqueue_metadata(MetadataJobPayload::Title {
-            title,
-            external_id,
-            force,
-        })
-        .await
+        self.enqueue_metadata(MetadataJobPayload::Title { title, external_id, force }).await
     }
 
     async fn edit_movie(
@@ -535,11 +484,7 @@ where
         if !acl::is_admin(caller) {
             return Err(LibraryError::Forbidden);
         }
-        let existing = self
-            .catalog
-            .get_movie(id)
-            .await?
-            .ok_or(LibraryError::NotFound)?;
+        let existing = self.catalog.get_movie(id).await?.ok_or(LibraryError::NotFound)?;
         let library = super::version_library(&self.catalog, &TitleId::Movie(id.clone())).await;
         let articles = super::library_articles(&self.libraries, library).await;
         let movie = Movie {
@@ -566,11 +511,7 @@ where
         if !acl::is_admin(caller) {
             return Err(LibraryError::Forbidden);
         }
-        let existing = self
-            .catalog
-            .get_series(id)
-            .await?
-            .ok_or(LibraryError::NotFound)?;
+        let existing = self.catalog.get_series(id).await?.ok_or(LibraryError::NotFound)?;
         let library = super::series_library(&self.catalog, id).await;
         let articles = super::library_articles(&self.libraries, library).await;
         let series = Series {
@@ -596,11 +537,7 @@ where
         if !acl::is_admin(caller) {
             return Err(LibraryError::Forbidden);
         }
-        let existing = self
-            .catalog
-            .get_episode(id)
-            .await?
-            .ok_or(LibraryError::NotFound)?;
+        let existing = self.catalog.get_episode(id).await?.ok_or(LibraryError::NotFound)?;
         let episode = Episode {
             title: edit.title,
             overview: edit.overview,
@@ -623,10 +560,8 @@ where
             return Err(LibraryError::Forbidden);
         }
         let library = self.require_library(caller, id).await?;
-        let filter = TitleListFilter {
-            libraries: Some(vec![id.clone()]),
-            ..TitleListFilter::default()
-        };
+        let filter =
+            TitleListFilter { libraries: Some(vec![id.clone()]), ..TitleListFilter::default() };
         let titles: Vec<TitleRef> = match library.kind {
             LibraryKind::Movie => self
                 .catalog
@@ -660,11 +595,8 @@ where
         if !acl::is_admin(caller) {
             return Err(LibraryError::Forbidden);
         }
-        self.enqueue_metadata(MetadataJobPayload::People {
-            ids: vec![id.clone()],
-            force: true,
-        })
-        .await
+        self.enqueue_metadata(MetadataJobPayload::People { ids: vec![id.clone()], force: true })
+            .await
     }
 
     async fn relink_version(
@@ -676,11 +608,7 @@ where
         if !acl::is_admin(caller) {
             return Err(LibraryError::Forbidden);
         }
-        let detail = self
-            .catalog
-            .version_detail(version)
-            .await?
-            .ok_or(LibraryError::NotFound)?;
+        let detail = self.catalog.version_detail(version).await?.ok_or(LibraryError::NotFound)?;
         if !detail.version.available {
             return Err(LibraryError::Unavailable(
                 "the file for this version is missing".to_owned(),
@@ -712,26 +640,18 @@ where
                 "a series can only be relinked to a provider id".to_owned(),
             ));
         }
-        self.catalog
-            .get_series(series)
-            .await?
-            .ok_or(LibraryError::NotFound)?;
+        self.catalog.get_series(series).await?.ok_or(LibraryError::NotFound)?;
         let versions = self.series_versions(series).await?;
         let playable: HashSet<TitleId> = versions
             .iter()
             .filter(|version| version.available)
             .map(|version| version.title.clone())
             .collect();
-        let episodes = self
-            .catalog
-            .episode_ids_for_series(std::slice::from_ref(series))
-            .await?;
+        let episodes = self.catalog.episode_ids_for_series(std::slice::from_ref(series)).await?;
         let stranded = episodes
             .get(series)
             .map(|ids| {
-                ids.iter()
-                    .filter(|id| !playable.contains(&TitleId::Episode((*id).clone())))
-                    .count()
+                ids.iter().filter(|id| !playable.contains(&TitleId::Episode((*id).clone()))).count()
             })
             .unwrap_or_default();
         if stranded > 0 {
@@ -740,9 +660,7 @@ where
             )));
         }
         if versions.is_empty() {
-            return Err(LibraryError::Unavailable(
-                "the series has nothing to relink".to_owned(),
-            ));
+            return Err(LibraryError::Unavailable("the series has nothing to relink".to_owned()));
         }
         for version in versions {
             self.enqueue_relink(&version, target.clone()).await?;
@@ -773,9 +691,7 @@ where
             return Err(LibraryError::NotFound);
         }
         if !self.catalog.delete_movie(movie).await? {
-            return Err(LibraryError::NotEmpty(
-                "the movie still has versions".to_owned(),
-            ));
+            return Err(LibraryError::NotEmpty("the movie still has versions".to_owned()));
         }
         Ok(())
     }
@@ -792,9 +708,7 @@ where
             return Err(LibraryError::NotFound);
         }
         if !self.catalog.delete_series(series).await? {
-            return Err(LibraryError::NotEmpty(
-                "the series still has seasons".to_owned(),
-            ));
+            return Err(LibraryError::NotEmpty("the series still has seasons".to_owned()));
         }
         Ok(())
     }
@@ -811,9 +725,7 @@ where
             return Err(LibraryError::NotFound);
         }
         if !self.catalog.delete_season(season).await? {
-            return Err(LibraryError::NotEmpty(
-                "the season still has episodes".to_owned(),
-            ));
+            return Err(LibraryError::NotEmpty("the season still has episodes".to_owned()));
         }
         Ok(())
     }
@@ -830,9 +742,7 @@ where
             return Err(LibraryError::NotFound);
         }
         if !self.catalog.delete_episode(episode).await? {
-            return Err(LibraryError::NotEmpty(
-                "the episode still has versions".to_owned(),
-            ));
+            return Err(LibraryError::NotEmpty("the episode still has versions".to_owned()));
         }
         Ok(())
     }
@@ -850,11 +760,7 @@ where
         if !self.transcription_enabled {
             return Err(LibraryError::Disabled);
         }
-        let detail = self
-            .catalog
-            .version_detail(version)
-            .await?
-            .ok_or(LibraryError::NotFound)?;
+        let detail = self.catalog.version_detail(version).await?.ok_or(LibraryError::NotFound)?;
         if let Some(index) = audio_track_index
             && !detail.audio.iter().any(|track| track.index == index)
         {
@@ -884,16 +790,8 @@ where
         if !self.translation_enabled {
             return Err(LibraryError::Disabled);
         }
-        let detail = self
-            .catalog
-            .version_detail(version)
-            .await?
-            .ok_or(LibraryError::NotFound)?;
-        if !detail
-            .subtitle_files
-            .iter()
-            .any(|file| file.id == *source_subtitle)
-        {
+        let detail = self.catalog.version_detail(version).await?.ok_or(LibraryError::NotFound)?;
+        if !detail.subtitle_files.iter().any(|file| file.id == *source_subtitle) {
             return Err(LibraryError::NotFound);
         }
         let job = translation_job_with_source(version, &source_subtitle.0, &target_language);
@@ -913,13 +811,8 @@ where
         if !self.upscaling_enabled {
             return Err(LibraryError::Disabled);
         }
-        self.catalog
-            .version_detail(version)
-            .await?
-            .ok_or(LibraryError::NotFound)?;
-        self.jobs
-            .enqueue(upscale_job(version, target_height))
-            .await?;
+        self.catalog.version_detail(version).await?.ok_or(LibraryError::NotFound)?;
+        self.jobs.enqueue(upscale_job(version, target_height)).await?;
         Ok(())
     }
 
@@ -933,11 +826,7 @@ where
         if !acl::is_admin(caller) {
             return Err(LibraryError::Forbidden);
         }
-        let detail = self
-            .catalog
-            .version_detail(version)
-            .await?
-            .ok_or(LibraryError::NotFound)?;
+        let detail = self.catalog.version_detail(version).await?.ok_or(LibraryError::NotFound)?;
         let has = |id: &SubtitleFileId| detail.subtitle_files.iter().any(|file| file.id == *id);
         if !has(top) || !has(bottom) {
             return Err(LibraryError::NotFound);
@@ -1002,31 +891,19 @@ mod tests {
     }
 
     fn admin() -> Principal {
-        Principal {
-            user: UserId("admin".into()),
-            role: Role::Admin,
-        }
+        Principal { user: UserId("admin".into()), role: Role::Admin }
     }
 
     fn member() -> Principal {
-        Principal {
-            user: UserId("u1".into()),
-            role: Role::User,
-        }
+        Principal { user: UserId("u1".into()), role: Role::User }
     }
 
     fn automation() -> Principal {
-        Principal {
-            user: UserId("webhook".into()),
-            role: Role::Automation,
-        }
+        Principal { user: UserId("webhook".into()), role: Role::Automation }
     }
 
     fn page() -> PageRequest {
-        PageRequest {
-            offset: 0,
-            limit: 10,
-        }
+        PageRequest { offset: 0, limit: 10 }
     }
 
     async fn seeded() -> Svc {
@@ -1036,17 +913,8 @@ mod tests {
         let users = MockUserRepo::new();
         users.insert(user("u1"));
         users.insert(user("admin"));
-        users
-            .set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())])
-            .await
-            .unwrap();
-        LibraryServiceImpl::new(
-            libraries,
-            users,
-            MockJobStore::new(),
-            MockCatalogRepo::new(),
-            None,
-        )
+        users.set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())]).await.unwrap();
+        LibraryServiceImpl::new(libraries, users, MockJobStore::new(), MockCatalogRepo::new(), None)
     }
 
     #[tokio::test]
@@ -1061,21 +929,13 @@ mod tests {
     #[tokio::test]
     async fn detail_hides_disallowed_as_not_found() {
         let svc = seeded().await;
-        assert!(
-            svc.library(&member(), &LibraryId("lib1".into()))
-                .await
-                .is_ok()
-        );
+        assert!(svc.library(&member(), &LibraryId("lib1".into())).await.is_ok());
         assert!(matches!(
-            svc.library(&member(), &LibraryId("lib2".into()))
-                .await
-                .unwrap_err(),
+            svc.library(&member(), &LibraryId("lib2".into())).await.unwrap_err(),
             LibraryError::NotFound
         ));
         assert!(matches!(
-            svc.library(&admin(), &LibraryId("missing".into()))
-                .await
-                .unwrap_err(),
+            svc.library(&admin(), &LibraryId("missing".into())).await.unwrap_err(),
             LibraryError::NotFound
         ));
     }
@@ -1090,10 +950,7 @@ mod tests {
         svc.trigger_scan(&admin(), &id).await.unwrap();
         assert_eq!(svc.jobs.list().await.unwrap().len(), 1);
         assert_eq!(svc.jobs.list().await.unwrap()[0].kind, JobKind::LibraryScan);
-        assert_eq!(
-            svc.scan_state(&admin(), &id).await.unwrap().status,
-            ScanStatus::Queued
-        );
+        assert_eq!(svc.scan_state(&admin(), &id).await.unwrap().status, ScanStatus::Queued);
         assert!(matches!(
             svc.trigger_scan(&admin(), &id).await.unwrap_err(),
             LibraryError::ScanInProgress
@@ -1105,40 +962,21 @@ mod tests {
         let svc = seeded().await;
         let id = LibraryId("lib2".into());
         svc.trigger_scan(&automation(), &id).await.unwrap();
-        assert_eq!(
-            svc.scan_state(&automation(), &id).await.unwrap().status,
-            ScanStatus::Queued
-        );
+        assert_eq!(svc.scan_state(&automation(), &id).await.unwrap().status, ScanStatus::Queued);
     }
 
     #[tokio::test]
     async fn unmatched_and_duplicates_gated() {
         let svc = seeded().await;
         let id = LibraryId("lib1".into());
-        assert!(
-            svc.unmatched(&admin(), &id, page())
-                .await
-                .unwrap()
-                .items
-                .is_empty()
-        );
-        assert!(
-            svc.duplicates(&admin(), &id, page())
-                .await
-                .unwrap()
-                .items
-                .is_empty()
-        );
+        assert!(svc.unmatched(&admin(), &id, page()).await.unwrap().items.is_empty());
+        assert!(svc.duplicates(&admin(), &id, page()).await.unwrap().items.is_empty());
         assert!(matches!(
-            svc.unmatched(&member(), &LibraryId("lib2".into()), page())
-                .await
-                .unwrap_err(),
+            svc.unmatched(&member(), &LibraryId("lib2".into()), page()).await.unwrap_err(),
             LibraryError::NotFound
         ));
         assert!(matches!(
-            svc.duplicates(&member(), &LibraryId("lib2".into()), page())
-                .await
-                .unwrap_err(),
+            svc.duplicates(&member(), &LibraryId("lib2".into()), page()).await.unwrap_err(),
             LibraryError::NotFound
         ));
     }
@@ -1156,9 +994,7 @@ mod tests {
             None::<MockMetadataProvider>,
         );
         assert!(matches!(
-            svc.library(&admin(), &LibraryId("lib1".into()))
-                .await
-                .unwrap_err(),
+            svc.library(&admin(), &LibraryId("lib1".into())).await.unwrap_err(),
             LibraryError::Repository(_)
         ));
     }
@@ -1181,19 +1017,13 @@ mod tests {
         .with_content_fetch(true);
 
         let id = LibraryId("lib1".into());
-        let page = PageRequest {
-            offset: 0,
-            limit: 10,
-        };
+        let page = PageRequest { offset: 0, limit: 10 };
         let unmatched = UnmatchedFileId("uf1".into());
         let duplicate = DuplicateCandidateId("d1".into());
 
         macro_rules! is_repository_error {
             ($call:expr) => {
-                assert!(matches!(
-                    $call.await.unwrap_err(),
-                    LibraryError::Repository(_)
-                ))
+                assert!(matches!($call.await.unwrap_err(), LibraryError::Repository(_)))
             };
         }
 
@@ -1232,14 +1062,9 @@ mod tests {
             None::<MockMetadataProvider>,
         );
 
+        assert!(matches!(svc.libraries(&member()).await.unwrap_err(), LibraryError::Repository(_)));
         assert!(matches!(
-            svc.libraries(&member()).await.unwrap_err(),
-            LibraryError::Repository(_)
-        ));
-        assert!(matches!(
-            svc.library(&member(), &LibraryId("lib1".into()))
-                .await
-                .unwrap_err(),
+            svc.library(&member(), &LibraryId("lib1".into())).await.unwrap_err(),
             LibraryError::Repository(_)
         ));
     }
@@ -1297,27 +1122,14 @@ mod tests {
             None::<MockMetadataProvider>,
         );
 
-        svc.delete_library(&admin(), &LibraryId("lib1".into()))
-            .await
-            .unwrap();
+        svc.delete_library(&admin(), &LibraryId("lib1".into())).await.unwrap();
 
-        let doomed = catalog
-            .get_version(&VersionId("doomed".into()))
-            .await
-            .unwrap()
-            .unwrap();
-        let spared = catalog
-            .get_version(&VersionId("spared".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let doomed = catalog.get_version(&VersionId("doomed".into())).await.unwrap().unwrap();
+        let spared = catalog.get_version(&VersionId("spared".into())).await.unwrap().unwrap();
         assert!(!doomed.available, "the dead library's content stays live");
         assert!(spared.available, "another library was caught in the blast");
 
-        let access = users
-            .list_library_access(&UserId("u1".into()))
-            .await
-            .unwrap();
+        let access = users.list_library_access(&UserId("u1".into())).await.unwrap();
         let granted: Vec<String> = access.into_iter().map(|a| a.library.0).collect();
         assert_eq!(granted, vec!["lib2".to_owned()]);
     }
@@ -1345,10 +1157,7 @@ mod tests {
     #[tokio::test]
     async fn a_creator_with_no_account_is_not_granted_anything() {
         let svc = seeded().await;
-        let synthetic = Principal {
-            user: UserId("bootstrap".into()),
-            role: Role::Admin,
-        };
+        let synthetic = Principal { user: UserId("bootstrap".into()), role: Role::Admin };
 
         let created = svc.create_library(&synthetic, new_library()).await;
 
@@ -1357,13 +1166,7 @@ mod tests {
             "bootstrap creates libraries before users exist, and the access row \
              has a foreign key onto users, so granting one would fail the create"
         );
-        assert!(
-            svc.users
-                .list_library_access(&synthetic.user)
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        assert!(svc.users.list_library_access(&synthetic.user).await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -1394,16 +1197,11 @@ mod tests {
         let created = svc.create_library(&admin(), new_library()).await.unwrap();
         assert!(svc.library(&admin(), &created.id).await.is_ok());
         assert!(matches!(
-            svc.create_library(&member(), new_library())
-                .await
-                .unwrap_err(),
+            svc.create_library(&member(), new_library()).await.unwrap_err(),
             LibraryError::Forbidden
         ));
 
-        let updated = svc
-            .update_library(&admin(), &created.id, library_update())
-            .await
-            .unwrap();
+        let updated = svc.update_library(&admin(), &created.id, library_update()).await.unwrap();
         assert_eq!(updated.name, "Renamed");
         assert_eq!(updated.kind, LibraryKind::Tv);
         assert!(matches!(
@@ -1413,9 +1211,7 @@ mod tests {
             LibraryError::NotFound
         ));
         assert!(matches!(
-            svc.update_library(&member(), &created.id, library_update())
-                .await
-                .unwrap_err(),
+            svc.update_library(&member(), &created.id, library_update()).await.unwrap_err(),
             LibraryError::Forbidden
         ));
 
@@ -1429,9 +1225,7 @@ mod tests {
             LibraryError::NotFound
         ));
         assert!(matches!(
-            svc.delete_library(&member(), &LibraryId("lib1".into()))
-                .await
-                .unwrap_err(),
+            svc.delete_library(&member(), &LibraryId("lib1".into())).await.unwrap_err(),
             LibraryError::Forbidden
         ));
     }
@@ -1449,15 +1243,11 @@ mod tests {
             None::<MockMetadataProvider>,
         );
         assert!(matches!(
-            svc.create_library(&admin(), new_library())
-                .await
-                .unwrap_err(),
+            svc.create_library(&admin(), new_library()).await.unwrap_err(),
             LibraryError::Repository(_)
         ));
         assert!(matches!(
-            svc.delete_library(&admin(), &LibraryId("lib1".into()))
-                .await
-                .unwrap_err(),
+            svc.delete_library(&admin(), &LibraryId("lib1".into())).await.unwrap_err(),
             LibraryError::Repository(_)
         ));
     }
@@ -1522,10 +1312,7 @@ mod tests {
             artwork: Vec::new(),
         });
         let provider = MockMetadataProvider::with_matches(vec![MetadataMatch {
-            external_id: ExternalId {
-                source: "tmdb".into(),
-                value: "movie/603".into(),
-            },
+            external_id: ExternalId { source: "tmdb".into(), value: "movie/603".into() },
             title: "The Matrix".into(),
             year: Some(1999),
             kind: MediaKind::Movie,
@@ -1539,10 +1326,7 @@ mod tests {
             Some(provider),
         );
         let id = LibraryId("lib1".into());
-        let candidates = svc
-            .unmatched_candidates(&admin(), &id, &uid, None)
-            .await
-            .unwrap();
+        let candidates = svc.unmatched_candidates(&admin(), &id, &uid, None).await.unwrap();
         assert_eq!(candidates.len(), 3);
         assert!(matches!(candidates[0].target, ResolveTarget::Existing(_)));
         assert_eq!(candidates[0].title, "The Matrix");
@@ -1556,6 +1340,50 @@ mod tests {
                 .unwrap_err(),
             LibraryError::NotFound
         ));
+    }
+
+    // The provider is asked for a series or a movie depending on the library the file sits in,
+    // and asking for the wrong one returns matches that can never be the right title.
+    #[tokio::test]
+    async fn a_tv_library_asks_the_provider_for_a_series() {
+        use domain::library::{UnmatchedFile, UnmatchedFileId};
+        use domain::metadata::{ExternalId, MetadataMatch};
+
+        let libraries = MockLibraryRepo::new();
+        libraries.insert_library(Library { kind: LibraryKind::Tv, ..library("lib1") });
+        let uid = UnmatchedFileId("uf1".into());
+        libraries
+            .insert_unmatched(UnmatchedFile {
+                id: uid.clone(),
+                library: LibraryId("lib1".into()),
+                path: "/media/The Expanse (2015).mkv".into(),
+                candidates: Vec::new(),
+                created_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
+            })
+            .await
+            .unwrap();
+        let provider = MockMetadataProvider::with_matches(vec![MetadataMatch {
+            external_id: ExternalId { source: "tmdb".into(), value: "tv/1".into() },
+            title: "The Expanse".into(),
+            year: Some(2015),
+            kind: MediaKind::Series,
+        }]);
+        let svc = LibraryServiceImpl::new(
+            libraries,
+            MockUserRepo::new(),
+            MockJobStore::new(),
+            MockCatalogRepo::new(),
+            Some(provider.clone()),
+        );
+
+        let candidates = svc
+            .unmatched_candidates(&admin(), &LibraryId("lib1".into()), &uid, None)
+            .await
+            .unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(provider.searched()[0].kind, MediaKind::Series);
     }
 
     #[tokio::test]
@@ -1588,9 +1416,7 @@ mod tests {
         let id = LibraryId("lib1".into());
         let target = ResolveTarget::Existing(TitleId::Movie(MovieId("m1".into())));
 
-        svc.resolve_unmatched(&admin(), &id, &uid, target.clone())
-            .await
-            .unwrap();
+        svc.resolve_unmatched(&admin(), &id, &uid, target.clone()).await.unwrap();
         let enqueued = jobs.list().await.unwrap();
         assert_eq!(enqueued.len(), 1);
         assert_eq!(enqueued[0].kind, JobKind::Ingest);
@@ -1653,9 +1479,7 @@ mod tests {
         let svc = fetch_svc(jobs.clone(), true)
             .with_cookie_inspector(stub_cookies(CookieVerdict::Expired));
         assert!(matches!(
-            svc.create_fetch(&admin(), &LibraryId("ext".into()), fetch_input())
-                .await
-                .unwrap_err(),
+            svc.create_fetch(&admin(), &LibraryId("ext".into()), fetch_input()).await.unwrap_err(),
             LibraryError::InvalidRequest(_)
         ));
         assert!(jobs.list().await.unwrap().is_empty());
@@ -1666,9 +1490,7 @@ mod tests {
         let jobs = MockJobStore::new();
         let svc =
             fetch_svc(jobs.clone(), true).with_cookie_inspector(stub_cookies(CookieVerdict::Live));
-        svc.create_fetch(&admin(), &LibraryId("ext".into()), fetch_input())
-            .await
-            .unwrap();
+        svc.create_fetch(&admin(), &LibraryId("ext".into()), fetch_input()).await.unwrap();
         assert_eq!(jobs.list().await.unwrap().len(), 1);
     }
 
@@ -1677,9 +1499,7 @@ mod tests {
         let jobs = MockJobStore::new();
         let svc = fetch_svc(jobs.clone(), true)
             .with_cookie_inspector(stub_cookies(CookieVerdict::NotApplicable));
-        svc.create_fetch(&admin(), &LibraryId("ext".into()), fetch_input())
-            .await
-            .unwrap();
+        svc.create_fetch(&admin(), &LibraryId("ext".into()), fetch_input()).await.unwrap();
         assert_eq!(jobs.list().await.unwrap().len(), 1);
     }
 
@@ -1687,9 +1507,7 @@ mod tests {
     async fn create_fetch_enqueues_fetch_job_for_external_library() {
         let jobs = MockJobStore::new();
         let svc = fetch_svc(jobs.clone(), true);
-        svc.create_fetch(&admin(), &LibraryId("ext".into()), fetch_input())
-            .await
-            .unwrap();
+        svc.create_fetch(&admin(), &LibraryId("ext".into()), fetch_input()).await.unwrap();
         let enqueued = jobs.list().await.unwrap();
         assert_eq!(enqueued.len(), 1);
         assert_eq!(enqueued[0].kind, JobKind::Fetch);
@@ -1699,9 +1517,7 @@ mod tests {
     async fn create_fetch_requires_admin() {
         let svc = fetch_svc(MockJobStore::new(), true);
         assert!(matches!(
-            svc.create_fetch(&member(), &LibraryId("ext".into()), fetch_input())
-                .await
-                .unwrap_err(),
+            svc.create_fetch(&member(), &LibraryId("ext".into()), fetch_input()).await.unwrap_err(),
             LibraryError::Forbidden
         ));
     }
@@ -1710,9 +1526,7 @@ mod tests {
     async fn create_fetch_is_disabled_when_flag_off() {
         let svc = fetch_svc(MockJobStore::new(), false);
         assert!(matches!(
-            svc.create_fetch(&admin(), &LibraryId("ext".into()), fetch_input())
-                .await
-                .unwrap_err(),
+            svc.create_fetch(&admin(), &LibraryId("ext".into()), fetch_input()).await.unwrap_err(),
             LibraryError::Disabled
         ));
     }
@@ -1746,9 +1560,7 @@ mod tests {
         let mut input = fetch_input();
         input.source_url = "file:///etc/passwd".into();
         assert!(matches!(
-            svc.create_fetch(&admin(), &LibraryId("ext".into()), input)
-                .await
-                .unwrap_err(),
+            svc.create_fetch(&admin(), &LibraryId("ext".into()), input).await.unwrap_err(),
             LibraryError::InvalidRequest(_)
         ));
         assert!(jobs.list().await.unwrap().is_empty());
@@ -1760,9 +1572,7 @@ mod tests {
         let mut input = fetch_input();
         input.source_url = "not a url".into();
         assert!(matches!(
-            svc.create_fetch(&admin(), &LibraryId("ext".into()), input)
-                .await
-                .unwrap_err(),
+            svc.create_fetch(&admin(), &LibraryId("ext".into()), input).await.unwrap_err(),
             LibraryError::InvalidRequest(_)
         ));
     }
@@ -1790,19 +1600,9 @@ mod tests {
             None::<MockMetadataProvider>,
         );
 
-        svc.dismiss_duplicate(&admin(), &id, &DuplicateCandidateId("d1".into()))
-            .await
-            .unwrap();
-        svc.dismiss_duplicate(&admin(), &id, &DuplicateCandidateId("d2".into()))
-            .await
-            .unwrap();
-        assert!(
-            svc.duplicates(&admin(), &id, page())
-                .await
-                .unwrap()
-                .items
-                .is_empty()
-        );
+        svc.dismiss_duplicate(&admin(), &id, &DuplicateCandidateId("d1".into())).await.unwrap();
+        svc.dismiss_duplicate(&admin(), &id, &DuplicateCandidateId("d2".into())).await.unwrap();
+        assert!(svc.duplicates(&admin(), &id, page()).await.unwrap().items.is_empty());
 
         assert!(matches!(
             svc.dismiss_duplicate(
@@ -1834,10 +1634,7 @@ mod tests {
         svc.reidentify(
             &admin(),
             title.clone(),
-            Some(ExternalId {
-                source: "tmdb".into(),
-                value: "movie/603".into(),
-            }),
+            Some(ExternalId { source: "tmdb".into(), value: "movie/603".into() }),
             false,
         )
         .await
@@ -1847,9 +1644,7 @@ mod tests {
         assert_eq!(enqueued[0].kind, JobKind::Metadata);
 
         assert!(matches!(
-            svc.reidentify(&member(), title, None, false)
-                .await
-                .unwrap_err(),
+            svc.reidentify(&member(), title, None, false).await.unwrap_err(),
             LibraryError::Forbidden
         ));
     }
@@ -1865,17 +1660,13 @@ mod tests {
             None::<MockMetadataProvider>,
         );
 
-        svc.refresh_person(&admin(), &PersonId("p1".into()))
-            .await
-            .unwrap();
+        svc.refresh_person(&admin(), &PersonId("p1".into())).await.unwrap();
         let enqueued = jobs.list().await.unwrap();
         assert_eq!(enqueued.len(), 1);
         assert_eq!(enqueued[0].kind, JobKind::Metadata);
 
         assert!(matches!(
-            svc.refresh_person(&member(), &PersonId("p1".into()))
-                .await
-                .unwrap_err(),
+            svc.refresh_person(&member(), &PersonId("p1".into())).await.unwrap_err(),
             LibraryError::Forbidden
         ));
     }
@@ -1923,16 +1714,8 @@ mod tests {
         for id in ["m1", "m2", "elsewhere"] {
             catalog.add_movie(refresh_movie_row(id));
         }
-        catalog.add_version(refresh_version(
-            "v1",
-            TitleId::Movie(MovieId("m1".into())),
-            "films",
-        ));
-        catalog.add_version(refresh_version(
-            "v2",
-            TitleId::Movie(MovieId("m2".into())),
-            "films",
-        ));
+        catalog.add_version(refresh_version("v1", TitleId::Movie(MovieId("m1".into())), "films"));
+        catalog.add_version(refresh_version("v2", TitleId::Movie(MovieId("m2".into())), "films"));
         catalog.add_version(refresh_version(
             "v3",
             TitleId::Movie(MovieId("elsewhere".into())),
@@ -2002,37 +1785,31 @@ mod tests {
     }
 
     fn refreshed_titles(jobs: &[Job]) -> Vec<TitleRef> {
-        jobs.iter()
-            .map(
-                |job| match MetadataJobPayload::decode(&job.payload).unwrap() {
-                    MetadataJobPayload::Title {
-                        title,
-                        external_id: None,
-                        force: false,
-                    } => title,
-                    other => panic!("unexpected metadata payload {other:?}"),
-                },
-            )
-            .collect()
+        jobs.iter().map(refreshed_title).collect()
+    }
+
+    fn refreshed_title(job: &Job) -> TitleRef {
+        let payload = MetadataJobPayload::decode(&job.payload).unwrap();
+        assert!(
+            matches!(payload, MetadataJobPayload::Title { external_id: None, force: false, .. }),
+            "a refresh names no external id and is never forced"
+        );
+        let MetadataJobPayload::Title { title, .. } = payload else { panic!("not a title") };
+        title
     }
 
     #[tokio::test]
     async fn refreshing_a_movie_library_queues_one_metadata_job_per_movie_in_it() {
         use domain::catalog::MovieId;
         let (svc, jobs) = refresh_svc(refresh_catalog());
-        svc.refresh_library_metadata(&admin(), &LibraryId("films".into()))
-            .await
-            .unwrap();
+        svc.refresh_library_metadata(&admin(), &LibraryId("films".into())).await.unwrap();
         let enqueued = jobs.list().await.unwrap();
         assert!(enqueued.iter().all(|job| job.kind == JobKind::Metadata));
         let mut titles = refreshed_titles(&enqueued);
         titles.sort_by_key(|title| title.id().to_string());
         assert_eq!(
             titles,
-            vec![
-                TitleRef::Movie(MovieId("m1".into())),
-                TitleRef::Movie(MovieId("m2".into())),
-            ]
+            vec![TitleRef::Movie(MovieId("m1".into())), TitleRef::Movie(MovieId("m2".into())),]
         );
     }
 
@@ -2040,34 +1817,18 @@ mod tests {
     async fn refreshing_a_tv_library_queues_the_series_not_its_episodes() {
         use domain::catalog::SeriesId;
         let (svc, jobs) = refresh_svc(refresh_catalog());
-        svc.refresh_library_metadata(&admin(), &LibraryId("shows".into()))
-            .await
-            .unwrap();
+        svc.refresh_library_metadata(&admin(), &LibraryId("shows".into())).await.unwrap();
         let enqueued = jobs.list().await.unwrap();
-        assert_eq!(
-            refreshed_titles(&enqueued),
-            vec![TitleRef::Series(SeriesId("s1".into()))]
-        );
+        assert_eq!(refreshed_titles(&enqueued), vec![TitleRef::Series(SeriesId("s1".into()))]);
     }
 
     #[tokio::test]
     async fn refreshing_a_library_never_queues_a_scan() {
         let (svc, jobs) = refresh_svc(refresh_catalog());
-        svc.refresh_library_metadata(&admin(), &LibraryId("films".into()))
-            .await
-            .unwrap();
-        assert!(
-            jobs.list()
-                .await
-                .unwrap()
-                .iter()
-                .all(|job| job.kind != JobKind::LibraryScan)
-        );
+        svc.refresh_library_metadata(&admin(), &LibraryId("films".into())).await.unwrap();
+        assert!(jobs.list().await.unwrap().iter().all(|job| job.kind != JobKind::LibraryScan));
         assert_eq!(
-            svc.scan_state(&admin(), &LibraryId("films".into()))
-                .await
-                .unwrap()
-                .status,
+            svc.scan_state(&admin(), &LibraryId("films".into())).await.unwrap().status,
             ScanStatus::Idle
         );
     }
@@ -2076,15 +1837,11 @@ mod tests {
     async fn refreshing_a_library_is_admin_only_and_needs_the_library_to_exist() {
         let (svc, jobs) = refresh_svc(refresh_catalog());
         assert!(matches!(
-            svc.refresh_library_metadata(&member(), &LibraryId("films".into()))
-                .await
-                .unwrap_err(),
+            svc.refresh_library_metadata(&member(), &LibraryId("films".into())).await.unwrap_err(),
             LibraryError::Forbidden
         ));
         assert!(matches!(
-            svc.refresh_library_metadata(&admin(), &LibraryId("ghost".into()))
-                .await
-                .unwrap_err(),
+            svc.refresh_library_metadata(&admin(), &LibraryId("ghost".into())).await.unwrap_err(),
             LibraryError::NotFound
         ));
         assert!(jobs.list().await.unwrap().is_empty());
@@ -2140,16 +1897,12 @@ mod tests {
         use domain::catalog::{MovieId, TitleId, VersionId};
         let (svc, jobs) = relink_svc(seeded_version_catalog());
         let target = ResolveTarget::Existing(TitleId::Movie(MovieId("m-new".into())));
-        svc.relink_version(&admin(), &VersionId("v1".into()), target.clone())
-            .await
-            .unwrap();
+        svc.relink_version(&admin(), &VersionId("v1".into()), target.clone()).await.unwrap();
         let enqueued = jobs.list().await.unwrap();
         assert_eq!(enqueued.len(), 1);
         assert_eq!(enqueued[0].kind, JobKind::Relink);
         assert!(matches!(
-            svc.relink_version(&member(), &VersionId("v1".into()), target)
-                .await
-                .unwrap_err(),
+            svc.relink_version(&member(), &VersionId("v1".into()), target).await.unwrap_err(),
             LibraryError::Forbidden
         ));
     }
@@ -2263,14 +2016,10 @@ mod tests {
             }
         }
         let (svc, jobs) = relink_svc(catalog);
-        let target = ResolveTarget::Provider(ExternalId {
-            source: "tmdb".into(),
-            value: "tv/4629".into(),
-        });
+        let target =
+            ResolveTarget::Provider(ExternalId { source: "tmdb".into(), value: "tv/4629".into() });
 
-        svc.relink_series(&admin(), &SeriesId("sh1".into()), target.clone())
-            .await
-            .unwrap();
+        svc.relink_series(&admin(), &SeriesId("sh1".into()), target.clone()).await.unwrap();
 
         let enqueued = jobs.list().await.unwrap();
         assert_eq!(
@@ -2281,9 +2030,7 @@ mod tests {
         assert!(enqueued.iter().all(|job| job.kind == JobKind::Relink));
 
         assert!(matches!(
-            svc.relink_series(&member(), &SeriesId("sh1".into()), target)
-                .await
-                .unwrap_err(),
+            svc.relink_series(&member(), &SeriesId("sh1".into()), target).await.unwrap_err(),
             LibraryError::Forbidden
         ));
     }
@@ -2369,27 +2116,19 @@ mod tests {
         use domain::catalog::{EpisodeId, MovieId, SeasonId, SeriesId};
         let (svc, _jobs) = relink_svc(tree_catalog());
         assert!(matches!(
-            svc.delete_movie(&member(), &MovieId("m1".into()))
-                .await
-                .unwrap_err(),
+            svc.delete_movie(&member(), &MovieId("m1".into())).await.unwrap_err(),
             LibraryError::Forbidden
         ));
         assert!(matches!(
-            svc.delete_series(&member(), &SeriesId("s1".into()))
-                .await
-                .unwrap_err(),
+            svc.delete_series(&member(), &SeriesId("s1".into())).await.unwrap_err(),
             LibraryError::Forbidden
         ));
         assert!(matches!(
-            svc.delete_season(&member(), &SeasonId("se1".into()))
-                .await
-                .unwrap_err(),
+            svc.delete_season(&member(), &SeasonId("se1".into())).await.unwrap_err(),
             LibraryError::Forbidden
         ));
         assert!(matches!(
-            svc.delete_episode(&member(), &EpisodeId("e1".into()))
-                .await
-                .unwrap_err(),
+            svc.delete_episode(&member(), &EpisodeId("e1".into())).await.unwrap_err(),
             LibraryError::Forbidden
         ));
     }
@@ -2399,27 +2138,19 @@ mod tests {
         use domain::catalog::{EpisodeId, MovieId, SeasonId, SeriesId};
         let (svc, _jobs) = relink_svc(MockCatalogRepo::new());
         assert!(matches!(
-            svc.delete_movie(&admin(), &MovieId("ghost".into()))
-                .await
-                .unwrap_err(),
+            svc.delete_movie(&admin(), &MovieId("ghost".into())).await.unwrap_err(),
             LibraryError::NotFound
         ));
         assert!(matches!(
-            svc.delete_series(&admin(), &SeriesId("ghost".into()))
-                .await
-                .unwrap_err(),
+            svc.delete_series(&admin(), &SeriesId("ghost".into())).await.unwrap_err(),
             LibraryError::NotFound
         ));
         assert!(matches!(
-            svc.delete_season(&admin(), &SeasonId("ghost".into()))
-                .await
-                .unwrap_err(),
+            svc.delete_season(&admin(), &SeasonId("ghost".into())).await.unwrap_err(),
             LibraryError::NotFound
         ));
         assert!(matches!(
-            svc.delete_episode(&admin(), &EpisodeId("ghost".into()))
-                .await
-                .unwrap_err(),
+            svc.delete_episode(&admin(), &EpisodeId("ghost".into())).await.unwrap_err(),
             LibraryError::NotFound
         ));
     }
@@ -2442,33 +2173,15 @@ mod tests {
             );
         }
 
-        svc.delete_version(&admin(), &VersionId("v1".into()))
-            .await
-            .unwrap();
-        svc.delete_version(&admin(), &VersionId("v2".into()))
-            .await
-            .unwrap();
+        svc.delete_version(&admin(), &VersionId("v1".into())).await.unwrap();
+        svc.delete_version(&admin(), &VersionId("v2".into())).await.unwrap();
 
-        svc.delete_movie(&admin(), &MovieId("m1".into()))
-            .await
-            .unwrap();
-        svc.delete_episode(&admin(), &EpisodeId("e1".into()))
-            .await
-            .unwrap();
-        svc.delete_season(&admin(), &SeasonId("se1".into()))
-            .await
-            .unwrap();
-        svc.delete_series(&admin(), &SeriesId("s1".into()))
-            .await
-            .unwrap();
+        svc.delete_movie(&admin(), &MovieId("m1".into())).await.unwrap();
+        svc.delete_episode(&admin(), &EpisodeId("e1".into())).await.unwrap();
+        svc.delete_season(&admin(), &SeasonId("se1".into())).await.unwrap();
+        svc.delete_series(&admin(), &SeriesId("s1".into())).await.unwrap();
 
-        assert!(
-            catalog
-                .get_series(&SeriesId("s1".into()))
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(catalog.get_series(&SeriesId("s1".into())).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -2579,14 +2292,10 @@ mod tests {
             updated_at: Timestamp::UNIX_EPOCH,
         });
         let (svc, jobs) = relink_svc(catalog);
-        let target = ResolveTarget::Provider(ExternalId {
-            source: "tmdb".into(),
-            value: "tv/1".into(),
-        });
+        let target =
+            ResolveTarget::Provider(ExternalId { source: "tmdb".into(), value: "tv/1".into() });
 
-        let outcome = svc
-            .relink_series(&admin(), &SeriesId("sh1".into()), target)
-            .await;
+        let outcome = svc.relink_series(&admin(), &SeriesId("sh1".into()), target).await;
 
         assert!(matches!(outcome, Err(LibraryError::Unavailable(_))));
         assert!(
@@ -2618,10 +2327,7 @@ mod tests {
             .relink_series(
                 &admin(),
                 &SeriesId("sh1".into()),
-                ResolveTarget::Provider(ExternalId {
-                    source: "tmdb".into(),
-                    value: "tv/1".into(),
-                }),
+                ResolveTarget::Provider(ExternalId { source: "tmdb".into(), value: "tv/1".into() }),
             )
             .await;
 
@@ -2642,10 +2348,7 @@ mod tests {
             svc.relink_series(
                 &admin(),
                 &SeriesId("ghost".into()),
-                ResolveTarget::Provider(ExternalId {
-                    source: "tmdb".into(),
-                    value: "tv/1".into(),
-                }),
+                ResolveTarget::Provider(ExternalId { source: "tmdb".into(), value: "tv/1".into() }),
             )
             .await
             .unwrap_err(),
@@ -2704,13 +2407,7 @@ mod tests {
         let v1 = VersionId("v1".into());
         svc.delete_version(&admin(), &v1).await.unwrap();
         assert!(catalog.get_version(&v1).await.unwrap().is_none());
-        assert!(
-            catalog
-                .get_movie(&MovieId("m-new".into()))
-                .await
-                .unwrap()
-                .is_some()
-        );
+        assert!(catalog.get_movie(&MovieId("m-new".into())).await.unwrap().is_some());
         assert!(jobs.list().await.unwrap().is_empty());
     }
 
@@ -2720,22 +2417,12 @@ mod tests {
         let catalog = seeded_version_catalog();
         let (svc, _jobs) = relink_svc(catalog.clone());
         assert!(matches!(
-            svc.delete_version(&member(), &VersionId("v1".into()))
-                .await
-                .unwrap_err(),
+            svc.delete_version(&member(), &VersionId("v1".into())).await.unwrap_err(),
             LibraryError::Forbidden
         ));
-        assert!(
-            catalog
-                .get_version(&VersionId("v1".into()))
-                .await
-                .unwrap()
-                .is_some()
-        );
+        assert!(catalog.get_version(&VersionId("v1".into())).await.unwrap().is_some());
         assert!(matches!(
-            svc.delete_version(&admin(), &VersionId("ghost".into()))
-                .await
-                .unwrap_err(),
+            svc.delete_version(&admin(), &VersionId("ghost".into())).await.unwrap_err(),
             LibraryError::NotFound
         ));
     }
@@ -2770,9 +2457,7 @@ mod tests {
         assert_eq!(enqueued.len(), 1);
         assert_eq!(enqueued[0].kind, JobKind::Transcription);
         assert!(
-            TranscriptionJobPayload::decode(&enqueued[0].payload)
-                .unwrap()
-                .force,
+            TranscriptionJobPayload::decode(&enqueued[0].payload).unwrap().force,
             "an admin asking for a transcription always means force"
         );
     }
@@ -2784,37 +2469,25 @@ mod tests {
 
         let (member_svc, _) = trigger_svc(seeded_version_catalog(), true, false, false);
         assert!(matches!(
-            member_svc
-                .trigger_transcription(&member(), &v1, None, None)
-                .await
-                .unwrap_err(),
+            member_svc.trigger_transcription(&member(), &v1, None, None).await.unwrap_err(),
             LibraryError::Forbidden
         ));
 
         let (off_svc, _) = trigger_svc(seeded_version_catalog(), false, false, false);
         assert!(matches!(
-            off_svc
-                .trigger_transcription(&admin(), &v1, None, None)
-                .await
-                .unwrap_err(),
+            off_svc.trigger_transcription(&admin(), &v1, None, None).await.unwrap_err(),
             LibraryError::Disabled
         ));
 
         let (missing_svc, _) = trigger_svc(MockCatalogRepo::new(), true, false, false);
         assert!(matches!(
-            missing_svc
-                .trigger_transcription(&admin(), &v1, None, None)
-                .await
-                .unwrap_err(),
+            missing_svc.trigger_transcription(&admin(), &v1, None, None).await.unwrap_err(),
             LibraryError::NotFound
         ));
 
         let (track_svc, _) = trigger_svc(seeded_version_catalog(), true, false, false);
         assert!(matches!(
-            track_svc
-                .trigger_transcription(&admin(), &v1, Some(9), None)
-                .await
-                .unwrap_err(),
+            track_svc.trigger_transcription(&admin(), &v1, Some(9), None).await.unwrap_err(),
             LibraryError::NotFound
         ));
     }
@@ -2867,28 +2540,19 @@ mod tests {
 
         let (member_svc, _) = trigger_svc(seeded_version_catalog(), false, true, false);
         assert!(matches!(
-            member_svc
-                .trigger_translation(&member(), &v1, &sf, "zh".into())
-                .await
-                .unwrap_err(),
+            member_svc.trigger_translation(&member(), &v1, &sf, "zh".into()).await.unwrap_err(),
             LibraryError::Forbidden
         ));
 
         let (off_svc, _) = trigger_svc(seeded_version_catalog(), false, false, false);
         assert!(matches!(
-            off_svc
-                .trigger_translation(&admin(), &v1, &sf, "zh".into())
-                .await
-                .unwrap_err(),
+            off_svc.trigger_translation(&admin(), &v1, &sf, "zh".into()).await.unwrap_err(),
             LibraryError::Disabled
         ));
 
         let (no_source_svc, _) = trigger_svc(seeded_version_catalog(), false, true, false);
         assert!(matches!(
-            no_source_svc
-                .trigger_translation(&admin(), &v1, &sf, "zh".into())
-                .await
-                .unwrap_err(),
+            no_source_svc.trigger_translation(&admin(), &v1, &sf, "zh".into()).await.unwrap_err(),
             LibraryError::NotFound
         ));
     }
@@ -2906,28 +2570,19 @@ mod tests {
 
         let (member_svc, _) = trigger_svc(seeded_version_catalog(), false, false, true);
         assert!(matches!(
-            member_svc
-                .trigger_upscale(&member(), &v1, 2160)
-                .await
-                .unwrap_err(),
+            member_svc.trigger_upscale(&member(), &v1, 2160).await.unwrap_err(),
             LibraryError::Forbidden
         ));
 
         let (off_svc, _) = trigger_svc(seeded_version_catalog(), false, false, false);
         assert!(matches!(
-            off_svc
-                .trigger_upscale(&admin(), &v1, 2160)
-                .await
-                .unwrap_err(),
+            off_svc.trigger_upscale(&admin(), &v1, 2160).await.unwrap_err(),
             LibraryError::Disabled
         ));
 
         let (missing_svc, _) = trigger_svc(MockCatalogRepo::new(), false, false, true);
         assert!(matches!(
-            missing_svc
-                .trigger_upscale(&admin(), &v1, 2160)
-                .await
-                .unwrap_err(),
+            missing_svc.trigger_upscale(&admin(), &v1, 2160).await.unwrap_err(),
             LibraryError::NotFound
         ));
     }
@@ -2983,10 +2638,7 @@ mod tests {
         catalog.set_subtitle_files(&v1, &files).await.unwrap();
         let (member_svc, _) = trigger_svc(catalog, false, false, false);
         assert!(matches!(
-            member_svc
-                .trigger_combine(&member(), &v1, &en, &fr)
-                .await
-                .unwrap_err(),
+            member_svc.trigger_combine(&member(), &v1, &en, &fr).await.unwrap_err(),
             LibraryError::Forbidden
         ));
 
@@ -3003,10 +2655,7 @@ mod tests {
 
         let (missing_svc, _) = trigger_svc(MockCatalogRepo::new(), false, false, false);
         assert!(matches!(
-            missing_svc
-                .trigger_combine(&admin(), &v1, &en, &fr)
-                .await
-                .unwrap_err(),
+            missing_svc.trigger_combine(&admin(), &v1, &en, &fr).await.unwrap_err(),
             LibraryError::NotFound
         ));
     }
@@ -3046,10 +2695,7 @@ mod tests {
         let (svc, catalog) = edit_svc();
         let id = MovieId("m1".into());
 
-        let edited = svc
-            .edit_movie(&admin(), &id, movie_edit("The Matrix"))
-            .await
-            .unwrap();
+        let edited = svc.edit_movie(&admin(), &id, movie_edit("The Matrix")).await.unwrap();
 
         assert_eq!(edited.title, "The Matrix");
         assert_eq!(
@@ -3063,11 +2709,7 @@ mod tests {
         let stored = catalog.get_movie(&id).await.unwrap().unwrap();
         assert_eq!(stored.sort_title, "matrix, the");
         assert!(stored.manually_edited);
-        assert_eq!(
-            stored.added_at,
-            Timestamp::UNIX_EPOCH,
-            "an edit must not reset added_at"
-        );
+        assert_eq!(stored.added_at, Timestamp::UNIX_EPOCH, "an edit must not reset added_at");
     }
 
     #[tokio::test]
@@ -3114,14 +2756,7 @@ mod tests {
 
         assert_eq!(edited.sort_title, "wire, the");
         assert!(edited.manually_edited);
-        assert!(
-            catalog
-                .get_series(&id)
-                .await
-                .unwrap()
-                .unwrap()
-                .manually_edited
-        );
+        assert!(catalog.get_series(&id).await.unwrap().unwrap().manually_edited);
     }
 
     #[tokio::test]
@@ -3154,9 +2789,7 @@ mod tests {
     async fn editing_is_admin_only() {
         let (svc, _) = edit_svc();
         assert!(matches!(
-            svc.edit_movie(&member(), &MovieId("m1".into()), movie_edit("Nope"))
-                .await
-                .unwrap_err(),
+            svc.edit_movie(&member(), &MovieId("m1".into()), movie_edit("Nope")).await.unwrap_err(),
             LibraryError::Forbidden
         ));
         assert!(matches!(
@@ -3235,9 +2868,7 @@ mod tests {
     #[tokio::test]
     async fn a_force_refresh_is_carried_on_the_queued_job() {
         let (svc, jobs) = refresh_svc(refresh_catalog());
-        svc.reidentify(&admin(), TitleRef::Movie(MovieId("m1".into())), None, true)
-            .await
-            .unwrap();
+        svc.reidentify(&admin(), TitleRef::Movie(MovieId("m1".into())), None, true).await.unwrap();
         let enqueued = jobs.list().await.unwrap();
         assert!(matches!(
             MetadataJobPayload::decode(&enqueued[0].payload).unwrap(),
@@ -3248,9 +2879,7 @@ mod tests {
     #[tokio::test]
     async fn a_whole_library_refresh_is_never_forced() {
         let (svc, jobs) = refresh_svc(refresh_catalog());
-        svc.refresh_library_metadata(&admin(), &LibraryId("films".into()))
-            .await
-            .unwrap();
+        svc.refresh_library_metadata(&admin(), &LibraryId("films".into())).await.unwrap();
         let enqueued = jobs.list().await.unwrap();
         assert!(!enqueued.is_empty());
         for job in &enqueued {

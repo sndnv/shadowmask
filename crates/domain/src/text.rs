@@ -4,13 +4,7 @@ use unicode_normalization::char::is_combining_mark;
 pub fn normalize_title(title: &str) -> String {
     let mapped: String = title
         .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_lowercase()
-            } else {
-                ' '
-            }
-        })
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { ' ' })
         .collect();
     mapped.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -24,10 +18,7 @@ pub fn sort_title(title: &str, articles: &[String]) -> String {
     let Some((first, rest)) = normalized.split_once(' ') else {
         return normalized;
     };
-    if articles
-        .iter()
-        .any(|article| normalize_title(&fold_diacritics(article)) == first)
-    {
+    if articles.iter().any(|article| normalize_title(&fold_diacritics(article)) == first) {
         format!("{rest}, {first}")
     } else {
         normalized
@@ -63,10 +54,7 @@ mod tests {
         assert_eq!(sort_title("The Expanse", &[]), "the expanse");
         assert_eq!(sort_title("Élite", &[]), "elite");
         assert_eq!(sort_title("Spider-Man", &[]), "spider man");
-        assert_eq!(
-            sort_title("2001: A Space Odyssey", &[]),
-            "2001 a space odyssey"
-        );
+        assert_eq!(sort_title("2001: A Space Odyssey", &[]), "2001 a space odyssey");
     }
 
     #[test]

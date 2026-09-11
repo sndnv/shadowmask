@@ -27,6 +27,7 @@ tempfile = { workspace = true }
 contracts = { workspace = true }
 insta = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
+tracing-test = { workspace = true }
 
 [lints]
 workspace = true

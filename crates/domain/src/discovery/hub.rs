@@ -3,10 +3,7 @@ use crate::catalog::{EpisodeCard, Movie, Series};
 #[derive(Debug, Clone)]
 pub enum HubItem {
     Movie(Movie),
-    Series {
-        series: Series,
-        episode_count: Option<u32>,
-    },
+    Series { series: Series, episode_count: Option<u32> },
     Episode(Box<EpisodeCard>),
 }
 

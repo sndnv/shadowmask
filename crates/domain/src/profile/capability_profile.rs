@@ -36,10 +36,7 @@ impl CapabilityProfile {
 
     pub fn merged_with(&self, reported: &ClientDecoding) -> Result<Self, ProfileError> {
         let merged = Self {
-            containers: reported
-                .containers
-                .clone()
-                .unwrap_or_else(|| self.containers.clone()),
+            containers: reported.containers.clone().unwrap_or_else(|| self.containers.clone()),
             video: reported.video.clone().unwrap_or_else(|| self.video.clone()),
             audio: reported.audio.clone().unwrap_or_else(|| self.audio.clone()),
             hdr: reported.hdr.clone().unwrap_or_else(|| self.hdr.clone()),
@@ -66,10 +63,7 @@ mod tests {
                 max_bit_depth: 8,
                 smooth: true,
             }],
-            audio: vec![AudioCodecCap {
-                codec: "aac".to_owned(),
-                max_channels: 2,
-            }],
+            audio: vec![AudioCodecCap { codec: "aac".to_owned(), max_channels: 2 }],
             hdr: vec![],
             max_width: 1920,
             max_height: 1080,
@@ -104,10 +98,7 @@ mod tests {
 
     #[test]
     fn an_empty_report_leaves_the_profile_alone() {
-        assert_eq!(
-            profile().merged_with(&ClientDecoding::default()).unwrap(),
-            profile()
-        );
+        assert_eq!(profile().merged_with(&ClientDecoding::default()).unwrap(), profile());
     }
 
     #[test]
@@ -115,26 +106,14 @@ mod tests {
         // The server re-runs its own validation rather than trusting the client,
         // so a client that reports no video codecs at all cannot disable
         // negotiation for itself.
-        let reported = ClientDecoding {
-            video: Some(Vec::new()),
-            ..ClientDecoding::default()
-        };
-        assert!(matches!(
-            profile().merged_with(&reported),
-            Err(ProfileError::Invalid(_))
-        ));
+        let reported = ClientDecoding { video: Some(Vec::new()), ..ClientDecoding::default() };
+        assert!(matches!(profile().merged_with(&reported), Err(ProfileError::Invalid(_))));
     }
 
     #[test]
     fn a_zero_frame_rate_is_rejected() {
-        let reported = ClientDecoding {
-            max_frame_rate: Some(0),
-            ..ClientDecoding::default()
-        };
-        assert!(matches!(
-            profile().merged_with(&reported),
-            Err(ProfileError::Invalid(_))
-        ));
+        let reported = ClientDecoding { max_frame_rate: Some(0), ..ClientDecoding::default() };
+        assert!(matches!(profile().merged_with(&reported), Err(ProfileError::Invalid(_))));
     }
 
     #[test]

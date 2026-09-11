@@ -20,10 +20,7 @@ where
 {
     async fn handle(&self, _job: &Job) -> Result<(), JobError> {
         tracing::info!("rebuilding search index");
-        self.index
-            .rebuild()
-            .await
-            .map_err(|err| JobError::Retryable(err.to_string()))?;
+        self.index.rebuild().await.map_err(|err| JobError::Retryable(err.to_string()))?;
         Ok(())
     }
 }

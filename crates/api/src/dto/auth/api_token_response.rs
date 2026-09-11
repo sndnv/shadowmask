@@ -42,10 +42,7 @@ mod tests {
         assert_eq!(response.id, "t1");
         assert_eq!(response.user_id, "u1");
         assert_eq!(response.device_id, "d1");
-        assert_eq!(
-            response.last_used_at,
-            Some(Timestamp::UNIX_EPOCH.to_string())
-        );
+        assert_eq!(response.last_used_at, Some(Timestamp::UNIX_EPOCH.to_string()));
 
         let json = serde_json::to_string(&response).unwrap();
         assert!(!json.contains("token_hash"));

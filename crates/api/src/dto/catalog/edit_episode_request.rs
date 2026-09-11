@@ -20,9 +20,7 @@ fn parse_air_date(value: &str) -> Option<Timestamp> {
         return Some(stamp);
     }
     let date: Date = value.parse().ok()?;
-    date.to_zoned(TimeZone::UTC)
-        .ok()
-        .map(|zoned| zoned.timestamp())
+    date.to_zoned(TimeZone::UTC).ok().map(|zoned| zoned.timestamp())
 }
 
 impl TryFrom<EditEpisodeRequest> for EpisodeEdit {
@@ -56,9 +54,7 @@ mod tests {
     }
 
     fn edit(value: serde_json::Value) -> EpisodeEdit {
-        let Ok(edit) = EpisodeEdit::try_from(request(value)) else {
-            panic!("expected the request to convert");
-        };
+        let Ok(edit) = EpisodeEdit::try_from(request(value)) else { panic!("no conversion") };
         edit
     }
 
@@ -95,16 +91,12 @@ mod tests {
 
     #[test]
     fn rejects_an_unparseable_air_date() {
-        let Err(err) = EpisodeEdit::try_from(request(serde_json::json!({
+        let err = EpisodeEdit::try_from(request(serde_json::json!({
             "title": "Pilot",
             "air_date": "last thursday",
-        }))) else {
-            panic!("expected the air_date to be rejected");
-        };
-        assert_eq!(
-            err.into_response().status(),
-            axum::http::StatusCode::BAD_REQUEST
-        );
+        })))
+        .expect_err("expected the air_date to be rejected");
+        assert_eq!(err.into_response().status(), axum::http::StatusCode::BAD_REQUEST);
     }
 
     #[test]

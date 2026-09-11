@@ -7,11 +7,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match Cli::parse().resolved() {
         Command::Service => {
             let config = Config::load()?;
-            init_logging(
-                &config.log_level,
-                &config.sqlx_log_level,
-                &config.job_log_dir,
-            );
+            init_logging(&config.log_level, &config.sqlx_log_level, &config.job_log_dir);
             let metrics = install_metrics();
             serve(config, metrics, async {
                 let _ = tokio::signal::ctrl_c().await;

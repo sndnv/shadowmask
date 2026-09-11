@@ -13,10 +13,6 @@ pub struct PersonResponse {
 
 impl From<Person> for PersonResponse {
     fn from(p: Person) -> Self {
-        PersonResponse {
-            id: p.id.0,
-            name: p.name,
-            artwork: ArtworkDto::from_refs(p.artwork),
-        }
+        PersonResponse { id: p.id.0, name: p.name, artwork: ArtworkDto::from_refs(p.artwork) }
     }
 }

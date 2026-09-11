@@ -9,9 +9,7 @@ impl TranscriptionProvider for DisabledTranscriptionProvider {
         &self,
         _request: &TranscriptionSpec,
     ) -> Result<FetchedSubtitle, TranscriptionError> {
-        Err(TranscriptionError::Unsupported(
-            "transcription feature not built".to_owned(),
-        ))
+        Err(TranscriptionError::Unsupported("transcription feature not built".to_owned()))
     }
 }
 
@@ -26,10 +24,7 @@ mod tests {
             source_language: None,
             audio_track_index: None,
         };
-        let err = DisabledTranscriptionProvider
-            .transcribe(&request)
-            .await
-            .unwrap_err();
+        let err = DisabledTranscriptionProvider.transcribe(&request).await.unwrap_err();
         assert!(matches!(err, TranscriptionError::Unsupported(_)));
     }
 }

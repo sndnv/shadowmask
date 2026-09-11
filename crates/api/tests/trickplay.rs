@@ -39,16 +39,10 @@ async fn send(
     for (name, value) in headers {
         builder = builder.header(name, *value);
     }
-    let response = app
-        .oneshot(builder.body(Body::empty()).unwrap())
-        .await
-        .unwrap();
+    let response = app.oneshot(builder.body(Body::empty()).unwrap()).await.unwrap();
     let status = response.status();
     let response_headers = response.headers().clone();
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap()
-        .to_vec();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec();
     (status, response_headers, body)
 }
 
@@ -64,14 +58,8 @@ async fn jpeg_served_with_cache_headers_and_body() {
         send(app(dir.path()), &uri, &[(header::AUTHORIZATION, BEARER)]).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(header_str(&headers, header::CONTENT_TYPE), "image/jpeg");
-    assert_eq!(
-        header_str(&headers, header::CACHE_CONTROL),
-        "public, max-age=31536000, immutable"
-    );
-    assert_eq!(
-        header_str(&headers, header::ETAG),
-        format!("\"{VERSION_ID}-0\"")
-    );
+    assert_eq!(header_str(&headers, header::CACHE_CONTROL), "public, max-age=31536000, immutable");
+    assert_eq!(header_str(&headers, header::ETAG), format!("\"{VERSION_ID}-0\""));
     assert_eq!(body, JPEG_BYTES);
 }
 
@@ -103,18 +91,12 @@ async fn matching_etag_returns_not_modified() {
     let (status, headers, body) = send(
         app(dir.path()),
         &uri,
-        &[
-            (header::AUTHORIZATION, BEARER),
-            (header::IF_NONE_MATCH, &etag),
-        ],
+        &[(header::AUTHORIZATION, BEARER), (header::IF_NONE_MATCH, &etag)],
     )
     .await;
     assert_eq!(status, StatusCode::NOT_MODIFIED);
     assert_eq!(header_str(&headers, header::ETAG), etag);
-    assert_eq!(
-        header_str(&headers, header::CACHE_CONTROL),
-        "public, max-age=31536000, immutable"
-    );
+    assert_eq!(header_str(&headers, header::CACHE_CONTROL), "public, max-age=31536000, immutable");
     assert!(body.is_empty());
 }
 
