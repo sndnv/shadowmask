@@ -56,12 +56,15 @@ async fn revoke_all_for_user_clears_only_that_user() {
 #[tokio::test]
 async fn link_code_redeemed_once_and_respects_expiry() {
     let (_dir, repo) = repo().await;
-    repo.store_link_code(PendingLink {
-        code: "ABCD".into(),
-        user: UserId("u1".into()),
-        role: Role::Player,
-        expires_at: ts(1_700_100_000),
-    })
+    repo.store_link_code(
+        PendingLink {
+            code: "ABCD".into(),
+            user: UserId("u1".into()),
+            role: Role::Player,
+            expires_at: ts(1_700_100_000),
+        },
+        ts(1_700_000_000),
+    )
     .await
     .unwrap();
 
@@ -71,15 +74,49 @@ async fn link_code_redeemed_once_and_respects_expiry() {
 
     assert!(repo.redeem_link_code("ABCD", ts(1_700_000_000)).await.unwrap().is_none());
 
-    repo.store_link_code(PendingLink {
-        code: "EXP".into(),
-        user: UserId("u1".into()),
-        role: Role::Player,
-        expires_at: ts(1_700_000_000),
-    })
+    repo.store_link_code(
+        PendingLink {
+            code: "EXP".into(),
+            user: UserId("u1".into()),
+            role: Role::Player,
+            expires_at: ts(1_700_000_000),
+        },
+        ts(1_699_900_000),
+    )
     .await
     .unwrap();
     assert!(repo.redeem_link_code("EXP", ts(1_700_050_000)).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn storing_a_code_prunes_the_expired_ones() {
+    let (_dir, repo) = repo().await;
+    repo.store_link_code(
+        PendingLink {
+            code: "DEAD".into(),
+            user: UserId("u1".into()),
+            role: Role::Player,
+            expires_at: ts(1_700_000_000),
+        },
+        ts(1_699_900_000),
+    )
+    .await
+    .unwrap();
+    repo.store_link_code(
+        PendingLink {
+            code: "LIVE".into(),
+            user: UserId("u1".into()),
+            role: Role::Player,
+            expires_at: ts(1_700_100_000),
+        },
+        ts(1_700_050_000),
+    )
+    .await
+    .unwrap();
+
+    let all = repo.list_link_codes(&UserId("u1".into()), ts(0)).await.unwrap();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].code, "LIVE");
 }
 
 #[tokio::test]
@@ -90,12 +127,15 @@ async fn list_and_delete_link_codes_scoped_to_owner() {
         ("DEAD", "u1", 1_700_000_000),
         ("OTHER", "u2", 1_700_100_000),
     ] {
-        repo.store_link_code(PendingLink {
-            code: code.into(),
-            user: UserId(user.into()),
-            role: Role::Player,
-            expires_at: ts(expires),
-        })
+        repo.store_link_code(
+            PendingLink {
+                code: code.into(),
+                user: UserId(user.into()),
+                role: Role::Player,
+                expires_at: ts(expires),
+            },
+            ts(1_699_900_000),
+        )
         .await
         .unwrap();
     }

@@ -3,9 +3,9 @@ use std::path::Path;
 
 use domain::catalog::{
     ArtworkId, ArtworkOwner, ArtworkRef, ArtworkWidth, Collection, CollectionId, Episode,
-    EpisodeContext, EpisodeId, Movie, MovieDetail, MovieId, RandomScope, Season, SeasonId, Series,
-    SeriesDetail, SeriesId, SortOrder, TitleId, TitleKind, TitleListFilter, TitleRef, TitleSort,
-    Version, VersionDetail, VersionId,
+    EpisodeCard, EpisodeContext, EpisodeId, Movie, MovieDetail, MovieId, RandomScope, Season,
+    SeasonId, Series, SeriesDetail, SeriesId, SortOrder, TitleId, TitleKind, TitleListFilter,
+    TitleRef, TitleSort, Version, VersionDetail, VersionId,
 };
 use domain::common::{LanguageCode, Page, PageRequest, Quality};
 use domain::discovery::{SearchKind, SearchResult};
@@ -578,8 +578,35 @@ impl SqliteCatalogRepo {
             match item {
                 SearchResult::Movie(movie) => movie.artwork = found,
                 SearchResult::Series(series) => series.artwork = found,
-                SearchResult::Episode(episode) => episode.artwork = found,
+                SearchResult::Episode(card) => card.episode.artwork = found,
                 SearchResult::Person(person) => person.artwork = found,
+            }
+        }
+        self.hydrate_search_series_artwork(items).await
+    }
+
+    async fn hydrate_search_series_artwork(
+        &self,
+        items: &mut [SearchResult],
+    ) -> Result<(), RepositoryError> {
+        let mut ids: Vec<String> = Vec::new();
+        for item in items.iter() {
+            if let SearchResult::Episode(card) = item
+                && let Some(series) = &card.series
+                && !ids.contains(&series.0)
+            {
+                ids.push(series.0.clone());
+            }
+        }
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let loaded = self.load_artwork_batch("series", &ids).await?;
+        for item in items.iter_mut() {
+            if let SearchResult::Episode(card) = item
+                && let Some(series) = &card.series
+            {
+                card.series_artwork = loaded.get(&series.0).cloned().unwrap_or_default();
             }
         }
         Ok(())
@@ -1154,13 +1181,14 @@ impl SearchIndex for SqliteCatalogRepo {
                     "e",
                     " LEFT JOIN seasons sn ON sn.id = e.season_id \
                      LEFT JOIN series sr ON sr.id = sn.series_id",
-                    "e.*",
+                    "e.*, sn.number AS season_no, sn.title AS season_name, \
+                     sr.id AS series_ref, sr.title AS series_name",
                     &needle,
                     &gate,
                 );
                 total += self.search_total(&branch, &gate_binds).await?;
                 for row in &self.search_page(&branch, &gate_binds, ceiling).await? {
-                    candidates.push(SearchResult::Episode(row_to_episode(row)?));
+                    candidates.push(SearchResult::Episode(Box::new(row_to_episode_card(row)?)));
                 }
             }
             if want(SearchKind::Person) {
@@ -1246,7 +1274,7 @@ fn search_artwork_owner(result: &SearchResult) -> (&'static str, &str) {
     match result {
         SearchResult::Movie(movie) => ("movie", movie.id.0.as_str()),
         SearchResult::Series(series) => ("series", series.id.0.as_str()),
-        SearchResult::Episode(episode) => ("episode", episode.id.0.as_str()),
+        SearchResult::Episode(card) => ("episode", card.episode.id.0.as_str()),
         SearchResult::Person(person) => ("person", person.id.0.as_str()),
     }
 }
@@ -1357,6 +1385,17 @@ fn row_to_episode(row: &SqliteRow) -> Result<Episode, RepositoryError> {
         added_at: from_millis(column(row, "added_at")?)?,
         updated_at: from_millis(column(row, "updated_at")?)?,
         artwork: Vec::new(),
+    })
+}
+
+fn row_to_episode_card(row: &SqliteRow) -> Result<EpisodeCard, RepositoryError> {
+    Ok(EpisodeCard {
+        episode: row_to_episode(row)?,
+        series: column::<Option<String>>(row, "series_ref")?.map(SeriesId),
+        series_title: column(row, "series_name")?,
+        series_artwork: Vec::new(),
+        season_number: column::<Option<i64>>(row, "season_no")?.map(|v| v as u16),
+        season_title: column(row, "season_name")?,
     })
 }
 

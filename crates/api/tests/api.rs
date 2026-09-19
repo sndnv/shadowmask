@@ -15,7 +15,7 @@ use domain::media::{AudioTrack, SubtitleFile, SubtitleFileId, SubtitleFormat, Su
 use domain::metadata::*;
 use domain::playback::*;
 use domain::repository::CatalogRepository;
-use domain::user::{IssuedToken, Role, User, UserId};
+use domain::user::{DeviceId, IssuedToken, Role, User, UserId};
 use mocks::*;
 use services::catalog::CatalogServiceImpl;
 use services::discovery::DiscoveryServiceImpl;
@@ -268,6 +268,19 @@ fn episode(id: &str, season: &str) -> Episode {
     }
 }
 
+fn episode_card(id: &str, season_id: &str, series_id: &str) -> EpisodeCard {
+    let parent = series(series_id);
+    let within = season(season_id, series_id);
+    EpisodeCard {
+        series: Some(parent.id),
+        series_title: Some(parent.title),
+        series_artwork: parent.artwork,
+        season_number: Some(within.number),
+        season_title: within.title,
+        ..EpisodeCard::bare(episode(id, season_id))
+    }
+}
+
 fn version(id: &str, title: TitleId, lib: &str, quality: Quality) -> Version {
     Version {
         id: VersionId(id.into()),
@@ -352,8 +365,14 @@ fn library(id: &str) -> Library {
 #[tokio::test]
 async fn auth_endpoints() {
     let ctx = Ctx::new();
-    ctx.auth
-        .add_link_code("7G2K9QMP", IssuedToken { token: "player-token".into(), expires_at: None });
+    ctx.auth.add_link_code(
+        "7G2K9QMP",
+        IssuedToken {
+            token: "player-token".into(),
+            expires_at: None,
+            device: DeviceId("device-1".into()),
+        },
+    );
 
     let (status, body) = call(
         ctx.app(),
@@ -1727,7 +1746,7 @@ async fn discovery_routes() {
     ctx.grant("u1", &["lib1"]);
     ctx.search_index.add(SearchResult::Movie(movie("m1")));
     ctx.search_index.add(SearchResult::Series(series("s1")));
-    ctx.search_index.add(SearchResult::Episode(episode("e1", "se1")));
+    ctx.search_index.add(SearchResult::Episode(Box::new(episode_card("e1", "se1", "s1"))));
     ctx.search_index.add(SearchResult::Person(Person {
         id: PersonId("p1".into()),
         name: "Alpha Person".into(),

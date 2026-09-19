@@ -436,6 +436,13 @@ pub fn requests() -> Vec<EndpointCase> {
             Some(json!({"new_password": "hacked"})),
         ),
         case("user_logout_all", "DELETE", "/api/v1/users/u1/sessions", Token::User, None),
+        case(
+            "user_logout_all_forbidden",
+            "DELETE",
+            "/api/v1/users/admin/sessions",
+            Token::User,
+            None,
+        ),
         case("user_devices", "GET", "/api/v1/users/u1/devices", Token::User, None),
         case("user_revoke_device", "DELETE", "/api/v1/users/u1/devices/d1", Token::User, None),
         case(

@@ -1,5 +1,5 @@
 use domain::repository::AuthTokenRepository;
-use domain::user::{ApiToken, ApiTokenId, Device, DeviceId, UserId};
+use domain::user::{ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, UserId};
 use jiff::Timestamp;
 
 fn at(secs: i64) -> Timestamp {
@@ -104,4 +104,51 @@ pub async fn auth_token_repository_contract<R: AuthTokenRepository>(repo: R) {
     let u2 = UserId("u2".into());
     assert_eq!(repo.list_devices(&u2).await.unwrap().len(), 1);
     assert_eq!(repo.list_api_tokens(&u2).await.unwrap().len(), 1);
+
+    let doomed = AuthSessionId("sess1".into());
+    let spared = AuthSessionId("sess2".into());
+    for (jti, user) in [(&doomed, &u1), (&spared, &u2)] {
+        repo.store_refresh(AuthSession {
+            id: jti.clone(),
+            user: user.clone(),
+            refresh_token_hash: format!("refresh-{}", user.0),
+            issued_at: at(50),
+            expires_at: at(3600),
+        })
+        .await
+        .unwrap();
+    }
+    repo.upsert_device(Device {
+        id: DeviceId("dev3".into()),
+        user: u1.clone(),
+        name: "Kitchen".into(),
+        platform: "roku".into(),
+        created_at: at(60),
+        last_seen: None,
+    })
+    .await
+    .unwrap();
+    repo.store_api_token(ApiToken {
+        id: ApiTokenId("tok3".into()),
+        user: u1.clone(),
+        device: DeviceId("dev3".into()),
+        token_hash: "hash-3".into(),
+        created_at: at(60),
+        last_used_at: None,
+    })
+    .await
+    .unwrap();
+
+    repo.revoke_all_for_user(&u1).await.unwrap();
+
+    assert!(repo.find_refresh(&doomed).await.unwrap().is_none());
+    assert!(repo.list_devices(&u1).await.unwrap().is_empty());
+    assert!(repo.list_api_tokens(&u1).await.unwrap().is_empty());
+    assert!(repo.find_api_token_by_hash("hash-3").await.unwrap().is_none());
+
+    let survivor = "signing one account out must leave every other account signed in";
+    assert!(repo.find_refresh(&spared).await.unwrap().is_some(), "{survivor}");
+    assert_eq!(repo.list_devices(&u2).await.unwrap().len(), 1, "{survivor}");
+    assert_eq!(repo.list_api_tokens(&u2).await.unwrap().len(), 1, "{survivor}");
+    assert!(repo.find_api_token_by_hash("hash-2").await.unwrap().is_some(), "{survivor}");
 }

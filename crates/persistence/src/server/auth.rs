@@ -121,11 +121,19 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
 
     async fn revoke_all_for_user(&self, user: &UserId) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("auth", "revoke_all_for_user");
-        sqlx::query("DELETE FROM refresh_tokens WHERE user_id = ?")
-            .bind(user.0.as_str())
-            .execute(&self.pool)
-            .await
-            .map_err(backend)?;
+        let mut tx = self.pool.begin().await.map_err(backend)?;
+        for statement in [
+            "DELETE FROM refresh_tokens WHERE user_id = ?",
+            "DELETE FROM api_tokens WHERE user_id = ?",
+            "DELETE FROM devices WHERE user_id = ?",
+        ] {
+            sqlx::query(statement)
+                .bind(user.0.as_str())
+                .execute(&mut *tx)
+                .await
+                .map_err(backend)?;
+        }
+        tx.commit().await.map_err(backend)?;
         Ok(())
     }
 
@@ -148,8 +156,18 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
         Ok(())
     }
 
-    async fn store_link_code(&self, link: PendingLink) -> Result<(), RepositoryError> {
+    async fn store_link_code(
+        &self,
+        link: PendingLink,
+        now: Timestamp,
+    ) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("auth", "store_link_code");
+        let mut tx = self.pool.begin().await.map_err(backend)?;
+        sqlx::query("DELETE FROM link_codes WHERE expires_at <= ?")
+            .bind(to_millis(now))
+            .execute(&mut *tx)
+            .await
+            .map_err(backend)?;
         sqlx::query(
             "INSERT OR REPLACE INTO link_codes (code, user_id, role, expires_at) \
              VALUES (?, ?, ?, ?)",
@@ -158,9 +176,10 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
         .bind(link.user.0.as_str())
         .bind(role_to_str(link.role))
         .bind(to_millis(link.expires_at))
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(backend)?;
+        tx.commit().await.map_err(backend)?;
         Ok(())
     }
 
@@ -362,12 +381,15 @@ mod tests {
             })
             .await
             .unwrap();
-            repo.store_link_code(PendingLink {
-                code: format!("CODE{}", user.0),
-                user: user.clone(),
-                role: Role::Player,
-                expires_at: Timestamp::UNIX_EPOCH + std::time::Duration::from_secs(3600),
-            })
+            repo.store_link_code(
+                PendingLink {
+                    code: format!("CODE{}", user.0),
+                    user: user.clone(),
+                    role: Role::Player,
+                    expires_at: Timestamp::UNIX_EPOCH + std::time::Duration::from_secs(3600),
+                },
+                Timestamp::UNIX_EPOCH,
+            )
             .await
             .unwrap();
             repo.upsert_device(Device {

@@ -23,7 +23,7 @@ use services::user::UserServiceImpl;
 use services::user_library::UserLibraryServiceImpl;
 
 use crate::fixture::{
-    self, collection_art, episode, episode_art, library, movie, season_art, series, ts,
+    self, collection_art, episode_art, episode_card, library, movie, season_art, series, ts,
 };
 
 pub struct Generator {
@@ -210,7 +210,7 @@ impl Generator {
         let u1 = UserId("u1".into());
         self.search_index.add(SearchResult::Movie(movie("m1")));
         self.search_index.add(SearchResult::Series(series("s1")));
-        self.search_index.add(SearchResult::Episode(episode("e1", "se1")));
+        self.search_index.add(SearchResult::Episode(Box::new(episode_card("e1", "se1", "s1"))));
         self.search_index.add(SearchResult::Person(Person {
             id: PersonId("p1".into()),
             name: "Alpha Person".into(),

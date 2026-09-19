@@ -4,6 +4,7 @@ expression: value
 ---
 {
   "body": {
+    "device_id": "[device_id]",
     "expires_at": "[expires_at]",
     "token": "[token]"
   },

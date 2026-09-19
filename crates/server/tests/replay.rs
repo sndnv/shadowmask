@@ -229,12 +229,15 @@ async fn seed(repos: &Repos, hash: &str) {
 
     repos
         .auth_tokens
-        .store_link_code(PendingLink {
-            code: fixture::LINK_CODE.into(),
-            user: UserId("u1".into()),
-            role: Role::Player,
-            expires_at: Timestamp::from_second(LINK_EXPIRES_AT).unwrap(),
-        })
+        .store_link_code(
+            PendingLink {
+                code: fixture::LINK_CODE.into(),
+                user: UserId("u1".into()),
+                role: Role::Player,
+                expires_at: Timestamp::from_second(LINK_EXPIRES_AT).unwrap(),
+            },
+            Timestamp::UNIX_EPOCH,
+        )
         .await
         .unwrap();
 
@@ -352,6 +355,7 @@ fn snapshot(name: &str, status: StatusCode, body: Value) {
         ".body.access_token" => "[access_token]",
         ".body.refresh_token" => "[refresh_token]",
         ".body.token" => "[token]",
+        ".body.device_id" => "[device_id]",
         ".body.expires_at" => "[expires_at]",
         ".body.code" => "[code]",
         ".body.id" => "[id]",

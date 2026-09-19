@@ -1,11 +1,11 @@
 use domain::catalog::{
-    Episode, EpisodeId, Movie, MovieId, Season, SeasonId, Series, SeriesId, TitleId,
-    TitleListFilter, Version, VersionId,
+    ArtworkId, ArtworkRef, ArtworkWidth, Episode, EpisodeCard, EpisodeId, Movie, MovieId, Season,
+    SeasonId, Series, SeriesId, TitleId, TitleListFilter, Version, VersionId,
 };
 use domain::common::{Page, PageRequest, Quality};
 use domain::discovery::{SearchKind, SearchResult, search};
 use domain::library::LibraryId;
-use domain::metadata::{ContentRating, Person, PersonId};
+use domain::metadata::{ArtworkKind, ContentRating, Person, PersonId};
 use domain::repository::SearchIndex;
 use domain::text::sort_title;
 use jiff::Timestamp;
@@ -83,6 +83,14 @@ fn episode(id: &str, season: &str, title: &str) -> Episode {
     }
 }
 
+fn poster(id: &str) -> ArtworkRef {
+    ArtworkRef {
+        id: ArtworkId(id.into()),
+        kind: ArtworkKind::Poster,
+        widths: vec![ArtworkWidth::new(180, format!("/art/{id}/180.jpg"))],
+    }
+}
+
 fn person(id: &str, name: &str) -> Person {
     Person { id: PersonId(id.into()), name: name.into(), ..Person::default() }
 }
@@ -116,7 +124,7 @@ pub fn search_seed() -> SearchSeed {
             movie("m3", "Rematrix"),
             movie("m4", "Inception"),
         ],
-        series: vec![series("sr1", "The Matrix")],
+        series: vec![Series { artwork: vec![poster("sr1-poster")], ..series("sr1", "The Matrix") }],
         seasons: vec![season("se1", "sr1")],
         episodes: vec![episode("e1", "se1", "Matrix Origins")],
         people: vec![person("p1", "Neo Anderson")],
@@ -132,7 +140,12 @@ fn all_results(seed: &SearchSeed) -> Vec<SearchResult> {
     let mut all = Vec::new();
     all.extend(seed.movies.iter().cloned().map(SearchResult::Movie));
     all.extend(seed.series.iter().cloned().map(SearchResult::Series));
-    all.extend(seed.episodes.iter().cloned().map(SearchResult::Episode));
+    all.extend(
+        seed.episodes
+            .iter()
+            .cloned()
+            .map(|episode| SearchResult::Episode(Box::new(EpisodeCard::bare(episode)))),
+    );
     all.extend(seed.people.iter().cloned().map(SearchResult::Person));
     all
 }
@@ -168,7 +181,7 @@ fn title(result: &SearchResult) -> String {
     match result {
         SearchResult::Movie(m) => m.title.clone(),
         SearchResult::Series(s) => s.title.clone(),
-        SearchResult::Episode(e) => e.title.clone(),
+        SearchResult::Episode(e) => e.episode.title.clone(),
         SearchResult::Person(p) => p.name.clone(),
     }
 }
@@ -183,7 +196,7 @@ fn keys(page: &Page<SearchResult>) -> Vec<String> {
         .map(|result| match result {
             SearchResult::Movie(m) => format!("movie:{}", m.id.0),
             SearchResult::Series(s) => format!("series:{}", s.id.0),
-            SearchResult::Episode(e) => format!("episode:{}", e.id.0),
+            SearchResult::Episode(e) => format!("episode:{}", e.episode.id.0),
             SearchResult::Person(p) => format!("person:{}", p.id.0),
         })
         .collect()
@@ -224,6 +237,24 @@ pub async fn search_index_contract<R: SearchIndex>(index: R, seed: impl AsyncFn(
     let episode_only =
         index.search("matrix", &[SearchKind::Episode], &open(), page(0, 10)).await.unwrap();
     assert_eq!(titles(&episode_only), ["Matrix Origins"]);
+
+    let SearchResult::Episode(found) = &episode_only.items[0] else {
+        panic!("the episode branch must return an episode");
+    };
+    assert_eq!(
+        (
+            found.series.as_ref().map(|s| s.0.as_str()),
+            found.series_title.as_deref(),
+            found.season_number
+        ),
+        (Some("sr1"), Some("The Matrix"), Some(1)),
+        "without the series an episode result cannot be labelled with the show it belongs to"
+    );
+    assert_eq!(
+        found.series_artwork.iter().map(|art| art.id.0.as_str()).collect::<Vec<_>>(),
+        ["sr1-poster"],
+        "an episode still is landscape, so a portrait card needs the series poster to fall back on"
+    );
 
     let neo = index.search("neo", &[], &open(), page(0, 10)).await.unwrap();
     assert_eq!(titles(&neo), ["Neo Anderson"]);

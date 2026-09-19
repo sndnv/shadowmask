@@ -9,3 +9,16 @@ pub struct EpisodeCard {
     pub season_number: Option<u16>,
     pub season_title: Option<String>,
 }
+
+impl EpisodeCard {
+    pub fn bare(episode: Episode) -> Self {
+        EpisodeCard {
+            episode,
+            series: None,
+            series_title: None,
+            series_artwork: Vec::new(),
+            season_number: None,
+            season_title: None,
+        }
+    }
+}
