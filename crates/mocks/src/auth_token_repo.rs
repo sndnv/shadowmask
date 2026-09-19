@@ -80,13 +80,22 @@ impl AuthTokenRepository for MockAuthTokenRepo {
 
     async fn revoke_all_for_user(&self, user: &UserId) -> Result<(), RepositoryError> {
         self.guard()?;
-        self.state.lock().unwrap().refresh.retain(|_, session| &session.user != user);
+        let mut state = self.state.lock().unwrap();
+        state.refresh.retain(|_, session| &session.user != user);
+        state.api_tokens.retain(|_, token| &token.user != user);
+        state.devices.retain(|_, device| &device.user != user);
         Ok(())
     }
 
-    async fn store_link_code(&self, link: PendingLink) -> Result<(), RepositoryError> {
+    async fn store_link_code(
+        &self,
+        link: PendingLink,
+        now: Timestamp,
+    ) -> Result<(), RepositoryError> {
         self.guard()?;
-        self.state.lock().unwrap().links.insert(link.code.clone(), link);
+        let mut state = self.state.lock().unwrap();
+        state.links.retain(|_, pending| pending.expires_at > now);
+        state.links.insert(link.code.clone(), link);
         Ok(())
     }
 
@@ -323,14 +332,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn revoke_all_for_user_takes_linked_devices_with_it() {
+        let repo = MockAuthTokenRepo::new();
+        repo.upsert_device(device("d1")).await.unwrap();
+        repo.upsert_device(Device { user: UserId("u2".into()), ..device("d2") }).await.unwrap();
+        repo.store_api_token(api_token("t1", "h1")).await.unwrap();
+        repo.store_api_token(ApiToken { user: UserId("u2".into()), ..api_token("t2", "h2") })
+            .await
+            .unwrap();
+
+        repo.revoke_all_for_user(&UserId("u1".into())).await.unwrap();
+
+        assert!(repo.list_api_tokens(&UserId("u1".into())).await.unwrap().is_empty());
+        assert!(repo.list_devices(&UserId("u1".into())).await.unwrap().is_empty());
+        assert_eq!(repo.list_api_tokens(&UserId("u2".into())).await.unwrap().len(), 1);
+        assert_eq!(repo.list_devices(&UserId("u2".into())).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn storing_a_code_prunes_the_expired_ones() {
+        let repo = MockAuthTokenRepo::new();
+        let future = Timestamp::from_second(4_000_000_000).unwrap();
+        let now = Timestamp::from_second(1_000_000_000).unwrap();
+
+        repo.store_link_code(link("DEAD", Timestamp::UNIX_EPOCH), Timestamp::UNIX_EPOCH)
+            .await
+            .unwrap();
+        repo.store_link_code(link("LIVE", future), now).await.unwrap();
+
+        assert!(repo.redeem_link_code("DEAD", Timestamp::UNIX_EPOCH).await.unwrap().is_none());
+        assert!(repo.redeem_link_code("LIVE", now).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
     async fn link_code_redeemed_once_and_respects_expiry() {
         let repo = MockAuthTokenRepo::new();
         let future = Timestamp::from_second(4_000_000_000).unwrap();
         let past = Timestamp::UNIX_EPOCH;
         let now = Timestamp::from_second(1_000_000_000).unwrap();
 
-        repo.store_link_code(link("LIVE", future)).await.unwrap();
-        repo.store_link_code(link("DEAD", past)).await.unwrap();
+        repo.store_link_code(link("LIVE", future), now).await.unwrap();
+        repo.store_link_code(link("DEAD", past), now).await.unwrap();
 
         assert!(repo.redeem_link_code("LIVE", now).await.unwrap().is_some());
         assert!(repo.redeem_link_code("LIVE", now).await.unwrap().is_none());
@@ -344,11 +386,11 @@ mod tests {
         let future = Timestamp::from_second(4_000_000_000).unwrap();
         let past = Timestamp::UNIX_EPOCH;
         let now = Timestamp::from_second(1_000_000_000).unwrap();
-        repo.store_link_code(link("LIVE", future)).await.unwrap();
-        repo.store_link_code(link("DEAD", past)).await.unwrap();
+        repo.store_link_code(link("LIVE", future), now).await.unwrap();
         let mut other = link("OTHER", future);
         other.user = UserId("u2".into());
-        repo.store_link_code(other).await.unwrap();
+        repo.store_link_code(other, now).await.unwrap();
+        repo.store_link_code(link("DEAD", past), now).await.unwrap();
 
         let live = repo.list_link_codes(&UserId("u1".into()), now).await.unwrap();
         assert_eq!(live.len(), 1);
@@ -368,7 +410,11 @@ mod tests {
         assert!(repo.find_refresh(&AuthSessionId("j1".into())).await.is_err());
         assert!(repo.revoke_refresh(&AuthSessionId("j1".into())).await.is_err());
         assert!(repo.revoke_all_for_user(&UserId("u1".into())).await.is_err());
-        assert!(repo.store_link_code(link("X", Timestamp::UNIX_EPOCH)).await.is_err());
+        assert!(
+            repo.store_link_code(link("X", Timestamp::UNIX_EPOCH), Timestamp::UNIX_EPOCH)
+                .await
+                .is_err()
+        );
         assert!(repo.redeem_link_code("X", Timestamp::UNIX_EPOCH).await.is_err());
         assert!(repo.list_link_codes(&UserId("u1".into()), Timestamp::UNIX_EPOCH).await.is_err());
         assert!(repo.delete_link_code("X", &UserId("u1".into())).await.is_err());

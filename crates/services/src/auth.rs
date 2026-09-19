@@ -272,13 +272,13 @@ where
             .store_api_token(ApiToken {
                 id: ApiTokenId(Uuid::new_v4().to_string()),
                 user: link.user,
-                device: device.id,
+                device: device.id.clone(),
                 token_hash: hash_api_token(&token),
                 created_at: now,
                 last_used_at: None,
             })
             .await?;
-        Ok(IssuedToken { token, expires_at: None })
+        Ok(IssuedToken { token, expires_at: None, device: device.id })
     }
 
     async fn authenticate(&self, access_token: &str) -> Result<Principal, AuthError> {
@@ -304,15 +304,15 @@ where
         user: Option<UserId>,
         ttl_secs: Option<i64>,
     ) -> Result<PendingLink, AuthError> {
-        let now = Timestamp::now().as_second();
+        let now = Timestamp::now();
         let ttl = ttl_secs.unwrap_or(LINK_CODE_TTL_SECS);
         let link = PendingLink {
             code: generate_link_code(),
             user: user.unwrap_or_else(|| caller.user.clone()),
             role: Role::Player,
-            expires_at: Timestamp::from_second(now + ttl).map_err(backend_error)?,
+            expires_at: Timestamp::from_second(now.as_second() + ttl).map_err(backend_error)?,
         };
-        self.tokens.store_link_code(link.clone()).await?;
+        self.tokens.store_link_code(link.clone(), now).await?;
         Ok(link)
     }
 
@@ -589,12 +589,15 @@ mod tests {
         let svc = seeded().await;
         let future = Timestamp::from_second(4_000_000_000).unwrap();
         svc.tokens
-            .store_link_code(PendingLink {
-                code: "7G2K9QMP".into(),
-                user: UserId("u1".into()),
-                role: Role::Player,
-                expires_at: future,
-            })
+            .store_link_code(
+                PendingLink {
+                    code: "7G2K9QMP".into(),
+                    user: UserId("u1".into()),
+                    role: Role::Player,
+                    expires_at: future,
+                },
+                Timestamp::UNIX_EPOCH,
+            )
             .await
             .unwrap();
         let issued = svc.redeem_link_code("7G2K9QMP", device()).await.unwrap();
@@ -605,10 +608,42 @@ mod tests {
         assert_eq!(principal.user, UserId("u1".into()));
         assert_eq!(principal.role, Role::Player);
 
+        let devices = svc.list_devices(&UserId("u1".into())).await.unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(issued.device, devices[0].id);
+
         assert!(matches!(
             svc.redeem_link_code("MISSING", device()).await.unwrap_err(),
             AuthError::UnknownLinkCode
         ));
+    }
+
+    #[tokio::test]
+    async fn logout_all_revokes_linked_devices_not_just_browser_sessions() {
+        let svc = seeded().await;
+        let future = Timestamp::from_second(4_000_000_000).unwrap();
+        svc.tokens
+            .store_link_code(
+                PendingLink {
+                    code: "7G2K9QMP".into(),
+                    user: UserId("u1".into()),
+                    role: Role::Player,
+                    expires_at: future,
+                },
+                Timestamp::UNIX_EPOCH,
+            )
+            .await
+            .unwrap();
+        let issued = svc.redeem_link_code("7G2K9QMP", device()).await.unwrap();
+        assert!(svc.authenticate(&issued.token).await.is_ok());
+
+        svc.logout_all(&UserId("u1".into())).await.unwrap();
+
+        assert!(matches!(
+            svc.authenticate(&issued.token).await.unwrap_err(),
+            AuthError::InvalidToken
+        ));
+        assert!(svc.list_devices(&UserId("u1".into())).await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -949,12 +984,15 @@ mod tests {
         let svc = seeded().await;
         let future = Timestamp::from_second(4_000_000_000).unwrap();
         svc.tokens
-            .store_link_code(PendingLink {
-                code: "7G2K9QMP".into(),
-                user: UserId("u1".into()),
-                role: Role::Player,
-                expires_at: future,
-            })
+            .store_link_code(
+                PendingLink {
+                    code: "7G2K9QMP".into(),
+                    user: UserId("u1".into()),
+                    role: Role::Player,
+                    expires_at: future,
+                },
+                Timestamp::UNIX_EPOCH,
+            )
             .await
             .unwrap();
         let issued = svc.redeem_link_code("7G2K9QMP", device()).await.unwrap();

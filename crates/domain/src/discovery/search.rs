@@ -42,7 +42,7 @@ fn searchable(result: &SearchResult) -> &str {
     match result {
         SearchResult::Movie(m) => &m.title,
         SearchResult::Series(s) => &s.title,
-        SearchResult::Episode(e) => &e.title,
+        SearchResult::Episode(e) => &e.episode.title,
         SearchResult::Person(p) => &p.name,
     }
 }
@@ -51,7 +51,7 @@ fn id(result: &SearchResult) -> &str {
     match result {
         SearchResult::Movie(m) => &m.id.0,
         SearchResult::Series(s) => &s.id.0,
-        SearchResult::Episode(e) => &e.id.0,
+        SearchResult::Episode(e) => &e.episode.id.0,
         SearchResult::Person(p) => &p.id.0,
     }
 }
@@ -61,7 +61,9 @@ mod tests {
     use jiff::Timestamp;
 
     use super::*;
-    use crate::catalog::{Episode, EpisodeId, Movie, MovieId, SeasonId, Series, SeriesId};
+    use crate::catalog::{
+        Episode, EpisodeCard, EpisodeId, Movie, MovieId, SeasonId, Series, SeriesId,
+    };
     use crate::metadata::{Person, PersonId};
 
     fn movie(title: &str) -> SearchResult {
@@ -104,7 +106,7 @@ mod tests {
     }
 
     fn episode(title: &str) -> SearchResult {
-        SearchResult::Episode(Episode {
+        SearchResult::Episode(Box::new(EpisodeCard::bare(Episode {
             id: EpisodeId(title.to_owned()),
             season: SeasonId("s".to_owned()),
             number: 1,
@@ -116,7 +118,7 @@ mod tests {
             added_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
-        })
+        })))
     }
 
     fn titles(page: &Page<SearchResult>) -> Vec<String> {

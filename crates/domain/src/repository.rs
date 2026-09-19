@@ -598,6 +598,7 @@ pub trait AuthTokenRepository {
     fn store_link_code(
         &self,
         link: PendingLink,
+        now: Timestamp,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     fn redeem_link_code(
         &self,

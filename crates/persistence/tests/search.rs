@@ -1,4 +1,5 @@
 use contracts::repo::{search_index_contract, search_seed};
+use domain::catalog::ArtworkOwner;
 use domain::repository::CatalogRepository;
 use persistence::server::SqliteCatalogRepo;
 
@@ -12,6 +13,9 @@ async fn search_index_contract_holds_for_sqlite() {
             repo.insert_movie(movie).await.unwrap();
         }
         for series in seed.series {
+            repo.set_artwork(&ArtworkOwner::Series(series.id.clone()), &series.artwork)
+                .await
+                .unwrap();
             repo.insert_series(series).await.unwrap();
         }
         for season in seed.seasons {

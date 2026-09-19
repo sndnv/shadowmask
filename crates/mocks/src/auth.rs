@@ -226,7 +226,14 @@ mod tests {
     #[tokio::test]
     async fn redeem_link_code_success_and_failure() {
         let svc = service();
-        svc.add_link_code("ABCD", IssuedToken { token: "player-token".into(), expires_at: None });
+        svc.add_link_code(
+            "ABCD",
+            IssuedToken {
+                token: "player-token".into(),
+                expires_at: None,
+                device: DeviceId("dev-1".into()),
+            },
+        );
         let device = DeviceRegistration { name: "Roku".into(), platform: "roku".into() };
         let issued = svc.redeem_link_code("ABCD", device.clone()).await.unwrap();
         assert_eq!(issued.token, "player-token");

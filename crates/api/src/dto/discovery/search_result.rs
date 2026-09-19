@@ -19,7 +19,7 @@ impl From<SearchResult> for SearchResultResponse {
         match r {
             SearchResult::Movie(m) => SearchResultResponse::Movie(Box::new(m.into())),
             SearchResult::Series(s) => SearchResultResponse::Series(Box::new(s.into())),
-            SearchResult::Episode(e) => SearchResultResponse::Episode(Box::new(e.into())),
+            SearchResult::Episode(e) => SearchResultResponse::Episode(Box::new((*e).into())),
             SearchResult::Person(p) => SearchResultResponse::Person(Box::new(p.into())),
         }
     }

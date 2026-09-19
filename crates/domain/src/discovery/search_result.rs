@@ -1,4 +1,4 @@
-use crate::catalog::{Episode, Movie, Series};
+use crate::catalog::{EpisodeCard, Movie, Series};
 use crate::discovery::SearchKind;
 use crate::metadata::Person;
 
@@ -6,7 +6,7 @@ use crate::metadata::Person;
 pub enum SearchResult {
     Movie(Movie),
     Series(Series),
-    Episode(Episode),
+    Episode(Box<EpisodeCard>),
     Person(Person),
 }
 

@@ -1,9 +1,9 @@
 use jiff::Timestamp;
 
 use domain::catalog::{
-    ArtworkId, ArtworkRef, ArtworkWidth, Collection, CollectionId, Episode, EpisodeId, Movie,
-    MovieDetail, MovieId, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId, TitleRef,
-    Version, VersionDetail, VersionId,
+    ArtworkId, ArtworkRef, ArtworkWidth, Collection, CollectionId, Episode, EpisodeCard, EpisodeId,
+    Movie, MovieDetail, MovieId, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId,
+    TitleRef, Version, VersionDetail, VersionId,
 };
 use domain::common::{LanguageCode, Quality};
 use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
@@ -16,7 +16,7 @@ use domain::metadata::{
     ArtworkKind, ContentRating, Credit, CreditRole, CreditedPerson, ExternalId, Extra, ExtraKind,
     Genre, GenreId, Person, PersonId, Rating, Studio, StudioId, TitleEnrichment,
 };
-use domain::user::{IssuedToken, Role, UserId};
+use domain::user::{DeviceId, IssuedToken, Role, UserId};
 
 pub const EPOCH: i64 = 1_700_000_000;
 
@@ -174,6 +174,19 @@ pub fn movie_art(id: &str) -> Movie {
 
 pub fn series_art(id: &str) -> Series {
     Series { artwork: artwork_set(id), ..series(id) }
+}
+
+pub fn episode_card(id: &str, season_id: &str, series_id: &str) -> EpisodeCard {
+    let parent = series_art(series_id);
+    let within = season(season_id, series_id);
+    EpisodeCard {
+        series: Some(parent.id),
+        series_title: Some(parent.title),
+        series_artwork: parent.artwork,
+        season_number: Some(within.number),
+        season_title: within.title,
+        ..EpisodeCard::bare(episode(id, season_id))
+    }
 }
 
 pub fn artwork_set(owner_id: &str) -> Vec<ArtworkRef> {
@@ -423,5 +436,9 @@ pub fn accounts() -> Vec<SeedAccount> {
 }
 
 pub fn link_token() -> IssuedToken {
-    IssuedToken { token: "player-token".into(), expires_at: None }
+    IssuedToken {
+        token: "player-token".into(),
+        expires_at: None,
+        device: DeviceId("device-1".into()),
+    }
 }
