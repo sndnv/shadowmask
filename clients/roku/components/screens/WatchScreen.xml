@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="WatchScreen" extends="Group">
+    <script type="text/brightscript" uri="pkg:/components/screens/WatchScreen.brs" />
+    <script type="text/brightscript" uri="pkg:/components/api/Http.brs" />
+    <script type="text/brightscript" uri="pkg:/source/util.brs" />
+    <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
+    <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/format.brs" />
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/source/cards.brs" />
+    <script type="text/brightscript" uri="pkg:/source/images.brs" />
+    <script type="text/brightscript" uri="pkg:/source/catalog.brs" />
+    <script type="text/brightscript" uri="pkg:/source/state.brs" />
+    <script type="text/brightscript" uri="pkg:/source/detail.brs" />
+    <script type="text/brightscript" uri="pkg:/source/prefs.brs" />
+    <script type="text/brightscript" uri="pkg:/source/session.brs" />
+    <script type="text/brightscript" uri="pkg:/source/screen.brs" />
+    <script type="text/brightscript" uri="pkg:/source/capability.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+
+    <interface>
+        <field id="theme" type="assocarray" onChange="render" />
+        <field id="themeName" type="string" />
+        <field id="target" type="assocarray" onChange="render" />
+        <field id="advance" type="string" alwaysNotify="true" />
+        <field id="section" type="string" />
+        <field id="immersive" type="boolean" value="true" />
+        <field id="backdropUrl" type="string" />
+        <field id="choiceRequest" type="assocarray" />
+        <field id="choiceResult" type="assocarray" onChange="onChoice" />
+        <field id="release" type="boolean" onChange="onRelease" />
+        <field id="sessionEnd" type="string" alwaysNotify="true" />
+        <field id="focusedChild" type="node" onChange="onFocus" />
+    </interface>
+
+    <children>
+        <Rectangle id="stage" />
+        <Video id="video" />
+        <StateNote id="note" kind="loading" />
+        <Group id="pausedMark" visible="false">
+            <Poster id="pausedDisc" />
+            <Poster id="pausedGlyph" />
+        </Group>
+        <Group id="header" visible="false">
+            <Rectangle id="headerScrim" />
+            <Label id="barTitle" />
+            <Label id="barFacts" />
+            <Label id="barClock" />
+        </Group>
+        <Group id="bar" visible="false">
+            <Rectangle id="scrim" />
+            <Label id="elapsed" />
+            <Timeline id="timeline" />
+            <Label id="total" />
+            <ActionBar id="actions" />
+        </Group>
+        <Group id="diagnosticsPanel" visible="false">
+            <Rectangle id="diagnosticsScrim" />
+            <FactList id="diagnostics" />
+        </Group>
+        <Group id="upNext" visible="false">
+            <Rectangle id="upNextScrim" />
+            <Label id="upNextTitle" />
+            <Label id="upNextCount" />
+            <ActionBar id="upNextActions" />
+        </Group>
+        <Timer id="heartbeat" repeat="true" />
+        <Timer id="giveUp" repeat="false" />
+        <Timer id="hide" repeat="false" />
+        <Timer id="countdown" repeat="true" />
+        <Timer id="hold" repeat="true" />
+        <Timer id="watchdog" repeat="true" />
+    </children>
+</component>

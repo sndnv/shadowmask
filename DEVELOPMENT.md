@@ -11,6 +11,8 @@ toolchain automatically.
 * [FFmpeg](https://ffmpeg.org/) - `ffmpeg` / `ffprobe`, for media probing and transcoding
 * [Flutter](https://docs.flutter.dev/get-started/install) - for the web, desktop and mobile clients;
   CI pins the version in [`.github/workflows/build.yml`](.github/workflows/build.yml)
+* [Podman](https://podman.io/) or [Docker](https://www.docker.com/) - runs the Roku client's
+  toolchain and builds the server image
 
 ### Getting Started
 
@@ -23,7 +25,7 @@ gate, below.
 
 ### Clients
 
-Two clients live under [`clients/`](clients). [`clients/basic`](clients/basic) is a dependency-free
+Three clients live under [`clients/`](clients). [`clients/basic`](clients/basic) is a dependency-free
 HTML/JS client served by the server itself at `/ui/basic/`; it needs no build step.
 
 [`clients/flutter`](clients/flutter) is the primary client, one codebase covering the web, the
@@ -49,6 +51,9 @@ The server must be up, and `SHADOWMASK_CORS_ALLOWED_ORIGINS` must include the po
 `--web-port` (it defaults to `http://localhost:8090`). See
 [`deployment/dev/README.md`](deployment/dev/README.md) for the dev stack.
 
+The web client also reads `SHADOWMASK_API_BASE` from `clients/flutter/web/assets/.env` at runtime.
+A `--dart-define` takes precedence over that file.
+
 The same codebase runs on the desktop with `flutter run -d macos` or `flutter run -d linux`. The
 desktop asks for the server address on first run and stores it on the device, so there is no
 `--dart-define` and no CORS to configure.
@@ -69,6 +74,32 @@ the native side changes.
 
 Desktop releases are a macOS `.dmg` and a Linux `.AppImage`, built by the publish workflows and
 described in [`clients/flutter/README.md`](clients/flutter/README.md#packaging).
+
+[`clients/roku`](clients/roku) is a SceneGraph channel for Roku devices, viewer-only and paired by
+link code. No Node toolchain is installed on the host: `podman` (or `docker`) is the only
+requirement, and the BrightScript tooling runs inside an image built from
+[`clients/roku/tooling/Containerfile`](clients/roku/tooling/Containerfile).
+
+```
+cd clients/roku
+python3 qa.py                              # image, lint, test, xml, scope, manifest
+python3 package.py                         # build and package into build/shadowmask-roku.zip
+python3 sideload.py --target simulator     # package and install
+telnet 127.0.0.1 8085                      # debug console
+```
+
+The simulator is [brs-desktop](https://github.com/lvcabral/brs-desktop), which must have remote
+access enabled in its settings. `--target <host>` installs to a real Roku in developer mode instead,
+with the developer password passed as `--password` or `ROKU_DEV_PASSWORD`. brs-desktop's second
+debug console and the dev stack both want port 8080, so start the server with `SHADOWMASK_PORT=8081`
+when both are running, and pair against the machine's LAN address rather than localhost when the
+target is real hardware.
+
+The Roku gate covers the pure layer in `clients/roku/source/` and runs in CI as the `roku-qa` job,
+with `roku-build` packaging the channel after it.
+It cannot instantiate a SceneGraph node, so it cannot see a crash in a component and never asserts
+playback; sideload after every change under `components/`.
+[`clients/roku/README.md`](clients/roku/README.md) documents the rest.
 
 ### Dependency Updates
 

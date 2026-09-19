@@ -250,3 +250,22 @@ jobs:
           path: clients/flutter/shadowmask-client-ios-dev-latest.ipa
           if-no-files-found: error
           retention-days: 7
+
+  roku:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+
+      - name: Build Roku channel
+        run: python3 clients/roku/package.py --output shadowmask-client-roku-dev-latest.zip
+
+      - name: Upload Roku artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: client-roku
+          path: shadowmask-client-roku-dev-latest.zip
+          if-no-files-found: error
+          retention-days: 7

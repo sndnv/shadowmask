@@ -1,0 +1,142 @@
+namespace tests
+
+    @suite("format")
+    class FormatTests extends rooibos.BaseTestSuite
+
+        @describe("MsToSeconds")
+
+        @it("converts milliseconds to fractional seconds")
+        sub convertsToSeconds()
+            m.assertEqual(MsToSeconds(1500), 1.5)
+        end sub
+
+        @it("floors a negative position to zero")
+        sub floorsNegativeToZero()
+            m.assertEqual(MsToSeconds(-1), 0.0)
+        end sub
+
+        @describe("SecondsToMs")
+
+        @it("converts seconds back to whole milliseconds")
+        sub convertsToMilliseconds()
+            m.assertEqual(SecondsToMs(1.5), 1500)
+        end sub
+
+        @describe("FormatDuration")
+
+        @it("omits the hour part below an hour")
+        sub omitsHourPart()
+            m.assertEqual(FormatDuration(125000), "2:05")
+        end sub
+
+        @it("pads minutes and seconds above an hour")
+        sub padsAboveAnHour()
+            m.assertEqual(FormatDuration(3725000), "1:02:05")
+        end sub
+
+        @describe("FormatPercent")
+
+        @it("rounds a fraction to whole percent")
+        sub roundsToWholePercent()
+            m.assertEqual(FormatPercent(0.42), "42%")
+        end sub
+
+        @it("clamps outside zero to one")
+        sub clampsPercent()
+            m.assertEqual(FormatPercent(-1.0), "0%")
+            m.assertEqual(FormatPercent(2.0), "100%")
+        end sub
+
+        @describe("FormatSourceHeight")
+
+        @it("names the tall rungs the way the other clients do")
+        sub namesTallRungs()
+            m.assertEqual(FormatSourceHeight(4320), "8K")
+            m.assertEqual(FormatSourceHeight(2160), "4K")
+            m.assertEqual(FormatSourceHeight(1440), "2K")
+        end sub
+
+        @it("falls back to a pixel height below 1440")
+        sub fallsBackToPixelHeight()
+            m.assertEqual(FormatSourceHeight(1080), "1080p")
+            m.assertEqual(FormatQualityRung(720), "720p")
+        end sub
+
+        @describe("FormatDate")
+
+        @it("formats the timestamps the server actually sends")
+        sub formatsServerTimestamps()
+            m.assertEqual(FormatDate("2026-09-11T23:30:00Z"), "Sep 11, 2026")
+            m.assertEqual(FormatDate("2026-09-11T23:30:00.123Z"), "Sep 11, 2026")
+            m.assertEqual(FormatDate("2026-09-11"), "Sep 11, 2026")
+            m.assertEqual(FormatYear("2026-09-11T23:30:00Z"), "2026")
+        end sub
+
+        @it("refuses a numeric UTC offset rather than reporting 1970")
+        sub refusesNumericOffset()
+            m.assertEqual(FormatDate("2026-09-11T23:30:00+02:00"), "")
+            m.assertEqual(FormatYear("2026-09-11T23:30:00+02:00"), "")
+        end sub
+
+        @it("returns nothing for junk")
+        sub returnsNothingForJunk()
+            m.assertEqual(FormatDate("not-a-date"), "")
+            m.assertEqual(FormatDate(""), "")
+        end sub
+
+        @describe("detail formatters")
+
+        @it("states a runtime in minutes, the way the other clients do")
+        sub statesRuntime()
+            m.assertEqual(FormatRuntimeMinutes(148), "148 min")
+            m.assertEqual(FormatRuntimeMinutes(0), "")
+            m.assertEqual(FormatRuntimeMinutes(invalid), "")
+        end sub
+
+        @it("states a duration in hours and minutes")
+        sub statesDuration()
+            m.assertEqual(FormatDurationText(8880000), "2h 28m")
+            m.assertEqual(FormatDurationText(2880000), "48m")
+            m.assertEqual(FormatDurationText(0), "")
+        end sub
+
+        @it("states a file size in whole megabytes, even past the 32-bit ceiling")
+        sub statesSize()
+            m.assertEqual(FormatMegabytes(8589934592#), "8192 MB")
+            m.assertEqual(FormatMegabytes(25769803776#), "24576 MB")
+            m.assertEqual(FormatMegabytes(0), "")
+            m.assertEqual(FormatMegabytes(invalid), "")
+        end sub
+
+        @it("rounds a broadcast frame rate to something readable across the room")
+        sub statesFrameRate()
+            m.assertEqual(FormatFrameRate(23.976), "24 fps")
+            m.assertEqual(FormatFrameRate(25.0), "25 fps")
+            m.assertEqual(FormatFrameRate(0), "")
+        end sub
+
+        @it("composes a content rating from its system and code")
+        sub composesContentRating()
+            m.assertEqual(ContentRatingLabel({ system: "mpaa", code: "pg-13" }), "MPAA PG-13")
+            m.assertEqual(ContentRatingLabel({ code: "15" }), "15")
+            m.assertEqual(ContentRatingLabel(invalid), "")
+        end sub
+
+        @it("shortens the one rating source with an unusable name")
+        sub shortensRatingSource()
+            m.assertEqual(ScoreSource("Internet Movie Database"), "IMDb")
+            m.assertEqual(ScoreSource("Metacritic"), "Metacritic")
+        end sub
+
+        @it("scales a score the way its own source states it")
+        sub scalesScores()
+            m.assertEqual(ScoreText("Internet Movie Database", 8.4), "8.4/10")
+            m.assertEqual(ScoreText("Rotten Tomatoes", 87.0), "87%")
+            m.assertEqual(ScoreText("Metacritic", 74.0), "74/100")
+            m.assertEqual(ScoreText("Somewhere Else", 3.5), "3.5")
+            m.assertEqual(ScoreText("Metacritic", invalid), "")
+        end sub
+
+    end class
+
+end namespace

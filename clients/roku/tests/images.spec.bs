@@ -1,0 +1,183 @@
+namespace tests
+
+    @suite("images")
+    class ImageTests extends rooibos.BaseTestSuite
+
+        @describe("NearestWidth")
+
+        @it("takes the exact width when the server has it")
+        sub takesExactWidth()
+            m.assertEqual(NearestWidth([180, 480, 960], 480), 480)
+        end sub
+
+        @it("steps up rather than down, so artwork is never upscaled")
+        sub stepsUp()
+            m.assertEqual(NearestWidth([180, 960], 480), 960)
+        end sub
+
+        @it("takes the largest available when everything is smaller than asked")
+        sub takesLargest()
+            m.assertEqual(NearestWidth([180, 480], 960), 480)
+        end sub
+
+        @it("reports nothing usable for an empty or missing width list")
+        sub reportsNothing()
+            m.assertEqual(NearestWidth([], 480), 0)
+            m.assertEqual(NearestWidth(invalid, 480), 0)
+        end sub
+
+        @describe("ArtworkUrl")
+
+        @it("joins the server base to the public image path at a real width")
+        sub buildsImageUrl()
+            artwork = { posters: [{ base: "/images/p1", widths: [180, 480] }] }
+            m.assertEqual(ArtworkUrl("http://host", artwork, "posters", 480), "http://host/images/p1/480")
+        end sub
+
+        @it("does not double the slash when the base carries one")
+        sub avoidsDoubleSlash()
+            artwork = { posters: [{ base: "/images/p1", widths: [180] }] }
+            m.assertEqual(ArtworkUrl("http://host/", artwork, "posters", 180), "http://host/images/p1/180")
+        end sub
+
+        @it("returns nothing for a kind the title has no artwork of")
+        sub missingKind()
+            artwork = { posters: [{ base: "/images/p1", widths: [180] }] }
+            m.assertInvalid(ArtworkUrl("http://host", artwork, "backdrops", 180))
+            m.assertInvalid(ArtworkUrl("http://host", invalid, "posters", 180))
+        end sub
+
+        @it("skips a malformed set and uses the next one")
+        sub skipsMalformedSet()
+            artwork = { posters: [{ base: "", widths: [180] }, { base: "/images/p2", widths: [180] }] }
+            m.assertEqual(ArtworkUrl("http://host", artwork, "posters", 180), "http://host/images/p2/180")
+        end sub
+
+        @describe("CardImageUrl")
+
+        @it("prefers the poster for a portrait card and the backdrop for a landscape one")
+        sub prefersByAspect()
+            artwork = {
+                posters: [{ base: "/images/p1", widths: [480] }],
+                backdrops: [{ base: "/images/b1", widths: [480] }]
+            }
+            poster = { kind: "movie", aspect: PosterAspect(), artwork: artwork }
+            landscape = { kind: "episode", aspect: LandscapeAspect(), artwork: artwork }
+
+            m.assertEqual(CardImageUrl("http://host", poster, 480), "http://host/images/p1/480")
+            m.assertEqual(CardImageUrl("http://host", landscape, 480), "http://host/images/b1/480")
+        end sub
+
+        @it("falls back across kinds before it gives up")
+        sub fallsBackAcrossKinds()
+            backdropOnly = { kind: "movie", aspect: PosterAspect(), artwork: { backdrops: [{ base: "/images/b1", widths: [480] }] } }
+            m.assertEqual(CardImageUrl("http://host", backdropOnly, 480), "http://host/images/b1/480")
+        end sub
+
+        @it("reports no artwork as blank, so the card can centre a glyph instead of stretching one")
+        sub blankWhenNoArtwork()
+            m.assertEqual(CardImageUrl("http://host", { kind: "movie", aspect: PosterAspect() }, 480), "")
+            m.assertEqual(CardImageUrl("http://host", invalid, 480), "")
+        end sub
+
+        @describe("CardPlaceholderUri")
+
+        @it("picks the glyph that matches the card, the way the Flutter client does")
+        sub picksPlaceholder()
+            m.assertEqual(CardPlaceholderUri({ kind: "movie", aspect: PosterAspect() }), PosterPlaceholder())
+            m.assertEqual(CardPlaceholderUri({ kind: "episode", aspect: LandscapeAspect() }), LandscapePlaceholder())
+            m.assertEqual(CardPlaceholderUri({ kind: "person", aspect: PosterAspect() }), PersonPlaceholder())
+            m.assertEqual(CardPlaceholderUri(invalid), PosterPlaceholder())
+        end sub
+
+        @it("keeps the glyphs on pkg:, which needs no server and no token")
+        sub placeholdersAreLocal()
+            for each uri in [PosterPlaceholder(), LandscapePlaceholder(), PersonPlaceholder()]
+                m.assertEqual(Left(uri, 5), "pkg:/", uri)
+            end for
+        end sub
+
+        @it("keeps a person on the poster aspect, because a person card is never landscape")
+        sub personStaysPortrait()
+            m.assertEqual(CardPlaceholderUri({ kind: "person", aspect: LandscapeAspect() }), PersonPlaceholder())
+        end sub
+
+        @describe("BackdropUrlFor")
+
+        @it("resolves a backdrop at hero width for the page wash")
+        sub resolvesBackdrop()
+            artwork = { backdrops: [{ base: "/images/b1", widths: [480, 960] }] }
+            m.assertEqual(BackdropUrlFor("http://host", artwork), "http://host/images/b1/960")
+        end sub
+
+        @it("returns blank rather than invalid, because a node field cannot hold invalid")
+        sub blankWhenAbsent()
+            m.assertEqual(BackdropUrlFor("http://host", invalid), "")
+            m.assertEqual(BackdropUrlFor("http://host", { posters: [{ base: "/images/p1", widths: [180] }] }), "")
+        end sub
+
+        @it("never falls back to a poster, which would crop wrong across the whole screen")
+        sub neverUsesAPoster()
+            artwork = { posters: [{ base: "/images/p1", widths: [960] }] }
+            m.assertEqual(BackdropUrlFor("http://host", artwork), "")
+        end sub
+
+        @describe("BackdropUrlFrom")
+
+        @it("takes the first candidate's own backdrop ahead of anything the fallback offers")
+        sub prefersItsOwnBackdrop()
+            own = { backdrops: [{ base: "/images/e1", widths: [960] }] }
+            series = { backdrops: [{ base: "/images/s1", widths: [960] }] }
+
+            m.assertEqual(BackdropUrlFrom("http://host", [own, series]), "http://host/images/e1/960")
+        end sub
+
+        @it("uses a candidate's own poster before it moves on to the next candidate")
+        sub prefersItsOwnPosterOverTheFallback()
+            own = { posters: [{ base: "/images/e1", widths: [960] }] }
+            series = { backdrops: [{ base: "/images/s1", widths: [960] }] }
+
+            m.assertEqual(BackdropUrlFrom("http://host", [own, series]), "http://host/images/e1/960")
+        end sub
+
+        @it("falls through to the series when the episode carries no art at all")
+        sub fallsThroughToTheSeries()
+            series = { backdrops: [{ base: "/images/s1", widths: [960] }] }
+
+            m.assertEqual(BackdropUrlFrom("http://host", [invalid, series]), "http://host/images/s1/960")
+            m.assertEqual(BackdropUrlFrom("http://host", [{}, series]), "http://host/images/s1/960")
+        end sub
+
+        @it("returns blank when no candidate has anything")
+        sub blankWhenNoCandidateHasArt()
+            m.assertEqual(BackdropUrlFrom("http://host", []), "")
+            m.assertEqual(BackdropUrlFrom("http://host", [invalid, invalid]), "")
+            m.assertEqual(BackdropUrlFrom("http://host", invalid), "")
+        end sub
+
+        @describe("width tiers")
+
+        @it("asks for the width the card is actually drawn at")
+        sub asksForTheDrawnWidth()
+            m.assertEqual(CardImageWidthFor(264), 264)
+            m.assertEqual(CardImageWidthFor(RailCardWidth()), RailCardWidth())
+            m.assertEqual(CardImageWidthFor(LandscapeCardWidth()), LandscapeCardWidth())
+        end sub
+
+        @it("falls back to a rail card rather than asking for the smallest art there is")
+        sub fallsBackOnAnUnsetWidth()
+            m.assertEqual(CardImageWidthFor(0), RailCardWidth())
+            m.assertEqual(CardImageWidthFor(-1), RailCardWidth())
+            m.assertEqual(CardImageWidthFor(invalid), RailCardWidth())
+        end sub
+
+        @it("keeps a backdrop at full width and a hero at the width the hero draws")
+        sub surfacesAskForWhatTheyDraw()
+            m.assertEqual(BackdropImageWidth(), CanvasWidth())
+            m.assertTrue(HeroArtWidth(PosterAspect()) < BackdropImageWidth())
+            m.assertTrue(HeroArtWidth(LandscapeAspect()) < BackdropImageWidth())
+        end sub
+
+    end class
+
+end namespace

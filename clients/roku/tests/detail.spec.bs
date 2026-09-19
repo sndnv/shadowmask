@@ -1,0 +1,1343 @@
+namespace tests
+
+    @suite("detail")
+    class DetailTests extends rooibos.BaseTestSuite
+
+        function version(id as string, quality as string, size as dynamic, available = true as boolean) as object
+            return { id: id, quality: quality, size_bytes: size, duration_ms: 5400000, container: "mkv", available: available }
+        end function
+
+        function credit(id as string, name as string, role as string, order as integer, character = "" as string) as object
+            return { person: { id: id, name: name }, role: role, order: order, character: character }
+        end function
+
+        function season(id as string, number as integer, title = "" as string) as object
+            built = { id: id, series_id: "sr1", number: number }
+            if Len(title) > 0 then built.title = title
+            return built
+        end function
+
+        function actionIds(actions as object) as object
+            ids = []
+            for each action in actions
+                ids.Push(action.id)
+            end for
+            return ids
+        end function
+
+        function episode(id as string, seasonId as string, number as integer) as object
+            return { id: id, season_id: seasonId, series_id: "sr1", number: number, title: "Episode " + number.ToStr() }
+        end function
+
+        @describe("OrderedVersions")
+
+        @it("puts the tallest quality first, the way the other clients do")
+        sub ordersByQuality()
+            versions = [m.version("a", "sd", 100), m.version("b", "uhd", 100), m.version("c", "hd", 100)]
+            ordered = OrderedVersions(versions)
+
+            m.assertEqual(ordered[0].id, "b")
+            m.assertEqual(ordered[1].id, "c")
+            m.assertEqual(ordered[2].id, "a")
+        end sub
+
+        @it("breaks a quality tie with the bigger file, which is the better encode")
+        sub ordersBySize()
+            versions = [m.version("small", "fhd", 100), m.version("big", "fhd", 900)]
+            m.assertEqual(OrderedVersions(versions)[0].id, "big")
+        end sub
+
+        @it("breaks a size tie by id so the order never wobbles between loads")
+        sub ordersStably()
+            versions = [m.version("zeta", "fhd", 100), m.version("alpha", "fhd", 100)]
+            m.assertEqual(OrderedVersions(versions)[0].id, "alpha")
+        end sub
+
+        @it("sorts a quality it has never heard of last rather than dropping it")
+        sub ordersUnknownQualityLast()
+            versions = [m.version("weird", "8k", 100), m.version("known", "sd", 100)]
+            ordered = OrderedVersions(versions)
+
+            m.assertEqual(ordered.Count(), 2)
+            m.assertEqual(ordered[0].id, "known")
+        end sub
+
+        @it("survives being handed nothing")
+        sub ordersNothing()
+            m.assertEqual(OrderedVersions(invalid).Count(), 0)
+            m.assertEqual(OrderedVersions([]).Count(), 0)
+        end sub
+
+        @describe("BestVersion")
+
+        @it("prefers the best playable one over a better one that is missing")
+        sub bestSkipsUnavailable()
+            ordered = OrderedVersions([m.version("gone", "uhd", 100, false), m.version("here", "hd", 100)])
+            m.assertEqual(BestVersion(ordered).id, "here")
+        end sub
+
+        @it("still names a version when none of them are playable, so the facts row is not blank")
+        sub bestFallsBack()
+            ordered = OrderedVersions([m.version("gone", "uhd", 100, false)])
+            m.assertEqual(BestVersion(ordered).id, "gone")
+        end sub
+
+        @it("is invalid when there is nothing at all")
+        sub bestOfNothing()
+            m.assertInvalid(BestVersion([]))
+            m.assertInvalid(BestVersion(invalid))
+        end sub
+
+        @describe("ResolvePlayTarget")
+
+        @it("plays the only playable version without asking")
+        sub resolvesTheOnlyOne()
+            available = [m.version("only", "fhd", 100)]
+            m.assertEqual(ResolvePlayTarget(available, {}).id, "only")
+        end sub
+
+        @it("refuses to guess between two versions with nothing to resume")
+        sub refusesToGuess()
+            available = [m.version("a", "fhd", 100), m.version("b", "hd", 100)]
+            m.assertInvalid(ResolvePlayTarget(available, {}))
+        end sub
+
+        @it("resumes the one version that is part-watched")
+        sub resolvesTheResumable()
+            available = [m.version("a", "fhd", 100), m.version("b", "hd", 100)]
+            m.assertEqual(ResolvePlayTarget(available, { "b": 34 }).id, "b")
+        end sub
+
+        @it("refuses again when two versions are both part-watched")
+        sub refusesTwoResumable()
+            available = [m.version("a", "fhd", 100), m.version("b", "hd", 100)]
+            m.assertInvalid(ResolvePlayTarget(available, { "a": 10, "b": 34 }))
+        end sub
+
+        @it("has nothing to resolve when nothing is playable")
+        sub resolvesNothing()
+            m.assertInvalid(ResolvePlayTarget([], { "a": 10 }))
+            m.assertInvalid(ResolvePlayTarget(invalid, invalid))
+        end sub
+
+        @describe("ResumeProgressMap")
+
+        @it("maps a version to its percent and ignores cards with no version")
+        sub mapsResumeProgress()
+            cards = [
+                { versionId: "v1", progressPercent: 34 },
+                { versionId: "", progressPercent: 80 }
+            ]
+            resumable = ResumeProgressMap(cards)
+
+            m.assertEqual(resumable.Count(), 1)
+            m.assertEqual(ResumePercentFor(resumable, "v1"), 34)
+        end sub
+
+        @it("reports no progress for a version it was never told about")
+        sub reportsNoProgress()
+            m.assertEqual(ResumePercentFor({ "v1": 34 }, "v2"), 0)
+            m.assertEqual(ResumePercentFor(invalid, "v1"), 0)
+        end sub
+
+        @describe("BilledActors")
+
+        @it("keeps only actors and puts top billing first")
+        sub billsActors()
+            credits = [
+                m.credit("p3", "Third", "actor", 2),
+                m.credit("d1", "Director", "director", 0),
+                m.credit("p1", "First", "actor", 0)
+            ]
+            actors = BilledActors(credits)
+
+            m.assertEqual(actors.Count(), 2)
+            m.assertEqual(actors[0].name, "First")
+            m.assertEqual(actors[1].name, "Third")
+        end sub
+
+        @it("breaks a billing tie by person id so the rail never reshuffles")
+        sub billsStably()
+            credits = [m.credit("zeta", "Zeta", "actor", 0), m.credit("alpha", "Alpha", "actor", 0)]
+            m.assertEqual(BilledActors(credits)[0].name, "Alpha")
+        end sub
+
+        @it("shows a person once even when they are credited twice")
+        sub billsOnce()
+            credits = [m.credit("p1", "Ada", "actor", 0, "Herself"), m.credit("p1", "Ada", "actor", 5, "Voice")]
+            actors = BilledActors(credits)
+
+            m.assertEqual(actors.Count(), 1)
+            m.assertEqual(actors[0].character, "Herself")
+        end sub
+
+        @it("survives credits it was never given")
+        sub billsNothing()
+            m.assertEqual(BilledActors(invalid).Count(), 0)
+            m.assertEqual(BilledActors([]).Count(), 0)
+        end sub
+
+        @describe("CreditPeople")
+
+        @it("takes the directors in billing order, up to the limit")
+        sub namesDirectors()
+            credits = [
+                m.credit("d2", "Second", "director", 1),
+                m.credit("d1", "First", "director", 0),
+                m.credit("d3", "Third", "director", 2)
+            ]
+            people = CreditPeople(credits, "director", 2)
+
+            m.assertEqual(people.Count(), 2)
+            m.assertEqual(people[0].name, "First")
+            m.assertEqual(people[0].id, "d1")
+            m.assertEqual(people[1].name, "Second")
+        end sub
+
+        @it("returns nobody when nobody holds the role")
+        sub namesNobody()
+            m.assertEqual(CreditPeople([m.credit("p1", "Ada", "actor", 0)], "writer", 3).Count(), 0)
+        end sub
+
+        @it("keeps someone credited twice in the same role once")
+        sub namesOnce()
+            credits = [m.credit("d1", "Ada", "director", 0), m.credit("d1", "Ada", "director", 4)]
+            m.assertEqual(CreditPeople(credits, "director", 2).Count(), 1)
+        end sub
+
+        @describe("CrewButtons")
+
+        @it("makes every name its own link and leaves the role labels unreachable")
+        sub buildsCrewButtons()
+            credits = [
+                m.credit("d1", "Dee", "director", 0),
+                m.credit("w1", "Wren", "writer", 0),
+                m.credit("w2", "Wynn", "writer", 1)
+            ]
+            groups = CrewGroups(credits, CrewNameLimit())
+            buttons = CrewButtons(groups)
+            people = CrewPeople(groups)
+
+            labels = []
+            for each button in buttons
+                labels.Push(button.label)
+            end for
+
+            m.assertEqual(labels, [Phrase("heading.directedBy"), "Dee", PartSeparator(), Phrase("heading.writtenBy"), "Wren,", "Wynn"])
+            m.assertEqual(buttons[0].disabled, true)
+            m.assertEqual(buttons[2].disabled, true)
+            m.assertEqual(buttons[1].disabled, false)
+
+            ' the ids index CrewPeople, which is what turns a press into a person
+            m.assertEqual(buttons[1].id, "crew:0")
+            m.assertEqual(buttons[5].id, "crew:2")
+            m.assertEqual(people[2].id, "w2")
+        end sub
+
+        @it("drops a role nobody holds rather than labelling an empty list")
+        sub buildsWritersOnly()
+            groups = CrewGroups([m.credit("w1", "Wren", "writer", 0)], CrewNameLimit())
+
+            m.assertEqual(groups.Count(), 1)
+            m.assertEqual(groups[0].label, Phrase("heading.writtenBy"))
+            m.assertEqual(CrewButtons(groups).Count(), 2)
+        end sub
+
+        @it("builds nothing from credits it was never given")
+        sub buildsNoCrew()
+            m.assertEqual(CrewGroups(invalid, 2).Count(), 0)
+            m.assertEqual(CrewButtons(invalid).Count(), 0)
+            m.assertEqual(CrewPeople(invalid).Count(), 0)
+        end sub
+
+        @describe("VersionRows")
+
+        @it("labels a row with its quality and lines up the technical facts")
+        sub buildsVersionRows()
+            rows = VersionRows(OrderedVersions([m.version("v1", "uhd", 25769803776#)]))
+
+            m.assertEqual(rows[0].label, "UHD")
+            m.assertEqual(rows[0].detail, "MKV · 24576 MB · 1h 30m")
+            m.assertTrue(rows[0].available)
+        end sub
+
+        @it("numbers a row that has no quality rather than showing a blank")
+        sub numbersUnlabelledRows()
+            rows = VersionRows([{ id: "v1", quality: "", container: "mp4", available: false }])
+
+            m.assertEqual(rows[0].label, "Version 1")
+            m.assertFalse(rows[0].available)
+        end sub
+
+        @describe("season and episode ordering")
+
+        @it("orders seasons by number however the server listed them")
+        sub ordersSeasons()
+            ordered = OrderedSeasons([m.season("s3", 3), m.season("s1", 1), m.season("s2", 2)])
+
+            m.assertEqual(ordered[0].id, "s1")
+            m.assertEqual(ordered[2].id, "s3")
+        end sub
+
+        @it("picks the first season with something left to watch")
+        sub picksNextSeason()
+            seasons = [m.season("s1", 1), m.season("s2", 2), m.season("s3", 3)]
+            m.assertEqual(NextSeason(seasons, { "s1": true }).id, "s2")
+        end sub
+
+        @it("goes back to season one when the whole series is watched")
+        sub wrapsNextSeason()
+            seasons = [m.season("s1", 1), m.season("s2", 2)]
+            m.assertEqual(NextSeason(seasons, { "s1": true, "s2": true }).id, "s1")
+        end sub
+
+        @it("picks the first unwatched episode of a season")
+        sub picksFirstUnwatched()
+            episodes = [m.episode("e1", "s1", 1), m.episode("e2", "s1", 2)]
+            m.assertEqual(FirstUnwatched(episodes, { "e1": true }).id, "e2")
+        end sub
+
+        @it("has nothing to pick from an empty season")
+        sub picksNothing()
+            m.assertInvalid(FirstUnwatched([], {}))
+            m.assertInvalid(NextSeason(invalid, {}))
+        end sub
+
+        @describe("SeasonLabel")
+
+        @it("uses the season's own name when it has one")
+        sub labelsNamedSeason()
+            m.assertEqual(SeasonLabel(m.season("s1", 1, "The Beginning")), "The Beginning")
+        end sub
+
+        @it("falls back to the number, which most seasons only have")
+        sub labelsNumberedSeason()
+            m.assertEqual(SeasonLabel(m.season("s2", 2)), "Season 2")
+        end sub
+
+        @describe("SeasonNeighbours")
+
+        @it("finds the season either side")
+        sub findsSeasonNeighbours()
+            seasons = [m.season("s1", 1), m.season("s2", 2), m.season("s3", 3)]
+            neighbours = SeasonNeighbours("s2", seasons)
+
+            m.assertEqual(neighbours.previous.id, "s1")
+            m.assertEqual(neighbours.following.id, "s3")
+        end sub
+
+        @it("offers no previous at the first season and no next at the last")
+        sub findsSeasonEdges()
+            seasons = [m.season("s1", 1), m.season("s2", 2)]
+
+            m.assertInvalid(SeasonNeighbours("s1", seasons).previous)
+            m.assertInvalid(SeasonNeighbours("s2", seasons).following)
+        end sub
+
+        @it("offers nothing for a season that is not in the list")
+        sub findsNoSeasonNeighbours()
+            m.assertInvalid(SeasonNeighbours("nope", [m.season("s1", 1)]).following)
+        end sub
+
+        @describe("SeasonsToLoad")
+
+        @it("loads no extra season in the middle of one")
+        sub loadsNoExtraSeason()
+            episodes = [m.episode("e1", "s2", 1), m.episode("e2", "s2", 2), m.episode("e3", "s2", 3)]
+            seasons = [m.season("s1", 1), m.season("s2", 2), m.season("s3", 3)]
+
+            m.assertEqual(SeasonsToLoad(episodes[1], seasons, episodes).Count(), 0)
+        end sub
+
+        @it("loads the previous season for the first episode, to find what came before")
+        sub loadsPreviousSeason()
+            episodes = [m.episode("e1", "s2", 1), m.episode("e2", "s2", 2)]
+            seasons = [m.season("s1", 1), m.season("s2", 2), m.season("s3", 3)]
+            wanted = SeasonsToLoad(episodes[0], seasons, episodes)
+
+            m.assertEqual(wanted.Count(), 1)
+            m.assertEqual(wanted[0], "s1")
+        end sub
+
+        @it("loads the next season for the last episode")
+        sub loadsNextSeason()
+            episodes = [m.episode("e1", "s2", 1), m.episode("e2", "s2", 2)]
+            seasons = [m.season("s1", 1), m.season("s2", 2), m.season("s3", 3)]
+            wanted = SeasonsToLoad(episodes[1], seasons, episodes)
+
+            m.assertEqual(wanted.Count(), 1)
+            m.assertEqual(wanted[0], "s3")
+        end sub
+
+        @it("loads nothing beyond the ends of the series")
+        sub loadsNothingAtTheEnds()
+            episodes = [m.episode("e1", "s1", 1)]
+            seasons = [m.season("s1", 1)]
+
+            m.assertEqual(SeasonsToLoad(episodes[0], seasons, episodes).Count(), 0)
+        end sub
+
+        @describe("EpisodeNeighbours")
+
+        @it("steps to the episode either side within a season")
+        sub stepsWithinSeason()
+            episodes = [m.episode("e1", "s1", 1), m.episode("e2", "s1", 2), m.episode("e3", "s1", 3)]
+            neighbours = EpisodeNeighbours(episodes[1], [m.season("s1", 1)], { "s1": episodes })
+
+            m.assertEqual(neighbours.previous.id, "e1")
+            m.assertEqual(neighbours.following.id, "e3")
+        end sub
+
+        @it("crosses a season boundary rather than dead-ending")
+        sub crossesSeasonBoundary()
+            first = [m.episode("a1", "s1", 1), m.episode("a2", "s1", 2)]
+            second = [m.episode("b1", "s2", 1)]
+            seasons = [m.season("s1", 1), m.season("s2", 2)]
+            bySeason = { "s1": first, "s2": second }
+
+            m.assertEqual(EpisodeNeighbours(second[0], seasons, bySeason).previous.id, "a2")
+            m.assertEqual(EpisodeNeighbours(first[1], seasons, bySeason).following.id, "b1")
+        end sub
+
+        @it("labels a neighbour with its code and title, which is what the button shows")
+        sub labelsNeighbours()
+            episodes = [m.episode("e1", "s1", 1), m.episode("e2", "s1", 2)]
+            neighbours = EpisodeNeighbours(episodes[0], [m.season("s1", 1)], { "s1": episodes })
+
+            m.assertEqual(neighbours.following.label, "S01E02 · Episode 2")
+        end sub
+
+        @it("offers nothing at the first and last episode of the series")
+        sub findsEpisodeEdges()
+            episodes = [m.episode("e1", "s1", 1), m.episode("e2", "s1", 2)]
+            seasons = [m.season("s1", 1)]
+            bySeason = { "s1": episodes }
+
+            m.assertInvalid(EpisodeNeighbours(episodes[0], seasons, bySeason).previous)
+            m.assertInvalid(EpisodeNeighbours(episodes[1], seasons, bySeason).following)
+        end sub
+
+        @it("offers nothing when the neighbouring season has not been loaded")
+        sub findsNoUnloadedNeighbour()
+            episodes = [m.episode("e1", "s2", 1)]
+            seasons = [m.season("s1", 1), m.season("s2", 2)]
+
+            m.assertInvalid(EpisodeNeighbours(episodes[0], seasons, { "s2": episodes }).previous)
+        end sub
+
+        @describe("EpisodePlayerTitle")
+
+        @it("names the show, the code and the episode")
+        sub episodePlayerTitleFull()
+            episode = { series_title: "Severance", season_number: 2, number: 1, title: "Hello, Ms. Cobel" }
+
+            m.assertEqual(EpisodePlayerTitle(episode), "Severance - S02E01: Hello, Ms. Cobel")
+        end sub
+
+        @it("drops whichever part the server did not send")
+        sub episodePlayerTitlePartial()
+            m.assertEqual(EpisodePlayerTitle({ season_number: 2, number: 1, title: "Pilot" }), "S02E01: Pilot")
+            m.assertEqual(EpisodePlayerTitle({ series_title: "Severance", title: "Pilot" }), "Severance - Pilot")
+            m.assertEqual(EpisodePlayerTitle({ series_title: "Severance", season_number: 2, number: 1 }), "Severance - S02E01")
+            m.assertEqual(EpisodePlayerTitle({ title: "Pilot" }), "Pilot")
+            m.assertEqual(EpisodePlayerTitle(invalid), "")
+        end sub
+
+        @describe("EpisodeWithContext")
+
+        @it("fills only the fields the season list left out")
+        sub episodeContextFillsGaps()
+            ' GET episodes returns a bare Episode with no series title and no
+            ' season number, while GET episode returns a card that has both.
+            bare = EpisodeWithContext({ id: "e1", number: 1, title: "Pilot" }, "Severance", 2)
+            m.assertEqual(bare.series_title, "Severance")
+            m.assertEqual(bare.season_number, 2)
+
+            full = EpisodeWithContext({ series_title: "Real", season_number: 9, number: 1 }, "Fallback", 2)
+            m.assertEqual(full.series_title, "Real")
+            m.assertEqual(full.season_number, 9)
+        end sub
+
+        @describe("EpisodePlayTarget")
+
+        @it("resolves straight to a playable version with its episode context")
+        sub episodePlayTargetCarriesContext()
+            episode = { id: "e3", number: 3, season_number: 2, title: "Pilot" }
+            versions = { items: [{ id: "v9", available: true }] }
+
+            target = EpisodePlayTarget(episode, "sr1", "se2", versions)
+
+            m.assertEqual(target.title, "S02E03: Pilot")
+            m.assertEqual(target.versionId, "v9")
+            m.assertEqual(target.episode.id, "e3")
+            m.assertEqual(target.episode.seriesId, "sr1")
+            m.assertEqual(target.episode.seasonId, "se2")
+            m.assertEqual(target.percent, 0)
+        end sub
+
+        @it("takes the caller's series and season when the list omitted them")
+        sub episodePlayTargetUsesContext()
+            episode = { id: "e1", number: 1, title: "Pilot" }
+            versions = { items: [{ id: "v9", available: true }] }
+
+            target = EpisodePlayTarget(episode, "sr1", "se2", versions, "Severance", 2)
+
+            m.assertEqual(target.title, "Severance - S02E01: Pilot")
+            m.assertEqual(target.label, "S02E01 · Pilot")
+            m.assertEqual(target.seriesTitle, "Severance")
+            m.assertEqual(target.seasonNumber, 2)
+        end sub
+
+        @it("gives up rather than sending the player somewhere unplayable")
+        sub episodePlayTargetWithoutVersions()
+            episode = { id: "e3", number: 3 }
+
+            m.assertInvalid(EpisodePlayTarget(episode, "sr1", "se2", { items: [] }))
+            m.assertInvalid(EpisodePlayTarget(episode, "sr1", "se2", invalid))
+            m.assertInvalid(EpisodePlayTarget(invalid, "sr1", "se2", { items: [{ id: "v9", available: true }] }))
+        end sub
+
+        @describe("PickedPlayTarget")
+
+        @it("names a picked movie and dates it")
+        sub pickedMovieTarget()
+            picked = PickedPlayTarget({ versionId: "v9", resolve: true, percent: 0 }, "movie", { id: "m1", title: "Blade Runner", year: 1982 })
+
+            m.assertEqual(picked.versionId, "v9")
+            m.assertEqual(picked.title, "Blade Runner")
+            m.assertEqual(picked.year, 1982)
+            m.assertFalse(picked.DoesExist("resolve"))
+        end sub
+
+        @it("gives a picked episode the context the player needs for previous and next")
+        sub pickedEpisodeTarget()
+            episode = { id: "e3", season_id: "se2", series_id: "sr1", series_title: "Severance", season_number: 2, number: 3, title: "Pilot" }
+
+            picked = PickedPlayTarget({ versionId: "v9", resolve: true, percent: 0 }, "episode", episode)
+
+            m.assertEqual(picked.title, "Severance - S02E03: Pilot")
+            m.assertEqual(picked.label, "S02E03 · Pilot")
+            m.assertEqual(picked.seriesTitle, "Severance")
+            m.assertEqual(picked.seasonNumber, 2)
+            m.assertEqual(picked.episode.id, "e3")
+            m.assertEqual(picked.episode.seriesId, "sr1")
+            m.assertEqual(picked.episode.seasonId, "se2")
+        end sub
+
+        @it("keeps the target it was given when the lookup came back empty")
+        sub pickedTargetWithoutATitle()
+            picked = PickedPlayTarget({ versionId: "v9", resolve: true, percent: 0 }, "movie", invalid)
+
+            m.assertEqual(picked.versionId, "v9")
+            m.assertFalse(picked.DoesExist("title"))
+            m.assertFalse(picked.DoesExist("resolve"))
+        end sub
+
+        @describe("NeedsWatchedConfirm")
+
+        @it("asks only when the mark reaches more than one title")
+        sub confirmOnlyForBulk()
+            m.assertTrue(NeedsWatchedConfirm("series"))
+            m.assertTrue(NeedsWatchedConfirm("season"))
+            m.assertFalse(NeedsWatchedConfirm("movie"))
+            m.assertFalse(NeedsWatchedConfirm("episode"))
+            m.assertFalse(NeedsWatchedConfirm(invalid))
+        end sub
+
+        @describe("WatchedConfirmTitle")
+
+        @it("names the scope and the direction being applied")
+        sub confirmTitleNamesTheScope()
+            m.assertEqual(WatchedConfirmTitle("series", true), Phrase("confirm.watchSeries"))
+            m.assertEqual(WatchedConfirmTitle("series", false), Phrase("confirm.unwatchSeries"))
+            m.assertEqual(WatchedConfirmTitle("season", true), Phrase("confirm.watchSeason"))
+            m.assertEqual(WatchedConfirmTitle("season", false), Phrase("confirm.unwatchSeason"))
+            m.assertEqual(WatchedConfirmTitle("movie", true), "")
+        end sub
+
+        @describe("WatchedConfirmAccepted")
+
+        @it("treats anything but the first option as a refusal")
+        sub confirmOnlyOnTheFirstOption()
+            ' Cancel is the second option and Back cancels outright, so a
+            ' stray dismissal can never mark a whole series.
+            m.assertTrue(WatchedConfirmAccepted({ index: 0, cancelled: false }))
+            m.assertFalse(WatchedConfirmAccepted({ index: 1, cancelled: false }))
+            m.assertFalse(WatchedConfirmAccepted({ index: 0, cancelled: true }))
+            m.assertFalse(WatchedConfirmAccepted(invalid))
+        end sub
+
+        @describe("WatchedIdSet")
+
+        @it("collects only what has been watched, keyed the way the navigation asks")
+        sub collectsWatchedIds()
+            entries = [
+                { target: { "type": "season", "id": "s1" }, watched: true },
+                { target: { "type": "season", "id": "s2" }, watched: false }
+            ]
+            watched = WatchedIdSet(entries, "target")
+
+            m.assertTrue(watched.DoesExist("s1"))
+            m.assertFalse(watched.DoesExist("s2"))
+        end sub
+
+        @it("survives being handed nothing")
+        sub collectsNoWatchedIds()
+            m.assertEqual(WatchedIdSet(invalid, "title").Count(), 0)
+        end sub
+
+        @describe("facts")
+
+        @it("drops a fact the server did not send and keeps the order of the rest")
+        sub dropsBlankFacts()
+            facts = FactPairs([["Year", "2010"], ["Runtime", ""], ["Rating", invalid], ["Quality", "UHD"]])
+
+            m.assertEqual(facts.Count(), 2)
+            m.assertEqual(facts[0].value, "2010")
+            m.assertEqual(facts[1].value, "UHD")
+        end sub
+
+        @it("renders a facts row as values alone, and with labels when asked")
+        sub rendersFacts()
+            facts = FactPairs([["Year", "2010"], ["Quality", "UHD"]])
+
+            m.assertEqual(FactsText(facts), "2010 · UHD")
+            m.assertEqual(LabelledFactsText(facts), "Year: 2010 · Quality: UHD")
+        end sub
+
+        @it("builds a movie's facts from its detail and its best version")
+        sub buildsMovieFacts()
+            detail = { year: 2010, runtime_minutes: 148, content_rating: { system: "mpaa", code: "pg-13" } }
+            facts = MovieFacts(detail, m.version("v1", "uhd", 100))
+
+            m.assertEqual(FactsText(facts), "2010 · 148 min · MPAA PG-13 · UHD")
+        end sub
+
+        @it("carries watched progress on a series, because a year alone says little")
+        sub buildsSeriesFacts()
+            detail = { year: 2008 }
+            facts = SeriesFacts(detail, { watched_episodes: 3, total_episodes: 10 })
+
+            m.assertEqual(FactsText(facts), "2008 · 3 of 10 watched")
+        end sub
+
+        @it("leads an episode's facts with its code")
+        sub buildsEpisodeFacts()
+            entry = { season_number: 1, number: 2, air_date: "2008-01-27", runtime_minutes: 48 }
+            facts = EpisodeFacts(entry, invalid)
+
+            m.assertEqual(FactsText(facts), "S01E02 · Jan 27, 2008 · 48 min")
+        end sub
+
+        @describe("genre and rating chips")
+
+        @it("makes one chip per named genre and skips the nameless")
+        sub buildsGenreChips()
+            chips = GenreChipList([{ name: "Drama" }, { name: "" }, { name: "Sci-Fi" }])
+
+            m.assertEqual(chips.Count(), 2)
+            m.assertEqual(chips[0].label, "Drama")
+            m.assertEqual(chips[1].label, "Sci-Fi")
+            m.assertEqual(GenreChipList(invalid).Count(), 0)
+        end sub
+
+        @it("splits a rating into a source label and a bold score, scaled per source")
+        sub buildsRatingChips()
+            ratings = [
+                { source: "Internet Movie Database", value: 8.4 },
+                { source: "Rotten Tomatoes", value: 87.0 },
+                { source: "Metacritic", value: 74.0 }
+            ]
+            chips = RatingChipList(ratings)
+
+            m.assertEqual(chips[0].label, "IMDb:")
+            m.assertEqual(chips[0].value, "8.4/10")
+            m.assertEqual(chips[1].value, "87%")
+            m.assertEqual(chips[2].value, "74/100")
+        end sub
+
+        @it("tints each rating source the way the other clients do")
+        sub tintsRatingSources()
+            m.assertEqual(RatingTone("Internet Movie Database"), "warn")
+            m.assertEqual(RatingTone("Rotten Tomatoes"), "danger")
+            m.assertEqual(RatingTone("Metacritic"), "ok")
+            m.assertEqual(RatingTone("Somewhere Else"), "")
+        end sub
+
+        @it("drops a rating with no usable value")
+        sub dropsEmptyRatings()
+            m.assertEqual(RatingChipList([{ source: "Metacritic" }]).Count(), 0)
+            m.assertEqual(RatingChipList(invalid).Count(), 0)
+        end sub
+
+        @describe("track lines")
+
+        @it("composes a video line from codec, size, HDR, depth and rate")
+        sub composesVideoLine()
+            track = { codec: "hevc", width: 3840, height: 2160, bit_depth: 10, hdr: "hdr10_plus", frame_rate: 23.976 }
+
+            m.assertEqual(VideoTrackLine(track), "HEVC · 3840×2160 · HDR10+ · 10-bit · 24 fps")
+        end sub
+
+        @it("names the common speaker layouts rather than counting channels")
+        sub namesChannelLayouts()
+            m.assertEqual(AudioTrackLine({ codec: "eac3", channels: 6, language: "eng" }), "EAC3 · 5.1 · ENG")
+            m.assertEqual(AudioTrackLine({ codec: "aac", channels: 2 }), "AAC · 2.0")
+            m.assertEqual(AudioTrackLine({ codec: "dts", channels: 3 }), "DTS · 3 channels")
+        end sub
+
+        @it("flags a forced or default subtitle track")
+        sub flagsSubtitleTracks()
+            m.assertEqual(SubtitleTrackLine({ language: "eng", format: "srt", forced: true }), "ENG · SRT · Forced")
+            m.assertEqual(SubtitleTrackLine({ language: "deu", format: "pgs" }), "DEU · PGS")
+        end sub
+
+        @it("prefers a subtitle file's own label, since that is what an admin named it")
+        sub labelsSubtitleFiles()
+            file = { label: "English SDH", language: "eng", format: "srt", source: "external" }
+            m.assertEqual(SubtitleFileLine(file), "English SDH · SRT · External")
+
+            unlabelled = { language: "fra", format: "vtt", source: "machine_translated" }
+            m.assertEqual(SubtitleFileLine(unlabelled), "FRA · VTT · Translated")
+        end sub
+
+        @it("gathers the lines of one track kind, skipping anything it cannot describe")
+        sub gathersTrackLines()
+            detail = { audio: [{ codec: "aac", channels: 2 }, { codec: "" }] }
+            lines = TrackLines(detail, "audio", AudioTrackLine)
+
+            m.assertEqual(lines.Count(), 1)
+            m.assertEqual(lines[0], "AAC · 2.0")
+        end sub
+
+        @describe("ScreenForKind")
+
+        @it("sends every card kind somewhere real, with movies and series sharing one screen")
+        sub routesEveryKind()
+            m.assertEqual(ScreenForKind("movie"), "TitleScreen")
+            m.assertEqual(ScreenForKind("series"), "TitleScreen")
+            m.assertEqual(ScreenForKind("season"), "SeasonScreen")
+            m.assertEqual(ScreenForKind("episode"), "EpisodeScreen")
+            m.assertEqual(ScreenForKind("person"), "PersonScreen")
+            m.assertEqual(ScreenForKind("collection"), "CollectionScreen")
+        end sub
+
+        @it("routes a version nowhere, because a version is chosen in a dialog rather than opened")
+        sub routesNoVersionScreen()
+            m.assertEqual(ScreenForKind("version"), "")
+        end sub
+
+        @it("routes nowhere for a kind it does not know, so the caller can stay put")
+        sub routesNowhere()
+            m.assertEqual(ScreenForKind("sandwich"), "")
+            m.assertEqual(ScreenForKind(invalid), "")
+        end sub
+
+        @describe("CardMenuActions")
+
+        @it("offers play, watched, watchlist and favorite on a movie")
+        sub buildsMovieMenu()
+            card = { kind: "movie", id: "m1", versionId: "v1", title: "Alpha" }
+            ids = m.actionIds(CardMenuActions(card))
+
+            m.assertEqual(ids, ["play", "watched", "watchlist", "favorite"])
+        end sub
+
+        @it("offers resume and its dismissal once a movie is part-watched")
+        sub buildsResumeMenu()
+            card = { kind: "movie", id: "m1", versionId: "v1", progressPercent: 34 }
+            actions = CardMenuActions(card)
+
+            m.assertEqual(actions[0].label, "Resume at 34%")
+            m.assertEqual(actions[1].id, "dismissResume")
+        end sub
+
+        ' A catalog card never carries a versionId, so requiring one here is what hid Play
+        ' everywhere outside the Continue rail. The screen resolves the version on demand.
+        @it("still offers play when the card carries no version, leaving the lookup to the screen")
+        sub offersPlayWithoutVersion()
+            ids = m.actionIds(CardMenuActions({ kind: "movie", id: "m1" }))
+
+            m.assertEqual(ids, ["play", "watched", "watchlist", "favorite"])
+        end sub
+
+        @it("drops only the resume dismissal when there is no version to clear")
+        sub dropsDismissWithoutVersion()
+            ids = m.actionIds(CardMenuActions({ kind: "movie", id: "m1", progressPercent: 34 }))
+
+            m.assertEqual(ids, ["play", "watched", "watchlist", "favorite"])
+        end sub
+
+        @it("keeps a series to watched only, since a rollup has no watchlist of its own")
+        sub buildsSeriesMenu()
+            ids = m.actionIds(CardMenuActions({ kind: "series", id: "s1" }))
+
+            m.assertEqual(ids, ["watched"])
+        end sub
+
+        @it("flips each label to its undo when the state is already set")
+        sub flipsMenuLabels()
+            card = { kind: "movie", id: "m1", watched: true, watchlisted: true, favorite: true }
+            actions = CardMenuActions(card)
+
+            m.assertEqual(actions[0].label, "Play")
+            m.assertEqual(actions[1].label, "Mark unwatched")
+            m.assertEqual(actions[2].label, "Remove from watchlist")
+            m.assertEqual(actions[3].label, "Remove from favorites")
+        end sub
+
+        @it("offers nothing for a person, which has no per-user state and nothing to play")
+        sub offersNoMenu()
+            m.assertEqual(CardMenuActions({ kind: "person", id: "p1" }).Count(), 0)
+            m.assertEqual(CardMenuActions(invalid).Count(), 0)
+        end sub
+
+        @describe("actor rails")
+
+        @it("drops titles already on the screen and the title you are looking at")
+        sub dropsTitlesAlreadyShown()
+            shown = ShownTitleKeys([
+                [{ kind: "movie", id: "m1" }],
+                [{ kind: "movie", id: "m2" }]
+            ])
+            fresh = FreshActorTitles([
+                { kind: "movie", id: "m1" },
+                { kind: "movie", id: "m2" },
+                { kind: "movie", id: "m3" },
+                { kind: "series", id: "s1" }
+            ], shown)
+
+            m.assertEqual(fresh.Count(), 2)
+            m.assertEqual(fresh[0].id, "m3")
+            m.assertEqual(fresh[1].id, "s1")
+        end sub
+
+        @it("keeps a movie and a series that happen to share an id")
+        sub keepsDistinctKinds()
+            fresh = FreshActorTitles([
+                { kind: "movie", id: "x" },
+                { kind: "series", id: "x" }
+            ], {})
+
+            m.assertEqual(fresh.Count(), 2)
+        end sub
+
+        @it("dedupes a filmography that lists the same title twice")
+        sub dedupesFilmography()
+            fresh = FreshActorTitles([
+                { kind: "movie", id: "m1" },
+                { kind: "movie", id: "m1" }
+            ], {})
+
+            m.assertEqual(fresh.Count(), 1)
+        end sub
+
+        @it("survives a missing filmography or an empty shown set")
+        sub toleratesNothing()
+            m.assertEqual(FreshActorTitles(invalid, {}).Count(), 0)
+            m.assertEqual(FreshActorTitles([{ kind: "movie", id: "m1" }], invalid).Count(), 1)
+            m.assertEqual(ShownTitleKeys(invalid).Count(), 0)
+            m.assertEqual(ShownTitleKeys([invalid, []]).Count(), 0)
+        end sub
+
+        @it("needs enough fresh titles to be worth a rail, and gives up after a few actors")
+        sub boundsTheProbe()
+            m.assertEqual(MinActorTitles(), 3)
+            m.assertEqual(MaxActorProbes(), 5)
+        end sub
+
+        @describe("backdrop candidates")
+
+        @it("lets an episode use its own still before it borrows from the series")
+        sub episodePrefersItsOwnArt()
+            candidates = EpisodeBackdropCandidates({ artwork: { posters: [1] }, series_artwork: { backdrops: [2] } })
+
+            m.assertEqual(candidates.Count(), 2)
+            m.assertEqual(candidates[0].posters[0], 1)
+            m.assertEqual(candidates[1].backdrops[0], 2)
+        end sub
+
+        @it("never offers a season its own art, because a season poster is portrait and crops wrong")
+        sub seasonOnlyEverUsesTheSeries()
+            candidates = SeasonBackdropCandidates({ artwork: { posters: [1] }, series_artwork: { backdrops: [2] } })
+
+            m.assertEqual(candidates.Count(), 1)
+            m.assertEqual(candidates[0].backdrops[0], 2)
+        end sub
+
+        @it("survives a detail payload with no artwork of either kind")
+        sub toleratesMissingArtwork()
+            m.assertEqual(EpisodeBackdropCandidates({}).Count(), 2)
+            m.assertEqual(SeasonBackdropCandidates(invalid).Count(), 1)
+        end sub
+
+        @describe("cast artwork windows")
+
+        @it("asks for the next window only once focus comes within the lookahead")
+        sub pullsTheNextCastWindow()
+            m.assertFalse(CastArtworkWanted(10, 0, 30))
+            m.assertFalse(CastArtworkWanted(10, 5, 30))
+            m.assertTrue(CastArtworkWanted(10, 6, 30))
+            m.assertTrue(CastArtworkWanted(10, 12, 30))
+        end sub
+
+        @it("stops asking once every photo is accounted for")
+        sub stopsAtTheEndOfTheCast()
+            m.assertFalse(CastArtworkWanted(30, 29, 30))
+            m.assertFalse(CastArtworkWanted(0, 0, 0))
+            m.assertTrue(CastArtworkWanted(0, 0, 4))
+        end sub
+
+        @it("offers a collection the one thing it can do, which is pick something to play")
+        sub offersCollectionRandom()
+            actions = CardMenuActions({ kind: "collection", id: "c1" })
+
+            m.assertEqual(actions.Count(), 1)
+            m.assertEqual(actions[0].id, "randomInCollection")
+            m.assertEqual(actions[0].label, "Random from this collection")
+        end sub
+
+        @describe("CrumbEntries")
+
+        @it("puts Home in front of every trail, because Home is where Back lands")
+        sub prependsHome()
+            entries = CrumbEntries([{ label: "Movies", screen: "MoviesScreen" }, { label: "Inception" }])
+
+            m.assertEqual(entries.Count(), 3)
+            m.assertEqual(entries[0].label, "Home")
+            m.assertEqual(entries[0].screen, "HomeScreen")
+            m.assertEqual(entries[2].label, "Inception")
+        end sub
+
+        @it("drops a crumb the screen could not name")
+        sub dropsBlankCrumbs()
+            entries = CrumbEntries([{ label: "Series" }, { label: "" }, { label: "Season 2" }])
+
+            m.assertEqual(entries.Count(), 3)
+            m.assertEqual(entries[1].label, "Series")
+            m.assertEqual(entries[2].label, "Season 2")
+        end sub
+
+        @it("is just Home when there is nothing else to say")
+        sub trailsHomeAlone()
+            m.assertEqual(CrumbEntries([]).Count(), 1)
+            m.assertEqual(CrumbEntries(invalid).Count(), 1)
+        end sub
+
+        @describe("CrumbButtons")
+
+        @it("puts each separator in its own slot so it is never part of a crumb")
+        sub separatesCrumbs()
+            buttons = CrumbButtons(CrumbEntries([{ label: "Movies", screen: "MoviesScreen" }, { label: "Inception" }]))
+
+            m.assertEqual(buttons.Count(), 5)
+            m.assertEqual(buttons[0].label, "Home")
+            m.assertEqual(buttons[1].label, "›")
+            m.assertEqual(buttons[2].label, "Movies")
+            m.assertEqual(buttons[3].label, "›")
+            m.assertEqual(buttons[4].label, "Inception")
+        end sub
+
+        @it("never lets focus stop on a separator")
+        sub disablesSeparators()
+            buttons = CrumbButtons(CrumbEntries([{ label: "Movies", screen: "MoviesScreen" }, { label: "Inception" }]))
+
+            m.assertTrue(buttons[1].disabled)
+            m.assertTrue(buttons[3].disabled)
+        end sub
+
+        @it("leaves the page you are on unfocusable, so focus only lands on a way out")
+        sub disablesTheCurrentPage()
+            buttons = CrumbButtons(CrumbEntries([{ label: "Movies", screen: "MoviesScreen" }, { label: "Inception" }]))
+
+            m.assertFalse(buttons[0].disabled)
+            m.assertFalse(buttons[2].disabled)
+            m.assertTrue(buttons[4].disabled)
+        end sub
+
+        @it("shows a crumb it cannot navigate to, but does not let focus stop on it")
+        sub disablesUnroutableCrumbs()
+            buttons = CrumbButtons(CrumbEntries([{ label: "People" }, { label: "Keanu Reeves" }]))
+
+            m.assertEqual(buttons[2].label, "People")
+            m.assertTrue(buttons[2].disabled)
+        end sub
+
+        @it("hands back nothing when there is nothing to draw")
+        sub buildsNoButtons()
+            m.assertEqual(CrumbButtons([]).Count(), 0)
+            m.assertEqual(CrumbButtons(invalid).Count(), 0)
+        end sub
+
+        @describe("ScrollThumb")
+
+        @it("sizes the thumb by how much of the content fits on screen")
+        sub sizesThumb()
+            m.assertEqual(ScrollThumb(2000, 1000, 0, 10).height, 500)
+            m.assertEqual(ScrollThumb(4000, 1000, 0, 10).height, 250)
+        end sub
+
+        @it("never shrinks the thumb below the minimum you can see across the room")
+        sub keepsThumbVisible()
+            m.assertEqual(ScrollThumb(100000, 1000, 0, 56).height, 56)
+        end sub
+
+        @it("puts the thumb at the top when unscrolled and at the bottom at the end")
+        sub travelsTheTrack()
+            m.assertEqual(ScrollThumb(2000, 1000, 0, 10).top, 0)
+            m.assertEqual(ScrollThumb(2000, 1000, 1000, 10).top, 500)
+            m.assertEqual(ScrollThumb(2000, 1000, 500, 10).top, 250)
+        end sub
+
+        @it("fills the track when everything already fits, so the caller can hide it")
+        sub fillsWhenNotScrollable()
+            metrics = ScrollThumb(800, 1000, 0, 10)
+
+            m.assertEqual(metrics.height, 1000)
+            m.assertEqual(metrics.top, 0)
+        end sub
+
+        @it("clamps an offset past the end rather than running off the track")
+        sub clampsOffset()
+            m.assertEqual(ScrollThumb(2000, 1000, 9000, 10).top, 500)
+        end sub
+
+        @it("maps the thumb onto a track longer than the viewport it reports on")
+        sub scalesToTheTrack()
+            m.assertEqual(ScrollThumb(2000, 1000, 0, 10, 2000).height, 1000)
+            m.assertEqual(ScrollThumb(2000, 1000, 1000, 10, 2000).top, 1000)
+            m.assertEqual(ScrollThumb(2000, 1000, 500, 10, 2000).top, 500)
+        end sub
+
+        @it("falls back to the viewport when no track is given")
+        sub defaultsToTheViewport()
+            plain = ScrollThumb(2000, 1000, 500, 10)
+            same = ScrollThumb(2000, 1000, 500, 10, 1000)
+
+            m.assertEqual(plain.height, same.height)
+            m.assertEqual(plain.top, same.top)
+        end sub
+
+        @describe("WrappedLineCount")
+
+        @it("fits as many words on a line as the width allows")
+        sub wrapsGreedily()
+            m.assertEqual(WrappedLineCount([100, 100, 100], 10, 1000), 1)
+            m.assertEqual(WrappedLineCount([100, 100, 100], 10, 320), 1, "three words and two gaps measure 320")
+            m.assertEqual(WrappedLineCount([100, 100, 100], 10, 319), 2)
+            m.assertEqual(WrappedLineCount([100, 100, 100], 10, 210), 2, "two words fit, the third wraps")
+        end sub
+
+        @it("counts the ragged edge a width division would miss")
+        sub countsRaggedLines()
+            m.assertEqual(WrappedLineCount([600, 600, 600], 10, 1000), 3, "no two words fit together")
+        end sub
+
+        @it("gives a word wider than the line its own line rather than looping")
+        sub keepsOversizedWords()
+            m.assertEqual(WrappedLineCount([5000], 10, 100), 1)
+            m.assertEqual(WrappedLineCount([5000, 5000], 10, 100), 2)
+        end sub
+
+        @it("calls an empty run one line, because a blank line still takes one")
+        sub countsEmptyAsOne()
+            m.assertEqual(WrappedLineCount([], 10, 1000), 1)
+            m.assertEqual(WrappedLineCount(invalid, 10, 1000), 1)
+            m.assertEqual(WrappedLineCount([100], 10, 0), 1)
+        end sub
+
+        @describe("measurement memo")
+
+        @it("measures a paragraph once and hands the same widths back")
+        sub measuresWordsOnce()
+            first = MeasuredWords("one two three", 28)
+            m.assertEqual(first.words.Count(), 3)
+            m.assertEqual(first.widths.Count(), 3)
+
+            first.probe = "cached"
+            m.assertEqual(MeasuredWords("one two three", 28).probe, "cached")
+        end sub
+
+        @it("re-measures when the text or the size changes")
+        sub reMeasuresOnChange()
+            MeasuredWords("one two three", 28).probe = "stale"
+            m.assertInvalid(MeasuredWords("one two four", 28).probe)
+
+            MeasuredWords("one two three", 28).probe = "stale"
+            m.assertInvalid(MeasuredWords("one two three", 24).probe)
+        end sub
+
+        @it("counts the lines of the same block once")
+        sub countsLinesOnce()
+            text = "one two three four five six seven eight"
+            m.assertEqual(TextLineCount(text, 400, 28), TextLineCount(text, 400, 28))
+            m.assertTrue(TextLineCount(text, 400, 28) >= 1)
+        end sub
+
+        @it("re-counts when the width changes, which is the whole point of the key")
+        sub reCountsOnWidthChange()
+            text = "one two three four five six seven eight nine ten"
+            narrow = TextLineCount(text, 120, 28)
+            wide = TextLineCount(text, 4000, 28)
+            m.assertTrue(narrow > wide, "a narrow column wraps more than a wide one")
+            m.assertEqual(TextLineCount(text, 120, 28), narrow, "and the narrow answer is still the narrow one")
+        end sub
+
+        @describe("FittedLines")
+
+        @it("reports the width of the last line, which is where a trailing link goes")
+        sub reportsLastLineWidth()
+            fitted = FittedLines([100, 100, 100], 10, [210, 210])
+
+            m.assertEqual(fitted.lines.Count(), 2)
+            m.assertEqual(fitted.lines[0], 210)
+            m.assertEqual(fitted.width, 100, "only the third word is on line two")
+            m.assertEqual(fitted.taken, 3)
+        end sub
+
+        @it("stops taking words once the last line is full, so the caller can truncate")
+        sub stopsAtTheLastLine()
+            fitted = FittedLines([100, 100, 100, 100], 10, [210, 210])
+
+            m.assertEqual(fitted.taken, 4)
+            m.assertEqual(FittedLines([100, 100, 100, 100, 100], 10, [210, 210]).taken, 4)
+        end sub
+
+        @it("narrows only the last line, so the link eats into that line alone")
+        sub narrowsTheLastLine()
+            budgets = LineBudgets(1000, 2, 400)
+
+            m.assertEqual(budgets.Count(), 2)
+            m.assertEqual(budgets[0], 1000)
+            m.assertEqual(budgets[1], 600)
+        end sub
+
+        @it("keeps a word that cannot fit anywhere rather than dropping it")
+        sub keepsUnfittableWords()
+            fitted = FittedLines([5000], 10, [100, 100])
+
+            m.assertEqual(fitted.taken, 1)
+            m.assertEqual(fitted.lines.Count(), 1)
+        end sub
+
+        @it("hands back nothing measurable when there is nothing to lay out")
+        sub fitsNothing()
+            m.assertEqual(FittedLines([], 10, [100]).taken, 0)
+            m.assertEqual(FittedLines(invalid, 10, [100]).taken, 0)
+            m.assertEqual(FittedLines([100], 10, []).taken, 0)
+            m.assertEqual(LineBudgets(1000, 0, 0).Count(), 0)
+        end sub
+
+        @it("accounts for every word it took, so a truncation never loses one")
+        sub countsEveryWord()
+            fitted = FittedLines([100, 100, 100, 100], 10, [210, 210])
+
+            total = 0
+            for each count in fitted.counts
+                total = total + count
+            end for
+
+            m.assertEqual(fitted.counts.Count(), fitted.lines.Count())
+            m.assertEqual(total, fitted.taken)
+        end sub
+
+        @describe("LineWords")
+
+        @it("hands back exactly the words on one line, so it can be measured as rendered")
+        sub slicesOneLine()
+            words = ["one", "two", "three", "four"]
+            counts = [2, 2]
+
+            m.assertEqual(LineWords(words, counts, 0).Join(" "), "one two")
+            m.assertEqual(LineWords(words, counts, 1).Join(" "), "three four")
+        end sub
+
+        @it("stays inside the word list when the counts overrun it")
+        sub clipsToTheWordList()
+            m.assertEqual(LineWords(["one"], [5], 0).Count(), 1)
+            m.assertEqual(LineWords(["one"], [1], 3).Count(), 0)
+            m.assertEqual(LineWords(invalid, [1], 0).Count(), 0)
+            m.assertEqual(LineWords(["one"], invalid, 0).Count(), 0)
+        end sub
+
+        @describe("FlatWords")
+
+        @it("flows paragraphs into one run, because a preview shows two lines at most")
+        sub flattensParagraphs()
+            words = FlatWords("one two" + Chr(10) + Chr(10) + "three")
+
+            m.assertEqual(words.Count(), 3)
+            m.assertEqual(words[2], "three")
+        end sub
+
+        @it("drops the gaps a double space leaves behind")
+        sub dropsBlankWords()
+            m.assertEqual(FlatWords("one  two").Count(), 2)
+            m.assertEqual(FlatWords("").Count(), 0)
+            m.assertEqual(FlatWords(invalid).Count(), 0)
+        end sub
+
+        @it("drops a mark that would read oddly before the trailing link")
+        sub dropsTrailingMarks()
+            m.assertEqual(WithoutTrailingMark("hunt her down"), "hunt her down")
+            m.assertEqual(WithoutTrailingMark("hunt her down."), "hunt her down")
+            m.assertEqual(WithoutTrailingMark("hunt her down,"), "hunt her down")
+            m.assertEqual(WithoutTrailingMark("really?!"), "really")
+            m.assertEqual(WithoutTrailingMark("wait..."), "wait")
+        end sub
+
+        @it("keeps a run that is nothing but punctuation rather than erasing it")
+        sub keepsBareMarks()
+            m.assertEqual(WithoutTrailingMark("..."), "...")
+            m.assertEqual(WithoutTrailingMark(""), "")
+            m.assertEqual(WithoutTrailingMark(invalid), "")
+        end sub
+
+        @it("rebuilds only the words that fit, which is what the preview shows")
+        sub joinsKeptWords()
+            words = ["one", "two", "three"]
+
+            m.assertEqual(JoinWords(words, 2), "one two")
+            m.assertEqual(JoinWords(words, 9), "one two three")
+            m.assertEqual(JoinWords(words, 0), "")
+            m.assertEqual(JoinWords(invalid, 2), "")
+        end sub
+
+        @describe("PackedRows")
+
+        @it("measures a group by its cards and the gaps between them")
+        sub measuresGroupWidth()
+            m.assertEqual(GroupNaturalWidth(3, 100, 10), 320)
+            m.assertEqual(GroupNaturalWidth(1, 100, 10), 100)
+            m.assertEqual(GroupNaturalWidth(0, 100, 10), 0)
+        end sub
+
+        @it("packs several small groups onto one row, which is the whole point")
+        sub packsSmallGroups()
+            rows = PackedRows([200, 200, 300], 1000, 20)
+
+            m.assertEqual(rows.Count(), 1)
+            m.assertEqual(rows[0].Count(), 3)
+            m.assertEqual(rows[0][2].width, 300)
+        end sub
+
+        @it("starts a new row when the next group will not fit")
+        sub wrapsWideGroups()
+            rows = PackedRows([600, 600], 1000, 20)
+
+            m.assertEqual(rows.Count(), 2)
+            m.assertEqual(rows[0][0].index, 0)
+            m.assertEqual(rows[1][0].index, 1)
+        end sub
+
+        @it("gives a group wider than the row the full width rather than overflowing")
+        sub clampsOversizeGroups()
+            rows = PackedRows([2000], 1000, 20)
+
+            m.assertEqual(rows[0][0].width, 1000)
+        end sub
+
+        @it("survives being handed nothing")
+        sub packsNothing()
+            m.assertEqual(PackedRows(invalid, 1000, 20).Count(), 0)
+            m.assertEqual(PackedRows([], 1000, 20).Count(), 0)
+            m.assertEqual(PackedRows([100], 0, 20).Count(), 0)
+        end sub
+
+        @describe("RevealOffset")
+
+        @it("does not move when the focused section is already fully on screen")
+        sub keepsStill()
+            tops = [0, 400, 800]
+            heights = [400, 400, 400]
+
+            m.assertEqual(RevealOffset(1, tops, heights, 900, 0), 0)
+        end sub
+
+        @it("scrolls far enough to clear the bottom of the focused section by the page pad")
+        sub revealsTheBottom()
+            tops = [0, 400, 800]
+            heights = [400, 400, 400]
+
+            m.assertEqual(RevealOffset(2, tops, heights, 900, 0), 300 + ContentBottomPad())
+        end sub
+
+        @it("scrolls back up to show the top of a section above the fold")
+        sub revealsTheTop()
+            tops = [0, 400, 800]
+            heights = [400, 400, 400]
+
+            m.assertEqual(RevealOffset(0, tops, heights, 900, 300), 0)
+        end sub
+
+        @it("never scrolls past the end, so a page never shows dead space")
+        sub stopsAtTheEnd()
+            tops = [0, 400]
+            heights = [400, 400]
+
+            m.assertEqual(RevealOffset(1, tops, heights, 900, 0), 0)
+        end sub
+
+        @it("holds its position when asked about a section that does not exist")
+        sub holdsOnNonsense()
+            m.assertEqual(RevealOffset(9, [0, 400], [400, 400], 900, 120), 120)
+            m.assertEqual(RevealOffset(0, invalid, invalid, 900, 120), 120)
+        end sub
+
+        @it("takes the caller's own bottom pad, which a dialog sets to none")
+        sub takesACallersPad()
+            tops = [0, 400, 800]
+            heights = [400, 400, 400]
+
+            m.assertEqual(RevealOffset(2, tops, heights, 900, 0, 0), 300)
+        end sub
+
+        @describe("spoken text")
+
+        @it("joins with commas, because a screen reader reads a middot as nothing")
+        sub joinsForSpeech()
+            m.assertEqual(SpokenLine(["Blade Runner", "1982"]), "Blade Runner, 1982")
+            m.assertEqual(JoinParts(["Blade Runner", "1982"]), "Blade Runner · 1982")
+        end sub
+
+        @it("drops the blanks rather than reading empty gaps")
+        sub dropsBlanksForSpeech()
+            m.assertEqual(SpokenLine(["A", "", invalid, "B"]), "A, B")
+            m.assertEqual(SpokenLine(invalid), "")
+            m.assertEqual(SpokenLine([]), "")
+        end sub
+
+        @it("tells the listener where they are in a row, counting from one")
+        sub countsSlotsFromOne()
+            m.assertEqual(SlotSpeech("Play", 0, 6), "Play, 1 of 6")
+            m.assertEqual(SlotSpeech("Next episode", 5, 6), "Next episode, 6 of 6")
+        end sub
+
+        @it("says when a control cannot be pressed, which focus alone does not convey")
+        sub saysUnavailable()
+            m.assertEqual(SlotSpeech("Previous episode", 0, 3, true), "Previous episode, 1 of 3, Unavailable")
+        end sub
+
+        @it("reads a dialog as its title, its message and the focused row")
+        sub readsADialog()
+            rows = [{ label: "Dark", chosen: true }, { label: "Light" }]
+
+            m.assertEqual(DialogSpeech("Theme", "Pick one", rows, 0), "Theme, Pick one, Dark, Selected, 1 of 2")
+            m.assertEqual(DialogSpeech("Theme", "", rows, 1), "Theme, Light, 2 of 2")
+        end sub
+
+        @it("reads a dialog that has no rows as just its words")
+        sub readsAnEmptyDialog()
+            m.assertEqual(DialogSpeech("Theme", "Pick one", [], 0), "Theme, Pick one")
+            m.assertEqual(DialogSpeech("Theme", "", invalid, 0), "Theme")
+        end sub
+
+        @it("reads the whole trail so the listener knows where they are")
+        sub readsTheTrail()
+            m.assertEqual(CrumbTrailSpeech(CrumbEntries([{ label: "Movies" }, { label: "Blade Runner" }])), "Home, Movies, Blade Runner")
+            m.assertEqual(CrumbTrailSpeech(invalid), "")
+        end sub
+
+    end class
+
+end namespace

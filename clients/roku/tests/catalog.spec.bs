@@ -1,0 +1,422 @@
+namespace tests
+
+    @suite("catalog")
+    class CatalogTests extends rooibos.BaseTestSuite
+
+        @describe("QueryString")
+
+        @it("omits blank, missing and whitespace-only values")
+        sub omitsBlanks()
+            m.assertEqual(QueryString([["a", ""], ["b", invalid], ["c", "   "]]), "")
+            m.assertEqual(QueryString([["a", ""], ["b", "two"]]), "?b=two")
+        end sub
+
+        @it("keeps a zero, because offset=0 is a real value")
+        sub keepsZero()
+            m.assertEqual(QueryString([["offset", 0]]), "?offset=0")
+        end sub
+
+        @it("preserves the order it was given")
+        sub preservesOrder()
+            m.assertEqual(QueryString([["z", "1"], ["a", "2"]]), "?z=1&a=2")
+        end sub
+
+        @it("percent-encodes values, which is why search terms are safe")
+        sub encodesValues()
+            m.assertEqual(QueryString([["q", "a b&c=d"]]), "?q=a%20b%26c%3Dd")
+            m.assertEqual(QueryString([["q", "Amélie"]]), "?q=Am%C3%A9lie")
+        end sub
+
+        @it("encodes a comma-joined genre list so the server can split it back")
+        sub encodesGenres()
+            m.assertEqual(QueryString([["genres", "Drama,Sci-Fi"]]), "?genres=Drama%2CSci-Fi")
+        end sub
+
+        @describe("ListQueryPairs")
+
+        @it("carries sort, order, paging and a joined genre list")
+        sub buildsListPairs()
+            query = { sort: "title", order: "desc", genres: ["Drama", "Comedy"], library: "lib1" }
+            url = BuildRequest("http://host", PathWithQuery("/movies", ListQueryPairs(query, 20, 100))).url
+
+            m.assertEqual(url, "http://host/api/v1/movies?genres=Drama%2CComedy&library=lib1&sort=title&order=desc&offset=20&limit=100")
+        end sub
+
+        @it("falls back to the default sort and order and drops empty filters")
+        sub defaultsListPairs()
+            url = BuildRequest("http://host", PathWithQuery("/movies", ListQueryPairs(invalid, 0, 50))).url
+            m.assertEqual(url, "http://host/api/v1/movies?sort=added_at&order=asc&offset=0&limit=50")
+        end sub
+
+        @describe("request builders")
+
+        @it("builds the movie and series list requests")
+        sub buildsListRequests()
+            query = DefaultListQuery()
+            m.assertEqual(MoviesRequest("http://host", "smk_a", query, 0, 50).method, "GET")
+            m.assertTrue(MoviesRequest("http://host", "smk_a", query, 0, 50).url.Instr("/api/v1/movies?") > 0)
+            m.assertTrue(SeriesListRequest("http://host", "smk_a", query, 0, 50).url.Instr("/api/v1/series?") > 0)
+        end sub
+
+        @it("sends the two kinds TitleKind::parse accepts, since anything else is a 400")
+        sub mapsGenreKind()
+            m.assertEqual(GenreKindFor("series"), "series")
+            m.assertEqual(GenreKindFor("movie"), "movie")
+            m.assertEqual(GenresRequest("http://host", "smk_a", "series").url, "http://host/api/v1/genres?kind=series")
+        end sub
+
+        @it("builds the collection, search and library requests")
+        sub buildsOtherRequests()
+            m.assertEqual(CollectionsRequest("http://host", "smk_a", 0, 50).url, "http://host/api/v1/movies/collections?offset=0&limit=50")
+            m.assertEqual(CollectionRequest("http://host", "smk_a", "c1").url, "http://host/api/v1/movies/collections/c1")
+            m.assertEqual(SearchRequest("http://host", "smk_a", "blade runner", 0, 50).url, "http://host/api/v1/search?q=blade%20runner&offset=0&limit=50")
+            m.assertEqual(LibrariesRequest("http://host", "smk_a").url, "http://host/api/v1/libraries")
+        end sub
+
+        @it("escapes a user id into the path rather than pasting it in raw")
+        sub escapesUserId()
+            m.assertEqual(HubRequest("http://host", "smk_a", "u 1").url, "http://host/api/v1/users/u%201/hub")
+            m.assertEqual(ContinueRequest("http://host", "smk_a", "u1").url, "http://host/api/v1/users/u1/continue")
+        end sub
+
+        @it("sends the bearer token on every catalog call")
+        sub carriesToken()
+            requests = [
+                MoviesRequest("http://host", "smk_a", DefaultListQuery(), 0, 50),
+                GenresRequest("http://host", "smk_a", "movie"),
+                LibrariesRequest("http://host", "smk_a"),
+                CollectionsRequest("http://host", "smk_a", 0, 50),
+                SearchRequest("http://host", "smk_a", "x", 0, 50),
+                HubRequest("http://host", "smk_a", "u1"),
+                ContinueRequest("http://host", "smk_a", "u1"),
+                StateBatchRequest("http://host", "smk_a", "u1", []),
+                StateRollupRequest("http://host", "smk_a", "u1", [])
+            ]
+            for each request in requests
+                m.assertEqual(request.headers["Authorization"], "Bearer smk_a", request.url)
+            end for
+        end sub
+
+        @describe("batch requests")
+
+        @it("posts leaves under titles and rollup targets under targets")
+        sub buildsBatchBodies()
+            refs = [{ "type": "movie", "id": "m1" }]
+            batch = StateBatchRequest("http://host", "smk_a", "u1", refs)
+            m.assertEqual(batch.url, "http://host/api/v1/users/u1/state/batch")
+            m.assertEqual(batch.method, "POST")
+            m.assertEqual(ParseJson(batch.body).titles[0].id, "m1")
+
+            rollup = StateRollupRequest("http://host", "smk_a", "u1", [{ "type": "series", "id": "s1" }])
+            m.assertEqual(rollup.url, "http://host/api/v1/users/u1/state/rollup")
+            m.assertEqual(ParseJson(rollup.body).targets[0].type, "series")
+        end sub
+
+        @describe("paging")
+
+        @it("advances the offset by what the page actually returned")
+        sub advancesOffset()
+            m.assertEqual(NextOffset(0, 100), 100)
+            m.assertEqual(NextOffset(100, 37), 137)
+        end sub
+
+        @it("knows when the server still has more to give")
+        sub knowsThereIsMore()
+            m.assertTrue(HasMore(100, 240))
+            m.assertFalse(HasMore(240, 240))
+            m.assertFalse(HasMore(0, 0))
+        end sub
+
+        @it("loads the next page before focus reaches the end, never after the last one")
+        sub loadsAhead()
+            m.assertFalse(ShouldLoadMore(0, 100, 240))
+            m.assertTrue(ShouldLoadMore(100 - LoadMoreThreshold(), 100, 240))
+            m.assertFalse(ShouldLoadMore(239, 240, 240), "everything is loaded, so nothing should be fetched")
+        end sub
+
+        @it("pages a grid below the server's batch cap, so one page is one state call")
+        sub pagesBelowBatchCap()
+            m.assertTrue(GridPageLimit() <= MaxBatchSize())
+            m.assertEqual(MaxBatchSize(), 200)
+        end sub
+
+        @describe("options")
+
+        @it("offers exactly the sorts and orders the server parses")
+        sub offersServerOptions()
+            values = []
+            for each option in SortOptions()
+                values.Push(option.value)
+            end for
+            m.assertEqual(values, ["added_at", "title", "year"])
+
+            orders = []
+            for each option in OrderOptions()
+                orders.Push(option.value)
+            end for
+            m.assertEqual(orders, ["asc", "desc"])
+        end sub
+
+        @it("points the order glyph the way the order runs")
+        sub pointsOrderGlyph()
+            m.assertEqual(OrderGlyphName("asc"), "chevron-up")
+            m.assertEqual(OrderGlyphName("desc"), "chevron-down")
+            m.assertEqual(OrderGlyphName(invalid), "chevron-up")
+        end sub
+
+        @it("labels a stored value and stays quiet about one it does not know")
+        sub labelsOptions()
+            m.assertEqual(OptionLabel(SortOptions(), "year"), Phrase("list.sortYear"))
+            m.assertEqual(OptionLabel(SortOptions(), "nonsense"), "")
+        end sub
+
+        @it("refuses a stored value the server would reject, so a stale registry cannot 400 every request")
+        sub rejectsUnknownStoredValue()
+            m.assertEqual(ValidOption(SortOptions(), "year", DefaultSort()), "year")
+            m.assertEqual(ValidOption(SortOptions(), "nonsense", DefaultSort()), DefaultSort())
+            m.assertEqual(ValidOption(OrderOptions(), invalid, DefaultOrder()), DefaultOrder())
+        end sub
+
+        @it("defaults to the sort and order the server itself defaults to")
+        sub defaultsMatchServer()
+            m.assertEqual(DefaultSort(), "added_at")
+            m.assertEqual(DefaultOrder(), "asc")
+            m.assertEqual(DefaultListQuery().genres.Count(), 0)
+            m.assertEqual(DefaultListQuery().library, "")
+        end sub
+
+        @describe("detail requests")
+
+        @it("addresses a movie, its versions and its collections")
+        sub addressesMovieDetail()
+            m.assertEqual(MovieDetailRequest("http://host", "smk_a", "m1").url, "http://host/api/v1/movies/m1")
+            m.assertEqual(MovieVersionsRequest("http://host", "smk_a", "m1").url, "http://host/api/v1/movies/m1/versions?offset=0&limit=200")
+            m.assertEqual(MovieCollectionsRequest("http://host", "smk_a", "m1").url, "http://host/api/v1/movies/m1/collections")
+        end sub
+
+        @it("nests a season and an episode under their series, as the server's paths require")
+        sub addressesSeriesTree()
+            m.assertEqual(SeasonsRequest("http://host", "smk_a", "sr1").url, "http://host/api/v1/series/sr1/seasons")
+            m.assertEqual(SeasonRequest("http://host", "smk_a", "sr1", "se1").url, "http://host/api/v1/series/sr1/seasons/se1")
+            m.assertEqual(EpisodesRequest("http://host", "smk_a", "sr1", "se1").url, "http://host/api/v1/series/sr1/seasons/se1/episodes")
+            m.assertEqual(EpisodeRequest("http://host", "smk_a", "sr1", "se1", "e1").url, "http://host/api/v1/series/sr1/seasons/se1/episodes/e1")
+        end sub
+
+        @it("addresses a version, a person and a random pick")
+        sub addressesTheRest()
+            m.assertEqual(VersionRequest("http://host", "smk_a", "v1").url, "http://host/api/v1/versions/v1")
+            m.assertEqual(PersonRequest("http://host", "smk_a", "p1").url, "http://host/api/v1/people/p1")
+            m.assertEqual(RandomInSeriesRequest("http://host", "smk_a", "sr1").url, "http://host/api/v1/series/sr1/random")
+            m.assertEqual(RandomInSeasonRequest("http://host", "smk_a", "sr1", "se1").url, "http://host/api/v1/series/sr1/seasons/se1/random")
+        end sub
+
+        @it("escapes an id, because a path segment is no safer than a query value")
+        sub escapesIds()
+            m.assertEqual(MovieDetailRequest("http://host", "smk_a", "a b/c").url, "http://host/api/v1/movies/a%20b%2Fc")
+        end sub
+
+        @it("asks for a whole cast in one call rather than one call per face")
+        sub asksForPeopleInOneCall()
+            request = PeopleBatchRequest("http://host", "smk_a", ["p1", "p2"])
+
+            m.assertEqual(request.url, "http://host/api/v1/people/batch")
+            m.assertEqual(request.method, "POST")
+            m.assertEqual(ParseJson(request.body).people, ["p1", "p2"])
+        end sub
+
+        @describe("library mutations")
+
+        @it("puts a watched flag with the reference type the server switches on")
+        sub putsWatched()
+            request = SetWatchedRequest("http://host", "smk_a", "u1", "season", "se1", true)
+
+            sent = ParseJson(request.body)
+
+            m.assertEqual(request.url, "http://host/api/v1/users/u1/watched/se1")
+            m.assertEqual(request.method, "PUT")
+            m.assertEqual(sent["type"], "season")
+            m.assertTrue(sent.watched)
+        end sub
+
+        @it("adds to the watchlist with a type and removes with no body at all")
+        sub togglesWatchlist()
+            added = WatchlistAddRequest("http://host", "smk_a", "u1", "movie", "m1")
+            removed = WatchlistRemoveRequest("http://host", "smk_a", "u1", "m1")
+
+            m.assertEqual(added.method, "PUT")
+            m.assertEqual(ParseJson(added.body)["type"], "movie")
+            m.assertEqual(removed.url, "http://host/api/v1/users/u1/watchlist/m1")
+            m.assertEqual(removed.method, "DELETE")
+            m.assertEqual(removed.body, "")
+        end sub
+
+        @it("clears saved progress, which is how a resume is dismissed")
+        sub clearsProgress()
+            request = ClearProgressRequest("http://host", "smk_a", "u1", "v1")
+
+            m.assertEqual(request.url, "http://host/api/v1/users/u1/progress/v1")
+            m.assertEqual(request.method, "DELETE")
+        end sub
+
+        @it("toggles a favorite the same way, on its own path")
+        sub togglesFavorite()
+            added = FavoriteAddRequest("http://host", "smk_a", "u1", "movie", "m1")
+            removed = FavoriteRemoveRequest("http://host", "smk_a", "u1", "m1")
+
+            m.assertEqual(added.url, "http://host/api/v1/users/u1/favorites/m1")
+            m.assertEqual(removed.method, "DELETE")
+        end sub
+
+        @describe("personal lists")
+
+        @it("reads the watchlist and the favorites off their unpaged collection paths")
+        sub readsUnpagedLists()
+            watchlist = WatchlistRequest("http://host", "smk_a", "u1")
+            favorites = FavoritesRequest("http://host", "smk_a", "u1")
+
+            m.assertEqual(watchlist.url, "http://host/api/v1/users/u1/watchlist")
+            m.assertEqual(watchlist.method, "GET")
+            m.assertEqual(favorites.url, "http://host/api/v1/users/u1/favorites")
+        end sub
+
+        @it("pages history, because it is the one list the server pages")
+        sub pagesHistory()
+            request = HistoryRequest("http://host", "smk_a", "u1", 100, 50)
+
+            m.assertEqual(request.url, "http://host/api/v1/users/u1/history?offset=100&limit=50")
+        end sub
+
+        @it("keeps the first history page's offset, which a blank-skipping query string would drop")
+        sub keepsZeroOffset()
+            request = HistoryRequest("http://host", "smk_a", "u1", 0, 100)
+
+            m.assertEqual(request.url, "http://host/api/v1/users/u1/history?offset=0&limit=100")
+        end sub
+
+        @it("removes one history entry by title and clears the whole list off the collection path")
+        sub clearsHistory()
+            removed = HistoryRemoveRequest("http://host", "smk_a", "u1", "m1")
+            cleared = HistoryClearRequest("http://host", "smk_a", "u1")
+
+            m.assertEqual(removed.url, "http://host/api/v1/users/u1/history/m1")
+            m.assertEqual(removed.method, "DELETE")
+            m.assertEqual(cleared.url, "http://host/api/v1/users/u1/history")
+            m.assertEqual(cleared.method, "DELETE")
+        end sub
+
+        @it("posts refs to the batch endpoint under the same titles key the state call uses")
+        sub asksForCardsInOneCall()
+            request = TitleCardsRequest("http://host", "smk_a", [{ "type": "movie", "id": "m1" }])
+
+            m.assertEqual(request.url, "http://host/api/v1/titles/batch")
+            m.assertEqual(request.method, "POST")
+            m.assertEqual(ParseJson(request.body).titles[0].id, "m1")
+        end sub
+
+        @it("sends each list to its own endpoint, and only history carries a page")
+        sub routesEachList()
+            watchlist = PersonalListRequest("http://host", "smk_a", "u1", "watchlist", 0, 100)
+            favorites = PersonalListRequest("http://host", "smk_a", "u1", "favorites", 0, 100)
+            history = PersonalListRequest("http://host", "smk_a", "u1", "history", 0, 100)
+
+            m.assertEqual(watchlist.url, "http://host/api/v1/users/u1/watchlist")
+            m.assertEqual(favorites.url, "http://host/api/v1/users/u1/favorites")
+            m.assertEqual(history.url, "http://host/api/v1/users/u1/history?offset=0&limit=100")
+        end sub
+
+        @it("falls back to the watchlist for a kind it does not know, rather than building a bad path")
+        sub defaultsUnknownList()
+            def = PersonalListDef("nonsense")
+
+            m.assertEqual(def.kind, "watchlist")
+            m.assertFalse(def.paged)
+            m.assertFalse(def.clearable)
+        end sub
+
+        @it("marks history as the only list that pages and the only one that can be cleared")
+        sub describesHistory()
+            def = PersonalListDef("history")
+
+            m.assertTrue(def.paged)
+            m.assertTrue(def.clearable)
+            m.assertEqual(def.heading, "History")
+        end sub
+
+        @describe("search paging and filtering")
+
+        @it("pages at twenty, because search splits into four rails")
+        sub searchPagesAtTwenty()
+            m.assertEqual(SearchPageLimit(), 20)
+            m.assertTrue(SearchPageLimit() < GridPageLimit())
+        end sub
+
+        @it("asks for one page at an offset rather than everything at once")
+        sub searchAsksForAPage()
+            m.assertEqual(SearchRequest("http://host", "smk_a", "blade", 20, 20).url, "http://host/api/v1/search?q=blade&offset=20&limit=20")
+        end sub
+
+        @it("searches every type, because the screen offers no filter")
+        sub searchSendsNoType()
+            m.assertEqual(SearchRequest("http://host", "smk_a", "blade", 0, 20).url, "http://host/api/v1/search?q=blade&offset=0&limit=20")
+        end sub
+
+        @it("waits for two characters before it searches")
+        sub searchWaitsForTwoCharacters()
+            m.assertEqual(MinSearchLength(), 2)
+        end sub
+
+        @describe("random picks")
+
+        @it("carries the list's own genre and library filter into a random movie")
+        sub randomMovieKeepsTheFilter()
+            query = { genres: ["horror"], library: "lib1", sort: "title", order: "asc" }
+
+            m.assertEqual(RandomMovieRequest("http://host", "smk_a", query).url, "http://host/api/v1/movies/random?genres=horror&library=lib1")
+        end sub
+
+        @it("asks for a random episode across the whole series library")
+        sub randomEpisodeKeepsTheFilter()
+            query = { genres: [], library: "", sort: "title", order: "asc" }
+
+            m.assertEqual(RandomEpisodeRequest("http://host", "smk_a", query).url, "http://host/api/v1/series/random")
+        end sub
+
+        @it("falls back to no filter when the screen has no query yet")
+        sub randomWithoutQuery()
+            m.assertEqual(RandomMovieRequest("http://host", "smk_a", invalid).url, "http://host/api/v1/movies/random")
+        end sub
+
+        @it("picks inside one collection by id")
+        sub randomInsideCollection()
+            m.assertEqual(RandomInCollectionRequest("http://host", "smk_a", "c 1").url, "http://host/api/v1/movies/collections/c%201/random")
+        end sub
+
+        @describe("RevokeDeviceRequest")
+
+        @it("deletes this device under the signed-in user")
+        sub revokesThisDevice()
+            request = RevokeDeviceRequest("http://host", "smk_a", "u1", "dev-1")
+
+            m.assertEqual(request.url, "http://host/api/v1/users/u1/devices/dev-1")
+            m.assertEqual(request.method, "DELETE")
+            m.assertEqual(request.headers["Authorization"], "Bearer smk_a")
+        end sub
+
+        @it("gives up quickly so signing out works against a dead server")
+        sub revokeGivesUpQuickly()
+            request = RevokeDeviceRequest("http://host", "smk_a", "u1", "dev-1")
+
+            m.assertEqual(request.timeout, SignOutTimeoutSeconds())
+            m.assertTrue(SignOutTimeoutSeconds() < RequestTimeoutSeconds())
+        end sub
+
+        @it("escapes a device id that needs it")
+        sub escapesDeviceId()
+            request = RevokeDeviceRequest("http://host", "smk_a", "u 1", "dev/1")
+
+            m.assertEqual(request.url, "http://host/api/v1/users/u%201/devices/dev%2F1")
+        end sub
+
+    end class
+
+end namespace

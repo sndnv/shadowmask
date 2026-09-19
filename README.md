@@ -85,6 +85,9 @@ acceleration and the rest.
   `ghcr.io/sndnv/shadowmask/web-ui`; the desktop ships as a macOS `.dmg` and a Linux `.AppImage`;
   mobile ships as a signed Android `.apk`, and as an unsigned iOS `.ipa` that has to be signed at
   install time with a tool such as Sideloadly or AltStore
+* **Roku** ([`clients/roku`](./clients/roku)) - a SceneGraph channel for Roku devices. Viewer-only,
+  with no admin surface, and paired by link code so no password is typed on the remote. It ships as
+  a channel zip, installed by sideloading
 * **Basic** ([`clients/basic`](./clients/basic)) - a dependency-free HTML/JS client served by the
   server itself at `/ui/basic/`, useful as a fallback and for debugging
 
@@ -134,6 +137,11 @@ We use [SemVer](http://semver.org/) for versioning.
 * [hls.js](https://github.com/video-dev/hls.js) is bundled by both web clients for HLS playback,
   under the Apache License 2.0. The licence and copyright notices are distributed alongside it, at
   [`assets/vendor/hls.js.LICENSE.txt`](./assets/vendor/hls.js.LICENSE.txt).
+* [Roboto](https://github.com/googlefonts/roboto-classic) (Regular and Medium) is bundled by the Roku
+  client, under the SIL Open Font License 1.1. Roku's system fonts include no bold or medium weight,
+  so the weights the design system relies on have to travel with the channel. The licence is
+  distributed alongside the fonts, at
+  [`assets/fonts/Roboto-OFL.txt`](./assets/fonts/Roboto-OFL.txt).
 * The macOS and iOS applications bundle mpv (LGPL-2.1-or-later), FFmpeg (LGPL-3.0-or-later) and nine
   supporting libraries, each as a separately replaceable dynamically linked framework. The Android
   application bundles a different build of most of the same libraries, linked statically into one

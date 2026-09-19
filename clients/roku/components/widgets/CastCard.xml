@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="CastCard" extends="Group">
+    <script type="text/brightscript" uri="pkg:/components/widgets/CastCard.brs" />
+    <script type="text/brightscript" uri="pkg:/source/util.brs" />
+    <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
+    <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/format.brs" />
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/source/cards.brs" />
+    <script type="text/brightscript" uri="pkg:/source/images.brs" />
+    <script type="text/brightscript" uri="pkg:/source/catalog.brs" />
+    <script type="text/brightscript" uri="pkg:/source/state.brs" />
+    <script type="text/brightscript" uri="pkg:/source/detail.brs" />
+    <script type="text/brightscript" uri="pkg:/source/prefs.brs" />
+    <script type="text/brightscript" uri="pkg:/source/session.brs" />
+    <script type="text/brightscript" uri="pkg:/source/screen.brs" />
+    <script type="text/brightscript" uri="pkg:/source/capability.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+
+    <interface>
+        <field id="card" type="assocarray" onChange="render" />
+        <field id="serverUrl" type="string" />
+        <field id="cardWidth" type="float" value="170" onChange="render" />
+        <field id="expanded" type="boolean" value="false" onChange="render" />
+        <field id="lit" type="boolean" value="false" onChange="render" />
+    </interface>
+
+    <children>
+        <Rectangle id="plate" />
+        <Rectangle id="art" />
+        <Poster id="poster" />
+        <Poster id="glyph" visible="false" />
+        <FocusRing id="ring" />
+        <Label id="line" />
+        <ScrollingLabel id="lineTicker" visible="false" />
+        <Label id="name" visible="false" />
+    </children>
+</component>

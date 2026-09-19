@@ -19,6 +19,7 @@ under `screenshots/` are referenced only by the root `README.md` and have no ent
 assets/
   brand/         brand mark; source for every derived client favicon/icon
   placeholders/  artwork fallbacks (poster, landscape, person)
+  glyphs/        single-colour UI marks, tinted per theme by the client
   icons/         rasterized launcher/PWA icon sets, grouped per client
   vendor/        third-party files bundled verbatim into a client
   screenshots/   client captures for the root README
@@ -53,6 +54,56 @@ rather than a launcher or tab, so they carry no plate and take the theme's `acce
 - `brand/shadowmask.logo-retro.svg` - the same without a plate in the retro theme's colours.
   Currently unreferenced: the root README used it before switching to the desktop icon.
 - `placeholders/{poster,landscape,person}.svg` - artwork fallbacks.
+Everything under `glyphs/` is **pure white on transparent** and tinted at runtime through Roku's
+`Poster.blendColor`, which multiplies: any colour baked into a source would survive the tint and come
+out wrong in the other two themes. That is the rule for any glyph added here.
+
+- `glyphs/watched-{disc,ring}.svg` - the watched marker on a card, for clients that cannot draw an
+  icon font. The disc carries the check as a knocked-out hole rather than a stroke, so the tint
+  colours the disc and the check shows the artwork behind it. The ring is the separating halo the
+  design system asks for, tinted `surface` so the marker reads over any poster.
+- `glyphs/art-{movie,landscape,person}.svg` - artwork placeholders, tinted `border` and centred on
+  `art-bg`. These match what the Flutter client draws (a centred icon, `card_art.dart`) rather than
+  the full-bleed panels under `placeholders/`, which belong to the basic client. Authored here rather
+  than taken from Material Icons, so there is no third-party licence to carry for three outlines.
+- `glyphs/chevron-{left,right,up,down}.svg` - directional marks. The left/right pair does double
+  duty: the rail scroll arrows (ported from `_RailArrow` in `card_rail.dart`) and the nav-rail
+  indicator, which shows `<` when the menu is closed and `>` when it is open. The up/down pair is
+  used for step buttons.
+- `glyphs/button-{fill,line}.9.svg` - the rounded-rectangle control shape, as **nine-patch** sources.
+  SceneGraph's `Rectangle` has no corner radius, so every button is two tinted `Poster` nodes: the
+  fill and the 3px outline, each stretched by Roku's nine-patch rules. Authored at exactly 24×24 so
+  `rsvg-convert` maps 1:1 to pixels, with a 22×22 interior at radius 10 (the design system's `sm`
+  radius of 6 at the Roku canvas's 1.75× scale) and a 1px border carrying **pure opaque black**
+  stretch markers, 2px wide, dead centre on the top and left edges. The marker rects are integer
+  aligned so they cannot antialias — a grey marker pixel silently disables stretching. These are the
+  only `.9.png` files we ship; a *half*-rounded segment needs no extra asset, because `RoundedBox`
+  oversizes the same image inside a clipping rect.
+- `glyphs/chip-cap-{left,right}-line.svg` - the outline halves of a chip, a 3px stroked arc with no
+  fill, sitting over the solid caps below. The straight top and bottom of the stroke are `Rectangle`
+  nodes in the client, so only the curved ends need artwork.
+- `glyphs/icon-shuffle.svg` - the Random action on a series or season, two crossed arrows. Authored
+  here rather than taken from Material Icons, for the same licence reason as the `art-*` glyphs.
+- `glyphs/icon-{sort,filter,library}.svg` - the marks on the Roku browse toolbar chips: three
+  descending bars for the sort, a funnel for the genre filter and a folder for the library filter.
+  The order chip takes `chevron-up` or `chevron-down` depending on which way it runs, and the random
+  chip takes `icon-shuffle`, so those two need no artwork of their own. Authored here for the same
+  licence reason as the rest.
+- `glyphs/icon-{check,close,play,search,bookmark,bookmark-on,heart,heart-on}.svg` - the control
+  icons behind the Roku action bar. The `-on` variants are the filled forms, matching the
+  `icon` / `filledIcon` pair in `toggle_button.dart`: outline when the toggle is off, filled when it
+  is on. **Roku ships no icon set** — its `common:/images/` has only dialog and field 9-patches, the
+  four focus bitmaps, the Options-key icon, a generic placeholder and two player images — so these
+  are ours. An icon font would have been one file instead of eight and was rejected for the same
+  reason as the `art-*` glyphs below: no third-party licence to carry.
+- `glyphs/disc.svg` - a plain filled circle, tinted and used as the plate behind a chevron.
+- `glyphs/chip-cap-{left,right}.svg` - the rounded ends of a chip. SceneGraph's `Rectangle` has no
+  corner radius and stretching a pill PNG distorts its caps, so a chip is drawn as cap, middle
+  `Rectangle`, cap.
+- `glyphs/hex-texture.svg` - the design system's §2.9 shadow-mask hex lattice, 14px cell spacing, as
+  an SVG `<pattern>` filling a 1920×1080 canvas. Roku has no canvas API and `Poster` cannot tile, so
+  it renders to one full-screen PNG; the pattern is sparse enough that the result is ~22KB. Tinted
+  `text` at 6% opacity by the client.
 - `icons/flutter/{favicon,Icon-*}.png` - the Flutter web favicon and PWA icons.
 - `icons/flutter/app_icon_*.png` - the Flutter macOS app icon set. Filenames match the
   ones the appiconset's `Contents.json` references.
@@ -115,5 +166,26 @@ brand SVG changes, then refresh.
 | `clients/flutter` | `icons/flutter/android_icon_{48,72,96,144,192}.png` | `android/app/src/main/res/mipmap-*/ic_launcher.png` |
 | `clients/flutter` | `icons/flutter/android_icon_fg_{108,162,216,324,432}.png` | `android/app/src/main/res/mipmap-*/ic_launcher_foreground.png` |
 | `clients/flutter` | `vendor/hls.min.js` | `web/hls.min.js` |
+| `clients/roku` | `fonts/Roboto-{Regular,Medium}.ttf` | `fonts/` |
+| `clients/roku` | `fonts/Roboto-OFL.txt` | `fonts/Roboto-OFL.txt` |
+| `clients/roku` | `icons/roku/channel-poster-{hd,fhd}.png` | `images/` |
+| `clients/roku` | `icons/roku/splash-{sd,hd,fhd}.png` | `images/` |
+| `clients/roku` | `icons/roku/brand-mark.png` | `images/brand-mark.png` |
+| `clients/roku` | `icons/roku/art-{movie,landscape,person}.png` | `images/` |
+| `clients/roku` | `icons/roku/watched-{disc,ring}.png` | `images/` |
+| `clients/roku` | `icons/roku/hex-texture.png` | `images/hex-texture.png` |
+| `clients/roku` | `icons/roku/chevron-{left,right,up,down}.png` | `images/` |
+| `clients/roku` | `icons/roku/icon-{check,close,play,search}.png` | `images/` |
+| `clients/roku` | `icons/roku/icon-{bookmark,bookmark-on,heart,heart-on}.png` | `images/` |
+| `clients/roku` | `icons/roku/icon-shuffle.png` | `images/icon-shuffle.png` |
+| `clients/roku` | `icons/roku/chip-cap-{left,right}.png` | `images/` |
+| `clients/roku` | `icons/roku/chip-cap-{left,right}-line.png` | `images/` |
+| `clients/roku` | `icons/roku/button-{fill,line}.9.png` | `images/` |
+| `clients/roku` | `icons/roku/disc.png` | `images/disc.png` |
 
-As the Roku client lands, add its launcher and icon targets here.
+Roku takes PNG only - there is no SVG support on the platform, so every Roku target is a render
+rather than a copy of the source SVG.
+
+The `.9.png` suffix is load-bearing: Roku only applies nine-patch stretching to files named that way,
+so the suffix has to survive rendering and distribution. `render_icons.sh` writes it and
+`refresh_assets.py` copies it verbatim.

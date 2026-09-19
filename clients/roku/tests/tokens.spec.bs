@@ -1,0 +1,147 @@
+namespace tests
+
+    @suite("tokens")
+    class TokenTests extends rooibos.BaseTestSuite
+
+        @describe("theme tables")
+
+        @it("carries every colour token in every theme")
+        sub everyThemeIsComplete()
+            expected = [
+                "bg", "surface", "surfaceAlt", "text", "muted", "border",
+                "accent", "accentContrast", "ok", "warn", "danger", "dangerContrast",
+                "okBg", "warnBg", "dangerBg", "artBg",
+                "rowOk", "rowWarn", "rowDanger"
+            ]
+
+            for each name in ThemeNames()
+                tokens = ThemeTokens(name)
+                for each key in expected
+                    m.assertTrue(tokens.DoesExist(key), name + " is missing " + key)
+                end for
+            end for
+        end sub
+
+        @it("states every colour as 0xRRGGBBAA")
+        sub coloursAreWellFormed()
+            for each name in ThemeNames()
+                tokens = ThemeTokens(name)
+                for each key in tokens
+                    value = tokens[key]
+                    if type(value) = "String" or type(value) = "roString"
+                        m.assertEqual(Len(value), 10, name + "." + key + " is not 0xRRGGBBAA")
+                        m.assertEqual(Left(value, 2), "0x", name + "." + key + " lacks the 0x prefix")
+                    end if
+                end for
+            end for
+        end sub
+
+        @it("falls back to the default theme for an unknown name")
+        sub unknownThemeFallsBack()
+            m.assertEqual(ThemeTokens("nonsense").bg, ThemeTokens(DefaultThemeName()).bg)
+        end sub
+
+        @it("marks light as the only theme that is not dark")
+        sub lightIsTheOnlyLightTheme()
+            m.assertFalse(ThemeTokens("light").isDark)
+            m.assertTrue(ThemeTokens("dark").isDark)
+            m.assertTrue(ThemeTokens("retro").isDark)
+        end sub
+
+        @describe("row tints")
+
+        @it("derives row tints from their base colour at the tint alpha")
+        sub rowTintsAreDerived()
+            tokens = ThemeTokens("dark")
+            m.assertEqual(tokens.rowOk, Left(tokens.ok, 8) + RowTintAlpha())
+            m.assertEqual(tokens.rowWarn, Left(tokens.warn, 8) + RowTintAlpha())
+            m.assertEqual(tokens.rowDanger, Left(tokens.danger, 8) + RowTintAlpha())
+        end sub
+
+        @describe("scales")
+
+        @it("keeps body text at the readable floor and orders the scale")
+        sub typeScaleIsOrdered()
+            sizes = TypeScale()
+            m.assertEqual(sizes.textBase, 28)
+            m.assertTrue(sizes.text2xl > sizes.textXl)
+            m.assertTrue(sizes.textXl > sizes.textLg)
+            m.assertTrue(sizes.textLg > sizes.textBase)
+            m.assertTrue(sizes.textBase > sizes.textSm)
+            m.assertTrue(sizes.textSm > sizes.textXs)
+        end sub
+
+        @it("keeps spacing on the design system scale times 1.75")
+        sub spacingMatchesTheDesignSystem()
+            space = SpacingScale()
+            m.assertEqual(space.s4, 28)
+            m.assertEqual(space.s1, 7)
+            m.assertEqual(space.s10, 112)
+        end sub
+
+        @it("authors against a fixed 1920x1080 canvas")
+        sub canvasIsFixed()
+            m.assertEqual(CanvasWidth(), 1920)
+            m.assertEqual(CanvasHeight(), 1080)
+        end sub
+
+        @it("builds each scale once and hands back the same table after that")
+        sub scalesAreMemoized()
+            first = TypeScale()
+            first.probe = 1
+            m.assertEqual(TypeScale().probe, 1)
+            TypeScale().Delete("probe")
+
+            spacing = SpacingScale()
+            spacing.probe = 2
+            m.assertEqual(SpacingScale().probe, 2)
+            SpacingScale().Delete("probe")
+        end sub
+
+        @describe("high contrast")
+
+        @it("hands back the plain theme when contrast is off")
+        sub plainThemeWhenOff()
+            for each name in ThemeNames()
+                m.assertEqual(ThemedTokens(name, false).muted, ThemeTokens(name).muted)
+            end for
+        end sub
+
+        @it("retires muted and border onto the text colour, which is the whole hardening")
+        sub hardensEveryTheme()
+            for each name in ThemeNames()
+                plain = ThemeTokens(name)
+                hard = ThemedTokens(name, true)
+
+                m.assertEqual(hard.muted, plain.text)
+                m.assertEqual(hard.border, plain.text)
+                m.assertEqual(hard.bg, plain.bg)
+                m.assertEqual(hard.accent, plain.accent)
+            end for
+        end sub
+
+        @it("raises the row tints so a status row still reads once the border is loud")
+        sub raisesRowTints()
+            plain = ThemeTokens("dark")
+            hard = ThemedTokens("dark", true)
+
+            m.assertNotEqual(hard.rowOk, plain.rowOk)
+            m.assertEqual(Left(hard.rowOk, 8), Left(plain.ok, 8))
+        end sub
+
+        @describe("backdrop fades")
+
+        @it("lets the wash outlast the first frame when the player is what it is leaving")
+        sub playerBackdropOutlastsTheFirstFrame()
+            m.assertTrue(BackdropFadeOutSeconds(true) > BackdropFadeOutSeconds(false), "the player fade-out is not the longer one")
+            m.assertEqual(BackdropFadeOutSeconds(false), BackdropFadeSeconds())
+        end sub
+
+        @it("fades in more slowly than it fades out of an ordinary screen")
+        sub fadeInIsTheSlowerOne()
+            m.assertTrue(BackdropFadeInSeconds() > BackdropFadeSeconds(), "the fade-in is not the slower one")
+        end sub
+
+    end class
+
+end namespace

@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="AccountScreen" extends="Group">
+    <script type="text/brightscript" uri="pkg:/components/screens/AccountScreen.brs" />
+    <script type="text/brightscript" uri="pkg:/components/screens/CardMenu.brs" />
+    <script type="text/brightscript" uri="pkg:/components/api/Http.brs" />
+    <script type="text/brightscript" uri="pkg:/source/util.brs" />
+    <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
+    <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/format.brs" />
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/source/cards.brs" />
+    <script type="text/brightscript" uri="pkg:/source/images.brs" />
+    <script type="text/brightscript" uri="pkg:/source/catalog.brs" />
+    <script type="text/brightscript" uri="pkg:/source/state.brs" />
+    <script type="text/brightscript" uri="pkg:/source/detail.brs" />
+    <script type="text/brightscript" uri="pkg:/source/prefs.brs" />
+    <script type="text/brightscript" uri="pkg:/source/session.brs" />
+    <script type="text/brightscript" uri="pkg:/source/screen.brs" />
+    <script type="text/brightscript" uri="pkg:/source/capability.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+
+    <interface>
+        <field id="theme" type="assocarray" onChange="render" />
+        <field id="themeName" type="string" />
+        <field id="advance" type="string" alwaysNotify="true" />
+        <field id="advanceTarget" type="assocarray" />
+        <field id="choiceRequest" type="assocarray" />
+        <field id="choiceResult" type="assocarray" onChange="onChoice" />
+        <field id="toastRequest" type="assocarray" alwaysNotify="true" />
+        <field id="themeRequest" type="string" alwaysNotify="true" />
+        <field id="focusedChild" type="node" onChange="onFocus" />
+    </interface>
+
+    <children>
+        <ActionBar id="crumbs" />
+        <Label id="heading" />
+        <ActionBar id="tabs" />
+        <Rectangle id="tabRule" />
+        <Rectangle id="tabMarker" />
+        <Group id="viewport">
+            <Group id="stack">
+                <CardRail id="watchlistRail" visible="false" />
+                <CardRail id="favoritesRail" visible="false" />
+                <CardRail id="historyRail" visible="false" />
+                <Group id="emptyLibrary" visible="false">
+                    <StateNote id="libraryNote" kind="empty" />
+                </Group>
+                <Group id="profileSection" visible="false">
+                    <RoundedBox id="profilePanel" />
+                    <RoundedBox id="supportPanel" />
+                    <Label id="profileHeading" />
+                    <FactList id="profileFacts" />
+                    <Label id="profileHelp" />
+                    <Label id="supportHeading" />
+                    <Label id="supportChanged" />
+                    <FactList id="supportFacts" />
+                    <ActionBar id="supportActions" />
+                </Group>
+                <Group id="playbackSection" visible="false">
+                    <RoundedBox id="playbackPanel" />
+                    <Label id="playbackHeading" />
+                    <Label id="autoplayName" />
+                    <ActionBar id="autoplayActions" />
+                    <Label id="autoplayHelp" />
+                    <Rectangle id="autoplayRule" />
+                    <Label id="timeDisplayName" />
+                    <ActionBar id="timeDisplayActions" />
+                    <Label id="timeDisplayHelp" />
+                    <Rectangle id="timeDisplayRule" />
+                    <Label id="diagnosticsName" />
+                    <ActionBar id="diagnosticsActions" />
+                    <Label id="diagnosticsHelp" />
+                </Group>
+                <Group id="appearanceSection" visible="false">
+                    <RoundedBox id="appearancePanel" />
+                    <Label id="appearanceHeading" />
+                    <ThemeCards id="themeCards" />
+                    <ActionBar id="contrastBar" />
+                </Group>
+                <Group id="serverSection" visible="false">
+                    <RoundedBox id="serverPanel" />
+                    <Label id="serverHeading" />
+                    <Label id="serverAddress" />
+                    <ActionBar id="serverActions" />
+                </Group>
+                <Group id="sessionSection" visible="false">
+                    <RoundedBox id="sessionPanel" />
+                    <Label id="sessionHeading" />
+                    <Label id="deviceLine" />
+                    <ActionBar id="sessionActions" />
+                </Group>
+            </Group>
+        </Group>
+        <ScrollBar id="scrollBar" />
+        <StateNote id="note" kind="loading" visible="false" />
+    </children>
+</component>

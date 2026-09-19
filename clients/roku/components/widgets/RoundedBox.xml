@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="RoundedBox" extends="Group">
+    <script type="text/brightscript" uri="pkg:/components/widgets/RoundedBox.brs" />
+    <script type="text/brightscript" uri="pkg:/source/util.brs" />
+    <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
+    <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/format.brs" />
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/source/cards.brs" />
+    <script type="text/brightscript" uri="pkg:/source/images.brs" />
+    <script type="text/brightscript" uri="pkg:/source/catalog.brs" />
+    <script type="text/brightscript" uri="pkg:/source/state.brs" />
+    <script type="text/brightscript" uri="pkg:/source/detail.brs" />
+    <script type="text/brightscript" uri="pkg:/source/prefs.brs" />
+    <script type="text/brightscript" uri="pkg:/source/session.brs" />
+    <script type="text/brightscript" uri="pkg:/source/screen.brs" />
+    <script type="text/brightscript" uri="pkg:/source/capability.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+
+    <interface>
+        <field id="boxWidth" type="float" value="0" onChange="render" />
+        <field id="boxHeight" type="float" value="0" onChange="render" />
+        <field id="fillColor" type="string" onChange="render" />
+        <field id="lineColor" type="string" onChange="render" />
+        <field id="rounded" type="string" value="all" onChange="render" />
+    </interface>
+
+    <children>
+        <Group id="clip">
+            <Poster id="fill" />
+            <Poster id="line" />
+        </Group>
+    </children>
+</component>

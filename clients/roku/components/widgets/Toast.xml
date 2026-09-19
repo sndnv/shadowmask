@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="Toast" extends="Group">
+    <script type="text/brightscript" uri="pkg:/components/widgets/Toast.brs" />
+    <script type="text/brightscript" uri="pkg:/source/util.brs" />
+    <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
+    <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/format.brs" />
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/source/cards.brs" />
+    <script type="text/brightscript" uri="pkg:/source/images.brs" />
+    <script type="text/brightscript" uri="pkg:/source/catalog.brs" />
+    <script type="text/brightscript" uri="pkg:/source/state.brs" />
+    <script type="text/brightscript" uri="pkg:/source/detail.brs" />
+    <script type="text/brightscript" uri="pkg:/source/prefs.brs" />
+    <script type="text/brightscript" uri="pkg:/source/session.brs" />
+    <script type="text/brightscript" uri="pkg:/source/screen.brs" />
+    <script type="text/brightscript" uri="pkg:/source/capability.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+
+    <interface>
+        <field id="theme" type="assocarray" />
+        <field id="kind" type="string" value="ok" />
+        <field id="message" type="string" onChange="show" />
+        <field id="fontSize" type="float" value="28" />
+        <field id="holdSeconds" type="float" value="4" />
+    </interface>
+
+    <children>
+        <Rectangle id="surface" visible="false">
+            <Rectangle id="edge" />
+            <Label id="message" />
+        </Rectangle>
+        <Timer id="hold" repeat="false" />
+    </children>
+</component>

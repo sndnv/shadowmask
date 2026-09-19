@@ -1,0 +1,35 @@
+{
+    "extends": "./bsconfig.json",
+    "files": [
+        "manifest",
+        "source/**/*",
+        "!source/main.brs",
+        "components/**/*",
+        "images/**/*",
+        "fonts/**/*",
+        {
+            "src": "tests/**/*.spec.bs",
+            "dest": "source/tests"
+        },
+        {
+            "src": "tests/test-main.brs",
+            "dest": "source/main.brs"
+        }
+    ],
+    "stagingDir": "build/test",
+    "plugins": [
+        "@rokucommunity/bslint",
+        "rooibos-roku"
+    ],
+    "rooibos": {
+        "isRecordingCodeCoverage": false,
+        "testsFilePattern": [
+            "tests/**/*.spec.bs"
+        ],
+        "showOnlyFailures": false,
+        "catchCrashes": true,
+        "failFast": false,
+        "keepAppOpen": false,
+        "sendHomeOnFinish": false
+    }
+}

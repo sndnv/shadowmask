@@ -1,0 +1,454 @@
+namespace tests
+
+    @suite("capability")
+    class CapabilityTests extends rooibos.BaseTestSuite
+
+        @describe("VideoProbeSpecs")
+
+        @it("never asks about a codec this client could not play")
+        sub probesNothingUnplayable()
+            ' Roku decodes AV1 through DASH only and our transport is HLS, so a
+            ' true answer would negotiate a direct play that cannot exist.
+            for each spec in VideoProbeSpecs()
+                m.assertFalse(spec.codec = "av1")
+            end for
+        end sub
+
+        @it("asks every profile at every level")
+        sub probesEveryProfileAndLevel()
+            asked = {}
+            for each spec in VideoProbeSpecs()
+                asked[spec.codec + "/" + spec.profile + "/" + spec.level] = true
+            end for
+
+            m.assertTrue(asked.DoesExist("h264/high/4.2"))
+            m.assertTrue(asked.DoesExist("h264/main/4.0"))
+            m.assertTrue(asked.DoesExist("hevc/main10/5.1"))
+            m.assertTrue(asked.DoesExist("hevc/main/5.0"))
+        end sub
+
+        @describe("VideoCaps")
+
+        @it("carries the highest level that passed, per codec")
+        sub carriesHighestLevel()
+            caps = VideoCaps([
+                { codec: "h264", level: "4.0", bitDepth: 8, ok: true },
+                { codec: "h264", level: "4.2", bitDepth: 8, ok: true },
+                { codec: "h264", level: "4.1", bitDepth: 8, ok: true }
+            ])
+
+            m.assertEqual(caps.Count(), 1)
+            m.assertEqual(caps[0].codec, "h264")
+            m.assertEqual(caps[0].max_level, "4.2")
+        end sub
+
+        @it("leaves out a level that did not pass")
+        sub leavesOutFailedLevels()
+            caps = VideoCaps([
+                { codec: "hevc", level: "5.0", bitDepth: 8, ok: true },
+                { codec: "hevc", level: "5.1", bitDepth: 8, ok: false }
+            ])
+
+            m.assertEqual(caps[0].max_level, "5.0")
+        end sub
+
+        @it("leaves out a codec that passed nothing")
+        sub leavesOutUnsupportedCodec()
+            caps = VideoCaps([
+                { codec: "hevc", level: "5.0", bitDepth: 8, ok: false },
+                { codec: "hevc", level: "5.1", bitDepth: 10, ok: false }
+            ])
+
+            m.assertEqual(caps.Count(), 0)
+        end sub
+
+        @it("lifts the bit depth only when a 10-bit profile passed")
+        sub liftsBitDepthOnMain10()
+            eightBit = VideoCaps([{ codec: "hevc", level: "5.1", bitDepth: 8, ok: true }])
+            m.assertEqual(eightBit[0].max_bit_depth, 8)
+
+            tenBit = VideoCaps([
+                { codec: "hevc", level: "5.1", bitDepth: 8, ok: true },
+                { codec: "hevc", level: "5.0", bitDepth: 10, ok: true }
+            ])
+            m.assertEqual(tenBit[0].max_bit_depth, 10)
+            m.assertEqual(tenBit[0].max_level, "5.1")
+        end sub
+
+        @it("drops av1 even when the device says yes")
+        sub dropsAv1()
+            m.assertEqual(VideoCaps([{ codec: "av1", level: "5.1", bitDepth: 10, ok: true }]).Count(), 0)
+        end sub
+
+        @it("omits a blank level rather than sending an empty one")
+        sub omitsBlankLevel()
+            caps = VideoCaps([{ codec: "h264", level: "", bitDepth: 8, ok: true }])
+            m.assertFalse(caps[0].DoesExist("max_level"))
+        end sub
+
+        @describe("AudioCaps")
+
+        @it("gives every passing codec the device's output channel count")
+        sub reportsOutputChannels()
+            caps = AudioCaps([{ codec: "aac", ok: true }, { codec: "ac3", ok: false }, { codec: "eac3", ok: true }], 6)
+
+            m.assertEqual(caps.Count(), 2)
+            m.assertEqual(caps[0].codec, "aac")
+            m.assertEqual(caps[0].max_channels, 6)
+            m.assertEqual(caps[1].codec, "eac3")
+        end sub
+
+        @it("falls back to stereo when the device reported no channels")
+        sub fallsBackToStereo()
+            m.assertEqual(AudioCaps([{ codec: "aac", ok: true }], 0)[0].max_channels, 2)
+        end sub
+
+        @describe("OutputChannels")
+
+        @it("reads the named output the device reports")
+        sub readsNamedOutput()
+            m.assertEqual(OutputChannels("Stereo"), 2)
+            m.assertEqual(OutputChannels("5.1 surround"), 6)
+            m.assertEqual(OutputChannels("7.1 surround"), 8)
+            m.assertEqual(OutputChannels(invalid), 2)
+        end sub
+
+        @describe("FrameRateFromMode")
+
+        @it("reads the rate a video mode names")
+        sub readsNamedFrameRate()
+            m.assertEqual(FrameRateFromMode("2160p60b10"), 60)
+            m.assertEqual(FrameRateFromMode("2160p30b10"), 30)
+            m.assertEqual(FrameRateFromMode("576p50"), 50)
+        end sub
+
+        @it("reports nothing for a mode that names no rate")
+        sub reportsNoRateWhenUnnamed()
+            ' A bare mode leaves the ceiling to the server's profile rather than
+            ' guessing 60 and claiming a rate the device never stated.
+            m.assertEqual(FrameRateFromMode("1080p"), 0)
+            m.assertEqual(FrameRateFromMode("480i"), 0)
+            m.assertEqual(FrameRateFromMode(invalid), 0)
+        end sub
+
+        @describe("PictureFromMode")
+
+        @it("maps the video mode to a picture size")
+        sub mapsModeToPicture()
+            picture = PictureFromMode("2160p60b10", invalid)
+            m.assertEqual(picture.width, 3840)
+            m.assertEqual(picture.height, 2160)
+
+            hd = PictureFromMode("1080p", invalid)
+            m.assertEqual(hd.width, 1920)
+            m.assertEqual(hd.height, 1080)
+        end sub
+
+        @it("falls back to the reported display size")
+        sub fallsBackToDisplaySize()
+            picture = PictureFromMode("", { w: 1280, h: 720 })
+            m.assertEqual(picture.width, 1280)
+            m.assertEqual(picture.height, 720)
+        end sub
+
+        @it("reports nothing when neither source answered")
+        sub reportsNoPictureWhenUnmeasured()
+            m.assertInvalid(PictureFromMode("", invalid))
+            m.assertInvalid(PictureFromMode("", { w: 0, h: 0 }))
+        end sub
+
+        @describe("HdrNames")
+
+        @it("names the formats the display carries")
+        sub namesDisplayFormats()
+            names = HdrNames({ Hdr10: true, HLG: true, DolbyVision: true })
+            m.assertEqual(names, ["hdr10", "hlg"])
+        end sub
+
+        @it("returns an empty list for a display with no HDR")
+        sub returnsEmptyForNoHdr()
+            m.assertEqual(HdrNames({ Hdr10: false, HLG: false }).Count(), 0)
+        end sub
+
+        @describe("DecodingReport")
+
+        @it("omits an empty codec list rather than sending one")
+        sub omitsEmptyCodecLists()
+            ' The server validates the merged profile and rejects an empty video
+            ' or audio list, so an unmeasurable device must fall back to the
+            ' baseline rather than fail every session it starts.
+            report = DecodingReport({ video: [], audio: [], mode: "1080p" })
+
+            m.assertFalse(report.DoesExist("video"))
+            m.assertFalse(report.DoesExist("audio"))
+        end sub
+
+        @it("always sends the hdr list, including when it is empty")
+        sub alwaysSendsMeasuredHdr()
+            ' An absent list inherits the profile's optimistic claim; an empty
+            ' one is the instruction to tone-map.
+            report = DecodingReport({ hdr: { Hdr10: false, HLG: false } })
+
+            m.assertTrue(report.DoesExist("hdr"))
+            m.assertEqual(report.hdr.Count(), 0)
+        end sub
+
+        @it("omits hdr when the display could not be read at all")
+        sub omitsHdrWhenUnread()
+            m.assertFalse(DecodingReport({ hdr: invalid }).DoesExist("hdr"))
+        end sub
+
+        @it("reports the picture and the rate the mode named")
+        sub reportsCeiling()
+            report = DecodingReport({ mode: "2160p60b10" })
+
+            m.assertEqual(report.max_width, 3840)
+            m.assertEqual(report.max_height, 2160)
+            m.assertEqual(report.max_frame_rate, 60)
+        end sub
+
+        @it("omits the rate when the mode named none")
+        sub omitsUnnamedRate()
+            report = DecodingReport({ mode: "1080p" })
+
+            m.assertEqual(report.max_height, 1080)
+            m.assertFalse(report.DoesExist("max_frame_rate"))
+        end sub
+
+        @it("claims mkv only when the manifest declares it")
+        sub claimsMkvOnlyWhenDeclared()
+            m.assertEqual(DecodingReport({ mkv: true }).containers, ["mp4", "mkv", "ts", "hls"])
+            m.assertEqual(DecodingReport({ mkv: false }).containers, ["mp4", "ts", "hls"])
+        end sub
+
+        @it("never reports how smoothly it decodes")
+        sub neverReportsSmooth()
+            ' Roku answers support, not real-time capability; absent means true,
+            ' and a guessed false would be worse than the absence.
+            report = DecodingReport({ video: [{ codec: "hevc", level: "5.1", bitDepth: 10, ok: true }] })
+
+            m.assertFalse(report.video[0].DoesExist("smooth"))
+        end sub
+
+        @describe("CapabilitiesBody")
+
+        @it("names the platform and the server's profile version")
+        sub namesPlatformAndVersion()
+            body = CapabilitiesBody({ containers: ["mp4"] }, 3)
+
+            m.assertEqual(body.platform, ClientPlatform())
+            m.assertEqual(body.profile_version, 3)
+            m.assertEqual(body.decoding.containers, ["mp4"])
+        end sub
+
+        @it("falls back to the version this build expects")
+        sub fallsBackToExpectedVersion()
+            m.assertEqual(CapabilitiesBody({}, 0).profile_version, ExpectedProfileVersion())
+        end sub
+
+        @it("omits decoding when nothing was measured")
+        sub omitsEmptyDecoding()
+            m.assertFalse(CapabilitiesBody({}, 1).DoesExist("decoding"))
+            m.assertFalse(CapabilitiesBody(invalid, 1).DoesExist("decoding"))
+        end sub
+
+        @describe("DiagnosticRows")
+
+        @it("reads the measured report back as labelled rows")
+        sub readsReportAsRows()
+            decoding = {
+                video: [{ codec: "hevc", max_level: "5.1", max_bit_depth: 10 }],
+                audio: [{ codec: "eac3", max_channels: 6 }],
+                hdr: ["hdr10"],
+                containers: ["mp4", "hls"],
+                max_width: 3840,
+                max_height: 2160,
+                max_frame_rate: 60
+            }
+            rows = DiagnosticRows(decoding, 1, {})
+
+            m.assertEqual(rows[0].values[0], "3840×2160 · 60 fps")
+            m.assertEqual(rows[1].values[0], "HEVC · 5.1 · 10-bit")
+            m.assertEqual(rows[2].values[0], "EAC3 · 5.1")
+            m.assertEqual(rows[3].values[0], "HDR10")
+            m.assertEqual(rows[4].values[0], "MP4 · HLS")
+            m.assertEqual(rows[5].values[0], "1")
+        end sub
+
+        @it("tells a measured absence apart from an unmeasured one")
+        sub separatesAbsenceFromSilence()
+            measured = DiagnosticRows({ hdr: [] }, 1, {})
+            m.assertEqual(measured[3].values[0], Phrase("diagnostics.none"))
+
+            silent = DiagnosticRows({}, 0, {})
+            m.assertEqual(silent[1].values[0], Phrase("diagnostics.notMeasured"))
+            m.assertEqual(silent[3].values[0], Phrase("diagnostics.notMeasured"))
+            m.assertEqual(silent[0].values[0], Phrase("status.unavailable"))
+            m.assertEqual(silent[5].values[0], Phrase("status.unavailable"))
+        end sub
+
+        @it("says nothing has played until a session negotiates one")
+        sub saysNothingPlayedYet()
+            m.assertEqual(DiagnosticRows({}, 1, {})[6].values[0], Phrase("diagnostics.noPlaybackYet"))
+            m.assertEqual(DiagnosticRows({}, 1, invalid)[6].values[0], Phrase("diagnostics.noPlaybackYet"))
+        end sub
+
+        @it("shows what the last session negotiated")
+        sub showsLastNegotiation()
+            started = SessionFrom({ session_id: "s1", mode: "transcode", container: "mpegts" })
+            m.assertEqual(DiagnosticRows({}, 1, started)[6].values[0], "transcode · mpegts")
+        end sub
+
+        @it("gives every row a label and at least one value")
+        sub everyRowReads()
+            for each row in DiagnosticRows({}, 0, {})
+                m.assertFalse(IsBlank(row.label))
+                m.assertTrue(row.values.Count() > 0)
+            end for
+        end sub
+
+        @describe("StartSessionRequest")
+
+        @it("posts the version and the capabilities the device measured")
+        sub postsVersionAndCapabilities()
+            request = StartSessionRequest("http://host", "t0ken", "v1", 0, CapabilitiesBody({ max_height: 1080 }, 1))
+
+            m.assertEqual(request.url, "http://host/api/v1/sessions")
+            m.assertEqual(request.method, "POST")
+            m.assertEqual(request.headers["Authorization"], "Bearer t0ken")
+
+            body = ParseJson(request.body)
+            m.assertEqual(body.version_id, "v1")
+            m.assertEqual(body.capabilities.platform, "roku")
+            m.assertEqual(body.capabilities.decoding.max_height, 1080)
+            m.assertFalse(body.DoesExist("start_position_ms"))
+        end sub
+
+        @it("carries a resume position only when there is one")
+        sub carriesResumePosition()
+            request = StartSessionRequest("http://host", "t0ken", "v1", 90000, {})
+            m.assertEqual(ParseJson(request.body).start_position_ms, 90000)
+        end sub
+
+        @describe("capability overrides")
+
+        function measured() as object
+            return {
+                video: [{ codec: "h264", max_level: "4.2", max_bit_depth: 8 }],
+                audio: [{ codec: "aac", max_channels: 2 }],
+                hdr: ["hdr10"],
+                containers: ["mp4"],
+                max_width: 1920,
+                max_height: 1080,
+                max_frame_rate: 60
+            }
+        end function
+
+        @it("reports nothing changed until something is actually overridden")
+        sub startsUnchanged()
+            m.assertFalse(OverridesChanged(CapabilityOverrides()))
+
+            overrides = CapabilityOverrides()
+            overrides.codecs["hevc"] = "hardware"
+            m.assertTrue(OverridesChanged(overrides))
+        end sub
+
+        @it("returns the measured report untouched while every value is still detected")
+        sub passesMeasuredThrough()
+            report = ApplyOverrides(m.measured(), CapabilityOverrides())
+
+            m.assertEqual(report.max_height, 1080)
+            m.assertEqual(report.video[0].codec, "h264")
+        end sub
+
+        @it("adds a codec the device never reported, which is the whole point of forcing one on")
+        sub forcesACodecOn()
+            overrides = CapabilityOverrides()
+            overrides.codecs["hevc"] = "hardware"
+
+            video = ApplyOverrides(m.measured(), overrides).video
+            m.assertEqual(video.Count(), 2)
+            m.assertEqual(video[1].codec, "hevc")
+            m.assertTrue(video[1].smooth)
+        end sub
+
+        @it("marks a software codec as not smooth, which is what tells the server to transcode")
+        sub forcesACodecSoftware()
+            overrides = CapabilityOverrides()
+            overrides.codecs["h264"] = "software"
+
+            video = ApplyOverrides(m.measured(), overrides).video
+            m.assertFalse(video[0].smooth)
+            m.assertEqual(video[0].max_level, "4.2")
+        end sub
+
+        @it("keeps the measured list rather than sending an empty one, which the server rejects")
+        sub neverSendsAnEmptyVideoList()
+            overrides = CapabilityOverrides()
+            for each codec in KnownVideoCodecs()
+                overrides.codecs[codec] = "unsupported"
+            end for
+
+            video = ApplyOverrides(m.measured(), overrides).video
+            m.assertEqual(video.Count(), 1)
+            m.assertEqual(video[0].codec, "h264")
+        end sub
+
+        @it("sends an empty hdr list for Never, because absent and empty mean different things")
+        sub deniesHdrWithAnEmptyList()
+            overrides = CapabilityOverrides()
+            overrides.hdr = "deny"
+
+            report = ApplyOverrides(m.measured(), overrides)
+            m.assertTrue(report.DoesExist("hdr"))
+            m.assertEqual(report.hdr.Count(), 0)
+        end sub
+
+        @it("offers every known format when hdr is allowed on a device that measured none")
+        sub allowsHdrOnASilentDevice()
+            overrides = CapabilityOverrides()
+            overrides.hdr = "allow"
+
+            bare = m.measured()
+            bare.hdr = []
+            m.assertEqual(ApplyOverrides(bare, overrides).hdr.Count(), HdrFormats().Count())
+        end sub
+
+        @it("caps the picture and the frame rate without touching what was measured elsewhere")
+        sub capsPictureAndRate()
+            overrides = CapabilityOverrides()
+            overrides.maxHeight = 720
+            overrides.maxFrameRate = 30
+
+            report = ApplyOverrides(m.measured(), overrides)
+            m.assertEqual(report.max_height, 720)
+            m.assertEqual(report.max_frame_rate, 30)
+            m.assertEqual(report.audio[0].codec, "aac")
+        end sub
+
+        @it("keeps a codec the device reported that no override knows about")
+        sub keepsUnknownCodecs()
+            overrides = CapabilityOverrides()
+            overrides.maxHeight = 720
+
+            reported = m.measured()
+            reported.video.Push({ codec: "mpeg2", max_bit_depth: 8 })
+
+            video = ApplyOverrides(reported, overrides).video
+            m.assertEqual(video[video.Count() - 1].codec, "mpeg2")
+        end sub
+
+        @it("leads every option list with the detected value and never leaks a phrase key")
+        sub namesEveryOption()
+            lists = [OverrideCodecOptions(), OverrideHdrOptions(), PictureHeightOptions(), FrameRateOptions()]
+            for each options in lists
+                m.assertEqual(options[0].label, Phrase("caps.detected"))
+                for each option in options
+                    m.assertFalse(Instr(1, option.label, "caps.") > 0)
+                end for
+            end for
+        end sub
+
+    end class
+
+end namespace
