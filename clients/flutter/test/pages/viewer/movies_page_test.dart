@@ -103,6 +103,46 @@ ApiClient _api(
   }),
 );
 
+Map<String, dynamic> _library(String id, String name, String kind) =>
+    <String, dynamic>{
+      'id': id,
+      'name': name,
+      'kind': kind,
+      'watcher': 'manual',
+      'created_at': '',
+      'updated_at': '',
+    };
+
+ApiClient _apiWithLibraries() => ApiClient(
+  baseUrl: 'http://test',
+  httpClient: MockClient((http.Request req) async {
+    final String path = req.url.path;
+    if (path == '/api/v1/users/self') {
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'id': 'u1',
+          'username': 'pat',
+          'role': 'user',
+        }),
+        200,
+      );
+    }
+    if (path == '/api/v1/movies') {
+      return http.Response(jsonEncode(_page(0)), 200);
+    }
+    if (path == '/api/v1/libraries') {
+      return http.Response(
+        jsonEncode(<Map<String, dynamic>>[
+          _library('lib1', 'Films', 'movie'),
+          _library('lib2', 'Shows', 'tv'),
+        ]),
+        200,
+      );
+    }
+    return http.Response(jsonEncode(<dynamic>[]), 200);
+  }),
+);
+
 Future<void> _pump(
   WidgetTester tester,
   ApiClient api, {
@@ -277,5 +317,23 @@ void main() {
 
     expect(find.byType(SkeletonCard), findsWidgets);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the library filter leaves out libraries that hold no movies', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, _apiWithLibraries());
+
+    await tester.tap(
+      find.text('${Strings.libraryLabel}: ${Strings.filterAll}'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Films'), findsOneWidget);
+    expect(
+      find.text('Shows'),
+      findsNothing,
+      reason: 'a tv library can only ever come back empty here',
+    );
   });
 }

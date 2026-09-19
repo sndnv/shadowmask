@@ -8,6 +8,7 @@ import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/util/format.dart';
 import 'package:shadowmask/view/player_shortcuts.dart';
+import 'package:shadowmask/view/timeline_marks.dart';
 
 const Duration _kPreviewLinger = Duration(milliseconds: 900);
 
@@ -71,8 +72,9 @@ class _TimelineState extends State<Timeline> {
         double fractionAt(double dx) => (dx / width).clamp(0.0, 1.0);
         void preview(double dx) => _showAt(fractionAt(dx));
         void clear() => _hide();
-        final double shown = _scrub ?? widget.fraction;
-        final int scrubMs = (shown * widget.durationMs).round();
+        final double? scrub = _scrub;
+        final int scrubMs = ((scrub ?? widget.fraction) * widget.durationMs)
+            .round();
         return Semantics(
           slider: true,
           label: Strings.timelineLabel,
@@ -118,16 +120,17 @@ class _TimelineState extends State<Timeline> {
                     CustomPaint(
                       size: Size(width, 28),
                       painter: _TrackPainter(
-                        fraction: shown,
+                        fraction: widget.fraction,
+                        preview: scrub,
                         buffered: widget.bufferedFraction,
                         track: Colors.white.withValues(alpha: 0.28),
                         bufferedColor: Colors.white.withValues(alpha: 0.45),
                         fill: t.accent,
                       ),
                     ),
-                    if (_scrub != null && widget.thumbBuilder != null)
+                    if (scrub != null && widget.thumbBuilder != null)
                       Positioned(
-                        left: (shown * width) - 84,
+                        left: (scrub * width) - 84,
                         bottom: 34,
                         child: IgnorePointer(
                           child: widget.thumbBuilder!(scrubMs),
@@ -158,6 +161,7 @@ class _TimelineState extends State<Timeline> {
 class _TrackPainter extends CustomPainter {
   _TrackPainter({
     required this.fraction,
+    required this.preview,
     required this.buffered,
     required this.track,
     required this.bufferedColor,
@@ -165,6 +169,7 @@ class _TrackPainter extends CustomPainter {
   });
 
   final double fraction;
+  final double? preview;
   final double buffered;
   final Color track;
   final Color bufferedColor;
@@ -184,17 +189,41 @@ class _TrackPainter extends CustomPainter {
         paint..color = bufferedColor,
       );
     }
-    final double x = size.width * fraction.clamp(0.0, 1.0);
-    canvas.drawLine(Offset(0, y), Offset(x, y), paint..color = fill);
+
+    final TimelineMarks marks = TimelineMarks.of(
+      width: size.width,
+      fraction: fraction,
+      preview: preview,
+    );
+    final Color ghost = fill.withValues(alpha: 0.45);
+    canvas.drawLine(Offset(0, y), Offset(marks.fillTo, y), paint..color = fill);
+    if (marks.hasPreview) {
+      canvas.drawLine(
+        Offset(marks.fillTo, y),
+        Offset(marks.previewTo, y),
+        paint..color = ghost,
+      );
+    }
+
+    final double? ghostAt = marks.ghostAt;
+    if (ghostAt != null) {
+      _thumb(canvas, ghostAt, y, ghost);
+    }
+    _thumb(canvas, marks.thumbAt, y, fill);
+  }
+
+  void _thumb(Canvas canvas, double x, double y, Color color) {
     canvas.drawCircle(
       Offset(x, y),
       9,
       Paint()..color = const Color(0x4D000000),
     );
-    canvas.drawCircle(Offset(x, y), 6, Paint()..color = fill);
+    canvas.drawCircle(Offset(x, y), 6, Paint()..color = color);
   }
 
   @override
   bool shouldRepaint(_TrackPainter oldDelegate) =>
-      oldDelegate.fraction != fraction || oldDelegate.buffered != buffered;
+      oldDelegate.fraction != fraction ||
+      oldDelegate.preview != preview ||
+      oldDelegate.buffered != buffered;
 }

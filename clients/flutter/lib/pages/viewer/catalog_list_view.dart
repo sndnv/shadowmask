@@ -48,6 +48,7 @@ class CatalogListView extends StatelessWidget {
           order: query.order,
           selectedGenres: query.genres,
           library: query.library,
+          libraries: data.libraries,
           sortScope: sortScope,
           limit: query.limit,
           trailing: toolbarTrailing,

@@ -1,8 +1,12 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
+import 'package:shadowmask/components/card_menu.dart';
 import 'package:shadowmask/components/card_rail.dart';
 import 'package:shadowmask/components/empty_note.dart';
 import 'package:shadowmask/components/breadcrumbs.dart';
@@ -106,6 +110,24 @@ class _HomeBodyState extends State<_HomeBody>
     then: () => setState(() => _unsaved.add(card.ref.key)),
   );
 
+  void _refreshAfterMenu(CatalogCard _, CardAction _) => unawaited(_refresh());
+
+  Future<void> _refresh() async {
+    final _HomeData data;
+    try {
+      data = await _load();
+    } catch (_) {
+      return;
+    }
+    if (mounted) {
+      setState(() {
+        _dismissed.clear();
+        _unsaved.clear();
+        _future = SynchronousFuture<_HomeData>(data);
+      });
+    }
+  }
+
   List<CatalogCard> _railCards(Hub hub) => hub.id == _watchlistHub
       ? hub.items
             .where((CatalogCard c) => !_unsaved.contains(c.ref.key))
@@ -192,6 +214,7 @@ class _HomeBodyState extends State<_HomeBody>
                 cards: continueCards,
                 imageBase: _catalog.imageBase,
                 onDismiss: _dismiss,
+                onMenuAction: _refreshAfterMenu,
                 dismissBusy: (CatalogCard c) => busy(c.dismissVersionId),
               ),
             if (data.feed.upNext.isNotEmpty)
@@ -199,6 +222,7 @@ class _HomeBodyState extends State<_HomeBody>
                 title: Strings.upNext,
                 cards: data.feed.upNext,
                 imageBase: _catalog.imageBase,
+                onMenuAction: _refreshAfterMenu,
               ),
             for (final Hub h in data.hubs)
               if (_railCards(h).isNotEmpty)
@@ -209,6 +233,7 @@ class _HomeBodyState extends State<_HomeBody>
                   onDismiss: h.id == _watchlistHub
                       ? _removeFromWatchlist
                       : null,
+                  onMenuAction: _refreshAfterMenu,
                   dismissBusy: (CatalogCard c) => busy(c.ref.key),
                   dismissesByTitle: h.id == _watchlistHub,
                   dismissTooltip: Strings.removeWatchlist,

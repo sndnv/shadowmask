@@ -3,16 +3,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/components/app_dropdown.dart';
+import 'package:shadowmask/components/count_pill.dart';
+import 'package:shadowmask/components/filter_sheet.dart';
+import 'package:shadowmask/components/genre_dropdown.dart';
 import 'package:shadowmask/components/menu_field.dart';
-import 'package:shadowmask/components/menu_option.dart';
 import 'package:shadowmask/components/toggle_button.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/detail_dimensions.dart';
+import 'package:shadowmask/model/library/library.dart';
 import 'package:shadowmask/nav/routes.dart';
 import 'package:shadowmask/pages/viewer/list_prefs_store.dart';
-import 'package:shadowmask/theme/app_menu.dart';
-import 'package:shadowmask/theme/app_theme.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/breakpoints.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -26,6 +27,7 @@ class SectionToolbar extends StatelessWidget {
     required this.order,
     required this.selectedGenres,
     this.library,
+    this.libraries = const <Library>[],
     this.sortScope,
     this.limit,
     this.trailing,
@@ -37,6 +39,7 @@ class SectionToolbar extends StatelessWidget {
   final String order;
   final List<String> selectedGenres;
   final String? library;
+  final List<Library> libraries;
   final String? sortScope;
   final int? limit;
   final Widget? trailing;
@@ -46,10 +49,13 @@ class SectionToolbar extends StatelessWidget {
     String? sort,
     String? order,
     List<String>? genres,
+    String? library,
+    bool libraryChanged = false,
   }) {
     final List<String> chosen = genres ?? selectedGenres;
     final String nextSort = sort ?? this.sort;
     final String nextOrder = order ?? this.order;
+    final String? nextLibrary = libraryChanged ? library : this.library;
     if (sortScope != null && (sort != null || order != null)) {
       unawaited(ListPrefsStore(sortScope!).save(nextSort, nextOrder));
     }
@@ -58,14 +64,56 @@ class SectionToolbar extends StatelessWidget {
         'sort': nextSort,
         'order': nextOrder,
         'genres': chosen.isEmpty ? null : chosen.join(','),
-        'library': library,
+        'library': nextLibrary,
         'limit': limit?.toString(),
       }),
     );
   }
 
+  Future<void> _openSheet(BuildContext context) async {
+    final FilterChoice? picked = await showFilterSheet(
+      context,
+      genres: genres,
+      libraries: libraries,
+      sort: sort,
+      order: order,
+      selectedGenres: selectedGenres,
+      library: library,
+    );
+    if (picked == null || !context.mounted) {
+      return;
+    }
+    _apply(
+      context,
+      sort: picked.sort,
+      order: picked.order,
+      genres: picked.genres,
+      library: picked.library,
+      libraryChanged: true,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final bool compact = compactViewport(context);
+    if (compact) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: Space.s4),
+        child: Row(
+          children: <Widget>[
+            _FiltersButton(
+              count: activeFilterCount(
+                genres: selectedGenres,
+                library: library,
+              ),
+              onTap: () => _openSheet(context),
+            ),
+            const Spacer(),
+            ?trailing,
+          ],
+        ),
+      );
+    }
     final Widget filters = Wrap(
       spacing: Space.s4,
       runSpacing: Space.s3,
@@ -74,6 +122,8 @@ class SectionToolbar extends StatelessWidget {
         AppDropdown<String>(
           value: sort,
           label: Strings.sortLabel,
+          icon: Icons.sort,
+          showLabel: true,
           items: const <(String, String)>[
             ('added_at', Strings.sortAdded),
             ('title', Strings.sortTitle),
@@ -87,10 +137,26 @@ class SectionToolbar extends StatelessWidget {
               _apply(context, order: order == 'desc' ? 'asc' : 'desc'),
         ),
         if (genres.isNotEmpty)
-          _GenreDropdown(
+          GenreDropdown(
             genres: genres,
             selected: selectedGenres,
             onApply: (List<String> values) => _apply(context, genres: values),
+          ),
+        if (libraries.isNotEmpty)
+          AppDropdown<String>(
+            value: library ?? '',
+            label: Strings.libraryLabel,
+            icon: Icons.folder_outlined,
+            showLabel: true,
+            items: <(String, String)>[
+              const ('', Strings.filterAll),
+              for (final Library l in libraries) (l.id, l.name),
+            ],
+            onChanged: (String v) => _apply(
+              context,
+              library: v.isEmpty ? null : v,
+              libraryChanged: true,
+            ),
           ),
       ],
     );
@@ -109,6 +175,41 @@ class SectionToolbar extends StatelessWidget {
   }
 }
 
+class _FiltersButton extends StatelessWidget {
+  const _FiltersButton({required this.count, required this.onTap});
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Tokens t = context.tokens;
+    return MenuField(
+      open: false,
+      onTap: onTap,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(Icons.filter_alt_outlined, size: 16, color: t.muted),
+          const SizedBox(width: Space.s2),
+          Text(
+            Strings.filtersHeading,
+            style: TextStyle(
+              color: t.text,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (count > 0) ...<Widget>[
+            const SizedBox(width: Space.s2),
+            CountPill(count: count),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _OrderToggle extends StatelessWidget {
   const _OrderToggle({required this.descending, required this.onFlip});
 
@@ -121,182 +222,13 @@ class _OrderToggle extends StatelessWidget {
         ? Strings.orderDescending
         : Strings.orderAscending;
     return ToggleButton(
-      compact: true,
       highlight: false,
       height: kControlHeight,
-      icon: Icons.arrow_upward,
-      filledIcon: Icons.arrow_downward,
+      icon: Icons.expand_less,
+      filledIcon: Icons.expand_more,
       pressed: descending,
-      label: state,
-      tooltip: Strings.orderTooltip(state),
+      label: Strings.orderTooltip(state),
       onToggle: onFlip,
-    );
-  }
-}
-
-class _GenreDropdown extends StatefulWidget {
-  const _GenreDropdown({
-    required this.genres,
-    required this.selected,
-    required this.onApply,
-  });
-
-  final List<Genre> genres;
-  final List<String> selected;
-  final ValueChanged<List<String>> onApply;
-
-  @override
-  State<_GenreDropdown> createState() => _GenreDropdownState();
-}
-
-class _GenreDropdownState extends State<_GenreDropdown> {
-  final MenuController _controller = MenuController();
-  late Set<String> _pending = widget.selected.toSet();
-  bool _menuOpen = false;
-
-  void _open() {
-    setState(() => _pending = widget.selected.toSet());
-    _controller.open();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final Tokens t = context.tokens;
-    return MenuAnchor(
-      controller: _controller,
-      onOpen: () => setState(() => _menuOpen = true),
-      onClose: () => setState(() => _menuOpen = false),
-      alignmentOffset: kMenuOffset,
-      style: appMenuStyle(t),
-      menuChildren: <Widget>[
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 320, minWidth: 220),
-          child: SingleChildScrollView(
-            primary: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                for (final Genre g in widget.genres)
-                  _GenreCheck(
-                    label: g.name,
-                    checked: _pending.contains(g.name),
-                    onChanged: (bool v) => setState(() {
-                      if (v) {
-                        _pending.add(g.name);
-                      } else {
-                        _pending.remove(g.name);
-                      }
-                    }),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            Space.s3,
-            Space.s2,
-            Space.s3,
-            Space.s1,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: <Widget>[
-              TextButton(
-                onPressed: () {
-                  _controller.close();
-                  widget.onApply(const <String>[]);
-                },
-                child: const Text(Strings.clearAction),
-              ),
-              FilledButton(
-                onPressed: () {
-                  _controller.close();
-                  widget.onApply(_pending.toList());
-                },
-                child: const Text(Strings.applyAction),
-              ),
-            ],
-          ),
-        ),
-      ],
-      builder: (BuildContext context, MenuController controller, Widget? _) {
-        return MenuField(
-          open: _menuOpen,
-          onTap: () => controller.isOpen ? controller.close() : _open(),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Text(
-                Strings.genresLabel,
-                style: TextStyle(
-                  color: t.text,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              if (widget.selected.isNotEmpty) ...<Widget>[
-                const SizedBox(width: Space.s2),
-                _CountPill(count: widget.selected.length),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _GenreCheck extends StatelessWidget {
-  const _GenreCheck({
-    required this.label,
-    required this.checked,
-    required this.onChanged,
-  });
-
-  final String label;
-  final bool checked;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return MenuOption(
-      label: label,
-      selected: checked,
-      onTap: () => onChanged(!checked),
-      leading: Checkbox(
-        value: checked,
-        visualDensity: VisualDensity.compact,
-        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        onChanged: (bool? v) => onChanged(v ?? false),
-      ),
-    );
-  }
-}
-
-class _CountPill extends StatelessWidget {
-  const _CountPill({required this.count});
-
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    final Tokens t = context.tokens;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
-      decoration: BoxDecoration(
-        color: t.accent,
-        borderRadius: const BorderRadius.all(Radii.pill),
-      ),
-      child: Text(
-        '$count',
-        style: monoStyle.copyWith(
-          color: t.accentContrast,
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
     );
   }
 }

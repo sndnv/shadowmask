@@ -1,11 +1,13 @@
 import 'dart:convert';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/capability_scope.dart';
+import 'package:shadowmask/components/catalog_card_tile.dart';
 import 'package:shadowmask/components/segmented_tabs.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/session/client_decoding.dart';
@@ -70,9 +72,50 @@ http.Response _route(http.Request req, String role) {
       200,
     );
   }
-  // watchlist, favorites, tokens and link-codes all return empty arrays.
+  if (path == '/api/v1/users/u1/watchlist') {
+    return http.Response(
+      jsonEncode(<dynamic>[
+        for (final String id in _watchlisted)
+          <String, dynamic>{
+            'user_id': 'u1',
+            'title': <String, dynamic>{'type': 'movie', 'id': id},
+            'added_at': '2026-01-01T00:00:00Z',
+          },
+      ]),
+      200,
+    );
+  }
+  if (path == '/api/v1/users/u1/favorites') {
+    return http.Response(
+      jsonEncode(<dynamic>[
+        for (final String id in _favorited)
+          <String, dynamic>{
+            'user_id': 'u1',
+            'title': <String, dynamic>{'type': 'movie', 'id': id},
+            'added_at': '2026-01-01T00:00:00Z',
+          },
+      ]),
+      200,
+    );
+  }
+  if (path == '/api/v1/titles/batch') {
+    return http.Response(
+      jsonEncode(<dynamic>[
+        <String, dynamic>{'type': 'movie', 'id': 'm1', 'title': 'Alpha'},
+      ]),
+      200,
+    );
+  }
+  if (req.method == 'PUT' && path.contains('/favorites/')) {
+    _favorited.add(path.split('/favorites/').last);
+    return http.Response('', 204);
+  }
+  // tokens and link-codes return empty arrays.
   return http.Response(jsonEncode(<dynamic>[]), 200);
 }
+
+final List<String> _watchlisted = <String>[];
+final List<String> _favorited = <String>[];
 
 Future<void> _pumpAccount(WidgetTester tester, String role) async {
   final ApiClient api = ApiClient(
@@ -108,7 +151,40 @@ double _cardTop(WidgetTester tester, Finder block) => tester
     .dy;
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+  setUp(() {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    _watchlisted
+      ..clear()
+      ..add('m1');
+    _favorited.clear();
+  });
+
+  testWidgets('favouriting from the watchlist fills the favorites block', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 2000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await _pumpAccount(tester, 'user');
+
+    expect(find.text(Strings.emptyFavorites), findsOneWidget);
+
+    await tester.tap(
+      find.byType(CatalogCardTile).first,
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.addFavorite));
+    await tester.pumpAndSettle();
+
+    expect(_favorited, <String>['m1']);
+    expect(
+      find.text(Strings.emptyFavorites),
+      findsNothing,
+      reason: 'the block below owns the list this action just joined',
+    );
+    expect(find.byType(CatalogCardTile), findsNWidgets(2));
+  });
 
   testWidgets('a player sees only Profile and Library tabs', (
     WidgetTester tester,

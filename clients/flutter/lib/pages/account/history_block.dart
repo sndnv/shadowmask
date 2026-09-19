@@ -1,8 +1,12 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/components/admin/confirm_dialog.dart';
 import 'package:shadowmask/components/card_grid.dart';
+import 'package:shadowmask/components/card_menu.dart';
 import 'package:shadowmask/components/catalog_card_tile.dart';
 import 'package:shadowmask/components/page_actions.dart';
 import 'package:shadowmask/components/skeleton.dart';
@@ -19,10 +23,18 @@ import 'package:shadowmask/view/card_aspect.dart';
 import 'package:shadowmask/view/catalog_card.dart';
 
 class HistoryBlock extends StatefulWidget {
-  const HistoryBlock({super.key, required this.api, required this.userId});
+  const HistoryBlock({
+    super.key,
+    required this.api,
+    required this.userId,
+    required this.revision,
+    required this.onChanged,
+  });
 
   final CatalogApi api;
   final String userId;
+  final int revision;
+  final VoidCallback onChanged;
 
   @override
   State<HistoryBlock> createState() => _HistoryBlockState();
@@ -32,10 +44,29 @@ class _HistoryBlockState extends State<HistoryBlock>
     with Mutations<HistoryBlock> {
   late Future<(List<WatchHistory>, Map<String, CatalogCard>)> _future = _load();
 
-  void _reload() {
-    setState(() {
-      _future = _load();
-    });
+  @override
+  void didUpdateWidget(HistoryBlock oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.revision != oldWidget.revision) {
+      unawaited(_refresh());
+    }
+  }
+
+  Future<void> _refresh() async {
+    final (List<WatchHistory>, Map<String, CatalogCard>) data;
+    try {
+      data = await _load();
+    } catch (_) {
+      return;
+    }
+    if (mounted) {
+      setState(() {
+        _future =
+            SynchronousFuture<(List<WatchHistory>, Map<String, CatalogCard>)>(
+              data,
+            );
+      });
+    }
   }
 
   Future<void> _remove(CatalogCard card) => mutate(
@@ -43,7 +74,7 @@ class _HistoryBlockState extends State<HistoryBlock>
     () => widget.api.removeFromHistory(widget.userId, card.ref.id),
     successText: Strings.toastHistoryRemoved,
     errorText: Strings.errorDelete,
-    then: _reload,
+    then: widget.onChanged,
   );
 
   Future<void> _clear() async {
@@ -60,7 +91,7 @@ class _HistoryBlockState extends State<HistoryBlock>
       () => widget.api.clearHistory(widget.userId),
       successText: Strings.toastHistoryCleared,
       errorText: Strings.errorDelete,
-      then: _reload,
+      then: widget.onChanged,
     );
   }
 
@@ -150,6 +181,8 @@ class _HistoryBlockState extends State<HistoryBlock>
                               : null,
                           dismissTooltip: Strings.removeFromHistory,
                           onDismiss: _remove,
+                          onMenuAction: (CatalogCard _, CardAction _) =>
+                              widget.onChanged(),
                           dismissBusy: busy(c.ref.id),
                         ),
                     ],

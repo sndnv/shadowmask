@@ -49,12 +49,16 @@ class ToggleButton extends StatelessWidget {
             children: <Widget>[
               Icon(glyph, size: 20, color: iconColor),
               const SizedBox(width: Space.s2),
-              Text(
-                label,
-                style: TextStyle(
-                  color: labelColor,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: labelColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],

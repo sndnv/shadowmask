@@ -93,7 +93,11 @@ class PlaybackControls {
     if (downmix) 'downmix_stereo': true,
     if (audioTrack != null) 'audio_track': audioTrack,
     if (audioLanguage != null) 'audio_language': audioLanguage,
-    if (subtitle != null) 'subtitle': subtitle!.toJson(),
+    if (subtitle != null)
+      'subtitle': <String, dynamic>{
+        'track': subtitle!.toJson(),
+        if (offsetMs != 0) 'offset_ms': offsetMs,
+      },
     if (subtitleLanguage != null) 'subtitle_language': subtitleLanguage,
     if (subtitleOff) 'subtitle_off': true,
     if (delivery != DeliveryPreference.auto) 'delivery': delivery.wire,

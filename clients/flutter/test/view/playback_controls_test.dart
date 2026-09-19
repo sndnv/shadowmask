@@ -153,7 +153,9 @@ void main() {
           'force_burn': true,
           'downmix_stereo': true,
           'audio_track': 1,
-          'subtitle': <String, dynamic>{'type': 'file', 'id': 's9'},
+          'subtitle': <String, dynamic>{
+            'track': <String, dynamic>{'type': 'file', 'id': 's9'},
+          },
         },
       );
       expect(
@@ -162,6 +164,22 @@ void main() {
           subtitleLanguage: 'fra',
         ).toStartBody(),
         <String, dynamic>{'audio_language': 'fra', 'subtitle_language': 'fra'},
+      );
+    });
+
+    // POST /sessions reads subtitle as {track, offset_ms}, the same shape the
+    // update body sends. A bare track ref there is a 422 the player only meets
+    // on a reload, because the subtitle rides in the URL.
+    test('wraps the subtitle as a selection and carries its offset', () {
+      expect(
+        const PlaybackControls(
+          subtitle: SubtitleSelection.embedded(2),
+          offsetMs: 250,
+        ).toStartBody()['subtitle'],
+        <String, dynamic>{
+          'track': <String, dynamic>{'type': 'embedded', 'index': 2},
+          'offset_ms': 250,
+        },
       );
     });
 

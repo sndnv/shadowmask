@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/components/card_grid.dart';
 import 'package:shadowmask/components/card_rail.dart';
 import 'package:shadowmask/components/catalog_card_tile.dart';
 import 'package:shadowmask/components/section_heading.dart';
@@ -169,6 +170,40 @@ void main() {
 
     expect(find.text(Strings.searchOpening), findsOneWidget);
     expect(seen.where((String s) => s.startsWith('/api/v1/search')), isEmpty);
+  });
+
+  testWidgets('a lone person keeps its card size beside other results', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      query: 'thing',
+      items: <Map<String, dynamic>>[
+        <String, dynamic>{'type': 'person', 'id': 'p1', 'name': 'Pat Person'},
+        <String, dynamic>{
+          'type': 'episode',
+          'id': 'e1',
+          'season_id': 'se1',
+          'number': 3,
+          'title': 'An Episode',
+        },
+      ],
+    );
+
+    // The group was sized to exactly one card and the rail's two-column floor
+    // then halved it, so a single person came out at 72px next to a 260px
+    // episode. Measured, because the two look alike until you measure them.
+    expect(
+      tester
+          .getSize(
+            find.ancestor(
+              of: find.text('Pat Person'),
+              matching: find.byType(CatalogCardTile),
+            ),
+          )
+          .width,
+      kPosterCardWidth,
+    );
   });
 
   testWidgets('results group by type, titles before people', (

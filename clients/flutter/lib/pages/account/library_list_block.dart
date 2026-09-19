@@ -1,7 +1,11 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/components/card_grid.dart';
+import 'package:shadowmask/components/card_menu.dart';
 import 'package:shadowmask/components/catalog_card_tile.dart';
 import 'package:shadowmask/components/skeleton.dart';
 import 'package:shadowmask/l10n/strings.dart';
@@ -22,6 +26,8 @@ class LibraryListBlock extends StatefulWidget {
     required this.loadRefs,
     required this.onRemove,
     required this.removeLabel,
+    required this.revision,
+    required this.onChanged,
   });
 
   final CatalogApi catalog;
@@ -30,6 +36,8 @@ class LibraryListBlock extends StatefulWidget {
   final Future<List<TitleRef>> Function() loadRefs;
   final Future<void> Function(TitleRef ref) onRemove;
   final String removeLabel;
+  final int revision;
+  final VoidCallback onChanged;
 
   @override
   State<LibraryListBlock> createState() => _LibraryListBlockState();
@@ -37,8 +45,15 @@ class LibraryListBlock extends StatefulWidget {
 
 class _LibraryListBlockState extends State<LibraryListBlock>
     with Mutations<LibraryListBlock> {
-  late final Future<List<CatalogCard>> _future = _load();
-  List<CatalogCard>? _cards;
+  late Future<List<CatalogCard>> _future = _load();
+
+  @override
+  void didUpdateWidget(LibraryListBlock oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.revision != oldWidget.revision) {
+      unawaited(_refresh());
+    }
+  }
 
   Future<List<CatalogCard>> _load() async {
     final List<TitleRef> refs = await widget.loadRefs();
@@ -48,14 +63,30 @@ class _LibraryListBlockState extends State<LibraryListBlock>
     return widget.catalog.titleCards(refs, asSeriesPoster: true);
   }
 
+  Future<void> _refresh() async {
+    final List<CatalogCard> cards;
+    try {
+      cards = await _load();
+    } catch (_) {
+      return;
+    }
+    if (mounted) {
+      setState(() {
+        _future = SynchronousFuture<List<CatalogCard>>(cards);
+      });
+    }
+  }
+
   Future<void> _remove(CatalogCard card) => mutate(
     key: card.ref.key,
     () => widget.onRemove(card.ref),
     successText: Strings.toastRemovedTitle(card.title),
     emphasis: card.title,
     errorText: Strings.errorRemove,
-    then: () => setState(() => _cards?.remove(card)),
+    then: widget.onChanged,
   );
+
+  void _menuAction(CatalogCard _, CardAction _) => widget.onChanged();
 
   @override
   Widget build(BuildContext context) {
@@ -65,9 +96,7 @@ class _LibraryListBlockState extends State<LibraryListBlock>
         future: _future,
         errorText: Strings.couldNotLoadAccount,
         loading: const SkeletonCards(count: 4),
-        builder: (BuildContext context, List<CatalogCard> loaded) {
-          _cards ??= List<CatalogCard>.of(loaded);
-          final List<CatalogCard> cards = _cards!;
+        builder: (BuildContext context, List<CatalogCard> cards) {
           if (cards.isEmpty) {
             return Text(
               widget.emptyMessage,
@@ -91,6 +120,7 @@ class _LibraryListBlockState extends State<LibraryListBlock>
                       width: width,
                       dismissTooltip: widget.removeLabel,
                       onDismiss: _remove,
+                      onMenuAction: _menuAction,
                       dismissBusy: busy(c.ref.key),
                     ),
                 ],

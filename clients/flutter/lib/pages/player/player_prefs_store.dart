@@ -6,6 +6,7 @@ typedef PlayerPrefs = ({
   double volume,
   bool muted,
   bool remaining,
+  bool diagnostics,
   bool wide,
   int autoplaySeconds,
   int networkTimeoutSeconds,
@@ -29,6 +30,7 @@ const PlayerPrefs kDefaultPlayerPrefs = (
   volume: 1.0,
   muted: false,
   remaining: false,
+  diagnostics: false,
   wide: false,
   autoplaySeconds: 10,
   networkTimeoutSeconds: kDefaultNetworkTimeoutSeconds,
@@ -43,6 +45,7 @@ class PlayerPrefsStore {
   static const String _volumeKey = 'shadowmask.player.volume';
   static const String _mutedKey = 'shadowmask.player.muted';
   static const String _remainingKey = 'shadowmask.player.remaining';
+  static const String _diagnosticsKey = 'shadowmask.player.diagnostics';
   static const String _wideKey = 'shadowmask.player.wide';
   static const String _autoplayKey = 'shadowmask.player.autoplay';
   static const String _timeoutKey = 'shadowmask.player.network_timeout';
@@ -65,6 +68,7 @@ class PlayerPrefsStore {
       volume: volume,
       muted: prefs.getBool(_mutedKey) ?? false,
       remaining: prefs.getBool(_remainingKey) ?? false,
+      diagnostics: prefs.getBool(_diagnosticsKey) ?? false,
       wide: prefs.getBool(_wideKey) ?? false,
       autoplaySeconds: kAutoplayDelays.contains(autoplay)
           ? autoplay
@@ -101,6 +105,11 @@ class PlayerPrefsStore {
   Future<void> saveRemaining(bool remaining) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_remainingKey, remaining);
+  }
+
+  Future<void> saveDiagnostics(bool on) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_diagnosticsKey, on);
   }
 
   Future<void> saveAutoplaySeconds(int seconds) async {

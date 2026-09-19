@@ -24,6 +24,9 @@ class CatalogCard {
     this.aspect = CardAspect.poster,
     this.mosaic = false,
     this.watched = false,
+    this.watchlisted = false,
+    this.favorite = false,
+    this.stateKnown = false,
     this.progressPercent,
     this.dismissVersionId,
   });
@@ -37,6 +40,9 @@ class CatalogCard {
   final CardAspect aspect;
   final bool mosaic;
   bool watched;
+  bool watchlisted;
+  bool favorite;
+  bool stateKnown;
   int? progressPercent;
   final String? dismissVersionId;
 

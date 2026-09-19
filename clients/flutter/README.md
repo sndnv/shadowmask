@@ -70,15 +70,16 @@ vendors a different build of most of the same ones. They are attributed in
 ## Configuration
 
 On the **web**, the API base URL comes from `SHADOWMASK_API_BASE`, read either from `--dart-define`
-at build time or from `web/assets/.env` at runtime. Copy
-[`deployment/dev/.env.template`](deployment/dev/.env.template) to `web/assets/.env` for local
-development. In the published image,
+at build time or from `web/assets/.env` at runtime. A `--dart-define` takes precedence over the
+file. Copy [`deployment/dev/.env.template`](deployment/dev/.env.template) to `web/assets/.env` for
+local development. In the published image,
 [`deployment/production/entrypoint.sh`](deployment/production/entrypoint.sh) renders that file from
-the container's environment at start.
+the container's environment at start, and the build passes no `--dart-define`.
 
-On the **desktop** the address is entered on first run and stored on the device.
+On the **desktop** and on **mobile** the address is entered on first run and stored on the device.
 `SHADOWMASK_API_BASE` is used when nothing has been stored yet. Changing the server signs the user
-out.
+out. The address can be changed from the account screen, from the sign-in and link-code screens, and
+from the screen shown when the server cannot be reached.
 
 ## Checks
 

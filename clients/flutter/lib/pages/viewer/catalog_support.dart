@@ -64,10 +64,15 @@ Future<void> tagWatched(
   }
   final Set<String> watched = <String>{};
   final Map<String, int> percent = <String, int>{};
+  final Map<String, ItemState> known = <String, ItemState>{};
+  bool leavesAnswered = false;
+  bool rollupsAnswered = false;
   await Future.wait<void>(<Future<void>>[
     _leafStates(catalog, userId, leaves)
         .then((List<ItemState> states) {
+          leavesAnswered = true;
           for (final ItemState s in states) {
+            known[_key(s.title)] = s;
             if (s.watched) {
               watched.add(_key(s.title));
             }
@@ -77,11 +82,12 @@ Future<void> tagWatched(
           }
         })
         .catchError((Object _) {}),
-    _watchedRollups(
-      catalog,
-      userId,
-      targets,
-    ).then(watched.addAll).catchError((Object _) {}),
+    _watchedRollups(catalog, userId, targets)
+        .then((Set<String> rolled) {
+          rollupsAnswered = true;
+          watched.addAll(rolled);
+        })
+        .catchError((Object _) {}),
   ]);
   for (final CatalogCard c in cards) {
     if (watched.contains(_key(c.ref))) {
@@ -92,6 +98,14 @@ Future<void> tagWatched(
       if (found != null) {
         c.progressPercent = found;
       }
+    }
+    final ItemState? state = known[_key(c.ref)];
+    if (state != null) {
+      c.watchlisted = state.watchlisted;
+      c.favorite = state.favorite;
+      c.stateKnown = true;
+    } else if (c.ref.type.isLeaf ? leavesAnswered : rollupsAnswered) {
+      c.stateKnown = true;
     }
   }
 }

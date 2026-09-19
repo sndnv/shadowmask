@@ -17,6 +17,7 @@ import 'package:shadowmask/pages/account/devices_block.dart';
 import 'package:shadowmask/pages/account/history_block.dart';
 import 'package:shadowmask/pages/account/library_list_block.dart';
 import 'package:shadowmask/pages/account/link_codes_block.dart';
+import 'package:shadowmask/pages/account/playback_block.dart';
 import 'package:shadowmask/pages/account/playback_support_block.dart';
 import 'package:shadowmask/pages/account/profile_block.dart';
 import 'package:shadowmask/pages/account/server_block.dart';
@@ -55,6 +56,9 @@ class _AccountBody extends StatefulWidget {
 
 class _AccountBodyState extends State<_AccountBody> {
   int _tab = 0;
+  int _libraryRevision = 0;
+
+  void _libraryChanged() => setState(() => _libraryRevision += 1);
 
   Widget _panel(List<Widget> children) => Column(
     mainAxisSize: MainAxisSize.min,
@@ -100,6 +104,8 @@ class _AccountBodyState extends State<_AccountBody> {
             onRemove: (TitleRef ref) =>
                 catalog.removeFromWatchlist(user.id, ref),
             removeLabel: Strings.removeWatchlist,
+            revision: _libraryRevision,
+            onChanged: _libraryChanged,
           ),
           LibraryListBlock(
             catalog: catalog,
@@ -110,8 +116,15 @@ class _AccountBodyState extends State<_AccountBody> {
             )).map((Favorite f) => f.title).toList(),
             onRemove: (TitleRef ref) => catalog.removeFavorite(user.id, ref),
             removeLabel: Strings.removeFavorite,
+            revision: _libraryRevision,
+            onChanged: _libraryChanged,
           ),
-          HistoryBlock(api: catalog, userId: user.id),
+          HistoryBlock(
+            api: catalog,
+            userId: user.id,
+            revision: _libraryRevision,
+            onChanged: _libraryChanged,
+          ),
         ]),
       ),
       (
@@ -126,6 +139,7 @@ class _AccountBodyState extends State<_AccountBody> {
             ),
             const PlaybackSupportBlock(),
           ),
+          const PlaybackBlock(),
           const AppearanceBlock(),
           const ServerBlock(),
           SessionBlock(

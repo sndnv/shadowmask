@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/shell_bottom_nav.dart';
 import 'package:shadowmask/l10n/strings.dart';
@@ -153,6 +156,51 @@ void main() {
     // with no stored token there is nothing to revoke, so only the route moves
     expect(run.calls, isEmpty);
     expect(run.routes.last, '/');
+  });
+
+  testWidgets('signing out from More revokes the linked device', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final List<String> calls = <String>[];
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      httpClient: MockClient((http.Request req) async {
+        calls.add('${req.method} ${req.url.path}');
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'token': 'smk_abc',
+            'device_id': 'dev-7',
+          }),
+          200,
+        );
+      }),
+    );
+    await api.redeemLinkCode('CODE', deviceName: 'd', platform: 'android');
+    calls.clear();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(AppThemeVariant.dark),
+        onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
+          builder: (_) => Scaffold(
+            bottomNavigationBar: ShellBottomNav(
+              api: api,
+              current: NavSection.movies,
+              user: _admin,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(Strings.navigationMore));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.signOut));
+    await tester.pumpAndSettle();
+
+    expect(calls, contains('DELETE /api/v1/users/u1/devices/dev-7'));
   });
 
   testWidgets('the current section picks its own tab', (

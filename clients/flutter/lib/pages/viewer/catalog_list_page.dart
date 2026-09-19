@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
+import 'package:shadowmask/api/library_api.dart';
 import 'package:shadowmask/components/crumb.dart';
 import 'package:shadowmask/components/random_button.dart';
 import 'package:shadowmask/components/skeleton.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/detail_dimensions.dart';
 import 'package:shadowmask/model/catalog/random_pick.dart';
+import 'package:shadowmask/model/library/library.dart';
 import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/nav/nav_section.dart';
 import 'package:shadowmask/pages/default/page_states.dart';
@@ -28,6 +30,7 @@ class CatalogListSpec {
     required this.errorText,
     required this.sortScope,
     required this.genreKind,
+    required this.libraryKind,
     required this.basePath,
     required this.navigationLabel,
     required this.emptyNoun,
@@ -40,6 +43,7 @@ class CatalogListSpec {
   final String errorText;
   final String sortScope;
   final String genreKind;
+  final LibraryKind libraryKind;
   final String basePath;
   final String navigationLabel;
   final String emptyNoun;
@@ -113,8 +117,14 @@ class _BodyState extends State<_Body> {
     final Future<List<Genre>> pendingGenres = _catalog
         .genres(kind: _spec.genreKind)
         .catchError((Object _) => <Genre>[]);
+    final Future<List<Library>> pendingLibraries = LibraryApi(
+      widget.api,
+    ).libraries().catchError((Object _) => <Library>[]);
     final CardPage page = await _page(_query.offset);
     final List<Genre> genres = await pendingGenres;
+    final List<Library> libraries = (await pendingLibraries)
+        .where((Library l) => l.kind == _spec.libraryKind)
+        .toList();
     _total = page.total;
     _nextOffset = page.offset + page.cards.length;
     final EmptyState? empty = page.cards.isEmpty
@@ -129,6 +139,7 @@ class _BodyState extends State<_Body> {
       offset: page.offset,
       genres: genres,
       cards: page.cards,
+      libraries: libraries,
       empty: empty,
     );
   }

@@ -23,11 +23,16 @@ import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
 import 'package:shadowmask/theme/space.dart';
+import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/components/backdrop_scope.dart';
+import 'package:shadowmask/view/profile_version.dart';
+import 'package:shadowmask/view/video_aspect.dart';
 import 'package:shadowmask/model/catalog/episode.dart';
 import 'package:shadowmask/model/catalog/movie_detail.dart';
 import 'package:shadowmask/model/catalog/season.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
+import 'package:shadowmask/model/common/artwork.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/model/server/server_info.dart';
 import 'package:shadowmask/model/session/client_decoding.dart';
@@ -110,6 +115,9 @@ class _WatchBodyState extends State<WatchBody>
   String? _container;
   String? _subtitleDelivery;
   String? _title;
+  Artwork? _backdropArt;
+  bool _claimedBackdrop = false;
+  bool _ownsBackdrop = false;
   String? _detailRoute;
   List<Crumb> _crumbs = const <Crumb>[];
   String? _lastState;
@@ -130,6 +138,7 @@ class _WatchBodyState extends State<WatchBody>
   Timer? _countdown;
   bool _autoplayHandled = false;
   bool _carrySelection = false;
+  bool _warnedProfile = false;
   Timer? _stallWatch;
   int _stalledSeconds = 0;
   int _lastProgressMs = -1;
@@ -152,6 +161,10 @@ class _WatchBodyState extends State<WatchBody>
     super.didChangeDependencies();
     _immersive = ImmersiveScope.of(context);
     _decoding = CapabilityScope.of(context)?.decoding;
+    if (!_claimedBackdrop) {
+      _claimedBackdrop = true;
+      _ownsBackdrop = BackdropScope.maybeOf(context)?.value == null;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _onFullscreen();
@@ -246,10 +259,21 @@ class _WatchBodyState extends State<WatchBody>
 
   void _retry() => setState(() => _boot = _start());
 
+  void _warnProfileVersion(int reported) {
+    if (_warnedProfile || profileVersionMatches(reported) || !mounted) {
+      return;
+    }
+    _warnedProfile = true;
+    Toasts.of(
+      context,
+    ).error(Strings.errorProfileVersion(reported, kExpectedProfileVersion));
+  }
+
   Future<bool> _startSession({bool autoplay = true}) async {
     final ServerInfo info = await _pb.serverInfo().catchError(
       (_) => const ServerInfo(),
     );
+    _warnProfileVersion(info.profileVersion);
     final ResumePosition resume = await _pb
         .resume(widget.user.id, widget.versionId)
         .catchError((_) => const ResumePosition());
@@ -303,6 +327,7 @@ class _WatchBodyState extends State<WatchBody>
       _controller.play();
     }
     _remaining = prefs.remaining;
+    _diag = prefs.diagnostics;
     _autoplaySeconds = prefs.autoplaySeconds;
     _controller.setVolume(prefs.volume);
     if (prefs.muted) {
@@ -330,6 +355,7 @@ class _WatchBodyState extends State<WatchBody>
     if (ref.type == TitleKind.movie) {
       try {
         final MovieDetail movie = await catalog.movie(ref.id);
+        _backdropArt = movie.artwork;
         _title = movie.year != null
             ? Strings.titleWithYear(movie.title, movie.year!)
             : movie.title;
@@ -344,6 +370,7 @@ class _WatchBodyState extends State<WatchBody>
     }
     try {
       final Episode episode = await catalog.episode(ref.id);
+      _backdropArt = episode.seriesArtwork ?? episode.artwork;
       Season? season;
       try {
         season = await catalog.season(episode.seasonId);
@@ -355,12 +382,16 @@ class _WatchBodyState extends State<WatchBody>
           seriesTitle = (await catalog.seriesDetail(seriesId)).title;
         } catch (_) {}
       }
-      final String label = Strings.episodeTitle(episode.number, episode.title);
+      final int? seasonNumber = season?.number ?? episode.seasonNumber;
+      final String label = Strings.episodeTitleWithCode(
+        seasonNumber,
+        episode.number,
+        episode.title,
+      );
       _title = seriesTitle != null ? '$seriesTitle - $label' : label;
       _seriesId = seriesId;
       _neighbours = await loadNeighbours(catalog, episode);
       _detailRoute = episodeRoute(episode.id, series: seriesId);
-      final int? seasonNumber = season?.number ?? episode.seasonNumber;
       _crumbs = <Crumb>[
         Crumb(Strings.navigationSeries, route: seriesListRoute()),
         if (seriesId != null)
@@ -634,7 +665,10 @@ class _WatchBodyState extends State<WatchBody>
 
   void _holdSpeed(double? rate) => _controller.setRate(rate ?? _speed);
 
-  void _changeDiagnostics(bool on) => setState(() => _diag = on);
+  void _changeDiagnostics(bool on) {
+    setState(() => _diag = on);
+    _prefs.saveDiagnostics(on);
+  }
 
   void _openPanel(PlayerPanel panel) {
     if (_version == null) {
@@ -1017,6 +1051,7 @@ class _WatchBodyState extends State<WatchBody>
                     onPointerUp: (_) => _reclaimAfterPointer(),
                     child: PlayerFrame(
                       view: _controller.view,
+                      videoAspect: videoAspect(version),
                       playing: snap.playing,
                       fullscreen: fullscreen,
                       onTapVideo: _onTapVideo,
@@ -1157,20 +1192,23 @@ class _WatchBodyState extends State<WatchBody>
                     ),
                   ),
                 );
+                BackdropScope.keep(context);
                 return LayoutBuilder(
                   builder: (BuildContext context, BoxConstraints c) => Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      Offstage(
-                        offstage: fullscreen,
-                        child: Breadcrumbs(_crumbs),
-                      ),
+                      if (!fullscreen) Breadcrumbs(_crumbs),
                       Flexible(
                         flex: c.hasBoundedHeight ? 1 : 0,
-                        fit: FlexFit.tight,
+                        fit: fullscreen ? FlexFit.tight : FlexFit.loose,
                         child: frame,
                       ),
+                      if (_ownsBackdrop && _backdropArt != null)
+                        PageBackdrop(
+                          artwork: _backdropArt,
+                          imageBase: CatalogApi(widget.api).imageBase,
+                        ),
                     ],
                   ),
                 );

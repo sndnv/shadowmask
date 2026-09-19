@@ -1,8 +1,13 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/components/card_art.dart';
 import 'package:shadowmask/components/card_grid.dart';
+import 'package:shadowmask/components/card_menu.dart';
 import 'package:shadowmask/components/catalog_card_tile.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/components/watched_marker.dart';
@@ -107,14 +112,93 @@ void main() {
 
     expect(find.text('3x'), findsOneWidget);
   });
+
+  testWidgets('a long press opens the menu on a touch screen', (
+    WidgetTester tester,
+  ) async {
+    await _pumpTile(tester, _card(watched: false), menued: true);
+    await tester.longPress(find.byType(CardArt));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(Strings.markWatched),
+      findsOneWidget,
+      reason: 'touch has no right button, so long press is the only way in',
+    );
+    expect(
+      tester.getTopLeft(
+        find
+            .ancestor(
+              of: find.text(Strings.markWatched),
+              matching: find.byType(Material),
+            )
+            .last,
+      ),
+      isNot(Offset.zero),
+      reason: 'it opens where the finger was, not pinned to the corner',
+    );
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+
+  testWidgets('a long press no longer raises the tooltip instead', (
+    WidgetTester tester,
+  ) async {
+    await _pumpTile(tester, _card(watched: false), menued: true);
+    await tester.longPress(find.byType(CardArt));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Alpha'),
+      findsOneWidget,
+      reason: 'the tooltip used to win this gesture and swallow the menu',
+    );
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+
+  testWidgets('only a card with a resume point offers to drop one', (
+    WidgetTester tester,
+  ) async {
+    await _pumpTile(
+      tester,
+      _card(watched: false),
+      onDismiss: (CatalogCard _) {},
+      menued: true,
+    );
+    await tester.tap(find.byType(CatalogCardTile), buttons: kSecondaryButton);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(Strings.dismissResume),
+      findsNothing,
+      reason: 'a list removal has its own X and its own toggle above it',
+    );
+    expect(find.text(Strings.removeWatchlist), findsNothing);
+    expect(find.text(Strings.addWatchlist), findsOneWidget);
+  });
+
+  testWidgets('a Continue watching card keeps the removal in its menu', (
+    WidgetTester tester,
+  ) async {
+    await _pumpTile(
+      tester,
+      _card(watched: false, dismissVersionId: 'v9'),
+      onDismiss: (CatalogCard _) {},
+      menued: true,
+    );
+    await tester.tap(find.byType(CatalogCardTile), buttons: kSecondaryButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.dismissResume), findsOneWidget);
+  });
 }
 
-CatalogCard _card({required bool watched}) => CatalogCard(
-  ref: const TitleRef(type: TitleKind.movie, id: 'm1'),
-  route: '/title?type=movie&id=m1',
-  title: 'Alpha',
-  watched: watched,
-);
+CatalogCard _card({required bool watched, String? dismissVersionId}) =>
+    CatalogCard(
+      ref: const TitleRef(type: TitleKind.movie, id: 'm1'),
+      route: '/title?type=movie&id=m1',
+      title: 'Alpha',
+      watched: watched,
+      stateKnown: true,
+      dismissVersionId: dismissVersionId,
+    );
 
 BorderSide _cardBorder(WidgetTester tester) {
   final Material card = tester.widget<Material>(
@@ -193,20 +277,35 @@ Future<void> _pumpTile(
   CatalogCard card, {
   void Function(CatalogCard card)? onDismiss,
   String? badge,
+  bool menued = false,
 }) async {
+  final Widget tile = Center(
+    child: CatalogCardTile(
+      card: card,
+      imageBase: 'http://host',
+      width: kPosterCardWidth,
+      onDismiss: onDismiss,
+      badge: badge,
+    ),
+  );
   await tester.pumpWidget(
     MaterialApp(
       theme: buildTheme(AppThemeVariant.dark),
       home: Scaffold(
-        body: Center(
-          child: CatalogCardTile(
-            card: card,
-            imageBase: 'http://host',
-            width: kPosterCardWidth,
-            onDismiss: onDismiss,
-            badge: badge,
-          ),
-        ),
+        body: menued
+            ? CardMenuHost(
+                catalog: CatalogApi(
+                  ApiClient(
+                    baseUrl: 'http://test',
+                    httpClient: MockClient(
+                      (http.Request _) async => http.Response('[]', 200),
+                    ),
+                  ),
+                ),
+                userId: 'u1',
+                child: tile,
+              )
+            : tile,
       ),
     ),
   );

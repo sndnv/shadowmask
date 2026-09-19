@@ -12,6 +12,7 @@ import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/util/languages.dart';
+import 'package:shadowmask/util/subtitle_labels.dart';
 
 const List<int?> _qualityRungs = <int?>[null, 1080, 720, 480, 320];
 
@@ -311,6 +312,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
                   widget.onAutoplaySeconds?.call(value);
                 },
               ),
+              help: Strings.playerAutoplayNextHelp,
             ),
           if (widget.onNetworkTimeoutSeconds != null)
             _row(
@@ -608,7 +610,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
   String _fileLabel(SubtitleFile f) => <String>[
     f.language == null ? '?' : languageLabel(f.language!),
     f.format.name,
-    '(${f.source.name})',
+    '(${subtitleSourceLabel(f.source)})',
     if (f.label != null) f.label!,
   ].join(' ');
 }

@@ -24,6 +24,18 @@ class AccountApi {
   Future<void> signOutEverywhere(String userId) =>
       _api.sendVoid('DELETE', '/api/v1/users/${_enc(userId)}/sessions');
 
+  Future<void> signOutThisDevice(String? userId) async {
+    final String deviceId = await _api.linkedDeviceId().catchError(
+      (Object _) => '',
+    );
+    if (userId != null && userId.isNotEmpty && deviceId.isNotEmpty) {
+      try {
+        await revokeDevice(userId, deviceId);
+      } catch (_) {}
+    }
+    await _api.logout();
+  }
+
   Future<List<Device>> devices(String userId) => _api.getJsonArray(
     '/api/v1/users/${_enc(userId)}/devices',
     Device.fromJson,

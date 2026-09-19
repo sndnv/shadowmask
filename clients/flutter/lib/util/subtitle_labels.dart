@@ -1,11 +1,20 @@
+import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/subtitle_candidate.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
 import 'package:shadowmask/util/languages.dart';
 
+String subtitleSourceLabel(SubtitleSource source) => switch (source) {
+  SubtitleSource.openSubtitles => Strings.sourceOpenSubtitles,
+  SubtitleSource.external => Strings.sourceExternal,
+  SubtitleSource.generated => Strings.sourceGenerated,
+  SubtitleSource.machineTranslated => Strings.sourceTranslated,
+  SubtitleSource.combined => Strings.sourceCombined,
+};
+
 String subtitleFileLabel(SubtitleFile s) => <String>[
   s.language == null ? '—' : languageLabel(s.language!),
   s.format.name,
-  s.source.name,
+  subtitleSourceLabel(s.source),
   if (s.label != null) s.label!,
 ].join(' · ');
 

@@ -4,6 +4,7 @@ import 'package:shadowmask/model/catalog/download_link.dart';
 import 'package:shadowmask/model/session/client_decoding.dart';
 import 'package:shadowmask/model/session/negotiation.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/profile_version.dart';
 import 'package:shadowmask/model/session/playback_session.dart';
 import 'package:shadowmask/model/session/resume_position.dart';
 import 'package:shadowmask/model/server/server_info.dart';
@@ -39,7 +40,7 @@ class PlaybackApi {
   Future<PlaybackSession> startSession({
     required String versionId,
     int startPositionMs = 0,
-    int profileVersion = 1,
+    int profileVersion = kExpectedProfileVersion,
     String platform = 'generic',
     ClientDecoding? decoding,
     PlaybackControls controls = const PlaybackControls(),

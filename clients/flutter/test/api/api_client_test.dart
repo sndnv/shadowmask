@@ -235,6 +235,69 @@ void main() {
     expect(user.role, UserRole.player);
   });
 
+  test('a redeemed link code remembers which device row it created', () async {
+    final ApiClient api = _client(
+      MockClient(
+        (http.Request _) async => http.Response(
+          jsonEncode(<String, dynamic>{
+            'token': 'smk_abc',
+            'expires_at': null,
+            'device_id': 'dev-7',
+          }),
+          200,
+        ),
+      ),
+    );
+
+    await api.redeemLinkCode(
+      '7G2K9QMP',
+      deviceName: 'Kitchen tablet',
+      platform: 'android',
+    );
+
+    expect(await api.linkedDeviceId(), 'dev-7');
+  });
+
+  test(
+    'a password login names no device, so there is none to revoke',
+    () async {
+      final ApiClient api = _client(
+        MockClient(
+          (http.Request _) async => http.Response(
+            jsonEncode(<String, String>{
+              'access_token': 'a',
+              'refresh_token': 'r',
+            }),
+            200,
+          ),
+        ),
+      );
+
+      await api.login('u', 'p');
+
+      expect(await api.linkedDeviceId(), isEmpty);
+    },
+  );
+
+  test('signing out forgets the device id along with the token', () async {
+    final ApiClient api = _client(
+      MockClient(
+        (http.Request _) async => http.Response(
+          jsonEncode(<String, dynamic>{
+            'token': 'smk_abc',
+            'device_id': 'dev-7',
+          }),
+          200,
+        ),
+      ),
+    );
+
+    await api.redeemLinkCode('7G2K9QMP', deviceName: 'd', platform: 'android');
+    await api.logout();
+
+    expect(await api.linkedDeviceId(), isEmpty);
+  });
+
   test(
     'an api token is never sent for refresh, it just expires the session',
     () async {

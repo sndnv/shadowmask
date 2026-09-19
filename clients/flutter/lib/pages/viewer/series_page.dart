@@ -4,6 +4,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/series.dart';
+import 'package:shadowmask/model/library/library.dart';
 import 'package:shadowmask/nav/nav_section.dart';
 import 'package:shadowmask/nav/routes.dart';
 import 'package:shadowmask/pages/viewer/catalog_list_page.dart';
@@ -16,6 +17,7 @@ final CatalogListSpec kSeriesList = CatalogListSpec(
   errorText: Strings.couldNotLoadSeries,
   sortScope: 'series',
   genreKind: 'series',
+  libraryKind: LibraryKind.tv,
   basePath: seriesListRoute(),
   navigationLabel: Strings.navigationSeries,
   emptyNoun: Strings.noSeriesFound,

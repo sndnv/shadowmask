@@ -14,14 +14,23 @@ const double kCastCardWidth = 116;
 double cardWidthFor(CardAspect aspect) =>
     aspect == CardAspect.landscape ? kLandscapeCardWidth : kPosterCardWidth;
 
-double fittedCardWidth(double available, CardAspect aspect, {double? target}) {
+int minCardColumns(CardAspect aspect) => aspect == CardAspect.landscape ? 1 : 2;
+
+double fittedCardWidth(
+  double available,
+  CardAspect aspect, {
+  double? target,
+  int? count,
+}) {
   final double preferred = target ?? cardWidthFor(aspect);
   if (!available.isFinite || available <= 0) {
     return preferred;
   }
-  final int minColumns = aspect == CardAspect.landscape ? 1 : 2;
+  if (count != null && count < minCardColumns(aspect)) {
+    return preferred;
+  }
   final int columns = math.max(
-    minColumns,
+    minCardColumns(aspect),
     ((available + Space.s4) / (preferred + Space.s4)).floor(),
   );
   return math.max(1, (available - Space.s4 * (columns - 1)) / columns);

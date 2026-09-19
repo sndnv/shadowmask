@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/components/section_block.dart';
+import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
@@ -20,6 +21,19 @@ class AppearanceBlock extends StatelessWidget {
     AppThemeVariant.light => Strings.themeLight,
     AppThemeVariant.retro => Strings.themeRetro,
   };
+
+  void _setVariant(BuildContext context, ThemeScope scope, AppThemeVariant v) {
+    if (v == scope.variant) {
+      return;
+    }
+    scope.setVariant(v);
+    Toasts.of(context).success(Strings.toastSettingSaved);
+  }
+
+  void _setHighContrast(BuildContext context, ThemeScope scope, bool on) {
+    scope.setHighContrast(on);
+    Toasts.of(context).success(Strings.toastSettingSaved);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -43,7 +57,7 @@ class AppearanceBlock extends StatelessWidget {
                     width: constraints.maxWidth < Breakpoints.sm
                         ? constraints.maxWidth
                         : kThemeOptionWidth,
-                    onTap: () => scope.setVariant(v),
+                    onTap: () => _setVariant(context, scope, v),
                   ),
               ],
             ),
@@ -55,7 +69,7 @@ class AppearanceBlock extends StatelessWidget {
             child: SwitchListTile(
               contentPadding: EdgeInsets.zero,
               value: scope.highContrast,
-              onChanged: scope.setHighContrast,
+              onChanged: (bool on) => _setHighContrast(context, scope, on),
               title: const Text(
                 Strings.highContrast,
                 style: TextStyle(fontWeight: FontWeight.w600),

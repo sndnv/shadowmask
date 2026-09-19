@@ -76,6 +76,7 @@ class _WatchPageState extends State<WatchPage> {
       errorText: Strings.couldNotStartPlayback,
       fullWidth: wide,
       fitViewport: true,
+      keepsBackdrop: true,
       bodyBuilder: (BuildContext context, SelfUser user) =>
           SelectionContainer.disabled(
             child: WatchBody(
