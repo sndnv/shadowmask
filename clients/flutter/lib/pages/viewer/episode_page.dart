@@ -64,6 +64,7 @@ class EpisodePage extends StatelessWidget {
       api: api,
       section: NavSection.series,
       errorText: Strings.couldNotLoadEpisode,
+      keepsBackdrop: true,
       loading: const SkeletonPage(
         child: SkeletonDetail(aspect: CardAspect.landscape),
       ),

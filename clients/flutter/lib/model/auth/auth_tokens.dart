@@ -10,6 +10,7 @@ abstract class AuthTokens with _$AuthTokens {
   const factory AuthTokens({
     @JsonKey(name: 'access_token') required String accessToken,
     @JsonKey(name: 'refresh_token') @Default('') String refreshToken,
+    @JsonKey(name: 'device_id') @Default('') String deviceId,
   }) = _AuthTokens;
 
   factory AuthTokens.fromJson(Map<String, dynamic> json) =>

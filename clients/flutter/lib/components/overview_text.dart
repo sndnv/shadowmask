@@ -38,11 +38,13 @@ class _OverviewTextState extends State<OverviewText> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(
-              widget.text,
-              style: style,
-              maxLines: _expanded ? null : widget.maxLines,
-              overflow: _expanded ? TextOverflow.clip : TextOverflow.ellipsis,
+            SelectionArea(
+              child: Text(
+                widget.text,
+                style: style,
+                maxLines: _expanded ? null : widget.maxLines,
+                overflow: _expanded ? TextOverflow.clip : TextOverflow.ellipsis,
+              ),
             ),
             if (clipped)
               ShowMoreButton(

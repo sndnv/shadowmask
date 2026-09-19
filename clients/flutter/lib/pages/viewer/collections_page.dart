@@ -47,6 +47,7 @@ class CollectionsPage extends StatelessWidget {
       errorText: id == null
           ? Strings.couldNotLoadCollections
           : Strings.couldNotLoadCollection,
+      keepsBackdrop: id != null,
       loading: const SkeletonPage(child: SkeletonCards()),
       bodyBuilder: (BuildContext context, SelfUser user) => id == null
           ? _CollectionsListBody(

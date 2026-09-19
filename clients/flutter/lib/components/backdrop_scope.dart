@@ -9,12 +9,21 @@ const int kBackdropWidth = 1920;
 const Duration kBackdropFade = Duration(milliseconds: 320);
 
 class BackdropScope extends InheritedWidget {
-  const BackdropScope({super.key, required this.url, required super.child});
+  const BackdropScope({
+    super.key,
+    required this.url,
+    required super.child,
+    this.onKeep,
+  });
 
   final ScopedValue<String?> url;
+  final VoidCallback? onKeep;
 
   static ScopedValue<String?>? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<BackdropScope>()?.url;
+
+  static void keep(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<BackdropScope>()?.onKeep?.call();
 
   @override
   bool updateShouldNotify(BackdropScope oldWidget) => url != oldWidget.url;
@@ -42,7 +51,7 @@ class _PageBackdropState extends State<PageBackdrop> {
   void dispose() {
     final String? published = _published;
     if (published != null) {
-      _sink?.releaseAfterFrame(published, null);
+      _sink?.releaseAfterFrame(published, null, owner: this);
     }
     super.dispose();
   }
@@ -53,12 +62,13 @@ class _PageBackdropState extends State<PageBackdrop> {
       widget.imageBase,
       kBackdropWidth,
     );
+    BackdropScope.keep(context);
     _sink = BackdropScope.maybeOf(context);
     final ScopedValue<String?>? sink = _sink;
     if (sink != null && sink.value != url) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          sink.publish(url);
+          sink.publish(url, owner: this);
           _published = url;
         }
       });

@@ -38,6 +38,9 @@ extension TitleKindApi on TitleKind {
   };
 
   bool get isLeaf => this == TitleKind.movie || this == TitleKind.episode;
+
+  bool get isWatchTarget =>
+      isLeaf || this == TitleKind.season || this == TitleKind.series;
 }
 
 extension TitleRefKey on TitleRef {

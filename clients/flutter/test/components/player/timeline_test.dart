@@ -106,6 +106,32 @@ void main() {
     );
   });
 
+  // The preview follows the pointer while playback stays where it is, so the
+  // popup has to be placed from the hover position and not from the fraction.
+  testWidgets('the preview popup tracks the pointer, not playback', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(_host(onSeek: (_) {}));
+
+    final TestGesture pointer = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+    );
+    await pointer.addPointer(location: Offset.zero);
+    addTearDown(pointer.removePointer);
+    await tester.pump();
+
+    final Offset centre = tester.getCenter(find.byType(Timeline));
+    await pointer.moveTo(centre);
+    await tester.pump();
+    final double middle = tester.getTopLeft(find.byKey(const Key('thumb'))).dx;
+
+    await pointer.moveTo(centre + const Offset(100, 0));
+    await tester.pump();
+    final double later = tester.getTopLeft(find.byKey(const Key('thumb'))).dx;
+
+    expect(later - middle, closeTo(100, 0.5));
+  });
+
   testWidgets('a completed tap seeks and clears the preview', (
     WidgetTester tester,
   ) async {

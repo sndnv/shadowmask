@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import 'package:shadowmask/components/browser_menu.dart';
+import 'package:shadowmask/components/card_menu.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/view/card_aspect.dart';
 import 'package:shadowmask/theme/app_theme.dart';
@@ -28,6 +32,7 @@ class CatalogCardTile extends StatefulWidget {
     required this.imageBase,
     this.width,
     this.onDismiss,
+    this.onMenuAction,
     this.dismissBusy = false,
     this.dismissTooltip = Strings.dismiss,
     this.subtitle,
@@ -42,6 +47,7 @@ class CatalogCardTile extends StatefulWidget {
   final double? width;
   final CardAspect? aspect;
   final void Function(CatalogCard card)? onDismiss;
+  final void Function(CatalogCard card, CardAction action)? onMenuAction;
   final bool dismissBusy;
   final String dismissTooltip;
   final String? subtitle;
@@ -56,11 +62,60 @@ class CatalogCardTile extends StatefulWidget {
 class _CatalogCardTileState extends State<CatalogCardTile> {
   bool _hovered = false;
   bool _focused = false;
+  bool _heldBrowserMenu = false;
+  Offset? _pressedAt;
+
+  @override
+  void dispose() {
+    _holdBrowserMenu(false);
+    super.dispose();
+  }
+
+  void _holdBrowserMenu(bool held) {
+    if (held == _heldBrowserMenu) {
+      return;
+    }
+    _heldBrowserMenu = held;
+    if (held) {
+      BrowserMenu.suppress();
+    } else {
+      BrowserMenu.restore();
+    }
+  }
+
+  bool get _dropsResume =>
+      widget.onDismiss != null && widget.card.dismissVersionId != null;
+
+  void _openMenu(BuildContext context, Offset at) {
+    final CardMenuHost? host = CardMenuHost.maybeOf(context);
+    if (host == null) {
+      return;
+    }
+    unawaited(
+      showCardMenu(
+        context,
+        catalog: host.catalog,
+        userId: host.userId,
+        card: widget.card,
+        at: at,
+        onDismiss: _dropsResume ? () => widget.onDismiss!(widget.card) : null,
+        onChanged: (CardAction action) {
+          if (mounted) {
+            setState(() {});
+          }
+          widget.onMenuAction?.call(widget.card, action);
+        },
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
     final CatalogCard card = widget.card;
+    final bool menued =
+        CardMenuHost.maybeOf(context) != null &&
+        hasCardMenu(card.ref.type, dismissible: _dropsResume);
     final String? line2 = widget.subtitle ?? card.subtitle;
     final String? line3 = widget.caption ?? card.caption;
     final bool lit = _hovered || _focused;
@@ -83,7 +138,19 @@ class _CatalogCardTileState extends State<CatalogCardTile> {
           ),
           child: InkWell(
             onTap: () => Navigator.of(context).pushNamed(card.route),
-            onHover: (bool hovered) => setState(() => _hovered = hovered),
+            onTapDown: menued
+                ? (TapDownDetails d) => _pressedAt = d.globalPosition
+                : null,
+            onSecondaryTapDown: menued
+                ? (TapDownDetails d) => _openMenu(context, d.globalPosition)
+                : null,
+            onLongPress: menued
+                ? () => _openMenu(context, _pressedAt ?? Offset.zero)
+                : null,
+            onHover: (bool hovered) {
+              _holdBrowserMenu(menued && hovered);
+              setState(() => _hovered = hovered);
+            },
             onFocusChange: (bool focused) => setState(() => _focused = focused),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -94,6 +161,7 @@ class _CatalogCardTileState extends State<CatalogCardTile> {
                     Tooltip(
                       message: tip,
                       excludeFromSemantics: true,
+                      triggerMode: TooltipTriggerMode.manual,
                       child: CardArt(
                         artwork: card.artwork,
                         aspect: widget.aspect ?? card.aspect,
@@ -142,6 +210,7 @@ class _CatalogCardTileState extends State<CatalogCardTile> {
                   height: kCardTextBlockHeight,
                   child: Tooltip(
                     message: tip,
+                    triggerMode: TooltipTriggerMode.manual,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 10,

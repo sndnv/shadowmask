@@ -140,4 +140,39 @@ void main() {
 
     expect(backdrop.value, taken);
   });
+
+  testWidgets('a page handing the same backdrop on does not clear it either', (
+    WidgetTester tester,
+  ) async {
+    final ScopedValue<String?> backdrop = ScopedValue<String?>(null);
+    addTearDown(backdrop.dispose);
+    final Object player = Object();
+
+    Widget host({required bool onPage}) => MaterialApp(
+      theme: buildTheme(AppThemeVariant.dark),
+      home: Scaffold(
+        body: BackdropScope(
+          url: backdrop,
+          child: onPage
+              ? const PageBackdrop(artwork: _artwork, imageBase: 'http://test')
+              : const SizedBox.shrink(),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(host(onPage: true));
+    await tester.pump();
+    const String url = 'http://test/artwork/1/$kBackdropWidth';
+    expect(backdrop.value, url);
+
+    backdrop.publish(url, owner: player);
+    await tester.pumpWidget(host(onPage: false));
+    await tester.pump();
+
+    expect(
+      backdrop.value,
+      url,
+      reason: 'the player took the same artwork on, so it must survive',
+    );
+  });
 }

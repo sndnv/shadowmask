@@ -58,6 +58,7 @@ class SeasonPage extends StatelessWidget {
       api: api,
       section: NavSection.series,
       errorText: Strings.couldNotLoadSeason,
+      keepsBackdrop: true,
       loading: const SkeletonPage(child: SkeletonDetail()),
       bodyBuilder: (BuildContext context, SelfUser user) =>
           _SeasonBody(api: api, user: user, id: id, series: series),

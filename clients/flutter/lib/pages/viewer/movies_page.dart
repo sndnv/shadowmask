@@ -4,6 +4,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/movie.dart';
+import 'package:shadowmask/model/library/library.dart';
 import 'package:shadowmask/nav/nav_section.dart';
 import 'package:shadowmask/nav/routes.dart';
 import 'package:shadowmask/pages/viewer/catalog_list_page.dart';
@@ -16,6 +17,7 @@ final CatalogListSpec kMoviesList = CatalogListSpec(
   errorText: Strings.couldNotLoadMovies,
   sortScope: 'movies',
   genreKind: 'movie',
+  libraryKind: LibraryKind.movie,
   basePath: moviesRoute(),
   navigationLabel: Strings.navigationMovies,
   emptyNoun: Strings.noMoviesFound,

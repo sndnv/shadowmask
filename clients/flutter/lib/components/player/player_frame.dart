@@ -39,9 +39,11 @@ class PlayerFrame extends StatefulWidget {
     this.onSeekRelative,
     this.onHoldSpeed,
     this.touch = false,
+    this.videoAspect,
   });
 
   final Widget view;
+  final double? videoAspect;
   final Widget overlay;
   final Widget back;
   final Widget? diagnostics;
@@ -79,7 +81,6 @@ class _PlayerFrameState extends State<PlayerFrame> {
   int _holdShown = 0;
   Timer? _clearSeek;
   Timer? _stepHold;
-
   @override
   void initState() {
     super.initState();
@@ -382,7 +383,8 @@ class _PlayerFrameState extends State<PlayerFrame> {
     return Container(
       color: t.artBg,
       child: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints c) => Center(
+        builder: (BuildContext context, BoxConstraints c) => Align(
+          heightFactor: widget.fullscreen ? null : 1,
           child: AspectRatio(
             aspectRatio: _stageRatio(c),
             child: Focus(
@@ -403,7 +405,7 @@ class _PlayerFrameState extends State<PlayerFrame> {
 
   double _stageRatio(BoxConstraints c) {
     if (!widget.fullscreen || !c.hasBoundedHeight || c.maxHeight <= 0) {
-      return 16 / 9;
+      return widget.videoAspect ?? 16 / 9;
     }
     return c.maxWidth / c.maxHeight;
   }

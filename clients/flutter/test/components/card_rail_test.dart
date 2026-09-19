@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/api/catalog_api.dart';
+import 'package:shadowmask/components/card_art.dart';
+import 'package:shadowmask/components/card_menu.dart';
 import 'package:shadowmask/components/card_rail.dart';
 import 'package:shadowmask/components/hover_tap.dart';
 import 'package:shadowmask/l10n/strings.dart';
@@ -8,6 +14,7 @@ import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/view/catalog_card.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 CatalogCard _card(int i) => CatalogCard(
   ref: TitleRef(type: TitleKind.movie, id: 'm$i'),
@@ -32,14 +39,25 @@ Future<void> _pump(
         );
       },
       home: Scaffold(
-        body: SizedBox(
-          width: width,
-          child: CardRail(
-            title: Strings.moreInPrefix,
-            titleLink: 'Villeneuve',
-            titleRoute: '/collection/c1',
-            cards: <CatalogCard>[for (int i = 0; i < cards; i++) _card(i)],
-            imageBase: '',
+        body: CardMenuHost(
+          catalog: CatalogApi(
+            ApiClient(
+              baseUrl: 'http://test',
+              httpClient: MockClient(
+                (http.Request _) async => http.Response('[]', 200),
+              ),
+            ),
+          ),
+          userId: 'u1',
+          child: SizedBox(
+            width: width,
+            child: CardRail(
+              title: Strings.moreInPrefix,
+              titleLink: 'Villeneuve',
+              titleRoute: '/collection/c1',
+              cards: <CatalogCard>[for (int i = 0; i < cards; i++) _card(i)],
+              imageBase: '',
+            ),
           ),
         ),
       ),
@@ -49,6 +67,22 @@ Future<void> _pump(
 }
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+
+  testWidgets('a long press inside a scrolling rail still opens the menu', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, visited: <String>[]);
+    await tester.longPress(find.byType(CardArt).first);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(Strings.markWatched),
+      findsOneWidget,
+      reason: 'the horizontal drag must not swallow a press that never moved',
+    );
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+
   testWidgets('the heading link opens from the keyboard', (
     WidgetTester tester,
   ) async {

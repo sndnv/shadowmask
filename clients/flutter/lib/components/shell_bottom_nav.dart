@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:shadowmask/api/account_api.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/user/self_user.dart';
@@ -29,7 +30,7 @@ class ShellBottomNav extends StatelessWidget {
       Navigator.of(context).pushReplacementNamed(route);
 
   Future<void> _signOut(BuildContext context) async {
-    await api.logout();
+    await AccountApi(api).signOutThisDevice(user?.id);
     if (context.mounted) {
       Navigator.of(
         context,

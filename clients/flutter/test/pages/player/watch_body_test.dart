@@ -8,6 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/components/backdrop_scope.dart';
+import 'package:shadowmask/util/scoped_value.dart';
 import 'package:shadowmask/components/player/player_frame.dart';
 import 'package:shadowmask/components/player/settings_panel.dart';
 import 'package:shadowmask/components/player/shortcuts_dialog.dart';
@@ -332,6 +334,14 @@ Map<String, dynamic> _ep(String id, int number, String title) =>
       'added_at': '2026-08-17T09:00:00Z',
       'updated_at': '2026-08-17T09:00:00Z',
       'artwork': <String, dynamic>{},
+      'series_artwork': <String, dynamic>{
+        'backdrops': <dynamic>[
+          <String, dynamic>{
+            'base': '/artwork/show',
+            'widths': <int>[kBackdropWidth],
+          },
+        ],
+      },
     };
 
 http.Response _episodeVersion() => http.Response(
@@ -532,6 +542,54 @@ Widget _app(
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+
+  testWidgets('a backdrop carried in from the details page is never dropped', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    const String carried = 'http://test/artwork/1/1920';
+    final ScopedValue<String?> backdrop = ScopedValue<String?>(carried);
+    addTearDown(backdrop.dispose);
+    final List<String?> seen = <String?>[];
+    backdrop.addListener(() => seen.add(backdrop.value));
+
+    await tester.pumpWidget(
+      BackdropScope(url: backdrop, child: _app(fake, episodic: true)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      seen,
+      isEmpty,
+      reason:
+          'any write at all, even the same url, re-owns it and flickers '
+          'the wash on the way back out',
+    );
+    expect(backdrop.value, carried);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a player landed on cold publishes a backdrop of its own', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final ScopedValue<String?> backdrop = ScopedValue<String?>(null);
+    addTearDown(backdrop.dispose);
+
+    await tester.pumpWidget(
+      BackdropScope(url: backdrop, child: _app(fake, episodic: true)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      backdrop.value,
+      'http://test/artwork/show/$kBackdropWidth',
+      reason: 'nothing was carried in, so the player supplies the artwork',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('boots a session and renders the transport and clock', (
     WidgetTester tester,

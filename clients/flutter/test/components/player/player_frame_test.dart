@@ -29,6 +29,7 @@ Future<void> _pump(
   VoidCallback? onGoBack,
   VoidCallback? onKeepWaiting,
   Widget? diagnostics,
+  double? videoAspect,
 }) async {
   tester.view.physicalSize = box;
   tester.view.devicePixelRatio = 1;
@@ -42,23 +43,32 @@ Future<void> _pump(
           child: SizedBox(
             width: box.width,
             height: box.height,
-            child: PlayerFrame(
-              view: view,
-              overlay: const SizedBox(key: Key('overlay'), height: 40),
-              back: const Text('back'),
-              playing: true,
-              fullscreen: fullscreen,
-              onTapVideo: onTapVideo ?? () {},
-              onDoubleTapVideo: onDoubleTapVideo,
-              onSeekRelative: onSeekRelative,
-              onHoldSpeed: onHoldSpeed,
-              touch: touch,
-              settings: settings,
-              onDismissSettings: onDismissSettings,
-              waiting: waiting,
-              onGoBack: onGoBack,
-              onKeepWaiting: onKeepWaiting,
-              diagnostics: diagnostics,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Flexible(
+                  fit: fullscreen ? FlexFit.tight : FlexFit.loose,
+                  child: PlayerFrame(
+                    view: view,
+                    overlay: const SizedBox(key: Key('overlay'), height: 40),
+                    back: const Text('back'),
+                    playing: true,
+                    fullscreen: fullscreen,
+                    onTapVideo: onTapVideo ?? () {},
+                    onDoubleTapVideo: onDoubleTapVideo,
+                    onSeekRelative: onSeekRelative,
+                    onHoldSpeed: onHoldSpeed,
+                    touch: touch,
+                    settings: settings,
+                    onDismissSettings: onDismissSettings,
+                    waiting: waiting,
+                    onGoBack: onGoBack,
+                    onKeepWaiting: onKeepWaiting,
+                    diagnostics: diagnostics,
+                    videoAspect: videoAspect,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -98,6 +108,58 @@ double _badgeOpacity(WidgetTester tester, IconData icon) => tester
     .opacity;
 
 void main() {
+  testWidgets('a windowed frame is no taller than the picture it holds', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      fullscreen: false,
+      view: const _View(key: Key('view')),
+      box: const Size(1600, 1200),
+    );
+
+    expect(
+      tester.getSize(find.byType(PlayerFrame)).height,
+      tester.getSize(find.byKey(const Key('view'))).height,
+      reason: 'any excess is painted as bars above and below the picture',
+    );
+  });
+
+  testWidgets('a wider film makes a shorter frame, not black bars', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      fullscreen: false,
+      view: const _View(key: Key('view')),
+      box: const Size(1600, 1200),
+      videoAspect: 2.39,
+    );
+
+    final Size stage = tester.getSize(find.byKey(const Key('view')));
+    expect(stage.width, 1600);
+    expect(stage.width / stage.height, closeTo(2.39, 0.01));
+    expect(tester.getSize(find.byType(PlayerFrame)).height, stage.height);
+  });
+
+  testWidgets('fullscreen still fills the screen it was given', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      fullscreen: true,
+      view: const _View(key: Key('view')),
+      box: const Size(1600, 1200),
+      videoAspect: 2.39,
+    );
+
+    expect(
+      tester.getSize(find.byType(PlayerFrame)),
+      const Size(1600, 1200),
+      reason: 'fullscreen means the whole screen, letterboxing and all',
+    );
+  });
+
   testWidgets('the view is not rebuilt when fullscreen toggles', (
     WidgetTester tester,
   ) async {

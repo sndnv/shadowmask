@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/components/brand_mark.dart';
@@ -26,6 +28,7 @@ import 'package:shadowmask/theme/breakpoints.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/theme/tokens.dart';
+import 'package:shadowmask/util/scoped_value.dart';
 
 ApiClient _api() => ApiClient(
   baseUrl: 'http://test',
@@ -62,7 +65,103 @@ Future<double> _bodyWidth(WidgetTester tester, {bool fullWidth = false}) async {
   return tester.getSize(find.byKey(const Key('body'))).width;
 }
 
+Widget _shared(
+  ScopedValue<String?> backdrop,
+  Widget body, {
+  bool keepsBackdrop = false,
+}) => BackdropScope(
+  url: backdrop,
+  child: ThemeScope(
+    variant: AppThemeVariant.dark,
+    setVariant: (_) {},
+    child: MaterialApp(
+      theme: buildTheme(AppThemeVariant.dark),
+      home: ShellScaffold(
+        api: _api(),
+        current: NavSection.movies,
+        keepsBackdrop: keepsBackdrop,
+        body: body,
+      ),
+    ),
+  ),
+);
+
 void main() {
+  testWidgets('a page with no artwork of its own clears the backdrop', (
+    WidgetTester tester,
+  ) async {
+    final ScopedValue<String?> backdrop = ScopedValue<String?>(
+      'http://test/artwork/1/$kBackdropWidth',
+    );
+    addTearDown(backdrop.dispose);
+
+    await tester.pumpWidget(_shared(backdrop, const Text('nothing here')));
+    await tester.pumpAndSettle();
+
+    expect(
+      backdrop.value,
+      isNull,
+      reason: 'one title had it; this page has nothing to do with that title',
+    );
+  });
+
+  testWidgets('a page whose body arrives late still keeps the backdrop', (
+    WidgetTester tester,
+  ) async {
+    const String url = 'http://test/artwork/1/$kBackdropWidth';
+    final ScopedValue<String?> backdrop = ScopedValue<String?>(url);
+    addTearDown(backdrop.dispose);
+    final Completer<Widget> late = Completer<Widget>();
+
+    await tester.pumpWidget(
+      _shared(
+        backdrop,
+        FutureBuilder<Widget>(
+          future: late.future,
+          builder: (BuildContext _, AsyncSnapshot<Widget> snap) =>
+              snap.data ?? const SizedBox.shrink(),
+        ),
+        keepsBackdrop: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      backdrop.value,
+      url,
+      reason: 'the player declares this before its user request comes back',
+    );
+
+    late.complete(const Text('body'));
+    await tester.pumpAndSettle();
+
+    expect(backdrop.value, url);
+  });
+
+  testWidgets('a page that asks to keep the backdrop keeps it', (
+    WidgetTester tester,
+  ) async {
+    final ScopedValue<String?> backdrop = ScopedValue<String?>(
+      'http://test/artwork/1/$kBackdropWidth',
+    );
+    addTearDown(backdrop.dispose);
+
+    await tester.pumpWidget(
+      _shared(
+        backdrop,
+        Builder(
+          builder: (BuildContext context) {
+            BackdropScope.keep(context);
+            return const Text('mine');
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(backdrop.value, 'http://test/artwork/1/$kBackdropWidth');
+  });
+
   testWidgets('the username is the account link and the bar drops Account', (
     WidgetTester tester,
   ) async {
@@ -101,6 +200,60 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('account page'), findsOneWidget);
+  });
+
+  testWidgets('signing out from the bar revokes the linked device', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final List<String> calls = <String>[];
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      httpClient: MockClient((http.Request req) async {
+        calls.add('${req.method} ${req.url.path}');
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'token': 'smk_abc',
+            'device_id': 'dev-7',
+          }),
+          200,
+        );
+      }),
+    );
+    await api.redeemLinkCode('CODE', deviceName: 'd', platform: 'macos');
+    calls.clear();
+
+    await tester.pumpWidget(
+      ThemeScope(
+        variant: AppThemeVariant.dark,
+        setVariant: (_) {},
+        child: MaterialApp(
+          theme: buildTheme(AppThemeVariant.dark),
+          onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
+            builder: (_) => ShellScaffold(
+              api: api,
+              current: NavSection.movies,
+              user: const SelfUser(
+                id: 'u1',
+                username: 'pat',
+                role: UserRole.user,
+              ),
+              body: _body,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(Strings.signOut));
+    await tester.pumpAndSettle();
+
+    expect(calls, contains('DELETE /api/v1/users/u1/devices/dev-7'));
   });
 
   testWidgets(

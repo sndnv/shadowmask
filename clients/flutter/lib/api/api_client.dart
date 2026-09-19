@@ -234,8 +234,13 @@ class ApiClient {
       jsonDecode(res.body) as Map<String, dynamic>,
     );
     forgetUser();
-    await _store.save(AuthTokens(accessToken: issued.token));
+    await _store.save(
+      AuthTokens(accessToken: issued.token, deviceId: issued.deviceId),
+    );
   }
+
+  Future<String> linkedDeviceId() async =>
+      (await _store.load())?.deviceId ?? '';
 
   Future<void> logout() async {
     final AuthTokens? stored = await _store.load();

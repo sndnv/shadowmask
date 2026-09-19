@@ -21,8 +21,24 @@ void main() {
     expect(second, contains('The.Matrix.WEB'));
   });
 
-  test('a file with no label keeps its old three-part label', () {
-    expect(subtitleFileLabel(_file()), 'EN · srt · openSubtitles');
+  test('a file with no label reads its provenance, not the enum', () {
+    expect(subtitleFileLabel(_file()), 'EN · srt · OpenSubtitles');
+  });
+
+  test('every provenance has a name a viewer would recognise', () {
+    expect(SubtitleSource.values.map(subtitleSourceLabel).toList(), <String>[
+      'OpenSubtitles',
+      'External',
+      'Generated',
+      'Translated',
+      'Combined',
+    ]);
+  });
+
+  test('no provenance falls through to the Dart identifier', () {
+    for (final SubtitleSource s in SubtitleSource.values) {
+      expect(subtitleSourceLabel(s), isNot(s.name));
+    }
   });
 
   test('a candidate label still leads with the release name', () {

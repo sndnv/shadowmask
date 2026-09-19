@@ -29,8 +29,13 @@ class _SessionBlockState extends State<SessionBlock> {
   late final AccountApi _account = AccountApi(widget.api);
   bool _busy = false;
 
-  Future<void> _goToSignIn() async {
-    await widget.api.logout();
+  Future<void> _signOut() async {
+    setState(() => _busy = true);
+    await _account.signOutThisDevice(widget.userId);
+    _goToSignIn();
+  }
+
+  void _goToSignIn() {
     if (!mounted) {
       return;
     }
@@ -47,7 +52,8 @@ class _SessionBlockState extends State<SessionBlock> {
         return;
       }
       Toasts.of(context).success(Strings.toastAllSessionsRevoked);
-      await _goToSignIn();
+      await widget.api.logout();
+      _goToSignIn();
     } catch (e) {
       if (mounted) {
         Toasts.of(context).error(failureText(Strings.errorAction, e));
@@ -65,7 +71,7 @@ class _SessionBlockState extends State<SessionBlock> {
         runSpacing: Space.s3,
         children: <Widget>[
           OutlinedButton(
-            onPressed: _busy ? null : _goToSignIn,
+            onPressed: _busy ? null : _signOut,
             child: const Text(Strings.signOut),
           ),
           if (widget.showSignOutEverywhere)

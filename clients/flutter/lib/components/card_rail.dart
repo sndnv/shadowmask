@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:shadowmask/components/card_menu.dart';
 import 'package:shadowmask/components/hover_tap.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/space.dart';
@@ -17,6 +18,7 @@ class CardRail extends StatefulWidget {
     required this.cards,
     required this.imageBase,
     this.onDismiss,
+    this.onMenuAction,
     this.dismissBusy,
     this.dismissTooltip = Strings.dismiss,
     this.dismissesByTitle = false,
@@ -29,6 +31,7 @@ class CardRail extends StatefulWidget {
   final List<CatalogCard> cards;
   final String imageBase;
   final void Function(CatalogCard card)? onDismiss;
+  final void Function(CatalogCard card, CardAction action)? onMenuAction;
   final bool Function(CatalogCard card)? dismissBusy;
   final String dismissTooltip;
   final bool dismissesByTitle;
@@ -114,6 +117,7 @@ class _CardRailState extends State<CardRail> {
           constraints.maxWidth,
           aspect,
           target: widget.cardWidth,
+          count: widget.cards.length,
         );
         final double artHeight = landscape ? w * 9 / 16 : w * 3 / 2;
         final double railHeight = artHeight + kCardTextBlockHeight;
@@ -160,6 +164,7 @@ class _CardRailState extends State<CardRail> {
                     onDismiss: _dismissible(widget.cards[i])
                         ? widget.onDismiss
                         : null,
+                    onMenuAction: widget.onMenuAction,
                     dismissBusy:
                         widget.dismissBusy?.call(widget.cards[i]) ?? false,
                     dismissTooltip: widget.dismissTooltip,

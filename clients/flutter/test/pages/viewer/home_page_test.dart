@@ -1,11 +1,13 @@
 import 'dart:convert';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/card_rail.dart';
+import 'package:shadowmask/components/catalog_card_tile.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/nav/route_observer.dart';
@@ -52,11 +54,15 @@ Map<String, dynamic> _movie(String id) => <String, dynamic>{
 };
 
 List<dynamic> _hubs({required bool watchlist}) => <dynamic>[
-  if (watchlist)
+  if (watchlist || _added.isNotEmpty)
     <String, dynamic>{
       'id': 'watchlist',
       'title': 'On Your Watchlist',
-      'items': <dynamic>[_episode('e1'), _movie('m2')],
+      'items': <dynamic>[
+        if (watchlist && !_removed.contains('e1')) _episode('e1'),
+        if (watchlist && !_removed.contains('m2')) _movie('m2'),
+        for (final String id in _added) _movie(id),
+      ],
     },
   <String, dynamic>{
     'id': 'recently_added_movies',
@@ -65,7 +71,27 @@ List<dynamic> _hubs({required bool watchlist}) => <dynamic>[
   },
 ];
 
+Map<String, dynamic> _upNext() => <String, dynamic>{
+  'next_movies': <dynamic>[_movie('m9')],
+};
+
+Map<String, dynamic> _inProgress() => <String, dynamic>{
+  'in_progress': <dynamic>[
+    <String, dynamic>{
+      'card': <String, dynamic>{
+        'title': <String, dynamic>{'type': 'movie', 'id': 'm9'},
+        'display_title': 'Delta',
+        'progress_percent': 40,
+      },
+      'progress': <String, dynamic>{'version_id': 'v9'},
+    },
+  ],
+};
+
 final List<String> _removed = <String>[];
+final List<String> _cleared = <String>[];
+final List<String> _added = <String>[];
+final Set<String> _watched = <String>{};
 int _hubCalls = 0;
 String? _pushedRoute;
 
@@ -78,6 +104,8 @@ Future<void> _pump(
   bool emptyLibrary = false,
   bool admin = false,
   bool sharedLibraries = false,
+  bool resuming = false,
+  bool upNext = false,
 }) async {
   tester.view.physicalSize = const Size(1400, 1600);
   tester.view.devicePixelRatio = 1;
@@ -122,11 +150,34 @@ Future<void> _pump(
             : watchlist;
         return http.Response(jsonEncode(_hubs(watchlist: saved)), 200);
       }
+      if (path == '/api/v1/users/u1/state/batch') {
+        return http.Response(
+          jsonEncode(<dynamic>[
+            <String, dynamic>{
+              'title': <String, dynamic>{'type': 'episode', 'id': 'e1'},
+              'watchlisted': true,
+            },
+          ]),
+          200,
+        );
+      }
+      if (req.method == 'PUT' && path.contains('/watchlist/')) {
+        _added.add(path.split('/watchlist/').last);
+        return http.Response('', 204);
+      }
+      if (req.method == 'PUT' && path.contains('/watched/')) {
+        _watched.add(path.split('/watched/').last);
+        return http.Response('', 204);
+      }
+      if (req.method == 'DELETE' && path.contains('/progress/')) {
+        _cleared.add(path.split('/progress/').last);
+        return http.Response('', 204);
+      }
       if (path == '/api/v1/users/u1/continue') {
         return http.Response(
           jsonEncode(<String, dynamic>{
-            'continue_watching': <dynamic>[],
-            'up_next': <dynamic>[],
+            if (resuming) ..._inProgress(),
+            if (upNext && !_watched.contains('m9')) ..._upNext(),
           }),
           200,
         );
@@ -158,8 +209,122 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     _removed.clear();
+    _cleared.clear();
+    _added.clear();
+    _watched.clear();
     _hubCalls = 0;
     _pushedRoute = null;
+  });
+
+  testWidgets('marking an Up next title watched takes it off the rail', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, watchlist: false, upNext: true);
+    expect(find.text(Strings.upNext), findsOneWidget);
+
+    await tester.tap(
+      find.byType(CatalogCardTile).first,
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.markWatched));
+    await tester.pumpAndSettle();
+
+    expect(_watched, <String>{'m9'});
+    expect(
+      find.text(Strings.upNext),
+      findsNothing,
+      reason: 'a watched title is not what you watch next',
+    );
+  });
+
+  testWidgets('saving a title from another rail fills the watchlist rail', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, watchlist: false);
+    expect(find.text(Strings.onYourWatchlist), findsNothing);
+
+    await tester.tap(
+      find.byType(CatalogCardTile).first,
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.addWatchlist));
+    await tester.pumpAndSettle();
+
+    expect(_added, <String>['m1']);
+    expect(
+      find.text(Strings.onYourWatchlist),
+      findsOneWidget,
+      reason: 'the rail it was just added to has to show it',
+    );
+  });
+
+  testWidgets('the page never empties while it re-reads itself', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, watchlist: false);
+
+    await tester.tap(
+      find.byType(CatalogCardTile).first,
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.addWatchlist));
+
+    for (int frame = 0; frame < 12; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(
+        find.byType(CardRail),
+        findsWidgets,
+        reason: 'frame $frame went blank; the reload must not flash a skeleton',
+      );
+    }
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('the menu removal drops the card the X button would drop', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, watchlist: true);
+
+    await tester.tap(
+      find.byType(CatalogCardTile).first,
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.removeWatchlist));
+    await tester.pumpAndSettle();
+
+    expect(_removed, <String>['e1'], reason: 'the call itself goes out');
+    final CardRail rail = tester.widget<CardRail>(find.byType(CardRail).first);
+    expect(
+      rail.cards.length,
+      1,
+      reason: 'the X button drops it from the rail, the menu must too',
+    );
+  });
+
+  testWidgets('the Continue watching removal empties the rail from the menu', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, watchlist: false, resuming: true);
+    expect(find.text(Strings.continueWatching), findsOneWidget);
+
+    await tester.tap(
+      find.byType(CatalogCardTile).first,
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.dismissResume));
+    await tester.pumpAndSettle();
+
+    expect(_cleared, <String>['v9']);
+    expect(
+      find.text(Strings.continueWatching),
+      findsNothing,
+      reason: 'the only card went, so the rail should go with it',
+    );
   });
 
   testWidgets('the watchlist rail leads the home page', (

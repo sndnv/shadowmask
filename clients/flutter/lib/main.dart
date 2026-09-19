@@ -10,6 +10,7 @@ import 'package:shadowmask/api/server_scope.dart';
 import 'package:shadowmask/api/server_store.dart';
 import 'package:shadowmask/api/token_store.dart';
 import 'package:shadowmask/app_router.dart';
+import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/components/remote_image.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/tooltip_dismisser.dart';
@@ -24,6 +25,8 @@ import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/theme/theme_store.dart';
+import 'package:shadowmask/util/api_base.dart';
+import 'package:shadowmask/util/scoped_value.dart';
 import 'package:shadowmask/util/client_capabilities.dart';
 import 'package:shadowmask/util/client_platform.dart';
 import 'package:shadowmask/util/url_strategy.dart';
@@ -58,10 +61,10 @@ Future<void> main() async {
   );
 }
 
-String? _resolveApiBase() {
-  final String? value = dotenv.maybeGet('SHADOWMASK_API_BASE');
-  return value != null && value.isNotEmpty ? value : null;
-}
+String? _resolveApiBase() => apiBaseFrom(
+  define: const String.fromEnvironment('SHADOWMASK_API_BASE'),
+  env: dotenv.maybeGet('SHADOWMASK_API_BASE'),
+);
 
 ApiClient _defaultClient(String? baseUrl) => ApiClient(baseUrl: baseUrl);
 
@@ -71,7 +74,7 @@ class ShadowmaskApp extends StatefulWidget {
     this.initialServer,
     this.clientFactory = _defaultClient,
     this.probe = serverAnswers,
-    this.initialVariant = AppThemeVariant.dark,
+    this.initialVariant = AppThemeVariant.retro,
     this.initialHighContrast,
     this.themeStore = const ThemeStore(),
     this.serverStore = const ServerStore(),
@@ -108,6 +111,7 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
       .platformDispatcher
       .accessibilityFeatures
       .highContrast;
+  final ScopedValue<String?> _backdrop = ScopedValue<String?>(null);
 
   bool get _contrast => _highContrast ?? _systemHighContrast;
 
@@ -120,6 +124,7 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _backdrop.dispose();
     super.dispose();
   }
 
@@ -187,14 +192,17 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
         measured: widget.decoding,
         overrides: _overrides,
         setOverrides: _setOverrides,
-        child: kIsWeb
-            ? app
-            : ServerScope(
-                address: _server,
-                setAddress: _setServer,
-                probe: widget.probe,
-                child: app,
-              ),
+        child: BackdropScope(
+          url: _backdrop,
+          child: kIsWeb
+              ? app
+              : ServerScope(
+                  address: _server,
+                  setAddress: _setServer,
+                  probe: widget.probe,
+                  child: app,
+                ),
+        ),
       ),
     );
   }

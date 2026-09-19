@@ -22,6 +22,7 @@ abstract final class Strings {
   static const String navigationMore = 'More';
   static const String signOut = 'Sign out';
   static const String appearanceHeading = 'Appearance';
+  static const String accountPlaybackHeading = 'Playback';
   static const String themeDark = 'Dark';
   static const String themeLight = 'Light';
   static const String themeRetro = 'Retro';
@@ -148,6 +149,8 @@ abstract final class Strings {
       'Ask an administrator to grant you access.';
 
   static const String genresLabel = 'Genres';
+  static const String libraryLabel = 'Library';
+  static const String filterAll = 'All';
   static const String sortLabel = 'Sort by';
   static const String orderLabel = 'Order';
   static const String applyAction = 'Apply';
@@ -159,6 +162,7 @@ abstract final class Strings {
   static const String sortYear = 'Year';
   static const String orderAscending = 'Ascending';
   static const String orderDescending = 'Descending';
+  static const String filtersHeading = 'Filters';
   static String orderTooltip(String value) => '$orderLabel: $value';
 
   static const String previous = 'Previous';
@@ -193,6 +197,17 @@ abstract final class Strings {
   static const String kindCollection = 'Collection';
   static const String alsoKnownAs = 'Also known as';
   static const String episodeLabel = 'Episode';
+  static String episodeCode(int? season, int number) {
+    final String code = 'E${number.toString().padLeft(2, '0')}';
+    return season == null ? code : 'S${season.toString().padLeft(2, '0')}$code';
+  }
+
+  static String episodeTitleWithCode(int? season, int number, String title) {
+    final String code = episodeCode(season, number);
+    final String name = title.trim();
+    return name.isEmpty ? code : '$code: $name';
+  }
+
   static String episodeTitle(int number, String title) {
     final String numbered = '$episodeLabel $number';
     return title.trim().isEmpty || title.trim() == numbered
@@ -211,6 +226,8 @@ abstract final class Strings {
   static const String roleActor = 'Actor';
   static const String roleDirector = 'Director';
   static const String roleWriter = 'Writer';
+  static const String directedBy = 'Directed by';
+  static const String writtenBy = 'Written by';
   static const String moreInPrefix = 'More in ';
   static String moreInCollection(String name) => '$moreInPrefix$name';
   static const String continueWatching = 'Continue watching';
@@ -284,6 +301,12 @@ abstract final class Strings {
   static const String playerAudio = 'Audio';
   static const String playerSubtitles = 'Subtitles';
   static String subtitleTrackLabel(int index) => 'Sub $index';
+
+  static const String sourceOpenSubtitles = 'OpenSubtitles';
+  static const String sourceExternal = 'External';
+  static const String sourceGenerated = 'Generated';
+  static const String sourceTranslated = 'Translated';
+  static const String sourceCombined = 'Combined';
   static const String playerOffset = 'Offset';
   static const String playerOffsetHelp =
       'Shift the subtitles in time, in thousandths of a second. Use a positive '
@@ -310,6 +333,9 @@ abstract final class Strings {
       'Show technical detail about what is playing, on top of the video. '
       'Useful when reporting a problem with playback.';
   static const String playerAutoplayNext = 'Autoplay next';
+  static const String playerAutoplayNextHelp =
+      'Start the next episode when one finishes, after a countdown you can '
+      'cancel.';
   static const String playerAutoplayOff = 'Off';
   static String playerAutoplayDelay(int seconds) => '$seconds seconds';
   static String playerUpNextIn(int seconds) => 'Up next in ${seconds}s';
@@ -437,8 +463,8 @@ abstract final class Strings {
   static const String markUnwatched = 'Mark unwatched';
   static const String addWatchlist = 'Add to watchlist';
   static const String removeWatchlist = 'Remove from watchlist';
-  static const String addFavorite = 'Add favorite';
-  static const String removeFavorite = 'Remove favorite';
+  static const String addFavorite = 'Add to favorites';
+  static const String removeFavorite = 'Remove from favorites';
   static const String dismiss = 'Dismiss';
   static const String dismissResume = 'Remove from Continue watching';
   static const String view = 'View';
@@ -457,18 +483,27 @@ abstract final class Strings {
   static String toastRemovedWatchlist(String title) =>
       'Removed $title from your watchlist.';
   static String toastAddedFavorite(String title) =>
-      'Added $title to favorites.';
+      'Added $title to your favorites.';
   static String toastRemovedFavorite(String title) =>
-      'Removed $title from favorites.';
+      'Removed $title from your favorites.';
   static String confirmWatchedBody(int episodes) =>
       'Are you sure you want to mark $episodes episodes as watched?';
   static String confirmUnwatchedBody(int episodes) =>
       'Are you sure you want to mark $episodes episodes as not watched?';
-  static String toastMarkedWatched(String title) => 'Marked $title as watched.';
+  static const String confirmWatchedSeries =
+      'Mark every episode in this series as watched?';
+  static const String confirmUnwatchedSeries =
+      'Mark every episode in this series as unwatched?';
+  static const String confirmWatchedSeason =
+      'Mark every episode in this season as watched?';
+  static const String confirmUnwatchedSeason =
+      'Mark every episode in this season as unwatched?';
+  static String toastMarkedWatched(String title) => 'Marked $title watched.';
   static String toastMarkedUnwatched(String title) =>
-      'Marked $title as not watched.';
+      'Marked $title unwatched.';
   static String toastRemovedTitle(String title) => 'Removed $title.';
   static const String toastProfileSaved = 'Profile saved.';
+  static const String toastSettingSaved = 'Setting saved.';
   static const String toastPasswordChanged = 'Password changed.';
   static const String toastCodeCreated = 'Code created.';
   static const String toastCodeRevoked = 'Code revoked.';
@@ -476,6 +511,10 @@ abstract final class Strings {
   static const String toastTokenRevoked = 'Token revoked.';
   static const String toastAllSessionsRevoked = 'All sessions revoked.';
   static const String toastResumeDismissed = 'Removed from Continue watching.';
+
+  static String errorProfileVersion(int reported, int expected) =>
+      'This server speaks profile version $reported; this app expects '
+      '$expected. Update whichever is older.';
 
   static const String errorAdd = 'Add failed.';
   static const String errorRemove = 'Remove failed.';

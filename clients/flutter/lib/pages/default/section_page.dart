@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/api/catalog_api.dart';
+import 'package:shadowmask/components/card_menu.dart';
 import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/nav/nav_section.dart';
 import 'package:shadowmask/pages/default/page_states.dart';
@@ -18,6 +20,7 @@ class SectionPage extends StatefulWidget {
     this.errorText,
     this.fullWidth = false,
     this.fitViewport = false,
+    this.keepsBackdrop = false,
     this.loading,
   });
 
@@ -27,6 +30,7 @@ class SectionPage extends StatefulWidget {
   final String? errorText;
   final bool fullWidth;
   final bool fitViewport;
+  final bool keepsBackdrop;
   final Widget? loading;
 
   @override
@@ -63,6 +67,7 @@ class _SectionPageState extends State<SectionPage> {
               user: snapshot.data,
               fullWidth: widget.fullWidth,
               fitViewport: widget.fitViewport,
+              keepsBackdrop: widget.keepsBackdrop,
               body: LoadingShape(
                 shape: widget.loading,
                 child: buildSnapshot<SelfUser>(
@@ -71,7 +76,12 @@ class _SectionPageState extends State<SectionPage> {
                   errorText: widget.errorText,
                   onRetry: _retry,
                   loading: widget.loading,
-                  builder: widget.bodyBuilder,
+                  builder: (BuildContext context, SelfUser user) =>
+                      CardMenuHost(
+                        catalog: CatalogApi(widget.api),
+                        userId: user.id,
+                        child: widget.bodyBuilder(context, user),
+                      ),
                 ),
               ),
             ),

@@ -6,6 +6,9 @@ import 'package:shadowmask/theme/tokens.dart';
 
 const Offset kMenuOffset = Offset(0, Space.s1);
 
+const double kCardMenuWidth = 300;
+const double kCardMenuDividerInset = kCardMenuWidth * 0.1;
+
 MenuStyle appMenuStyle(Tokens t, {double? minWidth}) => MenuStyle(
   backgroundColor: WidgetStatePropertyAll<Color>(t.surface),
   surfaceTintColor: const WidgetStatePropertyAll<Color>(Colors.transparent),

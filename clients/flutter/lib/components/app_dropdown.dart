@@ -14,6 +14,8 @@ class AppDropdown<T> extends StatefulWidget {
     required this.items,
     required this.onChanged,
     this.label,
+    this.icon,
+    this.showLabel = false,
     this.height = kControlHeight,
     this.width,
     this.tapGroupId,
@@ -24,6 +26,8 @@ class AppDropdown<T> extends StatefulWidget {
   final List<(T, String)> items;
   final ValueChanged<T> onChanged;
   final String? label;
+  final IconData? icon;
+  final bool showLabel;
   final double height;
   final double? width;
   final bool enabled;
@@ -53,24 +57,45 @@ class _AppDropdownState<T> extends State<AppDropdown<T>> {
     if (label == null) {
       return field;
     }
-    return Tooltip(
-      message: label,
-      child: MergeSemantics(
-        child: Semantics(label: label, expanded: open, child: field),
-      ),
+    final Widget described = MergeSemantics(
+      child: Semantics(label: label, expanded: open, child: field),
     );
+    return widget.showLabel
+        ? described
+        : Tooltip(message: label, child: described);
   }
 
-  Widget _label(Tokens t) => Text(
-    _current.$2,
-    maxLines: 1,
-    overflow: TextOverflow.ellipsis,
-    style: TextStyle(
-      color: widget.enabled ? t.text : t.muted,
-      fontSize: 14,
-      fontWeight: FontWeight.w600,
-    ),
-  );
+  String get _fieldText {
+    final String? label = widget.label;
+    return widget.showLabel && label != null
+        ? '$label: ${_current.$2}'
+        : _current.$2;
+  }
+
+  Widget _label(Tokens t) {
+    final Widget text = Text(
+      _fieldText,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: widget.enabled ? t.text : t.muted,
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+    final IconData? glyph = widget.icon;
+    if (glyph == null) {
+      return text;
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Icon(glyph, size: 16, color: t.muted),
+        const SizedBox(width: Space.s2),
+        Flexible(child: text),
+      ],
+    );
+  }
 
   double? _menuWidth(BoxConstraints constraints) {
     if (widget.width == null && !constraints.hasTightWidth) {

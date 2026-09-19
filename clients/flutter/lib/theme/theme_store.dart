@@ -13,7 +13,7 @@ class ThemeStore {
     final String? raw = prefs.getString(_key);
     return AppThemeVariant.values.firstWhere(
       (AppThemeVariant v) => v.name == raw,
-      orElse: () => AppThemeVariant.dark,
+      orElse: () => AppThemeVariant.retro,
     );
   }
 

@@ -17,6 +17,7 @@ import 'package:shadowmask/components/card_art.dart';
 import 'package:shadowmask/components/card_grid.dart';
 import 'package:shadowmask/components/card_rail.dart';
 import 'package:shadowmask/components/cast_rail.dart';
+import 'package:shadowmask/components/crew_line.dart';
 import 'package:shadowmask/components/detail_split.dart';
 import 'package:shadowmask/components/genre_chips.dart';
 import 'package:shadowmask/components/overview_text.dart';
@@ -88,6 +89,7 @@ class TitlePage extends StatelessWidget {
       api: api,
       section: isSeries ? NavSection.series : NavSection.movies,
       errorText: Strings.couldNotLoadTitle,
+      keepsBackdrop: true,
       loading: const SkeletonPage(child: SkeletonDetail()),
       bodyBuilder: (BuildContext context, SelfUser user) => isSeries
           ? _SeriesDetailBody(api: api, id: id, user: user)
@@ -387,6 +389,10 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
                     ]),
                     labels: false,
                   ),
+                  if (d.credits.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: Space.s2),
+                    CrewLine(credits: d.credits),
+                  ],
                   const SizedBox(height: Space.s3),
                   if (d.genres.isNotEmpty) ...<Widget>[
                     GenreChips(d.genres, basePath: moviesRoute()),
@@ -832,6 +838,10 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
                     ]),
                     labels: false,
                   ),
+                  if (d.credits.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: Space.s2),
+                    CrewLine(credits: d.credits),
+                  ],
                   const SizedBox(height: Space.s3),
                   if (d.genres.isNotEmpty) ...<Widget>[
                     GenreChips(d.genres, basePath: seriesListRoute()),

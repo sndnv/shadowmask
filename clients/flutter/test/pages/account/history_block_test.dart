@@ -79,7 +79,14 @@ Future<({List<String> deleted, List<String> paths})> _pump(
         home: Scaffold(
           body: ToastHost(
             child: SingleChildScrollView(
-              child: HistoryBlock(api: CatalogApi(api), userId: 'u1'),
+              child: _Revised(
+                builder: (int revision, VoidCallback onChanged) => HistoryBlock(
+                  api: CatalogApi(api),
+                  userId: 'u1',
+                  revision: revision,
+                  onChanged: onChanged,
+                ),
+              ),
             ),
           ),
         ),
@@ -88,6 +95,23 @@ Future<({List<String> deleted, List<String> paths})> _pump(
   );
   await tester.pumpAndSettle();
   return (deleted: deleted, paths: paths);
+}
+
+class _Revised extends StatefulWidget {
+  const _Revised({required this.builder});
+
+  final Widget Function(int revision, VoidCallback onChanged) builder;
+
+  @override
+  State<_Revised> createState() => _RevisedState();
+}
+
+class _RevisedState extends State<_Revised> {
+  int _revision = 0;
+
+  @override
+  Widget build(BuildContext context) =>
+      widget.builder(_revision, () => setState(() => _revision += 1));
 }
 
 void main() {

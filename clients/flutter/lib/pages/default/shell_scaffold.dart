@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
+import 'package:shadowmask/api/account_api.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/components/bottom_chrome.dart';
@@ -78,6 +79,7 @@ class ShellScaffold extends StatefulWidget {
     this.user,
     this.fullWidth = false,
     this.fitViewport = false,
+    this.keepsBackdrop = false,
   });
 
   final ApiClient api;
@@ -86,6 +88,7 @@ class ShellScaffold extends StatefulWidget {
   final SelfUser? user;
   final bool fullWidth;
   final bool fitViewport;
+  final bool keepsBackdrop;
 
   @override
   State<ShellScaffold> createState() => _ShellScaffoldState();
@@ -101,15 +104,37 @@ const EdgeInsets _kGutter = EdgeInsets.symmetric(horizontal: Space.s3);
 const double _kOffscreen = 200;
 
 class _ShellScaffoldState extends State<ShellScaffold> {
-  final ScopedValue<String?> _backdrop = ScopedValue<String?>(null);
+  final ScopedValue<String?> _ownBackdrop = ScopedValue<String?>(null);
   final ScopedValue<bool> _immersive = ScopedValue<bool>(false);
   final ScopedValue<String?> _title = ScopedValue<String?>(null);
   final FocusNode _main = FocusNode(debugLabel: 'main', skipTraversal: true);
+  ScopedValue<String?>? _sharedBackdrop;
   bool _skipShown = false;
+  bool _keepsBackdrop = false;
+  bool _sweptBackdrop = false;
+
+  ScopedValue<String?> get _backdrop => _sharedBackdrop ?? _ownBackdrop;
+
+  void _keepBackdrop() => _keepsBackdrop = true;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _sharedBackdrop = BackdropScope.maybeOf(context);
+    if (_sweptBackdrop) {
+      return;
+    }
+    _sweptBackdrop = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_keepsBackdrop && !widget.keepsBackdrop) {
+        _sharedBackdrop?.publish(null, owner: this);
+      }
+    });
+  }
 
   @override
   void dispose() {
-    _backdrop.dispose();
+    _ownBackdrop.dispose();
     _immersive.dispose();
     _title.dispose();
     _main.dispose();
@@ -279,13 +304,12 @@ class _ShellScaffoldState extends State<ShellScaffold> {
                                         padding: bodyPadding,
                                         child: BackdropScope(
                                           url: _backdrop,
-                                          child: SelectionArea(
-                                            child: ImmersiveScope(
-                                              immersive: _immersive,
-                                              child: Focus(
-                                                focusNode: _main,
-                                                child: widget.body,
-                                              ),
+                                          onKeep: _keepBackdrop,
+                                          child: ImmersiveScope(
+                                            immersive: _immersive,
+                                            child: Focus(
+                                              focusNode: _main,
+                                              child: widget.body,
                                             ),
                                           ),
                                         ),
@@ -432,7 +456,7 @@ class _TopNav extends StatelessWidget {
   final SelfUser? user;
 
   Future<void> _signOut(BuildContext context) async {
-    await api.logout();
+    await AccountApi(api).signOutThisDevice(user?.id);
     if (context.mounted) {
       Navigator.of(
         context,
