@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="ChoiceDialog" extends="Group">
+    <script type="text/brightscript" uri="pkg:/components/widgets/ChoiceDialog.brs" />
+    <script type="text/brightscript" uri="pkg:/source/util.brs" />
+    <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
+    <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/format.brs" />
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/source/cards.brs" />
+    <script type="text/brightscript" uri="pkg:/source/images.brs" />
+    <script type="text/brightscript" uri="pkg:/source/catalog.brs" />
+    <script type="text/brightscript" uri="pkg:/source/state.brs" />
+    <script type="text/brightscript" uri="pkg:/source/detail.brs" />
+    <script type="text/brightscript" uri="pkg:/source/prefs.brs" />
+    <script type="text/brightscript" uri="pkg:/source/session.brs" />
+    <script type="text/brightscript" uri="pkg:/source/screen.brs" />
+    <script type="text/brightscript" uri="pkg:/source/capability.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+
+    <interface>
+        <field id="theme" type="assocarray" onChange="render" />
+        <field id="request" type="assocarray" alwaysNotify="true" onChange="onRequest" />
+        <field id="result" type="assocarray" alwaysNotify="true" />
+    </interface>
+
+    <children>
+        <Rectangle id="scrim" />
+        <Group id="panel">
+            <RoundedBox id="plate" />
+            <Poster id="titleIcon" visible="false" muteAudioGuide="true" />
+            <Label id="title" />
+            <Group id="textView">
+                <Label id="message" />
+            </Group>
+            <ScrollBar id="textBar" />
+            <Group id="viewport">
+                <Group id="rows" />
+            </Group>
+            <ScrollBar id="bar" />
+        </Group>
+    </children>
+</component>

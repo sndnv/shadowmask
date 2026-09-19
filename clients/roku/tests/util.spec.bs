@@ -1,0 +1,184 @@
+namespace tests
+
+    @suite("util")
+    class UtilTests extends rooibos.BaseTestSuite
+
+        @describe("IsBlank")
+
+        @it("treats invalid, empty and whitespace as blank")
+        sub blankValues()
+            m.assertTrue(IsBlank(invalid))
+            m.assertTrue(IsBlank(""))
+            m.assertTrue(IsBlank("   "))
+        end sub
+
+        @it("treats text and non-strings as present")
+        sub presentValues()
+            m.assertFalse(IsBlank("x"))
+            m.assertFalse(IsBlank(0))
+        end sub
+
+        @describe("ValueAt")
+
+        @it("walks a dotted path")
+        sub walksDottedPath()
+            source = { a: { b: { c: "found" } } }
+            m.assertEqual(ValueAt(source, "a.b.c"), "found")
+        end sub
+
+        @it("falls back when any step is missing")
+        sub fallsBackOnMissingStep()
+            source = { a: { b: {} } }
+            m.assertEqual(ValueAt(source, "a.b.c", "fallback"), "fallback")
+            m.assertEqual(ValueAt(source, "x.y", "fallback"), "fallback")
+        end sub
+
+        @it("falls back when a step is not an associative array")
+        sub fallsBackOnNonAssociativeStep()
+            source = { a: "scalar" }
+            m.assertEqual(ValueAt(source, "a.b", "fallback"), "fallback")
+        end sub
+
+        @it("falls back for an invalid source or empty path")
+        sub fallsBackOnBadInput()
+            m.assertEqual(ValueAt(invalid, "a", "fallback"), "fallback")
+            m.assertEqual(ValueAt({ a: 1 }, "", "fallback"), "fallback")
+        end sub
+
+        @it("reads a single segment without splitting the path")
+        sub readsSingleSegment()
+            m.assertEqual(ValueAt({ a: "found" }, "a"), "found")
+            m.assertEqual(ValueAt({ a: 0 }, "a", "fallback"), 0)
+        end sub
+
+        @it("falls back on a single segment that is missing, invalid or unreachable")
+        sub fallsBackOnSingleSegment()
+            m.assertEqual(ValueAt({ a: 1 }, "b", "fallback"), "fallback")
+            m.assertEqual(ValueAt({ a: invalid }, "a", "fallback"), "fallback")
+            m.assertEqual(ValueAt([1, 2], "a", "fallback"), "fallback")
+        end sub
+
+        @describe("FirstPresent")
+
+        @it("returns the first value that is not blank")
+        sub returnsFirstPresent()
+            m.assertEqual(FirstPresent([invalid, "", "  ", "third"]), "third")
+        end sub
+
+        @it("returns the fallback when nothing is present")
+        sub returnsFallbackWhenAllBlank()
+            m.assertEqual(FirstPresent([invalid, ""], "none"), "none")
+        end sub
+
+        @describe("ClampInt")
+
+        @it("clamps to the bounds")
+        sub clampsToBounds()
+            m.assertEqual(ClampInt(5, 1, 10), 5)
+            m.assertEqual(ClampInt(-1, 1, 10), 1)
+            m.assertEqual(ClampInt(99, 1, 10), 10)
+        end sub
+
+        @describe("ListItems")
+
+        @it("reads a bare array and a paged envelope alike")
+        sub readsBothListShapes()
+            ' The episodes endpoint answers with a bare array and the versions
+            ' endpoint with { items: [...] }; asking for the wrong one returns
+            ' nothing and looks exactly like an empty list.
+            m.assertEqual(ListItems([{ id: "a" }]).Count(), 1)
+            m.assertEqual(ListItems({ items: [{ id: "a" }, { id: "b" }] }).Count(), 2)
+        end sub
+
+        @it("is an empty list for anything else")
+        sub emptyForOtherShapes()
+            m.assertEqual(ListItems(invalid).Count(), 0)
+            m.assertEqual(ListItems({ total: 3 }).Count(), 0)
+        end sub
+
+        @describe("SplitEvenly")
+
+        @it("fills each bucket before the next, leaving the remainder at the end")
+        sub splitsIntoBuckets()
+            split = SplitEvenly([1, 2, 3, 4, 5, 6, 7], 3)
+
+            m.assertEqual(split.Count(), 3)
+            m.assertEqual(split[0], [1, 2, 3])
+            m.assertEqual(split[1], [4, 5, 6])
+            m.assertEqual(split[2], [7])
+        end sub
+
+        @it("returns empty buckets rather than fewer of them")
+        sub keepsBucketCount()
+            split = SplitEvenly([1], 3)
+
+            m.assertEqual(split.Count(), 3)
+            m.assertEqual(split[0], [1])
+            m.assertEqual(split[1].Count(), 0)
+        end sub
+
+        @it("survives no items and no buckets")
+        sub survivesEmptySplit()
+            m.assertEqual(SplitEvenly([], 2).Count(), 2)
+            m.assertEqual(SplitEvenly(invalid, 2).Count(), 2)
+            m.assertEqual(SplitEvenly([1, 2], 0).Count(), 0)
+        end sub
+
+        @describe("theme choice")
+
+        @it("accepts every theme the picker can offer")
+        sub acceptsEveryTheme()
+            for each name in ThemeNames()
+                m.assertEqual(ValidThemeName(name), name)
+            end for
+        end sub
+
+        @it("falls back to the default for a name no build knows, so a stale registry cannot blank the UI")
+        sub unknownThemeFallsBack()
+            m.assertEqual(ValidThemeName("nonsense"), DefaultThemeName())
+            m.assertEqual(ValidThemeName(invalid), DefaultThemeName())
+        end sub
+
+        @it("names every theme for the picker, and never shows a raw key")
+        sub labelsEveryTheme()
+            options = ThemeOptions()
+
+            m.assertEqual(options.Count(), ThemeNames().Count())
+            for each option in options
+                m.assertNotEmpty(option.label)
+                m.assertFalse(Instr(1, option.label, "theme.") > 0)
+            end for
+        end sub
+
+        @describe("profile facts")
+
+        @it("shows every preference the server reports for the account")
+        sub showsEveryPreference()
+            rows = ProfileRows({
+                username: "ada",
+                role: "player",
+                preferred_audio: ["en", "fr"],
+                preferred_subtitle: ["en"],
+                max_content_rating: { system: "mpaa", code: "pg-13" },
+                concurrent_stream_limit: 2,
+                bitrate_cap: 8000000
+            })
+
+            m.assertEqual(rows[0].values[0], "ada")
+            m.assertEqual(rows[2].values[0], "EN · FR")
+            m.assertEqual(rows[4].values[0], "MPAA PG-13")
+            m.assertEqual(rows[5].values[0], "2")
+        end sub
+
+        @it("says Not set rather than leaving a preference blank, which reads as a load failure")
+        sub namesAnUnsetPreference()
+            rows = ProfileRows({ username: "ada", role: "player" })
+
+            for index = 2 to rows.Count() - 1
+                m.assertEqual(rows[index].values[0], Phrase("status.notSet"))
+            end for
+        end sub
+
+    end class
+
+end namespace

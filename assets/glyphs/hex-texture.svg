@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-label="Shadow-mask hex texture">
+    <defs>
+        <pattern id="sm-hex-cells" width="14" height="24.2487" patternUnits="userSpaceOnUse">
+            <g fill="#ffffff">
+                <path d="M0 -2.1 L1.82 -1.05 L1.82 1.05 L0 2.1 L-1.82 1.05 L-1.82 -1.05 Z"/>
+                <path d="M14 -2.1 L15.82 -1.05 L15.82 1.05 L14 2.1 L12.18 1.05 L12.18 -1.05 Z"/>
+                <path d="M7 10.0244 L8.82 11.0744 L8.82 13.1744 L7 14.2244 L5.18 13.1744 L5.18 11.0744 Z"/>
+                <path d="M0 22.1487 L1.82 23.1987 L1.82 25.2987 L0 26.3487 L-1.82 25.2987 L-1.82 23.1987 Z"/>
+                <path d="M14 22.1487 L15.82 23.1987 L15.82 25.2987 L14 26.3487 L12.18 25.2987 L12.18 23.1987 Z"/>
+            </g>
+        </pattern>
+    </defs>
+
+    <rect width="1920" height="1080" fill="url(#sm-hex-cells)"/>
+</svg>

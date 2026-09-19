@@ -1,0 +1,1053 @@
+namespace tests
+
+    @suite("playback")
+    class PlaybackTests extends rooibos.BaseTestSuite
+
+        @describe("the nodes the player is built from")
+
+        @it("can create every custom node WatchScreen expects to find")
+        sub everyPlayerNodeExists()
+            ' A component that fails to register returns invalid from FindNode
+            ' rather than erroring, and the screen then dies on the first dot
+            ' operator, which reads as "no key does anything".
+            for each name in ["Timeline", "ActionBar", "StateNote", "WatchScreen"]
+                m.assertNotInvalid(CreateObject("roSGNode", name), name + " did not register")
+            end for
+        end sub
+
+        @describe("SessionFrom")
+
+        @it("reads what the server negotiated")
+        sub readsNegotiatedSession()
+            started = SessionFrom({
+                session_id: "s1",
+                mode: "transcode",
+                container: "mpegts",
+                manifest_url: "/stream/tok/master.m3u8",
+                origin_ms: 90000,
+                sequential: true,
+                heartbeat_interval_s: 15,
+                selected: { audio_track: 2 }
+            })
+
+            m.assertEqual(started.id, "s1")
+            m.assertEqual(started.manifestUrl, "/stream/tok/master.m3u8")
+            m.assertEqual(started.originMs, 90000)
+            m.assertTrue(started.sequential)
+            m.assertEqual(started.heartbeatSeconds, 15)
+            m.assertEqual(started.selected.audio_track, 2)
+        end sub
+
+        @it("falls back to an interval rather than never beating")
+        sub fallsBackToAnInterval()
+            ' A seek answers with the renegotiated session, which carries no
+            ' interval; a zero there would stop the heartbeat that slides the
+            ' stream token, and playback would die a minute later.
+            m.assertEqual(SessionFrom({ session_id: "s1" }).heartbeatSeconds, HeartbeatFallbackSeconds())
+        end sub
+
+        @describe("StreamUrl")
+
+        @it("keeps the stream path outside the api prefix")
+        sub keepsStreamOutsideApi()
+            m.assertEqual(StreamUrl("http://host:8081", "/stream/tok/master.m3u8"), "http://host:8081/stream/tok/master.m3u8")
+        end sub
+
+        @it("passes an absolute url through untouched")
+        sub passesAbsoluteThrough()
+            m.assertEqual(StreamUrl("http://host", "http://other/stream/tok/file"), "http://other/stream/tok/file")
+        end sub
+
+        @it("is blank when there is no manifest")
+        sub blankWithoutManifest()
+            m.assertEqual(StreamUrl("http://host", ""), "")
+        end sub
+
+        @describe("StreamFormatFor")
+
+        @it("plays every converted session as hls")
+        sub convertedIsAlwaysHls()
+            m.assertEqual(StreamFormatFor("transcode", "mkv"), "hls")
+            m.assertEqual(StreamFormatFor("remux", "mp4"), "hls")
+        end sub
+
+        @it("maps the file's own extension for direct play")
+        sub directPlayUsesTheContainer()
+            m.assertEqual(StreamFormatFor("direct", "mkv"), "mkv")
+            m.assertEqual(StreamFormatFor("direct", "MP4"), "mp4")
+            m.assertEqual(StreamFormatFor("direct", "m4v"), "mp4")
+            m.assertEqual(StreamFormatFor("direct", "ts"), "ts")
+            m.assertEqual(StreamFormatFor("direct", "wat"), "mp4")
+        end sub
+
+        @describe("AttachSeconds")
+
+        @it("starts a sequential session at the top of its own manifest")
+        sub sequentialStartsAtZero()
+            ' The server begins producing at the resume point, so the manifest
+            ' already starts there and asking to seek would leave the stream.
+            m.assertEqual(AttachSeconds(90000, 90000, true), 0)
+        end sub
+
+        @it("starts a complete playlist at the resume point")
+        sub completePlaylistStartsAtResume()
+            m.assertEqual(AttachSeconds(90000, 0, false), 90)
+            m.assertEqual(AttachSeconds(0, 0, false), 0)
+        end sub
+
+        @describe("TimelineMs")
+
+        @it("adds the origin only for a sequential session")
+        sub addsOriginWhenSequential()
+            m.assertEqual(TimelineMs(30.0, 90000, true), 120000)
+            m.assertEqual(TimelineMs(30.0, 0, false), 30000)
+        end sub
+
+        @it("never reports a position before the start")
+        sub neverReportsNegative()
+            m.assertEqual(TimelineMs(-1.0, 0, false), 0)
+        end sub
+
+        @describe("IsReplayKey")
+
+        @it("answers to the name the firmware sends for the instant replay button")
+        sub knowsTheReplayKey()
+            ' The player only ever matched "instantreplay", which is the ECP spelling;
+            ' SceneGraph delivers "replay", so the key did nothing on a real remote.
+            m.assertTrue(IsReplayKey("replay"))
+            m.assertTrue(IsReplayKey("instantreplay"))
+            m.assertTrue(IsReplayKey("InstantReplay"))
+            m.assertFalse(IsReplayKey("rewind"))
+            m.assertFalse(IsReplayKey(invalid))
+        end sub
+
+        @describe("SeekPlan")
+
+        @it("seeks locally in a complete playlist")
+        sub localInCompletePlaylist()
+            plan = SeekPlan(120000, 0, false, 0)
+
+            m.assertFalse(plan.server)
+            m.assertEqual(plan.seconds, 120)
+        end sub
+
+        @it("seeks locally inside what has been produced")
+        sub localInsideProduced()
+            plan = SeekPlan(120000, 90000, true, 60000)
+
+            m.assertFalse(plan.server)
+            m.assertEqual(plan.seconds, 30)
+        end sub
+
+        @it("asks the server for anything behind the origin")
+        sub serverBehindOrigin()
+            ' A sequential manifest holds nothing before its origin, so this is
+            ' a restart whatever the buffer says.
+            plan = SeekPlan(30000, 90000, true, 600000)
+
+            m.assertTrue(plan.server)
+            m.assertEqual(plan.positionMs, 30000)
+        end sub
+
+        @it("asks the server for anything past what has been produced")
+        sub serverPastProduced()
+            m.assertTrue(SeekPlan(600000, 90000, true, 60000).server)
+        end sub
+
+        @it("never seeks before the start")
+        sub clampsBelowZero()
+            m.assertEqual(SeekPlan(-5000, 0, false, 0).seconds, 0)
+        end sub
+
+        @describe("HoldStepMs")
+
+        @it("starts at ten seconds and escalates every three seconds held")
+        sub holdStepClimbs()
+            m.assertEqual(HoldStepMs(0), 10000)
+            m.assertEqual(HoldStepMs(2), 10000)
+            m.assertEqual(HoldStepMs(3), 30000)
+            m.assertEqual(HoldStepMs(5), 30000)
+            m.assertEqual(HoldStepMs(6), 50000)
+            m.assertEqual(HoldStepMs(9), 100000)
+        end sub
+
+        @it("stays at the fastest rung however long the key is held")
+        sub holdStepTopsOut()
+            m.assertEqual(HoldStepMs(30), 100000)
+            m.assertEqual(HoldStepMs(600), 100000)
+        end sub
+
+        @describe("HoldSpeedAt")
+
+        @it("reports the multiplier behind the step")
+        sub holdSpeedRungs()
+            m.assertEqual(HoldSpeedAt(0), 1)
+            m.assertEqual(HoldSpeedAt(2), 1)
+            m.assertEqual(HoldSpeedAt(3), 3)
+            m.assertEqual(HoldSpeedAt(6), 5)
+            m.assertEqual(HoldSpeedAt(9), 10)
+            m.assertEqual(HoldSpeedAt(600), 10)
+        end sub
+
+        @describe("HoldTickStepMs")
+
+        @it("splits the per-second rate across four ticks a second")
+        sub holdTickSplitsTheRate()
+            ' Four 250ms ticks have to add up to the second they replace, or
+            ' the finer feedback would quietly change how fast seeking is.
+            first = 0
+            for tick = 0 to 3
+                first = first + HoldTickStepMs(tick)
+            end for
+            m.assertEqual(first, HoldStepMs(0))
+
+            fastest = 0
+            for tick = 36 to 39
+                fastest = fastest + HoldTickStepMs(tick)
+            end for
+            m.assertEqual(fastest, HoldStepMs(9))
+        end sub
+
+        @it("escalates on held seconds, not on tick count")
+        sub holdTickEscalatesOnSeconds()
+            m.assertEqual(HoldTickStepMs(11), 2500)
+            m.assertEqual(HoldTickStepMs(12), 7500)
+        end sub
+
+        @describe("HoldTickMultiplied")
+
+        ' The screen stops seeking the video and moves only the ghost pointer
+        ' once this turns true, so the boundary is the moment the picture stops
+        ' chasing the key and the jump waits for the release.
+        @it("turns on with the first multiplier rung, not before")
+        sub holdTickMultipliedGate()
+            m.assertFalse(HoldTickMultiplied(0))
+            m.assertFalse(HoldTickMultiplied(11))
+            m.assertTrue(HoldTickMultiplied(12))
+            m.assertTrue(HoldTickMultiplied(600))
+        end sub
+
+        @describe("PlayerButtons")
+
+        @it("centres the transport between two clusters of the same width")
+        sub playerButtonsCluster()
+            ids = []
+            for each button in PlayerButtons(true, false, false, false, false)
+                ids.Push(button.id)
+            end for
+
+            m.assertEqual(ids, ["quality", "subtitle", "play", "audio", "settings"])
+        end sub
+
+        @it("shows the pause icon only while playing")
+        sub playerButtonsIcon()
+            m.assertEqual(PlayerButtons(true, false, false, false, false)[2].icon, "icon-pause")
+            m.assertEqual(PlayerButtons(false, false, false, false, false)[2].icon, "icon-play")
+        end sub
+
+        @it("restarts from the transport once the title has finished")
+        sub playerButtonsFinished()
+            ' The whole bar stays, so subtitles and settings are still reachable
+            ' after the credits rather than collapsing to one button. The icon
+            ' stays a plain play, matching the Flutter overlay bar; only the
+            ' centre badge carries the replay glyph.
+            buttons = PlayerButtons(false, true, false, false, false)
+
+            m.assertEqual(buttons.Count(), 5)
+            m.assertEqual(buttons[2].id, "replay")
+            m.assertEqual(buttons[2].icon, "icon-play")
+            m.assertEqual(buttons[2].label, Phrase("player.replay"))
+        end sub
+
+        @it("keeps both episode buttons in place and disables the one with nowhere to go")
+        sub playerButtonsEpisode()
+            ' Both are always drawn so play/pause stays dead centre; the first
+            ' episode of a series simply has a dimmed Previous.
+            buttons = PlayerButtons(true, false, true, false, true)
+
+            m.assertEqual(buttons[2].id, "previous")
+            m.assertTrue(buttons[2].disabled)
+            m.assertEqual(buttons[4].id, "next")
+            m.assertFalse(buttons[4].disabled)
+        end sub
+
+        @describe("UpNextLabel")
+
+        @it("shows the episode code and name, not the full player title")
+        sub upNextLabelPrefersTheShortForm()
+            ' The header already carries the show name; repeating it here just
+            ' pushes the episode title out of a one-line label.
+            target = { title: "Severance - S02E01: Pilot", label: "S02E01 · Pilot" }
+
+            m.assertEqual(UpNextLabel(target), "S02E01 · Pilot")
+        end sub
+
+        @it("falls back to the title when no short label was built")
+        sub upNextLabelFallsBack()
+            m.assertEqual(UpNextLabel({ title: "Pilot" }), "Pilot")
+            m.assertEqual(UpNextLabel(invalid), "")
+        end sub
+
+        @describe("TransportIndex")
+
+        @it("lands on the transport wherever the clusters put it")
+        sub transportIndexFindsPlay()
+            ' The episode layout inserts Previous ahead of it, so the index is
+            ' not a constant the bar can assume.
+            m.assertEqual(TransportIndex(PlayerButtons(true, false, false, false, false)), 2)
+            m.assertEqual(TransportIndex(PlayerButtons(true, false, true, true, true)), 3)
+            m.assertEqual(TransportIndex(PlayerButtons(false, true, false, false, false)), 2)
+        end sub
+
+        @it("falls back to the first button when there is no transport")
+        sub transportIndexFallsBack()
+            m.assertEqual(TransportIndex([{ id: "retry" }]), 0)
+            m.assertEqual(TransportIndex([{ id: "quality" }, { id: "settings" }]), 0)
+            m.assertEqual(TransportIndex(invalid), 0)
+        end sub
+
+        @describe("TitleWithYear")
+
+        @it("appends the year when there is one")
+        sub titleWithYear()
+            m.assertEqual(TitleWithYear("Arrival", 2016), "Arrival (2016)")
+        end sub
+
+        @it("leaves the title alone when the year is unknown")
+        sub titleWithoutYear()
+            m.assertEqual(TitleWithYear("S1E3 Pilot", invalid), "S1E3 Pilot")
+            m.assertEqual(TitleWithYear("", 2016), "")
+        end sub
+
+        @describe("PreviousEpisodeBefore")
+
+        @it("walks back one episode in the ordered season")
+        sub previousEpisodeWalksBack()
+            episodes = [
+                { id: "e1", number: 1 },
+                { id: "e2", number: 2 },
+                { id: "e3", number: 3 }
+            ]
+
+            m.assertEqual(PreviousEpisodeBefore(episodes, "e3").id, "e2")
+            m.assertInvalid(PreviousEpisodeBefore(episodes, "e1"))
+            m.assertInvalid(PreviousEpisodeBefore(episodes, "nope"))
+        end sub
+
+        @describe("LastEpisodeOf")
+
+        @it("takes the final episode so a season boundary steps backwards")
+        sub lastEpisodeOfSeason()
+            episodes = [{ id: "e2", number: 2 }, { id: "e1", number: 1 }]
+
+            m.assertEqual(LastEpisodeOf(episodes).id, "e2")
+            m.assertInvalid(LastEpisodeOf([]))
+        end sub
+
+        @describe("RetryPosition")
+
+        @it("resumes where the player actually got to")
+        sub retryPrefersTheLastKnownPosition()
+            ' The heartbeat is usually what stopped, so the stored position can
+            ' be staler than what the node reached before it failed.
+            m.assertEqual(RetryPosition(420000, 60000), 420000)
+        end sub
+
+        @it("falls back to the stored position when the player never started")
+        sub retryFallsBackToStored()
+            m.assertEqual(RetryPosition(0, 60000), 60000)
+        end sub
+
+        @it("starts from the beginning when neither is known")
+        sub retryWithoutAnyPosition()
+            m.assertEqual(RetryPosition(0, 0), 0)
+            m.assertEqual(RetryPosition(-1, -1), 0)
+        end sub
+
+        @describe("ProducedMs")
+
+        @it("takes the furthest of the segment being fetched and the position")
+        sub producedTakesTheFrontier()
+            m.assertEqual(ProducedMs({ segStartTime: 120.0 }, 30.0), 120000 + SegmentGraceMs())
+            m.assertEqual(ProducedMs({ segStartTime: 0.0 }, 30.0), 30000 + SegmentGraceMs())
+            m.assertEqual(ProducedMs(invalid, 30.0), 30000 + SegmentGraceMs())
+        end sub
+
+        @describe("TimelineFraction")
+
+        @it("measures how far through the whole title the viewer is")
+        sub measuresProgress()
+            m.assertEqual(TimelineFraction(30000, 120000), 0.25)
+            m.assertEqual(TimelineFraction(0, 120000), 0.0)
+            m.assertEqual(TimelineFraction(240000, 120000), 1.0)
+        end sub
+
+        @it("reads as empty when the duration is unknown")
+        sub emptyWithoutDuration()
+            m.assertEqual(TimelineFraction(30000, 0), 0.0)
+            m.assertEqual(TimelineFraction(-1, 120000), 0.0)
+        end sub
+
+        @describe("TimelineSpan")
+
+        @it("puts everything on the playback position when nothing is being scrubbed")
+        sub spanWithoutScrub()
+            span = TimelineSpan(30000, -1, 120000, 400)
+
+            m.assertEqual(span.fillTo, 100)
+            m.assertEqual(span.previewTo, 100)
+            m.assertEqual(span.thumbAt, 100)
+            m.assertFalse(span.ghost)
+        end sub
+
+        ' The accent stops where playback is; the muted span is the stretch the
+        ' viewer is about to cross, which is what makes the jump readable.
+        @it("leaves the accent behind and mutes the gap ahead")
+        sub spanScrubbingForward()
+            span = TimelineSpan(30000, 90000, 120000, 400)
+
+            m.assertEqual(span.fillTo, 100)
+            m.assertEqual(span.previewTo, 300)
+            m.assertEqual(span.thumbAt, 100)
+            m.assertEqual(span.ghostAt, 300)
+            m.assertTrue(span.ghost)
+        end sub
+
+        ' Jumping back mutes the stretch about to be given up, so the muted span
+        ' always describes the jump rather than the direction.
+        @it("mutes the stretch between the target and now when scrubbing back")
+        sub spanScrubbingBack()
+            span = TimelineSpan(90000, 30000, 120000, 400)
+
+            m.assertEqual(span.fillTo, 100)
+            m.assertEqual(span.previewTo, 300)
+            m.assertEqual(span.thumbAt, 300)
+            m.assertEqual(span.ghostAt, 100)
+        end sub
+
+        @it("paints no span when the scrub sits on the playback position")
+        sub spanScrubbingNowhere()
+            span = TimelineSpan(30000, 30000, 120000, 400)
+
+            m.assertEqual(span.fillTo, span.previewTo)
+            m.assertTrue(span.ghost)
+        end sub
+
+        @describe("NextEpisodeAfter")
+
+        @it("finds the episode that follows, in broadcast order")
+        sub findsTheFollowingEpisode()
+            items = [
+                { id: "e3", season_number: 1, number: 3 },
+                { id: "e1", season_number: 1, number: 1 },
+                { id: "e2", season_number: 1, number: 2 }
+            ]
+
+            m.assertEqual(TextOrBlank(ValueAt(NextEpisodeAfter(items, "e1"), "id", "")), "e2")
+            m.assertEqual(TextOrBlank(ValueAt(NextEpisodeAfter(items, "e2"), "id", "")), "e3")
+        end sub
+
+        @describe("FirstEpisodeOf")
+
+        @it("opens a new season on its first episode, whatever order it arrived in")
+        sub opensTheSeasonOnEpisodeOne()
+            items = [{ id: "e2", number: 2 }, { id: "e1", number: 1 }]
+
+            m.assertEqual(TextOrBlank(ValueAt(FirstEpisodeOf(items), "id", "")), "e1")
+            m.assertInvalid(FirstEpisodeOf([]))
+            m.assertInvalid(FirstEpisodeOf(invalid))
+        end sub
+
+        @it("finds nothing after the last episode, which is where the next season is asked for")
+        sub stopsAtTheSeasonEnd()
+            items = [{ id: "e1", season_number: 1, number: 1 }]
+
+            m.assertInvalid(NextEpisodeAfter(items, "e1"))
+            m.assertInvalid(NextEpisodeAfter(items, "unknown"))
+            m.assertInvalid(NextEpisodeAfter(invalid, "e1"))
+        end sub
+
+        @describe("PlayerDiagnostics")
+
+        @it("reports what the session became and how it is running")
+        sub reportsSessionDiagnostics()
+            info = VideoInfo({ measuredBitrate: 4500, isUnderrun: true }, { percentage: 80 }, 1.25, "playing")
+            rows = PlayerDiagnostics({ mode: "transcode", container: "mpegts" }, info)
+
+            m.assertEqual(rows[0].values[0], "transcode")
+            m.assertEqual(rows[1].values[0], "mpegts")
+            m.assertEqual(rows[2].values[0], "playing")
+            m.assertEqual(rows[4].values[0], "4.5 Mbps")
+            m.assertEqual(rows[5].values[0], "80%")
+            m.assertEqual(rows[6].values[0], Phrase("state.yes"))
+            m.assertEqual(rows[7].values[0], "1.3 s")
+        end sub
+
+        @it("names the timeline origin only when the manifest actually starts there")
+        sub reportsTimelineOrigin()
+            direct = PlayerDiagnostics({ mode: "direct", sequential: false, originMs: 0 }, VideoInfo(invalid, invalid, 0))
+            m.assertEqual(direct[3].values[0], Phrase("diagnostics.fromStart"))
+
+            shifted = PlayerDiagnostics({ mode: "transcode", sequential: true, originMs: 90000 }, VideoInfo(invalid, invalid, 0))
+            m.assertEqual(shifted[3].values[0], FormatDuration(90000))
+        end sub
+
+        @it("says so rather than inventing numbers before playback reports any")
+        sub saysNothingKnownYet()
+            ' The server fields arrive with the session, the node fields only
+            ' once it plays, so these two halves go unavailable separately.
+            rows = PlayerDiagnostics(invalid, VideoInfo(invalid, invalid, 0))
+
+            m.assertEqual(rows[0].values[0], Phrase("status.unavailable"))
+            m.assertEqual(rows[2].values[0], Phrase("status.unavailable"))
+            m.assertEqual(rows[4].values[0], Phrase("status.unavailable"))
+            m.assertEqual(rows[7].values[0], Phrase("status.unavailable"))
+        end sub
+
+        @describe("FormatKbps")
+
+        @it("reads as kbps below a megabit and Mbps above it")
+        sub formatsBitrate()
+            m.assertEqual(FormatKbps(850), "850 kbps")
+            m.assertEqual(FormatKbps(8000), "8.0 Mbps")
+            m.assertEqual(FormatKbps(0), "")
+        end sub
+
+        @describe("AbrBounds")
+
+        @it("always names a switching strategy")
+        sub alwaysNamesAStrategy()
+            ' Roku is reported not to adapt at all unless this is set, whatever
+            ' the documented default says.
+            m.assertFalse(IsBlank(AbrBounds(0).strategy))
+        end sub
+
+        @it("bounds the bitrate only when it was given one")
+        sub boundsOnlyWhenKnown()
+            m.assertEqual(AbrBounds(0).maxKbps, 0)
+            m.assertEqual(AbrBounds(8000000).maxKbps, 8000)
+        end sub
+
+        @describe("QualityRungs")
+
+        @it("offers only the rungs below what the source actually is")
+        sub offersRungsBelowTheSource()
+            ' Asking the server to convert 1080p up to 1080p is work for nothing.
+            heights = []
+            for each rung in QualityRungs(1080)
+                heights.Push(rung.height)
+            end for
+
+            m.assertEqual(heights, [0, 720, 480, 320])
+        end sub
+
+        @it("offers every rung when the source height is unknown")
+        sub offersEveryRungWhenUnknown()
+            m.assertEqual(QualityRungs(0).Count(), QualityHeights().Count())
+            m.assertEqual(QualityRungs(0)[0].label, Phrase("player.original"))
+            m.assertEqual(QualityRungs(0)[1].label, "1080p")
+        end sub
+
+        @it("reads the source height off the first video track")
+        sub readsSourceHeight()
+            m.assertEqual(SourceHeightOf({ video: [{ height: 2160 }] }), 2160)
+            m.assertEqual(SourceHeightOf({ video: [] }), 0)
+            m.assertEqual(SourceHeightOf(invalid), 0)
+        end sub
+
+        @describe("SubtitleOptions")
+
+        @it("always offers Off first, then embedded tracks, then files")
+        sub offersSubtitlesInOrder()
+            options = SubtitleOptions({
+                subtitles: [{ index: 2, language: "en", format: "subrip" }],
+                subtitle_files: [{ id: "f1", language: "de", format: "webvtt" }]
+            })
+
+            m.assertEqual(options.Count(), 3)
+            m.assertEqual(options[0].label, Phrase("state.off"))
+            m.assertInvalid(options[0].ref)
+            m.assertEqual(options[1].ref.type, "embedded")
+            m.assertEqual(options[1].ref.index, 2)
+            m.assertEqual(options[2].ref.type, "file")
+            m.assertEqual(options[2].ref.id, "f1")
+        end sub
+
+        @it("drops a file with no id rather than offering one that cannot be chosen")
+        sub dropsUnusableSubtitleFiles()
+            m.assertEqual(SubtitleOptions({ subtitle_files: [{ language: "de" }] }).Count(), 1)
+        end sub
+
+        @it("finds the option that matches what is selected")
+        sub findsTheSelectedSubtitle()
+            options = SubtitleOptions({ subtitles: [{ index: 0 }, { index: 3 }] })
+            controls = DefaultControls()
+            controls.subtitle = { type: "embedded", index: 3 }
+
+            m.assertEqual(IndexOfSubtitle(options, controls), 2)
+            m.assertEqual(IndexOfSubtitle(options, DefaultControls()), 0)
+        end sub
+
+        @describe("SteppedOffset")
+
+        @it("steps in both directions and stops at the bound")
+        sub stepsTheOffset()
+            m.assertEqual(SteppedOffset(0, OffsetStepMs()), OffsetStepMs())
+            m.assertEqual(SteppedOffset(0, 0 - OffsetStepMs()), 0 - OffsetStepMs())
+            m.assertEqual(SteppedOffset(OffsetBoundMs(), OffsetStepMs()), OffsetBoundMs())
+            m.assertEqual(SteppedOffset(0 - OffsetBoundMs(), 0 - OffsetStepMs()), 0 - OffsetBoundMs())
+        end sub
+
+        @it("signs the offset so the direction is readable")
+        sub labelsTheOffset()
+            m.assertEqual(OffsetLabel(250), "+250 ms")
+            m.assertEqual(OffsetLabel(-250), "-250 ms")
+            m.assertEqual(OffsetLabel(0), "0 ms")
+        end sub
+
+        @describe("SettingsRows")
+
+        @it("names every setting with the value it currently has")
+        sub namesEverySetting()
+            controls = DefaultControls()
+            controls.delivery = "never"
+
+            rows = SettingsRows(controls, { autoplay: false, autoplayDelay: 15, remaining: true, diagnostics: false })
+
+            m.assertEqual(rows[0].label, Phrase("player.converting"))
+            m.assertEqual(rows[0].detail, Phrase("player.deliveryNever"))
+            m.assertEqual(rows[1].label, Phrase("player.timeDisplay"))
+            m.assertEqual(rows[1].detail, Phrase("player.timeRemaining"))
+            m.assertEqual(rows[2].label, Phrase("player.autoplayNext"))
+            m.assertEqual(rows[2].detail, Phrase("state.off"))
+            m.assertEqual(rows[3].label, Phrase("player.diagnostics"))
+            m.assertEqual(rows[3].detail, Phrase("state.off"))
+        end sub
+
+        @it("folds the delay into the autoplay row when autoplay is on")
+        sub foldsDelayIntoAutoplay()
+            rows = SettingsRows(DefaultControls(), { autoplay: true, autoplayDelay: 15, remaining: false, diagnostics: false })
+
+            m.assertEqual(rows[2].label, Phrase("player.autoplayNext"))
+            m.assertEqual(rows[2].detail, "15 seconds")
+        end sub
+
+        @describe("AutoplayOptions")
+
+        @it("offers Off ahead of every delay the countdown allows")
+        sub offersOffAheadOfDelays()
+            options = AutoplayOptions()
+
+            m.assertEqual(options.Count(), CountdownOptions().Count() + 1)
+            m.assertEqual(options[0].value, AutoplayOffValue())
+            m.assertEqual(options[0].label, Phrase("state.off"))
+            m.assertEqual(options[1].value, CountdownOptions()[0].value)
+        end sub
+
+        @it("reads the stored pair back as the value the list is keyed on")
+        sub readsStoredPairAsOneValue()
+            m.assertEqual(AutoplayValue(false, 15), AutoplayOffValue())
+            m.assertEqual(AutoplayValue(true, 15), 15)
+            m.assertEqual(AutoplayValue(true, invalid), DefaultCountdownSeconds())
+            m.assertEqual(AutoplayValue(true, 7), DefaultCountdownSeconds())
+        end sub
+
+        @describe("TimeDisplayOptions")
+
+        @it("keys Elapsed and Remaining so the current one can be preselected")
+        sub keysTimeDisplayOptions()
+            options = TimeDisplayOptions()
+
+            m.assertEqual(options.Count(), 2)
+            m.assertEqual(options[0].label, Phrase("player.timeElapsed"))
+            m.assertEqual(options[1].label, Phrase("player.timeRemaining"))
+            m.assertEqual(options[TimeDisplayValue(false)].label, Phrase("player.timeElapsed"))
+            m.assertEqual(options[TimeDisplayValue(true)].label, Phrase("player.timeRemaining"))
+        end sub
+
+        @describe("PositionText")
+
+        @it("counts up from the start when the viewer wants elapsed")
+        sub countsUp()
+            m.assertEqual(PositionText(60000, 3600000, false), FormatDuration(60000))
+        end sub
+
+        @it("counts down to the end when the viewer wants remaining")
+        sub countsDown()
+            m.assertEqual(PositionText(60000, 3600000, true), "-" + FormatDuration(3540000))
+        end sub
+
+        @it("never shows a negative remaining time past the end")
+        sub neverGoesNegative()
+            m.assertEqual(PositionText(3700000, 3600000, true), "-" + FormatDuration(0))
+        end sub
+
+        @it("falls back to the elapsed time when there is no duration to count down from")
+        sub fallsBackWithoutDuration()
+            m.assertEqual(PositionText(60000, 0, true), FormatDuration(60000))
+        end sub
+
+        @describe("autoplay delay")
+
+        @it("offers a few delays and keeps ten as the default")
+        sub offersDelays()
+            m.assertEqual(DefaultCountdownSeconds(), 10)
+            m.assertEqual(CountdownOptions().Count(), 4)
+            m.assertEqual(CountdownOptions()[1].value, 10)
+        end sub
+
+        @it("refuses a delay it does not offer")
+        sub refusesUnknownDelay()
+            m.assertEqual(ClampedCountdownSeconds(15), 15)
+            m.assertEqual(ClampedCountdownSeconds(7), DefaultCountdownSeconds())
+            m.assertEqual(ClampedCountdownSeconds(0), DefaultCountdownSeconds())
+        end sub
+
+        @describe("stall watchdog")
+
+        @it("counts a tick only while nothing is arriving")
+        sub countsStalledTicks()
+            m.assertEqual(StallTicks(4, 100, 100), 5)
+            m.assertEqual(StallTicks(4, 100, 101), 0)
+        end sub
+
+        @it("treats buffering as progress, so a slow start is not a stall")
+        sub bufferingIsProgress()
+            m.assertEqual(ProgressMark(1000, 20), 1020)
+            m.assertEqual(StallTicks(3, ProgressMark(1000, 20), ProgressMark(1000, 30)), 0)
+        end sub
+
+        @it("survives a video node that reports nothing yet")
+        sub toleratesNoReadings()
+            m.assertEqual(ProgressMark(invalid, invalid), 0)
+        end sub
+
+        @it("gives the stream twenty seconds before it says anything")
+        sub waitsTwentySeconds()
+            m.assertEqual(StallSeconds(), 20)
+            m.assertFalse(IsStalled(19))
+            m.assertTrue(IsStalled(20))
+        end sub
+
+        @describe("track carry")
+
+        @it("remembers the language of the track, not its index")
+        sub remembersLanguages()
+            version = {
+                audio: [{ index: 0, language: "eng" }, { index: 1, language: "jpn" }],
+                subtitles: [{ index: 3, language: "swe" }]
+            }
+            controls = DefaultControls()
+            controls.audioTrack = 1
+            controls.subtitle = { "type": "embedded", index: 3 }
+
+            carried = CarriedTracks(controls, version)
+            m.assertEqual(carried.audioLanguage, "jpn")
+            m.assertEqual(carried.subtitleLanguage, "swe")
+            m.assertFalse(carried.subtitleOff)
+        end sub
+
+        @it("finds the same language at a different index on the next episode")
+        sub findsLanguageAtANewIndex()
+            later = {
+                audio: [{ index: 0, language: "jpn" }, { index: 1, language: "eng" }],
+                subtitles: [{ index: 7, language: "swe" }]
+            }
+
+            controls = ControlsForCarried({ audioLanguage: "jpn", subtitleLanguage: "swe", subtitleOff: false }, later)
+            m.assertEqual(controls.audioTrack, 0)
+            m.assertEqual(controls.subtitle.index, 7)
+            m.assertEqual(controls.subtitle["type"], "embedded")
+        end sub
+
+        @it("carries a subtitle file by language too")
+        sub carriesSubtitleFiles()
+            version = { subtitle_files: [{ id: "f1", language: "swe" }] }
+            controls = DefaultControls()
+            controls.subtitle = { "type": "file", id: "f1" }
+
+            carried = CarriedTracks(controls, version)
+            m.assertEqual(carried.subtitleLanguage, "swe")
+
+            later = { subtitle_files: [{ id: "f9", language: "swe" }] }
+            m.assertEqual(ControlsForCarried(carried, later).subtitle.id, "f9")
+        end sub
+
+        @it("keeps subtitles off when the viewer turned them off")
+        sub keepsSubtitlesOff()
+            controls = DefaultControls()
+            controls.subtitleOff = true
+            controls.subtitle = { "type": "embedded", index: 3 }
+
+            carried = CarriedTracks(controls, { subtitles: [{ index: 3, language: "swe" }] })
+            m.assertTrue(carried.subtitleOff)
+            m.assertEqual(carried.subtitleLanguage, "")
+
+            later = ControlsForCarried(carried, { subtitles: [{ index: 3, language: "swe" }] })
+            m.assertTrue(later.subtitleOff)
+            m.assertInvalid(later.subtitle)
+        end sub
+
+        @it("falls back to the default when the next episode has no such language")
+        sub fallsBackWhenLanguageIsMissing()
+            controls = ControlsForCarried({ audioLanguage: "jpn", subtitleLanguage: "swe", subtitleOff: false }, { audio: [{ index: 0, language: "eng" }] })
+
+            m.assertEqual(controls.audioTrack, DefaultControls().audioTrack)
+            m.assertInvalid(controls.subtitle)
+        end sub
+
+        @it("matches a language whatever case the server sent it in")
+        sub matchesLanguageCaseInsensitively()
+            m.assertEqual(AudioIndexForLanguage({ audio: [{ index: 4, language: "JPN" }] }, "jpn"), 4)
+        end sub
+
+        @it("survives a version with no tracks at all")
+        sub toleratesNoTracks()
+            carried = CarriedTracks(DefaultControls(), invalid)
+
+            m.assertEqual(carried.audioLanguage, "")
+            m.assertEqual(carried.subtitleLanguage, "")
+            m.assertEqual(ControlsForCarried(invalid, invalid).audioTrack, DefaultControls().audioTrack)
+        end sub
+
+        @describe("HideSecondsFor")
+
+        @it("leaves the bar up long enough to be read aloud")
+        sub holdsTheBarForSpeech()
+            m.assertEqual(HideSecondsFor(false), ControlsHideSeconds())
+            m.assertEqual(HideSecondsFor(true), SpokenControlsHideSeconds())
+            m.assertTrue(SpokenControlsHideSeconds() > ControlsHideSeconds())
+        end sub
+
+        @describe("ClockText")
+
+        @it("pads a 24 hour clock to four digits")
+        sub padsTwentyFourHour()
+            m.assertEqual(ClockText(9, 5, true), "09:05")
+            m.assertEqual(ClockText(21, 30, true), "21:30")
+            m.assertEqual(ClockText(0, 0, true), "00:00")
+        end sub
+
+        @it("names midnight and noon correctly on a 12 hour clock")
+        sub namesMidnightAndNoon()
+            m.assertEqual(ClockText(0, 5, false), "12:05 AM")
+            m.assertEqual(ClockText(12, 0, false), "12:00 PM")
+        end sub
+
+        @it("drops the leading zero on a 12 hour clock but keeps it on the minutes")
+        sub dropsLeadingHourZero()
+            m.assertEqual(ClockText(9, 5, false), "9:05 AM")
+            m.assertEqual(ClockText(21, 30, false), "9:30 PM")
+        end sub
+
+        @describe("DoubleBackMs")
+
+        @it("measures a gesture, not a pause for thought")
+        sub measuresAGesture()
+            m.assertEqual(DoubleBackMs(), 750)
+            m.assertTrue(DoubleBackMs() * 4 <= ControlsHideSeconds() * 1000)
+        end sub
+
+        @it("gives every row an id the screen can act on")
+        sub everySettingHasAnId()
+            rows = SettingsRows(DefaultControls(), {})
+            rows.Append(AudioRows(DefaultControls(), invalid))
+            rows.Append(SubtitleRows(DefaultControls(), invalid))
+
+            for each row in rows
+                m.assertFalse(IsBlank(row.id))
+                m.assertFalse(IsBlank(row.label))
+            end for
+        end sub
+
+        @describe("SubtitleRows")
+
+        @it("offers offset and burn-in only once a subtitle is on")
+        sub subtitleRowsFollowTheSelection()
+            off = SubtitleRows(DefaultControls(), invalid)
+            m.assertEqual(off.Count(), 1)
+            m.assertEqual(off[0].id, "subtitle")
+
+            controls = DefaultControls()
+            controls.subtitle = { type: "embedded", index: 2 }
+
+            on = SubtitleRows(controls, invalid)
+            m.assertEqual(on.Count(), 3)
+            m.assertEqual(on[1].id, "offset")
+            m.assertEqual(on[2].id, "burn")
+        end sub
+
+        @describe("AudioRows")
+
+        @it("carries the track and the downmix together")
+        sub audioRowsPairTrackAndDownmix()
+            rows = AudioRows(DefaultControls(), invalid)
+
+            m.assertEqual(rows.Count(), 2)
+            m.assertEqual(rows[0].id, "audio")
+            m.assertEqual(rows[1].id, "downmix")
+        end sub
+
+        @describe("ControlsStartBody")
+
+        @it("sends nothing at all when nothing was chosen")
+        sub startBodyIsEmptyByDefault()
+            m.assertEqual(ControlsStartBody(DefaultControls()).Count(), 0)
+        end sub
+
+        @it("sends each choice under the name the server reads")
+        sub startBodyNamesEveryChoice()
+            controls = DefaultControls()
+            controls.height = 720
+            controls.burn = true
+            controls.downmix = true
+            controls.audioTrack = 2
+            controls.delivery = "always"
+
+            body = ControlsStartBody(controls)
+            m.assertEqual(body.target_height, 720)
+            m.assertTrue(body.force_burn)
+            m.assertTrue(body.downmix_stereo)
+            m.assertEqual(body.audio_track, 2)
+            m.assertEqual(body.delivery, "always")
+        end sub
+
+        @it("wraps a subtitle in the selection the server expects")
+        sub startBodyWrapsTheTrack()
+            ' The start body takes { track, offset_ms }, not a bare track ref.
+            controls = DefaultControls()
+            controls.subtitle = { type: "embedded", index: 3 }
+            controls.offsetMs = 250
+
+            selection = ControlsStartBody(controls).subtitle
+            m.assertEqual(selection.track.type, "embedded")
+            m.assertEqual(selection.track.index, 3)
+            m.assertEqual(selection.offset_ms, 250)
+        end sub
+
+        @it("turns subtitles off instead of naming one")
+        sub startBodyTurnsSubtitlesOff()
+            controls = DefaultControls()
+            controls.subtitleOff = true
+            controls.subtitle = { type: "embedded", index: 3 }
+
+            body = ControlsStartBody(controls)
+            m.assertTrue(body.subtitle_off)
+            m.assertFalse(body.DoesExist("subtitle"))
+        end sub
+
+        @describe("ControlsUpdateBody")
+
+        @it("always states every server-side choice")
+        sub updateBodyAlwaysStatesEverything()
+            ' An update replaces the session's settings, so an omitted field
+            ' would read as a change back to the default.
+            body = ControlsUpdateBody(DefaultControls())
+
+            m.assertInvalid(body.target_height)
+            m.assertFalse(body.force_burn)
+            m.assertFalse(body.downmix_stereo)
+            m.assertEqual(body.delivery, "auto")
+            m.assertEqual(body.subtitle.action, "disable")
+        end sub
+
+        @it("sets a subtitle with its offset")
+        sub updateBodySetsSubtitle()
+            controls = DefaultControls()
+            controls.subtitle = { type: "file", id: "f1" }
+            controls.offsetMs = -500
+
+            change = ControlsUpdateBody(controls).subtitle
+            m.assertEqual(change.action, "set")
+            m.assertEqual(change.track.type, "file")
+            m.assertEqual(change.track.id, "f1")
+            m.assertEqual(change.offset_ms, -500)
+        end sub
+
+        @it("disables subtitles when they are switched off")
+        sub updateBodyDisablesSubtitles()
+            controls = DefaultControls()
+            controls.subtitle = { type: "embedded", index: 1 }
+            controls.subtitleOff = true
+
+            m.assertEqual(ControlsUpdateBody(controls).subtitle.action, "disable")
+        end sub
+
+        @describe("ControlsWithSelection")
+
+        @it("adopts what the session actually selected")
+        sub adoptsSelection()
+            merged = ControlsWithSelection(DefaultControls(), {
+                audio_track: 1,
+                subtitle_track: { type: "embedded", index: 4 }
+            })
+
+            m.assertEqual(merged.audioTrack, 1)
+            m.assertEqual(merged.subtitle.index, 4)
+            m.assertFalse(merged.subtitleOff)
+        end sub
+
+        @it("keeps what it had when the session selected nothing")
+        sub keepsControlsWithoutSelection()
+            controls = DefaultControls()
+            controls.height = 480
+
+            m.assertEqual(ControlsWithSelection(controls, invalid).height, 480)
+        end sub
+
+        @describe("SubtitlesAreBurned")
+
+        @it("knows when the pixels already carry the subtitles")
+        sub knowsBurnedSubtitles()
+            m.assertTrue(SubtitlesAreBurned({ subtitle_delivery: "burned" }))
+            m.assertFalse(SubtitlesAreBurned({ subtitle_delivery: "hls_vtt" }))
+            m.assertFalse(SubtitlesAreBurned(invalid))
+        end sub
+
+        @describe("session requests")
+
+        @it("addresses every session endpoint the player uses")
+        sub addressesSessionEndpoints()
+            beat = HeartbeatRequest("http://host", "t", "s1", 1500, "playing")
+            m.assertEqual(beat.url, "http://host/api/v1/sessions/s1/progress")
+            m.assertEqual(ParseJson(beat.body).position_ms, 1500)
+            m.assertEqual(ParseJson(beat.body).state, "playing")
+
+            seek = SeekSessionRequest("http://host", "t", "s1", 60000)
+            m.assertEqual(seek.url, "http://host/api/v1/sessions/s1/seek")
+            m.assertEqual(ParseJson(seek.body).position_ms, 60000)
+
+            update = UpdateSessionRequest("http://host", "t", "s1", DefaultControls())
+            m.assertEqual(update.url, "http://host/api/v1/sessions/s1/update")
+
+            ended = EndSessionRequest("http://host", "t", "s1")
+            m.assertEqual(ended.url, "http://host/api/v1/sessions/s1")
+            m.assertEqual(ended.method, "DELETE")
+        end sub
+
+        @it("carries the chosen controls into the start body")
+        sub startCarriesControls()
+            controls = DefaultControls()
+            controls.height = 720
+
+            request = StartSessionRequest("http://host", "t", "v1", 0, CapabilitiesBody({}, 1), controls)
+            body = ParseJson(request.body)
+
+            m.assertEqual(body.version_id, "v1")
+            m.assertEqual(body.target_height, 720)
+            m.assertEqual(body.capabilities.platform, "roku")
+        end sub
+
+        @describe("ResumeRequest")
+
+        @it("reads the stored position for this user and version")
+        sub readsStoredPosition()
+            request = ResumeRequest("http://host", "t", "u1", "v1")
+
+            m.assertEqual(request.url, "http://host/api/v1/users/u1/progress/v1")
+            m.assertEqual(request.method, "GET")
+        end sub
+
+    end class
+
+end namespace

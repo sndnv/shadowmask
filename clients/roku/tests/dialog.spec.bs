@@ -1,0 +1,365 @@
+namespace tests
+
+    @suite("dialog")
+    class DialogTests extends rooibos.BaseTestSuite
+
+        function rowLabels(rows as object) as object
+            labels = []
+            for each row in rows
+                labels.Push(row.label)
+            end for
+            return labels
+        end function
+
+        function iconFor(actions as object, id as string) as string
+            for each action in actions
+                if action.id = id then return TextOrBlank(ValueAt(action, "icon", ""))
+            end for
+            return ""
+        end function
+
+        @describe("DialogCloseRequest")
+
+        @it("reads an empty request as the screen asking for its dialog back")
+        sub emptyRequestCloses()
+            m.assertTrue(IsDialogClose(DialogCloseRequest()))
+            m.assertTrue(IsDialogClose({}))
+            m.assertFalse(IsDialogClose({ title: "Settings", options: ["Elapsed"] }))
+            m.assertFalse(IsDialogClose(invalid))
+        end sub
+
+        @describe("DialogRows")
+
+        @it("accepts a plain string as an option that carries no flags")
+        sub plainStringsBecomeRows()
+            rows = DialogRows(["One", "Two"], "confirm", 0)
+
+            m.assertEqual(rows.Count(), 2)
+            m.assertEqual(rows[0].label, "One")
+            m.assertFalse(rows[0].danger)
+            m.assertFalse(rows[0].cancel)
+        end sub
+
+        @it("carries the danger and cancel flags an assocarray option states")
+        sub optionFlagsSurvive()
+            rows = DialogRows([{ label: "Delete", danger: true }, { label: "Never mind", cancel: true }], "confirm", 0)
+
+            m.assertTrue(rows[0].danger)
+            m.assertTrue(rows[1].cancel)
+            m.assertFalse(rows[0].cancel)
+        end sub
+
+        @it("appends a cancel row to a menu and to a choice but not to a confirm")
+        sub cancelRowIsAppendedPerKind()
+            m.assertEqual(DialogRows(["One"], "menu", 0).Count(), 2)
+            m.assertEqual(DialogRows(["One"], "choice", 0).Count(), 2)
+            m.assertEqual(DialogRows(["One"], "confirm", 0).Count(), 1)
+
+            appended = DialogRows(["One"], "menu", 0)[1]
+            m.assertTrue(appended.cancel)
+            m.assertEqual(appended.label, Phrase("action.cancel"))
+        end sub
+
+        @it("treats a blank kind as a confirm")
+        sub blankKindIsConfirm()
+            m.assertEqual(DialogRows(["One"], "", 0).Count(), 1)
+        end sub
+
+        @it("returns nothing for options that are not an array")
+        sub nonArrayOptionsAreEmpty()
+            m.assertEqual(DialogRows(invalid, "menu", 0).Count(), 0)
+            m.assertEqual(DialogRows("One", "menu", 0).Count(), 0)
+        end sub
+
+        @describe("row glyphs")
+
+        @it("carries the icon an option names")
+        sub optionsBringTheirOwnIcon()
+            rows = DialogRows([{ label: "Play", icon: "icon-play" }], "menu", 0)
+
+            m.assertEqual(rows[0].icon, "icon-play")
+            m.assertTrue(rows[0].reserve)
+        end sub
+
+        @it("trails a chevron only on a row that carries a value to change")
+        sub onlyValueRowsLeadSomewhere()
+            rows = DialogRows([{ label: "HEVC", detail: "Detected" }, { label: "Reset" }], "menu", 0)
+
+            m.assertTrue(rows[0].chevron)
+            m.assertEqual(rows[0].detail, "Detected")
+            m.assertFalse(rows[1].chevron)
+        end sub
+
+        @it("marks only the selected row of a choice")
+        sub choiceMarksTheCurrentValue()
+            rows = DialogRows(["One", "Two", "Three"], "choice", 1)
+
+            m.assertEqual(rows[0].icon, "")
+            m.assertEqual(rows[1].icon, "icon-check")
+            m.assertEqual(rows[2].icon, "")
+            m.assertTrue(rows[1].chosen)
+        end sub
+
+        @it("reserves the leading slot on every choice row so the labels line up")
+        sub choiceRowsReserveTheMark()
+            rows = DialogRows(["One", "Two"], "choice", 1)
+
+            m.assertTrue(rows[0].reserve)
+            m.assertTrue(rows[1].reserve)
+        end sub
+
+        @it("sets the cancel row apart by alignment alone, carrying no glyph of its own")
+        sub cancelRowIsSetApart()
+            row = DialogRows(["One"], "menu", 0)[1]
+
+            m.assertEqual(row.icon, "")
+            m.assertFalse(row.chevron)
+            m.assertTrue(row.alignRight)
+            m.assertFalse(row.reserve)
+        end sub
+
+        @it("leaves the acting half of a confirm undecorated")
+        sub confirmRowsCarryNoChevron()
+            rows = DialogRows(ConfirmOptions("Sign out", true), "confirm", 0)
+
+            m.assertEqual(rows[0].icon, "")
+            m.assertFalse(rows[0].chevron)
+            m.assertTrue(rows[1].alignRight)
+        end sub
+
+        @describe("DialogRowPaint")
+
+        @it("states a destructive row in the danger colour")
+        sub dangerRowsReadAsDestructive()
+            theme = ThemeTokens("dark")
+            paint = DialogRowPaint(theme, { danger: true }, false)
+
+            m.assertEqual(paint.label, theme.danger)
+            m.assertEqual(paint.glyph, theme.danger)
+            m.assertEqual(paint.fill, "")
+        end sub
+
+        @it("fills the focused row with its own tone so danger survives the selection")
+        sub focusKeepsTheDangerTone()
+            theme = ThemeTokens("dark")
+
+            plain = DialogRowPaint(theme, { label: "One" }, true)
+            m.assertEqual(plain.fill, theme.accent)
+            m.assertEqual(plain.label, theme.accentContrast)
+
+            destructive = DialogRowPaint(theme, { danger: true }, true)
+            m.assertEqual(destructive.fill, theme.danger)
+            m.assertEqual(destructive.label, theme.dangerContrast)
+        end sub
+
+        @it("quiets the cancel row and accents the chosen mark")
+        sub cancelAndChosenRowsAreToned()
+            theme = ThemeTokens("dark")
+
+            cancel = DialogRowPaint(theme, { cancel: true }, false)
+            m.assertEqual(cancel.label, theme.muted)
+
+            chosen = DialogRowPaint(theme, { chosen: true }, false)
+            m.assertEqual(chosen.label, theme.text)
+            m.assertEqual(chosen.glyph, theme.accent)
+        end sub
+
+        @describe("SteppedRowIndex")
+
+        @it("wraps around both ends rather than stopping")
+        sub selectionWrapsAround()
+            rows = DialogRows(["One", "Two", "Three"], "confirm", 0)
+
+            m.assertEqual(SteppedRowIndex(rows, 0, -1), 2)
+            m.assertEqual(SteppedRowIndex(rows, 0, 1), 1)
+            m.assertEqual(SteppedRowIndex(rows, 2, 1), 0)
+        end sub
+
+        @it("stays put when there are no rows")
+        sub emptyRowsStayPut()
+            m.assertEqual(SteppedRowIndex([], 0, 1), 0)
+            m.assertEqual(SteppedRowIndex(invalid, 3, 1), 0)
+        end sub
+
+        @describe("DialogChoiceResult")
+
+        @it("reports an option by its index")
+        sub optionsReportTheirIndex()
+            result = DialogChoiceResult("version", 2, 4)
+
+            m.assertEqual(result.field, "version")
+            m.assertEqual(result.index, 2)
+            m.assertFalse(result.cancelled)
+        end sub
+
+        @it("reports the appended cancel row as a cancellation, not as an option")
+        sub cancelRowReportsCancelled()
+            result = DialogChoiceResult("version", 4, 4)
+
+            m.assertEqual(result.index, 0)
+            m.assertTrue(result.cancelled)
+        end sub
+
+        @describe("ConfirmOptions")
+
+        @it("marks the cancel half and colours the acting half only when asked")
+        sub confirmOptionsCarryTheirTone()
+            destructive = ConfirmOptions("Sign out", true)
+            m.assertTrue(destructive[0].danger)
+            m.assertTrue(destructive[1].cancel)
+
+            plain = ConfirmOptions("Mark watched")
+            m.assertFalse(plain[0].danger)
+        end sub
+
+        @it("still accepts the first option as the acting one")
+        sub confirmAcceptanceIsUnchanged()
+            m.assertTrue(ConfirmAccepted({ index: 0, cancelled: false }))
+            m.assertFalse(ConfirmAccepted({ index: 1, cancelled: false }))
+        end sub
+
+        @describe("MenuOptions")
+
+        @it("carries a menu action's label and its danger flag")
+        sub menuActionsBecomeOptions()
+            options = MenuOptions(LibraryMenuActions("history"))
+
+            m.assertEqual(m.rowLabels(options), [Phrase("action.removeHistory"), Phrase("action.clearHistory")])
+            m.assertTrue(options[0].danger)
+            m.assertTrue(options[1].danger)
+        end sub
+
+        @it("gives clearing a list its own glyph so it does not read as one more remove")
+        sub clearingCarriesItsOwnGlyph()
+            options = MenuOptions(LibraryMenuActions("history"))
+
+            m.assertEqual(options[0].icon, "icon-close")
+            m.assertEqual(options[1].icon, "icon-trash")
+        end sub
+
+        @it("marks every removal with a close glyph and every addition with its own")
+        sub addAndRemoveReadDifferently()
+            saved = CardMenuActions({ kind: "movie", id: "m1", watchlisted: true, favorite: true })
+            fresh = CardMenuActions({ kind: "movie", id: "m1" })
+
+            m.assertEqual(m.iconFor(saved, "watchlist"), "icon-close")
+            m.assertEqual(m.iconFor(saved, "favorite"), "icon-close")
+            m.assertEqual(m.iconFor(fresh, "watchlist"), "icon-bookmark")
+            m.assertEqual(m.iconFor(fresh, "favorite"), "icon-heart")
+            m.assertEqual(m.iconFor(fresh, "watched"), "icon-check")
+        end sub
+
+        @describe("CardMenuTitle")
+
+        @it("names the title with the year a movie card carries")
+        sub movieTitlesCarryTheirYear()
+            m.assertEqual(CardMenuTitle({ title: "Arrival", subtitle: "2016" }), "Arrival (2016)")
+        end sub
+
+        @it("leaves a title alone when the second line is not a year")
+        sub otherSubtitlesAreLeftAlone()
+            m.assertEqual(CardMenuTitle({ title: "Pilot", subtitle: "Severance · S01E01" }), "Pilot")
+            m.assertEqual(CardMenuTitle({ title: "Arrival" }), "Arrival")
+            m.assertEqual(CardMenuTitle(invalid), "")
+        end sub
+
+        @it("takes four digits as a year and nothing else")
+        sub yearsAreFourDigits()
+            m.assertTrue(IsYearText("2016"))
+            m.assertFalse(IsYearText("201"))
+            m.assertFalse(IsYearText("20166"))
+            m.assertFalse(IsYearText("20a6"))
+            m.assertFalse(IsYearText(invalid))
+        end sub
+
+        @it("leaves an ordinary action undecorated")
+        sub ordinaryActionsAreNotDangerous()
+            options = MenuOptions([{ id: "play", label: "Play" }])
+
+            m.assertEqual(options[0].label, "Play")
+            m.assertFalse(options[0].danger)
+        end sub
+
+        @it("returns nothing for actions that are not an array")
+        sub nonArrayActionsAreEmpty()
+            m.assertEqual(MenuOptions(invalid).Count(), 0)
+        end sub
+
+        @describe("DialogTextPlan")
+
+        @it("gives the message whatever the rows do not need")
+        sub textPlanSharesTheRoom()
+            plan = DialogTextPlan(200, 76, 600, 24)
+
+            m.assertEqual(plan.rows, 76)
+            m.assertEqual(plan.text, 200)
+            m.assertFalse(plan.scrolls)
+        end sub
+
+        ' A biography runs far longer than the panel, so the message is the part
+        ' that has to scroll; the rows must stay reachable underneath it.
+        @it("caps a message too tall for the panel and reports that it scrolls")
+        sub textPlanCapsALongMessage()
+            plan = DialogTextPlan(4000, 76, 600, 24)
+
+            m.assertEqual(plan.rows, 76)
+            m.assertEqual(plan.text, 500)
+            m.assertTrue(plan.scrolls)
+        end sub
+
+        @it("leaves a menu with no message exactly as it was")
+        sub textPlanWithoutAMessage()
+            plan = DialogTextPlan(0, 900, 600, 24)
+
+            m.assertEqual(plan.rows, 600)
+            m.assertEqual(plan.text, 0)
+            m.assertFalse(plan.scrolls)
+        end sub
+
+        @it("gives the message nothing when the rows fill the panel")
+        sub textPlanWhenRowsFillTheRoom()
+            plan = DialogTextPlan(300, 800, 600, 24)
+
+            m.assertEqual(plan.rows, 600)
+            m.assertEqual(plan.text, 0)
+            m.assertTrue(plan.scrolls)
+        end sub
+
+        @it("plans nothing at all without room")
+        sub textPlanWithoutRoom()
+            plan = DialogTextPlan(300, 76, 0, 24)
+
+            m.assertEqual(plan.rows, 0)
+            m.assertEqual(plan.text, 0)
+        end sub
+
+        @describe("ScrolledTextOffset")
+
+        @it("moves a page at a time, keeping one line of overlap")
+        sub textScrollsByThePage()
+            m.assertEqual(ScrolledTextOffset(0, 1, 500, 4000, 36), 464)
+            m.assertEqual(ScrolledTextOffset(464, 1, 500, 4000, 36), 928)
+            m.assertEqual(ScrolledTextOffset(928, -1, 500, 4000, 36), 464)
+        end sub
+
+        @it("stops at both ends rather than wrapping")
+        sub textScrollStopsAtTheEnds()
+            m.assertEqual(ScrolledTextOffset(0, -1, 500, 4000, 36), 0)
+            m.assertEqual(ScrolledTextOffset(3400, 1, 500, 4000, 36), 3500)
+            m.assertEqual(ScrolledTextOffset(3500, 1, 500, 4000, 36), 3500)
+        end sub
+
+        @it("has nowhere to go when the message already fits")
+        sub textScrollWithoutOverflow()
+            m.assertEqual(ScrolledTextOffset(0, 1, 500, 400, 36), 0)
+            m.assertEqual(ScrolledTextOffset(0, 1, 500, 500, 36), 0)
+        end sub
+
+        @it("still advances when a page is shorter than a line")
+        sub textScrollTinyViewport()
+            m.assertEqual(ScrolledTextOffset(0, 1, 40, 4000, 36), 36)
+        end sub
+
+    end class
+
+end namespace

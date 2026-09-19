@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="StateNote" extends="Group">
+    <script type="text/brightscript" uri="pkg:/components/widgets/StateNote.brs" />
+    <script type="text/brightscript" uri="pkg:/source/util.brs" />
+    <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
+    <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/format.brs" />
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/source/cards.brs" />
+    <script type="text/brightscript" uri="pkg:/source/images.brs" />
+    <script type="text/brightscript" uri="pkg:/source/catalog.brs" />
+    <script type="text/brightscript" uri="pkg:/source/state.brs" />
+    <script type="text/brightscript" uri="pkg:/source/detail.brs" />
+    <script type="text/brightscript" uri="pkg:/source/prefs.brs" />
+    <script type="text/brightscript" uri="pkg:/source/session.brs" />
+    <script type="text/brightscript" uri="pkg:/source/screen.brs" />
+    <script type="text/brightscript" uri="pkg:/source/capability.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+
+    <interface>
+        <field id="theme" type="assocarray" onChange="render" />
+        <field id="kind" type="string" value="loading" onChange="render" />
+        <field id="message" type="string" onChange="render" />
+        <field id="noteWidth" type="float" value="900" onChange="render" />
+        <field id="fontSize" type="float" value="28" onChange="render" />
+        <field id="noteHeight" type="float" value="0" />
+    </interface>
+
+    <children>
+        <Rectangle id="bar" />
+        <Label id="message" />
+    </children>
+</component>

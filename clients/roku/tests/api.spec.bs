@@ -1,0 +1,305 @@
+namespace tests
+
+    @suite("api")
+    class ApiTests extends rooibos.BaseTestSuite
+
+        @describe("NormalizeServerAddress")
+
+        @it("assumes http when no scheme is typed")
+        sub assumesHttp()
+            m.assertEqual(NormalizeServerAddress("192.168.1.10"), "http://192.168.1.10")
+            m.assertEqual(NormalizeServerAddress("192.168.1.10:8080"), "http://192.168.1.10:8080")
+        end sub
+
+        @it("keeps an explicit scheme and lowercases it")
+        sub keepsExplicitScheme()
+            m.assertEqual(NormalizeServerAddress("https://media.example"), "https://media.example")
+            m.assertEqual(NormalizeServerAddress("HTTP://Media.Example"), "http://media.example")
+        end sub
+
+        @it("strips trailing slashes but keeps a base path")
+        sub stripsTrailingSlashes()
+            m.assertEqual(NormalizeServerAddress("host/"), "http://host")
+            m.assertEqual(NormalizeServerAddress("host///"), "http://host")
+            m.assertEqual(NormalizeServerAddress("host/base/"), "http://host/base")
+        end sub
+
+        @it("drops query, fragment and userinfo")
+        sub dropsExtras()
+            m.assertEqual(NormalizeServerAddress("host?q=1"), "http://host")
+            m.assertEqual(NormalizeServerAddress("host#frag"), "http://host")
+            m.assertEqual(NormalizeServerAddress("user:secret@host"), "http://host")
+        end sub
+
+        @it("trims surrounding whitespace")
+        sub trimsWhitespace()
+            m.assertEqual(NormalizeServerAddress("  host  "), "http://host")
+        end sub
+
+        @it("refuses anything that is not a usable address")
+        sub refusesJunk()
+            m.assertInvalid(NormalizeServerAddress(""))
+            m.assertInvalid(NormalizeServerAddress("   "))
+            m.assertInvalid(NormalizeServerAddress(invalid))
+            m.assertInvalid(NormalizeServerAddress("ftp://host"))
+            m.assertInvalid(NormalizeServerAddress("http://"))
+            m.assertInvalid(NormalizeServerAddress("has space"))
+        end sub
+
+        @describe("ServerAnswered")
+
+        @it("accepts 401 as proof a Shadowmask server answered")
+        sub acceptsUnauthorised()
+            m.assertTrue(ServerAnswered(200))
+            m.assertTrue(ServerAnswered(401))
+        end sub
+
+        @it("rejects a missing endpoint or a dead connection")
+        sub rejectsOthers()
+            m.assertFalse(ServerAnswered(404))
+            m.assertFalse(ServerAnswered(500))
+            m.assertFalse(ServerAnswered(0))
+        end sub
+
+        @describe("BuildRequest")
+
+        @it("prefixes the api path and joins without doubling slashes")
+        sub joinsUrl()
+            request = BuildRequest("http://host", "/users/self")
+            m.assertEqual(request.url, "http://host/api/v1/users/self")
+
+            trailing = BuildRequest("http://host/", "/users/self")
+            m.assertEqual(trailing.url, "http://host/api/v1/users/self")
+        end sub
+
+        @it("omits the authorization header when there is no token")
+        sub omitsAuthHeader()
+            request = BuildRequest("http://host", "/server/info")
+            m.assertFalse(request.headers.DoesExist("Authorization"))
+        end sub
+
+        @it("sends the token as a bearer header")
+        sub sendsBearerToken()
+            request = BuildRequest("http://host", "/users/self", "GET", invalid, "smk_abc")
+            m.assertEqual(request.headers["Authorization"], "Bearer smk_abc")
+        end sub
+
+        @it("encodes a body as json and marks the content type")
+        sub encodesJsonBody()
+            request = BuildRequest("http://host", "/auth/link", "POST", { code: "ABC" })
+            m.assertEqual(request.method, "POST")
+            m.assertEqual(request.headers["Content-Type"], "application/json")
+            m.assertEqual(ParseJson(request.body).code, "ABC")
+        end sub
+
+        @describe("LinkRequest")
+
+        @it("posts the code and identifies the platform as roku")
+        sub buildsLinkRequest()
+            request = LinkRequest("http://host", "ABC123", "Living Room")
+            m.assertEqual(request.url, "http://host/api/v1/auth/link")
+            m.assertEqual(request.method, "POST")
+
+            body = ParseJson(request.body)
+            m.assertEqual(body.code, "ABC123")
+            m.assertEqual(body.device.name, "Living Room")
+            m.assertEqual(body.device.platform, "roku")
+        end sub
+
+        @it("never attaches a token, because the endpoint is public")
+        sub linkCarriesNoToken()
+            m.assertFalse(LinkRequest("http://host", "ABC", "Roku").headers.DoesExist("Authorization"))
+        end sub
+
+        @describe("ProbeRequest")
+
+        @it("uses the shorter probe timeout")
+        sub probeUsesShortTimeout()
+            request = ProbeRequest("http://host")
+            m.assertEqual(request.url, "http://host/api/v1/server/info")
+            m.assertEqual(request.timeout, ProbeTimeoutSeconds())
+            m.assertTrue(ProbeTimeoutSeconds() < RequestTimeoutSeconds())
+        end sub
+
+        @describe("ParseResponse")
+
+        @it("reads a successful body as json")
+        sub readsSuccessBody()
+            parsed = ParseResponse(200, "{""id"":""u1"",""role"":""player""}")
+            m.assertTrue(parsed.ok)
+            m.assertEqual(parsed.json.role, "player")
+            m.assertEqual(parsed.error, "")
+        end sub
+
+        @it("reads the nested error envelope the server actually sends")
+        sub readsNestedEnvelope()
+            body = "{""error"":{""code"":""unknown_link_code"",""message"":""unknown or expired link code""}}"
+            parsed = ParseResponse(404, body)
+            m.assertFalse(parsed.ok)
+            m.assertEqual(parsed.error, "unknown or expired link code")
+        end sub
+
+        @it("still reads a flat message if one ever appears")
+        sub readsFlatMessage()
+            m.assertEqual(ParseResponse(400, "{""message"":""bad code""}").error, "bad code")
+        end sub
+
+        @it("never returns the envelope itself when it carries no message")
+        sub neverReturnsTheEnvelope()
+            parsed = ParseResponse(500, "{""error"":{""code"":""boom""}}")
+            m.assertNotEqual(type(parsed.error), "roAssociativeArray")
+            m.assertEqual(parsed.error, Phrase("error.couldNotLoad"))
+        end sub
+
+        @it("falls back to a phrase when the body carries no message")
+        sub fallsBackToPhrase()
+            m.assertEqual(ParseResponse(401, "").error, Phrase("error.notAuthorised"))
+            m.assertEqual(ParseResponse(0, "").error, Phrase("error.serverUnreachable"))
+        end sub
+
+        @it("survives a body that is not json at all")
+        sub survivesNonJson()
+            parsed = ParseResponse(500, "<html>nope</html>")
+            m.assertFalse(parsed.ok)
+            m.assertInvalid(parsed.json)
+            m.assertEqual(parsed.error, Phrase("error.couldNotLoad"))
+        end sub
+
+        @describe("IsUnauthorised")
+
+        @it("marks only 401 as a reason to re-pair")
+        sub onlyUnauthorisedRepairs()
+            m.assertTrue(IsUnauthorised(401))
+            m.assertFalse(IsUnauthorised(403))
+            m.assertFalse(IsUnauthorised(200))
+        end sub
+
+        @describe("ProfileVersionMatches")
+
+        @it("accepts the version this client was built against")
+        sub acceptsExpectedProfile()
+            m.assertTrue(ProfileVersionMatches(ExpectedProfileVersion()))
+        end sub
+
+        @it("rejects a server speaking a different profile")
+        sub rejectsOtherProfile()
+            m.assertFalse(ProfileVersionMatches(ExpectedProfileVersion() + 1))
+        end sub
+
+        @it("stays quiet when the server does not report one")
+        sub toleratesMissingProfile()
+            m.assertTrue(ProfileVersionMatches(invalid))
+        end sub
+
+        @describe("session")
+
+        @it("is paired only when both address and token are present")
+        sub pairedNeedsBoth()
+            m.assertTrue(IsPairedWith("http://host", "smk_abc"))
+            m.assertFalse(IsPairedWith("http://host", ""))
+            m.assertFalse(IsPairedWith("", "smk_abc"))
+            m.assertFalse(IsPairedWith(invalid, invalid))
+        end sub
+
+        @describe("certificates")
+
+        @it("carries the roku certificate store on every request")
+        sub carriesCertificates()
+            request = BuildRequest("https://host", "/users/self")
+            m.assertEqual(request.certificates, CertificatesFile())
+            m.assertEqual(CertificatesFile(), "common:/certs/ca-bundle.crt")
+        end sub
+
+        @describe("RequestFinished")
+
+        @it("treats an answered request as finished")
+        sub answeredIsFinished()
+            m.assertTrue(RequestFinished({ response: { status: 200, body: "", error: "" }, state: "run" }))
+            m.assertTrue(RequestFinished({ response: { status: 0, body: "", error: "timed out" }, state: "run" }))
+        end sub
+
+        @it("treats a started request with no answer as still running")
+        sub startedIsUnfinished()
+            m.assertFalse(RequestFinished({ response: {}, state: "run" }))
+            m.assertFalse(RequestFinished({ response: {}, state: "init" }))
+        end sub
+
+        @it("releases the slot when a thread ends without answering")
+        sub deadThreadIsFinished()
+            m.assertTrue(RequestFinished({ response: {}, state: "done" }))
+            m.assertTrue(RequestFinished({ response: {}, state: "stop" }))
+            m.assertTrue(RequestFinished(invalid))
+        end sub
+
+        @describe("LiveRequests")
+
+        @it("keeps only the requests still in flight")
+        sub keepsInFlight()
+            running = { response: {}, state: "run" }
+            live = LiveRequests([
+                { response: { status: 200 }, state: "done" },
+                running,
+                { response: {}, state: "done" }
+            ])
+            m.assertEqual(live.Count(), 1)
+            m.assertEqual(live[0].state, "run")
+        end sub
+
+        @it("survives a missing or unset list")
+        sub toleratesNoList()
+            m.assertEqual(LiveRequests(invalid).Count(), 0)
+            m.assertEqual(LiveRequests([]).Count(), 0)
+        end sub
+
+        @describe("QueuedRequests")
+
+        @it("appends to an existing queue without mutating it")
+        sub appendsToQueue()
+            queue = [{ id: "a" }]
+            grown = QueuedRequests(queue, { id: "b" })
+            m.assertEqual(grown.Count(), 2)
+            m.assertEqual(queue.Count(), 1)
+        end sub
+
+        @it("starts a queue when there is not one yet")
+        sub startsQueue()
+            grown = QueuedRequests(invalid, { id: "a" })
+            m.assertEqual(grown.Count(), 1)
+            m.assertEqual(QueuedRequests(invalid, invalid).Count(), 0)
+        end sub
+
+        @describe("NextRequests")
+
+        @it("starts everything while under the limit")
+        sub startsUnderLimit()
+            plan = NextRequests(0, [{ id: "a" }, { id: "b" }], 4)
+            m.assertEqual(plan.start.Count(), 2)
+            m.assertEqual(plan.queue.Count(), 0)
+        end sub
+
+        @it("holds back the requests that would exceed the limit")
+        sub holdsBackOverflow()
+            plan = NextRequests(2, [{ id: "a" }, { id: "b" }, { id: "c" }], 4)
+            m.assertEqual(plan.start.Count(), 2)
+            m.assertEqual(plan.start[0].id, "a")
+            m.assertEqual(plan.queue.Count(), 1)
+            m.assertEqual(plan.queue[0].id, "c")
+        end sub
+
+        @it("starts nothing once the limit is reached")
+        sub startsNothingAtLimit()
+            plan = NextRequests(MaxConcurrentRequests(), [{ id: "a" }], MaxConcurrentRequests())
+            m.assertEqual(plan.start.Count(), 0)
+            m.assertEqual(plan.queue.Count(), 1)
+        end sub
+
+        @it("survives an empty or unset queue")
+        sub toleratesNoQueue()
+            plan = NextRequests(0, invalid, 4)
+            m.assertEqual(plan.start.Count(), 0)
+            m.assertEqual(plan.queue.Count(), 0)
+        end sub
+
+    end class
+
+end namespace

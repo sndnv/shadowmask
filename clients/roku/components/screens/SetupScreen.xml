@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="SetupScreen" extends="Group">
+    <script type="text/brightscript" uri="pkg:/components/screens/SetupScreen.brs" />
+    <script type="text/brightscript" uri="pkg:/components/api/Http.brs" />
+    <script type="text/brightscript" uri="pkg:/source/util.brs" />
+    <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
+    <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/format.brs" />
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/source/cards.brs" />
+    <script type="text/brightscript" uri="pkg:/source/images.brs" />
+    <script type="text/brightscript" uri="pkg:/source/catalog.brs" />
+    <script type="text/brightscript" uri="pkg:/source/state.brs" />
+    <script type="text/brightscript" uri="pkg:/source/detail.brs" />
+    <script type="text/brightscript" uri="pkg:/source/prefs.brs" />
+    <script type="text/brightscript" uri="pkg:/source/session.brs" />
+    <script type="text/brightscript" uri="pkg:/source/screen.brs" />
+    <script type="text/brightscript" uri="pkg:/source/capability.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+
+    <interface>
+        <field id="theme" type="assocarray" onChange="render" />
+        <field id="themeName" type="string" />
+        <field id="keyboardRequest" type="assocarray" />
+        <field id="keyboardResult" type="assocarray" onChange="onKeyboard" />
+        <field id="advance" type="string" alwaysNotify="true" />
+        <field id="immersive" type="boolean" value="true" />
+        <field id="focusedChild" type="node" onChange="onFocus" />
+    </interface>
+
+    <children>
+        <Label id="title" />
+        <TextField id="serverField" />
+        <TextField id="codeField" />
+        <TextField id="deviceField" />
+        <ActionBar id="actions" />
+        <StateNote id="status" kind="error" />
+    </children>
+</component>

@@ -2,6 +2,8 @@
 target/
 coverage/
 *.profraw
+clients/roku/build/
+clients/roku/tooling/node_modules/
 
 # Runtime state
 *.db

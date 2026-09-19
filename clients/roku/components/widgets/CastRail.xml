@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="CastRail" extends="Group">
+    <script type="text/brightscript" uri="pkg:/components/widgets/CastRail.brs" />
+    <script type="text/brightscript" uri="pkg:/source/util.brs" />
+    <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
+    <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/format.brs" />
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/source/cards.brs" />
+    <script type="text/brightscript" uri="pkg:/source/images.brs" />
+    <script type="text/brightscript" uri="pkg:/source/catalog.brs" />
+    <script type="text/brightscript" uri="pkg:/source/state.brs" />
+    <script type="text/brightscript" uri="pkg:/source/detail.brs" />
+    <script type="text/brightscript" uri="pkg:/source/prefs.brs" />
+    <script type="text/brightscript" uri="pkg:/source/session.brs" />
+    <script type="text/brightscript" uri="pkg:/source/screen.brs" />
+    <script type="text/brightscript" uri="pkg:/source/capability.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+
+    <interface>
+        <field id="theme" type="assocarray" onChange="render" />
+        <field id="heading" type="string" onChange="render" />
+        <field id="cards" type="array" onChange="onCards" />
+        <field id="serverUrl" type="string" />
+        <field id="railWidth" type="float" value="1766" onChange="render" />
+        <field id="cardWidth" type="float" value="170" onChange="render" />
+        <field id="railHeight" type="float" value="0" />
+        <field id="dormant" type="boolean" value="false" onChange="onDormant" />
+        <field id="itemFocused" type="integer" value="0" alwaysNotify="true" />
+        <field id="focusedCard" type="assocarray" alwaysNotify="true" />
+        <field id="selected" type="assocarray" alwaysNotify="true" />
+        <field id="focusedChild" type="node" onChange="onFocus" />
+    </interface>
+
+    <children>
+        <Label id="heading" />
+        <Group id="viewport">
+            <Group id="strip" />
+        </Group>
+    </children>
+</component>

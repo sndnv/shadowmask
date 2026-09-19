@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="BootScreen" extends="Group">
+    <script type="text/brightscript" uri="pkg:/components/screens/BootScreen.brs" />
+    <script type="text/brightscript" uri="pkg:/components/api/Http.brs" />
+    <script type="text/brightscript" uri="pkg:/source/util.brs" />
+    <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
+    <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/format.brs" />
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/source/cards.brs" />
+    <script type="text/brightscript" uri="pkg:/source/images.brs" />
+    <script type="text/brightscript" uri="pkg:/source/catalog.brs" />
+    <script type="text/brightscript" uri="pkg:/source/state.brs" />
+    <script type="text/brightscript" uri="pkg:/source/detail.brs" />
+    <script type="text/brightscript" uri="pkg:/source/prefs.brs" />
+    <script type="text/brightscript" uri="pkg:/source/session.brs" />
+    <script type="text/brightscript" uri="pkg:/source/screen.brs" />
+    <script type="text/brightscript" uri="pkg:/source/capability.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+
+    <interface>
+        <field id="theme" type="assocarray" onChange="render" />
+        <field id="themeName" type="string" />
+        <field id="advance" type="string" alwaysNotify="true" />
+        <field id="rootScreen" type="boolean" value="true" />
+        <field id="immersive" type="boolean" value="true" />
+        <field id="focusedChild" type="node" onChange="onFocus" />
+    </interface>
+
+    <children>
+        <Label id="title" />
+        <StateNote id="note" kind="loading" />
+        <ActionBar id="actions" visible="false" />
+    </children>
+</component>

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="CardRows" extends="Group">
+    <script type="text/brightscript" uri="pkg:/components/widgets/CardRows.brs" />
+    <script type="text/brightscript" uri="pkg:/components/widgets/CardContent.brs" />
+    <script type="text/brightscript" uri="pkg:/source/util.brs" />
+    <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
+    <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/format.brs" />
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/source/cards.brs" />
+    <script type="text/brightscript" uri="pkg:/source/images.brs" />
+    <script type="text/brightscript" uri="pkg:/source/catalog.brs" />
+    <script type="text/brightscript" uri="pkg:/source/state.brs" />
+    <script type="text/brightscript" uri="pkg:/source/detail.brs" />
+    <script type="text/brightscript" uri="pkg:/source/prefs.brs" />
+    <script type="text/brightscript" uri="pkg:/source/session.brs" />
+    <script type="text/brightscript" uri="pkg:/source/screen.brs" />
+    <script type="text/brightscript" uri="pkg:/source/capability.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+
+    <interface>
+        <field id="theme" type="assocarray" onChange="render" />
+        <field id="rows" type="array" onChange="render" />
+        <field id="serverUrl" type="string" />
+        <field id="rowsWidth" type="float" value="1766" onChange="render" />
+        <field id="rowsHeight" type="float" value="845" onChange="render" />
+        <field id="cardWidth" type="float" value="260" onChange="render" />
+        <field id="captionRows" type="integer" value="3" onChange="render" />
+        <field id="packed" type="boolean" value="false" onChange="render" />
+        <field id="focusedRail" type="integer" value="0" />
+        <field id="contentHeight" type="float" value="0" />
+        <field id="scrollOffset" type="float" value="0" />
+        <field id="focusedCard" type="assocarray" alwaysNotify="true" />
+        <field id="selected" type="assocarray" alwaysNotify="true" />
+        <field id="focusedChild" type="node" onChange="onFocus" />
+    </interface>
+
+    <children>
+        <Group id="viewport">
+            <Group id="stack" />
+        </Group>
+    </children>
+</component>

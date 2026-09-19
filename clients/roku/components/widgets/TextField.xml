@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="TextField" extends="Group">
+    <script type="text/brightscript" uri="pkg:/components/widgets/TextField.brs" />
+    <script type="text/brightscript" uri="pkg:/source/util.brs" />
+    <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
+    <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/format.brs" />
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/source/cards.brs" />
+    <script type="text/brightscript" uri="pkg:/source/images.brs" />
+    <script type="text/brightscript" uri="pkg:/source/catalog.brs" />
+    <script type="text/brightscript" uri="pkg:/source/state.brs" />
+    <script type="text/brightscript" uri="pkg:/source/detail.brs" />
+    <script type="text/brightscript" uri="pkg:/source/prefs.brs" />
+    <script type="text/brightscript" uri="pkg:/source/session.brs" />
+    <script type="text/brightscript" uri="pkg:/source/screen.brs" />
+    <script type="text/brightscript" uri="pkg:/source/capability.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+
+    <interface>
+        <field id="theme" type="assocarray" onChange="render" />
+        <field id="label" type="string" onChange="render" />
+        <field id="text" type="string" onChange="render" />
+        <field id="fieldWidth" type="float" value="700" onChange="render" />
+        <field id="disabled" type="boolean" value="false" onChange="render" />
+        <field id="barHeight" type="float" value="0" />
+        <field id="activated" type="string" alwaysNotify="true" />
+        <field id="focusedChild" type="node" onChange="onFieldFocusChanged" />
+    </interface>
+
+    <children>
+        <RoundedBox id="box" />
+        <Label id="caption" />
+        <Label id="value" />
+    </children>
+</component>

@@ -7,6 +7,9 @@ import semver
 import subprocess
 import sys
 
+ROKU_VERSION_KEYS = ('major_version', 'minor_version', 'build_version')
+ROKU_SOURCE_VERSION_REGEX = r'^version = "(\d+\.\d+\.\d+.*)"'
+
 DESCRIPTION = ('Bumps the project version to the next release version, syncs the lockfile, '
                'commits and tags the changes, and updates to the next snapshot version')
 
@@ -117,6 +120,31 @@ def sync_cargo_lock(target_file):
     exec_command(command=['git', 'add', target_file])
 
 
+def sync_roku_manifest(target_file):
+    version = get_version_from(version_file='Cargo.toml', with_version_regex=ROKU_SOURCE_VERSION_REGEX)
+    parts = version.split('-')[0].split('.')
+
+    if len(parts) != len(ROKU_VERSION_KEYS):
+        logging.error('Release failed - could not split version [{}] into {}'.format(version, ROKU_VERSION_KEYS))
+        sys.exit(1)
+
+    values = dict(zip(ROKU_VERSION_KEYS, parts))
+
+    with open(target_file, 'r') as f:
+        updated = [
+            '{}={}\n'.format(line.split('=', 1)[0].strip(), values[line.split('=', 1)[0].strip()])
+            if '=' in line and line.split('=', 1)[0].strip() in values
+            else line
+            for line in f.readlines()
+        ]
+
+    with open(target_file, 'w') as f:
+        f.write(''.join(updated))
+
+    logging.debug('Synced [{}] to version [{}]'.format(target_file, '.'.join(parts)))
+    exec_command(command=['git', 'add', target_file])
+
+
 def commit_version_files(version_files, next_version):
     for version_file in version_files:
         exec_command(command=['git', 'add', version_file])
@@ -138,6 +166,7 @@ def main():
 
     extra_actions = {
         'Cargo.lock': sync_cargo_lock,
+        'clients/roku/manifest': sync_roku_manifest,
     }
 
     parser = argparse.ArgumentParser(description=DESCRIPTION)

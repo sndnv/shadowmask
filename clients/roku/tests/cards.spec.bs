@@ -1,0 +1,985 @@
+namespace tests
+
+    @suite("cards")
+    class CardTests extends rooibos.BaseTestSuite
+
+        function posterArt(id as string) as object
+            return { posters: [{ base: "/images/" + id, widths: [180, 480] }] }
+        end function
+
+        function movieJson() as object
+            return { type: "movie", id: "m1", title: "Alpha", year: 2020, artwork: m.posterArt("p1") }
+        end function
+
+        function episodeJson() as object
+            return {
+                type: "episode",
+                id: "e1",
+                title: "Pilot",
+                number: 2,
+                season_number: 1,
+                series_id: "s1",
+                season_id: "se1",
+                series_title: "Show ABC",
+                artwork: { backdrops: [{ base: "/images/still", widths: [480] }] },
+                series_artwork: m.posterArt("sp1")
+            }
+        end function
+
+        @describe("MovieCard")
+
+        @it("carries a leaf ref, so the state batch can ask about it")
+        sub buildsMovieCard()
+            card = MovieCard(m.movieJson())
+            m.assertEqual(card.kind, "movie")
+            m.assertEqual(card.refType, "movie")
+            m.assertEqual(card.refId, "m1")
+            m.assertEqual(card.title, "Alpha")
+            m.assertEqual(card.subtitle, "2020")
+            m.assertEqual(card.aspect, PosterAspect())
+        end sub
+
+        @it("leaves the year blank rather than printing invalid")
+        sub toleratesMissingYear()
+            m.assertEqual(MovieCard({ id: "m1", title: "Alpha" }).subtitle, "")
+        end sub
+
+        @describe("SeriesCard")
+
+        @it("carries a rollup target, not a leaf ref")
+        sub buildsSeriesCard()
+            card = SeriesCard({ type: "series", id: "s1", title: "Show", year: 2019 })
+            m.assertEqual(card.rollupType, "series")
+            m.assertEqual(card.rollupId, "s1")
+            m.assertEqual(card.refType, "", "a series is not a leaf and must never reach /state/batch")
+        end sub
+
+        @it("shows the episode count a hub reports, pluralised")
+        sub showsEpisodeCount()
+            m.assertEqual(HubSeriesCard({ type: "series", id: "s1", title: "Show", episode_count: 8 }).subtitle, "8 episodes")
+            m.assertEqual(HubSeriesCard({ type: "series", id: "s1", title: "Show", episode_count: 1 }).subtitle, "1 episode")
+        end sub
+
+        @it("falls back to the year when the hub reports no count")
+        sub fallsBackToYear()
+            m.assertEqual(HubSeriesCard({ type: "series", id: "s1", title: "Show", year: 2019 }).subtitle, "2019")
+        end sub
+
+        @describe("EpisodeCard")
+
+        @it("renders landscape with its own still in a normal episode list")
+        sub buildsLandscapeEpisode()
+            card = EpisodeCard(m.episodeJson())
+            m.assertEqual(card.aspect, LandscapeAspect())
+            m.assertEqual(card.title, "Pilot")
+            m.assertEqual(card.subtitle, "Show ABC · S01E02")
+            m.assertEqual(card.artwork.backdrops[0].base, "/images/still")
+            m.assertEqual(card.seriesId, "s1")
+        end sub
+
+        @it("renders the series poster at 2:3 on resume surfaces")
+        sub buildsSeriesPosterEpisode()
+            card = EpisodeCard(m.episodeJson(), true)
+            m.assertEqual(card.aspect, PosterAspect())
+            m.assertEqual(card.title, "Show ABC")
+            m.assertEqual(card.subtitle, "S01E02")
+            m.assertEqual(card.caption, "Pilot")
+            m.assertEqual(card.artwork.posters[0].base, "/images/sp1")
+        end sub
+
+        @it("falls back to its own artwork when the series has none")
+        sub fallsBackToOwnArtwork()
+            json = m.episodeJson()
+            json.Delete("series_artwork")
+            m.assertEqual(EpisodeCard(json, true).artwork.backdrops[0].base, "/images/still")
+        end sub
+
+        @it("drops the season out of the code when the server did not send one")
+        sub codeWithoutSeason()
+            json = m.episodeJson()
+            json.Delete("season_number")
+            m.assertEqual(EpisodeCard(json, true).subtitle, "E02")
+        end sub
+
+        @describe("ResumeCard")
+
+        @it("reads the nested title ref and the progress percent")
+        sub buildsResumeMovie()
+            card = ResumeCard({
+                title: { type: "movie", id: "m1" },
+                display_title: "Alpha",
+                year: 2020,
+                progress_percent: 42,
+                artwork: m.posterArt("p1")
+            })
+            m.assertEqual(card.refType, "movie")
+            m.assertEqual(card.refId, "m1")
+            m.assertEqual(card.title, "Alpha")
+            m.assertEqual(card.subtitle, "2020")
+            m.assertEqual(card.progressPercent, 42)
+        end sub
+
+        @it("names an episode by its series and keeps the poster aspect")
+        sub buildsResumeEpisode()
+            card = ResumeCard({
+                title: { type: "episode", id: "e1" },
+                display_title: "Pilot",
+                series_title: "Show ABC",
+                season_number: 2,
+                episode_number: 4,
+                progress_percent: 5,
+                series_artwork: m.posterArt("sp1")
+            })
+            m.assertEqual(card.title, "Show ABC")
+            m.assertEqual(card.caption, "Pilot")
+            m.assertEqual(card.subtitle, "S02E04")
+            m.assertEqual(card.aspect, PosterAspect(), "resume surfaces mix movies and episodes, so one aspect wins")
+            m.assertEqual(card.artwork.posters[0].base, "/images/sp1")
+        end sub
+
+        @describe("dispatchers")
+
+        @it("routes each search result type to its own builder")
+        sub routesSearchResults()
+            m.assertEqual(CardFromJson({ type: "series", id: "s1", title: "Show" }).kind, "series")
+            m.assertEqual(CardFromJson({ type: "episode", id: "e1", title: "Pilot" }).kind, "episode")
+            m.assertEqual(CardFromJson({ type: "person", id: "p1", name: "Ada" }).kind, "person")
+            m.assertEqual(CardFromJson({ type: "movie", id: "m1", title: "Alpha" }).kind, "movie")
+        end sub
+
+        @it("gives a person no ref, because people carry no watched state")
+        sub personHasNoRef()
+            card = CardFromJson({ type: "person", id: "p1", name: "Ada" })
+            m.assertEqual(card.title, "Ada")
+            m.assertEqual(card.refType, "")
+            m.assertEqual(card.rollupType, "")
+        end sub
+
+        @it("shows a hub episode as its series poster, not as a still")
+        sub hubEpisodesUsePosters()
+            m.assertEqual(HubCard(m.episodeJson()).aspect, PosterAspect())
+            m.assertEqual(HubCard({ type: "series", id: "s1", title: "Show", episode_count: 3 }).subtitle, "3 episodes")
+        end sub
+
+        @describe("HubRails")
+
+        @it("skips the hubs the continue feed already covers")
+        sub skipsCoveredHubs()
+            rails = HubRails([
+                { id: "continue_watching", title: "Continue", items: [m.movieJson()] },
+                { id: "on_deck", title: "On deck", items: [m.movieJson()] },
+                { id: "recently_added_movies", title: "Recently Added", items: [m.movieJson()] }
+            ])
+            m.assertEqual(rails.Count(), 1)
+            m.assertEqual(rails[0].id, "recently_added_movies")
+        end sub
+
+        @it("drops an empty hub rather than rendering a headed blank row")
+        sub dropsEmptyHubs()
+            m.assertEqual(HubRails([{ id: "watchlist", title: "Watchlist", items: [] }]).Count(), 0)
+        end sub
+
+        @it("uses our copy for the hubs we name and the server's for the rest")
+        sub titlesHubs()
+            rails = HubRails([
+                { id: "watchlist", title: "server copy", items: [m.movieJson()] },
+                { id: "surprise", title: "Server Decides", items: [m.movieJson()] }
+            ])
+            m.assertEqual(rails[0].heading, Phrase("home.watchlist"))
+            m.assertEqual(rails[1].heading, "Server Decides")
+        end sub
+
+        @it("names the rail under the key the rail widget actually reads")
+        sub headingKeyMatchesTheWidget()
+            rails = HubRails([{ id: "recently_added_movies", title: "Recently Added", items: [m.movieJson()] }])
+            m.assertTrue(rails[0].DoesExist("heading"), "CardRows reads 'heading'; a 'title' key renders a blank rail")
+            m.assertFalse(IsBlank(rails[0].heading))
+        end sub
+
+        @describe("continue feed")
+
+        @it("reads cards out of both now_playing and in_progress, with the version to dismiss")
+        sub readsContinueFeed()
+            cards = ContinueCards({
+                now_playing: [{ card: { title: { type: "movie", id: "m1" }, display_title: "Alpha" }, version_id: "v1" }],
+                in_progress: [{ progress: { version_id: "v2" }, card: { title: { type: "movie", id: "m2" }, display_title: "Beta" } }]
+            })
+            m.assertEqual(cards.Count(), 2)
+            m.assertEqual(cards[0].versionId, "v1")
+            m.assertEqual(cards[1].refId, "m2")
+            m.assertEqual(cards[1].versionId, "v2")
+        end sub
+
+        @it("survives a feed with none of its keys present")
+        sub survivesEmptyFeed()
+            m.assertEqual(ContinueCards({}).Count(), 0)
+            m.assertEqual(UpNextCards(invalid).Count(), 0)
+        end sub
+
+        @it("puts next episodes before next movies and posters on both")
+        sub buildsUpNext()
+            cards = UpNextCards({ next_episodes: [m.episodeJson()], next_movies: [m.movieJson()] })
+            m.assertEqual(cards.Count(), 2)
+            m.assertEqual(cards[0].kind, "episode")
+            m.assertEqual(cards[0].aspect, PosterAspect())
+            m.assertEqual(cards[1].kind, "movie")
+        end sub
+
+        @describe("AspectForSet")
+
+        @it("is landscape only when every card in the set is")
+        sub oneAspectPerSet()
+            allLandscape = [EpisodeCard(m.episodeJson()), EpisodeCard(m.episodeJson())]
+            m.assertEqual(AspectForSet(allLandscape), LandscapeAspect())
+
+            mixed = [EpisodeCard(m.episodeJson()), MovieCard(m.movieJson())]
+            m.assertEqual(AspectForSet(mixed), PosterAspect(), "a mixed set reads as a set only at one aspect")
+        end sub
+
+        @it("defaults an empty set to poster")
+        sub emptySetIsPoster()
+            m.assertEqual(AspectForSet([]), PosterAspect())
+            m.assertEqual(AspectForSet(invalid), PosterAspect())
+        end sub
+
+        @it("writes the set aspect back onto every card")
+        sub unifiesAspect()
+            cards = [EpisodeCard(m.episodeJson()), MovieCard(m.movieJson())]
+            UnifyAspect(cards)
+            m.assertEqual(cards[0].aspect, PosterAspect())
+            m.assertEqual(cards[1].aspect, PosterAspect())
+        end sub
+
+        @describe("CardMetrics")
+
+        @it("gives a portrait card a 2:3 artwork box and a landscape card 16:9")
+        sub aspectDrivesArtHeight()
+            m.assertEqual(CardMetrics(240, PosterAspect()).artHeight, 360)
+            m.assertEqual(CardMetrics(240, LandscapeAspect()).artHeight, 135)
+        end sub
+
+        @it("reserves the same three-row caption block whatever the aspect")
+        sub captionBlockIsFixed()
+            portrait = CardMetrics(240, PosterAspect())
+            landscape = CardMetrics(240, LandscapeAspect())
+            m.assertEqual(portrait.textHeight, landscape.textHeight, "cards must align whether or not a row is filled")
+            m.assertTrue(portrait.textHeight > 0)
+        end sub
+
+        @it("totals to artwork plus caption, which is what a row reserves")
+        sub totalsHeight()
+            metrics = CardMetrics(240, PosterAspect())
+            m.assertEqual(metrics.height, metrics.artHeight + metrics.textHeight)
+            m.assertEqual(metrics.width, 240)
+        end sub
+
+        @it("shrinks the caption block when a surface asks for fewer rows")
+        sub captionRowsShrinkTheBlock()
+            three = CardMetrics(240, PosterAspect(), 3).textHeight
+            two = CardMetrics(240, PosterAspect(), 2).textHeight
+            one = CardMetrics(240, PosterAspect(), 1).textHeight
+
+            m.assertTrue(three > two)
+            m.assertTrue(two > one)
+            m.assertEqual(CardMetrics(240, PosterAspect(), 9).textHeight, three, "the row count is clamped, never trusted raw")
+        end sub
+
+        @describe("ColumnsThatFit")
+
+        @it("fills the row exactly, leaving no dead space at the end")
+        sub columnsFillTheRow()
+            available = 1766
+            gap = 28
+
+            columns = ColumnsThatFit(available, 240, gap)
+            width = FittedColumnWidth(available, columns, gap)
+            used = width * columns + gap * (columns - 1)
+
+            m.assertEqual(columns, 6)
+            m.assertTrue(available - used < columns, "leftover " + (available - used).ToStr() + "px is a visible gap")
+        end sub
+
+        @it("widens the cards rather than adding a column")
+        sub widensRatherThanAddsColumns()
+            m.assertTrue(FittedColumnWidth(1766, 6, 28) > 240, "the slack goes into the cards")
+        end sub
+
+        @describe("RailViewportWidth")
+
+        @it("stops at the last whole card, so focus cannot land on a clipped one")
+        sub viewportEndsOnAWholeCard()
+            gap = 28
+            cardWidth = 260
+
+            width = RailViewportWidth(1270, cardWidth, gap)
+
+            m.assertEqual(width, GroupNaturalWidth(4, cardWidth, gap))
+            m.assertTrue(width <= 1270, "the viewport grew past the rail")
+        end sub
+
+        @it("hands back what it was given when there is nothing to fit")
+        sub viewportOfNothing()
+            m.assertEqual(RailViewportWidth(1270, 0, 28), 1270)
+            m.assertEqual(RailViewportWidth(0, 260, 28), 0)
+        end sub
+
+        @it("lets focus float to the last whole card before the rail scrolls")
+        sub focusFloatsToTheLastVisibleCard()
+            gap = 28
+            cardWidth = 260
+            viewport = RailViewportWidth(1822, cardWidth, gap)
+
+            range = RailFocusRange(viewport, cardWidth)
+
+            m.assertEqual(range.Count(), 2)
+            m.assertEqual(range[0], 0)
+            m.assertEqual(range[1], GroupNaturalWidth(6, cardWidth, gap) - cardWidth)
+        end sub
+
+        @it("pins focus at the left edge when only one card fits")
+        sub focusPinsWhenOneCardFits()
+            m.assertEqual(RailFocusRange(260, 260), [0, 0])
+            m.assertEqual(RailFocusRange(200, 260), [0, 0])
+        end sub
+
+        @it("knows when a rail has more cards than its viewport can hold")
+        sub knowsWhenTheRailOverflows()
+            gap = 28
+            cardWidth = 260
+            viewport = RailViewportWidth(1164, cardWidth, gap)
+
+            m.assertFalse(RailOverflows(4, viewport, cardWidth, gap), "four cards fit a four-card viewport")
+            m.assertTrue(RailOverflows(5, viewport, cardWidth, gap), "five cards do not fit a four-card viewport")
+        end sub
+
+        @it("treats an empty or unmeasured rail as not overflowing")
+        sub emptyRailNeverOverflows()
+            m.assertFalse(RailOverflows(0, 1124, 260, 28))
+            m.assertFalse(RailOverflows(20, 0, 260, 28))
+            m.assertFalse(RailOverflows(20, 1124, 0, 28))
+        end sub
+
+        @describe("ColumnsThatFit, continued")
+
+        @it("never returns zero columns, whatever it is handed")
+        sub alwaysAtLeastOneColumn()
+            m.assertEqual(ColumnsThatFit(100, 240, 28), 1)
+            m.assertEqual(ColumnsThatFit(1766, 0, 28), 1)
+            m.assertEqual(FittedColumnWidth(1766, 0, 28), 1766)
+        end sub
+
+        @describe("LandscapeFallbackUri")
+
+        @it("takes the caller's image only when it is already landscape")
+        sub landscapeFallbackKeepsShape()
+            still = { aspect: LandscapeAspect(), imageUri: "http://host/still.jpg" }
+
+            m.assertEqual(LandscapeFallbackUri(still), "http://host/still.jpg")
+        end sub
+
+        @it("refuses a poster rather than squashing it into a still")
+        sub landscapeFallbackRefusesPoster()
+            ' A Home continue-watching card for an episode carries the series
+            ' poster, and the episode hero is landscape.
+            poster = { aspect: PosterAspect(), imageUri: "http://host/poster.jpg" }
+
+            m.assertEqual(LandscapeFallbackUri(poster), "")
+            m.assertEqual(LandscapeFallbackUri({ imageUri: "http://host/poster.jpg" }), "")
+            m.assertEqual(LandscapeFallbackUri(invalid), "")
+        end sub
+
+        @describe("chip specs")
+
+        @it("reads a label off a spec and off a bare string alike")
+        sub readsChipLabel()
+            m.assertEqual(ChipLabel({ icon: "icon-sort", label: "Sort: Title" }), "Sort: Title")
+            m.assertEqual(ChipLabel("Random movie"), "Random movie")
+            m.assertEqual(ChipLabel(invalid), "")
+        end sub
+
+        @it("carries no glyph for a chip that asked for none")
+        sub readsChipGlyph()
+            m.assertEqual(ChipGlyph({ icon: "icon-sort" }), GlyphUri("icon-sort"))
+            m.assertEqual(ChipGlyph({ label: "Sort: Title" }), "")
+            m.assertEqual(ChipGlyph("Random movie"), "")
+        end sub
+
+        @it("outlines only the chip that asked to be outlined")
+        sub readsChipOutline()
+            m.assertTrue(ChipOutlined({ label: "Random", outline: true }))
+            m.assertFalse(ChipOutlined({ label: "Sort: Title" }))
+            m.assertFalse(ChipOutlined("Sort: Title"))
+        end sub
+
+        @describe("SpreadOffset")
+
+        @it("splits the slack evenly between the marked gaps")
+        sub spreadOffsetSplitsSlack()
+            buttons = [{ id: "a" }, { id: "b", spaceBefore: true }, { id: "c", spaceBefore: true }]
+
+            m.assertEqual(SpreadOffset(buttons, 1000, 400), 300)
+        end sub
+
+        @it("spreads nothing when the bar is already full or nothing is marked")
+        sub spreadOffsetWithoutRoom()
+            marked = [{ id: "a" }, { id: "b", spaceBefore: true }]
+
+            m.assertEqual(SpreadOffset(marked, 400, 400), 0)
+            m.assertEqual(SpreadOffset(marked, 300, 400), 0)
+            m.assertEqual(SpreadOffset([{ id: "a" }, { id: "b" }], 1000, 400), 0)
+            m.assertEqual(SpreadOffset(invalid, 1000, 400), 0)
+        end sub
+
+        @it("never spreads before the first button")
+        sub spreadOffsetIgnoresTheFirst()
+            m.assertEqual(SpreadOffset([{ id: "a", spaceBefore: true }], 1000, 400), 0)
+        end sub
+
+        @describe("CardWidthFor")
+
+        @it("gives a landscape card the wider size, so episodes match the season grid")
+        sub sizesByAspect()
+            m.assertEqual(CardWidthFor(LandscapeAspect()), LandscapeCardWidth())
+            m.assertEqual(CardWidthFor(PosterAspect()), RailCardWidth())
+            m.assertEqual(CardWidthFor(""), RailCardWidth())
+            m.assertEqual(CardWidthFor(invalid), RailCardWidth())
+        end sub
+
+        @describe("VisibleSlots")
+
+        @it("counts the partly visible row, so a grid never looks like it ends at the fold")
+        sub countsThePartialRow()
+            m.assertEqual(VisibleSlots(737, 473, 42), 2, "one whole row plus the top of the next")
+            m.assertEqual(VisibleSlots(1031, 473, 42), 3, "a single pixel of the third row still counts")
+        end sub
+
+        @it("does not count a row that begins exactly at the bottom edge")
+        sub ignoresTheRowAtTheEdge()
+            m.assertEqual(VisibleSlots(1030, 473, 42), 2, "the third row starts at 1030 and shows nothing")
+        end sub
+
+        @describe("WholeSlots")
+
+        @it("counts only rows that fit entirely, so a grid never clips its last row")
+        sub countsOnlyWholeRows()
+            available = 737
+            slot = 338
+            gap = 42
+
+            rows = WholeSlots(available, slot, gap)
+            used = rows * slot + gap * (rows - 1)
+
+            m.assertEqual(rows, 2)
+            m.assertTrue(used <= available, rows.ToStr() + " rows need " + used.ToStr() + " of " + available.ToStr())
+        end sub
+
+        @it("is never more than the count that includes the partial row")
+        sub wholeNeverExceedsVisible()
+            for slot = 200 to 600 step 50
+                m.assertTrue(WholeSlots(737, slot, 42) <= VisibleSlots(737, slot, 42), "slot " + slot.ToStr())
+            end for
+        end sub
+
+        @it("still renders one row when a single row is taller than the viewport")
+        sub wholeAlwaysRendersOne()
+            m.assertEqual(WholeSlots(200, 473, 42), 1)
+            m.assertEqual(WholeSlots(737, 0, 42), 1)
+        end sub
+
+        @describe("grid geometry")
+
+        @it("lays out six poster cards per row, the same size the rails use")
+        sub gridMatchesRailCards()
+            columns = ColumnsThatFit(ContentWidth(), GridCardWidth(), SpacingScale().s4)
+            width = FittedColumnWidth(ContentWidth(), columns, SpacingScale().s4)
+
+            m.assertEqual(columns, 6)
+            m.assertTrue(width >= RailCardWidth(), "a grid card is never smaller than a rail card")
+        end sub
+
+        @it("draws a partial second row, so a grid never looks like it ends at the fold")
+        sub gridShowsAPartialRow()
+            gap = SpacingScale().s5
+            width = FittedColumnWidth(ContentWidth(), GridColumns(), SpacingScale().s4)
+            rowHeight = CardMetrics(width, PosterAspect(), GridCaptionRows()).height
+
+            m.assertEqual(VisibleSlots(737, rowHeight, gap), 2, "one whole row of " + rowHeight.ToStr() + "px plus the top of the next")
+            m.assertEqual(WholeSlots(737, rowHeight, gap), 1, "only one row of this height fits entirely")
+        end sub
+
+        @it("returns one when a single row is taller than the viewport")
+        sub oneWhenTallerThanScreen()
+            m.assertEqual(VisibleSlots(200, 473, 42), 1)
+            m.assertEqual(VisibleSlots(737, 0, 42), 1)
+        end sub
+
+        @describe("StateNoteHeight")
+
+        @it("keeps a one-line note the height it always was")
+        sub oneLineNoteIsUnchanged()
+            m.assertEqual(StateNoteHeight(28, 1), Int(28 * 1.6))
+            m.assertEqual(StateNoteHeight(28, 0), Int(28 * 1.6))
+        end sub
+
+        @it("grows for a message that needs more than one line, rather than clipping it")
+        sub grownNoteFitsItsLines()
+            two = StateNoteHeight(28, 2)
+            three = StateNoteHeight(28, 3)
+
+            m.assertTrue(two > StateNoteHeight(28, 1))
+            m.assertTrue(three > two)
+            m.assertTrue(two >= TextBlockHeight(28, 2), "the text has to actually fit")
+        end sub
+
+        @it("caps at three lines, so a server error cannot take the screen")
+        sub noteIsCapped()
+            m.assertEqual(StateNoteMaxLines(), 3)
+        end sub
+
+        @describe("screen retention")
+
+        @it("keeps the top screen and the one behind it awake")
+        sub retainsTwoScreens()
+            m.assertEqual(RetainedScreens(), 2)
+        end sub
+
+        @it("finds nothing to rest in an empty tree, rather than failing")
+        sub holdersOfNothing()
+            m.assertEqual(ContentHolders(invalid).Count(), 0)
+        end sub
+
+        @it("walks the whole tree, not just the top level")
+        sub collectsNestedMatches()
+            root = CreateObject("roSGNode", "Group")
+            branch = root.CreateChild("Group")
+            branch.CreateChild("Rectangle")
+            deep = branch.CreateChild("Group")
+            deep.CreateChild("Rectangle")
+
+            found = []
+            CollectBySubtype(root, ["Rectangle"], found)
+            m.assertEqual(found.Count(), 2)
+
+            none = []
+            CollectBySubtype(root, ["Label"], none)
+            m.assertEqual(none.Count(), 0)
+        end sub
+
+        @describe("ScrollOffsetFor")
+
+        @it("leaves the first rail at the top, where it starts")
+        sub firstRailStaysPut()
+            m.assertEqual(ScrollOffsetFor(0, [0, 600, 1200], [560, 560, 560], 845), 0)
+        end sub
+
+        @it("centres a later rail, so the one above and the one below both peek in")
+        sub centresTheFocusedRail()
+            tops = [0, 602, 1204]
+            heights = [560, 560, 560]
+            viewport = 845
+
+            offset = ScrollOffsetFor(1, tops, heights, viewport)
+            railTop = tops[1] - offset
+            railBottom = railTop + heights[1]
+
+            m.assertTrue(railTop > 0, "the rail above must still be partly on screen")
+            m.assertTrue(railBottom < viewport, "the rail below must still be partly on screen")
+        end sub
+
+        @it("never scrolls past the top")
+        sub neverScrollsPastTheTop()
+            m.assertEqual(ScrollOffsetFor(1, [0, 100], [80, 80], 845), 0, "everything already fits, so do not move")
+        end sub
+
+        @it("survives an index that is not there")
+        sub survivesBadIndex()
+            m.assertEqual(ScrollOffsetFor(9, [0, 600], [560, 560], 845), 0)
+            m.assertEqual(ScrollOffsetFor(1, invalid, invalid, 845), 0)
+        end sub
+
+        @describe("VisibleRailCount")
+
+        @it("counts a partly visible rail, so the screen never looks like it ends at the fold")
+        sub countsThePartialRail()
+            m.assertEqual(VisibleRailCount(5, 845, 560, 42), 2, "one whole rail plus the top of the next")
+            m.assertEqual(VisibleRailCount(5, 1300, 400, 42), 3)
+        end sub
+
+        @it("never asks the list for more rails than there are")
+        sub neverOverCounts()
+            m.assertEqual(VisibleRailCount(2, 4000, 560, 42), 2)
+            m.assertEqual(VisibleRailCount(1, 845, 560, 42), 1)
+        end sub
+
+        @it("always renders at least one rail, whatever the arithmetic says")
+        sub alwaysRendersOne()
+            m.assertEqual(VisibleRailCount(5, 100, 560, 42), 1, "a rail taller than the screen still has to render")
+            m.assertEqual(VisibleRailCount(0, 845, 560, 42), 1)
+            m.assertEqual(VisibleRailCount(5, 845, 0, 42), 1)
+        end sub
+
+        @describe("SeasonCard")
+
+        @it("carries a rollup target, because a season's watched state is a rollup and not a leaf")
+        sub seasonCarriesRollup()
+            card = SeasonCard({ id: "se1", series_id: "sr1", number: 2 })
+
+            m.assertEqual(card.kind, "season")
+            m.assertEqual(card.rollupType, "season")
+            m.assertEqual(card.rollupId, "se1")
+            m.assertEqual(card.refType, "", "a season must never be sent to the leaf batch")
+            m.assertEqual(card.seriesId, "sr1")
+        end sub
+
+        @it("names a season by its title when it has one and by its number when it does not")
+        sub seasonNames()
+            m.assertEqual(SeasonCard({ id: "se1", number: 1, title: "The Beginning" }).title, "The Beginning")
+            m.assertEqual(SeasonCard({ id: "se2", number: 2 }).title, "Season 2")
+        end sub
+
+        @it("borrows the series poster when the season has none of its own")
+        sub seasonBorrowsArtwork()
+            posters = { posters: [{ base: "/images/a", widths: [180] }] }
+            card = SeasonCard({ id: "se1", number: 1, artwork: {}, series_artwork: posters })
+
+            m.assertTrue(HasArtwork(card.artwork))
+        end sub
+
+        @describe("FilmographyCard")
+
+        @it("sends a filmography movie to the leaf batch and a series to the rollup")
+        sub filmographySplitsRefs()
+            movie = FilmographyCard({ title_id: "m1", kind: "movie", display_title: "Alpha", year: 2010 })
+            series = FilmographyCard({ title_id: "s1", kind: "series", display_title: "Show" })
+
+            m.assertEqual(movie.refType, "movie")
+            m.assertEqual(movie.rollupType, "")
+            m.assertEqual(series.rollupType, "series")
+            m.assertEqual(series.refType, "")
+        end sub
+
+        @it("captions a filmography card with the character, which is why the person is on it")
+        sub filmographyCaptionsCharacter()
+            card = FilmographyCard({ title_id: "m1", kind: "movie", display_title: "Alpha", year: 2010, character: "Cobb" })
+
+            m.assertEqual(card.title, "Alpha")
+            m.assertEqual(card.subtitle, "2010")
+            m.assertEqual(card.caption, "Cobb")
+        end sub
+
+        @describe("the expanded cast card")
+
+        @it("takes two cards and the gap between them when it opens")
+        sub castCardWidths()
+            m.assertEqual(CastCardWidthFor(170, false), 170)
+            m.assertEqual(CastCardWidthFor(170, true), 170 * 2 + SpacingScale().s4)
+        end sub
+
+        @it("measures the longest word, because that is what decides a mid-word break")
+        sub longestWordDecides()
+            m.assertEqual(LongestWordWidth("Arnold Schwarzenegger", 28), TextWidth("Schwarzenegger", 28, true))
+            m.assertEqual(LongestWordWidth("Ada", 28), TextWidth("Ada", 28, true))
+            m.assertEqual(LongestWordWidth("", 28), 0)
+        end sub
+
+        @it("steps the name down only when its longest word cannot fit")
+        sub nameStepsDownToFit()
+            sizes = TypeScale()
+
+            m.assertEqual(FittedNameSize("Arnold Schwarzenegger", 10000), sizes.textBase)
+            m.assertEqual(FittedNameSize("Arnold Schwarzenegger", 1), sizes.textXs)
+            m.assertTrue(FittedNameSize("Arnold Schwarzenegger", TextWidth("Schwarzenegger", sizes.textSm, true)) <= sizes.textSm)
+        end sub
+
+        @describe("CastCard")
+
+        @it("has no artwork of its own, because a credit carries only a name")
+        sub castCardHasNoArtwork()
+            card = CastCard({ id: "p1", name: "Ada", character: "Herself" })
+
+            m.assertEqual(card.kind, "person")
+            m.assertEqual(card.title, "Herself")
+            m.assertEqual(card.subtitle, "Ada")
+            m.assertInvalid(card.artwork)
+        end sub
+
+        @it("takes its photo from the people batch, which is one call for the whole rail")
+        sub castCardTakesBatchArtwork()
+            posters = { posters: [{ base: "/images/p1", widths: [180] }] }
+            cards = [CastCard({ id: "p1", name: "Ada" }), CastCard({ id: "p2", name: "Grace" })]
+            MergeArtwork(cards, ArtworkById([{ id: "p1", name: "Ada", artwork: posters }]))
+
+            m.assertTrue(HasArtwork(cards[0].artwork))
+            m.assertInvalid(cards[1].artwork)
+        end sub
+
+        @it("collects the ids the batch call needs")
+        sub castCollectsIds()
+            ids = PersonIds([{ id: "p1" }, { id: "" }, { id: "p2" }])
+
+            m.assertEqual(ids.Count(), 2)
+            m.assertEqual(ids[1], "p2")
+        end sub
+
+        @describe("library cards")
+
+        @it("promotes the episode title over the series name, which the rail heading already gives")
+        sub promotesTheEpisodeTitle()
+            card = EpisodeCard({ id: "e1", title: "Pilot", series_title: "Show", number: 1, season_number: 1 }, true)
+            LibraryCard(card, { play_count: 2, last_watched_at: "2026-09-02T10:00:00" })
+
+            m.assertEqual(card.title, "Pilot")
+        end sub
+
+        @it("badges the play count and leaves the second row to the year")
+        sub countsAndDates()
+            card = MovieCard({ id: "m1", title: "Alpha", year: 1999 })
+            LibraryCard(card, { play_count: 3, last_watched_at: "2026-09-02T10:00:00" })
+
+            m.assertEqual(card.badge, "3x")
+            m.assertEqual(card.subtitle, "1999")
+            m.assertEqual(Left(card.caption, 8), "Watched ")
+            m.assertTrue(Instr(1, card.caption, "2026") > 0)
+        end sub
+
+        @it("leaves the card unbadged when an entry carries no count, as a watchlist entry does not")
+        sub keepsTheYearWithoutACount()
+            card = MovieCard({ id: "m1", title: "Alpha", year: 1999 })
+            LibraryCard(card, { added_at: "2026-09-02T10:00:00" })
+
+            m.assertEqual(card.badge, "")
+            m.assertEqual(card.subtitle, "1999")
+            m.assertEqual(card.caption, "")
+        end sub
+
+        @it("drops the watched tick and the progress bar, which say nothing on these lists")
+        sub marksTheCardPlain()
+            card = MovieCard({ id: "m1", title: "Alpha" })
+            LibraryCard(card, invalid)
+
+            m.assertTrue(card.plain)
+        end sub
+
+        @it("badges nothing for a single watch, since every history entry has at least one")
+        sub badgesOnlyRepeats()
+            m.assertEqual(PlayCountBadge(1), "")
+            m.assertEqual(PlayCountBadge(0), "")
+            m.assertEqual(PlayCountBadge(invalid), "")
+            m.assertEqual(PlayCountBadge(18), "18x")
+        end sub
+
+        @describe("CardSetSignature")
+
+        @it("is the same for the same cards written twice, which is the whole point")
+        sub signatureIsStableAcrossRewrites()
+            cards = [{ id: "m1", title: "Alien" }, { id: "m2", title: "Aliens" }]
+            first = CardSetSignature(cards, "http://host", 260, 3)
+            m.assertEqual(CardSetSignature(cards, "http://host", 260, 3), first)
+        end sub
+
+        @it("changes when the set, the server, the width or the caption rows change")
+        sub signatureTracksItsInputs()
+            cards = [{ id: "m1" }, { id: "m2" }]
+            base = CardSetSignature(cards, "http://host", 260, 3)
+
+            m.assertNotEqual(CardSetSignature([{ id: "m1" }], "http://host", 260, 3), base)
+            m.assertNotEqual(CardSetSignature(cards, "http://other", 260, 3), base)
+            m.assertNotEqual(CardSetSignature(cards, "http://host", 400, 3), base)
+            m.assertNotEqual(CardSetSignature(cards, "http://host", 260, 1), base)
+        end sub
+
+        @it("changes when a card's state changes, so a rail cannot skip a state refresh")
+        sub signatureTracksState()
+            base = CardSetSignature([{ id: "m1" }], "http://host", 260, 3)
+
+            m.assertNotEqual(CardSetSignature([{ id: "m1", watched: true }], "http://host", 260, 3), base)
+            m.assertNotEqual(CardSetSignature([{ id: "m1", watchlisted: true }], "http://host", 260, 3), base)
+            m.assertNotEqual(CardSetSignature([{ id: "m1", favorite: true }], "http://host", 260, 3), base)
+            m.assertNotEqual(CardSetSignature([{ id: "m1", progressPercent: 40 }], "http://host", 260, 3), base)
+            m.assertNotEqual(CardSetSignature([{ id: "m1", badge: "3x" }], "http://host", 260, 3), base)
+        end sub
+
+        @it("changes when artwork arrives late, which is how a cast rail gets its photos")
+        sub signatureTracksArtwork()
+            base = CardSetSignature([{ id: "p1" }], "http://host", 170, 3)
+            withArt = [{ id: "p1", artwork: { posters: [{ base: "/images/p1", widths: [180] }] } }]
+
+            m.assertNotEqual(CardSetSignature(withArt, "http://host", 170, 3), base)
+        end sub
+
+        @it("is blank for anything that is not a list of cards")
+        sub signatureOfNothing()
+            m.assertEqual(CardSetSignature(invalid, "http://host", 260, 3), "")
+            m.assertEqual(CardSetSignature("nope", "http://host", 260, 3), "")
+        end sub
+
+        @describe("SortedByKind")
+
+        @it("groups results movies, then series, then episodes, then people")
+        sub sortsResultsByKind()
+            mixed = [
+                { kind: "person", id: "p1" },
+                { kind: "episode", id: "e1" },
+                { kind: "movie", id: "m1" },
+                { kind: "series", id: "s1" }
+            ]
+
+            ordered = SortedByKind(mixed)
+
+            m.assertEqual(ordered[0].id, "m1")
+            m.assertEqual(ordered[1].id, "s1")
+            m.assertEqual(ordered[2].id, "e1")
+            m.assertEqual(ordered[3].id, "p1")
+        end sub
+
+        @it("keeps the server's relevance order inside each kind")
+        sub keepsRelevanceWithinAKind()
+            ordered = SortedByKind([
+                { kind: "movie", id: "m1" },
+                { kind: "person", id: "p1" },
+                { kind: "movie", id: "m2" }
+            ])
+
+            m.assertEqual(ordered[0].id, "m1")
+            m.assertEqual(ordered[1].id, "m2")
+            m.assertEqual(ordered[2].id, "p1")
+        end sub
+
+        @it("keeps a kind it does not know rather than dropping the result")
+        sub keepsAnUnknownKindLast()
+            ordered = SortedByKind([{ kind: "collection", id: "c1" }, { kind: "movie", id: "m1" }])
+
+            m.assertEqual(ordered.Count(), 2)
+            m.assertEqual(ordered[0].id, "m1")
+            m.assertEqual(ordered[1].id, "c1")
+        end sub
+
+        @it("survives anything that is not a list of cards")
+        sub sortsNothing()
+            m.assertEqual(SortedByKind(invalid).Count(), 0)
+            m.assertEqual(SortedByKind("nope").Count(), 0)
+        end sub
+
+        @describe("IndexOfCard")
+
+        @it("finds a card by id so focus can survive a re-sort")
+        sub findsACardById()
+            cards = [{ id: "m1" }, { id: "m2" }]
+
+            m.assertEqual(IndexOfCard(cards, "m2"), 1)
+            m.assertEqual(IndexOfCard(cards, "gone"), -1)
+            m.assertEqual(IndexOfCard(cards, ""), -1)
+            m.assertEqual(IndexOfCard(invalid, "m1"), -1)
+        end sub
+
+        @describe("PosterCardFromJson")
+
+        @it("draws an episode as its series poster, because a still is the wrong shape for a grid")
+        sub episodeUsesTheSeriesPoster()
+            json = {
+                "type": "episode",
+                "id": "e1",
+                "title": "The Ninth Orphan",
+                "series_title": "Alien",
+                "season_number": 1,
+                "number": 2,
+                "artwork": { backdrops: [{ base: "/images/e1", widths: [480] }] },
+                "series_artwork": { posters: [{ base: "/images/s1", widths: [480] }] }
+            }
+
+            card = PosterCardFromJson(json)
+
+            m.assertEqual(card.aspect, PosterAspect())
+            m.assertEqual(card.title, "The Ninth Orphan")
+            m.assertEqual(card.subtitle, "Alien: S01E02")
+            m.assertEqual(card.caption, "")
+            m.assertEqual(CardImageUrl("http://host", card, 480), "http://host/images/s1/480")
+        end sub
+
+        @it("names an episode on its own when the payload carries no series")
+        sub episodeWithoutASeries()
+            card = PosterCardFromJson({ "type": "episode", "id": "e1", "title": "Pilot", "number": 2 })
+
+            m.assertEqual(card.title, "Pilot")
+            m.assertEqual(card.subtitle, "E02")
+        end sub
+
+        @describe("SeriesEpisodeLabel")
+
+        @it("joins a show to its episode code, and drops whichever half is missing")
+        sub labelDropsTheMissingHalf()
+            m.assertEqual(SeriesEpisodeLabel("Stargate SG-1", "S01E02"), "Stargate SG-1: S01E02")
+            m.assertEqual(SeriesEpisodeLabel(invalid, "S01E02"), "S01E02")
+            m.assertEqual(SeriesEpisodeLabel("Stargate SG-1", ""), "Stargate SG-1")
+        end sub
+
+        @describe("CardSetShape")
+
+        @it("ignores artwork, so late photos do not read as a different set of cards")
+        sub shapeIgnoresArtwork()
+            bare = CardSetShape([{ id: "p1" }], 3)
+            withArt = CardSetShape([{ id: "p1", artwork: { posters: [{ base: "/images/p1", widths: [180] }] } }], 3)
+
+            m.assertEqual(withArt, bare)
+        end sub
+
+        @it("still changes for everything a card is drawn with besides its picture")
+        sub shapeTracksTheRest()
+            base = CardSetShape([{ id: "m1" }], 3)
+
+            m.assertNotEqual(CardSetShape([{ id: "m2" }], 3), base)
+            m.assertNotEqual(CardSetShape([{ id: "m1", watched: true }], 3), base)
+            m.assertNotEqual(CardSetShape([{ id: "m1", badge: "3x" }], 3), base)
+            m.assertNotEqual(CardSetShape([{ id: "m1", progressPercent: 40 }], 3), base)
+            m.assertNotEqual(CardSetShape([{ id: "m1" }], 1), base)
+            m.assertNotEqual(CardSetShape([{ id: "m1" }, { id: "m2" }], 3), base)
+        end sub
+
+        @it("carries the art in the other half, so the two together still catch a photo arriving")
+        sub artIsTheOtherHalf()
+            bare = [{ id: "p1" }]
+            withArt = [{ id: "p1", artwork: { posters: [{ base: "/images/p1", widths: [180] }] } }]
+
+            m.assertNotEqual(CardSetArt(withArt, "http://host", 170), CardSetArt(bare, "http://host", 170))
+            m.assertNotEqual(CardSetArt(bare, "http://other", 170), CardSetArt(bare, "http://host", 170))
+            m.assertEqual(CardSetArt(invalid, "http://host", 170), "")
+        end sub
+
+        @describe("CardSpeech")
+
+        @it("says the title and the year, which is what the caption shows")
+        sub speaksTitleAndYear()
+            m.assertEqual(CardSpeech({ title: "Blade Runner", subtitle: "1982" }), "Blade Runner, 1982")
+        end sub
+
+        @it("says watched rather than a percentage once it is finished")
+        sub speaksWatched()
+            m.assertEqual(CardSpeech({ title: "A", watched: true, progressPercent: 90 }), "A, Watched")
+        end sub
+
+        @it("says how far in a part-watched title is")
+        sub speaksProgress()
+            m.assertEqual(CardSpeech({ title: "A", progressPercent: 45 }), "A, 45 percent watched")
+        end sub
+
+        @it("says the library state a sighted viewer reads off the ribbons")
+        sub speaksLibraryState()
+            spoken = CardSpeech({ title: "A", watchlisted: true, favorite: true })
+
+            m.assertEqual(spoken, "A, On your watchlist, A favorite")
+        end sub
+
+        @it("says the badge, which is the only place an episode count appears")
+        sub speaksBadge()
+            m.assertEqual(CardSpeech({ title: "A", badge: "3 episodes" }), "A, 3 episodes")
+        end sub
+
+        @it("survives a card with nothing on it")
+        sub speaksNothingForNothing()
+            m.assertEqual(CardSpeech(invalid), "")
+            m.assertEqual(CardSpeech({}), "")
+        end sub
+
+    end class
+
+end namespace

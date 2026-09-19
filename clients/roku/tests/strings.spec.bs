@@ -1,0 +1,69 @@
+namespace tests
+
+    @suite("strings")
+    class StringTests extends rooibos.BaseTestSuite
+
+        @describe("the table")
+
+        @it("carries a value for every namespace the design system defines")
+        sub everyNamespaceIsPresent()
+            namespaces = ["nav.", "action.", "state.", "empty.", "error.", "toast.ok.", "toast.err.", "form.", "player.", "status.", "home.", "list.", "search.", "type.", "detail."]
+
+            for each prefix in namespaces
+                found = false
+                for each key in StringKeys()
+                    if Left(key, Len(prefix)) = prefix
+                        found = true
+                    end if
+                end for
+                m.assertTrue(found, "no key in namespace " + prefix)
+            end for
+        end sub
+
+        @it("never ships a blank value")
+        sub noValueIsBlank()
+            for each key in StringKeys()
+                m.assertFalse(IsBlank(Phrase(key)), key + " is blank")
+            end for
+        end sub
+
+        @it("builds the table once and hands back the same one after that")
+        sub tableIsMemoized()
+            StringTable().probe = "cached"
+            m.assertEqual(Phrase("probe"), "cached")
+            StringTable().Delete("probe")
+            m.assertEqual(Phrase("probe"), "probe")
+        end sub
+
+        @describe("lookup")
+
+        @it("returns the key itself when it is unknown")
+        sub unknownKeyReturnsItself()
+            m.assertEqual(Phrase("nothing.here"), "nothing.here")
+        end sub
+
+        @it("returns the English for a known key")
+        sub knownKeyReturnsEnglish()
+            m.assertEqual(Phrase("action.play"), "Play")
+        end sub
+
+        @describe("substitution")
+
+        @it("fills a named placeholder")
+        sub fillsNamedPlaceholder()
+            m.assertEqual(PhraseWith("status.resumeAt", { percent: 42 }), "Resume at 42%")
+        end sub
+
+        @it("fills a string placeholder")
+        sub fillsStringPlaceholder()
+            m.assertEqual(PhraseWith("toast.ok.watchlistAdded", { title: "Alien" }), "Added Alien to your watchlist.")
+        end sub
+
+        @it("leaves the template alone when given nothing to fill")
+        sub leavesTemplateAloneWhenEmpty()
+            m.assertEqual(PhraseWith("status.resumeAt", invalid), "Resume at {percent}%")
+        end sub
+
+    end class
+
+end namespace

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Settings">
+    <g fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round">
+        <path d="M8 14 H12 M22 14 H40"/>
+        <path d="M8 24 H25 M35 24 H40"/>
+        <path d="M8 34 H15 M25 34 H40"/>
+        <circle cx="17" cy="14" r="4"/>
+        <circle cx="30" cy="24" r="4"/>
+        <circle cx="20" cy="34" r="4"/>
+    </g>
+</svg>

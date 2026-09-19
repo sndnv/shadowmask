@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="PosterCard" extends="Group">
+    <script type="text/brightscript" uri="pkg:/components/widgets/PosterCard.brs" />
+    <script type="text/brightscript" uri="pkg:/source/util.brs" />
+    <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
+    <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/format.brs" />
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/source/cards.brs" />
+    <script type="text/brightscript" uri="pkg:/source/images.brs" />
+    <script type="text/brightscript" uri="pkg:/source/catalog.brs" />
+    <script type="text/brightscript" uri="pkg:/source/state.brs" />
+    <script type="text/brightscript" uri="pkg:/source/detail.brs" />
+    <script type="text/brightscript" uri="pkg:/source/prefs.brs" />
+    <script type="text/brightscript" uri="pkg:/source/session.brs" />
+    <script type="text/brightscript" uri="pkg:/source/screen.brs" />
+    <script type="text/brightscript" uri="pkg:/source/capability.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+
+    <interface>
+        <field id="itemContent" type="node" onChange="showContent" />
+        <field id="width" type="float" value="240" onChange="render" />
+        <field id="height" type="float" value="440" />
+        <field id="thickness" type="float" value="3" onChange="render" />
+        <field id="aspect" type="string" value="poster" />
+        <field id="focusPercent" type="float" value="0" onChange="onFocusChanged" />
+        <field id="rowListHasFocus" type="boolean" value="true" onChange="onFocusChanged" />
+    </interface>
+
+    <children>
+        <Rectangle id="plate" />
+        <Rectangle id="art" />
+        <Poster id="poster" />
+        <Poster id="glyph" visible="false" />
+        <Rectangle id="progressTrack" visible="false" />
+        <Rectangle id="progressFill" visible="false" />
+        <Poster id="watchedRing" visible="false" />
+        <Poster id="watchedDisc" visible="false" />
+        <Poster id="dismiss" visible="false" />
+        <RoundedBox id="badgePlate" visible="false" />
+        <Label id="badge" visible="false" />
+        <FocusRing id="ring" />
+        <Label id="title" />
+        <ScrollingLabel id="titleTicker" visible="false" />
+        <Label id="subtitle" />
+        <ScrollingLabel id="subtitleTicker" visible="false" />
+        <Label id="caption" />
+        <ScrollingLabel id="captionTicker" visible="false" />
+    </children>
+</component>

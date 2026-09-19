@@ -1,0 +1,265 @@
+namespace tests
+
+    @suite("state")
+    class StateTests extends rooibos.BaseTestSuite
+
+        function cards() as object
+            return [
+                MovieCard({ id: "m1", title: "Alpha" }),
+                MovieCard({ id: "m2", title: "Beta" }),
+                SeriesCard({ id: "s1", title: "Show" }),
+                PersonCard({ id: "p1", name: "Ada" })
+            ]
+        end function
+
+        @describe("partitioning")
+
+        @it("sends movies and episodes to the batch call")
+        sub collectsLeaves()
+            refs = LeafRefs(m.cards())
+            m.assertEqual(refs.Count(), 2)
+            m.assertEqual(refs[0].type, "movie")
+            m.assertEqual(refs[1].id, "m2")
+        end sub
+
+        @it("sends series to the rollup call instead, never to the batch")
+        sub collectsRollups()
+            targets = RollupTargets(m.cards())
+            m.assertEqual(targets.Count(), 1)
+            m.assertEqual(targets[0].type, "series")
+            m.assertEqual(targets[0].id, "s1")
+        end sub
+
+        @it("leaves a person out of both, because there is no state to ask for")
+        sub ignoresPeople()
+            cards = [PersonCard({ id: "p1", name: "Ada" })]
+            m.assertEqual(LeafRefs(cards).Count(), 0)
+            m.assertEqual(RollupTargets(cards).Count(), 0)
+        end sub
+
+        @it("asks about a title once however many times it appears on screen")
+        sub dedupes()
+            duplicated = [MovieCard({ id: "m1" }), MovieCard({ id: "m1" }), MovieCard({ id: "m2" })]
+            m.assertEqual(LeafRefs(duplicated).Count(), 2)
+        end sub
+
+        @it("survives being handed nothing")
+        sub survivesNothing()
+            m.assertEqual(LeafRefs(invalid).Count(), 0)
+            m.assertEqual(RollupTargets([]).Count(), 0)
+        end sub
+
+        @describe("ChunkRefs")
+
+        @it("keeps a page-sized set as a single call")
+        sub oneCallPerPage()
+            refs = []
+            for index = 1 to GridPageLimit()
+                refs.Push({ "type": "movie", "id": index.ToStr() })
+            end for
+
+            chunks = ChunkRefs(refs, MaxBatchSize())
+            m.assertEqual(chunks.Count(), 1, "a page of tiles must cost exactly one state call")
+            m.assertEqual(chunks[0].Count(), GridPageLimit())
+        end sub
+
+        @it("splits past the server cap rather than silently dropping the tail")
+        sub splitsPastCap()
+            refs = []
+            for index = 1 to 450
+                refs.Push({ "type": "movie", "id": index.ToStr() })
+            end for
+
+            chunks = ChunkRefs(refs, MaxBatchSize())
+            m.assertEqual(chunks.Count(), 3)
+            m.assertEqual(chunks[0].Count(), 200)
+            m.assertEqual(chunks[2].Count(), 50)
+            m.assertEqual(chunks[2][49].id, "450", "the last ref survives the split")
+        end sub
+
+        @it("returns nothing to call for an empty set")
+        sub nothingToCall()
+            m.assertEqual(ChunkRefs([], 200).Count(), 0)
+            m.assertEqual(ChunkRefs(invalid, 200).Count(), 0)
+        end sub
+
+        @describe("ApplyStates")
+
+        @it("tags watched and progress onto the cards the server answered about")
+        sub tagsCards()
+            cards = m.cards()
+            ApplyStates(cards, [
+                { title: { type: "movie", id: "m1" }, watched: true, progress_percent: 0 },
+                { title: { type: "movie", id: "m2" }, watched: false, progress_percent: 35 }
+            ], [])
+
+            m.assertTrue(cards[0].watched)
+            m.assertEqual(cards[0].progressPercent, 0)
+            m.assertFalse(cards[1].watched)
+            m.assertEqual(cards[1].progressPercent, 35)
+        end sub
+
+        @it("applies a rollup to the series card it names")
+        sub appliesRollup()
+            cards = m.cards()
+            ApplyStates(cards, [], [{ target: { type: "series", id: "s1" }, watched: true }])
+            m.assertTrue(cards[2].watched)
+        end sub
+
+        @it("leaves a card the server said nothing about untouched")
+        sub leavesUnknownAlone()
+            cards = m.cards()
+            ApplyStates(cards, [{ title: { type: "movie", id: "m1" }, watched: true, progress_percent: 10 }], [])
+            m.assertFalse(cards[1].watched)
+            m.assertEqual(cards[3].progressPercent, 0)
+        end sub
+
+        @it("does not let a zero from the batch erase a resume card's own progress")
+        sub keepsResumeProgress()
+            resume = ResumeCard({ title: { type: "movie", id: "m1" }, display_title: "Alpha", progress_percent: 42 })
+            cards = [resume]
+            ApplyStates(cards, [{ title: { type: "movie", id: "m1" }, watched: false, progress_percent: 0 }], [])
+            m.assertEqual(cards[0].progressPercent, 42)
+        end sub
+
+        @describe("CardStateList")
+
+        ' A grid holds its own copy of the cards, so a mutated card never reaches it.
+        ' The state has to be handed over as its own value.
+        @it("carries the watched state and progress of every card, in order")
+        sub listsEveryCardState()
+            cards = m.cards()
+            ApplyStates(cards, [
+                { title: { type: "movie", id: "m1" }, watched: true, progress_percent: 0 },
+                { title: { type: "movie", id: "m2" }, watched: false, progress_percent: 35 }
+            ], [])
+
+            states = CardStateList(cards)
+
+            m.assertEqual(states.Count(), cards.Count())
+            m.assertTrue(states[0].watched)
+            m.assertEqual(states[0].progressPercent, 0)
+            m.assertFalse(states[1].watched)
+            m.assertEqual(states[1].progressPercent, 35)
+        end sub
+
+        @it("returns nothing for anything that is not an array of cards")
+        sub listsNothingForNonsense()
+            m.assertEqual(CardStateList(invalid).Count(), 0)
+            m.assertEqual(CardStateList("cards").Count(), 0)
+        end sub
+
+        @it("never matches a card that carries no ref at all")
+        sub neverMatchesBlankRefs()
+            cards = [PersonCard({ id: "p1", name: "Ada" })]
+            ApplyStates(cards, [{ title: { type: "", id: "" }, watched: true }], [])
+            m.assertFalse(cards[0].watched)
+        end sub
+
+        @it("survives empty and missing responses")
+        sub survivesEmptyResponses()
+            cards = m.cards()
+            ApplyStates(cards, invalid, invalid)
+            m.assertFalse(cards[0].watched)
+        end sub
+
+        @describe("personal lists")
+
+        @it("reads the title ref out of a watchlist, favorite or history entry alike")
+        sub readsEntryRefs()
+            refs = TitleRefsFrom([
+                { title: { type: "movie", id: "m1" }, added_at: "2026-09-01T00:00:00Z" },
+                { title: { type: "episode", id: "e1" }, last_watched_at: "2026-09-02T00:00:00Z" }
+            ])
+
+            m.assertEqual(refs.Count(), 2)
+            m.assertEqual(refs[0].type, "movie")
+            m.assertEqual(refs[1].id, "e1")
+        end sub
+
+        @it("skips an entry with no usable ref rather than asking the batch for a blank id")
+        sub skipsBlankEntryRefs()
+            refs = TitleRefsFrom([{ title: { type: "movie", id: "" } }, { added_at: "x" }, invalid])
+
+            m.assertEqual(refs.Count(), 0)
+        end sub
+
+        @it("puts the batch cards back in the order the list asked for them")
+        sub ordersCardsByRef()
+            cards = [MovieCard({ id: "m2", title: "Beta" }), MovieCard({ id: "m1", title: "Alpha" })]
+            refs = [{ "type": "movie", "id": "m1" }, { "type": "movie", "id": "m2" }]
+
+            ordered = CardsForRefs(cards, refs)
+            m.assertEqual(ordered[0].title, "Alpha")
+            m.assertEqual(ordered[1].title, "Beta")
+        end sub
+
+        @it("drops a ref the batch did not answer, which is what a deleted or ungranted title looks like")
+        sub dropsUnansweredRefs()
+            cards = [MovieCard({ id: "m1", title: "Alpha" })]
+            refs = [{ "type": "movie", "id": "m1" }, { "type": "movie", "id": "gone" }]
+
+            ordered = CardsForRefs(cards, refs)
+            m.assertEqual(ordered.Count(), 1)
+            m.assertEqual(ordered[0].title, "Alpha")
+        end sub
+
+        @it("keys the entries by ref, so a card can find the date its own history entry carries")
+        sub keysEntriesByRef()
+            lookup = EntriesByRef([
+                { title: { type: "movie", id: "m1" }, play_count: 2 },
+                { title: { type: "episode", id: "e1" }, play_count: 1 },
+                { title: { type: "", id: "" } }
+            ])
+
+            m.assertEqual(lookup[TitleKey("movie", "m1")].play_count, 2)
+            m.assertEqual(lookup[TitleKey("episode", "e1")].play_count, 1)
+            m.assertEqual(lookup.Count(), 2)
+        end sub
+
+        @it("caps a rail at its own length without disturbing a list that already fits")
+        sub capsRailRefs()
+            refs = [{ "type": "movie", "id": "m1" }, { "type": "movie", "id": "m2" }, { "type": "movie", "id": "m3" }]
+
+            m.assertEqual(FirstRefs(refs, 2).Count(), 2)
+            m.assertEqual(FirstRefs(refs, 9).Count(), 3)
+            m.assertEqual(FirstRefs(refs, 0).Count(), 3)
+            m.assertEqual(FirstRefs(invalid, 2).Count(), 0)
+        end sub
+
+        @it("takes one card out of a list so a removal does not have to reload the whole grid")
+        sub removesOneCard()
+            cards = [MovieCard({ id: "m1" }), MovieCard({ id: "m2" }), MovieCard({ id: "m3" })]
+
+            kept = CardsWithout(cards, "m2")
+            m.assertEqual(kept.Count(), 2)
+            m.assertEqual(kept[1].id, "m3")
+        end sub
+
+        @describe("StateWindow")
+
+        @it("writes only the appended page, not the whole accumulation")
+        sub windowsToThePage()
+            m.assertEqual(StateWindow(20, 100, 120, 120), 20)
+        end sub
+
+        @it("stops at whichever of the nodes or the cards runs out first")
+        sub stopsAtTheShorterList()
+            m.assertEqual(StateWindow(20, 100, 110, 120), 10)
+            m.assertEqual(StateWindow(20, 100, 120, 105), 5)
+        end sub
+
+        @it("writes nothing rather than past the end when the grid was rebuilt underneath")
+        sub neverWritesPastTheEnd()
+            m.assertEqual(StateWindow(20, 100, 40, 40), 0)
+            m.assertEqual(StateWindow(0, 0, 10, 10), 0)
+        end sub
+
+        @it("covers the whole grid when the offset is zero, which is the refresh case")
+        sub coversEverythingFromZero()
+            m.assertEqual(StateWindow(50, 0, 50, 50), 50)
+        end sub
+
+    end class
+
+end namespace

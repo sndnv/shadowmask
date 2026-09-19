@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40" role="img" aria-label="Shuffle">
+    <g fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12 H12 L25 28 H29"/>
+        <path d="M5 28 H12 L25 12 H29"/>
+    </g>
+    <path d="M28 6 L36 12 L28 18 Z" fill="#ffffff"/>
+    <path d="M28 22 L36 28 L28 34 Z" fill="#ffffff"/>
+</svg>
