@@ -12,6 +12,7 @@ import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/model/user_library/favorite.dart';
 import 'package:shadowmask/model/user_library/watchlist_item.dart';
 import 'package:shadowmask/nav/nav_section.dart';
+import 'package:shadowmask/pages/account/about_block.dart';
 import 'package:shadowmask/pages/account/appearance_block.dart';
 import 'package:shadowmask/pages/account/devices_block.dart';
 import 'package:shadowmask/pages/account/history_block.dart';
@@ -147,6 +148,7 @@ class _AccountBodyState extends State<_AccountBody> {
             userId: user.id,
             showSignOutEverywhere: management,
           ),
+          const AboutBlock(),
         ]),
       ),
       if (management)

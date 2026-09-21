@@ -22,8 +22,20 @@ assets/
   glyphs/        single-colour UI marks, tinted per theme by the client
   icons/         rasterized launcher/PWA icon sets, grouped per client
   vendor/        third-party files bundled verbatim into a client
+  attribution/   provider logos we are required to display unmodified
   screenshots/   client captures for the root README
 ```
+
+`attribution/` holds provider logos that must be shown unmodified in colour, aspect and rotation.
+Replace them only with a fresh download from the provider.
+
+- `attribution/tmdb.svg` - TMDB's "alt short" blue logo, from
+  <https://www.themoviedb.org/about/logos-attribution>, byte-identical to their download.
+
+  The basic client uses the SVG. Flutter and Roku use `icons/flutter/tmdb-logo.png` (480px) and
+  `icons/roku/tmdb-logo.png` (224px), rendered by `render_icons.sh` width-only so the aspect ratio
+  holds: the file takes its gradient from a `<style>` block, which `flutter_svg` ignores, rendering
+  it black.
 
 All four brand icons carry the same artwork: the retro mark, amber tube with RGB dots, on a warm
 gradient plate running `#43331f` to `#1c140d`. They differ only in how the plate meets the canvas,

@@ -9,7 +9,8 @@ sub init()
         { id: "playbackSection", focus: "autoplayActions" },
         { id: "appearanceSection", focus: "themeCards" },
         { id: "serverSection", focus: "serverActions" },
-        { id: "sessionSection", focus: "sessionActions" }
+        { id: "sessionSection", focus: "sessionActions" },
+        { id: "aboutSection", focus: "aboutActions" }
     ])
 
     m.heading = m.top.FindNode("heading")
@@ -54,6 +55,17 @@ sub init()
     m.sessionHeading = m.top.FindNode("sessionHeading")
     m.deviceLine = m.top.FindNode("deviceLine")
     m.sessionActions = m.top.FindNode("sessionActions")
+    m.aboutPanel = m.top.FindNode("aboutPanel")
+    m.aboutHeading = m.top.FindNode("aboutHeading")
+    m.aboutApp = m.top.FindNode("aboutApp")
+    m.aboutLegal = m.top.FindNode("aboutLegal")
+    m.aboutBundled = m.top.FindNode("aboutBundled")
+    m.aboutFacts = m.top.FindNode("aboutFacts")
+    m.aboutActions = m.top.FindNode("aboutActions")
+    m.aboutTmdbLogo = m.top.FindNode("aboutTmdbLogo")
+    m.aboutTmdb = m.top.FindNode("aboutTmdb")
+    m.aboutOmdb = m.top.FindNode("aboutOmdb")
+    m.aboutSubtitles = m.top.FindNode("aboutSubtitles")
 
     m.tabs.ObserveField("activated", "onTab")
     m.supportActions.ObserveField("activated", "onSupportAction")
@@ -64,6 +76,7 @@ sub init()
     m.contrastBar.ObserveField("activated", "onContrastToggle")
     m.serverActions.ObserveField("activated", "onServerAction")
     m.sessionActions.ObserveField("activated", "onSessionAction")
+    m.aboutActions.ObserveField("activated", "onAboutAction")
     m.watchlistRail.ObserveField("selected", "onCardSelected")
     m.favoritesRail.ObserveField("selected", "onCardSelected")
     m.historyRail.ObserveField("selected", "onCardSelected")
@@ -169,7 +182,7 @@ sub Layout()
     theme = m.top.theme
     if theme = invalid or theme.Count() = 0 then return
 
-    for each id in ["watchlistRail", "favoritesRail", "historyRail", "emptyLibrary", "profileSection", "appearanceSection", "serverSection", "sessionSection"]
+    for each id in ["watchlistRail", "favoritesRail", "historyRail", "emptyLibrary", "profileSection", "playbackSection", "appearanceSection", "serverSection", "sessionSection", "aboutSection"]
         HideSection(id)
     end for
 
@@ -250,6 +263,7 @@ sub LayoutProfile(theme as object)
     ShowSection("appearanceSection", DrawPanelBlock(theme, m.appearancePanel, "appearance"))
     ShowSection("serverSection", DrawPanelBlock(theme, m.serverPanel, "server"))
     ShowSection("sessionSection", DrawPanelBlock(theme, m.sessionPanel, "session"))
+    ShowSection("aboutSection", DrawPanelBlock(theme, m.aboutPanel, "about"))
 end sub
 
 function DrawPanelBlock(theme as object, panel as object, which as string) as integer
@@ -262,6 +276,8 @@ function DrawPanelBlock(theme as object, panel as object, which as string) as in
         height = DrawAppearance(theme, inner, pad, pad)
     else if which = "server"
         height = DrawServer(theme, inner, pad, pad)
+    else if which = "about"
+        height = DrawAbout(theme, inner, pad, pad)
     else
         height = DrawSession(theme, inner, pad, pad)
     end if
@@ -471,6 +487,56 @@ function DrawServer(theme as object, width as integer, at as integer, top as int
     m.serverActions.translation = [at, offset]
 
     return offset - top + BarHeight(m.serverActions)
+end function
+
+function DrawAbout(theme as object, width as integer, at as integer, top as integer) as integer
+    sizes = TypeScale()
+    space = SpacingScale()
+
+    offset = top + DrawBlockHeading(m.aboutHeading, theme, Phrase("heading.about"), width, at, top)
+
+    offset = offset + DrawAboutLine(m.aboutApp, theme.text, AboutTitle(), sizes.textSm, width, at, offset)
+    offset = offset + DrawAboutLine(m.aboutLegal, theme.muted, Phrase("about.legal"), sizes.textSm, width, at, offset)
+    offset = offset + DrawAboutLine(m.aboutBundled, theme.muted, Phrase("about.bundled"), sizes.textSm, width, at, offset) + space.s3
+
+    m.aboutFacts.theme = theme
+    m.aboutFacts.listWidth = width
+    m.aboutFacts.columns = 1
+    m.aboutFacts.rows = AttributionRows()
+    m.aboutFacts.translation = [at, offset]
+    offset = offset + Int(m.aboutFacts.listHeight) + space.s3
+
+    m.aboutActions.theme = theme
+    m.aboutActions.barWidth = width
+    m.aboutActions.buttons = [{ id: "viewLicenses", label: Phrase("action.viewLicenses") }]
+    m.aboutActions.translation = [at, offset]
+    offset = offset + BarHeight(m.aboutActions) + space.s3
+
+    m.aboutTmdbLogo.uri = "pkg:/images/tmdb-logo.png"
+    m.aboutTmdbLogo.width = 224
+    m.aboutTmdbLogo.height = 30
+    m.aboutTmdbLogo.translation = [at, offset]
+    offset = offset + 30 + space.s2
+
+    offset = offset + DrawAboutLine(m.aboutTmdb, theme.muted, Phrase("about.tmdb"), sizes.textSm, width, at, offset, 3)
+    offset = offset + DrawAboutLine(m.aboutOmdb, theme.muted, Phrase("about.omdb"), sizes.textSm, width, at, offset, 3)
+    offset = offset + DrawAboutLine(m.aboutSubtitles, theme.muted, Phrase("about.subtitles"), sizes.textSm, width, at, offset)
+
+    return offset - top
+end function
+
+function DrawAboutLine(node as object, color as string, text as string, size as integer, width as integer, at as integer, top as integer, maxLines = 2 as integer) as integer
+    lines = ClampInt(TextLineCount(text, width, size), 1, maxLines)
+
+    node.text = text
+    node.color = color
+    node.font = SizedFont(size)
+    node.width = width
+    node.maxLines = lines
+    node.wrap = true
+    node.translation = [at, top]
+
+    return TextBlockHeight(size, lines)
 end function
 
 function DrawSession(theme as object, width as integer, at as integer, top as integer) as integer
@@ -709,6 +775,21 @@ sub onServerAction(event as object)
         message: Phrase("confirm.changeServer"),
         options: ConfirmOptions(Phrase("action.changeServer"), true),
         selected: 1
+    }
+end sub
+
+sub onAboutAction(event as object)
+    if TextOrBlank(event.GetData()) <> "viewLicenses" then return
+
+    text = BundledLicenseText()
+    if IsBlank(text) then return
+
+    m.top.choiceRequest = {
+        field: "licenses",
+        title: BundledFontName() + " · " + BundledFontLicense(),
+        message: text,
+        options: [{ label: Phrase("action.ok"), cancel: true }],
+        selected: 0
     }
 end sub
 

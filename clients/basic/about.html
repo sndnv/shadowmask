@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <title>Shadowmask (basic) - About</title>
+  </head>
+  <body>
+    <h1 class="sm-visually-hidden">Shadowmask</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs">About</p>
+    <main id="main">
+      <h2>Shadowmask</h2>
+      <p>
+        Copyright 2026 <a href="https://github.com/sndnv">https://github.com/sndnv</a>, licensed
+        under the
+        <a href="https://github.com/sndnv/shadowmask/blob/main/LICENSE">Apache License 2.0</a>.
+      </p>
+
+      <h3>This client</h3>
+      <p>
+        Bundles <a href="https://github.com/video-dev/hls.js">hls.js</a> under Apache-2.0, whose
+        bundle inlines <code>url-toolkit</code> (Apache-2.0) and <code>eventemitter3</code> (MIT).
+        All three notices are at
+        <a href="vendor/hls.js.LICENSE.txt">vendor/hls.js.LICENSE.txt</a>.
+      </p>
+
+      <h3>Metadata and subtitles</h3>
+      <p>
+        Metadata and artwork are fetched from
+        <a href="https://www.themoviedb.org">TMDB</a>, and subtitles from
+        <a href="https://www.opensubtitles.com">OpenSubtitles</a>, each through an API key the
+        server's operator supplies.
+      </p>
+      <p><img src="tmdb.svg" alt="TMDB" width="160" /></p>
+      <p>
+        This product uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise
+        approved by TMDB.
+      </p>
+      <p>
+        Ratings and certifications are supplemented by
+        <a href="https://www.omdbapi.com">OMDb</a>, whose data is licensed under
+        <a href="https://creativecommons.org/licenses/by-nc/4.0/">CC BY-NC 4.0</a>. OMDb is not
+        endorsed by or affiliated with IMDb.com.
+      </p>
+
+      <h3>The server</h3>
+      <p>
+        The Rust crates linked into the server binary are credited in
+        <a href="https://github.com/sndnv/shadowmask/blob/main/THIRD-PARTY-LICENSES.md"
+          >THIRD-PARTY-LICENSES.md</a
+        >. What the container image carries, including ffmpeg and the Debian packages, is described
+        in
+        <a
+          href="https://github.com/sndnv/shadowmask/blob/main/deployment/SERVER-IMAGE-CREDITS.md"
+          >SERVER-IMAGE-CREDITS.md</a
+        >.
+      </p>
+      <p>
+        Inside a running image those texts are at
+        <code>/usr/share/doc/shadowmask/</code>, and every Debian package's copyright file is at
+        <code>/usr/share/doc/&lt;package&gt;/copyright</code>.
+      </p>
+    </main>
+    <script src="app.js"></script>
+    <script>
+      sm.chrome();
+    </script>
+  </body>
+</html>

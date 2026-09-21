@@ -1,0 +1,37 @@
+# Third-Party Licenses
+
+Licence texts for the Rust crates linked into the Shadowmask server binary. The list is the union of
+the default build and `--features enrichment`, so some crates here reach only the enrichment image.
+
+**Generated — do not edit.** Regenerate with:
+
+    cargo about generate --workspace --all-features --locked --fail -o THIRD-PARTY-LICENSES.md about.hbs
+
+Shadowmask itself is Apache-2.0; see [LICENSE](LICENSE). Libraries bundled by the clients and the
+server image are credited from the *Third-party content* section of the
+[README](https://github.com/sndnv/shadowmask#third-party-content).
+
+## Overview
+
+| License | Crates |
+| --- | ---: |
+{{#each overview}}
+| {{{name}}} | {{count}} |
+{{/each}}
+
+{{#each licenses}}
+{{#if first_of_kind}}
+## {{{name}}}
+{{/if~}}
+
+Used by:
+
+{{#each used_by}}
+- [{{{crate.name}}} {{{crate.version}}}]({{#if crate.repository}}{{{crate.repository}}}{{else}}https://crates.io/crates/{{{crate.name}}}{{/if}})
+{{/each}}
+
+````text
+{{{text}}}
+````
+
+{{/each}}

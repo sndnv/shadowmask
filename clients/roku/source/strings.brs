@@ -257,6 +257,14 @@ function BuildStringTable() as object
         "heading.appearance": "Appearance",
         "heading.server": "Server",
         "heading.session": "Session",
+        "heading.about": "About",
+
+        "about.legal": "Copyright 2026 https://github.com/sndnv · Apache License 2.0",
+        "about.bundled": "This channel bundles the font below, under its own license.",
+        "about.tmdb": "This product uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB.",
+        "about.omdb": "Ratings and certifications are supplemented by OMDb, whose data is licensed under CC BY-NC 4.0. OMDb is not endorsed by or affiliated with IMDb.com.",
+        "about.subtitles": "Subtitles are searched and downloaded through OpenSubtitles.",
+        "action.viewLicenses": "View license",
 
         "caps.detected": "Detected",
         "caps.hardware": "Hardware",

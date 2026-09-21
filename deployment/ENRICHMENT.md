@@ -199,14 +199,23 @@ model weights you supply carry their own licenses.
 
 ### Bundled in the enrichment image
 
-- **CTranslate2** (the inference runtime, MIT) is compiled from vendored source and statically
-  linked into the `-enrichment` binary. Its license text ships inside that image at
-  `/usr/share/doc/shadowmask/third-party-licenses/` and is kept in the repository at
-  `licenses/CTranslate2.LICENSE.txt`. Upstream: https://github.com/OpenNMT/CTranslate2
-- **ct2rs** (the Rust bindings that embed CTranslate2, MIT) is a compiled-in crate dependency, like
-  the project's other Rust dependencies. Upstream: https://github.com/jkawamoto/ctranslate2-rs
+The `ct2rs` and `sentencepiece-sys` crates compile vendored C++ source into the `-enrichment`
+binary. `cargo-about` cannot see that source, so `THIRD-PARTY-LICENSES.md` credits only the crates
+themselves.
 
-Only the `-enrichment` image bundles the CTranslate2 runtime; the base image does not.
+Every `LICENSE*` and `COPYING*` file in those two crate sources is therefore swept into
+[`licenses/enrichment/`](../licenses/enrichment) and copied into the image at
+`/usr/share/doc/shadowmask/third-party-licenses/`. Paths are preserved, so each text names the
+library it came from — `ct2rs/CTranslate2/third_party/ruy/LICENSE`, and so on.
+
+Refresh the sweep with `python3 licenses/refresh_licenses.py`; `qa.py`'s `vendored` step fails when
+it has drifted from the locked crate versions. A new dependency that vendors C/C++ source must be
+added to that script's `CRATES` list — the `-sys` suffix is the usual tell.
+
+Only the `-enrichment` image bundles this.
+
+What the enrichment image inherits from the base one is covered in
+[`SERVER-IMAGE-CREDITS.md`](./SERVER-IMAGE-CREDITS.md).
 
 ### Model weights (admin-supplied, not distributed by Shadowmask)
 
@@ -217,5 +226,4 @@ license of whichever model you choose. Common choices:
 - **Opus-MT** (Helsinki-NLP) - CC-BY-4.0 - https://github.com/Helsinki-NLP/Opus-MT
 - **MADLAD-400** (Google) - Apache-2.0 - https://huggingface.co/google/madlad400-3b-mt
 
-Attribution and share-alike terms (for example CC-BY-4.0) are your responsibility as the operator
-who deploys the model.
+Attribution and share-alike terms (CC-BY-4.0, for example) are yours to satisfy as the operator.

@@ -23,6 +23,31 @@ AppImage does bundle is listed under [Linux application](#linux-application) bel
 The Android application bundles a different build of most of the same libraries, listed under
 [Android application](#android-application) below.
 
+This file and the licence texts it links are bundled into every build, so they travel inside the
+APK, IPA, disk image and AppImage. `assets/licenses/` is distributed from the repository's
+`licenses/` by `assets/refresh_assets.py` and must not be edited by hand.
+
+The `../../licenses/` links below resolve in the repository. Inside an artifact the texts are
+re-rooted next to this file, so every text named is present but the link is repo-shaped:
+
+| Artifact          | This file                       | Licence texts                        |
+|-------------------|---------------------------------|--------------------------------------|
+| Disk image (.dmg) | `CREDITS.md` at the volume root | `Licenses/`                          |
+| AppImage          | `usr/share/doc/shadowmask/`     | `usr/share/doc/shadowmask/licenses/` |
+| APK / IPA         | `flutter_assets/CREDITS.md`     | `flutter_assets/assets/licenses/`    |
+
+The AppImage carries only `LGPL-2.1.txt`: it bundles the GNU C Library and nothing else. See
+[Linux application](#linux-application).
+
+The same texts are readable under Account → Profile → About → Third-party licenses, alongside the
+Dart packages, per-platform so a build credits only what it bundles.
+
+It also credits the content providers, with TMDB's logo
+(`assets/attribution/tmdb-logo.png`, distributed by `assets/refresh_assets.py`) and their required
+notice: *This product uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise
+approved by TMDB.* The logo must not be recoloured, reproportioned or rotated; the notice is
+verbatim and pinned by a test.
+
 ## Bundled libraries
 
 | Library     | Frameworks                                                           | License                                                                            | License text                                                                           | Source                                           |

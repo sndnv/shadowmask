@@ -569,6 +569,20 @@ abstract final class Strings {
   static const String accountDevicesHeading = 'Devices';
   static const String accountTokensHeading = 'API tokens';
   static const String accountSessionHeading = 'Session';
+  static const String accountAboutHeading = 'About';
+  static const String aboutLegalese =
+      'Copyright 2026 https://github.com/sndnv\nLicensed under the Apache License, Version 2.0.';
+  static const String aboutBundledHelp =
+      'This application bundles third-party libraries, each under its own license.';
+  static const String viewThirdPartyLicenses = 'Third-party licenses';
+  static const String aboutMetadataHeading = 'Metadata and subtitles';
+  static const String aboutTmdbNotice =
+      'This product uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB.';
+  static const String aboutTmdbLogoLabel = 'TMDB';
+  static const String aboutSubtitleProvider =
+      'Subtitles are searched and downloaded through OpenSubtitles.';
+  static const String aboutOmdbNotice =
+      'Ratings and certifications are supplemented by OMDb, whose data is licensed under CC BY-NC 4.0. OMDb is not endorsed by or affiliated with IMDb.com.';
   static const String accountTabProfile = 'Profile';
   static const String accountTabLibrary = 'Library';
   static const String accountTabDevices = 'Devices & Access';

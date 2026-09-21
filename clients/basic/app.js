@@ -625,6 +625,15 @@ const sm = (() => {
     return nodes;
   }
 
+  function footer() {
+    if (document.querySelector(".sm-footer")) return;
+    if (!load()) return;
+    const node = el("footer", { class: "sm-footer" }, [
+      el("a", { href: url("about.html") }, "About"),
+    ]);
+    document.body.appendChild(node);
+  }
+
   function chrome() {
     if (location.pathname.includes("/admin/")) {
       document.body.classList.add("sm-wide");
@@ -654,6 +663,7 @@ const sm = (() => {
         .catch(() => {});
     }
     wireLogout();
+    footer();
   }
 
   async function libraryControls(leafType, leafId) {
