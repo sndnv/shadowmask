@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM rust:1.96-slim-bookworm AS builder
+FROM rust:1.97-slim-bookworm AS builder
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
@@ -58,7 +58,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 ENTRYPOINT ["shadowmask"]
 CMD ["service"]
 
-FROM rust:1.96-slim-bookworm AS builder-enrichment
+FROM rust:1.97-slim-bookworm AS builder-enrichment
 WORKDIR /build
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
