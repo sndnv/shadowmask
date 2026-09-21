@@ -32,6 +32,9 @@ RUN useradd --system --create-home --home-dir /home/shadowmask --uid 1001 --gid 
     && chown -R 1001:0 /data /config
 COPY --from=builder /usr/local/bin/shadowmask /usr/local/bin/shadowmask
 COPY clients/basic /usr/share/shadowmask/basic
+COPY LICENSE /usr/share/doc/shadowmask/LICENSE
+COPY THIRD-PARTY-LICENSES.md /usr/share/doc/shadowmask/THIRD-PARTY-LICENSES.md
+COPY deployment/SERVER-IMAGE-CREDITS.md /usr/share/doc/shadowmask/CREDITS.md
 RUN /opt/yt-dlp/bin/pip install --no-cache-dir --upgrade yt-dlp \
     && ln -sf /opt/yt-dlp/bin/yt-dlp /usr/local/bin/yt-dlp \
     && yt-dlp --version
@@ -79,5 +82,5 @@ RUN apt-get update \
         libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder-enrichment /usr/local/bin/shadowmask /usr/local/bin/shadowmask
-COPY licenses/ /usr/share/doc/shadowmask/third-party-licenses/
+COPY licenses/enrichment/ /usr/share/doc/shadowmask/third-party-licenses/
 USER 1001:0

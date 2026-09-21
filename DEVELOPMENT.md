@@ -19,9 +19,15 @@ toolchain automatically.
 1) Clone or fork the repo
 2) Run `python3 qa.py`
 
-`qa.py` runs all checks (format, lint, build, test, coverage); pass step names to run a subset, for
-example `python3 qa.py fmt clippy`. It covers the Rust workspace only; the web client has its own
-gate, below.
+`qa.py` runs all checks (format, lint, build, dependency policy, third-party attribution, test,
+coverage); pass step names to run a subset, for example `python3 qa.py fmt clippy`. It covers the
+Rust workspace only; the web client has its own gate, below.
+
+The `licenses` step fails when [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md) has drifted from
+the resolved dependency graph, and the `vendored` step fails when
+[`licenses/enrichment/`](licenses/enrichment) has drifted from the C++ source vendored by the
+enrichment crates. Both print the command to regenerate. Bump a dependency and regenerate in the
+same commit.
 
 ### Clients
 

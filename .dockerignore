@@ -10,5 +10,7 @@ target/
 assets/
 clients/flutter/
 deployment/
+!deployment/SERVER-IMAGE-CREDITS.md
 *.md
+!THIRD-PARTY-LICENSES.md
 .DS_Store

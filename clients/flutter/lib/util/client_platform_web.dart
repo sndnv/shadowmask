@@ -1,5 +1,9 @@
 import 'package:web/web.dart' as web;
 
+import 'package:shadowmask/util/bundled_licenses.dart';
+
+BundlePlatform bundlePlatform() => BundlePlatform.web;
+
 String clientPlatform() {
   final String agent = web.window.navigator.userAgent;
   if (agent.contains('Chrome/') || agent.contains('Chromium/')) {

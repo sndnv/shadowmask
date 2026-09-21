@@ -169,7 +169,7 @@ jobs:
           mkdir -p dmg/Licenses
           cp -R build/macos/Build/Products/Release/shadowmask.app dmg/
           cp CREDITS.md dmg/
-          cp ../../licenses/*.txt dmg/Licenses/
+          cp assets/licenses/*.txt dmg/Licenses/
           create-dmg \
             --volname "shadowmask" \
             --window-size 800 400 \

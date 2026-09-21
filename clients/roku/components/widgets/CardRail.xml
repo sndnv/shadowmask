@@ -5,6 +5,7 @@
     <script type="text/brightscript" uri="pkg:/source/util.brs" />
     <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
     <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/about.brs" />
     <script type="text/brightscript" uri="pkg:/source/format.brs" />
     <script type="text/brightscript" uri="pkg:/source/api.brs" />
     <script type="text/brightscript" uri="pkg:/source/cards.brs" />

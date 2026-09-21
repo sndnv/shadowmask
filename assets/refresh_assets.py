@@ -12,6 +12,7 @@ DESCRIPTION = 'Refresh shared assets used by client subprojects'
 FLUTTER_MACOS_APPICON = 'macos/Runner/Assets.xcassets/AppIcon.appiconset'
 FLUTTER_IOS_APPICON = 'ios/Runner/Assets.xcassets/AppIcon.appiconset'
 FLUTTER_ANDROID_RES = 'android/app/src/main/res'
+FLUTTER_LICENSES = 'assets/licenses'
 
 
 class Paths:
@@ -25,8 +26,12 @@ def abort():
     sys.exit(1)
 
 
+def source_path(paths, asset):
+    return '{}/{}'.format('{}/{}'.format(paths.repo, asset['root']) if 'root' in asset else paths.assets, asset['asset'])
+
+
 def copy_asset(paths, project_name, asset):
-    asset_path = '{}/{}'.format(paths.assets, asset['asset'])
+    asset_path = source_path(paths, asset)
     target_path = '{}/{}/{}'.format(paths.repo, project_name, asset['target'])
 
     logging.debug('Refreshing asset for [{}]: {} -> {}'.format(project_name, asset_path, target_path))
@@ -47,7 +52,7 @@ def copy_asset(paths, project_name, asset):
 
 
 def verify_asset(paths, project_name, asset):
-    asset_path = '{}/{}'.format(paths.assets, asset['asset'])
+    asset_path = source_path(paths, asset)
     target_path = '{}/{}/{}'.format(paths.repo, project_name, asset['target'])
 
     logging.debug('Verifying asset for [{}]: {} -> {}'.format(project_name, asset_path, target_path))
@@ -77,6 +82,7 @@ def main():
             {'asset': 'placeholders/person.svg', 'target': 'placeholder-person.svg'},
             {'asset': 'vendor/hls.min.js', 'target': 'vendor/hls.min.js'},
             {'asset': 'vendor/hls.js.LICENSE.txt', 'target': 'vendor/hls.js.LICENSE.txt'},
+            {'asset': 'attribution/tmdb.svg', 'target': 'tmdb.svg'},
         ],
         'clients/flutter': [
             {'asset': 'icons/flutter/favicon.png', 'target': 'web/favicon.png'},
@@ -118,6 +124,19 @@ def main():
             {'asset': 'icons/flutter/android_icon_fg_432.png', 'target': '{}/mipmap-xxxhdpi/ic_launcher_foreground.png'.format(FLUTTER_ANDROID_RES)},
             {'asset': 'vendor/hls.min.js', 'target': 'web/hls.min.js'},
             {'asset': 'vendor/hls.js.LICENSE.txt', 'target': 'web/hls.js.LICENSE.txt'},
+            {'asset': 'icons/flutter/tmdb-logo.png', 'target': 'assets/attribution/tmdb-logo.png'},
+            {'root': 'licenses', 'asset': 'dav1d.LICENSE.txt', 'target': '{}/dav1d.LICENSE.txt'.format(FLUTTER_LICENSES)},
+            {'root': 'licenses', 'asset': 'FreeType.LICENSE.txt', 'target': '{}/FreeType.LICENSE.txt'.format(FLUTTER_LICENSES)},
+            {'root': 'licenses', 'asset': 'GPL-3.0.txt', 'target': '{}/GPL-3.0.txt'.format(FLUTTER_LICENSES)},
+            {'root': 'licenses', 'asset': 'HarfBuzz.LICENSE.txt', 'target': '{}/HarfBuzz.LICENSE.txt'.format(FLUTTER_LICENSES)},
+            {'root': 'licenses', 'asset': 'LGPL-2.1.txt', 'target': '{}/LGPL-2.1.txt'.format(FLUTTER_LICENSES)},
+            {'root': 'licenses', 'asset': 'LGPL-3.0.txt', 'target': '{}/LGPL-3.0.txt'.format(FLUTTER_LICENSES)},
+            {'root': 'licenses', 'asset': 'libass.LICENSE.txt', 'target': '{}/libass.LICENSE.txt'.format(FLUTTER_LICENSES)},
+            {'root': 'licenses', 'asset': 'libpng.LICENSE.txt', 'target': '{}/libpng.LICENSE.txt'.format(FLUTTER_LICENSES)},
+            {'root': 'licenses', 'asset': 'libxml2.LICENSE.txt', 'target': '{}/libxml2.LICENSE.txt'.format(FLUTTER_LICENSES)},
+            {'root': 'licenses', 'asset': 'MbedTLS.LICENSE.txt', 'target': '{}/MbedTLS.LICENSE.txt'.format(FLUTTER_LICENSES)},
+            {'root': 'licenses', 'asset': 'uchardet.LICENSE.txt', 'target': '{}/uchardet.LICENSE.txt'.format(FLUTTER_LICENSES)},
+            {'root': 'licenses', 'asset': 'zlib.LICENSE.txt', 'target': '{}/zlib.LICENSE.txt'.format(FLUTTER_LICENSES)},
         ],
         'clients/roku': [
             {'asset': 'fonts/Roboto-Regular.ttf', 'target': 'fonts/Roboto-Regular.ttf'},
@@ -129,6 +148,7 @@ def main():
             {'asset': 'icons/roku/splash-hd.png', 'target': 'images/splash-hd.png'},
             {'asset': 'icons/roku/splash-fhd.png', 'target': 'images/splash-fhd.png'},
             {'asset': 'icons/roku/brand-mark.png', 'target': 'images/brand-mark.png'},
+            {'asset': 'icons/roku/tmdb-logo.png', 'target': 'images/tmdb-logo.png'},
             {'asset': 'icons/roku/art-movie.png', 'target': 'images/art-movie.png'},
             {'asset': 'icons/roku/art-landscape.png', 'target': 'images/art-landscape.png'},
             {'asset': 'icons/roku/art-person.png', 'target': 'images/art-person.png'},

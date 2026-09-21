@@ -6,6 +6,7 @@
     <script type="text/brightscript" uri="pkg:/source/util.brs" />
     <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
     <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/about.brs" />
     <script type="text/brightscript" uri="pkg:/source/format.brs" />
     <script type="text/brightscript" uri="pkg:/source/api.brs" />
     <script type="text/brightscript" uri="pkg:/source/cards.brs" />
@@ -88,6 +89,19 @@
                     <Label id="sessionHeading" />
                     <Label id="deviceLine" />
                     <ActionBar id="sessionActions" />
+                </Group>
+                <Group id="aboutSection" visible="false">
+                    <RoundedBox id="aboutPanel" />
+                    <Label id="aboutHeading" />
+                    <Label id="aboutApp" />
+                    <Label id="aboutLegal" />
+                    <Label id="aboutBundled" />
+                    <FactList id="aboutFacts" />
+                    <ActionBar id="aboutActions" />
+                    <Poster id="aboutTmdbLogo" />
+                    <Label id="aboutTmdb" />
+                    <Label id="aboutOmdb" />
+                    <Label id="aboutSubtitles" />
                 </Group>
             </Group>
         </Group>

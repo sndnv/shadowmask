@@ -41,7 +41,7 @@ jobs:
 
       - uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595
         with:
-          tool: cargo-llvm-cov,cargo-nextest,cargo-deny
+          tool: cargo-llvm-cov,cargo-nextest,cargo-deny,cargo-about
 
       - name: Install ffmpeg (Linux)
         if: runner.os == 'Linux'

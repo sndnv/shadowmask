@@ -1,13 +1,15 @@
 # Shadowmask Client
 
 The primary user interface for the [Shadowmask](../../README.md) media server: one Flutter codebase
-targeting the web and the desktop, talking to the server's REST API and playing HLS.
+targeting web, desktop and mobile, talking to the server's REST API and playing HLS.
 
 | Target  | Status        | Player                   |
 |---------|---------------|--------------------------|
 | Web     | Supported     | `hls.js`                 |
 | macOS   | Supported     | mpv, through `media_kit` |
 | Linux   | Supported     | mpv, through `media_kit` |
+| Android | Supported     | mpv, through `media_kit` |
+| iOS     | Supported     | mpv, through `media_kit` |
 | Windows | Not supported | -                        |
 
 Windows is not supported: its required native dependencies are out of date and unmaintained.
@@ -30,17 +32,20 @@ Add `--release` when you need a build that renders the way the published image d
 when capturing screenshots. The debug build also asserts on some framework layout paths that a
 release build does not, notably `Tooltip` when the window is resized while a tooltip is on screen.
 
-### Desktop prerequisites
+### Platform prerequisites
 
 * macOS: CocoaPods, `brew install cocoapods`.
 * Linux: libmpv, `sudo apt install libmpv-dev mpv` on Debian and Ubuntu.
+* iOS: Xcode and CocoaPods.
+* Android: the Android SDK. `flutter build apk --release` needs the signing keystore held in CI, so
+  build `--debug` locally.
 
 ## Packaging
 
-[`publish_release.yml`](../../.github/workflows/publish_release.yml) attaches a macOS `.dmg` and a
-Linux `.AppImage` to the GitHub release on a `v*` tag.
-[`publish_branch.yml`](../../.github/workflows/publish_branch.yml) builds both on demand and uploads
-them as workflow artifacts.
+[`publish_release.yml`](../../.github/workflows/publish_release.yml) attaches a macOS `.dmg`, a
+Linux `.AppImage`, an Android `.apk` and an unsigned iOS `.ipa` to the GitHub release on a `v*` tag.
+[`publish_branch.yml`](../../.github/workflows/publish_branch.yml) builds the same set on demand and
+uploads them as workflow artifacts.
 
 Locally:
 
@@ -61,7 +66,8 @@ above apply to it as well. It is built on Ubuntu 24.04 and links `libmpv.so.2`, 
 of that vintage or newer.
 
 The macOS build is neither signed nor notarized. On first open, right-click the app and choose Open,
-or run `xattr -dr com.apple.quarantine` against it.
+or run `xattr -dr com.apple.quarantine` against it. The iOS `.ipa` is built `--no-codesign`, so it
+installs only by sideloading with your own signing identity. The Android `.apk` is signed in CI.
 
 The macOS and iOS bundles vendor mpv, FFmpeg and nine supporting libraries, and the Android APK
 vendors a different build of most of the same ones. They are attributed in

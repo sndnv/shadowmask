@@ -225,6 +225,19 @@ nav#nav .sm-who {
   font-size: 0.9rem;
 }
 
+.sm-footer {
+  max-width: var(--maxw);
+  margin: 32px auto 12px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  opacity: 0.7;
+  text-align: center;
+}
+
+.sm-footer a {
+  color: inherit;
+}
+
 .sm-status {
   margin: 0.5em 0;
 }

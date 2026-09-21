@@ -5,6 +5,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 brand="$here/brand"
 placeholders="$here/placeholders"
 glyphs="$here/glyphs"
+attribution="$here/attribution"
 out="$here/icons/flutter"
 roku="$here/icons/roku"
 
@@ -42,6 +43,9 @@ rsvg-convert -w 720  -h 480  "$brand/shadowmask.splash-sd.svg"      -o "$roku/sp
 rsvg-convert -w 1280 -h 720  "$brand/shadowmask.splash-wide.svg"    -o "$roku/splash-hd.png"
 rsvg-convert -w 1920 -h 1080 "$brand/shadowmask.splash-wide.svg"    -o "$roku/splash-fhd.png"
 rsvg-convert -w 128  -h 128  "$brand/shadowmask.mark-white.svg"     -o "$roku/brand-mark.png"
+
+rsvg-convert -w 224 "$attribution/tmdb.svg" -o "$roku/tmdb-logo.png"
+rsvg-convert -w 480 "$attribution/tmdb.svg" -o "$out/tmdb-logo.png"
 
 
 rsvg-convert -w 48 -h 48 "$glyphs/watched-disc.svg" -o "$roku/watched-disc.png"

@@ -134,27 +134,46 @@ We use [SemVer](http://semver.org/) for versioning.
 
 ## Third-party content
 
+* The Rust crates linked into the server binary are credited, with their licence texts, in
+  [`THIRD-PARTY-LICENSES.md`](./THIRD-PARTY-LICENSES.md). It is generated from `Cargo.lock` by
+  [`cargo-about`](https://github.com/EmbarkStudios/cargo-about); `qa.py` fails when it drifts.
+* The published server images carry that file, this project's `LICENSE`, and a Debian `copyright`
+  file for every packaged dependency.
+  [`deployment/SERVER-IMAGE-CREDITS.md`](./deployment/SERVER-IMAGE-CREDITS.md) lists where each sits
+  inside the image, and why the GPL-2+ FFmpeg they install stays separate from Shadowmask's code.
 * [hls.js](https://github.com/video-dev/hls.js) is bundled by both web clients for HLS playback,
-  under the Apache License 2.0. The licence and copyright notices are distributed alongside it, at
-  [`assets/vendor/hls.js.LICENSE.txt`](./assets/vendor/hls.js.LICENSE.txt).
+  under the Apache License 2.0. Its bundle inlines `url-toolkit` (Apache-2.0) and `eventemitter3`
+  (MIT); all three notices are in
+  [`assets/vendor/hls.js.LICENSE.txt`](./assets/vendor/hls.js.LICENSE.txt), distributed alongside
+  the script.
 * [Roboto](https://github.com/googlefonts/roboto-classic) (Regular and Medium) is bundled by the Roku
-  client, under the SIL Open Font License 1.1. Roku's system fonts include no bold or medium weight,
-  so the weights the design system relies on have to travel with the channel. The licence is
-  distributed alongside the fonts, at
+  client, under the SIL Open Font License 1.1, with its licence distributed alongside the fonts at
   [`assets/fonts/Roboto-OFL.txt`](./assets/fonts/Roboto-OFL.txt).
 * The macOS and iOS applications bundle mpv (LGPL-2.1-or-later), FFmpeg (LGPL-3.0-or-later) and nine
-  supporting libraries, each as a separately replaceable dynamically linked framework. The Android
-  application bundles a different build of most of the same libraries, linked statically into one
-  replaceable `libmpv.so` per ABI. They are
-  credited in [`clients/flutter/CREDITS.md`](./clients/flutter/CREDITS.md), with their licence texts
-  under [`licenses/`](./licenses). The Linux application links the distribution's own libmpv and
-  bundles none of them.
-* CTranslate2 and `ct2rs` are bundled into the enrichment image under the MIT License, with the
-  operator's model licensing responsibilities described in
-  [`deployment/ENRICHMENT.md`](deployment/ENRICHMENT.md#licensing-and-attribution).
+  supporting libraries, each as a separately replaceable dynamically linked framework. Android
+  bundles a different build of most of the same libraries, linked statically into one replaceable
+  `libmpv.so` per ABI. Both are credited in
+  [`clients/flutter/CREDITS.md`](./clients/flutter/CREDITS.md), with their licence texts under
+  [`licenses/`](./licenses). The Linux application links the distribution's own libmpv and bundles
+  none of them.
+* The enrichment image statically links C++ source vendored by the `ct2rs` and `sentencepiece-sys`
+  crates. Every licence text in those sources is collected under
+  [`licenses/enrichment/`](./licenses/enrichment); the operator's model licensing responsibilities
+  are described in [`deployment/ENRICHMENT.md`](deployment/ENRICHMENT.md#licensing-and-attribution).
 * Test fixtures and dev-deployment media clips are credited in
   [`crates/media/tests/fixtures/CREDITS.md`](./crates/media/tests/fixtures/CREDITS.md) and
   [`deployment/dev/CREDITS.md`](./deployment/dev/CREDITS.md).
+* Metadata and artwork are fetched from [TMDB](https://www.themoviedb.org) and subtitles from
+  [OpenSubtitles](https://www.opensubtitles.com), each through an API key the operator supplies.
+  This product uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by
+  TMDB. The same notice, with TMDB's logo, appears in every client's About screen.
+* Ratings and content certifications are supplemented by [OMDb](https://www.omdbapi.com), licensed
+  under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) and not endorsed by or
+  affiliated with IMDb.com. The NonCommercial term follows the operator's key, so a commercial
+  deployment should leave it unset.
+* Every client also shows its attributions in the application itself: the desktop and mobile clients
+  under Account → Profile → About, the Roku channel in the same place, and the basic web client
+  through the footer link to `about.html`.
 
 ## License
 

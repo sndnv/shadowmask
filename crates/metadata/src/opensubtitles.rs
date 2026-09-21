@@ -13,7 +13,7 @@ use crate::http::send_ok;
 use crate::rate_limiter::RateLimiter;
 
 const DEFAULT_BASE_URL: &str = "https://api.opensubtitles.com/api/v1";
-const USER_AGENT: &str = "shadowmask/0.1";
+const USER_AGENT: &str = concat!("shadowmask/", env!("CARGO_PKG_VERSION"));
 
 pub struct OpenSubtitlesClient {
     client: reqwest::Client,
@@ -168,7 +168,7 @@ struct RawDownload {
 mod tests {
     use super::*;
     use serde_json::json;
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
@@ -226,6 +226,19 @@ mod tests {
     async fn search_empty_is_not_found() {
         let server =
             serve_get(ResponseTemplate::new(200).set_body_json(json!({ "data": [] }))).await;
+        let client = OpenSubtitlesClient::with_base_url("k", server.uri());
+        assert!(matches!(client.search(&query()).await, Err(SubtitleError::NotFound)));
+    }
+
+    #[tokio::test]
+    async fn requests_carry_the_api_key_and_a_versioned_user_agent() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(header("Api-Key", "k"))
+            .and(header("User-Agent", format!("shadowmask/{}", env!("CARGO_PKG_VERSION")).as_str()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": [] })))
+            .mount(&server)
+            .await;
         let client = OpenSubtitlesClient::with_base_url("k", server.uri());
         assert!(matches!(client.search(&query()).await, Err(SubtitleError::NotFound)));
     }

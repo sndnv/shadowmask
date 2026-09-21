@@ -1,0 +1,46 @@
+namespace tests
+
+    @suite("about")
+    class AboutTests extends rooibos.BaseTestSuite
+
+        @describe("AboutTitle")
+
+        @it("always names the application")
+        sub namesTheApplication()
+            m.assertTrue(Instr(1, AboutTitle(), Phrase("app.name")) > 0, AboutTitle())
+        end sub
+
+        @it("appends the version when the manifest carries one")
+        sub appendsTheVersion()
+            version = AppVersion()
+            if IsBlank(version) then return
+
+            m.assertEqual(AboutTitle(), Phrase("app.name") + " " + version)
+        end sub
+
+        @describe("AttributionRows")
+
+        @it("credits the bundled font in the shape FactList expects")
+        sub creditsTheBundledFont()
+            rows = AttributionRows()
+
+            m.assertEqual(rows.Count(), 1)
+            m.assertEqual(rows[0].label, "Roboto")
+            m.assertEqual(rows[0].values, ["SIL Open Font License 1.1"])
+        end sub
+
+        @describe("BundledLicenseText")
+
+        @it("reads the licence text that ships beside the fonts")
+        sub readsTheLicenceText()
+            text = BundledLicenseText(BundledLicensePath())
+
+            m.assertTrue(Instr(1, text, "SIL OPEN FONT LICENSE") > 0, "unexpected licence text")
+        end sub
+
+        @it("returns nothing when the file is missing, instead of failing")
+        sub survivesAMissingFile()
+            m.assertEqual(BundledLicenseText("pkg:/fonts/does-not-exist.txt"), "")
+        end sub
+    end class
+end namespace
