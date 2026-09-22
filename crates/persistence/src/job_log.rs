@@ -33,7 +33,8 @@ impl FsJobLogStore {
     async fn write_line(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         tokio::fs::create_dir_all(&self.root).await?;
         let mut file = tokio::fs::OpenOptions::new().create(true).append(true).open(path).await?;
-        file.write_all(bytes).await
+        file.write_all(bytes).await?;
+        file.flush().await
     }
 
     fn write_line_blocking(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
