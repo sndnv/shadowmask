@@ -82,7 +82,7 @@ acceleration and the rest.
 
 * **Flutter** ([`clients/flutter`](./clients/flutter)) - the primary interface, one codebase covering
   the web, the desktop (macOS and Linux) and mobile (Android and iOS). The web build is published as
-  `ghcr.io/sndnv/shadowmask/web-ui`; the desktop ships as a macOS `.dmg` and a Linux `.AppImage`;
+  `ghcr.io/sndnv/shadowmask-web-ui`; the desktop ships as a macOS `.dmg` and a Linux `.AppImage`;
   mobile ships as a signed Android `.apk`, and as an unsigned iOS `.ipa` that has to be signed at
   install time with a tool such as Sideloadly or AltStore
 * **Roku** ([`clients/roku`](./clients/roku)) - a SceneGraph channel for Roku devices. Viewer-only,

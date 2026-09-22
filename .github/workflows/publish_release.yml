@@ -11,10 +11,10 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io/sndnv/shadowmask
+  REGISTRY: ghcr.io/sndnv
 
 jobs:
-  image:
+  server:
     runs-on: ubuntu-latest
 
     steps:
@@ -45,8 +45,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ env.REGISTRY }}/server:${{ steps.meta.outputs.version }}
-            ${{ env.REGISTRY }}/server:latest
+            ${{ env.REGISTRY }}/shadowmask-server:${{ steps.meta.outputs.version }}
+            ${{ env.REGISTRY }}/shadowmask-server:latest
 
       - name: Build and push enrichment server image
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294
@@ -57,8 +57,8 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: |
-            ${{ env.REGISTRY }}/server:${{ steps.meta.outputs.version }}-enrichment
-            ${{ env.REGISTRY }}/server:latest-enrichment
+            ${{ env.REGISTRY }}/shadowmask-server:${{ steps.meta.outputs.version }}-enrichment
+            ${{ env.REGISTRY }}/shadowmask-server:latest-enrichment
 
   web-ui:
     runs-on: ubuntu-latest
@@ -99,8 +99,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ env.REGISTRY }}/web-ui:${{ steps.meta.outputs.version }}
-            ${{ env.REGISTRY }}/web-ui:latest
+            ${{ env.REGISTRY }}/shadowmask-web-ui:${{ steps.meta.outputs.version }}
+            ${{ env.REGISTRY }}/shadowmask-web-ui:latest
 
   desktop-linux:
     runs-on: ubuntu-24.04
@@ -293,7 +293,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
 
     needs:
-      - image
+      - server
       - web-ui
       - desktop-linux
       - desktop-macos

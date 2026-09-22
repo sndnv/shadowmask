@@ -2,7 +2,7 @@ name: shadowmask-dev
 
 services:
   shadowmask:
-    image: ghcr.io/sndnv/shadowmask/server:dev-latest
+    image: ghcr.io/sndnv/shadowmask-server:dev-latest
     build:
       context: ../..
       dockerfile: Dockerfile

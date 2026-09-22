@@ -1,6 +1,6 @@
 # Credits and third-party attribution: the server image
 
-Covers `ghcr.io/sndnv/shadowmask/server` and its `-enrichment` variant. Copied into those images as
+Covers `ghcr.io/sndnv/shadowmask-server` and its `-enrichment` variant. Copied into those images as
 `/usr/share/doc/shadowmask/CREDITS.md`. The clients bundle a different set of libraries and are
 credited from the *Third-party content* section of the
 [README](https://github.com/sndnv/shadowmask#third-party-content).

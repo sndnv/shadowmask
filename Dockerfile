@@ -1,11 +1,12 @@
 # syntax=docker/dockerfile:1
 
 FROM rust:1.97-slim-bookworm AS builder
+ARG TARGETARCH
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/build/target \
+RUN --mount=type=cache,id=cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=server-target-${TARGETARCH},target=/build/target,sharing=locked \
     cargo build --release --locked -p server \
     && cp target/release/server /usr/local/bin/shadowmask
 
@@ -59,6 +60,7 @@ ENTRYPOINT ["shadowmask"]
 CMD ["service"]
 
 FROM rust:1.97-slim-bookworm AS builder-enrichment
+ARG TARGETARCH
 WORKDIR /build
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
@@ -69,8 +71,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/build/target \
+RUN --mount=type=cache,id=cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=enrichment-target-${TARGETARCH},target=/build/target,sharing=locked \
     cargo build --release --locked -p server --features enrichment \
     && cp target/release/server /usr/local/bin/shadowmask
 
