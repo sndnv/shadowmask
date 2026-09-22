@@ -3,8 +3,8 @@ name: shadowmask
 services:
   shadowmask:
     # For local AI (enrichment), use the -enrichment image, e.g.:
-    #   ghcr.io/sndnv/shadowmask/server:${SHADOWMASK_VERSION:-latest}-enrichment
-    image: ghcr.io/sndnv/shadowmask/server:${SHADOWMASK_VERSION:-latest}
+    #   ghcr.io/sndnv/shadowmask-server:${SHADOWMASK_VERSION:-latest}-enrichment
+    image: ghcr.io/sndnv/shadowmask-server:${SHADOWMASK_VERSION:-latest}
     restart: always
     init: true
     stop_grace_period: 40s

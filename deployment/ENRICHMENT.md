@@ -18,8 +18,8 @@ image, as is GPU-accelerated transcoding ([hardware acceleration](README.md#hard
 The enrichment features are a separate build stage, published as its own tag:
 
 ```
-ghcr.io/sndnv/shadowmask/server:<version>-enrichment
-ghcr.io/sndnv/shadowmask/server:latest-enrichment
+ghcr.io/sndnv/shadowmask-server:<version>-enrichment
+ghcr.io/sndnv/shadowmask-server:latest-enrichment
 ```
 
 It is `FROM` the base image plus the bundled CTranslate2 runtime, so it is larger and slower to

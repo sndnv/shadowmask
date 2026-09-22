@@ -4,8 +4,8 @@ set -eu
 HELP="Usage: $0 [base|enrichment|all]
 
 Builds the Shadowmask dev images locally, using the same Dockerfile stages CI publishes:
-  base           -> ghcr.io/sndnv/shadowmask/server:dev-latest              (target: runtime)
-  enrichment     -> ghcr.io/sndnv/shadowmask/server:dev-latest-enrichment   (target: runtime-enrichment)
+  base           -> ghcr.io/sndnv/shadowmask-server:dev-latest              (target: runtime)
+  enrichment     -> ghcr.io/sndnv/shadowmask-server:dev-latest-enrichment   (target: runtime-enrichment)
   all (default)  -> both
 
 The enrichment image compiles CTranslate2 (cmake, g++, OpenBLAS) inside the build, so it is much
@@ -42,17 +42,17 @@ if [ -z "$engine" ]; then
 fi
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
-registry="ghcr.io/sndnv/shadowmask"
+registry="ghcr.io/sndnv"
 
 build_base() {
     printf 'Building base image (target: runtime)...\n'
-    "$engine" build --target runtime -t "$registry/server:dev-latest" "$repo_root"
+    "$engine" build --target runtime -t "$registry/shadowmask-server:dev-latest" "$repo_root"
 }
 
 build_enrichment() {
     printf 'Building enrichment image (target: runtime-enrichment)...\n'
     "$engine" build --target runtime-enrichment \
-        -t "$registry/server:dev-latest-enrichment" "$repo_root"
+        -t "$registry/shadowmask-server:dev-latest-enrichment" "$repo_root"
 }
 
 case "$choice" in

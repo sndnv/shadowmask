@@ -98,4 +98,4 @@ Runs package resolution, code generation, format check, analyze, and tests with 
 ## Deployment
 
 [`deployment/production`](deployment/production) builds the web bundle and packages it behind nginx
-as `ghcr.io/sndnv/shadowmask/web-ui`.
+as `ghcr.io/sndnv/shadowmask-web-ui`.

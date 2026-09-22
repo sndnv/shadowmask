@@ -34,7 +34,7 @@ def run_command(command, description):
 branch = os.getenv('BRANCH')
 branch = "{}-".format(branch) if branch else ''
 web_ui_version = sys.argv[1] if len(sys.argv) > 1 else get_version()
-web_ui_image = 'ghcr.io/sndnv/shadowmask/web-ui:{}{}'.format(branch, web_ui_version)
+web_ui_image = 'ghcr.io/sndnv/shadowmask-web-ui:{}{}'.format(branch, web_ui_version)
 
 run_command(
     command=['flutter', 'pub', 'get'],

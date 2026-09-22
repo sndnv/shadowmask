@@ -11,6 +11,11 @@ updates:
     schedule:
       interval: weekly
 
+  - package-ecosystem: npm
+    directory: /clients/roku/tooling
+    schedule:
+      interval: weekly
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
