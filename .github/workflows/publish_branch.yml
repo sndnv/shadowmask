@@ -124,7 +124,7 @@ jobs:
           mv *.AppImage shadowmask-client-linux-dev-latest.AppImage
 
       - name: Upload Linux artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: client-linux
           path: clients/flutter/shadowmask-client-linux-dev-latest.AppImage
@@ -165,7 +165,7 @@ jobs:
             dmg/
 
       - name: Upload macOS artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: client-macos
           path: clients/flutter/shadowmask-client-macos-dev-latest.dmg
@@ -212,7 +212,7 @@ jobs:
           mv build/app/outputs/flutter-apk/app-release.apk shadowmask-client-android-dev-latest.apk
 
       - name: Upload Android artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: client-android
           path: clients/flutter/shadowmask-client-android-dev-latest.apk
@@ -244,7 +244,7 @@ jobs:
           zip -r shadowmask-client-ios-dev-latest.ipa Payload
 
       - name: Upload iOS artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: client-ios
           path: clients/flutter/shadowmask-client-ios-dev-latest.ipa
@@ -263,7 +263,7 @@ jobs:
         run: python3 clients/roku/package.py --output shadowmask-client-roku-dev-latest.zip
 
       - name: Upload Roku artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: client-roku
           path: shadowmask-client-roku-dev-latest.zip
