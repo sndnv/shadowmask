@@ -1,6 +1,6 @@
 name: shadowmask
 description: "Shadowmask Flutter client (web-first)."
-version: 0.0.2-SNAPSHOT
+version: 0.0.2
 
 publish_to: 'none'
 
