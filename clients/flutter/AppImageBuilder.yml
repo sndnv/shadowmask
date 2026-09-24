@@ -15,6 +15,7 @@ script:
   - mkdir -p AppDir/usr/share/doc/shadowmask/licenses
   - cp CREDITS.md AppDir/usr/share/doc/shadowmask/
   - cp assets/licenses/LGPL-2.1.txt AppDir/usr/share/doc/shadowmask/licenses/
+  - install -m 755 deployment/linux/shadowmask-launch AppDir/shadowmask-launch
 
 AppDir:
   path: ./AppDir
@@ -38,9 +39,17 @@ AppDir:
     include:
       - libc6
 
+  after_bundle:
+    - mkdir -p "$TARGET_APPDIR/lib64"
+    - cp "$TARGET_APPDIR/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2" "$TARGET_APPDIR/lib64/"
+
+  runtime:
+    env:
+      APPDIR_EXEC_PATH: $APPDIR/shadowmask-launch
+    preserve:
+      - shadowmask-launch
+
   files:
-    include:
-      - lib64/ld-linux-x86-64.so.2
     exclude:
       - usr/share/man
       - usr/share/doc/*/README.*

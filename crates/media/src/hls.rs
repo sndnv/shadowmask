@@ -16,6 +16,7 @@ use domain::session::{
 };
 
 use crate::probe::FfprobeMediaProbe;
+use crate::subtitle_extraction_store::{ExtractionEntry, FsSubtitleExtractionStore};
 use crate::transcode::{
     DEFAULT_READ_RATE, INIT_SEGMENT, TARGET_MS, TokioProcessSpawner, VideoEncoder,
     build_producer_args, build_segment_args, build_subtitle_extract_args, media_playlist,
@@ -72,6 +73,7 @@ type SegmentLocks = HashMap<(SessionId, StreamGeneration, usize), Arc<AsyncMutex
 struct Inner<S, P> {
     binary: String,
     cache_root: PathBuf,
+    extraction: FsSubtitleExtractionStore,
     idle_timeout: SignedDuration,
     produced_wait: Duration,
     encoder: VideoEncoder,
@@ -80,6 +82,7 @@ struct Inner<S, P> {
     prober: P,
     sessions: RwLock<HashMap<SessionId, Session>>,
     locks: Mutex<SegmentLocks>,
+    extractions: Mutex<HashMap<PathBuf, Arc<AsyncMutex<()>>>>,
 }
 
 pub struct HlsStreamSource<
@@ -96,17 +99,28 @@ impl<S: ProcessSpawner, P: KeyframeProbe> Clone for HlsStreamSource<S, P> {
 }
 
 impl HlsStreamSource {
-    pub fn new(cache_root: impl Into<PathBuf>) -> Self {
-        Self::with_parts(cache_root, TokioProcessSpawner, FfprobeMediaProbe::default())
+    pub fn new(cache_root: impl Into<PathBuf>, extraction_root: impl Into<PathBuf>) -> Self {
+        Self::with_parts(
+            cache_root,
+            extraction_root,
+            TokioProcessSpawner,
+            FfprobeMediaProbe::default(),
+        )
     }
 }
 
 impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S, P> {
-    pub fn with_parts(cache_root: impl Into<PathBuf>, spawner: S, prober: P) -> Self {
+    pub fn with_parts(
+        cache_root: impl Into<PathBuf>,
+        extraction_root: impl Into<PathBuf>,
+        spawner: S,
+        prober: P,
+    ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 binary: DEFAULT_BINARY.to_owned(),
                 cache_root: cache_root.into(),
+                extraction: FsSubtitleExtractionStore::new(extraction_root),
                 idle_timeout: DEFAULT_IDLE_TIMEOUT,
                 produced_wait: PRODUCED_WAIT,
                 encoder: VideoEncoder::Software,
@@ -115,6 +129,7 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
                 prober,
                 sessions: RwLock::new(HashMap::new()),
                 locks: Mutex::new(HashMap::new()),
+                extractions: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -452,48 +467,32 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
         Ok(())
     }
 
-    async fn write_subtitle_rendition(
-        &self,
-        output_dir: &Path,
-        input_path: &str,
-        soft: &SoftSubtitle,
-    ) {
-        let _ = self.try_write_subtitle_rendition(output_dir, input_path, soft).await;
+    async fn write_subtitle_rendition(&self, output_dir: &Path, spec: &TranscodeSpec) {
+        let Some(soft) = spec.soft_subtitle.as_ref() else {
+            return;
+        };
+        if let Err(err) = self.try_write_subtitle_rendition(output_dir, spec, soft).await {
+            #[rustfmt::skip]
+            tracing::warn!("stream [{}/{}] has no subtitles: {err}", spec.session.0, spec.generation.0);
+        }
     }
 
     async fn try_write_subtitle_rendition(
         &self,
         output_dir: &Path,
-        input_path: &str,
+        spec: &TranscodeSpec,
         soft: &SoftSubtitle,
     ) -> Result<(), TranscodeError> {
+        let entry =
+            self.inner.extraction.entry(&spec.version, &spec.input_path, &soft.source).await?;
+        let cached = self.extracted(spec, soft, &entry).await?;
         let subs_dir = output_dir.join(SUBTITLE_VARIANT);
-        let vtt_path = subs_dir.join("subs.vtt");
-        let make = subs_dir.clone();
-        spawn_blocking(move || std::fs::create_dir_all(make))
-            .await
-            .expect("create_dir_all task panicked")
-            .map_err(|e| TranscodeError::Spawn(e.to_string()))?;
-        let mut args = vec!["-v".to_owned(), "error".to_owned()];
-        args.extend(build_subtitle_extract_args(
-            input_path,
-            &soft.source,
-            &vtt_path.to_string_lossy(),
-        ));
-        let produced = self
-            .inner
-            .spawner
-            .run(&self.inner.binary, &args)
-            .await
-            .map_err(|e| TranscodeError::Spawn(e.to_string()))?;
-        if !produced {
-            return Err(TranscodeError::Spawn("subtitle extraction failed".to_owned()));
-        }
         let offset = soft.offset_ms;
         let duration_ms = soft.duration_ms;
         spawn_blocking(move || -> std::io::Result<()> {
-            let content = std::fs::read_to_string(&vtt_path)?;
-            std::fs::write(&vtt_path, crate::subtitle::shift(&content, offset))?;
+            std::fs::create_dir_all(&subs_dir)?;
+            let content = std::fs::read_to_string(&cached)?;
+            std::fs::write(subs_dir.join("subs.vtt"), crate::subtitle::shift(&content, offset))?;
             let playlist = subtitle_media_playlist(duration_ms, "subs.vtt");
             std::fs::write(subs_dir.join(MEDIA_PLAYLIST), playlist)?;
             Ok(())
@@ -502,6 +501,76 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
         .expect("subtitle post-process task panicked")
         .map_err(|e| TranscodeError::Spawn(e.to_string()))?;
         Ok(())
+    }
+
+    fn extraction_lock(&self, path: &Path) -> Arc<AsyncMutex<()>> {
+        self.inner.extractions.lock().unwrap().entry(path.to_path_buf()).or_default().clone()
+    }
+
+    async fn extracted(
+        &self,
+        spec: &TranscodeSpec,
+        soft: &SoftSubtitle,
+        entry: &ExtractionEntry,
+    ) -> Result<PathBuf, TranscodeError> {
+        if has_content(&entry.path).await {
+            return Ok(entry.path.clone());
+        }
+        let lock = self.extraction_lock(&entry.path);
+        let guard = lock.lock().await;
+        let extracted = self.extract_once(spec, soft, entry).await;
+        drop(guard);
+        self.inner.extractions.lock().unwrap().remove(&entry.path);
+        extracted
+    }
+
+    async fn extract_once(
+        &self,
+        spec: &TranscodeSpec,
+        soft: &SoftSubtitle,
+        entry: &ExtractionEntry,
+    ) -> Result<PathBuf, TranscodeError> {
+        if has_content(&entry.path).await {
+            return Ok(entry.path.clone());
+        }
+        let make = entry.dir.clone();
+        spawn_blocking(move || std::fs::create_dir_all(make))
+            .await
+            .expect("create_dir_all task panicked")
+            .map_err(|e| TranscodeError::Spawn(e.to_string()))?;
+        let part = entry.dir.join(format!(
+            "{}.{}-{}.part",
+            entry.path.file_name().unwrap_or_default().to_string_lossy(),
+            spec.session.0,
+            spec.generation.0
+        ));
+        let mut args = vec!["-v".to_owned(), "error".to_owned()];
+        args.extend(build_subtitle_extract_args(
+            &spec.input_path,
+            &soft.source,
+            &part.to_string_lossy(),
+        ));
+        let started = Instant::now();
+        let outcome = self
+            .inner
+            .spawner
+            .run_captured(&self.inner.binary, &args)
+            .await
+            .map_err(|e| TranscodeError::Spawn(e.to_string()))?;
+        if !outcome.success || !has_content(&part).await {
+            remove_file_off_lock(part).await;
+            let detail = outcome.failure_detail(10);
+            return Err(TranscodeError::Spawn(format!("subtitle extraction failed: {detail}")));
+        }
+        if !rename_off_lock(part, entry.path.clone()).await {
+            return Err(TranscodeError::Spawn(
+                "the extracted subtitle could not be kept".to_owned(),
+            ));
+        }
+        self.inner.extraction.prune_siblings(entry).await;
+        #[rustfmt::skip]
+        tracing::info!("extracted subtitles for version [{}] in [{:.1}s]", spec.version.0, started.elapsed().as_secs_f64());
+        Ok(entry.path.clone())
     }
 
     async fn reap_at(&self, now: Timestamp) -> usize {
@@ -664,9 +733,7 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> TranscodeManager
             .await
             .expect("write playlist task panicked")
             .map_err(|e| TranscodeError::Spawn(e.to_string()))?;
-        if let Some(soft) = spec.soft_subtitle.clone() {
-            self.write_subtitle_rendition(&output_dir, &spec.input_path, &soft).await;
-        }
+        self.write_subtitle_rendition(&output_dir, &spec).await;
         let producer = match spec.container {
             SegmentContainer::Fmp4 => {
                 Some(self.spawn_producer(&spec, &variant_dir, origin_ms, first))
@@ -797,9 +864,11 @@ async fn rename_off_lock(from: PathBuf, to: PathBuf) -> bool {
 
 async fn has_content(path: &Path) -> bool {
     let path = path.to_path_buf();
-    spawn_blocking(move || std::fs::metadata(&path).map(|m| m.len() > 0).unwrap_or(false))
-        .await
-        .unwrap_or(false)
+    spawn_blocking(move || {
+        std::fs::metadata(&path).map(|m| m.is_file() && m.len() > 0).unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
 }
 
 fn segment_part_name(index: usize, container: SegmentContainer) -> String {
@@ -951,8 +1020,12 @@ mod tests {
         prober: MockProbe,
     ) -> (tempfile::TempDir, HlsStreamSource<MockSpawner, MockProbe>) {
         let dir = tempfile::tempdir().expect("tempdir");
-        let src = HlsStreamSource::with_parts(dir.path(), spawner, prober);
+        let src = HlsStreamSource::with_parts(dir.path(), extraction(&dir), spawner, prober);
         (dir, src)
+    }
+
+    fn extraction(dir: &tempfile::TempDir) -> PathBuf {
+        dir.path().join("_extraction")
     }
 
     const GEN: StreamGeneration = StreamGeneration(1);
@@ -990,6 +1063,7 @@ mod tests {
         TranscodeSpec {
             session: SessionId(id.to_owned()),
             generation,
+            version: VersionId("ver-1".to_owned()),
             input_path: "/media/movie.mkv".to_owned(),
             duration_ms,
             copy: false,
@@ -1140,8 +1214,12 @@ mod tests {
     #[tokio::test]
     async fn start_create_dir_failure_maps_to_error() {
         let file = tempfile::NamedTempFile::new().expect("tempfile");
-        let src =
-            HlsStreamSource::with_parts(file.path(), MockSpawner::default(), MockProbe::default());
+        let src = HlsStreamSource::with_parts(
+            file.path(),
+            file.path(),
+            MockSpawner::default(),
+            MockProbe::default(),
+        );
         let err = src.start(spec("s1", 1_000)).await.unwrap_err();
         assert!(matches!(err, TranscodeError::Spawn(_)));
     }
@@ -1179,7 +1257,7 @@ mod tests {
     #[tokio::test]
     async fn start_subtitle_failure_is_best_effort() {
         let spawner = MockSpawner { fail: true, ..Default::default() };
-        let (_dir, src) = engine(spawner, MockProbe::default());
+        let (dir, src) = engine(spawner, MockProbe::default());
         let mut spec = spec("s1", 10_000);
         spec.soft_subtitle = Some(SoftSubtitle {
             source: SoftSubtitleSource::File("/media/missing.srt".to_owned()),
@@ -1189,6 +1267,154 @@ mod tests {
         let started = src.start(spec).await.expect("start");
         let subs = PathBuf::from(&started.output_dir).join("subs");
         assert!(!subs.join("index.m3u8").exists());
+        assert!(extracts(&dir).is_empty(), "a failed extraction must cache nothing");
+    }
+
+    #[derive(Clone, Default)]
+    struct SubtitleSpawner {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl ProcessSpawner for SubtitleSpawner {
+        async fn run(&self, _program: &str, args: &[String]) -> std::io::Result<bool> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if let Some(out) = args.last() {
+                std::fs::write(out, CUE).ok();
+            }
+            Ok(true)
+        }
+    }
+
+    const CUE: &[u8] = b"WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n";
+
+    fn extracts(dir: &tempfile::TempDir) -> Vec<PathBuf> {
+        let owned = extraction(dir).join("ver-1");
+        let Ok(entries) = std::fs::read_dir(owned) else {
+            return Vec::new();
+        };
+        let mut found: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
+        found.sort();
+        found
+    }
+
+    fn soft(offset_ms: i64) -> SoftSubtitle {
+        SoftSubtitle { source: SoftSubtitleSource::Embedded(3), offset_ms, duration_ms: 10_000 }
+    }
+
+    fn cues(output_dir: &str) -> String {
+        std::fs::read_to_string(PathBuf::from(output_dir).join("subs").join("subs.vtt"))
+            .expect("subs.vtt")
+    }
+
+    #[tokio::test]
+    async fn a_second_generation_reads_the_extraction_the_first_one_paid_for() {
+        let spawner = SubtitleSpawner::default();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src = HlsStreamSource::with_parts(
+            dir.path(),
+            extraction(&dir),
+            spawner.clone(),
+            MockProbe::default(),
+        );
+        let mut first = spec("s1", 10_000);
+        first.soft_subtitle = Some(soft(0));
+        let mut second = spec_at("s1", StreamGeneration(2), 10_000);
+        second.soft_subtitle = Some(soft(2_000));
+
+        let one = src.start(first).await.expect("start");
+        assert!(cues(&one.output_dir).contains("00:00:01.000"));
+        let two = src.start(second).await.expect("renegotiate");
+
+        assert_eq!(spawner.calls.load(Ordering::SeqCst), 1, "the second generation re-extracted");
+        assert_eq!(extracts(&dir).len(), 1);
+        assert!(cues(&two.output_dir).contains("00:00:03.000"), "the offset was not applied");
+        let cached = std::fs::read_to_string(&extracts(&dir)[0]).expect("cached");
+        assert!(cached.contains("00:00:01.000"), "the cache must hold unshifted cues");
+    }
+
+    #[derive(Clone, Default)]
+    struct SlowSubtitleSpawner {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl ProcessSpawner for SlowSubtitleSpawner {
+        async fn run(&self, _program: &str, args: &[String]) -> std::io::Result<bool> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(80)).await;
+            if let Some(out) = args.last() {
+                std::fs::write(out, CUE).ok();
+            }
+            Ok(true)
+        }
+    }
+
+    #[tokio::test]
+    async fn renegotiating_mid_extraction_waits_for_it_instead_of_starting_a_second_one() {
+        let spawner = SlowSubtitleSpawner::default();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src = HlsStreamSource::with_parts(
+            dir.path(),
+            extraction(&dir),
+            spawner.clone(),
+            MockProbe::default(),
+        );
+        let mut first = spec("s1", 10_000);
+        first.soft_subtitle = Some(soft(0));
+        let mut second = spec_at("s1", StreamGeneration(2), 10_000);
+        second.soft_subtitle = Some(soft(2_000));
+
+        let (one, two) = tokio::join!(src.start(first), src.start(second));
+        one.expect("start");
+        two.expect("renegotiate");
+
+        assert_eq!(spawner.calls.load(Ordering::SeqCst), 1, "both generations extracted");
+        assert_eq!(extracts(&dir).len(), 1);
+        assert!(src.inner.extractions.lock().unwrap().is_empty(), "the lock outlived the work");
+    }
+
+    #[tokio::test]
+    async fn a_second_session_on_the_same_version_reads_the_same_extraction() {
+        let spawner = SubtitleSpawner::default();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src = HlsStreamSource::with_parts(
+            dir.path(),
+            extraction(&dir),
+            spawner.clone(),
+            MockProbe::default(),
+        );
+        for session in ["s1", "s2"] {
+            let mut spec = spec(session, 10_000);
+            spec.soft_subtitle = Some(soft(0));
+            src.start(spec).await.expect("start");
+        }
+        assert_eq!(spawner.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(extracts(&dir).len(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_extraction_that_cannot_be_kept_is_reported_rather_than_served() {
+        let spawner = SubtitleSpawner::default();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src = HlsStreamSource::with_parts(
+            dir.path(),
+            extraction(&dir),
+            spawner.clone(),
+            MockProbe::default(),
+        );
+        let mut first = spec("s1", 10_000);
+        first.soft_subtitle = Some(soft(0));
+        src.start(first).await.expect("start");
+        let cached = extracts(&dir).remove(0);
+        std::fs::remove_file(&cached).expect("remove");
+        std::fs::create_dir(&cached).expect("dir");
+        std::fs::write(cached.join("occupied"), b"x").expect("write");
+
+        let mut second = spec("s2", 10_000);
+        second.soft_subtitle = Some(soft(0));
+        let started = src.start(second).await.expect("start");
+
+        assert_eq!(spawner.calls.load(Ordering::SeqCst), 2);
+        assert!(!PathBuf::from(&started.output_dir).join("subs").join(MEDIA_PLAYLIST).exists());
     }
 
     #[tokio::test]
@@ -1214,8 +1440,9 @@ mod tests {
         let spawner = FailFirstSpawner::default();
         let prober = MockProbe { keyframes: vec![4_000, 8_000], fail: false };
         let dir = tempfile::tempdir().expect("tempdir");
-        let src = HlsStreamSource::with_parts(dir.path(), spawner.clone(), prober)
-            .with_encoder(VideoEncoder::Vaapi { device: "/dev/dri/renderD128".to_owned() });
+        let src =
+            HlsStreamSource::with_parts(dir.path(), extraction(&dir), spawner.clone(), prober)
+                .with_encoder(VideoEncoder::Vaapi { device: "/dev/dri/renderD128".to_owned() });
         let started = src.start(spec("s1", 12_000)).await.expect("start");
         src.register(
             SessionId("s1".to_owned()),
@@ -1235,7 +1462,8 @@ mod tests {
         let spawner = TornDownSpawner::default();
         let prober = MockProbe { keyframes: vec![4_000, 8_000], fail: false };
         let dir = tempfile::tempdir().expect("tempdir");
-        let src = HlsStreamSource::with_parts(dir.path(), spawner.clone(), prober);
+        let src =
+            HlsStreamSource::with_parts(dir.path(), extraction(&dir), spawner.clone(), prober);
         let started = src.start(spec("s1", 12_000)).await.expect("start");
         src.register(
             SessionId("s1".to_owned()),
@@ -1259,7 +1487,8 @@ mod tests {
         let spawner = TornDownSpawner::default();
         let prober = MockProbe { keyframes: vec![4_000, 8_000], fail: false };
         let dir = tempfile::tempdir().expect("tempdir");
-        let src = HlsStreamSource::with_parts(dir.path(), spawner.clone(), prober);
+        let src =
+            HlsStreamSource::with_parts(dir.path(), extraction(&dir), spawner.clone(), prober);
         let started = src.start(spec("s1", 12_000)).await.expect("start");
         src.register(
             SessionId("s1".to_owned()),
@@ -1436,7 +1665,8 @@ mod tests {
         let spawner = KilledMidWriteSpawner::default();
         let prober = MockProbe { keyframes: vec![4_000], fail: false };
         let dir = tempfile::tempdir().expect("tempdir");
-        let src = HlsStreamSource::with_parts(dir.path(), spawner.clone(), prober);
+        let src =
+            HlsStreamSource::with_parts(dir.path(), extraction(&dir), spawner.clone(), prober);
         let started = src.start(spec("s1", 8_000)).await.expect("start");
         let out_dir = PathBuf::from(&started.output_dir);
         src.register(SessionId("s1".to_owned()), GEN, transcode_registration(out_dir.clone()));
@@ -1620,9 +1850,13 @@ mod tests {
     #[tokio::test]
     async fn reap_evicts_idle_jit_sessions_only() {
         let dir = tempfile::tempdir().unwrap();
-        let src =
-            HlsStreamSource::with_parts(dir.path(), MockSpawner::default(), MockProbe::default())
-                .with_idle_timeout(SignedDuration::from_secs(5));
+        let src = HlsStreamSource::with_parts(
+            dir.path(),
+            extraction(&dir),
+            MockSpawner::default(),
+            MockProbe::default(),
+        )
+        .with_idle_timeout(SignedDuration::from_secs(5));
         let started = src.start(spec("s1", 8_000)).await.expect("start");
         src.register(
             SessionId("direct".to_owned()),
@@ -1707,7 +1941,7 @@ mod tests {
         prober: MockProbe,
     ) -> (tempfile::TempDir, HlsStreamSource<ProducerSpawner, MockProbe>) {
         let dir = tempfile::tempdir().expect("tempdir");
-        let src = HlsStreamSource::with_parts(dir.path(), spawner, prober);
+        let src = HlsStreamSource::with_parts(dir.path(), extraction(&dir), spawner, prober);
         (dir, src)
     }
 
@@ -1989,8 +2223,13 @@ mod tests {
         let spawner = ArgRecordingSpawner::default();
         let seen = Arc::clone(&spawner.args);
         let dir = tempfile::tempdir().expect("tempdir");
-        let src = HlsStreamSource::with_parts(dir.path(), spawner, MockProbe::default())
-            .with_read_rate(3.5);
+        let src = HlsStreamSource::with_parts(
+            dir.path(),
+            extraction(&dir),
+            spawner,
+            MockProbe::default(),
+        )
+        .with_read_rate(3.5);
         src.start(fmp4_spec("s1", 12_000)).await.expect("start");
         for _ in 0..50 {
             if !seen.lock().unwrap().is_empty() {

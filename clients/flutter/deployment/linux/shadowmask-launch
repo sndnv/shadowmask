@@ -1,0 +1,48 @@
+#!/bin/sh
+
+library=libmpv.so.2
+package=libmpv2
+
+here=${APPDIR:-${0%/*}}
+
+found=
+old_ifs=$IFS
+IFS=:
+for dir in \
+    $APPRUN_ORIGINAL_LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu:/usr/lib64:/usr/lib\
+:/lib/x86_64-linux-gnu:/lib64:/lib:/usr/local/lib:/usr/local/lib64; do
+    [ -n "$dir" ] || continue
+    if [ -e "$dir/$library" ]; then
+        found=yes
+        break
+    fi
+done
+IFS=$old_ifs
+
+if [ -n "$found" ]; then
+    exec "$here/shadowmask" "$@"
+fi
+
+title="A required library is missing"
+text="This application plays video through $library, which is not installed on this system.
+
+On Debian and Ubuntu, install it with:
+
+    sudo apt install $package
+
+Releases older than Ubuntu 24.04 package it as libmpv1. On other distributions, install your
+distribution's equivalent."
+
+LD_LIBRARY_PATH=$APPRUN_ORIGINAL_LD_LIBRARY_PATH
+LD_PRELOAD=$APPRUN_ORIGINAL_LD_PRELOAD
+export LD_LIBRARY_PATH LD_PRELOAD
+
+printf '%s\n\n%s\n' "$title" "$text" >&2
+
+if command -v zenity >/dev/null 2>&1; then
+    zenity --error --no-wrap --title="$title" --text="$text" >/dev/null 2>&1
+elif command -v notify-send >/dev/null 2>&1; then
+    notify-send --urgency=critical "$title" "$text" >/dev/null 2>&1
+fi
+
+exit 1

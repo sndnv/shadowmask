@@ -66,15 +66,21 @@ cp secrets/templates/shadowmask.env.template secrets/shadowmask.env
 ```
 
 Fill in `SHADOWMASK_JWT_SECRET` and `SHADOWMASK_STREAM_SECRET` (`openssl rand -hex 32` for each) and
-set an admin password, then point the stack at your libraries and start it:
+set an admin password, then point the stack at your libraries and at the address browsers will use
+to reach it:
 
 ```
 export SHADOWMASK_MOVIES_DIR=/path/to/movies
 export SHADOWMASK_TV_DIR=/path/to/tv
+export SHADOWMASK_API_BASE=http://192.168.1.10:8080
+export SHADOWMASK_WEB_UI_ORIGIN=http://192.168.1.10:8090
 docker compose up -d
 ```
 
-The server listens on port 8080, and `/health` reports readiness. See
+Both addresses are what the **browser** resolves, so use the host's address rather than `localhost`
+unless you only ever browse from the host itself.
+
+The server listens on port 8080 and the web UI on 8090; `/health` reports readiness. See
 [`deployment/production/README.md`](deployment/production/README.md) for TLS, bootstrap, hardware
 acceleration and the rest.
 

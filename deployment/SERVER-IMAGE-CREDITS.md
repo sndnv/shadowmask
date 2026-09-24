@@ -24,7 +24,15 @@ a base image carries 318 of them.
 
 Installed unmodified from bookworm: `ffmpeg`, `mesa-va-drivers`, `libva2`, `ca-certificates`,
 `curl`, `python3`, `python3-venv`, and their dependencies. The `-enrichment` image adds
-`libopenblas0` and `libgomp1`.
+`libopenblas0` and `libgomp1`. The amd64 image also carries `intel-media-va-driver` and
+`i965-va-driver`; both are x86-only in Debian, so the arm64 image has neither.
+
+**The Intel VAAPI drivers are MIT.** `intel-media-va-driver` is Debian's free build of
+`intel/media-driver` with the non-free kernels excluded, and `i965-va-driver` is
+`intel/intel-vaapi-driver`, likewise with the non-free shader binaries excluded.
+`intel-media-va-driver-non-free` is not in bookworm's default repositories and is not used.
+They are dlopened by `libva` inside the container and talk to the host's kernel driver through the
+render node, so nothing links against them either.
 
 **FFmpeg is Debian's GPL-2+ build.** From `/usr/share/doc/ffmpeg/copyright`:
 
@@ -57,7 +65,7 @@ builds of the same Shadowmask version. Run `yt-dlp --version` to see which one i
 
 Adds CTranslate2 and SentencePiece (both MIT), compiled from vendored source and statically linked
 through the `ct2rs` and `sentencepiece-sys` crates. Every licence text found in those two crate
-sources — theirs and their own vendored dependencies' — is at
+sources, theirs and their own vendored dependencies', is at
 `/usr/share/doc/shadowmask/third-party-licenses/`, under paths naming the library each came from.
 
 Model weights are not part of any Shadowmask image; you supply them and their licences are yours to

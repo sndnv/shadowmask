@@ -12,6 +12,7 @@ pub mod lockfile;
 mod memory;
 pub mod observability;
 pub mod service;
+pub mod shutdown;
 
 pub use api::{Built, DefaultState, DefaultStreamState, Repos, WireConfig, app, build_state};
 pub use capabilities::{CapabilityInputs, server_capabilities};
@@ -22,3 +23,4 @@ pub use jobs::CancelRegistry;
 pub use lockfile::ServerLock;
 pub use observability::{init_logging, install_metrics};
 pub use service::{Runtime, serve};
+pub use shutdown::shutdown_signal;

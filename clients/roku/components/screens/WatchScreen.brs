@@ -68,6 +68,7 @@ sub init()
     m.prebuffered = false
     m.painted = false
     m.beating = false
+    m.applying = false
     m.session = invalid
     m.version = invalid
     m.controls = DefaultControls()
@@ -683,7 +684,9 @@ end sub
 
 sub ApplyControls()
     if m.session = invalid then return
+    if m.applying then return
 
+    m.applying = true
     MarkBarCommitted()
     m.pendingMs = TimelineNow()
     m.video.control = "stop"
@@ -695,6 +698,7 @@ end sub
 
 sub onUpdated(event as object)
     parsed = Answered(event)
+    m.applying = false
     if m.released then return
 
     if not parsed.ok

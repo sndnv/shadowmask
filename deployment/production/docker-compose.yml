@@ -8,48 +8,157 @@ services:
     restart: always
     init: true
     stop_grace_period: 40s
+    # Keeps an oversized model from taking the host down with the server. Size as the server
+    # (1-2G) plus the largest enrichment model enabled; 2G is enough without enrichment.
+    # memswap_limit must match, or a throttled container swaps instead of failing.
+    mem_limit: ${SHADOWMASK_MEM_LIMIT:-8g}
+    memswap_limit: ${SHADOWMASK_MEM_LIMIT:-8g}
     ports:
       - "${SHADOWMASK_PORT:-8080}:8080"
     env_file:
       - ./secrets/shadowmask.env
+    # Every server setting at its default value. Uncomment to change one; leaving an entry commented
+    # keeps a future version's default. Reference: deployment/README.md. Secrets
+    # (SHADOWMASK_JWT_SECRET, SHADOWMASK_STREAM_SECRET, the provider API keys) go in
+    # ./secrets/shadowmask.env.
     environment:
+      # --- Logging ---
       SHADOWMASK_LOG_LEVEL: "info"
       SHADOWMASK_SQLX_LOG_LEVEL: "warn"
+      # Raw tracing filter. When set it overrides both of the above.
+      # RUST_LOG: "info,sqlx=warn"
+
+      # --- Bootstrap ---
+      # off, init (apply and exit), or init-and-start. Set to init-and-start for the first run,
+      # then back to off. Bootstrap TOML expands ${NAME} against this environment.
       SHADOWMASK_BOOTSTRAP_MODE: "off"
-      # Nightly re-scan (off by default): a clock time as HH:MM. It runs in the container's
-      # timezone, which is UTC unless you set TZ. Only libraries whose watcher is "scheduled"
-      # are picked up; see bootstrap/libraries.toml.
-      # SHADOWMASK_DAILY_SCAN_AT: "04:00"
+
+      # --- Network, TLS and CORS ---
+      # The web UI below runs on its own origin, so the server has to allow it. This must match the
+      # scheme, host and port the browser uses for the UI exactly, and it is the address of your
+      # host rather than a compose service name.
+      SHADOWMASK_CORS_ALLOWED_ORIGINS: "${SHADOWMASK_WEB_UI_ORIGIN:-http://localhost:8090}"
+      # Listen address inside the container. The published port is set under ports: above.
+      # SHADOWMASK_BIND: "0.0.0.0:8080"
       # Optional TLS (off by default): point these at a mounted cert + key to serve HTTPS
       # directly. Leave unset to serve plaintext HTTP (fine on a trusted LAN or behind your
       # own reverse proxy). When enabled, update the healthcheck below to https (curl -k).
       # SHADOWMASK_TLS_CERT: "/config/tls/cert.pem"
       # SHADOWMASK_TLS_KEY: "/config/tls/key.pem"
+
+      # --- Tokens ---
+      # SHADOWMASK_ACCESS_TTL_SECS: "3600"
+      # SHADOWMASK_REFRESH_TTL_SECS: "86400"
+
+      # --- Paths (the image sets these; change only if you remap the volumes below) ---
+      # SHADOWMASK_DB_ROOT: "/data"
+      # SHADOWMASK_TRANSCODE_CACHE: "/data/transcode"
+      # SHADOWMASK_ARTWORK_CACHE: "/data/artwork"
+      # SHADOWMASK_TRICKPLAY_CACHE: "/data/trickplay"
+      # SHADOWMASK_SUBTITLE_CACHE: "/data/subtitles"
+      # Subtitle tracks pulled out of media files, kept per version so a seek does not redo it.
+      # SHADOWMASK_SUBTITLE_EXTRACTION_CACHE: "/data/subtitle-extraction"
+      # SHADOWMASK_JOB_LOG_DIR: "/data/job-logs"
+      # SHADOWMASK_BOOTSTRAP_DIR: "/config/bootstrap"
+      # SHADOWMASK_BASIC_CLIENT_DIR: "/usr/share/shadowmask/basic"
+      # JSON playback profiles overriding the built-ins, one file per device type:
+      # SHADOWMASK_PROFILE_OVERRIDES_DIR: "/config/profiles"
+
+      # --- Metadata providers (API keys live in ./secrets/shadowmask.env) ---
+      # Comma-separated languages to fetch subtitles for and translate into:
+      # SHADOWMASK_TARGET_LANGUAGES: "en"
+      # SHADOWMASK_TMDB_MIN_INTERVAL_MS: "100"
+      # SHADOWMASK_OMDB_MIN_INTERVAL_MS: "500"
+      # SHADOWMASK_OPENSUBTITLES_MIN_INTERVAL_MS: "1000"
+
+      # --- Job pools ---
+      # Each kind runs on one pool, up to that pool's concurrency. Unassigned kinds run on default.
+      #   default    4  everything not named below
+      #   trickplay  1  trickplay
+      #   enrichment 1  transcription, translation, upscale
+      #   fetch      1  fetch
+      # SHADOWMASK_JOB_POOLS_DEFAULT_CONCURRENCY: "4"
+      # SHADOWMASK_JOB_POOLS_TRICKPLAY_CONCURRENCY: "1"
+      # SHADOWMASK_JOB_POOLS_ENRICHMENT_CONCURRENCY: "1"
+      # SHADOWMASK_JOB_POOLS_FETCH_CONCURRENCY: "1"
+      # Any other name creates a pool; naming no kinds removes one. An unknown kind, a kind claimed
+      # twice, or a concurrency of zero stops the server at startup.
+      # SHADOWMASK_JOB_POOLS_ARTWORK_KINDS: "artwork"
+      # SHADOWMASK_JOB_POOLS_ARTWORK_CONCURRENCY: "6"
+
+      # --- Workers and scheduling ---
+      # SHADOWMASK_SCAN_PROBE_CONCURRENCY: "8"
+      # Cores one trickplay ffmpeg may use.
+      # SHADOWMASK_TRICKPLAY_THREADS: "2"
+      # Decode only keyframes when building thumbnails: about 12x less CPU, same wall time. Each
+      # thumbnail shows the nearest keyframe rather than the exact second. Turn off if previews
+      # appear to stick while scrubbing.
+      # SHADOWMASK_TRICKPLAY_KEYFRAMES_ONLY: "true"
+      # SHADOWMASK_WORKER_PERIOD_SECS: "5"
+      # SHADOWMASK_SCHEDULER_PERIOD_SECS: "30"
+      # SHADOWMASK_REAPER_PERIOD_SECS: "30"
+      # SHADOWMASK_SHUTDOWN_TIMEOUT_SECS: "30"
+      # SHADOWMASK_REINDEX_EVERY_SECS: "3600"
+      # Nightly re-scan (off by default): a clock time as HH:MM. It runs in the container's
+      # timezone, which is UTC unless you set TZ. Only libraries whose watcher is "scheduled"
+      # are picked up; see bootstrap/libraries.toml.
+      # SHADOWMASK_DAILY_SCAN_AT: "04:00"
+
+      # --- Caches, limits and retention ---
+      # SHADOWMASK_TRANSCODE_CACHE_CAP_BYTES: "10737418240"
+      # SHADOWMASK_REMUX_READ_RATE: "10.0"
+      # Caps the height the server re-encodes to. Direct play and remux are never downscaled.
+      # SHADOWMASK_MAX_TRANSCODE_HEIGHT: "1080"
+      # SHADOWMASK_CACHE_EVICTION_EVERY_SECS: "3600"
+      # SHADOWMASK_JOB_RETENTION_DAYS: "30"
+      # SHADOWMASK_RETENTION_EVERY_SECS: "86400"
+      # SHADOWMASK_ORPHAN_SWEEP_EVERY_SECS: "86400"
+      # SHADOWMASK_ORPHAN_SWEEP_GRACE_SECS: "86400"
+
+      # --- Hardware acceleration ---
       # Video encoder: auto (default; VAAPI when /dev/dri is passed through, else software), off, or
       # vaapi. Uncomment the devices block below to give the container the GPU.
       # SHADOWMASK_HARDWARE_ACCELERATION: "auto"
-      # Optional local AI (enrichment): needs the -enrichment image above and CTranslate2 models
-      # mounted at /models (see deployment/ENRICHMENT.md).
-      # SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED: "true"
-      # SHADOWMASK_ENRICHMENT_TRANSLATION_ENABLED: "true"
-      # SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED: "true"
+      # SHADOWMASK_VAAPI_DEVICE: "/dev/dri/renderD128"
+
+      # --- Optional local AI (enrichment) ---
+      # Needs the -enrichment image above and CTranslate2 models mounted at /models (see
+      # deployment/ENRICHMENT.md). The _PROVIDER settings are informational and have no effect.
       # SHADOWMASK_ENRICHMENT_MODEL_CACHE: "/models"
+      # How many of these run at once is SHADOWMASK_JOB_POOLS_ENRICHMENT_CONCURRENCY, above.
+      # Cores one enrichment job may use. Unset means half the machine.
+      # SHADOWMASK_ENRICHMENT_THREADS: "4"
+      # SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED: "true"
+      # SHADOWMASK_ENRICHMENT_TRANSCRIPTION_PROVIDER: "none"
+      # SHADOWMASK_ENRICHMENT_TRANSCRIPTION_MODEL_PATH: "whisper-small"
+      # SHADOWMASK_ENRICHMENT_TRANSLATION_ENABLED: "true"
+      # SHADOWMASK_ENRICHMENT_TRANSLATION_PROVIDER: "none"
+      # SHADOWMASK_ENRICHMENT_TRANSLATION_MODEL_PATH: "madlad400"
       # For a multilingual translation model, set the language-token prefix it expects, e.g.
       # MADLAD: "<2{target}>" as SOURCE_PREFIX, or Opus-MT multilingual: ">>{target}<<".
       # SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX: "<2{target}>"
       # SHADOWMASK_ENRICHMENT_TRANSLATION_TARGET_PREFIX: "{target}"
-      # Optional content fetch (off by default): pull videos from external sites with the bundled
-      # yt-dlp into an external library, then run normal enrichment. Each fetch is stored under the
-      # root of the external library you pick, so mount a writable path below and root a library
-      # there. See deployment/README.md (Content fetch).
+      # SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED: "true"
+      # SHADOWMASK_ENRICHMENT_UPSCALING_PROVIDER: "none"
+      # SHADOWMASK_ENRICHMENT_UPSCALING_MODEL_PATH: "realesrgan"
+      # SHADOWMASK_ENRICHMENT_UPSCALING_TARGET_HEIGHT: "1080"
+
+      # --- Optional content fetch ---
+      # Pull videos from external sites with the bundled yt-dlp into an external library, then run
+      # normal enrichment. Each fetch is stored under the root of the external library you pick, so
+      # mount a writable path below and root a library there. See deployment/README.md.
       # SHADOWMASK_FETCH_PROVIDERS_ENABLED: "true"
-      # SHADOWMASK_FETCH_PROVIDERS_CONCURRENCY: "1"
+      # How many of these run at once is SHADOWMASK_JOB_POOLS_FETCH_CONCURRENCY, above.
+      # SHADOWMASK_FETCH_PROVIDERS_YT_DLP_BINARY: "yt-dlp"
       # Cap download resolution (unset = best quality, up to 4K):
       # SHADOWMASK_FETCH_PROVIDERS_MAX_HEIGHT: "1080"
       # For a site with no built-in yt-dlp extractor, mount your extractor plugins and point at them:
       # SHADOWMASK_FETCH_PROVIDERS_YT_DLP_PLUGIN_DIR: "/config/yt-dlp-plugins"
       # For account-gated content, mount an exported Netscape cookies.txt (holds session secrets, keep read-only):
       # SHADOWMASK_FETCH_PROVIDERS_COOKIES_FILE: "/config/cookies.txt"
+    # The image runs as uid 1001, gid 0. Either chown the data directory to it, or set a uid that
+    # owns it here. See "Data directory permissions" in README.md.
+    # user: "1000:1000"
     volumes:
       - ./local/data:/data
       - ./bootstrap:/config/bootstrap:ro
@@ -61,20 +170,46 @@ services:
       - "${SHADOWMASK_MOVIES_DIR:?set SHADOWMASK_MOVIES_DIR to your movies library path}:/media/movies:ro"
       - "${SHADOWMASK_TV_DIR:?set SHADOWMASK_TV_DIR to your tv library path}:/media/tv:ro"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      test: [ "CMD", "curl", "-fsS", "http://127.0.0.1:8080/health" ]
       interval: 30s
       timeout: 5s
       start_period: 20s
       retries: 3
-    # Hardware-accelerated transcoding (VAAPI / Intel QuickSync) via the host GPU.
-    # Uncomment and make sure the container user (uid 1001) can read the render node.
+    # Hardware encoding is VAAPI only (Intel QuickSync and AMD); the drivers ship in the image and
+    # only the render node comes from the host. There is no NVENC support.
+    # Do not pass /dev/dri on an NVIDIA-only host: auto enables VAAPI because the node exists, and
+    # every segment then fails once before falling back to software.
     # devices:
     #   - "/dev/dri:/dev/dri"
-    # NVIDIA NVENC needs the nvidia-container-toolkit installed on the host; then uncomment:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: ["gpu"]
+    # group_add:
+    #   - "video"
+    #   - "render"
+
+  shadowmask-web-ui:
+    image: ghcr.io/sndnv/shadowmask-web-ui:${SHADOWMASK_VERSION:-latest}
+    restart: always
+    init: true
+    ports:
+      - "${SHADOWMASK_WEB_UI_PORT:-8090}:80"
+    # Written into the served bundle at container start, so a change needs a restart, not a rebuild.
+    environment:
+      # The browser resolves this, not the container, so it cannot be the compose service name.
+      # Use the address you type to reach the server, e.g. http://192.168.1.10:8080.
+      SHADOWMASK_API_BASE: "${SHADOWMASK_API_BASE:?set SHADOWMASK_API_BASE to the URL your browser uses to reach the server}"
+      # NGINX_SERVER_NAME: "localhost"
+      # Serve HTTPS from nginx instead of plaintext. All four SSL values are required once the port
+      # ends in "ssl", and the container exits on startup if any is missing. Mount the cert and key
+      # with the volumes block below, and update the healthcheck to match the new port.
+      # NGINX_SERVER_PORT: "80"
+      # NGINX_SERVER_SSL_CERTIFICATE: "/etc/nginx/tls/cert.pem"
+      # NGINX_SERVER_SSL_CERTIFICATE_KEY: "/etc/nginx/tls/key.pem"
+      # NGINX_SERVER_SSL_PROTOCOLS: "TLSv1.2 TLSv1.3"
+      # NGINX_SERVER_SSL_CIPHERS: "HIGH:!aNULL:!MD5"
+    # volumes:
+    #   - ./tls:/etc/nginx/tls:ro   # cert + key for the NGINX_SERVER_SSL_* settings above
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3

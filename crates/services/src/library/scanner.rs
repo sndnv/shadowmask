@@ -152,6 +152,18 @@ mod tests {
         WalkedEntry { path: path.to_owned(), size_bytes: size }
     }
 
+    // An extension we ingest but cannot negotiate is a title that appears in the library and then
+    // fails at play time, which is worse than never having scanned it.
+    #[test]
+    fn every_extension_we_ingest_can_be_negotiated() {
+        for extension in default_extensions() {
+            assert!(
+                domain::profile::Container::parse(&extension).is_some(),
+                "the scanner ingests [{extension}] but Container::parse rejects it"
+            );
+        }
+    }
+
     fn quiet() -> impl Fn(u32, u32) -> std::future::Ready<()> {
         |_, _| std::future::ready(())
     }

@@ -25,6 +25,8 @@ services:
       SHADOWMASK_ADMIN_USERNAME: "admin"
       SHADOWMASK_ADMIN_PASSWORD: "${SHADOWMASK_ADMIN_PASSWORD:-passw0rd}"
       SHADOWMASK_ENRICHMENT_MODEL_CACHE: "/models"
+      # Cores one enrichment job may use. Unset means half the machine.
+      # SHADOWMASK_ENRICHMENT_THREADS: "2"
       SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED: "${SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED:-true}"
       SHADOWMASK_ENRICHMENT_TRANSLATION_ENABLED: "${SHADOWMASK_ENRICHMENT_TRANSLATION_ENABLED:-true}"
       SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX: "<2{target}>"
@@ -42,7 +44,7 @@ services:
       - "${SHADOWMASK_EXTERNAL_DIR:-./media/external}:/media/external"
       - "${SHADOWMASK_MODELS_DIR:-./models}:/models:ro"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      test: [ "CMD", "curl", "-fsS", "http://127.0.0.1:8080/health" ]
       interval: 10s
       timeout: 5s
       start_period: 20s

@@ -10,6 +10,199 @@ the repository root.
 Optional local AI (transcription, translation, upscaling) applies to both and is documented in
 [`ENRICHMENT.md`](./ENRICHMENT.md).
 
+## Environment variables
+
+Settings can also come from a `shadowmask.toml` next to the binary. Environment beats file, file
+beats default. `SHADOWMASK_TARGET_LANGUAGES` and `SHADOWMASK_CORS_ALLOWED_ORIGINS` are
+comma-separated lists; everything else is a single value. Webhook clients are TOML-only.
+
+### Core
+
+| Variable                      | Description                           | Default                       |
+|-------------------------------|---------------------------------------|-------------------------------|
+| `SHADOWMASK_DB_ROOT`          | Databases and the instance lock       | `data` (`/data` in the image) |
+| `SHADOWMASK_BIND`             | Listen address                        | `0.0.0.0:8080`                |
+| `SHADOWMASK_JWT_SECRET`       | Access and refresh token signing key  | `change-me-jwt-secret`        |
+| `SHADOWMASK_STREAM_SECRET`    | Stream and download token signing key | `change-me-stream-secret`     |
+| `SHADOWMASK_ACCESS_TTL_SECS`  | Access token lifetime                 | `3600`                        |
+| `SHADOWMASK_REFRESH_TTL_SECS` | Refresh token lifetime                | `86400`                       |
+
+### Paths
+
+| Variable                               | Description                                      | Default                                                  |
+|----------------------------------------|--------------------------------------------------|----------------------------------------------------------|
+| `SHADOWMASK_TRANSCODE_CACHE`           | Transcoded segments                              | `data/transcode` (`/data/transcode`)                     |
+| `SHADOWMASK_ARTWORK_CACHE`             | Artwork                                          | `data/artwork` (`/data/artwork`)                         |
+| `SHADOWMASK_TRICKPLAY_CACHE`           | Trickplay sprites                                | `data/trickplay` (`/data/trickplay`)                     |
+| `SHADOWMASK_SUBTITLE_CACHE`            | Subtitles                                        | `data/subtitles` (`/data/subtitles`)                     |
+| `SHADOWMASK_SUBTITLE_EXTRACTION_CACHE` | Subtitle tracks pulled out of media files        | `data/subtitle-extraction` (`/data/subtitle-extraction`) |
+| `SHADOWMASK_JOB_LOG_DIR`               | Per-job logs                                     | `data/job-logs` (`/data/job-logs`)                       |
+| `SHADOWMASK_BOOTSTRAP_DIR`             | `libraries.toml`, `users.toml`                   | `bootstrap` (`/config/bootstrap`)                        |
+| `SHADOWMASK_BASIC_CLIENT_DIR`          | Basic client served at `/ui/basic/`              | `clients/basic` (`/usr/share/shadowmask/basic`)          |
+| `SHADOWMASK_PROFILE_OVERRIDES_DIR`     | JSON playback profiles, one file per device type | unset                                                    |
+
+### Metadata providers
+
+| Variable                                   | Description                                             | Default |
+|--------------------------------------------|---------------------------------------------------------|---------|
+| `SHADOWMASK_TMDB_API_KEY`                  | Enables TMDB                                            | unset   |
+| `SHADOWMASK_OMDB_API_KEY`                  | Enables OMDb                                            | unset   |
+| `SHADOWMASK_OPENSUBTITLES_API_KEY`         | Enables OpenSubtitles                                   | unset   |
+| `SHADOWMASK_TMDB_MIN_INTERVAL_MS`          | Minimum gap between TMDB requests                       | `100`   |
+| `SHADOWMASK_OMDB_MIN_INTERVAL_MS`          | Minimum gap between OMDb requests                       | `500`   |
+| `SHADOWMASK_OPENSUBTITLES_MIN_INTERVAL_MS` | Minimum gap between OpenSubtitles requests              | `1000`  |
+| `SHADOWMASK_TARGET_LANGUAGES`              | Subtitle fetch and translation targets, e.g. `en,bg,de` | `en`    |
+
+### Workers and scheduling
+
+| Variable                              | Description                                                                | Default |
+|---------------------------------------|----------------------------------------------------------------------------|---------|
+| `SHADOWMASK_SCAN_PROBE_CONCURRENCY`   | Files probed in parallel per scan                                          | `8`     |
+| `SHADOWMASK_TRICKPLAY_THREADS`        | Cores one trickplay ffmpeg may use                                         | `2`     |
+| `SHADOWMASK_TRICKPLAY_KEYFRAMES_ONLY` | Decode only keyframes for thumbnails                                       | `true`  |
+| `SHADOWMASK_WORKER_PERIOD_SECS`       | Queue drain interval                                                       | `5`     |
+| `SHADOWMASK_SCHEDULER_PERIOD_SECS`    | Scheduling interval                                                        | `30`    |
+| `SHADOWMASK_REAPER_PERIOD_SECS`       | Dead-session reap interval                                                 | `30`    |
+| `SHADOWMASK_SHUTDOWN_TIMEOUT_SECS`    | Grace period before in-flight work is killed                               | `30`    |
+| `SHADOWMASK_REINDEX_EVERY_SECS`       | Search index rebuild interval                                              | `3600`  |
+| `SHADOWMASK_DAILY_SCAN_AT`            | Nightly re-scan at `HH:MM`, container timezone, `scheduled` libraries only | unset   |
+
+### Job pools
+
+Each kind runs on one pool, up to that pool's concurrency. Unassigned kinds run on `default`.
+
+| Pool         | Concurrency | Kinds                                     |
+|--------------|-------------|-------------------------------------------|
+| `default`    | `4`         | everything not named below                |
+| `trickplay`  | `1`         | `trickplay`                               |
+| `enrichment` | `1`         | `transcription`, `translation`, `upscale` |
+| `fetch`      | `1`         | `fetch`                                   |
+
+| Variable                                  | Description                             | Default |
+|-------------------------------------------|-----------------------------------------|---------|
+| `SHADOWMASK_JOB_POOLS_<POOL>_CONCURRENCY` | Jobs that pool runs at once             | `1`     |
+| `SHADOWMASK_JOB_POOLS_<POOL>_KINDS`       | Comma-separated job kinds for that pool | none    |
+
+Any `<POOL>` name creates a pool; naming no kinds removes one. An unknown kind, a kind claimed by
+two pools, or a concurrency of zero stops the server at startup.
+
+Kinds: `library_scan`, `metadata`, `artwork`, `subtitles`, `trickplay`, `fingerprint`, `dedup`,
+`cache_eviction`, `search_reindex`, `ingest`, `relink`, `transcription`, `translation`, `upscale`,
+`combine`, `fetch`, `scheduled_scan`, `retention`, `orphan_sweep`.
+
+```yaml
+SHADOWMASK_JOB_POOLS_DEFAULT_CONCURRENCY: "8"
+SHADOWMASK_JOB_POOLS_TRICKPLAY_CONCURRENCY: "2"
+SHADOWMASK_JOB_POOLS_ARTWORK_KINDS: "artwork"
+SHADOWMASK_JOB_POOLS_ARTWORK_CONCURRENCY: "6"
+```
+
+### Caches, limits and retention
+
+| Variable                               | Description                                            | Default       |
+|----------------------------------------|--------------------------------------------------------|---------------|
+| `SHADOWMASK_TRANSCODE_CACHE_CAP_BYTES` | Transcode cache size cap                               | `10737418240` |
+| `SHADOWMASK_REMUX_READ_RATE`           | Remux read-ahead multiplier                            | `10.0`        |
+| `SHADOWMASK_MAX_TRANSCODE_HEIGHT`      | Re-encode height cap; direct play and remux unaffected | unset         |
+| `SHADOWMASK_CACHE_EVICTION_EVERY_SECS` | Cache sweep interval                                   | `3600`        |
+| `SHADOWMASK_JOB_RETENTION_DAYS`        | Finished job and log retention                         | `30`          |
+| `SHADOWMASK_RETENTION_EVERY_SECS`      | Retention interval                                     | `86400`       |
+| `SHADOWMASK_ORPHAN_SWEEP_EVERY_SECS`   | Orphan sweep interval                                  | `86400`       |
+| `SHADOWMASK_ORPHAN_SWEEP_GRACE_SECS`   | Age before an orphan is removable                      | `86400`       |
+
+### Logging
+
+| Variable                    | Description                                | Default |
+|-----------------------------|--------------------------------------------|---------|
+| `SHADOWMASK_LOG_LEVEL`      | Shadowmask's own crates                    | `info`  |
+| `SHADOWMASK_SQLX_LOG_LEVEL` | The `sqlx` target                          | `warn`  |
+| `RUST_LOG`                  | Raw `tracing` filter; overrides both above | unset   |
+
+### Bootstrap
+
+| Variable                    | Description                                      | Default |
+|-----------------------------|--------------------------------------------------|---------|
+| `SHADOWMASK_BOOTSTRAP_MODE` | `off`, `init` (apply and exit), `init-and-start` | `off`   |
+
+Strings in the bootstrap TOML files expand `${NAME}` against the environment, so
+`password = "${SHADOWMASK_ADMIN_PASSWORD}"` keeps secrets out of the files.
+
+### Network, TLS and CORS
+
+| Variable                          | Description                                                 | Default |
+|-----------------------------------|-------------------------------------------------------------|---------|
+| `SHADOWMASK_TLS_CERT`             | PEM certificate; HTTPS on the same port. Set with the key   | unset   |
+| `SHADOWMASK_TLS_KEY`              | PEM private key                                             | unset   |
+| `SHADOWMASK_CORS_ALLOWED_ORIGINS` | Exact origins allowed to call the API. Unset means CORS off | unset   |
+
+### Hardware acceleration
+
+| Variable                           | Description            | Default               |
+|------------------------------------|------------------------|-----------------------|
+| `SHADOWMASK_HARDWARE_ACCELERATION` | `auto`, `off`, `vaapi` | `auto`                |
+| `SHADOWMASK_VAAPI_DEVICE`          | Render node            | `/dev/dri/renderD128` |
+
+### Local AI (enrichment)
+
+Needs the `-enrichment` image. The `*_PROVIDER` settings are informational: enabling a feature runs
+the bundled provider, and external providers are not implemented. Leave them at their default.
+
+| Variable                                          | Description                              | Default                  |
+|---------------------------------------------------|------------------------------------------|--------------------------|
+| `SHADOWMASK_ENRICHMENT_MODEL_CACHE`               | CTranslate2 model root                   | `data/enrichment-models` |
+| `SHADOWMASK_ENRICHMENT_THREADS`                   | Cores one enrichment job may use         | half the machine         |
+| `SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED`     | Transcription on                         | `false`                  |
+| `SHADOWMASK_ENRICHMENT_TRANSCRIPTION_PROVIDER`    | Transcription provider                   | `none`                   |
+| `SHADOWMASK_ENRICHMENT_TRANSCRIPTION_MODEL_PATH`  | Model dir, relative to the model cache   | unset                    |
+| `SHADOWMASK_ENRICHMENT_TRANSLATION_ENABLED`       | Translation on                           | `false`                  |
+| `SHADOWMASK_ENRICHMENT_TRANSLATION_PROVIDER`      | Translation provider                     | `none`                   |
+| `SHADOWMASK_ENRICHMENT_TRANSLATION_MODEL_PATH`    | Model dir, relative to the model cache   | unset                    |
+| `SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX` | Input language token, e.g. `<2{target}>` | unset                    |
+| `SHADOWMASK_ENRICHMENT_TRANSLATION_TARGET_PREFIX` | Output language token, e.g. `{target}`   | unset                    |
+| `SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED`         | Upscaling on                             | `false`                  |
+| `SHADOWMASK_ENRICHMENT_UPSCALING_PROVIDER`        | Upscaling provider                       | `none`                   |
+| `SHADOWMASK_ENRICHMENT_UPSCALING_MODEL_PATH`      | Model dir, relative to the model cache   | unset                    |
+| `SHADOWMASK_ENRICHMENT_UPSCALING_TARGET_HEIGHT`   | Upscale target height                    | `1080`                   |
+
+### Content fetch
+
+| Variable                                       | Description                              | Default  |
+|------------------------------------------------|------------------------------------------|----------|
+| `SHADOWMASK_FETCH_PROVIDERS_ENABLED`           | Content fetch on                         | `false`  |
+| `SHADOWMASK_FETCH_PROVIDERS_YT_DLP_BINARY`     | `yt-dlp` path                            | `yt-dlp` |
+| `SHADOWMASK_FETCH_PROVIDERS_YT_DLP_PLUGIN_DIR` | Extractor plugin directory               | unset    |
+| `SHADOWMASK_FETCH_PROVIDERS_MAX_HEIGHT`        | Download resolution cap                  | unset    |
+| `SHADOWMASK_FETCH_PROVIDERS_COOKIES_FILE`      | Netscape `cookies.txt` for gated content | unset    |
+
+### Web UI image
+
+Read at container start; a change needs a restart.
+
+| Variable                           | Description                                                                                                       | Default     |
+|------------------------------------|-------------------------------------------------------------------------------------------------------------------|-------------|
+| `SHADOWMASK_API_BASE`              | Where the browser reaches the server, e.g. `http://192.168.1.10:8080`. Required, and never a compose service name | none        |
+| `NGINX_SERVER_NAME`                | vhost `server_name`                                                                                               | `localhost` |
+| `NGINX_SERVER_PORT`                | Listen port; ending in ` ssl` requires the four values below                                                      | `80`        |
+| `NGINX_SERVER_SSL_CERTIFICATE`     | Certificate path in the container                                                                                 | unset       |
+| `NGINX_SERVER_SSL_CERTIFICATE_KEY` | Key path in the container                                                                                         | unset       |
+| `NGINX_SERVER_SSL_PROTOCOLS`       | e.g. `TLSv1.2 TLSv1.3`                                                                                            | unset       |
+| `NGINX_SERVER_SSL_CIPHERS`         | e.g. `HIGH:!aNULL:!MD5`                                                                                           | unset       |
+
+### Compose
+
+Read by `deployment/production/docker-compose.yml` itself, not by the server.
+
+| Variable                   | Description                                                            | Default                  |
+|----------------------------|------------------------------------------------------------------------|--------------------------|
+| `SHADOWMASK_MOVIES_DIR`    | Host path mounted at `/media/movies`. Required                         | none                     |
+| `SHADOWMASK_TV_DIR`        | Host path mounted at `/media/tv`. Required                             | none                     |
+| `SHADOWMASK_WEB_UI_ORIGIN` | Origin the UI is served from; becomes `SHADOWMASK_CORS_ALLOWED_ORIGINS` | `http://localhost:8090`  |
+| `SHADOWMASK_VERSION`       | Image tag for both services                                            | `latest`                 |
+| `SHADOWMASK_PORT`          | Published server port                                                  | `8080`                   |
+| `SHADOWMASK_WEB_UI_PORT`   | Published web UI port                                                  | `8090`                   |
+| `SHADOWMASK_MEM_LIMIT`     | Server container memory and swap limit                                 | `8g`                     |
+| `SHADOWMASK_EXTERNAL_DIR`  | Host path for fetched content, when that mount is enabled              | `./local/external`       |
+
 ## Scanning
 
 **Nothing is scanned automatically unless you ask for it.** A scan otherwise runs only when an
@@ -55,8 +248,19 @@ with an Intel or AMD iGPU, pass the render node through and grant access:
 ```
 
 The `render` group id can differ between host distributions; use the numeric gid if the group name
-does not resolve inside the container. Intel QuickSync uses the same VAAPI path (its driver is baked
-into the image). Hardware H.264 encoding is VAAPI-only; NVIDIA NVENC is not used by the encoder.
+does not resolve inside the container.
+
+Hardware H.264 encoding is VAAPI only; NVENC is not used, so an NVIDIA card encodes in software
+whatever you pass through. On an NVIDIA-only host, leave `/dev/dri` out or set `off`: `auto` enables
+VAAPI whenever the render node exists, without checking what is behind it, so every segment fails
+once before falling back.
+
+The userspace VAAPI drivers ship in the image; only the render node comes from the host. The amd64
+image covers Intel through `intel-media-va-driver` (Broadwell and newer) and `i965-va-driver`
+(older), and AMD through `mesa-va-drivers`. The arm64 image has no Intel drivers, since that
+silicon does not exist on arm, and covers AMD only. An arm board's own encoder is not reachable:
+Raspberry Pi and Rockchip expose V4L2 M2M and RKMPP rather than VAAPI, so arm64 hosts without a
+discrete AMD GPU encode in software.
 
 ## Playback profiles
 
@@ -72,9 +276,23 @@ extension is the device type, so `roku.json` replaces the built-in `roku` profil
 
 ```json
 {
-  "containers": ["mp4", "hls"],
-  "video": [{ "codec": "h264", "max_level": "4.2", "max_bit_depth": 8 }],
-  "audio": [{ "codec": "aac", "max_channels": 2 }],
+  "containers": [
+    "mp4",
+    "hls"
+  ],
+  "video": [
+    {
+      "codec": "h264",
+      "max_level": "4.2",
+      "max_bit_depth": 8
+    }
+  ],
+  "audio": [
+    {
+      "codec": "aac",
+      "max_channels": 2
+    }
+  ],
   "hdr": [],
   "max_width": 1920,
   "max_height": 1080,
@@ -83,10 +301,9 @@ extension is the device type, so `roku.json` replaces the built-in `roku` profil
 ```
 
 `hdr`, `max_frame_rate` and each codec's `max_level` are optional; everything else is required.
-Claiming something a device cannot actually play fails playback outright, which is worse than the
-transcode that leaving it out costs, so prefer narrow. The server refuses to start if the directory
-is missing or a file does not parse, rather than quietly falling back to the built-in you meant to
-replace.
+Prefer narrow: claiming a codec the device cannot play fails playback outright, while omitting one
+only costs a transcode. The server refuses to start if the directory is missing or a file does not
+parse.
 
 ## Content fetch
 
@@ -99,10 +316,10 @@ Enable it:
 
 ```
 SHADOWMASK_FETCH_PROVIDERS_ENABLED=true
-SHADOWMASK_FETCH_PROVIDERS_CONCURRENCY=1
+SHADOWMASK_JOB_POOLS_FETCH_CONCURRENCY=1
 ```
 
-Downloads run on their own capped worker queue (`SHADOWMASK_FETCH_PROVIDERS_CONCURRENCY`, default 1) so
+Downloads run on their own job pool (`SHADOWMASK_JOB_POOLS_FETCH_CONCURRENCY`, default 1) so
 they never all run at once and never block ordinary jobs. Each fetch is stored under the root of the
 external library you pick, so create one external library per destination directory (for example a
 "YouTube" library rooted at one path and another library rooted at a different path). The library
@@ -147,11 +364,9 @@ SHADOWMASK_FETCH_PROVIDERS_COOKIES_FILE=/config/cookies.txt
 The file is passed to yt-dlp as `--cookies`. Shadowmask deliberately does not use
 `--cookies-from-browser`, because the server is headless and has no browser profile to read.
 
-When you start a fetch, the server checks the cookies for that site first. If the cookies that apply to
-the target site have all expired, the request is rejected right away with a clear error telling you to
-re-export the file, instead of queueing a download that would fail. Cookies that do not apply to the
-target site (and public fetches) are never blocked by this check.
+The server checks the cookies for the target site before queueing a fetch, and rejects the request
+with an error naming the expiry rather than starting a download that would fail. Cookies for other
+sites, and public fetches, are unaffected.
 
-That file holds live session secrets. Mount it read-only, never commit it, and treat it like a
-password. Rotate it if a session expires. Using your account to download is subject to that site's
-terms; this is intended for personal use of content you can already access.
+The file holds live session secrets: mount it read-only and never commit it. Using your account to
+download is subject to that site's terms.

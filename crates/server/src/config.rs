@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -10,6 +11,55 @@ use crate::enrichment::EnrichmentConfig;
 use crate::fetch_providers::FetchProvidersConfig;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
+const RETIRED_CONCURRENCY_VARS: [(&str, &str); 3] = [
+    ("SHADOWMASK_WORKER_CONCURRENCY", "SHADOWMASK_JOB_POOLS_DEFAULT_CONCURRENCY"),
+    ("SHADOWMASK_ENRICHMENT_CONCURRENCY", "SHADOWMASK_JOB_POOLS_ENRICHMENT_CONCURRENCY"),
+    ("SHADOWMASK_FETCH_PROVIDERS_CONCURRENCY", "SHADOWMASK_JOB_POOLS_FETCH_CONCURRENCY"),
+];
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct JobPoolConfig {
+    pub concurrency: usize,
+    pub kinds: Vec<String>,
+}
+
+impl Default for JobPoolConfig {
+    fn default() -> Self {
+        Self { concurrency: 1, kinds: Vec::new() }
+    }
+}
+
+fn default_job_pools() -> BTreeMap<String, JobPoolConfig> {
+    jobs::default_pools()
+        .into_iter()
+        .map(|(name, pool)| {
+            (name, JobPoolConfig { concurrency: pool.concurrency, kinds: pool.kinds })
+        })
+        .collect()
+}
+
+fn pool_kinds_key(key: &str) -> Option<String> {
+    let name = key.strip_prefix("job_pools.")?.strip_suffix(".kinds")?;
+    (!name.contains('.')).then(|| name.to_owned())
+}
+
+fn pool_kinds_from_env(
+    vars: impl Iterator<Item = (String, String)>,
+) -> BTreeMap<String, Vec<String>> {
+    vars.filter_map(|(key, value)| {
+        let key = key.strip_prefix("SHADOWMASK_")?;
+        let name = pool_kinds_key(&nest_section_key(key))?;
+        let kinds: Vec<String> = value
+            .split(',')
+            .map(|kind| kind.trim().to_owned())
+            .filter(|kind| !kind.is_empty())
+            .collect();
+        Some((name, kinds))
+    })
+    .collect()
+}
 
 pub fn transcription_model_dir(enrichment: &EnrichmentConfig) -> PathBuf {
     enrichment
@@ -71,6 +121,7 @@ pub struct Config {
     pub artwork_cache: PathBuf,
     pub trickplay_cache: PathBuf,
     pub subtitle_cache: PathBuf,
+    pub subtitle_extraction_cache: PathBuf,
     pub job_log_dir: PathBuf,
     pub tmdb_api_key: Option<String>,
     pub omdb_api_key: Option<String>,
@@ -79,8 +130,10 @@ pub struct Config {
     pub omdb_min_interval_ms: u64,
     pub opensubtitles_min_interval_ms: u64,
     pub target_languages: Vec<String>,
-    pub worker_concurrency: usize,
+    pub job_pools: BTreeMap<String, JobPoolConfig>,
     pub scan_probe_concurrency: usize,
+    pub trickplay_threads: usize,
+    pub trickplay_keyframes_only: bool,
     pub worker_period_secs: u64,
     pub scheduler_period_secs: u64,
     pub reaper_period_secs: u64,
@@ -124,6 +177,7 @@ impl Default for Config {
             artwork_cache: PathBuf::from("data/artwork"),
             trickplay_cache: PathBuf::from("data/trickplay"),
             subtitle_cache: PathBuf::from("data/subtitles"),
+            subtitle_extraction_cache: PathBuf::from("data/subtitle-extraction"),
             job_log_dir: PathBuf::from("data/job-logs"),
             tmdb_api_key: None,
             omdb_api_key: None,
@@ -132,8 +186,10 @@ impl Default for Config {
             omdb_min_interval_ms: 500,
             opensubtitles_min_interval_ms: 1000,
             target_languages: vec!["en".to_owned()],
-            worker_concurrency: 4,
+            job_pools: default_job_pools(),
             scan_probe_concurrency: services::library::DEFAULT_PROBE_CONCURRENCY,
+            trickplay_threads: 2,
+            trickplay_keyframes_only: true,
             worker_period_secs: 5,
             scheduler_period_secs: 30,
             reaper_period_secs: 30,
@@ -179,6 +235,13 @@ fn nest_section_key(key: &str) -> String {
     if let Some(leaf) = key.strip_prefix("fetch_providers_") {
         return format!("fetch_providers.{leaf}");
     }
+    if let Some(rest) = key.strip_prefix("job_pools_")
+        && let Some((pool, field)) = rest.rsplit_once('_')
+        && matches!(field, "concurrency" | "kinds")
+        && !pool.is_empty()
+    {
+        return format!("job_pools.{pool}.{field}");
+    }
     key
 }
 
@@ -191,7 +254,8 @@ impl Config {
                 Env::prefixed("SHADOWMASK_")
                     .map(|key| nest_section_key(key.as_str()).into())
                     .split(".")
-                    .ignore(&["target_languages", "cors_allowed_origins"]),
+                    .ignore(&["target_languages", "cors_allowed_origins"])
+                    .filter(|key| pool_kinds_key(key.as_str()).is_none()),
             )
             .extract()?;
         config.tmdb_api_key = trim_key(config.tmdb_api_key);
@@ -214,6 +278,15 @@ impl Config {
                 .map(|origin| origin.trim().to_owned())
                 .filter(|origin| !origin.is_empty())
                 .collect();
+        }
+        for (name, kinds) in pool_kinds_from_env(std::env::vars()) {
+            config.job_pools.entry(name).or_default().kinds = kinds;
+        }
+        for (retired, replacement) in RETIRED_CONCURRENCY_VARS {
+            if std::env::var_os(retired).is_some() {
+                #[rustfmt::skip]
+                tracing::warn!("[{retired}] is no longer read; job pools replaced it, so set [{replacement}] instead");
+            }
         }
         Ok(config)
     }
@@ -257,6 +330,7 @@ impl Config {
             ("artwork:", self.artwork_cache.display().to_string()),
             ("trickplay:", self.trickplay_cache.display().to_string()),
             ("subtitles:", self.subtitle_cache.display().to_string()),
+            ("subtitle_extraction:", self.subtitle_extraction_cache.display().to_string()),
             ("job_logs:", self.job_log_dir.display().to_string()),
         ] {
             let _ = writeln!(out, "    {key:<CACHE_KEY_WIDTH$} {value}");
@@ -291,8 +365,17 @@ impl Config {
         );
         let _ = writeln!(out, "    target_languages:      {}", self.target_languages.join(", "));
         let _ = writeln!(out, "  workers:");
-        let _ = writeln!(out, "    concurrency:      {}", self.worker_concurrency);
+        for (name, pool) in &self.job_pools {
+            let kinds = if pool.kinds.is_empty() {
+                "everything else".to_owned()
+            } else {
+                pool.kinds.join(", ")
+            };
+            let _ = writeln!(out, "    pool {name}: {} at a time, {kinds}", pool.concurrency);
+        }
         let _ = writeln!(out, "    scan_probes:      {}", self.scan_probe_concurrency);
+        let _ = writeln!(out, "    trickplay_threads:{}", self.trickplay_threads);
+        let _ = writeln!(out, "    trickplay_keys:   {}", self.trickplay_keyframes_only);
         let _ = writeln!(out, "    worker_period:    {} s", self.worker_period_secs);
         let _ = writeln!(out, "    scheduler_period: {} s", self.scheduler_period_secs);
         let _ = writeln!(out, "    reaper_period:    {} s", self.reaper_period_secs);
@@ -303,7 +386,6 @@ impl Config {
         let _ = writeln!(out, "    clients: {}", self.webhook_clients.len());
         let _ = writeln!(out, "  enrichment:");
         let _ = writeln!(out, "    model_cache:   {}", e.model_cache.display());
-        let _ = writeln!(out, "    concurrency:   {}", e.concurrency);
         let _ = writeln!(
             out,
             "    transcription: enabled={} provider={:?} models_dir={}",
@@ -330,7 +412,6 @@ impl Config {
         );
         let _ = writeln!(out, "  fetch_providers:");
         let _ = writeln!(out, "    enabled:       {}", self.fetch_providers.enabled);
-        let _ = writeln!(out, "    concurrency:   {}", self.fetch_providers.concurrency);
         let _ = writeln!(out, "    yt_dlp_binary: {}", self.fetch_providers.yt_dlp_binary);
         let _ = writeln!(out, "    version:       {}", yt_dlp_version.unwrap_or("none"));
         let _ = writeln!(
@@ -387,6 +468,7 @@ fn trim_key(key: Option<String>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tracing_test::traced_test;
 
     #[test]
     #[allow(clippy::result_large_err)]
@@ -394,7 +476,10 @@ mod tests {
         figment::Jail::expect_with(|_jail| {
             let config = Config::load().unwrap();
             assert_eq!(config.bind, SocketAddr::from(([0, 0, 0, 0], 8080)));
-            assert_eq!(config.worker_concurrency, 4);
+            assert_eq!(config.job_pools["default"].concurrency, 4);
+            assert_eq!(config.job_pools["trickplay"].kinds, vec!["trickplay".to_owned()]);
+            assert_eq!(config.trickplay_threads, 2);
+            assert!(config.trickplay_keyframes_only);
             Ok(())
         });
     }
@@ -427,11 +512,11 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn load_merges_file_then_env() {
         figment::Jail::expect_with(|jail| {
-            jail.create_file("shadowmask.toml", "access_ttl_secs = 7\nworker_concurrency = 2\n")?;
-            jail.set_env("SHADOWMASK_WORKER_CONCURRENCY", "9");
+            jail.create_file("shadowmask.toml", "access_ttl_secs = 7\ntrickplay_threads = 2\n")?;
+            jail.set_env("SHADOWMASK_TRICKPLAY_THREADS", "6");
             let config = Config::load().unwrap();
             assert_eq!(config.access_ttl_secs, 7);
-            assert_eq!(config.worker_concurrency, 9);
+            assert_eq!(config.trickplay_threads, 6);
             Ok(())
         });
     }
@@ -620,6 +705,54 @@ mod tests {
             "fetch_providers.yt_dlp_binary"
         );
         assert_eq!(super::nest_section_key("fetch_providers_enabled"), "fetch_providers.enabled");
+        assert_eq!(
+            super::nest_section_key("JOB_POOLS_TRICKPLAY_CONCURRENCY"),
+            "job_pools.trickplay.concurrency"
+        );
+        assert_eq!(super::nest_section_key("job_pools_my_pool_kinds"), "job_pools.my_pool.kinds");
+        assert_eq!(super::nest_section_key("job_pools_trickplay_nope"), "job_pools_trickplay_nope");
+        assert_eq!(super::nest_section_key("job_pools_kinds"), "job_pools_kinds");
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn job_pools_are_configurable_from_env() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("SHADOWMASK_JOB_POOLS_TRICKPLAY_CONCURRENCY", "3");
+            jail.set_env("SHADOWMASK_JOB_POOLS_HEAVY_KINDS", "upscale, combine");
+            let config = Config::load().unwrap();
+            assert_eq!(config.job_pools["trickplay"].concurrency, 3);
+            assert_eq!(config.job_pools["trickplay"].kinds, vec!["trickplay".to_owned()]);
+            assert_eq!(
+                config.job_pools["heavy"].kinds,
+                vec!["upscale".to_owned(), "combine".to_owned()]
+            );
+            assert_eq!(config.job_pools["heavy"].concurrency, 1);
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn a_pools_kinds_can_be_emptied_from_env() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("SHADOWMASK_JOB_POOLS_TRICKPLAY_KINDS", "");
+            let config = Config::load().unwrap();
+            assert!(config.job_pools["trickplay"].kinds.is_empty());
+            Ok(())
+        });
+    }
+
+    #[traced_test]
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn a_retired_concurrency_variable_names_its_replacement() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("SHADOWMASK_WORKER_CONCURRENCY", "9");
+            Config::load().unwrap();
+            assert!(logs_contain("SHADOWMASK_JOB_POOLS_DEFAULT_CONCURRENCY"));
+            Ok(())
+        });
     }
 
     #[test]
@@ -747,7 +880,7 @@ mod tests {
             .map(value_column)
             .collect();
 
-        assert_eq!(columns.len(), 8, "every cache line has to be measured");
+        assert_eq!(columns.len(), 9, "every cache line has to be measured");
         assert!(
             columns.iter().all(|column| *column == columns[0]),
             "cache values start at differing columns: {columns:?}"

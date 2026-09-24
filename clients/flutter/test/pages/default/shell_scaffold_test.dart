@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -646,6 +647,83 @@ void main() {
       scrollable.position.pixels,
       900,
       reason: 'restoring focus must not scroll the page back to the top',
+    );
+  });
+
+  testWidgets('the page keys move the list, and typing keeps them out of it', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final TextEditingController typed = TextEditingController();
+    final FocusNode caret = FocusNode();
+    addTearDown(typed.dispose);
+    addTearDown(caret.dispose);
+    await tester.pumpWidget(
+      _host(
+        Column(
+          children: <Widget>[
+            SizedBox(
+              height: 40,
+              child: TextField(controller: typed, focusNode: caret),
+            ),
+            for (int i = 0; i < 40; i++)
+              SizedBox(height: 80, child: Text('row $i')),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final ScrollableState scrollable = tester.state<ScrollableState>(
+      find.byType(Scrollable).first,
+    );
+    expect(scrollable.position.pixels, 0);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.end);
+    await tester.pumpAndSettle();
+    final double bottom = scrollable.position.pixels;
+    expect(
+      bottom,
+      scrollable.position.maxScrollExtent,
+      reason: 'End has to reach the end of the list, not step towards it',
+    );
+    expect(bottom, greaterThan(0));
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.home);
+    await tester.pumpAndSettle();
+    expect(scrollable.position.pixels, 0);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
+    await tester.pumpAndSettle();
+    final double onePage = scrollable.position.pixels;
+    expect(onePage, greaterThan(0));
+    expect(
+      onePage,
+      lessThan(bottom),
+      reason: 'PageDown is a screenful, not the whole list',
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.pageUp);
+    await tester.pumpAndSettle();
+    expect(scrollable.position.pixels, 0);
+
+    caret.requestFocus();
+    await tester.pumpAndSettle();
+    expect(
+      caret.hasFocus,
+      isTrue,
+      reason: 'the guard is only meaningful once a field holds focus',
+    );
+    expect(scrollable.position.pixels, 0);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.end);
+    await tester.pumpAndSettle();
+    expect(
+      scrollable.position.pixels,
+      0,
+      reason: 'Home and End belong to the caret while a field has focus',
     );
   });
 

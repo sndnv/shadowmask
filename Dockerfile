@@ -11,6 +11,7 @@ RUN --mount=type=cache,id=cargo-registry-${TARGETARCH},target=/usr/local/cargo/r
     && cp target/release/server /usr/local/bin/shadowmask
 
 FROM debian:bookworm-slim AS runtime
+ARG TARGETARCH
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         ffmpeg \
@@ -18,6 +19,11 @@ RUN apt-get update \
         libva2 \
         ca-certificates \
         curl \
+    && if [ "$TARGETARCH" = "amd64" ]; then \
+        apt-get install --no-install-recommends -y \
+            intel-media-va-driver \
+            i965-va-driver; \
+    fi \
     && rm -rf /var/lib/apt/lists/* \
     && ffmpeg -hide_banner -filters | grep -qw zscale \
     && ffmpeg -hide_banner -filters | grep -qw tonemap
@@ -47,6 +53,7 @@ ENV SHADOWMASK_DB_ROOT=/data \
     SHADOWMASK_ARTWORK_CACHE=/data/artwork \
     SHADOWMASK_TRICKPLAY_CACHE=/data/trickplay \
     SHADOWMASK_SUBTITLE_CACHE=/data/subtitles \
+    SHADOWMASK_SUBTITLE_EXTRACTION_CACHE=/data/subtitle-extraction \
     SHADOWMASK_JOB_LOG_DIR=/data/job-logs \
     SHADOWMASK_BOOTSTRAP_DIR=/config/bootstrap \
     SHADOWMASK_BASIC_CLIENT_DIR=/usr/share/shadowmask/basic

@@ -913,18 +913,20 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('a renegotiation that returns late never attaches over a newer one', (
+  testWidgets('a pending renegotiation is visible and cannot be retriggered', (
     WidgetTester tester,
   ) async {
     final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
     final Completer<http.Response> slow = Completer<http.Response>();
     await tester.pumpWidget(
       _app(
         fake,
+        seen: seen,
         onUpdate: (int call) => call == 0
             ? slow.future
             : Future<http.Response>.value(
-                _renegotiated('remux', '/stream/newer/master.m3u8'),
+                _renegotiated('remux', '/stream/second/master.m3u8'),
               ),
       ),
     );
@@ -935,26 +937,52 @@ void main() {
     await tester.tap(find.text(Strings.playerOriginalAt(1080)).last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('720p').last);
+    await tester.pump();
+
+    int updates() =>
+        seen.where((http.Request r) => r.url.path.endsWith('/update')).length;
+
+    expect(
+      find.text(Strings.applyingPlaybackChanges),
+      findsOneWidget,
+      reason:
+          'a multi-minute POST with no pending state is what M18 exists to prevent',
+    );
+    expect(updates(), 1);
+    expect(
+      tester.widget<PlayerSettingsPanel>(find.byType(PlayerSettingsPanel)).busy,
+      isTrue,
+    );
+
+    await tester.tap(find.text('720p').last, warnIfMissed: false);
+    await tester.pump();
+    expect(
+      updates(),
+      1,
+      reason:
+          'the control that started a renegotiation stays blocked until it settles',
+    );
+
+    slow.complete(_renegotiated('transcode', '/stream/first/master.m3u8'));
     await tester.pumpAndSettle();
+
+    expect(fake.attached, '/stream/first/master.m3u8');
+    expect(find.text(Strings.applyingPlaybackChanges), findsNothing);
+    expect(
+      tester.widget<PlayerSettingsPanel>(find.byType(PlayerSettingsPanel)).busy,
+      isFalse,
+    );
 
     await tester.tap(find.text('720p').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('480p').last);
     await tester.pumpAndSettle();
-
-    expect(fake.attached, '/stream/newer/master.m3u8');
-
-    slow.complete(_renegotiated('transcode', '/stream/older/master.m3u8'));
-    await tester.pumpAndSettle();
-
     expect(
-      fake.attached,
-      '/stream/newer/master.m3u8',
+      updates(),
+      2,
       reason:
-          'the slower negotiation is for an artifact the newer one has already '
-          'superseded, so attaching it would play a stream the labels no longer describe',
+          'a gate that never releases would lock the settings for the session',
     );
-    expect(fake.calls, isNot(contains('attach:transcode')));
 
     await tester.pumpWidget(const SizedBox());
   });

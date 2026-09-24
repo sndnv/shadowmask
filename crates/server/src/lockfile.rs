@@ -26,13 +26,19 @@ impl Drop for ServerLock {
 }
 
 fn open_lock(db_root: &Path) -> io::Result<File> {
-    std::fs::create_dir_all(db_root)?;
+    std::fs::create_dir_all(db_root).map_err(|err| naming(&err, db_root, "create"))?;
+    let path = db_root.join(LOCK_FILE);
     OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
-        .open(db_root.join(LOCK_FILE))
+        .open(&path)
+        .map_err(|err| naming(&err, &path, "write"))
+}
+
+fn naming(err: &io::Error, path: &Path, action: &str) -> io::Error {
+    io::Error::new(err.kind(), format!("cannot {action} [{}]: {err}", path.display()))
 }
 
 #[cfg(test)]
@@ -77,6 +83,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("not-a-dir");
         std::fs::write(&file, b"x").unwrap();
-        assert!(ServerLock::try_acquire(&file).is_err());
+        let err = ServerLock::try_acquire(&file).map(|_| ()).expect_err("not a data directory");
+        assert!(err.to_string().contains(&file.display().to_string()), "{err}");
+        assert!(err.to_string().starts_with("cannot create ["), "{err}");
+    }
+
+    #[test]
+    fn a_data_directory_it_cannot_write_names_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("read-only");
+        std::fs::create_dir(&root).unwrap();
+        let mut permissions = std::fs::metadata(&root).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&root, permissions).unwrap();
+
+        let err =
+            ServerLock::try_acquire(&root).map(|_| ()).expect_err("the lock cannot be written");
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        assert!(err.to_string().contains(&root.join(LOCK_FILE).display().to_string()), "{err}");
+        assert!(err.to_string().starts_with("cannot write ["), "{err}");
     }
 }

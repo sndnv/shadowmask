@@ -59,11 +59,23 @@ appimage-builder --skip-test
 ```
 
 `create-dmg` comes from Homebrew, `appimage-builder` from pip. The AppImage is described by
-[`AppImageBuilder.yml`](AppImageBuilder.yml).
+[`AppImageBuilder.yml`](AppImageBuilder.yml). `appimage-builder` does not run on macOS, so the
+AppImage can only be built on Linux or in CI, and nothing about it is exercised until it is launched
+on a host. Run it once by hand after changing the recipe.
 
 The AppImage does not bundle libmpv or GTK; both come from the host, so the desktop prerequisites
 above apply to it as well. It is built on Ubuntu 24.04 and links `libmpv.so.2`, so it needs a host
-of that vintage or newer.
+of that vintage or newer. Without libmpv it will not start, and says so in a dialog naming the
+package to install rather than failing silently from a file manager.
+
+Two parts of the recipe are load-bearing:
+
+* `after_bundle` copies the glibc loader to `AppDir/lib64/`. `appimage-builder` makes `PT_INTERP`
+  relative and `AppRun` resolves it from `runtime/compat` or `runtime/default`; only the latter is
+  populated for you, so without the copy the app starts only where the host glibc is newer than the
+  bundled one.
+* `runtime.env` points `APPDIR_EXEC_PATH` at `shadowmask-launch`, the libmpv check, and
+  `runtime.preserve` keeps its shebang absolute. `app_info.exec` must stay the ELF binary.
 
 The macOS build is neither signed nor notarized. On first open, right-click the app and choose Open,
 or run `xattr -dr com.apple.quarantine` against it. The iOS `.ipa` is built `--no-codesign`, so it

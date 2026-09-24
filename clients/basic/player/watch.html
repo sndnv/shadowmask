@@ -39,6 +39,7 @@
       let resumeMs = 0;
       let originMs = 0;
       let sequential = false;
+      let applying = false;
       let restarting = false;
       let playbackRate = 1;
       const networkTimeouts = [10, 30, 60, 90];
@@ -420,11 +421,29 @@
         await sendUpdate(extra, resumePos);
       }
 
+      function setControlsBusy(busy) {
+        const root = document.getElementById("controls");
+        if (!root) return;
+        root.setAttribute("aria-busy", busy ? "true" : "false");
+        for (const el of root.querySelectorAll("select, input, button")) {
+          if (busy) {
+            el.dataset.wasDisabled = el.disabled ? "1" : "";
+            el.disabled = true;
+          } else if (el.dataset.wasDisabled !== undefined) {
+            el.disabled = el.dataset.wasDisabled === "1";
+            delete el.dataset.wasDisabled;
+          }
+        }
+      }
+
       async function renegotiate(suffix, body, forcedPositionMs) {
-        if (!session || ended) return;
+        if (!session || ended || applying) return;
         const video = document.getElementById("player");
         const keepPos =
           forcedPositionMs != null ? forcedPositionMs : originMs + Math.floor(video.currentTime * 1000);
+        applying = true;
+        setControlsBusy(true);
+        document.getElementById("status").textContent = "Applying changes…";
         try {
           const r = await sm.json(
             "/api/v1/sessions/" + encodeURIComponent(session.session_id) + suffix,
@@ -439,6 +458,9 @@
           await attach(r.manifest_url, r.mode, keepPos - originMs);
         } catch (err) {
           document.getElementById("status").textContent = "Renegotiation failed (" + err.message + ").";
+        } finally {
+          applying = false;
+          setControlsBusy(false);
         }
       }
 

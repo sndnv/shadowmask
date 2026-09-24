@@ -65,8 +65,7 @@ desktop asks for the server address on first run and stores it on the device, so
 `--dart-define` and no CORS to configure.
 
 Desktop prerequisites: CocoaPods on macOS (`brew install cocoapods`), and libmpv on Linux
-(`sudo apt install libmpv-dev mpv` on Debian and Ubuntu). Linux is not verified on hardware.
-Windows is not supported.
+(`sudo apt install libmpv-dev mpv` on Debian and Ubuntu). Windows is not supported.
 
 The same codebase runs on mobile with `flutter run -d android` or `flutter run -d ios`. Mobile
 prerequisites are the Android SDK, and Xcode plus CocoaPods for iOS. Mobile asks for the server

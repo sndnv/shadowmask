@@ -82,6 +82,7 @@ class PlayerSettingsPanel extends StatefulWidget {
     this.onWaitForBuffer,
     this.onShortcuts,
     this.dense = false,
+    this.busy = false,
   });
 
   final PlayerPanel panel;
@@ -110,6 +111,7 @@ class PlayerSettingsPanel extends StatefulWidget {
   final ValueChanged<bool> onDiagnostics;
   final VoidCallback onClose;
   final bool dense;
+  final bool busy;
 
   @override
   State<PlayerSettingsPanel> createState() => _PlayerSettingsPanelState();
@@ -478,12 +480,18 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
         children: <Widget>[
           _header(t),
           Flexible(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.all(widget.dense ? Space.s2 : Space.s4),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: _rows(context, t),
+            child: AbsorbPointer(
+              absorbing: widget.busy,
+              child: Opacity(
+                opacity: widget.busy ? 0.5 : 1,
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.all(widget.dense ? Space.s2 : Space.s4),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: _rows(context, t),
+                  ),
+                ),
               ),
             ),
           ),

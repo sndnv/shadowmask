@@ -1,3 +1,4 @@
+use crate::catalog::VersionId;
 use crate::media::HdrFormat;
 use crate::session::{SegmentContainer, SessionId, StreamGeneration};
 
@@ -5,6 +6,7 @@ use crate::session::{SegmentContainer, SessionId, StreamGeneration};
 pub struct TranscodeSpec {
     pub session: SessionId,
     pub generation: StreamGeneration,
+    pub version: VersionId,
     pub input_path: String,
     pub duration_ms: u64,
     pub copy: bool,

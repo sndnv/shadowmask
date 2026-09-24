@@ -24,7 +24,18 @@ clients/roku/tooling/node_modules/
 # Local notes and keys
 .local
 *.keystore
+*.jks
+clients/flutter/android/app/secrets/
+
+# Editor and merge leftovers
+*.bak
+*.orig
+*.rej
+*.swp
+*.swo
+*~
 
 # Misc
 .DS_Store
+Thumbs.db
 __pycache__

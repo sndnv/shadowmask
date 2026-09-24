@@ -88,12 +88,14 @@ impl TranscodeManager for MockTranscodeManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::catalog::VersionId;
     use domain::session::{SegmentContainer, StreamGeneration};
 
     fn spec(id: &str) -> TranscodeSpec {
         TranscodeSpec {
             session: SessionId(id.to_owned()),
             generation: StreamGeneration(1),
+            version: VersionId("ver-1".to_owned()),
             input_path: "/media/m1.mkv".to_owned(),
             duration_ms: 100_000,
             copy: false,

@@ -16,11 +16,21 @@ pub struct TrickplayConfig {
     pub rows: u32,
     pub tile_width: u32,
     pub tile_height: u32,
+    pub threads: usize,
+    pub keyframes_only: bool,
 }
 
 impl Default for TrickplayConfig {
     fn default() -> Self {
-        Self { interval_ms: 10_000, columns: 10, rows: 10, tile_width: 320, tile_height: 180 }
+        Self {
+            interval_ms: 10_000,
+            columns: 10,
+            rows: 10,
+            tile_width: 320,
+            tile_height: 180,
+            threads: 2,
+            keyframes_only: true,
+        }
     }
 }
 
@@ -59,10 +69,9 @@ impl TrickplayGenerator for FfmpegTrickplayGenerator {
     ) -> Result<TrickplayAsset, TrickplayError> {
         let output_dir = self.cache_root.join(&version.0);
         std::fs::create_dir_all(&output_dir).map_err(|e| TrickplayError::Backend(e.to_string()))?;
-        let (args, asset) = plan_trickplay(duration_ms, &self.config, version, &output_dir);
+        let (args, asset) =
+            plan_trickplay(input_path, duration_ms, &self.config, version, &output_dir);
         let output = Command::new(&self.binary)
-            .args(["-v", "error", "-i"])
-            .arg(input_path)
             .args(&args)
             .output()
             .await
@@ -99,6 +108,7 @@ impl DerivedAssetStore for FfmpegTrickplayGenerator {
 }
 
 fn plan_trickplay(
+    input_path: &str,
     duration_ms: u64,
     config: &TrickplayConfig,
     version: &VersionId,
@@ -117,13 +127,24 @@ fn plan_trickplay(
         config.columns,
         config.rows
     );
-    let args = vec![
+    let threads = config.threads.max(1).to_string();
+    let mut args = vec!["-v".to_owned(), "error".to_owned(), "-nostdin".to_owned()];
+    if config.keyframes_only {
+        args.extend(["-skip_frame".to_owned(), "nokey".to_owned()]);
+    }
+    args.extend([
+        "-threads".to_owned(),
+        threads.clone(),
+        "-filter_threads".to_owned(),
+        threads,
+        "-i".to_owned(),
+        input_path.to_owned(),
         "-vf".to_owned(),
         filter,
         "-q:v".to_owned(),
         "4".to_owned(),
         format!("{dir}/sheet-%03d.jpg"),
-    ];
+    ]);
     let asset = TrickplayAsset {
         version: version.clone(),
         interval_ms: config.interval_ms,
@@ -145,7 +166,7 @@ mod tests {
     }
 
     fn plan(duration_ms: u64, config: TrickplayConfig) -> (Vec<String>, TrickplayAsset) {
-        plan_trickplay(duration_ms, &config, &version(), Path::new("/cache/v1"))
+        plan_trickplay("/media/movie.mkv", duration_ms, &config, &version(), Path::new("/cache/v1"))
     }
 
     #[test]
@@ -188,11 +209,22 @@ mod tests {
             rows: 4,
             tile_width: 320,
             tile_height: 180,
+            threads: 3,
+            keyframes_only: false,
         };
         let (args, asset) = plan(5_000, config);
         assert_eq!(
             args,
             vec![
+                "-v".to_owned(),
+                "error".to_owned(),
+                "-nostdin".to_owned(),
+                "-threads".to_owned(),
+                "3".to_owned(),
+                "-filter_threads".to_owned(),
+                "3".to_owned(),
+                "-i".to_owned(),
+                "/media/movie.mkv".to_owned(),
                 "-vf".to_owned(),
                 "fps=1/5,scale=320:180,tile=4x4".to_owned(),
                 "-q:v".to_owned(),
@@ -206,6 +238,28 @@ mod tests {
         assert_eq!(asset.tile_width, 320);
         assert_eq!(asset.tile_height, 180);
         assert_eq!(asset.version, version());
+    }
+
+    #[test]
+    fn keyframe_only_decoding_is_on_by_default_and_can_be_turned_off() {
+        let (with, _asset) = plan(10_000, TrickplayConfig::default());
+        let without =
+            plan(10_000, TrickplayConfig { keyframes_only: false, ..Default::default() }).0;
+
+        assert!(with.windows(2).any(|pair| pair == ["-skip_frame", "nokey"]));
+        assert!(!without.iter().any(|arg| arg == "-skip_frame"));
+        assert!(
+            with.iter().position(|arg| arg == "-skip_frame")
+                < with.iter().position(|arg| arg == "-i")
+        );
+    }
+
+    #[test]
+    fn zero_threads_is_floored_to_one() {
+        let config = TrickplayConfig { threads: 0, ..TrickplayConfig::default() };
+        let (args, _asset) = plan(10_000, config);
+        let threads = args.windows(2).find(|pair| pair[0] == "-threads").expect("threads arg");
+        assert_eq!(threads[1], "1");
     }
 
     #[tokio::test]

@@ -172,7 +172,7 @@ pub(crate) fn build_subtitle_extract_args(
     source: &SoftSubtitleSource,
     out_vtt: &str,
 ) -> Vec<String> {
-    let mut args = vec!["-y".to_owned(), "-i".to_owned()];
+    let mut args = vec!["-nostdin".to_owned(), "-y".to_owned(), "-i".to_owned()];
     match source {
         SoftSubtitleSource::Embedded(index) => {
             args.push(video_input.to_owned());
@@ -227,6 +227,7 @@ fn escape_subtitle_path(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::catalog::VersionId;
     use domain::media::HdrFormat;
     use domain::session::{
         SegmentContainer, SessionId, StreamGeneration, plan_segments, plan_segments_on_grid,
@@ -236,6 +237,7 @@ mod tests {
         TranscodeSpec {
             session: SessionId("s1".to_owned()),
             generation: StreamGeneration(1),
+            version: VersionId("ver-1".to_owned()),
             input_path: "/media/movie.mkv".to_owned(),
             duration_ms: 120_000,
             copy: false,
@@ -701,6 +703,7 @@ mod tests {
         assert_eq!(
             args,
             vec![
+                "-nostdin",
                 "-y",
                 "-i",
                 "/media/movie.mkv",
@@ -722,7 +725,15 @@ mod tests {
         );
         assert_eq!(
             args,
-            vec!["-y", "-i", "/media/movie.en.srt", "-f", "webvtt", "/cache/s1/subs/subs.vtt",]
+            vec![
+                "-nostdin",
+                "-y",
+                "-i",
+                "/media/movie.en.srt",
+                "-f",
+                "webvtt",
+                "/cache/s1/subs/subs.vtt",
+            ]
         );
         assert!(!args.iter().any(|a| a == "-map"));
     }

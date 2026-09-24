@@ -55,11 +55,12 @@ async fn serves_a_jit_segment_end_to_end() {
     let cache = tempfile::tempdir().unwrap();
     let session = SessionId(SESSION.to_owned());
     let generation = StreamGeneration(1);
-    let engine = HlsStreamSource::new(cache.path());
+    let engine = HlsStreamSource::new(cache.path(), cache.path().join("_extraction"));
     let started = engine
         .start(TranscodeSpec {
             session: session.clone(),
             generation,
+            version: VersionId("ver-1".to_owned()),
             input_path,
             duration_ms: probe.duration_ms,
             copy: true,

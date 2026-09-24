@@ -39,6 +39,7 @@ fn config(root: &Path) -> WireConfig {
         access_ttl_secs: 3600,
         refresh_ttl_secs: 86_400,
         transcode_cache: root.join("transcode"),
+        subtitle_extraction_cache: root.join("subtitle-extraction"),
         artwork_cache: root.join("artwork"),
         trickplay_cache: root.join("trickplay"),
         tmdb_api_key: None,

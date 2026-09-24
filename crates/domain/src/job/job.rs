@@ -27,8 +27,34 @@ pub enum JobKind {
 }
 
 impl JobKind {
+    pub const ALL: [JobKind; 19] = [
+        JobKind::LibraryScan,
+        JobKind::Metadata,
+        JobKind::Artwork,
+        JobKind::Subtitles,
+        JobKind::Trickplay,
+        JobKind::Fingerprint,
+        JobKind::Dedup,
+        JobKind::CacheEviction,
+        JobKind::SearchReindex,
+        JobKind::Ingest,
+        JobKind::Relink,
+        JobKind::Transcription,
+        JobKind::Translation,
+        JobKind::Upscale,
+        JobKind::Combine,
+        JobKind::Fetch,
+        JobKind::ScheduledScan,
+        JobKind::Retention,
+        JobKind::OrphanSweep,
+    ];
+
     pub fn is_process_killable(&self) -> bool {
         matches!(self, JobKind::Trickplay | JobKind::Upscale | JobKind::Subtitles | JobKind::Fetch)
+    }
+
+    pub fn from_slug(slug: &str) -> Option<JobKind> {
+        JobKind::ALL.into_iter().find(|kind| kind.slug() == slug)
     }
 
     pub fn slug(&self) -> &'static str {
@@ -166,6 +192,16 @@ mod tests {
         }
         let unique: std::collections::HashSet<&str> = kinds.iter().map(|(_, slug)| *slug).collect();
         assert_eq!(unique.len(), kinds.len());
+        assert_eq!(JobKind::ALL.len(), kinds.len());
+    }
+
+    #[test]
+    fn every_slug_parses_back_to_its_kind() {
+        for kind in JobKind::ALL {
+            assert_eq!(JobKind::from_slug(kind.slug()), Some(kind));
+        }
+        assert_eq!(JobKind::from_slug("not_a_kind"), None);
+        assert_eq!(JobKind::from_slug("Trickplay"), None);
     }
 
     #[test]
