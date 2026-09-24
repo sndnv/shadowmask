@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct FetchProvidersConfig {
     pub enabled: bool,
-    pub concurrency: usize,
     pub yt_dlp_binary: String,
     pub yt_dlp_plugin_dir: Option<PathBuf>,
     pub max_height: Option<u32>,
@@ -17,7 +16,6 @@ impl Default for FetchProvidersConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            concurrency: 1,
             yt_dlp_binary: "yt-dlp".to_owned(),
             yt_dlp_plugin_dir: None,
             max_height: None,

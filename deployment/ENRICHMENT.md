@@ -41,9 +41,9 @@ Transcription and translation additionally need a model on disk (below); without
 still starts and those jobs fail with a backend error until a model is present. Upscaling works with
 no model.
 
-The `provider` setting (`SHADOWMASK_ENRICHMENT_TRANSCRIPTION_PROVIDER`, etc.) is currently
-informational only: when a feature is enabled the bundled local provider is what runs. External and
-combined providers are not implemented yet, so leave `provider` at its default.
+The `provider` setting (`SHADOWMASK_ENRICHMENT_TRANSCRIPTION_PROVIDER`, etc.) is informational: an
+enabled feature runs the bundled provider whatever it is set to. External and combined providers are
+not implemented. Leave it at its default.
 
 ## Models
 
@@ -54,10 +54,9 @@ candidate model folders**, not a single model: put as many model folders in as y
 the server scans them in alphanumeric order and uses the first folder that holds a valid model,
 logging a warning for every folder it rejects and an info line naming the model it picked.
 
-If a feature is enabled but its directory holds folders and none of them is a valid model, the
-server **fails to start**. The admin clearly meant enrichment to work, so the misconfiguration is
-made loud rather than silently skipped. An empty or absent directory is not fatal: the feature
-reports `available: true, enabled: false` until a model is added.
+If a feature is enabled and its directory holds folders but none is a valid model, the server
+**fails to start**. An empty or absent directory is not fatal: the feature reports
+`available: true, enabled: false` until a model is added.
 
 A folder is a valid model when it contains:
 
@@ -111,21 +110,21 @@ unknown). `SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX` is prepended to the 
 `SHADOWMASK_ENRICHMENT_TRANSLATION_TARGET_PREFIX` is fed to the decoder as its first token. Set
 whichever your model expects:
 
-| Model family          | Prefix setting                                     |
-| --------------------- | -------------------------------------------------- |
-| MADLAD                | `SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX=<2{target}>`  |
-| Opus-MT multilingual  | `SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX=>>{target}<<` |
-| decoder-token models  | `SHADOWMASK_ENRICHMENT_TRANSLATION_TARGET_PREFIX={target}`     |
+| Model family         | Prefix setting                                                 |
+|----------------------|----------------------------------------------------------------|
+| MADLAD               | `SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX=<2{target}>`  |
+| Opus-MT multilingual | `SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX=>>{target}<<` |
+| decoder-token models | `SHADOWMASK_ENRICHMENT_TRANSLATION_TARGET_PREFIX={target}`     |
 
 Models are published as transformers checkpoints, so a raw download is not enough. Convert with
 `ct2-transformers-converter` from the `ctranslate2` pip package. Two flags matter:
 
-- **`--quantization int8`** — the enrichment image runs on CPU (no CUDA), where float16 is not
+- **`--quantization int8`** - the enrichment image runs on CPU (no CUDA), where float16 is not
   computed efficiently. Left as float16, CTranslate2 promotes the model to float32 on load (logging
   `compute type ... float16 ... converted to ... float32`), which roughly doubles its memory. Convert
   to `int8` up front and the model is smaller on disk, uses far less RAM, runs faster on CPU, and the
   warning goes away.
-- **`--copy_files <tokenizer>`** — bring the tokenizer along, or the folder is rejected as having no
+- **`--copy_files <tokenizer>`** - bring the tokenizer along, or the folder is rejected as having no
   tokenizer.
 
 **Convert with `transformers` 4.x, not 5.x.** transformers 5.x mishandles T5-family models that keep
@@ -161,7 +160,11 @@ those tokenizer sets (see the file list under [Models](#models)).
 `enabled` (configured on and, for transcription/translation, a usable model):
 
 ```json
-{ "name": "transcription", "available": true, "enabled": true }
+{
+  "name": "transcription",
+  "available": true,
+  "enabled": true
+}
 ```
 
 A capability that is `available: false` means the running image was not built with it (use the
@@ -170,26 +173,40 @@ a model.
 
 ## Concurrency
 
-Enrichment jobs (transcription, translation, upscaling) run on a **separate queue** from everything
-else, capped at `SHADOWMASK_ENRICHMENT_CONCURRENCY` (default `1`). This bounds how many models are
-resident at once, which is the main defence against out-of-memory kills: a single large model can
-easily need many gigabytes, and loading several at once is a common way to get the container killed.
-The cap is intentionally low; raise it only if you have the RAM (and CPU) for concurrent model runs.
+Enrichment jobs (transcription, translation, upscaling) run on their own **job pool**, capped at
+`SHADOWMASK_JOB_POOLS_ENRICHMENT_CONCURRENCY` (default `1`). That bounds how many models are
+resident at once, which is the main defence against out-of-memory kills. Raise it only if you have
+the RAM and CPU for concurrent model runs.
 
-The two queues are independent, so a slow model job never blocks ordinary work (library scans,
-metadata, artwork, and the like), which keep their own `SHADOWMASK_WORKER_CONCURRENCY` limit.
+Pools are independent, so a slow model job never blocks library scans, metadata or artwork, which
+run on the `default` pool. See "Job pools" in the deployment README.
+
+## Switching a feature off
+
+No new jobs are enqueued, and existing queued ones are left alone: no pool claims them, and they run
+if the feature is switched back on. The same applies when a feature is on but its model is missing.
+The startup log names any kind in that state.
+
+## CPU
+
+One enrichment job uses `SHADOWMASK_ENRICHMENT_THREADS` cores, defaulting to half the machine so
+the rest stays available for playback and the API.
+
+## Memory
+
+The model is linked into the server process, so an oversized model kills the server rather than
+failing its job. Budget the model's on-disk size plus 1-2G for the server. It loads once, on first
+use, and stays resident.
+
+Set `mem_limit` on the container so a kill is contained to it; the production compose defaults to
+8G. At startup the server compares each selected model's on-disk size against the memory it may use
+(the cgroup limit when containerized, otherwise host available memory) and warns when a kill looks
+likely, including when it cannot read that limit.
 
 ## Operational notes
 
 - Transcription and translation are CPU-bound and can be slow on large media; they run as background
   jobs and never block playback.
-- Enabling a feature with an empty model directory does not crash the server; it reports
-  `enabled: false` until a model is added. Enabling it with candidate folders that are all invalid
-  is fatal at startup (see Models).
-- At startup the server compares each selected model's on-disk size against the memory it is allowed
-  to use (the container's cgroup limit when containerized, otherwise host available memory) and logs
-  a warning when an out-of-memory kill looks likely. If it cannot read that limit it warns anyway,
-  so a silent misconfiguration still surfaces.
 - Model weights are downloaded by you and are not part of any Shadowmask image.
 
 ## Licensing and attribution
@@ -206,11 +223,11 @@ themselves.
 Every `LICENSE*` and `COPYING*` file in those two crate sources is therefore swept into
 [`licenses/enrichment/`](../licenses/enrichment) and copied into the image at
 `/usr/share/doc/shadowmask/third-party-licenses/`. Paths are preserved, so each text names the
-library it came from — `ct2rs/CTranslate2/third_party/ruy/LICENSE`, and so on.
+library it came from: `ct2rs/CTranslate2/third_party/ruy/LICENSE`, and so on.
 
 Refresh the sweep with `python3 licenses/refresh_licenses.py`; `qa.py`'s `vendored` step fails when
 it has drifted from the locked crate versions. A new dependency that vendors C/C++ source must be
-added to that script's `CRATES` list — the `-sys` suffix is the usual tell.
+added to that script's `CRATES` list; the `-sys` suffix is the usual tell.
 
 Only the `-enrichment` image bundles this.
 

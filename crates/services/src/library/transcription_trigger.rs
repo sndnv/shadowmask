@@ -9,11 +9,12 @@ pub struct TranscriptionEnqueuer<J, C> {
     jobs: J,
     catalog: C,
     subtitle_languages: Vec<String>,
+    enabled: bool,
 }
 
 impl<J, C> TranscriptionEnqueuer<J, C> {
-    pub fn new(jobs: J, catalog: C, subtitle_languages: Vec<String>) -> Self {
-        Self { jobs, catalog, subtitle_languages }
+    pub fn new(jobs: J, catalog: C, subtitle_languages: Vec<String>, enabled: bool) -> Self {
+        Self { jobs, catalog, subtitle_languages, enabled }
     }
 }
 
@@ -27,6 +28,9 @@ where
         version_id: &VersionId,
         parent: Option<&JobId>,
     ) -> Result<(), RepositoryError> {
+        if !self.enabled {
+            return Ok(());
+        }
         let Some(detail) = self.catalog.version_detail(version_id).await? else {
             return Ok(());
         };
@@ -101,7 +105,7 @@ mod tests {
         seed(&catalog, vec![track(1, Some("eng")), track(2, Some("spa"))]).await;
         let jobs = MockJobStore::new();
         let enqueuer =
-            TranscriptionEnqueuer::new(jobs.clone(), catalog.clone(), vec!["spa".into()]);
+            TranscriptionEnqueuer::new(jobs.clone(), catalog.clone(), vec!["spa".into()], true);
 
         enqueuer.trigger(&VersionId("v1".into()), None).await.unwrap();
 
@@ -123,7 +127,7 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         seed(&catalog, vec![track(1, Some("eng"))]).await;
         let jobs = MockJobStore::new();
-        let enqueuer = TranscriptionEnqueuer::new(jobs.clone(), catalog, Vec::new());
+        let enqueuer = TranscriptionEnqueuer::new(jobs.clone(), catalog, Vec::new(), true);
 
         enqueuer.trigger(&VersionId("v1".into()), Some(&JobId("parent".into()))).await.unwrap();
 
@@ -142,7 +146,7 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         seed(&catalog, vec![track(1, Some("eng"))]).await;
         let jobs = MockJobStore::new();
-        let enqueuer = TranscriptionEnqueuer::new(jobs.clone(), catalog.clone(), Vec::new());
+        let enqueuer = TranscriptionEnqueuer::new(jobs.clone(), catalog.clone(), Vec::new(), true);
 
         enqueuer.trigger(&VersionId("v1".into()), None).await.unwrap();
 
@@ -161,7 +165,8 @@ mod tests {
     #[tokio::test]
     async fn no_op_when_version_missing() {
         let jobs = MockJobStore::new();
-        let enqueuer = TranscriptionEnqueuer::new(jobs.clone(), MockCatalogRepo::new(), Vec::new());
+        let enqueuer =
+            TranscriptionEnqueuer::new(jobs.clone(), MockCatalogRepo::new(), Vec::new(), true);
 
         enqueuer.trigger(&VersionId("gone".into()), None).await.unwrap();
 
@@ -173,7 +178,7 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         seed(&catalog, Vec::new()).await;
         let jobs = MockJobStore::new();
-        let enqueuer = TranscriptionEnqueuer::new(jobs.clone(), catalog, Vec::new());
+        let enqueuer = TranscriptionEnqueuer::new(jobs.clone(), catalog, Vec::new(), true);
 
         enqueuer.trigger(&VersionId("v1".into()), None).await.unwrap();
 
@@ -202,7 +207,19 @@ mod tests {
             .await
             .unwrap();
         let jobs = MockJobStore::new();
-        let enqueuer = TranscriptionEnqueuer::new(jobs.clone(), catalog, Vec::new());
+        let enqueuer = TranscriptionEnqueuer::new(jobs.clone(), catalog, Vec::new(), true);
+
+        enqueuer.trigger(&VersionId("v1".into()), None).await.unwrap();
+
+        assert!(jobs.list().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn nothing_is_enqueued_when_transcription_is_switched_off() {
+        let catalog = MockCatalogRepo::new();
+        seed(&catalog, vec![track(1, Some("eng"))]).await;
+        let jobs = MockJobStore::new();
+        let enqueuer = TranscriptionEnqueuer::new(jobs.clone(), catalog, Vec::new(), false);
 
         enqueuer.trigger(&VersionId("v1".into()), None).await.unwrap();
 

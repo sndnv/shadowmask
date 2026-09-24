@@ -12,26 +12,35 @@ use crate::job_handler::JobHandler;
 
 const OWNER_CHUNK: usize = 500;
 
-pub struct OrphanSweepHandler<C, A, S, T> {
+pub struct OrphanSweepHandler<C, A, S, T, E> {
     catalog: C,
     artwork: A,
     subtitles: S,
     trickplay: T,
+    extraction: E,
     grace: SignedDuration,
 }
 
-impl<C, A, S, T> OrphanSweepHandler<C, A, S, T> {
-    pub fn new(catalog: C, artwork: A, subtitles: S, trickplay: T, grace: SignedDuration) -> Self {
-        Self { catalog, artwork, subtitles, trickplay, grace }
+impl<C, A, S, T, E> OrphanSweepHandler<C, A, S, T, E> {
+    pub fn new(
+        catalog: C,
+        artwork: A,
+        subtitles: S,
+        trickplay: T,
+        extraction: E,
+        grace: SignedDuration,
+    ) -> Self {
+        Self { catalog, artwork, subtitles, trickplay, extraction, grace }
     }
 }
 
-impl<C, A, S, T> OrphanSweepHandler<C, A, S, T>
+impl<C, A, S, T, E> OrphanSweepHandler<C, A, S, T, E>
 where
     C: CatalogRepository + Send + Sync,
     A: DerivedAssetStore,
     S: DerivedAssetStore,
     T: DerivedAssetStore,
+    E: DerivedAssetStore,
 {
     async fn sweep<F, G>(
         &self,
@@ -43,6 +52,21 @@ where
     where
         F: Future<Output = Result<HashSet<String>, RepositoryError>>,
         G: Future<Output = Result<HashSet<String>, RepositoryError>>,
+    {
+        let (mut removed, alive) = self.sweep_dirs(store, live_of, cutoff).await?;
+        removed += self.sweep_files(store, &alive, live_paths_of, cutoff).await?;
+        tracing::info!(store = store.label(), removed, "orphan sweep complete");
+        Ok(removed)
+    }
+
+    async fn sweep_dirs<F>(
+        &self,
+        store: &impl DerivedAssetStore,
+        live_of: impl Fn(Vec<String>) -> F,
+        cutoff: Timestamp,
+    ) -> Result<(u64, Vec<String>), JobError>
+    where
+        F: Future<Output = Result<HashSet<String>, RepositoryError>>,
     {
         let dirs = store.list_dirs().await.map_err(|err| JobError::Retryable(err.to_string()))?;
         let stale: Vec<&DerivedAssetDir> =
@@ -67,9 +91,7 @@ where
                 }
             }
         }
-        removed += self.sweep_files(store, &alive, live_paths_of, cutoff).await?;
-        tracing::info!(store = store.label(), removed, "orphan sweep complete");
-        Ok(removed)
+        Ok((removed, alive))
     }
 
     async fn sweep_files<G>(
@@ -113,12 +135,13 @@ where
     }
 }
 
-impl<C, A, S, T> JobHandler for OrphanSweepHandler<C, A, S, T>
+impl<C, A, S, T, E> JobHandler for OrphanSweepHandler<C, A, S, T, E>
 where
     C: CatalogRepository + Send + Sync,
     A: DerivedAssetStore,
     S: DerivedAssetStore,
     T: DerivedAssetStore,
+    E: DerivedAssetStore,
 {
     async fn handle(&self, _job: &Job) -> Result<(), JobError> {
         let Ok(cutoff) = Timestamp::now().checked_sub(self.grace) else {
@@ -137,6 +160,9 @@ where
         self.sweep(&self.artwork, artwork, artwork_paths, cutoff).await?;
         self.sweep(&self.subtitles, versions, subtitle_paths, cutoff).await?;
         self.sweep(&self.trickplay, versions, trickplay_paths, cutoff).await?;
+        let (removed, _) = self.sweep_dirs(&self.extraction, versions, cutoff).await?;
+        #[rustfmt::skip]
+        tracing::info!(store = self.extraction.label(), removed, "orphan sweep complete");
         Ok(())
     }
 }
@@ -312,6 +338,7 @@ mod tests {
             artwork.clone(),
             StubStore::default(),
             StubStore::default(),
+            StubStore::default(),
             grace,
         )
         .handle(&sweep_job())
@@ -440,6 +467,7 @@ mod tests {
             StubStore::default(),
             subtitles.clone(),
             StubStore::default(),
+            StubStore::default(),
             SignedDuration::from_hours(24),
         )
         .handle(&sweep_job())
@@ -485,6 +513,7 @@ mod tests {
             StubStore::default(),
             StubStore::default(),
             trickplay.clone(),
+            StubStore::default(),
             SignedDuration::from_hours(24),
         )
         .handle(&sweep_job())
@@ -510,6 +539,7 @@ mod tests {
             store,
             StubStore::default(),
             StubStore::default(),
+            StubStore::default(),
             SignedDuration::from_hours(24),
         )
         .handle(&sweep_job())
@@ -526,6 +556,7 @@ mod tests {
             StubStore::default(),
             subtitles.clone(),
             trickplay.clone(),
+            StubStore::default(),
             SignedDuration::from_hours(24),
         )
         .handle(&sweep_job())
@@ -537,10 +568,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_dead_version_loses_its_extracted_subtitles() {
+        let extraction = StubStore::with(vec![dir("v-gone", SignedDuration::from_hours(48))]);
+        OrphanSweepHandler::new(
+            MockCatalogRepo::new(),
+            StubStore::default(),
+            StubStore::default(),
+            StubStore::default(),
+            extraction.clone(),
+            SignedDuration::from_hours(24),
+        )
+        .handle(&sweep_job())
+        .await
+        .unwrap();
+        assert_eq!(extraction.removed(), vec!["v-gone".to_owned()]);
+    }
+
+    #[tokio::test]
+    async fn a_live_version_keeps_extracts_no_database_row_knows_about() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version("v1"));
+        let extraction = StubStore::holding(
+            vec![dir("v1", SignedDuration::from_hours(48))],
+            vec![(
+                "v1",
+                vec![file("/extract/v1/embedded-3-abc.vtt", SignedDuration::from_hours(48))],
+            )],
+        );
+        OrphanSweepHandler::new(
+            catalog,
+            StubStore::default(),
+            StubStore::default(),
+            StubStore::default(),
+            extraction.clone(),
+            SignedDuration::from_hours(24),
+        )
+        .handle(&sweep_job())
+        .await
+        .unwrap();
+        assert!(extraction.removed().is_empty());
+        #[rustfmt::skip]
+        assert!(extraction.removed_files().is_empty(), "an extract is in no subtitle row, so a file pass would delete every one of them");
+    }
+
+    #[tokio::test]
     async fn a_grace_period_that_cannot_be_subtracted_is_permanent() {
         let grace = SignedDuration::MAX;
         let error = OrphanSweepHandler::new(
             MockCatalogRepo::new(),
+            StubStore::default(),
             StubStore::default(),
             StubStore::default(),
             StubStore::default(),
@@ -557,6 +633,7 @@ mod tests {
         let error = OrphanSweepHandler::new(
             MockCatalogRepo::new(),
             StubStore::unreadable(),
+            StubStore::default(),
             StubStore::default(),
             StubStore::default(),
             SignedDuration::from_hours(24),

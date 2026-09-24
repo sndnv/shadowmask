@@ -23,6 +23,17 @@ enum Outcome {
     Cancelled,
 }
 
+struct Filled {
+    claimed: usize,
+    free: usize,
+}
+
+impl Filled {
+    fn is_full(&self) -> bool {
+        self.free > 0 && self.claimed == self.free
+    }
+}
+
 async fn drive<'a>(
     mut work: Pin<Box<dyn Future<Output = Result<(), JobError>> + Send + 'a>>,
     cancelled: &mut watch::Receiver<bool>,
@@ -99,6 +110,7 @@ pub struct Worker<R, H, L> {
     policy: RetryPolicy,
     kinds: Vec<JobKind>,
     cancel: CancelRegistry,
+    pool: Arc<str>,
 }
 
 impl<R, H, L> Worker<R, H, L>
@@ -123,6 +135,7 @@ where
             policy,
             kinds,
             cancel: CancelRegistry::default(),
+            pool: crate::job_pools::DEFAULT_POOL.into(),
         }
     }
 
@@ -131,48 +144,80 @@ where
         self
     }
 
-    pub async fn run_once(&self, now: Timestamp) -> Result<usize, RepositoryError> {
-        let jobs = self.repo.claim_ready(now, self.limit, self.kinds.clone()).await?;
-        let semaphore = Arc::new(Semaphore::new(self.limit.max(1)));
-        let mut tasks: JoinSet<(Job, Outcome)> = JoinSet::new();
+    pub fn with_pool(mut self, pool: impl Into<Arc<str>>) -> Self {
+        self.pool = pool.into();
+        self
+    }
+
+    async fn fill(
+        &self,
+        tasks: &mut JoinSet<(Job, Outcome)>,
+        semaphore: &Arc<Semaphore>,
+        now: Timestamp,
+    ) -> Result<Filled, RepositoryError> {
+        let free = semaphore.available_permits();
+        if free == 0 {
+            return Ok(Filled { claimed: 0, free });
+        }
+        let jobs = self.repo.claim_ready(now, free, self.kinds.clone()).await?;
+        let claimed = jobs.len();
         for job in jobs {
-            let permit = Arc::clone(&semaphore)
+            let permit = Arc::clone(semaphore)
                 .acquire_owned()
                 .await
                 .expect("worker semaphore is never closed");
             let handler = Arc::clone(&self.handler);
             let log = Arc::clone(&self.log);
             let mut cancelled = self.cancel.register(&job.id);
+            let pool = Arc::clone(&self.pool);
             tasks.spawn(async move {
                 let _permit = permit;
-                let span = tracing::info_span!("job", job_id = %job.id.0, kind = ?job.kind);
+                let span =
+                    tracing::info_span!("job", job_id = %job.id.0, kind = ?job.kind, pool = %pool);
                 let _ = log
                     .append(&job.id, now, JobLogLevel::Info, &format!("started {:?}", job.kind))
                     .await;
                 let started = std::time::Instant::now();
-                let active = ActiveJob::start(job.kind);
+                let active = ActiveJob::start(job.kind, &pool);
                 let outcome =
                     drive(Box::pin(handler.handle(&job).instrument(span)), &mut cancelled).await;
                 finish_job(&*log, &job, active, started, now, &outcome).await;
                 (job, outcome)
             });
         }
+        Ok(Filled { claimed, free })
+    }
+
+    async fn settle(
+        &self,
+        job: Job,
+        outcome: Outcome,
+        now: Timestamp,
+    ) -> Result<(), RepositoryError> {
+        self.cancel.deregister(&job.id);
+        match outcome {
+            Outcome::Done(result) => {
+                self.repo.update(apply_outcome(job, result, now, &self.policy)).await?;
+            }
+            Outcome::Cancelled => {
+                let mut job = job;
+                job.status = JobStatus::Cancelled;
+                job.finished_at = Some(now);
+                job.updated_at = now;
+                self.repo.update(job).await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn run_once(&self, now: Timestamp) -> Result<usize, RepositoryError> {
+        let semaphore = Arc::new(Semaphore::new(self.limit.max(1)));
+        let mut tasks: JoinSet<(Job, Outcome)> = JoinSet::new();
+        self.fill(&mut tasks, &semaphore, now).await?;
         let mut processed = 0;
         while let Some(joined) = tasks.join_next().await {
             let (job, outcome) = joined.expect("worker job task panicked");
-            self.cancel.deregister(&job.id);
-            match outcome {
-                Outcome::Done(result) => {
-                    self.repo.update(apply_outcome(job, result, now, &self.policy)).await?;
-                }
-                Outcome::Cancelled => {
-                    let mut job = job;
-                    job.status = JobStatus::Cancelled;
-                    job.finished_at = Some(now);
-                    job.updated_at = now;
-                    self.repo.update(job).await?;
-                }
-            }
+            self.settle(job, outcome, now).await?;
             processed += 1;
         }
         Ok(processed)
@@ -185,15 +230,31 @@ where
     ) -> Result<(), RepositoryError> {
         let mut ticker = interval(period);
         tokio::pin!(shutdown);
+        #[rustfmt::skip]
+        tracing::info!("job pool [{}] running [{}] job(s) at a time over [{}] kind(s)", self.pool, self.limit, self.kinds.len());
+        let semaphore = Arc::new(Semaphore::new(self.limit.max(1)));
+        let mut tasks: JoinSet<(Job, Outcome)> = JoinSet::new();
         let mut backlog = false;
         loop {
             tokio::select! {
                 biased;
-                () = &mut shutdown => return Ok(()),
-                () = next_batch(&mut ticker, backlog) => {}
+                () = &mut shutdown => break,
+                Some(joined) = tasks.join_next(), if !tasks.is_empty() => {
+                    let (job, outcome) = joined.expect("worker job task panicked");
+                    self.settle(job, outcome, Timestamp::now()).await?;
+                    backlog = true;
+                }
+                () = next_batch(&mut ticker, backlog) => {
+                    let filled = self.fill(&mut tasks, &semaphore, Timestamp::now()).await?;
+                    backlog = filled.is_full();
+                }
             }
-            backlog = self.run_once(Timestamp::now()).await? == self.limit;
         }
+        while let Some(joined) = tasks.join_next().await {
+            let (job, outcome) = joined.expect("worker job task panicked");
+            self.settle(job, outcome, Timestamp::now()).await?;
+        }
+        Ok(())
     }
 }
 
@@ -234,7 +295,7 @@ mod tests {
     }
 
     fn test_kinds() -> Vec<JobKind> {
-        crate::job_class::ALL_KINDS.to_vec()
+        JobKind::ALL.to_vec()
     }
 
     fn job(id: &str, priority: JobPriority, now: Timestamp) -> Job {
@@ -359,6 +420,26 @@ mod tests {
         assert_eq!(queued, 3);
     }
 
+    #[tracing_test::traced_test]
+    #[tokio::test]
+    async fn a_worker_names_its_pool_when_it_starts() {
+        let (tx, rx) = oneshot::channel::<()>();
+        let worker = Worker::new(
+            MockJobStore::new(),
+            Arc::new(OkHandler),
+            MockJobLogStore::new(),
+            2,
+            RetryPolicy::default(),
+            vec![JobKind::Trickplay],
+        )
+        .with_pool("trickplay");
+
+        tx.send(()).unwrap();
+        worker.run(Duration::from_millis(5), async { rx.await.unwrap_or(()) }).await.unwrap();
+
+        assert!(logs_contain("job pool [trickplay] running [2] job(s) at a time over [1] kind(s)"));
+    }
+
     #[tokio::test]
     async fn worker_claims_only_its_own_kinds() {
         let now = Timestamp::now();
@@ -373,7 +454,7 @@ mod tests {
             MockJobLogStore::new(),
             4,
             RetryPolicy::default(),
-            crate::job_class::normal_kinds(),
+            vec![JobKind::LibraryScan],
         );
 
         assert_eq!(worker.run_once(now).await.unwrap(), 1);
@@ -512,14 +593,15 @@ mod tests {
                 4,
                 RetryPolicy::default(),
                 test_kinds(),
-            );
+            )
+            .with_pool("trickplay");
             worker.run_once(now).await.unwrap();
         });
         assert!(rendered.contains("jobs_total"));
         assert!(rendered.contains("job=\"library_scan\""));
         assert!(rendered.contains("outcome=\"succeeded\""));
         assert!(rendered.contains("job_duration_milliseconds"));
-        assert!(rendered.contains("jobs_active 0"));
+        assert!(rendered.contains("jobs_active{pool=\"trickplay\"} 0"));
     }
 
     #[test]
@@ -539,7 +621,77 @@ mod tests {
             worker.run_once(now).await.unwrap();
         });
         assert!(rendered.contains("outcome=\"failed\""));
-        assert!(rendered.contains("jobs_active 0"));
+        assert!(rendered.contains("jobs_active{pool=\"default\"} 0"));
+    }
+
+    #[tokio::test]
+    async fn a_slow_job_no_longer_idles_the_rest_of_its_pool() {
+        use tokio::sync::Notify;
+
+        struct MixedHandler {
+            hold: Arc<Notify>,
+        }
+        impl JobHandler for MixedHandler {
+            async fn handle(&self, job: &Job) -> Result<(), JobError> {
+                if job.id.0 == "a-slow" {
+                    self.hold.notified().await;
+                }
+                Ok(())
+            }
+        }
+
+        let now = Timestamp::now();
+        let store = MockJobStore::new();
+        for id in ["a-slow", "b-fast-1", "b-fast-2", "b-fast-3"] {
+            store.enqueue(job(id, JobPriority::Normal, now)).await.unwrap();
+        }
+        let hold = Arc::new(Notify::new());
+        let worker = Worker::new(
+            store.clone(),
+            Arc::new(MixedHandler { hold: hold.clone() }),
+            MockJobLogStore::new(),
+            2,
+            RetryPolicy::default(),
+            test_kinds(),
+        );
+        let (stop, stopped) = oneshot::channel::<()>();
+        let run = tokio::spawn(async move {
+            worker.run(Duration::from_millis(5), async { stopped.await.unwrap_or(()) }).await
+        });
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let done = succeeded(&store, &["b-fast-1", "b-fast-2", "b-fast-3"]).await;
+            let slow = store.get(&JobId("a-slow".into())).await.unwrap().unwrap();
+            if done == 3 {
+                #[rustfmt::skip]
+                assert_eq!(slow.status, JobStatus::Running, "the slow job finished first, so this proves nothing");
+                break;
+            }
+            #[rustfmt::skip]
+            assert!(std::time::Instant::now() < deadline, "the pool stalled behind its slowest job: only [{done}] of 3 got through");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        hold.notify_waiters();
+        stop.send(()).unwrap();
+        run.await.unwrap().unwrap();
+        assert_eq!(
+            store.get(&JobId("a-slow".into())).await.unwrap().unwrap().status,
+            JobStatus::Succeeded,
+            "shutdown abandoned a running job"
+        );
+    }
+
+    async fn succeeded(store: &MockJobStore, ids: &[&str]) -> usize {
+        let mut done = 0;
+        for id in ids {
+            let job = store.get(&JobId((*id).into())).await.unwrap().unwrap();
+            if job.status == JobStatus::Succeeded {
+                done += 1;
+            }
+        }
+        done
     }
 
     #[tokio::test]

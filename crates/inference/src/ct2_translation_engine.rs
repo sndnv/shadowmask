@@ -1,7 +1,10 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use ct2rs::tokenizers::auto::Tokenizer;
 use ct2rs::{Config, TranslationOptions, Translator};
 use domain::error::TranslationError;
+use tokio::sync::OnceCell;
 
 use crate::TranslationEngine;
 use crate::language_prefix::render_language_prefix;
@@ -10,6 +13,8 @@ pub struct Ct2TranslationEngine {
     model_path: PathBuf,
     source_prefix: Option<String>,
     target_prefix: Option<String>,
+    threads: usize,
+    translator: OnceCell<Arc<Translator<Tokenizer>>>,
 }
 
 impl Ct2TranslationEngine {
@@ -17,8 +22,34 @@ impl Ct2TranslationEngine {
         model_path: impl Into<PathBuf>,
         source_prefix: Option<String>,
         target_prefix: Option<String>,
+        threads: usize,
     ) -> Self {
-        Self { model_path: model_path.into(), source_prefix, target_prefix }
+        Self {
+            model_path: model_path.into(),
+            source_prefix,
+            target_prefix,
+            threads,
+            translator: OnceCell::new(),
+        }
+    }
+
+    async fn translator(&self) -> Result<Arc<Translator<Tokenizer>>, TranslationError> {
+        self.translator
+            .get_or_try_init(|| async {
+                let model_path = self.model_path.clone();
+                let config = Config { num_threads_per_replica: self.threads, ..Config::default() };
+                #[rustfmt::skip]
+                tracing::info!("loading the translation model at [{}] with [{}] thread(s)", model_path.display(), self.threads);
+                tokio::task::spawn_blocking(move || {
+                    Translator::new(&model_path, &config)
+                        .map(Arc::new)
+                        .map_err(|e| TranslationError::Backend(e.to_string()))
+                })
+                .await
+                .map_err(|e| TranslationError::Backend(e.to_string()))?
+            })
+            .await
+            .map(Arc::clone)
     }
 }
 
@@ -29,7 +60,7 @@ impl TranslationEngine for Ct2TranslationEngine {
         source_language: Option<String>,
         target_language: String,
     ) -> Result<Vec<String>, TranslationError> {
-        let model_path = self.model_path.clone();
+        let translator = self.translator().await?;
         let source_prefix = self.source_prefix.as_deref().map(|template| {
             render_language_prefix(template, source_language.as_deref(), &target_language)
         });
@@ -37,8 +68,6 @@ impl TranslationEngine for Ct2TranslationEngine {
             render_language_prefix(template, source_language.as_deref(), &target_language)
         });
         tokio::task::spawn_blocking(move || {
-            let translator = Translator::new(&model_path, &Config::default())
-                .map_err(|e| TranslationError::Backend(e.to_string()))?;
             let inputs: Vec<String> = match &source_prefix {
                 Some(prefix) => texts.into_iter().map(|text| format!("{prefix} {text}")).collect(),
                 None => texts,

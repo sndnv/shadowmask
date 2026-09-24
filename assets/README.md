@@ -88,7 +88,7 @@ out wrong in the other two themes. That is the rule for any glyph added here.
   `rsvg-convert` maps 1:1 to pixels, with a 22×22 interior at radius 10 (the design system's `sm`
   radius of 6 at the Roku canvas's 1.75× scale) and a 1px border carrying **pure opaque black**
   stretch markers, 2px wide, dead centre on the top and left edges. The marker rects are integer
-  aligned so they cannot antialias — a grey marker pixel silently disables stretching. These are the
+  aligned so they cannot antialias: a grey marker pixel silently disables stretching. These are the
   only `.9.png` files we ship; a *half*-rounded segment needs no extra asset, because `RoundedBox`
   oversizes the same image inside a clipping rect.
 - `glyphs/chip-cap-{left,right}-line.svg` - the outline halves of a chip, a 3px stroked arc with no
@@ -104,8 +104,8 @@ out wrong in the other two themes. That is the rule for any glyph added here.
 - `glyphs/icon-{check,close,play,search,bookmark,bookmark-on,heart,heart-on}.svg` - the control
   icons behind the Roku action bar. The `-on` variants are the filled forms, matching the
   `icon` / `filledIcon` pair in `toggle_button.dart`: outline when the toggle is off, filled when it
-  is on. **Roku ships no icon set** — its `common:/images/` has only dialog and field 9-patches, the
-  four focus bitmaps, the Options-key icon, a generic placeholder and two player images — so these
+  is on. **Roku ships no icon set**: its `common:/images/` has only dialog and field 9-patches, the
+  four focus bitmaps, the Options-key icon, a generic placeholder and two player images, so these
   are ours. An icon font would have been one file instead of eight and was rejected for the same
   reason as the `art-*` glyphs below: no third-party licence to carry.
 - `glyphs/disc.svg` - a plain filled circle, tinted and used as the plate behind a chevron.

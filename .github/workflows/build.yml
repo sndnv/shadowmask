@@ -137,7 +137,7 @@ jobs:
         if: matrix.target == 'web'
         run: |
           cd clients/flutter
-          flutter build web --release
+          flutter build web --release --no-web-resources-cdn
 
       - name: Build Android APK
         if: matrix.target == 'android'

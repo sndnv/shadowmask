@@ -15,7 +15,15 @@ fn fixture(name: &str) -> String {
 }
 
 fn small_config() -> TrickplayConfig {
-    TrickplayConfig { interval_ms: 2_000, columns: 3, rows: 3, tile_width: 160, tile_height: 90 }
+    TrickplayConfig {
+        interval_ms: 2_000,
+        columns: 3,
+        rows: 3,
+        tile_width: 160,
+        tile_height: 90,
+        threads: 2,
+        keyframes_only: true,
+    }
 }
 
 #[tokio::test]

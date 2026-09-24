@@ -47,7 +47,7 @@ run_command(
 )
 
 run_command(
-    command=['flutter', 'build', 'web'],
+    command=['flutter', 'build', 'web', '--no-web-resources-cdn'],
     description='Web build'
 )
 

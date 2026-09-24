@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:shadowmask/api/account_api.dart';
 import 'package:shadowmask/api/api_client.dart';
@@ -25,6 +26,7 @@ import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/util/scoped_value.dart';
+import 'package:shadowmask/view/shell_shortcuts.dart';
 
 const double _kHeaderHeight = kShellHeaderHeight;
 
@@ -108,6 +110,7 @@ class _ShellScaffoldState extends State<ShellScaffold> {
   final ScopedValue<bool> _immersive = ScopedValue<bool>(false);
   final ScopedValue<String?> _title = ScopedValue<String?>(null);
   final FocusNode _main = FocusNode(debugLabel: 'main', skipTraversal: true);
+  final ScrollController _scroll = ScrollController();
   ScopedValue<String?>? _sharedBackdrop;
   bool _skipShown = false;
   bool _keepsBackdrop = false;
@@ -116,6 +119,12 @@ class _ShellScaffoldState extends State<ShellScaffold> {
   ScopedValue<String?> get _backdrop => _sharedBackdrop ?? _ownBackdrop;
 
   void _keepBackdrop() => _keepsBackdrop = true;
+
+  @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_onScrollKey);
+  }
 
   @override
   void didChangeDependencies() {
@@ -134,11 +143,37 @@ class _ShellScaffoldState extends State<ShellScaffold> {
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onScrollKey);
     _ownBackdrop.dispose();
     _immersive.dispose();
     _title.dispose();
     _main.dispose();
+    _scroll.dispose();
     super.dispose();
+  }
+
+  bool _onScrollKey(KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return false;
+    }
+    if (!mounted || isTyping() || !_scroll.hasClients) {
+      return false;
+    }
+    final ModalRoute<Object?>? route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) {
+      return false;
+    }
+    final ScrollPosition at = _scroll.position;
+    final double? target = scrollTargetFor(event.logicalKey, at);
+    if (target == null || target == at.pixels) {
+      return false;
+    }
+    _scroll.animateTo(
+      target,
+      duration: kEdgeScroll,
+      curve: Curves.easeOutCubic,
+    );
+    return true;
   }
 
   Widget _skipLink() => Positioned(
@@ -276,6 +311,7 @@ class _ShellScaffoldState extends State<ShellScaffold> {
                               );
                             }
                             return CustomScrollView(
+                              controller: _scroll,
                               physics: immersive || widget.fitViewport
                                   ? const NeverScrollableScrollPhysics()
                                   : null,

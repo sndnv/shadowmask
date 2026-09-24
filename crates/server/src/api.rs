@@ -84,6 +84,7 @@ pub struct WireConfig {
     pub access_ttl_secs: i64,
     pub refresh_ttl_secs: i64,
     pub transcode_cache: PathBuf,
+    pub subtitle_extraction_cache: PathBuf,
     pub artwork_cache: PathBuf,
     pub trickplay_cache: PathBuf,
     pub tmdb_api_key: Option<String>,
@@ -163,7 +164,7 @@ pub fn build_state(
     cancel: &CancelRegistry,
 ) -> Result<Built, ProfileError> {
     let profiles = BuiltinProfiles::load_from_dir(cfg.profile_overrides_dir.as_deref())?;
-    let hls = HlsStreamSource::new(&cfg.transcode_cache)
+    let hls = HlsStreamSource::new(&cfg.transcode_cache, &cfg.subtitle_extraction_cache)
         .with_encoder(VideoEncoder::from_device(cfg.vaapi_device.clone()))
         .with_read_rate(cfg.remux_read_rate);
     let artwork_store = FsArtworkStore::new(&cfg.artwork_cache);

@@ -447,6 +447,7 @@ abstract final class Strings {
   static const String couldNotStartPlayback = 'Could not start playback.';
   static const String renegotiationFailed =
       'Could not switch playback options.';
+  static const String applyingPlaybackChanges = 'Applying changes…';
   static const String noVersionSpecified = 'No version specified.';
 
   static const String videoHeading = 'Video';

@@ -4,13 +4,14 @@ use domain::job::JobKind;
 
 pub(crate) struct ActiveJob {
     job: &'static str,
+    pool: String,
     start: Instant,
 }
 
 impl ActiveJob {
-    pub(crate) fn start(kind: JobKind) -> Self {
-        metrics::gauge!("jobs_active").increment(1.0);
-        Self { job: job_label(kind), start: Instant::now() }
+    pub(crate) fn start(kind: JobKind, pool: &str) -> Self {
+        metrics::gauge!("jobs_active", "pool" => pool.to_owned()).increment(1.0);
+        Self { job: kind.slug(), pool: pool.to_owned(), start: Instant::now() }
     }
 
     pub(crate) fn finish(self, succeeded: bool) {
@@ -23,42 +24,6 @@ impl ActiveJob {
 
 impl Drop for ActiveJob {
     fn drop(&mut self) {
-        metrics::gauge!("jobs_active").decrement(1.0);
-    }
-}
-
-fn job_label(kind: JobKind) -> &'static str {
-    match kind {
-        JobKind::LibraryScan => "library_scan",
-        JobKind::Metadata => "metadata",
-        JobKind::Artwork => "artwork",
-        JobKind::Subtitles => "subtitles",
-        JobKind::Trickplay => "trickplay",
-        JobKind::Fingerprint => "fingerprint",
-        JobKind::Dedup => "dedup",
-        JobKind::CacheEviction => "cache_eviction",
-        JobKind::SearchReindex => "search_reindex",
-        JobKind::Ingest => "ingest",
-        JobKind::Relink => "relink",
-        JobKind::Transcription => "transcription",
-        JobKind::Translation => "translation",
-        JobKind::Upscale => "upscale",
-        JobKind::Combine => "combine",
-        JobKind::Fetch => "fetch",
-        JobKind::ScheduledScan => "scheduled_scan",
-        JobKind::Retention => "retention",
-        JobKind::OrphanSweep => "orphan_sweep",
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn job_label_covers_all_kinds() {
-        for kind in crate::job_class::ALL_KINDS {
-            assert!(!job_label(kind).is_empty());
-        }
+        metrics::gauge!("jobs_active", "pool" => self.pool.clone()).decrement(1.0);
     }
 }

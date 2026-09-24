@@ -368,8 +368,11 @@ where
         ctx: &LaunchContext,
         position_ms: u64,
     ) -> Result<Launched, SessionError> {
-        let container =
-            Container::parse(&detail.version.container).ok_or(SessionError::NegotiationFailed)?;
+        let Some(container) = Container::parse(&detail.version.container) else {
+            #[rustfmt::skip]
+            tracing::warn!("cannot play version [{}] at [{}]: unknown container [{}]", detail.version.id.0, detail.version.path, detail.version.container);
+            return Err(SessionError::NegotiationFailed);
+        };
         let (profile, report) = self.profile_for(&ctx.capabilities);
         let max_bitrate = combine_caps(ctx.capabilities.max_bitrate, ctx.bitrate_cap);
         let input = NegotiationInput {
@@ -439,6 +442,7 @@ where
                 .start(TranscodeSpec {
                     session: session_id.clone(),
                     generation,
+                    version: detail.version.id.clone(),
                     input_path: detail.version.path.clone(),
                     duration_ms: detail.version.duration_ms,
                     copy: remux,
@@ -1607,7 +1611,7 @@ mod tests {
     async fn start_rejects_unknown_container() {
         let harness = Harness::new();
         harness.catalog.insert(detail_with(
-            "avi",
+            "rmvb",
             100_000,
             vec![video("h264", Some(5_000_000))],
             vec![audio(1)],
@@ -1618,6 +1622,29 @@ mod tests {
             Err(SessionError::NegotiationFailed)
         ));
         assert!(harness.sessions.list_all(page()).await.unwrap().items.is_empty());
+    }
+
+    // The scanner ingests these, so a failure here is a title the user can see but never play.
+    #[tokio::test]
+    async fn start_remuxes_the_containers_no_client_can_play_directly() {
+        for container in ["avi", "mov", "m4v", "wmv", "flv", "mpg", "mpeg", "m2ts"] {
+            let harness = Harness::new();
+            harness.catalog.insert(detail_with(
+                container,
+                100_000,
+                vec![video("h264", Some(5_000_000))],
+                vec![audio(1)],
+                vec![],
+            ));
+
+            let started = harness
+                .service
+                .start(&principal(), start_request(0))
+                .await
+                .unwrap_or_else(|e| panic!("[{container}] should negotiate, got [{e:?}]"));
+
+            assert_eq!(started.mode, DeliveryMode::Remux, "{container}");
+        }
     }
 
     #[tokio::test]

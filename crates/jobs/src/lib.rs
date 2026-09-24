@@ -1,8 +1,8 @@
 pub mod cancel;
 pub mod error;
 pub mod handlers;
-pub mod job_class;
 pub mod job_handler;
+pub mod job_pools;
 mod metrics;
 pub mod queue;
 pub mod retry;
@@ -19,8 +19,8 @@ pub use handlers::{
     SubtitlesJobHandler, TranscriptionJobHandler, TranslationJobHandler, TrickplayJobHandler,
     UpscaleJobHandler,
 };
-pub use job_class::{enrichment_kinds, fetch_kinds, normal_kinds};
 pub use job_handler::JobHandler;
+pub use job_pools::{DEFAULT_POOL, JobPool, PoolError, PoolRequest, default_pools, resolve_pools};
 pub use queue::JobQueue;
 pub use retry::{RetryPolicy, apply_outcome, backoff};
 pub use schedule::Schedule;

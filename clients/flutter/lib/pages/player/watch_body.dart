@@ -111,6 +111,7 @@ class _WatchBodyState extends State<WatchBody>
   TrickplayLoader? _trickplay;
   Timer? _heartbeat;
   String? _status;
+  bool _applying = false;
   String? _mode;
   String? _container;
   String? _subtitleDelivery;
@@ -630,6 +631,10 @@ class _WatchBodyState extends State<WatchBody>
     }
     final int keepMs = seekMs ?? _view.positionMs;
     final int negotiation = ++_negotiation;
+    setState(() {
+      _applying = true;
+      _status = Strings.applyingPlaybackChanges;
+    });
     try {
       final neg = await _pb.update(sid, next);
       if (negotiation != _negotiation) {
@@ -654,6 +659,10 @@ class _WatchBodyState extends State<WatchBody>
     } catch (_) {
       if (mounted && negotiation == _negotiation) {
         setState(() => _status = Strings.renegotiationFailed);
+      }
+    } finally {
+      if (mounted && negotiation == _negotiation) {
+        setState(() => _applying = false);
       }
     }
   }
@@ -1096,8 +1105,13 @@ class _WatchBodyState extends State<WatchBody>
                                             : null,
                                         onPictureInPicture:
                                             _controller.togglePictureInPicture,
-                                        onControls: (PlaybackControls next) =>
-                                            _applyControls(next),
+                                        busy: _applying,
+                                        onControls: (PlaybackControls next) {
+                                          if (_applying) {
+                                            return;
+                                          }
+                                          _applyControls(next);
+                                        },
                                         onSpeed: _changeSpeed,
                                         onDiagnostics: _changeDiagnostics,
                                         autoplaySeconds:

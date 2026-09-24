@@ -127,9 +127,9 @@ re-downloaded. Attribution for all downloaded content is in `deployment/dev/CRED
 Log verbosity is set per target so you can run the service at `debug` without the SQL query
 firehose:
 
-- `SHADOWMASK_LOG_LEVEL` (default `info`, `debug` in this compose file) — level for Shadowmask's own
+- `SHADOWMASK_LOG_LEVEL` (default `info`, `debug` in this compose file) - level for Shadowmask's own
   crates.
-- `SHADOWMASK_SQLX_LOG_LEVEL` (default `warn`) — level for the `sqlx` target; raise it to `debug` to
+- `SHADOWMASK_SQLX_LOG_LEVEL` (default `warn`) - level for the `sqlx` target; raise it to `debug` to
   see every query. Everything else (hyper/axum/tower) stays at `warn`.
 - `RUST_LOG`, if set, overrides both with a raw `tracing` filter directive.
 

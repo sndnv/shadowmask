@@ -1,6 +1,6 @@
 use clap::Parser;
 use server::cli::{Cli, Command};
-use server::{Config, init_logging, install_metrics, serve};
+use server::{Config, init_logging, install_metrics, serve, shutdown_signal};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -9,10 +9,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let config = Config::load()?;
             init_logging(&config.log_level, &config.sqlx_log_level, &config.job_log_dir);
             let metrics = install_metrics();
-            serve(config, metrics, async {
-                let _ = tokio::signal::ctrl_c().await;
-            })
-            .await
+            serve(config, metrics, shutdown_signal()).await
         }
         Command::Backup(args) => {
             let config = Config::load()?;

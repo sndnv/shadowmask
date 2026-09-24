@@ -15,19 +15,20 @@ use jiff::{SignedDuration, Timestamp};
 use jobs::{
     ArtworkJobHandler, CacheEvictionHandler, CancelRegistry, CombineJobHandler,
     CompositeJobHandler, FetchJobHandler, IngestJobHandler, JobQueue, LibraryScanHandler,
-    MetadataJobHandler, OrphanSweepHandler, RelinkJobHandler, RetentionHandler, RetryPolicy,
-    Schedule, ScheduledScanHandler, Scheduler, SearchReindexHandler, SubtitlesJobHandler,
-    TranscriptionJobHandler, TranslationJobHandler, TrickplayJobHandler, UpscaleJobHandler, Worker,
-    enrichment_kinds, fetch_kinds, normal_kinds,
+    MetadataJobHandler, OrphanSweepHandler, PoolRequest, RelinkJobHandler, RetentionHandler,
+    RetryPolicy, Schedule, ScheduledScanHandler, Scheduler, SearchReindexHandler,
+    SubtitlesJobHandler, TranscriptionJobHandler, TranslationJobHandler, TrickplayJobHandler,
+    UpscaleJobHandler, Worker, resolve_pools,
 };
 use media::artwork::FsArtworkStore;
 use media::cache::CacheEvictor;
 use media::download_token::HmacDownloadTokens;
 use media::probe::FfprobeMediaProbe;
 use media::scan::WalkdirSourceWalker;
+use media::subtitle_extraction_store::FsSubtitleExtractionStore;
 use media::subtitle_store::FsSubtitleStore;
 use media::transcode::VideoEncoder;
-use media::trickplay::FfmpegTrickplayGenerator;
+use media::trickplay::{FfmpegTrickplayGenerator, TrickplayConfig};
 use media::upscale::FfmpegUpscaler;
 use metadata::{
     CombiningProvider, ImageArtworkPipeline, OmdbClient, OpenSubtitlesClient, TmdbClient,
@@ -48,6 +49,7 @@ use crate::bootstrap::{
     BootstrapResult, LibraryBootstrapProvider, UserBootstrapProvider, complete, run_one,
 };
 use crate::config::{Config, resolve_vaapi_device, transcription_model_dir, translation_model_dir};
+use crate::enrichment::{available_cores, resolve_enrichment_threads};
 use crate::lockfile::ServerLock;
 use crate::observability::observability_router;
 
@@ -101,6 +103,7 @@ type SweepHandler = OrphanSweepHandler<
     FsArtworkStore,
     FsSubtitleStore,
     FfmpegTrickplayGenerator,
+    FsSubtitleExtractionStore,
 >;
 type JobWorker = Worker<
     SqliteJobRepo,
@@ -171,7 +174,7 @@ fn select_model(
         .into()),
         None => {
             tracing::warn!(
-                "{kind}: enabled but no model folders were found under [{}]; {kind} jobs will fail until a model is added",
+                "{kind}: enabled but no model folders were found under [{}]; {kind} jobs stay queued until a model is added",
                 base.display()
             );
             Ok(None)
@@ -179,17 +182,35 @@ fn select_model(
     }
 }
 
-fn build_transcription_provider(model_dir: PathBuf) -> TranscriptionProviderImpl {
+fn parked_kinds(
+    transcription: bool,
+    translation: bool,
+    upscaling: bool,
+    fetch: bool,
+) -> Vec<JobKind> {
+    [
+        (transcription, JobKind::Transcription),
+        (translation, JobKind::Translation),
+        (upscaling, JobKind::Upscale),
+        (fetch, JobKind::Fetch),
+    ]
+    .into_iter()
+    .filter(|(available, _)| !available)
+    .map(|(_, kind)| kind)
+    .collect()
+}
+
+fn build_transcription_provider(model_dir: PathBuf, threads: usize) -> TranscriptionProviderImpl {
     #[cfg(feature = "enrichment")]
     {
         inference::WhisperProvider::new(
-            inference::Ct2WhisperEngine::new(model_dir),
+            inference::Ct2WhisperEngine::new(model_dir, threads),
             media::transcode::TokioProcessSpawner,
         )
     }
     #[cfg(not(feature = "enrichment"))]
     {
-        let _ = model_dir;
+        let _ = (model_dir, threads);
         inference::DisabledTranscriptionProvider
     }
 }
@@ -198,6 +219,7 @@ fn build_translation_provider(
     model_dir: PathBuf,
     source_prefix: Option<String>,
     target_prefix: Option<String>,
+    threads: usize,
 ) -> TranslationProviderImpl {
     #[cfg(feature = "enrichment")]
     {
@@ -205,11 +227,12 @@ fn build_translation_provider(
             model_dir,
             source_prefix,
             target_prefix,
+            threads,
         ))
     }
     #[cfg(not(feature = "enrichment"))]
     {
-        let _ = (model_dir, source_prefix, target_prefix);
+        let _ = (model_dir, source_prefix, target_prefix, threads);
         inference::DisabledTranslationProvider
     }
 }
@@ -290,9 +313,7 @@ pub struct Runtime {
     repos: Repos,
     router: Router,
     session: SessionSvc,
-    worker: JobWorker,
-    enrichment_worker: JobWorker,
-    fetch_worker: JobWorker,
+    workers: Vec<JobWorker>,
     scheduler: Scheduler,
     queue: JobQueue<SqliteJobRepo>,
     bind: SocketAddr,
@@ -347,6 +368,7 @@ impl Runtime {
             access_ttl_secs: config.access_ttl_secs,
             refresh_ttl_secs: config.refresh_ttl_secs,
             transcode_cache: config.transcode_cache.clone(),
+            subtitle_extraction_cache: config.subtitle_extraction_cache.clone(),
             artwork_cache: config.artwork_cache.clone(),
             trickplay_cache: config.trickplay_cache.clone(),
             tmdb_api_key: config.tmdb_api_key.clone(),
@@ -384,10 +406,18 @@ impl Runtime {
         #[cfg(not(feature = "enrichment"))]
         let (transcription_model, translation_model): (Option<PathBuf>, Option<PathBuf>) =
             (None, None);
+        let transcription_available = wire.transcription_enabled && transcription_model.is_some();
+        let translation_available = wire.translation_enabled && translation_model.is_some();
+        let parked = parked_kinds(
+            transcription_available,
+            translation_available,
+            wire.upscaling_enabled,
+            config.fetch_providers.enabled,
+        );
         let capabilities =
             crate::capabilities::server_capabilities(crate::capabilities::CapabilityInputs {
-                transcription: wire.transcription_enabled && transcription_model.is_some(),
-                translation: wire.translation_enabled && translation_model.is_some(),
+                transcription: transcription_available,
+                translation: translation_available,
                 upscaling: wire.upscaling_enabled,
                 opensubtitles: config.opensubtitles_api_key.is_some(),
                 tmdb: config.tmdb_api_key.is_some(),
@@ -445,11 +475,8 @@ impl Runtime {
         } else {
             Vec::new()
         };
-        let translation_langs = if config.enrichment.translation.enabled {
-            config.target_languages.clone()
-        } else {
-            Vec::new()
-        };
+        let translation_langs =
+            if translation_available { config.target_languages.clone() } else { Vec::new() };
         let subtitles = SubtitlesJobHandler::new(
             OpenSubtitlesClient::new(config.opensubtitles_api_key.clone().unwrap_or_default())
                 .with_min_interval(Duration::from_millis(config.opensubtitles_min_interval_ms)),
@@ -460,12 +487,16 @@ impl Runtime {
                 repos.jobs.clone(),
                 repos.catalog.clone(),
                 subtitle_langs.clone(),
+                transcription_available,
             ),
         );
-        let transcription_enabled = config.enrichment.transcription.enabled;
+        let transcription_enabled = transcription_available;
+        let enrichment_threads =
+            resolve_enrichment_threads(config.enrichment.threads, available_cores());
         let transcription = TranscriptionJobHandler::new(
             build_transcription_provider(
                 transcription_model.unwrap_or_else(|| transcription_dir.clone()),
+                enrichment_threads,
             ),
             repos.catalog.clone(),
             FsSubtitleStore::new(&config.subtitle_cache),
@@ -476,6 +507,7 @@ impl Runtime {
                 translation_model.unwrap_or_else(|| translation_dir.clone()),
                 config.enrichment.translation.source_prefix.clone(),
                 config.enrichment.translation.target_prefix.clone(),
+                enrichment_threads,
             ),
             repos.catalog.clone(),
             FsSubtitleStore::new(&config.subtitle_cache),
@@ -553,7 +585,11 @@ impl Runtime {
         );
         let trickplay = TrickplayJobHandler::new(
             repos.catalog.clone(),
-            FfmpegTrickplayGenerator::new(&config.trickplay_cache),
+            FfmpegTrickplayGenerator::new(&config.trickplay_cache).with_config(TrickplayConfig {
+                threads: config.trickplay_threads,
+                keyframes_only: config.trickplay_keyframes_only,
+                ..TrickplayConfig::default()
+            }),
         );
         let ingest = IngestJobHandler::new(
             repos.library.clone(),
@@ -593,6 +629,7 @@ impl Runtime {
             FsArtworkStore::new(&config.artwork_cache),
             FsSubtitleStore::new(&config.subtitle_cache),
             FfmpegTrickplayGenerator::new(&config.trickplay_cache),
+            FsSubtitleExtractionStore::new(&config.subtitle_extraction_cache),
             SignedDuration::from_secs(config.orphan_sweep_grace_secs),
         );
         let handler = Arc::new(CompositeJobHandler::new(
@@ -614,33 +651,36 @@ impl Runtime {
             retention,
             sweep,
         ));
-        let worker = Worker::new(
-            repos.jobs.clone(),
-            handler.clone(),
-            job_logs.clone(),
-            config.worker_concurrency,
-            RetryPolicy::default(),
-            normal_kinds(),
-        )
-        .with_cancel(cancel.clone());
-        let enrichment_worker = Worker::new(
-            repos.jobs.clone(),
-            handler.clone(),
-            job_logs.clone(),
-            config.enrichment.concurrency,
-            RetryPolicy::default(),
-            enrichment_kinds(),
-        )
-        .with_cancel(cancel.clone());
-        let fetch_worker = Worker::new(
-            repos.jobs.clone(),
-            handler,
-            job_logs,
-            config.fetch_providers.concurrency,
-            RetryPolicy::default(),
-            fetch_kinds(),
-        )
-        .with_cancel(cancel);
+        let requested = config
+            .job_pools
+            .iter()
+            .map(|(name, pool)| {
+                (
+                    name.clone(),
+                    PoolRequest { concurrency: pool.concurrency, kinds: pool.kinds.clone() },
+                )
+            })
+            .collect();
+        if !parked.is_empty() {
+            let names = parked.iter().map(|kind| kind.slug()).collect::<Vec<_>>().join(", ");
+            #[rustfmt::skip]
+            tracing::info!("job kinds [{names}] are switched off; their queued jobs stay queued and no pool will claim them");
+        }
+        let workers: Vec<JobWorker> = resolve_pools(&requested, &parked)?
+            .into_iter()
+            .map(|pool| {
+                Worker::new(
+                    repos.jobs.clone(),
+                    handler.clone(),
+                    job_logs.clone(),
+                    pool.concurrency,
+                    RetryPolicy::default(),
+                    pool.kinds,
+                )
+                .with_cancel(cancel.clone())
+                .with_pool(pool.name)
+            })
+            .collect();
 
         let tls = load_tls(config.tls_cert.as_deref(), config.tls_key.as_deref()).await?;
 
@@ -700,9 +740,7 @@ impl Runtime {
             repos,
             router,
             session,
-            worker,
-            enrichment_worker,
-            fetch_worker,
+            workers,
             scheduler,
             queue,
             bind: config.bind,
@@ -725,9 +763,7 @@ impl Runtime {
             repos,
             router,
             session,
-            worker,
-            enrichment_worker,
-            fetch_worker,
+            workers,
             mut scheduler,
             queue,
             tls,
@@ -742,18 +778,12 @@ impl Runtime {
         let (stop_tx, _stop_rx) = tokio::sync::watch::channel(false);
         let mut tasks: JoinSet<Result<(), BoxError>> = JoinSet::new();
 
-        let worker_stop = stopped(stop_tx.subscribe());
-        tasks.spawn(async move { worker.run(worker_period, worker_stop).await.map_err(box_err) });
-
-        let enrichment_stop = stopped(stop_tx.subscribe());
-        tasks.spawn(async move {
-            enrichment_worker.run(worker_period, enrichment_stop).await.map_err(box_err)
-        });
-
-        let fetch_stop = stopped(stop_tx.subscribe());
-        tasks.spawn(
-            async move { fetch_worker.run(worker_period, fetch_stop).await.map_err(box_err) },
-        );
+        for worker in workers {
+            let worker_stop = stopped(stop_tx.subscribe());
+            tasks.spawn(
+                async move { worker.run(worker_period, worker_stop).await.map_err(box_err) },
+            );
+        }
 
         let scheduler_stop = stopped(stop_tx.subscribe());
         tasks.spawn(async move {
@@ -859,6 +889,7 @@ mod tests {
     use super::*;
     use crate::api::LibrarySvc;
     use crate::bootstrap::{BootstrapMode, bootstrap_admin};
+    use crate::config::JobPoolConfig;
     use tracing_test::traced_test;
 
     fn write_bootstrap(dir: &Path) {
@@ -914,8 +945,32 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let runtime =
             Runtime::build(test_config(dir.path().to_owned()), test_metrics()).await.unwrap();
-        assert_eq!(runtime.worker.run_once(Timestamp::now()).await.unwrap(), 0);
+        assert_eq!(runtime.workers.len(), 2);
+        assert_eq!(runtime.workers[0].run_once(Timestamp::now()).await.unwrap(), 0);
         assert_eq!(runtime.session.reap_idle().await, 0);
+    }
+
+    #[tokio::test]
+    async fn switched_off_kinds_leave_their_pools_unstaffed() {
+        assert_eq!(
+            parked_kinds(false, false, false, false),
+            vec![JobKind::Transcription, JobKind::Translation, JobKind::Upscale, JobKind::Fetch]
+        );
+        assert!(parked_kinds(true, true, true, true).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_pool_that_claims_an_unknown_kind_stops_the_boot() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = test_config(dir.path().to_owned());
+        config.job_pools.insert(
+            "typo".to_owned(),
+            JobPoolConfig { concurrency: 1, kinds: vec!["nope".into()] },
+        );
+
+        let error = Runtime::build(config, test_metrics()).await.map(|_| ()).unwrap_err();
+
+        assert!(error.to_string().contains("nope"), "{error}");
     }
 
     // Every session named in the cache died with the process that wrote it, so a
@@ -973,7 +1028,7 @@ mod tests {
 
         let runtime = Runtime::build(config, test_metrics()).await.unwrap();
 
-        assert_eq!(runtime.worker.run_once(Timestamp::now()).await.unwrap(), 0);
+        assert_eq!(runtime.workers[0].run_once(Timestamp::now()).await.unwrap(), 0);
     }
 
     // An operator who points at a directory that is not there has to hear about
@@ -1007,7 +1062,7 @@ mod tests {
             ..test_config(dir.path().to_owned())
         };
         let runtime = Runtime::build(config, test_metrics()).await.unwrap();
-        assert_eq!(runtime.worker.run_once(Timestamp::now()).await.unwrap(), 0);
+        assert_eq!(runtime.workers[0].run_once(Timestamp::now()).await.unwrap(), 0);
     }
 
     #[tokio::test]
@@ -1019,7 +1074,7 @@ mod tests {
         // a binary that runs and prints something.
         config.fetch_providers.yt_dlp_binary = "/bin/echo".to_owned();
         let runtime = Runtime::build(config, test_metrics()).await.unwrap();
-        assert_eq!(runtime.worker.run_once(Timestamp::now()).await.unwrap(), 0);
+        assert_eq!(runtime.workers[0].run_once(Timestamp::now()).await.unwrap(), 0);
     }
 
     #[tokio::test]
