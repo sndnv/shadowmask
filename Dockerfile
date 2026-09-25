@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM rust:1.97-slim-bookworm AS builder
+FROM rust:1.98-slim-bookworm AS builder
 ARG TARGETARCH
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
@@ -66,7 +66,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 ENTRYPOINT ["shadowmask"]
 CMD ["service"]
 
-FROM rust:1.97-slim-bookworm AS builder-enrichment
+FROM rust:1.98-slim-bookworm AS builder-enrichment
 ARG TARGETARCH
 WORKDIR /build
 RUN apt-get update \
