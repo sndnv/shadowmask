@@ -200,7 +200,19 @@
             resolve.addEventListener("click", () => act(dup.id, "resolve", container));
             const dismiss = sm.el("button", { type: "button", class: "sm-secondary" }, "Dismiss");
             dismiss.addEventListener("click", () => act(dup.id, "dismiss", container));
-            return [dup.paths.join(", "), [resolve, " ", dismiss]];
+            const files = sm.el("div", null);
+            if (dup.kind === "multi_part") {
+              files.appendChild(
+                sm.el("p", null, [
+                  sm.el("span", { class: "sm-badge sm-warn", text: "Split" }),
+                  " One title split across " +
+                    dup.paths.length +
+                    " files. Join them into a single file to make it playable.",
+                ]),
+              );
+            }
+            files.appendChild(sm.el("span", { text: dup.paths.join(", ") }));
+            return [files, [resolve, " ", dismiss]];
           });
           container.appendChild(sm.table(["Files", ""], rows));
         } catch (err) {

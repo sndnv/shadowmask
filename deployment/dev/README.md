@@ -49,11 +49,13 @@ scripts/build_images.sh base
 scripts/build_images.sh enrichment
 ```
 
-Enrichment is enabled by default in `docker-compose.yml` (transcription, translation, and upscaling
-are on). Upscaling is pure ffmpeg and needs no model. Transcription and translation need models on
-disk (see "Local AI models" below); without them the server still boots and those jobs fail with a
-backend error until the models are present. Turn any feature off with, for example,
-`SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED=false`.
+Enrichment is enabled by default in `docker-compose.yml`: transcription and translation are on
+`auto`, which schedules them after a scan, and upscaling is on. Upscaling is pure ffmpeg and needs
+no model. Transcription and translation need models on
+disk (see "Local AI models" below); without them the server boots and each behaves as off, queueing
+no job of that kind and answering `409 feature_disabled` on any request for the work. Each takes a
+mode, so `SHADOWMASK_ENRICHMENT_TRANSCRIPTION_MODE=off` turns one off and `=on` keeps it triggerable
+by an admin without scheduling it.
 
 ## Local AI models
 

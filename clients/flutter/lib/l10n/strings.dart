@@ -823,6 +823,10 @@ abstract final class Strings {
   static const String emptyVersions = 'No versions available.';
   static const String emptyUnmatched = 'No unmatched files.';
   static const String emptyDuplicates = 'No duplicates.';
+
+  static String duplicateSplitAcross(int files) =>
+      'One title split across $files files. Join them into a single file to '
+      'make it playable.';
   static const String emptyCandidates = 'No candidates.';
   static const String emptyLogs = 'No logs.';
   static const String emptyActivity = 'Nothing playing.';

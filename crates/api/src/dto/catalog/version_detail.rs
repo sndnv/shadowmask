@@ -388,12 +388,12 @@ mod tests {
             source: SubtitleSource::External,
             path: "/media/v1.en.srt".into(),
             translated_from: None,
-            label: Some("The.Matrix.1999.BluRay".into()),
+            label: Some("Paper.Skies.1999.BluRay".into()),
             pinned: true,
         });
         assert_eq!(dto.id, "sf1");
         assert_eq!(dto.language.as_deref(), Some("en"));
-        assert_eq!(dto.label.as_deref(), Some("The.Matrix.1999.BluRay"));
+        assert_eq!(dto.label.as_deref(), Some("Paper.Skies.1999.BluRay"));
         assert!(dto.pinned);
         let json = serde_json::to_string(&dto).unwrap();
         assert!(json.contains("\"source\":\"external\""));

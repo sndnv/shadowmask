@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -49,14 +50,24 @@ Future<void> _pump(
             ),
           ),
           userId: 'u1',
-          child: SizedBox(
-            width: width,
-            child: CardRail(
-              title: Strings.moreInPrefix,
-              titleLink: 'Villeneuve',
-              titleRoute: '/collection/c1',
-              cards: <CatalogCard>[for (int i = 0; i < cards; i++) _card(i)],
-              imageBase: '',
+          child: SingleChildScrollView(
+            key: _pageKey,
+            child: SizedBox(
+              width: width,
+              child: Column(
+                children: <Widget>[
+                  CardRail(
+                    title: Strings.moreInPrefix,
+                    titleLink: 'Villeneuve',
+                    titleRoute: '/collection/c1',
+                    cards: <CatalogCard>[
+                      for (int i = 0; i < cards; i++) _card(i),
+                    ],
+                    imageBase: '',
+                  ),
+                  const SizedBox(height: 2000),
+                ],
+              ),
             ),
           ),
         ),
@@ -65,6 +76,18 @@ Future<void> _pump(
   );
   await tester.pumpAndSettle();
 }
+
+const Key _pageKey = ValueKey<String>('page');
+
+ScrollableState _rail(WidgetTester tester) => tester.state<ScrollableState>(
+  find.descendant(of: find.byType(CardRail), matching: find.byType(Scrollable)),
+);
+
+ScrollableState _page(WidgetTester tester) => tester.state<ScrollableState>(
+  find
+      .descendant(of: find.byKey(_pageKey), matching: find.byType(Scrollable))
+      .first,
+);
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
@@ -158,5 +181,98 @@ void main() {
 
     expect(find.byTooltip(Strings.next), findsOneWidget);
     expect(find.byTooltip(Strings.previous), findsNothing);
+  });
+
+  testWidgets('an ordinary up and down wheel moves the rail sideways', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, visited: <String>[], cards: 40);
+    final ScrollableState rail = _rail(tester);
+    expect(rail.position.pixels, 0);
+
+    final TestPointer mouse = TestPointer(1, PointerDeviceKind.mouse);
+    mouse.hover(tester.getCenter(find.byType(ListView)));
+    await tester.sendEventToBinding(mouse.scroll(const Offset(0, 120)));
+    await tester.pumpAndSettle();
+    expect(rail.position.pixels, 120);
+
+    await tester.sendEventToBinding(mouse.scroll(const Offset(0, -40)));
+    await tester.pumpAndSettle();
+    expect(rail.position.pixels, 80);
+  });
+
+  testWidgets('a rail at its end keeps the wheel rather than passing it on', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, visited: <String>[], cards: 40);
+    final ScrollableState rail = _rail(tester);
+    rail.position.jumpTo(rail.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+    final ScrollMetrics page = _page(tester).position.copyWith();
+
+    final TestPointer mouse = TestPointer(1, PointerDeviceKind.mouse);
+    mouse.hover(tester.getCenter(find.byType(ListView)));
+    await tester.sendEventToBinding(mouse.scroll(const Offset(0, 120)));
+    await tester.pumpAndSettle();
+
+    expect(rail.position.pixels, rail.position.maxScrollExtent);
+    expect(_page(tester).position.pixels, page.pixels);
+  });
+
+  testWidgets('a rail whose cards all fit leaves the wheel to the page', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, visited: <String>[], cards: 2);
+    final ScrollableState rail = _rail(tester);
+    expect(rail.position.maxScrollExtent, 0);
+
+    final TestPointer mouse = TestPointer(1, PointerDeviceKind.mouse);
+    mouse.hover(tester.getCenter(find.byType(ListView)));
+    await tester.sendEventToBinding(mouse.scroll(const Offset(0, 120)));
+    await tester.pumpAndSettle();
+
+    expect(_page(tester).position.pixels, greaterThan(0));
+  });
+
+  testWidgets('a trackpad pan sideways still reaches the rail', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, visited: <String>[], cards: 40);
+    final ScrollableState rail = _rail(tester);
+
+    final TestPointer mouse = TestPointer(1, PointerDeviceKind.mouse);
+    mouse.hover(tester.getCenter(find.byType(ListView)));
+    await tester.sendEventToBinding(mouse.scroll(const Offset(90, 0)));
+    await tester.pumpAndSettle();
+
+    expect(rail.position.pixels, 90);
+  });
+
+  testWidgets('a rail can be dragged with a mouse', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, visited: <String>[], cards: 40);
+    final ScrollableState rail = _rail(tester);
+
+    await tester.drag(
+      find.byType(ListView),
+      const Offset(-150, 0),
+      kind: PointerDeviceKind.mouse,
+    );
+    await tester.pumpAndSettle();
+
+    expect(rail.position.pixels, greaterThan(0));
+  });
+
+  testWidgets('dragging by mouse does not swallow a click on a card', (
+    WidgetTester tester,
+  ) async {
+    final List<String> visited = <String>[];
+    await _pump(tester, visited: visited, cards: 40);
+
+    await tester.tap(find.text('Movie 1'));
+    await tester.pumpAndSettle();
+
+    expect(visited, contains('/movie/m1'));
   });
 }

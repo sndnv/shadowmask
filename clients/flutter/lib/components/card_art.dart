@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/components/remote_image.dart';
-import 'package:shadowmask/components/skeleton.dart';
 import 'package:shadowmask/model/common/artwork.dart';
 import 'package:shadowmask/theme/radii.dart';
 import 'package:shadowmask/theme/tokens.dart';
@@ -77,7 +76,7 @@ class CardArt extends StatelessWidget {
     height: double.infinity,
     errorBuilder: (BuildContext _, Object _, StackTrace? _) => _failed(t),
     loadingBuilder: (BuildContext _, Widget child, ImageChunkEvent? progress) =>
-        progress == null ? child : _loading(),
+        progress == null ? child : _loading(t),
   );
 
   Widget _mosaic(List<String> urls, Tokens t, int pixels) {
@@ -103,11 +102,8 @@ class CardArt extends StatelessWidget {
     CardAspect.poster => Icons.movie_outlined,
   };
 
-  Widget _loading() => const Skeleton(
-    width: double.infinity,
-    height: double.infinity,
-    radius: Radius.zero,
-  );
+  Widget _loading(Tokens t) =>
+      SizedBox.expand(child: ColoredBox(color: t.surfaceAlt));
 
   Widget _failed(Tokens t) => Center(
     child: Icon(

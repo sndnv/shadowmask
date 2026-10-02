@@ -51,10 +51,18 @@ where
             .ingest_resolved(&library, &file, &payload.target, Some(&job.id))
             .await
             .map_err(retryable)?;
-        if outcome == ResolveOutcome::Unidentified {
-            let path = &payload.path;
-            let reason = format!("the provider returned no metadata for [{path}]; not identified");
-            return Err(JobError::Retryable(reason));
+        let path = &payload.path;
+        match outcome {
+            ResolveOutcome::Identified => {}
+            ResolveOutcome::Unidentified => {
+                let reason =
+                    format!("the provider returned no metadata for [{path}]; not identified");
+                return Err(JobError::Retryable(reason));
+            }
+            ResolveOutcome::NotAnEpisode => {
+                let reason = format!("[{path}] names no episode, so a TV library cannot take it");
+                return Err(JobError::Permanent(reason));
+            }
         }
         self.repo
             .set_unmatched_status(&payload.unmatched, ResolutionStatus::Resolved)
@@ -208,6 +216,37 @@ mod tests {
         let error = handler.handle(&job(payload.encode())).await.unwrap_err();
 
         assert!(matches!(error, JobError::Retryable(_)));
+    }
+
+    #[tokio::test]
+    async fn a_tv_file_with_no_episode_is_permanent_and_stays_unmatched() {
+        use domain::metadata::ExternalId;
+
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(Library { kind: LibraryKind::Tv, ..library() });
+        repo.insert_unmatched(UnmatchedFile {
+            id: UnmatchedFileId("uf1".into()),
+            library: LibraryId("lib".into()),
+            path: "/tv/Neon Harbor (2017).mkv".into(),
+            candidates: Vec::new(),
+            created_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+        })
+        .await
+        .unwrap();
+        let handler = IngestJobHandler::new(repo.clone(), MockMediaProbe::new(), ingester());
+        let payload = IngestJobPayload {
+            target: ResolveTarget::Provider(ExternalId {
+                source: "tmdb".into(),
+                value: "tv/1".into(),
+            }),
+            ..payload("/tv/Neon Harbor (2017).mkv", "lib")
+        };
+
+        let error = handler.handle(&job(payload.encode())).await.unwrap_err();
+
+        assert!(matches!(error, JobError::Permanent(_)));
+        assert_eq!(repo.list_unmatched(&LibraryId("lib".into()), page()).await.unwrap().total, 1);
     }
 
     #[tokio::test]

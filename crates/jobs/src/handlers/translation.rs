@@ -66,11 +66,7 @@ where
                     source
                 }
             };
-            let content = self
-                .store
-                .load(&source.path)
-                .await
-                .map_err(|e| JobError::Retryable(e.to_string()))?;
+            let content = self.store.load(&source.path).await?;
             let request = TranslationSpec {
                 content,
                 format: source.format,
@@ -117,8 +113,7 @@ where
                     translated.format,
                     &translated.content,
                 )
-                .await
-                .map_err(|e| JobError::Retryable(e.to_string()))?;
+                .await?;
             let produced = SubtitleFile {
                 id: SubtitleFileId(format!(
                     "machine:{}:{}",
@@ -567,7 +562,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn version_missing_is_a_no_op() {
+    async fn a_version_that_is_gone_is_a_no_op() {
         let handler = handler(ProviderMode::Ok, MockCatalogRepo::new(), MockStore::default());
         handler.handle(&job(payload(&["fr"]))).await.unwrap();
     }

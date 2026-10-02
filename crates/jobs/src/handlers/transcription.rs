@@ -97,8 +97,7 @@ where
         let path = self
             .store
             .store(&payload.version_id, "generated", subtitle.format, &subtitle.content)
-            .await
-            .map_err(|e| JobError::Retryable(e.to_string()))?;
+            .await?;
         let file = SubtitleFile {
             id: SubtitleFileId(format!("generated:{}", payload.version_id.0)),
             version: payload.version_id.clone(),
@@ -110,20 +109,15 @@ where
             label: None,
             pinned: false,
         };
-        let current = self
-            .catalog
-            .version_detail(&payload.version_id)
-            .await
-            .map_err(|e| JobError::Retryable(e.to_string()))?;
-        let mut merged: Vec<SubtitleFile> = current
-            .map(|detail| detail.subtitle_files)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|existing| existing.source != SubtitleSource::Generated)
-            .collect();
-        merged.push(file);
         self.catalog
-            .set_subtitle_files(&payload.version_id, &merged)
+            .update_subtitle_files(&payload.version_id, |held| {
+                let mut merged: Vec<SubtitleFile> = held
+                    .into_iter()
+                    .filter(|existing| existing.source != SubtitleSource::Generated)
+                    .collect();
+                merged.push(file);
+                merged
+            })
             .await
             .map_err(|e| JobError::Retryable(e.to_string()))?;
         self.trigger
@@ -437,7 +431,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn no_op_when_version_missing() {
+    async fn a_version_that_is_gone_is_a_no_op() {
         let store = MockStore::default();
         let handler = TranscriptionJobHandler::new(
             MockProvider { mode: ProviderMode::Ok },

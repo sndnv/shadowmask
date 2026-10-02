@@ -45,7 +45,7 @@ pub use parse::{
     confidence, parse_filename, quality_from_height, quality_token, upscaled_output_path,
 };
 pub use relink_job::RelinkJobPayload;
-pub use scan_queue::{is_nightly_library, queue_scan};
+pub use scan_queue::{is_nightly_library, queue_scan, settle_interrupted_scans};
 pub use scanner::{DEFAULT_PROBE_CONCURRENCY, Scanner};
 pub use service::LibraryServiceImpl;
 pub use subtitle_job::SubtitleJobPayload;

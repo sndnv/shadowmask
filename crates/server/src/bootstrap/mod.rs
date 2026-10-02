@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use domain::user::{Principal, Role, UserId};
 use serde::{Deserialize, Serialize};
 
-pub use env::load_expanded;
+pub use env::{load_expanded, referenced_vars};
 pub use executor::{BootstrapEntityProvider, complete, run_one};
 pub use library::LibraryBootstrapProvider;
 pub use user::UserBootstrapProvider;

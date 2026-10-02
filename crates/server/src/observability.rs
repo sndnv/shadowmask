@@ -3,7 +3,6 @@ use axum::body::Body;
 use axum::extract::State;
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
-use std::path::Path;
 
 use axum::routing::get;
 use axum::{Router, http::StatusCode};
@@ -16,6 +15,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 use crate::api::Repos;
+use crate::config::{Config, Loaded};
 use crate::job_log_layer::JobLogLayer;
 
 const DURATION_BUCKETS: &[f64] = &[
@@ -35,16 +35,21 @@ fn log_directives(level: &str, sqlx_level: &str) -> String {
     directives.join(",")
 }
 
-pub fn init_logging(level: &str, sqlx_level: &str, job_log_dir: &Path) {
-    let console = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(log_directives(level, sqlx_level)));
+pub fn init_logging(loaded: Loaded) -> Config {
+    let Loaded { config, warnings } = loaded;
+    let directives = log_directives(&config.log_level, &config.sqlx_log_level);
+    let console = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(directives));
     let job_logs = Targets::new()
         .with_default(LevelFilter::OFF)
         .with_targets(OWN_CRATES.iter().map(|krate| (*krate, LevelFilter::DEBUG)));
     let _ = tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_filter(console))
-        .with(JobLogLayer::new(FsJobLogStore::new(job_log_dir)).with_filter(job_logs))
+        .with(JobLogLayer::new(FsJobLogStore::new(&config.job_log_dir)).with_filter(job_logs))
         .try_init();
+    for warning in warnings {
+        tracing::warn!("{warning}");
+    }
+    config
 }
 
 pub fn install_metrics() -> PrometheusHandle {
@@ -105,6 +110,7 @@ mod tests {
     use axum::body::to_bytes;
     use axum::http::Request;
     use tower::ServiceExt;
+    use tracing_test::traced_test;
 
     fn local_handle() -> PrometheusHandle {
         PrometheusBuilder::new().build_recorder().handle()
@@ -115,11 +121,30 @@ mod tests {
         Repos::connect(dir.path()).await.unwrap()
     }
 
+    fn loaded(warnings: Vec<String>, dir: &std::path::Path) -> Loaded {
+        let config = Config { job_log_dir: dir.to_path_buf(), ..Config::default() };
+        Loaded { config, warnings }
+    }
+
     #[test]
     fn init_logging_is_idempotent() {
         let dir = tempfile::tempdir().unwrap();
-        init_logging("debug", "warn", dir.path());
-        init_logging("info", "warn", dir.path());
+        init_logging(loaded(Vec::new(), dir.path()));
+        init_logging(loaded(Vec::new(), dir.path()));
+    }
+
+    #[traced_test]
+    #[test]
+    fn init_logging_says_what_loading_the_config_wanted_said() {
+        let dir = tempfile::tempdir().unwrap();
+        let warnings =
+            vec!["[SHADOWMASK_JWT_SECRT] is not a setting".to_owned(), "second".to_owned()];
+
+        let config = init_logging(loaded(warnings, dir.path()));
+
+        assert_eq!(config.job_log_dir, dir.path());
+        assert!(logs_contain("[SHADOWMASK_JWT_SECRT] is not a setting"));
+        assert!(logs_contain("second"));
     }
 
     #[test]

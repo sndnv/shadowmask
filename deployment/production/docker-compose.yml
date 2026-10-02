@@ -81,8 +81,9 @@ services:
       # SHADOWMASK_JOB_POOLS_TRICKPLAY_CONCURRENCY: "1"
       # SHADOWMASK_JOB_POOLS_ENRICHMENT_CONCURRENCY: "1"
       # SHADOWMASK_JOB_POOLS_FETCH_CONCURRENCY: "1"
-      # Any other name creates a pool; naming no kinds removes one. An unknown kind, a kind claimed
-      # twice, or a concurrency of zero stops the server at startup.
+      # Any other name creates a pool; naming no kinds removes one. default always exists and needs
+      # no kinds. A concurrency set on any other pool that names no kinds is ignored and logged.
+      # An unknown kind, a kind claimed twice, or a concurrency of zero stops the server at startup.
       # SHADOWMASK_JOB_POOLS_ARTWORK_KINDS: "artwork"
       # SHADOWMASK_JOB_POOLS_ARTWORK_CONCURRENCY: "6"
 
@@ -128,10 +129,12 @@ services:
       # How many of these run at once is SHADOWMASK_JOB_POOLS_ENRICHMENT_CONCURRENCY, above.
       # Cores one enrichment job may use. Unset means half the machine.
       # SHADOWMASK_ENRICHMENT_THREADS: "4"
-      # SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED: "true"
+      # Transcription and translation take off, on or auto. "on" loads the model and lets an
+      # admin trigger the work; "auto" also schedules it. The two are independent.
+      # SHADOWMASK_ENRICHMENT_TRANSCRIPTION_MODE: "auto"
       # SHADOWMASK_ENRICHMENT_TRANSCRIPTION_PROVIDER: "none"
       # SHADOWMASK_ENRICHMENT_TRANSCRIPTION_MODEL_PATH: "whisper-small"
-      # SHADOWMASK_ENRICHMENT_TRANSLATION_ENABLED: "true"
+      # SHADOWMASK_ENRICHMENT_TRANSLATION_MODE: "auto"
       # SHADOWMASK_ENRICHMENT_TRANSLATION_PROVIDER: "none"
       # SHADOWMASK_ENRICHMENT_TRANSLATION_MODEL_PATH: "madlad400"
       # For a multilingual translation model, set the language-token prefix it expects, e.g.

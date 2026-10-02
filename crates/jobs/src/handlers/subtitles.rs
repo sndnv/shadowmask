@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::collections::HashSet;
 
 use domain::common::LanguageCode;
@@ -5,7 +6,7 @@ use domain::error::SubtitleError;
 use domain::job::{Job, JobId, TranscriptionTrigger, TranslationTrigger};
 use domain::media::{
     SubtitleFile, SubtitleFileId, SubtitleProvider, SubtitleQuery, SubtitleSource, SubtitleStore,
-    prune_orphaned_translations,
+    prune_orphaned_translations, same_release,
 };
 use domain::repository::CatalogRepository;
 use services::library::SubtitleJobPayload;
@@ -70,6 +71,22 @@ where
             season: payload.season,
             episode: payload.episode,
         };
+        let Some(detail) = self
+            .catalog
+            .version_detail(&payload.version_id)
+            .await
+            .map_err(|e| JobError::Retryable(e.to_string()))?
+        else {
+            tracing::debug!("version gone; skipping subtitles");
+            return Ok(());
+        };
+        let video = detail.version.path;
+        let pinned: HashSet<SubtitleFileId> = detail
+            .subtitle_files
+            .into_iter()
+            .filter(|file| file.pinned)
+            .map(|file| file.id)
+            .collect();
         tracing::info!("fetching subtitles for version [{}]", payload.version_id.0);
         let candidates = match self.provider.search(&query).await {
             Ok(candidates) => candidates,
@@ -77,31 +94,42 @@ where
                 tracing::debug!("no subtitles found");
                 return self.transcribe_on_miss(&payload, &job.id).await;
             }
-            Err(e) => return Err(JobError::Retryable(e.to_string())),
+            Err(e) => return Err(e.into()),
         };
 
         let mut fetched: Vec<SubtitleFile> = Vec::new();
+        let mut already_pinned = false;
         for language in &languages {
-            let Some(candidate) =
-                candidates.iter().find(|candidate| candidate.language.as_ref() == Some(language))
+            let Some(candidate) = candidates
+                .iter()
+                .filter(|candidate| {
+                    candidate.language.as_ref() == Some(language)
+                        && candidate
+                            .release_name
+                            .as_deref()
+                            .is_some_and(|release| same_release(&video, release))
+                })
+                .min_by_key(|candidate| Reverse(candidate.download_count))
             else {
+                tracing::debug!("no [{}] subtitle matches the release on disk", language.0);
                 continue;
             };
-            let subtitle = self
-                .provider
-                .download(&candidate.file_id)
-                .await
-                .map_err(|e| JobError::Retryable(e.to_string()))?;
+            let id = SubtitleFileId(format!(
+                "opensubtitles:{}:{}",
+                payload.version_id.0, candidate.file_id
+            ));
+            if pinned.contains(&id) {
+                tracing::debug!("subtitle [{}] is already pinned", candidate.file_id);
+                already_pinned = true;
+                continue;
+            }
+            let subtitle = self.provider.download(&candidate.file_id).await?;
             let path = self
                 .store
                 .store(&payload.version_id, &candidate.file_id, subtitle.format, &subtitle.content)
-                .await
-                .map_err(|e| JobError::Retryable(e.to_string()))?;
+                .await?;
             fetched.push(SubtitleFile {
-                id: SubtitleFileId(format!(
-                    "opensubtitles:{}:{}",
-                    payload.version_id.0, candidate.file_id
-                )),
+                id,
                 version: payload.version_id.clone(),
                 language: candidate.language.clone(),
                 format: subtitle.format,
@@ -113,26 +141,30 @@ where
             });
         }
 
-        if fetched.is_empty() {
+        if fetched.is_empty() && !already_pinned {
             return self.transcribe_on_miss(&payload, &job.id).await;
         }
 
-        let existing = self
+        let present = self
             .catalog
-            .version_detail(&payload.version_id)
+            .get_version(&payload.version_id)
             .await
             .map_err(|e| JobError::Retryable(e.to_string()))?;
-        let mut merged: Vec<SubtitleFile> = existing
-            .map(|detail| detail.subtitle_files)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|file| file.source != SubtitleSource::OpenSubtitles || file.pinned)
-            .collect();
-        let kept: HashSet<SubtitleFileId> = merged.iter().map(|file| file.id.clone()).collect();
-        merged.extend(fetched.into_iter().filter(|file| !kept.contains(&file.id)));
-        let merged = prune_orphaned_translations(merged);
+        if present.is_none() {
+            tracing::debug!("version gone; skipping subtitles");
+            return Ok(());
+        }
         self.catalog
-            .set_subtitle_files(&payload.version_id, &merged)
+            .update_subtitle_files(&payload.version_id, |held| {
+                let mut merged: Vec<SubtitleFile> = held
+                    .into_iter()
+                    .filter(|file| file.source != SubtitleSource::OpenSubtitles || file.pinned)
+                    .collect();
+                let kept: HashSet<SubtitleFileId> =
+                    merged.iter().map(|file| file.id.clone()).collect();
+                merged.extend(fetched.into_iter().filter(|file| !kept.contains(&file.id)));
+                prune_orphaned_translations(merged)
+            })
             .await
             .map_err(|e| JobError::Retryable(e.to_string()))?;
         self.trigger
@@ -210,6 +242,57 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct AppendingStore {
+        catalog: MockCatalogRepo,
+    }
+
+    impl SubtitleStore for AppendingStore {
+        async fn store(
+            &self,
+            version: &VersionId,
+            file_id: &str,
+            format: SubtitleFormat,
+            _content: &str,
+        ) -> Result<String, SubtitleError> {
+            self.catalog.add_subtitle_file(version, &external("late")).await.unwrap();
+            Ok(format!("/subs/{}/{file_id}.{}", version.0, format.extension()))
+        }
+    }
+
+    #[derive(Clone)]
+    struct RefusingStore;
+
+    impl SubtitleStore for RefusingStore {
+        async fn store(
+            &self,
+            _version: &VersionId,
+            _file_id: &str,
+            _format: SubtitleFormat,
+            _content: &str,
+        ) -> Result<String, SubtitleError> {
+            Err(SubtitleError::Refused("outside the store".into()))
+        }
+    }
+
+    #[derive(Clone)]
+    struct VanishingStore {
+        catalog: MockCatalogRepo,
+    }
+
+    impl SubtitleStore for VanishingStore {
+        async fn store(
+            &self,
+            version: &VersionId,
+            file_id: &str,
+            format: SubtitleFormat,
+            _content: &str,
+        ) -> Result<String, SubtitleError> {
+            self.catalog.delete_version(version).await.unwrap();
+            Ok(format!("/subs/{}/{file_id}.{}", version.0, format.extension()))
+        }
+    }
+
     #[derive(Clone, Default)]
     struct MockTrigger {
         fail: bool,
@@ -244,14 +327,43 @@ mod tests {
         }
     }
 
+    const RELEASE: &str = "Paper.Skies.1999.1080p.BluRay.x264-TAG";
+
     fn candidate(file_id: &str, language: &str) -> SubtitleCandidate {
+        released(file_id, language, Some(RELEASE))
+    }
+
+    fn released(file_id: &str, language: &str, release: Option<&str>) -> SubtitleCandidate {
         SubtitleCandidate {
             file_id: file_id.into(),
             language: Some(LanguageCode(language.into())),
             format: SubtitleFormat::Srt,
-            release_name: None,
+            release_name: release.map(str::to_owned),
             download_count: None,
             rating: None,
+        }
+    }
+
+    fn external(id: &str) -> SubtitleFile {
+        SubtitleFile {
+            id: SubtitleFileId(id.into()),
+            version: VersionId("v1".into()),
+            language: Some(LanguageCode("en".into())),
+            format: SubtitleFormat::Srt,
+            source: SubtitleSource::External,
+            path: format!("/m/{id}.en.srt"),
+            translated_from: None,
+            label: None,
+            pinned: false,
+        }
+    }
+
+    fn provider_row(id: &str, pinned: bool) -> SubtitleFile {
+        SubtitleFile {
+            source: SubtitleSource::OpenSubtitles,
+            label: Some(RELEASE.to_owned()),
+            pinned,
+            ..external(id)
         }
     }
 
@@ -262,13 +374,19 @@ mod tests {
             library: domain::library::LibraryId("lib".into()),
             quality: Quality::Hd,
             container: "mkv".into(),
-            path: "/m/v1.mkv".into(),
+            path: format!("/m/{RELEASE}.mkv"),
             size_bytes: 1,
             duration_ms: 1000,
             available: true,
             added_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
         }
+    }
+
+    fn seeded() -> MockCatalogRepo {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
+        catalog
     }
 
     fn job(raw: String) -> Job {
@@ -295,7 +413,7 @@ mod tests {
         SubtitleJobPayload {
             version_id: VersionId("v1".into()),
             imdb_id: Some("tt1".into()),
-            title: Some("The Matrix".into()),
+            title: Some("Paper Skies".into()),
             languages: vec!["en".into()],
             season: None,
             episode: None,
@@ -308,13 +426,100 @@ mod tests {
         SubtitleJobPayload {
             version_id: VersionId("v1".into()),
             imdb_id: Some("tt1".into()),
-            title: Some("The Matrix".into()),
+            title: Some("Paper Skies".into()),
             languages: vec!["en".into()],
             season: None,
             episode: None,
             transcribe_on_miss: true,
         }
         .encode()
+    }
+
+    async fn held(catalog: &MockCatalogRepo) -> Vec<SubtitleFile> {
+        catalog
+            .version_detail(&VersionId("v1".into()))
+            .await
+            .unwrap()
+            .expect("the version is still there")
+            .subtitle_files
+    }
+
+    async fn seed(catalog: &MockCatalogRepo, files: &[SubtitleFile]) {
+        catalog.set_subtitle_files(&VersionId("v1".into()), files).await.unwrap();
+    }
+
+    fn handler_over(
+        catalog: MockCatalogRepo,
+        store: MockStore,
+    ) -> SubtitlesJobHandler<MockProvider, MockCatalogRepo, MockStore, MockTrigger, MockTranscription>
+    {
+        SubtitlesJobHandler::new(
+            MockProvider { mode: ProviderMode::Ok(vec![candidate("42", "en")]) },
+            catalog,
+            store,
+            MockTrigger::default(),
+            MockTranscription::default(),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_merge_that_cannot_be_written_leaves_the_rows_as_they_were() {
+        let catalog = seeded();
+        seed(&catalog, &[provider_row("opensubtitles:v1:old", false)]).await;
+        catalog.set_fail_writes();
+
+        let err = handler_over(catalog.clone(), MockStore::default())
+            .handle(&job(payload()))
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, JobError::Retryable(_)), "{err:?}");
+        let files = held(&catalog).await;
+        assert_eq!(
+            files.iter().map(|file| file.id.0.as_str()).collect::<Vec<_>>(),
+            ["opensubtitles:v1:old"],
+            "the working subtitle is untouched and nothing is half written"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_candidate_the_job_picks_again_is_written_back_as_it_now_sits_on_disk() {
+        let catalog = seeded();
+        seed(
+            &catalog,
+            &[SubtitleFile {
+                format: SubtitleFormat::Srt,
+                path: "/subs/v1/42.srt".into(),
+                label: Some("Paper.Skies.1999.1080p.BluRay.x264-OTHER".into()),
+                ..provider_row("opensubtitles:v1:42", false)
+            }],
+        )
+        .await;
+        let store = MockStore::default();
+
+        handler_over(catalog.clone(), store.clone()).handle(&job(payload())).await.unwrap();
+
+        let files = held(&catalog).await;
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, store.stored.lock().unwrap()[0], "/subs/v1/42.vtt was written");
+        assert_eq!(files[0].format, SubtitleFormat::Vtt);
+        assert_eq!(files[0].label.as_deref(), Some(RELEASE));
+    }
+
+    #[tokio::test]
+    async fn a_store_that_refuses_outright_is_permanent() {
+        let err = SubtitlesJobHandler::new(
+            MockProvider { mode: ProviderMode::Ok(vec![candidate("42", "en")]) },
+            seeded(),
+            RefusingStore,
+            MockTrigger::default(),
+            MockTranscription::default(),
+        )
+        .handle(&job(payload()))
+        .await
+        .unwrap_err();
+
+        assert!(matches!(err, JobError::Permanent(_)), "{err:?}");
     }
 
     #[tokio::test]
@@ -359,6 +564,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_subtitle_added_during_the_provider_round_trip_survives() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
+        let handler = SubtitlesJobHandler::new(
+            MockProvider { mode: ProviderMode::Ok(vec![candidate("42", "en")]) },
+            catalog.clone(),
+            AppendingStore { catalog: catalog.clone() },
+            MockTrigger::default(),
+            MockTranscription::default(),
+        );
+
+        handler.handle(&job(payload())).await.unwrap();
+
+        let files =
+            catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap().subtitle_files;
+        let ids: Vec<&str> = files.iter().map(|file| file.id.0.as_str()).collect();
+        assert!(ids.contains(&"late"), "a row appended mid-flight must not be overwritten");
+        assert!(ids.contains(&"opensubtitles:v1:42"));
+    }
+
+    #[tokio::test]
+    async fn a_stale_provider_row_is_deleted_while_a_pinned_one_stays() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
+        catalog
+            .set_subtitle_files(
+                &VersionId("v1".into()),
+                &[provider_row("old", false), provider_row("pinned", true)],
+            )
+            .await
+            .unwrap();
+        let handler = SubtitlesJobHandler::new(
+            MockProvider { mode: ProviderMode::Ok(vec![candidate("42", "en")]) },
+            catalog.clone(),
+            MockStore::default(),
+            MockTrigger::default(),
+            MockTranscription::default(),
+        );
+
+        handler.handle(&job(payload())).await.unwrap();
+
+        let files =
+            catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap().subtitle_files;
+        let ids: Vec<&str> = files.iter().map(|file| file.id.0.as_str()).collect();
+        assert!(!ids.contains(&"old"), "an unpinned provider row is replaced");
+        assert!(ids.contains(&"pinned"));
+        assert!(ids.contains(&"opensubtitles:v1:42"));
+    }
+
+    #[tokio::test]
     async fn missing_language_candidate_is_a_no_op() {
         let catalog = MockCatalogRepo::new();
         catalog.add_version(version());
@@ -380,7 +635,7 @@ mod tests {
     async fn not_found_is_a_no_op() {
         let handler = SubtitlesJobHandler::new(
             MockProvider { mode: ProviderMode::NotFound },
-            MockCatalogRepo::new(),
+            seeded(),
             MockStore::default(),
             MockTrigger::default(),
             MockTranscription::default(),
@@ -392,7 +647,7 @@ mod tests {
     async fn backend_search_failure_is_retryable() {
         let handler = SubtitlesJobHandler::new(
             MockProvider { mode: ProviderMode::Backend },
-            MockCatalogRepo::new(),
+            seeded(),
             MockStore::default(),
             MockTrigger::default(),
             MockTranscription::default(),
@@ -404,10 +659,52 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn store_failure_is_retryable() {
+    async fn a_version_that_is_gone_is_a_no_op() {
+        let transcription = MockTranscription::default();
+        let store = MockStore::default();
         let handler = SubtitlesJobHandler::new(
             MockProvider { mode: ProviderMode::Ok(vec![candidate("42", "en")]) },
             MockCatalogRepo::new(),
+            store.clone(),
+            MockTrigger::default(),
+            transcription.clone(),
+        );
+
+        handler.handle(&job(payload_with_fallback())).await.unwrap();
+
+        assert!(store.stored.lock().unwrap().is_empty(), "it buys nothing");
+        assert_eq!(*transcription.calls.lock().unwrap(), 0, "and it transcribes nothing");
+    }
+
+    #[tokio::test]
+    async fn a_version_deleted_during_the_provider_round_trip_is_not_written_to() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
+        let trigger = MockTrigger::default();
+        let handler = SubtitlesJobHandler::new(
+            MockProvider { mode: ProviderMode::Ok(vec![candidate("42", "en")]) },
+            catalog.clone(),
+            VanishingStore { catalog: catalog.clone() },
+            trigger.clone(),
+            MockTranscription::default(),
+        );
+
+        handler.handle(&job(payload())).await.unwrap();
+
+        assert_eq!(
+            *trigger.calls.lock().unwrap(),
+            0,
+            "nothing is translated for a version that left"
+        );
+    }
+
+    #[tokio::test]
+    async fn store_failure_is_retryable() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
+        let handler = SubtitlesJobHandler::new(
+            MockProvider { mode: ProviderMode::Ok(vec![candidate("42", "en")]) },
+            catalog,
             MockStore { fail: true, ..MockStore::default() },
             MockTrigger::default(),
             MockTranscription::default(),
@@ -452,10 +749,116 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_subtitle_for_another_release_is_not_pulled() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
+        let transcription = MockTranscription::default();
+        let handler = SubtitlesJobHandler::new(
+            MockProvider {
+                mode: ProviderMode::Ok(vec![released(
+                    "42",
+                    "en",
+                    Some("Paper.Skies.1999.2160p.UHD.BluRay.x265-OTHER"),
+                )]),
+            },
+            catalog.clone(),
+            MockStore::default(),
+            MockTrigger::default(),
+            transcription.clone(),
+        );
+
+        handler.handle(&job(payload_with_fallback())).await.unwrap();
+
+        let files =
+            catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap().subtitle_files;
+        assert!(files.is_empty(), "a mismatched release must not be attached");
+        assert_eq!(*transcription.calls.lock().unwrap(), 1, "it counts as a miss");
+    }
+
+    #[tokio::test]
+    async fn a_release_name_the_provider_left_blank_is_not_pulled() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
+        let handler = SubtitlesJobHandler::new(
+            MockProvider { mode: ProviderMode::Ok(vec![released("42", "en", None)]) },
+            catalog.clone(),
+            MockStore::default(),
+            MockTrigger::default(),
+            MockTranscription::default(),
+        );
+
+        handler.handle(&job(payload())).await.unwrap();
+
+        let files =
+            catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap().subtitle_files;
+        assert!(files.is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_matching_release_is_chosen_over_an_earlier_one() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
+        let handler = SubtitlesJobHandler::new(
+            MockProvider {
+                mode: ProviderMode::Ok(vec![
+                    released("first", "en", Some("Paper.Skies.1999.720p.HDTV.XviD-NOPE")),
+                    released("second", "en", None),
+                    candidate("third", "en"),
+                ]),
+            },
+            catalog.clone(),
+            MockStore::default(),
+            MockTrigger::default(),
+            MockTranscription::default(),
+        );
+
+        handler.handle(&job(payload())).await.unwrap();
+
+        let files =
+            catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap().subtitle_files;
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].id.0, "opensubtitles:v1:third");
+    }
+
+    #[tokio::test]
+    async fn the_most_downloaded_matching_release_is_chosen() {
+        let counted = |file_id: &str, release: &str, count: Option<u32>| SubtitleCandidate {
+            download_count: count,
+            ..released(file_id, "en", Some(release))
+        };
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
+        let handler = SubtitlesJobHandler::new(
+            MockProvider {
+                mode: ProviderMode::Ok(vec![
+                    counted("uncounted", RELEASE, None),
+                    counted("low", RELEASE, Some(5)),
+                    counted("other", "Paper.Skies.1999.720p.HDTV.XviD-NOPE", Some(999)),
+                    counted("high", RELEASE, Some(20)),
+                    counted("tied", RELEASE, Some(20)),
+                ]),
+            },
+            catalog.clone(),
+            MockStore::default(),
+            MockTrigger::default(),
+            MockTranscription::default(),
+        );
+
+        handler.handle(&job(payload())).await.unwrap();
+
+        let files =
+            catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap().subtitle_files;
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].id.0, "opensubtitles:v1:high");
+    }
+
+    #[tokio::test]
     async fn translation_trigger_failure_is_retryable() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
         let handler = SubtitlesJobHandler::new(
             MockProvider { mode: ProviderMode::Ok(vec![candidate("42", "en")]) },
-            MockCatalogRepo::new(),
+            catalog,
             MockStore::default(),
             MockTrigger { fail: true, ..MockTrigger::default() },
             MockTranscription::default(),
@@ -471,7 +874,7 @@ mod tests {
         let transcription = MockTranscription::default();
         let handler = SubtitlesJobHandler::new(
             MockProvider { mode: ProviderMode::NotFound },
-            MockCatalogRepo::new(),
+            seeded(),
             MockStore::default(),
             MockTrigger::default(),
             transcription.clone(),
@@ -487,7 +890,7 @@ mod tests {
         let transcription = MockTranscription::default();
         let handler = SubtitlesJobHandler::new(
             MockProvider { mode: ProviderMode::Ok(vec![candidate("42", "fr")]) },
-            MockCatalogRepo::new(),
+            seeded(),
             MockStore::default(),
             MockTrigger::default(),
             transcription.clone(),
@@ -503,7 +906,7 @@ mod tests {
         let transcription = MockTranscription::default();
         let handler = SubtitlesJobHandler::new(
             MockProvider { mode: ProviderMode::NotFound },
-            MockCatalogRepo::new(),
+            seeded(),
             MockStore::default(),
             MockTrigger::default(),
             transcription.clone(),
@@ -536,7 +939,7 @@ mod tests {
     async fn transcription_trigger_failure_is_retryable() {
         let handler = SubtitlesJobHandler::new(
             MockProvider { mode: ProviderMode::NotFound },
-            MockCatalogRepo::new(),
+            seeded(),
             MockStore::default(),
             MockTrigger::default(),
             MockTranscription { fail: true, ..MockTranscription::default() },
@@ -603,12 +1006,7 @@ mod tests {
         catalog.add_version(version());
         catalog.set_subtitle_files(&VersionId("v1".into()), seeded).await.unwrap();
         let handler = SubtitlesJobHandler::new(
-            MockProvider {
-                mode: ProviderMode::Ok(vec![SubtitleCandidate {
-                    release_name: Some("The.Matrix.WEB".into()),
-                    ..candidate("42", "en")
-                }]),
-            },
+            MockProvider { mode: ProviderMode::Ok(vec![candidate("42", "en")]) },
             catalog.clone(),
             MockStore::default(),
             MockTrigger::default(),
@@ -635,7 +1033,7 @@ mod tests {
     #[tokio::test]
     async fn a_pinned_file_survives_a_re_pull_that_replaces_the_unpinned_one() {
         let files = re_pull_over(&[
-            downloaded("opensubtitles:v1:hand", true, Some("The.Matrix.BluRay")),
+            downloaded("opensubtitles:v1:hand", true, Some("Paper.Skies.BluRay")),
             downloaded("opensubtitles:v1:old", false, None),
         ])
         .await;
@@ -646,13 +1044,13 @@ mod tests {
             .find(|f| f.id.0 == "opensubtitles:v1:hand")
             .expect("the admin's pick must survive");
         assert!(pinned.pinned);
-        assert_eq!(pinned.label.as_deref(), Some("The.Matrix.BluRay"));
+        assert_eq!(pinned.label.as_deref(), Some("Paper.Skies.BluRay"));
         assert!(
             files.iter().all(|f| f.id.0 != "opensubtitles:v1:old"),
             "the job's own previous pick is still replaceable"
         );
         let fresh = files.iter().find(|f| f.id.0 == "opensubtitles:v1:42").unwrap();
-        assert_eq!(fresh.label.as_deref(), Some("The.Matrix.WEB"));
+        assert_eq!(fresh.label.as_deref(), Some(RELEASE));
         assert!(!fresh.pinned);
     }
 
@@ -663,5 +1061,32 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert!(files[0].pinned, "the admin's row wins over the job's");
         assert_eq!(files[0].label.as_deref(), Some("Kept"));
+    }
+
+    #[tokio::test]
+    async fn a_pinned_file_the_job_picks_again_is_not_downloaded_and_is_no_miss() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
+        let held = [downloaded("opensubtitles:v1:42", true, Some("Kept"))];
+        catalog.set_subtitle_files(&VersionId("v1".into()), &held).await.unwrap();
+        let store = MockStore::default();
+        let trigger = MockTrigger::default();
+        let transcription = MockTranscription::default();
+        let handler = SubtitlesJobHandler::new(
+            MockProvider { mode: ProviderMode::Ok(vec![candidate("42", "en")]) },
+            catalog.clone(),
+            store.clone(),
+            trigger.clone(),
+            transcription.clone(),
+        );
+
+        handler.handle(&job(payload_with_fallback())).await.unwrap();
+
+        assert!(store.stored.lock().unwrap().is_empty());
+        assert_eq!(*transcription.calls.lock().unwrap(), 0);
+        assert_eq!(*trigger.calls.lock().unwrap(), 1);
+        let files =
+            catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap().subtitle_files;
+        assert_eq!(files, held);
     }
 }

@@ -3,7 +3,7 @@
 Licence texts for the Rust crates linked into the Shadowmask server binary. The list is the union of
 the default build and `--features enrichment`, so some crates here reach only the enrichment image.
 
-**Generated — do not edit.** Regenerate with:
+**Generated, do not edit.** Regenerate with:
 
     cargo about generate --workspace --all-features --locked --fail -o THIRD-PARTY-LICENSES.md about.hbs
 
@@ -31,6 +31,7 @@ Used by:
 - [ndarray-npy 0.9.1](https://github.com/jturner314/ndarray-npy)
 - [py_literal 0.4.0](https://github.com/jturner314/py_literal)
 - [sentencepiece-sys 0.13.2](https://github.com/danieldk/sentencepiece.git)
+- [siphasher 1.0.4](https://github.com/jedisct1/rust-siphash)
 - [static_assertions 1.1.0](https://github.com/nvzqz/static-assertions-rs)
 - [tinyvec 1.13.3](https://github.com/Lokathor/tinyvec)
 - [utf8_iter 1.0.4](https://github.com/hsivonen/utf8_iter)
@@ -1522,8 +1523,8 @@ Used by:
 
 Used by:
 
-- [zerocopy-derive 0.8.57](https://github.com/google/zerocopy)
-- [zerocopy 0.8.57](https://github.com/google/zerocopy)
+- [zerocopy-derive 0.8.59](https://github.com/google/zerocopy)
+- [zerocopy 0.8.59](https://github.com/google/zerocopy)
 
 ````text
                                  Apache License
@@ -2154,7 +2155,7 @@ Used by:
 
 - [codespan-reporting 0.13.1](https://github.com/brendanzab/codespan)
 - [esaxx-rs 0.1.10](https://github.com/Narsil/esaxx-rs)
-- [rustls-platform-verifier 0.7.0](https://github.com/rustls/rustls-platform-verifier)
+- [rustls-platform-verifier 0.7.1](https://github.com/rustls/rustls-platform-verifier)
 - [spm_precompiled 0.1.4](https://github.com/huggingface/spm_precompiled)
 - [subtp 0.2.0](https://github.com/mochi-neko/subtp)
 - [tokenizers 0.22.2](https://github.com/huggingface/tokenizers)
@@ -4912,7 +4913,7 @@ limitations under the License.
 
 Used by:
 
-- [tokio-rustls 0.26.5](https://github.com/rustls/tokio-rustls)
+- [tokio-rustls 0.26.6](https://github.com/rustls/tokio-rustls)
 
 ````text
                               Apache License
@@ -6176,7 +6177,7 @@ Used by:
 - [bitflags 1.3.2](https://github.com/bitflags/bitflags)
 - [bitflags 2.13.2](https://github.com/bitflags/bitflags)
 - [bumpalo 3.20.3](https://github.com/fitzgen/bumpalo)
-- [cc 1.4.7](https://github.com/rust-lang/cc-rs)
+- [cc 1.5.1](https://github.com/rust-lang/cc-rs)
 - [cfg-if 1.0.5](https://github.com/rust-lang/cfg-if)
 - [cmake 0.1.58](https://github.com/rust-lang/cmake-rs)
 - [core-foundation-sys 0.8.7](https://github.com/servo/core-foundation-rs)
@@ -6193,7 +6194,7 @@ Used by:
 - [evmap 11.0.0](https://github.com/jonhoo/evmap.git)
 - [fastrand 2.5.0](https://github.com/smol-rs/fastrand)
 - [filetime 0.2.29](https://github.com/alexcrichton/filetime)
-- [find-msvc-tools 0.1.13](https://github.com/rust-lang/cc-rs)
+- [find-msvc-tools 0.1.14](https://github.com/rust-lang/cc-rs)
 - [flate2 1.1.10](https://github.com/rust-lang/flate2-rs)
 - [fnv 1.0.7](https://github.com/servo/rust-fnv)
 - [form_urlencoded 1.2.2](https://github.com/servo/rust-url)
@@ -6201,7 +6202,7 @@ Used by:
 - [hashbrown 0.17.1](https://github.com/rust-lang/hashbrown)
 - [heck 0.5.0](https://github.com/withoutboats/heck)
 - [httparse 1.10.1](https://github.com/seanmonstar/httparse)
-- [hyper-rustls 0.27.9](https://github.com/rustls/hyper-rustls)
+- [hyper-rustls 0.27.10](https://github.com/rustls/hyper-rustls)
 - [idna 1.1.0](https://github.com/servo/rust-url/)
 - [idna_adapter 1.2.2](https://github.com/hsivonen/idna_adapter)
 - [indexmap 2.14.2](https://github.com/indexmap-rs/indexmap)
@@ -6209,7 +6210,7 @@ Used by:
 - [itertools 0.14.0](https://github.com/rust-itertools/itertools)
 - [jobserver 0.1.35](https://github.com/rust-lang/jobserver-rs)
 - [jpeg-decoder 0.3.2](https://github.com/image-rs/jpeg-decoder)
-- [lazy_static 1.5.0](https://github.com/rust-lang-nursery/lazy-static.rs)
+- [lazy_static 1.5.1](https://github.com/rust-lang-nursery/lazy-static.rs)
 - [left-right 0.11.8](https://github.com/jonhoo/left-right.git)
 - [linux-raw-sys 0.12.1](https://github.com/sunfishcode/linux-raw-sys)
 - [lock_api 0.4.14](https://github.com/Amanieu/parking_lot)
@@ -6231,10 +6232,10 @@ Used by:
 - [parking_lot 0.12.5](https://github.com/Amanieu/parking_lot)
 - [parking_lot_core 0.9.12](https://github.com/Amanieu/parking_lot)
 - [percent-encoding 2.3.2](https://github.com/servo/rust-url/)
-- [pest 2.9.1](https://github.com/pest-parser/pest)
-- [pest_derive 2.9.1](https://github.com/pest-parser/pest)
-- [pest_generator 2.9.1](https://github.com/pest-parser/pest)
-- [pest_meta 2.9.1](https://github.com/pest-parser/pest)
+- [pest 2.9.2](https://github.com/pest-parser/pest)
+- [pest_derive 2.9.2](https://github.com/pest-parser/pest)
+- [pest_generator 2.9.2](https://github.com/pest-parser/pest)
+- [pest_meta 2.9.2](https://github.com/pest-parser/pest)
 - [pkg-config 0.3.34](https://github.com/rust-lang/pkg-config-rs)
 - [png 0.17.16](https://github.com/image-rs/image-png)
 - [png 0.18.1](https://github.com/image-rs/image-png)
@@ -6255,7 +6256,7 @@ Used by:
 - [security-framework-sys 2.17.0](https://github.com/kornelski/rust-security-framework)
 - [security-framework 3.7.0](https://github.com/kornelski/rust-security-framework)
 - [signal-hook-registry 1.4.8](https://github.com/vorner/signal-hook)
-- [smallvec 1.16.1](https://github.com/servo/rust-smallvec)
+- [smallvec 1.16.2](https://github.com/servo/rust-smallvec)
 - [socket2 0.6.5](https://github.com/rust-lang/socket2)
 - [stable_deref_trait 1.2.1](https://github.com/storyyeller/stable_deref_trait)
 - [subst 0.3.8](https://github.com/fizyr/subst)
@@ -9109,7 +9110,6 @@ Used by:
 - [serde_path_to_error 0.1.20](https://github.com/dtolnay/path-to-error)
 - [serde_urlencoded 0.7.1](https://github.com/nox/serde_urlencoded)
 - [shlex 2.0.1](https://github.com/comex/rust-shlex)
-- [siphasher 1.0.3](https://github.com/jedisct1/rust-siphash)
 - [sqlx-core 0.9.0](https://github.com/launchbadge/sqlx)
 - [sqlx-macros-core 0.9.0](https://github.com/launchbadge/sqlx)
 - [sqlx-macros 0.9.0](https://github.com/launchbadge/sqlx)
@@ -9118,9 +9118,9 @@ Used by:
 - [syn 3.0.6](https://github.com/dtolnay/syn)
 - [sync_wrapper 1.0.2](https://github.com/Actyx/sync_wrapper)
 - [thiserror-impl 1.0.69](https://github.com/dtolnay/thiserror)
-- [thiserror-impl 2.0.20](https://github.com/dtolnay/thiserror)
+- [thiserror-impl 2.0.21](https://github.com/dtolnay/thiserror)
 - [thiserror 1.0.69](https://github.com/dtolnay/thiserror)
-- [thiserror 2.0.20](https://github.com/dtolnay/thiserror)
+- [thiserror 2.0.21](https://github.com/dtolnay/thiserror)
 - [uncased 0.9.10](https://github.com/SergioBenitez/uncased)
 - [unicode-ident 1.0.26](https://github.com/dtolnay/unicode-ident)
 - [utf8parse 0.2.2](https://github.com/alacritty/vte)
@@ -10306,7 +10306,7 @@ SOFTWARE.
 
 Used by:
 
-- [hyper-util 0.1.20](https://github.com/hyperium/hyper-util)
+- [hyper-util 0.1.21](https://github.com/hyperium/hyper-util)
 
 ````text
 Copyright (c) 2023-2025 Sean McArthur
@@ -10390,7 +10390,7 @@ SOFTWARE.
 
 Used by:
 
-- [lru 0.18.4](https://github.com/jeromefroe/lru-rs.git)
+- [lru 0.18.5](https://github.com/jeromefroe/lru-rs.git)
 
 ````text
 MIT License
@@ -11552,7 +11552,7 @@ Used by:
 - [potential_utf 0.1.6](https://github.com/unicode-org/icu4x)
 - [tinystr 0.8.4](https://github.com/unicode-org/icu4x)
 - [writeable 0.6.4](https://github.com/unicode-org/icu4x)
-- [yoke-derive 0.8.3](https://github.com/unicode-org/icu4x)
+- [yoke-derive 0.8.4](https://github.com/unicode-org/icu4x)
 - [yoke 0.8.3](https://github.com/unicode-org/icu4x)
 - [zerofrom-derive 0.1.8](https://github.com/unicode-org/icu4x)
 - [zerofrom 0.1.8](https://github.com/unicode-org/icu4x)

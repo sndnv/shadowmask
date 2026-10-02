@@ -51,13 +51,16 @@ where
             .ingest_resolved(&library, &file, &payload.target, Some(&job.id))
             .await
             .map_err(retryable)?;
-        if outcome == ResolveOutcome::Unidentified {
-            return Err(JobError::Retryable(format!(
-                "the provider returned no metadata for [{}]; the file was linked but the title was not re-identified",
-                payload.path
-            )));
+        let path = &payload.path;
+        match outcome {
+            ResolveOutcome::Identified => Ok(()),
+            ResolveOutcome::Unidentified => Err(JobError::Retryable(format!(
+                "the provider returned no metadata for [{path}]; the file was linked but the title was not re-identified"
+            ))),
+            ResolveOutcome::NotAnEpisode => Err(JobError::Permanent(format!(
+                "[{path}] names no episode, so a TV library cannot take it"
+            ))),
         }
-        Ok(())
     }
 }
 
@@ -158,6 +161,26 @@ mod tests {
             catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap();
         assert_eq!(versions.total, 1);
         assert_eq!(versions.items[0].title, TitleId::Movie(MovieId("m-new".into())));
+    }
+
+    #[tokio::test]
+    async fn a_tv_file_with_no_episode_is_permanent() {
+        use domain::metadata::ExternalId;
+
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(Library { kind: LibraryKind::Tv, ..library() });
+        let handler = RelinkJobHandler::new(repo, MockMediaProbe::new(), ingester());
+        let payload = RelinkJobPayload {
+            target: ResolveTarget::Provider(ExternalId {
+                source: "tmdb".into(),
+                value: "tv/1".into(),
+            }),
+            ..payload("/tv/Neon Harbor (2017).mkv", "lib")
+        };
+
+        let error = handler.handle(&job(payload.encode())).await.unwrap_err();
+
+        assert!(matches!(error, JobError::Permanent(_)));
     }
 
     #[tokio::test]

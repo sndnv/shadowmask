@@ -291,7 +291,52 @@ void main() {
       findsNothing,
       reason: 'Resolve did the same thing as Dismiss and was removed',
     );
+    expect(
+      find.text(Strings.duplicateSplitAcross(2)),
+      findsNothing,
+      reason: 'two rips of one film are duplicates, and deleting one is right',
+    );
   });
+
+  testWidgets(
+    'a title split across files says so instead of reading as a duplicate',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        _api((http.Request req) {
+          if (req.url.path == '/api/v1/libraries/lib1/duplicates') {
+            return http.Response(
+              jsonEncode(<String, dynamic>{
+                'items': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'id': 'dup1',
+                    'title': <String, dynamic>{'type': 'movie', 'id': 'm1'},
+                    'kind': 'multi_part',
+                    'paths': <String>[
+                      '/media/film.CD1.avi',
+                      '/media/film.CD2.avi',
+                    ],
+                  },
+                ],
+                'total': 1,
+                'offset': 0,
+                'limit': 50,
+              }),
+              200,
+            );
+          }
+          return _detailRoute(req);
+        }),
+      );
+
+      expect(
+        find.text(Strings.duplicateSplitAcross(2)),
+        findsOneWidget,
+        reason: 'deleting one half of a film is the opposite of the right fix',
+      );
+      expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
+    },
+  );
 
   testWidgets('the versions heading counts every version, not the page', (
     WidgetTester tester,

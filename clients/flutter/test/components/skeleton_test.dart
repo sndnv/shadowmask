@@ -16,23 +16,70 @@ Widget _host(Widget child, {bool disableAnimations = false}) => MaterialApp(
 
 Gradient? _gradient(WidgetTester tester) {
   final DecoratedBox box = tester.widget<DecoratedBox>(
-    find.descendant(
-      of: find.byType(Skeleton).first,
-      matching: find.byType(DecoratedBox),
-    ),
+    find
+        .descendant(
+          of: find.byType(Skeleton).first,
+          matching: find.byType(DecoratedBox),
+        )
+        .first,
   );
   return (box.decoration as BoxDecoration).gradient;
 }
 
+BoxDecoration _highlight(WidgetTester tester) {
+  final DecoratedBox box = tester.widget<DecoratedBox>(
+    find.descendant(
+      of: find.descendant(
+        of: find.byType(Skeleton).first,
+        matching: find.byType(FadeTransition),
+      ),
+      matching: find.byType(DecoratedBox),
+    ),
+  );
+  return box.decoration as BoxDecoration;
+}
+
+double? _pulse(WidgetTester tester) {
+  final Finder fade = find.descendant(
+    of: find.byType(Skeleton).first,
+    matching: find.byType(FadeTransition),
+  );
+  return fade.evaluate().isEmpty
+      ? null
+      : tester.widget<FadeTransition>(fade.first).opacity.value;
+}
+
 void main() {
-  testWidgets('the shimmer sweeps across the bar', (WidgetTester tester) async {
+  testWidgets('the shimmer pulses the highlight over the bar', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(_host(const SkeletonLines(lines: 1)));
 
-    final Gradient? first = _gradient(tester);
+    final double? first = _pulse(tester);
     expect(first, isNotNull);
 
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(_gradient(tester), isNot(first));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(_pulse(tester), isNot(first));
+
+    await tester.pump(kShimmerDuration);
+  });
+
+  testWidgets('the bar animates opacity rather than a gradient', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(_host(const SkeletonLines(lines: 3)));
+
+    expect(_highlight(tester).gradient, isNull);
+    expect(
+      find.descendant(
+        of: find.byType(Skeleton).first,
+        matching: find.byType(RepaintBoundary),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(_highlight(tester).gradient, isNull);
 
     await tester.pump(kShimmerDuration);
   });
@@ -45,9 +92,10 @@ void main() {
     );
 
     expect(_gradient(tester), isNull);
+    expect(_pulse(tester), isNull);
 
     await tester.pump(const Duration(milliseconds: 400));
-    expect(_gradient(tester), isNull);
+    expect(_pulse(tester), isNull);
   });
 
   testWidgets('a block in flight renders a skeleton, not the word', (

@@ -86,8 +86,7 @@ where
                 combined.format,
                 &combined.content,
             )
-            .await
-            .map_err(|e| JobError::Retryable(e.to_string()))?;
+            .await?;
 
         let produced = SubtitleFile {
             id: combined_id,
@@ -113,8 +112,7 @@ where
     S: SubtitleReader + Send + Sync,
 {
     async fn load(&self, file: &SubtitleFile) -> Result<FetchedSubtitle, JobError> {
-        let content =
-            self.store.load(&file.path).await.map_err(|e| JobError::Retryable(e.to_string()))?;
+        let content = self.store.load(&file.path).await?;
         Ok(FetchedSubtitle { content, format: file.format })
     }
 }
@@ -477,7 +475,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn version_missing_is_a_noop() {
+    async fn a_version_that_is_gone_is_a_no_op() {
         let handler =
             handler(MockCombiner { fail: false }, MockCatalogRepo::new(), MockStore::default());
         handler.handle(&job(payload("sf-en", "sf-fr"))).await.unwrap();

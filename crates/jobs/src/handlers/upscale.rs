@@ -248,7 +248,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn no_op_when_version_missing() {
+    async fn a_version_that_is_gone_is_a_no_op() {
         let (prov, captured) = provider(Mode::Ok);
         let handler = UpscaleJobHandler::new(prov, MockCatalogRepo::new(), MockProbe::default());
 

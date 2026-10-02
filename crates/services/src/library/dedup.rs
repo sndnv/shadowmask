@@ -106,27 +106,27 @@ mod tests {
     #[test]
     fn two_files_same_resolution_are_a_duplicate() {
         let groups = [group(
-            "the-matrix",
+            "paper-skies",
             Some(1999),
             None,
             None,
-            vec![file("/m/matrix-b.mkv", Some(1080)), file("/m/matrix-a.mkv", Some(1080))],
+            vec![file("/m/skies-b.mkv", Some(1080)), file("/m/skies-a.mkv", Some(1080))],
         )];
         let dupes = find_duplicates(&groups);
         assert_eq!(dupes.len(), 1);
-        assert_eq!(dupes[0].id.0, "dup:scan:the-matrix:1999:1080");
-        assert_eq!(dupes[0].title, TitleId::Movie(MovieId("scan:the-matrix:1999".to_owned())));
-        assert_eq!(dupes[0].paths, vec!["/m/matrix-a.mkv", "/m/matrix-b.mkv"]);
+        assert_eq!(dupes[0].id.0, "dup:scan:paper-skies:1999:1080");
+        assert_eq!(dupes[0].title, TitleId::Movie(MovieId("scan:paper-skies:1999".to_owned())));
+        assert_eq!(dupes[0].paths, vec!["/m/skies-a.mkv", "/m/skies-b.mkv"]);
     }
 
     #[test]
     fn different_resolutions_are_legitimate_versions() {
         let groups = [group(
-            "the-matrix",
+            "paper-skies",
             Some(1999),
             None,
             None,
-            vec![file("/m/matrix.1080p.mkv", Some(1080)), file("/m/matrix.2160p.mkv", Some(2160))],
+            vec![file("/m/skies.1080p.mkv", Some(1080)), file("/m/skies.2160p.mkv", Some(2160))],
         )];
         assert!(find_duplicates(&groups).is_empty());
     }
@@ -146,7 +146,7 @@ mod tests {
             Some(2),
             vec![
                 file("/tv/show.s01e02.mkv", Some(720)),
-                file("/tv/show.s01e02.repack.mkv", Some(720)),
+                file("/tv/show.s01e02.copy.mkv", Some(720)),
             ],
         )];
         let dupes = find_duplicates(&groups);

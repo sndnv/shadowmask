@@ -10,6 +10,8 @@ use serde::Deserialize;
 use super::executor::BootstrapEntityProvider;
 use super::{BootstrapError, Created, backend, bootstrap_admin, require_unique};
 
+pub(crate) const FILE: &str = "users";
+
 #[derive(Debug, Deserialize)]
 struct ContentRatingEntry {
     system: String,
@@ -122,7 +124,7 @@ where
     type Entity = ParsedUser;
 
     fn name(&self) -> &'static str {
-        "users"
+        FILE
     }
 
     fn load(&self, value: &toml::Value) -> Result<ParsedUser, BootstrapError> {

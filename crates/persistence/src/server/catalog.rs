@@ -1270,6 +1270,50 @@ async fn reindex_kind(
     Ok(())
 }
 
+async fn replace_subtitle_files(
+    conn: &mut SqliteConnection,
+    version_id: &str,
+    files: &[SubtitleFile],
+) -> Result<(), RepositoryError> {
+    sqlx::query("DELETE FROM subtitle_files WHERE version_id = ?")
+        .bind(version_id)
+        .execute(&mut *conn)
+        .await
+        .map_err(backend)?;
+    for (ordinal, file) in files.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO subtitle_files \
+             (id, version_id, ordinal, language, format, source, path, translated_from, \
+              label, pinned) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+             ON CONFLICT(id) DO UPDATE SET \
+                 version_id = excluded.version_id, \
+                 ordinal = excluded.ordinal, \
+                 language = excluded.language, \
+                 format = excluded.format, \
+                 source = excluded.source, \
+                 path = excluded.path, \
+                 translated_from = excluded.translated_from, \
+                 label = excluded.label, \
+                 pinned = excluded.pinned",
+        )
+        .bind(file.id.0.as_str())
+        .bind(version_id)
+        .bind(ordinal as i64)
+        .bind(file.language.as_ref().map(|l| l.0.as_str()))
+        .bind(subtitle_format_to_str(file.format))
+        .bind(subtitle_source_to_str(file.source))
+        .bind(file.path.as_str())
+        .bind(file.translated_from.as_ref().map(|id| id.0.as_str()))
+        .bind(file.label.as_deref())
+        .bind(file.pinned as i64)
+        .execute(&mut *conn)
+        .await
+        .map_err(backend)?;
+    }
+    Ok(())
+}
+
 fn search_artwork_owner(result: &SearchResult) -> (&'static str, &str) {
     match result {
         SearchResult::Movie(movie) => ("movie", movie.id.0.as_str()),
@@ -2604,36 +2648,39 @@ impl CatalogRepository for SqliteCatalogRepo {
         files: &[SubtitleFile],
     ) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("catalog", "set_subtitle_files");
-        let vid = version.0.as_str();
         let mut tx = self.pool.begin().await.map_err(backend)?;
-        sqlx::query("DELETE FROM subtitle_files WHERE version_id = ?")
-            .bind(vid)
-            .execute(&mut *tx)
-            .await
-            .map_err(backend)?;
-        for (ordinal, file) in files.iter().enumerate() {
-            sqlx::query(
-                "INSERT INTO subtitle_files \
-                 (id, version_id, ordinal, language, format, source, path, translated_from, \
-                  label, pinned) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            )
-            .bind(file.id.0.as_str())
-            .bind(vid)
-            .bind(ordinal as i64)
-            .bind(file.language.as_ref().map(|l| l.0.as_str()))
-            .bind(subtitle_format_to_str(file.format))
-            .bind(subtitle_source_to_str(file.source))
-            .bind(file.path.as_str())
-            .bind(file.translated_from.as_ref().map(|id| id.0.as_str()))
-            .bind(file.label.as_deref())
-            .bind(file.pinned as i64)
-            .execute(&mut *tx)
-            .await
-            .map_err(backend)?;
-        }
+        replace_subtitle_files(&mut tx, version.0.as_str(), files).await?;
         tx.commit().await.map_err(backend)?;
         Ok(())
+    }
+
+    async fn update_subtitle_files<F>(
+        &self,
+        version: &VersionId,
+        change: F,
+    ) -> Result<bool, RepositoryError>
+    where
+        F: FnOnce(Vec<SubtitleFile>) -> Vec<SubtitleFile> + Send,
+    {
+        let _op = DbOpGuard::new("catalog", "update_subtitle_files");
+        let vid = version.0.as_str();
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await.map_err(backend)?;
+        let held =
+            sqlx::query("SELECT * FROM subtitle_files WHERE version_id = ? ORDER BY ordinal")
+                .bind(vid)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(backend)?
+                .iter()
+                .map(row_to_subtitle_file)
+                .collect::<Result<Vec<_>, _>>()?;
+        let changed = change(held.clone());
+        if changed == held {
+            return Ok(false);
+        }
+        replace_subtitle_files(&mut tx, vid, &changed).await?;
+        tx.commit().await.map_err(backend)?;
+        Ok(true)
     }
 
     async fn add_subtitle_file(
@@ -2650,6 +2697,8 @@ impl CatalogRepository for SqliteCatalogRepo {
              SELECT ?, ?, COALESCE(MAX(ordinal), -1) + 1, ?, ?, ?, ?, ?, ?, ? \
              FROM subtitle_files WHERE version_id = ? \
              ON CONFLICT(id) DO UPDATE SET \
+                 ordinal = CASE WHEN subtitle_files.version_id = excluded.version_id \
+                     THEN subtitle_files.ordinal ELSE excluded.ordinal END, \
                  version_id = excluded.version_id, \
                  language = excluded.language, \
                  format = excluded.format, \

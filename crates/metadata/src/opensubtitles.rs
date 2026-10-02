@@ -198,7 +198,7 @@ mod tests {
             "data": [
                 {"attributes": {
                     "language": "en",
-                    "release": "The.Matrix.1999.BluRay",
+                    "release": "Paper.Skies.1999.BluRay",
                     "download_count": 1234,
                     "ratings": 8.5,
                     "files": [
@@ -215,7 +215,7 @@ mod tests {
         assert_eq!(candidates[0].file_id, "42");
         assert_eq!(candidates[0].language, Some(LanguageCode("en".to_owned())));
         assert_eq!(candidates[0].format, SubtitleFormat::Vtt);
-        assert_eq!(candidates[0].release_name.as_deref(), Some("The.Matrix.1999.BluRay"));
+        assert_eq!(candidates[0].release_name.as_deref(), Some("Paper.Skies.1999.BluRay"));
         assert_eq!(candidates[0].download_count, Some(1234));
         assert_eq!(candidates[0].rating, Some(8.5));
         assert_eq!(candidates[1].file_id, "43");

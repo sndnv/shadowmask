@@ -56,6 +56,22 @@ fn kind_rank(title: &TitleRef) -> u8 {
 }
 
 impl State {
+    fn refuse_orphaned_subtitles(&self, version: &VersionId) -> Result<(), RepositoryError> {
+        if self.versions.iter().any(|held| &held.id == version) {
+            Ok(())
+        } else {
+            Err(RepositoryError::Backend("FOREIGN KEY constraint failed".to_owned()))
+        }
+    }
+
+    fn take_subtitle_ids(&mut self, version: &VersionId, files: &[SubtitleFile]) {
+        for (held_by, held) in self.subtitle_files.iter_mut() {
+            if held_by != version {
+                held.retain(|existing| files.iter().all(|file| file.id != existing.id));
+            }
+        }
+    }
+
     fn artwork_for(&self, owner: &ArtworkOwner) -> Vec<ArtworkRef> {
         self.artwork.get(owner).cloned().unwrap_or_default()
     }
@@ -110,6 +126,7 @@ pub struct MockCatalogRepo {
     state: Arc<Mutex<State>>,
     fail: Arc<AtomicBool>,
     fail_writes: Arc<AtomicBool>,
+    clear_subtitles_after_read: Arc<AtomicBool>,
     episode_lookups: Arc<AtomicUsize>,
     detail_lookups: Arc<AtomicUsize>,
 }
@@ -231,6 +248,10 @@ impl MockCatalogRepo {
 
     pub fn set_fail_writes(&self) {
         self.fail_writes.store(true, Ordering::Relaxed);
+    }
+
+    pub fn clear_subtitles_after_next_read(&self) {
+        self.clear_subtitles_after_read.store(true, Ordering::Relaxed);
     }
 
     fn guard(&self) -> Result<(), RepositoryError> {
@@ -588,12 +609,12 @@ impl CatalogRepository for MockCatalogRepo {
     ) -> Result<Option<VersionDetail>, RepositoryError> {
         self.detail_lookups.fetch_add(1, Ordering::Relaxed);
         self.guard()?;
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
         let Some(version) = state.versions.iter().find(|v| &v.id == id).cloned() else {
             return Ok(None);
         };
         let tracks = state.tracks.get(id).cloned().unwrap_or_default();
-        Ok(Some(VersionDetail {
+        let detail = VersionDetail {
             version,
             video: tracks.video,
             audio: tracks.audio,
@@ -602,7 +623,11 @@ impl CatalogRepository for MockCatalogRepo {
             chapters: tracks.chapters,
             markers: state.markers.get(id).cloned().unwrap_or_default(),
             trickplay: state.trickplay.get(id).cloned().unwrap_or_default(),
-        }))
+        };
+        if self.clear_subtitles_after_read.swap(false, Ordering::Relaxed) {
+            state.subtitle_files.remove(id);
+        }
+        Ok(Some(detail))
     }
 
     async fn get_version(&self, id: &VersionId) -> Result<Option<Version>, RepositoryError> {
@@ -873,8 +898,37 @@ impl CatalogRepository for MockCatalogRepo {
         if self.fail_writes.load(Ordering::Relaxed) {
             return Err(RepositoryError::Backend("mock catalog write failure".to_owned()));
         }
-        self.state.lock().unwrap().subtitle_files.insert(version.clone(), files.to_vec());
+        let mut state = self.state.lock().unwrap();
+        if !files.is_empty() {
+            state.refuse_orphaned_subtitles(version)?;
+        }
+        state.take_subtitle_ids(version, files);
+        state.subtitle_files.insert(version.clone(), files.to_vec());
         Ok(())
+    }
+
+    async fn update_subtitle_files<F>(
+        &self,
+        version: &VersionId,
+        change: F,
+    ) -> Result<bool, RepositoryError>
+    where
+        F: FnOnce(Vec<SubtitleFile>) -> Vec<SubtitleFile> + Send,
+    {
+        self.guard()?;
+        if self.fail_writes.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend("mock catalog write failure".to_owned()));
+        }
+        let mut state = self.state.lock().unwrap();
+        let held = state.subtitle_files.get(version).cloned().unwrap_or_default();
+        let changed = change(held.clone());
+        if changed == held {
+            return Ok(false);
+        }
+        state.refuse_orphaned_subtitles(version)?;
+        state.take_subtitle_ids(version, &changed);
+        state.subtitle_files.insert(version.clone(), changed);
+        Ok(true)
     }
 
     async fn add_subtitle_file(
@@ -887,6 +941,8 @@ impl CatalogRepository for MockCatalogRepo {
             return Err(RepositoryError::Backend("mock catalog write failure".to_owned()));
         }
         let mut state = self.state.lock().unwrap();
+        state.refuse_orphaned_subtitles(version)?;
+        state.take_subtitle_ids(version, std::slice::from_ref(file));
         let files = state.subtitle_files.entry(version.clone()).or_default();
         match files.iter_mut().find(|existing| existing.id == file.id) {
             Some(existing) => *existing = file.clone(),
@@ -1981,6 +2037,7 @@ mod tests {
 
         repo.set_fail_writes();
         assert!(repo.add_subtitle_file(&v1, &file("sf3", "/subs/three.srt")).await.is_err());
+        assert!(repo.set_subtitle_files(&v1, &[]).await.is_err());
     }
 
     #[tokio::test]

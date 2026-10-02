@@ -4,6 +4,7 @@ use contracts::repo::{catalog_repository_contract, catalog_seed};
 use domain::catalog::{Movie, MovieId, RandomScope, TitleId, TitleListFilter, Version, VersionId};
 use domain::common::Quality;
 use domain::library::LibraryId;
+use domain::media::{SubtitleFile, SubtitleFileId, SubtitleFormat, SubtitleSource};
 use domain::repository::CatalogRepository;
 use jiff::Timestamp;
 use persistence::server::SqliteCatalogRepo;
@@ -73,6 +74,50 @@ fn movie_version(id: &str, movie: &str, available: bool) -> Version {
         added_at: Timestamp::UNIX_EPOCH,
         updated_at: Timestamp::UNIX_EPOCH,
     }
+}
+
+fn sidecar(version: &VersionId, n: usize) -> SubtitleFile {
+    SubtitleFile {
+        id: SubtitleFileId(format!("sf{n}")),
+        version: version.clone(),
+        language: None,
+        format: SubtitleFormat::Srt,
+        source: SubtitleSource::External,
+        path: format!("/media/v1.{n}.srt"),
+        translated_from: None,
+        label: None,
+        pinned: false,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_subtitle_updates_keep_every_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
+    repo.upsert_movie(plain_movie("m1")).await.unwrap();
+    repo.upsert_version(movie_version("v1", "m1", true)).await.unwrap();
+    let version = VersionId("v1".to_owned());
+
+    let writers: Vec<_> = (0..16)
+        .map(|n| {
+            let repo = repo.clone();
+            let version = version.clone();
+            tokio::spawn(async move {
+                let added = sidecar(&version, n);
+                repo.update_subtitle_files(&version, move |mut files| {
+                    files.push(added);
+                    files
+                })
+                .await
+            })
+        })
+        .collect();
+    for writer in writers {
+        assert!(writer.await.unwrap().unwrap());
+    }
+
+    let held = repo.version_detail(&version).await.unwrap().unwrap().subtitle_files;
+    assert_eq!(held.len(), 16, "a writer that read before another committed lost that row");
 }
 
 #[tokio::test]

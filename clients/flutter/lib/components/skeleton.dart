@@ -8,8 +8,8 @@ import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/view/card_aspect.dart';
 
-const Duration kShimmerDuration = Duration(milliseconds: 1400);
-const Curve kShimmerCurve = Cubic(0.2, 0, 0, 1);
+const Duration kShimmerDuration = Duration(milliseconds: 700);
+const Curve kShimmerCurve = Curves.easeInOut;
 
 const double _kBarHeight = 12;
 const double _kBarGap = 9;
@@ -33,7 +33,7 @@ class _SkeletonPulseState extends State<SkeletonPulse>
   late final AnimationController _controller = AnimationController(
     vsync: this,
     duration: kShimmerDuration,
-  )..repeat();
+  )..repeat(reverse: true);
 
   late final Animation<double> _sweep = CurvedAnimation(
     parent: _controller,
@@ -94,7 +94,7 @@ class _SkeletonState extends State<Skeleton>
       return;
     }
     _fallback ??= AnimationController(vsync: this, duration: kShimmerDuration)
-      ..repeat();
+      ..repeat(reverse: true);
     _sweep = CurvedAnimation(parent: _fallback!, curve: kShimmerCurve);
   }
 
@@ -113,25 +113,27 @@ class _SkeletonState extends State<Skeleton>
       base,
     );
     final BorderRadius radius = BorderRadius.all(widget.radius);
+    final Widget plate = DecoratedBox(
+      decoration: BoxDecoration(color: base, borderRadius: radius),
+    );
     final Widget bar = MediaQuery.disableAnimationsOf(context)
-        ? DecoratedBox(
-            decoration: BoxDecoration(color: base, borderRadius: radius),
-          )
-        : AnimatedBuilder(
-            animation: _sweep,
-            builder: (BuildContext context, Widget? _) {
-              final double slide = -1 + 3 * _sweep.value;
-              return DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: radius,
-                  gradient: LinearGradient(
-                    begin: Alignment(slide - 1, 0),
-                    end: Alignment(slide + 1, 0),
-                    colors: <Color>[base, highlight, base],
+        ? plate
+        : RepaintBoundary(
+            child: Stack(
+              fit: StackFit.expand,
+              children: <Widget>[
+                plate,
+                FadeTransition(
+                  opacity: _sweep,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: highlight,
+                      borderRadius: radius,
+                    ),
                   ),
                 ),
-              );
-            },
+              ],
+            ),
           );
     final double? ratio = widget.aspectRatio;
     final Widget sized = ratio != null

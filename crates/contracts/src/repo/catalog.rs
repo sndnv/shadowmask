@@ -429,6 +429,11 @@ async fn random_picks_stay_inside_their_scope<R: CatalogRepository>(repo: &R) {
             .is_none(),
         "m1 is PG-13, so a PG-13 block leaves nothing playable"
     );
+    assert_eq!(
+        repo.random_playable_title(&RandomScope::Episodes, &blocked("NC-17")).await.unwrap(),
+        Some(episode),
+        "an unrated series is not caught by a rating block"
+    );
 }
 
 pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: impl AsyncFn(&R)) {
@@ -1194,18 +1199,18 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         &uv1,
         &[
             SubtitleFile {
-                id: SubtitleFileId("uv1-sf1".into()),
+                id: SubtitleFileId("uv1-sfc".into()),
                 version: uv1.clone(),
                 language: Some(LanguageCode("de".into())),
                 format: SubtitleFormat::Vtt,
                 source: SubtitleSource::OpenSubtitles,
                 path: "/subs/uv1.de.vtt".into(),
                 translated_from: None,
-                label: Some("The.Matrix.1999.BluRay".into()),
+                label: Some("Paper.Skies.1999.BluRay".into()),
                 pinned: true,
             },
             SubtitleFile {
-                id: SubtitleFileId("uv1-sf2".into()),
+                id: SubtitleFileId("uv1-sfb".into()),
                 version: uv1.clone(),
                 language: Some(LanguageCode("en".into())),
                 format: SubtitleFormat::Vtt,
@@ -1216,13 +1221,13 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
                 pinned: false,
             },
             SubtitleFile {
-                id: SubtitleFileId("uv1-sf3".into()),
+                id: SubtitleFileId("uv1-sfa".into()),
                 version: uv1.clone(),
                 language: Some(LanguageCode("fr".into())),
                 format: SubtitleFormat::Vtt,
                 source: SubtitleSource::MachineTranslated,
                 path: "/subs/uv1.fr.machine.vtt".into(),
-                translated_from: Some(SubtitleFileId("uv1-sf1".into())),
+                translated_from: Some(SubtitleFileId("uv1-sfc".into())),
                 label: None,
                 pinned: false,
             },
@@ -1256,12 +1261,27 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         .iter()
         .find(|f| f.source == SubtitleSource::OpenSubtitles)
         .unwrap();
-    assert_eq!(pinned.label.as_deref(), Some("The.Matrix.1999.BluRay"));
+    assert_eq!(pinned.label.as_deref(), Some("Paper.Skies.1999.BluRay"));
     assert!(pinned.pinned);
     let generated =
         uv1_detail.subtitle_files.iter().find(|f| f.source == SubtitleSource::Generated).unwrap();
     assert_eq!(generated.label, None);
     assert!(!generated.pinned);
+
+    let thinned = repo
+        .update_subtitle_files(&uv1, |files| {
+            files.into_iter().filter(|file| file.source == SubtitleSource::Generated).collect()
+        })
+        .await
+        .unwrap();
+    assert!(thinned);
+    let uv1_thinned = repo.version_detail(&uv1).await.unwrap().unwrap();
+    assert_eq!(
+        uv1_thinned.subtitle_files.len(),
+        1,
+        "an update keeps exactly the rows its change returns and leaves no other row behind"
+    );
+    assert_eq!(uv1_thinned.subtitle_files[0].source, SubtitleSource::Generated);
 
     repo.set_version_tracks(&uv1, &[], &[], &[], &[]).await.unwrap();
     repo.set_trickplay(&uv1, &[]).await.unwrap();
@@ -1305,6 +1325,72 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     let replaced = uv1_readded.subtitle_files.iter().find(|f| f.id.0 == "uv1-add2").unwrap();
     assert_eq!(replaced.path, "/subs/uv1.fr.v2.srt");
     assert!(!replaced.pinned);
+
+    let dropped_first = repo
+        .update_subtitle_files(&uv1, |mut files| {
+            files.retain(|file| file.id.0 != "uv1-add1");
+            files
+        })
+        .await
+        .unwrap();
+    assert!(dropped_first);
+    assert_eq!(
+        repo.version_detail(&uv1)
+            .await
+            .unwrap()
+            .unwrap()
+            .subtitle_files
+            .iter()
+            .map(|f| f.id.0.as_str())
+            .collect::<Vec<_>>(),
+        vec!["uv1-add2", "uv1-add3"]
+    );
+    assert!(!repo.update_subtitle_files(&uv1, |files| files).await.unwrap());
+
+    let ghost = VersionId("ghost".into());
+    let stray =
+        SubtitleFile { version: ghost.clone(), ..added("ghost-1", "en", "/subs/g.srt", false) };
+    assert!(repo.add_subtitle_file(&ghost, &stray).await.is_err());
+    assert!(repo.set_subtitle_files(&ghost, std::slice::from_ref(&stray)).await.is_err());
+    assert!(repo.update_subtitle_files(&ghost, |_| vec![stray.clone()]).await.is_err());
+    repo.set_subtitle_files(&ghost, &[]).await.unwrap();
+    assert!(!repo.update_subtitle_files(&ghost, |files| files).await.unwrap());
+    assert!(repo.version_detail(&ghost).await.unwrap().is_none());
+
+    let v2 = VersionId("v2".into());
+    let ids = async |version: &VersionId| {
+        repo.version_detail(version)
+            .await
+            .unwrap()
+            .unwrap()
+            .subtitle_files
+            .iter()
+            .map(|f| f.id.0.clone())
+            .collect::<Vec<_>>()
+    };
+    let claimed =
+        SubtitleFile { version: v2.clone(), ..added("uv1-add2", "fr", "/subs/v2.fr.srt", false) };
+    let moved = repo
+        .update_subtitle_files(&v2, |mut files| {
+            files.push(claimed.clone());
+            files
+        })
+        .await
+        .unwrap();
+    assert!(moved);
+    assert_eq!(ids(&v2).await, ["uv1-add2"]);
+    assert_eq!(ids(&uv1).await, ["uv1-add3"]);
+
+    repo.add_subtitle_file(&uv1, &added("uv1-add2", "fr", "/subs/uv1.fr.srt", false))
+        .await
+        .unwrap();
+    assert_eq!(ids(&uv1).await, ["uv1-add3", "uv1-add2"]);
+    assert!(ids(&v2).await.is_empty());
+
+    repo.set_subtitle_files(&v2, std::slice::from_ref(&claimed)).await.unwrap();
+    assert_eq!(ids(&v2).await, ["uv1-add2"]);
+    assert_eq!(ids(&uv1).await, ["uv1-add3"]);
+    repo.set_subtitle_files(&v2, &[]).await.unwrap();
 
     repo.set_subtitle_files(&uv1, &[]).await.unwrap();
 

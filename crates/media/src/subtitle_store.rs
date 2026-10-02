@@ -29,7 +29,7 @@ impl SubtitleStore for FsSubtitleStore {
         if !crate::derived_assets::is_plain_name(&version.0)
             || !crate::derived_assets::is_plain_name(file_id)
         {
-            return Err(SubtitleError::Store(
+            return Err(SubtitleError::Refused(
                 "refusing to write a subtitle outside the store".to_owned(),
             ));
         }
@@ -125,7 +125,7 @@ mod tests {
                 .store(&VersionId(version.to_owned()), file_id, SubtitleFormat::Srt, "1\npwned\n")
                 .await
                 .expect_err("a path component that is not a plain name must be refused");
-            assert!(matches!(err, SubtitleError::Store(_)));
+            assert!(matches!(err, SubtitleError::Refused(_)), "retrying it would never succeed");
         }
 
         assert!(!outside.exists(), "nothing is written outside the root");

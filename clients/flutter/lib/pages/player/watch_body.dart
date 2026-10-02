@@ -631,9 +631,11 @@ class _WatchBodyState extends State<WatchBody>
     }
     final int keepMs = seekMs ?? _view.positionMs;
     final int negotiation = ++_negotiation;
+    final bool wasPlaying = _controller.snapshot.value.playing;
+    _controller.pause();
     setState(() {
       _applying = true;
-      _status = Strings.applyingPlaybackChanges;
+      _status = null;
     });
     try {
       final neg = await _pb.update(sid, next);
@@ -659,6 +661,9 @@ class _WatchBodyState extends State<WatchBody>
     } catch (_) {
       if (mounted && negotiation == _negotiation) {
         setState(() => _status = Strings.renegotiationFailed);
+        if (wasPlaying) {
+          _controller.play();
+        }
       }
     } finally {
       if (mounted && negotiation == _negotiation) {
@@ -941,6 +946,9 @@ class _WatchBodyState extends State<WatchBody>
   }
 
   String? _waitingLabel(PlayerSnapshot snap) {
+    if (_applying) {
+      return Strings.applyingPlaybackChanges;
+    }
     if (!_prebuffered) {
       return Strings.playerBuffering;
     }
@@ -956,6 +964,9 @@ class _WatchBodyState extends State<WatchBody>
   }
 
   String? _waitingDetail(PlayerSnapshot snap) {
+    if (_applying) {
+      return null;
+    }
     if (!_prebuffered) {
       return Strings.playerBufferingTo(
         snap.bufferedAheadMs / 1000,
@@ -1068,9 +1079,11 @@ class _WatchBodyState extends State<WatchBody>
                       status: snap.error ?? _status,
                       waiting: _waitingLabel(snap),
                       waitingDetail: _waitingDetail(snap),
-                      onKeepWaiting: _stalled ? _keepWaiting : null,
-                      onGoBack: _stalled ? _leavePlayer : null,
-                      onPlayNow: _prebuffered ? null : _playNow,
+                      onKeepWaiting: _stalled && !_applying
+                          ? _keepWaiting
+                          : null,
+                      onGoBack: _stalled && !_applying ? _leavePlayer : null,
+                      onPlayNow: _prebuffered || _applying ? null : _playNow,
                       ended: snap.ended,
                       onCentrePlay: _centrePlay,
                       touch: widget.touch,
