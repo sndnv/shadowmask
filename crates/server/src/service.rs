@@ -38,7 +38,7 @@ use persistence::job_log::FsJobLogStore;
 use persistence::server::{SqliteCatalogRepo, SqliteJobRepo, SqliteLibraryRepo};
 use services::library::{
     Enricher, LibraryServiceImpl, Scanner, TranscriptionEnqueuer, TranslationEnqueuer,
-    next_daily_fire,
+    next_daily_fire, settle_interrupted_scans,
 };
 use services::user::UserServiceImpl;
 use tokio::net::TcpListener;
@@ -49,7 +49,7 @@ use crate::bootstrap::{
     BootstrapResult, LibraryBootstrapProvider, UserBootstrapProvider, complete, run_one,
 };
 use crate::config::{Config, resolve_vaapi_device, transcription_model_dir, translation_model_dir};
-use crate::enrichment::{available_cores, resolve_enrichment_threads};
+use crate::enrichment::{FeatureMode, available_cores, resolve_enrichment_threads};
 use crate::lockfile::ServerLock;
 use crate::observability::observability_router;
 
@@ -173,13 +173,22 @@ fn select_model(
         )
         .into()),
         None => {
-            tracing::warn!(
-                "{kind}: enabled but no model folders were found under [{}]; {kind} jobs stay queued until a model is added",
-                base.display()
-            );
+            #[rustfmt::skip]
+            tracing::warn!("{kind}: enabled but no model folders were found under [{}]; {kind} stays off and its queued jobs wait until a model is added and the server is restarted", base.display());
             Ok(None)
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FeatureWiring {
+    available: bool,
+    automatic: bool,
+}
+
+fn feature_wiring(mode: FeatureMode, model_present: bool) -> FeatureWiring {
+    let available = mode.installed() && model_present;
+    FeatureWiring { available, automatic: available && mode.automatic() }
 }
 
 fn parked_kinds(
@@ -340,6 +349,8 @@ impl Runtime {
             .await?;
         #[rustfmt::skip]
         tracing::info!(requeued = reclaimed.requeued, dead_lettered = reclaimed.dead_lettered, "startup: reclaimed [{}] stale running jobs", reclaimed.total());
+        let interrupted = settle_interrupted_scans(&repos.library, &repos.jobs).await?;
+        tracing::info!("startup: settled [{interrupted}] interrupted library scans");
 
         match CacheEvictor::new(&config.transcode_cache).purge().await {
             Ok(purged) => {
@@ -362,6 +373,34 @@ impl Runtime {
             vaapi_present,
         );
         let download_secret = config.stream_secret.clone().into_bytes();
+        let transcription_mode = config.enrichment.transcription.mode;
+        let translation_mode = config.enrichment.translation.mode;
+        let transcription_dir = transcription_model_dir(&config.enrichment);
+        let translation_dir = translation_model_dir(&config.enrichment);
+        #[cfg(feature = "enrichment")]
+        let (transcription_model, translation_model) = (
+            select_model(
+                "transcription",
+                &transcription_dir,
+                transcription_mode.installed(),
+                inference::scan_transcription_models,
+            )?,
+            select_model(
+                "translation",
+                &translation_dir,
+                translation_mode.installed(),
+                inference::scan_translation_models,
+            )?,
+        );
+        #[cfg(not(feature = "enrichment"))]
+        let (transcription_model, translation_model): (Option<PathBuf>, Option<PathBuf>) =
+            (None, None);
+        let transcription = feature_wiring(transcription_mode, transcription_model.is_some());
+        let translation = feature_wiring(translation_mode, translation_model.is_some());
+        let (transcription_available, transcription_auto) =
+            (transcription.available, transcription.automatic);
+        let (translation_available, translation_auto) =
+            (translation.available, translation.automatic);
         let wire = WireConfig {
             jwt_secret: config.jwt_secret.into_bytes(),
             stream_secret: config.stream_secret.into_bytes(),
@@ -372,8 +411,8 @@ impl Runtime {
             artwork_cache: config.artwork_cache.clone(),
             trickplay_cache: config.trickplay_cache.clone(),
             tmdb_api_key: config.tmdb_api_key.clone(),
-            transcription_enabled: config.enrichment.transcription.enabled,
-            translation_enabled: config.enrichment.translation.enabled,
+            transcription_enabled: transcription_available,
+            translation_enabled: translation_available,
             upscaling_enabled: config.enrichment.upscaling.enabled,
             content_fetch_enabled: config.fetch_providers.enabled,
             fetch_cookies_file: config.fetch_providers.cookies_file.clone(),
@@ -386,28 +425,6 @@ impl Runtime {
         let Built { state, stream, session, artwork_store, images, trickplay } =
             build_state(&repos, &wire, &cancel)?;
         let job_logs = FsJobLogStore::new(&config.job_log_dir);
-        let transcription_dir = transcription_model_dir(&config.enrichment);
-        let translation_dir = translation_model_dir(&config.enrichment);
-        #[cfg(feature = "enrichment")]
-        let (transcription_model, translation_model) = (
-            select_model(
-                "transcription",
-                &transcription_dir,
-                wire.transcription_enabled,
-                inference::scan_transcription_models,
-            )?,
-            select_model(
-                "translation",
-                &translation_dir,
-                wire.translation_enabled,
-                inference::scan_translation_models,
-            )?,
-        );
-        #[cfg(not(feature = "enrichment"))]
-        let (transcription_model, translation_model): (Option<PathBuf>, Option<PathBuf>) =
-            (None, None);
-        let transcription_available = wire.transcription_enabled && transcription_model.is_some();
-        let translation_available = wire.translation_enabled && translation_model.is_some();
         let parked = parked_kinds(
             transcription_available,
             translation_available,
@@ -476,7 +493,7 @@ impl Runtime {
             Vec::new()
         };
         let translation_langs =
-            if translation_available { config.target_languages.clone() } else { Vec::new() };
+            if translation_auto { config.target_languages.clone() } else { Vec::new() };
         let subtitles = SubtitlesJobHandler::new(
             OpenSubtitlesClient::new(config.opensubtitles_api_key.clone().unwrap_or_default())
                 .with_min_interval(Duration::from_millis(config.opensubtitles_min_interval_ms)),
@@ -487,10 +504,10 @@ impl Runtime {
                 repos.jobs.clone(),
                 repos.catalog.clone(),
                 subtitle_langs.clone(),
-                transcription_available,
+                transcription_auto,
             ),
         );
-        let transcription_enabled = transcription_available;
+        let transcription_enabled = transcription_auto;
         let enrichment_threads =
             resolve_enrichment_threads(config.enrichment.threads, available_cores());
         let transcription = TranscriptionJobHandler::new(
@@ -959,6 +976,40 @@ mod tests {
         assert!(parked_kinds(true, true, true, true).is_empty());
     }
 
+    #[test]
+    fn on_runs_the_pool_without_scheduling_anything() {
+        let wiring = feature_wiring(FeatureMode::On, true);
+        assert!(wiring.available, "the pool must not be parked or a manual trigger never runs");
+        assert!(!wiring.automatic);
+    }
+
+    #[test]
+    fn auto_both_runs_the_pool_and_schedules() {
+        assert_eq!(
+            feature_wiring(FeatureMode::Auto, true),
+            FeatureWiring { available: true, automatic: true }
+        );
+    }
+
+    #[test]
+    fn off_neither_loads_nor_schedules() {
+        assert_eq!(
+            feature_wiring(FeatureMode::Off, true),
+            FeatureWiring { available: false, automatic: false }
+        );
+    }
+
+    #[test]
+    fn a_missing_model_overrides_any_mode() {
+        for mode in [FeatureMode::On, FeatureMode::Auto] {
+            assert_eq!(
+                feature_wiring(mode, false),
+                FeatureWiring { available: false, automatic: false },
+                "{mode}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn a_pool_that_claims_an_unknown_kind_stops_the_boot() {
         let dir = tempfile::tempdir().unwrap();
@@ -1014,7 +1065,7 @@ mod tests {
         config.omdb_api_key = Some("omdb-key".into());
         config.opensubtitles_api_key = Some("os-key".into());
         config.target_languages = vec!["nl".into()];
-        config.enrichment.translation.enabled = true;
+        config.enrichment.translation.mode = FeatureMode::Auto;
         config.cors_allowed_origins = vec!["https://example.test".into()];
         config.daily_scan_at = Some("04:00".into());
         let profiles = dir.path().join("profiles");

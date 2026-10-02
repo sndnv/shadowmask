@@ -249,6 +249,13 @@ pub trait CatalogRepository {
         version: &VersionId,
         file: &SubtitleFile,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn update_subtitle_files<F>(
+        &self,
+        version: &VersionId,
+        change: F,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send
+    where
+        F: FnOnce(Vec<SubtitleFile>) -> Vec<SubtitleFile> + Send;
     fn upsert_person(
         &self,
         person: Person,

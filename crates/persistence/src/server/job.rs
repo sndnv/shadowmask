@@ -478,27 +478,7 @@ mod tests {
 
     #[test]
     fn enum_round_trips_and_rejects_unknown() {
-        for kind in [
-            JobKind::LibraryScan,
-            JobKind::Metadata,
-            JobKind::Artwork,
-            JobKind::Subtitles,
-            JobKind::Trickplay,
-            JobKind::Fingerprint,
-            JobKind::Dedup,
-            JobKind::CacheEviction,
-            JobKind::SearchReindex,
-            JobKind::Ingest,
-            JobKind::Relink,
-            JobKind::Transcription,
-            JobKind::Translation,
-            JobKind::Upscale,
-            JobKind::Combine,
-            JobKind::Fetch,
-            JobKind::ScheduledScan,
-            JobKind::Retention,
-            JobKind::OrphanSweep,
-        ] {
+        for kind in JobKind::ALL {
             assert_eq!(kind_from_str(kind_to_str(kind)).unwrap(), kind);
         }
         for status in [

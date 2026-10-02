@@ -10,11 +10,13 @@ mod embedded_subtitle_track;
 mod fetched_subtitle;
 mod fingerprint;
 mod fingerprinted_version;
+mod format_tokens;
 mod intro_marker;
 mod keyframe_probe;
 mod media_fetcher;
 mod probe;
 mod probe_result;
+mod release_affinity;
 mod subtitle_candidate;
 mod subtitle_combiner;
 mod subtitle_file;
@@ -47,15 +49,17 @@ pub use embedded_subtitle_track::EmbeddedSubtitleTrack;
 pub use fetched_subtitle::{FetchedSubtitle, is_hallucinated_text, subtitle_has_text};
 pub use fingerprint::Fingerprint;
 pub use fingerprinted_version::FingerprintedVersion;
+pub use format_tokens::{FORMAT_TOKENS, FormatToken};
 pub use intro_marker::IntroMarker;
 pub use keyframe_probe::KeyframeProbe;
 pub use media_fetcher::{FetchSpec, FetchedMedia, MediaFetcher};
 pub use probe::MediaProbe;
 pub use probe_result::ProbeResult;
+pub use release_affinity::{release_tag, same_release};
 pub use subtitle_candidate::SubtitleCandidate;
 pub use subtitle_combiner::SubtitleCombiner;
 pub use subtitle_file::{
-    SubtitleFile, SubtitleFileId, SubtitleSource, prune_orphaned_translations,
+    SubtitleFile, SubtitleFileId, SubtitleSource, prune_orphaned_translations, sidecars_replaced,
 };
 pub use subtitle_format::SubtitleFormat;
 pub use subtitle_provider::SubtitleProvider;

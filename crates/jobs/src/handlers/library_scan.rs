@@ -66,11 +66,11 @@ where
 
         match scanned {
             Ok(report) => {
+                self.enricher.enrich(&library, &report, Some(&job.id)).await;
                 self.repo
                     .save_scan_state(idle(&id, started, Timestamp::now()))
                     .await
                     .map_err(retryable)?;
-                self.enricher.enrich(&library, &report, Some(&job.id)).await;
                 Ok(())
             }
             Err(err) => {
@@ -135,8 +135,8 @@ fn failed(id: &LibraryId, started: Timestamp, err: &WalkError) -> ScanState {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
 
     use super::*;
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
@@ -155,6 +155,19 @@ mod tests {
     impl ScanEnricher for SpyEnricher {
         async fn enrich(&self, _library: &Library, _report: &ScanReport, _parent: Option<&JobId>) {
             self.called.store(true, Ordering::Relaxed);
+        }
+    }
+
+    #[derive(Clone)]
+    struct StatusSpy {
+        repo: MockLibraryRepo,
+        seen: Arc<Mutex<Option<ScanStatus>>>,
+    }
+
+    impl ScanEnricher for StatusSpy {
+        async fn enrich(&self, library: &Library, _report: &ScanReport, _parent: Option<&JobId>) {
+            let state = self.repo.scan_state(&library.id).await.unwrap();
+            *self.seen.lock().unwrap() = state.map(|state| state.status);
         }
     }
 
@@ -257,6 +270,28 @@ mod tests {
         assert!(called.load(Ordering::Relaxed));
         let state = repo.scan_state(&LibraryId("lib".into())).await.unwrap().unwrap();
         assert_eq!(state.status, ScanStatus::Idle);
+    }
+
+    #[tokio::test]
+    async fn the_library_still_reads_as_scanning_while_enrichment_writes() {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(library(&["/m"]));
+        let seen = Arc::new(Mutex::new(None));
+        let handler = LibraryScanHandler::new(
+            repo.clone(),
+            Scanner::new(MockSourceWalker::new(), MockMediaProbe::new()),
+            StatusSpy { repo: repo.clone(), seen: Arc::clone(&seen) },
+        );
+
+        handler.handle(&scan_job("lib")).await.unwrap();
+
+        assert_eq!(
+            *seen.lock().unwrap(),
+            Some(ScanStatus::Running),
+            "enrichment is the phase that writes, so the scan is not over until it returns"
+        );
+        let state = repo.scan_state(&LibraryId("lib".into())).await.unwrap().unwrap();
+        assert_eq!(state.status, ScanStatus::Idle, "and it is only idle once that is done");
     }
 
     #[tokio::test]

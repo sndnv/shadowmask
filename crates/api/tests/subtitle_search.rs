@@ -96,7 +96,7 @@ impl Default for MockProvider {
                 file_id: "42".into(),
                 language: Some(LanguageCode("en".into())),
                 format: SubtitleFormat::Srt,
-                release_name: Some("The.Matrix.1999.BluRay".into()),
+                release_name: Some("Paper.Skies.1999.BluRay".into()),
                 download_count: Some(9999),
                 rating: Some(8.5),
             }]),
@@ -176,7 +176,7 @@ async fn seeded_movie(external: Option<&str>) -> MockCatalogRepo {
     let catalog = seeded(&[]).await;
     catalog.add_movie(Movie {
         id: MovieId("m1".into()),
-        title: "The Matrix".into(),
+        title: "Paper Skies".into(),
         sort_title: "matrix".into(),
         year: Some(1999),
         overview: None,
@@ -296,14 +296,14 @@ async fn an_empty_query_searches_on_the_matched_title() {
 
     assert_eq!(status, StatusCode::OK);
     let query = seen.take();
-    assert_eq!(query.query.as_deref(), Some("The Matrix"));
+    assert_eq!(query.query.as_deref(), Some("Paper Skies"));
     assert_eq!(query.imdb_id, None);
     assert_eq!(query.season, None);
     assert_eq!(query.episode, None);
 }
 
 #[tokio::test]
-async fn an_empty_query_prefers_the_imdb_id_over_the_title() {
+async fn an_empty_query_sends_the_title_alongside_the_imdb_id() {
     let provider = MockProvider::default();
     let seen = provider.seen.clone();
     let (status, _) = get(
@@ -316,7 +316,7 @@ async fn an_empty_query_prefers_the_imdb_id_over_the_title() {
     assert_eq!(status, StatusCode::OK);
     let query = seen.take();
     assert_eq!(query.imdb_id.as_deref(), Some("tt0133093"));
-    assert_eq!(query.query, None);
+    assert_eq!(query.query.as_deref(), Some("Paper Skies"));
 }
 
 #[tokio::test]
@@ -412,7 +412,7 @@ async fn admin_search_returns_mapped_candidates() {
     assert_eq!(items[0]["file_id"].as_str().unwrap(), "42");
     assert_eq!(items[0]["language"].as_str().unwrap(), "en");
     assert_eq!(items[0]["format"].as_str().unwrap(), "srt");
-    assert_eq!(items[0]["release_name"].as_str().unwrap(), "The.Matrix.1999.BluRay");
+    assert_eq!(items[0]["release_name"].as_str().unwrap(), "Paper.Skies.1999.BluRay");
     assert_eq!(items[0]["download_count"].as_u64().unwrap(), 9999);
     assert!((items[0]["rating"].as_f64().unwrap() - 8.5).abs() < 1e-6);
 }
@@ -441,6 +441,40 @@ async fn search_orders_by_download_count_descending() {
     assert_eq!(items[0]["file_id"].as_str().unwrap(), "high");
     assert_eq!(items[1]["file_id"].as_str().unwrap(), "low");
     assert!(logs_contain("user [admin] subtitle search for version [v1]: 2 hits"));
+}
+
+#[tokio::test]
+async fn search_puts_the_matching_release_above_a_more_popular_one() {
+    let catalog = MockCatalogRepo::new();
+    catalog.add_version(Version {
+        path: "/m/Paper.Skies.1999.1080p.BluRay.x264-TAG.mkv".into(),
+        ..version()
+    });
+    catalog.set_subtitle_files(&VersionId("v1".into()), &[]).await.unwrap();
+    let candidate = |id: &str, release: &str, downloads: u32| SubtitleCandidate {
+        file_id: id.into(),
+        language: Some(LanguageCode("en".into())),
+        format: SubtitleFormat::Srt,
+        release_name: Some(release.into()),
+        download_count: Some(downloads),
+        rating: None,
+    };
+    let provider = MockProvider {
+        search: SearchMode::Ok(vec![
+            candidate("popular", "Paper.Skies.1999.2160p.UHD.BluRay.x265-OTHER", 900),
+            candidate("fits", "Paper.Skies.1999.1080p.BluRay.x264-TAG", 5),
+        ]),
+        ..MockProvider::default()
+    };
+
+    let (status, body) =
+        get(app(catalog, MockStore::default(), provider), SEARCH, Some(ADMIN)).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let value: Value = serde_json::from_slice(&body).unwrap();
+    let items = value.as_array().unwrap();
+    assert_eq!(items[0]["file_id"].as_str().unwrap(), "fits");
+    assert_eq!(items[1]["file_id"].as_str().unwrap(), "popular");
 }
 
 #[tokio::test]
@@ -544,6 +578,61 @@ async fn downloading_a_file_the_version_already_holds_spends_no_quota() {
 }
 
 #[tokio::test]
+async fn a_file_replaced_while_the_pick_was_in_flight_is_downloaded_and_pinned() {
+    let catalog = seeded(&[subtitle(
+        "opensubtitles:v1:42",
+        SubtitleSource::OpenSubtitles,
+        "/subs/v1/42.srt",
+    )])
+    .await;
+    catalog.clear_subtitles_after_next_read();
+    let provider = MockProvider::default();
+    let downloads = provider.downloads.clone();
+
+    let (status, _) = post(
+        app(catalog.clone(), MockStore::default(), provider),
+        DOWNLOAD,
+        Some(ADMIN),
+        r#"{"file_id":"42"}"#,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(downloads.load(Ordering::SeqCst), 1);
+    let files = files(&catalog).await;
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].id.0, "opensubtitles:v1:42");
+    assert!(files[0].pinned);
+}
+
+#[tokio::test]
+async fn picking_a_file_the_job_already_fetched_pins_it_without_a_download() {
+    let catalog = seeded(&[
+        subtitle("opensubtitles:v1:42", SubtitleSource::OpenSubtitles, "/subs/v1/42.srt"),
+        subtitle("sidecar", SubtitleSource::External, "/m/v1.en.srt"),
+    ])
+    .await;
+    let provider = MockProvider::default();
+    let downloads = provider.downloads.clone();
+
+    let (status, _) = post(
+        app(catalog.clone(), MockStore::default(), provider),
+        DOWNLOAD,
+        Some(ADMIN),
+        r#"{"file_id":"42","release_name":"Paper.Skies.1999.BluRay"}"#,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(downloads.load(Ordering::SeqCst), 0);
+    let files = files(&catalog).await;
+    let picked = files.iter().find(|file| file.id.0 == "opensubtitles:v1:42").unwrap();
+    assert!(picked.pinned, "an admin's pick must survive the next automatic run");
+    assert_eq!(picked.label.as_deref(), Some("Paper.Skies.1999.BluRay"));
+    assert!(!files.iter().find(|file| file.id.0 == "sidecar").unwrap().pinned);
+}
+
+#[tokio::test]
 async fn downloading_a_file_the_version_lacks_calls_the_provider_once() {
     let catalog = seeded(&[subtitle(
         "opensubtitles:v1:99",
@@ -579,13 +668,13 @@ async fn a_hand_picked_download_is_stored_pinned_and_labelled() {
         app(catalog.clone(), MockStore::default(), MockProvider::default()),
         DOWNLOAD,
         Some(ADMIN),
-        r#"{"file_id":"42","language":"en","release_name":"The.Matrix.1999.BluRay"}"#,
+        r#"{"file_id":"42","language":"en","release_name":"Paper.Skies.1999.BluRay"}"#,
     )
     .await;
 
     assert_eq!(status, StatusCode::NO_CONTENT);
     let files = files(&catalog).await;
-    assert_eq!(files[0].label.as_deref(), Some("The.Matrix.1999.BluRay"));
+    assert_eq!(files[0].label.as_deref(), Some("Paper.Skies.1999.BluRay"));
     assert!(files[0].pinned, "an admin's pick must survive the automatic job");
 }
 

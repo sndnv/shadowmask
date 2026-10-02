@@ -228,13 +228,13 @@ mod tests {
         let (h, catalog, _) = handler(repo, Outcome::Ok, MockMediaProbe::new());
 
         let mut payload = payload();
-        payload.title = "THIS IS 4K ANIME YOUR NAME 2160P 60FPS".into();
+        payload.title = "OPEN STUDIO 4K DEMO REEL 2160P 60FPS".into();
         payload.year = None;
         h.handle(&job(payload.encode())).await.unwrap();
 
         let movies = catalog.list_movies(page()).await.unwrap();
         assert_eq!(
-            movies.items[0].title, "THIS IS 4K ANIME YOUR NAME 2160P 60FPS",
+            movies.items[0].title, "OPEN STUDIO 4K DEMO REEL 2160P 60FPS",
             "the fetch knows the title, so it must not be re-derived from the \
              filename it just wrote"
         );

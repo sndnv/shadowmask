@@ -9,15 +9,16 @@ use domain::error::RepositoryError;
 use domain::job::JobId;
 use domain::library::{
     DiscoveredFile, Library, LibraryId, LibraryKind, MatchedGroup, ParsedMedia, ResolveTarget,
-    ScanReport,
+    ScanReport, SkipReason,
 };
-use domain::media::{ProbeResult, SubtitleFile, SubtitleFileId, SubtitleSource};
+use domain::media::{ProbeResult, SubtitleFile, SubtitleFileId, SubtitleSource, sidecars_replaced};
 use domain::metadata::{
     CollectionMeta, Credit, ExternalId, Genre, GenreId, MediaKind, MetadataProvider, Person,
     PersonId, Studio, StudioId, TitleEnrichment, TitleMetadata,
 };
 use domain::repository::{CatalogRepository, JobRepository, LibraryRepository};
 use domain::text::sort_title;
+use futures::future::OptionFuture;
 use jiff::Timestamp;
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -101,6 +102,7 @@ pub trait ScanEnricher {
 pub enum ResolveOutcome {
     Identified,
     Unidentified,
+    NotAnEpisode,
 }
 
 pub trait ResolveIngester {
@@ -189,13 +191,25 @@ where
     L: LibraryRepository + Send + Sync,
 {
     async fn enrich(&self, library: &Library, report: &ScanReport, parent: Option<&JobId>) {
-        let present: Vec<String> = report
+        let candidates: Vec<String> = report
+            .discovered
+            .iter()
+            .map(|file| file.path.clone())
+            .chain(
+                report
+                    .skipped
+                    .iter()
+                    .filter(|file| matches!(file.reason, SkipReason::ProbeFailed(_)))
+                    .map(|file| file.path.clone()),
+            )
+            .collect();
+        let on_disk: Vec<String> = report
             .discovered
             .iter()
             .map(|file| file.path.clone())
             .chain(report.skipped.iter().map(|file| file.path.clone()))
             .collect();
-        let report = self.matcher.match_files(&report.discovered);
+        let report = self.matcher.match_files(library.kind, &report.discovered);
         for group in &report.matched {
             if let Err(err) = self.ingest_group(library, group, parent, IngestMode::Scan).await {
                 warn!(library = %library.id.0, "scan enrichment failed: {err}");
@@ -213,13 +227,13 @@ where
                 warn!(library = %library.id.0, "persisting unmatched file failed: {err}");
             }
         }
-        if let Err(err) = self.catalog.reconcile_library_versions(&library.id, &present).await {
+        if let Err(err) = self.catalog.reconcile_library_versions(&library.id, &on_disk).await {
             warn!(library = %library.id.0, "reconciling library versions failed: {err}");
         }
         if let Err(err) = self.libraries.reconcile_duplicates(&library.id, &detected).await {
             warn!(library = %library.id.0, "reconciling duplicates failed: {err}");
         }
-        if let Err(err) = self.libraries.reconcile_unmatched(&library.id, &present).await {
+        if let Err(err) = self.libraries.reconcile_unmatched(&library.id, &candidates).await {
             warn!(library = %library.id.0, "reconciling unmatched files failed: {err}");
         }
     }
@@ -416,13 +430,10 @@ where
         parent: Option<&JobId>,
         mode: IngestMode,
     ) -> Result<(), RepositoryError> {
-        let known = match episode_ids_of(&group.parsed) {
-            Some(ids) => {
-                mode.skips_existing_titles()
-                    && self.catalog.get_episode(&ids.episode).await?.is_some()
-            }
-            None => false,
-        };
+        let lookup = episode_ids_of(&group.parsed)
+            .filter(|_| mode.skips_existing_titles())
+            .map(|ids| async move { self.catalog.get_episode(&ids.episode).await });
+        let known = OptionFuture::from(lookup).await.transpose()?.flatten().is_some();
         let metadata = if known {
             None
         } else {
@@ -591,7 +602,16 @@ where
         let FileIngest { file, title, library, quality, subtitle, parent, mode } = ingest;
         let version_id = VersionId(derive_id("version", &file.path));
         let existing = self.catalog.get_version(&version_id).await?;
+        let sidecars = sidecars_of(&version_id, file);
         if mode.skips_unchanged() && is_unchanged(existing.as_ref(), file) {
+            if let Err(err) = self
+                .catalog
+                .update_subtitle_files(&version_id, |held| sidecars_replaced(held, sidecars))
+                .await
+            {
+                #[rustfmt::skip]
+                warn!(path = %file.path, "reconciling the sidecars of an unchanged file failed: [{err}]");
+            }
             return Ok(());
         }
         let now = Timestamp::now();
@@ -619,25 +639,10 @@ where
                 &file.probe.chapters,
             )
             .await?;
-        let subtitle_files: Vec<SubtitleFile> =
-            discover_subtitles(&file.path, &file.subtitle_siblings)
-                .into_iter()
-                .map(|sub| SubtitleFile {
-                    id: SubtitleFileId(derive_id("subtitle", &sub.path)),
-                    version: version_id.clone(),
-                    language: sub.language,
-                    format: sub.format,
-                    source: SubtitleSource::External,
-                    path: sub.path,
-                    translated_from: None,
-                    label: None,
-                    pinned: false,
-                })
-                .collect();
-        if !subtitle_files.is_empty() {
-            self.catalog.set_subtitle_files(&version_id, &subtitle_files).await?;
-        }
-        let has_native_subtitle = !subtitle_files.is_empty() || !file.probe.subtitles.is_empty();
+        let has_native_subtitle = !sidecars.is_empty() || !file.probe.subtitles.is_empty();
+        self.catalog
+            .update_subtitle_files(&version_id, |held| sidecars_replaced(held, sidecars))
+            .await?;
         self.enqueue.for_file(&version_id, file, subtitle, has_native_subtitle, parent).await
     }
 
@@ -948,6 +953,11 @@ where
                 .await?;
                 Ok(ResolveOutcome::Identified)
             }
+            ResolveTarget::Provider(_)
+                if library.kind == LibraryKind::Tv && !parsed.is_episodic() =>
+            {
+                Ok(ResolveOutcome::NotAnEpisode)
+            }
             ResolveTarget::Provider(external_id) => {
                 let external_id = qualified_provider_id(external_id, library.kind);
                 let metadata = self.fetch.fetch_by_id(&external_id).await;
@@ -1089,20 +1099,20 @@ fn qualified_provider_id(id: &ExternalId, kind: LibraryKind) -> ExternalId {
     ExternalId { source: id.source.clone(), value: format!("{prefix}/{}", id.value) }
 }
 
-fn movie_id_of(parsed: &ParsedMedia) -> MovieId {
+pub(crate) fn movie_id_of(parsed: &ParsedMedia) -> MovieId {
     let slug = normalize_title(&parsed.title);
     MovieId(derive_id("movie", &format!("{slug}:{}", parsed.year.unwrap_or(0))))
 }
 
-struct EpisodeIds {
-    series: SeriesId,
-    season: SeasonId,
-    episode: EpisodeId,
-    season_number: u16,
-    episode_number: u16,
+pub(crate) struct EpisodeIds {
+    pub(crate) series: SeriesId,
+    pub(crate) season: SeasonId,
+    pub(crate) episode: EpisodeId,
+    pub(crate) season_number: u16,
+    pub(crate) episode_number: u16,
 }
 
-fn episode_ids_of(parsed: &ParsedMedia) -> Option<EpisodeIds> {
+pub(crate) fn episode_ids_of(parsed: &ParsedMedia) -> Option<EpisodeIds> {
     let (season_number, episode_number) = (parsed.season?, parsed.episode?);
     let series_key = normalize_title(&parsed.title);
     Some(EpisodeIds {
@@ -1122,6 +1132,23 @@ fn recorded_size(file: &DiscoveredFile, existing: Option<&Version>) -> u64 {
         (0, Some(version)) => version.size_bytes,
         (size, _) => size,
     }
+}
+
+fn sidecars_of(version_id: &VersionId, file: &DiscoveredFile) -> Vec<SubtitleFile> {
+    discover_subtitles(&file.path, &file.subtitle_siblings)
+        .into_iter()
+        .map(|sub| SubtitleFile {
+            id: SubtitleFileId(derive_id("subtitle", &sub.path)),
+            version: version_id.clone(),
+            language: sub.language,
+            format: sub.format,
+            source: SubtitleSource::External,
+            path: sub.path,
+            translated_from: None,
+            label: None,
+            pinned: false,
+        })
+        .collect()
 }
 
 fn is_unchanged(existing: Option<&Version>, file: &DiscoveredFile) -> bool {
@@ -1166,7 +1193,8 @@ mod tests {
     use domain::error::MetadataError;
     use domain::job::JobKind;
     use domain::library::{
-        DiscoveredFile, LibraryId, LibraryOrigin, ResolutionStatus, WatcherStrategy,
+        DiscoveredFile, LibraryId, LibraryOrigin, ResolutionStatus, SkipReason, SkippedFile,
+        WatcherStrategy,
     };
     use domain::media::ProbeResult;
     use domain::metadata::{
@@ -2421,6 +2449,138 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_rescan_keeps_every_subtitle_the_scan_does_not_own() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        let path = "/m/The Matrix (1999) 1080p.mkv";
+        let sidecar = "/m/The Matrix (1999) 1080p.en.srt";
+        let version_id = VersionId(derive_id("version", path));
+        let with_sidecar = |size: u64| DiscoveredFile {
+            size_bytes: size,
+            subtitle_siblings: vec![sidecar.into()],
+            ..discovered(path)
+        };
+        let library = library(LibraryKind::Movie);
+        let scan = |file: DiscoveredFile| ScanReport {
+            discovered: vec![file],
+            skipped: Vec::new(),
+            total_candidates: 1,
+        };
+
+        svc.enrich(&library, &scan(with_sidecar(10)), None).await;
+        let pinned = SubtitleFile {
+            id: SubtitleFileId("opensubtitles:pinned".into()),
+            version: version_id.clone(),
+            language: Some(domain::common::LanguageCode("es".into())),
+            format: domain::media::SubtitleFormat::Srt,
+            source: SubtitleSource::OpenSubtitles,
+            path: "/subs/pinned.srt".into(),
+            translated_from: None,
+            label: None,
+            pinned: true,
+        };
+        let translation = SubtitleFile {
+            id: SubtitleFileId("machine:es".into()),
+            source: SubtitleSource::MachineTranslated,
+            path: "/subs/machine.srt".into(),
+            translated_from: Some(SubtitleFileId("opensubtitles:pinned".into())),
+            pinned: false,
+            ..pinned.clone()
+        };
+        catalog.add_subtitle_file(&version_id, &pinned).await.unwrap();
+        catalog.add_subtitle_file(&version_id, &translation).await.unwrap();
+
+        svc.enrich(&library, &scan(with_sidecar(99)), None).await;
+
+        let detail = catalog.version_detail(&version_id).await.unwrap().unwrap();
+        let ids: Vec<&str> = detail.subtitle_files.iter().map(|file| file.id.0.as_str()).collect();
+        assert!(ids.contains(&"opensubtitles:pinned"), "a pinned download survives a rescan");
+        assert!(ids.contains(&"machine:es"), "and so does its translation");
+        assert_eq!(
+            detail.subtitle_files.iter().filter(|f| f.source == SubtitleSource::External).count(),
+            1,
+            "the sidecar on disk is still the only external row"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rescan_drops_a_sidecar_that_left_the_disk() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        let path = "/m/The Matrix (1999) 1080p.mkv";
+        let version_id = VersionId(derive_id("version", path));
+        let library = library(LibraryKind::Movie);
+        let scan = |file: DiscoveredFile| ScanReport {
+            discovered: vec![file],
+            skipped: Vec::new(),
+            total_candidates: 1,
+        };
+
+        svc.enrich(
+            &library,
+            &scan(DiscoveredFile {
+                subtitle_siblings: vec!["/m/The Matrix (1999) 1080p.en.srt".into()],
+                ..discovered(path)
+            }),
+            None,
+        )
+        .await;
+        assert_eq!(
+            catalog.version_detail(&version_id).await.unwrap().unwrap().subtitle_files.len(),
+            1
+        );
+
+        svc.enrich(&library, &scan(DiscoveredFile { size_bytes: 99, ..discovered(path) }), None)
+            .await;
+
+        let detail = catalog.version_detail(&version_id).await.unwrap().unwrap();
+        assert!(detail.subtitle_files.is_empty(), "the row goes when the file does");
+    }
+
+    #[tracing_test::traced_test]
+    #[tokio::test]
+    async fn a_failed_sidecar_update_on_an_unchanged_file_does_not_stop_the_title() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        let library = library(LibraryKind::Movie);
+        let scan = report(&["/m/Neon Harbor (2017) 1080p.mkv"]);
+
+        svc.enrich(&library, &scan, None).await;
+        catalog.set_fail_writes();
+        svc.enrich(&library, &scan, None).await;
+
+        assert!(logs_contain("reconciling the sidecars of an unchanged file failed"));
+        assert!(!logs_contain("scan enrichment failed"));
+    }
+
+    #[tokio::test]
+    async fn an_unchanged_video_still_follows_its_sidecars_and_queues_nothing() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog.clone(), None, jobs.clone());
+        let path = "/m/Neon Harbor (2017) 1080p.mkv";
+        let version_id = VersionId(derive_id("version", path));
+        let library = library(LibraryKind::Movie);
+        let scan = |siblings: Vec<String>| ScanReport {
+            discovered: vec![DiscoveredFile { subtitle_siblings: siblings, ..discovered(path) }],
+            skipped: Vec::new(),
+            total_candidates: 1,
+        };
+
+        svc.enrich(&library, &scan(Vec::new()), None).await;
+        let queued = jobs.list().await.unwrap().len();
+
+        svc.enrich(&library, &scan(vec!["/m/Neon Harbor (2017) 1080p.en.srt".into()]), None).await;
+        let detail = catalog.version_detail(&version_id).await.unwrap().unwrap();
+        assert_eq!(detail.subtitle_files.len(), 1, "a sidecar added beside the video is picked up");
+
+        svc.enrich(&library, &scan(Vec::new()), None).await;
+        let detail = catalog.version_detail(&version_id).await.unwrap().unwrap();
+        assert!(detail.subtitle_files.is_empty(), "and dropped once it is gone");
+        assert_eq!(jobs.list().await.unwrap().len(), queued, "an unchanged video queues nothing");
+    }
+
+    #[tokio::test]
     async fn movie_ingest_is_idempotent_across_rescans() {
         let catalog = MockCatalogRepo::new();
         let svc = enricher(catalog.clone(), None, MockJobStore::new());
@@ -2463,6 +2623,116 @@ mod tests {
         let alien = after.items.iter().find(|v| v.path == "/m/Alien (1979) 1080p.mkv").unwrap();
         assert!(matrix.available);
         assert!(!alien.available);
+    }
+
+    #[tokio::test]
+    async fn a_file_the_scan_excludes_keeps_its_version_available() {
+        const KEPT: &str = "/m/Paper Skies (1999) 1080p.mkv";
+        const EXCLUDED: &str = "/m/Extras/Neon Harbor (1982) 1080p.mkv";
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        let lib = library(LibraryKind::Movie);
+
+        svc.enrich(&lib, &report(&[KEPT, EXCLUDED]), None).await;
+        let mut rescan = report(&[KEPT]);
+        rescan.skipped = vec![SkippedFile {
+            path: EXCLUDED.into(),
+            reason: SkipReason::ExcludedDirectory("Extras".into()),
+        }];
+        rescan.total_candidates = 2;
+        svc.enrich(&lib, &rescan, None).await;
+
+        let after = catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap();
+        let excluded = after.items.iter().find(|v| v.path == EXCLUDED).unwrap();
+        assert!(excluded.available, "the file is excluded, not gone");
+    }
+
+    #[tokio::test]
+    async fn a_file_the_scan_excludes_leaves_the_unmatched_queue() {
+        const EXCLUDED: &str = "/m/Extras/recording.mkv";
+        let libraries = MockLibraryRepo::new();
+        let svc = enricher_with_libraries(
+            MockCatalogRepo::new(),
+            None,
+            MockJobStore::new(),
+            libraries.clone(),
+        );
+        let lib = library(LibraryKind::Movie);
+        let id = LibraryId("lib".into());
+
+        svc.enrich(&lib, &report(&[EXCLUDED]), None).await;
+        assert_eq!(libraries.list_unmatched(&id, page()).await.unwrap().total, 1);
+
+        let mut rescan = report(&[]);
+        rescan.skipped = vec![SkippedFile {
+            path: EXCLUDED.into(),
+            reason: SkipReason::ExcludedDirectory("Extras".into()),
+        }];
+        rescan.total_candidates = 1;
+        svc.enrich(&lib, &rescan, None).await;
+
+        assert!(
+            libraries.list_unmatched(&id, page()).await.unwrap().items.is_empty(),
+            "an excluded file is no longer a file the scan is trying to match"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_file_the_probe_cannot_read_keeps_its_place_in_the_unmatched_queue() {
+        const BROKEN: &str = "/m/recording.mkv";
+        let libraries = MockLibraryRepo::new();
+        let svc = enricher_with_libraries(
+            MockCatalogRepo::new(),
+            None,
+            MockJobStore::new(),
+            libraries.clone(),
+        );
+        let lib = library(LibraryKind::Movie);
+        let id = LibraryId("lib".into());
+
+        svc.enrich(&lib, &report(&[BROKEN]), None).await;
+        let before = libraries.list_unmatched(&id, page()).await.unwrap().items;
+        assert_eq!(before.len(), 1);
+
+        let mut rescan = report(&[]);
+        rescan.skipped = vec![SkippedFile {
+            path: BROKEN.into(),
+            reason: SkipReason::ProbeFailed("truncated".into()),
+        }];
+        rescan.total_candidates = 1;
+        svc.enrich(&lib, &rescan, None).await;
+
+        let after = libraries.list_unmatched(&id, page()).await.unwrap().items;
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].id, before[0].id);
+        assert_eq!(after[0].created_at, before[0].created_at);
+    }
+
+    #[tokio::test]
+    async fn a_file_the_probe_cannot_read_keeps_its_version_available() {
+        const KEPT: &str = "/m/Paper Skies (1999) 1080p.mkv";
+        const BROKEN: &str = "/m/Neon Harbor (1982) 1080p.mkv";
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        let lib = library(LibraryKind::Movie);
+
+        svc.enrich(&lib, &report(&[KEPT, BROKEN]), None).await;
+        let mut rescan = report(&[KEPT]);
+        rescan.skipped = vec![SkippedFile {
+            path: BROKEN.into(),
+            reason: SkipReason::ProbeFailed("truncated".into()),
+        }];
+        rescan.total_candidates = 2;
+        svc.enrich(&lib, &rescan, None).await;
+
+        let after = catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap();
+        let broken = after.items.iter().find(|v| v.path == BROKEN).unwrap();
+        assert!(
+            broken.available,
+            "a probe failure can be transient, so the file still counts as on disk"
+        );
+        let kept = after.items.iter().find(|v| v.path == KEPT).unwrap();
+        assert!(kept.available);
     }
 
     #[tokio::test]
@@ -2777,13 +3047,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tv_non_episodic_file_is_skipped() {
+    async fn a_tv_file_with_no_episode_waits_in_the_unmatched_queue() {
         let catalog = MockCatalogRepo::new();
         let jobs = MockJobStore::new();
-        let svc = enricher(catalog.clone(), None, jobs.clone());
+        let libraries = MockLibraryRepo::new();
+        let provider = MockMetadataProvider::new();
+        let svc =
+            Enricher::new(catalog.clone(), Some(provider.clone()), jobs.clone(), libraries.clone());
 
-        svc.enrich(&library(LibraryKind::Tv), &report(&["/tv/The Matrix (1999).mkv"]), None).await;
+        svc.enrich(&library(LibraryKind::Tv), &report(&["/tv/Neon Harbor (2017).mkv"]), None).await;
 
+        let unmatched = libraries.list_unmatched(&LibraryId("lib".into()), page()).await.unwrap();
+        assert_eq!(unmatched.total, 1);
+        assert_eq!(unmatched.items[0].path, "/tv/Neon Harbor (2017).mkv");
+        assert!(provider.searched().is_empty());
         assert_eq!(catalog.list_series(page()).await.unwrap().total, 0);
         assert_eq!(
             catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap().total,
@@ -3286,6 +3563,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_fetched_file_that_names_no_episode_writes_nothing_to_a_tv_library() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+
+        svc.ingest_fetched(
+            &library(LibraryKind::Tv),
+            &discovered("/tv/Neon Harbor (2017).mkv"),
+            &parse_filename("/tv/Neon Harbor (2017).mkv"),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(catalog.list_series(page()).await.unwrap().total, 0);
+        assert_eq!(
+            catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap().total,
+            0
+        );
+    }
+
+    #[tokio::test]
     async fn a_fetched_file_with_no_external_id_still_lands_as_a_bare_title() {
         let catalog = MockCatalogRepo::new();
         let svc = enricher(
@@ -3500,20 +3798,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolve_provider_tv_non_episodic_is_skipped() {
+    async fn a_tv_file_with_no_episode_is_refused_a_provider_title() {
         let catalog = MockCatalogRepo::new();
-        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        let provider = MockMetadataProvider::new();
+        let svc = Enricher::new(
+            catalog.clone(),
+            Some(provider.clone()),
+            MockJobStore::new(),
+            MockLibraryRepo::new(),
+        );
 
-        svc.ingest_resolved(
-            &library(LibraryKind::Tv),
-            &discovered("/tv/The Matrix (1999).mkv"),
-            &ResolveTarget::Provider(ExternalId { source: "tmdb".into(), value: "tv/1".into() }),
-            None,
-        )
-        .await
-        .unwrap();
+        let outcome = svc
+            .ingest_resolved(
+                &library(LibraryKind::Tv),
+                &discovered("/tv/Neon Harbor (2017).mkv"),
+                &ResolveTarget::Provider(ExternalId {
+                    source: "tmdb".into(),
+                    value: "tv/1".into(),
+                }),
+                None,
+            )
+            .await
+            .unwrap();
 
+        assert_eq!(outcome, ResolveOutcome::NotAnEpisode);
+        assert!(provider.fetched().is_empty());
         assert_eq!(catalog.list_series(page()).await.unwrap().total, 0);
+        assert_eq!(
+            catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap().total,
+            0
+        );
     }
 
     fn seed_movie(catalog: &MockCatalogRepo, id: &str, overview: Option<&str>) {
@@ -4104,6 +4418,7 @@ mod tests {
     async fn a_forced_series_refresh_clears_an_episode_the_provider_never_lists() {
         let catalog = MockCatalogRepo::new();
         edited_show(&catalog).await;
+        catalog.upsert_episode(stored_episode("s1-1-3", "s1-1", 3)).await.unwrap();
         let season = SeasonArtwork {
             number: 1,
             name: Some("First Season".into()),
@@ -4129,7 +4444,7 @@ mod tests {
         assert!(!series, "the series flag goes on a forced refresh");
         assert_eq!(
             episodes,
-            vec![false, false],
+            vec![false, false, false],
             "a locally split episode the provider never lists would otherwise keep its edit forever, \
              and no episode-level refresh route exists to reach it"
         );

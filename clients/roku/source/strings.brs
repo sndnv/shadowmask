@@ -312,7 +312,6 @@ function BuildStringTable() as object
         "detail.versionNumber": "Version {number}",
         "detail.chooseVersion": "Choose a version",
 
-        "watch.notYet": "Playback arrives in a later update.",
         "watch.versionReference": "Version {id}",
 
         "search.field": "Search the library",

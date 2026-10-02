@@ -13,12 +13,12 @@ SubtitleFile _file({String? label}) => SubtitleFile(
 
 void main() {
   test('two files of the same language read differently', () {
-    final String first = subtitleFileLabel(_file(label: 'The.Matrix.BluRay'));
-    final String second = subtitleFileLabel(_file(label: 'The.Matrix.WEB'));
+    final String first = subtitleFileLabel(_file(label: 'Paper.Skies.BluRay'));
+    final String second = subtitleFileLabel(_file(label: 'Paper.Skies.WEB'));
 
     expect(first, isNot(second));
-    expect(first, contains('The.Matrix.BluRay'));
-    expect(second, contains('The.Matrix.WEB'));
+    expect(first, contains('Paper.Skies.BluRay'));
+    expect(second, contains('Paper.Skies.WEB'));
   });
 
   test('a file with no label reads its provenance, not the enum', () {
@@ -45,10 +45,10 @@ void main() {
     const SubtitleCandidate c = SubtitleCandidate(
       fileId: '42',
       language: 'en',
-      releaseName: 'The.Matrix.BluRay',
+      releaseName: 'Paper.Skies.BluRay',
       format: SubtitleFormat.srt,
       downloadCount: 10,
     );
-    expect(subtitleCandidateLabel(c), startsWith('The.Matrix.BluRay'));
+    expect(subtitleCandidateLabel(c), startsWith('Paper.Skies.BluRay'));
   });
 }

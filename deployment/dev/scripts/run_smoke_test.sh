@@ -532,9 +532,9 @@ elif ! capability_available transcription; then
     skip "enrichment: base image (transcription/translation not compiled in); run the enrichment image, or leave SHADOWMASK_SMOKE_TEST_SKIP_ENRICHMENT_TESTS=true"
 else
     has_capability transcription \
-        || die "transcription: the enrichment image is running but transcription is not enabled; set SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED=true and mount a Whisper CT2 model (or set SHADOWMASK_SMOKE_TEST_SKIP_ENRICHMENT_TESTS=true to skip enrichment)"
+        || die "transcription: the enrichment image is running but transcription is not enabled; set SHADOWMASK_ENRICHMENT_TRANSCRIPTION_MODE=auto and mount a Whisper CT2 model (or set SHADOWMASK_SMOKE_TEST_SKIP_ENRICHMENT_TESTS=true to skip enrichment)"
     has_capability translation \
-        || die "translation: the enrichment image is running but translation is not enabled; set SHADOWMASK_ENRICHMENT_TRANSLATION_ENABLED=true and mount a translation CT2 model (or set SHADOWMASK_SMOKE_TEST_SKIP_ENRICHMENT_TESTS=true to skip enrichment)"
+        || die "translation: the enrichment image is running but translation is not enabled; set SHADOWMASK_ENRICHMENT_TRANSLATION_MODE=auto and mount a translation CT2 model (or set SHADOWMASK_SMOKE_TEST_SKIP_ENRICHMENT_TESTS=true to skip enrichment)"
     [[ -n "$ED_MOVIE_ID" && "$ED_MOVIE_ID" != null ]] \
         || die "the Elephants Dream speech fixture is enabled for enrichment but was not ingested; check the fixture placement and library scan"
     edv=$(call_ok GET "$API/movies/$ED_MOVIE_ID/versions" "$USER_TOKEN")

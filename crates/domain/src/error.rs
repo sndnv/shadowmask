@@ -184,6 +184,8 @@ pub enum SubtitleError {
     NotFound,
     #[error("could not store subtitle: {0}")]
     Store(String),
+    #[error("refused to store subtitle: {0}")]
+    Refused(String),
 }
 
 #[derive(Debug, Error)]

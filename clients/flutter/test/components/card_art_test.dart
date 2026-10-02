@@ -71,6 +71,26 @@ void main() {
     expect(find.byType(Skeleton), findsNothing);
   });
 
+  testWidgets('a card tile schedules no animation of its own', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        _art(
+          const Artwork(
+            posters: <ImageSet>[
+              ImageSet(base: 'p1', widths: <int>[480]),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(Skeleton), findsNothing);
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
   testWidgets('a card asks for the rung that matches what it draws', (
     WidgetTester tester,
   ) async {

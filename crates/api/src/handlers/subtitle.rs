@@ -11,7 +11,7 @@ use domain::common::LanguageCode;
 use domain::error::SubtitleError;
 use domain::media::{
     SubtitleFile, SubtitleFileId, SubtitleProvider, SubtitleQuery, SubtitleReader, SubtitleSource,
-    SubtitleStore, prune_orphaned_translations,
+    SubtitleStore, prune_orphaned_translations, same_release,
 };
 use domain::repository::CatalogRepository;
 
@@ -121,11 +121,7 @@ where
     let context = title_context(state.catalog.as_ref(), &detail.version.title).await?;
     let imdb_id = typed.is_none().then_some(context.imdb_id).flatten();
     let query = SubtitleQuery {
-        query: match (&typed, &imdb_id) {
-            (Some(_), _) => typed,
-            (None, Some(_)) => None,
-            (None, None) => context.title,
-        },
+        query: typed.or(context.title),
         imdb_id,
         languages,
         season: params.season.or(context.season),
@@ -139,7 +135,13 @@ where
             return Err(ApiError::bad_gateway("subtitle provider error"));
         }
     };
-    candidates.sort_by_key(|candidate| std::cmp::Reverse(candidate.download_count));
+    candidates.sort_by_key(|candidate| {
+        let matches = candidate
+            .release_name
+            .as_deref()
+            .is_some_and(|release| same_release(&detail.version.path, release));
+        (std::cmp::Reverse(matches), std::cmp::Reverse(candidate.download_count))
+    });
     debug!("user [{actor}] subtitle search for version [{}]: {} hits", version.0, candidates.len());
     Ok(Json(candidates.into_iter().map(SubtitleCandidateDto::from).collect()))
 }
@@ -169,11 +171,27 @@ where
     }
     let id = SubtitleFileId(format!("opensubtitles:{}:{}", version.0, file_id));
     if detail.subtitle_files.iter().any(|file| file.id == id) {
-        debug!(
-            "user [{actor}] re-requested subtitle [{file_id}] already held by version [{}]",
-            version.0
-        );
-        return Ok(StatusCode::NO_CONTENT);
+        let label = cleaned(request.release_name.clone());
+        let mut found = false;
+        state
+            .catalog
+            .update_subtitle_files(&version, |mut held| {
+                for file in held.iter_mut().filter(|file| file.id == id) {
+                    found = true;
+                    file.pinned = true;
+                    if label.is_some() {
+                        file.label = label.clone();
+                    }
+                }
+                held
+            })
+            .await
+            .map_err(|_| ApiError::internal())?;
+        if found {
+            #[rustfmt::skip]
+            debug!("user [{actor}] pinned subtitle [{file_id}] already held by version [{}]", version.0);
+            return Ok(StatusCode::NO_CONTENT);
+        }
     }
     let fetched = match state.provider.download(file_id).await {
         Ok(fetched) => fetched,
@@ -263,18 +281,21 @@ where
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| LanguageCode(value.to_owned()));
-    let updated: Vec<SubtitleFile> = detail
-        .subtitle_files
-        .iter()
-        .cloned()
-        .map(|mut file| {
-            if file.id.0 == subtitle {
+    let mut found = false;
+    state
+        .catalog
+        .update_subtitle_files(&version, |mut held| {
+            for file in held.iter_mut().filter(|file| file.id.0 == subtitle) {
+                found = true;
                 file.language = language.clone();
             }
-            file
+            held
         })
-        .collect();
-    state.catalog.set_subtitle_files(&version, &updated).await.map_err(|_| ApiError::internal())?;
+        .await
+        .map_err(|_| ApiError::internal())?;
+    if !found {
+        return Err(ApiError::not_found("subtitle not found"));
+    }
     debug!("user [{actor}] renamed subtitle [{subtitle}] of version [{}]", version.0);
     Ok(StatusCode::NO_CONTENT)
 }
@@ -305,18 +326,27 @@ where
         return Err(ApiError::forbidden("only downloaded or generated subtitles can be deleted"));
     }
 
-    let remaining: Vec<_> =
-        detail.subtitle_files.iter().filter(|file| file.id.0 != subtitle).cloned().collect();
-    let kept = prune_orphaned_translations(remaining);
-    let kept_ids: HashSet<&str> = kept.iter().map(|file| file.id.0.as_str()).collect();
-    let removed_paths: Vec<String> = detail
-        .subtitle_files
-        .iter()
-        .filter(|file| !kept_ids.contains(file.id.0.as_str()))
-        .map(|file| file.path.clone())
-        .collect();
-
-    state.catalog.set_subtitle_files(&version, &kept).await.map_err(|_| ApiError::internal())?;
+    let mut removed_paths: Vec<String> = Vec::new();
+    let mut found = false;
+    state
+        .catalog
+        .update_subtitle_files(&version, |held| {
+            found = held.iter().any(|file| file.id.0 == subtitle);
+            let remaining = held.iter().filter(|file| file.id.0 != subtitle).cloned().collect();
+            let kept = prune_orphaned_translations(remaining);
+            let kept_ids: HashSet<&str> = kept.iter().map(|file| file.id.0.as_str()).collect();
+            removed_paths = held
+                .iter()
+                .filter(|file| !kept_ids.contains(file.id.0.as_str()))
+                .map(|file| file.path.clone())
+                .collect();
+            kept
+        })
+        .await
+        .map_err(|_| ApiError::internal())?;
+    if !found {
+        return Err(ApiError::not_found("subtitle not found"));
+    }
     for path in &removed_paths {
         if let Err(err) = state.subtitles.remove(path).await {
             debug!("could not remove subtitle file [{path}]: {err}");

@@ -1,6 +1,64 @@
+use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use super::BootstrapError;
+
+const LOADED_FILES: [&str; 2] = [super::user::FILE, super::library::FILE];
+
+#[derive(Default)]
+struct Recorder {
+    seen: RefCell<BTreeSet<String>>,
+    present: BTreeSet<String>,
+}
+
+impl<'a> subst::VariableMap<'a> for Recorder {
+    type Value = &'a str;
+
+    fn get(&'a self, key: &str) -> Option<Self::Value> {
+        self.seen.borrow_mut().insert(key.to_owned());
+        self.present.contains(key).then_some("")
+    }
+}
+
+pub fn referenced_vars(dir: &Path) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    for file in LOADED_FILES {
+        let Ok(text) = std::fs::read_to_string(dir.join(format!("{file}.toml"))) else {
+            continue;
+        };
+        let Ok(value) = toml::from_str::<toml::Value>(&text) else {
+            continue;
+        };
+        record(&value, &mut names);
+    }
+    names
+}
+
+fn record(value: &toml::Value, names: &mut BTreeSet<String>) {
+    match value {
+        toml::Value::String(text) => {
+            let mut recorder = Recorder::default();
+            while let Err(subst::Error::NoSuchVariable(missing)) =
+                subst::substitute(text, &recorder)
+            {
+                recorder.present.insert(missing.name);
+            }
+            names.extend(recorder.seen.into_inner());
+        }
+        toml::Value::Array(items) => {
+            for item in items {
+                record(item, names);
+            }
+        }
+        toml::Value::Table(table) => {
+            for entry in table.values() {
+                record(entry, names);
+            }
+        }
+        _ => {}
+    }
+}
 
 pub fn load_expanded(path: &Path) -> Result<toml::Value, BootstrapError> {
     let text = match std::fs::read_to_string(path) {
@@ -105,6 +163,91 @@ mod tests {
             assert_eq!(value["flag"].as_bool(), Some(true));
             Ok(())
         });
+    }
+
+    #[test]
+    fn referenced_vars_are_collected_from_the_files_the_loader_opens() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("users.toml"),
+            "[[users]]\nusername = \"${SHADOWMASK_ADMIN_USERNAME:admin}\"\npassword = \"${SHADOWMASK_ADMIN_PASSWORD}\"\nlibraries = [\"${SHADOWMASK_FIRST_LIBRARY}\"]\ncount = 3\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("libraries.toml"), "root = \"${SHADOWMASK_MEDIA_ROOT}\"\n")
+            .unwrap();
+
+        let vars = referenced_vars(dir.path());
+
+        assert_eq!(
+            vars,
+            BTreeSet::from([
+                "SHADOWMASK_ADMIN_PASSWORD".to_owned(),
+                "SHADOWMASK_ADMIN_USERNAME".to_owned(),
+                "SHADOWMASK_FIRST_LIBRARY".to_owned(),
+                "SHADOWMASK_MEDIA_ROOT".to_owned(),
+            ])
+        );
+    }
+
+    #[test]
+    fn an_absent_directory_references_nothing() {
+        assert!(referenced_vars(Path::new("does/not/exist")).is_empty());
+    }
+
+    #[test]
+    fn unreadable_and_unparseable_files_are_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("users.toml")).unwrap();
+        std::fs::write(dir.path().join("libraries.toml"), "this is = = not toml").unwrap();
+
+        assert!(referenced_vars(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn a_file_the_loader_never_opens_references_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("notes.toml"), "value = \"${SHADOWMASK_STRAY}\"\n").unwrap();
+        std::fs::write(dir.path().join("users.toml"), "value = \"${SHADOWMASK_KEPT}\"\n").unwrap();
+
+        assert_eq!(referenced_vars(dir.path()), BTreeSet::from(["SHADOWMASK_KEPT".to_owned()]));
+    }
+
+    #[test]
+    fn a_variable_nested_inside_a_default_is_recorded() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("users.toml"),
+            "value = \"${SHADOWMASK_OUTER:${SHADOWMASK_INNER}}\"\ntrailing = \"${SHADOWMASK_AFTER}\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            referenced_vars(dir.path()),
+            BTreeSet::from([
+                "SHADOWMASK_AFTER".to_owned(),
+                "SHADOWMASK_INNER".to_owned(),
+                "SHADOWMASK_OUTER".to_owned(),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_default_after_a_required_variable_in_one_string_is_still_swept() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("users.toml"),
+            "value = \"${SHADOWMASK_A}${SHADOWMASK_B:${SHADOWMASK_C}}\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            referenced_vars(dir.path()),
+            BTreeSet::from([
+                "SHADOWMASK_A".to_owned(),
+                "SHADOWMASK_B".to_owned(),
+                "SHADOWMASK_C".to_owned(),
+            ])
+        );
     }
 
     #[test]

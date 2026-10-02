@@ -6,6 +6,8 @@ use domain::user::Principal;
 use super::executor::BootstrapEntityProvider;
 use super::{BootstrapError, Created, backend, bootstrap_admin, require_unique};
 
+pub(crate) const FILE: &str = "libraries";
+
 pub struct LibraryBootstrapProvider<L> {
     libraries: L,
     admin: Principal,
@@ -24,7 +26,7 @@ where
     type Entity = NewLibrary;
 
     fn name(&self) -> &'static str {
-        "libraries"
+        FILE
     }
 
     fn load(&self, value: &toml::Value) -> Result<NewLibrary, BootstrapError> {

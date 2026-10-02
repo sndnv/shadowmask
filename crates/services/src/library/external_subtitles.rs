@@ -9,14 +9,25 @@ pub fn discover_subtitles(video_path: &str, siblings: &[String]) -> Vec<Discover
     siblings.iter().filter_map(|sibling| discover_one(stem, sibling)).collect()
 }
 
-fn discover_one(video_stem: &str, sibling: &str) -> Option<DiscoveredSubtitle> {
-    let name = basename(sibling);
-    let (base, ext) = name.rsplit_once('.')?;
-    let format = SubtitleFormat::from_extension(ext)?;
+pub fn sidecar_owner<'a>(sidecar: &str, videos: &[&'a str]) -> Option<&'a str> {
+    videos
+        .iter()
+        .rev()
+        .copied()
+        .filter(|video| sidecar_suffix(file_stem(video), sidecar).is_some())
+        .max_by_key(|video| file_stem(video).len())
+}
+
+fn sidecar_suffix<'a>(video_stem: &str, sibling: &'a str) -> Option<&'a str> {
+    let (base, _) = basename(sibling).rsplit_once('.')?;
     let suffix = base.strip_prefix(video_stem)?;
-    if !suffix.is_empty() && !suffix.starts_with('.') {
-        return None;
-    }
+    (suffix.is_empty() || suffix.starts_with('.')).then_some(suffix)
+}
+
+fn discover_one(video_stem: &str, sibling: &str) -> Option<DiscoveredSubtitle> {
+    let (_, ext) = basename(sibling).rsplit_once('.')?;
+    let format = SubtitleFormat::from_extension(ext)?;
+    let suffix = sidecar_suffix(video_stem, sibling)?;
     let language = suffix.split('.').find_map(parse_language_tag).map(LanguageCode);
     Some(DiscoveredSubtitle { path: sibling.to_owned(), language, format })
 }

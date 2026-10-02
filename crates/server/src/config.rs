@@ -1,4 +1,5 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -11,12 +12,6 @@ use crate::enrichment::EnrichmentConfig;
 use crate::fetch_providers::FetchProvidersConfig;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
-
-const RETIRED_CONCURRENCY_VARS: [(&str, &str); 3] = [
-    ("SHADOWMASK_WORKER_CONCURRENCY", "SHADOWMASK_JOB_POOLS_DEFAULT_CONCURRENCY"),
-    ("SHADOWMASK_ENRICHMENT_CONCURRENCY", "SHADOWMASK_JOB_POOLS_ENRICHMENT_CONCURRENCY"),
-    ("SHADOWMASK_FETCH_PROVIDERS_CONCURRENCY", "SHADOWMASK_JOB_POOLS_FETCH_CONCURRENCY"),
-];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -45,13 +40,108 @@ fn pool_kinds_key(key: &str) -> Option<String> {
     (!name.contains('.')).then(|| name.to_owned())
 }
 
+fn settable_keys() -> BTreeSet<String> {
+    let value = serde_json::to_value(Config::default()).expect("the default config serializes");
+    let root: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_value(value).expect("the default config is a table");
+    let mut keys = BTreeSet::new();
+    collect_keys("", &root, &mut keys);
+    keys
+}
+
+fn collect_keys(
+    prefix: &str,
+    object: &serde_json::Map<String, serde_json::Value>,
+    keys: &mut BTreeSet<String>,
+) {
+    for (key, value) in object {
+        let path = if prefix.is_empty() { key.clone() } else { format!("{prefix}.{key}") };
+        match value {
+            serde_json::Value::Object(inner) => collect_keys(&path, inner, keys),
+            _ => {
+                keys.insert(path);
+            }
+        }
+    }
+}
+
+fn names_a_pool(key: &str) -> bool {
+    key.strip_prefix("job_pools.").and_then(|rest| rest.rsplit_once('.')).is_some_and(
+        |(pool, field)| !pool.contains('.') && matches!(field, "concurrency" | "kinds"),
+    )
+}
+
+fn env_key(name: &str) -> Option<String> {
+    let upper = name.to_ascii_uppercase();
+    Some(nest_section_key(upper.strip_prefix("SHADOWMASK_")?))
+}
+
+fn named_pools(configured: &BTreeMap<String, JobPoolConfig>) -> BTreeSet<String> {
+    let mut names: BTreeSet<String> = configured
+        .iter()
+        .filter(|(_, pool)| !pool.kinds.is_empty())
+        .map(|(name, _)| name.clone())
+        .collect();
+    names.insert(jobs::DEFAULT_POOL.to_owned());
+    names
+}
+
+fn unnamed_pools(
+    vars: impl Iterator<Item = (OsString, OsString)>,
+    pools: &BTreeSet<String>,
+) -> Vec<(String, String)> {
+    let mut unknown: Vec<(String, String)> = vars
+        .filter_map(|(name, _)| {
+            let name = name.to_string_lossy().into_owned();
+            let key = env_key(&name)?;
+            let pool = key.strip_prefix("job_pools.")?.strip_suffix(".concurrency")?;
+            (!pool.contains('.') && !pools.contains(pool)).then(|| (name, pool.to_owned()))
+        })
+        .collect();
+    unknown.sort();
+    unknown
+}
+
+fn unsettable_vars(
+    vars: impl Iterator<Item = (OsString, OsString)>,
+    bootstrap: &BTreeSet<String>,
+) -> Vec<String> {
+    let settable = settable_keys();
+    let mut unknown: Vec<String> = vars
+        .filter_map(|(name, _)| {
+            let name = name.to_string_lossy().into_owned();
+            let key = env_key(&name)?;
+            (!settable.contains(&key) && !names_a_pool(&key) && !bootstrap.contains(&name))
+                .then_some(name)
+        })
+        .collect();
+    unknown.sort();
+    unknown
+}
+
+fn list_from_env(
+    vars: impl Iterator<Item = (OsString, OsString)>,
+    key: &str,
+) -> Option<Vec<String>> {
+    let (_, value) =
+        vars.filter(|(name, _)| env_key(&name.to_string_lossy()).as_deref() == Some(key)).last()?;
+    Some(
+        value
+            .to_string_lossy()
+            .split(',')
+            .map(|item| item.trim().to_owned())
+            .filter(|item| !item.is_empty())
+            .collect(),
+    )
+}
+
 fn pool_kinds_from_env(
-    vars: impl Iterator<Item = (String, String)>,
+    vars: impl Iterator<Item = (OsString, OsString)>,
 ) -> BTreeMap<String, Vec<String>> {
     vars.filter_map(|(key, value)| {
-        let key = key.strip_prefix("SHADOWMASK_")?;
-        let name = pool_kinds_key(&nest_section_key(key))?;
+        let name = pool_kinds_key(&env_key(&key.to_string_lossy())?)?;
         let kinds: Vec<String> = value
+            .to_string_lossy()
             .split(',')
             .map(|kind| kind.trim().to_owned())
             .filter(|kind| !kind.is_empty())
@@ -59,6 +149,36 @@ fn pool_kinds_from_env(
         Some((name, kinds))
     })
     .collect()
+}
+
+fn pool_warnings(
+    vars: impl Iterator<Item = (OsString, OsString)>,
+    configured: &BTreeMap<String, JobPoolConfig>,
+    from_env: &BTreeMap<String, Vec<String>>,
+    concurrency_in_file: &BTreeSet<String>,
+) -> Vec<String> {
+    let named = named_pools(configured);
+    let shipped = default_job_pools();
+    let mut warnings: Vec<String> = Vec::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    for (name, pool) in unnamed_pools(vars, &named) {
+        seen.insert(pool.clone());
+        if from_env.contains_key(&pool) || shipped.contains_key(&pool) {
+            #[rustfmt::skip]
+            warnings.push(format!("[{name}] sets the concurrency of job pool [{pool}], which names no kinds and is not created, so the concurrency was ignored"));
+        } else {
+            let kinds = format!("SHADOWMASK_JOB_POOLS_{}_KINDS", pool.to_uppercase());
+            #[rustfmt::skip]
+            warnings.push(format!("[{name}] sets the concurrency of a job pool that does not exist and was ignored; set [{kinds}] to create it, or correct the spelling"));
+        }
+    }
+    for pool in configured.keys().filter(|pool| {
+        !named.contains(*pool) && !seen.contains(*pool) && concurrency_in_file.contains(*pool)
+    }) {
+        #[rustfmt::skip]
+        warnings.push(format!("job pool [{pool}] names no kinds and is not created, so its concurrency was ignored"));
+    }
+    warnings
 }
 
 pub fn transcription_model_dir(enrichment: &EnrichmentConfig) -> PathBuf {
@@ -245,8 +365,13 @@ fn nest_section_key(key: &str) -> String {
     key
 }
 
+pub struct Loaded {
+    pub config: Config,
+    pub warnings: Vec<String>,
+}
+
 impl Config {
-    pub fn load() -> Result<Self, BoxError> {
+    pub fn load() -> Result<Loaded, BoxError> {
         let mut config: Config = Figment::new()
             .merge(Serialized::defaults(Config::default()))
             .merge(Toml::file("shadowmask.toml"))
@@ -262,33 +387,40 @@ impl Config {
         config.omdb_api_key = trim_key(config.omdb_api_key);
         config.opensubtitles_api_key = trim_key(config.opensubtitles_api_key);
         config.daily_scan_at = trim_key(config.daily_scan_at);
-        if let Ok(raw) = std::env::var("SHADOWMASK_TARGET_LANGUAGES") {
-            let languages: Vec<String> = raw
-                .split(',')
-                .map(|language| language.trim().to_owned())
-                .filter(|language| !language.is_empty())
-                .collect();
-            if !languages.is_empty() {
-                config.target_languages = languages;
-            }
+        if let Some(languages) = list_from_env(std::env::vars_os(), "target_languages")
+            && !languages.is_empty()
+        {
+            config.target_languages = languages;
         }
-        if let Ok(raw) = std::env::var("SHADOWMASK_CORS_ALLOWED_ORIGINS") {
-            config.cors_allowed_origins = raw
-                .split(',')
-                .map(|origin| origin.trim().to_owned())
-                .filter(|origin| !origin.is_empty())
-                .collect();
+        let mut seen = BTreeSet::new();
+        config.target_languages.retain(|language| seen.insert(language.clone()));
+        if let Some(origins) = list_from_env(std::env::vars_os(), "cors_allowed_origins") {
+            config.cors_allowed_origins = origins;
         }
-        for (name, kinds) in pool_kinds_from_env(std::env::vars()) {
-            config.job_pools.entry(name).or_default().kinds = kinds;
+        let from_env = pool_kinds_from_env(std::env::vars_os());
+        for (name, kinds) in &from_env {
+            config.job_pools.entry(name.clone()).or_default().kinds = kinds.clone();
         }
-        for (retired, replacement) in RETIRED_CONCURRENCY_VARS {
-            if std::env::var_os(retired).is_some() {
-                #[rustfmt::skip]
-                tracing::warn!("[{retired}] is no longer read; job pools replaced it, so set [{replacement}] instead");
-            }
+        let bootstrap = crate::bootstrap::referenced_vars(&config.bootstrap_dir);
+        let mut warnings: Vec<String> = Vec::new();
+        for name in unsettable_vars(std::env::vars_os(), &bootstrap) {
+            #[rustfmt::skip]
+            warnings.push(format!("[{name}] is not a setting this server reads and was ignored; the full list is in deployment/README.md"));
         }
-        Ok(config)
+        let file = Figment::from(Toml::file("shadowmask.toml"));
+        let concurrency_in_file: BTreeSet<String> = config
+            .job_pools
+            .keys()
+            .filter(|pool| file.find_value(&format!("job_pools.{pool}.concurrency")).is_ok())
+            .cloned()
+            .collect();
+        warnings.extend(pool_warnings(
+            std::env::vars_os(),
+            &config.job_pools,
+            &from_env,
+            &concurrency_in_file,
+        ));
+        Ok(Loaded { config, warnings })
     }
 
     pub fn describe(&self, yt_dlp_version: Option<&str>) -> String {
@@ -388,15 +520,15 @@ impl Config {
         let _ = writeln!(out, "    model_cache:   {}", e.model_cache.display());
         let _ = writeln!(
             out,
-            "    transcription: enabled={} provider={:?} models_dir={}",
-            e.transcription.enabled,
+            "    transcription: mode={} provider={:?} models_dir={}",
+            e.transcription.mode,
             e.transcription.provider,
             transcription_model_dir(e).display()
         );
         let _ = writeln!(
             out,
-            "    translation:   enabled={} provider={:?} models_dir={} source_prefix={} target_prefix={}",
-            e.translation.enabled,
+            "    translation:   mode={} provider={:?} models_dir={} source_prefix={} target_prefix={}",
+            e.translation.mode,
             e.translation.provider,
             translation_model_dir(e).display(),
             e.translation.source_prefix.as_deref().unwrap_or("none"),
@@ -468,13 +600,13 @@ fn trim_key(key: Option<String>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tracing_test::traced_test;
+    use crate::enrichment::FeatureMode;
 
     #[test]
     #[allow(clippy::result_large_err)]
     fn load_uses_defaults_when_unset() {
         figment::Jail::expect_with(|_jail| {
-            let config = Config::load().unwrap();
+            let config = Config::load().unwrap().config;
             assert_eq!(config.bind, SocketAddr::from(([0, 0, 0, 0], 8080)));
             assert_eq!(config.job_pools["default"].concurrency, 4);
             assert_eq!(config.job_pools["trickplay"].kinds, vec!["trickplay".to_owned()]);
@@ -488,7 +620,7 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn bootstrap_defaults_to_off() {
         figment::Jail::expect_with(|_jail| {
-            let config = Config::load().unwrap();
+            let config = Config::load().unwrap().config;
             assert_eq!(config.bootstrap_mode, BootstrapMode::Off);
             assert_eq!(config.bootstrap_dir, PathBuf::from("bootstrap"));
             Ok(())
@@ -501,7 +633,7 @@ mod tests {
         figment::Jail::expect_with(|jail| {
             jail.set_env("SHADOWMASK_BOOTSTRAP_MODE", "init-and-start");
             jail.set_env("SHADOWMASK_BOOTSTRAP_DIR", "/etc/shadowmask/bootstrap");
-            let config = Config::load().unwrap();
+            let config = Config::load().unwrap().config;
             assert_eq!(config.bootstrap_mode, BootstrapMode::InitAndStart);
             assert_eq!(config.bootstrap_dir, PathBuf::from("/etc/shadowmask/bootstrap"));
             Ok(())
@@ -514,7 +646,7 @@ mod tests {
         figment::Jail::expect_with(|jail| {
             jail.create_file("shadowmask.toml", "access_ttl_secs = 7\ntrickplay_threads = 2\n")?;
             jail.set_env("SHADOWMASK_TRICKPLAY_THREADS", "6");
-            let config = Config::load().unwrap();
+            let config = Config::load().unwrap().config;
             assert_eq!(config.access_ttl_secs, 7);
             assert_eq!(config.trickplay_threads, 6);
             Ok(())
@@ -525,10 +657,10 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn profile_overrides_are_off_unless_a_directory_is_named() {
         figment::Jail::expect_with(|jail| {
-            assert_eq!(Config::load().unwrap().profile_overrides_dir, None);
+            assert_eq!(Config::load().unwrap().config.profile_overrides_dir, None);
             jail.set_env("SHADOWMASK_PROFILE_OVERRIDES_DIR", "/etc/shadowmask/profiles");
             assert_eq!(
-                Config::load().unwrap().profile_overrides_dir,
+                Config::load().unwrap().config.profile_overrides_dir,
                 Some(PathBuf::from("/etc/shadowmask/profiles"))
             );
             Ok(())
@@ -539,11 +671,11 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn daily_scan_at_is_off_unless_configured() {
         figment::Jail::expect_with(|jail| {
-            assert_eq!(Config::load().unwrap().daily_scan_at, None);
+            assert_eq!(Config::load().unwrap().config.daily_scan_at, None);
             jail.set_env("SHADOWMASK_DAILY_SCAN_AT", "   ");
-            assert_eq!(Config::load().unwrap().daily_scan_at, None);
+            assert_eq!(Config::load().unwrap().config.daily_scan_at, None);
             jail.set_env("SHADOWMASK_DAILY_SCAN_AT", " 04:00 ");
-            assert_eq!(Config::load().unwrap().daily_scan_at.as_deref(), Some("04:00"));
+            assert_eq!(Config::load().unwrap().config.daily_scan_at.as_deref(), Some("04:00"));
             Ok(())
         });
     }
@@ -552,13 +684,13 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn blank_tmdb_api_key_is_treated_as_unset() {
         figment::Jail::expect_with(|jail| {
-            assert_eq!(Config::load().unwrap().tmdb_api_key, None);
+            assert_eq!(Config::load().unwrap().config.tmdb_api_key, None);
             jail.set_env("SHADOWMASK_TMDB_API_KEY", "");
-            assert_eq!(Config::load().unwrap().tmdb_api_key, None);
+            assert_eq!(Config::load().unwrap().config.tmdb_api_key, None);
             jail.set_env("SHADOWMASK_TMDB_API_KEY", "   ");
-            assert_eq!(Config::load().unwrap().tmdb_api_key, None);
+            assert_eq!(Config::load().unwrap().config.tmdb_api_key, None);
             jail.set_env("SHADOWMASK_TMDB_API_KEY", "  real-key  ");
-            assert_eq!(Config::load().unwrap().tmdb_api_key, Some("real-key".to_owned()));
+            assert_eq!(Config::load().unwrap().config.tmdb_api_key, Some("real-key".to_owned()));
             Ok(())
         });
     }
@@ -567,11 +699,11 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn blank_omdb_api_key_is_treated_as_unset() {
         figment::Jail::expect_with(|jail| {
-            assert_eq!(Config::load().unwrap().omdb_api_key, None);
+            assert_eq!(Config::load().unwrap().config.omdb_api_key, None);
             jail.set_env("SHADOWMASK_OMDB_API_KEY", "   ");
-            assert_eq!(Config::load().unwrap().omdb_api_key, None);
+            assert_eq!(Config::load().unwrap().config.omdb_api_key, None);
             jail.set_env("SHADOWMASK_OMDB_API_KEY", "  real-key  ");
-            assert_eq!(Config::load().unwrap().omdb_api_key, Some("real-key".to_owned()));
+            assert_eq!(Config::load().unwrap().config.omdb_api_key, Some("real-key".to_owned()));
             Ok(())
         });
     }
@@ -580,11 +712,14 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn blank_opensubtitles_api_key_is_treated_as_unset() {
         figment::Jail::expect_with(|jail| {
-            assert_eq!(Config::load().unwrap().opensubtitles_api_key, None);
+            assert_eq!(Config::load().unwrap().config.opensubtitles_api_key, None);
             jail.set_env("SHADOWMASK_OPENSUBTITLES_API_KEY", "   ");
-            assert_eq!(Config::load().unwrap().opensubtitles_api_key, None);
+            assert_eq!(Config::load().unwrap().config.opensubtitles_api_key, None);
             jail.set_env("SHADOWMASK_OPENSUBTITLES_API_KEY", "  os-key  ");
-            assert_eq!(Config::load().unwrap().opensubtitles_api_key, Some("os-key".to_owned()));
+            assert_eq!(
+                Config::load().unwrap().config.opensubtitles_api_key,
+                Some("os-key".to_owned())
+            );
             Ok(())
         });
     }
@@ -593,14 +728,19 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn target_languages_default_then_env_comma_split() {
         figment::Jail::expect_with(|jail| {
-            assert_eq!(Config::load().unwrap().target_languages, vec!["en".to_owned()]);
+            assert_eq!(Config::load().unwrap().config.target_languages, vec!["en".to_owned()]);
             jail.set_env("SHADOWMASK_TARGET_LANGUAGES", "en, es ,, fr");
             assert_eq!(
-                Config::load().unwrap().target_languages,
+                Config::load().unwrap().config.target_languages,
                 vec!["en".to_owned(), "es".to_owned(), "fr".to_owned()]
             );
             jail.set_env("SHADOWMASK_TARGET_LANGUAGES", "   ");
-            assert_eq!(Config::load().unwrap().target_languages, vec!["en".to_owned()]);
+            assert_eq!(Config::load().unwrap().config.target_languages, vec!["en".to_owned()]);
+            jail.set_env("SHADOWMASK_TARGET_LANGUAGES", "fr,en,fr,en");
+            assert_eq!(
+                Config::load().unwrap().config.target_languages,
+                vec!["fr".to_owned(), "en".to_owned()]
+            );
             Ok(())
         });
     }
@@ -609,19 +749,32 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn cors_allowed_origins_default_empty_then_env_comma_split() {
         figment::Jail::expect_with(|jail| {
-            assert!(Config::load().unwrap().cors_allowed_origins.is_empty());
+            assert!(Config::load().unwrap().config.cors_allowed_origins.is_empty());
             jail.set_env(
                 "SHADOWMASK_CORS_ALLOWED_ORIGINS",
                 "http://localhost:8080, https://app.example ,,",
             );
-            let config = Config::load().unwrap();
+            let config = Config::load().unwrap().config;
             assert_eq!(
                 config.cors_allowed_origins,
                 vec!["http://localhost:8080".to_owned(), "https://app.example".to_owned()]
             );
             assert!(config.describe(None).contains("http://localhost:8080"));
             jail.set_env("SHADOWMASK_CORS_ALLOWED_ORIGINS", "   ");
-            assert!(Config::load().unwrap().cors_allowed_origins.is_empty());
+            assert!(Config::load().unwrap().config.cors_allowed_origins.is_empty());
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn a_list_variable_is_read_whatever_its_case_like_every_other_setting() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("shadowmask_target_languages", "de, fr");
+            jail.set_env("Shadowmask_Cors_Allowed_Origins", "https://app.example");
+            let config = Config::load().unwrap().config;
+            assert_eq!(config.target_languages, vec!["de".to_owned(), "fr".to_owned()]);
+            assert_eq!(config.cors_allowed_origins, vec!["https://app.example".to_owned()]);
             Ok(())
         });
     }
@@ -630,16 +783,29 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn enrichment_defaults_all_off() {
         figment::Jail::expect_with(|_jail| {
-            let enrichment = Config::load().unwrap().enrichment;
+            let enrichment = Config::load().unwrap().config.enrichment;
             assert_eq!(enrichment.model_cache, PathBuf::from("data/enrichment-models"));
-            assert!(!enrichment.transcription.enabled);
-            assert!(!enrichment.translation.enabled);
             assert!(!enrichment.upscaling.enabled);
             assert_eq!(enrichment.transcription.provider, crate::enrichment::ProviderChoice::None);
             assert_eq!(enrichment.translation.provider, crate::enrichment::ProviderChoice::None);
             assert_eq!(enrichment.upscaling.provider, crate::enrichment::ProviderChoice::None);
             assert_eq!(enrichment.transcription.model_path, None);
             assert_eq!(enrichment.upscaling.target_height, 1080);
+            assert_eq!(enrichment.transcription.mode, FeatureMode::Off);
+            assert_eq!(enrichment.translation.mode, FeatureMode::Off);
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn each_feature_takes_its_own_mode() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("SHADOWMASK_ENRICHMENT_TRANSCRIPTION_MODE", "auto");
+            jail.set_env("SHADOWMASK_ENRICHMENT_TRANSLATION_MODE", "on");
+            let enrichment = Config::load().unwrap().config.enrichment;
+            assert_eq!(enrichment.transcription.mode, FeatureMode::Auto);
+            assert_eq!(enrichment.translation.mode, FeatureMode::On);
             Ok(())
         });
     }
@@ -648,10 +814,10 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn enrichment_config_round_trips_from_toml() {
         figment::Jail::expect_with(|jail| {
-            let toml = "[enrichment.transcription]\nenabled = true\nprovider = \"built-in\"\nmodel_path = \"/models/transcription\"\n";
+            let toml = "[enrichment.transcription]\nmode = \"auto\"\nprovider = \"built-in\"\nmodel_path = \"/models/transcription\"\n";
             jail.create_file("shadowmask.toml", toml)?;
-            let enrichment = Config::load().unwrap().enrichment;
-            assert!(enrichment.transcription.enabled);
+            let enrichment = Config::load().unwrap().config.enrichment;
+            assert_eq!(enrichment.transcription.mode, FeatureMode::Auto);
             assert_eq!(
                 enrichment.transcription.provider,
                 crate::enrichment::ProviderChoice::BuiltIn
@@ -660,7 +826,7 @@ mod tests {
                 enrichment.transcription.model_path,
                 Some(PathBuf::from("/models/transcription"))
             );
-            assert!(!enrichment.translation.enabled);
+            assert_eq!(enrichment.translation.mode, FeatureMode::Off);
             assert!(!enrichment.upscaling.enabled);
             Ok(())
         });
@@ -675,7 +841,7 @@ mod tests {
             jail.set_env("SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED", "true");
             jail.set_env("SHADOWMASK_ENRICHMENT_UPSCALING_PROVIDER", "built-in");
             jail.set_env("SHADOWMASK_ENRICHMENT_UPSCALING_TARGET_HEIGHT", "2160");
-            let config = Config::load().unwrap();
+            let config = Config::load().unwrap().config;
             assert_eq!(config.jwt_secret, "flat-secret");
             assert_eq!(config.enrichment.model_cache, PathBuf::from("/models"));
             assert!(config.enrichment.upscaling.enabled);
@@ -693,8 +859,8 @@ mod tests {
         assert_eq!(super::nest_section_key("jwt_secret"), "jwt_secret");
         assert_eq!(super::nest_section_key("enrichment_model_cache"), "enrichment.model_cache");
         assert_eq!(
-            super::nest_section_key("enrichment_transcription_enabled"),
-            "enrichment.transcription.enabled"
+            super::nest_section_key("enrichment_transcription_mode"),
+            "enrichment.transcription.mode"
         );
         assert_eq!(
             super::nest_section_key("ENRICHMENT_UPSCALING_TARGET_HEIGHT"),
@@ -720,7 +886,7 @@ mod tests {
         figment::Jail::expect_with(|jail| {
             jail.set_env("SHADOWMASK_JOB_POOLS_TRICKPLAY_CONCURRENCY", "3");
             jail.set_env("SHADOWMASK_JOB_POOLS_HEAVY_KINDS", "upscale, combine");
-            let config = Config::load().unwrap();
+            let config = Config::load().unwrap().config;
             assert_eq!(config.job_pools["trickplay"].concurrency, 3);
             assert_eq!(config.job_pools["trickplay"].kinds, vec!["trickplay".to_owned()]);
             assert_eq!(
@@ -737,20 +903,242 @@ mod tests {
     fn a_pools_kinds_can_be_emptied_from_env() {
         figment::Jail::expect_with(|jail| {
             jail.set_env("SHADOWMASK_JOB_POOLS_TRICKPLAY_KINDS", "");
-            let config = Config::load().unwrap();
+            let config = Config::load().unwrap().config;
             assert!(config.job_pools["trickplay"].kinds.is_empty());
             Ok(())
         });
     }
 
-    #[traced_test]
+    fn mentions(warnings: &[String], text: &str) -> bool {
+        warnings.iter().any(|warning| warning.contains(text))
+    }
+
     #[test]
     #[allow(clippy::result_large_err)]
-    fn a_retired_concurrency_variable_names_its_replacement() {
+    fn a_variable_the_server_does_not_read_is_reported_rather_than_ignored() {
         figment::Jail::expect_with(|jail| {
             jail.set_env("SHADOWMASK_WORKER_CONCURRENCY", "9");
-            Config::load().unwrap();
-            assert!(logs_contain("SHADOWMASK_JOB_POOLS_DEFAULT_CONCURRENCY"));
+            jail.set_env("SHADOWMASK_JWT_SECRT", "typo");
+            let warnings = Config::load().unwrap().warnings;
+            assert!(mentions(&warnings, "SHADOWMASK_WORKER_CONCURRENCY"));
+            assert!(mentions(&warnings, "SHADOWMASK_JWT_SECRT"));
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn a_lowercase_variable_is_swept_the_way_figment_reads_it() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("shadowmask_jwt_secrt", "typo");
+            assert!(mentions(&Config::load().unwrap().warnings, "shadowmask_jwt_secrt"));
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn a_name_that_is_not_utf8_is_swept_without_panicking() {
+        use std::os::unix::ffi::OsStringExt;
+        let broken = OsString::from_vec(b"SHADOWMASK_JWT_SECR\xff".to_vec());
+        let vars = [(broken, OsString::from("x"))];
+
+        assert_eq!(unsettable_vars(vars.into_iter(), &BTreeSet::new()).len(), 1);
+    }
+
+    #[test]
+    fn every_setting_the_server_reads_is_accepted_silently() {
+        let named = [
+            "SHADOWMASK_JWT_SECRET",
+            "SHADOWMASK_TARGET_LANGUAGES",
+            "SHADOWMASK_CORS_ALLOWED_ORIGINS",
+            "SHADOWMASK_ENRICHMENT_MODEL_CACHE",
+            "SHADOWMASK_ENRICHMENT_TRANSCRIPTION_MODE",
+            "SHADOWMASK_ENRICHMENT_UPSCALING_TARGET_HEIGHT",
+            "SHADOWMASK_FETCH_PROVIDERS_YT_DLP_BINARY",
+            "SHADOWMASK_JOB_POOLS_TRICKPLAY_CONCURRENCY",
+            "SHADOWMASK_JOB_POOLS_MY_POOL_KINDS",
+            "SHADOWMASK_HARDWARE_ACCELERATION",
+        ];
+        let vars = named.iter().map(|name| (OsString::from(*name), OsString::from("x")));
+
+        assert_eq!(unsettable_vars(vars, &BTreeSet::new()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_list_set_twice_takes_the_later_variable_like_every_other_setting() {
+        let vars = [
+            ("SHADOWMASK_TARGET_LANGUAGES", "de"),
+            ("PATH", "/bin"),
+            ("shadowmask_target_languages", "fr, es"),
+        ]
+        .map(|(name, value)| (OsString::from(name), OsString::from(value)));
+
+        assert_eq!(
+            list_from_env(vars.into_iter(), "target_languages"),
+            Some(vec!["fr".to_owned(), "es".to_owned()])
+        );
+    }
+
+    #[test]
+    fn a_renamed_or_mistyped_setting_is_named_back() {
+        let named = [
+            "SHADOWMASK_WORKER_CONCURRENCY",
+            "SHADOWMASK_ENRICHMENT_CONCURRENCY",
+            "SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED",
+            "SHADOWMASK_JOB_POOLS_TRICKPLAY_NOPE",
+            "SHADOWMASK_ENRICHMENT_TRANSCRIPTION",
+            "SHADOWMASK_FETCH_PROVIDERS",
+            "PATH",
+        ];
+        let vars = named.iter().map(|name| (OsString::from(*name), OsString::from("x")));
+
+        assert_eq!(
+            unsettable_vars(vars, &BTreeSet::new()),
+            [
+                "SHADOWMASK_ENRICHMENT_CONCURRENCY",
+                "SHADOWMASK_ENRICHMENT_TRANSCRIPTION",
+                "SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED",
+                "SHADOWMASK_FETCH_PROVIDERS",
+                "SHADOWMASK_JOB_POOLS_TRICKPLAY_NOPE",
+                "SHADOWMASK_WORKER_CONCURRENCY",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_concurrency_on_a_pool_nobody_named_is_reported() {
+        let named = [
+            "SHADOWMASK_JOB_POOLS_ENRICHMNET_CONCURRENCY",
+            "SHADOWMASK_JOB_POOLS_TRICKPLAY_CONCURRENCY",
+            "SHADOWMASK_JOB_POOLS_DEFAULT_CONCURRENCY",
+            "SHADOWMASK_JOB_POOLS_HEAVY_KINDS",
+            "SHADOWMASK_WORKER_CONCURRENCY",
+        ];
+        let vars = named.iter().map(|name| (OsString::from(*name), OsString::from("x")));
+
+        assert_eq!(
+            unnamed_pools(vars, &named_pools(&default_job_pools())),
+            [("SHADOWMASK_JOB_POOLS_ENRICHMNET_CONCURRENCY".to_owned(), "enrichmnet".to_owned())]
+        );
+    }
+
+    #[test]
+    fn a_concurrency_on_a_pool_being_defined_beside_it_is_accepted() {
+        let vars =
+            [(OsString::from("SHADOWMASK_JOB_POOLS_HEAVY_CONCURRENCY"), OsString::from("4"))];
+        let mut configured = default_job_pools();
+        configured.insert(
+            "heavy".to_owned(),
+            JobPoolConfig { concurrency: 4, kinds: vec!["upscale".to_owned()] },
+        );
+
+        assert!(unnamed_pools(vars.into_iter(), &named_pools(&configured)).is_empty());
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn a_mistyped_pool_name_is_named_back_with_the_variable_that_would_create_it() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("SHADOWMASK_JOB_POOLS_ENRICHMNET_CONCURRENCY", "4");
+            jail.set_env("SHADOWMASK_JOB_POOLS_ENRICHMENT_CONCURRENCY", "2");
+            let loaded = Config::load().unwrap();
+            assert_eq!(loaded.config.job_pools["enrichment"].concurrency, 2);
+            assert!(mentions(&loaded.warnings, "SHADOWMASK_JOB_POOLS_ENRICHMNET_CONCURRENCY"));
+            assert!(mentions(&loaded.warnings, "SHADOWMASK_JOB_POOLS_ENRICHMNET_KINDS"));
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn a_pool_defined_from_env_draws_no_warning_for_its_concurrency() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("SHADOWMASK_JOB_POOLS_HEAVY_KINDS", "upscale");
+            jail.set_env("SHADOWMASK_JOB_POOLS_HEAVY_CONCURRENCY", "6");
+            let loaded = Config::load().unwrap();
+            assert_eq!(loaded.config.job_pools["heavy"].concurrency, 6);
+            assert!(!mentions(&loaded.warnings, "heavy"));
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn a_pool_named_only_in_the_toml_is_swept_like_one_named_in_the_environment() {
+        figment::Jail::expect_with(|jail| {
+            jail.create_file("shadowmask.toml", "[job_pools.heavy]\nconcurrency = 4\n")?;
+            let loaded = Config::load().unwrap();
+            assert_eq!(loaded.config.job_pools["heavy"].concurrency, 4);
+            assert!(mentions(&loaded.warnings, "job pool [heavy] names no kinds"));
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn emptying_a_shipped_pools_kinds_reports_the_concurrency_it_discards() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("SHADOWMASK_JOB_POOLS_TRICKPLAY_KINDS", "");
+            jail.set_env("SHADOWMASK_JOB_POOLS_TRICKPLAY_CONCURRENCY", "3");
+            let warnings = Config::load().unwrap().warnings;
+            assert!(mentions(&warnings, "job pool [trickplay], which names no kinds"));
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn a_pool_whose_kinds_were_emptied_is_not_told_to_set_the_variable_it_set() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("SHADOWMASK_JOB_POOLS_HEAVY_KINDS", "");
+            jail.set_env("SHADOWMASK_JOB_POOLS_HEAVY_CONCURRENCY", "6");
+            let warnings = Config::load().unwrap().warnings;
+            assert!(mentions(&warnings, "job pool [heavy], which names no kinds"));
+            assert!(!mentions(&warnings, "SHADOWMASK_JOB_POOLS_HEAVY_KINDS] to create it"));
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn removing_a_shipped_pool_draws_no_warning_about_a_concurrency_nobody_set() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("SHADOWMASK_JOB_POOLS_TRICKPLAY_KINDS", "");
+            assert!(!mentions(&Config::load().unwrap().warnings, "trickplay"));
+            Ok(())
+        });
+        figment::Jail::expect_with(|jail| {
+            jail.create_file("shadowmask.toml", "[job_pools.fetch]\nkinds = []\n")?;
+            assert!(!mentions(&Config::load().unwrap().warnings, "fetch"));
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn a_variable_a_bootstrap_file_expands_is_not_reported() {
+        let named = ["SHADOWMASK_ADMIN_PASSWORD", "SHADOWMASK_JWT_SECRT"];
+        let vars = named.iter().map(|name| (OsString::from(*name), OsString::from("x")));
+        let bootstrap = BTreeSet::from(["SHADOWMASK_ADMIN_PASSWORD".to_owned()]);
+
+        assert_eq!(unsettable_vars(vars, &bootstrap), ["SHADOWMASK_JWT_SECRT"]);
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn a_bootstrap_variable_draws_no_warning_while_a_typo_beside_it_does() {
+        figment::Jail::expect_with(|jail| {
+            jail.create_dir("bootstrap")?;
+            jail.create_file(
+                "bootstrap/users.toml",
+                "[[users]]\nusername = \"${SHADOWMASK_ADMIN_USERNAME:admin}\"\npassword = \"${SHADOWMASK_ADMIN_PASSWORD}\"\n",
+            )?;
+            jail.set_env("SHADOWMASK_ADMIN_USERNAME", "admin");
+            jail.set_env("SHADOWMASK_ADMIN_PASSWORD", "secret");
+            jail.set_env("SHADOWMASK_JWT_SECRT", "typo");
+            let warnings = Config::load().unwrap().warnings;
+            assert!(!mentions(&warnings, "SHADOWMASK_ADMIN_USERNAME"));
+            assert!(!mentions(&warnings, "SHADOWMASK_ADMIN_PASSWORD"));
+            assert!(mentions(&warnings, "SHADOWMASK_JWT_SECRT"));
             Ok(())
         });
     }
@@ -824,9 +1212,9 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn the_read_rate_can_be_set_by_an_admin() {
         figment::Jail::expect_with(|jail| {
-            assert_eq!(Config::load().unwrap().remux_read_rate, 10.0);
+            assert_eq!(Config::load().unwrap().config.remux_read_rate, 10.0);
             jail.set_env("SHADOWMASK_REMUX_READ_RATE", "2.5");
-            assert_eq!(Config::load().unwrap().remux_read_rate, 2.5);
+            assert_eq!(Config::load().unwrap().config.remux_read_rate, 2.5);
             Ok(())
         });
     }
@@ -837,9 +1225,9 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn the_transcode_height_is_unbounded_until_an_admin_bounds_it() {
         figment::Jail::expect_with(|jail| {
-            assert_eq!(Config::load().unwrap().max_transcode_height, None);
+            assert_eq!(Config::load().unwrap().config.max_transcode_height, None);
             jail.set_env("SHADOWMASK_MAX_TRANSCODE_HEIGHT", "1080");
-            assert_eq!(Config::load().unwrap().max_transcode_height, Some(1080));
+            assert_eq!(Config::load().unwrap().config.max_transcode_height, Some(1080));
             Ok(())
         });
     }
@@ -943,10 +1331,10 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn webhook_clients_default_empty_and_load_from_toml() {
         figment::Jail::expect_with(|jail| {
-            assert!(Config::load().unwrap().webhook_clients.is_empty());
+            assert!(Config::load().unwrap().config.webhook_clients.is_empty());
             let toml = "[[webhook_clients]]\nname = \"sonarr\"\nsecret = \"abc\"\nlibraries = [\"lib1\"]\n";
             jail.create_file("shadowmask.toml", toml)?;
-            let config = Config::load().unwrap();
+            let config = Config::load().unwrap().config;
             assert_eq!(config.webhook_clients.len(), 1);
             assert_eq!(config.webhook_clients[0].name, "sonarr");
             assert_eq!(config.webhook_clients[0].secret, "abc");
@@ -960,7 +1348,7 @@ mod tests {
     fn shutdown_timeout_read_from_env() {
         figment::Jail::expect_with(|jail| {
             jail.set_env("SHADOWMASK_SHUTDOWN_TIMEOUT_SECS", "7");
-            let config = Config::load().unwrap();
+            let config = Config::load().unwrap().config;
             assert_eq!(config.shutdown_timeout_secs, 7);
             Ok(())
         });
@@ -970,12 +1358,12 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn log_level_read_from_env() {
         figment::Jail::expect_with(|jail| {
-            let config = Config::load().unwrap();
+            let config = Config::load().unwrap().config;
             assert_eq!(config.log_level, "info");
             assert_eq!(config.sqlx_log_level, "warn");
             jail.set_env("SHADOWMASK_LOG_LEVEL", "debug");
             jail.set_env("SHADOWMASK_SQLX_LOG_LEVEL", "trace");
-            let config = Config::load().unwrap();
+            let config = Config::load().unwrap().config;
             assert_eq!(config.log_level, "debug");
             assert_eq!(config.sqlx_log_level, "trace");
             Ok(())
@@ -986,12 +1374,12 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn tls_paths_default_none_and_load_from_env() {
         figment::Jail::expect_with(|jail| {
-            let config = Config::load().unwrap();
+            let config = Config::load().unwrap().config;
             assert!(config.tls_cert.is_none());
             assert!(config.tls_key.is_none());
             jail.set_env("SHADOWMASK_TLS_CERT", "/etc/shadowmask/cert.pem");
             jail.set_env("SHADOWMASK_TLS_KEY", "/etc/shadowmask/key.pem");
-            let config = Config::load().unwrap();
+            let config = Config::load().unwrap().config;
             assert_eq!(config.tls_cert, Some(PathBuf::from("/etc/shadowmask/cert.pem")));
             assert_eq!(config.tls_key, Some(PathBuf::from("/etc/shadowmask/key.pem")));
             Ok(())

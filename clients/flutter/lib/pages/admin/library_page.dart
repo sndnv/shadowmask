@@ -495,12 +495,46 @@ class _DuplicatesBlockState extends State<_DuplicatesBlock>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
                         Expanded(
-                          child: Text(
-                            d.paths.join('\n'),
-                            style: monoStyle.copyWith(
-                              color: t.text,
-                              fontSize: 12,
-                            ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              if (d.kind == DuplicateKind.multiPart)
+                                Padding(
+                                  padding: const EdgeInsets.only(
+                                    bottom: Space.s1,
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    spacing: Space.s2,
+                                    children: <Widget>[
+                                      Icon(
+                                        Icons.warning_amber_rounded,
+                                        color: t.warn,
+                                        size: 16,
+                                      ),
+                                      Expanded(
+                                        child: Text(
+                                          Strings.duplicateSplitAcross(
+                                            d.paths.length,
+                                          ),
+                                          style: TextStyle(
+                                            color: t.warn,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              Text(
+                                d.paths.join('\n'),
+                                style: monoStyle.copyWith(
+                                  color: t.text,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         TextButton(

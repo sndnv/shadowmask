@@ -29,17 +29,28 @@ want AI).
 
 ## Enabling features
 
-Each feature is a single environment variable, off unless set to `true`:
+Transcription and translation each take a mode, off unless set. Upscaling is a boolean.
 
 ```
-SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED=true
-SHADOWMASK_ENRICHMENT_TRANSLATION_ENABLED=true
+SHADOWMASK_ENRICHMENT_TRANSCRIPTION_MODE=auto
+SHADOWMASK_ENRICHMENT_TRANSLATION_MODE=on
 SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED=true
 ```
 
-Transcription and translation additionally need a model on disk (below); without one the server
-still starts and those jobs fail with a backend error until a model is present. Upscaling works with
-no model.
+| Mode | Model loaded | Admin can trigger it | Runs unattended |
+|------|--------------|----------------------|-----------------|
+| `off`  | no  | no  | no  |
+| `on`   | yes | yes | no  |
+| `auto` | yes | yes | yes |
+
+`auto` transcribes a version when no subtitle could be found for it, and translates into the target
+languages when a subtitle arrives. The two modes are independent, so
+`transcription=auto, translation=on` is a valid combination.
+
+Transcription and translation additionally need a model on disk (below). Without one the server
+starts and the feature behaves as off: no job of that kind is queued or run, and asking for the work
+by hand is refused with `409 feature_disabled`. Other kinds on the same pool are unaffected.
+Upscaling needs no model.
 
 The `provider` setting (`SHADOWMASK_ENRICHMENT_TRANSCRIPTION_PROVIDER`, etc.) is informational: an
 enabled feature runs the bundled provider whatever it is set to. External and combined providers are
@@ -56,7 +67,8 @@ logging a warning for every folder it rejects and an info line naming the model 
 
 If a feature is enabled and its directory holds folders but none is a valid model, the server
 **fails to start**. An empty or absent directory is not fatal: the feature reports
-`available: true, enabled: false` until a model is added.
+`available: true, enabled: false`, and its queued jobs wait, until a model is added and the server
+is restarted. Models are only looked for at startup.
 
 A folder is a valid model when it contains:
 

@@ -14,7 +14,11 @@ Optional local AI (transcription, translation, upscaling) applies to both and is
 
 Settings can also come from a `shadowmask.toml` next to the binary. Environment beats file, file
 beats default. `SHADOWMASK_TARGET_LANGUAGES` and `SHADOWMASK_CORS_ALLOWED_ORIGINS` are
-comma-separated lists; everything else is a single value. Webhook clients are TOML-only.
+comma-separated lists; everything else is a single value. Webhook clients are TOML-only. A
+`SHADOWMASK_` variable that is neither one of the server settings below nor referenced by
+`users.toml` or `libraries.toml` in the bootstrap directory is logged as ignored at startup, so a typo or a name
+that has been renamed shows up in the log rather than as a server that quietly runs on a default.
+Keys in `shadowmask.toml` are not checked: a misspelled or renamed key there is silently ignored.
 
 ### Core
 
@@ -83,8 +87,11 @@ Each kind runs on one pool, up to that pool's concurrency. Unassigned kinds run 
 | `SHADOWMASK_JOB_POOLS_<POOL>_CONCURRENCY` | Jobs that pool runs at once             | `1`     |
 | `SHADOWMASK_JOB_POOLS_<POOL>_KINDS`       | Comma-separated job kinds for that pool | none    |
 
-Any `<POOL>` name creates a pool; naming no kinds removes one. An unknown kind, a kind claimed by
-two pools, or a concurrency of zero stops the server at startup.
+A `<POOL>` name with kinds creates a pool; naming no kinds removes one. `default` always exists and
+needs no kinds. A concurrency set on any other pool that names no kinds is ignored and logged,
+whether that pool is one of the three above, named in the environment or named in
+`shadowmask.toml`. An unknown kind, a kind claimed by two pools, or a concurrency of zero stops the
+server at startup.
 
 Kinds: `library_scan`, `metadata`, `artwork`, `subtitles`, `trickplay`, `fingerprint`, `dedup`,
 `cache_eviction`, `search_reindex`, `ingest`, `relink`, `transcription`, `translation`, `upscale`,
@@ -151,10 +158,10 @@ the bundled provider, and external providers are not implemented. Leave them at 
 |---------------------------------------------------|------------------------------------------|--------------------------|
 | `SHADOWMASK_ENRICHMENT_MODEL_CACHE`               | CTranslate2 model root                   | `data/enrichment-models` |
 | `SHADOWMASK_ENRICHMENT_THREADS`                   | Cores one enrichment job may use         | half the machine         |
-| `SHADOWMASK_ENRICHMENT_TRANSCRIPTION_ENABLED`     | Transcription on                         | `false`                  |
+| `SHADOWMASK_ENRICHMENT_TRANSCRIPTION_MODE`        | `off`, `on` or `auto`                    | `off`                    |
 | `SHADOWMASK_ENRICHMENT_TRANSCRIPTION_PROVIDER`    | Transcription provider                   | `none`                   |
 | `SHADOWMASK_ENRICHMENT_TRANSCRIPTION_MODEL_PATH`  | Model dir, relative to the model cache   | unset                    |
-| `SHADOWMASK_ENRICHMENT_TRANSLATION_ENABLED`       | Translation on                           | `false`                  |
+| `SHADOWMASK_ENRICHMENT_TRANSLATION_MODE`          | `off`, `on` or `auto`                    | `off`                    |
 | `SHADOWMASK_ENRICHMENT_TRANSLATION_PROVIDER`      | Translation provider                     | `none`                   |
 | `SHADOWMASK_ENRICHMENT_TRANSLATION_MODEL_PATH`    | Model dir, relative to the model cache   | unset                    |
 | `SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX` | Input language token, e.g. `<2{target}>` | unset                    |
@@ -215,9 +222,12 @@ The nightly run is opt in per library: it only queues a scan for libraries whose
 `scheduled` and that hold local files. Set that in `bootstrap/libraries.toml` before first start,
 or on the library in the admin UI afterwards. A library already scanning is left alone.
 
-A re-scan is cheap on a settled library: titles you already have are not re-fetched and versions
-whose file has not changed are skipped entirely. New files, changed files, and titles that appear
-for the first time are picked up as usual. To deliberately re-pull metadata and artwork for
+A re-scan is cheap on a settled library: titles you already have are not re-fetched, and a version
+whose size and duration have not changed is left as it stands. It still probes every media file,
+because the size and duration it compares are what the probe reports. New files, changed files, and
+titles that appear for the first time are picked up as usual. A re-scan owns only the subtitle files sitting next to
+the media, so it adds the ones that appeared and drops the ones that are gone. Downloaded,
+generated, translated and combined subtitles are left alone. To deliberately re-pull metadata and artwork for
 everything in a library, use "Refresh metadata" on the library's admin page rather than a scan. It
 queues one job per title, replaces descriptions, ratings and artwork, and leaves the files alone.
 
@@ -284,7 +294,8 @@ extension is the device type, so `roku.json` replaces the built-in `roku` profil
     {
       "codec": "h264",
       "max_level": "4.2",
-      "max_bit_depth": 8
+      "max_bit_depth": 8,
+      "smooth": true
     }
   ],
   "audio": [
@@ -300,10 +311,11 @@ extension is the device type, so `roku.json` replaces the built-in `roku` profil
 }
 ```
 
-`hdr`, `max_frame_rate` and each codec's `max_level` are optional; everything else is required.
-Prefer narrow: claiming a codec the device cannot play fails playback outright, while omitting one
-only costs a transcode. The server refuses to start if the directory is missing or a file does not
-parse.
+`hdr`, `max_frame_rate` and each codec's `max_level` and `smooth` are optional; everything else is
+required. `smooth` defaults to true; set it false for a codec the device decodes in software, and
+the server transcodes rather than sending it. Prefer narrow: claiming a codec the device cannot play
+fails playback outright, while omitting one only costs a transcode. The server refuses to start if
+the directory is missing or a file does not parse.
 
 ## Content fetch
 
@@ -365,7 +377,7 @@ The file is passed to yt-dlp as `--cookies`. Shadowmask deliberately does not us
 `--cookies-from-browser`, because the server is headless and has no browser profile to read.
 
 The server checks the cookies for the target site before queueing a fetch, and rejects the request
-with an error naming the expiry rather than starting a download that would fail. Cookies for other
+with an error naming the site rather than starting a download that would fail. Cookies for other
 sites, and public fetches, are unaffected.
 
 The file holds live session secrets: mount it read-only and never commit it. Using your account to

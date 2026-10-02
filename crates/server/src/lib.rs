@@ -17,7 +17,7 @@ pub mod shutdown;
 pub use api::{Built, DefaultState, DefaultStreamState, Repos, WireConfig, app, build_state};
 pub use capabilities::{CapabilityInputs, server_capabilities};
 pub use cli::{Cli, Command};
-pub use config::Config;
+pub use config::{Config, Loaded};
 pub use enrichment::EnrichmentConfig;
 pub use jobs::CancelRegistry;
 pub use lockfile::ServerLock;

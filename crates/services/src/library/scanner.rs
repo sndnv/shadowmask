@@ -2,9 +2,13 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 
 use domain::error::WalkError;
-use domain::library::{DiscoveredFile, Library, ScanReport, SkipReason, SkippedFile, SourceWalker};
+use domain::library::{
+    DiscoveredFile, Library, ScanReport, SkipReason, SkippedFile, SourceWalker, WalkedEntry,
+};
 use domain::media::MediaProbe;
 use futures::StreamExt;
+
+use super::external_subtitles::sidecar_owner;
 
 pub const DEFAULT_PROBE_CONCURRENCY: usize = 8;
 
@@ -48,6 +52,7 @@ impl<W: SourceWalker, P: MediaProbe> Scanner<W, P> {
     {
         let mut seen = HashSet::new();
         let mut candidates = Vec::new();
+        let mut excluded: Vec<SkippedFile> = Vec::new();
         let mut subtitles: HashMap<String, Vec<String>> = HashMap::new();
         for root in &library.roots {
             for entry in self.walker.walk(root).await? {
@@ -55,6 +60,13 @@ impl<W: SourceWalker, P: MediaProbe> Scanner<W, P> {
                     continue;
                 }
                 if is_media_candidate(&entry.path, &self.extensions) {
+                    if let Some(directory) = excluded_directory(&entry.path, root) {
+                        excluded.push(SkippedFile {
+                            path: entry.path,
+                            reason: SkipReason::ExcludedDirectory(directory),
+                        });
+                        continue;
+                    }
                     candidates.push(entry);
                 } else if is_subtitle_file(&entry.path) {
                     subtitles.entry(dir_of(&entry.path).to_owned()).or_default().push(entry.path);
@@ -63,8 +75,9 @@ impl<W: SourceWalker, P: MediaProbe> Scanner<W, P> {
         }
 
         let total_candidates = candidates.len();
+        let mut sidecars = claim_sidecars(&candidates, subtitles);
         let mut discovered = Vec::new();
-        let mut skipped = Vec::new();
+        let mut skipped = excluded;
         let mut probed = futures::stream::iter(candidates)
             .map(|entry| async move { (self.probe.probe(&entry.path).await, entry) })
             .buffered(self.probe_concurrency);
@@ -73,10 +86,7 @@ impl<W: SourceWalker, P: MediaProbe> Scanner<W, P> {
             match result {
                 Ok(probe) => discovered.push(DiscoveredFile {
                     library: library.id.clone(),
-                    subtitle_siblings: subtitles
-                        .get(dir_of(&entry.path))
-                        .cloned()
-                        .unwrap_or_default(),
+                    subtitle_siblings: sidecars.remove(&entry.path).unwrap_or_default(),
                     path: entry.path,
                     size_bytes: entry.size_bytes,
                     probe,
@@ -96,7 +106,7 @@ impl<W: SourceWalker, P: MediaProbe> Scanner<W, P> {
     }
 }
 
-fn default_extensions() -> Vec<String> {
+pub(crate) fn default_extensions() -> Vec<String> {
     ["mkv", "mp4", "avi", "mov", "m4v", "wmv", "flv", "webm", "mpg", "mpeg", "ts", "m2ts"]
         .iter()
         .map(|ext| (*ext).to_owned())
@@ -105,6 +115,42 @@ fn default_extensions() -> Vec<String> {
 
 fn basename(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or(path)
+}
+
+const EXTRA_DIRS: [&str; 14] = [
+    "extras",
+    "featurettes",
+    "behind the scenes",
+    "deleted scenes",
+    "interviews",
+    "scenes",
+    "shorts",
+    "trailers",
+    "sample",
+    "samples",
+    "other",
+    "bonus",
+    "video_ts",
+    "audio_ts",
+];
+
+pub(crate) fn excluded_directory(path: &str, root: &str) -> Option<String> {
+    let relative = relative_to(path, root)?;
+    let mut parts: Vec<&str> = relative.split(['/', '\\']).collect();
+    parts.pop();
+    parts
+        .iter()
+        .find(|part| EXTRA_DIRS.contains(&part.trim().to_ascii_lowercase().as_str()))
+        .map(|part| (*part).to_owned())
+}
+
+fn relative_to<'a>(path: &'a str, root: &str) -> Option<&'a str> {
+    let root = root.trim_end_matches(['/', '\\']);
+    if root.is_empty() {
+        return Some(path);
+    }
+    let rest = path.strip_prefix(root)?;
+    rest.starts_with(['/', '\\']).then_some(rest)
 }
 
 fn is_media_candidate(path: &str, extensions: &[String]) -> bool {
@@ -125,6 +171,29 @@ fn is_subtitle_file(path: &str) -> bool {
     }
 }
 
+fn claim_sidecars(
+    candidates: &[WalkedEntry],
+    subtitles: HashMap<String, Vec<String>>,
+) -> HashMap<String, Vec<String>> {
+    let mut videos_by_dir: HashMap<&str, Vec<&str>> = HashMap::new();
+    for entry in candidates {
+        videos_by_dir.entry(dir_of(&entry.path)).or_default().push(&entry.path);
+    }
+    let mut claimed: HashMap<String, Vec<String>> = HashMap::new();
+    for (dir, found) in subtitles {
+        let Some(videos) = videos_by_dir.get_mut(dir.as_str()) else {
+            continue;
+        };
+        videos.sort_unstable();
+        for sidecar in found {
+            if let Some(owner) = sidecar_owner(&sidecar, videos) {
+                claimed.entry(owner.to_owned()).or_default().push(sidecar);
+            }
+        }
+    }
+    claimed
+}
+
 fn dir_of(path: &str) -> &str {
     match path.rsplit_once(['/', '\\']) {
         Some((dir, _)) => dir,
@@ -132,7 +201,7 @@ fn dir_of(path: &str) -> &str {
     }
 }
 
-fn is_hidden(path: &str) -> bool {
+pub(crate) fn is_hidden(path: &str) -> bool {
     basename(path).starts_with('.')
 }
 
@@ -147,6 +216,10 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn is_extra(path: &str, root: &str) -> bool {
+        excluded_directory(path, root).is_some()
+    }
 
     fn entry(path: &str, size: u64) -> WalkedEntry {
         WalkedEntry { path: path.to_owned(), size_bytes: size }
@@ -164,8 +237,15 @@ mod tests {
         }
     }
 
+    fn recording(seen: Arc<Mutex<Vec<(u32, u32)>>>) -> impl Fn(u32, u32) -> std::future::Ready<()> {
+        move |done, total| {
+            seen.lock().unwrap().push((done, total));
+            std::future::ready(())
+        }
+    }
+
     fn quiet() -> impl Fn(u32, u32) -> std::future::Ready<()> {
-        |_, _| std::future::ready(())
+        recording(Arc::default())
     }
 
     #[derive(Default)]
@@ -241,16 +321,9 @@ mod tests {
     #[tokio::test]
     async fn a_long_scan_reports_progress_before_it_finishes() {
         let seen = Arc::new(Mutex::new(Vec::new()));
-        let recorder = Arc::clone(&seen);
         let scanner = Scanner::new(many(1_000), MockMediaProbe::new());
 
-        scanner
-            .scan(&library(&["/m"]), |done, total| {
-                recorder.lock().unwrap().push((done, total));
-                std::future::ready(())
-            })
-            .await
-            .unwrap();
+        scanner.scan(&library(&["/m"]), recording(Arc::clone(&seen))).await.unwrap();
 
         assert_eq!(
             *seen.lock().unwrap(),
@@ -263,16 +336,9 @@ mod tests {
     #[tokio::test]
     async fn a_short_scan_reports_nothing_before_it_finishes() {
         let seen = Arc::new(Mutex::new(Vec::new()));
-        let recorder = Arc::clone(&seen);
         let scanner = Scanner::new(many(3), MockMediaProbe::new());
 
-        scanner
-            .scan(&library(&["/m"]), |done, total| {
-                recorder.lock().unwrap().push((done, total));
-                std::future::ready(())
-            })
-            .await
-            .unwrap();
+        scanner.scan(&library(&["/m"]), recording(Arc::clone(&seen))).await.unwrap();
 
         assert!(
             seen.lock().unwrap().is_empty(),
@@ -310,6 +376,75 @@ mod tests {
     fn hidden_detects_dotfiles_by_basename() {
         assert!(is_hidden("/m/.secret.mkv"));
         assert!(!is_hidden("/m/movie.mkv"));
+    }
+
+    #[test]
+    fn extras_are_recognised_by_directory_below_the_root() {
+        assert!(is_extra("/tv/Tallowbrook/Extras/Bonus Disc1.mkv", "/tv"));
+        assert!(is_extra("/tv/Harbor.Lights/Other/Retrospective.mkv", "/tv"));
+        assert!(is_extra("/tv/Show/Show.Season.01/Featurettes/clip.mkv", "/tv"));
+        assert!(is_extra("/m/Doc/VIDEO_TS/VTS_01_1.vob", "/m"));
+        assert!(!is_extra("/tv/Tallowbrook/Tallowbrook.Season.01/1x01.mkv", "/tv"));
+    }
+
+    #[test]
+    fn specials_are_not_extras() {
+        assert!(!is_extra("/tv/Mr. Quill/Mr.Quill.Specials/S00E01.mkv", "/tv"));
+        assert!(!is_extra("/tv/Show/Specials/S00E01.mkv", "/tv"));
+    }
+
+    #[test]
+    fn a_library_rooted_at_the_filesystem_root_still_finds_its_extras() {
+        assert!(is_extra("/Extras/clip.mkv", "/"));
+        assert!(!is_extra("/Show/Show.Season.01/1x01.mkv", "/"));
+    }
+
+    #[test]
+    fn the_root_itself_is_never_read_as_an_extras_folder() {
+        assert!(!is_extra("/media/Other/Show/Show.Season.01/1x01.mkv", "/media/Other"));
+        assert!(!is_extra("/media/Other/Show/Show.Season.01/1x01.mkv", "/media/Other/"));
+    }
+
+    #[test]
+    fn a_path_outside_the_root_is_not_excluded_by_it() {
+        assert!(!is_extra("/media/Other/Show/1x01.mkv", "/media/Movies"));
+        assert!(!is_extra("/media/Other/Show/Extras/clip.mkv", "/media/Movies"));
+        assert!(!is_extra("/media/movies-4k/Shorts/Kestrel.mkv", "/media/movies"));
+    }
+
+    #[tokio::test]
+    async fn scan_leaves_extras_out_of_the_library() {
+        let walker = MockSourceWalker::new().with_entries(
+            "/tv",
+            vec![
+                entry("/tv/Tallowbrook/Tallowbrook.Season.01/1x01.mkv", 10),
+                entry("/tv/Tallowbrook/Extras/Bonus Disc1.mkv", 20),
+            ],
+        );
+        let scanner = Scanner::new(walker, MockMediaProbe::new());
+
+        let report = scanner.scan(&library(&["/tv"]), quiet()).await.unwrap();
+        assert_eq!(report.total_candidates, 1);
+        assert_eq!(report.discovered.len(), 1);
+        assert_eq!(report.discovered[0].path, "/tv/Tallowbrook/Tallowbrook.Season.01/1x01.mkv");
+    }
+
+    #[tokio::test]
+    async fn an_excluded_file_is_reported_as_seen_rather_than_forgotten() {
+        let walker = MockSourceWalker::new().with_entries(
+            "/tv",
+            vec![
+                entry("/tv/Tallowbrook/Tallowbrook.Season.01/1x01.mkv", 10),
+                entry("/tv/Tallowbrook/Extras/Bonus Disc1.mkv", 20),
+            ],
+        );
+        let scanner = Scanner::new(walker, MockMediaProbe::new());
+
+        let report = scanner.scan(&library(&["/tv"]), quiet()).await.unwrap();
+
+        assert_eq!(report.skipped.len(), 1);
+        assert_eq!(report.skipped[0].path, "/tv/Tallowbrook/Extras/Bonus Disc1.mkv");
+        assert_eq!(report.skipped[0].reason, SkipReason::ExcludedDirectory("Extras".to_owned()));
     }
 
     #[tokio::test]
@@ -356,6 +491,37 @@ mod tests {
         assert!(movie.subtitle_siblings.contains(&"/m/a/movie.fr.srt".to_owned()));
         let other = report.discovered.iter().find(|d| d.path == "/m/b/other.mp4").unwrap();
         assert!(other.subtitle_siblings.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_sidecar_goes_only_to_the_video_whose_name_it_extends_furthest() {
+        let walker = MockSourceWalker::new().with_entries(
+            "/m",
+            vec![
+                entry("/m/a/Neon.Harbor.2017.mkv", 10),
+                entry("/m/a/Neon.Harbor.2017.1080p.mkv", 10),
+                entry("/m/a/Neon.Harbor.2017.en.srt", 1),
+                entry("/m/a/Neon.Harbor.2017.1080p.en.srt", 1),
+                entry("/m/b/lantern.mp4", 10),
+                entry("/m/b/lantern.mkv", 10),
+                entry("/m/b/lantern.en.srt", 1),
+                entry("/m/c/stray.en.srt", 1),
+            ],
+        );
+        let scanner = Scanner::new(walker, MockMediaProbe::new());
+
+        let report = scanner.scan(&library(&["/m"]), quiet()).await.unwrap();
+        let siblings = |path: &str| {
+            report.discovered.iter().find(|d| d.path == path).unwrap().subtitle_siblings.clone()
+        };
+
+        assert_eq!(siblings("/m/a/Neon.Harbor.2017.mkv"), ["/m/a/Neon.Harbor.2017.en.srt"]);
+        assert_eq!(
+            siblings("/m/a/Neon.Harbor.2017.1080p.mkv"),
+            ["/m/a/Neon.Harbor.2017.1080p.en.srt"]
+        );
+        assert_eq!(siblings("/m/b/lantern.mkv"), ["/m/b/lantern.en.srt"]);
+        assert!(siblings("/m/b/lantern.mp4").is_empty());
     }
 
     #[test]

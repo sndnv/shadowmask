@@ -5,12 +5,12 @@ package=libmpv2
 
 here=${APPDIR:-${0%/*}}
 
+search="$APPRUN_ORIGINAL_LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu:/usr/lib64:/usr/lib:/lib/x86_64-linux-gnu:/lib64:/lib:/usr/local/lib:/usr/local/lib64"
+
 found=
 old_ifs=$IFS
 IFS=:
-for dir in \
-    $APPRUN_ORIGINAL_LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu:/usr/lib64:/usr/lib\
-:/lib/x86_64-linux-gnu:/lib64:/lib:/usr/local/lib:/usr/local/lib64; do
+for dir in $search; do
     [ -n "$dir" ] || continue
     if [ -e "$dir/$library" ]; then
         found=yes
@@ -30,8 +30,8 @@ On Debian and Ubuntu, install it with:
 
     sudo apt install $package
 
-Releases older than Ubuntu 24.04 package it as libmpv1. On other distributions, install your
-distribution's equivalent."
+Ubuntu 22.04 and older ship only libmpv1, which this build cannot use. On other
+distributions, install your distribution's package that provides $library."
 
 LD_LIBRARY_PATH=$APPRUN_ORIGINAL_LD_LIBRARY_PATH
 LD_PRELOAD=$APPRUN_ORIGINAL_LD_PRELOAD

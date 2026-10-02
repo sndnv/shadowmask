@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/components/card_menu.dart';
@@ -87,6 +88,31 @@ class _CardRailState extends State<CardRail> {
     }
   }
 
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent || !_controller.hasClients) {
+      return;
+    }
+    final double delta = event.scrollDelta.dy;
+    if (delta == 0 || delta.abs() <= event.scrollDelta.dx.abs()) {
+      return;
+    }
+    if (_controller.position.maxScrollExtent <= 0) {
+      return;
+    }
+    GestureBinding.instance.pointerSignalResolver.register(event, (
+      PointerSignalEvent resolved,
+    ) {
+      if (!_controller.hasClients) {
+        return;
+      }
+      final ScrollPosition at = _controller.position;
+      final double by = (resolved as PointerScrollEvent).scrollDelta.dy;
+      _controller.jumpTo(
+        (at.pixels + by).clamp(at.minScrollExtent, at.maxScrollExtent),
+      );
+    });
+  }
+
   void _nudge(double sign) {
     if (!_controller.hasClients) {
       return;
@@ -143,50 +169,61 @@ class _CardRailState extends State<CardRail> {
         const SizedBox(height: Space.s3),
         SizedBox(
           height: railHeight,
-          child: NotificationListener<ScrollMetricsNotification>(
-            onNotification: (ScrollMetricsNotification _) {
-              _update();
-              return false;
-            },
-            child: Stack(
-              children: <Widget>[
-                ListView.separated(
-                  controller: _controller,
-                  scrollDirection: Axis.horizontal,
-                  itemCount: widget.cards.length,
-                  separatorBuilder: (BuildContext _, int _) =>
-                      const SizedBox(width: Space.s4),
-                  itemBuilder: (BuildContext _, int i) => CatalogCardTile(
-                    card: widget.cards[i],
-                    imageBase: widget.imageBase,
-                    width: w,
-                    aspect: aspect,
-                    onDismiss: _dismissible(widget.cards[i])
-                        ? widget.onDismiss
-                        : null,
-                    onMenuAction: widget.onMenuAction,
-                    dismissBusy:
-                        widget.dismissBusy?.call(widget.cards[i]) ?? false,
-                    dismissTooltip: widget.dismissTooltip,
+          child: Listener(
+            onPointerSignal: _onPointerSignal,
+            child: NotificationListener<ScrollMetricsNotification>(
+              onNotification: (ScrollMetricsNotification _) {
+                _update();
+                return false;
+              },
+              child: Stack(
+                children: <Widget>[
+                  ScrollConfiguration(
+                    behavior: ScrollConfiguration.of(context).copyWith(
+                      dragDevices: <PointerDeviceKind>{
+                        ...ScrollConfiguration.of(context).dragDevices,
+                        PointerDeviceKind.mouse,
+                      },
+                    ),
+                    child: ListView.separated(
+                      controller: _controller,
+                      scrollDirection: Axis.horizontal,
+                      itemCount: widget.cards.length,
+                      separatorBuilder: (BuildContext _, int _) =>
+                          const SizedBox(width: Space.s4),
+                      itemBuilder: (BuildContext _, int i) => CatalogCardTile(
+                        card: widget.cards[i],
+                        imageBase: widget.imageBase,
+                        width: w,
+                        aspect: aspect,
+                        onDismiss: _dismissible(widget.cards[i])
+                            ? widget.onDismiss
+                            : null,
+                        onMenuAction: widget.onMenuAction,
+                        dismissBusy:
+                            widget.dismissBusy?.call(widget.cards[i]) ?? false,
+                        dismissTooltip: widget.dismissTooltip,
+                      ),
+                    ),
                   ),
-                ),
-                if (_canLeft)
-                  _RailArrow(
-                    height: artHeight,
-                    alignment: Alignment.centerLeft,
-                    icon: Icons.chevron_left,
-                    tooltip: Strings.previous,
-                    onTap: () => _nudge(-1),
-                  ),
-                if (_canRight)
-                  _RailArrow(
-                    height: artHeight,
-                    alignment: Alignment.centerRight,
-                    icon: Icons.chevron_right,
-                    tooltip: Strings.next,
-                    onTap: () => _nudge(1),
-                  ),
-              ],
+                  if (_canLeft)
+                    _RailArrow(
+                      height: artHeight,
+                      alignment: Alignment.centerLeft,
+                      icon: Icons.chevron_left,
+                      tooltip: Strings.previous,
+                      onTap: () => _nudge(-1),
+                    ),
+                  if (_canRight)
+                    _RailArrow(
+                      height: artHeight,
+                      alignment: Alignment.centerRight,
+                      icon: Icons.chevron_right,
+                      tooltip: Strings.next,
+                      onTap: () => _nudge(1),
+                    ),
+                ],
+              ),
             ),
           ),
         ),

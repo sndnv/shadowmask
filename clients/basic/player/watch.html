@@ -441,6 +441,8 @@
         const video = document.getElementById("player");
         const keepPos =
           forcedPositionMs != null ? forcedPositionMs : originMs + Math.floor(video.currentTime * 1000);
+        const wasPlaying = !video.paused;
+        video.pause();
         applying = true;
         setControlsBusy(true);
         document.getElementById("status").textContent = "Applying changes…";
@@ -458,6 +460,7 @@
           await attach(r.manifest_url, r.mode, keepPos - originMs);
         } catch (err) {
           document.getElementById("status").textContent = "Renegotiation failed (" + err.message + ").";
+          if (wasPlaying) autostart(video);
         } finally {
           applying = false;
           setControlsBusy(false);

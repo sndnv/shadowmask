@@ -987,6 +987,97 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('a renegotiation stops the video and shows the spinner', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final Completer<http.Response> slow = Completer<http.Response>();
+    await tester.pumpWidget(_app(fake, onUpdate: (int _) => slow.future));
+    await tester.pumpAndSettle();
+    fake.emit(playing: true);
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.video_settings));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerOriginalAt(1080)).last);
+    await tester.pumpAndSettle();
+    fake.calls.clear();
+    await tester.tap(find.text('720p').last);
+    await tester.pump();
+
+    expect(
+      fake.calls,
+      contains('pause'),
+      reason: 'the settings they picked are not what the old stream is playing',
+    );
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.text(Strings.applyingPlaybackChanges), findsOneWidget);
+
+    slow.complete(_renegotiated('remux', '/stream/second/master.m3u8'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(fake.attachedAutoplay, isTrue);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a failed renegotiation resumes the stream it paused', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(
+      _app(
+        fake,
+        onUpdate: (int _) => Future<http.Response>.error(Exception('down')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    fake.emit(playing: true);
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.video_settings));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerOriginalAt(1080)).last);
+    await tester.pumpAndSettle();
+    fake.calls.clear();
+    await tester.tap(find.text('720p').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.renegotiationFailed), findsOneWidget);
+    expect(fake.calls, <String>[
+      'pause',
+      'play',
+    ], reason: 'a failure must not leave the player stopped on a live stream');
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a paused video is not resumed by a failed renegotiation', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(
+      _app(
+        fake,
+        onUpdate: (int _) => Future<http.Response>.error(Exception('down')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.video_settings));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerOriginalAt(1080)).last);
+    await tester.pumpAndSettle();
+    fake.calls.clear();
+    await tester.tap(find.text('720p').last);
+    await tester.pumpAndSettle();
+
+    expect(fake.calls, <String>['pause']);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('flushes a final progress on teardown', (
     WidgetTester tester,
   ) async {

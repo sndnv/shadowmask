@@ -392,6 +392,38 @@ async fn rename_unknown_subtitle_is_not_found() {
 }
 
 #[tokio::test]
+async fn renaming_a_subtitle_removed_while_the_request_was_in_flight_is_not_found() {
+    let (catalog, store) =
+        seed(&[file("generated:v1", SubtitleSource::Generated, "/subs/v1/gen.vtt", None)]).await;
+    catalog.clear_subtitles_after_next_read();
+
+    let (status, _) = send_body(
+        app(catalog, store),
+        "PUT",
+        &uri("generated:v1"),
+        Some(ADMIN),
+        r#"{"language":"fr"}"#,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn deleting_a_subtitle_removed_while_the_request_was_in_flight_is_not_found() {
+    let (catalog, store) =
+        seed(&[file("generated:v1", SubtitleSource::Generated, "/subs/v1/gen.vtt", None)]).await;
+    store.seed("/subs/v1/gen.vtt", "WEBVTT\n\nhello\n");
+    catalog.clear_subtitles_after_next_read();
+
+    let (status, _) =
+        send(app(catalog, store.clone()), "DELETE", &uri("generated:v1"), Some(ADMIN)).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(store.has("/subs/v1/gen.vtt"));
+}
+
+#[tokio::test]
 async fn rename_unknown_version_is_not_found() {
     let catalog = MockCatalogRepo::new();
     let (status, _) = send_body(

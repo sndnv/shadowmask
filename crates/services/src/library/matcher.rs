@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use domain::library::{
-    DiscoveredFile, MatchKey, MatchReport, MatchedGroup, ParsedMedia, UnmatchedFile,
+    DiscoveredFile, LibraryKind, MatchKey, MatchReport, MatchedGroup, ParsedMedia, UnmatchedFile,
     UnmatchedFileId,
 };
 use jiff::Timestamp;
@@ -25,7 +25,7 @@ impl Matcher {
         Self { threshold }
     }
 
-    pub fn match_files(&self, discovered: &[DiscoveredFile]) -> MatchReport {
+    pub fn match_files(&self, kind: LibraryKind, discovered: &[DiscoveredFile]) -> MatchReport {
         let mut groups: HashMap<MatchKey, (ParsedMedia, f32, Vec<DiscoveredFile>)> = HashMap::new();
         let mut unmatched = Vec::new();
         let now = Timestamp::now();
@@ -33,7 +33,8 @@ impl Matcher {
         for file in discovered {
             let parsed = parse_filename(&file.path);
             let score = confidence(&parsed);
-            if parsed.title.is_empty() || score < self.threshold {
+            let not_an_episode = kind == LibraryKind::Tv && !parsed.is_episodic();
+            if parsed.title.is_empty() || score < self.threshold || not_an_episode {
                 unmatched.push(UnmatchedFile {
                     id: UnmatchedFileId(format!("unmatched:{}", file.path)),
                     library: file.library.clone(),
@@ -98,11 +99,32 @@ mod tests {
     }
 
     #[test]
+    fn only_an_episode_is_matched_in_a_tv_library() {
+        let film = [file("/tv/Neon Harbor (2017).mkv")];
+        let in_tv = Matcher::new().match_files(LibraryKind::Tv, &film);
+        assert!(in_tv.matched.is_empty());
+        assert_eq!(in_tv.unmatched.len(), 1);
+        assert_eq!(in_tv.unmatched[0].path, "/tv/Neon Harbor (2017).mkv");
+
+        let in_movies = Matcher::new().match_files(LibraryKind::Movie, &film);
+        assert_eq!(in_movies.matched.len(), 1);
+        assert!(in_movies.unmatched.is_empty());
+
+        let episode = Matcher::new().match_files(
+            LibraryKind::Tv,
+            &[file("/tv/Neon Harbor/Season 1/Neon.Harbor.S01E02.mkv")],
+        );
+        assert_eq!(episode.matched.len(), 1);
+        assert_eq!(episode.matched[0].key.episode, Some(2));
+        assert!(episode.unmatched.is_empty());
+    }
+
+    #[test]
     fn groups_multiple_qualities_of_one_movie() {
-        let report = Matcher::new().match_files(&[
-            file("/m/The Matrix (1999) 1080p.mkv"),
-            file("/m/The Matrix (1999) 2160p.mkv"),
-        ]);
+        let report = Matcher::new().match_files(
+            LibraryKind::Movie,
+            &[file("/m/The Matrix (1999) 1080p.mkv"), file("/m/The Matrix (1999) 2160p.mkv")],
+        );
         assert_eq!(report.matched.len(), 1);
         assert_eq!(report.matched[0].files.len(), 2);
         assert_eq!(report.matched[0].key.title_slug, "the matrix");
@@ -112,8 +134,10 @@ mod tests {
 
     #[test]
     fn separate_episodes_are_separate_groups() {
-        let report =
-            Matcher::new().match_files(&[file("/tv/Show.S01E01.mkv"), file("/tv/Show.S01E02.mkv")]);
+        let report = Matcher::new().match_files(
+            LibraryKind::Tv,
+            &[file("/tv/Show.S01E01.mkv"), file("/tv/Show.S01E02.mkv")],
+        );
         assert_eq!(report.matched.len(), 2);
         assert_eq!(report.matched[0].key.episode, Some(1));
         assert_eq!(report.matched[1].key.episode, Some(2));
@@ -121,7 +145,7 @@ mod tests {
 
     #[test]
     fn low_confidence_file_goes_to_unmatched_queue() {
-        let report = Matcher::new().match_files(&[file("/m/recording.mkv")]);
+        let report = Matcher::new().match_files(LibraryKind::Movie, &[file("/m/recording.mkv")]);
         assert!(report.matched.is_empty());
         assert_eq!(report.unmatched.len(), 1);
         assert_eq!(report.unmatched[0].id.0, "unmatched:/m/recording.mkv");
@@ -131,18 +155,21 @@ mod tests {
 
     #[test]
     fn empty_title_file_goes_to_unmatched_queue() {
-        let report = Matcher::new().match_files(&[file("/m/2019.mkv")]);
+        let report = Matcher::new().match_files(LibraryKind::Movie, &[file("/m/2019.mkv")]);
         assert!(report.matched.is_empty());
         assert_eq!(report.unmatched.len(), 1);
     }
 
     #[test]
     fn mixed_input_partitions_deterministically() {
-        let report = Matcher::new().match_files(&[
-            file("/m/recording.mkv"),
-            file("/m/The Matrix (1999).mkv"),
-            file("/m/Sinister 2 (2015).mkv"),
-        ]);
+        let report = Matcher::new().match_files(
+            LibraryKind::Movie,
+            &[
+                file("/m/recording.mkv"),
+                file("/m/The Matrix (1999).mkv"),
+                file("/m/Sinister 2 (2015).mkv"),
+            ],
+        );
         assert_eq!(report.matched.len(), 2);
         assert_eq!(report.matched[0].key.title_slug, "sinister 2");
         assert_eq!(report.matched[1].key.title_slug, "the matrix");
@@ -152,14 +179,15 @@ mod tests {
 
     #[test]
     fn empty_input_yields_empty_report() {
-        let report = Matcher::default().match_files(&[]);
+        let report = Matcher::default().match_files(LibraryKind::Movie, &[]);
         assert!(report.matched.is_empty());
         assert!(report.unmatched.is_empty());
     }
 
     #[test]
     fn threshold_override_can_admit_bare_titles() {
-        let report = Matcher::with_threshold(0.3).match_files(&[file("/m/recording.mkv")]);
+        let report = Matcher::with_threshold(0.3)
+            .match_files(LibraryKind::Movie, &[file("/m/recording.mkv")]);
         assert_eq!(report.matched.len(), 1);
         assert_eq!(report.matched[0].key.title_slug, "recording");
         assert!(report.unmatched.is_empty());
@@ -167,7 +195,8 @@ mod tests {
 
     #[test]
     fn unmatched_queue_is_sorted_by_path() {
-        let report = Matcher::new().match_files(&[file("/m/zebra.mkv"), file("/m/apple.mkv")]);
+        let report = Matcher::new()
+            .match_files(LibraryKind::Movie, &[file("/m/zebra.mkv"), file("/m/apple.mkv")]);
         assert!(report.matched.is_empty());
         let paths: Vec<&str> = report.unmatched.iter().map(|u| u.path.as_str()).collect();
         assert_eq!(paths, ["/m/apple.mkv", "/m/zebra.mkv"]);

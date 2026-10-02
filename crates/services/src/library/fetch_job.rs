@@ -238,13 +238,10 @@ mod tests {
 
     #[test]
     fn a_typed_title_is_kept_whole_however_it_reads_as_a_release_name() {
-        // parse_filename cuts a scanned name at the first junk token, so "4K"
-        // inside a real title truncated this to "THIS IS". A fetch already
-        // knows the title, so it must not be re-derived from the filename.
-        let payload = movie("THIS IS 4K ANIME YOUR NAME 2160P 60FPS", None, None);
+        let payload = movie("OPEN STUDIO 4K DEMO REEL 2160P 60FPS", None, None);
         let parsed = payload.parsed("/ext/whatever.mkv");
-        assert_eq!(parsed.title, "THIS IS 4K ANIME YOUR NAME 2160P 60FPS");
-        assert_eq!(parse_filename("/ext/THIS IS 4K ANIME.mkv").title, "THIS IS");
+        assert_eq!(parsed.title, "OPEN STUDIO 4K DEMO REEL 2160P 60FPS");
+        assert_eq!(parse_filename("/ext/OPEN STUDIO 4K DEMO.mkv").title, "OPEN STUDIO");
     }
 
     #[test]
