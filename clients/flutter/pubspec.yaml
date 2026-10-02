@@ -13,7 +13,7 @@ dependencies:
   flutter_web_plugins:
     sdk: flutter
 
-  cupertino_icons: ^1.0.8
+  cupertino_icons: ^2.0.0
   fluro: ^2.0.5
   http: ^1.6.0
   freezed_annotation: ^3.1.0
