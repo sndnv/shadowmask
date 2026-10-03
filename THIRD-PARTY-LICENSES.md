@@ -6177,7 +6177,7 @@ Used by:
 - [bitflags 1.3.2](https://github.com/bitflags/bitflags)
 - [bitflags 2.13.2](https://github.com/bitflags/bitflags)
 - [bumpalo 3.20.3](https://github.com/fitzgen/bumpalo)
-- [cc 1.5.1](https://github.com/rust-lang/cc-rs)
+- [cc 1.6.0](https://github.com/rust-lang/cc-rs)
 - [cfg-if 1.0.5](https://github.com/rust-lang/cfg-if)
 - [cmake 0.1.58](https://github.com/rust-lang/cmake-rs)
 - [core-foundation-sys 0.8.7](https://github.com/servo/core-foundation-rs)
@@ -6271,7 +6271,7 @@ Used by:
 - [unicode-width 0.1.14](https://github.com/unicode-rs/unicode-width)
 - [unicode-width 0.2.2](https://github.com/unicode-rs/unicode-width)
 - [url 2.5.8](https://github.com/servo/rust-url)
-- [uuid 1.26.1](https://github.com/uuid-rs/uuid)
+- [uuid 1.27.0](https://github.com/uuid-rs/uuid)
 - [version_check 0.9.5](https://github.com/SergioBenitez/version_check)
 
 ````text
@@ -9080,7 +9080,7 @@ Used by:
 - [image 0.25.10](https://github.com/image-rs/image)
 - [itoa 1.0.18](https://github.com/dtolnay/itoa)
 - [jiff-cron 0.3.0](https://github.com/jiff-cron/jiff-cron)
-- [libc 0.2.189](https://github.com/rust-lang/libc)
+- [libc 0.2.190](https://github.com/rust-lang/libc)
 - [link-cplusplus 1.0.12](https://github.com/dtolnay/link-cplusplus)
 - [metrics-exporter-prometheus 0.18.3](https://github.com/metrics-rs/metrics)
 - [miniz_oxide 0.8.9](https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide)
