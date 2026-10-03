@@ -462,6 +462,18 @@ mod tests {
     }
 
     #[test]
+    fn this_year_and_next_are_release_years_in_brackets_and_bare() {
+        let current = Timestamp::now().to_zoned(TimeZone::UTC).year() as u16;
+        for year in [current, current + 1] {
+            let bracketed = parse(&format!("/m/Some.Film.({year})/Some Film ({year}).mkv"));
+            assert_eq!((bracketed.title.as_str(), bracketed.year), ("Some Film", Some(year)));
+            let bare = parse(&format!("/m/Some.Film.({year})/Some Film {year} 1080p WEB-DL.mkv"));
+            assert_eq!((bare.title.as_str(), bare.year), ("Some Film", Some(year)));
+        }
+        assert_eq!(parse(&format!("Some Film ({}).mkv", current + 2)).year, None);
+    }
+
+    #[test]
     fn a_bare_release_year_is_taken_from_the_end_not_the_title() {
         let p = parse("2001 A Lantern Voyage 1968.mkv");
         assert_eq!(p.title, "2001 A Lantern Voyage");
