@@ -243,7 +243,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         write(
             dir.path(),
-            "[[users]]\nusername = \"pat\"\npassword = \"secret\"\nrole = \"user\"\npreferred_audio = [\"eng\", \"nld\"]\npreferred_subtitle = [\"eng\"]\n",
+            "[[users]]\nusername = \"pat\"\npassword = \"secret\"\nrole = \"user\"\npreferred_audio = [\"en\", \"nl\"]\npreferred_subtitle = [\"en\"]\n",
         );
         let users = user_service();
         let provider = UserBootstrapProvider::new(users.clone(), library_service().0);
@@ -256,9 +256,9 @@ mod tests {
         let pat = &listed.items[0];
         assert_eq!(
             pat.preferred_audio,
-            vec![LanguageCode("eng".to_owned()), LanguageCode("nld".to_owned())]
+            vec![LanguageCode("en".to_owned()), LanguageCode("nl".to_owned())]
         );
-        assert_eq!(pat.preferred_subtitle, vec![LanguageCode("eng".to_owned())]);
+        assert_eq!(pat.preferred_subtitle, vec![LanguageCode("en".to_owned())]);
     }
 
     #[tokio::test]

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
@@ -257,6 +258,25 @@ class _ScanBlockState extends State<_ScanBlock> with Mutations<_ScanBlock> {
     then: _reload,
   );
 
+  Future<void> _reread() async {
+    final bool ok = await confirmDialog(
+      context,
+      title: Strings.rereadFiles,
+      message: Strings.confirmRereadFilesBody,
+      confirmLabel: Strings.rereadFiles,
+      danger: false,
+    );
+    if (!ok) {
+      return;
+    }
+    await mutate(
+      () => widget.libraries.triggerScan(widget.id, reread: true),
+      successText: Strings.toastRereadQueued,
+      errorText: Strings.errorScan,
+      then: _reload,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return SectionBlock(
@@ -266,6 +286,11 @@ class _ScanBlockState extends State<_ScanBlock> with Mutations<_ScanBlock> {
           icon: Icons.refresh,
           label: Strings.refresh,
           onPressed: _reload,
+        ),
+        PageAction(
+          icon: Icons.find_replace,
+          label: Strings.rereadFiles,
+          onPressed: busy() ? null : _reread,
         ),
         PageAction(
           icon: Icons.play_arrow,
@@ -387,6 +412,12 @@ class _VersionsBlockState extends State<_VersionsBlock> {
                     v.path ?? v.id,
                     style: monoStyle.copyWith(color: t.text, fontSize: 12),
                   ),
+                  narrowCell: (BuildContext context, Version v) =>
+                      StartEllipsisText.middle(
+                        p.basename(v.path ?? v.id),
+                        tooltip: v.path ?? v.id,
+                        style: monoStyle.copyWith(color: t.text, fontSize: 12),
+                      ),
                 ),
                 AdminColumn<Version>(
                   label: Strings.columnTitle,
@@ -415,7 +446,7 @@ class _VersionsBlockState extends State<_VersionsBlock> {
                   align: AdminColumnAlign.end,
                   sortKey: (Version v) => v.sizeBytes,
                   cell: (BuildContext context, Version v) =>
-                      Text(megabytes(v.sizeBytes)),
+                      Text(gigabytes(v.sizeBytes)),
                 ),
                 AdminColumn<Version>(
                   label: Strings.columnAvailable,

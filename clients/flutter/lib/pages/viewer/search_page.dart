@@ -8,8 +8,8 @@ import 'package:shadowmask/components/card_grid.dart';
 import 'package:shadowmask/components/card_rail.dart';
 import 'package:shadowmask/components/crumb.dart';
 import 'package:shadowmask/components/empty_note.dart';
+import 'package:shadowmask/components/link_heading.dart';
 import 'package:shadowmask/components/pagination.dart';
-import 'package:shadowmask/components/section_heading.dart';
 import 'package:shadowmask/components/skeleton.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/nav/nav_section.dart';
@@ -26,6 +26,9 @@ import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
 
 const double kSearchControlHeight = 40;
+const int kSearchPreviewLimit = 24;
+
+typedef _Section = ({TitleKind kind, String label, Paged<CatalogCard> page});
 
 class SearchPage extends StatelessWidget {
   const SearchPage({
@@ -84,25 +87,42 @@ class _SearchBodyState extends State<_SearchBody> {
   late final TextEditingController _controller = TextEditingController(
     text: _q,
   );
-  late final Future<Paged<CatalogCard>>? _future = _q.isEmpty ? null : _load();
+  late final Future<List<_Section>>? _future = _q.isEmpty ? null : _load();
 
   EmptyState _empty = const EmptyState(Strings.noResultsFound);
 
-  Future<Paged<CatalogCard>> _load() async {
-    final Paged<CatalogCard> page = await _catalog.search(
-      q: _q,
-      type: _type,
-      offset: _offset,
-    );
-    await tagWatched(_catalog, widget.user.id, page.items);
-    if (page.items.isEmpty) {
+  bool get _all => _type == null;
+
+  Future<List<_Section>> _load() async {
+    final List<(TitleKind, String)> kinds = _blocks
+        .where(((TitleKind, String) b) => _all || b.$1.name == _type)
+        .toList();
+    final List<Paged<CatalogCard>> pages =
+        await Future.wait(<Future<Paged<CatalogCard>>>[
+          for (final (TitleKind kind, String _) in kinds)
+            _catalog.search(
+              q: _q,
+              type: kind.name,
+              offset: _all ? 0 : _offset,
+              limit: _all ? kSearchPreviewLimit : null,
+            ),
+        ]);
+    final List<_Section> sections = <_Section>[
+      for (int i = 0; i < kinds.length; i++)
+        (kind: kinds[i].$1, label: kinds[i].$2, page: pages[i]),
+    ];
+    final List<CatalogCard> cards = <CatalogCard>[
+      for (final _Section s in sections) ...s.page.items,
+    ];
+    await tagWatched(_catalog, widget.user.id, cards);
+    if (cards.isEmpty) {
       _empty = await emptyState(
         widget.api,
         isAdmin: widget.user.isAdmin,
         noun: Strings.noResultsFound,
       );
     }
-    return page;
+    return sections;
   }
 
   static const List<(TitleKind, String)> _blocks = <(TitleKind, String)>[
@@ -115,54 +135,36 @@ class _SearchBodyState extends State<_SearchBody> {
   static bool _isRail(TitleKind kind) =>
       kind == TitleKind.episode || kind == TitleKind.person;
 
-  List<(String, List<CatalogCard>, bool)> _groups(List<CatalogCard> cards) {
-    final List<(String, List<CatalogCard>, bool)> out =
-        <(String, List<CatalogCard>, bool)>[];
-    for (final (TitleKind kind, String label) in _blocks) {
-      final List<CatalogCard> group = cards
-          .where((CatalogCard card) => card.ref.type == kind)
-          .toList();
-      if (group.isEmpty) {
-        continue;
-      }
-      out.add((Strings.countLabel(label, group.length), group, _isRail(kind)));
-    }
-    final Set<TitleKind> known = _blocks
-        .map(((TitleKind, String) block) => block.$1)
-        .toSet();
-    final List<CatalogCard> rest = cards
-        .where((CatalogCard card) => !known.contains(card.ref.type))
-        .toList();
-    if (rest.isNotEmpty) {
-      out.add(('', rest, false));
-    }
-    return out;
-  }
-
-  Widget _block(
-    String title,
-    List<CatalogCard> group,
-    bool rail, {
-    bool natural = false,
-  }) {
-    if (rail) {
+  Widget _block(_Section section, {bool natural = false}) {
+    final String count = Strings.countLabel(section.label, section.page.total);
+    final bool more = _all && section.page.hasNext;
+    final String title = more ? Strings.seeAllAfter(count) : count;
+    final String? link = more ? Strings.seeAll : null;
+    final String? route = more
+        ? withQuery(searchRoute(), <String, String?>{
+            'q': _q,
+            'type': section.kind.name,
+          })
+        : null;
+    final List<CatalogCard> cards = section.page.items;
+    if (_isRail(section.kind)) {
       return CardRail(
         title: title,
-        cards: group,
+        titleLink: link,
+        titleRoute: route,
+        cards: cards,
         imageBase: _catalog.imageBase,
       );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        if (title.isNotEmpty) ...<Widget>[
-          SectionHeading(title: title),
-          const SizedBox(height: Space.s3),
-        ],
+        LinkHeading(title: title, linkLabel: link, route: route),
+        const SizedBox(height: Space.s3),
         CardGrid(
-          cards: group,
+          cards: cards,
           imageBase: _catalog.imageBase,
-          cardWidth: natural ? cardWidthFor(aspectOf(group)) : null,
+          cardWidth: natural ? cardWidthFor(aspectOf(cards)) : null,
         ),
       ],
     );
@@ -173,15 +175,14 @@ class _SearchBodyState extends State<_SearchBody> {
     return group.length * card + (group.length - 1) * Space.s4;
   }
 
-  Widget _results(List<CatalogCard> cards, double available) {
-    final List<(String, List<CatalogCard>, bool)> groups = _groups(cards);
-    if (groups.length < 2 || available < Breakpoints.md) {
+  Widget _results(List<_Section> sections, double available) {
+    if (sections.length < 2 || available < Breakpoints.md) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          for (int i = 0; i < groups.length; i++) ...<Widget>[
+          for (int i = 0; i < sections.length; i++) ...<Widget>[
             if (i > 0) const SizedBox(height: Space.s5),
-            _block(groups[i].$1, groups[i].$2, groups[i].$3),
+            _block(sections[i]),
           ],
         ],
       );
@@ -190,14 +191,14 @@ class _SearchBodyState extends State<_SearchBody> {
       spacing: Space.s4,
       runSpacing: Space.s5,
       children: <Widget>[
-        for (final (String title, List<CatalogCard> group, bool rail) in groups)
-          if (_naturalWidth(group) < available)
+        for (final _Section section in sections)
+          if (_naturalWidth(section.page.items) < available)
             SizedBox(
-              width: _naturalWidth(group),
-              child: _block(title, group, rail, natural: true),
+              width: _naturalWidth(section.page.items),
+              child: _block(section, natural: true),
             )
           else
-            SizedBox(width: available, child: _block(title, group, rail)),
+            SizedBox(width: available, child: _block(section)),
       ],
     );
   }
@@ -287,30 +288,34 @@ class _SearchBodyState extends State<_SearchBody> {
         if (_future == null)
           const EmptyNote(EmptyState(Strings.searchOpening))
         else
-          buildBlock<Paged<CatalogCard>>(
+          buildBlock<List<_Section>>(
             future: _future,
             errorText: Strings.couldNotLoadSearch,
             loading: const SkeletonCards(),
-            builder: (BuildContext context, Paged<CatalogCard> page) {
+            builder: (BuildContext context, List<_Section> sections) {
+              final List<_Section> found = sections
+                  .where((_Section s) => s.page.items.isNotEmpty)
+                  .toList();
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  if (page.items.isEmpty)
+                  if (found.isEmpty)
                     EmptyNote(_empty)
                   else
                     LayoutBuilder(
                       builder:
                           (BuildContext context, BoxConstraints constraints) =>
-                              _results(page.items, constraints.maxWidth),
+                              _results(found, constraints.maxWidth),
                     ),
-                  Pagination(
-                    basePath: searchRoute(),
-                    params: <String, String?>{'q': _q, 'type': _type},
-                    total: page.total,
-                    offset: page.offset,
-                    limit: page.limit,
-                    count: page.items.length,
-                  ),
+                  if (!_all && sections.length == 1)
+                    Pagination(
+                      basePath: searchRoute(),
+                      params: <String, String?>{'q': _q, 'type': _type},
+                      total: sections.single.page.total,
+                      offset: sections.single.page.offset,
+                      limit: sections.single.page.limit,
+                      count: sections.single.page.items.length,
+                    ),
                 ],
               );
             },

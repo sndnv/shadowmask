@@ -144,7 +144,7 @@ mod tests {
         let job = transcription_job(
             &VersionId("v1".into()),
             "/media/v1.mkv",
-            Some("spa".into()),
+            Some("es".into()),
             Some(2),
             false,
         );
@@ -153,7 +153,7 @@ mod tests {
         let decoded = TranscriptionJobPayload::decode(&job.payload).unwrap();
         assert_eq!(decoded.version_id, VersionId("v1".into()));
         assert_eq!(decoded.source_path, "/media/v1.mkv");
-        assert_eq!(decoded.source_language.as_deref(), Some("spa"));
+        assert_eq!(decoded.source_language.as_deref(), Some("es"));
         assert_eq!(decoded.audio_track_index, Some(2));
         assert!(!decoded.force);
     }
@@ -176,30 +176,30 @@ mod tests {
 
     #[test]
     fn select_audio_track_returns_index_of_preferred_language() {
-        let tracks = [track(1, Some("eng")), track(2, Some("spa"))];
-        assert_eq!(select_audio_track(&tracks, Some("spa")), Some(2));
+        let tracks = [track(1, Some("en")), track(2, Some("es"))];
+        assert_eq!(select_audio_track(&tracks, Some("es")), Some(2));
     }
 
     #[test]
     fn select_audio_track_returns_first_match() {
-        let tracks = [track(1, Some("eng")), track(2, Some("eng"))];
-        assert_eq!(select_audio_track(&tracks, Some("eng")), Some(1));
+        let tracks = [track(1, Some("en")), track(2, Some("en"))];
+        assert_eq!(select_audio_track(&tracks, Some("en")), Some(1));
     }
 
     #[test]
     fn select_audio_track_is_none_without_a_match() {
-        let tracks = [track(1, Some("eng")), track(2, None)];
-        assert_eq!(select_audio_track(&tracks, Some("spa")), None);
+        let tracks = [track(1, Some("en")), track(2, None)];
+        assert_eq!(select_audio_track(&tracks, Some("es")), None);
     }
 
     #[test]
     fn select_audio_track_is_none_without_a_preference() {
-        let tracks = [track(1, Some("eng"))];
+        let tracks = [track(1, Some("en"))];
         assert_eq!(select_audio_track(&tracks, None), None);
     }
 
     #[test]
     fn select_audio_track_is_none_when_empty() {
-        assert_eq!(select_audio_track(&[], Some("eng")), None);
+        assert_eq!(select_audio_track(&[], Some("en")), None);
     }
 }

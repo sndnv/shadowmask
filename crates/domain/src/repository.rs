@@ -50,6 +50,10 @@ pub trait CatalogRepository {
         &self,
         ids: &[SeriesId],
     ) -> impl Future<Output = Result<Vec<Series>, RepositoryError>> + Send;
+    fn season_counts(
+        &self,
+        series: &[SeriesId],
+    ) -> impl Future<Output = Result<HashMap<SeriesId, u16>, RepositoryError>> + Send;
     fn list_series(
         &self,
         page: PageRequest,
@@ -575,6 +579,11 @@ pub trait JobRepository {
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<JobNode>, RepositoryError>> + Send;
     fn cancel(
+        &self,
+        id: &JobId,
+        now: Timestamp,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+    fn retry(
         &self,
         id: &JobId,
         now: Timestamp,

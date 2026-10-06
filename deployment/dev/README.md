@@ -102,8 +102,11 @@ play. It writes into the same dirs the compose file mounts (`SHADOWMASK_MOVIES_D
 `SHADOWMASK_TV_DIR`, default `./media/movies` and `./media/tv`). Run it, then trigger a library scan
 (admin UI or API). See its `--help` for options. It is additive by default; pass `--reset` to clear
 the dirs first. Pass `--real` to download real Creative Commons clips in place of the synthetic
-stand-ins so full-length content can be played (see the paragraph below). The smoke test (below)
-generates its own fixtures separately.
+stand-ins so full-length content can be played (see the paragraph below). Pass `--cases` to add the
+catalog shapes specific checks need: one title in two qualities (`Paper Skies (2007)`, 2160p and
+720p), a show with a Specials season and three regular seasons (`Skyline`), a show with only a
+Specials season (`Lantern`), and a film filed one year before its TMDB year (`Casablanca (1942)`;
+TMDB has 1943). The smoke test (below) generates its own fixtures separately.
 
 The movie titles are real, TMDB-matchable names (the public-domain Blender open movies). Set
 `SHADOWMASK_TMDB_API_KEY` before starting the stack and a scan will enrich them with real metadata

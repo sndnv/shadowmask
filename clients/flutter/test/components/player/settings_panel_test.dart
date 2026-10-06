@@ -18,7 +18,7 @@ VersionDetail _version() => VersionDetail.fromJson(<String, dynamic>{
   'subtitles': <dynamic>[
     <String, dynamic>{
       'index': 0,
-      'language': 'eng',
+      'language': 'en',
       'format': 'pgs',
       'forced': false,
       'default': true,

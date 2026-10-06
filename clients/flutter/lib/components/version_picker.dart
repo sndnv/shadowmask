@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
 
+import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/action_segments.dart';
+import 'package:shadowmask/components/admin/subtitle_dialogs.dart';
+import 'package:shadowmask/components/admin/version_job_dialogs.dart';
+import 'package:shadowmask/components/outline_pill.dart';
 import 'package:shadowmask/components/toast_host.dart';
+import 'package:shadowmask/components/version_label.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/download_link.dart';
-import 'package:shadowmask/model/common/quality.dart';
 import 'package:shadowmask/model/session/resume_position.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
 import 'package:shadowmask/nav/routes.dart';
+import 'package:shadowmask/theme/app_menu.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/radii.dart';
 import 'package:shadowmask/theme/space.dart';
@@ -20,6 +25,7 @@ import 'package:shadowmask/util/absolute_url.dart';
 import 'package:shadowmask/util/downloads.dart';
 import 'package:shadowmask/util/format.dart';
 import 'package:shadowmask/util/languages.dart';
+import 'package:shadowmask/util/subtitle_labels.dart';
 import 'package:shadowmask/view/failure_reason.dart';
 import 'package:shadowmask/view/version_order.dart';
 
@@ -37,6 +43,14 @@ const double kVersionRowSideBySide =
     kVersionActionsWidth +
     Space.s2 +
     _kIconButtonWidth;
+
+const double kVersionAdminActionsWidth = 2 * _kIconButtonWidth;
+
+String audioTrackLabel(AudioTrack a) => <String>[
+  if (a.language != null) languageLabel(a.language!),
+  a.codec,
+  '${a.channels}ch',
+].join(' · ');
 
 int distinctSubtitleLanguages(VersionDetail d) {
   final Set<String> langs = <String>{};
@@ -69,23 +83,6 @@ List<String> subtitleLanguages(VersionDetail d) {
   return sorted;
 }
 
-String versionMetaRest(Version v, VersionDetail? d) {
-  final List<String> bits = <String>[v.container];
-  final VideoTrack? video = (d?.video.isNotEmpty ?? false)
-      ? d!.video.first
-      : null;
-  if (video != null) {
-    bits.add(video.codec);
-  }
-  final AudioTrack? audio = (d?.audio.isNotEmpty ?? false)
-      ? d!.audio.first
-      : null;
-  if (audio != null) {
-    bits.add('${audio.codec} ${audio.channels}ch');
-  }
-  return bits.join(' · ');
-}
-
 class VersionPicker extends StatefulWidget {
   const VersionPicker({
     super.key,
@@ -95,6 +92,7 @@ class VersionPicker extends StatefulWidget {
     required this.versions,
     this.onProgressCleared,
     this.showHeading = true,
+    this.admin,
   });
 
   final CatalogApi catalog;
@@ -103,6 +101,7 @@ class VersionPicker extends StatefulWidget {
   final List<Version> versions;
   final VoidCallback? onProgressCleared;
   final bool showHeading;
+  final AdminApi? admin;
 
   @override
   State<VersionPicker> createState() => _VersionPickerState();
@@ -110,7 +109,11 @@ class VersionPicker extends StatefulWidget {
 
 class _VersionPickerState extends State<VersionPicker> {
   late final List<Version> _ordered = orderedVersions(widget.versions);
-  late final Future<List<VersionDetail?>> _details = _load();
+  late Future<List<VersionDetail?>> _details = _load();
+
+  void _reload() => setState(() {
+    _details = _load();
+  });
 
   Future<List<VersionDetail?>> _load() => Future.wait(
     _ordered.map((Version v) async {
@@ -167,6 +170,8 @@ class _VersionPickerState extends State<VersionPicker> {
                             userId: widget.userId,
                             showTopBorder: i > 0,
                             onDismissed: widget.onProgressCleared,
+                            admin: widget.admin,
+                            onChanged: _reload,
                           ),
                       ],
                     ),
@@ -196,6 +201,8 @@ class _VersionRow extends StatefulWidget {
     required this.userId,
     required this.showTopBorder,
     required this.onDismissed,
+    required this.admin,
+    required this.onChanged,
   });
 
   final Version version;
@@ -205,6 +212,8 @@ class _VersionRow extends StatefulWidget {
   final String userId;
   final bool showTopBorder;
   final VoidCallback? onDismissed;
+  final AdminApi? admin;
+  final VoidCallback onChanged;
 
   @override
   State<_VersionRow> createState() => _VersionRowState();
@@ -249,6 +258,115 @@ class _VersionRowState extends State<_VersionRow> {
     tooltip: Strings.downloadVersion,
     icon: Icon(Icons.download_outlined, color: t.muted),
   );
+
+  Future<void> _run(Future<bool> action) async {
+    if (await action && mounted) {
+      widget.onChanged();
+    }
+  }
+
+  List<Widget> _adminActions(
+    BuildContext context,
+    Tokens t,
+    Version v,
+    VersionDetail? d,
+  ) {
+    final AdminApi? admin = widget.admin;
+    if (admin == null) {
+      return const <Widget>[];
+    }
+    return <Widget>[
+      IconButton(
+        onPressed: () => Navigator.of(context).pushNamed(versionRoute(v.id)),
+        tooltip: Strings.openVersion,
+        icon: Icon(Icons.settings_outlined, color: t.muted),
+      ),
+      _subtitlesMenu(context, t, admin, v, d),
+    ];
+  }
+
+  Widget _subtitlesMenu(
+    BuildContext context,
+    Tokens t,
+    AdminApi admin,
+    Version v,
+    VersionDetail? d,
+  ) {
+    final MenuController controller = MenuController();
+    final List<AudioTrack> audio = d?.audio ?? const <AudioTrack>[];
+    final List<SubtitleFile> files = d?.subtitleFiles ?? const <SubtitleFile>[];
+    void transcribe(AudioTrack track) => _run(
+      showTranscribeDialog(
+        context,
+        admin: admin,
+        versionId: v.id,
+        audioTrackIndex: track.index,
+      ),
+    );
+    return MenuAnchor(
+      controller: controller,
+      alignmentOffset: kMenuOffset,
+      style: appMenuStyle(t),
+      menuChildren: <Widget>[
+        MenuItemButton(
+          leadingIcon: const Icon(Icons.search),
+          onPressed: d == null
+              ? null
+              : () => _run(
+                  showSubtitleSearch(
+                    context,
+                    admin: admin,
+                    versionId: v.id,
+                    existing: files,
+                  ),
+                ),
+          child: const Text(Strings.searchSubtitles),
+        ),
+        if (audio.length > 1)
+          SubmenuButton(
+            leadingIcon: const Icon(Icons.record_voice_over_outlined),
+            menuChildren: <Widget>[
+              for (final AudioTrack track in audio)
+                MenuItemButton(
+                  onPressed: () => transcribe(track),
+                  child: Text(audioTrackLabel(track)),
+                ),
+            ],
+            child: const Text(Strings.transcribe),
+          )
+        else
+          MenuItemButton(
+            leadingIcon: const Icon(Icons.record_voice_over_outlined),
+            onPressed: audio.isEmpty ? null : () => transcribe(audio.first),
+            child: const Text(Strings.transcribe),
+          ),
+        SubmenuButton(
+          leadingIcon: const Icon(Icons.translate),
+          menuChildren: <Widget>[
+            for (final SubtitleFile file in files)
+              MenuItemButton(
+                onPressed: () => _run(
+                  showTranslateDialog(
+                    context,
+                    admin: admin,
+                    versionId: v.id,
+                    source: file,
+                  ),
+                ),
+                child: Text(subtitleFileLabel(file)),
+              ),
+          ],
+          child: const Text(Strings.translate),
+        ),
+      ],
+      child: IconButton(
+        tooltip: Strings.subtitlesHeading,
+        onPressed: () =>
+            controller.isOpen ? controller.close() : controller.open(),
+        icon: Icon(Icons.closed_caption_outlined, color: t.muted),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -313,7 +431,10 @@ class _VersionRowState extends State<_VersionRow> {
       ),
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
-          final bool narrow = constraints.maxWidth < kVersionRowSideBySide;
+          final double sideBySide =
+              kVersionRowSideBySide +
+              (widget.admin == null ? 0 : kVersionAdminActionsWidth);
+          final bool narrow = constraints.maxWidth < sideBySide;
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -329,24 +450,13 @@ class _VersionRowState extends State<_VersionRow> {
     );
   }
 
-  Widget _label(Tokens t, Version v, VersionDetail? d, bool available) =>
-      Text.rich(
-        TextSpan(
-          style: monoStyle.copyWith(color: available ? t.text : t.muted),
-          children: <InlineSpan>[
-            TextSpan(
-              text: '${widget.number} · ',
-              style: TextStyle(color: t.muted),
-            ),
-            TextSpan(
-              text: v.quality.label,
-              style: TextStyle(color: available ? t.accent : t.muted),
-            ),
-            TextSpan(text: ' · ${versionMetaRest(v, d)}'),
-          ],
-        ),
-        overflow: TextOverflow.ellipsis,
-      );
+  Widget _label(Tokens t, Version v, bool available) => Text.rich(
+    TextSpan(
+      style: monoStyle.copyWith(color: available ? t.text : t.muted),
+      children: versionLabelSpans(t, v, widget.number, available: available),
+    ),
+    overflow: TextOverflow.ellipsis,
+  );
 
   Widget _narrowHeader(
     BuildContext context,
@@ -361,7 +471,7 @@ class _VersionRowState extends State<_VersionRow> {
         padding: const EdgeInsets.symmetric(horizontal: Space.s3, vertical: 9),
         child: Row(
           children: <Widget>[
-            Expanded(child: _label(t, v, d, available)),
+            Expanded(child: _label(t, v, available)),
             if (!available) ...<Widget>[
               const SizedBox(width: Space.s2),
               Text(
@@ -396,14 +506,15 @@ class _VersionRowState extends State<_VersionRow> {
                 Flexible(
                   child: InkWell(
                     onTap: _toggleOpen,
-                    child: _label(t, v, d, available),
+                    child: _label(t, v, available),
                   ),
                 ),
                 if (available) _downloadButton(t, v),
+                ..._adminActions(context, t, v, d),
               ],
             ),
           ),
-          if (d != null) _ccPill(t, distinctSubtitleLanguages(d)),
+          if (d != null) _ccPill(distinctSubtitleLanguages(d)),
           const SizedBox(width: Space.s3),
           SizedBox(
             width: kVersionActionsWidth,
@@ -458,36 +569,11 @@ class _VersionRowState extends State<_VersionRow> {
     );
   }
 
-  Widget _ccPill(Tokens t, int count) {
-    final bool has = count > 0;
-    final Color fg = has ? t.accent : t.muted;
-    final Color borderColor = has
-        ? Color.alphaBlend(t.accent.withValues(alpha: 0.45), t.border)
-        : t.border;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: Space.s2, vertical: 2),
-      decoration: BoxDecoration(
-        borderRadius: const BorderRadius.all(Radii.pill),
-        border: Border.all(color: borderColor),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Icon(Icons.closed_caption_outlined, size: 14, color: fg),
-          const SizedBox(width: 5),
-          Text(
-            has ? '$count' : Strings.ccNone,
-            style: monoStyle.copyWith(
-              color: fg,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _ccPill(int count) => OutlinePill(
+    icon: Icons.closed_caption_outlined,
+    text: count > 0 ? '$count' : Strings.ccNone,
+    active: count > 0,
+  );
 
   Widget _detailBody(
     BuildContext context,
@@ -510,12 +596,21 @@ class _VersionRowState extends State<_VersionRow> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            if (narrow && available) ...<Widget>[
+            if (narrow && (available || widget.admin != null)) ...<Widget>[
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: <Widget>[
-                  Flexible(child: _trailing(context, t, v, available)),
-                  _downloadButton(t, v),
+                  if (available)
+                    Flexible(child: _trailing(context, t, v, available))
+                  else
+                    const Spacer(),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      if (available) _downloadButton(t, v),
+                      ..._adminActions(context, t, v, d),
+                    ],
+                  ),
                 ],
               ),
               const SizedBox(height: Space.s3),
@@ -557,7 +652,7 @@ class _VersionRowState extends State<_VersionRow> {
               _labelRow(
                 t,
                 Strings.factSize,
-                _value(t, megabytes(widget.version.sizeBytes)),
+                _value(t, gigabytes(widget.version.sizeBytes)),
               ),
             if (d != null)
               _labelRow(

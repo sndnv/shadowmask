@@ -134,6 +134,21 @@ mod tests {
     }
 
     #[test]
+    fn mapping_the_series_leaves_every_other_kind_alone() {
+        let mapped: Vec<SearchResult<String>> =
+            [movie("Drift"), series("Static Bloom"), episode("Pilot Light"), person("Ada")]
+                .into_iter()
+                .map(|result| result.map_series(|series| series.title))
+                .collect();
+
+        assert_eq!(
+            mapped.iter().map(SearchResult::kind).collect::<Vec<_>>(),
+            [SearchKind::Movie, SearchKind::Series, SearchKind::Episode, SearchKind::Person]
+        );
+        assert!(matches!(&mapped[1], SearchResult::Series(title) if title == "Static Bloom"));
+    }
+
+    #[test]
     fn filters_by_kind() {
         let candidates = [
             movie("Matrix"),

@@ -48,6 +48,7 @@ metrics-exporter-prometheus = { version = "0.18", default-features = false }
 regex = "1"
 sanitize-filename = "0.6"
 unicode-normalization = "0.1"
+isolang = { version = "2.4", default-features = false }
 url = "2"
 walkdir = "2"
 notify = "8"

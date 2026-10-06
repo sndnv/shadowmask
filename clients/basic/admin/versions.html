@@ -142,7 +142,7 @@
               ),
               sm.el("td", null, (v.quality || "").toUpperCase()),
               sm.el("td", null, v.container),
-              sm.el("td", null, Math.round(v.size_bytes / 1048576) + " MB"),
+              sm.el("td", null, sm.gigabytes(v.size_bytes)),
               sm.el(
                 "td",
                 null,
@@ -453,11 +453,22 @@
           const results = sm.el("div", { class: "sm-sub-results" });
 
           function score(c) {
-            const parts = [];
-            if (typeof c.rating === "number" && c.rating > 0) parts.push("★" + c.rating.toFixed(1));
-            if (typeof c.download_count === "number")
-              parts.push(c.download_count.toLocaleString() + "⬇");
-            return parts.join(" · ") || "no rating";
+            return typeof c.rating === "number" && c.rating > 0
+              ? "★" + c.rating.toFixed(1)
+              : "no rating";
+          }
+
+          const compact = new Intl.NumberFormat(undefined, { notation: "compact" });
+
+          function downloads(c) {
+            const n = c.download_count;
+            if (typeof n !== "number") return null;
+            const words = n === 1 ? "1 download" : n.toLocaleString() + " downloads";
+            return sm.el(
+              "span",
+              { class: "sm-badge sm-outline", title: words, "aria-label": words },
+              "↓ " + compact.format(n),
+            );
           }
 
           function renderCandidates(items) {
@@ -495,7 +506,7 @@
                   " · " + c.format + " · " + score(c),
                 ]),
               ]);
-              list.appendChild(sm.el("div", { class: "sm-sub-candidate" }, [info, dl]));
+              list.appendChild(sm.el("div", { class: "sm-sub-candidate" }, [info, downloads(c), dl]));
             });
             results.appendChild(list);
           }

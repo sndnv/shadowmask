@@ -16,7 +16,7 @@ use crate::cancel::CancelRegistry;
 use crate::error::JobError;
 use crate::job_handler::JobHandler;
 use crate::metrics::ActiveJob;
-use crate::retry::{RetryPolicy, apply_outcome};
+use crate::retry::{RetryPolicy, apply_outcome, will_retry};
 
 enum Outcome {
     Done(Result<(), JobError>),
@@ -52,8 +52,10 @@ async fn finish_job<L: JobLogStore>(
     started: std::time::Instant,
     now: Timestamp,
     outcome: &Outcome,
+    policy: &RetryPolicy,
 ) {
     let elapsed = started.elapsed().as_secs_f64();
+    let attempt = job.attempts + 1;
     match outcome {
         Outcome::Done(result) => {
             active.finish(result.is_ok());
@@ -62,12 +64,18 @@ async fn finish_job<L: JobLogStore>(
                     JobLogLevel::Info,
                     format!("finished {:?}: succeeded in {elapsed:.1}s", job.kind),
                 ),
-                Err(JobError::Retryable(message)) => (
+                Err(err @ JobError::Retryable(message)) if will_retry(attempt, err, policy) => (
                     JobLogLevel::Warn,
                     format!(
-                        "finished {:?}: failed in {elapsed:.1}s (attempt {}), will retry: {message}",
-                        job.kind,
-                        job.attempts + 1
+                        "finished {:?}: failed in {elapsed:.1}s (attempt {attempt}), will retry: {message}",
+                        job.kind
+                    ),
+                ),
+                Err(JobError::Retryable(message)) => (
+                    JobLogLevel::Error,
+                    format!(
+                        "finished {:?}: failed in {elapsed:.1}s (attempt {attempt} of {}), no retries left: {message}",
+                        job.kind, policy.max_attempts
                     ),
                 ),
                 Err(JobError::Permanent(message)) => (
@@ -170,6 +178,7 @@ where
             let log = Arc::clone(&self.log);
             let mut cancelled = self.cancel.register(&job.id);
             let pool = Arc::clone(&self.pool);
+            let policy = self.policy.clone();
             tasks.spawn(async move {
                 let _permit = permit;
                 let span =
@@ -181,7 +190,7 @@ where
                 let active = ActiveJob::start(job.kind, &pool);
                 let outcome =
                     drive(Box::pin(handler.handle(&job).instrument(span)), &mut cancelled).await;
-                finish_job(&*log, &job, active, started, now, &outcome).await;
+                finish_job(&*log, &job, active, started, now, &outcome, &policy).await;
                 (job, outcome)
             });
         }
@@ -367,6 +376,34 @@ mod tests {
         let lines = log.lines_for(&JobId("a".into()));
         assert!(lines[1].contains("WARN finished LibraryScan: failed in"));
         assert!(lines[1].contains("(attempt 1), will retry: boom"));
+    }
+
+    #[tokio::test]
+    async fn a_retryable_failure_on_the_last_attempt_logs_no_retry() {
+        let now = Timestamp::now();
+        let store = MockJobStore::new();
+        let mut last = job("a", JobPriority::Normal, now);
+        last.attempts = 2;
+        store.enqueue(last).await.unwrap();
+        let log = MockJobLogStore::new();
+        let worker = Worker::new(
+            store.clone(),
+            Arc::new(RetryHandler),
+            log.clone(),
+            4,
+            RetryPolicy::default(),
+            test_kinds(),
+        );
+
+        worker.run_once(now).await.unwrap();
+        let stored = store.get(&JobId("a".into())).await.unwrap().unwrap();
+        assert_eq!(stored.status, JobStatus::Failed);
+        assert_eq!(stored.attempts, 3);
+
+        let lines = log.lines_for(&JobId("a".into()));
+        assert!(lines[1].contains("ERROR finished LibraryScan: failed in"));
+        assert!(lines[1].contains("(attempt 3 of 3), no retries left: boom"));
+        assert!(!lines[1].contains("will retry"));
     }
 
     #[tokio::test]

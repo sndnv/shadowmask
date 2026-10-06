@@ -310,6 +310,9 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
                             userId: widget.user.id,
                             versions: ordered,
                             onProgressCleared: _reload,
+                            admin: widget.user.isAdmin
+                                ? AdminApi(widget.api)
+                                : null,
                           ),
                         ),
                       if (widget.user.isAdmin)

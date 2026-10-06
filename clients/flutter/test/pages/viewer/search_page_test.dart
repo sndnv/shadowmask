@@ -8,7 +8,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/card_grid.dart';
 import 'package:shadowmask/components/card_rail.dart';
 import 'package:shadowmask/components/catalog_card_tile.dart';
-import 'package:shadowmask/components/section_heading.dart';
+import 'package:shadowmask/components/link_heading.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/viewer/search_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
@@ -68,15 +68,24 @@ ApiClient _api(
       );
     }
     if (req.url.path == '/api/v1/search') {
+      final String? type = req.url.queryParameters['type'];
+      final int limit =
+          int.tryParse(req.url.queryParameters['limit'] ?? '') ?? 50;
       final List<Map<String, dynamic>> results =
-          items ??
-          <Map<String, dynamic>>[for (int n = 0; n < hits; n++) _hit(n)];
+          (items ??
+                  <Map<String, dynamic>>[
+                    for (int n = 0; n < hits; n++) _hit(n),
+                  ])
+              .where(
+                (Map<String, dynamic> h) => type == null || h['type'] == type,
+              )
+              .toList();
       return http.Response(
         jsonEncode(<String, dynamic>{
-          'items': results,
+          'items': results.take(limit).toList(),
           'total': results.length,
           'offset': 0,
-          'limit': 24,
+          'limit': limit,
         }),
         200,
       );
@@ -85,11 +94,21 @@ ApiClient _api(
   }),
 );
 
+Map<String, dynamic> _episode(int n, String title) => <String, dynamic>{
+  'type': 'episode',
+  'id': 'e$n',
+  'season_id': 'se1',
+  'number': n,
+  'title': title,
+};
+
 Future<List<String>> _pump(
   WidgetTester tester, {
   int hits = 0,
   String? query,
+  String? type,
   List<Map<String, dynamic>>? items,
+  List<String>? routes,
 }) async {
   final List<String> seen = <String>[];
   tester.view.physicalSize = const Size(1400, 1000);
@@ -101,18 +120,29 @@ Future<List<String>> _pump(
       setVariant: (_) {},
       child: MaterialApp(
         theme: buildTheme(AppThemeVariant.dark),
-        onGenerateRoute: (_) => MaterialPageRoute<void>(
-          builder: (_) => SearchPage(
-            api: _api(seen, hits: hits, items: items),
-            query: query,
-          ),
-        ),
+        onGenerateRoute: (RouteSettings settings) {
+          routes?.add(settings.name ?? '');
+          return MaterialPageRoute<void>(
+            builder: (_) => settings.name == '/'
+                ? SearchPage(
+                    api: _api(seen, hits: hits, items: items),
+                    query: query,
+                    type: type,
+                  )
+                : Text('went to ${settings.name}'),
+          );
+        },
       ),
     ),
   );
   await tester.pumpAndSettle();
   return seen;
 }
+
+List<Uri> _searches(List<String> seen) => seen
+    .where((String s) => s.startsWith('/api/v1/search'))
+    .map(Uri.parse)
+    .toList();
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
@@ -320,6 +350,88 @@ void main() {
       findsNothing,
       reason: 'an empty heading over an empty row reads as a broken section',
     );
-    expect(find.byType(SectionHeading), findsOneWidget);
+    expect(find.byType(LinkHeading), findsOneWidget);
+  });
+
+  testWidgets('every kind is asked for on its own when the type is All', (
+    WidgetTester tester,
+  ) async {
+    final List<String> seen = await _pump(tester, hits: 1, query: 'sta');
+
+    final List<Uri> searches = _searches(seen);
+    expect(
+      searches.map((Uri u) => u.queryParameters['type']),
+      unorderedEquals(<String>['movie', 'series', 'episode', 'person']),
+    );
+    expect(
+      searches.map((Uri u) => u.queryParameters['limit']).toSet(),
+      <String>{'$kSearchPreviewLimit'},
+    );
+  });
+
+  testWidgets('many episodes no longer push a movie off the results', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      query: 'sta',
+      items: <Map<String, dynamic>>[
+        for (int n = 0; n < 60; n++) _episode(n, 'Stage $n'),
+        <String, dynamic>{'type': 'movie', 'id': 'm1', 'title': 'Stargate'},
+      ],
+    );
+
+    expect(find.text(Strings.countLabel(Strings.typeMovie, 1)), findsOneWidget);
+    expect(find.text('Stargate'), findsOneWidget);
+    expect(
+      find.text(
+        Strings.seeAllAfter(Strings.countLabel(Strings.typeEpisode, 60)) +
+            Strings.seeAll,
+        findRichText: true,
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a section with more than it shows links to its own list', (
+    WidgetTester tester,
+  ) async {
+    final List<String> routes = <String>[];
+    await _pump(tester, hits: 30, query: 'movie', routes: routes);
+
+    expect(find.byType(CatalogCardTile), findsNWidgets(kSearchPreviewLimit));
+
+    await tester.tap(
+      find.text(
+        Strings.seeAllAfter(Strings.countLabel(Strings.typeMovie, 30)) +
+            Strings.seeAll,
+        findRichText: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(routes.last, '/search?q=movie&type=movie');
+  });
+
+  testWidgets('a picked type asks once and pages without a See all', (
+    WidgetTester tester,
+  ) async {
+    final List<String> seen = await _pump(
+      tester,
+      hits: 30,
+      query: 'movie',
+      type: 'movie',
+    );
+
+    final List<Uri> searches = _searches(seen);
+    expect(searches, hasLength(1));
+    expect(searches.single.queryParameters['type'], 'movie');
+    expect(searches.single.queryParameters.containsKey('limit'), isFalse);
+    expect(find.byType(CatalogCardTile), findsNWidgets(30));
+    expect(
+      find.text(Strings.countLabel(Strings.typeMovie, 30)),
+      findsOneWidget,
+    );
+    expect(find.textContaining(Strings.seeAll), findsNothing);
   });
 }

@@ -1,9 +1,20 @@
+import 'package:intl/intl.dart';
+
 String pad2(int n) => n.toString().padLeft(2, '0');
 
 String episodeCode(int? season, int number) =>
     season != null ? 'S${pad2(season)}E${pad2(number)}' : 'E${pad2(number)}';
 
+String compactCount(int n) => NumberFormat.compact().format(n);
+
+String groupedCount(int n) => NumberFormat.decimalPattern().format(n);
+
 String megabytes(int bytes) => '${(bytes / 1048576).round()} MB';
+
+String gigabytes(int bytes) {
+  final int tenths = (bytes / 107374182.4).round();
+  return tenths == 0 ? megabytes(bytes) : '${tenths ~/ 10}.${tenths % 10} GB';
+}
 
 String runtime(int minutes) => '$minutes min';
 

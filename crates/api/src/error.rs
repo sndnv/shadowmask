@@ -164,6 +164,9 @@ impl From<JobServiceError> for ApiError {
             JobServiceError::NotCancellable => {
                 ApiError::new(StatusCode::CONFLICT, "not_cancellable", msg)
             }
+            JobServiceError::NotRetryable => {
+                ApiError::new(StatusCode::CONFLICT, "not_retryable", msg)
+            }
             JobServiceError::Repository(_) => ApiError::internal(),
         }
     }
@@ -394,6 +397,9 @@ mod tests {
         let not_cancellable = ApiError::from(JobServiceError::NotCancellable);
         assert_eq!(not_cancellable.status, StatusCode::CONFLICT);
         assert_eq!(not_cancellable.code, "not_cancellable");
+        let not_retryable = ApiError::from(JobServiceError::NotRetryable);
+        assert_eq!(not_retryable.status, StatusCode::CONFLICT);
+        assert_eq!(not_retryable.code, "not_retryable");
         assert_eq!(
             ApiError::from(JobServiceError::Repository(repo())).status,
             StatusCode::INTERNAL_SERVER_ERROR

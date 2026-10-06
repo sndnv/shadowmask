@@ -253,6 +253,9 @@ void main() {
 
     await tester.tap(find.text(Strings.signOut));
     await tester.pumpAndSettle();
+    expect(calls, isEmpty);
+    await tester.tap(find.widgetWithText(FilledButton, Strings.signOut));
+    await tester.pumpAndSettle();
 
     expect(calls, contains('DELETE /api/v1/users/u1/devices/dev-7'));
   });

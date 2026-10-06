@@ -65,7 +65,7 @@ async fn json<T: DeserializeOwned>(
     request: reqwest::RequestBuilder,
 ) -> Result<T, SubtitleError> {
     let response = send_ok(limiter, request).await.map_err(SubtitleError::Backend)?;
-    response.json::<T>().await.map_err(|e| SubtitleError::Parse(e.to_string()))
+    response.json::<T>().await.map_err(|e| SubtitleError::Parse(e.without_url().to_string()))
 }
 
 impl SubtitleProvider for OpenSubtitlesClient {
@@ -120,7 +120,8 @@ impl SubtitleProvider for OpenSubtitlesClient {
         let response = send_ok(&self.limiter, self.client.get(&download.link))
             .await
             .map_err(SubtitleError::Backend)?;
-        let content = response.text().await.map_err(|e| SubtitleError::Parse(e.to_string()))?;
+        let content =
+            response.text().await.map_err(|e| SubtitleError::Parse(e.without_url().to_string()))?;
         Ok(FetchedSubtitle { content, format: format_from_name(download.file_name.as_deref()) })
     }
 }
@@ -248,6 +249,21 @@ mod tests {
         let server = serve_get(ResponseTemplate::new(500)).await;
         let client = OpenSubtitlesClient::with_base_url("k", server.uri());
         assert!(matches!(client.search(&query()).await, Err(SubtitleError::Backend(_))));
+    }
+
+    #[tokio::test]
+    async fn a_refused_search_carries_the_provider_message() {
+        let server = serve_get(
+            ResponseTemplate::new(406)
+                .set_body_json(json!({ "message": "You cannot consume this service" })),
+        )
+        .await;
+        let client = OpenSubtitlesClient::with_base_url("k", server.uri());
+        let Err(SubtitleError::Backend(message)) = client.search(&query()).await else {
+            panic!("expected a backend error");
+        };
+        assert!(message.starts_with("http status 406 Not Acceptable: "), "{message}");
+        assert!(message.contains("You cannot consume this service"), "{message}");
     }
 
     #[tokio::test]

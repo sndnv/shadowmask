@@ -202,10 +202,10 @@ void main() {
       _capture((http.Request req) => seen = req, status: 202),
     );
 
-    await admin.transcribe('v1', sourceLanguage: 'eng');
+    await admin.transcribe('v1', sourceLanguage: 'en');
 
     expect(seen.url.path, '/api/v1/admin/versions/v1/transcribe');
-    expect(jsonDecode(seen.body), <String, dynamic>{'source_language': 'eng'});
+    expect(jsonDecode(seen.body), <String, dynamic>{'source_language': 'en'});
   });
 
   test('translate sends source subtitle and target language', () async {
@@ -214,12 +214,12 @@ void main() {
       _capture((http.Request req) => seen = req, status: 202),
     );
 
-    await admin.translate('v1', sourceSubtitleId: 's1', targetLanguage: 'spa');
+    await admin.translate('v1', sourceSubtitleId: 's1', targetLanguage: 'es');
 
     expect(seen.url.path, '/api/v1/admin/versions/v1/translate');
     expect(jsonDecode(seen.body), <String, dynamic>{
       'source_subtitle_id': 's1',
-      'target_language': 'spa',
+      'target_language': 'es',
     });
   });
 
@@ -282,11 +282,11 @@ void main() {
       _capture((http.Request req) => seen = req, body: jsonEncode(<dynamic>[])),
     );
 
-    await admin.subtitleSearch('v1', query: 'matrix', language: 'eng');
+    await admin.subtitleSearch('v1', query: 'matrix', language: 'en');
 
     expect(seen.url.path, '/api/v1/admin/versions/v1/subtitles/search');
     expect(seen.url.queryParameters['q'], 'matrix');
-    expect(seen.url.queryParameters['language'], 'eng');
+    expect(seen.url.queryParameters['language'], 'en');
   });
 
   test('subtitleDownload sends the file id', () async {
@@ -295,12 +295,12 @@ void main() {
       _capture((http.Request req) => seen = req, status: 202),
     );
 
-    await admin.subtitleDownload('v1', fileId: 'f1', language: 'eng');
+    await admin.subtitleDownload('v1', fileId: 'f1', language: 'en');
 
     expect(seen.url.path, '/api/v1/admin/versions/v1/subtitles/download');
     expect(jsonDecode(seen.body), <String, dynamic>{
       'file_id': 'f1',
-      'language': 'eng',
+      'language': 'en',
     });
   });
 
@@ -326,11 +326,11 @@ void main() {
       _capture((http.Request req) => seen = req, status: 204),
     );
 
-    await admin.renameSubtitle('v1', 's1', language: 'fra');
+    await admin.renameSubtitle('v1', 's1', language: 'fr');
 
     expect(seen.method, 'PUT');
     expect(seen.url.path, '/api/v1/admin/versions/v1/subtitles/s1');
-    expect(jsonDecode(seen.body), <String, dynamic>{'language': 'fra'});
+    expect(jsonDecode(seen.body), <String, dynamic>{'language': 'fr'});
   });
 
   test('deleteSubtitle DELETEs the subtitle', () async {

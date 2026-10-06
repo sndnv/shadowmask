@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/account_api.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/components/confirm_sign_out.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/components/section_block.dart';
@@ -30,6 +31,9 @@ class _SessionBlockState extends State<SessionBlock> {
   bool _busy = false;
 
   Future<void> _signOut() async {
+    if (!await confirmSignOut(context) || !mounted) {
+      return;
+    }
     setState(() => _busy = true);
     await _account.signOutThisDevice(widget.userId);
     _goToSignIn();
@@ -45,6 +49,9 @@ class _SessionBlockState extends State<SessionBlock> {
   }
 
   Future<void> _signOutEverywhere() async {
+    if (!await confirmSignOutEverywhere(context) || !mounted) {
+      return;
+    }
     setState(() => _busy = true);
     try {
       await _account.signOutEverywhere(widget.userId);

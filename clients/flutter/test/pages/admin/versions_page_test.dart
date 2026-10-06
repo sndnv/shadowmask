@@ -97,7 +97,7 @@ http.Response _route(http.Request req) {
             'index': 1,
             'codec': 'aac',
             'channels': 2,
-            'language': 'eng',
+            'language': 'en',
           },
         ],
         'subtitles': <dynamic>[],
@@ -123,8 +123,12 @@ Widget _app(ApiClient api) => ThemeScope(
   ),
 );
 
-Future<void> _pump(WidgetTester tester, {List<String>? seen}) async {
-  tester.view.physicalSize = const Size(1600, 1000);
+Future<void> _pump(
+  WidgetTester tester, {
+  List<String>? seen,
+  Size size = const Size(1600, 1000),
+}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final ApiClient api = ApiClient(
@@ -147,13 +151,28 @@ void main() {
     await _pump(tester);
 
     expect(find.text('/media/bbb.mkv'), findsOneWidget);
-    expect(find.text('1200 MB'), findsOneWidget);
+    expect(find.text('1.2 GB'), findsOneWidget);
     expect(find.text(Strings.relink), findsNothing);
 
     await tester.tap(find.text('/media/bbb.mkv'));
     await tester.pumpAndSettle();
 
     expect(find.text('went to /version?id=v1'), findsOneWidget);
+  });
+
+  testWidgets('a phone shows the file name and keeps the path in the tooltip', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, size: const Size(400, 900));
+
+    expect(find.text('bbb.mkv'), findsOneWidget);
+    expect(find.text('/media/bbb.mkv'), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (Widget w) => w is Tooltip && w.message == '/media/bbb.mkv',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('the library column names the library, falling back to its id', (

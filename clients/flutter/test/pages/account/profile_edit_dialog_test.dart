@@ -77,7 +77,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, Strings.save));
     await tester.pumpAndSettle();
 
-    expect(sent?['preferred_audio'], <String>['jpn']);
+    expect(sent?['preferred_audio'], <String>['ja']);
     expect(sent?['preferred_subtitle'], <String>[]);
     expect(sent?['max_content_rating'], isNull);
     expect(sent?['concurrent_stream_limit'], isNull);

@@ -17,6 +17,7 @@ expression: value
         "parent_id": "job-scan",
         "priority": "normal",
         "progress": 0.0,
+        "retryable": false,
         "started_at": null,
         "status": "queued",
         "updated_at": "2023-11-14T22:14:02Z"

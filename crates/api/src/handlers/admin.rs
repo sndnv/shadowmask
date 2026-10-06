@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use tracing::debug;
 
-use domain::catalog::{EpisodeId, MovieId, SeasonId, SeriesId, VersionId};
+use domain::catalog::{EpisodeId, MovieId, SeasonId, SeriesId, VersionFilter, VersionId};
 use domain::job::{JobId, JobQuery};
 use domain::library::LibraryId;
 use domain::media::SubtitleFileId;
@@ -56,7 +56,7 @@ pub async fn jobs<S: AppServices>(
         .map_err(log_fail(actor, "retrieve jobs"))?;
     let (shown, total) = (jobs.page.items.len(), jobs.page.total);
     debug!("User [{actor}] retrieved {shown} of {total} jobs");
-    Ok(Json(jobs.into()))
+    Ok(Json(JobsResponse::new(jobs, |job| state.job().is_retryable(job))))
 }
 
 pub async fn job_children<S: AppServices>(
@@ -74,7 +74,10 @@ pub async fn job_children<S: AppServices>(
         .map_err(log_fail(actor, "retrieve job children"))?;
     let (shown, id) = (children.items.len(), &job_id.0);
     debug!("User [{actor}] retrieved {shown} children of job [{id}]");
-    Ok(Json(PageResponse::from_page(children, Into::into)))
+    Ok(Json(PageResponse::from_page(children, |node| {
+        let retryable = state.job().is_retryable(&node.job);
+        JobNodeResponse::new(node, retryable)
+    })))
 }
 
 pub async fn job<S: AppServices>(
@@ -91,7 +94,8 @@ pub async fn job<S: AppServices>(
         .map_err(log_fail(actor, "retrieve job"))?
         .ok_or_else(|| ApiError::not_found("job not found"))?;
     debug!("User [{actor}] retrieved job [{}]", job_id.0);
-    Ok(Json(job.into()))
+    let retryable = state.job().is_retryable(&job);
+    Ok(Json(JobResponse::new(job, retryable)))
 }
 
 pub async fn cancel_job<S: AppServices>(
@@ -106,15 +110,47 @@ pub async fn cancel_job<S: AppServices>(
     Ok(StatusCode::ACCEPTED)
 }
 
+pub async fn retry_job<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Path(id): Path<String>,
+) -> ApiResult<Json<JobResponse>> {
+    let actor = &principal.user.0;
+    let job_id = JobId(id);
+    let job =
+        state.job().retry_job(&principal, &job_id).await.map_err(log_fail(actor, "retry job"))?;
+    debug!("User [{actor}] re-queued job [{}]", job_id.0);
+    let retryable = state.job().is_retryable(&job);
+    Ok(Json(JobResponse::new(job, retryable)))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VersionsParams {
+    pub filter: Option<String>,
+}
+
 pub async fn versions<S: AppServices>(
     State(state): State<S>,
     RequireAdmin(principal): RequireAdmin,
     Query(page): Query<PageParams>,
+    Query(params): Query<VersionsParams>,
 ) -> ApiResult<Json<PageResponse<VersionResponse>>> {
     let actor = &principal.user.0;
+    let filter = match params.filter.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        Some(needle) => {
+            let libraries = state
+                .library()
+                .libraries(&principal)
+                .await
+                .map_err(log_fail(actor, "retrieve libraries"))?;
+            let names = libraries.into_iter().map(|library| (library.id, library.name)).collect();
+            Some(VersionFilter::new(needle, names))
+        }
+        None => None,
+    };
     let versions = state
         .catalog()
-        .all_versions(&principal, page.to_request())
+        .all_versions(&principal, filter.as_ref(), page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve versions"))?;
     debug!("User [{actor}] retrieved {} versions", versions.items.len());

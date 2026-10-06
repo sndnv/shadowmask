@@ -141,6 +141,52 @@ pub async fn job_repository_contract<R: JobRepository>(repo: R) {
     assert!(!repo.cancel(&JobId("missing".into()), future).await.unwrap());
 
     paged_and_filtered_reads(&repo).await;
+    retry_requeues_only_failed_or_cancelled_jobs(&repo).await;
+}
+
+async fn retry_requeues_only_failed_or_cancelled_jobs<R: JobRepository>(repo: &R) {
+    let now = at(1_700_000_000);
+    let later = at(1_700_000_000 + 600);
+    for status in [JobStatus::Failed, JobStatus::Cancelled] {
+        let id = JobId(format!("retry-{}", status.slug()));
+        let mut finished = job(&id.0, JobPriority::High, now, now);
+        finished.status = status;
+        finished.attempts = 3;
+        finished.progress = 0.5;
+        finished.last_error = Some("http status 406 Not Acceptable".into());
+        finished.started_at = Some(now);
+        finished.finished_at = Some(now);
+        repo.enqueue(finished).await.unwrap();
+
+        assert!(repo.retry(&id, later).await.unwrap(), "{status:?}");
+        let requeued = repo.get(&id).await.unwrap().unwrap();
+        assert_eq!(requeued.status, JobStatus::Queued);
+        assert_eq!(requeued.attempts, 0);
+        assert_eq!(requeued.progress, 0.0);
+        assert_eq!(requeued.available_at, later);
+        assert_eq!(requeued.updated_at, later);
+        assert_eq!(requeued.last_error, None);
+        assert_eq!(requeued.started_at, None);
+        assert_eq!(requeued.finished_at, None);
+        assert_eq!(requeued.priority, JobPriority::High);
+        assert_eq!(requeued.created_at, now);
+    }
+
+    for status in [JobStatus::Queued, JobStatus::Running, JobStatus::Succeeded] {
+        let id = JobId(format!("retry-{}", status.slug()));
+        let mut entry = job(&id.0, JobPriority::Normal, now, now);
+        entry.status = status;
+        entry.attempts = 1;
+        repo.enqueue(entry).await.unwrap();
+
+        assert!(!repo.retry(&id, later).await.unwrap(), "{status:?}");
+        let untouched = repo.get(&id).await.unwrap().unwrap();
+        assert_eq!(untouched.status, status);
+        assert_eq!(untouched.attempts, 1);
+        assert_eq!(untouched.updated_at, now);
+    }
+
+    assert!(!repo.retry(&JobId("missing".into()), later).await.unwrap());
 }
 
 async fn paged_and_filtered_reads<R: JobRepository>(repo: &R) {

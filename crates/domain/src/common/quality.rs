@@ -6,9 +6,26 @@ pub enum Quality {
     Uhd,
 }
 
+impl Quality {
+    pub fn slug(&self) -> &'static str {
+        match self {
+            Quality::Sd => "sd",
+            Quality::Hd => "hd",
+            Quality::Fhd => "fhd",
+            Quality::Uhd => "uhd",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_quality_has_its_short_name() {
+        let slugs = [Quality::Sd, Quality::Hd, Quality::Fhd, Quality::Uhd].map(|q| q.slug());
+        assert_eq!(slugs, ["sd", "hd", "fhd", "uhd"]);
+    }
 
     #[test]
     fn quality_ranks_from_sd_up_to_uhd() {

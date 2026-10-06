@@ -4,12 +4,13 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use tracing::debug;
 
-use domain::library::{DuplicateCandidateId, LibraryId, UnmatchedFileId};
+use domain::library::{DuplicateCandidateId, LibraryId, ScanMode, UnmatchedFileId};
 
 use crate::dto::catalog::VersionResponse;
 use crate::dto::library::{
     CreateLibraryRequest, DuplicateCandidateResponse, LibraryResponse, ResolveCandidateResponse,
-    ResolveUnmatchedRequest, ScanStateResponse, UnmatchedFileResponse, UpdateLibraryRequest,
+    ResolveUnmatchedRequest, ScanRequest, ScanStateResponse, UnmatchedFileResponse,
+    UpdateLibraryRequest,
 };
 use crate::error::ApiResult;
 use crate::extract::{AuthUser, RequireAdmin};
@@ -117,11 +118,17 @@ pub async fn trigger_scan<S: AppServices>(
     State(state): State<S>,
     RequireAdmin(principal): RequireAdmin,
     Path(id): Path<String>,
+    body: Option<Json<ScanRequest>>,
 ) -> ApiResult<StatusCode> {
     let actor = &principal.user.0;
     let id = LibraryId(id);
-    state.library().trigger_scan(&principal, &id).await.map_err(log_fail(actor, "trigger scan"))?;
-    debug!("User [{actor}] triggered scan for library [{}]", id.0);
+    let mode = body.map_or(ScanMode::Normal, |Json(req)| req.mode());
+    state
+        .library()
+        .trigger_scan(&principal, &id, mode)
+        .await
+        .map_err(log_fail(actor, "trigger scan"))?;
+    debug!("User [{actor}] triggered a [{mode:?}] scan for library [{}]", id.0);
     Ok(StatusCode::ACCEPTED)
 }
 

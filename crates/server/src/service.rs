@@ -191,7 +191,7 @@ fn feature_wiring(mode: FeatureMode, model_present: bool) -> FeatureWiring {
     FeatureWiring { available, automatic: available && mode.automatic() }
 }
 
-fn parked_kinds(
+pub(crate) fn parked_kinds(
     transcription: bool,
     translation: bool,
     upscaling: bool,
@@ -425,12 +425,7 @@ impl Runtime {
         let Built { state, stream, session, artwork_store, images, trickplay } =
             build_state(&repos, &wire, &cancel)?;
         let job_logs = FsJobLogStore::new(&config.job_log_dir);
-        let parked = parked_kinds(
-            transcription_available,
-            translation_available,
-            wire.upscaling_enabled,
-            config.fetch_providers.enabled,
-        );
+        let parked = wire.parked_kinds();
         let capabilities =
             crate::capabilities::server_capabilities(crate::capabilities::CapabilityInputs {
                 transcription: transcription_available,

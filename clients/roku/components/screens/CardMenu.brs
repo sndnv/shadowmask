@@ -201,7 +201,7 @@ sub onCardVersions(event as object)
     rows = VersionRows(m.menuVersions)
     options = []
     for each row in rows
-        options.Push({ label: row.label, detail: row.detail })
+        options.Push(row.label)
     end for
 
     m.top.choiceRequest = { field: "cardVersion", title: Phrase("detail.chooseVersion"), kind: "choice", options: options, selected: 0 }

@@ -165,7 +165,7 @@ const sm = (() => {
   }
 
   async function versionPicker(uid, versions) {
-    const list = (versions || []).slice();
+    const list = orderedVersions(versions || []);
     const resume = {};
     if (uid) {
       const cont = await json(
@@ -190,12 +190,6 @@ const sm = (() => {
     if (available.length === 1) single = available[0].id;
     else if (inProgress.length === 1) single = inProgress[0].id;
 
-    const details = await Promise.all(
-      list.map((v) =>
-        json("/api/v1/versions/" + encodeURIComponent(v.id)).catch(() => null),
-      ),
-    );
-
     const node = el("div");
     node.appendChild(el("h2", { text: "Versions (" + list.length + ")" }));
     if (!list.length) {
@@ -208,13 +202,7 @@ const sm = (() => {
       );
     }
     const rows = list.map((v, i) => {
-      const detail = details[i];
-      const bits = [v.quality.toUpperCase(), v.container];
-      const vid = detail && detail.video && detail.video[0];
-      if (vid) bits.push(vid.width + "x" + vid.height, vid.codec);
-      const aud = detail && detail.audio && detail.audio[0];
-      if (aud) bits.push(aud.codec + " " + aud.channels + "ch");
-      bits.push(Math.round(v.size_bytes / 1048576) + " MB");
+      const bits = [versionLabel(v, i)];
       if (!v.available) bits.push("unavailable");
       const row = el("li", null, [el("span", { text: bits.join(" · ") })]);
       if (v.available) {
@@ -1002,6 +990,36 @@ const sm = (() => {
     return String(n).padStart(2, "0");
   }
 
+  function gigabytes(bytes) {
+    const tenths = Math.round(bytes / 107374182.4);
+    if (tenths === 0) return Math.round(bytes / 1048576) + " MB";
+    return Math.floor(tenths / 10) + "." + (tenths % 10) + " GB";
+  }
+
+  function durationText(ms) {
+    const total = Math.floor(ms / 60000);
+    const hours = Math.floor(total / 60);
+    return hours > 0 ? hours + "h " + pad2(total % 60) + "m" : (total % 60) + "m";
+  }
+
+  const QUALITY_RANK = { sd: 0, hd: 1, fhd: 2, uhd: 3 };
+
+  function orderedVersions(versions) {
+    return versions.slice().sort((a, b) =>
+      (QUALITY_RANK[b.quality] ?? -1) - (QUALITY_RANK[a.quality] ?? -1) ||
+      (b.size_bytes || 0) - (a.size_bytes || 0) ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    );
+  }
+
+  function versionLabel(v, index) {
+    const bits = [String(index + 1)];
+    if (v.duration_ms > 0) bits.push(durationText(v.duration_ms));
+    bits.push(v.quality.toUpperCase(), v.container);
+    if (v.size_bytes > 0) bits.push(gigabytes(v.size_bytes));
+    return bits.join(" · ");
+  }
+
   function episodeCode(season, number) {
     return "S" + pad2(season) + "E" + pad2(number);
   }
@@ -1120,6 +1138,7 @@ const sm = (() => {
     refreshMetadataButton,
     accessAwareEmpty,
     pad2,
+    gigabytes,
     episodeCode,
     episodeCount,
     groupCode,

@@ -14,6 +14,7 @@ mod metadata_fetch;
 mod metadata_job;
 mod parse;
 mod relink_job;
+mod scan_job;
 mod scan_queue;
 mod scanner;
 mod service;
@@ -45,6 +46,7 @@ pub use parse::{
     confidence, parse_filename, quality_from_height, quality_token, upscaled_output_path,
 };
 pub use relink_job::RelinkJobPayload;
+pub use scan_job::ScanJobPayload;
 pub use scan_queue::{is_nightly_library, queue_scan, settle_interrupted_scans};
 pub use scanner::{DEFAULT_PROBE_CONCURRENCY, Scanner};
 pub use service::LibraryServiceImpl;

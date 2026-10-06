@@ -2,17 +2,21 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/admin/subtitle_dialogs.dart';
+import 'package:shadowmask/components/outline_pill.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
+import 'package:shadowmask/theme/app_button.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
+import 'package:shadowmask/theme/space.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 SubtitleFile _held(String fileId) => SubtitleFile(
@@ -22,19 +26,37 @@ SubtitleFile _held(String fileId) => SubtitleFile(
   source: SubtitleSource.openSubtitles,
 );
 
-Map<String, dynamic> _candidate(String fileId, String release) =>
-    <String, dynamic>{
-      'file_id': fileId,
-      'language': 'en',
-      'release_name': release,
-      'format': 'srt',
-      'download_count': 10,
-    };
+Map<String, dynamic> _candidate(
+  String fileId,
+  String release, {
+  int? downloads,
+}) => <String, dynamic>{
+  'file_id': fileId,
+  'language': 'en',
+  'release_name': release,
+  'format': 'srt',
+  'download_count': ?downloads,
+};
+
+enum _Close { button, escape, outside }
+
+Future<void> _close(WidgetTester tester, _Close how) async {
+  switch (how) {
+    case _Close.button:
+      await tester.tap(find.byTooltip(Strings.close));
+    case _Close.escape:
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    case _Close.outside:
+      await tester.tapAt(const Offset(4, 4));
+  }
+  await tester.pumpAndSettle();
+}
 
 Future<List<http.Request>> _open(
   WidgetTester tester, {
   required List<SubtitleFile> existing,
   Completer<http.Response>? download,
+  List<bool>? results,
 }) async {
   final List<http.Request> seen = <http.Request>[];
   final ApiClient api = ApiClient(
@@ -44,7 +66,7 @@ Future<List<http.Request>> _open(
       if (req.url.path.endsWith('/subtitles/search')) {
         return http.Response(
           jsonEncode(<dynamic>[
-            _candidate('42', 'Held.Release'),
+            _candidate('42', 'Held.Release', downloads: 1234),
             _candidate('99', 'Fresh.Release'),
           ]),
           200,
@@ -63,12 +85,15 @@ Future<List<http.Request>> _open(
         child: Scaffold(
           body: Builder(
             builder: (BuildContext context) => TextButton(
-              onPressed: () => showSubtitleSearch(
-                context,
-                admin: AdminApi(api),
-                versionId: 'v1',
-                existing: existing,
-              ),
+              onPressed: () async {
+                final bool changed = await showSubtitleSearch(
+                  context,
+                  admin: AdminApi(api),
+                  versionId: 'v1',
+                  existing: existing,
+                );
+                results?.add(changed);
+              },
               child: const Text('open'),
             ),
           ),
@@ -229,6 +254,104 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(find.widgetWithText(TextButton, Strings.downloaded), findsNothing);
     expect(find.widgetWithText(TextButton, Strings.download), findsNWidgets(2));
+  });
+
+  testWidgets('a picked language reaches the search as its two-letter code', (
+    WidgetTester tester,
+  ) async {
+    final List<http.Request> seen = await _open(
+      tester,
+      existing: <SubtitleFile>[],
+    );
+
+    await tester.tap(find.text(Strings.optionAnyLanguage).first);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('English').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('English').last);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.widgetWithText(FilledButton, Strings.searchSubtitles),
+    );
+    await tester.pumpAndSettle();
+
+    final http.Request search = seen.lastWhere(
+      (http.Request r) => r.url.path.endsWith('/subtitles/search'),
+    );
+    expect(search.url.queryParameters['language'], 'en');
+  });
+
+  final ValueVariant<_Close> closes = ValueVariant<_Close>(
+    _Close.values.toSet(),
+  );
+
+  testWidgets('a download is reported however the dialog closes', (
+    WidgetTester tester,
+  ) async {
+    final List<bool> results = <bool>[];
+    await _open(tester, existing: <SubtitleFile>[], results: results);
+
+    await tester.tap(find.widgetWithText(TextButton, Strings.download).first);
+    await tester.pumpAndSettle();
+    await _close(tester, closes.currentValue!);
+
+    expect(results, <bool>[true]);
+  }, variant: closes);
+
+  testWidgets('a download still running at close is reported once it lands', (
+    WidgetTester tester,
+  ) async {
+    final Completer<http.Response> gate = Completer<http.Response>();
+    final List<bool> results = <bool>[];
+    await _open(
+      tester,
+      existing: <SubtitleFile>[],
+      download: gate,
+      results: results,
+    );
+
+    await tester.tap(find.widgetWithText(TextButton, Strings.download).first);
+    await tester.pump();
+    await _close(tester, _Close.escape);
+
+    expect(results, isEmpty, reason: 'the caller waits for the download');
+
+    gate.complete(http.Response('', 204));
+    await tester.pumpAndSettle();
+
+    expect(results, <bool>[true]);
+  });
+
+  testWidgets('closing without a download reports no change', (
+    WidgetTester tester,
+  ) async {
+    final List<bool> results = <bool>[];
+    await _open(tester, existing: <SubtitleFile>[], results: results);
+
+    await _close(tester, closes.currentValue!);
+
+    expect(results, <bool>[false]);
+  }, variant: closes);
+
+  testWidgets('a download count sits left of its button, compact', (
+    WidgetTester tester,
+  ) async {
+    await _open(tester, existing: <SubtitleFile>[_held('42')]);
+
+    expect(find.byType(OutlinePill), findsOneWidget);
+    expect(find.text('1.23K'), findsOneWidget);
+    expect(find.byTooltip('1,234 downloads'), findsOneWidget);
+    final double pillEnd = tester.getTopRight(find.byType(OutlinePill)).dx;
+    expect(
+      tester.getTopLeft(find.widgetWithText(TextButton, Strings.downloaded)).dx,
+      pillEnd + Space.s2,
+      reason: 'the hover surface keeps clear of the pill',
+    );
+    expect(
+      tester.getTopLeft(find.text(Strings.downloaded)).dx,
+      pillEnd + kButtonPaddingX,
+      reason: 'the label sits where the theme padding put it',
+    );
   });
 
   testWidgets('a subtitle with no text says so rather than reading blank', (

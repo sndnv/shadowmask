@@ -55,40 +55,40 @@ mod tests {
 
     #[test]
     fn the_first_listed_language_that_exists_wins() {
-        let tracks = vec![audio(0, Some("eng")), audio(1, Some("jpn"))];
+        let tracks = vec![audio(0, Some("en")), audio(1, Some("ja"))];
 
-        assert_eq!(preferred_audio_track(&tracks, &want(&["jpn", "eng"])), Some(1));
-        assert_eq!(preferred_audio_track(&tracks, &want(&["fra", "eng"])), Some(0));
+        assert_eq!(preferred_audio_track(&tracks, &want(&["ja", "en"])), Some(1));
+        assert_eq!(preferred_audio_track(&tracks, &want(&["fr", "en"])), Some(0));
     }
 
     #[test]
     fn language_matching_ignores_case() {
-        let tracks = vec![audio(3, Some("ENG"))];
+        let tracks = vec![audio(3, Some("EN"))];
 
-        assert_eq!(preferred_audio_track(&tracks, &want(&["eng"])), Some(3));
+        assert_eq!(preferred_audio_track(&tracks, &want(&["en"])), Some(3));
     }
 
     #[test]
     fn no_preference_and_no_match_both_select_nothing() {
-        let tracks = vec![audio(0, Some("eng")), audio(1, None)];
+        let tracks = vec![audio(0, Some("en")), audio(1, None)];
 
         assert_eq!(preferred_audio_track(&tracks, &[]), None);
-        assert_eq!(preferred_audio_track(&tracks, &want(&["fra"])), None);
-        assert_eq!(preferred_audio_track(&[], &want(&["eng"])), None);
+        assert_eq!(preferred_audio_track(&tracks, &want(&["fr"])), None);
+        assert_eq!(preferred_audio_track(&[], &want(&["en"])), None);
     }
 
     #[test]
     fn a_full_subtitle_track_is_preferred_over_a_forced_one() {
-        let tracks = vec![subtitle(0, Some("eng"), true), subtitle(1, Some("eng"), false)];
+        let tracks = vec![subtitle(0, Some("en"), true), subtitle(1, Some("en"), false)];
 
-        assert_eq!(preferred_subtitle_track(&tracks, &want(&["eng"])), Some(1));
+        assert_eq!(preferred_subtitle_track(&tracks, &want(&["en"])), Some(1));
     }
 
     #[test]
     fn a_forced_track_is_taken_when_it_is_the_only_one() {
-        let tracks = vec![subtitle(4, Some("eng"), true)];
+        let tracks = vec![subtitle(4, Some("en"), true)];
 
-        assert_eq!(preferred_subtitle_track(&tracks, &want(&["eng"])), Some(4));
-        assert_eq!(preferred_subtitle_track(&tracks, &want(&["fra"])), None);
+        assert_eq!(preferred_subtitle_track(&tracks, &want(&["en"])), Some(4));
+        assert_eq!(preferred_subtitle_track(&tracks, &want(&["fr"])), None);
     }
 }

@@ -85,6 +85,7 @@ expression: value
         "display_title": "Alpha s1",
         "kind": "series",
         "role": "actor",
+        "season_count": 1,
         "title_id": "s1",
         "year": 2019
       }

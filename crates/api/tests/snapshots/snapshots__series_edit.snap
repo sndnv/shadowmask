@@ -33,6 +33,7 @@ expression: value
     "id": "s1",
     "manually_edited": true,
     "overview": "hand written",
+    "season_count": 1,
     "title": "Gamma Edited",
     "updated_at": "[updated_at]",
     "year": 2020

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use domain::catalog::{
-    EpisodeCard, EpisodeContext, EpisodeId, Movie, MovieId, Series, SeriesId, SortOrder, TitleId,
-    TitleListFilter, TitleSort,
+    EpisodeCard, EpisodeContext, EpisodeId, Movie, MovieId, Series, SeriesCard, SeriesId,
+    SortOrder, TitleId, TitleListFilter, TitleSort,
 };
 use domain::common::{Page, PageRequest};
 use domain::discovery::{ContinueWatchingItem, Hub, HubItem, SearchKind, SearchResult};
@@ -185,9 +185,23 @@ where
         query: &str,
         types: &[SearchKind],
         page: PageRequest,
-    ) -> Result<Page<SearchResult>, DiscoveryError> {
+    ) -> Result<Page<SearchResult<SeriesCard>>, DiscoveryError> {
         let filter = self.viewer_filter(user).await?;
-        Ok(self.search_index.search(query, types, &filter, page).await?)
+        let Page { items, total, offset, limit } =
+            self.search_index.search(query, types, &filter, page).await?;
+        let ids: Vec<SeriesId> = items
+            .iter()
+            .filter_map(|hit| match hit {
+                SearchResult::Series(show) => Some(show.id.clone()),
+                _ => None,
+            })
+            .collect();
+        let counts = self.catalog.season_counts(&ids).await?;
+        let items = items
+            .into_iter()
+            .map(|hit| hit.map_series(|show| SeriesCard::counted(show, &counts)))
+            .collect();
+        Ok(Page { items, total, offset, limit })
     }
 
     async fn continue_watching(
@@ -464,6 +478,35 @@ mod tests {
         let svc = seeded().await;
         let hits = svc.search(&user(), "m1", &[], page()).await.unwrap();
         assert_eq!(hits.total, 1);
+    }
+
+    #[tokio::test]
+    async fn a_series_hit_counts_its_regular_seasons_and_never_the_specials() {
+        let svc = seeded().await;
+        for (id, number) in [("se0", 0), ("se2", 2), ("se3", 3), ("se4", 4), ("se5", 5)] {
+            svc.catalog.add_season(Season { number, ..season(id, "s1") });
+        }
+        svc.catalog.add_series(series("s2"));
+        svc.catalog.add_season(Season { number: 0, ..season("specials", "s2") });
+        svc.search_index
+            .add(SearchResult::Movie(Movie { title: "Drift".into(), ..movie("m1", 10) }));
+        svc.search_index
+            .add(SearchResult::Series(Series { title: "Drift Lines".into(), ..series("s1") }));
+        svc.search_index
+            .add(SearchResult::Series(Series { title: "Drift Away".into(), ..series("s2") }));
+
+        let hits = svc.search(&user(), "drift", &[], page()).await.unwrap();
+
+        let mut counts: Vec<Option<u16>> = hits
+            .items
+            .into_iter()
+            .map(|hit| match hit {
+                SearchResult::Series(card) => Some(card.season_count),
+                _ => None,
+            })
+            .collect();
+        counts.sort();
+        assert_eq!(counts, [None, Some(0), Some(5)]);
     }
 
     fn session(id: &str, version: &str, position_ms: u64) -> PlaybackSession {

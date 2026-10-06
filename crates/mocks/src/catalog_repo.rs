@@ -311,6 +311,19 @@ impl CatalogRepository for MockCatalogRepo {
             .collect())
     }
 
+    async fn season_counts(
+        &self,
+        series: &[SeriesId],
+    ) -> Result<HashMap<SeriesId, u16>, RepositoryError> {
+        self.guard()?;
+        let state = self.state.lock().unwrap();
+        let mut counts: HashMap<SeriesId, u16> = HashMap::new();
+        for season in state.seasons.iter().filter(|s| s.number > 0 && series.contains(&s.series)) {
+            *counts.entry(season.series.clone()).or_default() += 1;
+        }
+        Ok(counts)
+    }
+
     async fn series_versions(&self, series: &SeriesId) -> Result<Vec<Version>, RepositoryError> {
         self.guard()?;
         let state = self.state.lock().unwrap();

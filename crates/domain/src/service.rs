@@ -3,8 +3,9 @@ use std::future::Future;
 use crate::catalog::{
     Collection, CollectionDetail, CollectionId, CollectionUpdate, Episode, EpisodeCard,
     EpisodeEdit, EpisodeId, Movie, MovieDetail, MovieEdit, MovieId, NewCollection, PersonProfile,
-    RandomScope, Season, SeasonCard, SeasonId, Series, SeriesDetail, SeriesEdit, SeriesId,
-    TitleCard, TitleId, TitleKind, TitleListQuery, TitleRef, Version, VersionDetail, VersionId,
+    RandomScope, Season, SeasonCard, SeasonId, SeriesCard, SeriesDetail, SeriesEdit, SeriesId,
+    TitleCard, TitleId, TitleKind, TitleListQuery, TitleRef, Version, VersionDetail, VersionFilter,
+    VersionId,
 };
 use crate::common::{Page, PageRequest};
 use crate::discovery::{ContinueWatchingItem, Hub, SearchKind, SearchResult};
@@ -14,7 +15,8 @@ use crate::error::{
 use crate::job::{Job, JobId, JobNode, JobPage, JobQuery};
 use crate::library::{
     DuplicateCandidate, DuplicateCandidateId, FetchInput, Library, LibraryId, LibraryUpdate,
-    NewLibrary, ResolveCandidate, ResolveTarget, ScanState, UnmatchedFile, UnmatchedFileId,
+    NewLibrary, ResolveCandidate, ResolveTarget, ScanMode, ScanState, UnmatchedFile,
+    UnmatchedFileId,
 };
 use crate::media::SubtitleFileId;
 use crate::metadata::{ExternalId, Genre, Person, PersonId};
@@ -139,7 +141,7 @@ pub trait CatalogService {
         caller: &Principal,
         query: &TitleListQuery,
         page: PageRequest,
-    ) -> impl Future<Output = Result<Page<Series>, CatalogError>> + Send;
+    ) -> impl Future<Output = Result<Page<SeriesCard>, CatalogError>> + Send;
     fn series_detail(
         &self,
         caller: &Principal,
@@ -180,6 +182,7 @@ pub trait CatalogService {
     fn all_versions(
         &self,
         caller: &Principal,
+        filter: Option<&VersionFilter>,
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<Version>, CatalogError>> + Send;
     fn version(
@@ -286,6 +289,7 @@ pub trait LibraryService {
         &self,
         caller: &Principal,
         id: &LibraryId,
+        mode: ScanMode,
     ) -> impl Future<Output = Result<(), LibraryError>> + Send;
     fn unmatched(
         &self,
@@ -343,7 +347,7 @@ pub trait LibraryService {
         caller: &Principal,
         id: &SeriesId,
         edit: SeriesEdit,
-    ) -> impl Future<Output = Result<Series, LibraryError>> + Send;
+    ) -> impl Future<Output = Result<SeriesCard, LibraryError>> + Send;
     fn edit_episode(
         &self,
         caller: &Principal,
@@ -449,6 +453,12 @@ pub trait JobService {
         caller: &Principal,
         id: &JobId,
     ) -> impl Future<Output = Result<(), JobServiceError>> + Send;
+    fn retry_job(
+        &self,
+        caller: &Principal,
+        id: &JobId,
+    ) -> impl Future<Output = Result<Job, JobServiceError>> + Send;
+    fn is_retryable(&self, job: &Job) -> bool;
 }
 
 pub trait UserService {
@@ -565,7 +575,7 @@ pub trait DiscoveryService {
         query: &str,
         types: &[SearchKind],
         page: PageRequest,
-    ) -> impl Future<Output = Result<Page<SearchResult>, DiscoveryError>> + Send;
+    ) -> impl Future<Output = Result<Page<SearchResult<SeriesCard>>, DiscoveryError>> + Send;
     fn continue_watching(
         &self,
         user: &UserId,

@@ -639,7 +639,7 @@ sub AskForVersion()
 
     labels = []
     for each row in m.versionChoices
-        labels.Push(JoinParts([row.label, row.detail]))
+        labels.Push(row.label)
     end for
 
     m.top.choiceRequest = { field: "version", title: Phrase("detail.chooseVersion"), kind: "choice", options: labels, selected: 0 }

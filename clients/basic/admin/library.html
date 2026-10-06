@@ -62,8 +62,36 @@
         });
         const refresh = sm.el("button", { type: "button", class: "sm-secondary" }, "Refresh metadata");
         refresh.addEventListener("click", confirmRefreshMetadata);
-        main.appendChild(sm.el("p", null, [trigger, " ", refresh]));
+        const reread = sm.el("button", { type: "button", class: "sm-secondary" }, "Re-read files");
+        reread.addEventListener("click", () => confirmReread(container));
+        main.appendChild(sm.el("p", null, [trigger, " ", reread, " ", refresh]));
         await reloadScan(container);
+      }
+
+      function confirmReread(container) {
+        sm.openDialog("Re-read files", (box) => {
+          const run = sm.el("button", { type: "button" }, "Re-read files");
+          run.addEventListener("click", async () => {
+            run.disabled = true;
+            try {
+              await sm.json("/api/v1/libraries/" + eu(libId) + "/scan", {
+                method: "POST",
+                body: JSON.stringify({ reread: true }),
+              });
+              sm.toast("Re-read queued.", "ok");
+              box.close();
+              await reloadScan(container);
+            } catch (err) {
+              run.disabled = false;
+              sm.toast("Scan failed.", "danger");
+            }
+          });
+          return sm.el("div", null, [
+            sm.el("p", null, "Read every file in this library again and update its quality, size, duration and tracks."),
+            sm.el("p", { class: "sm-subtext" }, "Titles, metadata, artwork, trickplay and subtitles are kept, and no other jobs are queued. Files not seen before are added as a normal scan would."),
+            run,
+          ]);
+        });
       }
 
       function confirmRefreshMetadata() {
@@ -283,7 +311,7 @@
               name,
               (v.quality || "").toUpperCase(),
               v.container,
-              Math.round(v.size_bytes / 1048576) + " MB",
+              sm.gigabytes(v.size_bytes),
               v.available ? "yes" : "no",
               relink,
             ];

@@ -244,6 +244,7 @@ async fn seed(repos: &Repos, hash: &str) {
 
     repos.jobs.enqueue(fixture::admin_job()).await.unwrap();
     repos.jobs.enqueue(fixture::admin_child_job()).await.unwrap();
+    repos.jobs.enqueue(fixture::admin_failed_job()).await.unwrap();
 }
 
 async fn seeded(db_root: &Path, hash: &str) -> (Repos, Router) {

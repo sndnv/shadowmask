@@ -102,10 +102,10 @@ mod tests {
     #[tokio::test]
     async fn enqueues_transcription_selecting_preferred_audio_track() {
         let catalog = MockCatalogRepo::new();
-        seed(&catalog, vec![track(1, Some("eng")), track(2, Some("spa"))]).await;
+        seed(&catalog, vec![track(1, Some("en")), track(2, Some("es"))]).await;
         let jobs = MockJobStore::new();
         let enqueuer =
-            TranscriptionEnqueuer::new(jobs.clone(), catalog.clone(), vec!["spa".into()], true);
+            TranscriptionEnqueuer::new(jobs.clone(), catalog.clone(), vec!["es".into()], true);
 
         enqueuer.trigger(&VersionId("v1".into()), None).await.unwrap();
 
@@ -118,14 +118,14 @@ mod tests {
             .unwrap();
         let payload = TranscriptionJobPayload::decode(&job.payload).unwrap();
         assert_eq!(payload.audio_track_index, Some(2));
-        assert_eq!(payload.source_language.as_deref(), Some("spa"));
+        assert_eq!(payload.source_language.as_deref(), Some("es"));
         assert_eq!(payload.source_path, "/m/v1.mkv");
     }
 
     #[tokio::test]
     async fn links_the_child_to_its_parent_job() {
         let catalog = MockCatalogRepo::new();
-        seed(&catalog, vec![track(1, Some("eng"))]).await;
+        seed(&catalog, vec![track(1, Some("en"))]).await;
         let jobs = MockJobStore::new();
         let enqueuer = TranscriptionEnqueuer::new(jobs.clone(), catalog, Vec::new(), true);
 
@@ -144,7 +144,7 @@ mod tests {
     #[tokio::test]
     async fn labels_from_first_audio_track_without_a_preference() {
         let catalog = MockCatalogRepo::new();
-        seed(&catalog, vec![track(1, Some("eng"))]).await;
+        seed(&catalog, vec![track(1, Some("en"))]).await;
         let jobs = MockJobStore::new();
         let enqueuer = TranscriptionEnqueuer::new(jobs.clone(), catalog.clone(), Vec::new(), true);
 
@@ -159,7 +159,7 @@ mod tests {
             .unwrap();
         let payload = TranscriptionJobPayload::decode(&job.payload).unwrap();
         assert_eq!(payload.audio_track_index, None);
-        assert_eq!(payload.source_language.as_deref(), Some("eng"));
+        assert_eq!(payload.source_language.as_deref(), Some("en"));
     }
 
     #[tokio::test]
@@ -188,7 +188,7 @@ mod tests {
     #[tokio::test]
     async fn no_op_when_subtitles_already_present() {
         let catalog = MockCatalogRepo::new();
-        seed(&catalog, vec![track(1, Some("eng"))]).await;
+        seed(&catalog, vec![track(1, Some("en"))]).await;
         catalog
             .set_subtitle_files(
                 &VersionId("v1".into()),
@@ -217,7 +217,7 @@ mod tests {
     #[tokio::test]
     async fn nothing_is_enqueued_when_transcription_is_switched_off() {
         let catalog = MockCatalogRepo::new();
-        seed(&catalog, vec![track(1, Some("eng"))]).await;
+        seed(&catalog, vec![track(1, Some("en"))]).await;
         let jobs = MockJobStore::new();
         let enqueuer = TranscriptionEnqueuer::new(jobs.clone(), catalog, Vec::new(), false);
 

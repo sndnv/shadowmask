@@ -442,6 +442,13 @@ dd {
   background: var(--muted);
 }
 
+.sm-badge.sm-outline {
+  padding: 0 6px;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
 .sm-badge.sm-warn {
   background: var(--warn);
 }

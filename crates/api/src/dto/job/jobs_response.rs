@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use domain::job::{JobNode, JobPage};
+use domain::job::{Job, JobNode, JobPage};
 
 use crate::dto::job::JobResponse;
 
@@ -14,10 +14,18 @@ pub struct JobsResponse {
     pub all_total: u64,
 }
 
-impl From<JobPage> for JobsResponse {
-    fn from(p: JobPage) -> Self {
+impl JobsResponse {
+    pub fn new(p: JobPage, retryable: impl Fn(&Job) -> bool) -> Self {
         JobsResponse {
-            items: p.page.items.into_iter().map(Into::into).collect(),
+            items: p
+                .page
+                .items
+                .into_iter()
+                .map(|job| {
+                    let retryable = retryable(&job);
+                    JobResponse::new(job, retryable)
+                })
+                .collect(),
             total: p.page.total,
             offset: p.page.offset,
             limit: p.page.limit,
@@ -34,9 +42,9 @@ pub struct JobNodeResponse {
     pub depth: u32,
 }
 
-impl From<JobNode> for JobNodeResponse {
-    fn from(n: JobNode) -> Self {
-        JobNodeResponse { job: n.job.into(), depth: n.depth }
+impl JobNodeResponse {
+    pub fn new(n: JobNode, retryable: bool) -> Self {
+        JobNodeResponse { job: JobResponse::new(n.job, retryable), depth: n.depth }
     }
 }
 
@@ -44,7 +52,7 @@ impl From<JobNode> for JobNodeResponse {
 mod tests {
     use super::*;
     use domain::common::Page;
-    use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
+    use domain::job::{JobId, JobKind, JobPriority, JobStatus};
     use jiff::Timestamp;
 
     fn job(id: &str) -> Job {
@@ -68,12 +76,17 @@ mod tests {
 
     #[test]
     fn carries_both_tab_counts_alongside_the_page() {
-        let response = JobsResponse::from(JobPage {
-            page: Page { items: vec![job("a")], total: 9, offset: 50, limit: 50 },
-            active_total: 2,
-            all_total: 9,
-        });
-        assert_eq!(response.items.len(), 1);
+        let response = JobsResponse::new(
+            JobPage {
+                page: Page { items: vec![job("a"), job("b")], total: 9, offset: 50, limit: 50 },
+                active_total: 2,
+                all_total: 9,
+            },
+            |job| job.id.0 == "b",
+        );
+        assert_eq!(response.items.len(), 2);
+        assert!(!response.items[0].retryable);
+        assert!(response.items[1].retryable, "each job asks the service on its own");
         assert_eq!(response.total, 9);
         assert_eq!(response.offset, 50);
         assert_eq!(response.limit, 50);
@@ -83,10 +96,13 @@ mod tests {
 
     #[test]
     fn a_node_flattens_the_job_and_adds_its_depth() {
-        let value =
-            serde_json::to_value(JobNodeResponse::from(JobNode { job: job("child"), depth: 2 }))
-                .unwrap();
+        let value = serde_json::to_value(JobNodeResponse::new(
+            JobNode { job: job("child"), depth: 2 },
+            true,
+        ))
+        .unwrap();
         assert_eq!(value["id"], "child");
         assert_eq!(value["depth"], 2);
+        assert_eq!(value["retryable"], true);
     }
 }

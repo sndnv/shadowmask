@@ -15,8 +15,8 @@ server image are credited from the *Third-party content* section of the
 
 | License | Crates |
 | --- | ---: |
-| Apache License 2.0 | 284 |
-| MIT License | 97 |
+| Apache License 2.0 | 285 |
+| MIT License | 99 |
 | Unicode License v3 | 19 |
 | ISC License | 7 |
 | BSD 3-Clause "New" or "Revised" License | 6 |
@@ -9078,6 +9078,7 @@ Used by:
 - [ident_case 1.0.1](https://github.com/TedDriggs/ident_case)
 - [image 0.24.9](https://github.com/image-rs/image)
 - [image 0.25.10](https://github.com/image-rs/image)
+- [isolang 2.4.0](https://github.com/humenda/isolang-rs)
 - [itoa 1.0.18](https://github.com/dtolnay/itoa)
 - [jiff-cron 0.3.0](https://github.com/jiff-cron/jiff-cron)
 - [libc 0.2.190](https://github.com/rust-lang/libc)
@@ -11067,9 +11068,11 @@ licences; see files named LICENSE.*.txt for details.
 
 Used by:
 
+- [phf 0.11.3](https://github.com/rust-phf/rust-phf)
 - [phf 0.13.1](https://github.com/rust-phf/rust-phf)
 - [phf_generator 0.13.1](https://github.com/rust-phf/rust-phf)
 - [phf_macros 0.13.1](https://github.com/rust-phf/rust-phf)
+- [phf_shared 0.11.3](https://github.com/rust-phf/rust-phf)
 - [phf_shared 0.13.1](https://github.com/rust-phf/rust-phf)
 
 ````text

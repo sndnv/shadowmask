@@ -26,11 +26,11 @@ void main() {
     test('resolves an index to the language it is labelled with', () {
       final VersionDetail v = _version(
         audio: const <AudioTrack>[
-          AudioTrack(index: 1, codec: 'aac', language: 'eng'),
-          AudioTrack(index: 2, codec: 'aac', language: 'fra'),
+          AudioTrack(index: 1, codec: 'aac', language: 'en'),
+          AudioTrack(index: 2, codec: 'aac', language: 'fr'),
         ],
         subtitles: const <SubtitleTrack>[
-          SubtitleTrack(index: 3, language: 'fra', format: SubtitleFormat.srt),
+          SubtitleTrack(index: 3, language: 'fr', format: SubtitleFormat.srt),
         ],
       );
       final PlaybackControls carried = carryTracks(
@@ -40,8 +40,8 @@ void main() {
         ),
         v,
       );
-      expect(carried.audioLanguage, 'fra');
-      expect(carried.subtitleLanguage, 'fra');
+      expect(carried.audioLanguage, 'fr');
+      expect(carried.subtitleLanguage, 'fr');
       expect(
         carried.audioTrack,
         isNull,
@@ -56,7 +56,7 @@ void main() {
         files: const <SubtitleFile>[
           SubtitleFile(
             id: 'sub-1',
-            language: 'nld',
+            language: 'nl',
             format: SubtitleFormat.srt,
             source: SubtitleSource.openSubtitles,
           ),
@@ -66,7 +66,7 @@ void main() {
         const PlaybackControls(subtitle: SubtitleSelection.file('sub-1')),
         v,
       );
-      expect(carried.subtitleLanguage, 'nld');
+      expect(carried.subtitleLanguage, 'nl');
       expect(carried.toQuery().containsKey('sub'), isFalse);
     });
 
@@ -91,23 +91,23 @@ void main() {
 
     test('a request this episode could not honour still carries forward', () {
       final PlaybackControls carried = carryTracks(
-        const PlaybackControls(audioLanguage: 'fra', subtitleLanguage: 'fra'),
+        const PlaybackControls(audioLanguage: 'fr', subtitleLanguage: 'fr'),
         _version(),
       );
-      expect(carried.audioLanguage, 'fra');
-      expect(carried.subtitleLanguage, 'fra');
+      expect(carried.audioLanguage, 'fr');
+      expect(carried.subtitleLanguage, 'fr');
     });
 
     test('subtitles switched off carry as off, never as a language', () {
       final VersionDetail v = _version(
         subtitles: const <SubtitleTrack>[
-          SubtitleTrack(index: 2, language: 'eng', format: SubtitleFormat.srt),
+          SubtitleTrack(index: 2, language: 'en', format: SubtitleFormat.srt),
         ],
       );
       final PlaybackControls carried = carryTracks(
         const PlaybackControls(
           subtitle: SubtitleSelection.embedded(2),
-          subtitleLanguage: 'eng',
+          subtitleLanguage: 'en',
           subtitleOff: true,
         ),
         v,
@@ -120,15 +120,15 @@ void main() {
     test('an index that is not in this version resolves to nothing', () {
       final VersionDetail v = _version(
         audio: const <AudioTrack>[
-          AudioTrack(index: 1, codec: 'aac', language: 'eng'),
+          AudioTrack(index: 1, codec: 'aac', language: 'en'),
         ],
         subtitles: const <SubtitleTrack>[
-          SubtitleTrack(index: 2, language: 'eng', format: SubtitleFormat.srt),
+          SubtitleTrack(index: 2, language: 'en', format: SubtitleFormat.srt),
         ],
         files: const <SubtitleFile>[
           SubtitleFile(
             id: 'sub-1',
-            language: 'eng',
+            language: 'en',
             format: SubtitleFormat.srt,
             source: SubtitleSource.external,
           ),

@@ -1619,6 +1619,48 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
 
     version_rows_and_deletes(&repo).await;
     manually_edited_survives_a_round_trip(&repo).await;
+    season_counts_leave_out_specials(&repo).await;
+}
+
+async fn season_counts_leave_out_specials<R: CatalogRepository>(repo: &R) {
+    for (series, numbers) in [("counted", 0..=5), ("specials", 0..=0)] {
+        repo.upsert_series(Series {
+            id: SeriesId(series.into()),
+            title: series.into(),
+            sort_title: series.into(),
+            year: None,
+            overview: None,
+            content_rating: None,
+            manually_edited: false,
+            added_at: ts(0),
+            updated_at: ts(0),
+            artwork: Vec::new(),
+        })
+        .await
+        .unwrap();
+        for number in numbers {
+            repo.upsert_season(Season {
+                id: SeasonId(format!("{series}-{number}")),
+                series: SeriesId(series.into()),
+                number,
+                title: None,
+                overview: None,
+                added_at: ts(0),
+                updated_at: ts(0),
+                artwork: Vec::new(),
+            })
+            .await
+            .unwrap();
+        }
+    }
+    let asked = ["counted", "specials", "nope"].map(|id| SeriesId(id.into()));
+
+    assert_eq!(
+        repo.season_counts(&asked).await.unwrap(),
+        std::collections::HashMap::from([(SeriesId("counted".into()), 5)]),
+        "season 0 holds the specials, so a series with nothing else has no regular season"
+    );
+    assert!(repo.season_counts(&[]).await.unwrap().is_empty());
 }
 
 async fn manually_edited_survives_a_round_trip<R: CatalogRepository>(repo: &R) {

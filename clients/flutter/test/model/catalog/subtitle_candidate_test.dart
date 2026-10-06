@@ -6,7 +6,7 @@ void main() {
   test('SubtitleCandidate parses snake_case fields', () {
     final SubtitleCandidate c = SubtitleCandidate.fromJson(<String, dynamic>{
       'file_id': 'f1',
-      'language': 'eng',
+      'language': 'en',
       'release_name': 'BluRay.x264',
       'format': 'srt',
       'download_count': 1200,
@@ -14,7 +14,7 @@ void main() {
     });
 
     expect(c.fileId, 'f1');
-    expect(c.language, 'eng');
+    expect(c.language, 'en');
     expect(c.releaseName, 'BluRay.x264');
     expect(c.format, SubtitleFormat.srt);
     expect(c.downloadCount, 1200);

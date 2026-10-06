@@ -22,7 +22,7 @@ void main() {
   });
 
   test('a file with no label reads its provenance, not the enum', () {
-    expect(subtitleFileLabel(_file()), 'EN · srt · OpenSubtitles');
+    expect(subtitleFileLabel(_file()), 'English · srt · OpenSubtitles');
   });
 
   test('every provenance has a name a viewer would recognise', () {
@@ -50,5 +50,11 @@ void main() {
       downloadCount: 10,
     );
     expect(subtitleCandidateLabel(c), startsWith('Paper.Skies.BluRay'));
+    expect(subtitleCandidateLabel(c), isNot(contains('10')));
+  });
+
+  test('a download count reads in words, grouped', () {
+    expect(downloadCountLabel(1), '1 download');
+    expect(downloadCountLabel(254311), '254,311 downloads');
   });
 }

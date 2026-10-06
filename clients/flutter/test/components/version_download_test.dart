@@ -148,9 +148,12 @@ void main() {
           'left to right the row is version text, download, captions, play, '
           'chevron (got $text, $download, $captions, $play, $chevron)',
     );
+    final double label = tester
+        .getRect(find.textContaining('FHD', findRichText: true))
+        .right;
     expect(
-      download,
-      lessThan(captions / 2),
+      download - label,
+      lessThan(captions - download),
       reason:
           'download hugs the text on the left, it does not join the '
           'cluster of controls on the right',

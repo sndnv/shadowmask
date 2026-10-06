@@ -1,10 +1,20 @@
 import 'package:flutter/material.dart';
 
 class StartEllipsisText extends StatelessWidget {
-  const StartEllipsisText(this.text, {super.key, this.style});
+  const StartEllipsisText(this.text, {super.key, this.style, this.tooltip})
+    : _middle = false;
+
+  const StartEllipsisText.middle(
+    this.text, {
+    super.key,
+    this.style,
+    this.tooltip,
+  }) : _middle = true;
 
   final String text;
   final TextStyle? style;
+  final String? tooltip;
+  final bool _middle;
 
   @override
   Widget build(BuildContext context) {
@@ -16,7 +26,7 @@ class StartEllipsisText extends StatelessWidget {
           maxLines: 1,
           softWrap: false,
         );
-        return Tooltip(message: text, child: line);
+        return Tooltip(message: tooltip ?? text, child: line);
       },
     );
   }
@@ -41,19 +51,34 @@ class StartEllipsisText extends StatelessWidget {
         return text;
       }
       final List<String> chars = text.characters.toList();
-      int lo = 1;
-      int hi = chars.length;
+      final String Function(int kept) shorten = _middle
+          ? (int kept) => _keepEnds(chars, kept)
+          : (int kept) => '…${chars.sublist(chars.length - kept).join()}';
+      int lo = 0;
+      int hi = chars.length - 1;
       while (lo < hi) {
-        final int mid = lo + (hi - lo) ~/ 2;
-        if (widthOf('…${chars.sublist(mid).join()}') <= available) {
-          hi = mid;
+        final int mid = hi - (hi - lo) ~/ 2;
+        if (widthOf(shorten(mid)) <= available) {
+          lo = mid;
         } else {
-          lo = mid + 1;
+          hi = mid - 1;
         }
       }
-      return '…${chars.sublist(lo).join()}';
+      return shorten(lo);
     } finally {
       painter.dispose();
     }
+  }
+
+  static String _keepEnds(List<String> chars, int kept) {
+    final int dot = chars.lastIndexOf('.');
+    final int extension = dot > 0 ? chars.length - dot : 0;
+    final int tail = (kept ~/ 3 < extension ? extension : kept ~/ 3).clamp(
+      0,
+      kept,
+    );
+    final int head = kept - tail;
+    return '${chars.sublist(0, head).join()}…'
+        '${chars.sublist(chars.length - tail).join()}';
   }
 }

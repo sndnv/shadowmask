@@ -1,10 +1,10 @@
 use domain::error::{RepositoryError, WalkError};
 use domain::job::Job;
-use domain::library::{LibraryId, ScanState, ScanStatus, SourceWalker};
+use domain::library::{LibraryId, ScanMode, ScanState, ScanStatus, SourceWalker};
 use domain::media::MediaProbe;
 use domain::repository::LibraryRepository;
 use jiff::Timestamp;
-use services::library::{ScanEnricher, Scanner};
+use services::library::{ScanEnricher, ScanJobPayload, Scanner};
 
 use crate::error::JobError;
 use crate::job_handler::JobHandler;
@@ -32,7 +32,7 @@ where
         if job.payload.is_empty() {
             return Err(JobError::Permanent("library scan job has empty payload".to_owned()));
         }
-        let id = LibraryId(job.payload.clone());
+        let ScanJobPayload { library: id, mode } = ScanJobPayload::decode(&job.payload);
         let library = self
             .repo
             .get(&id)
@@ -66,6 +66,9 @@ where
 
         match scanned {
             Ok(report) => {
+                if mode == ScanMode::Reread {
+                    self.enricher.reread(&library, &report).await;
+                }
                 self.enricher.enrich(&library, &report, Some(&job.id)).await;
                 self.repo
                     .save_scan_state(idle(&id, started, Timestamp::now()))
@@ -135,7 +138,6 @@ fn failed(id: &LibraryId, started: Timestamp, err: &WalkError) -> ScanState {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
 
     use super::*;
@@ -149,26 +151,46 @@ mod tests {
 
     #[derive(Clone)]
     struct SpyEnricher {
-        called: Arc<AtomicBool>,
+        calls: Arc<Mutex<Vec<&'static str>>>,
     }
 
     impl ScanEnricher for SpyEnricher {
         async fn enrich(&self, _library: &Library, _report: &ScanReport, _parent: Option<&JobId>) {
-            self.called.store(true, Ordering::Relaxed);
+            self.calls.lock().unwrap().push("enrich");
+        }
+
+        async fn reread(&self, _library: &Library, _report: &ScanReport) {
+            self.calls.lock().unwrap().push("reread");
         }
     }
 
     #[derive(Clone)]
     struct StatusSpy {
         repo: MockLibraryRepo,
-        seen: Arc<Mutex<Option<ScanStatus>>>,
+        seen: Arc<Mutex<Vec<Option<ScanStatus>>>>,
+    }
+
+    impl StatusSpy {
+        async fn record(&self, library: &Library) {
+            let state = self.repo.scan_state(&library.id).await.unwrap();
+            self.seen.lock().unwrap().push(state.map(|state| state.status));
+        }
     }
 
     impl ScanEnricher for StatusSpy {
         async fn enrich(&self, library: &Library, _report: &ScanReport, _parent: Option<&JobId>) {
-            let state = self.repo.scan_state(&library.id).await.unwrap();
-            *self.seen.lock().unwrap() = state.map(|state| state.status);
+            self.record(library).await;
         }
+
+        async fn reread(&self, library: &Library, _report: &ScanReport) {
+            self.record(library).await;
+        }
+    }
+
+    fn reread_job() -> Job {
+        scan_job(
+            &ScanJobPayload { library: LibraryId("lib".into()), mode: ScanMode::Reread }.encode(),
+        )
     }
 
     fn library(roots: &[&str]) -> Library {
@@ -254,41 +276,57 @@ mod tests {
         );
     }
 
+    fn spied(repo: &MockLibraryRepo) -> (Arc<Mutex<Vec<&'static str>>>, impl JobHandler) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let handler = LibraryScanHandler::new(
+            repo.clone(),
+            Scanner::new(MockSourceWalker::new(), MockMediaProbe::new()),
+            SpyEnricher { calls: Arc::clone(&calls) },
+        );
+        (calls, handler)
+    }
+
     #[tokio::test]
     async fn enricher_runs_after_successful_scan() {
         let repo = MockLibraryRepo::new();
         repo.insert_library(library(&["/m"]));
-        let called = Arc::new(AtomicBool::new(false));
-        let handler = LibraryScanHandler::new(
-            repo.clone(),
-            Scanner::new(MockSourceWalker::new(), MockMediaProbe::new()),
-            SpyEnricher { called: Arc::clone(&called) },
-        );
+        let (calls, handler) = spied(&repo);
 
         handler.handle(&scan_job("lib")).await.unwrap();
 
-        assert!(called.load(Ordering::Relaxed));
+        assert_eq!(*calls.lock().unwrap(), vec!["enrich"]);
         let state = repo.scan_state(&LibraryId("lib".into())).await.unwrap().unwrap();
         assert_eq!(state.status, ScanStatus::Idle);
+    }
+
+    #[tokio::test]
+    async fn a_reread_job_rereads_known_files_before_enriching() {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(library(&["/m"]));
+        let (calls, handler) = spied(&repo);
+
+        handler.handle(&reread_job()).await.unwrap();
+
+        assert_eq!(*calls.lock().unwrap(), vec!["reread", "enrich"]);
     }
 
     #[tokio::test]
     async fn the_library_still_reads_as_scanning_while_enrichment_writes() {
         let repo = MockLibraryRepo::new();
         repo.insert_library(library(&["/m"]));
-        let seen = Arc::new(Mutex::new(None));
+        let seen = Arc::new(Mutex::new(Vec::new()));
         let handler = LibraryScanHandler::new(
             repo.clone(),
             Scanner::new(MockSourceWalker::new(), MockMediaProbe::new()),
             StatusSpy { repo: repo.clone(), seen: Arc::clone(&seen) },
         );
 
-        handler.handle(&scan_job("lib")).await.unwrap();
+        handler.handle(&reread_job()).await.unwrap();
 
         assert_eq!(
             *seen.lock().unwrap(),
-            Some(ScanStatus::Running),
-            "enrichment is the phase that writes, so the scan is not over until it returns"
+            vec![Some(ScanStatus::Running); 2],
+            "re-reading and enrichment both write, so the scan is not over until both return"
         );
         let state = repo.scan_state(&LibraryId("lib".into())).await.unwrap().unwrap();
         assert_eq!(state.status, ScanStatus::Idle, "and it is only idle once that is done");
@@ -345,7 +383,7 @@ mod tests {
         let admin = Principal { user: UserId("admin".into()), role: Role::Admin };
         let id = LibraryId("lib".into());
 
-        svc.trigger_scan(&admin, &id).await.unwrap();
+        svc.trigger_scan(&admin, &id, ScanMode::Normal).await.unwrap();
         let job = jobs.list().await.unwrap().into_iter().next().unwrap();
 
         let walker = MockSourceWalker::new()

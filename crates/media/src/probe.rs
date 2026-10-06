@@ -194,7 +194,7 @@ fn audio_track(s: FfStream) -> AudioTrack {
         index: s.index,
         codec: s.codec_name.unwrap_or_default(),
         channels: s.channels.unwrap_or(0),
-        language: s.tags.language.map(LanguageCode),
+        language: s.tags.language.as_deref().map(LanguageCode::from_file_tag),
         bitrate: parse_bitrate(s.bit_rate.as_deref()),
     }
 }
@@ -202,7 +202,7 @@ fn audio_track(s: FfStream) -> AudioTrack {
 fn subtitle_track(s: FfStream) -> EmbeddedSubtitleTrack {
     EmbeddedSubtitleTrack {
         index: s.index,
-        language: s.tags.language.map(LanguageCode),
+        language: s.tags.language.as_deref().map(LanguageCode::from_file_tag),
         format: subtitle_format(s.codec_name.as_deref()),
         forced: s.disposition.forced == 1,
         default: s.disposition.default == 1,
@@ -297,7 +297,7 @@ mod tests {
         let a = parse(FIXTURE).audio;
         assert_eq!(a[0].codec, "eac3");
         assert_eq!(a[0].channels, 6);
-        assert_eq!(a[0].language, Some(LanguageCode("eng".to_owned())));
+        assert_eq!(a[0].language, Some(LanguageCode("en".to_owned())));
         assert_eq!(a[0].bitrate, Some(768_000));
         assert_eq!(a[1].codec, "aac");
         assert_eq!(a[1].channels, 2);
@@ -309,10 +309,11 @@ mod tests {
     fn parses_subtitle_tracks_with_dispositions() {
         let s = parse(FIXTURE).subtitles;
         assert_eq!(s[0].format, SubtitleFormat::Srt);
-        assert_eq!(s[0].language, Some(LanguageCode("eng".to_owned())));
+        assert_eq!(s[0].language, Some(LanguageCode("en".to_owned())));
         assert!(s[0].default);
         assert!(!s[0].forced);
         assert_eq!(s[1].format, SubtitleFormat::Pgs);
+        assert_eq!(s[1].language, Some(LanguageCode("es".to_owned())));
         assert!(!s[1].default);
         assert!(s[1].forced);
     }

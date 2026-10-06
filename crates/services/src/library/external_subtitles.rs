@@ -28,7 +28,8 @@ fn discover_one(video_stem: &str, sibling: &str) -> Option<DiscoveredSubtitle> {
     let (_, ext) = basename(sibling).rsplit_once('.')?;
     let format = SubtitleFormat::from_extension(ext)?;
     let suffix = sidecar_suffix(video_stem, sibling)?;
-    let language = suffix.split('.').find_map(parse_language_tag).map(LanguageCode);
+    let language =
+        suffix.split('.').find_map(parse_language_tag).map(|tag| LanguageCode::from_file_tag(&tag));
     Some(DiscoveredSubtitle { path: sibling.to_owned(), language, format })
 }
 
@@ -62,6 +63,17 @@ mod tests {
         assert_eq!(subs[0].path, "/m/Movie.en.srt");
         assert_eq!(subs[0].language, Some(LanguageCode("en".to_owned())));
         assert_eq!(subs[0].format, SubtitleFormat::Srt);
+    }
+
+    #[test]
+    fn a_three_letter_sidecar_tag_is_stored_as_two_letters() {
+        let subs = discover_subtitles(
+            "/m/Movie.mkv",
+            &paths(&["/m/Movie.eng.srt", "/m/Movie.fre.srt", "/m/Movie.fil.srt"]),
+        );
+        let languages: Vec<_> =
+            subs.iter().map(|s| s.language.as_ref().map(|l| l.0.as_str())).collect();
+        assert_eq!(languages, [Some("en"), Some("fr"), Some("fil")]);
     }
 
     #[test]

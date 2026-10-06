@@ -7,6 +7,7 @@ import 'package:shadowmask/components/admin/dialog_shell.dart';
 import 'package:shadowmask/components/admin/form_dialog.dart';
 import 'package:shadowmask/components/admin/labelled_field.dart';
 import 'package:shadowmask/components/language_dropdown.dart';
+import 'package:shadowmask/components/outline_pill.dart';
 import 'package:shadowmask/components/status_text.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
@@ -16,26 +17,42 @@ import 'package:shadowmask/theme/app_button.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
+import 'package:shadowmask/util/format.dart';
 import 'package:shadowmask/util/subtitle_labels.dart';
 import 'package:shadowmask/view/failure_reason.dart';
 
 const double _kSpinner = 16;
+
+const ButtonStyle _kRowButton = ButtonStyle(
+  padding: WidgetStatePropertyAll<EdgeInsetsGeometry>(
+    EdgeInsets.symmetric(
+      horizontal: kButtonPaddingX - Space.s2,
+      vertical: kButtonPaddingY,
+    ),
+  ),
+);
 
 Future<bool> showSubtitleSearch(
   BuildContext context, {
   required AdminApi admin,
   required String versionId,
   required List<SubtitleFile> existing,
-}) async =>
-    await showDialog<bool>(
-      context: context,
-      builder: (BuildContext _) => _SubtitleSearchDialog(
-        admin: admin,
-        versionId: versionId,
-        existing: existing,
-      ),
-    ) ??
-    false;
+}) async {
+  bool downloaded = false;
+  final List<Future<void>> downloads = <Future<void>>[];
+  await showDialog<void>(
+    context: context,
+    builder: (BuildContext _) => _SubtitleSearchDialog(
+      admin: admin,
+      versionId: versionId,
+      existing: existing,
+      onDownload: downloads.add,
+      onDownloaded: () => downloaded = true,
+    ),
+  );
+  await Future.wait(downloads);
+  return downloaded;
+}
 
 Future<bool> renameSubtitleFile(
   BuildContext context, {
@@ -171,11 +188,15 @@ class _SubtitleSearchDialog extends StatefulWidget {
     required this.admin,
     required this.versionId,
     required this.existing,
+    required this.onDownload,
+    required this.onDownloaded,
   });
 
   final AdminApi admin;
   final String versionId;
   final List<SubtitleFile> existing;
+  final ValueChanged<Future<void>> onDownload;
+  final VoidCallback onDownloaded;
 
   @override
   State<_SubtitleSearchDialog> createState() => _SubtitleSearchDialogState();
@@ -185,7 +206,6 @@ class _SubtitleSearchDialogState extends State<_SubtitleSearchDialog> {
   final TextEditingController _query = TextEditingController();
   String _language = '';
   Future<List<SubtitleCandidate>>? _results;
-  bool _downloaded = false;
   final Set<String> _pending = <String>{};
   late final Set<String> _held = <String>{
     for (final SubtitleFile f in widget.existing) f.id,
@@ -223,7 +243,7 @@ class _SubtitleSearchDialogState extends State<_SubtitleSearchDialog> {
         language: c.language,
         releaseName: c.releaseName,
       );
-      _downloaded = true;
+      widget.onDownloaded();
       if (mounted) {
         setState(() {
           _pending.remove(id);
@@ -244,7 +264,6 @@ class _SubtitleSearchDialogState extends State<_SubtitleSearchDialog> {
     return DialogShell(
       title: Strings.searchSubtitles,
       width: 560,
-      onClose: () => Navigator.of(context).pop(_downloaded),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -332,14 +351,27 @@ class _SubtitleSearchDialogState extends State<_SubtitleSearchDialog> {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
+                        if (c.downloadCount case final int count) ...<Widget>[
+                          const SizedBox(width: Space.s2),
+                          Tooltip(
+                            message: downloadCountLabel(count),
+                            child: OutlinePill(
+                              icon: Icons.download_outlined,
+                              text: compactCount(count),
+                            ),
+                          ),
+                          const SizedBox(width: Space.s2),
+                        ],
                         if (_held.contains(_candidateId(c)))
                           const TextButton(
                             onPressed: null,
+                            style: _kRowButton,
                             child: Text(Strings.downloaded),
                           )
                         else if (_pending.contains(_candidateId(c)))
                           TextButton(
                             onPressed: null,
+                            style: _kRowButton,
                             child: Semantics(
                               label: Strings.downloading,
                               child: const SizedBox(
@@ -353,7 +385,8 @@ class _SubtitleSearchDialogState extends State<_SubtitleSearchDialog> {
                           )
                         else
                           TextButton(
-                            onPressed: () => _download(c),
+                            onPressed: () => widget.onDownload(_download(c)),
+                            style: _kRowButton,
                             child: const Text(Strings.download),
                           ),
                       ],

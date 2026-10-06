@@ -184,8 +184,8 @@ mod tests {
 
     #[test]
     fn an_explicit_audio_track_wins_and_is_remembered() {
-        let tracks = vec![audio(0, Some("eng")), audio(1, Some("jpn"))];
-        let resolved = resolve_audio(&AudioRequest::Track(1), Some(0), &tracks, &want(&["eng"]));
+        let tracks = vec![audio(0, Some("en")), audio(1, Some("ja"))];
+        let resolved = resolve_audio(&AudioRequest::Track(1), Some(0), &tracks, &want(&["en"]));
 
         assert_eq!(resolved.selected, Some(1));
         assert_eq!(resolved.remembered, Some(1));
@@ -193,12 +193,12 @@ mod tests {
 
     #[test]
     fn a_carried_language_beats_the_stored_override() {
-        let tracks = vec![audio(0, Some("eng")), audio(1, Some("fra"))];
+        let tracks = vec![audio(0, Some("en")), audio(1, Some("fr"))];
         let resolved = resolve_audio(
-            &AudioRequest::Language(language("fra")),
+            &AudioRequest::Language(language("fr")),
             Some(0),
             &tracks,
-            &want(&["eng"]),
+            &want(&["en"]),
         );
 
         assert_eq!(resolved.selected, Some(1));
@@ -207,8 +207,8 @@ mod tests {
 
     #[test]
     fn the_stored_override_beats_the_account_preference() {
-        let tracks = vec![audio(0, Some("eng")), audio(1, Some("jpn"))];
-        let resolved = resolve_audio(&AudioRequest::Unspecified, Some(1), &tracks, &want(&["eng"]));
+        let tracks = vec![audio(0, Some("en")), audio(1, Some("ja"))];
+        let resolved = resolve_audio(&AudioRequest::Unspecified, Some(1), &tracks, &want(&["en"]));
 
         assert_eq!(resolved.selected, Some(1));
         assert_eq!(resolved.remembered, Some(1));
@@ -218,8 +218,8 @@ mod tests {
     // tracking the account setting from the next episode onward.
     #[test]
     fn the_account_preference_is_used_but_not_remembered() {
-        let tracks = vec![audio(0, Some("jpn")), audio(1, Some("eng"))];
-        let resolved = resolve_audio(&AudioRequest::Unspecified, None, &tracks, &want(&["eng"]));
+        let tracks = vec![audio(0, Some("ja")), audio(1, Some("en"))];
+        let resolved = resolve_audio(&AudioRequest::Unspecified, None, &tracks, &want(&["en"]));
 
         assert_eq!(resolved.selected, Some(1));
         assert_eq!(resolved.remembered, None);
@@ -227,8 +227,8 @@ mod tests {
 
     #[test]
     fn a_requested_audio_track_that_is_absent_falls_through() {
-        let tracks = vec![audio(0, Some("jpn")), audio(1, Some("eng"))];
-        let resolved = resolve_audio(&AudioRequest::Track(9), None, &tracks, &want(&["eng"]));
+        let tracks = vec![audio(0, Some("ja")), audio(1, Some("en"))];
+        let resolved = resolve_audio(&AudioRequest::Track(9), None, &tracks, &want(&["en"]));
 
         assert_eq!(resolved.selected, Some(1));
         assert_eq!(resolved.remembered, None);
@@ -236,9 +236,9 @@ mod tests {
 
     #[test]
     fn a_carried_language_that_is_absent_falls_through_to_the_account() {
-        let tracks = vec![audio(0, Some("jpn")), audio(1, Some("eng"))];
+        let tracks = vec![audio(0, Some("ja")), audio(1, Some("en"))];
         let resolved =
-            resolve_audio(&AudioRequest::Language(language("fra")), None, &tracks, &want(&["eng"]));
+            resolve_audio(&AudioRequest::Language(language("fr")), None, &tracks, &want(&["en"]));
 
         assert_eq!(resolved.selected, Some(1));
         assert_eq!(resolved.remembered, None);
@@ -246,8 +246,8 @@ mod tests {
 
     #[test]
     fn a_stored_audio_override_pointing_at_a_missing_track_falls_through() {
-        let tracks = vec![audio(0, Some("eng"))];
-        let resolved = resolve_audio(&AudioRequest::Unspecified, Some(7), &tracks, &want(&["eng"]));
+        let tracks = vec![audio(0, Some("en"))];
+        let resolved = resolve_audio(&AudioRequest::Unspecified, Some(7), &tracks, &want(&["en"]));
 
         assert_eq!(resolved.selected, Some(0));
         assert_eq!(resolved.remembered, None);
@@ -255,9 +255,9 @@ mod tests {
 
     #[test]
     fn subtitles_switched_off_are_remembered_as_off() {
-        let tracks = vec![subtitle(2, Some("eng"))];
+        let tracks = vec![subtitle(2, Some("en"))];
         let resolved =
-            resolve_subtitle(&SubtitleRequest::Off, None, &embedded(&tracks), &want(&["eng"]));
+            resolve_subtitle(&SubtitleRequest::Off, None, &embedded(&tracks), &want(&["en"]));
 
         assert_eq!(resolved.selected, None);
         assert_eq!(resolved.remembered, Some(SubtitleOverride::Off));
@@ -266,12 +266,12 @@ mod tests {
     // Off must beat the account preference, or turning subtitles off would not stick.
     #[test]
     fn a_stored_off_override_suppresses_the_account_preference() {
-        let tracks = vec![subtitle(2, Some("eng"))];
+        let tracks = vec![subtitle(2, Some("en"))];
         let resolved = resolve_subtitle(
             &SubtitleRequest::Unspecified,
             Some(&SubtitleOverride::Off),
             &embedded(&tracks),
-            &want(&["eng"]),
+            &want(&["en"]),
         );
 
         assert_eq!(resolved.selected, None);
@@ -280,12 +280,12 @@ mod tests {
 
     #[test]
     fn a_carried_subtitle_language_matches_an_embedded_track() {
-        let tracks = vec![subtitle(2, Some("eng")), subtitle(3, Some("fra"))];
+        let tracks = vec![subtitle(2, Some("en")), subtitle(3, Some("fr"))];
         let resolved = resolve_subtitle(
-            &SubtitleRequest::Language(language("fra")),
+            &SubtitleRequest::Language(language("fr")),
             None,
             &embedded(&tracks),
-            &want(&["eng"]),
+            &want(&["en"]),
         );
 
         assert_eq!(
@@ -297,13 +297,13 @@ mod tests {
     // An episode may carry a language only as a sidecar file, so both lists are searched.
     #[test]
     fn a_carried_subtitle_language_falls_back_to_a_sidecar_file() {
-        let tracks = vec![subtitle(2, Some("eng"))];
-        let files = vec![file("sf1", Some("fra"))];
+        let tracks = vec![subtitle(2, Some("en"))];
+        let files = vec![file("sf1", Some("fr"))];
         let resolved = resolve_subtitle(
-            &SubtitleRequest::Language(language("fra")),
+            &SubtitleRequest::Language(language("fr")),
             None,
             &AvailableSubtitles { embedded: &tracks, files: &files },
-            &want(&["eng"]),
+            &want(&["en"]),
         );
 
         assert_eq!(
@@ -314,12 +314,12 @@ mod tests {
 
     #[test]
     fn a_carried_subtitle_language_the_episode_lacks_falls_through() {
-        let tracks = vec![subtitle(2, Some("eng"))];
+        let tracks = vec![subtitle(2, Some("en"))];
         let resolved = resolve_subtitle(
-            &SubtitleRequest::Language(language("fra")),
+            &SubtitleRequest::Language(language("fr")),
             None,
             &embedded(&tracks),
-            &want(&["eng"]),
+            &want(&["en"]),
         );
 
         assert_eq!(
@@ -331,13 +331,13 @@ mod tests {
 
     #[test]
     fn a_stored_subtitle_file_that_is_gone_falls_through() {
-        let tracks = vec![subtitle(2, Some("eng"))];
+        let tracks = vec![subtitle(2, Some("en"))];
         let stored = SubtitleOverride::Track(SubtitleTrackRef::File(SubtitleFileId("gone".into())));
         let resolved = resolve_subtitle(
             &SubtitleRequest::Unspecified,
             Some(&stored),
             &embedded(&tracks),
-            &want(&["eng"]),
+            &want(&["en"]),
         );
 
         assert_eq!(
@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn nothing_matches_and_nothing_is_selected() {
         let resolved =
-            resolve_subtitle(&SubtitleRequest::Unspecified, None, &embedded(&[]), &want(&["eng"]));
+            resolve_subtitle(&SubtitleRequest::Unspecified, None, &embedded(&[]), &want(&["en"]));
 
         assert_eq!(resolved.selected, None);
         assert_eq!(resolved.remembered, None);

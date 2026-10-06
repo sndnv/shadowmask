@@ -13,21 +13,21 @@ void main() {
       'subtitles': <dynamic>[
         <String, dynamic>{
           'index': 0,
-          'language': 'eng',
+          'language': 'en',
           'format': 'srt',
           'forced': false,
           'default': true,
         },
         <String, dynamic>{
           'index': 1,
-          'language': 'eng',
+          'language': 'en',
           'format': 'srt',
           'forced': true,
           'default': false,
         },
         <String, dynamic>{
           'index': 2,
-          'language': 'spa',
+          'language': 'es',
           'format': 'srt',
           'forced': false,
           'default': false,
@@ -36,7 +36,7 @@ void main() {
       'subtitle_files': <dynamic>[
         <String, dynamic>{
           'id': 'sf',
-          'language': 'eng',
+          'language': 'en',
           'format': 'srt',
           'source': 'external',
         },

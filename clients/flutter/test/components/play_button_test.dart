@@ -350,4 +350,27 @@ void main() {
     expect(pushes.names, isEmpty);
     expect(find.byType(MenuItemButton), findsNWidgets(2));
   });
+
+  testWidgets('the menu reads duration, quality, container and size', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, <Version>[
+      _version('v1').copyWith(sizeBytes: 42 * 1073741824),
+      _version('v2').copyWith(sizeBytes: 700 * 1048576),
+      _version('v3').copyWith(durationMs: 0),
+    ]);
+
+    await tester.tap(find.text(Strings.play));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('1 · 10m · FHD · mkv · 42.0 GB', findRichText: true),
+      findsOne,
+    );
+    expect(
+      find.text('2 · 10m · FHD · mkv · 0.7 GB', findRichText: true),
+      findsOne,
+    );
+    expect(find.text('3 · FHD · mkv', findRichText: true), findsOne);
+  });
 }

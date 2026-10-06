@@ -35,6 +35,12 @@ titles that share a cast: point several of them at real films with an actor in c
 the 'More with <actor>' rail on the title page has something to show. They also give the
 lists enough rows to exercise infinite scroll.
 
+Pass --cases to add the catalog shapes specific checks need: one title in two qualities
+(Paper Skies, 2160p and 720p), a show with a Specials season and three regular seasons
+(Skyline), a show with only a Specials season (Lantern), and a film filed one year before
+its TMDB year (Casablanca, filed under 1942; TMDB has 1943). Casablanca is the one title
+outside the Blender set; like every other fixture it is a synthetic clip.
+
 After generating, trigger a library scan (admin UI, or POST /api/v1/libraries/{id}/scan)
 so the server ingests the new files.
 
@@ -42,13 +48,16 @@ This writes only into the media dirs and is additive by default. Pass --reset to
 them first. It does not touch the databases; the smoke test generates its own fixtures
 separately.
 
-Usage: $0 [--reset] [--real] [-h|--help]
+Usage: $0 [--reset] [--real] [--cases] [-h|--help]
 
 Options:
   --reset        delete existing files under the movies and tv dirs before generating
   --real         download real CC BY 3.0 clips (Big Buck Bunny + Elephants Dream)
                  instead of synthetic stand-ins; needs curl or wget plus unzip; cached
                  under media/.cache and shared with the smoke test (no re-download)
+  --cases        also generate the catalog shapes listed above: two qualities of one
+                 title, a show with specials, a show with only specials, and a film
+                 one year off its TMDB year
   -h, --help     show this help and exit
 
 Environment overrides:
@@ -60,11 +69,13 @@ Environment overrides:
 
 RESET=0
 REAL=0
+CASES=0
 for arg in "$@"; do
     case "$arg" in
         -h|--help) printf '%s\n' "$HELP"; exit 0 ;;
         --reset) RESET=1 ;;
         --real) REAL=1 ;;
+        --cases) CASES=1 ;;
         *) printf 'Unknown option: [%s]\n\n%s\n' "$arg" "$HELP" >&2; exit 64 ;;
     esac
 done
@@ -218,10 +229,8 @@ ok "movies done"
 
 section "tv -> [$TV_DIR]"
 add_show() {
-    local show="$1"; shift
-    local season=0
+    local show="$1" season="$2"; shift 2
     for eps in "$@"; do
-        season=$((season + 1))
         local sdir; sdir=$(printf '%s/Season %02d' "$TV_DIR/$show" "$season")
         for ((ep = 1; ep <= eps; ep++)); do
             local tag; tag=$(printf 'S%02dE%02d' "$season" "$ep")
@@ -230,11 +239,24 @@ add_show() {
             gen_fixture "$sdir/$show $tag.$ext" "$(pick PATTERNS "$i")" "$(pick FREQS "$i")"
             i=$((i + 1))
         done
+        season=$((season + 1))
     done
     ok "show [$show] done"
 }
-add_show "Pioneer One" 3
-add_show "Untitled Test Show" 2 2
+add_show "Pioneer One" 1 3
+add_show "Untitled Test Show" 1 2 2
+
+if ((CASES)); then
+    section "cases -> [$MOVIES_DIR] [$TV_DIR]"
+    add_movie "Paper Skies" 2007 "2160p" mkv
+    add_movie "Paper Skies" 2007 "720p"  mkv
+    ok "placed [Paper Skies (2007)] in 2160p and 720p, each file with its own quality"
+    add_movie "Casablanca"  1942 ""      mp4
+    ok "placed [Casablanca (1942)], one year before its TMDB year"
+    add_show "Skyline" 0 2 3 2 1
+    add_show "Lantern" 0 2
+    ok "placed [Skyline] with specials and three seasons, [Lantern] with only specials"
+fi
 
 section "next steps"
 note "for real artwork + metadata, set [SHADOWMASK_TMDB_API_KEY] before starting the stack"
