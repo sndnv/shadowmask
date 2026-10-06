@@ -94,6 +94,8 @@ pub enum JobServiceError {
     Forbidden,
     #[error("job cannot be cancelled")]
     NotCancellable,
+    #[error("job cannot be retried")]
+    NotRetryable,
     #[error(transparent)]
     Repository(#[from] RepositoryError),
 }

@@ -130,6 +130,7 @@ expression: value
         "id": "s1",
         "manually_edited": false,
         "overview": null,
+        "season_count": 1,
         "title": "Alpha s1",
         "type": "series",
         "updated_at": "2023-11-14T22:13:22Z",

@@ -31,8 +31,11 @@ class LibraryApi {
   Future<ScanState> scanState(String id) =>
       _api.getJson('/api/v1/libraries/${_enc(id)}/scan', ScanState.fromJson);
 
-  Future<void> triggerScan(String id) =>
-      _api.sendVoid('POST', '/api/v1/libraries/${_enc(id)}/scan');
+  Future<void> triggerScan(String id, {bool reread = false}) => _api.sendVoid(
+    'POST',
+    '/api/v1/libraries/${_enc(id)}/scan',
+    body: reread ? <String, dynamic>{'reread': true} : null,
+  );
 
   Future<void> refreshMetadata(String id) =>
       _api.sendVoid('POST', '/api/v1/libraries/${_enc(id)}/refresh-metadata');

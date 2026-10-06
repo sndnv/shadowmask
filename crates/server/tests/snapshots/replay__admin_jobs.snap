@@ -5,7 +5,7 @@ expression: value
 {
   "body": {
     "active_total": 1,
-    "all_total": 2,
+    "all_total": 3,
     "items": [
       {
         "attempts": 0,
@@ -18,6 +18,7 @@ expression: value
         "parent_id": "job-scan",
         "priority": "normal",
         "progress": 0.0,
+        "retryable": false,
         "started_at": null,
         "status": "queued",
         "updated_at": "2023-11-14T22:14:02Z"
@@ -33,14 +34,31 @@ expression: value
         "parent_id": null,
         "priority": "normal",
         "progress": 1.0,
+        "retryable": false,
         "started_at": "2023-11-14T22:14:00Z",
         "status": "succeeded",
         "updated_at": "2023-11-14T22:14:01Z"
+      },
+      {
+        "attempts": 3,
+        "cancellable": false,
+        "created_at": "2023-11-14T22:13:50Z",
+        "finished_at": "2023-11-14T22:13:51Z",
+        "id": "job-subtitles",
+        "kind": "subtitles",
+        "last_error": "http status 406 Not Acceptable: {\"message\":\"You cannot consume this service\"}",
+        "parent_id": null,
+        "priority": "low",
+        "progress": 0.0,
+        "retryable": true,
+        "started_at": "2023-11-14T22:13:50Z",
+        "status": "failed",
+        "updated_at": "2023-11-14T22:13:51Z"
       }
     ],
     "limit": 50,
     "offset": 0,
-    "total": 2
+    "total": 3
   },
   "status": 200
 }

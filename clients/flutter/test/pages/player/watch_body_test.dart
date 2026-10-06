@@ -252,11 +252,11 @@ http.Response _route(http.Request req) {
             'index': 1,
             'codec': 'aac',
             'channels': 2,
-            'language': 'eng',
+            'language': 'en',
           },
         ],
         'subtitles': <dynamic>[
-          <String, dynamic>{'index': 2, 'language': 'eng', 'format': 'srt'},
+          <String, dynamic>{'index': 2, 'language': 'en', 'format': 'srt'},
         ],
       }),
       200,
@@ -357,11 +357,11 @@ http.Response _episodeVersion() => http.Response(
         'index': 1,
         'codec': 'aac',
         'channels': 2,
-        'language': 'eng',
+        'language': 'en',
       },
     ],
     'subtitles': <dynamic>[
-      <String, dynamic>{'index': 2, 'language': 'eng', 'format': 'srt'},
+      <String, dynamic>{'index': 2, 'language': 'en', 'format': 'srt'},
     ],
   }),
   200,
@@ -602,6 +602,35 @@ void main() {
     // One in the transport bar and one in the middle of a paused video.
     expect(find.byIcon(Icons.play_arrow), findsNWidgets(2));
     expect(find.text('0:00 / 1:40'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a start that failed boots on retry', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    int starts = 0;
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      httpClient: MockClient((http.Request r) async {
+        if (r.method == 'POST' &&
+            r.url.path == '/api/v1/sessions' &&
+            starts++ == 0) {
+          return http.Response('', 500);
+        }
+        return _route(r);
+      }),
+    );
+    await tester.pumpWidget(_shellShaped(api, fake, false));
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.couldNotStartPlayback), findsOneWidget);
+
+    await tester.tap(find.text(Strings.retry));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(fake.calls, contains('attach:direct'));
 
     await tester.pumpWidget(const SizedBox());
   });
@@ -2310,8 +2339,8 @@ void main() {
         fake,
         seen: seen,
         controls: const PlaybackControls(
-          audioLanguage: 'fra',
-          subtitleLanguage: 'fra',
+          audioLanguage: 'fr',
+          subtitleLanguage: 'fr',
         ),
       ),
     );
@@ -2323,8 +2352,8 @@ void main() {
     );
     final Map<String, dynamic> body =
         jsonDecode(start.body) as Map<String, dynamic>;
-    expect(body['audio_language'], 'fra');
-    expect(body['subtitle_language'], 'fra');
+    expect(body['audio_language'], 'fr');
+    expect(body['subtitle_language'], 'fr');
     expect(
       body.containsKey('audio_track'),
       isFalse,
@@ -2363,7 +2392,7 @@ void main() {
     final Uri next = Uri.parse(pushed.single);
     expect(next.path, '/watch');
     expect(next.queryParameters['version'], 'v2');
-    expect(next.queryParameters['slang'], 'eng');
+    expect(next.queryParameters['slang'], 'en');
     expect(
       next.queryParameters.containsKey('sub'),
       isFalse,

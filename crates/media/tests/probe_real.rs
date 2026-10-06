@@ -41,7 +41,7 @@ async fn probes_generated_file_with_all_content() {
     let a = &r.audio[0];
     assert_eq!(a.codec, "aac");
     assert_eq!(a.channels, 1);
-    assert_eq!(a.language.as_ref().map(|l| l.0.as_str()), Some("eng"));
+    assert_eq!(a.language.as_ref().map(|l| l.0.as_str()), Some("en"));
 
     assert_eq!(r.subtitles.len(), 1);
     assert_eq!(r.subtitles[0].format, SubtitleFormat::Srt);

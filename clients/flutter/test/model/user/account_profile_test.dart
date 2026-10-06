@@ -13,8 +13,8 @@ void main() {
         'system': 'MPAA',
         'code': 'PG-13',
       },
-      'preferred_audio': <String>['eng', 'spa'],
-      'preferred_subtitle': <String>['eng'],
+      'preferred_audio': <String>['en', 'es'],
+      'preferred_subtitle': <String>['en'],
       'concurrent_stream_limit': 2,
       'bitrate_cap': 8000000,
       'created_at': '2026-01-01T00:00:00Z',
@@ -28,7 +28,7 @@ void main() {
       'MPAA PG-13',
       reason: 'the table stores lower case, the UI always presents upper case',
     );
-    expect(p.preferredAudio, <String>['eng', 'spa']);
+    expect(p.preferredAudio, <String>['en', 'es']);
     expect(p.concurrentStreamLimit, 2);
     expect(p.bitrateCap, 8000000);
   });

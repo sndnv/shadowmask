@@ -1,4 +1,5 @@
 use domain::job::Job;
+use domain::library::ScanMode;
 use domain::repository::{JobRepository, LibraryRepository};
 use services::library::{is_nightly_library, queue_scan};
 
@@ -27,9 +28,15 @@ where
         let mut queued = 0usize;
         let mut skipped = 0usize;
         for library in libraries.iter().filter(|l| is_nightly_library(l)) {
-            let started = queue_scan(&self.libraries, &self.jobs, &library.id, Some(&job.id))
-                .await
-                .map_err(|err| JobError::Retryable(err.to_string()))?;
+            let started = queue_scan(
+                &self.libraries,
+                &self.jobs,
+                &library.id,
+                ScanMode::Normal,
+                Some(&job.id),
+            )
+            .await
+            .map_err(|err| JobError::Retryable(err.to_string()))?;
             if started {
                 queued += 1;
             } else {

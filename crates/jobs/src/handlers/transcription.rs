@@ -589,7 +589,7 @@ mod tests {
         let raw = TranscriptionJobPayload {
             version_id: VersionId("v1".into()),
             source_path: "/m/v1.mkv".into(),
-            source_language: Some("eng".into()),
+            source_language: Some("en".into()),
             audio_track_index: None,
             force: false,
         }

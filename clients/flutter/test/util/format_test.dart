@@ -19,6 +19,23 @@ void main() {
     expect(scoreText('Some Other Critic', 4), '4');
   });
 
+  test('gigabytes keeps one decimal and drops to megabytes when tiny', () {
+    expect(gigabytes(42 * 1073741824), '42.0 GB');
+    expect(gigabytes(4724464026), '4.4 GB');
+    expect(gigabytes(700 * 1048576), '0.7 GB');
+    expect(gigabytes(40 * 1048576), '40 MB');
+  });
+
+  test('compactCount shortens large counts and keeps small ones whole', () {
+    expect(compactCount(10), '10');
+    expect(compactCount(1234), '1.23K');
+    expect(compactCount(254311), '254K');
+  });
+
+  test('groupedCount separates thousands', () {
+    expect(groupedCount(254311), '254,311');
+  });
+
   test('scoreSource shortens only the one name that needs it', () {
     expect(scoreSource('Internet Movie Database'), 'IMDb');
     expect(scoreSource('Rotten Tomatoes'), 'Rotten Tomatoes');

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use domain::common::{Page, PageRequest};
 use domain::error::JobServiceError;
-use domain::job::{Job, JobCanceller, JobId, JobNode, JobPage, JobQuery, JobStatus};
+use domain::job::{Job, JobCanceller, JobId, JobKind, JobNode, JobPage, JobQuery, JobStatus};
 use domain::repository::JobRepository;
 use domain::service::JobService;
 use domain::user::Principal;
@@ -22,15 +22,21 @@ impl JobCanceller for NoopCanceller {
 pub struct JobServiceImpl<J> {
     jobs: J,
     canceller: Arc<dyn JobCanceller>,
+    parked: Arc<[JobKind]>,
 }
 
 impl<J> JobServiceImpl<J> {
     pub fn new(jobs: J) -> Self {
-        Self { jobs, canceller: Arc::new(NoopCanceller) }
+        Self { jobs, canceller: Arc::new(NoopCanceller), parked: Arc::from([]) }
     }
 
     pub fn with_canceller(mut self, canceller: Arc<dyn JobCanceller>) -> Self {
         self.canceller = canceller;
+        self
+    }
+
+    pub fn with_parked(mut self, parked: Vec<JobKind>) -> Self {
+        self.parked = parked.into();
         self
     }
 }
@@ -101,12 +107,29 @@ where
             _ => Err(JobServiceError::NotCancellable),
         }
     }
+
+    async fn retry_job(&self, caller: &Principal, id: &JobId) -> Result<Job, JobServiceError> {
+        if !acl::is_admin(caller) {
+            return Err(JobServiceError::Forbidden);
+        }
+        let job = self.jobs.get(id).await?.ok_or(JobServiceError::NotFound)?;
+        if !self.is_retryable(&job) || !self.jobs.retry(id, Timestamp::now()).await? {
+            return Err(JobServiceError::NotRetryable);
+        }
+        self.jobs.get(id).await?.ok_or(JobServiceError::NotFound)
+    }
+
+    fn is_retryable(&self, job: &Job) -> bool {
+        matches!(job.status, JobStatus::Failed | JobStatus::Cancelled)
+            && job.kind != JobKind::LibraryScan
+            && !self.parked.contains(&job.kind)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::job::{JobKind, JobPriority};
+    use domain::job::JobPriority;
     use domain::user::{Role, UserId};
     use mocks::MockJobStore;
 
@@ -307,5 +330,100 @@ mod tests {
             svc.cancel_job(&admin(), &JobId("d".into())).await.unwrap_err(),
             JobServiceError::NotCancellable
         ));
+    }
+
+    #[test]
+    fn only_a_failed_or_cancelled_job_of_a_live_kind_is_retryable() {
+        let svc = svc().with_parked(vec![JobKind::Transcription]);
+        let cases = [
+            (JobKind::Subtitles, JobStatus::Failed, true),
+            (JobKind::Subtitles, JobStatus::Cancelled, true),
+            (JobKind::Subtitles, JobStatus::Queued, false),
+            (JobKind::Subtitles, JobStatus::Running, false),
+            (JobKind::Subtitles, JobStatus::Succeeded, false),
+            (JobKind::Transcription, JobStatus::Failed, false),
+            (JobKind::LibraryScan, JobStatus::Failed, false),
+            (JobKind::LibraryScan, JobStatus::Cancelled, false),
+        ];
+        for (kind, status, expected) in cases {
+            assert_eq!(
+                svc.is_retryable(&job_with("j", kind, status)),
+                expected,
+                "{kind:?} {status:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn retry_job_requeues_a_failed_job() {
+        let svc = svc();
+        let mut failed = job_with("f", JobKind::Subtitles, JobStatus::Failed);
+        failed.attempts = 3;
+        failed.last_error = Some("http status 406 Not Acceptable".into());
+        failed.finished_at = Some(Timestamp::now());
+        svc.jobs.enqueue(failed).await.unwrap();
+
+        let job = svc.retry_job(&admin(), &JobId("f".into())).await.unwrap();
+
+        assert_eq!(job.status, JobStatus::Queued);
+        assert_eq!(job.attempts, 0);
+        assert_eq!(job.last_error, None);
+        assert_eq!(job.finished_at, None);
+    }
+
+    #[tokio::test]
+    async fn retry_job_requires_admin() {
+        let svc = svc();
+        svc.jobs.enqueue(job_with("f", JobKind::Subtitles, JobStatus::Failed)).await.unwrap();
+        assert!(matches!(
+            svc.retry_job(&member(), &JobId("f".into())).await.unwrap_err(),
+            JobServiceError::Forbidden
+        ));
+        assert_eq!(
+            svc.jobs.get(&JobId("f".into())).await.unwrap().unwrap().status,
+            JobStatus::Failed
+        );
+    }
+
+    #[tokio::test]
+    async fn retry_job_missing_is_not_found() {
+        assert!(matches!(
+            svc().retry_job(&admin(), &JobId("nope".into())).await.unwrap_err(),
+            JobServiceError::NotFound
+        ));
+    }
+
+    #[tokio::test]
+    async fn retry_job_refuses_a_parked_kind_and_a_finished_job() {
+        let svc = svc().with_parked(vec![JobKind::Transcription]);
+        svc.jobs.enqueue(job_with("t", JobKind::Transcription, JobStatus::Failed)).await.unwrap();
+        svc.jobs.enqueue(job_with("s", JobKind::Subtitles, JobStatus::Succeeded)).await.unwrap();
+        for id in ["t", "s"] {
+            assert!(matches!(
+                svc.retry_job(&admin(), &JobId(id.into())).await.unwrap_err(),
+                JobServiceError::NotRetryable
+            ));
+        }
+        assert_eq!(
+            svc.jobs.get(&JobId("t".into())).await.unwrap().unwrap().status,
+            JobStatus::Failed,
+            "a parked kind would sit queued forever, so it stays failed"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_library_scan_is_scanned_again_rather_than_retried() {
+        let svc = svc();
+        svc.jobs.enqueue(job_with("l", JobKind::LibraryScan, JobStatus::Failed)).await.unwrap();
+
+        assert!(matches!(
+            svc.retry_job(&admin(), &JobId("l".into())).await.unwrap_err(),
+            JobServiceError::NotRetryable
+        ));
+        assert_eq!(
+            svc.jobs.get(&JobId("l".into())).await.unwrap().unwrap().status,
+            JobStatus::Failed,
+            "a re-queued scan would skip the library's scan slot"
+        );
     }
 }

@@ -276,6 +276,8 @@ abstract final class Strings {
   static const String typeSeries = 'Series';
   static const String typeEpisode = 'Episodes';
   static const String typePerson = 'People';
+  static const String seeAll = 'See all';
+  static String seeAllAfter(String heading) => '$heading · ';
 
   static const String watchHeading = 'Watch';
   static const String playerPlay = 'Play';
@@ -478,6 +480,9 @@ abstract final class Strings {
   static const String changePassword = 'Change password';
   static const String createLinkCode = 'Create link code';
   static const String signOutEverywhere = 'Sign out everywhere';
+  static const String confirmSignOut = 'Sign out of this device?';
+  static const String confirmSignOutEverywhere =
+      'Sign out of every device and browser on this account, including this one?';
 
   static String toastAddedWatchlist(String title) =>
       'Added $title to your watchlist.';
@@ -667,6 +672,8 @@ abstract final class Strings {
   static const String download = 'Download';
   static const String downloaded = 'Downloaded';
   static const String downloading = 'Downloading';
+  static String downloadCount(int n, String grouped) =>
+      n == 1 ? '1 download' : '$grouped downloads';
   static const String scan = 'Scan';
   static const String fetch = 'Fetch';
   static const String refreshMetadata = 'Refresh metadata';
@@ -858,6 +865,7 @@ abstract final class Strings {
   static const String toastScanQueued = 'Scan queued.';
   static const String toastRelinkQueued = 'Relink queued.';
   static const String toastMetadataQueued = 'Metadata refresh queued.';
+  static const String toastRereadQueued = 'Re-read queued.';
   static const String toastFetchQueued = 'Fetch queued. Track it under Jobs.';
   static const String toastQueuedTrackJobs = 'Queued. Track it under Jobs.';
   static const String toastUserCreated = 'User created.';
@@ -1073,6 +1081,13 @@ abstract final class Strings {
   static const String confirmRefreshBody =
       'Are you sure you want to refresh this title from its current match? '
       'Existing metadata and artwork are replaced.';
+  static const String rereadFiles = 'Re-read files';
+  static const String confirmRereadFilesBody =
+      'Read every file in this library again and update its quality, size, '
+      'duration and tracks.\n\n'
+      'Titles, metadata, artwork, trickplay and subtitles are kept, and no '
+      'other jobs are queued. Files not seen before are added as a normal '
+      'scan would.';
   static const String confirmRefreshLibraryBody =
       'Re-fetch the description, ratings and artwork for every title in this '
       'library. Existing metadata and artwork are replaced.\n\n'

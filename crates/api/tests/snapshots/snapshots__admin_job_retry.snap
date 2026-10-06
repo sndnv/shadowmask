@@ -1,0 +1,23 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "attempts": 0,
+    "cancellable": true,
+    "created_at": "[created_at]",
+    "finished_at": null,
+    "id": "job-subtitles",
+    "kind": "subtitles",
+    "last_error": null,
+    "parent_id": null,
+    "priority": "low",
+    "progress": 0.0,
+    "retryable": false,
+    "started_at": null,
+    "status": "queued",
+    "updated_at": "[updated_at]"
+  },
+  "status": 200
+}

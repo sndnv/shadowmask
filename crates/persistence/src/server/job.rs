@@ -403,6 +403,25 @@ impl JobRepository for SqliteJobRepo {
         Ok(result.rows_affected() > 0)
     }
 
+    async fn retry(&self, id: &JobId, now: Timestamp) -> Result<bool, RepositoryError> {
+        let _op = DbOpGuard::new("jobs", "retry");
+        let result = sqlx::query(
+            "UPDATE jobs SET status = ?, attempts = 0, progress = 0, available_at = ?, \
+             last_error = NULL, started_at = NULL, finished_at = NULL, updated_at = ? \
+             WHERE id = ? AND status IN (?, ?)",
+        )
+        .bind(status_to_str(JobStatus::Queued))
+        .bind(to_millis(now))
+        .bind(to_millis(now))
+        .bind(id.0.as_str())
+        .bind(status_to_str(JobStatus::Failed))
+        .bind(status_to_str(JobStatus::Cancelled))
+        .execute(&self.pool)
+        .await
+        .map_err(backend)?;
+        Ok(result.rows_affected() > 0)
+    }
+
     async fn delete_finished_before(
         &self,
         cutoff: Timestamp,
@@ -529,6 +548,7 @@ mod tests {
         assert!(repo.update(contracts::fixture::admin_job()).await.is_err());
         assert!(repo.get(&id).await.is_err());
         assert!(repo.cancel(&id, Timestamp::UNIX_EPOCH).await.is_err());
+        assert!(repo.retry(&id, Timestamp::UNIX_EPOCH).await.is_err());
     }
 
     #[test]

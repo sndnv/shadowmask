@@ -11,7 +11,7 @@ use domain::library::{
     DiscoveredFile, Library, LibraryId, LibraryKind, MatchedGroup, ParsedMedia, ResolveTarget,
     ScanReport, SkipReason,
 };
-use domain::media::{ProbeResult, SubtitleFile, SubtitleFileId, SubtitleSource, sidecars_replaced};
+use domain::media::{SubtitleFile, SubtitleFileId, SubtitleSource, sidecars_replaced};
 use domain::metadata::{
     CollectionMeta, Credit, ExternalId, Genre, GenreId, MediaKind, MetadataProvider, Person,
     PersonId, Studio, StudioId, TitleEnrichment, TitleMetadata,
@@ -30,9 +30,9 @@ use super::{
     quality_from_height,
 };
 
-fn resolve_quality(parsed: Option<Quality>, probe: &ProbeResult) -> Quality {
-    parsed.unwrap_or_else(|| {
-        let height = probe.video.iter().map(|v| v.height).max().unwrap_or(0);
+fn resolve_quality(file: &DiscoveredFile) -> Quality {
+    parse_filename(&file.path).quality.unwrap_or_else(|| {
+        let height = file.probe.video.iter().map(|v| v.height).max().unwrap_or(0);
         quality_from_height(height)
     })
 }
@@ -83,7 +83,6 @@ struct FileIngest<'a> {
     file: &'a DiscoveredFile,
     title: TitleId,
     library: &'a Library,
-    quality: Option<Quality>,
     subtitle: &'a SubtitleContext,
     parent: Option<&'a JobId>,
     mode: IngestMode,
@@ -96,6 +95,8 @@ pub trait ScanEnricher {
         report: &ScanReport,
         parent: Option<&JobId>,
     ) -> impl Future<Output = ()> + Send;
+
+    fn reread(&self, library: &Library, report: &ScanReport) -> impl Future<Output = ()> + Send;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,6 +147,8 @@ pub struct NoopEnricher;
 
 impl ScanEnricher for NoopEnricher {
     async fn enrich(&self, _library: &Library, _report: &ScanReport, _parent: Option<&JobId>) {}
+
+    async fn reread(&self, _library: &Library, _report: &ScanReport) {}
 }
 
 pub struct Enricher<C, M, J, L> {
@@ -235,6 +238,14 @@ where
         }
         if let Err(err) = self.libraries.reconcile_unmatched(&library.id, &candidates).await {
             warn!(library = %library.id.0, "reconciling unmatched files failed: {err}");
+        }
+    }
+
+    async fn reread(&self, library: &Library, report: &ScanReport) {
+        for file in &report.discovered {
+            if let Err(err) = self.reread_file(file).await {
+                warn!(library = %library.id.0, path = %file.path, "re-read failed: [{err}]");
+            }
         }
     }
 }
@@ -357,7 +368,6 @@ where
                 file,
                 title: TitleId::Movie(movie_id.clone()),
                 library,
-                quality: parsed.quality,
                 subtitle: &subtitle,
                 parent,
                 mode: plan.mode,
@@ -571,7 +581,6 @@ where
                 file,
                 title: TitleId::Episode(episode_id.clone()),
                 library,
-                quality: parsed.quality,
                 subtitle: &subtitle,
                 parent,
                 mode: plan.mode,
@@ -599,7 +608,7 @@ where
     }
 
     async fn ingest_file(&self, ingest: FileIngest<'_>) -> Result<(), RepositoryError> {
-        let FileIngest { file, title, library, quality, subtitle, parent, mode } = ingest;
+        let FileIngest { file, title, library, subtitle, parent, mode } = ingest;
         let version_id = VersionId(derive_id("version", &file.path));
         let existing = self.catalog.get_version(&version_id).await?;
         let sidecars = sidecars_of(&version_id, file);
@@ -620,7 +629,7 @@ where
                 id: version_id.clone(),
                 title,
                 library: library.id.clone(),
-                quality: resolve_quality(quality, &file.probe),
+                quality: resolve_quality(file),
                 container: container_of(&file.path),
                 path: file.path.clone(),
                 size_bytes: recorded_size(file, existing.as_ref()),
@@ -644,6 +653,32 @@ where
             .update_subtitle_files(&version_id, |held| sidecars_replaced(held, sidecars))
             .await?;
         self.enqueue.for_file(&version_id, file, subtitle, has_native_subtitle, parent).await
+    }
+
+    async fn reread_file(&self, file: &DiscoveredFile) -> Result<(), RepositoryError> {
+        let version_id = VersionId(derive_id("version", &file.path));
+        let Some(existing) = self.catalog.get_version(&version_id).await? else {
+            return Ok(());
+        };
+        self.catalog
+            .upsert_version(Version {
+                quality: resolve_quality(file),
+                container: container_of(&file.path),
+                size_bytes: recorded_size(file, Some(&existing)),
+                duration_ms: file.probe.duration_ms,
+                updated_at: Timestamp::now(),
+                ..existing
+            })
+            .await?;
+        self.catalog
+            .set_version_tracks(
+                &version_id,
+                &file.probe.video,
+                &file.probe.audio,
+                &file.probe.subtitles,
+                &file.probe.chapters,
+            )
+            .await
     }
 
     async fn persist_enrichment(
@@ -945,7 +980,6 @@ where
                     file,
                     title: title.clone(),
                     library,
-                    quality: parsed.quality,
                     subtitle: &subtitle,
                     parent,
                     mode: IngestMode::Explicit,
@@ -1216,23 +1250,19 @@ mod tests {
             frame_rate: 24.0,
             bitrate: None,
         };
-        let uhd = ProbeResult {
-            duration_ms: 0,
-            video: vec![track(2160)],
-            audio: Vec::new(),
-            subtitles: Vec::new(),
-            chapters: Vec::new(),
+        let probed = |path: &str, video: Vec<VideoTrack>| DiscoveredFile {
+            probe: ProbeResult { video, ..discovered(path).probe },
+            ..discovered(path)
         };
-        let no_video = ProbeResult {
-            duration_ms: 0,
-            video: Vec::new(),
-            audio: Vec::new(),
-            subtitles: Vec::new(),
-            chapters: Vec::new(),
-        };
-        assert_eq!(resolve_quality(Some(Quality::Hd), &uhd), Quality::Hd);
-        assert_eq!(resolve_quality(None, &uhd), Quality::Uhd);
-        assert_eq!(resolve_quality(None, &no_video), Quality::Sd);
+        assert_eq!(
+            resolve_quality(&probed("/m/Drift (2020) 720p.mkv", vec![track(2160)])),
+            Quality::Hd
+        );
+        assert_eq!(
+            resolve_quality(&probed("/m/Drift (2020).mkv", vec![track(2160)])),
+            Quality::Uhd
+        );
+        assert_eq!(resolve_quality(&probed("/m/Drift (2020).mkv", Vec::new())), Quality::Sd);
     }
 
     enum ProviderMode {
@@ -1533,7 +1563,7 @@ mod tests {
         let jobs = MockJobStore::new();
         let svc = enricher(MockCatalogRepo::new(), None, jobs.clone())
             .with_transcription(true)
-            .with_subtitle_languages(vec!["spa".into()]);
+            .with_subtitle_languages(vec!["es".into()]);
 
         let mut scan = audio_scan("/m/The Matrix (1999) 1080p.mkv", Vec::new(), Vec::new());
         scan.discovered[0].probe.audio = vec![
@@ -1541,14 +1571,14 @@ mod tests {
                 index: 1,
                 codec: "eac3".into(),
                 channels: 6,
-                language: Some(domain::common::LanguageCode("eng".into())),
+                language: Some(domain::common::LanguageCode("en".into())),
                 bitrate: None,
             },
             domain::media::AudioTrack {
                 index: 2,
                 codec: "aac".into(),
                 channels: 2,
-                language: Some(domain::common::LanguageCode("spa".into())),
+                language: Some(domain::common::LanguageCode("es".into())),
                 bitrate: None,
             },
         ];
@@ -1572,7 +1602,7 @@ mod tests {
             index: 1,
             codec: "eac3".into(),
             channels: 6,
-            language: Some(domain::common::LanguageCode("eng".into())),
+            language: Some(domain::common::LanguageCode("en".into())),
             bitrate: None,
         }];
 
@@ -1587,7 +1617,7 @@ mod tests {
             .unwrap();
         let payload = TranscriptionJobPayload::decode(&job.payload).unwrap();
         assert_eq!(payload.audio_track_index, None);
-        assert_eq!(payload.source_language.as_deref(), Some("eng"));
+        assert_eq!(payload.source_language.as_deref(), Some("en"));
     }
 
     #[tokio::test]
@@ -2137,6 +2167,118 @@ mod tests {
             catalog.get_version(&VersionId(derive_id("version", path))).await.unwrap().unwrap();
         assert_eq!(version.size_bytes, 99);
         assert_eq!(version.duration_ms, 4321);
+    }
+
+    async fn stored_version(catalog: &MockCatalogRepo, path: &str) -> Version {
+        catalog.get_version(&VersionId(derive_id("version", path))).await.unwrap().unwrap()
+    }
+
+    #[tokio::test]
+    async fn each_file_of_a_title_keeps_its_own_quality() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        let uhd = "/m/Paper Skies (2019)/Paper Skies (2019) 2160p.mkv";
+        let hd = "/m/Paper Skies (2019)/Paper Skies (2019) 720p.mkv";
+
+        svc.enrich(&library(LibraryKind::Movie), &report(&[uhd, hd]), None).await;
+
+        assert_eq!(catalog.list_movies(page()).await.unwrap().total, 1);
+        assert_eq!(stored_version(&catalog, uhd).await.quality, Quality::Uhd);
+        assert_eq!(stored_version(&catalog, hd).await.quality, Quality::Hd);
+    }
+
+    #[tokio::test]
+    async fn a_reread_refreshes_what_is_stored_about_a_known_file_and_queues_nothing() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog.clone(), None, jobs.clone());
+        let library = library(LibraryKind::Movie);
+        let path = "/m/Neon Harbor (2018) 1080p.mkv";
+        svc.enrich(&library, &report(&[path]), None).await;
+        let ingested = stored_version(&catalog, path).await;
+        catalog
+            .upsert_version(Version {
+                quality: Quality::Sd,
+                container: "avi".into(),
+                ..ingested.clone()
+            })
+            .await
+            .unwrap();
+        let queued = jobs.list().await.unwrap().len();
+
+        let mut reprobed = discovered(path);
+        reprobed.size_bytes = 99;
+        reprobed.probe.duration_ms = 4321;
+        reprobed.probe.audio = vec![domain::media::AudioTrack {
+            index: 1,
+            codec: "aac".into(),
+            channels: 6,
+            language: None,
+            bitrate: None,
+        }];
+        let scan =
+            ScanReport { discovered: vec![reprobed], skipped: Vec::new(), total_candidates: 1 };
+        svc.reread(&library, &scan).await;
+        svc.enrich(&library, &scan, None).await;
+
+        let reread = stored_version(&catalog, path).await;
+        assert_eq!((reread.quality, reread.container.as_str()), (Quality::Fhd, "mkv"));
+        assert_eq!((reread.size_bytes, reread.duration_ms), (99, 4321));
+        assert_eq!((&reread.title, reread.added_at), (&ingested.title, ingested.added_at));
+        let detail = catalog.version_detail(&reread.id).await.unwrap().unwrap();
+        assert_eq!(detail.audio.len(), 1);
+        assert_eq!(jobs.list().await.unwrap().len(), queued);
+    }
+
+    #[tokio::test]
+    async fn a_reread_keeps_the_title_a_file_is_linked_to() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        let library = library(LibraryKind::Movie);
+        let path = "/m/Deep Field (2021) 2160p.mkv";
+        let linked = TitleId::Movie(MovieId("lantern".into()));
+        let target = ResolveTarget::Existing(linked.clone());
+        svc.ingest_resolved(&library, &discovered(path), &target, None).await.unwrap();
+
+        let mut resized = discovered(path);
+        resized.size_bytes = 99;
+        let scan =
+            ScanReport { discovered: vec![resized], skipped: Vec::new(), total_candidates: 1 };
+        svc.reread(&library, &scan).await;
+        svc.enrich(&library, &scan, None).await;
+
+        let version = stored_version(&catalog, path).await;
+        assert_eq!((version.title, version.size_bytes), (linked, 99));
+    }
+
+    #[tokio::test]
+    async fn a_file_first_seen_during_a_reread_is_ingested_with_its_jobs() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog.clone(), None, jobs.clone());
+        let library = library(LibraryKind::Movie);
+        let known = "/m/Drift (2020) 1080p.mkv";
+        let new = "/m/Lantern (2017) 720p.mkv";
+        svc.enrich(&library, &report(&[known]), None).await;
+
+        let scan = report(&[known, new]);
+        svc.reread(&library, &scan).await;
+        svc.enrich(&library, &scan, None).await;
+
+        assert_eq!(stored_version(&catalog, new).await.quality, Quality::Hd);
+        assert_eq!(count_kind(&jobs, JobKind::Trickplay).await, 2);
+    }
+
+    #[tracing_test::traced_test]
+    #[tokio::test]
+    async fn a_file_that_cannot_be_reread_is_reported() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        catalog.set_fail();
+
+        svc.reread(&library(LibraryKind::Movie), &report(&["/m/Drift (2020).mkv"])).await;
+
+        assert!(logs_contain("re-read failed"));
     }
 
     #[tokio::test]
@@ -3175,6 +3317,7 @@ mod tests {
     #[tokio::test]
     async fn noop_enricher_does_nothing() {
         NoopEnricher.enrich(&library(LibraryKind::Movie), &report(&["/m/x.mkv"]), None).await;
+        NoopEnricher.reread(&library(LibraryKind::Movie), &report(&["/m/x.mkv"])).await;
     }
 
     #[tokio::test]

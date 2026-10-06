@@ -77,6 +77,14 @@ function FormatMegabytes(bytes as dynamic) as string
     return megabytes.ToStr() + " MB"
 end function
 
+function FormatGigabytes(bytes as dynamic) as string
+    if bytes = invalid then return ""
+
+    tenths = Int(bytes / 107374182.4# + 0.5)
+    if tenths <= 0 then return FormatMegabytes(bytes)
+    return (tenths \ 10).ToStr() + "." + (tenths MOD 10).ToStr() + " GB"
+end function
+
 function FormatFrameRate(rate as dynamic) as string
     if rate = invalid or rate <= 0 then return ""
     return Int(rate + 0.5).ToStr() + " fps"

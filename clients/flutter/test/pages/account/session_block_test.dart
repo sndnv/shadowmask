@@ -28,6 +28,21 @@ Future<ApiClient> _linked(MockClient mock) async {
   return api;
 }
 
+Future<void> _signOutAndConfirm(WidgetTester tester) async {
+  await tester.tap(find.text(Strings.signOut));
+  await tester.pumpAndSettle();
+  await tester.tap(find.widgetWithText(FilledButton, Strings.signOut));
+  await tester.pumpAndSettle();
+}
+
+ApiClient _recording(List<String> calls) => ApiClient(
+  baseUrl: 'http://test',
+  httpClient: MockClient((http.Request req) async {
+    calls.add('${req.method} ${req.url.path}');
+    return http.Response('', 204);
+  }),
+);
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
@@ -50,11 +65,72 @@ void main() {
     calls.clear();
 
     await tester.pumpWidget(_host(api));
-    await tester.tap(find.text(Strings.signOut));
-    await tester.pumpAndSettle();
+    await _signOutAndConfirm(tester);
 
     expect(calls, contains('DELETE /api/v1/users/u1/devices/dev-7'));
     expect(await api.linkedDeviceId(), isEmpty);
+  });
+
+  testWidgets('cancelling the sign out leaves the device signed in', (
+    WidgetTester tester,
+  ) async {
+    final List<String> calls = <String>[];
+    final ApiClient api = await _linked(
+      MockClient((http.Request req) async {
+        calls.add('${req.method} ${req.url.path}');
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'token': 'smk_abc',
+            'device_id': 'dev-7',
+          }),
+          200,
+        );
+      }),
+    );
+    calls.clear();
+
+    await tester.pumpWidget(_host(api));
+    await tester.tap(find.text(Strings.signOut));
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.confirmSignOut), findsOneWidget);
+    await tester.tap(find.text(Strings.cancel));
+    await tester.pumpAndSettle();
+
+    expect(calls, isEmpty);
+    expect(await api.linkedDeviceId(), 'dev-7');
+    expect(find.byType(SessionBlock), findsOneWidget);
+  });
+
+  testWidgets('cancelling sign out everywhere revokes nothing', (
+    WidgetTester tester,
+  ) async {
+    final List<String> calls = <String>[];
+
+    await tester.pumpWidget(_host(_recording(calls)));
+    await tester.tap(find.text(Strings.signOutEverywhere));
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.confirmSignOutEverywhere), findsOneWidget);
+    await tester.tap(find.text(Strings.cancel));
+    await tester.pumpAndSettle();
+
+    expect(calls, isEmpty);
+    expect(find.byType(SessionBlock), findsOneWidget);
+  });
+
+  testWidgets('confirming sign out everywhere revokes every session', (
+    WidgetTester tester,
+  ) async {
+    final List<String> calls = <String>[];
+
+    await tester.pumpWidget(_host(_recording(calls)));
+    await tester.tap(find.text(Strings.signOutEverywhere));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.widgetWithText(FilledButton, Strings.signOutEverywhere).last,
+    );
+    await tester.pumpAndSettle();
+
+    expect(calls, contains('DELETE /api/v1/users/u1/sessions'));
   });
 
   testWidgets('a server that refuses the revoke still signs the device out', (
@@ -78,8 +154,7 @@ void main() {
     );
 
     await tester.pumpWidget(_host(api));
-    await tester.tap(find.text(Strings.signOut));
-    await tester.pumpAndSettle();
+    await _signOutAndConfirm(tester);
 
     expect(await api.linkedDeviceId(), isEmpty);
   });
@@ -88,17 +163,9 @@ void main() {
     WidgetTester tester,
   ) async {
     final List<String> calls = <String>[];
-    final ApiClient api = ApiClient(
-      baseUrl: 'http://test',
-      httpClient: MockClient((http.Request req) async {
-        calls.add('${req.method} ${req.url.path}');
-        return http.Response('', 204);
-      }),
-    );
 
-    await tester.pumpWidget(_host(api));
-    await tester.tap(find.text(Strings.signOut));
-    await tester.pumpAndSettle();
+    await tester.pumpWidget(_host(_recording(calls)));
+    await _signOutAndConfirm(tester);
 
     expect(calls.where((String c) => c.contains('/devices/')), isEmpty);
   });

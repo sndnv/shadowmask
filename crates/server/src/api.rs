@@ -10,6 +10,7 @@ use ::api::{
     WebhookClient,
 };
 use domain::error::{ProfileError, RepositoryError};
+use domain::job::JobKind;
 use domain::media::CookieInspector;
 use fetch::CookieFileInspector;
 use jobs::CancelRegistry;
@@ -97,6 +98,17 @@ pub struct WireConfig {
     pub remux_read_rate: f64,
     pub max_transcode_height: Option<u32>,
     pub profile_overrides_dir: Option<PathBuf>,
+}
+
+impl WireConfig {
+    pub fn parked_kinds(&self) -> Vec<JobKind> {
+        crate::service::parked_kinds(
+            self.transcription_enabled,
+            self.translation_enabled,
+            self.upscaling_enabled,
+            self.content_fetch_enabled,
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -210,7 +222,9 @@ pub fn build_state(
             .clone()
             .map(|path| Arc::new(CookieFileInspector::new(path)) as Arc<dyn CookieInspector>),
     );
-    let job = JobServiceImpl::new(repos.jobs.clone()).with_canceller(Arc::new(cancel.clone()));
+    let job = JobServiceImpl::new(repos.jobs.clone())
+        .with_canceller(Arc::new(cancel.clone()))
+        .with_parked(cfg.parked_kinds());
     let user = UserServiceImpl::new(
         repos.users.clone(),
         repos.auth_tokens.clone(),

@@ -152,10 +152,33 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text(Strings.signOut));
     await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, Strings.signOut));
+    await tester.pumpAndSettle();
 
-    // with no stored token there is nothing to revoke, so only the route moves
     expect(run.calls, isEmpty);
     expect(run.routes.last, '/');
+  });
+
+  testWidgets('cancelling the sign out from More stays put', (
+    WidgetTester tester,
+  ) async {
+    final ({List<String> routes, List<String> calls}) run = await _pump(
+      tester,
+      user: _admin,
+    );
+    final int before = run.routes.length;
+
+    await tester.tap(find.text(Strings.navigationMore));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.signOut));
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.confirmSignOut), findsOneWidget);
+    await tester.tap(find.text(Strings.cancel));
+    await tester.pumpAndSettle();
+
+    expect(run.calls, isEmpty);
+    expect(run.routes.length, before);
+    expect(find.text(Strings.confirmSignOut), findsNothing);
   });
 
   testWidgets('signing out from More revokes the linked device', (
@@ -198,6 +221,8 @@ void main() {
     await tester.tap(find.text(Strings.navigationMore));
     await tester.pumpAndSettle();
     await tester.tap(find.text(Strings.signOut));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, Strings.signOut));
     await tester.pumpAndSettle();
 
     expect(calls, contains('DELETE /api/v1/users/u1/devices/dev-7'));

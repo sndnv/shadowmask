@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use domain::catalog::{
     ArtworkRef, Collection, CollectionDetail, CollectionId, CollectionUpdate, Episode, EpisodeCard,
     EpisodeId, FilmographyEntry, Movie, MovieDetail, MovieId, NewCollection, PersonProfile,
-    RandomScope, Season, SeasonCard, SeasonId, Series, SeriesDetail, SeriesId, TitleCard, TitleId,
-    TitleKind, TitleListFilter, TitleListQuery, TitleRef, Version, VersionDetail, VersionId,
-    best_available, in_year_order,
+    RandomScope, Season, SeasonCard, SeasonId, Series, SeriesCard, SeriesDetail, SeriesId,
+    TitleCard, TitleId, TitleKind, TitleListFilter, TitleListQuery, TitleRef, Version,
+    VersionDetail, VersionFilter, VersionId, best_available, in_year_order,
 };
 use domain::common::{Page, PageRequest};
 use domain::error::CatalogError;
@@ -50,6 +50,45 @@ where
 
     async fn viewer(&self, caller: &Principal) -> Result<acl::Viewer, CatalogError> {
         Ok(acl::viewer(&self.users, &caller.user).await?)
+    }
+
+    async fn title_names(
+        &self,
+        versions: &[Version],
+    ) -> Result<HashMap<TitleId, Vec<String>>, CatalogError> {
+        let mut movies: Vec<MovieId> = Vec::new();
+        let mut episodes: Vec<EpisodeId> = Vec::new();
+        for title in versions.iter().map(|version| &version.title).collect::<HashSet<_>>() {
+            match title {
+                TitleId::Movie(id) => movies.push(id.clone()),
+                TitleId::Episode(id) => episodes.push(id.clone()),
+            }
+        }
+        let mut names: HashMap<TitleId, Vec<String>> = HashMap::new();
+        for movie in self.catalog.movies_by_ids(&movies).await? {
+            names.insert(TitleId::Movie(movie.id), vec![movie.title]);
+        }
+        let contexts =
+            self.catalog.visible_episodes(&episodes, &TitleListFilter::default()).await?;
+        let series: Vec<SeriesId> = contexts
+            .iter()
+            .map(|context| context.series.clone())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        let series_titles: HashMap<SeriesId, String> = self
+            .catalog
+            .series_by_ids(&series)
+            .await?
+            .into_iter()
+            .map(|found| (found.id, found.title))
+            .collect();
+        for context in contexts {
+            let mut titles = vec![context.episode.title];
+            titles.extend(series_titles.get(&context.series).cloned());
+            names.insert(TitleId::Episode(context.episode.id), titles);
+        }
+        Ok(names)
     }
 
     async fn collection_mosaic_art(
@@ -208,9 +247,14 @@ where
         caller: &Principal,
         query: &TitleListQuery,
         page: PageRequest,
-    ) -> Result<Page<Series>, CatalogError> {
+    ) -> Result<Page<SeriesCard>, CatalogError> {
         let filter = self.build_filter(caller, query).await?;
-        Ok(self.catalog.list_series_filtered(&filter, page).await?)
+        let Page { items, total, offset, limit } =
+            self.catalog.list_series_filtered(&filter, page).await?;
+        let ids: Vec<SeriesId> = items.iter().map(|show| show.id.clone()).collect();
+        let counts = self.catalog.season_counts(&ids).await?;
+        let items = items.into_iter().map(|show| SeriesCard::counted(show, &counts)).collect();
+        Ok(Page { items, total, offset, limit })
     }
 
     async fn series_detail(
@@ -324,13 +368,14 @@ where
     async fn all_versions(
         &self,
         caller: &Principal,
+        filter: Option<&VersionFilter>,
         page: PageRequest,
     ) -> Result<Page<Version>, CatalogError> {
         if !acl::is_admin(caller) {
             return Err(CatalogError::Forbidden);
         }
         let viewer = self.viewer(caller).await?;
-        let filtered: Vec<Version> = self
+        let visible: Vec<Version> = self
             .catalog
             .list_all_versions(PageRequest::ALL)
             .await?
@@ -338,7 +383,17 @@ where
             .into_iter()
             .filter(|version| viewer.sees_library(&version.library))
             .collect();
-        Ok(paginate(&filtered, page))
+        let Some(filter) = filter else {
+            return Ok(paginate(&visible, page));
+        };
+        let names = self.title_names(&visible).await?;
+        let matched: Vec<Version> = visible
+            .into_iter()
+            .filter(|version| {
+                filter.matches(version, names.get(&version.title).map_or(&[], Vec::as_slice))
+            })
+            .collect();
+        Ok(paginate(&matched, page))
     }
 
     async fn version(
@@ -397,18 +452,21 @@ where
             .into_iter()
             .map(|show| (show.id.clone(), show))
             .collect();
+        let season_counts = self.catalog.season_counts(&series_ids).await?;
 
         let mut filmography = Vec::new();
         for credit in credits {
             let resolved = match &credit.title {
-                TitleRef::Movie(movie) => {
-                    movies.get(movie).map(|m| (&m.title, m.year, &m.artwork, &m.content_rating))
-                }
-                TitleRef::Series(show) => {
-                    series.get(show).map(|s| (&s.title, s.year, &s.artwork, &s.content_rating))
-                }
+                TitleRef::Movie(movie) => movies
+                    .get(movie)
+                    .map(|m| (&m.title, m.year, None, &m.artwork, &m.content_rating)),
+                TitleRef::Series(show) => series.get(show).map(|s| {
+                    let seasons = season_counts.get(show).copied().unwrap_or(0);
+                    (&s.title, s.year, Some(seasons), &s.artwork, &s.content_rating)
+                }),
             };
-            let Some((display_title, year, artwork, content_rating)) = resolved else {
+            let Some((display_title, year, season_count, artwork, content_rating)) = resolved
+            else {
                 continue;
             };
             let (display_title, artwork) = (display_title.clone(), artwork.clone());
@@ -419,6 +477,7 @@ where
                 title: credit.title,
                 display_title,
                 year,
+                season_count,
                 artwork,
                 role: credit.role,
                 character: credit.character,
@@ -863,22 +922,195 @@ mod tests {
         ));
     }
 
+    fn filed(id: &str, title: TitleId, lib: &str, quality: Quality, path: &str) -> Version {
+        Version {
+            id: VersionId(id.into()),
+            title,
+            library: LibraryId(lib.into()),
+            quality,
+            container: path.rsplit('.').next().unwrap().into(),
+            path: path.into(),
+            size_bytes: 1,
+            duration_ms: 1000,
+            available: true,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+        }
+    }
+
+    fn filterable() -> CatalogServiceImpl<MockCatalogRepo, MockUserRepo> {
+        let catalog = MockCatalogRepo::new();
+        for (id, title) in [("m-drift", "Drift"), ("m-paper", "Paper Skies")] {
+            catalog.add_movie(Movie { title: title.into(), ..movie(id, None) });
+        }
+        catalog.add_series(Series {
+            id: SeriesId("s-bloom".into()),
+            title: "Static Bloom".into(),
+            sort_title: "static bloom".into(),
+            year: None,
+            overview: None,
+            content_rating: None,
+            manually_edited: false,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        });
+        catalog.add_season(Season {
+            id: SeasonId("se-bloom".into()),
+            series: SeriesId("s-bloom".into()),
+            number: 1,
+            title: None,
+            overview: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        });
+        catalog.add_episode(Episode {
+            id: EpisodeId("e-pilot".into()),
+            season: SeasonId("se-bloom".into()),
+            number: 1,
+            title: "Pilot Light".into(),
+            overview: None,
+            runtime_minutes: None,
+            air_date: None,
+            manually_edited: false,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        });
+        let drift = TitleId::Movie(MovieId("m-drift".into()));
+        let paper = TitleId::Movie(MovieId("m-paper".into()));
+        let pilot = TitleId::Episode(EpisodeId("e-pilot".into()));
+        catalog.add_version(filed("a-drift", drift, "lib1", Quality::Hd, "/media/Drift.mkv"));
+        catalog.add_version(filed(
+            "b-paper",
+            paper,
+            "lib1",
+            Quality::Fhd,
+            "/media/Neon Harbor (2018)/Neon Harbor.mkv",
+        ));
+        catalog.add_version(filed("c-pilot", pilot, "lib2", Quality::Uhd, "/tv/sb/s01e01.mp4"));
+        let users = MockUserRepo::new();
+        users.grant(&UserId("admin".into()), &[LibraryId("lib1".into()), LibraryId("lib2".into())]);
+        users.grant(&UserId("half".into()), &[LibraryId("lib1".into())]);
+        CatalogServiceImpl::new(catalog, users)
+    }
+
+    fn version_filter(needle: &str) -> VersionFilter {
+        VersionFilter::new(
+            needle,
+            HashMap::from([
+                (LibraryId("lib1".into()), "Films".into()),
+                (LibraryId("lib2".into()), "Shows".into()),
+            ]),
+        )
+    }
+
+    fn version_ids(found: &Page<Version>) -> Vec<&str> {
+        found.items.iter().map(|version| version.id.0.as_str()).collect()
+    }
+
+    #[tokio::test]
+    async fn the_versions_filter_searches_every_field_a_listing_shows() {
+        let svc = filterable();
+        for (needle, expected) in [
+            ("neon harbor", vec!["b-paper"]),
+            ("PAPER", vec!["b-paper"]),
+            ("pilot light", vec!["c-pilot"]),
+            ("static bloom", vec!["c-pilot"]),
+            ("shows", vec!["c-pilot"]),
+            ("uhd", vec!["c-pilot"]),
+            ("mp4", vec!["c-pilot"]),
+            ("films", vec!["a-drift", "b-paper"]),
+            ("lantern", vec![]),
+        ] {
+            let found =
+                svc.all_versions(&admin(), Some(&version_filter(needle)), page()).await.unwrap();
+            assert_eq!(version_ids(&found), expected, "{needle}");
+            assert_eq!(found.total, expected.len() as u64, "{needle}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_versions_filter_runs_before_the_page_is_cut() {
+        let svc = filterable();
+        let first = PageRequest { offset: 0, limit: 1 };
+        let unfiltered = svc.all_versions(&admin(), None, first).await.unwrap();
+        assert_eq!(version_ids(&unfiltered), ["a-drift"]);
+        assert_eq!(unfiltered.total, 3);
+
+        let filtered =
+            svc.all_versions(&admin(), Some(&version_filter("static")), first).await.unwrap();
+        assert_eq!(version_ids(&filtered), ["c-pilot"], "a match from the last page comes first");
+        assert_eq!(filtered.total, 1);
+    }
+
+    #[tokio::test]
+    async fn the_versions_filter_still_respects_the_grants() {
+        let svc = filterable();
+        let half = Principal { user: UserId("half".into()), role: Role::Admin };
+        let found = svc.all_versions(&half, Some(&version_filter("shows")), page()).await.unwrap();
+        assert_eq!(found.total, 0);
+    }
+
     #[tokio::test]
     async fn all_versions_is_admin_only_and_still_scoped_to_the_grants() {
         let svc = seeded().await;
-        let all = svc.all_versions(&admin(), page()).await.unwrap();
+        let all = svc.all_versions(&admin(), None, page()).await.unwrap();
         assert_eq!(all.total, 3);
         assert!(matches!(
-            svc.all_versions(&member(), page()).await.unwrap_err(),
+            svc.all_versions(&member(), None, page()).await.unwrap_err(),
             CatalogError::Forbidden
         ));
 
         let stranger = Principal { user: UserId("nobody".into()), role: Role::Admin };
         assert_eq!(
-            svc.all_versions(&stranger, page()).await.unwrap().total,
+            svc.all_versions(&stranger, None, page()).await.unwrap().total,
             0,
             "an admin listing must not show a version whose detail page would 404"
         );
+    }
+
+    fn season_numbered(id: &str, series: &str, number: u16) -> Season {
+        Season {
+            id: SeasonId(id.into()),
+            series: SeriesId(series.into()),
+            number,
+            title: None,
+            overview: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_series_counts_its_regular_seasons_and_never_the_specials() {
+        let five = seeded().await;
+        for series in ["s1", "s2"] {
+            for number in [0, 2, 3, 4, 5] {
+                five.catalog.add_season(season_numbered(
+                    &format!("{series}-{number}"),
+                    series,
+                    number,
+                ));
+            }
+        }
+        let only_specials = seeded().await;
+        for (id, series) in [("se1", "s1"), ("se2", "s2")] {
+            only_specials.catalog.upsert_season(season_numbered(id, series, 0)).await.unwrap();
+        }
+
+        for (svc, expected) in [(five, 5), (only_specials, 0)] {
+            let browsed = svc.series(&admin(), &query(), page()).await.unwrap();
+            assert_eq!(browsed.items[0].season_count, expected);
+            let profile = svc.person(&admin(), &PersonId("p1".into())).await.unwrap();
+            assert_eq!(
+                profile.filmography.iter().map(|entry| entry.season_count).collect::<Vec<_>>(),
+                [None, None, Some(expected)],
+                "a movie has no seasons to count"
+            );
+        }
     }
 
     #[tokio::test]
@@ -895,7 +1127,7 @@ mod tests {
 
         let series = svc.series(&member(), &query(), page()).await.unwrap();
         assert_eq!(series.total, 1);
-        assert_eq!(series.items[0].id, SeriesId("s2".into()));
+        assert_eq!(series.items[0].series.id, SeriesId("s2".into()));
         assert!(svc.series_detail(&member(), &SeriesId("s2".into())).await.is_ok());
         assert!(matches!(
             svc.series_detail(&member(), &SeriesId("s1".into())).await.unwrap_err(),
@@ -911,7 +1143,7 @@ mod tests {
         assert_eq!(admin_lib1.items.iter().map(|m| m.id.0.as_str()).collect::<Vec<_>>(), ["m1"]);
         let admin_series_lib1 = svc.series(&admin(), &library_query("lib1"), page()).await.unwrap();
         assert_eq!(
-            admin_series_lib1.items.iter().map(|s| s.id.0.as_str()).collect::<Vec<_>>(),
+            admin_series_lib1.items.iter().map(|s| s.series.id.0.as_str()).collect::<Vec<_>>(),
             ["s2"]
         );
         assert!(
@@ -926,7 +1158,7 @@ mod tests {
         let member_series_lib1 =
             svc.series(&member(), &library_query("lib1"), page()).await.unwrap();
         assert_eq!(
-            member_series_lib1.items.iter().map(|s| s.id.0.as_str()).collect::<Vec<_>>(),
+            member_series_lib1.items.iter().map(|s| s.series.id.0.as_str()).collect::<Vec<_>>(),
             ["s2"]
         );
 
@@ -1128,7 +1360,7 @@ mod tests {
         is_repository_error!(svc.episode(&admin(), &episode));
         is_repository_error!(svc.versions(&admin(), &title, page()));
         is_repository_error!(svc.library_versions(&admin(), &library, page()));
-        is_repository_error!(svc.all_versions(&admin(), page()));
+        is_repository_error!(svc.all_versions(&admin(), None, page()));
         is_repository_error!(svc.version(&admin(), &version));
         is_repository_error!(svc.people_cards(&admin(), std::slice::from_ref(&person)));
         is_repository_error!(svc.person(&admin(), &person));
@@ -1164,7 +1396,7 @@ mod tests {
         is_repository_error!(svc.episodes(&admin(), &season));
         is_repository_error!(svc.versions(&admin(), &title, page()));
         is_repository_error!(svc.library_versions(&admin(), &library, page()));
-        is_repository_error!(svc.all_versions(&admin(), page()));
+        is_repository_error!(svc.all_versions(&admin(), None, page()));
         is_repository_error!(svc.random(&admin(), &RandomScope::Movies, &query()));
 
         let users = MockUserRepo::new();
@@ -1604,7 +1836,7 @@ mod tests {
 
         let series_action = svc.series(&admin(), &genre_query(action), page()).await.unwrap();
         assert_eq!(
-            series_action.items.iter().map(|s| s.id.0.as_str()).collect::<Vec<_>>(),
+            series_action.items.iter().map(|s| s.series.id.0.as_str()).collect::<Vec<_>>(),
             ["s2"],
             "s1 carries the genre too, but has no file and so sits in no library"
         );

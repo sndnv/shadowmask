@@ -326,7 +326,7 @@ fn audio_track(index: u32) -> AudioTrack {
         index,
         codec: "aac".into(),
         channels: 2,
-        language: Some(LanguageCode("eng".into())),
+        language: Some(LanguageCode("en".into())),
         bitrate: None,
     }
 }
@@ -335,7 +335,7 @@ fn subtitle_file(id: &str) -> SubtitleFile {
     SubtitleFile {
         id: SubtitleFileId(id.into()),
         version: VersionId("v1".into()),
-        language: Some(LanguageCode("eng".into())),
+        language: Some(LanguageCode("en".into())),
         format: SubtitleFormat::Srt,
         source: SubtitleSource::External,
         path: format!("/media/{id}.srt"),
@@ -840,6 +840,30 @@ async fn an_accepted_scan_actually_reaches_the_job_queue() {
 }
 
 #[tokio::test]
+async fn only_a_scan_asked_to_reread_queues_a_reread() {
+    use domain::library::ScanMode;
+    use domain::repository::JobRepository;
+    use services::library::ScanJobPayload;
+
+    let asks = [
+        (None, ScanMode::Normal),
+        (Some(json!({})), ScanMode::Normal),
+        (Some(json!({"reread": true})), ScanMode::Reread),
+    ];
+    for (body, mode) in asks {
+        let ctx = Ctx::new();
+        ctx.library_repo.insert_library(library("lib1"));
+
+        let (status, _) =
+            call(ctx.app(), Method::POST, "/api/v1/libraries/lib1/scan", Some(ADMIN), body).await;
+
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let queued = ctx.jobs_repo.list().await.unwrap();
+        assert_eq!(ScanJobPayload::decode(&queued[0].payload).mode, mode);
+    }
+}
+
+#[tokio::test]
 async fn a_library_is_invisible_to_a_user_who_was_never_granted_it() {
     let ctx = Ctx::new();
     ctx.library_repo.insert_library(library("lib1"));
@@ -1014,6 +1038,17 @@ async fn library_routes() {
     let (status, _) =
         call(ctx.app(), Method::GET, "/api/v1/admin/versions", Some(USER), None).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+    let (_, unfiltered) =
+        call(ctx.app(), Method::GET, "/api/v1/admin/versions", Some(ADMIN), None).await;
+    for (uri, total) in [
+        ("/api/v1/admin/versions?filter=%20%20", unfiltered["total"].clone()),
+        ("/api/v1/admin/versions?filter=lib%20LIB1", json!(1)),
+        ("/api/v1/admin/versions?filter=lantern", json!(0)),
+    ] {
+        let (status, body) = call(ctx.app(), Method::GET, uri, Some(ADMIN), None).await;
+        assert_eq!(status, StatusCode::OK, "GET {uri}");
+        assert_eq!(body["total"], total, "GET {uri}");
+    }
     let triggers = [
         ("/api/v1/admin/versions/v1/transcribe", json!({"audio_track_index": 2})),
         (
@@ -1038,12 +1073,26 @@ async fn library_routes() {
     assert_eq!(status, StatusCode::FORBIDDEN, "DELETE {delete_uri} as user");
     let (status, _) = call(ctx.app(), Method::DELETE, delete_uri, Some(ADMIN), None).await;
     assert_eq!(status, StatusCode::NO_CONTENT, "DELETE {delete_uri} as admin");
-    ctx.jobs_repo.seed(queued_job("j1"));
+    ctx.jobs_repo.seed(domain::job::Job {
+        kind: domain::job::JobKind::Subtitles,
+        payload: String::new(),
+        ..queued_job("j1")
+    });
     let cancel_uri = "/api/v1/admin/jobs/j1/cancel";
     let (status, _) = call(ctx.app(), Method::POST, cancel_uri, Some(USER), None).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "POST {cancel_uri} as user");
     let (status, _) = call(ctx.app(), Method::POST, cancel_uri, Some(ADMIN), None).await;
     assert_eq!(status, StatusCode::ACCEPTED, "POST {cancel_uri} as admin");
+    let retry_uri = "/api/v1/admin/jobs/j1/retry";
+    let (status, _) = call(ctx.app(), Method::POST, retry_uri, Some(USER), None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "POST {retry_uri} as user");
+    let (status, body) = call(ctx.app(), Method::POST, retry_uri, Some(ADMIN), None).await;
+    assert_eq!(status, StatusCode::OK, "POST {retry_uri} as admin, after the cancel");
+    assert_eq!(body["status"], "queued");
+    assert_eq!(body["retryable"], false);
+    let (status, body) = call(ctx.app(), Method::POST, retry_uri, Some(ADMIN), None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "a queued job cannot be retried");
+    assert_eq!(body["error"]["code"], "not_retryable");
     let (status, _) = call(
         ctx.app(),
         Method::POST,

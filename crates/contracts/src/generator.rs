@@ -182,6 +182,7 @@ impl Generator {
         );
         self.jobs_repo.seed(fixture::admin_job());
         self.jobs_repo.seed(fixture::admin_child_job());
+        self.jobs_repo.seed(fixture::admin_failed_job());
     }
 
     fn generate_user_library(&self) {

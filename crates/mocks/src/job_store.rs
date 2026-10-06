@@ -179,6 +179,24 @@ impl JobRepository for MockJobStore {
         }
     }
 
+    async fn retry(&self, id: &JobId, now: Timestamp) -> Result<bool, RepositoryError> {
+        let mut guard = self.jobs.lock().unwrap();
+        match guard.get_mut(id) {
+            Some(job) if matches!(job.status, JobStatus::Failed | JobStatus::Cancelled) => {
+                job.status = JobStatus::Queued;
+                job.attempts = 0;
+                job.progress = 0.0;
+                job.available_at = now;
+                job.last_error = None;
+                job.started_at = None;
+                job.finished_at = None;
+                job.updated_at = now;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
     async fn delete_finished_before(
         &self,
         cutoff: Timestamp,

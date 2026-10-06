@@ -288,7 +288,7 @@ class _Summary extends StatelessWidget {
           if (d.durationMs > 0)
             _fact(context, t, Strings.factDuration, durationText(d.durationMs)),
           if (d.sizeBytes > 0)
-            _fact(context, t, Strings.factSize, megabytes(d.sizeBytes)),
+            _fact(context, t, Strings.factSize, gigabytes(d.sizeBytes)),
           _fact(
             context,
             t,

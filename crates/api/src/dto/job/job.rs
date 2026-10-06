@@ -112,10 +112,11 @@ pub struct JobResponse {
     pub finished_at: Option<String>,
     pub parent_id: Option<String>,
     pub cancellable: bool,
+    pub retryable: bool,
 }
 
-impl From<Job> for JobResponse {
-    fn from(j: Job) -> Self {
+impl JobResponse {
+    pub fn new(j: Job, retryable: bool) -> Self {
         let cancellable = match j.status {
             JobStatus::Queued => true,
             JobStatus::Running => j.kind.is_process_killable(),
@@ -135,6 +136,7 @@ impl From<Job> for JobResponse {
             finished_at: j.finished_at.map(|t| t.to_string()),
             parent_id: j.parent_id.map(|id| id.0),
             cancellable,
+            retryable,
         }
     }
 }
@@ -192,7 +194,7 @@ mod tests {
             finished_at: None,
             parent_id: Some(JobId("parent".into())),
         };
-        assert_eq!(JobResponse::from(job).parent_id.as_deref(), Some("parent"));
+        assert_eq!(JobResponse::new(job, false).parent_id.as_deref(), Some("parent"));
     }
 
     #[test]
@@ -216,10 +218,12 @@ mod tests {
             finished_at: None,
             parent_id: None,
         };
-        assert!(JobResponse::from(build(JobKind::LibraryScan, JobStatus::Queued)).cancellable);
-        assert!(JobResponse::from(build(JobKind::Fetch, JobStatus::Running)).cancellable);
-        assert!(!JobResponse::from(build(JobKind::LibraryScan, JobStatus::Running)).cancellable);
-        assert!(!JobResponse::from(build(JobKind::Fetch, JobStatus::Succeeded)).cancellable);
+        let cancellable = |kind, status| JobResponse::new(build(kind, status), false).cancellable;
+        assert!(cancellable(JobKind::LibraryScan, JobStatus::Queued));
+        assert!(cancellable(JobKind::Fetch, JobStatus::Running));
+        assert!(!cancellable(JobKind::LibraryScan, JobStatus::Running));
+        assert!(!cancellable(JobKind::Fetch, JobStatus::Succeeded));
+        assert!(JobResponse::new(build(JobKind::Fetch, JobStatus::Failed), true).retryable);
     }
 
     #[test]

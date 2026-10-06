@@ -252,20 +252,20 @@ namespace tests
 
         @describe("VersionRows")
 
-        @it("labels a row with its quality and lines up the technical facts")
+        @it("labels a row the way the other clients do")
         sub buildsVersionRows()
-            rows = VersionRows(OrderedVersions([m.version("v1", "uhd", 25769803776#)]))
+            rows = VersionRows(OrderedVersions([m.version("v1", "uhd", 25769803776#), m.version("v2", "hd", 4724464026#)]))
 
-            m.assertEqual(rows[0].label, "UHD")
-            m.assertEqual(rows[0].detail, "MKV · 24576 MB · 1h 30m")
+            m.assertEqual(rows[0].label, "1 · 1h 30m · UHD · mkv · 24.0 GB")
+            m.assertEqual(rows[1].label, "2 · 1h 30m · HD · mkv · 4.4 GB")
             m.assertTrue(rows[0].available)
         end sub
 
-        @it("numbers a row that has no quality rather than showing a blank")
+        @it("keeps the number when a row has no quality, duration or size")
         sub numbersUnlabelledRows()
             rows = VersionRows([{ id: "v1", quality: "", container: "mp4", available: false }])
 
-            m.assertEqual(rows[0].label, "Version 1")
+            m.assertEqual(rows[0].label, "1 · mp4")
             m.assertFalse(rows[0].available)
         end sub
 

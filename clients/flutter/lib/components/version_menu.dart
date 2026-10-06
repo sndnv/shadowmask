@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:shadowmask/components/version_label.dart';
 import 'package:shadowmask/model/catalog/version.dart';
-import 'package:shadowmask/model/common/quality.dart';
 import 'package:shadowmask/theme/app_menu.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/tokens.dart';
@@ -64,17 +64,7 @@ class VersionMenuItem extends StatelessWidget {
       child: Text.rich(
         TextSpan(
           style: monoStyle.copyWith(color: t.text, fontSize: 13),
-          children: <InlineSpan>[
-            TextSpan(
-              text: '$number · ',
-              style: TextStyle(color: t.muted),
-            ),
-            TextSpan(
-              text: version.quality.label,
-              style: TextStyle(color: t.accent),
-            ),
-            TextSpan(text: ' · ${version.container}'),
-          ],
+          children: versionLabelSpans(t, version, number),
         ),
       ),
     );

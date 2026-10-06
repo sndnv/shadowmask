@@ -108,6 +108,16 @@ namespace tests
             m.assertEqual(FormatMegabytes(invalid), "")
         end sub
 
+        @it("states a file size in gigabytes to one decimal, falling back to megabytes when tiny")
+        sub statesGigabytes()
+            m.assertEqual(FormatGigabytes(45097156608#), "42.0 GB")
+            m.assertEqual(FormatGigabytes(4724464026#), "4.4 GB")
+            m.assertEqual(FormatGigabytes(734003200), "0.7 GB")
+            m.assertEqual(FormatGigabytes(41943040), "40 MB")
+            m.assertEqual(FormatGigabytes(0), "")
+            m.assertEqual(FormatGigabytes(invalid), "")
+        end sub
+
         @it("rounds a broadcast frame rate to something readable across the room")
         sub statesFrameRate()
             m.assertEqual(FormatFrameRate(23.976), "24 fps")

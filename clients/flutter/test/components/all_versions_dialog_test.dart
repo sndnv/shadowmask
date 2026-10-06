@@ -1,13 +1,16 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/all_versions_dialog.dart';
+import 'package:shadowmask/components/outline_pill.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/version_picker.dart';
 import 'package:shadowmask/l10n/strings.dart';
@@ -78,7 +81,7 @@ List<String> _lines(WidgetTester tester) => tester
     .toList();
 
 bool _numbered(List<String> lines, String number, String quality) =>
-    lines.any((String l) => l.startsWith('$number · $quality'));
+    lines.contains('$number · 2h 00m · $quality · mkv · 8 MB');
 
 void main() {
   final DownloadStarter platform = startDownload;
@@ -201,5 +204,243 @@ void main() {
 
     expect(find.text(Strings.play), findsNWidgets(3));
     expect(find.byIcon(Icons.download_outlined), findsNWidgets(3));
+  });
+
+  group('admin actions', () {
+    final Version single = Version.fromJson(_json('v-uhd', 'uhd'));
+
+    ApiClient adminApi({required bool withFiles, List<String>? reads}) {
+      bool held = withFiles;
+      return ApiClient(
+        baseUrl: 'http://test',
+        httpClient: MockClient((http.Request req) async {
+          if (req.url.path.endsWith('/subtitles/search')) {
+            return http.Response(
+              jsonEncode(<dynamic>[
+                <String, dynamic>{
+                  'file_id': '7',
+                  'language': 'fr',
+                  'release_name': 'Fresh.Release',
+                  'format': 'srt',
+                },
+              ]),
+              200,
+            );
+          }
+          if (req.url.path.endsWith('/subtitles/download')) {
+            held = true;
+            return http.Response('', 204);
+          }
+          if (req.url.path.endsWith('/versions/v-uhd')) {
+            reads?.add(req.url.path);
+            return http.Response(
+              jsonEncode(<String, dynamic>{
+                ..._json('v-uhd', 'uhd')..remove('available'),
+                'audio': <dynamic>[
+                  <String, dynamic>{
+                    'index': 1,
+                    'codec': 'eac3',
+                    'channels': 6,
+                    'language': 'en',
+                  },
+                  <String, dynamic>{
+                    'index': 2,
+                    'codec': 'aac',
+                    'channels': 2,
+                    'language': 'es',
+                  },
+                ],
+                'subtitle_files': <dynamic>[
+                  if (held)
+                    <String, dynamic>{
+                      'id': 'sf1',
+                      'language': 'en',
+                      'format': 'srt',
+                      'source': 'external',
+                    },
+                ],
+              }),
+              200,
+            );
+          }
+          return http.Response('{}', 200);
+        }),
+      );
+    }
+
+    Future<List<String>> pumpPicker(
+      WidgetTester tester, {
+      required ApiClient api,
+      required bool admin,
+      double width = 760,
+    }) async {
+      final List<String> routes = <String>[];
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        ThemeScope(
+          variant: AppThemeVariant.dark,
+          setVariant: (_) {},
+          child: MaterialApp(
+            theme: buildTheme(AppThemeVariant.dark),
+            onGenerateRoute: (RouteSettings settings) {
+              routes.add(settings.name ?? '');
+              return MaterialPageRoute<void>(
+                builder: (_) => settings.name == '/'
+                    ? ToastHost(
+                        child: Scaffold(
+                          body: SingleChildScrollView(
+                            child: SizedBox(
+                              width: width,
+                              child: VersionPicker(
+                                catalog: CatalogApi(api),
+                                playback: PlaybackApi(api),
+                                userId: 'u1',
+                                versions: <Version>[single],
+                                admin: admin ? AdminApi(api) : null,
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                    : Text('went to ${settings.name}'),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return routes;
+    }
+
+    testWidgets('a viewer sees no admin actions', (WidgetTester tester) async {
+      await pumpPicker(tester, api: adminApi(withFiles: true), admin: false);
+
+      expect(find.byTooltip(Strings.openVersion), findsNothing);
+      expect(find.byTooltip(Strings.subtitlesHeading), findsNothing);
+    });
+
+    testWidgets('an admin opens the version admin page from its row', (
+      WidgetTester tester,
+    ) async {
+      final List<String> routes = await pumpPicker(
+        tester,
+        api: adminApi(withFiles: true),
+        admin: true,
+      );
+
+      await tester.tap(find.byTooltip(Strings.openVersion));
+      await tester.pumpAndSettle();
+
+      expect(routes.last, '/version?id=v-uhd');
+      expect(find.text('went to /version?id=v-uhd'), findsOneWidget);
+    });
+
+    testWidgets('the subtitles menu transcribes per audio track', (
+      WidgetTester tester,
+    ) async {
+      await pumpPicker(tester, api: adminApi(withFiles: true), admin: true);
+
+      await tester.tap(find.byTooltip(Strings.subtitlesHeading));
+      await tester.pumpAndSettle();
+
+      expect(find.text(Strings.searchSubtitles), findsOneWidget);
+      expect(find.text(Strings.translate), findsOneWidget);
+
+      await tester.tap(find.text(Strings.transcribe));
+      await tester.pumpAndSettle();
+
+      expect(find.text('English · eac3 · 6ch'), findsOneWidget);
+      expect(find.text('Spanish · aac · 2ch'), findsOneWidget);
+    });
+
+    testWidgets('translate has nothing to offer without a subtitle file', (
+      WidgetTester tester,
+    ) async {
+      await pumpPicker(tester, api: adminApi(withFiles: false), admin: true);
+      await tester.tap(find.byTooltip(Strings.subtitlesHeading));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<SubmenuButton>(
+              find.widgetWithText(SubmenuButton, Strings.translate),
+            )
+            .menuChildren,
+        isEmpty,
+      );
+    });
+
+    testWidgets('translate offers each subtitle file', (
+      WidgetTester tester,
+    ) async {
+      await pumpPicker(tester, api: adminApi(withFiles: true), admin: true);
+      await tester.tap(find.byTooltip(Strings.subtitlesHeading));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<SubmenuButton>(
+              find.widgetWithText(SubmenuButton, Strings.translate),
+            )
+            .menuChildren,
+        hasLength(1),
+      );
+    });
+
+    testWidgets('a subtitle downloaded from the menu reloads the row', (
+      WidgetTester tester,
+    ) async {
+      final List<String> reads = <String>[];
+      await pumpPicker(
+        tester,
+        api: adminApi(withFiles: false, reads: reads),
+        admin: true,
+      );
+      Finder cc(String text) => find.descendant(
+        of: find.byType(OutlinePill),
+        matching: find.text(text),
+      );
+      expect(cc(Strings.ccNone), findsOneWidget);
+      final int before = reads.length;
+
+      await tester.tap(find.byTooltip(Strings.subtitlesHeading));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(Strings.searchSubtitles));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.widgetWithText(FilledButton, Strings.searchSubtitles),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, Strings.download));
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(reads, hasLength(before + 1));
+      expect(cc('1'), findsOneWidget);
+    });
+
+    testWidgets('a phone row keeps the admin actions in the expanded body', (
+      WidgetTester tester,
+    ) async {
+      await pumpPicker(
+        tester,
+        api: adminApi(withFiles: true),
+        admin: true,
+        width: 280,
+      );
+
+      expect(find.byTooltip(Strings.openVersion), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.expand_more));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byTooltip(Strings.openVersion), findsOneWidget);
+      expect(find.byTooltip(Strings.subtitlesHeading), findsOneWidget);
+    });
   });
 }

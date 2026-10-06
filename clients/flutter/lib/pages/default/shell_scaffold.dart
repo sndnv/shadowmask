@@ -9,6 +9,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/components/bottom_chrome.dart';
 import 'package:shadowmask/components/brand_mark.dart';
+import 'package:shadowmask/components/confirm_sign_out.dart';
 import 'package:shadowmask/components/hex_texture.dart';
 import 'package:shadowmask/components/page_title.dart';
 import 'package:shadowmask/components/shell_bottom_nav.dart';
@@ -492,6 +493,9 @@ class _TopNav extends StatelessWidget {
   final SelfUser? user;
 
   Future<void> _signOut(BuildContext context) async {
+    if (!await confirmSignOut(context) || !context.mounted) {
+      return;
+    }
     await AccountApi(api).signOutThisDevice(user?.id);
     if (context.mounted) {
       Navigator.of(

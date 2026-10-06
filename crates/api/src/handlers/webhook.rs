@@ -5,7 +5,7 @@ use axum::response::{IntoResponse, Response};
 use tracing::debug;
 
 use domain::error::LibraryError;
-use domain::library::LibraryId;
+use domain::library::{LibraryId, ScanMode};
 use domain::user::{Principal, Role, UserId};
 
 use crate::dto::webhook::{TokenQuery, WebhookPayload};
@@ -72,7 +72,7 @@ pub async fn scan<S: AppServices>(
     }
     let principal = Principal { user: UserId(client.name.clone()), role: Role::Automation };
     let library = LibraryId(id);
-    match state.services.library().trigger_scan(&principal, &library).await {
+    match state.services.library().trigger_scan(&principal, &library, ScanMode::Normal).await {
         Ok(()) | Err(LibraryError::ScanInProgress) => {
             debug!(
                 "Webhook client [{}] triggered scan for library [{}]",

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 
 import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/api/api_client.dart';
@@ -223,6 +224,12 @@ class _VersionsBodyState extends State<_VersionsBody>
                     v.path ?? v.id,
                     style: monoStyle.copyWith(color: t.text, fontSize: 12),
                   ),
+                  narrowCell: (BuildContext context, Version v) =>
+                      StartEllipsisText.middle(
+                        p.basename(v.path ?? v.id),
+                        tooltip: v.path ?? v.id,
+                        style: monoStyle.copyWith(color: t.text, fontSize: 12),
+                      ),
                 ),
                 AdminColumn<Version>(
                   label: Strings.columnTitle,
@@ -261,7 +268,7 @@ class _VersionsBodyState extends State<_VersionsBody>
                   align: AdminColumnAlign.end,
                   sortKey: (Version v) => v.sizeBytes,
                   cell: (BuildContext context, Version v) =>
-                      Text(megabytes(v.sizeBytes)),
+                      Text(gigabytes(v.sizeBytes)),
                 ),
                 AdminColumn<Version>(
                   label: Strings.columnActions,

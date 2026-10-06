@@ -30,6 +30,10 @@ pub fn backoff(attempts: u32, policy: &RetryPolicy) -> SignedDuration {
     SignedDuration::from_millis(capped)
 }
 
+pub fn will_retry(attempts: u32, err: &JobError, policy: &RetryPolicy) -> bool {
+    matches!(err, JobError::Retryable(_)) && attempts < policy.max_attempts
+}
+
 pub fn apply_outcome(
     mut job: Job,
     result: Result<(), JobError>,
@@ -46,9 +50,9 @@ pub fn apply_outcome(
             job.finished_at = Some(now);
         }
         Err(err) => {
-            let retryable = matches!(err, JobError::Retryable(_));
+            let retry = will_retry(job.attempts, &err, policy);
             job.last_error = Some(err.to_string());
-            if retryable && job.attempts < policy.max_attempts {
+            if retry {
                 job.status = JobStatus::Queued;
                 job.available_at = now.saturating_add(backoff(job.attempts, policy)).unwrap_or(now);
             } else {
@@ -139,6 +143,15 @@ mod tests {
         let out = apply_outcome(at_last, Err(JobError::Retryable("boom".into())), now, &policy());
         assert_eq!(out.status, JobStatus::Failed);
         assert_eq!(out.attempts, 3);
+    }
+
+    #[test]
+    fn only_a_retryable_failure_with_attempts_left_is_retried() {
+        let policy = policy();
+        let retryable = JobError::Retryable("boom".into());
+        assert!(will_retry(2, &retryable, &policy));
+        assert!(!will_retry(3, &retryable, &policy));
+        assert!(!will_retry(1, &JobError::Permanent("nope".into()), &policy));
     }
 
     #[test]

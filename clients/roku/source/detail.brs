@@ -136,18 +136,15 @@ function ResumePercentFor(resumable as dynamic, versionId as dynamic) as integer
 end function
 
 function VersionRowContent(version as dynamic, index as integer) as object
-    quality = QualityLabel(ValueAt(version, "quality", invalid))
-    container = UCase(TextOrBlank(ValueAt(version, "container", "")))
-    size = FormatMegabytes(ValueAt(version, "size_bytes", invalid))
+    number = (index + 1).ToStr()
     duration = FormatDurationText(ValueAt(version, "duration_ms", invalid))
-
-    label = quality
-    if IsBlank(label) then label = PhraseWith("detail.versionNumber", { number: index + 1 })
+    quality = QualityLabel(ValueAt(version, "quality", invalid))
+    container = TextOrBlank(ValueAt(version, "container", ""))
+    size = FormatGigabytes(ValueAt(version, "size_bytes", invalid))
 
     return {
         id: TextOrBlank(ValueAt(version, "id", "")),
-        label: label,
-        detail: JoinParts([container, size, duration]),
+        label: JoinParts([number, duration, quality, container, size]),
         available: ValueAt(version, "available", false) = true
     }
 end function

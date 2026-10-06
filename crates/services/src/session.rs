@@ -1125,15 +1125,15 @@ mod tests {
             1,
             vec![],
             vec![],
-            vec![subtitle(2, Some("eng"), SubtitleFormat::Srt)],
+            vec![subtitle(2, Some("en"), SubtitleFormat::Srt)],
         );
         let rendition = subtitle_rendition(
             &selected(Some(SubtitleDelivery::HlsVtt), Some(SubtitleTrackRef::Embedded(2))),
             &detail,
         )
         .unwrap();
-        assert_eq!(rendition.language, "eng");
-        assert_eq!(rendition.name, "eng");
+        assert_eq!(rendition.language, "en");
+        assert_eq!(rendition.name, "en");
     }
 
     #[test]
@@ -1488,7 +1488,7 @@ mod tests {
         detail.subtitle_files = vec![SubtitleFile {
             id: SubtitleFileId("sf1".into()),
             version: VersionId("v1".into()),
-            language: Some(LanguageCode("eng".into())),
+            language: Some(LanguageCode("en".into())),
             format: SubtitleFormat::Srt,
             source: SubtitleSource::External,
             path: "/media/m1.en.srt".into(),
@@ -1519,7 +1519,7 @@ mod tests {
             100_000,
             vec![video("vp9", Some(5_000_000))],
             vec![audio(1)],
-            vec![subtitle(2, Some("fra"), SubtitleFormat::Srt)],
+            vec![subtitle(2, Some("fr"), SubtitleFormat::Srt)],
         ));
         let mut request = start_request(0);
         request.subtitle = SubtitleRequest::Track(SubtitleSelection {
@@ -1529,7 +1529,7 @@ mod tests {
         let started = harness.service.start(&principal(), request).await.unwrap();
         assert_eq!(started.mode, DeliveryMode::Transcode);
         let registration = harness.streams.registration(&started.session_id).unwrap();
-        assert_eq!(registration.subtitle.unwrap().language, "fra");
+        assert_eq!(registration.subtitle.unwrap().language, "fr");
     }
 
     #[tokio::test]
@@ -1545,7 +1545,7 @@ mod tests {
         detail.subtitle_files = vec![SubtitleFile {
             id: SubtitleFileId("sf1".into()),
             version: VersionId("v1".into()),
-            language: Some(LanguageCode("eng".into())),
+            language: Some(LanguageCode("en".into())),
             format: SubtitleFormat::Srt,
             source: SubtitleSource::External,
             path: "/media/m1.en.srt".into(),
@@ -1562,7 +1562,7 @@ mod tests {
         let started = harness.service.start(&principal(), request).await.unwrap();
 
         let registration = harness.streams.registration(&started.session_id).unwrap();
-        assert_eq!(registration.subtitle.unwrap().language, "eng");
+        assert_eq!(registration.subtitle.unwrap().language, "en");
         let spec = harness.transcode.started().last().cloned().unwrap();
         assert_eq!(
             spec.soft_subtitle,
@@ -1737,10 +1737,10 @@ mod tests {
             "mp4",
             100_000,
             vec![video("h264", Some(5_000_000))],
-            vec![audio_in(0, Some("eng")), audio_in(1, Some("jpn")), audio_in(2, Some("fra"))],
+            vec![audio_in(0, Some("en")), audio_in(1, Some("ja")), audio_in(2, Some("fr"))],
             vec![
-                subtitle(0, Some("eng"), SubtitleFormat::Srt),
-                subtitle(1, Some("fra"), SubtitleFormat::Srt),
+                subtitle(0, Some("en"), SubtitleFormat::Srt),
+                subtitle(1, Some("fr"), SubtitleFormat::Srt),
             ],
         )
     }
@@ -1756,7 +1756,7 @@ mod tests {
     async fn start_honours_the_users_preferred_audio_and_subtitle_languages() {
         let harness = Harness::new();
         harness.catalog.insert(multilingual_detail());
-        harness.users.insert(user_who_prefers(&["jpn"], &["fra"]));
+        harness.users.insert(user_who_prefers(&["ja"], &["fr"]));
 
         let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
 
@@ -1768,7 +1768,7 @@ mod tests {
     async fn an_explicit_request_beats_the_users_language_preferences() {
         let harness = Harness::new();
         harness.catalog.insert(multilingual_detail());
-        harness.users.insert(user_who_prefers(&["jpn"], &["fra"]));
+        harness.users.insert(user_who_prefers(&["ja"], &["fr"]));
         let mut request = start_request(0);
         request.audio = AudioRequest::Track(2);
         request.subtitle = SubtitleRequest::Track(SubtitleSelection {
@@ -1786,7 +1786,7 @@ mod tests {
     async fn a_language_with_no_matching_track_leaves_the_default_alone() {
         let harness = Harness::new();
         harness.catalog.insert(multilingual_detail());
-        harness.users.insert(user_who_prefers(&["deu"], &["deu"]));
+        harness.users.insert(user_who_prefers(&["de"], &["de"]));
 
         let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
 
@@ -1906,7 +1906,7 @@ mod tests {
             100_000,
             vec![video("h264", Some(5_000_000))],
             vec![audio(1)],
-            vec![subtitle(2, Some("eng"), SubtitleFormat::Srt)],
+            vec![subtitle(2, Some("en"), SubtitleFormat::Srt)],
         ));
         let mut request = start_request(0);
         request.subtitle = SubtitleRequest::Track(SubtitleSelection {
@@ -2227,7 +2227,7 @@ mod tests {
     async fn a_stored_override_is_restored_on_the_next_session() {
         let harness = Harness::new();
         harness.catalog.insert(multilingual_detail());
-        harness.users.insert(user_who_prefers(&["eng"], &["eng"]));
+        harness.users.insert(user_who_prefers(&["en"], &["en"]));
         let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         track_choice(&harness, &started.session_id, 2).await;
         harness.service.end(&principal(), &started.session_id).await.unwrap();
@@ -2244,7 +2244,7 @@ mod tests {
     async fn the_account_preference_never_becomes_an_override() {
         let harness = Harness::new();
         harness.catalog.insert(multilingual_detail());
-        harness.users.insert(user_who_prefers(&["jpn"], &["fra"]));
+        harness.users.insert(user_who_prefers(&["ja"], &["fr"]));
         let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         assert_eq!(started.selected.audio_track, Some(1));
 
@@ -2524,7 +2524,7 @@ mod tests {
             100_000,
             vec![video("h264", Some(5_000_000))],
             vec![audio(1)],
-            vec![subtitle(2, Some("eng"), SubtitleFormat::Srt)],
+            vec![subtitle(2, Some("en"), SubtitleFormat::Srt)],
         ));
         let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         let set = harness

@@ -309,7 +309,6 @@ function BuildStringTable() as object
         "track.sourceTranslated": "Translated",
         "track.sourceCombined": "Combined",
 
-        "detail.versionNumber": "Version {number}",
         "detail.chooseVersion": "Choose a version",
 
         "watch.versionReference": "Version {id}",

@@ -234,6 +234,63 @@ void main() {
     );
   });
 
+  testWidgets('Re-read files confirms, then queues a scan that re-reads', (
+    WidgetTester tester,
+  ) async {
+    final List<String> bodies = <String>[];
+    await _pump(
+      tester,
+      _api((http.Request req) {
+        if (req.method == 'POST' &&
+            req.url.path == '/api/v1/libraries/lib1/scan') {
+          bodies.add(req.body);
+          return http.Response('', 202);
+        }
+        return _detailRoute(req);
+      }),
+    );
+
+    await tester.tap(find.widgetWithText(OutlinedButton, Strings.rereadFiles));
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.confirmRereadFilesBody), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, Strings.rereadFiles));
+    await tester.pumpAndSettle();
+
+    expect(bodies, hasLength(1));
+    expect(jsonDecode(bodies.single), <String, dynamic>{'reread': true});
+    expect(find.text(Strings.toastRereadQueued), findsOneWidget);
+
+    await tester.tap(find.text(Strings.scan).last);
+    await tester.pumpAndSettle();
+
+    expect(bodies, hasLength(2));
+    expect(bodies.last, isEmpty, reason: 'a plain scan sends no options');
+
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('a cancelled re-read queues nothing', (
+    WidgetTester tester,
+  ) async {
+    final List<String> posted = <String>[];
+    await _pump(
+      tester,
+      _api((http.Request req) {
+        if (req.method == 'POST') {
+          posted.add(req.url.path);
+        }
+        return _detailRoute(req);
+      }),
+    );
+
+    await tester.tap(find.widgetWithText(OutlinedButton, Strings.rereadFiles));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.cancel).last);
+    await tester.pumpAndSettle();
+
+    expect(posted, isEmpty);
+  });
+
   testWidgets('the last scan reads as a date rather than as sent', (
     WidgetTester tester,
   ) async {

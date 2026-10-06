@@ -3,10 +3,13 @@ use std::collections::HashSet;
 use domain::common::PageRequest;
 use domain::error::RepositoryError;
 use domain::job::{JobId, JobKind, JobPriority, JobQuery};
-use domain::library::{Library, LibraryId, LibraryOrigin, ScanState, ScanStatus, WatcherStrategy};
+use domain::library::{
+    Library, LibraryId, LibraryOrigin, ScanMode, ScanState, ScanStatus, WatcherStrategy,
+};
 use domain::repository::{JobRepository, LibraryRepository};
 use jiff::Timestamp;
 
+use super::ScanJobPayload;
 use crate::job::queued_job;
 
 pub fn is_nightly_library(library: &Library) -> bool {
@@ -59,20 +62,22 @@ where
 async fn enqueue_scan<J>(
     jobs: &J,
     id: &LibraryId,
+    mode: ScanMode,
     parent: Option<&JobId>,
 ) -> Result<(), RepositoryError>
 where
     J: JobRepository + Sync,
 {
     let now = Timestamp::now();
-    jobs.enqueue(queued_job(JobKind::LibraryScan, JobPriority::Normal, id.0.clone(), parent, now))
-        .await
+    let payload = ScanJobPayload { library: id.clone(), mode }.encode();
+    jobs.enqueue(queued_job(JobKind::LibraryScan, JobPriority::Normal, payload, parent, now)).await
 }
 
 pub async fn queue_scan<L, J>(
     libraries: &L,
     jobs: &J,
     id: &LibraryId,
+    mode: ScanMode,
     parent: Option<&JobId>,
 ) -> Result<bool, RepositoryError>
 where
@@ -82,7 +87,7 @@ where
     if !reserve_scan(libraries, id).await? {
         return Ok(false);
     }
-    if let Err(err) = enqueue_scan(jobs, id, parent).await {
+    if let Err(err) = enqueue_scan(jobs, id, mode, parent).await {
         if let Err(release) = release_scan(libraries, id).await {
             tracing::warn!("releasing the scan slot of library [{}] failed: [{release}]", id.0);
         }
@@ -104,7 +109,7 @@ where
         .await?
         .into_iter()
         .filter(|job| job.kind == JobKind::LibraryScan)
-        .map(|job| job.payload)
+        .map(|job| ScanJobPayload::decode(&job.payload).library.0)
         .collect();
     let mut settled = 0;
     for library in libraries.list().await? {
@@ -188,8 +193,8 @@ mod tests {
         libraries.save_scan_state(state("idle", ScanStatus::Idle)).await.unwrap();
         libraries.save_scan_state(state("queued", ScanStatus::Queued)).await.unwrap();
         libraries.save_scan_state(state("orphaned", ScanStatus::Queued)).await.unwrap();
-        enqueue_scan(&jobs, &LibraryId("queued".into()), None).await.unwrap();
-        enqueue_scan(&jobs, &LibraryId("requeued".into()), None).await.unwrap();
+        enqueue_scan(&jobs, &LibraryId("queued".into()), ScanMode::Normal, None).await.unwrap();
+        enqueue_scan(&jobs, &LibraryId("requeued".into()), ScanMode::Reread, None).await.unwrap();
 
         assert_eq!(settle_interrupted_scans(&libraries, &jobs).await.unwrap(), 3);
 
@@ -242,7 +247,7 @@ mod tests {
         assert!(jobs.list().await.unwrap().is_empty());
         assert!(!reserve_scan(&libraries, &id).await.unwrap(), "the slot is already taken");
 
-        enqueue_scan(&jobs, &id, None).await.unwrap();
+        enqueue_scan(&jobs, &id, ScanMode::Normal, None).await.unwrap();
 
         assert_eq!(jobs.list().await.unwrap().len(), 1);
     }
@@ -298,10 +303,27 @@ mod tests {
         let jobs = MockJobStore::new();
         let id = LibraryId("lib".into());
 
-        assert!(queue_scan(&libraries, &jobs, &id, None).await.unwrap());
-        assert!(!queue_scan(&libraries, &jobs, &id, None).await.unwrap());
+        assert!(queue_scan(&libraries, &jobs, &id, ScanMode::Normal, None).await.unwrap());
+        assert!(!queue_scan(&libraries, &jobs, &id, ScanMode::Reread, None).await.unwrap());
 
-        assert_eq!(jobs.list().await.unwrap().len(), 1);
+        let queued = jobs.list().await.unwrap();
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].payload, "lib");
+    }
+
+    #[tokio::test]
+    async fn a_reread_is_queued_with_its_mode() {
+        let libraries = MockLibraryRepo::new();
+        let jobs = MockJobStore::new();
+        let id = LibraryId("lib".into());
+
+        assert!(queue_scan(&libraries, &jobs, &id, ScanMode::Reread, None).await.unwrap());
+
+        let queued = jobs.list().await.unwrap();
+        assert_eq!(
+            ScanJobPayload::decode(&queued[0].payload),
+            ScanJobPayload { library: id, mode: ScanMode::Reread }
+        );
     }
 
     #[tokio::test]
@@ -311,7 +333,7 @@ mod tests {
         let id = LibraryId("lib".into());
         jobs.set_fail();
 
-        queue_scan(&libraries, &jobs, &id, None).await.unwrap_err();
+        queue_scan(&libraries, &jobs, &id, ScanMode::Normal, None).await.unwrap_err();
 
         assert_eq!(libraries.scan_state(&id).await.unwrap().unwrap().status, ScanStatus::Idle);
         assert!(reserve_scan(&libraries, &id).await.unwrap(), "the next scan can still start");
@@ -326,7 +348,7 @@ mod tests {
         jobs.set_fail();
         libraries.fail_saves_after(1);
 
-        let err = queue_scan(&libraries, &jobs, &id, None).await.unwrap_err();
+        let err = queue_scan(&libraries, &jobs, &id, ScanMode::Normal, None).await.unwrap_err();
 
         assert_eq!(err.to_string(), "repository backend error: mock job store failure");
         assert!(logs_contain("releasing the scan slot of library [lib] failed"));

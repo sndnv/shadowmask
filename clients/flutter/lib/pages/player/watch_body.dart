@@ -258,7 +258,9 @@ class _WatchBodyState extends State<WatchBody>
     }
   }
 
-  void _retry() => setState(() => _boot = _start());
+  void _retry() => setState(() {
+    _boot = _start();
+  });
 
   void _warnProfileVersion(int reported) {
     if (_warnedProfile || profileVersionMatches(reported) || !mounted) {

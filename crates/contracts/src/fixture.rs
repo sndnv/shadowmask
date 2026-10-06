@@ -64,6 +64,28 @@ pub fn admin_child_job() -> Job {
     }
 }
 
+pub fn admin_failed_job() -> Job {
+    Job {
+        id: JobId("job-subtitles".into()),
+        kind: JobKind::Subtitles,
+        status: JobStatus::Failed,
+        priority: JobPriority::Low,
+        payload: "v1".into(),
+        attempts: 3,
+        progress: 0.0,
+        available_at: ts(30),
+        last_error: Some(
+            r#"http status 406 Not Acceptable: {"message":"You cannot consume this service"}"#
+                .into(),
+        ),
+        created_at: ts(30),
+        updated_at: ts(31),
+        started_at: Some(ts(30)),
+        finished_at: Some(ts(31)),
+        parent_id: None,
+    }
+}
+
 pub fn movie(id: &str) -> Movie {
     Movie {
         id: MovieId(id.into()),

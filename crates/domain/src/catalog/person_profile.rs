@@ -12,6 +12,7 @@ pub struct FilmographyEntry {
     pub title: TitleRef,
     pub display_title: String,
     pub year: Option<u16>,
+    pub season_count: Option<u16>,
     pub artwork: Vec<ArtworkRef>,
     pub role: CreditRole,
     pub character: Option<String>,

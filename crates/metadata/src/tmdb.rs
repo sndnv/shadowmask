@@ -542,6 +542,34 @@ mod tests {
         assert_eq!(matches[0].external_id.value, "tv/1399");
     }
 
+    fn movie_query() -> MetadataQuery {
+        MetadataQuery { title: "the matrix".to_owned(), year: None, kind: MediaKind::Movie }
+    }
+
+    #[tokio::test]
+    async fn a_transport_failure_never_carries_the_api_key() {
+        let client =
+            TmdbClient::with_base_urls("secret-key", "http://127.0.0.1:1", "http://img.test");
+        let Err(MetadataError::Backend(message)) = client.search(&movie_query()).await else {
+            panic!("expected a backend error");
+        };
+        assert!(!message.contains("secret-key"), "{message}");
+        assert!(!message.contains("api_key"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn a_malformed_reply_never_carries_the_api_key() {
+        let server =
+            mock_path("/search/movie", ResponseTemplate::new(200).set_body_string("not json"))
+                .await;
+        let client = TmdbClient::with_base_urls("secret-key", server.uri(), "http://img.test");
+        let Err(MetadataError::Parse(message)) = client.search(&movie_query()).await else {
+            panic!("expected a parse error");
+        };
+        assert!(!message.contains("secret-key"), "{message}");
+        assert!(!message.contains("api_key"), "{message}");
+    }
+
     #[tokio::test]
     async fn search_empty_is_not_found() {
         let server = mock_path(

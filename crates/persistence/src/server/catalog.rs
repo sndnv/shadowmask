@@ -45,6 +45,8 @@ const EPISODES_BY_SERIES_SQL: &str = "SELECT e.id AS episode_id, sn.series_id AS
      WHERE sn.series_id IN ({}) ORDER BY sn.number, e.number, e.id";
 const EPISODES_BY_SEASON_SQL: &str = "SELECT e.id AS episode_id, e.season_id AS parent \
      FROM episodes e WHERE e.season_id IN ({}) ORDER BY e.number, e.id";
+const REGULAR_SEASON_COUNTS_SQL: &str = "SELECT series_id, COUNT(*) AS n FROM seasons \
+     WHERE number > 0 AND series_id IN ({}) GROUP BY series_id";
 
 const BIND_CHUNK: usize = 500;
 
@@ -1952,6 +1954,26 @@ impl CatalogRepository for SqliteCatalogRepo {
         Ok(ids.iter().filter_map(|id| found.remove(&id.0)).collect::<Vec<_>>())
     }
 
+    async fn season_counts(
+        &self,
+        series: &[SeriesId],
+    ) -> Result<HashMap<SeriesId, u16>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "season_counts");
+        let mut counts = HashMap::new();
+        for chunk in series.chunks(BIND_CHUNK) {
+            let placeholders = vec!["?"; chunk.len()].join(", ");
+            let sql = REGULAR_SEASON_COUNTS_SQL.replace("{}", &placeholders);
+            let mut query = sqlx::query(AssertSqlSafe(sql));
+            for id in chunk {
+                query = query.bind(id.0.as_str());
+            }
+            for row in &query.fetch_all(&self.pool).await.map_err(backend)? {
+                counts.insert(SeriesId(column(row, "series_id")?), column::<i64>(row, "n")? as u16);
+            }
+        }
+        Ok(counts)
+    }
+
     async fn list_seasons(&self, series: &SeriesId) -> Result<Vec<Season>, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "list_seasons");
         let rows = sqlx::query(LIST_SEASONS_SQL)
@@ -3704,6 +3726,7 @@ mod tests {
         assert!(repo.list_series(page).await.is_err());
         assert!(repo.get_series(&series_id).await.is_err());
         assert!(repo.series_by_ids(std::slice::from_ref(&series_id)).await.is_err());
+        assert!(repo.season_counts(std::slice::from_ref(&series_id)).await.is_err());
         assert!(repo.list_seasons(&series_id).await.is_err());
         assert!(repo.list_episodes(&season_id).await.is_err());
         assert!(repo.episode_ids_for_series(std::slice::from_ref(&series_id)).await.is_err());

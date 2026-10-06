@@ -14,6 +14,7 @@ expression: value
     "parent_id": null,
     "priority": "normal",
     "progress": 1.0,
+    "retryable": false,
     "started_at": "2023-11-14T22:14:00Z",
     "status": "succeeded",
     "updated_at": "[updated_at]"

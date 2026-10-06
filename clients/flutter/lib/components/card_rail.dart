@@ -2,7 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/components/card_menu.dart';
-import 'package:shadowmask/components/hover_tap.dart';
+import 'package:shadowmask/components/link_heading.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
@@ -161,7 +161,7 @@ class _CardRailState extends State<CardRail> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        _Heading(
+        LinkHeading(
           title: widget.title,
           linkLabel: widget.titleLink,
           route: widget.titleRoute,
@@ -270,63 +270,6 @@ class _RailArrow extends StatelessWidget {
                 child: Icon(icon, size: 22, color: t.text),
               ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Heading extends StatefulWidget {
-  const _Heading({
-    required this.title,
-    required this.linkLabel,
-    required this.route,
-  });
-
-  final String title;
-  final String? linkLabel;
-  final String? route;
-
-  @override
-  State<_Heading> createState() => _HeadingState();
-}
-
-class _HeadingState extends State<_Heading> {
-  bool _hovered = false;
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final TextStyle? style = Theme.of(context).textTheme.headlineMedium;
-    final String? label = widget.linkLabel;
-    final String? route = widget.route;
-    if (label == null || route == null) {
-      return Text(widget.title, style: style);
-    }
-    final Tokens t = context.tokens;
-    final bool lit = _hovered || _focused;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: HoverTap(
-        onTap: () => Navigator.of(context).pushNamed(route),
-        focusRing: false,
-        onFocusChange: (bool focused) => setState(() => _focused = focused),
-        child: Text.rich(
-          TextSpan(
-            style: style,
-            children: <InlineSpan>[
-              TextSpan(text: widget.title),
-              TextSpan(
-                text: label,
-                style: TextStyle(
-                  decoration: lit ? TextDecoration.underline : null,
-                  decorationColor: t.accent,
-                  color: lit ? t.accent : null,
-                ),
-              ),
-            ],
           ),
         ),
       ),

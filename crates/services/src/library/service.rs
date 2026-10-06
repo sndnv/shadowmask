@@ -2,8 +2,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use domain::catalog::{
-    Episode, EpisodeEdit, EpisodeId, Movie, MovieEdit, MovieId, SeasonId, Series, SeriesEdit,
-    SeriesId, TitleId, TitleListFilter, TitleRef, Version, VersionId,
+    Episode, EpisodeEdit, EpisodeId, Movie, MovieEdit, MovieId, SeasonId, Series, SeriesCard,
+    SeriesEdit, SeriesId, TitleId, TitleListFilter, TitleRef, Version, VersionId,
 };
 use domain::common::{Page, PageRequest};
 use domain::error::LibraryError;
@@ -11,7 +11,7 @@ use domain::job::{JobKind, JobPriority};
 use domain::library::{
     DuplicateCandidate, DuplicateCandidateId, FetchInput, Library, LibraryId, LibraryKind,
     LibraryOrigin, LibraryUpdate, NewLibrary, ResolutionStatus, ResolveCandidate, ResolveTarget,
-    ScanState, ScanStatus, UnmatchedFile, UnmatchedFileId,
+    ScanMode, ScanState, ScanStatus, UnmatchedFile, UnmatchedFileId,
 };
 use domain::media::{CookieInspector, CookieVerdict, SubtitleFileId};
 use domain::metadata::{ExternalId, MediaKind, MetadataProvider, MetadataQuery, PersonId};
@@ -297,9 +297,14 @@ where
         }))
     }
 
-    async fn trigger_scan(&self, caller: &Principal, id: &LibraryId) -> Result<(), LibraryError> {
+    async fn trigger_scan(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+        mode: ScanMode,
+    ) -> Result<(), LibraryError> {
         self.require_library(caller, id).await?;
-        if queue_scan(&self.libraries, &self.jobs, id, None).await? {
+        if queue_scan(&self.libraries, &self.jobs, id, mode, None).await? {
             Ok(())
         } else {
             Err(LibraryError::ScanInProgress)
@@ -507,7 +512,7 @@ where
         caller: &Principal,
         id: &SeriesId,
         edit: SeriesEdit,
-    ) -> Result<Series, LibraryError> {
+    ) -> Result<SeriesCard, LibraryError> {
         if !acl::is_admin(caller) {
             return Err(LibraryError::Forbidden);
         }
@@ -525,7 +530,8 @@ where
             ..existing
         };
         self.catalog.upsert_series(series.clone()).await?;
-        Ok(series)
+        let counts = self.catalog.season_counts(std::slice::from_ref(id)).await?;
+        Ok(SeriesCard::counted(series, &counts))
     }
 
     async fn edit_episode(
@@ -840,6 +846,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::library::ScanJobPayload;
     use domain::job::Job;
     use domain::library::WatcherStrategy;
     use domain::repository::JobRepository;
@@ -947,21 +954,32 @@ mod tests {
         let state = svc.scan_state(&admin(), &id).await.unwrap();
         assert_eq!(state.status, ScanStatus::Idle);
 
-        svc.trigger_scan(&admin(), &id).await.unwrap();
+        svc.trigger_scan(&admin(), &id, ScanMode::Normal).await.unwrap();
         assert_eq!(svc.jobs.list().await.unwrap().len(), 1);
         assert_eq!(svc.jobs.list().await.unwrap()[0].kind, JobKind::LibraryScan);
         assert_eq!(svc.scan_state(&admin(), &id).await.unwrap().status, ScanStatus::Queued);
         assert!(matches!(
-            svc.trigger_scan(&admin(), &id).await.unwrap_err(),
+            svc.trigger_scan(&admin(), &id, ScanMode::Normal).await.unwrap_err(),
             LibraryError::ScanInProgress
         ));
+    }
+
+    #[tokio::test]
+    async fn a_reread_scan_queues_its_mode() {
+        let svc = seeded().await;
+        let id = LibraryId("lib1".into());
+
+        svc.trigger_scan(&admin(), &id, ScanMode::Reread).await.unwrap();
+
+        let queued = svc.jobs.list().await.unwrap();
+        assert_eq!(ScanJobPayload::decode(&queued[0].payload).mode, ScanMode::Reread);
     }
 
     #[tokio::test]
     async fn automation_bypasses_acl_for_scan() {
         let svc = seeded().await;
         let id = LibraryId("lib2".into());
-        svc.trigger_scan(&automation(), &id).await.unwrap();
+        svc.trigger_scan(&automation(), &id, ScanMode::Normal).await.unwrap();
         assert_eq!(svc.scan_state(&automation(), &id).await.unwrap().status, ScanStatus::Queued);
     }
 
@@ -1029,7 +1047,7 @@ mod tests {
 
         is_repository_error!(svc.library(&admin(), &id));
         is_repository_error!(svc.scan_state(&admin(), &id));
-        is_repository_error!(svc.trigger_scan(&admin(), &id));
+        is_repository_error!(svc.trigger_scan(&admin(), &id, ScanMode::Normal));
         is_repository_error!(svc.unmatched(&admin(), &id, page));
         is_repository_error!(svc.duplicates(&admin(), &id, page));
         is_repository_error!(svc.unmatched_candidates(&admin(), &id, &unmatched, None));
@@ -2739,6 +2757,16 @@ mod tests {
     async fn editing_a_series_flags_it_and_derives_the_sort_title() {
         let (svc, catalog) = edit_svc();
         let id = SeriesId("s1".into());
+        catalog.add_season(domain::catalog::Season {
+            id: SeasonId("specials".into()),
+            series: id.clone(),
+            number: 0,
+            title: None,
+            overview: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        });
 
         let edited = svc
             .edit_series(
@@ -2754,8 +2782,9 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(edited.sort_title, "wire, the");
-        assert!(edited.manually_edited);
+        assert_eq!(edited.series.sort_title, "wire, the");
+        assert!(edited.series.manually_edited);
+        assert_eq!(edited.season_count, 1, "the specials season is not counted");
         assert!(catalog.get_series(&id).await.unwrap().unwrap().manually_edited);
     }
 

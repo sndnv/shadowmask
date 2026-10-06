@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+use domain::catalog::SeriesCard;
 use domain::discovery::SearchResult;
 
 use super::PersonResponse;
@@ -14,8 +15,8 @@ pub enum SearchResultResponse {
     Person(Box<PersonResponse>),
 }
 
-impl From<SearchResult> for SearchResultResponse {
-    fn from(r: SearchResult) -> Self {
+impl From<SearchResult<SeriesCard>> for SearchResultResponse {
+    fn from(r: SearchResult<SeriesCard>) -> Self {
         match r {
             SearchResult::Movie(m) => SearchResultResponse::Movie(Box::new(m.into())),
             SearchResult::Series(s) => SearchResultResponse::Series(Box::new(s.into())),

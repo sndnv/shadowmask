@@ -112,14 +112,14 @@ void main() {
 
     test('a carried language round trips through the query', () {
       final PlaybackControls c = PlaybackControls.fromQuery(<String, String>{
-        'alang': 'fra',
-        'slang': 'eng',
+        'alang': 'fr',
+        'slang': 'en',
       });
-      expect(c.audioLanguage, 'fra');
-      expect(c.subtitleLanguage, 'eng');
+      expect(c.audioLanguage, 'fr');
+      expect(c.subtitleLanguage, 'en');
       expect(c.audioTrack, isNull);
       expect(c.subtitle, isNull);
-      expect(c.toQuery(), <String, String?>{'alang': 'fra', 'slang': 'eng'});
+      expect(c.toQuery(), <String, String?>{'alang': 'fr', 'slang': 'en'});
     });
 
     test('subtitles switched off round trip as a choice, not an absence', () {
@@ -160,10 +160,10 @@ void main() {
       );
       expect(
         const PlaybackControls(
-          audioLanguage: 'fra',
-          subtitleLanguage: 'fra',
+          audioLanguage: 'fr',
+          subtitleLanguage: 'fr',
         ).toStartBody(),
-        <String, dynamic>{'audio_language': 'fra', 'subtitle_language': 'fra'},
+        <String, dynamic>{'audio_language': 'fr', 'subtitle_language': 'fr'},
       );
     });
 
@@ -186,8 +186,8 @@ void main() {
     test('the negotiated selection fills the indices and keeps the carry', () {
       const PlaybackControls asked = PlaybackControls(
         height: 480,
-        audioLanguage: 'fra',
-        subtitleLanguage: 'fra',
+        audioLanguage: 'fr',
+        subtitleLanguage: 'fr',
         offsetMs: 50,
       );
       final PlaybackControls got = asked.withSelection(
@@ -202,21 +202,21 @@ void main() {
       expect(got.offsetMs, 50);
       expect(
         got.audioLanguage,
-        'fra',
+        'fr',
         reason:
             'the language is what travels to the next episode, so resolving it '
             'here must not consume it',
       );
-      expect(got.subtitleLanguage, 'fra');
+      expect(got.subtitleLanguage, 'fr');
     });
 
     test('a request the server could not honour leaves the carry standing', () {
-      const PlaybackControls asked = PlaybackControls(subtitleLanguage: 'fra');
+      const PlaybackControls asked = PlaybackControls(subtitleLanguage: 'fr');
       final PlaybackControls got = asked.withSelection(const SelectedTracks());
       expect(got.subtitle, isNull);
       expect(
         got.subtitleLanguage,
-        'fra',
+        'fr',
         reason:
             'this episode has no French, but the one after it might, and the '
             'viewer never withdrew the request',
@@ -232,9 +232,9 @@ void main() {
         const PlaybackControls(burn: true),
         const PlaybackControls(downmix: true),
         const PlaybackControls(audioTrack: 1),
-        const PlaybackControls(audioLanguage: 'eng'),
+        const PlaybackControls(audioLanguage: 'en'),
         const PlaybackControls(subtitle: SubtitleSelection.embedded(1)),
-        const PlaybackControls(subtitleLanguage: 'eng'),
+        const PlaybackControls(subtitleLanguage: 'en'),
         const PlaybackControls(subtitleOff: true),
         const PlaybackControls(offsetMs: 5),
       ]) {

@@ -67,13 +67,13 @@ Map<String, dynamic> _detail({
       'index': 1,
       'codec': 'aac',
       'channels': 6,
-      'language': 'eng',
+      'language': 'en',
     },
   ],
   'subtitles': <dynamic>[
     <String, dynamic>{
       'index': 2,
-      'language': 'eng',
+      'language': 'en',
       'format': 'srt',
       'forced': false,
       'default': true,
@@ -187,7 +187,7 @@ Future<({List<String> paths, List<String> routes})> _pump(
               episode: episode,
               available: available,
               subtitleFiles:
-                  subtitleFiles ?? <Map<String, dynamic>>[_file('sf1', 'nld')],
+                  subtitleFiles ?? <Map<String, dynamic>>[_file('sf1', 'nl')],
             ),
           ),
           200,
@@ -751,7 +751,7 @@ void main() {
       reason: 'and are reached through it rather than sitting in the row',
     );
 
-    for (final String value in <String>['SRT', 'ENG', 'NLD']) {
+    for (final String value in <String>['SRT', 'EN', 'NL']) {
       final Size cell = tester.getSize(find.text(value).first);
       expect(cell.width, greaterThan(0), reason: value);
       expect(cell.height, lessThan(22), reason: '$value wrapped');
