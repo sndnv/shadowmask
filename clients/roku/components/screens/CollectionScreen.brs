@@ -1,6 +1,7 @@
 sub init()
     m.heading = m.top.FindNode("heading")
     m.overview = m.top.FindNode("overview")
+    m.moviesHeading = m.top.FindNode("moviesHeading")
     m.grid = m.top.FindNode("grid")
     m.note = m.top.FindNode("note")
 
@@ -8,6 +9,7 @@ sub init()
     m.grid.ObserveField("focused", "onCardFocused")
 
     m.cards = []
+    m.loaded = false
     m.started = false
 end sub
 
@@ -48,6 +50,18 @@ sub render()
 
     gridTop = headingBottom + space.s5
     if lines > 0 then gridTop = headingBottom + space.s2 + Int(sizes.textSm * 1.3) * lines + space.s5
+
+    m.moviesHeading.visible = m.loaded
+    if m.moviesHeading.visible
+        m.moviesHeading.text = CountedHeading(Phrase("heading.movies"), m.cards.Count())
+        m.moviesHeading.color = theme.text
+        m.moviesHeading.font = SizedBoldFont(sizes.textXl)
+        m.moviesHeading.width = ContentWidth()
+        m.moviesHeading.maxLines = 1
+        m.moviesHeading.ellipsisText = "…"
+        m.moviesHeading.translation = [left, gridTop]
+        gridTop = gridTop + Int(sizes.textXl * 1.35) + space.s3
+    end if
 
     m.grid.theme = theme
     m.grid.serverUrl = SessionFor(m.global).serverUrl
@@ -90,13 +104,14 @@ sub onDetail(event as object)
 
     m.heading.text = TextOrBlank(ValueAt(parsed.json, "name", ""))
     m.overview.text = TextOrBlank(ValueAt(parsed.json, "overview", ""))
+    m.cards = CardsFrom(ValueAt(parsed.json, "items", []), MovieCard)
+    m.loaded = true
     render()
 
     PublishBackdrop(ValueAt(parsed.json, "artwork", invalid))
 
-    m.cards = CardsFrom(ValueAt(parsed.json, "items", []), MovieCard)
     if m.cards.Count() = 0
-        ShowNote(Phrase("empty.noResults"), "empty")
+        ShowNote(Phrase("empty.noMovies"), "empty")
         return
     end if
 

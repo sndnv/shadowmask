@@ -17,6 +17,7 @@ abstract class FilmographyEntry with _$FilmographyEntry {
     Artwork? artwork,
     required CreditRole role,
     String? character,
+    int? seasonCount,
   }) = _FilmographyEntry;
 
   factory FilmographyEntry.fromJson(Map<String, dynamic> json) =>

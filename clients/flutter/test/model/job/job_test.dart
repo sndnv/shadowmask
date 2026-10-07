@@ -26,6 +26,22 @@ void main() {
     expect(j.lastError, 'boom');
     expect(j.parentId, 'p1');
     expect(j.cancellable, isTrue);
+    expect(j.retryable, isFalse);
+  });
+
+  test('Job reads whether it can be retried', () {
+    final Job j = Job.fromJson(<String, dynamic>{
+      'id': 'j3',
+      'kind': 'subtitles',
+      'status': 'failed',
+      'priority': 'low',
+      'created_at': '2026-01-01T00:00:00Z',
+      'updated_at': '2026-01-01T00:00:00Z',
+      'retryable': true,
+    });
+
+    expect(j.retryable, isTrue);
+    expect(j.cancellable, isFalse);
   });
 
   test('Job applies defaults for missing optional fields', () {
@@ -42,6 +58,7 @@ void main() {
     expect(j.progress, 0);
     expect(j.attempts, 0);
     expect(j.cancellable, isFalse);
+    expect(j.retryable, isFalse);
     expect(j.parentId, isNull);
     expect(j.lastError, isNull);
   });

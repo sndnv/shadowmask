@@ -318,7 +318,7 @@ sub PaintRow(slot as object, row as object, theme as object, width as integer, t
     label = TextOrBlank(ValueAt(row, "label", ""))
     span = edge - left
     column = ValueAt(row, "column", false) = true
-    room = DialogDetailWidth(span - space.s4, TextWidth(detail, size), TextWidth(label, size))
+    room = DialogDetailWidth(span - space.s4, TextWidth(detail, size) + space.s1, TextWidth(label, size))
     at = left + span - room
     align = "right"
     if column

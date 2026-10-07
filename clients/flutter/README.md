@@ -68,6 +68,10 @@ above apply to it as well. It is built on Ubuntu 24.04 and links `libmpv.so.2`, 
 of that vintage or newer. Without libmpv it will not start, and says so in a dialog naming the
 package to install rather than failing silently from a file manager.
 
+Account → Profile → Applications menu, shown only when running as an AppImage, adds the AppImage
+to the desktop's applications menu and app search, or removes it. It writes a desktop entry and the
+icons under `$XDG_DATA_HOME` (`~/.local/share` by default).
+
 Two parts of the recipe are load-bearing:
 
 * `after_bundle` copies the glibc loader to `AppDir/lib64/`. `appimage-builder` makes `PT_INTERP`

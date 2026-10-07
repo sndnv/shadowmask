@@ -14,6 +14,7 @@ import 'package:shadowmask/model/user_library/watchlist_item.dart';
 import 'package:shadowmask/nav/nav_section.dart';
 import 'package:shadowmask/pages/account/about_block.dart';
 import 'package:shadowmask/pages/account/appearance_block.dart';
+import 'package:shadowmask/pages/account/applications_block.dart';
 import 'package:shadowmask/pages/account/devices_block.dart';
 import 'package:shadowmask/pages/account/history_block.dart';
 import 'package:shadowmask/pages/account/library_list_block.dart';
@@ -143,6 +144,7 @@ class _AccountBodyState extends State<_AccountBody> {
           const PlaybackBlock(),
           const AppearanceBlock(),
           const ServerBlock(),
+          const ApplicationsBlock(),
           SessionBlock(
             api: api,
             userId: user.id,

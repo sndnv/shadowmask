@@ -18,6 +18,7 @@ abstract class Series with _$Series {
     String? addedAt,
     String? updatedAt,
     Artwork? artwork,
+    int? seasonCount,
   }) = _Series;
 
   factory Series.fromJson(Map<String, dynamic> json) => _$SeriesFromJson(json);

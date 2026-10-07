@@ -143,6 +143,23 @@
             });
             return btn;
           };
+          const retryButton = (j) => {
+            if (!j.retryable) return "";
+            const btn = sm.el("button", { type: "button", class: "sm-secondary" }, "Retry");
+            btn.addEventListener("click", async () => {
+              btn.disabled = true;
+              try {
+                await sm.json("/api/v1/admin/jobs/" + encodeURIComponent(j.id) + "/retry", {
+                  method: "POST",
+                });
+                await load();
+              } catch {
+                btn.disabled = false;
+                btn.textContent = "Retry failed";
+              }
+            });
+            return btn;
+          };
           const errorCell = (j) => {
             if (!j.last_error) return "";
             const text = j.last_error.replace(/^(retryable|permanent) job failure:\s*/i, "");
@@ -169,7 +186,7 @@
             sm.time(j.started_at),
             sm.time(j.finished_at),
             errorCell(j),
-            cancelButton(j),
+            cancelButton(j) || retryButton(j),
           ]);
           const headers = [
             "Job",

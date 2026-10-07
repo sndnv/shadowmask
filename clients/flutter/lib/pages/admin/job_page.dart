@@ -118,6 +118,13 @@ class _JobBodyState extends State<_JobBody> with Mutations<_JobBody> {
     );
   }
 
+  Future<void> _retry(Job job) => mutate(
+    () => widget.admin.retryJob(job.id),
+    successText: Strings.toastJobRetried,
+    errorText: Strings.errorAction,
+    then: _reload,
+  );
+
   Future<void> _wipe() async {
     final bool ok = await confirmDialog(
       context,
@@ -158,6 +165,12 @@ class _JobBodyState extends State<_JobBody> with Mutations<_JobBody> {
                 label: Strings.cancelJob,
                 danger: true,
                 onPressed: busy() ? null : () => _cancel(job),
+              ),
+            if (job.retryable)
+              PageAction(
+                icon: Icons.replay,
+                label: Strings.retryJob,
+                onPressed: busy() ? null : () => _retry(job),
               ),
             PageAction(
               icon: Icons.refresh,

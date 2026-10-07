@@ -124,6 +124,7 @@
               ),
             ),
           });
+          window.addEventListener("pagehide", endSession);
           originMs = session.origin_ms || 0;
           sequential = session.sequential === true;
           status.textContent = modeLine(session);
@@ -134,8 +135,8 @@
           wireScreenLock();
           await buildControls();
           await applyInitialParams();
-          window.addEventListener("pagehide", endSession);
         } catch (err) {
+          if (!heartbeatTimer) endSession();
           status.textContent = "Could not start playback (" + err.message + ").";
         }
       }
@@ -500,7 +501,7 @@
               });
             }
             crumbs.push({
-              label: ep.title || "Episode " + ep.number,
+              label: sm.episodeCode(season ? season.number : ep.season_number, ep.number),
               href: sm.href.episode(ep.id, ep.season_id, season ? season.series_id : null),
             });
           }

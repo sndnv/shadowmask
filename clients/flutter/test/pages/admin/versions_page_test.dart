@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/components/admin/admin_filter_field.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/admin/versions_page.dart';
@@ -16,7 +17,63 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../support/finders.dart';
 
-http.Response _route(http.Request req) {
+const List<Map<String, dynamic>> _versions = <Map<String, dynamic>>[
+  <String, dynamic>{
+    'id': 'v1',
+    'title': <String, dynamic>{'type': 'movie', 'id': 'm1'},
+    'library_id': 'lib',
+    'quality': 'hd',
+    'container': 'mkv',
+    'size_bytes': 1258291200,
+    'path': '/media/bbb.mkv',
+  },
+  <String, dynamic>{
+    'id': 'v2',
+    'title': <String, dynamic>{'type': 'movie', 'id': 'm2'},
+    'library_id': 'gone',
+    'quality': 'sd',
+    'container': 'mp4',
+    'size_bytes': 104857600,
+    'available': false,
+    'path': '/media/sintel.mp4',
+  },
+];
+
+const Map<String, dynamic> _episodeCard = <String, dynamic>{
+  'type': 'episode',
+  'id': 'e1',
+  'season_id': 'se2',
+  'series_id': 's1',
+  'number': 2,
+  'title': 'Earth',
+  'series_title': 'Skyline',
+  'season_number': 2,
+};
+
+bool _hit(Map<String, dynamic> v, String needle) =>
+    '${v['path']} ${v['library_id'] == 'lib' ? 'Films' : v['library_id']} '
+            '${v['quality']} ${v['container']}'
+        .toLowerCase()
+        .contains(needle.toLowerCase());
+
+http.Response _page(http.Request req, int pageSize) {
+  final String needle = req.url.queryParameters['filter'] ?? '';
+  final int offset = int.tryParse(req.url.queryParameters['offset'] ?? '') ?? 0;
+  final List<Map<String, dynamic>> matched = _versions
+      .where((Map<String, dynamic> v) => needle.isEmpty || _hit(v, needle))
+      .toList();
+  return http.Response(
+    jsonEncode(<String, dynamic>{
+      'items': matched.skip(offset).take(pageSize).toList(),
+      'total': matched.length,
+      'offset': offset,
+      'limit': pageSize,
+    }),
+    200,
+  );
+}
+
+http.Response _route(http.Request req, {int pageSize = 50}) {
   final String path = req.url.path;
   if (path == '/api/v1/users/self') {
     return http.Response(
@@ -44,35 +101,7 @@ http.Response _route(http.Request req) {
     );
   }
   if (path == '/api/v1/admin/versions') {
-    return http.Response(
-      jsonEncode(<String, dynamic>{
-        'items': <dynamic>[
-          <String, dynamic>{
-            'id': 'v1',
-            'title': <String, dynamic>{'type': 'movie', 'id': 'm1'},
-            'library_id': 'lib',
-            'quality': 'hd',
-            'container': 'mkv',
-            'size_bytes': 1258291200,
-            'path': '/media/bbb.mkv',
-          },
-          <String, dynamic>{
-            'id': 'v2',
-            'title': <String, dynamic>{'type': 'movie', 'id': 'm2'},
-            'library_id': 'gone',
-            'quality': 'sd',
-            'container': 'mp4',
-            'size_bytes': 104857600,
-            'available': false,
-            'path': '/media/sintel.mp4',
-          },
-        ],
-        'total': 2,
-        'offset': 0,
-        'limit': 50,
-      }),
-      200,
-    );
+    return _page(req, pageSize);
   }
   if (req.method == 'GET' && path == '/api/v1/versions/v1') {
     return http.Response(
@@ -126,6 +155,8 @@ Widget _app(ApiClient api) => ThemeScope(
 Future<void> _pump(
   WidgetTester tester, {
   List<String>? seen,
+  List<Uri>? reads,
+  int pageSize = 50,
   Size size = const Size(1600, 1000),
 }) async {
   tester.view.physicalSize = size;
@@ -135,10 +166,19 @@ Future<void> _pump(
     baseUrl: 'http://test',
     httpClient: MockClient((http.Request r) async {
       seen?.add('${r.method} ${r.url.path}');
-      return _route(r);
+      if (r.url.path == '/api/v1/admin/versions') {
+        reads?.add(r.url);
+      }
+      return _route(r, pageSize: pageSize);
     }),
   );
   await tester.pumpWidget(_app(api));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _type(WidgetTester tester, String text) async {
+  await tester.enterText(find.byType(AdminFilterField), text);
+  await tester.pump(kFilterDebounce + const Duration(milliseconds: 50));
   await tester.pumpAndSettle();
 }
 
@@ -158,6 +198,48 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('went to /version?id=v1'), findsOneWidget);
+  });
+
+  testWidgets('an episode version is named by its series and code', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      httpClient: MockClient((http.Request r) async {
+        if (r.url.path == '/api/v1/admin/versions') {
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'items': <dynamic>[
+                <String, dynamic>{
+                  'id': 'v9',
+                  'title': <String, dynamic>{'type': 'episode', 'id': 'e1'},
+                  'library_id': 'lib',
+                  'quality': 'hd',
+                  'container': 'mkv',
+                  'size_bytes': 1258291200,
+                  'path': '/media/skyline.mkv',
+                },
+              ],
+              'total': 1,
+              'offset': 0,
+              'limit': 50,
+            }),
+            200,
+          );
+        }
+        if (r.url.path == '/api/v1/titles/batch') {
+          return http.Response(jsonEncode(<dynamic>[_episodeCard]), 200);
+        }
+        return _route(r);
+      }),
+    );
+    await tester.pumpWidget(_app(api));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Skyline · S02E02'), findsOneWidget);
   });
 
   testWidgets('a phone shows the file name and keeps the path in the tooltip', (
@@ -211,26 +293,96 @@ void main() {
     await tester.pump(kToastDuration + const Duration(milliseconds: 100));
   });
 
-  testWidgets('the filter narrows the table and reports an empty match', (
+  testWidgets('the filter is sent to the server once typing settles', (
+    WidgetTester tester,
+  ) async {
+    final List<Uri> reads = <Uri>[];
+    await _pump(tester, reads: reads);
+    expect(reads.single.queryParameters.containsKey('filter'), isFalse);
+
+    await tester.enterText(find.byType(AdminFilterField), 'sint');
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.enterText(find.byType(AdminFilterField), 'sintel');
+    await tester.pump(kFilterDebounce + const Duration(milliseconds: 50));
+    await tester.pumpAndSettle();
+
+    expect(reads, hasLength(2));
+    expect(reads.last.queryParameters['filter'], 'sintel');
+    expect(find.text('/media/sintel.mp4'), findsOneWidget);
+    expect(find.text('/media/bbb.mkv'), findsNothing);
+    expect(
+      find.text(Strings.countLabel(Strings.adminVersions, 1)),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a library name finds its versions', (WidgetTester tester) async {
+    await _pump(tester);
+
+    await _type(tester, 'Films');
+
+    expect(find.text('/media/bbb.mkv'), findsOneWidget);
+    expect(find.text('/media/sintel.mp4'), findsNothing);
+  });
+
+  testWidgets('a filter with no matches reports it', (
     WidgetTester tester,
   ) async {
     await _pump(tester);
 
-    await tester.enterText(find.byType(TextField), 'sintel');
-    await tester.pumpAndSettle();
-
-    expect(find.text('/media/sintel.mp4'), findsOneWidget);
-    expect(find.text('/media/bbb.mkv'), findsNothing);
-
-    await tester.enterText(find.byType(TextField), 'Films');
-    await tester.pumpAndSettle();
-
-    expect(find.text('/media/bbb.mkv'), findsOneWidget);
-    expect(find.text('/media/sintel.mp4'), findsNothing);
-
-    await tester.enterText(find.byType(TextField), 'nothing here');
-    await tester.pumpAndSettle();
+    await _type(tester, 'nothing here');
 
     expect(find.text(Strings.noMatchingVersions), findsOneWidget);
+  });
+
+  testWidgets('paging keeps the filter and asks for the next offset', (
+    WidgetTester tester,
+  ) async {
+    final List<Uri> reads = <Uri>[];
+    await _pump(tester, reads: reads, pageSize: 1);
+
+    await _type(tester, 'media');
+    expect(find.text('/media/bbb.mkv'), findsOneWidget);
+
+    await tester.tap(find.text(Strings.next));
+    await tester.pumpAndSettle();
+
+    expect(reads.last.queryParameters['offset'], '1');
+    expect(reads.last.queryParameters['filter'], 'media');
+    expect(find.text('/media/sintel.mp4'), findsOneWidget);
+    expect(find.text('/media/bbb.mkv'), findsNothing);
+  });
+
+  testWidgets('a new filter starts again from the first page', (
+    WidgetTester tester,
+  ) async {
+    final List<Uri> reads = <Uri>[];
+    await _pump(tester, reads: reads, pageSize: 1);
+
+    await tester.tap(find.text(Strings.next));
+    await tester.pumpAndSettle();
+    expect(reads.last.queryParameters['offset'], '1');
+
+    await _type(tester, 'media');
+
+    expect(reads.last.queryParameters.containsKey('offset'), isFalse);
+    expect(find.text('/media/bbb.mkv'), findsOneWidget);
+  });
+
+  testWidgets('the filter keeps focus while the reload it triggered runs', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester);
+
+    await _type(tester, 'sintel');
+
+    final EditableText field = tester.widget<EditableText>(
+      find.descendant(
+        of: find.byType(AdminFilterField),
+        matching: find.byType(EditableText),
+      ),
+    );
+    expect(field.focusNode.hasFocus, isTrue);
+    expect(field.controller.text, 'sintel');
   });
 }

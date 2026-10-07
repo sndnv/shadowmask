@@ -145,6 +145,8 @@ sub ApplyStates(cards as dynamic, states as dynamic, rollups as dynamic)
         rollupKey = TitleKey(ValueAt(card, "rollupType", ""), ValueAt(card, "rollupId", ""))
         if targets.DoesExist(rollupKey)
             card.watched = ValueAt(targets[rollupKey], "watched", false) = true
+            total = Int(ValueAt(targets[rollupKey], "total_episodes", 0))
+            if card.rollupType = "season" and total > 0 then card.subtitle = EpisodeCountText(total)
         end if
     end for
 
@@ -157,7 +159,8 @@ function CardStateList(cards as dynamic) as object
     for each card in cards
         states.Push({
             watched: ValueAt(card, "watched", false) = true,
-            progressPercent: Int(ValueAt(card, "progressPercent", 0))
+            progressPercent: Int(ValueAt(card, "progressPercent", 0)),
+            subtitle: TextOrBlank(ValueAt(card, "subtitle", ""))
         })
     end for
     return states

@@ -14,6 +14,7 @@ import 'package:shadowmask/components/skeleton.dart';
 import 'package:shadowmask/components/timestamp_text.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/common/resume_card.dart';
+import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/model/session/now_playing.dart';
 import 'package:shadowmask/model/user/account_profile.dart';
 import 'package:shadowmask/model/user/self_user.dart';
@@ -142,7 +143,7 @@ class _ActivityBodyState extends State<_ActivityBody> {
                   size: AdminColumnSize.large,
                   essential: true,
                   sortKey: (NowPlaying n) =>
-                      n.card?.displayTitle ?? n.versionId,
+                      n.card == null ? n.versionId : _cardName(n.card!),
                   cell: (BuildContext c, NowPlaying n) {
                     final ResumeCard? card = n.card;
                     if (card == null) {
@@ -153,7 +154,7 @@ class _ActivityBodyState extends State<_ActivityBody> {
                       );
                     }
                     return _RowLink(
-                      label: card.displayTitle,
+                      label: _cardName(card),
                       route: titleRoute(card.title.type, card.title.id),
                     );
                   },
@@ -208,6 +209,18 @@ class _ActivityBodyState extends State<_ActivityBody> {
       },
     );
   }
+}
+
+String _cardName(ResumeCard card) {
+  final int? number = card.episodeNumber;
+  return card.title.type == TitleKind.episode && number != null
+      ? Strings.seriesEpisodeLine(
+          card.seriesTitle,
+          card.seasonNumber,
+          number,
+          card.displayTitle,
+        )
+      : card.displayTitle;
 }
 
 class _RowLink extends StatelessWidget {

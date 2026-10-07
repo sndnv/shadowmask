@@ -1,25 +1,22 @@
-class PlayerSnapshot {
-  const PlayerSnapshot({
-    this.positionMs = 0,
-    this.durationMs = 0,
-    this.bufferedAheadMs = 0,
-    this.playing = false,
-    this.ready = false,
-    this.buffering = false,
-    this.bufferingPercent = 0,
-    this.ended = false,
-    this.error,
-  });
+import 'package:freezed_annotation/freezed_annotation.dart';
 
-  final int positionMs;
-  final int durationMs;
-  final int bufferedAheadMs;
-  final bool playing;
-  final bool ready;
-  final bool buffering;
-  final double bufferingPercent;
-  final bool ended;
-  final String? error;
+part 'player_snapshot.freezed.dart';
+
+@freezed
+abstract class PlayerSnapshot with _$PlayerSnapshot {
+  const PlayerSnapshot._();
+
+  const factory PlayerSnapshot({
+    @Default(0) int positionMs,
+    @Default(0) int durationMs,
+    @Default(0) int bufferedAheadMs,
+    @Default(false) bool playing,
+    @Default(false) bool ready,
+    @Default(false) bool buffering,
+    @Default(0) double bufferingPercent,
+    @Default(false) bool ended,
+    String? error,
+  }) = _PlayerSnapshot;
 
   double get fraction =>
       durationMs > 0 ? (positionMs / durationMs).clamp(0.0, 1.0) : 0.0;
@@ -30,16 +27,9 @@ class PlayerSnapshot {
     if (originMs == 0) {
       return this;
     }
-    return PlayerSnapshot(
+    return copyWith(
       positionMs: positionMs + originMs,
       durationMs: fullMs > 0 ? fullMs : durationMs + originMs,
-      bufferedAheadMs: bufferedAheadMs,
-      playing: playing,
-      ready: ready,
-      buffering: buffering,
-      bufferingPercent: bufferingPercent,
-      ended: ended,
-      error: error,
     );
   }
 }

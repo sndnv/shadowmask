@@ -233,7 +233,7 @@ class _EpisodeBodyState extends State<_EpisodeBody>
                         : Strings.seasonsHeading),
                 route: seasonRoute(e.seasonId, series: seriesId),
               ),
-              Crumb(Strings.episodeTitle(e.number, e.title)),
+              Crumb(Strings.episodeCode(seasonNumber, e.number)),
             ]),
             PageBackdrop(
               artwork: backdropOrParent(e.artwork, e.seriesArtwork),
@@ -275,7 +275,7 @@ class _EpisodeBodyState extends State<_EpisodeBody>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   TitleHeading(
-                    title: Strings.episodeTitle(e.number, e.title),
+                    title: Strings.episodeLine(seasonNumber, e.number, e.title),
                     pager: <TitleAction>[
                       TitleAction(
                         icon: Icons.chevron_left,

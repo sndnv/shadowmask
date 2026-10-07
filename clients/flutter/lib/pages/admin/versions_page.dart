@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
@@ -86,17 +88,34 @@ class _VersionsBody extends StatefulWidget {
 
 class _VersionsBodyState extends State<_VersionsBody>
     with Mutations<_VersionsBody> {
+  late int _offset = widget.offset;
   late Future<_VersionsData> _future = _load();
   final TextEditingController _filter = TextEditingController();
+  Timer? _debounce;
   String _needle = '';
+  int? _total;
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _filter.dispose();
     super.dispose();
   }
 
-  Future<_VersionsData> _load() async {
+  Future<_VersionsData> _load() {
+    final Future<_VersionsData> pending = _fetch();
+    pending.then((_VersionsData data) {
+      if (!mounted ||
+          !identical(_future, pending) ||
+          data.page.total == _total) {
+        return;
+      }
+      setState(() => _total = data.page.total);
+    }, onError: (Object _, StackTrace _) {});
+    return pending;
+  }
+
+  Future<_VersionsData> _fetch() async {
     final Future<Map<String, String>> pendingLibraries = widget.libraries
         .libraries()
         .then(
@@ -106,7 +125,8 @@ class _VersionsBodyState extends State<_VersionsBody>
         )
         .catchError((Object _) => <String, String>{});
     final Paged<Version> page = await widget.admin.versions(
-      offset: widget.offset,
+      offset: _offset,
+      filter: _needle,
     );
     final Map<String, String> titles = <String, String>{};
     final List<TitleRef> refs = <TitleRef>[];
@@ -119,7 +139,7 @@ class _VersionsBodyState extends State<_VersionsBody>
     if (refs.isNotEmpty) {
       try {
         for (final CatalogCard card in await widget.catalog.titleCards(refs)) {
-          titles[card.ref.id] = card.title;
+          titles[card.ref.id] = card.listName;
         }
       } catch (_) {}
     }
@@ -129,6 +149,27 @@ class _VersionsBodyState extends State<_VersionsBody>
   void _reload() {
     setState(() {
       _future = _load();
+    });
+  }
+
+  void _goTo(int offset) {
+    setState(() {
+      _offset = offset;
+      _future = _load();
+    });
+  }
+
+  void _onFilterChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(kFilterDebounce, () {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _needle = value.trim();
+        _offset = 0;
+        _future = _load();
+      });
     });
   }
 
@@ -159,141 +200,138 @@ class _VersionsBodyState extends State<_VersionsBody>
   String _libraryOf(Map<String, String> libraries, Version v) =>
       libraries[v.libraryId] ?? v.libraryId;
 
-  List<Version> _filtered(_VersionsData data) {
-    if (_needle.isEmpty) {
-      return data.page.items;
-    }
-    return data.page.items.where((Version v) {
-      final String haystack =
-          '${v.path ?? v.id} ${_titleOf(data.titles, v)} '
-                  '${_libraryOf(data.libraries, v)} ${v.quality.label} '
-                  '${v.container}'
-              .toLowerCase();
-      return haystack.contains(_needle);
-    }).toList();
-  }
-
   @override
   Widget build(BuildContext context) {
+    final int? total = _total;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Breadcrumbs(<Crumb>[
+          Crumb(Strings.adminHeading, route: adminRoute()),
+          Crumb(
+            total == null
+                ? Strings.adminVersions
+                : Strings.countLabel(Strings.adminVersions, total),
+          ),
+        ]),
+        PageActions(<PageAction>[
+          PageAction(
+            icon: Icons.refresh,
+            label: Strings.refresh,
+            onPressed: _reload,
+          ),
+        ]),
+        const SizedBox(height: Space.s4),
+        AdminFilterField(
+          controller: _filter,
+          hintText: Strings.filterVersions,
+          onChanged: _onFilterChanged,
+        ),
+        const SizedBox(height: Space.s3),
+        buildBlock<_VersionsData>(
+          future: _future,
+          errorText: Strings.couldNotLoadVersions,
+          builder: _table,
+        ),
+      ],
+    );
+  }
+
+  Widget _table(BuildContext context, _VersionsData data) {
     final Tokens t = context.tokens;
-    return buildBlock<_VersionsData>(
-      future: _future,
-      errorText: Strings.couldNotLoadVersions,
-      builder: (BuildContext context, _VersionsData data) {
-        final Paged<Version> page = data.page;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Breadcrumbs(<Crumb>[
-              Crumb(Strings.adminHeading, route: adminRoute()),
-              Crumb(Strings.countLabel(Strings.adminVersions, page.total)),
-            ]),
-            PageActions(<PageAction>[
-              PageAction(
-                icon: Icons.refresh,
-                label: Strings.refresh,
-                onPressed: _reload,
+    final Paged<Version> page = data.page;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        AdminTable<Version>(
+          rows: page.items,
+          emptyText: _needle.isEmpty
+              ? Strings.emptyVersions
+              : Strings.noMatchingVersions,
+          minWidth: 1080,
+          initialSortColumn: 0,
+          onRowTap: (Version v) =>
+              Navigator.of(context).pushNamed(versionRoute(v.id)),
+          rowLabel: Strings.openVersion,
+          rowColor: (Version v) => v.available ? t.rowOk : t.rowDanger,
+          columns: <AdminColumn<Version>>[
+            AdminColumn<Version>(
+              label: Strings.columnPath,
+              size: AdminColumnSize.large,
+              essential: true,
+              sortKey: (Version v) => v.path ?? '',
+              cell: (BuildContext context, Version v) => StartEllipsisText(
+                v.path ?? v.id,
+                style: monoStyle.copyWith(color: t.text, fontSize: 12),
               ),
-            ]),
-            const SizedBox(height: Space.s4),
-            AdminFilterField(
-              controller: _filter,
-              hintText: Strings.filterVersions,
-              onChanged: (String v) =>
-                  setState(() => _needle = v.trim().toLowerCase()),
-            ),
-            const SizedBox(height: Space.s3),
-            AdminTable<Version>(
-              rows: _filtered(data),
-              emptyText: _needle.isEmpty
-                  ? Strings.emptyVersions
-                  : Strings.noMatchingVersions,
-              minWidth: 1080,
-              initialSortColumn: 0,
-              onRowTap: (Version v) =>
-                  Navigator.of(context).pushNamed(versionRoute(v.id)),
-              rowLabel: Strings.openVersion,
-              rowColor: (Version v) => v.available ? t.rowOk : t.rowDanger,
-              columns: <AdminColumn<Version>>[
-                AdminColumn<Version>(
-                  label: Strings.columnPath,
-                  size: AdminColumnSize.large,
-                  essential: true,
-                  sortKey: (Version v) => v.path ?? '',
-                  cell: (BuildContext context, Version v) => StartEllipsisText(
-                    v.path ?? v.id,
+              narrowCell: (BuildContext context, Version v) =>
+                  StartEllipsisText.middle(
+                    p.basename(v.path ?? v.id),
+                    tooltip: v.path ?? v.id,
                     style: monoStyle.copyWith(color: t.text, fontSize: 12),
                   ),
-                  narrowCell: (BuildContext context, Version v) =>
-                      StartEllipsisText.middle(
-                        p.basename(v.path ?? v.id),
-                        tooltip: v.path ?? v.id,
-                        style: monoStyle.copyWith(color: t.text, fontSize: 12),
-                      ),
-                ),
-                AdminColumn<Version>(
-                  label: Strings.columnTitle,
-                  sortKey: (Version v) => _titleOf(data.titles, v),
-                  cell: (BuildContext context, Version v) => Text(
-                    _titleOf(data.titles, v),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                AdminColumn<Version>(
-                  label: Strings.columnLibrary,
-                  sortKey: (Version v) => _libraryOf(data.libraries, v),
-                  cell: (BuildContext context, Version v) => Text(
-                    _libraryOf(data.libraries, v),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                AdminColumn<Version>(
-                  label: Strings.columnQuality,
-                  size: AdminColumnSize.small,
-                  sortKey: (Version v) => v.quality.label,
-                  cell: (BuildContext context, Version v) =>
-                      Text(v.quality.label),
-                ),
-                AdminColumn<Version>(
-                  label: Strings.versionContainer,
-                  size: AdminColumnSize.small,
-                  sortKey: (Version v) => v.container,
-                  cell: (BuildContext context, Version v) => Text(v.container),
-                ),
-                AdminColumn<Version>(
-                  label: Strings.columnSize,
-                  size: AdminColumnSize.small,
-                  align: AdminColumnAlign.end,
-                  sortKey: (Version v) => v.sizeBytes,
-                  cell: (BuildContext context, Version v) =>
-                      Text(gigabytes(v.sizeBytes)),
-                ),
-                AdminColumn<Version>(
-                  label: Strings.columnActions,
-                  size: AdminColumnSize.small,
-                  align: AdminColumnAlign.end,
-                  cell: (BuildContext context, Version v) => DangerIconButton(
-                    icon: Icons.delete_outline,
-                    tooltip: Strings.removeVersion,
-                    onPressed: busy(v.id) ? null : () => _remove(v),
-                  ),
-                ),
-              ],
             ),
-            const SizedBox(height: Space.s4),
-            Pagination(
-              basePath: adminVersionsRoute(),
-              params: const <String, String?>{},
-              total: page.total,
-              offset: page.offset,
-              limit: page.limit,
-              count: page.items.length,
+            AdminColumn<Version>(
+              label: Strings.columnTitle,
+              sortKey: (Version v) => _titleOf(data.titles, v),
+              cell: (BuildContext context, Version v) => Text(
+                _titleOf(data.titles, v),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            AdminColumn<Version>(
+              label: Strings.columnLibrary,
+              sortKey: (Version v) => _libraryOf(data.libraries, v),
+              cell: (BuildContext context, Version v) => Text(
+                _libraryOf(data.libraries, v),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            AdminColumn<Version>(
+              label: Strings.columnQuality,
+              size: AdminColumnSize.small,
+              sortKey: (Version v) => v.quality.label,
+              cell: (BuildContext context, Version v) => Text(v.quality.label),
+            ),
+            AdminColumn<Version>(
+              label: Strings.versionContainer,
+              size: AdminColumnSize.small,
+              sortKey: (Version v) => v.container,
+              cell: (BuildContext context, Version v) => Text(v.container),
+            ),
+            AdminColumn<Version>(
+              label: Strings.columnSize,
+              size: AdminColumnSize.small,
+              align: AdminColumnAlign.end,
+              sortKey: (Version v) => v.sizeBytes,
+              cell: (BuildContext context, Version v) =>
+                  Text(gigabytes(v.sizeBytes)),
+            ),
+            AdminColumn<Version>(
+              label: Strings.columnActions,
+              size: AdminColumnSize.small,
+              align: AdminColumnAlign.end,
+              cell: (BuildContext context, Version v) => DangerIconButton(
+                icon: Icons.delete_outline,
+                tooltip: Strings.removeVersion,
+                onPressed: busy(v.id) ? null : () => _remove(v),
+              ),
             ),
           ],
-        );
-      },
+        ),
+        const SizedBox(height: Space.s4),
+        Pagination(
+          basePath: adminVersionsRoute(),
+          params: const <String, String?>{},
+          total: page.total,
+          offset: page.offset,
+          limit: page.limit,
+          count: page.items.length,
+          onOffset: _goTo,
+        ),
+      ],
     );
   }
 }

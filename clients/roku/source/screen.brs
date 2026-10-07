@@ -268,6 +268,16 @@ sub ScrollSections()
     UpdateScrollBar()
 end sub
 
+sub RevealSectionSpan(top as integer, bottom as integer)
+    if m.sectionOrder.Count() = 0 then return
+
+    base = m.sectionTops[m.sectionOrder[m.sectionIndex]]
+    gap = SpacingScale().s4
+    m.sectionOffset = SpanOffset(base + top - gap, base + bottom + gap, m.sectionViewport, m.sectionOffset, SectionsTotalHeight())
+    m.stack.translation = [0, - m.sectionOffset]
+    UpdateScrollBar()
+end sub
+
 function SectionsTotalHeight() as integer
     if type(m.sectionTops) <> "roArray" or m.sectionTops.Count() = 0 then return 0
 

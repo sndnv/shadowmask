@@ -7,6 +7,7 @@ import 'package:shadowmask/components/breadcrumbs.dart';
 import 'package:shadowmask/components/crumb.dart';
 import 'package:shadowmask/components/empty_note.dart';
 import 'package:shadowmask/components/random_button.dart';
+import 'package:shadowmask/components/section_heading.dart';
 import 'package:shadowmask/components/title_heading.dart';
 import 'package:shadowmask/nav/nav_section.dart';
 import 'package:shadowmask/pages/viewer/catalog_support.dart';
@@ -221,8 +222,17 @@ class _CollectionDetailBodyState extends State<_CollectionDetailBody> {
               Crumb(c.name),
             ]),
             PageBackdrop(artwork: c.artwork, imageBase: _catalog.imageBase),
-            TitleHeading(
-              title: c.name,
+            TitleHeading(title: c.name),
+            if (c.overview != null) ...<Widget>[
+              const SizedBox(height: Space.s3),
+              Text(c.overview!, style: Theme.of(context).textTheme.bodyLarge),
+            ],
+            const SizedBox(height: Space.s5),
+            SectionHeading(
+              title: Strings.countedHeading(
+                Strings.moviesHeading,
+                data.$2.length,
+              ),
               trailing: data.$2.isEmpty
                   ? null
                   : RandomButton(
@@ -230,11 +240,7 @@ class _CollectionDetailBodyState extends State<_CollectionDetailBody> {
                       pick: () => _catalog.randomInCollection(c.id),
                     ),
             ),
-            if (c.overview != null) ...<Widget>[
-              const SizedBox(height: Space.s3),
-              Text(c.overview!, style: Theme.of(context).textTheme.bodyLarge),
-            ],
-            const SizedBox(height: Space.s5),
+            const SizedBox(height: Space.s3),
             if (data.$2.isEmpty)
               Text(
                 Strings.noMoviesFound,

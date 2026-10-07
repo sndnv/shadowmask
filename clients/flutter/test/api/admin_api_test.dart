@@ -153,6 +153,18 @@ void main() {
     expect(seen.url.path, '/api/v1/admin/jobs/j%201/cancel');
   });
 
+  test('retryJob posts to the retry sub-resource', () async {
+    late http.Request seen;
+    final AdminApi admin = _admin(
+      _capture((http.Request req) => seen = req, body: '{}'),
+    );
+
+    await admin.retryJob('j 1');
+
+    expect(seen.method, 'POST');
+    expect(seen.url.path, '/api/v1/admin/jobs/j%201/retry');
+  });
+
   test('jobLog parses the lines envelope', () async {
     final AdminApi admin = _admin(
       _capture(
@@ -194,7 +206,30 @@ void main() {
     final page = await admin.versions();
 
     expect(seen.url.path, '/api/v1/admin/versions');
+    expect(seen.url.queryParameters.containsKey('filter'), isFalse);
     expect(page.items.single.path, '/movies/x.mkv');
+  });
+
+  test('versions sends a filter and an offset when given', () async {
+    late http.Request seen;
+    final AdminApi admin = _admin(
+      _capture(
+        (http.Request req) => seen = req,
+        body: jsonEncode(<String, dynamic>{
+          'items': <dynamic>[],
+          'total': 0,
+          'offset': 50,
+          'limit': 50,
+        }),
+      ),
+    );
+
+    await admin.versions(offset: 50, filter: 'Mirage');
+    expect(seen.url.queryParameters['filter'], 'Mirage');
+    expect(seen.url.queryParameters['offset'], '50');
+
+    await admin.versions(filter: '');
+    expect(seen.url.queryParameters.containsKey('filter'), isFalse);
   });
 
   test('versionJobs GETs the version\'s work and parses each row', () async {

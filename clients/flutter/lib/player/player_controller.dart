@@ -27,6 +27,7 @@ abstract class PlayerController {
   Future<void> attach(
     String manifestUrl, {
     required PlaybackMode mode,
+    required bool subtitles,
     int positionMs = 0,
     bool autoplay = true,
   });

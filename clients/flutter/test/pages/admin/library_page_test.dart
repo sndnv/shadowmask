@@ -119,6 +119,57 @@ void main() {
     expect(find.byType(PageActions), findsNothing);
   });
 
+  testWidgets('an episode version is named by its series and code', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api((http.Request req) {
+        if (req.url.path == '/api/v1/libraries/lib1/versions') {
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'items': <dynamic>[
+                <String, dynamic>{
+                  'id': 'v9',
+                  'title': <String, dynamic>{'type': 'episode', 'id': 'e1'},
+                  'library_id': 'lib1',
+                  'quality': 'hd',
+                  'container': 'mkv',
+                  'size_bytes': 1258291200,
+                  'path': '/media/films/skyline.mkv',
+                },
+              ],
+              'total': 1,
+              'offset': 0,
+              'limit': 50,
+            }),
+            200,
+          );
+        }
+        if (req.url.path == '/api/v1/titles/batch') {
+          return http.Response(
+            jsonEncode(<dynamic>[
+              <String, dynamic>{
+                'type': 'episode',
+                'id': 'e1',
+                'season_id': 'se2',
+                'series_id': 's1',
+                'number': 2,
+                'title': 'Earth',
+                'series_title': 'Skyline',
+                'season_number': 2,
+              },
+            ]),
+            200,
+          );
+        }
+        return _detailRoute(req);
+      }),
+    );
+
+    expect(find.text('Skyline · S02E02'), findsOneWidget);
+  });
+
   testWidgets('the three card actions still fit a narrow window', (
     WidgetTester tester,
   ) async {

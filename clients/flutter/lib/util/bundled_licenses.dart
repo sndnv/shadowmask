@@ -13,7 +13,13 @@ class BundledLicense {
   String get path => 'assets/licenses/$asset';
 }
 
+const BundledLicense _roboto = BundledLicense(
+  asset: 'Roboto-OFL.txt',
+  libraries: <String>['Roboto'],
+);
+
 const List<BundledLicense> _darwin = <BundledLicense>[
+  _roboto,
   BundledLicense(
     asset: 'LGPL-2.1.txt',
     libraries: <String>['mpv', 'GNU FriBidi'],
@@ -40,6 +46,7 @@ const List<BundledLicense> _darwin = <BundledLicense>[
 ];
 
 const List<BundledLicense> _android = <BundledLicense>[
+  _roboto,
   BundledLicense(
     asset: 'LGPL-2.1.txt',
     libraries: <String>['mpv', 'GNU FriBidi'],
@@ -62,6 +69,7 @@ const List<BundledLicense> _android = <BundledLicense>[
 ];
 
 const List<BundledLicense> _linux = <BundledLicense>[
+  _roboto,
   BundledLicense(
     asset: 'LGPL-2.1.txt',
     libraries: <String>['GNU C Library (glibc)'],
@@ -79,7 +87,7 @@ List<BundledLicense> bundledLicensesFor(BundlePlatform platform) {
       return _linux;
     case BundlePlatform.web:
     case BundlePlatform.other:
-      return const <BundledLicense>[];
+      return const <BundledLicense>[_roboto];
   }
 }
 

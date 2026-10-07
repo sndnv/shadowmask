@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/catalog_card_tile.dart';
+import 'package:shadowmask/components/episode_play_button.dart';
 import 'package:shadowmask/components/random_button.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/toggle_button.dart';
@@ -60,8 +61,6 @@ Map<String, dynamic> _episode(String id, int number) => <String, dynamic>{
   'number': number,
   'title': 'Episode $number',
   'series_id': 's1',
-  'series_title': 'The Show',
-  'season_number': 1,
 };
 
 List<Map<String, dynamic>> _states(
@@ -151,6 +150,62 @@ void main() {
           'a season holds at most a few dozen episodes, so it asks about '
           'those rather than about every title in the catalog',
     );
+  });
+
+  testWidgets('an episode card names its series and code from the season', (
+    WidgetTester tester,
+  ) async {
+    final List<String> seen = <String>[];
+    await _pump(
+      tester,
+      _api(seen, episodes: <Map<String, dynamic>>[_episode('e1', 1)]),
+    );
+
+    final CatalogCardTile tile = tester.widget<CatalogCardTile>(
+      find.byType(CatalogCardTile),
+    );
+    expect(tile.card.subtitle, 'The Show · S00E01');
+  });
+
+  testWidgets('the play button names the next episode, without the season', (
+    WidgetTester tester,
+  ) async {
+    final List<String> seen = <String>[];
+    await _pump(
+      tester,
+      _api(
+        seen,
+        episodes: <Map<String, dynamic>>[_episode('e1', 1), _episode('e2', 2)],
+        inProgress: 'e1',
+      ),
+    );
+
+    expect(
+      find.descendant(
+        of: find.byType(EpisodePlayButton),
+        matching: find.text(Strings.resumeAction),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(NextEpisodeNote),
+        matching: find.text('Up next: E01'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      seen.where((String p) => p.endsWith('/episodes')),
+      hasLength(1),
+      reason: 'the season already holds its episodes and their states',
+    );
+  });
+
+  testWidgets('a season with no episodes offers nothing to play', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, _api(<String>[]));
+    expect(find.byType(EpisodePlayButton), findsNothing);
   });
 
   testWidgets('the series crumb comes from the season, with no second fetch', (

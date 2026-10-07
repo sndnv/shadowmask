@@ -38,6 +38,7 @@ sub showContent()
         m.tracked.UnobserveField("watched")
         m.tracked.UnobserveField("progressPercent")
         m.tracked.UnobserveField("imageUri")
+        m.tracked.UnobserveField("cardSubtitle")
         m.tracked = invalid
     end if
 
@@ -47,6 +48,7 @@ sub showContent()
     content.ObserveField("watched", "render")
     content.ObserveField("progressPercent", "render")
     content.ObserveField("imageUri", "render")
+    content.ObserveField("cardSubtitle", "render")
     m.tracked = content
 
     m.top.aspect = content.aspect

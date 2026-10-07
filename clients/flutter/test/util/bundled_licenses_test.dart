@@ -17,6 +17,7 @@ void main() {
       BundlePlatform.ios,
     ]) {
       expect(_libraries(platform).toSet(), <String>{
+        'Roboto',
         'mpv',
         'GNU FriBidi',
         'FFmpeg',
@@ -40,13 +41,23 @@ void main() {
     expect(android.difference(darwin), <String>{'zlib'});
   });
 
-  test('Linux credits only glibc, since libmpv and GTK come from the host', () {
-    expect(_libraries(BundlePlatform.linux), <String>['GNU C Library (glibc)']);
+  test('Linux credits Roboto and glibc; libmpv and GTK come from the host', () {
+    expect(_libraries(BundlePlatform.linux), <String>[
+      'Roboto',
+      'GNU C Library (glibc)',
+    ]);
   });
 
-  test('the web build bundles none of these libraries', () {
-    expect(bundledLicensesFor(BundlePlatform.web), isEmpty);
-    expect(bundledLicensesFor(BundlePlatform.other), isEmpty);
+  test('every build credits the Roboto files it carries in its assets', () {
+    for (final BundlePlatform platform in BundlePlatform.values) {
+      expect(
+        bundledLicensesFor(platform).map((BundledLicense l) => l.asset),
+        contains('Roboto-OFL.txt'),
+        reason: '$platform ships assets/fonts/',
+      );
+    }
+    expect(_libraries(BundlePlatform.web), <String>['Roboto']);
+    expect(_libraries(BundlePlatform.other), <String>['Roboto']);
   });
 
   test('FFmpeg is credited under both LGPL-3.0 and GPL-3.0', () {
@@ -87,19 +98,23 @@ void main() {
       rootBundle,
     ).toList();
 
-    expect(entries, hasLength(1));
-    expect(entries.single.packages, <String>['GNU C Library (glibc)']);
-    expect(entries.single, isA<LicenseEntryWithLineBreaks>());
-    expect(
-      entries.single.paragraphs.map((LicenseParagraph p) => p.text).join(' '),
-      contains('GNU LESSER GENERAL PUBLIC LICENSE'),
-    );
+    String text(LicenseEntry entry) =>
+        entry.paragraphs.map((LicenseParagraph p) => p.text).join(' ');
+
+    expect(entries, hasLength(2));
+    expect(entries.first.packages, <String>['Roboto']);
+    expect(text(entries.first), contains('SIL OPEN FONT LICENSE'));
+    expect(entries.last.packages, <String>['GNU C Library (glibc)']);
+    expect(entries.last, isA<LicenseEntryWithLineBreaks>());
+    expect(text(entries.last), contains('GNU LESSER GENERAL PUBLIC LICENSE'));
   });
 
-  test('a platform with nothing bundled yields no entries', () async {
-    expect(
-      await bundledLicenseEntries(BundlePlatform.web, rootBundle).toList(),
-      isEmpty,
-    );
+  test('the web build credits only the font it carries', () async {
+    final List<LicenseEntry> entries = await bundledLicenseEntries(
+      BundlePlatform.web,
+      rootBundle,
+    ).toList();
+
+    expect(entries.single.packages, <String>['Roboto']);
   });
 }

@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadowmask/model/catalog/collection.dart';
 import 'package:shadowmask/model/catalog/episode.dart';
+import 'package:shadowmask/model/catalog/person_profile.dart';
 import 'package:shadowmask/model/common/resume_card.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/view/card_aspect.dart';
@@ -108,6 +110,72 @@ void main() {
     expect(c.title, 'The One');
     expect(c.subtitle, 'E02');
     expect(c.caption, isNull);
+  });
+
+  test('a series card reads its year and its regular-season count', () {
+    CatalogCard series(Map<String, dynamic> extra) =>
+        CatalogCard.fromJson(<String, dynamic>{
+          'type': 'series',
+          'id': 's1',
+          'title': 'Skyline',
+          ...extra,
+        });
+
+    expect(
+      series(<String, dynamic>{'year': 2008, 'season_count': 5}).subtitle,
+      '2008 · 5 seasons',
+    );
+    expect(
+      series(<String, dynamic>{'year': 2008, 'season_count': 1}).subtitle,
+      '2008 · 1 season',
+    );
+    expect(series(<String, dynamic>{'season_count': 3}).subtitle, '3 seasons');
+    expect(
+      series(<String, dynamic>{'year': 2003, 'season_count': 0}).subtitle,
+      '2003',
+      reason: 'a Specials-only series shows no count',
+    );
+    expect(series(<String, dynamic>{'year': 2003}).subtitle, '2003');
+    expect(series(<String, dynamic>{}).subtitle, isNull);
+  });
+
+  test('a filmography series counts its seasons, a movie keeps its year', () {
+    final CatalogCard show = CatalogCard.fromFilmography(
+      FilmographyEntry.fromJson(<String, dynamic>{
+        'title_id': 's1',
+        'kind': 'series',
+        'display_title': 'Skyline',
+        'year': 2008,
+        'role': 'actor',
+        'season_count': 4,
+      }),
+    );
+    final CatalogCard film = CatalogCard.fromFilmography(
+      FilmographyEntry.fromJson(<String, dynamic>{
+        'title_id': 'm1',
+        'kind': 'movie',
+        'display_title': 'Alpha',
+        'year': 2010,
+        'role': 'actor',
+      }),
+    );
+
+    expect(show.subtitle, '2008 · 4 seasons');
+    expect(film.subtitle, '2010');
+  });
+
+  test('a collection card counts its movies, and leaves out none', () {
+    CatalogCard collection(List<String> movies) => CatalogCard.fromCollection(
+      Collection.fromJson(<String, dynamic>{
+        'id': 'c1',
+        'name': 'Trilogy',
+        'movies': movies,
+      }),
+    );
+
+    expect(collection(<String>['m1', 'm2', 'm3']).subtitle, '3 movies');
+    expect(collection(<String>['m1']).subtitle, '1 movie');
+    expect(collection(<String>[]).subtitle, isNull);
   });
 
   test('search json dispatches by type into cards', () {

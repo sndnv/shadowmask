@@ -288,11 +288,9 @@
             cards.forEach((c) => {
               const key = c.type + ":" + c.id;
               if (c.type === "episode") {
-                const code =
-                  c.season_number != null
-                    ? sm.episodeCode(c.season_number, c.number)
-                    : "E" + c.number;
-                names[key] = (c.series_title || c.title) + " " + code;
+                names[key] = c.series_title
+                  ? sm.seriesEpisodeLine(c.series_title, c.season_number, c.number, "")
+                  : sm.episodeLine(c.season_number, c.number, c.title);
               } else {
                 names[key] = c.title + (c.year ? " (" + c.year + ")" : "");
               }

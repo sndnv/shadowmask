@@ -288,7 +288,8 @@
         }
         chipRow(main, d);
         castSection(main, d);
-        main.appendChild(sm.el("h2", { text: "Seasons (" + seasons.length + ")" }));
+        const regular = seasons.filter((s) => s.number > 0).length;
+        main.appendChild(sm.el("h2", { text: regular > 0 ? "Seasons (" + regular + ")" : "Seasons" }));
         if (!seasons.length) {
           main.appendChild(sm.el("p", { text: "No seasons." }));
         } else {

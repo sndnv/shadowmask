@@ -1,7 +1,6 @@
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/nav/routes.dart';
 import 'package:shadowmask/util/credit_labels.dart';
-import 'package:shadowmask/util/format.dart';
 import 'package:shadowmask/view/card_aspect.dart';
 import 'package:shadowmask/model/common/artwork.dart';
 import 'package:shadowmask/model/catalog/collection.dart';
@@ -34,7 +33,7 @@ class CatalogCard {
   final TitleRef ref;
   final String route;
   final String title;
-  final String? subtitle;
+  String? subtitle;
   final String? caption;
   final Artwork? artwork;
   final CardAspect aspect;
@@ -46,6 +45,9 @@ class CatalogCard {
   int? progressPercent;
   final String? dismissVersionId;
 
+  String get listName =>
+      ref.type == TitleKind.episode ? subtitle ?? title : title;
+
   static CatalogCard fromMovie(Movie m) => CatalogCard(
     ref: TitleRef(type: TitleKind.movie, id: m.id),
     route: movieRoute(m.id),
@@ -54,11 +56,19 @@ class CatalogCard {
     artwork: m.artwork,
   );
 
+  static String? _yearAndSeasons(int? year, int? seasons) {
+    final List<String> parts = <String>[
+      if (year != null) '$year',
+      if (seasons != null && seasons > 0) Strings.seasonCountLabel(seasons),
+    ];
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
+
   static CatalogCard fromSeries(Series s) => CatalogCard(
     ref: TitleRef(type: TitleKind.series, id: s.id),
     route: seriesRoute(s.id),
     title: s.title,
-    subtitle: s.year?.toString(),
+    subtitle: _yearAndSeasons(s.year, s.seasonCount),
     artwork: s.artwork,
   );
 
@@ -66,9 +76,9 @@ class CatalogCard {
     ref: TitleRef(type: TitleKind.series, id: s.id),
     route: seriesRoute(s.id),
     title: s.title,
-    subtitle: episodes == null
+    subtitle: episodes == null || episodes <= 0
         ? s.year?.toString()
-        : Strings.episodeCountLabel(episodes),
+        : Strings.newEpisodeCountLabel(episodes),
     artwork: s.artwork,
   );
 
@@ -93,7 +103,7 @@ class CatalogCard {
       ref: ref,
       route: route,
       title: e.seriesTitle ?? e.title,
-      subtitle: episodeCode(e.seasonNumber, e.number),
+      subtitle: Strings.episodeCode(e.seasonNumber, e.number),
       caption: e.seriesTitle == null ? null : e.title,
       artwork: e.seriesArtwork ?? e.artwork,
     );
@@ -110,6 +120,9 @@ class CatalogCard {
     ref: TitleRef(type: TitleKind.collection, id: c.id),
     route: collectionRoute(c.id),
     title: c.name,
+    subtitle: c.movies.isEmpty
+        ? null
+        : Strings.movieCountLabel(c.movies.length),
     artwork: c.artwork,
     mosaic: c.artwork?.hasMultiplePosters ?? false,
   );
@@ -123,7 +136,7 @@ class CatalogCard {
       subtitle: isEpisode
           ? (r.episodeNumber == null
                 ? null
-                : episodeCode(r.seasonNumber, r.episodeNumber!))
+                : Strings.episodeCode(r.seasonNumber, r.episodeNumber!))
           : r.year?.toString(),
       caption: isEpisode && r.seriesTitle != null ? r.displayTitle : null,
       artwork: isEpisode ? (r.seriesArtwork ?? r.artwork) : r.artwork,
@@ -139,7 +152,9 @@ class CatalogCard {
     ref: TitleRef(type: e.kind, id: e.titleId),
     route: titleRoute(e.kind, e.titleId),
     title: e.displayTitle,
-    subtitle: e.year?.toString(),
+    subtitle: e.kind == TitleKind.series
+        ? _yearAndSeasons(e.year, e.seasonCount)
+        : e.year?.toString(),
     caption: withCredit ? creditCaption(e.role, e.character) : null,
     artwork: e.artwork,
   );
@@ -176,8 +191,6 @@ class CatalogCard {
     );
   }
 
-  static String _episodeSubtitle(Episode e) {
-    final String code = episodeCode(e.seasonNumber, e.number);
-    return e.seriesTitle != null ? '${e.seriesTitle} · $code' : code;
-  }
+  static String _episodeSubtitle(Episode e) =>
+      Strings.seriesEpisodeLine(e.seriesTitle, e.seasonNumber, e.number, '');
 }

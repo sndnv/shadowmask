@@ -50,7 +50,6 @@ function BuildStringTable() as object
         "action.dismissResume": "Remove from Continue watching",
         "action.removeHistory": "Remove from history",
         "action.clearHistory": "Clear history",
-        "action.nextEpisode": "Next",
         "action.previousEpisode": "Previous episode",
         "action.nextSeason": "Next season",
         "action.previousSeason": "Previous season",
@@ -80,6 +79,7 @@ function BuildStringTable() as object
         "confirm.signOut": "Sign out of this device? You will need a link code to sign back in.",
         "confirm.changeServer": "Connect this device to a different server? You will need a link code for it.",
         "help.profileReadOnly": "Preferences are changed from a phone or computer.",
+        "help.delivery": "Whether video is rebuilt before it is sent. Each video starts with this; the player can change it.",
         "help.autoplayNext": "Start the next episode when one finishes, after a countdown you can cancel.",
         "help.timeDisplay": "Count down how much is left instead of counting up how far in you are.",
         "help.diagnostics": "Show technical detail about what is playing, on top of the video. Useful when reporting a problem with playback.",
@@ -232,8 +232,15 @@ function BuildStringTable() as object
 
         "status.resumeAt": "Resume at {percent}%",
         "status.season": "Season {number}",
+        "status.episode": "Episode {number}",
         "status.episodeCount": "{count} episodes",
         "status.episodeCountOne": "1 episode",
+        "status.newEpisodeCount": "{count} new episodes",
+        "status.newEpisodeCountOne": "1 new episode",
+        "status.seasonCount": "{count} seasons",
+        "status.seasonCountOne": "1 season",
+        "status.movieCount": "{count} movies",
+        "status.movieCountOne": "1 movie",
         "status.count": "{noun} ({total})",
         "status.watchedCount": "{watched} of {total} watched",
         "status.unavailable": "Unavailable",
@@ -281,6 +288,7 @@ function BuildStringTable() as object
         "heading.overview": "Overview",
         "heading.cast": "Cast",
         "heading.seasons": "Seasons",
+        "heading.movies": "Movies",
         "heading.episodes": "Episodes",
         "heading.filmography": "In this library",
         "heading.biography": "Biography",
@@ -350,6 +358,7 @@ function BuildStringTable() as object
         "track.sourceCombined": "Combined",
 
         "detail.chooseVersion": "Choose a version",
+        "detail.upNextLead": "Up next:",
 
         "watch.versionReference": "Version {id}",
 
@@ -369,8 +378,28 @@ function EpisodeCountText(count as dynamic) as string
     return PhraseWith("status.episodeCount", { count: count })
 end function
 
+function NewEpisodeCountText(count as dynamic) as string
+    if Int(count) = 1 then return Phrase("status.newEpisodeCountOne")
+    return PhraseWith("status.newEpisodeCount", { count: count })
+end function
+
+function SeasonCountText(count as dynamic) as string
+    if Int(count) = 1 then return Phrase("status.seasonCountOne")
+    return PhraseWith("status.seasonCount", { count: count })
+end function
+
+function MovieCountText(count as dynamic) as string
+    if Int(count) = 1 then return Phrase("status.movieCountOne")
+    return PhraseWith("status.movieCount", { count: count })
+end function
+
 function CountLabel(noun as string, total as dynamic) as string
     return PhraseWith("status.count", { noun: noun, total: total })
+end function
+
+function CountedHeading(noun as string, total as dynamic) as string
+    if Int(total) <= 0 then return noun
+    return CountLabel(noun, total)
 end function
 
 function Phrase(key as string) as string

@@ -157,6 +157,14 @@ class _JobsBodyState extends State<_JobsBody> with Mutations<_JobsBody> {
     );
   }
 
+  Future<void> _retry(Job job) => mutate(
+    key: job.id,
+    () => widget.admin.retryJob(job.id),
+    successText: Strings.toastJobRetried,
+    errorText: Strings.errorAction,
+    then: _reload,
+  );
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -280,7 +288,7 @@ class _JobsBodyState extends State<_JobsBody> with Mutations<_JobsBody> {
         label: Strings.columnActions,
         size: AdminColumnSize.small,
         align: AdminColumnAlign.end,
-        cell: (BuildContext c, Job j) => _cancelCell(j),
+        cell: (BuildContext c, Job j) => _actionCell(j),
       ),
     ],
   );
@@ -292,13 +300,23 @@ class _JobsBodyState extends State<_JobsBody> with Mutations<_JobsBody> {
     return _tab == _JobTab.active ? Strings.emptyActiveJobs : Strings.emptyJobs;
   }
 
-  Widget _cancelCell(Job job) => job.cancellable
-      ? DangerIconButton(
-          icon: Icons.cancel_outlined,
-          tooltip: Strings.cancelJob,
-          onPressed: busy(job.id) ? null : () => _cancel(job),
-        )
-      : const SizedBox.shrink();
+  Widget _actionCell(Job job) {
+    if (job.cancellable) {
+      return DangerIconButton(
+        icon: Icons.cancel_outlined,
+        tooltip: Strings.cancelJob,
+        onPressed: busy(job.id) ? null : () => _cancel(job),
+      );
+    }
+    if (job.retryable) {
+      return IconButton(
+        tooltip: Strings.retryJob,
+        onPressed: busy(job.id) ? null : () => _retry(job),
+        icon: const Icon(Icons.replay),
+      );
+    }
+    return const SizedBox.shrink();
+  }
 }
 
 class _JobId extends StatelessWidget {

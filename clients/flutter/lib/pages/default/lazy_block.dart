@@ -57,7 +57,7 @@ class _LazyBlockState<T> extends State<LazyBlock<T>> {
       return WhenVisible(
         onVisible: _start,
         margin: widget.margin,
-        child: _idle(context),
+        child: TickerMode(enabled: false, child: _idle(context)),
       );
     }
     return buildBlock<T>(

@@ -149,4 +149,54 @@ void main() {
 
     expect(find.byType(SkeletonRows), findsOneWidget);
   });
+
+  testWidgets('an unseen block holds its shape without animating', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _below(
+        LazyBlock<int>(
+          margin: 0,
+          load: () async => 1,
+          loading: const SkeletonRail(),
+          builder: (BuildContext c, int v) => Text('$v'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SkeletonRail), findsOneWidget);
+    expect(tester.binding.hasScheduledFrame, isFalse);
+  });
+
+  testWidgets('the shimmer starts once the block loads', (
+    WidgetTester tester,
+  ) async {
+    final ScrollController controller = ScrollController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      _below(
+        LazyBlock<int>(
+          margin: 0,
+          load: () => Future<int>.delayed(const Duration(seconds: 2), () => 1),
+          loading: const SkeletonRail(),
+          builder: (BuildContext c, int v) => Text('$v'),
+        ),
+        controller: controller,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    controller.jumpTo(1900);
+    await tester.pump();
+    await tester.pump(kLoadingRevealDelay);
+
+    expect(find.byType(SkeletonRail), findsOneWidget);
+    expect(tester.binding.hasScheduledFrame, isTrue);
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1'), findsOneWidget);
+  });
 }

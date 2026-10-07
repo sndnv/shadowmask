@@ -72,6 +72,19 @@ abstract final class Strings {
   static const String changeServerHelp =
       'Connecting to a different server signs you out of this one.';
 
+  static const String applicationsMenuHeading = 'Applications menu';
+  static const String applicationsMenuHelp =
+      "Adds this app to your desktop's applications menu and app search.";
+  static const String addToApplicationsMenu = 'Add to applications menu';
+  static const String removeFromApplicationsMenu =
+      'Remove from applications menu';
+  static const String addedToApplicationsMenu =
+      'Added to the applications menu.';
+  static const String removedFromApplicationsMenu =
+      'Removed from the applications menu.';
+  static const String applicationsMenuFailed =
+      'Could not update the applications menu.';
+
   static const String playbackSupportHeading = 'Playback support';
   static const String playbackSupportDeviceType = 'Device type';
   static const String playbackSupportLargestPicture = 'Largest picture';
@@ -144,6 +157,7 @@ abstract final class Strings {
   static const String noSeasonsFound = 'No seasons.';
   static const String noEpisodesFound = 'No episodes.';
   static const String noVersionsAvailable = 'No versions available.';
+  static const String nothingToPlay = 'There is nothing here to play.';
   static const String noLibrariesShared =
       'No libraries have been shared with your account yet. '
       'Ask an administrator to grant you access.';
@@ -170,6 +184,8 @@ abstract final class Strings {
   static String pagerRange(int from, int to, int total) =>
       '$from–$to of $total';
   static String countLabel(String noun, int total) => '$noun ($total)';
+  static String countedHeading(String noun, int total) =>
+      total > 0 ? countLabel(noun, total) : noun;
   static String watchedCount(int watched, int total) =>
       '$watched of $total watched';
 
@@ -202,18 +218,25 @@ abstract final class Strings {
     return season == null ? code : 'S${season.toString().padLeft(2, '0')}$code';
   }
 
-  static String episodeTitleWithCode(int? season, int number, String title) {
-    final String code = episodeCode(season, number);
+  static String? ownEpisodeTitle(int number, String title) {
     final String name = title.trim();
-    return name.isEmpty ? code : '$code: $name';
+    return name.isEmpty || name == '$episodeLabel $number' ? null : name;
   }
 
-  static String episodeTitle(int number, String title) {
-    final String numbered = '$episodeLabel $number';
-    return title.trim().isEmpty || title.trim() == numbered
-        ? numbered
-        : '$numbered: $title';
-  }
+  static String episodeLine(int? season, int number, String title) => <String>[
+    episodeCode(season, number),
+    ?ownEpisodeTitle(number, title),
+  ].join(' · ');
+
+  static String seriesEpisodeLine(
+    String? series,
+    int? season,
+    int number,
+    String title,
+  ) => <String>[
+    if (series != null && series.trim().isNotEmpty) series.trim(),
+    episodeLine(season, number, title),
+  ].join(' · ');
 
   static const String castHeading = 'Cast';
   static const String seasonsHeading = 'Seasons';
@@ -232,16 +255,22 @@ abstract final class Strings {
   static String moreInCollection(String name) => '$moreInPrefix$name';
   static const String continueWatching = 'Continue watching';
   static const String upNext = 'Up next';
+  static const String upNextLead = '$upNext: ';
+  static String upNextNote(String episode) => '$upNextLead$episode';
   static const String onYourWatchlist = 'On your watchlist';
   static const String recentlyAddedMovies = 'Recently Added Movies';
   static const String recentlyAddedShows = 'Recently Added Series';
   static String episodeCountLabel(int n) =>
       n == 1 ? '1 episode' : '$n episodes';
+  static String newEpisodeCountLabel(int n) =>
+      n == 1 ? '1 new episode' : '$n new episodes';
+  static String seasonCountLabel(int n) => n == 1 ? '1 season' : '$n seasons';
+  static String movieCountLabel(int n) => n == 1 ? '1 movie' : '$n movies';
+  static const String moviesHeading = 'Movies';
 
   static const String play = 'Play';
   static const String resumeAction = 'Resume';
   static const String chooseVersion = 'Choose a version';
-  static const String nextEpisode = 'Next episode';
   static String resume(int percent) => 'Resume at $percent%';
   static const String ccNone = 'None';
   static const String fullVersionDetails = 'Full version details';
@@ -416,12 +445,16 @@ abstract final class Strings {
       'follows from the Converting setting and what this device can play.';
   static const String playerAdvanced = 'Advanced';
   static const String playerDelivery = 'Converting';
+  static const String _deliveryChoices =
+      '"Auto" rebuilds video only when this device cannot play the original; '
+      '"Never" sends the original, fastest but it may not play; "Always" '
+      'rebuilds every time, most reliable but heaviest on the server.';
   static const String playerDeliveryHelp =
-      'Whether video is rebuilt before it is sent. "Auto" rebuilds only when '
-      'this device cannot play the original. "Never" sends the original where '
-      'it can, which is fastest but may not play at all. "Always" rebuilds '
-      'every time, which plays most reliably and asks the most of the server. '
-      'This applies to the current video only.';
+      '$_deliveryChoices This applies to the current video only; the default '
+      "is in your account's playback settings.";
+  static const String accountDeliveryHelp =
+      '$_deliveryChoices Each video starts with this; the player can change '
+      'it.';
   static const String playerDeliveryAuto = 'Auto';
   static const String playerDeliveryNever = 'Never';
   static const String playerDeliveryAlways = 'Always';
@@ -538,6 +571,8 @@ abstract final class Strings {
       'A scan is already running for that library.';
   static const String reasonNotCancellable =
       'That job has already finished or been cancelled.';
+  static const String reasonNotRetryable =
+      'That job is no longer failed or cancelled, or its feature is turned off.';
   static const String reasonConcurrentLimit =
       'You are already watching on as many devices as your account allows.';
   static const String reasonFeatureDisabled =
@@ -754,6 +789,7 @@ abstract final class Strings {
       'and duplicate candidates. The media files on disk are not touched.';
   static const String scanLibrary = 'Scan library';
   static const String cancelJob = 'Cancel job';
+  static const String retryJob = 'Retry job';
   static const String createUser = 'Create user';
   static const String deleteUser = 'Delete user';
   static const String cannotDeleteSelf =
@@ -875,6 +911,7 @@ abstract final class Strings {
   static const String toastUserActivated = 'User activated.';
   static const String toastVersionRemoved = 'Version removed.';
   static const String toastJobCancelled = 'Job cancelled.';
+  static const String toastJobRetried = 'Job queued again.';
   static const String toastLogsWiped = 'Logs wiped.';
   static const String toastRenamed = 'Renamed.';
   static const String toastDownloaded = 'Subtitle added.';

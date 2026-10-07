@@ -17,9 +17,10 @@ const Radius _kBarRadius = Radius.circular(4);
 const List<double> _kLineWidths = <double>[1, 0.82, 0.58];
 
 class SkeletonPulse extends StatefulWidget {
-  const SkeletonPulse({super.key, required this.child});
+  const SkeletonPulse({super.key, required this.child, this.active = true});
 
   final Widget child;
+  final bool active;
 
   static Animation<double>? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<_PulseScope>()?.sweep;
@@ -33,12 +34,34 @@ class _SkeletonPulseState extends State<SkeletonPulse>
   late final AnimationController _controller = AnimationController(
     vsync: this,
     duration: kShimmerDuration,
-  )..repeat(reverse: true);
+  );
 
   late final Animation<double> _sweep = CurvedAnimation(
     parent: _controller,
     curve: kShimmerCurve,
   );
+
+  @override
+  void initState() {
+    super.initState();
+    _run();
+  }
+
+  @override
+  void didUpdateWidget(SkeletonPulse oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active != oldWidget.active) {
+      _run();
+    }
+  }
+
+  void _run() {
+    if (widget.active) {
+      _controller.repeat(reverse: true);
+    } else {
+      _controller.stop();
+    }
+  }
 
   @override
   void dispose() {

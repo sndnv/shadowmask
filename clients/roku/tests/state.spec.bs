@@ -106,6 +106,25 @@ namespace tests
             m.assertTrue(cards[2].watched)
         end sub
 
+        @it("counts a season card's episodes from its rollup, and leaves a series card's caption alone")
+        sub countsSeasonEpisodes()
+            season = SeasonCard({ id: "se1", series_id: "s1", number: 1 })
+            empty = SeasonCard({ id: "se2", series_id: "s1", number: 2 })
+            series = SeriesCard({ id: "s1", title: "Skyline", year: 2008, season_count: 2 })
+            cards = [season, empty, series]
+
+            ApplyStates(cards, [], [
+                { target: { type: "season", id: "se1" }, total_episodes: 10 },
+                { target: { type: "season", id: "se2" }, total_episodes: 0 },
+                { target: { type: "series", id: "s1" }, total_episodes: 10 }
+            ])
+
+            m.assertEqual(season.subtitle, "10 episodes")
+            m.assertEqual(empty.subtitle, "", "a count of 0 is left out")
+            m.assertEqual(series.subtitle, "2008 · 2 seasons")
+            m.assertEqual(CardStateList(cards)[0].subtitle, "10 episodes", "the grid copy hears about it")
+        end sub
+
         @it("leaves a card the server said nothing about untouched")
         sub leavesUnknownAlone()
             cards = m.cards()

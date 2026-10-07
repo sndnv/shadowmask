@@ -32,6 +32,12 @@
         }
       }
 
+      function cardName(c) {
+        return c.title.type === "episode" && c.episode_number != null
+          ? sm.seriesEpisodeLine(c.series_title, c.season_number, c.episode_number, c.display_title)
+          : c.display_title;
+      }
+
       async function load() {
         const main = document.getElementById("main");
         main.textContent = "Loading…";
@@ -45,7 +51,7 @@
             return;
           }
           const rows = page.items.map((s) => [
-            s.card ? s.card.display_title : "Version " + s.version_id,
+            s.card ? cardName(s.card) : "Version " + s.version_id,
             String(s.user_id),
             s.state,
             s.mode,

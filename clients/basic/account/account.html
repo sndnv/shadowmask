@@ -124,10 +124,7 @@
 
       function cardFor(c) {
         if (c.type === "episode") {
-          const subtitle =
-            c.season_number != null
-              ? sm.episodeCode(c.season_number, c.number)
-              : "Episode " + c.number;
+          const subtitle = sm.episodeCode(c.season_number, c.number);
           const hasSeries = !!c.series_title;
           return {
             href: sm.href.episode(c.id, c.season_id),

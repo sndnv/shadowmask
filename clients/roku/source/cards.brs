@@ -197,9 +197,16 @@ function SeriesCard(json as dynamic) as object
     card.rollupType = "series"
     card.rollupId = card.id
     card.title = TextOrBlank(ValueAt(json, "title", ""))
-    card.subtitle = NumberText(ValueAt(json, "year", invalid))
+    card.subtitle = YearAndSeasons(json)
     card.artwork = ValueAt(json, "artwork", invalid)
     return card
+end function
+
+function YearAndSeasons(json as dynamic) as string
+    seasons = ""
+    count = ValueAt(json, "season_count", invalid)
+    if count <> invalid and Int(count) > 0 then seasons = SeasonCountText(count)
+    return JoinParts([NumberText(ValueAt(json, "year", invalid)), seasons])
 end function
 
 function CardSpeech(card as dynamic) as string
@@ -223,7 +230,8 @@ function HubSeriesCard(json as dynamic) as object
     card = SeriesCard(json)
 
     count = ValueAt(json, "episode_count", invalid)
-    if count <> invalid then card.subtitle = EpisodeCountText(count)
+    card.subtitle = NumberText(ValueAt(json, "year", invalid))
+    if count <> invalid and Int(count) > 0 then card.subtitle = NewEpisodeCountText(count)
     return card
 end function
 
@@ -268,6 +276,7 @@ function SeasonCard(json as dynamic) as object
 
     card.kind = "season"
     card.id = TextOrBlank(ValueAt(json, "id", ""))
+    card.number = ValueAt(json, "number", invalid)
     card.rollupType = "season"
     card.rollupId = card.id
     card.seriesId = TextOrBlank(ValueAt(json, "series_id", ""))
@@ -290,6 +299,7 @@ function FilmographyCard(json as dynamic) as object
     if card.kind = "series"
         card.rollupType = "series"
         card.rollupId = card.id
+        card.subtitle = YearAndSeasons(json)
     else
         card.refType = card.kind
         card.refId = card.id
@@ -330,6 +340,8 @@ function CollectionCard(json as dynamic) as object
     card.kind = "collection"
     card.id = TextOrBlank(ValueAt(json, "id", ""))
     card.title = TextOrBlank(ValueAt(json, "name", ""))
+    movies = ValueAt(json, "movies", invalid)
+    if type(movies) = "roArray" and movies.Count() > 0 then card.subtitle = MovieCountText(movies.Count())
     card.artwork = ValueAt(json, "artwork", invalid)
     return card
 end function
@@ -425,10 +437,7 @@ function PosterCardFromJson(json as dynamic) as object
 end function
 
 function SeriesEpisodeLabel(seriesTitle as dynamic, code as string) as string
-    named = TextOrBlank(seriesTitle)
-    if IsBlank(named) then return code
-    if IsBlank(code) then return named
-    return named + ": " + code
+    return JoinParts([seriesTitle, code])
 end function
 
 function KindOrder(kind as dynamic) as integer

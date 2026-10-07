@@ -72,7 +72,7 @@ sub init()
     m.applying = false
     m.session = invalid
     m.version = invalid
-    m.controls = DefaultControls()
+    m.controls = StartingControls()
     m.carried = invalid
     m.resumeMs = 0
     m.pendingMs = 0
@@ -1023,12 +1023,16 @@ sub RetryPlayback()
     ReloadPlayback()
 end sub
 
+function StartingControls() as object
+    return WithDefaultDelivery(DefaultControls(), ReadDelivery())
+end function
+
 sub ReloadPlayback()
     EndSession()
 
     m.session = invalid
     m.version = invalid
-    m.controls = DefaultControls()
+    m.controls = StartingControls()
     m.nextTarget = invalid
     m.nextEpisode = invalid
     m.previousTarget = invalid
@@ -1323,7 +1327,7 @@ sub PlayNeighbour(target as dynamic)
     m.previousEpisode = invalid
     m.session = invalid
     m.version = invalid
-    m.controls = DefaultControls()
+    m.controls = StartingControls()
     m.resumeMs = 0
     m.retryMs = 0
     m.prebuffered = false
@@ -1388,7 +1392,7 @@ sub onVersion(event as object)
     StartWork()
 
     if m.carried <> invalid
-        m.controls = ControlsForCarried(m.carried, m.version)
+        m.controls = WithDefaultDelivery(ControlsForCarried(m.carried, m.version), ReadDelivery())
         m.carried = invalid
     end if
 

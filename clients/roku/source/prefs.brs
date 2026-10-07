@@ -81,6 +81,18 @@ sub WriteDiagnostics(value as boolean)
     WriteFlag(DiagnosticsKey(), value)
 end sub
 
+function DeliveryKey() as string
+    return "delivery"
+end function
+
+function ReadDelivery() as string
+    return ValidDelivery(ReadPref(DeliveryKey(), "auto"))
+end function
+
+sub WriteDelivery(value as string)
+    WritePref(DeliveryKey(), ValidDelivery(value))
+end sub
+
 function RemainingTimeKey() as string
     return "remainingTime"
 end function

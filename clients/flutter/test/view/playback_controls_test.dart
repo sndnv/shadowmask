@@ -72,11 +72,38 @@ void main() {
       expect(const PlaybackControls().toQuery().containsKey('delivery'), false);
     });
 
-    test('a chosen delivery preference is not the default', () {
-      expect(const PlaybackControls().isDefault, isTrue);
+    test('a link without a converting choice leaves it to the default', () {
+      expect(PlaybackControls.fromQuery(<String, String>{}).delivery, isNull);
       expect(
-        const PlaybackControls(delivery: DeliveryPreference.always).isDefault,
-        isFalse,
+        PlaybackControls.fromQuery(<String, String>{
+          'delivery': 'auto',
+        }).delivery,
+        DeliveryPreference.auto,
+      );
+      expect(
+        const PlaybackControls(
+          delivery: DeliveryPreference.auto,
+        ).toQuery()['delivery'],
+        'auto',
+        reason: 'Auto chosen over a saved Always has to survive a reload',
+      );
+    });
+
+    test('the saved default fills only an unchosen converting setting', () {
+      expect(
+        const PlaybackControls(
+          height: 720,
+        ).withDefaultDelivery(DeliveryPreference.always),
+        const PlaybackControls(
+          height: 720,
+          delivery: DeliveryPreference.always,
+        ),
+      );
+      expect(
+        const PlaybackControls(
+          delivery: DeliveryPreference.never,
+        ).withDefaultDelivery(DeliveryPreference.always).delivery,
+        DeliveryPreference.never,
       );
     });
 
@@ -132,9 +159,8 @@ void main() {
       expect(c.toQuery(), <String, String?>{'soff': '1'});
     });
 
-    test('the default carries no query and is default', () {
+    test('the default carries no query', () {
       expect(const PlaybackControls().toQuery(), isEmpty);
-      expect(const PlaybackControls().isDefault, isTrue);
       expect(const PlaybackControls().hasTrackRequest, isFalse);
       expect(const PlaybackControls().toStartBody(), isEmpty);
     });
@@ -237,10 +263,46 @@ void main() {
         const PlaybackControls(subtitleLanguage: 'en'),
         const PlaybackControls(subtitleOff: true),
         const PlaybackControls(offsetMs: 5),
+        const PlaybackControls(delivery: DeliveryPreference.auto),
       ]) {
         expect(base, isNot(other));
-        expect(other.isDefault, isFalse);
       }
+    });
+
+    test('copies keep every field they were not asked to change', () {
+      const PlaybackControls full = PlaybackControls(
+        height: 720,
+        burn: true,
+        downmix: true,
+        audioTrack: 1,
+        audioLanguage: 'en',
+        subtitle: SubtitleSelection.embedded(2),
+        subtitleLanguage: 'fr',
+        subtitleOff: true,
+        offsetMs: 5,
+        delivery: DeliveryPreference.never,
+      );
+
+      expect(full.withSelection(null), full);
+      expect(
+        full.withSelection(
+          const SelectedTracks(
+            audioTrack: 3,
+            subtitleTrack: SubtitleSelection.embedded(4),
+          ),
+        ),
+        full.copyWith(
+          audioTrack: 3,
+          subtitle: const SubtitleSelection.embedded(4),
+        ),
+      );
+      expect(full.withDefaultDelivery(DeliveryPreference.always), full);
+      expect(
+        full
+            .copyWith(delivery: null)
+            .withDefaultDelivery(DeliveryPreference.always),
+        full.copyWith(delivery: DeliveryPreference.always),
+      );
     });
   });
 }

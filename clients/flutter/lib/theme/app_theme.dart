@@ -22,14 +22,6 @@ const List<String> _sansFallback = kIsWeb
         'sans-serif',
       ]
     : <String>[];
-const String? _familyMono = kIsWeb ? 'ui-monospace' : null;
-const List<String> _monoFallback = <String>[
-  'SF Mono',
-  'SFMono-Regular',
-  'Menlo',
-  'Consolas',
-  'monospace',
-];
 
 TextTheme _textTheme(Tokens t) {
   TextStyle style(double size, double height, FontWeight weight) => TextStyle(
@@ -53,8 +45,7 @@ TextTheme _textTheme(Tokens t) {
 }
 
 const TextStyle monoStyle = TextStyle(
-  fontFamily: _familyMono,
-  fontFamilyFallback: _monoFallback,
+  fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
 );
 
 ThemeData buildTheme(AppThemeVariant variant, {bool highContrast = false}) {

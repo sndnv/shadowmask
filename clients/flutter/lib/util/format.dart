@@ -2,9 +2,6 @@ import 'package:intl/intl.dart';
 
 String pad2(int n) => n.toString().padLeft(2, '0');
 
-String episodeCode(int? season, int number) =>
-    season != null ? 'S${pad2(season)}E${pad2(number)}' : 'E${pad2(number)}';
-
 String compactCount(int n) => NumberFormat.compact().format(n);
 
 String groupedCount(int n) => NumberFormat.decimalPattern().format(n);

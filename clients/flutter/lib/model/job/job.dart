@@ -82,6 +82,7 @@ abstract class Job with _$Job {
     String? finishedAt,
     String? parentId,
     @Default(false) bool cancellable,
+    @Default(false) bool retryable,
   }) = _Job;
 
   factory Job.fromJson(Map<String, dynamic> json) => _$JobFromJson(json);

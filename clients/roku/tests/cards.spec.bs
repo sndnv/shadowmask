@@ -54,10 +54,36 @@ namespace tests
             m.assertEqual(card.refType, "", "a series is not a leaf and must never reach /state/batch")
         end sub
 
-        @it("shows the episode count a hub reports, pluralised")
+        @it("shows the new-episode count a hub reports, pluralised, and the year without one")
         sub showsEpisodeCount()
-            m.assertEqual(HubSeriesCard({ type: "series", id: "s1", title: "Show", episode_count: 8 }).subtitle, "8 episodes")
-            m.assertEqual(HubSeriesCard({ type: "series", id: "s1", title: "Show", episode_count: 1 }).subtitle, "1 episode")
+            m.assertEqual(HubSeriesCard({ type: "series", id: "s1", title: "Show", episode_count: 8 }).subtitle, "8 new episodes")
+            m.assertEqual(HubSeriesCard({ type: "series", id: "s1", title: "Show", episode_count: 1 }).subtitle, "1 new episode")
+            m.assertEqual(HubSeriesCard({ type: "series", id: "s1", title: "Show", year: 2019, episode_count: 0 }).subtitle, "2019")
+        end sub
+
+        @it("reads a series card's year and regular-season count, leaving out a count of 0")
+        sub showsSeasonCount()
+            m.assertEqual(SeriesCard({ id: "s1", title: "Skyline", year: 2008, season_count: 5 }).subtitle, "2008 · 5 seasons")
+            m.assertEqual(SeriesCard({ id: "s1", title: "Skyline", year: 2008, season_count: 1 }).subtitle, "2008 · 1 season")
+            m.assertEqual(SeriesCard({ id: "s1", title: "Skyline", season_count: 3 }).subtitle, "3 seasons")
+            m.assertEqual(SeriesCard({ id: "s1", title: "Lantern", year: 2003, season_count: 0 }).subtitle, "2003")
+            m.assertEqual(SeriesCard({ id: "s1", title: "Lantern", year: 2003 }).subtitle, "2003")
+        end sub
+
+        @it("counts a filmography series' seasons and keeps a movie's year")
+        sub filmographyCounts()
+            show = FilmographyCard({ title_id: "s1", kind: "series", display_title: "Skyline", year: 2008, season_count: 4 })
+            film = FilmographyCard({ title_id: "m1", kind: "movie", display_title: "Alpha", year: 2010 })
+
+            m.assertEqual(show.subtitle, "2008 · 4 seasons")
+            m.assertEqual(film.subtitle, "2010")
+        end sub
+
+        @it("counts a collection's movies and leaves an empty one without a count")
+        sub collectionCounts()
+            m.assertEqual(CollectionCard({ id: "c1", name: "Trilogy", movies: ["m1", "m2", "m3"] }).subtitle, "3 movies")
+            m.assertEqual(CollectionCard({ id: "c1", name: "Solo", movies: ["m1"] }).subtitle, "1 movie")
+            m.assertEqual(CollectionCard({ id: "c1", name: "Empty", movies: [] }).subtitle, "")
         end sub
 
         @it("falls back to the year when the hub reports no count")
@@ -158,7 +184,7 @@ namespace tests
         @it("shows a hub episode as its series poster, not as a still")
         sub hubEpisodesUsePosters()
             m.assertEqual(HubCard(m.episodeJson()).aspect, PosterAspect())
-            m.assertEqual(HubCard({ type: "series", id: "s1", title: "Show", episode_count: 3 }).subtitle, "3 episodes")
+            m.assertEqual(HubCard({ type: "series", id: "s1", title: "Show", episode_count: 3 }).subtitle, "3 new episodes")
         end sub
 
         @describe("HubRails")
@@ -629,6 +655,7 @@ namespace tests
             m.assertEqual(card.rollupId, "se1")
             m.assertEqual(card.refType, "", "a season must never be sent to the leaf batch")
             m.assertEqual(card.seriesId, "sr1")
+            m.assertEqual(card.number, 2)
         end sub
 
         @it("names a season by its title when it has one and by its number when it does not")
@@ -891,7 +918,7 @@ namespace tests
 
             m.assertEqual(card.aspect, PosterAspect())
             m.assertEqual(card.title, "The Ninth Orphan")
-            m.assertEqual(card.subtitle, "Alien: S01E02")
+            m.assertEqual(card.subtitle, "Alien · S01E02")
             m.assertEqual(card.caption, "")
             m.assertEqual(CardImageUrl("http://host", card, 480), "http://host/images/s1/480")
         end sub
@@ -908,7 +935,7 @@ namespace tests
 
         @it("joins a show to its episode code, and drops whichever half is missing")
         sub labelDropsTheMissingHalf()
-            m.assertEqual(SeriesEpisodeLabel("Stargate SG-1", "S01E02"), "Stargate SG-1: S01E02")
+            m.assertEqual(SeriesEpisodeLabel("Stargate SG-1", "S01E02"), "Stargate SG-1 · S01E02")
             m.assertEqual(SeriesEpisodeLabel(invalid, "S01E02"), "S01E02")
             m.assertEqual(SeriesEpisodeLabel("Stargate SG-1", ""), "Stargate SG-1")
         end sub

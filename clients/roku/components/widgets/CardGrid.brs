@@ -90,6 +90,13 @@ sub refreshStates()
 
         m.cards[at].watched = watched
         m.cards[at].progressPercent = percent
+
+        subtitle = TextOrBlank(ValueAt(states[index], "subtitle", ""))
+        if not IsBlank(subtitle) and subtitle <> TextOrBlank(ValueAt(m.cards[at], "subtitle", ""))
+            m.cards[at].subtitle = subtitle
+            node.cardSubtitle = subtitle
+            node.audioGuideText = CardSpeech(m.cards[at])
+        end if
     end for
 end sub
 

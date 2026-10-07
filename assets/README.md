@@ -54,8 +54,8 @@ because each platform masks differently.
   foreground. Android crops to the inner 66.7% of the canvas; the mark sits at 58% of that visible
   area, centered by the same rule as the others, `translate = 32 - 12 * scale`. The plate is the
   background layer, `ic_launcher_background.xml`. No `<monochrome>` layer.
-The two plateless variants below are page logos, not icons. They sit on a themed page background
-rather than a launcher or tab, so they carry no plate and take the theme's `accent`.
+  The two plateless variants below are page logos, not icons. They sit on a themed page background
+  rather than a launcher or tab, so they carry no plate and take the theme's `accent`.
 
 - `brand/shadowmask.logo-light.svg` - the mark on no plate, in the light theme's accent `#0e7d88`,
   dots at 0.55. The basic client's in-page nav logo. Single-accent dots, since the design system
@@ -66,9 +66,9 @@ rather than a launcher or tab, so they carry no plate and take the theme's `acce
 - `brand/shadowmask.logo-retro.svg` - the same without a plate in the retro theme's colours.
   Currently unreferenced: the root README used it before switching to the desktop icon.
 - `placeholders/{poster,landscape,person}.svg` - artwork fallbacks.
-Everything under `glyphs/` is **pure white on transparent** and tinted at runtime through Roku's
-`Poster.blendColor`, which multiplies: any colour baked into a source would survive the tint and come
-out wrong in the other two themes. That is the rule for any glyph added here.
+  Everything under `glyphs/` is **pure white on transparent** and tinted at runtime through Roku's
+  `Poster.blendColor`, which multiplies: any colour baked into a source would survive the tint and come
+  out wrong in the other two themes. That is the rule for any glyph added here.
 
 - `glyphs/watched-{disc,ring}.svg` - the watched marker on a card, for clients that cannot draw an
   icon font. The disc carries the check as a knocked-out hole rather than a stroke, so the tint
@@ -160,40 +160,42 @@ brand SVG changes, then refresh.
 
 ## Targets
 
-| Project | Source | Target |
-|---|---|---|
-| `clients/basic` | `brand/shadowmask.logo.svg` | `favicon.svg` |
-| `clients/basic` | `brand/shadowmask.logo-light.svg` | `logo.svg` |
-| `clients/basic` | `placeholders/poster.svg` | `placeholder.svg` |
-| `clients/basic` | `placeholders/landscape.svg` | `placeholder-landscape.svg` |
-| `clients/basic` | `placeholders/person.svg` | `placeholder-person.svg` |
-| `clients/basic` | `vendor/hls.min.js` | `vendor/hls.min.js` |
-| `clients/flutter` | `icons/flutter/favicon.png` | `web/favicon.png` |
-| `clients/flutter` | `icons/flutter/Icon-192.png` | `web/icons/Icon-192.png` |
-| `clients/flutter` | `icons/flutter/Icon-512.png` | `web/icons/Icon-512.png` |
-| `clients/flutter` | `icons/flutter/Icon-maskable-192.png` | `web/icons/Icon-maskable-192.png` |
-| `clients/flutter` | `icons/flutter/Icon-maskable-512.png` | `web/icons/Icon-maskable-512.png` |
-| `clients/flutter` | `icons/flutter/app_icon_{16,32,64,128,256,512,1024}.png` | `macos/Runner/Assets.xcassets/AppIcon.appiconset/` |
-| `clients/flutter` | `icons/flutter/ios_icon_*.png` | `ios/Runner/Assets.xcassets/AppIcon.appiconset/` |
-| `clients/flutter` | `icons/flutter/android_icon_{48,72,96,144,192}.png` | `android/app/src/main/res/mipmap-*/ic_launcher.png` |
-| `clients/flutter` | `icons/flutter/android_icon_fg_{108,162,216,324,432}.png` | `android/app/src/main/res/mipmap-*/ic_launcher_foreground.png` |
-| `clients/flutter` | `vendor/hls.min.js` | `web/hls.min.js` |
-| `clients/roku` | `fonts/Roboto-{Regular,Medium}.ttf` | `fonts/` |
-| `clients/roku` | `fonts/Roboto-OFL.txt` | `fonts/Roboto-OFL.txt` |
-| `clients/roku` | `icons/roku/channel-poster-{hd,fhd}.png` | `images/` |
-| `clients/roku` | `icons/roku/splash-{sd,hd,fhd}.png` | `images/` |
-| `clients/roku` | `icons/roku/brand-mark.png` | `images/brand-mark.png` |
-| `clients/roku` | `icons/roku/art-{movie,landscape,person}.png` | `images/` |
-| `clients/roku` | `icons/roku/watched-{disc,ring}.png` | `images/` |
-| `clients/roku` | `icons/roku/hex-texture.png` | `images/hex-texture.png` |
-| `clients/roku` | `icons/roku/chevron-{left,right,up,down}.png` | `images/` |
-| `clients/roku` | `icons/roku/icon-{check,close,play,search}.png` | `images/` |
-| `clients/roku` | `icons/roku/icon-{bookmark,bookmark-on,heart,heart-on}.png` | `images/` |
-| `clients/roku` | `icons/roku/icon-shuffle.png` | `images/icon-shuffle.png` |
-| `clients/roku` | `icons/roku/chip-cap-{left,right}.png` | `images/` |
-| `clients/roku` | `icons/roku/chip-cap-{left,right}-line.png` | `images/` |
-| `clients/roku` | `icons/roku/button-{fill,line}.9.png` | `images/` |
-| `clients/roku` | `icons/roku/disc.png` | `images/disc.png` |
+| Project           | Source                                                      | Target                                                         |
+|-------------------|-------------------------------------------------------------|----------------------------------------------------------------|
+| `clients/basic`   | `brand/shadowmask.logo.svg`                                 | `favicon.svg`                                                  |
+| `clients/basic`   | `brand/shadowmask.logo-light.svg`                           | `logo.svg`                                                     |
+| `clients/basic`   | `placeholders/poster.svg`                                   | `placeholder.svg`                                              |
+| `clients/basic`   | `placeholders/landscape.svg`                                | `placeholder-landscape.svg`                                    |
+| `clients/basic`   | `placeholders/person.svg`                                   | `placeholder-person.svg`                                       |
+| `clients/basic`   | `vendor/hls.min.js`                                         | `vendor/hls.min.js`                                            |
+| `clients/flutter` | `icons/flutter/favicon.png`                                 | `web/favicon.png`                                              |
+| `clients/flutter` | `icons/flutter/Icon-192.png`                                | `web/icons/Icon-192.png`                                       |
+| `clients/flutter` | `icons/flutter/Icon-512.png`                                | `web/icons/Icon-512.png`                                       |
+| `clients/flutter` | `icons/flutter/Icon-maskable-192.png`                       | `web/icons/Icon-maskable-192.png`                              |
+| `clients/flutter` | `icons/flutter/Icon-maskable-512.png`                       | `web/icons/Icon-maskable-512.png`                              |
+| `clients/flutter` | `icons/flutter/app_icon_{16,32,64,128,256,512,1024}.png`    | `macos/Runner/Assets.xcassets/AppIcon.appiconset/`             |
+| `clients/flutter` | `icons/flutter/ios_icon_*.png`                              | `ios/Runner/Assets.xcassets/AppIcon.appiconset/`               |
+| `clients/flutter` | `icons/flutter/android_icon_{48,72,96,144,192}.png`         | `android/app/src/main/res/mipmap-*/ic_launcher.png`            |
+| `clients/flutter` | `icons/flutter/android_icon_fg_{108,162,216,324,432}.png`   | `android/app/src/main/res/mipmap-*/ic_launcher_foreground.png` |
+| `clients/flutter` | `vendor/hls.min.js`                                         | `web/hls.min.js`                                               |
+| `clients/flutter` | `fonts/Roboto-{Regular,Medium,Bold}.ttf`                    | `assets/fonts/`                                                |
+| `clients/flutter` | `fonts/Roboto-OFL.txt`                                      | `assets/licenses/Roboto-OFL.txt`                               |
+| `clients/roku`    | `fonts/Roboto-{Regular,Medium}.ttf`                         | `fonts/`                                                       |
+| `clients/roku`    | `fonts/Roboto-OFL.txt`                                      | `fonts/Roboto-OFL.txt`                                         |
+| `clients/roku`    | `icons/roku/channel-poster-{hd,fhd}.png`                    | `images/`                                                      |
+| `clients/roku`    | `icons/roku/splash-{sd,hd,fhd}.png`                         | `images/`                                                      |
+| `clients/roku`    | `icons/roku/brand-mark.png`                                 | `images/brand-mark.png`                                        |
+| `clients/roku`    | `icons/roku/art-{movie,landscape,person}.png`               | `images/`                                                      |
+| `clients/roku`    | `icons/roku/watched-{disc,ring}.png`                        | `images/`                                                      |
+| `clients/roku`    | `icons/roku/hex-texture.png`                                | `images/hex-texture.png`                                       |
+| `clients/roku`    | `icons/roku/chevron-{left,right,up,down}.png`               | `images/`                                                      |
+| `clients/roku`    | `icons/roku/icon-{check,close,play,search}.png`             | `images/`                                                      |
+| `clients/roku`    | `icons/roku/icon-{bookmark,bookmark-on,heart,heart-on}.png` | `images/`                                                      |
+| `clients/roku`    | `icons/roku/icon-shuffle.png`                               | `images/icon-shuffle.png`                                      |
+| `clients/roku`    | `icons/roku/chip-cap-{left,right}.png`                      | `images/`                                                      |
+| `clients/roku`    | `icons/roku/chip-cap-{left,right}-line.png`                 | `images/`                                                      |
+| `clients/roku`    | `icons/roku/button-{fill,line}.9.png`                       | `images/`                                                      |
+| `clients/roku`    | `icons/roku/disc.png`                                       | `images/disc.png`                                              |
 
 Roku takes PNG only - there is no SVG support on the platform, so every Roku target is a render
 rather than a copy of the source SVG.
