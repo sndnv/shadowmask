@@ -70,7 +70,11 @@ pub async fn scan<S: AppServices>(
         debug!("Webhook client [{}] sent a test event for library [{id}]", client.name);
         return StatusCode::OK.into_response();
     }
-    let principal = Principal { user: UserId(client.name.clone()), role: Role::Automation };
+    let principal = Principal {
+        user: UserId(client.name.clone()),
+        role: Role::Automation,
+        account_admin: false,
+    };
     let library = LibraryId(id);
     match state.services.library().trigger_scan(&principal, &library, ScanMode::Normal).await {
         Ok(()) | Err(LibraryError::ScanInProgress) => {

@@ -293,7 +293,71 @@ void main() {
       reason: 'asking what a setting does must not change it',
     );
   });
+
+  testWidgets('the subtitles panel offers one button to add subtitles', (
+    WidgetTester tester,
+  ) async {
+    int opened = 0;
+    await tester.pumpWidget(_subtitles(onAddSubtitles: () => opened++));
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.searchSubtitles), findsNothing);
+    expect(find.text(Strings.transcribe), findsNothing);
+    final Rect label = tester.getRect(find.text(Strings.moreSubtitles));
+    final Rect button = tester.getRect(
+      find.widgetWithText(TextButton, Strings.addSubtitles),
+    );
+    expect(button.left, greaterThan(label.right));
+    expect(button.center.dy, closeTo(label.center.dy, 2));
+    expect(
+      find.descendant(
+        of: find
+            .ancestor(
+              of: find.text(Strings.moreSubtitles),
+              matching: find.byType(Row),
+            )
+            .first,
+        matching: find.byType(FieldHelp),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text(Strings.addSubtitles));
+    await tester.pump();
+
+    expect(opened, 1);
+  });
+
+  testWidgets('no button is offered without a way to add subtitles', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(_subtitles());
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.addSubtitles), findsNothing);
+  });
 }
+
+Widget _subtitles({VoidCallback? onAddSubtitles}) => MaterialApp(
+  theme: buildTheme(AppThemeVariant.dark),
+  home: Scaffold(
+    body: SizedBox(
+      width: 420,
+      child: PlayerSettingsPanel(
+        panel: PlayerPanel.subtitles,
+        controls: const PlaybackControls(),
+        version: _version(),
+        speed: 1,
+        diagnostics: false,
+        onAddSubtitles: onAddSubtitles,
+        onControls: (_) {},
+        onSpeed: (_) {},
+        onDiagnostics: (_) {},
+        onClose: () {},
+      ),
+    ),
+  ),
+);
 
 Widget _settings({
   required String mode,

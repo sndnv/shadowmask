@@ -1,8 +1,7 @@
 use domain::error::TranscriptionError;
 use domain::job::{Job, TranslationTrigger};
 use domain::media::{
-    SubtitleFile, SubtitleFileId, SubtitleSource, SubtitleStore, TranscriptionProvider,
-    TranscriptionSpec,
+    SubtitleFile, SubtitleSource, SubtitleStore, TranscriptionProvider, TranscriptionSpec,
 };
 use domain::repository::CatalogRepository;
 use services::library::TranscriptionJobPayload;
@@ -99,7 +98,7 @@ where
             .store(&payload.version_id, "generated", subtitle.format, &subtitle.content)
             .await?;
         let file = SubtitleFile {
-            id: SubtitleFileId(format!("generated:{}", payload.version_id.0)),
+            id: payload.produces(),
             version: payload.version_id.clone(),
             language: None,
             format: subtitle.format,

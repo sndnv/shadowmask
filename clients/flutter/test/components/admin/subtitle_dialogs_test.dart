@@ -72,8 +72,8 @@ Future<List<http.Request>> _open(
           200,
         );
       }
-      if (download != null && req.url.path.endsWith('/subtitles/download')) {
-        return download.future;
+      if (req.url.path.endsWith('/subtitles/download')) {
+        return download?.future ?? http.Response('{}', 201);
       }
       return http.Response('', 204);
     }),
@@ -81,21 +81,21 @@ Future<List<http.Request>> _open(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildTheme(AppThemeVariant.dark),
-      home: ToastHost(
-        child: Scaffold(
-          body: Builder(
-            builder: (BuildContext context) => TextButton(
-              onPressed: () async {
-                final bool changed = await showSubtitleSearch(
-                  context,
-                  admin: AdminApi(api),
-                  versionId: 'v1',
-                  existing: existing,
-                );
-                results?.add(changed);
-              },
-              child: const Text('open'),
-            ),
+      builder: (BuildContext context, Widget? child) =>
+          ToastHost(child: child ?? const SizedBox.shrink()),
+      home: Scaffold(
+        body: Builder(
+          builder: (BuildContext context) => TextButton(
+            onPressed: () async {
+              final bool changed = await showSubtitleSearch(
+                context,
+                admin: AdminApi(api),
+                versionId: 'v1',
+                existing: existing,
+              );
+              results?.add(changed);
+            },
+            child: const Text('open'),
           ),
         ),
       ),
@@ -190,8 +190,24 @@ void main() {
         findsOneWidget,
       );
       expect(find.widgetWithText(TextButton, Strings.download), findsOneWidget);
+      expect(find.text(Strings.toastDownloaded), findsOneWidget);
     },
   );
+
+  testWidgets('a file the server already held reads as already added', (
+    WidgetTester tester,
+  ) async {
+    final Completer<http.Response> gate = Completer<http.Response>()
+      ..complete(http.Response('{}', 200));
+    await _open(tester, existing: <SubtitleFile>[], download: gate);
+
+    await tester.tap(find.widgetWithText(TextButton, Strings.download).first);
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(TextButton, Strings.downloaded), findsOneWidget);
+    expect(find.text(Strings.toastAlreadyAdded), findsOneWidget);
+    expect(find.text(Strings.toastDownloaded), findsNothing);
+  });
 
   testWidgets('a download in flight shows progress and takes no second tap', (
     WidgetTester tester,

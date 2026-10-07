@@ -401,6 +401,23 @@ impl Runtime {
             (transcription.available, transcription.automatic);
         let (translation_available, translation_auto) =
             (translation.available, translation.automatic);
+        let parked = parked_kinds(
+            transcription_available,
+            translation_available,
+            config.enrichment.upscaling.enabled,
+            config.fetch_providers.enabled,
+        );
+        let requested = config
+            .job_pools
+            .iter()
+            .map(|(name, pool)| {
+                (
+                    name.clone(),
+                    PoolRequest { concurrency: pool.concurrency, kinds: pool.kinds.clone() },
+                )
+            })
+            .collect();
+        let pools = resolve_pools(&requested, &parked)?;
         let wire = WireConfig {
             jwt_secret: config.jwt_secret.into_bytes(),
             stream_secret: config.stream_secret.into_bytes(),
@@ -420,12 +437,12 @@ impl Runtime {
             remux_read_rate: config.remux_read_rate,
             max_transcode_height: config.max_transcode_height,
             profile_overrides_dir: config.profile_overrides_dir.clone(),
+            job_pools: pools.iter().map(|pool| pool.kinds.clone()).collect(),
         };
         let cancel = CancelRegistry::default();
         let Built { state, stream, session, artwork_store, images, trickplay } =
             build_state(&repos, &wire, &cancel)?;
         let job_logs = FsJobLogStore::new(&config.job_log_dir);
-        let parked = wire.parked_kinds();
         let capabilities =
             crate::capabilities::server_capabilities(crate::capabilities::CapabilityInputs {
                 transcription: transcription_available,
@@ -663,22 +680,12 @@ impl Runtime {
             retention,
             sweep,
         ));
-        let requested = config
-            .job_pools
-            .iter()
-            .map(|(name, pool)| {
-                (
-                    name.clone(),
-                    PoolRequest { concurrency: pool.concurrency, kinds: pool.kinds.clone() },
-                )
-            })
-            .collect();
         if !parked.is_empty() {
             let names = parked.iter().map(|kind| kind.slug()).collect::<Vec<_>>().join(", ");
             #[rustfmt::skip]
             tracing::info!("job kinds [{names}] are switched off; their queued jobs stay queued and no pool will claim them");
         }
-        let workers: Vec<JobWorker> = resolve_pools(&requested, &parked)?
+        let workers: Vec<JobWorker> = pools
             .into_iter()
             .map(|pool| {
                 Worker::new(

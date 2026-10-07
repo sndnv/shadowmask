@@ -17,6 +17,7 @@ class AllVersionsDialog extends StatelessWidget {
     required this.versions,
     this.onProgressCleared,
     this.admin,
+    this.adminPages = false,
   });
 
   final CatalogApi catalog;
@@ -25,6 +26,7 @@ class AllVersionsDialog extends StatelessWidget {
   final List<Version> versions;
   final VoidCallback? onProgressCleared;
   final AdminApi? admin;
+  final bool adminPages;
 
   static Future<void> show(
     BuildContext context, {
@@ -34,6 +36,7 @@ class AllVersionsDialog extends StatelessWidget {
     required List<Version> versions,
     VoidCallback? onProgressCleared,
     AdminApi? admin,
+    bool adminPages = false,
   }) => showDialog<void>(
     context: context,
     builder: (BuildContext context) => AllVersionsDialog(
@@ -43,6 +46,7 @@ class AllVersionsDialog extends StatelessWidget {
       versions: versions,
       onProgressCleared: onProgressCleared,
       admin: admin,
+      adminPages: adminPages,
     ),
   );
 
@@ -59,6 +63,7 @@ class AllVersionsDialog extends StatelessWidget {
         onProgressCleared: onProgressCleared,
         showHeading: false,
         admin: admin,
+        adminPages: adminPages,
       ),
     );
   }

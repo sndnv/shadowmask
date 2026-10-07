@@ -49,6 +49,16 @@ impl JobKind {
         JobKind::OrphanSweep,
     ];
 
+    pub const PER_VERSION: [JobKind; 7] = [
+        JobKind::Subtitles,
+        JobKind::Trickplay,
+        JobKind::Relink,
+        JobKind::Transcription,
+        JobKind::Translation,
+        JobKind::Upscale,
+        JobKind::Combine,
+    ];
+
     pub fn is_process_killable(&self) -> bool {
         matches!(self, JobKind::Trickplay | JobKind::Upscale | JobKind::Subtitles | JobKind::Fetch)
     }

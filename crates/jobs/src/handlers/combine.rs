@@ -1,8 +1,7 @@
 use domain::common::LanguageCode;
 use domain::job::Job;
 use domain::media::{
-    FetchedSubtitle, SubtitleCombiner, SubtitleFile, SubtitleFileId, SubtitleReader,
-    SubtitleSource, SubtitleStore,
+    FetchedSubtitle, SubtitleCombiner, SubtitleFile, SubtitleReader, SubtitleSource, SubtitleStore,
 };
 use domain::repository::CatalogRepository;
 use services::library::CombineJobPayload;
@@ -53,10 +52,7 @@ where
             return Ok(());
         };
 
-        let combined_id = SubtitleFileId(format!(
-            "combined:{}:{}:{}",
-            payload.version_id.0, payload.top_subtitle_id, payload.bottom_subtitle_id
-        ));
+        let combined_id = payload.produces();
         if existing.iter().any(|file| file.id == combined_id) {
             tracing::debug!("combined subtitle already present; skipping");
             return Ok(());
@@ -129,7 +125,7 @@ mod tests {
     use domain::common::Quality;
     use domain::error::SubtitleError;
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
-    use domain::media::SubtitleFormat;
+    use domain::media::{SubtitleFileId, SubtitleFormat};
     use jiff::Timestamp;
     use mocks::MockCatalogRepo;
     use services::library::CombineJobPayload;

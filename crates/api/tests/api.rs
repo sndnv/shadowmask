@@ -10,6 +10,7 @@ use domain::catalog::*;
 use domain::common::LanguageCode;
 use domain::common::Quality;
 use domain::discovery::*;
+use domain::job::{JobId, JobKind, JobPriority};
 use domain::library::*;
 use domain::media::{AudioTrack, SubtitleFile, SubtitleFileId, SubtitleFormat, SubtitleSource};
 use domain::metadata::*;
@@ -186,8 +187,12 @@ async fn call(
     let response = app.oneshot(request).await.unwrap();
     let status = response.status();
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let value =
-        if bytes.is_empty() { Value::Null } else { serde_json::from_slice(&bytes).unwrap() };
+    let value = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes)
+            .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()))
+    };
     (status, value)
 }
 
@@ -484,6 +489,10 @@ async fn self_reports_the_session_role_not_the_account_role() {
     assert_eq!(
         body["role"], "player",
         "a linked device told it is an admin renders admin pages the server then refuses"
+    );
+    assert_eq!(
+        body["account_role"], "admin",
+        "the device still learns its account is an admin, for the version work it may do"
     );
 
     let (status, body) =
@@ -840,6 +849,119 @@ async fn an_accepted_scan_actually_reaches_the_job_queue() {
 }
 
 #[tokio::test]
+async fn a_started_transcription_is_listed_with_its_place_in_the_queue() {
+    let mut ctx = Ctx::new();
+    ctx.job = ctx.job.clone().with_pools(vec![vec![
+        JobKind::Transcription,
+        JobKind::Translation,
+        JobKind::Upscale,
+    ]]);
+    ctx.catalog_repo.add_version(version(
+        "v1",
+        TitleId::Movie(MovieId("m1".into())),
+        "lib1",
+        Quality::Hd,
+    ));
+    ctx.jobs_repo.seed(domain::job::Job {
+        kind: JobKind::Translation,
+        priority: JobPriority::High,
+        payload: json!({"version_id": "v2", "target_languages": ["fr"]}).to_string(),
+        ..queued_job("earlier")
+    });
+
+    let (_, started) = call(
+        ctx.app(),
+        Method::POST,
+        "/api/v1/versions/v1/subtitles/transcribe?source_language=en",
+        Some(ADMIN),
+        None,
+    )
+    .await;
+    let (status, jobs) =
+        call(ctx.app(), Method::GET, "/api/v1/versions/v1/jobs", Some(ADMIN), None).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let rows = jobs.as_array().unwrap();
+    assert_eq!(rows.len(), 1, "another version's work is not listed");
+    assert_eq!(rows[0]["id"], started["job_id"]);
+    assert_eq!(rows[0]["kind"], "transcription");
+    assert_eq!(rows[0]["status"], "queued");
+    assert_eq!(rows[0]["ahead"], 1);
+    assert_eq!(rows[0]["elapsed_ms"], Value::Null);
+    assert_eq!(rows[0]["language"], "en");
+    assert_eq!(rows[0]["subtitle_id"], "generated:v1");
+    let (status, _) =
+        call(ctx.app(), Method::GET, "/api/v1/versions/v1/jobs", Some(USER), None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, body) =
+        call(ctx.app(), Method::GET, "/api/v1/versions/ghost/jobs", Some(ADMIN), None).await;
+    assert_eq!((status, body), (StatusCode::OK, json!([])));
+}
+
+#[tokio::test]
+async fn an_admins_linked_device_works_on_versions_and_nothing_else() {
+    const TV: &str = "device:admin";
+    const PLAIN_TV: &str = "device:u1";
+    let ctx = Ctx::new();
+    ctx.auth.add_linked_device(UserId("admin".into()), true);
+    ctx.auth.add_linked_device(UserId("u1".into()), false);
+    ctx.library_repo.insert_library(library("lib1"));
+    ctx.catalog_repo.add_version(version(
+        "v1",
+        TitleId::Movie(MovieId("m1".into())),
+        "lib1",
+        Quality::Hd,
+    ));
+    ctx.catalog_repo
+        .set_subtitle_files(
+            &VersionId("v1".into()),
+            &[subtitle_file("sf-en"), subtitle_file("sf-fr")],
+        )
+        .await
+        .unwrap();
+    let work = [
+        "/api/v1/versions/v1/subtitles/transcribe",
+        "/api/v1/versions/v1/subtitles/sf-en/translate?target_language=zh",
+        "/api/v1/versions/v1/subtitles/sf-en/combine?bottom_subtitle_id=sf-fr",
+        "/api/v1/versions/v1/upscale?target_height=2160",
+    ];
+
+    let (status, started) = call(ctx.app(), Method::POST, work[0], Some(TV), None).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let (status, jobs) =
+        call(ctx.app(), Method::GET, "/api/v1/versions/v1/jobs", Some(TV), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(jobs[0]["id"], started["job_id"]);
+    assert_eq!(jobs[0]["subtitle_id"], "generated:v1");
+    for uri in &work[1..] {
+        let (status, _) = call(ctx.app(), Method::POST, uri, Some(TV), None).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "POST {uri} from an admin's device");
+    }
+
+    let job = format!("/api/v1/admin/jobs/{}", started["job_id"].as_str().unwrap());
+    for (method, uri) in [
+        (Method::DELETE, "/api/v1/versions/v1"),
+        (Method::POST, "/api/v1/versions/v1/relink"),
+        (Method::PUT, "/api/v1/movies/m1"),
+        (Method::POST, "/api/v1/libraries/lib1/scan"),
+        (Method::GET, "/api/v1/admin/jobs"),
+        (Method::GET, job.as_str()),
+        (Method::GET, "/api/v1/admin/versions"),
+        (Method::POST, "/api/v1/admin/fetch"),
+        (Method::GET, "/api/v1/users"),
+    ] {
+        let (status, _) = call(ctx.app(), method.clone(), uri, Some(TV), Some(json!({}))).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{method} {uri} from an admin's device");
+    }
+
+    for uri in work.iter().copied().chain(["/api/v1/versions/v1/jobs"]) {
+        let method = if uri.ends_with("/jobs") { Method::GET } else { Method::POST };
+        let (status, _) = call(ctx.app(), method, uri, Some(PLAIN_TV), None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{uri} from a plain device");
+    }
+}
+
+#[tokio::test]
 async fn only_a_scan_asked_to_reread_queues_a_reread() {
     use domain::library::ScanMode;
     use domain::repository::JobRepository;
@@ -974,6 +1096,7 @@ async fn a_job_queue_that_is_down_refuses_to_report_a_scan_as_started() {
 #[traced_test]
 #[tokio::test]
 async fn library_routes() {
+    use domain::repository::JobRepository;
     let ctx = Ctx::new();
     let id = LibraryId("lib1".into());
     ctx.library_repo.insert_library(library("lib1"));
@@ -1049,26 +1172,42 @@ async fn library_routes() {
         assert_eq!(status, StatusCode::OK, "GET {uri}");
         assert_eq!(body["total"], total, "GET {uri}");
     }
+    let (status, _) =
+        call(ctx.app(), Method::POST, "/api/v1/people/p1/refresh", Some(USER), Some(json!({})))
+            .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "POST person refresh as user");
+    let (status, _) =
+        call(ctx.app(), Method::POST, "/api/v1/people/p1/refresh", Some(ADMIN), Some(json!({})))
+            .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "POST person refresh as admin");
     let triggers = [
-        ("/api/v1/admin/versions/v1/transcribe", json!({"audio_track_index": 2})),
-        (
-            "/api/v1/admin/versions/v1/translate",
-            json!({"source_subtitle_id": "sf1", "target_language": "zh"}),
-        ),
-        ("/api/v1/admin/versions/v1/upscale", json!({"target_height": 2160})),
-        (
-            "/api/v1/admin/versions/v1/subtitles/combine",
-            json!({"top_subtitle_id": "sf-en", "bottom_subtitle_id": "sf-fr"}),
-        ),
-        ("/api/v1/people/p1/refresh", json!({})),
+        ("/api/v1/versions/v1/subtitles/transcribe?audio_track_index=2", JobKind::Transcription),
+        ("/api/v1/versions/v1/subtitles/sf1/translate?target_language=zh", JobKind::Translation),
+        ("/api/v1/versions/v1/upscale?target_height=2160", JobKind::Upscale),
+        ("/api/v1/versions/v1/subtitles/sf-en/combine?bottom_subtitle_id=sf-fr", JobKind::Combine),
     ];
-    for (uri, body) in triggers {
-        let (status, _) = call(ctx.app(), Method::POST, uri, Some(USER), Some(body.clone())).await;
+    for (uri, kind) in triggers {
+        let (status, _) = call(ctx.app(), Method::POST, uri, Some(USER), None).await;
         assert_eq!(status, StatusCode::FORBIDDEN, "POST {uri} as user");
-        let (status, _) = call(ctx.app(), Method::POST, uri, Some(ADMIN), Some(body)).await;
+        let (status, body) = call(ctx.app(), Method::POST, uri, Some(ADMIN), None).await;
         assert_eq!(status, StatusCode::ACCEPTED, "POST {uri} as admin");
+        let id = JobId(body["job_id"].as_str().unwrap().to_owned());
+        let job = ctx.jobs_repo.get(&id).await.unwrap().unwrap();
+        assert_eq!((job.kind, job.priority), (kind, JobPriority::High), "POST {uri}");
     }
-    let delete_uri = "/api/v1/admin/versions/v1";
+    for uri in [
+        "/api/v1/admin/versions/v1/transcribe",
+        "/api/v1/admin/versions/v1/translate",
+        "/api/v1/admin/versions/v1/upscale",
+        "/api/v1/admin/versions/v1/subtitles/combine",
+    ] {
+        let (status, _) = call(ctx.app(), Method::POST, uri, Some(ADMIN), None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "POST {uri} is gone");
+    }
+    let (status, _) =
+        call(ctx.app(), Method::DELETE, "/api/v1/admin/versions/v1", Some(ADMIN), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "DELETE on the old version path is gone");
+    let delete_uri = "/api/v1/versions/v1";
     let (status, _) = call(ctx.app(), Method::DELETE, delete_uri, Some(USER), None).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "DELETE {delete_uri} as user");
     let (status, _) = call(ctx.app(), Method::DELETE, delete_uri, Some(ADMIN), None).await;
@@ -1093,24 +1232,18 @@ async fn library_routes() {
     let (status, body) = call(ctx.app(), Method::POST, retry_uri, Some(ADMIN), None).await;
     assert_eq!(status, StatusCode::CONFLICT, "a queued job cannot be retried");
     assert_eq!(body["error"]["code"], "not_retryable");
-    let (status, _) = call(
-        ctx.app(),
-        Method::POST,
-        "/api/v1/admin/versions/v1/upscale",
-        Some(ADMIN),
-        Some(json!({"target_height": 0})),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    let (status, _) = call(
-        ctx.app(),
-        Method::POST,
-        "/api/v1/admin/versions/v1/subtitles/combine",
-        Some(ADMIN),
-        Some(json!({"top_subtitle_id": "sf-en", "bottom_subtitle_id": "sf-en"})),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    for uri in [
+        "/api/v1/versions/v1/upscale?target_height=0",
+        "/api/v1/versions/v1/upscale",
+        "/api/v1/versions/v1/subtitles/sf-en/combine?bottom_subtitle_id=sf-en",
+        "/api/v1/versions/v1/subtitles/sf-en/combine",
+        "/api/v1/versions/v1/subtitles/sf1/translate?target_language=%20",
+        "/api/v1/versions/v1/subtitles/sf1/translate",
+        "/api/v1/versions/v1/subtitles/transcribe?audio_track_index=two",
+    ] {
+        let (status, _) = call(ctx.app(), Method::POST, uri, Some(ADMIN), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "POST {uri}");
+    }
     ctx.library_repo.insert_library(external_library("ext1"));
     let fetch_body = json!({"source_url": "https://x/v", "kind": "movie", "library_id": "ext1", "title": "The Matrix"});
     let (status, _) =

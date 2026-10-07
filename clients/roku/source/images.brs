@@ -63,6 +63,10 @@ function ControlIconSize() as integer
     return 40
 end function
 
+function InlineIconSize() as integer
+    return 30
+end function
+
 function LinkIconSize() as integer
     return 28
 end function

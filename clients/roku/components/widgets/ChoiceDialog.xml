@@ -17,6 +17,8 @@
     <script type="text/brightscript" uri="pkg:/source/screen.brs" />
     <script type="text/brightscript" uri="pkg:/source/capability.brs" />
     <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+    <script type="text/brightscript" uri="pkg:/source/languages.brs" />
+    <script type="text/brightscript" uri="pkg:/source/work.brs" />
 
     <interface>
         <field id="theme" type="assocarray" onChange="render" />
@@ -36,8 +38,14 @@
             <ScrollBar id="textBar" />
             <Group id="viewport">
                 <Group id="rows" />
+                <Group id="spinnerTurn" visible="false">
+                    <Poster id="spinner" muteAudioGuide="true" />
+                </Group>
             </Group>
             <ScrollBar id="bar" />
         </Group>
+        <Animation id="spin" repeat="true" duration="1" easeFunction="linear">
+            <FloatFieldInterpolator key="[0.0, 1.0]" keyValue="[0.0, -6.2832]" fieldToInterp="spinnerTurn.rotation" />
+        </Animation>
     </children>
 </component>

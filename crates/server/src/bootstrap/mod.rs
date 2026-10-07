@@ -17,7 +17,7 @@ pub use library::LibraryBootstrapProvider;
 pub use user::UserBootstrapProvider;
 
 pub(crate) fn bootstrap_admin() -> Principal {
-    Principal { user: UserId("bootstrap".to_owned()), role: Role::Admin }
+    Principal { user: UserId("bootstrap".to_owned()), role: Role::Admin, account_admin: true }
 }
 
 pub(crate) fn backend<E: Display>(entity: &'static str, error: E) -> BootstrapError {

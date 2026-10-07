@@ -5,7 +5,7 @@ use domain::repository::{AuthTokenRepository, UserRepository};
 use domain::service::AuthService;
 use domain::user::{
     ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, DeviceRegistration,
-    IssuedToken, PendingLink, Principal, Role, TokenPair, UserId,
+    IssuedToken, PendingLink, Principal, Role, TokenPair, User, UserId,
 };
 use jiff::Timestamp;
 use jsonwebtoken::errors::ErrorKind;
@@ -185,9 +185,9 @@ where
     U: UserRepository + Sync,
     T: AuthTokenRepository + Sync,
 {
-    async fn require_active(&self, user: &UserId) -> Result<(), AuthError> {
+    async fn require_active(&self, user: &UserId) -> Result<User, AuthError> {
         match self.users.get(user).await? {
-            Some(found) if found.active => Ok(()),
+            Some(found) if found.active => Ok(found),
             Some(_) => Err(AuthError::AccountDisabled),
             None => Err(AuthError::InvalidToken),
         }
@@ -288,14 +288,22 @@ where
                 .find_api_token_by_hash(&hash_api_token(access_token))
                 .await?
                 .ok_or(AuthError::InvalidToken)?;
-            self.require_active(&token.user).await?;
+            let account = self.require_active(&token.user).await?;
             self.tokens.touch_api_token(&token.id, Timestamp::now()).await?;
-            return Ok(Principal { user: token.user, role: Role::Player });
+            return Ok(Principal {
+                user: token.user,
+                role: Role::Player,
+                account_admin: account.role == Role::Admin,
+            });
         }
         let claims = self.decode(access_token, TYP_ACCESS)?;
         let user = UserId(claims.sub);
-        self.require_active(&user).await?;
-        Ok(Principal { user, role: role_from_claim(&claims.rol)? })
+        let account = self.require_active(&user).await?;
+        Ok(Principal {
+            user,
+            role: role_from_claim(&claims.rol)?,
+            account_admin: account.role == Role::Admin,
+        })
     }
 
     async fn create_link_code(
@@ -455,7 +463,7 @@ mod tests {
         let pair = svc.login("alice", "pw").await.unwrap();
         let link = svc
             .create_link_code(
-                &Principal { user: UserId("u1".into()), role: Role::Admin },
+                &Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true },
                 None,
                 None,
             )
@@ -480,11 +488,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_linked_device_says_whether_its_account_is_an_admin_read_live() {
+        let svc = seeded().await;
+        let link = svc
+            .create_link_code(
+                &Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true },
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let issued = svc.redeem_link_code(&link.code, device()).await.unwrap();
+
+        let tv = svc.authenticate(&issued.token).await.unwrap();
+        assert_eq!(tv.role, Role::Player);
+        assert!(tv.account_admin);
+
+        svc.users.insert(user("u1", "alice", Role::User));
+
+        assert!(
+            !svc.authenticate(&issued.token).await.unwrap().account_admin,
+            "demoting the account cuts the device off at once"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_signed_in_session_reads_the_account_flag_live_too() {
+        let svc = seeded().await;
+        let pair = svc.login("alice", "pw").await.unwrap();
+        assert!(svc.authenticate(&pair.access_token).await.unwrap().account_admin);
+
+        svc.users.insert(user("u1", "alice", Role::User));
+
+        let session = svc.authenticate(&pair.access_token).await.unwrap();
+        assert_eq!(session.role, Role::Admin, "the session keeps the role it was issued with");
+        assert!(!session.account_admin);
+    }
+
+    #[tokio::test]
     async fn an_api_token_dies_with_the_account_that_holds_it() {
         let svc = seeded().await;
         let link = svc
             .create_link_code(
-                &Principal { user: UserId("u1".into()), role: Role::Admin },
+                &Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true },
                 None,
                 None,
             )
@@ -658,7 +704,8 @@ mod tests {
     #[tokio::test]
     async fn create_link_code_defaults_to_caller_then_redeems() {
         let svc = seeded().await;
-        let caller = Principal { user: UserId("u1".into()), role: Role::Admin };
+        let caller =
+            Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true };
         let link = svc.create_link_code(&caller, None, None).await.unwrap();
         assert_eq!(link.user, UserId("u1".into()));
         assert_eq!(link.role, Role::Player);
@@ -672,7 +719,8 @@ mod tests {
     #[tokio::test]
     async fn create_link_code_honors_explicit_user_and_ttl() {
         let svc = seeded().await;
-        let caller = Principal { user: UserId("u1".into()), role: Role::Admin };
+        let caller =
+            Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true };
         let before = Timestamp::now().as_second();
         let link =
             svc.create_link_code(&caller, Some(UserId("u2".into())), Some(60)).await.unwrap();
@@ -683,7 +731,8 @@ mod tests {
     #[tokio::test]
     async fn create_link_code_rejects_out_of_range_ttl() {
         let svc = seeded().await;
-        let caller = Principal { user: UserId("u1".into()), role: Role::Admin };
+        let caller =
+            Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true };
         assert!(matches!(
             svc.create_link_code(&caller, None, Some(300_000_000_000)).await.unwrap_err(),
             AuthError::Repository(_)
@@ -710,7 +759,8 @@ mod tests {
     #[tokio::test]
     async fn redeem_tolerates_separators_and_case() {
         let svc = seeded().await;
-        let caller = Principal { user: UserId("u1".into()), role: Role::Admin };
+        let caller =
+            Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true };
         let link = svc.create_link_code(&caller, None, None).await.unwrap();
         let typed = format!("{}-{}", &link.code[..4], link.code[4..].to_lowercase());
         let issued = svc.redeem_link_code(&typed, device()).await.unwrap();
@@ -720,7 +770,8 @@ mod tests {
     #[tokio::test]
     async fn list_and_revoke_link_codes() {
         let svc = seeded().await;
-        let caller = Principal { user: UserId("u1".into()), role: Role::Admin };
+        let caller =
+            Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true };
         let a = svc.create_link_code(&caller, None, None).await.unwrap();
         let b = svc.create_link_code(&caller, None, None).await.unwrap();
         assert_eq!(svc.list_link_codes(&UserId("u1".into())).await.unwrap().len(), 2);
@@ -818,14 +869,15 @@ mod tests {
         let svc = seeded().await;
         let pair = svc.login("alice", "pw").await.unwrap();
         let issued = {
-            let boss = Principal { user: UserId("u1".into()), role: Role::Admin };
+            let boss =
+                Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true };
             let link = svc.create_link_code(&boss, None, None).await.unwrap();
             svc.redeem_link_code(&link.code, device()).await.unwrap()
         };
         svc.tokens.set_fail();
 
         let user = UserId("u1".into());
-        let boss = Principal { user: user.clone(), role: Role::Admin };
+        let boss = Principal { user: user.clone(), role: Role::Admin, account_admin: true };
 
         macro_rules! is_repository_error {
             ($call:expr) => {
@@ -856,7 +908,7 @@ mod tests {
         // reaches the account lookup this test is about.
         let link = svc
             .create_link_code(
-                &Principal { user: UserId("u1".into()), role: Role::Admin },
+                &Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true },
                 None,
                 None,
             )

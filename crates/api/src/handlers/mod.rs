@@ -13,6 +13,7 @@ pub mod subtitle;
 pub mod trickplay;
 pub mod user_library;
 pub mod users;
+pub mod version;
 pub mod webhook;
 
 use std::fmt::Display;

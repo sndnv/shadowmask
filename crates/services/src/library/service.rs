@@ -7,7 +7,7 @@ use domain::catalog::{
 };
 use domain::common::{Page, PageRequest};
 use domain::error::LibraryError;
-use domain::job::{JobKind, JobPriority};
+use domain::job::{Job, JobId, JobKind, JobPriority};
 use domain::library::{
     DuplicateCandidate, DuplicateCandidateId, FetchInput, Library, LibraryId, LibraryKind,
     LibraryOrigin, LibraryUpdate, NewLibrary, ResolutionStatus, ResolveCandidate, ResolveTarget,
@@ -122,6 +122,13 @@ where
             .map(|entry| entry.library)
             .collect();
         Ok(acl::can_access_library(&access, id))
+    }
+
+    async fn enqueue_on_demand(&self, mut job: Job) -> Result<JobId, LibraryError> {
+        job.priority = JobPriority::High;
+        let id = job.id.clone();
+        self.jobs.enqueue(job).await?;
+        Ok(id)
     }
 
     async fn require_library(
@@ -759,8 +766,8 @@ where
         version: &VersionId,
         audio_track_index: Option<u32>,
         source_language: Option<String>,
-    ) -> Result<(), LibraryError> {
-        if !acl::is_admin(caller) {
+    ) -> Result<JobId, LibraryError> {
+        if !acl::works_on_versions(caller) {
             return Err(LibraryError::Forbidden);
         }
         if !self.transcription_enabled {
@@ -779,8 +786,7 @@ where
             audio_track_index,
             true,
         );
-        self.jobs.enqueue(job).await?;
-        Ok(())
+        self.enqueue_on_demand(job).await
     }
 
     async fn trigger_translation(
@@ -789,8 +795,8 @@ where
         version: &VersionId,
         source_subtitle: &SubtitleFileId,
         target_language: String,
-    ) -> Result<(), LibraryError> {
-        if !acl::is_admin(caller) {
+    ) -> Result<JobId, LibraryError> {
+        if !acl::works_on_versions(caller) {
             return Err(LibraryError::Forbidden);
         }
         if !self.translation_enabled {
@@ -801,8 +807,7 @@ where
             return Err(LibraryError::NotFound);
         }
         let job = translation_job_with_source(version, &source_subtitle.0, &target_language);
-        self.jobs.enqueue(job).await?;
-        Ok(())
+        self.enqueue_on_demand(job).await
     }
 
     async fn trigger_upscale(
@@ -810,16 +815,15 @@ where
         caller: &Principal,
         version: &VersionId,
         target_height: u32,
-    ) -> Result<(), LibraryError> {
-        if !acl::is_admin(caller) {
+    ) -> Result<JobId, LibraryError> {
+        if !acl::works_on_versions(caller) {
             return Err(LibraryError::Forbidden);
         }
         if !self.upscaling_enabled {
             return Err(LibraryError::Disabled);
         }
         self.catalog.version_detail(version).await?.ok_or(LibraryError::NotFound)?;
-        self.jobs.enqueue(upscale_job(version, target_height)).await?;
-        Ok(())
+        self.enqueue_on_demand(upscale_job(version, target_height)).await
     }
 
     async fn trigger_combine(
@@ -828,8 +832,8 @@ where
         version: &VersionId,
         top: &SubtitleFileId,
         bottom: &SubtitleFileId,
-    ) -> Result<(), LibraryError> {
-        if !acl::is_admin(caller) {
+    ) -> Result<JobId, LibraryError> {
+        if !acl::works_on_versions(caller) {
             return Err(LibraryError::Forbidden);
         }
         let detail = self.catalog.version_detail(version).await?.ok_or(LibraryError::NotFound)?;
@@ -838,8 +842,7 @@ where
             return Err(LibraryError::NotFound);
         }
         let job = combine_job(version, &top.0, &bottom.0);
-        self.jobs.enqueue(job).await?;
-        Ok(())
+        self.enqueue_on_demand(job).await
     }
 }
 
@@ -898,15 +901,15 @@ mod tests {
     }
 
     fn admin() -> Principal {
-        Principal { user: UserId("admin".into()), role: Role::Admin }
+        Principal { user: UserId("admin".into()), role: Role::Admin, account_admin: true }
     }
 
     fn member() -> Principal {
-        Principal { user: UserId("u1".into()), role: Role::User }
+        Principal { user: UserId("u1".into()), role: Role::User, account_admin: false }
     }
 
     fn automation() -> Principal {
-        Principal { user: UserId("webhook".into()), role: Role::Automation }
+        Principal { user: UserId("webhook".into()), role: Role::Automation, account_admin: false }
     }
 
     fn page() -> PageRequest {
@@ -1175,7 +1178,8 @@ mod tests {
     #[tokio::test]
     async fn a_creator_with_no_account_is_not_granted_anything() {
         let svc = seeded().await;
-        let synthetic = Principal { user: UserId("bootstrap".into()), role: Role::Admin };
+        let synthetic =
+            Principal { user: UserId("bootstrap".into()), role: Role::Admin, account_admin: true };
 
         let created = svc.create_library(&synthetic, new_library()).await;
 
@@ -2468,12 +2472,15 @@ mod tests {
         use crate::library::TranscriptionJobPayload;
         use domain::catalog::VersionId;
         let (svc, jobs) = trigger_svc(seeded_version_catalog(), true, false, false);
-        svc.trigger_transcription(&admin(), &VersionId("v1".into()), None, Some("en".into()))
+        let id = svc
+            .trigger_transcription(&admin(), &VersionId("v1".into()), None, Some("en".into()))
             .await
             .unwrap();
         let enqueued = jobs.list().await.unwrap();
         assert_eq!(enqueued.len(), 1);
+        assert_eq!(enqueued[0].id, id);
         assert_eq!(enqueued[0].kind, JobKind::Transcription);
+        assert_eq!(enqueued[0].priority, JobPriority::High);
         assert!(
             TranscriptionJobPayload::decode(&enqueued[0].payload).unwrap().force,
             "an admin asking for a transcription always means force"
@@ -2536,17 +2543,20 @@ mod tests {
             .await
             .unwrap();
         let (svc, jobs) = trigger_svc(catalog, false, true, false);
-        svc.trigger_translation(
-            &admin(),
-            &VersionId("v1".into()),
-            &SubtitleFileId("sf1".into()),
-            "zh".into(),
-        )
-        .await
-        .unwrap();
+        let id = svc
+            .trigger_translation(
+                &admin(),
+                &VersionId("v1".into()),
+                &SubtitleFileId("sf1".into()),
+                "zh".into(),
+            )
+            .await
+            .unwrap();
         let enqueued = jobs.list().await.unwrap();
         assert_eq!(enqueued.len(), 1);
+        assert_eq!(enqueued[0].id, id);
         assert_eq!(enqueued[0].kind, JobKind::Translation);
+        assert_eq!(enqueued[0].priority, JobPriority::High);
     }
 
     #[tokio::test]
@@ -2581,10 +2591,12 @@ mod tests {
         let v1 = VersionId("v1".into());
 
         let (svc, jobs) = trigger_svc(seeded_version_catalog(), false, false, true);
-        svc.trigger_upscale(&admin(), &v1, 2160).await.unwrap();
+        let id = svc.trigger_upscale(&admin(), &v1, 2160).await.unwrap();
         let enqueued = jobs.list().await.unwrap();
         assert_eq!(enqueued.len(), 1);
+        assert_eq!(enqueued[0].id, id);
         assert_eq!(enqueued[0].kind, JobKind::Upscale);
+        assert_eq!(enqueued[0].priority, JobPriority::High);
 
         let (member_svc, _) = trigger_svc(seeded_version_catalog(), false, false, true);
         assert!(matches!(
@@ -2647,10 +2659,12 @@ mod tests {
         let (catalog, files) = seed();
         catalog.set_subtitle_files(&v1, &files).await.unwrap();
         let (svc, jobs) = trigger_svc(catalog, false, false, false);
-        svc.trigger_combine(&admin(), &v1, &en, &fr).await.unwrap();
+        let id = svc.trigger_combine(&admin(), &v1, &en, &fr).await.unwrap();
         let enqueued = jobs.list().await.unwrap();
         assert_eq!(enqueued.len(), 1);
+        assert_eq!(enqueued[0].id, id);
         assert_eq!(enqueued[0].kind, JobKind::Combine);
+        assert_eq!(enqueued[0].priority, JobPriority::High);
 
         let (catalog, files) = seed();
         catalog.set_subtitle_files(&v1, &files).await.unwrap();
@@ -2676,6 +2690,55 @@ mod tests {
             missing_svc.trigger_combine(&admin(), &v1, &en, &fr).await.unwrap_err(),
             LibraryError::NotFound
         ));
+    }
+
+    #[tokio::test]
+    async fn an_admins_linked_device_may_start_version_work_and_a_plain_one_may_not() {
+        use domain::catalog::VersionId;
+        use domain::media::{SubtitleFile, SubtitleFileId, SubtitleFormat, SubtitleSource};
+        use domain::repository::CatalogRepository;
+
+        let v1 = VersionId("v1".into());
+        let (en, fr) = (SubtitleFileId("sf-en".into()), SubtitleFileId("sf-fr".into()));
+        let catalog = seeded_version_catalog();
+        let files: Vec<SubtitleFile> = [&en, &fr]
+            .into_iter()
+            .map(|id| SubtitleFile {
+                id: id.clone(),
+                version: v1.clone(),
+                language: None,
+                format: SubtitleFormat::Srt,
+                source: SubtitleSource::External,
+                path: format!("/media/{}.srt", id.0),
+                translated_from: None,
+                label: None,
+                pinned: false,
+            })
+            .collect();
+        catalog.set_subtitle_files(&v1, &files).await.unwrap();
+        let (svc, jobs) = trigger_svc(catalog, true, true, true);
+        let device = |account_admin| Principal {
+            user: UserId("admin".into()),
+            role: Role::Player,
+            account_admin,
+        };
+
+        svc.trigger_transcription(&device(true), &v1, None, None).await.unwrap();
+        svc.trigger_translation(&device(true), &v1, &en, "zh".into()).await.unwrap();
+        svc.trigger_upscale(&device(true), &v1, 2160).await.unwrap();
+        svc.trigger_combine(&device(true), &v1, &en, &fr).await.unwrap();
+        assert_eq!(jobs.list().await.unwrap().len(), 4);
+
+        let plain = device(false);
+        for refused in [
+            svc.trigger_transcription(&plain, &v1, None, None).await,
+            svc.trigger_translation(&plain, &v1, &en, "zh".into()).await,
+            svc.trigger_upscale(&plain, &v1, 2160).await,
+            svc.trigger_combine(&plain, &v1, &en, &fr).await,
+        ] {
+            assert!(matches!(refused.unwrap_err(), LibraryError::Forbidden));
+        }
+        assert_eq!(jobs.list().await.unwrap().len(), 4);
     }
 
     fn edit_svc() -> (Svc, MockCatalogRepo) {

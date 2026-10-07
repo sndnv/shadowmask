@@ -23,12 +23,15 @@ use domain::media::{
 };
 use domain::metadata::{ExternalId, TitleEnrichment};
 use domain::repository::CatalogRepository;
+use domain::user::UserId;
 use jiff::Timestamp;
 use mocks::MockCatalogRepo;
 use tracing_test::traced_test;
 
 const ADMIN: &str = "Bearer access:admin";
 const USER: &str = "Bearer access:u1";
+const ADMIN_TV: &str = "Bearer device:admin";
+const USER_TV: &str = "Bearer device:u1";
 
 #[derive(Clone, Default)]
 struct MockStore {
@@ -243,6 +246,8 @@ async fn seeded_episode() -> MockCatalogRepo {
 
 fn app(catalog: MockCatalogRepo, store: MockStore, provider: MockProvider) -> Router {
     let generator = Generator::new();
+    generator.auth.add_linked_device(UserId("admin".into()), true);
+    generator.auth.add_linked_device(UserId("u1".into()), false);
     let auth = AppState::new(
         generator.auth.clone(),
         generator.catalog.clone(),
@@ -279,8 +284,8 @@ async fn post(app: Router, uri: &str, auth: Option<&str>, body: &str) -> (Status
     (status, body)
 }
 
-const SEARCH: &str = "/api/v1/admin/versions/v1/subtitles/search";
-const DOWNLOAD: &str = "/api/v1/admin/versions/v1/subtitles/download";
+const SEARCH: &str = "/api/v1/versions/v1/subtitles/search";
+const DOWNLOAD: &str = "/api/v1/versions/v1/subtitles/download";
 
 async fn files(catalog: &MockCatalogRepo) -> Vec<SubtitleFile> {
     catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap().subtitle_files
@@ -534,7 +539,7 @@ async fn admin_download_adds_row_keeping_others() {
     ])
     .await;
 
-    let (status, _) = post(
+    let (status, body) = post(
         app(catalog.clone(), MockStore::default(), MockProvider::default()),
         DOWNLOAD,
         Some(ADMIN),
@@ -542,7 +547,12 @@ async fn admin_download_adds_row_keeping_others() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::CREATED);
+    let created: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(created["id"], "opensubtitles:v1:42");
+    assert_eq!(created["language"], "en");
+    assert_eq!(created["source"], "open_subtitles");
+    assert_eq!(created["pinned"], true);
     let files = files(&catalog).await;
     assert_eq!(files.len(), 3);
     let added = files.iter().find(|file| file.id.0 == "opensubtitles:v1:42").unwrap();
@@ -565,11 +575,14 @@ async fn downloading_a_file_the_version_already_holds_spends_no_quota() {
     let store = MockStore::default();
     let written = store.files.clone();
 
-    let (status, _) =
+    let (status, body) =
         post(app(catalog.clone(), store, provider), DOWNLOAD, Some(ADMIN), r#"{"file_id":"42"}"#)
             .await;
 
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::OK);
+    let held: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(held["id"], "opensubtitles:v1:42");
+    assert_eq!(held["pinned"], true);
     assert_eq!(downloads.load(Ordering::SeqCst), 0);
     assert!(written.lock().unwrap().is_empty());
     let files = files(&catalog).await;
@@ -597,7 +610,7 @@ async fn a_file_replaced_while_the_pick_was_in_flight_is_downloaded_and_pinned()
     )
     .await;
 
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::CREATED);
     assert_eq!(downloads.load(Ordering::SeqCst), 1);
     let files = files(&catalog).await;
     assert_eq!(files.len(), 1);
@@ -615,7 +628,7 @@ async fn picking_a_file_the_job_already_fetched_pins_it_without_a_download() {
     let provider = MockProvider::default();
     let downloads = provider.downloads.clone();
 
-    let (status, _) = post(
+    let (status, body) = post(
         app(catalog.clone(), MockStore::default(), provider),
         DOWNLOAD,
         Some(ADMIN),
@@ -623,7 +636,10 @@ async fn picking_a_file_the_job_already_fetched_pins_it_without_a_download() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::OK);
+    let held: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(held["label"], "Paper.Skies.1999.BluRay");
+    assert_eq!(held["pinned"], true);
     assert_eq!(downloads.load(Ordering::SeqCst), 0);
     let files = files(&catalog).await;
     let picked = files.iter().find(|file| file.id.0 == "opensubtitles:v1:42").unwrap();
@@ -651,7 +667,7 @@ async fn downloading_a_file_the_version_lacks_calls_the_provider_once() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::CREATED);
     assert_eq!(downloads.load(Ordering::SeqCst), 1);
     let files = files(&catalog).await;
     assert_eq!(files.len(), 2);
@@ -672,7 +688,7 @@ async fn a_hand_picked_download_is_stored_pinned_and_labelled() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::CREATED);
     let files = files(&catalog).await;
     assert_eq!(files[0].label.as_deref(), Some("Paper.Skies.1999.BluRay"));
     assert!(files[0].pinned, "an admin's pick must survive the automatic job");
@@ -690,7 +706,7 @@ async fn a_download_without_a_release_name_is_still_pinned() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::CREATED);
     let files = files(&catalog).await;
     assert_eq!(files[0].label, None);
     assert!(files[0].pinned);
@@ -706,7 +722,7 @@ async fn download_blank_language_stores_none() {
         r#"{"file_id":"42","language":"   "}"#,
     )
     .await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::CREATED);
     assert!(files(&catalog).await[0].language.is_none());
 }
 
@@ -807,9 +823,58 @@ async fn download_catalog_read_error_is_internal() {
 #[tokio::test]
 async fn non_admin_is_forbidden() {
     let catalog = seeded(&[]).await;
-    let (status, _) =
-        get(app(catalog, MockStore::default(), MockProvider::default()), SEARCH, Some(USER)).await;
+    let (status, _) = get(
+        app(catalog.clone(), MockStore::default(), MockProvider::default()),
+        SEARCH,
+        Some(USER),
+    )
+    .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = post(
+        app(catalog, MockStore::default(), MockProvider::default()),
+        DOWNLOAD,
+        Some(USER),
+        r#"{"file_id":"42"}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn an_admins_linked_device_searches_and_downloads_and_a_plain_one_may_not() {
+    let catalog = seeded(&[]).await;
+    let app = || app(catalog.clone(), MockStore::default(), MockProvider::default());
+
+    let (status, _) = get(app(), SEARCH, Some(USER_TV)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = post(app(), DOWNLOAD, Some(USER_TV), r#"{"file_id":"42"}"#).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, _) = get(app(), SEARCH, Some(ADMIN_TV)).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = post(app(), DOWNLOAD, Some(ADMIN_TV), r#"{"file_id":"42"}"#).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(files(&catalog).await.len(), 1);
+}
+
+#[tokio::test]
+async fn the_admin_paths_are_gone() {
+    let catalog = seeded(&[]).await;
+    let (status, _) = get(
+        app(catalog.clone(), MockStore::default(), MockProvider::default()),
+        "/api/v1/admin/versions/v1/subtitles/search",
+        Some(ADMIN),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = post(
+        app(catalog, MockStore::default(), MockProvider::default()),
+        "/api/v1/admin/versions/v1/subtitles/download",
+        Some(ADMIN),
+        r#"{"file_id":"42"}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

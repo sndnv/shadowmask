@@ -540,13 +540,13 @@ else
     edv=$(call_ok GET "$API/movies/$ED_MOVIE_ID/versions" "$USER_TOKEN")
     ED_VER=$(jq -r '.items[0].id' <<<"$edv")
     [[ -n "$ED_VER" && "$ED_VER" != null ]] || die "no Elephants Dream version"
-    call_ok POST "$API/admin/versions/$ED_VER/transcribe" "$ADMIN_TOKEN" "$(jq -nc '{}')" 202 "trigger transcription" >/dev/null
+    tr=$(call_ok POST "$API/versions/$ED_VER/subtitles/transcribe" "$ADMIN_TOKEN" "" 202 "trigger transcription")
+    jq -e '.job_id | type == "string" and length > 0' <<<"$tr" >/dev/null || die "transcription returned no job_id: [$tr]"
     poll_until "transcription produced a [generated] subtitle" 900 subtitle_of_source "$ED_VER" generated "$ADMIN_TOKEN"
     GEN_SUB=$(subtitle_id_of_source "$ED_VER" generated "$ADMIN_TOKEN")
     [[ -n "$GEN_SUB" ]] || die "no generated subtitle id"
     assert_subtitle_serves "$ED_VER" "$GEN_SUB" "$USER_TOKEN"
-    call_ok POST "$API/admin/versions/$ED_VER/translate" "$ADMIN_TOKEN" \
-        "$(jq -nc --arg s "$GEN_SUB" '{source_subtitle_id:$s,target_language:"es"}')" 202 "trigger translation (es)" >/dev/null
+    call_ok POST "$API/versions/$ED_VER/subtitles/$GEN_SUB/translate?target_language=es" "$ADMIN_TOKEN" "" 202 "trigger translation (es)" >/dev/null
     poll_until "translation produced a [machine_translated] es subtitle" 900 \
         subtitle_of_lang_source "$ED_VER" es machine_translated "$ADMIN_TOKEN"
     MT_SUB=$(subtitle_id_of_lang_source "$ED_VER" es machine_translated "$ADMIN_TOKEN")

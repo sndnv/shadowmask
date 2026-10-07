@@ -98,6 +98,7 @@ pub struct WireConfig {
     pub remux_read_rate: f64,
     pub max_transcode_height: Option<u32>,
     pub profile_overrides_dir: Option<PathBuf>,
+    pub job_pools: Vec<Vec<JobKind>>,
 }
 
 impl WireConfig {
@@ -224,7 +225,8 @@ pub fn build_state(
     );
     let job = JobServiceImpl::new(repos.jobs.clone())
         .with_canceller(Arc::new(cancel.clone()))
-        .with_parked(cfg.parked_kinds());
+        .with_parked(cfg.parked_kinds())
+        .with_pools(cfg.job_pools.clone());
     let user = UserServiceImpl::new(
         repos.users.clone(),
         repos.auth_tokens.clone(),

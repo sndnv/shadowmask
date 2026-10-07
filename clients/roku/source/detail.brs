@@ -950,7 +950,12 @@ function MenuOptions(actions as dynamic) as object
             label: TextOrBlank(ValueAt(action, "label", "")),
             detail: TextOrBlank(ValueAt(action, "detail", "")),
             icon: TextOrBlank(ValueAt(action, "icon", "")),
-            danger: ValueAt(action, "danger", false) = true
+            danger: ValueAt(action, "danger", false) = true,
+            heading: ValueAt(action, "heading", false) = true,
+            info: ValueAt(action, "info", false) = true,
+            column: ValueAt(action, "column", false) = true,
+            meta: TextOrBlank(ValueAt(action, "meta", "")),
+            metaIcon: TextOrBlank(ValueAt(action, "metaIcon", ""))
         })
     end for
     return options
@@ -963,11 +968,53 @@ function DialogRow(option as dynamic) as object
             detail: TextOrBlank(ValueAt(option, "detail", "")),
             icon: TextOrBlank(ValueAt(option, "icon", "")),
             danger: ValueAt(option, "danger", false) = true,
-            cancel: ValueAt(option, "cancel", false) = true
+            cancel: ValueAt(option, "cancel", false) = true,
+            heading: ValueAt(option, "heading", false) = true,
+            info: ValueAt(option, "info", false) = true,
+            column: ValueAt(option, "column", false) = true,
+            meta: TextOrBlank(ValueAt(option, "meta", "")),
+            metaIcon: TextOrBlank(ValueAt(option, "metaIcon", ""))
         }
     end if
 
-    return { label: TextOrBlank(option), detail: "", icon: "", danger: false, cancel: false }
+    return { label: TextOrBlank(option), detail: "", icon: "", danger: false, cancel: false, heading: false, info: false, column: false, meta: "", metaIcon: "" }
+end function
+
+function DialogRowFocusable(row as dynamic) as boolean
+    return ValueAt(row, "heading", false) <> true
+end function
+
+function DialogRowSelectable(row as dynamic) as boolean
+    return DialogRowFocusable(row) and ValueAt(row, "info", false) <> true
+end function
+
+function FocusableRowIndex(rows as dynamic, index as integer) as integer
+    if type(rows) <> "roArray" or rows.Count() = 0 then return 0
+
+    at = ClampInt(index, 0, rows.Count() - 1)
+    if DialogRowFocusable(rows[at]) then return at
+    return SteppedRowIndex(rows, at, 1)
+end function
+
+function DialogBusyRows(rows as dynamic, index as integer, text as string) as object
+    busy = []
+    if type(rows) <> "roArray" then return busy
+
+    for at = 0 to rows.Count() - 1
+        row = {}
+        row.Append(rows[at])
+        if at = index
+            row.detail = text
+            row.meta = ""
+            row.metaIcon = ""
+            row.chevron = false
+            row.spinning = true
+        else
+            row.dimmed = true
+        end if
+        busy.Push(row)
+    end for
+    return busy
 end function
 
 function DialogTextPlan(natural as integer, rowsNeeded as integer, room as integer, gap as integer) as object
@@ -1004,12 +1051,30 @@ function DialogCancelRow() as object
     return DialogRowShape({ label: Phrase("action.cancel"), cancel: true }, "confirm", -1, -1)
 end function
 
+function DialogDetailWidth(room as integer, detail as integer, label as integer) as integer
+    kept = label
+    if kept > Int(room / 2) then kept = Int(room / 2)
+    if detail > room - kept then detail = room - kept
+    if detail < 0 then return 0
+    return detail
+end function
+
+function DialogColumnSpans(span as integer, gap as integer) as object
+    if span <= 0 then return { label: 0, at: 0, detail: 0 }
+
+    at = Int(span / 2)
+    label = at - gap
+    if label < 0 then label = 0
+    return { label: label, at: at, detail: span - at }
+end function
+
 function DialogRowShape(option as dynamic, kind as string, index as integer, selected as integer) as object
     row = DialogRow(option)
-    row.chosen = kind = "choice" and index = selected and not row.cancel
+    passive = row.heading or row.info
+    row.chosen = kind = "choice" and index = selected and not row.cancel and not passive
     row.icon = DialogRowIcon(row, kind)
-    row.reserve = not row.cancel and (kind = "choice" or not IsBlank(row.icon))
-    row.chevron = not row.cancel and not IsBlank(row.detail)
+    row.reserve = not row.cancel and not passive and (kind = "choice" or not IsBlank(row.icon))
+    row.chevron = not row.cancel and not passive and not IsBlank(row.detail)
     row.alignRight = row.cancel
     return row
 end function
@@ -1022,6 +1087,7 @@ function DialogSpeech(title as dynamic, message as dynamic, rows as dynamic, ind
     row = rows[at]
 
     parts.Push(TextOrBlank(ValueAt(row, "label", "")))
+    parts.Push(TextOrBlank(ValueAt(row, "meta", "")))
     parts.Push(TextOrBlank(ValueAt(row, "detail", "")))
     if ValueAt(row, "chosen", false) = true then parts.Push(Phrase("speech.selected"))
     parts.Push(PhraseWith("speech.slotOf", { index: at + 1, count: rows.Count() }))
@@ -1037,6 +1103,14 @@ function IsDialogClose(request as dynamic) as boolean
     if type(request) <> "roAssociativeArray" then return false
 
     return request.Count() = 0
+end function
+
+function DialogStartIndex(request as dynamic, open as boolean, field as string, current as integer, count as integer) as integer
+    if count <= 0 then return 0
+
+    asked = Int(ValueAt(request, "selected", 0))
+    if open and ValueAt(request, "keep", false) = true and TextOrBlank(ValueAt(request, "field", "")) = field then asked = current
+    return ClampInt(asked, 0, count - 1)
 end function
 
 function DialogRows(options as dynamic, kind as dynamic, selected as integer) as object
@@ -1065,6 +1139,15 @@ function DialogRowIcon(row as dynamic, kind as string) as string
 end function
 
 function DialogRowPaint(theme as object, row as dynamic, focused as boolean) as object
+    if ValueAt(row, "heading", false) = true or ValueAt(row, "dimmed", false) = true
+        return { fill: "", label: theme.muted, glyph: theme.muted, detail: theme.muted }
+    end if
+    if ValueAt(row, "info", false) = true
+        fill = ""
+        if focused then fill = theme.surfaceAlt
+        return { fill: fill, label: theme.text, glyph: theme.muted, detail: theme.muted }
+    end if
+
     if focused
         if ValueAt(row, "danger", false) = true
             return { fill: theme.danger, label: theme.dangerContrast, glyph: theme.dangerContrast, detail: theme.dangerContrast }
@@ -1095,11 +1178,20 @@ function SteppedRowIndex(rows as dynamic, from as integer, direction as integer)
     if type(rows) <> "roArray" or rows.Count() = 0 then return 0
 
     count = rows.Count()
-    at = from + direction
-    if at < 0 then return count - 1
-    if at >= count then return 0
+    at = from
+    for tries = 1 to count
+        at = at + direction
+        if at < 0 then at = count - 1
+        if at >= count then at = 0
+        if DialogRowFocusable(rows[at]) then return at
+    end for
+    return from
+end function
 
-    return at
+function DialogPickResult(field as dynamic, index as integer, count as integer, waiting as boolean) as object
+    result = DialogChoiceResult(field, index, count)
+    result.waiting = waiting and not result.cancelled
+    return result
 end function
 
 function PartSeparator() as string

@@ -100,6 +100,29 @@ namespace tests
             m.assertEqual(FormatDurationText(0), "")
         end sub
 
+        @it("shortens a large count to thousands and millions")
+        sub shortensCounts()
+            m.assertEqual(CompactCount(0), "0")
+            m.assertEqual(CompactCount(999), "999")
+            m.assertEqual(CompactCount(1000), "1K")
+            m.assertEqual(CompactCount(1500), "1.5K")
+            m.assertEqual(CompactCount(1234), "1.2K")
+            m.assertEqual(CompactCount(12345), "12K")
+            m.assertEqual(CompactCount(999999), "999K")
+            m.assertEqual(CompactCount(1200000), "1.2M")
+            m.assertEqual(CompactCount(12000000), "12M")
+            m.assertEqual(CompactCount(invalid), "")
+        end sub
+
+        @it("states how long work has run, from seconds up to hours")
+        sub statesElapsed()
+            m.assertEqual(ElapsedText(9400), "9s")
+            m.assertEqual(ElapsedText(760000), "12m 40s")
+            m.assertEqual(ElapsedText(3725000), "1h 02m")
+            m.assertEqual(ElapsedText(-5), "0s")
+            m.assertEqual(ElapsedText(invalid), "0s")
+        end sub
+
         @it("states a file size in whole megabytes, even past the 32-bit ceiling")
         sub statesSize()
             m.assertEqual(FormatMegabytes(8589934592#), "8192 MB")

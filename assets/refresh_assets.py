@@ -182,6 +182,7 @@ def main():
             {'asset': 'icons/roku/icon-sort.png', 'target': 'images/icon-sort.png'},
             {'asset': 'icons/roku/icon-filter.png', 'target': 'images/icon-filter.png'},
             {'asset': 'icons/roku/icon-library.png', 'target': 'images/icon-library.png'},
+            {'asset': 'icons/roku/icon-download.png', 'target': 'images/icon-download.png'},
             {'asset': 'icons/roku/chip-cap-left.png', 'target': 'images/chip-cap-left.png'},
             {'asset': 'icons/roku/chip-cap-right.png', 'target': 'images/chip-cap-right.png'},
             {'asset': 'icons/roku/chip-cap-left-line.png', 'target': 'images/chip-cap-left-line.png'},

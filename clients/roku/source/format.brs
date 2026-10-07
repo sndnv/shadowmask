@@ -69,6 +69,36 @@ function FormatDurationText(milliseconds as dynamic) as string
     return minutes.ToStr() + "m"
 end function
 
+function CompactCount(count as dynamic) as string
+    if count = invalid then return ""
+
+    value = Int(count)
+    if value < 1000 then return value.ToStr()
+    if value < 10000 then return TenthsText(value / 1000.0) + "K"
+    if value < 1000000 then return Int(value / 1000).ToStr() + "K"
+    if value < 10000000 then return TenthsText(value / 1000000.0) + "M"
+    return Int(value / 1000000).ToStr() + "M"
+end function
+
+function TenthsText(value as float) as string
+    tenths = Int(value * 10)
+    if tenths MOD 10 = 0 then return Int(tenths / 10).ToStr()
+    return Int(tenths / 10).ToStr() + "." + (tenths MOD 10).ToStr()
+end function
+
+function ElapsedText(milliseconds as dynamic) as string
+    total = 0
+    if milliseconds <> invalid then total = Int(milliseconds / 1000.0)
+    if total < 0 then total = 0
+
+    hours = total \ 3600
+    minutes = (total MOD 3600) \ 60
+    seconds = total MOD 60
+    if hours > 0 then return hours.ToStr() + "h " + PadTwo(minutes) + "m"
+    if minutes > 0 then return minutes.ToStr() + "m " + PadTwo(seconds) + "s"
+    return seconds.ToStr() + "s"
+end function
+
 function FormatMegabytes(bytes as dynamic) as string
     if bytes = invalid then return ""
 

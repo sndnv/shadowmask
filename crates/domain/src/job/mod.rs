@@ -8,6 +8,7 @@ mod query;
 mod reclaim_outcome;
 mod transcription_trigger;
 mod translation_trigger;
+mod version_job;
 
 pub use job::{Job, JobId, JobKind, JobPriority, JobStatus};
 pub use job_canceller::JobCanceller;
@@ -18,3 +19,4 @@ pub use query::JobQuery;
 pub use reclaim_outcome::{RECLAIM_DEAD_LETTER_ERROR, ReclaimOutcome};
 pub use transcription_trigger::TranscriptionTrigger;
 pub use translation_trigger::TranslationTrigger;
+pub use version_job::VersionJob;

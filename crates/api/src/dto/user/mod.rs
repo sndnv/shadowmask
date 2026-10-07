@@ -15,4 +15,4 @@ pub use role::RoleDto;
 pub use set_active_request::SetActiveRequest;
 pub use set_library_access_request::SetLibraryAccessRequest;
 pub use update_profile_request::UpdateProfileRequest;
-pub use user::UserResponse;
+pub use user::{SelfResponse, UserResponse};

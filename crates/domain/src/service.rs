@@ -12,7 +12,7 @@ use crate::discovery::{ContinueWatchingItem, Hub, SearchKind, SearchResult};
 use crate::error::{
     AuthError, CatalogError, DiscoveryError, JobServiceError, LibraryError, SessionError, UserError,
 };
-use crate::job::{Job, JobId, JobNode, JobPage, JobQuery};
+use crate::job::{Job, JobId, JobNode, JobPage, JobQuery, VersionJob};
 use crate::library::{
     DuplicateCandidate, DuplicateCandidateId, FetchInput, Library, LibraryId, LibraryUpdate,
     NewLibrary, ResolveCandidate, ResolveTarget, ScanMode, ScanState, UnmatchedFile,
@@ -407,27 +407,27 @@ pub trait LibraryService {
         version: &VersionId,
         audio_track_index: Option<u32>,
         source_language: Option<String>,
-    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    ) -> impl Future<Output = Result<JobId, LibraryError>> + Send;
     fn trigger_translation(
         &self,
         caller: &Principal,
         version: &VersionId,
         source_subtitle: &SubtitleFileId,
         target_language: String,
-    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    ) -> impl Future<Output = Result<JobId, LibraryError>> + Send;
     fn trigger_upscale(
         &self,
         caller: &Principal,
         version: &VersionId,
         target_height: u32,
-    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    ) -> impl Future<Output = Result<JobId, LibraryError>> + Send;
     fn trigger_combine(
         &self,
         caller: &Principal,
         version: &VersionId,
         top: &SubtitleFileId,
         bottom: &SubtitleFileId,
-    ) -> impl Future<Output = Result<(), LibraryError>> + Send;
+    ) -> impl Future<Output = Result<JobId, LibraryError>> + Send;
 }
 
 pub trait JobService {
@@ -459,6 +459,11 @@ pub trait JobService {
         id: &JobId,
     ) -> impl Future<Output = Result<Job, JobServiceError>> + Send;
     fn is_retryable(&self, job: &Job) -> bool;
+    fn version_jobs(
+        &self,
+        caller: &Principal,
+        version: &VersionId,
+    ) -> impl Future<Output = Result<Vec<VersionJob>, JobServiceError>> + Send;
 }
 
 pub trait UserService {

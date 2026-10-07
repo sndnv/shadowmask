@@ -5,6 +5,7 @@ import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/model/job/job.dart';
 import 'package:shadowmask/model/job/job_node.dart';
 import 'package:shadowmask/model/job/jobs_feed.dart';
+import 'package:shadowmask/model/job/version_job.dart';
 import 'package:shadowmask/model/session/now_playing.dart';
 import 'package:shadowmask/nav/routes.dart';
 import 'package:shadowmask/view/page.dart';
@@ -66,18 +67,24 @@ class AdminApi {
     Version.fromJson,
   );
 
+  Future<List<VersionJob>> versionJobs(String id) => _api.getJsonArray(
+    '/api/v1/versions/${_enc(id)}/jobs',
+    VersionJob.fromJson,
+  );
+
   Future<void> transcribe(
     String id, {
     int? audioTrackIndex,
     String? sourceLanguage,
   }) => _api.sendVoid(
     'POST',
-    '/api/v1/admin/versions/${_enc(id)}/transcribe',
-    body: <String, dynamic>{
-      'audio_track_index': ?audioTrackIndex,
-      if (sourceLanguage != null && sourceLanguage.isNotEmpty)
+    withQuery(
+      '/api/v1/versions/${_enc(id)}/subtitles/transcribe',
+      <String, String?>{
+        'audio_track_index': audioTrackIndex?.toString(),
         'source_language': sourceLanguage,
-    },
+      },
+    ),
   );
 
   Future<void> translate(
@@ -86,17 +93,18 @@ class AdminApi {
     required String targetLanguage,
   }) => _api.sendVoid(
     'POST',
-    '/api/v1/admin/versions/${_enc(id)}/translate',
-    body: <String, dynamic>{
-      'source_subtitle_id': sourceSubtitleId,
-      'target_language': targetLanguage,
-    },
+    withQuery(
+      '/api/v1/versions/${_enc(id)}/subtitles/${_enc(sourceSubtitleId)}'
+      '/translate',
+      <String, String?>{'target_language': targetLanguage},
+    ),
   );
 
   Future<void> upscale(String id, {required int targetHeight}) => _api.sendVoid(
     'POST',
-    '/api/v1/admin/versions/${_enc(id)}/upscale',
-    body: <String, dynamic>{'target_height': targetHeight},
+    withQuery('/api/v1/versions/${_enc(id)}/upscale', <String, String?>{
+      'target_height': '$targetHeight',
+    }),
   );
 
   Future<void> combineSubtitles(
@@ -105,15 +113,14 @@ class AdminApi {
     required String bottomSubtitleId,
   }) => _api.sendVoid(
     'POST',
-    '/api/v1/admin/versions/${_enc(id)}/subtitles/combine',
-    body: <String, dynamic>{
-      'top_subtitle_id': topSubtitleId,
-      'bottom_subtitle_id': bottomSubtitleId,
-    },
+    withQuery(
+      '/api/v1/versions/${_enc(id)}/subtitles/${_enc(topSubtitleId)}/combine',
+      <String, String?>{'bottom_subtitle_id': bottomSubtitleId},
+    ),
   );
 
   Future<void> deleteVersion(String id) =>
-      _api.sendVoid('DELETE', '/api/v1/admin/versions/${_enc(id)}');
+      _api.sendVoid('DELETE', '/api/v1/versions/${_enc(id)}');
 
   Future<void> deleteMovie(String id) =>
       _api.sendVoid('DELETE', '/api/v1/admin/movies/${_enc(id)}');
@@ -186,7 +193,7 @@ class AdminApi {
     String? language,
   }) => _api.getJsonArray(
     withQuery(
-      '/api/v1/admin/versions/${_enc(id)}/subtitles/search',
+      '/api/v1/versions/${_enc(id)}/subtitles/search',
       <String, String?>{
         if (query != null && query.isNotEmpty) 'q': query,
         if (language != null && language.isNotEmpty) 'language': language,
@@ -195,31 +202,33 @@ class AdminApi {
     SubtitleCandidate.fromJson,
   );
 
-  Future<void> subtitleDownload(
+  Future<bool> subtitleDownload(
     String id, {
     required String fileId,
     String? language,
     String? releaseName,
-  }) => _api.sendVoid(
-    'POST',
-    '/api/v1/admin/versions/${_enc(id)}/subtitles/download',
-    body: <String, dynamic>{
-      'file_id': fileId,
-      if (language != null && language.isNotEmpty) 'language': language,
-      if (releaseName != null && releaseName.isNotEmpty)
-        'release_name': releaseName,
-    },
-  );
+  }) async =>
+      await _api.sendStatus(
+        'POST',
+        '/api/v1/versions/${_enc(id)}/subtitles/download',
+        body: <String, dynamic>{
+          'file_id': fileId,
+          if (language != null && language.isNotEmpty) 'language': language,
+          if (releaseName != null && releaseName.isNotEmpty)
+            'release_name': releaseName,
+        },
+      ) !=
+      200;
 
   Future<String> subtitleText(String id, String sid) => _api.getJson(
-    '/api/v1/admin/versions/${_enc(id)}/subtitles/${_enc(sid)}',
+    '/api/v1/versions/${_enc(id)}/subtitles/${_enc(sid)}',
     (Map<String, dynamic> json) => json['content'] as String? ?? '',
   );
 
   Future<void> renameSubtitle(String id, String sid, {String? language}) =>
       _api.sendVoid(
         'PUT',
-        '/api/v1/admin/versions/${_enc(id)}/subtitles/${_enc(sid)}',
+        '/api/v1/versions/${_enc(id)}/subtitles/${_enc(sid)}',
         body: <String, dynamic>{
           if (language != null && language.isNotEmpty) 'language': language,
         },
@@ -227,7 +236,7 @@ class AdminApi {
 
   Future<void> deleteSubtitle(String id, String sid) => _api.sendVoid(
     'DELETE',
-    '/api/v1/admin/versions/${_enc(id)}/subtitles/${_enc(sid)}',
+    '/api/v1/versions/${_enc(id)}/subtitles/${_enc(sid)}',
   );
 
   Future<void> createFetch(Map<String, dynamic> body) =>

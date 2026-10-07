@@ -15,6 +15,7 @@ struct Account {
     password: String,
     user: UserId,
     role: Role,
+    account_admin: bool,
 }
 
 #[derive(Debug, Default)]
@@ -40,6 +41,17 @@ impl MockAuthService {
             password: password.to_string(),
             user,
             role,
+            account_admin: role == Role::Admin,
+        });
+    }
+
+    pub fn add_linked_device(&self, user: UserId, account_admin: bool) {
+        self.state.lock().unwrap().accounts.push(Account {
+            username: format!("device {}", user.0),
+            password: String::new(),
+            user,
+            role: Role::Player,
+            account_admin,
         });
     }
 
@@ -89,11 +101,21 @@ impl AuthService for MockAuthService {
     }
 
     async fn authenticate(&self, access_token: &str) -> Result<Principal, AuthError> {
-        let id = access_token.strip_prefix("access:").ok_or(AuthError::InvalidToken)?;
+        let (id, device) = match access_token.strip_prefix("device:") {
+            Some(id) => (id, true),
+            None => (access_token.strip_prefix("access:").ok_or(AuthError::InvalidToken)?, false),
+        };
         let state = self.state.lock().unwrap();
-        let account =
-            state.accounts.iter().find(|a| a.user.0 == id).ok_or(AuthError::InvalidToken)?;
-        Ok(Principal { user: account.user.clone(), role: account.role })
+        let account = state
+            .accounts
+            .iter()
+            .find(|a| a.user.0 == id && (!device || a.role == Role::Player))
+            .ok_or(AuthError::InvalidToken)?;
+        Ok(Principal {
+            user: account.user.clone(),
+            role: account.role,
+            account_admin: account.account_admin,
+        })
     }
 
     async fn create_link_code(
@@ -224,6 +246,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_linked_device_token_is_a_player_carrying_its_account_flag() {
+        let svc = service();
+        assert!(svc.authenticate("access:u1").await.unwrap().account_admin);
+        assert!(matches!(
+            svc.authenticate("device:u1").await.unwrap_err(),
+            AuthError::InvalidToken
+        ));
+
+        svc.add_linked_device(UserId("u1".into()), true);
+        let device = svc.authenticate("device:u1").await.unwrap();
+
+        assert_eq!(device.role, Role::Player);
+        assert!(device.account_admin);
+    }
+
+    #[tokio::test]
     async fn redeem_link_code_success_and_failure() {
         let svc = service();
         svc.add_link_code(
@@ -266,7 +304,8 @@ mod tests {
     #[tokio::test]
     async fn create_link_code_returns_code() {
         let svc = service();
-        let caller = Principal { user: UserId("admin".into()), role: Role::Admin };
+        let caller =
+            Principal { user: UserId("admin".into()), role: Role::Admin, account_admin: true };
         let link = svc.create_link_code(&caller, None, None).await.unwrap();
         assert_eq!(link.code, "link-code");
         assert_eq!(link.role, Role::Player);
@@ -275,7 +314,8 @@ mod tests {
     #[tokio::test]
     async fn create_lists_then_revokes_link_code() {
         let svc = service();
-        let caller = Principal { user: UserId("u1".into()), role: Role::Admin };
+        let caller =
+            Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true };
         svc.create_link_code(&caller, None, None).await.unwrap();
         let user = UserId("u1".into());
         let listed = svc.list_link_codes(&user).await.unwrap();

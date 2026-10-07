@@ -192,6 +192,9 @@ class ApiClient {
     await _send(method, path, body: body);
   }
 
+  Future<int> sendStatus(String method, String path, {Object? body}) async =>
+      (await _send(method, path, body: body)).statusCode;
+
   Future<Uint8List> bytes(String path) async {
     final http.Response res = await _send('GET', path);
     return res.bodyBytes;

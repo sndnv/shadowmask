@@ -11,7 +11,11 @@ sub init()
     m.viewport = m.top.FindNode("viewport")
     m.rowGroup = m.top.FindNode("rows")
     m.bar = m.top.FindNode("bar")
+    m.spinner = m.top.FindNode("spinner")
+    m.spinnerTurn = m.top.FindNode("spinnerTurn")
+    m.spin = m.top.FindNode("spin")
 
+    m.busy = false
     m.built = []
     m.model = []
     m.index = 0
@@ -53,19 +57,21 @@ sub onRequest()
     if request <> invalid then options = ValueAt(request, "options", [])
 
     if type(options) <> "roArray" or options.Count() = 0
+        StopSpinner()
         m.top.visible = false
         return
     end if
 
     kind = TextOrBlank(ValueAt(request, "kind", "confirm"))
-    selected = ClampInt(Int(ValueAt(request, "selected", 0)), 0, options.Count() - 1)
+    selected = DialogStartIndex(request, m.top.visible, m.field, m.index, options.Count())
 
     m.field = TextOrBlank(ValueAt(request, "field", ""))
     m.count = options.Count()
     m.model = DialogRows(options, kind, selected)
-    m.index = selected
+    m.index = FocusableRowIndex(m.model, selected)
     m.offset = 0
     m.textOffset = 0
+    StopSpinner()
 
     m.top.visible = true
     MeasureRequest()
@@ -110,15 +116,19 @@ sub render()
 
     shown = budget.rows
 
-    RebuildRows(m.model.Count())
-    for index = 0 to m.model.Count() - 1
-        PaintRow(m.built[index], m.model[index], theme, inner, plan.tops[index], index = m.index)
+    rows = m.model
+    if m.busy then rows = DialogBusyRows(m.model, m.index, TextOrBlank(ValueAt(m.top.request, "busy", "")))
+
+    RebuildRows(rows.Count())
+    for index = 0 to rows.Count() - 1
+        PaintRow(m.built[index], rows[index], theme, inner, plan.tops[index], index = m.index)
     end for
 
     m.offset = RevealOffset(m.index, plan.tops, plan.heights, shown, m.offset, 0)
 
     m.viewport.clippingRect = [pad, cursor, inner, shown]
     m.rowGroup.translation = [pad, cursor - m.offset]
+    PlaceSpinner(theme, inner, pad, cursor - m.offset + plan.tops[m.index])
 
     m.bar.theme = theme
     m.bar.trackHeight = shown
@@ -135,7 +145,32 @@ sub render()
 
     m.panel.translation = [Int((CanvasWidth() - width) / 2), Int((CanvasHeight() - height) / 2)]
 
-    Speak(DialogSpeech(ValueAt(m.top.request, "title", ""), ValueAt(m.top.request, "message", ""), m.model, m.index))
+    Speak(DialogSpeech(ValueAt(m.top.request, "title", ""), ValueAt(m.top.request, "message", ""), rows, m.index))
+end sub
+
+sub PlaceSpinner(theme as object, width as integer, left as integer, top as integer)
+    if not m.busy
+        StopSpinner()
+        return
+    end if
+
+    size = ChevronSize()
+    m.spinner.uri = GlyphUri("icon-replay")
+    m.spinner.width = size
+    m.spinner.height = size
+    m.spinner.scaleRotateCenter = [size / 2, size / 2]
+    m.spinner.scale = [-1, 1]
+    m.spinner.blendColor = theme.accentContrast
+    m.spinnerTurn.scaleRotateCenter = [size / 2, size / 2]
+    m.spinnerTurn.translation = [left + width - SpacingScale().s4 - size, top + Int((DialogRowHeight() - size) / 2)]
+    m.spinnerTurn.visible = true
+    if m.spin.state <> "running" then m.spin.control = "start"
+end sub
+
+sub StopSpinner()
+    m.busy = false
+    m.spin.control = "stop"
+    m.spinnerTurn.visible = false
 end sub
 
 function PlaceDialogMessage(theme as object, body as string, size as integer, width as integer, left as integer, top as integer, shown as integer, natural as integer, lines as integer) as integer
@@ -214,7 +249,7 @@ function RowSpans(rows as object, space as object) as object
 
     for index = 0 to rows.Count() - 1
         if index > 0
-            if ValueAt(rows[index], "cancel", false) = true
+            if ValueAt(rows[index], "cancel", false) = true or ValueAt(rows[index], "heading", false) = true
                 cursor = cursor + space.s5
             else
                 cursor = cursor + space.s1
@@ -238,7 +273,7 @@ sub PaintRow(slot as object, row as object, theme as object, width as integer, t
 
     slot.group.translation = [0, top]
 
-    slot.rule.visible = ValueAt(row, "cancel", false) = true
+    slot.rule.visible = ValueAt(row, "cancel", false) = true or ValueAt(row, "heading", false) = true
     if slot.rule.visible
         slot.rule.width = width
         slot.rule.height = BorderThickness()
@@ -276,28 +311,44 @@ sub PaintRow(slot as object, row as object, theme as object, width as integer, t
         slot.chevron.translation = [edge - chevron, Int((height - chevron) / 2)]
         edge = edge - chevron - space.s2
     end if
+    if ValueAt(row, "spinning", false) = true then edge = edge - chevron - space.s2
 
     size = TypeScale().textBase
     detail = TextOrBlank(ValueAt(row, "detail", ""))
+    label = TextOrBlank(ValueAt(row, "label", ""))
     span = edge - left
+    column = ValueAt(row, "column", false) = true
+    room = DialogDetailWidth(span - space.s4, TextWidth(detail, size), TextWidth(label, size))
+    at = left + span - room
+    align = "right"
+    if column
+        spans = DialogColumnSpans(span, space.s4)
+        room = spans.detail
+        at = left + spans.at
+        align = "left"
+    end if
 
-    slot.detail.visible = not IsBlank(detail)
+    slot.detail.visible = not IsBlank(detail) and room > 0
     if slot.detail.visible
         slot.detail.text = detail
         slot.detail.font = SizedFont(size)
         slot.detail.color = paint.detail
-        slot.detail.width = span
+        slot.detail.width = room
         slot.detail.height = height
         slot.detail.maxLines = 1
         slot.detail.ellipsisText = "…"
         slot.detail.vertAlign = "center"
-        slot.detail.horizAlign = "right"
-        slot.detail.translation = [left, 0]
-        span = span - TextWidth(detail, size) - space.s4
+        slot.detail.horizAlign = align
+        slot.detail.translation = [at, 0]
+        span = at - left - space.s4
     end if
+    PlaceDetailTicker(slot, detail, paint, size, height, room, at, focused and column and slot.detail.visible)
 
-    slot.label.text = TextOrBlank(ValueAt(row, "label", ""))
+    span = PlaceMeta(slot, row, paint, size, height, left, span)
+
+    slot.label.text = label
     slot.label.font = SizedFont(size)
+    if ValueAt(row, "heading", false) = true then slot.label.font = SizedBoldFont(size)
     slot.label.color = paint.label
     slot.label.width = span
     slot.label.height = height
@@ -307,7 +358,73 @@ sub PaintRow(slot as object, row as object, theme as object, width as integer, t
     slot.label.horizAlign = "left"
     if ValueAt(row, "alignRight", false) = true then slot.label.horizAlign = "right"
     slot.label.translation = [left, 0]
+
+    ticking = focused and ValueAt(row, "alignRight", false) <> true
+    slot.label.visible = not ticking
+    slot.ticker.visible = ticking
+    if not ticking then return
+
+    if slot.ticker.text <> slot.label.text then slot.ticker.text = slot.label.text
+    slot.ticker.font = slot.label.font
+    slot.ticker.color = paint.label
+    slot.ticker.maxWidth = span
+    slot.ticker.height = height
+    slot.ticker.vertAlign = "center"
+    slot.ticker.repeatCount = -1
+    slot.ticker.scrollSpeed = TickerSpeed()
+    slot.ticker.translation = [left, 0]
 end sub
+
+sub PlaceDetailTicker(slot as object, detail as string, paint as object, size as integer, height as integer, room as integer, at as integer, scrolling as boolean)
+    slot.detailTicker.visible = scrolling
+    if not scrolling then return
+
+    slot.detail.visible = false
+    if slot.detailTicker.text <> detail then slot.detailTicker.text = detail
+    slot.detailTicker.font = SizedFont(size)
+    slot.detailTicker.color = paint.detail
+    slot.detailTicker.maxWidth = room
+    slot.detailTicker.height = height
+    slot.detailTicker.vertAlign = "center"
+    slot.detailTicker.repeatCount = -1
+    slot.detailTicker.scrollSpeed = TickerSpeed()
+    slot.detailTicker.translation = [at, 0]
+end sub
+
+function PlaceMeta(slot as object, row as object, paint as object, size as integer, height as integer, left as integer, span as integer) as integer
+    space = SpacingScale()
+    meta = TextOrBlank(ValueAt(row, "meta", ""))
+    glyph = GlyphUri(TextOrBlank(ValueAt(row, "metaIcon", "")))
+
+    slot.meta.visible = not IsBlank(meta)
+    slot.metaIcon.visible = slot.meta.visible and not IsBlank(glyph)
+    if not slot.meta.visible then return span
+
+    right = left + span
+    width = TextWidth(meta, size) + space.s1
+    slot.meta.text = meta
+    slot.meta.font = SizedFont(size)
+    slot.meta.color = paint.detail
+    slot.meta.width = width
+    slot.meta.height = height
+    slot.meta.maxLines = 1
+    slot.meta.vertAlign = "center"
+    slot.meta.horizAlign = "right"
+    slot.meta.translation = [right - width, 0]
+    used = width
+
+    if slot.metaIcon.visible
+        icon = InlineIconSize()
+        slot.metaIcon.uri = glyph
+        slot.metaIcon.width = icon
+        slot.metaIcon.height = icon
+        slot.metaIcon.blendColor = paint.detail
+        slot.metaIcon.translation = [right - used - space.s1 - icon, Int((height - icon) / 2)]
+        used = used + space.s1 + icon
+    end if
+
+    return span - used - space.s4
+end function
 
 sub RebuildRows(count as integer)
     if m.built.Count() = count then return
@@ -326,7 +443,11 @@ sub RebuildRows(count as integer)
             icon: holder.CreateChild("Poster"),
             chevron: holder.CreateChild("Poster"),
             detail: holder.CreateChild("Label"),
-            label: holder.CreateChild("Label")
+            metaIcon: holder.CreateChild("Poster"),
+            meta: holder.CreateChild("Label"),
+            label: holder.CreateChild("Label"),
+            ticker: holder.CreateChild("ScrollingLabel"),
+            detailTicker: holder.CreateChild("ScrollingLabel")
         })
     end for
 end sub
@@ -354,9 +475,22 @@ sub MoveSelection(direction as integer)
 end sub
 
 sub DeliverIndex(index as integer)
+    StopSpinner()
     m.top.visible = false
     m.model = []
     m.top.result = DialogChoiceResult(m.field, index, m.count)
+end sub
+
+sub PickRow(index as integer)
+    busy = TextOrBlank(ValueAt(m.top.request, "busy", ""))
+    if IsBlank(busy) or index >= m.count
+        DeliverIndex(index)
+        return
+    end if
+
+    m.busy = true
+    render()
+    m.top.result = DialogPickResult(m.field, index, m.count, true)
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
@@ -364,6 +498,11 @@ function onKeyEvent(key as string, press as boolean) as boolean
     if not KeysAreOurs() then return false
     if not press then return false
     if type(m.model) <> "roArray" or m.model.Count() = 0 then return true
+
+    if m.busy
+        if key = "back" then DeliverIndex(m.count)
+        return true
+    end if
 
     if key = "up"
         if ScrollsText()
@@ -384,7 +523,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
     end if
 
     if key = "OK"
-        DeliverIndex(m.index)
+        if DialogRowSelectable(m.model[m.index]) then PickRow(m.index)
         return true
     end if
 

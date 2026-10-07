@@ -1,6 +1,6 @@
 use domain::catalog::VersionId;
 use domain::job::{Job, JobKind, JobPriority};
-use domain::media::AudioTrack;
+use domain::media::{AudioTrack, SubtitleFileId};
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +22,10 @@ impl TranscriptionJobPayload {
 
     pub fn decode(raw: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str::<Wire>(raw).map(Self::from)
+    }
+
+    pub fn produces(&self) -> SubtitleFileId {
+        SubtitleFileId(format!("generated:{}", self.version_id.0))
     }
 }
 

@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 domain.workspace = true
 jiff.workspace = true
+serde_json.workspace = true
 uuid = { workspace = true, features = ["v5"] }
 
 [dev-dependencies]

@@ -33,19 +33,19 @@ Future<List<http.Request>> _pump(
     baseUrl: 'http://test',
     httpClient: MockClient((http.Request req) async {
       seen.add(req);
-      return http.Response('', 202);
+      return http.Response(jsonEncode(<String, String>{'job_id': 'j1'}), 202);
     }),
   );
   await tester.pumpWidget(
     MaterialApp(
       theme: buildTheme(AppThemeVariant.dark),
-      home: ToastHost(
-        child: Scaffold(
-          body: Builder(
-            builder: (BuildContext context) => TextButton(
-              onPressed: () => open(context, AdminApi(api)),
-              child: const Text('open'),
-            ),
+      builder: (BuildContext context, Widget? child) =>
+          ToastHost(child: child ?? const SizedBox.shrink()),
+      home: Scaffold(
+        body: Builder(
+          builder: (BuildContext context) => TextButton(
+            onPressed: () => open(context, AdminApi(api)),
+            child: const Text('open'),
           ),
         ),
       ),
@@ -93,10 +93,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(seen, hasLength(1));
-    expect(
-      jsonDecode(seen.single.body) as Map<String, dynamic>,
-      <String, dynamic>{'target_height': 2160},
-    );
+    expect(seen.single.url.path, '/api/v1/versions/v1/upscale');
+    expect(seen.single.url.queryParameters, <String, String>{
+      'target_height': '2160',
+    });
 
     await tester.pump(kToastDuration + const Duration(milliseconds: 100));
   });
@@ -140,10 +140,102 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, Strings.save));
     await tester.pumpAndSettle();
 
-    expect(
-      jsonDecode(seen.single.body) as Map<String, dynamic>,
-      <String, dynamic>{'audio_track_index': 2},
+    expect(seen.single.url.path, '/api/v1/versions/v1/subtitles/transcribe');
+    expect(seen.single.url.queryParameters, <String, String>{
+      'audio_track_index': '2',
+    });
+
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('transcribe lets the player pick among several audio tracks', (
+    WidgetTester tester,
+  ) async {
+    final List<http.Request> seen = await _pump(
+      tester,
+      (BuildContext context, AdminApi admin) => showTranscribeDialog(
+        context,
+        admin: admin,
+        versionId: 'v1',
+        audioTrackIndex: 1,
+        tracks: const <AudioTrack>[
+          AudioTrack(index: 1, codec: 'eac3', channels: 6, language: 'en'),
+          AudioTrack(index: 2, codec: 'aac', language: 'es'),
+        ],
+        queuedToast: Strings.toastQueued,
+      ),
     );
+
+    expect(find.text(Strings.fieldAudioTrack), findsOneWidget);
+    await tester.tap(find.text('English · eac3 · 6ch'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Spanish · aac · 2ch').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, Strings.save));
+    await tester.pumpAndSettle();
+
+    expect(seen.single.url.queryParameters, <String, String>{
+      'audio_track_index': '2',
+    });
+    expect(find.text(Strings.toastQueued), findsOneWidget);
+
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('a single audio track needs no picker', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      (BuildContext context, AdminApi admin) => showTranscribeDialog(
+        context,
+        admin: admin,
+        versionId: 'v1',
+        audioTrackIndex: 1,
+        tracks: const <AudioTrack>[AudioTrack(index: 1, codec: 'aac')],
+      ),
+    );
+
+    expect(find.text(Strings.fieldAudioTrack), findsNothing);
+  });
+
+  testWidgets('translate lets the player pick which subtitle to translate', (
+    WidgetTester tester,
+  ) async {
+    final List<http.Request> seen = await _pump(
+      tester,
+      (BuildContext context, AdminApi admin) => showTranslateDialog(
+        context,
+        admin: admin,
+        versionId: 'v1',
+        source: _sub('s1', 'en'),
+        sources: <SubtitleFile>[_sub('s1', 'en'), _sub('s2', 'fr')],
+      ),
+    );
+
+    expect(find.text(Strings.fieldSourceSubtitle), findsOneWidget);
+    await tester.tap(find.text('English · srt · External'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('French · srt · External').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.optionNoLanguage));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Arabic').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, Strings.save));
+    await tester.pumpAndSettle();
+
+    expect(seen.single.url.pathSegments.skip(2), <String>[
+      'versions',
+      'v1',
+      'subtitles',
+      's2',
+      'translate',
+    ]);
+    expect(seen.single.url.queryParameters, <String, String>{
+      'target_language': 'ar',
+    });
+    expect(find.text(Strings.toastQueuedTrackJobs), findsOneWidget);
 
     await tester.pump(kToastDuration + const Duration(milliseconds: 100));
   });

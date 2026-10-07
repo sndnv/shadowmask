@@ -111,6 +111,7 @@ Map<String, dynamic> _episode() => <String, dynamic>{
 };
 
 final List<String> _refreshBodies = <String>[];
+final List<String> _versionWrites = <String>[];
 
 Future<({List<String> paths, List<String> routes})> _pump(
   WidgetTester tester, {
@@ -151,7 +152,8 @@ Future<({List<String> paths, List<String> routes})> _pump(
           200,
         );
       }
-      if (req.url.path.startsWith('/api/v1/admin/versions/')) {
+      if (req.method != 'GET' && req.url.path.startsWith('/api/v1/versions/')) {
+        _versionWrites.add('${req.method} ${req.url.path}');
         return http.Response('', 204);
       }
       if (req.url.path.endsWith('/refresh')) {
@@ -231,6 +233,7 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     _refreshBodies.clear();
+    _versionWrites.clear();
   });
 
   testWidgets('the admin page no longer offers playback', (
@@ -384,7 +387,7 @@ void main() {
     expect(find.textContaining('Hallo'), findsOneWidget);
     expect(
       run.paths,
-      contains('/api/v1/admin/versions/v1/subtitles/sf1'),
+      contains('/api/v1/versions/v1/subtitles/sf1'),
       reason: 'the dialog must read the file it was opened on',
     );
   });
@@ -679,7 +682,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, Strings.remove));
     await tester.pumpAndSettle();
 
-    expect(run.paths, contains('/api/v1/admin/versions/v1'));
+    expect(_versionWrites, contains('DELETE /api/v1/versions/v1'));
     expect(run.routes.last, contains('m1'));
 
     await tester.pump(const Duration(seconds: 4));

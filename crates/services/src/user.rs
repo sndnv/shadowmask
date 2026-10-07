@@ -366,7 +366,7 @@ mod tests {
     }
 
     fn principal(id: &str, role: Role) -> Principal {
-        Principal { user: UserId(id.into()), role }
+        Principal { user: UserId(id.into()), role, account_admin: role == Role::Admin }
     }
 
     #[tokio::test]

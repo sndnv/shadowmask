@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use domain::catalog::VersionId;
 use domain::common::{Page, PageRequest};
 use domain::error::RepositoryError;
 use domain::job::{
@@ -451,6 +452,64 @@ impl JobRepository for SqliteJobRepo {
         .map_err(backend)?;
         tx.commit().await.map_err(backend)?;
         Ok(removed)
+    }
+
+    async fn list_for_version(
+        &self,
+        version: &VersionId,
+        finished_since: Timestamp,
+    ) -> Result<Vec<Job>, RepositoryError> {
+        let _op = DbOpGuard::new("jobs", "list_for_version");
+        let kinds = JobKind::PER_VERSION;
+        let sql = format!(
+            "SELECT * FROM jobs \
+             WHERE kind IN ({}) \
+             AND CASE WHEN json_valid(payload) THEN \
+             COALESCE(json_extract(payload, '$.version_id'), json_extract(payload, '$.version')) \
+             END = ? \
+             AND (status IN (?, ?) OR finished_at >= ?) \
+             ORDER BY created_at DESC, id DESC",
+            vec!["?"; kinds.len()].join(", ")
+        );
+        let mut query = sqlx::query(AssertSqlSafe(sql));
+        for kind in kinds {
+            query = query.bind(kind_to_str(kind));
+        }
+        let rows = query
+            .bind(version.0.as_str())
+            .bind(status_to_str(JobStatus::Queued))
+            .bind(status_to_str(JobStatus::Running))
+            .bind(to_millis(finished_since))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(backend)?;
+        rows.iter().map(row_to_job).collect()
+    }
+
+    async fn count_ahead(&self, job: &Job, kinds: &[JobKind]) -> Result<u64, RepositoryError> {
+        let _op = DbOpGuard::new("jobs", "count_ahead");
+        let sql = format!(
+            "SELECT COUNT(*) AS n FROM jobs \
+             WHERE status = ? AND kind IN ({}) \
+             AND (priority > ? OR (priority = ? AND (created_at < ? OR (created_at = ? AND id < ?))))",
+            vec!["?"; kinds.len()].join(", ")
+        );
+        let mut query = sqlx::query(AssertSqlSafe(sql)).bind(status_to_str(JobStatus::Queued));
+        for kind in kinds {
+            query = query.bind(kind_to_str(*kind));
+        }
+        let priority = priority_to_int(job.priority);
+        let created = to_millis(job.created_at);
+        let row = query
+            .bind(priority)
+            .bind(priority)
+            .bind(created)
+            .bind(created)
+            .bind(job.id.0.as_str())
+            .fetch_one(&self.pool)
+            .await
+            .map_err(backend)?;
+        Ok(column::<i64>(&row, "n")? as u64)
     }
 }
 

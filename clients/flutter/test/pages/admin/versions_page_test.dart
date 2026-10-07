@@ -74,7 +74,7 @@ http.Response _route(http.Request req) {
       200,
     );
   }
-  if (path == '/api/v1/versions/v1') {
+  if (req.method == 'GET' && path == '/api/v1/versions/v1') {
     return http.Response(
       jsonEncode(<String, dynamic>{
         'id': 'v1',
@@ -206,7 +206,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, Strings.remove));
     await tester.pumpAndSettle();
 
-    expect(seen, contains('DELETE /api/v1/admin/versions/v1'));
+    expect(seen, contains('DELETE /api/v1/versions/v1'));
     expect(find.text(Strings.toastVersionRemoved), findsOneWidget);
     await tester.pump(kToastDuration + const Duration(milliseconds: 100));
   });

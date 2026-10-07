@@ -1,0 +1,371 @@
+namespace tests
+
+    @suite("work")
+    class WorkTests extends rooibos.BaseTestSuite
+
+        function job(id as string, kind as string, status as string, extra = invalid as dynamic) as object
+            row = { id: id, kind: kind, status: status, created_at: "2026-10-06T10:00:00Z" }
+            if extra <> invalid then row.Append(extra)
+            return row
+        end function
+
+        function version(files = invalid as dynamic) as object
+            if files = invalid then files = []
+            return {
+                id: "v1",
+                audio: [
+                    { index: 1, codec: "eac3", channels: 6, language: "en" },
+                    { index: 2, codec: "aac", channels: 2, language: "es" }
+                ],
+                subtitles: [{ index: 3, language: "eng", format: "srt" }],
+                subtitle_files: files
+            }
+        end function
+
+        function file(id as string, language as string, source as string) as object
+            return { id: id, language: language, format: "srt", source: source }
+        end function
+
+        function ids(rows as object) as object
+            found = []
+            for each row in rows
+                found.Push(row.id)
+            end for
+            return found
+        end function
+
+        @describe("who works on versions")
+
+        @it("is an admin or a device linked to an admin account")
+        sub worksOnVersionsFollowsTheAccount()
+            m.assertTrue(WorksOnVersions({ role: "admin", accountRole: "admin" }))
+            m.assertTrue(WorksOnVersions({ role: "player", accountRole: "admin" }))
+            m.assertFalse(WorksOnVersions({ role: "player", accountRole: "user" }))
+            m.assertFalse(WorksOnVersions({ role: "player", accountRole: "" }))
+            m.assertFalse(WorksOnVersions({ role: "user", accountRole: "admin" }))
+            m.assertFalse(WorksOnVersions(invalid))
+        end sub
+
+        @describe("requests")
+
+        @it("reads a version's work from its jobs route")
+        sub jobsRequestReadsTheVersion()
+            request = VersionJobsRequest("http://host", "smk_a", "v 1")
+
+            m.assertEqual(request.url, "http://host/api/v1/versions/v%201/jobs")
+            m.assertEqual(request.method, "GET")
+            m.assertEqual(request.headers["Authorization"], "Bearer smk_a")
+        end sub
+
+        @it("starts a transcription of the picked audio track with no body")
+        sub transcribeCarriesTheTrack()
+            request = TranscribeRequest("http://host", "smk_a", "v1", 2)
+
+            m.assertEqual(request.url, "http://host/api/v1/versions/v1/subtitles/transcribe?audio_track_index=2")
+            m.assertEqual(request.method, "POST")
+            m.assertEqual(request.body, "")
+        end sub
+
+        @it("translates the subtitle in the path into the language in the query")
+        sub translateNamesSourceAndTarget()
+            request = TranslateRequest("http://host", "smk_a", "v1", "external:v1:en", "es")
+
+            m.assertEqual(request.url, "http://host/api/v1/versions/v1/subtitles/external%3Av1%3Aen/translate?target_language=es")
+            m.assertEqual(request.method, "POST")
+        end sub
+
+        @it("combines the top subtitle in the path with the bottom one in the query")
+        sub combineNamesBothFiles()
+            request = CombineRequest("http://host", "smk_a", "v1", "top", "bottom")
+
+            m.assertEqual(request.url, "http://host/api/v1/versions/v1/subtitles/top/combine?bottom_subtitle_id=bottom")
+            m.assertEqual(request.method, "POST")
+        end sub
+
+        @it("searches in one language and waits longer for the provider")
+        sub searchWaitsForTheProvider()
+            request = SubtitleSearchRequest("http://host", "smk_a", "v1", "fr")
+
+            m.assertEqual(request.url, "http://host/api/v1/versions/v1/subtitles/search?language=fr")
+            m.assertEqual(request.timeout, ProviderTimeoutSeconds())
+        end sub
+
+        @it("downloads a candidate by its file id with what it was found as")
+        sub downloadSendsTheCandidate()
+            request = SubtitleDownloadRequest("http://host", "smk_a", "v1", { file_id: "7", language: "fr", release_name: "Fresh.Release", format: "srt" })
+            body = ParseJson(request.body)
+
+            m.assertEqual(request.url, "http://host/api/v1/versions/v1/subtitles/download")
+            m.assertEqual(request.method, "POST")
+            m.assertEqual(body.file_id, "7")
+            m.assertEqual(body.language, "fr")
+            m.assertEqual(body.release_name, "Fresh.Release")
+            m.assertEqual(request.timeout, ProviderTimeoutSeconds())
+        end sub
+
+        @it("leaves out what a candidate does not say")
+        sub downloadOmitsBlanks()
+            body = ParseJson(SubtitleDownloadRequest("http://host", "smk_a", "v1", { file_id: "7" }).body)
+
+            m.assertEqual(body.file_id, "7")
+            m.assertFalse(body.DoesExist("language"))
+            m.assertFalse(body.DoesExist("release_name"))
+        end sub
+
+        @describe("polling")
+
+        @it("keeps polling only while subtitle work is running or queued to run")
+        sub pollFollowsOpenWork()
+            m.assertTrue(AwaitedWork([m.job("j1", "translation", "failed"), m.job("j2", "translation", "running")]))
+            m.assertTrue(AwaitedWork([m.job("j1", "translation", "queued", { ahead: 0 })]))
+            m.assertFalse(AwaitedWork([m.job("j1", "translation", "queued")]))
+            m.assertFalse(AwaitedWork([m.job("j1", "trickplay", "running"), m.job("j2", "upscale", "queued", { ahead: 0 })]))
+            m.assertFalse(AwaitedWork([m.job("j1", "translation", "failed"), m.job("j2", "combine", "succeeded"), m.job("j3", "combine", "cancelled")]))
+            m.assertFalse(AwaitedWork([]))
+            m.assertFalse(AwaitedWork(invalid))
+        end sub
+
+        @it("reports work that closed since the last read, and new work already closed")
+        sub finishedSinceTheLastRead()
+            before = [m.job("j1", "transcription", "running"), m.job("j2", "translation", "failed")]
+            now = [m.job("j1", "transcription", "succeeded"), m.job("j2", "translation", "failed"), m.job("j3", "combine", "failed"), m.job("j4", "combine", "queued")]
+
+            m.assertEqual(m.ids(FinishedJobs(before, now)), ["j1", "j3"])
+            m.assertEqual(FinishedJobs(before, invalid).Count(), 0)
+        end sub
+
+        @it("shows only subtitle work")
+        sub onlySubtitleWorkIsShown()
+            rows = [m.job("a", "transcription", "queued"), m.job("b", "trickplay", "queued"), m.job("c", "translation", "queued"), m.job("d", "upscale", "queued"), m.job("e", "combine", "queued"), m.job("f", "subtitles", "queued")]
+
+            m.assertEqual(m.ids(SubtitleWork(rows)), ["a", "c", "e"])
+            m.assertEqual(SubtitleWork(invalid).Count(), 0)
+        end sub
+
+        @describe("status lines")
+
+        @it("says how much is queued ahead")
+        sub queuedSaysWhatIsAhead()
+            m.assertEqual(JobStatusLine(m.job("j", "transcription", "queued", { ahead: 0 }), invalid), "Queued · next in line")
+            m.assertEqual(JobStatusLine(m.job("j", "transcription", "queued", { ahead: 1 }), invalid), "Queued · 1 job ahead")
+            m.assertEqual(JobStatusLine(m.job("j", "transcription", "queued", { ahead: 3 }), invalid), "Queued · 3 jobs ahead")
+            m.assertEqual(JobStatusLine(m.job("j", "transcription", "queued"), invalid), "Queued · feature switched off")
+        end sub
+
+        @it("says how long running work has run")
+        sub runningSaysHowLong()
+            m.assertEqual(JobStatusLine(m.job("j", "translation", "running", { elapsed_ms: 760000 }), invalid), "Running · 12m 40s")
+            m.assertEqual(JobStatusLine(m.job("j", "translation", "running"), invalid), "Running · 0s")
+        end sub
+
+        @it("is ready only once the subtitle is on the version")
+        sub readyNeedsTheSubtitle()
+            done = m.job("j", "transcription", "succeeded", { language: "en", subtitle_id: "generated:v1" })
+            held = m.version([m.file("generated:v1", "", "generated")])
+
+            m.assertEqual(JobStatusLine(done, held), "Ready · English (generated) added")
+            m.assertEqual(JobStatusLine(done, m.version()), "Finished, no subtitle produced")
+            m.assertEqual(JobStatusLine(done, invalid), "Succeeded")
+            m.assertEqual(JobStatusLine(m.job("j", "translation", "succeeded"), held), "Succeeded")
+        end sub
+
+        @it("names a combined subtitle by its source alone")
+        sub combinedHasNoLanguage()
+            done = m.job("j", "combine", "succeeded", { subtitle_id: "combined:v1:a:b" })
+            held = m.version([m.file("combined:v1:a:b", "", "combined")])
+
+            m.assertEqual(JobStatusLine(done, held), "Ready · combined subtitle added")
+        end sub
+
+        @it("says why work failed, and when it was cancelled")
+        sub failedAndCancelled()
+            m.assertEqual(JobStatusLine(m.job("j", "translation", "failed", { last_error: "provider refused" }), invalid), "Failed · provider refused")
+            m.assertEqual(JobStatusLine(m.job("j", "translation", "failed"), invalid), "Failed")
+            m.assertEqual(JobStatusLine(m.job("j", "translation", "cancelled"), invalid), "Cancelled")
+        end sub
+
+        @it("gives a failure's reason without the queue's prefix")
+        sub failureReasonDropsThePrefix()
+            m.assertEqual(FailureReason(m.job("j", "transcription", "failed", { last_error: "permanent job failure: whisper exited" })), "whisper exited")
+            m.assertEqual(FailureReason(m.job("j", "translation", "failed", { last_error: "Retryable job failure: provider refused" })), "provider refused")
+            m.assertEqual(FailureReason(m.job("j", "translation", "failed", { last_error: "permanent job failure: " })), "")
+            m.assertEqual(FailureReason(m.job("j", "translation", "failed")), "")
+            m.assertEqual(FailureReason(m.job("j", "translation", "cancelled", { last_error: "stopped" })), "")
+        end sub
+
+        @it("lays a job out as its title, then its status in a column")
+        sub failedRowCarriesTheReason()
+            rows = WorkRows(m.version(), [m.job("j1", "transcription", "failed", { language: "en", last_error: "permanent job failure: whisper exited with status 1" })])
+            row = rows[rows.Count() - 1]
+
+            m.assertEqual(row.label, "Transcription · English")
+            m.assertEqual(row.detail, "Failed · whisper exited with status 1")
+            m.assertTrue(row.column)
+            m.assertTrue(row.info)
+        end sub
+
+        @it("titles work by its kind and the language asked for")
+        sub titleNamesKindAndLanguage()
+            m.assertEqual(JobTitle(m.job("j", "translation", "queued", { language: "es" })), "Translation · Spanish")
+            m.assertEqual(JobTitle(m.job("j", "combine", "queued")), "Combine")
+        end sub
+
+        @it("announces ready work by what it added and failed work by its kind")
+        sub announcementsReadWell()
+            held = m.version([m.file("machine:v1:es", "es", "machine_translated")])
+            ready = JobAnnouncement(m.job("j", "translation", "succeeded", { language: "es", subtitle_id: "machine:v1:es" }), held)
+            failed = JobAnnouncement(m.job("j", "transcription", "failed", { last_error: "permanent job failure: no audio" }), held)
+
+            m.assertEqual(ready.kind, "ok")
+            m.assertEqual(ready.message, "Ready · Spanish (translated) added")
+            m.assertEqual(failed.kind, "err")
+            m.assertEqual(failed.message, "Transcription: Failed · no audio")
+        end sub
+
+        @it("names the work when what it added is unknown or missing")
+        sub announcementsNameUnclearWork()
+            many = JobAnnouncement(m.job("j", "translation", "succeeded"), m.version())
+            empty = JobAnnouncement(m.job("j", "transcription", "succeeded", { language: "en", subtitle_id: "generated:v1" }), m.version())
+
+            m.assertEqual(many.kind, "ok")
+            m.assertEqual(many.message, "Translation: Succeeded")
+            m.assertEqual(empty.kind, "ok")
+            m.assertEqual(empty.message, "Transcription · English: Finished, no subtitle produced")
+        end sub
+
+        @describe("the subtitle menu")
+
+        @it("offers what the version can do, then its work under a heading")
+        sub rowsFollowTheVersion()
+            two = m.version([m.file("a", "en", "external"), m.file("b", "fr", "external")])
+            rows = WorkRows(two, [m.job("j1", "translation", "queued", { ahead: 2, language: "es" }), m.job("j2", "trickplay", "queued")])
+
+            m.assertEqual(m.ids(rows), ["find", "transcribe", "translate", "combine", "jobs", "job"])
+            m.assertTrue(rows[4].heading)
+            m.assertEqual(rows[4].label, "Jobs")
+            m.assertTrue(rows[5].info)
+            m.assertEqual(rows[5].label, "Translation · Spanish")
+            m.assertEqual(rows[5].detail, "Queued · 2 jobs ahead")
+        end sub
+
+        @it("leads to the subtitle work from one row of the subtitles menu")
+        sub moreSubtitlesRow()
+            row = MoreSubtitlesRow()
+
+            m.assertEqual(row.id, "more")
+            m.assertEqual(row.label, "More subtitles")
+            m.assertEqual(row.detail, "Add…")
+        end sub
+
+        @it("hides translate and combine until there are files to work from")
+        sub rowsNeedFiles()
+            m.assertEqual(m.ids(WorkRows(m.version(), invalid)), ["find", "transcribe"])
+            m.assertEqual(m.ids(WorkRows(m.version([m.file("a", "en", "external")]), [])), ["find", "transcribe", "translate"])
+            m.assertEqual(m.ids(WorkRows({ id: "v1" }, [])), ["find"])
+        end sub
+
+        @it("leaves the top file out of the bottom choice")
+        sub bottomSkipsTheTop()
+            two = m.version([m.file("a", "en", "external"), m.file("b", "fr", "external")])
+
+            m.assertEqual(m.ids(SubtitleFileOptions(two)), ["a", "b"])
+            m.assertEqual(m.ids(SubtitleFileOptions(two, "a")), ["b"])
+        end sub
+
+        @it("labels a result by its release, then its download count, then its format")
+        sub candidatesCarryThemselves()
+            options = CandidateOptions([
+                { file_id: "7", language: "fr", release_name: "Fresh.Release", format: "srt", download_count: 12345 },
+                { file_id: "8", format: "ass", download_count: 1 },
+                { file_id: "9", format: "srt" }
+            ], m.version())
+
+            m.assertEqual(options[0].label, "Fresh.Release")
+            m.assertEqual(options[0].meta, "12K")
+            m.assertEqual(options[0].metaIcon, "icon-download")
+            m.assertEqual(options[0].detail, "SRT")
+            m.assertEqual(options[0].candidate.file_id, "7")
+            m.assertFalse(options[0].info)
+            m.assertEqual(options[1].label, "8")
+            m.assertEqual(options[1].meta, "1")
+            m.assertEqual(options[1].detail, "ASS")
+            m.assertEqual(options[2].meta, "")
+            m.assertEqual(options[2].metaIcon, "")
+            m.assertEqual(CandidateOptions(invalid).Count(), 0)
+        end sub
+
+        @it("marks a result the version already holds as downloaded and read-only")
+        sub heldResultsAreMarked()
+            held = m.version([m.file("opensubtitles:v1:7", "fr", "open_subtitles")])
+            options = CandidateOptions([
+                { file_id: "7", format: "srt", download_count: 1500 },
+                { file_id: "8", format: "srt" },
+                { format: "srt" }
+            ], held)
+
+            m.assertTrue(options[0].info)
+            m.assertEqual(options[0].meta, "1.5K")
+            m.assertEqual(options[0].detail, "Downloaded · SRT")
+            m.assertFalse(options[1].info)
+            m.assertFalse(options[2].info)
+            m.assertEqual(FirstPickable(options), 1)
+        end sub
+
+        @it("starts on the first result that can still be downloaded")
+        sub firstPickableSkipsHeld()
+            m.assertEqual(FirstPickable([{ info: true }, { info: true }]), 0)
+            m.assertEqual(FirstPickable([]), 0)
+            m.assertEqual(FirstPickable(invalid), 0)
+        end sub
+
+        @it("builds the id a downloaded subtitle is stored under")
+        sub providerIdsMatchTheServer()
+            m.assertEqual(ProviderSubtitleId({ id: "v1" }, "7"), "opensubtitles:v1:7")
+            m.assertEqual(ProviderSubtitleId({ id: "v1" }, ""), "")
+            m.assertEqual(ProviderSubtitleId({ id: "v1" }, invalid), "")
+        end sub
+
+        @it("names every step of the work as a leaf that returns to the menu")
+        sub workFieldsAreLeaves()
+            m.assertEqual(WorkChoiceFields().Count(), 7)
+        end sub
+
+        @it("tells a new download from one the version already had")
+        sub downloadNotes()
+            m.assertEqual(DownloadedNote(201), "Subtitle added.")
+            m.assertEqual(DownloadedNote(200), "Already added.")
+        end sub
+
+        @describe("languages")
+
+        @it("names a known language and spells out an unknown one")
+        sub languageNames()
+            m.assertEqual(LanguageName("es"), "Spanish")
+            m.assertEqual(LanguageName("ES"), "Spanish")
+            m.assertEqual(LanguageName("fil"), "Filipino")
+            m.assertEqual(LanguageName("eng"), "ENG")
+            m.assertEqual(LanguageName(invalid), "")
+        end sub
+
+        @it("puts the version's own languages first, then the rest by name")
+        sub versionLanguagesLead()
+            options = LanguageOptions(m.version([m.file("a", "fr", "external")]))
+
+            m.assertEqual(options[0].code, "en")
+            m.assertEqual(options[1].code, "es")
+            m.assertEqual(options[2].code, "fr")
+            m.assertEqual(options[3].code, "af")
+            m.assertEqual(options[0].label, "English")
+            m.assertEqual(options[0].detail, "EN")
+            m.assertEqual(options.Count(), LanguageTable().Count())
+        end sub
+
+        @it("skips a language code the list does not know")
+        sub unknownCodesAreSkipped()
+            m.assertEqual(VersionLanguages(m.version()), ["en", "es"])
+            m.assertEqual(VersionLanguages(invalid).Count(), 0)
+        end sub
+
+    end class
+
+end namespace

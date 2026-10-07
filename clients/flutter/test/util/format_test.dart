@@ -26,6 +26,13 @@ void main() {
     expect(gigabytes(40 * 1048576), '40 MB');
   });
 
+  test('elapsedText grows from seconds to minutes to hours', () {
+    expect(elapsedText(-5), '0s');
+    expect(elapsedText(9400), '9s');
+    expect(elapsedText(760000), '12m 40s');
+    expect(elapsedText(3725000), '1h 02m');
+  });
+
   test('compactCount shortens large counts and keeps small ones whole', () {
     expect(compactCount(10), '10');
     expect(compactCount(1234), '1.23K');
