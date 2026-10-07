@@ -25,4 +25,10 @@ String subtitleCandidateLabel(SubtitleCandidate c) => <String>[
   c.format.name,
 ].join(' · ');
 
+String audioTrackLabel(AudioTrack a) => <String>[
+  if (a.language != null) languageLabel(a.language!),
+  a.codec,
+  '${a.channels}ch',
+].join(' · ');
+
 String downloadCountLabel(int n) => Strings.downloadCount(n, groupedCount(n));

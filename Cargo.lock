@@ -2354,6 +2354,7 @@ version = "0.0.4-SNAPSHOT"
 dependencies = [
  "domain",
  "jiff",
+ "serde_json",
  "tokio",
  "uuid",
 ]

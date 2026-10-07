@@ -1,3 +1,4 @@
+use domain::catalog::VersionId;
 use domain::common::PageRequest;
 use domain::job::{
     Job, JobId, JobKind, JobPriority, JobQuery, JobStatus, RECLAIM_DEAD_LETTER_ERROR,
@@ -142,6 +143,79 @@ pub async fn job_repository_contract<R: JobRepository>(repo: R) {
 
     paged_and_filtered_reads(&repo).await;
     retry_requeues_only_failed_or_cancelled_jobs(&repo).await;
+    a_versions_jobs_are_read_from_their_payload(&repo).await;
+    queued_work_ahead_follows_the_claim_order(&repo).await;
+}
+
+fn work(id: &str, kind: JobKind, status: JobStatus, payload: &str, created_at: Timestamp) -> Job {
+    let mut entry = job(id, JobPriority::Normal, created_at, created_at);
+    entry.kind = kind;
+    entry.status = status;
+    entry.payload = payload.into();
+    entry
+}
+
+async fn a_versions_jobs_are_read_from_their_payload<R: JobRepository>(repo: &R) {
+    let now = at(1_900_000_000);
+    let since = at(1_900_000_000 - 86_400);
+    let v1 = r#"{"version_id":"v1","source_path":"/m/a.mkv"}"#;
+    let mut recent =
+        work("v-recent", JobKind::Translation, JobStatus::Succeeded, v1, at(1_899_999_980));
+    recent.finished_at = Some(at(1_900_000_000 - 86_399));
+    let mut old = work("v-old", JobKind::Combine, JobStatus::Failed, v1, at(1_899_999_970));
+    old.finished_at = Some(at(1_900_000_000 - 86_401));
+    for entry in [
+        work("v-queued", JobKind::Transcription, JobStatus::Queued, v1, now),
+        work("v-running", JobKind::Upscale, JobStatus::Running, v1, at(1_899_999_990)),
+        recent,
+        old,
+        work(
+            "v-relink",
+            JobKind::Relink,
+            JobStatus::Queued,
+            r#"{"version":"v1"}"#,
+            at(1_899_999_960),
+        ),
+        work("v-other", JobKind::Trickplay, JobStatus::Queued, r#"{"version_id":"v2"}"#, now),
+        work("v-scan", JobKind::LibraryScan, JobStatus::Queued, "v1", now),
+        work("v-metadata", JobKind::Metadata, JobStatus::Queued, v1, now),
+        work("v-plain", JobKind::Subtitles, JobStatus::Queued, "v1", now),
+    ] {
+        repo.enqueue(entry).await.unwrap();
+    }
+
+    let found = repo.list_for_version(&VersionId("v1".into()), since).await.unwrap();
+
+    assert_eq!(ids(&found), ["v-queued", "v-running", "v-recent", "v-relink"], "newest first");
+    assert!(repo.list_for_version(&VersionId("v9".into()), since).await.unwrap().is_empty());
+}
+
+async fn queued_work_ahead_follows_the_claim_order<R: JobRepository>(repo: &R) {
+    let now = at(1_950_000_000);
+    let queued = |id: &str, kind: JobKind, priority: JobPriority, created_at: Timestamp| {
+        let mut entry = work(id, kind, JobStatus::Queued, "{}", created_at);
+        entry.priority = priority;
+        entry
+    };
+    let target = queued("a-target", JobKind::Upscale, JobPriority::Normal, now);
+    let mut running = queued("a-running", JobKind::Upscale, JobPriority::High, now);
+    running.status = JobStatus::Running;
+    for entry in [
+        target.clone(),
+        queued("a-high-later", JobKind::Upscale, JobPriority::High, at(1_950_000_005)),
+        queued("a-normal-earlier", JobKind::Combine, JobPriority::Normal, at(1_949_999_995)),
+        queued("a-0", JobKind::Upscale, JobPriority::Normal, now),
+        queued("a-normal-later", JobKind::Upscale, JobPriority::Normal, at(1_950_000_001)),
+        queued("a-low-earlier", JobKind::Upscale, JobPriority::Low, at(1_949_999_900)),
+        queued("a-other-pool", JobKind::Trickplay, JobPriority::High, at(1_949_999_900)),
+        running,
+    ] {
+        repo.enqueue(entry).await.unwrap();
+    }
+
+    let pool = [JobKind::Upscale, JobKind::Combine];
+    assert_eq!(repo.count_ahead(&target, &pool).await.unwrap(), 3);
+    assert_eq!(repo.count_ahead(&target, &[]).await.unwrap(), 0);
 }
 
 async fn retry_requeues_only_failed_or_cancelled_jobs<R: JobRepository>(repo: &R) {

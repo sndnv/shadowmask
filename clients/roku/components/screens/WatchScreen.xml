@@ -18,6 +18,8 @@
     <script type="text/brightscript" uri="pkg:/source/screen.brs" />
     <script type="text/brightscript" uri="pkg:/source/capability.brs" />
     <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+    <script type="text/brightscript" uri="pkg:/source/languages.brs" />
+    <script type="text/brightscript" uri="pkg:/source/work.brs" />
 
     <interface>
         <field id="theme" type="assocarray" onChange="render" />
@@ -29,6 +31,7 @@
         <field id="backdropUrl" type="string" />
         <field id="choiceRequest" type="assocarray" />
         <field id="choiceResult" type="assocarray" onChange="onChoice" />
+        <field id="toastRequest" type="assocarray" alwaysNotify="true" />
         <field id="release" type="boolean" onChange="onRelease" />
         <field id="sessionEnd" type="string" alwaysNotify="true" />
         <field id="focusedChild" type="node" onChange="onFocus" />
@@ -71,5 +74,6 @@
         <Timer id="countdown" repeat="true" />
         <Timer id="hold" repeat="true" />
         <Timer id="watchdog" repeat="true" />
+        <Timer id="jobs" repeat="false" />
     </children>
 </component>

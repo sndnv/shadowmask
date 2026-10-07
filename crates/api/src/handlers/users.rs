@@ -8,8 +8,8 @@ use domain::user::UserId;
 
 use crate::dto::session::PlaybackSessionResponse;
 use crate::dto::user::{
-    ChangePasswordRequest, CreateUserRequest, LibraryAccessResponse, RoleDto, SetActiveRequest,
-    SetLibraryAccessRequest, UpdateProfileRequest, UserResponse,
+    ChangePasswordRequest, CreateUserRequest, LibraryAccessResponse, RoleDto, SelfResponse,
+    SetActiveRequest, SetLibraryAccessRequest, UpdateProfileRequest, UserResponse,
 };
 use crate::error::{ApiError, ApiResult};
 use crate::extract::{AuthUser, RequireAdmin};
@@ -89,7 +89,7 @@ pub async fn get<S: AppServices>(
 pub async fn current<S: AppServices>(
     State(state): State<S>,
     AuthUser(principal): AuthUser,
-) -> ApiResult<Json<UserResponse>> {
+) -> ApiResult<Json<SelfResponse>> {
     let actor = &principal.user.0;
     let user = state
         .user()
@@ -97,7 +97,11 @@ pub async fn current<S: AppServices>(
         .await
         .map_err(log_fail(actor, "retrieve current user"))?;
     debug!("User [{actor}] retrieved self");
-    Ok(Json(UserResponse { role: principal.role.into(), ..UserResponse::from(user) }))
+    let account_role = user.role.into();
+    Ok(Json(SelfResponse {
+        user: UserResponse { role: principal.role.into(), ..UserResponse::from(user) },
+        account_role,
+    }))
 }
 
 pub async fn update_profile<S: AppServices>(

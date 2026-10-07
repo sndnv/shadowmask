@@ -606,11 +606,11 @@ mod tests {
     }
 
     fn admin() -> Principal {
-        Principal { user: UserId("admin".into()), role: Role::Admin }
+        Principal { user: UserId("admin".into()), role: Role::Admin, account_admin: true }
     }
 
     fn member() -> Principal {
-        Principal { user: UserId("u1".into()), role: Role::User }
+        Principal { user: UserId("u1".into()), role: Role::User, account_admin: false }
     }
 
     fn page() -> PageRequest {
@@ -906,7 +906,8 @@ mod tests {
     #[tokio::test]
     async fn an_admin_without_the_grant_is_refused_like_anyone_else() {
         let svc = seeded().await;
-        let stranger = Principal { user: UserId("nobody".into()), role: Role::Admin };
+        let stranger =
+            Principal { user: UserId("nobody".into()), role: Role::Admin, account_admin: true };
 
         assert_eq!(svc.movies(&stranger, &query(), page()).await.unwrap().total, 0);
         assert_eq!(
@@ -1048,7 +1049,8 @@ mod tests {
     #[tokio::test]
     async fn the_versions_filter_still_respects_the_grants() {
         let svc = filterable();
-        let half = Principal { user: UserId("half".into()), role: Role::Admin };
+        let half =
+            Principal { user: UserId("half".into()), role: Role::Admin, account_admin: true };
         let found = svc.all_versions(&half, Some(&version_filter("shows")), page()).await.unwrap();
         assert_eq!(found.total, 0);
     }
@@ -1063,7 +1065,8 @@ mod tests {
             CatalogError::Forbidden
         ));
 
-        let stranger = Principal { user: UserId("nobody".into()), role: Role::Admin };
+        let stranger =
+            Principal { user: UserId("nobody".into()), role: Role::Admin, account_admin: true };
         assert_eq!(
             svc.all_versions(&stranger, None, page()).await.unwrap().total,
             0,

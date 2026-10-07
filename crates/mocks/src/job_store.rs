@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use domain::catalog::VersionId;
 use domain::common::{Page, PageRequest};
 use domain::error::RepositoryError;
 use domain::job::{
@@ -213,6 +214,46 @@ impl JobRepository for MockJobStore {
         }
         Ok(removed)
     }
+
+    async fn list_for_version(
+        &self,
+        version: &VersionId,
+        finished_since: Timestamp,
+    ) -> Result<Vec<Job>, RepositoryError> {
+        self.guard()?;
+        let mut found: Vec<Job> = self
+            .jobs
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|job| JobKind::PER_VERSION.contains(&job.kind))
+            .filter(|job| version_of(&job.payload).as_deref() == Some(version.0.as_str()))
+            .filter(|job| {
+                job.status.is_active() || job.finished_at.is_some_and(|at| at >= finished_since)
+            })
+            .cloned()
+            .collect();
+        found.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(b.id.cmp(&a.id)));
+        Ok(found)
+    }
+
+    async fn count_ahead(&self, job: &Job, kinds: &[JobKind]) -> Result<u64, RepositoryError> {
+        self.guard()?;
+        let order = |job: &Job| (Reverse(job.priority), job.created_at, job.id.clone());
+        Ok(self
+            .jobs
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|other| other.status == JobStatus::Queued && kinds.contains(&other.kind))
+            .filter(|other| order(other) < order(job))
+            .count() as u64)
+    }
+}
+
+fn version_of(payload: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(payload).ok()?;
+    value.get("version_id").or_else(|| value.get("version"))?.as_str().map(str::to_owned)
 }
 
 #[cfg(test)]

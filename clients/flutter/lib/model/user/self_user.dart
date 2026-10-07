@@ -20,6 +20,7 @@ abstract class SelfUser with _$SelfUser {
     required String id,
     required String username,
     required UserRole role,
+    UserRole? accountRole,
   }) = _SelfUser;
 
   factory SelfUser.fromJson(Map<String, dynamic> json) =>
@@ -29,4 +30,6 @@ abstract class SelfUser with _$SelfUser {
 extension SelfUserRoles on SelfUser {
   bool get isAdmin => role == UserRole.admin;
   bool get isPlayer => role == UserRole.player;
+  bool get worksOnVersions =>
+      isAdmin || (isPlayer && accountRole == UserRole.admin);
 }

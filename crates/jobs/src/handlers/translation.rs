@@ -2,8 +2,8 @@ use domain::common::LanguageCode;
 use domain::error::TranslationError;
 use domain::job::Job;
 use domain::media::{
-    SubtitleFile, SubtitleFileId, SubtitleReader, SubtitleSource, SubtitleStore,
-    TranslationProvider, TranslationSpec,
+    SubtitleFile, SubtitleReader, SubtitleSource, SubtitleStore, TranslationProvider,
+    TranslationSpec,
 };
 use domain::repository::CatalogRepository;
 use services::library::TranslationJobPayload;
@@ -115,10 +115,7 @@ where
                 )
                 .await?;
             let produced = SubtitleFile {
-                id: SubtitleFileId(format!(
-                    "machine:{}:{}",
-                    payload.version_id.0, target_language.0
-                )),
+                id: payload.produces(&target_language.0),
                 version: payload.version_id.clone(),
                 language: Some(target_language),
                 format: translated.format,
@@ -161,7 +158,7 @@ mod tests {
     use domain::common::Quality;
     use domain::error::SubtitleError;
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
-    use domain::media::{FetchedSubtitle, SubtitleFormat};
+    use domain::media::{FetchedSubtitle, SubtitleFileId, SubtitleFormat};
     use jiff::Timestamp;
     use mocks::MockCatalogRepo;
     use services::library::TranslationJobPayload;

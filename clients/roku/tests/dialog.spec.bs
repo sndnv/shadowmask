@@ -28,6 +28,26 @@ namespace tests
             m.assertFalse(IsDialogClose(invalid))
         end sub
 
+        @describe("DialogStartIndex")
+
+        @it("starts on the row the request asks for")
+        sub startsWhereAsked()
+            m.assertEqual(DialogStartIndex({ field: "subsMenu", selected: 2 }, false, "", 0, 5), 2)
+            m.assertEqual(DialogStartIndex({ field: "subsMenu", selected: 9 }, false, "", 0, 5), 4)
+            m.assertEqual(DialogStartIndex({ field: "subsMenu" }, false, "", 0, 0), 0)
+        end sub
+
+        @it("keeps the focused row when the open dialog is refreshed in place")
+        sub keepsFocusOnRefresh()
+            refresh = { field: "subsMenu", selected: 0, keep: true }
+
+            m.assertEqual(DialogStartIndex(refresh, true, "subsMenu", 3, 5), 3)
+            m.assertEqual(DialogStartIndex(refresh, true, "subsMenu", 7, 5), 4)
+            m.assertEqual(DialogStartIndex(refresh, false, "subsMenu", 3, 5), 0)
+            m.assertEqual(DialogStartIndex(refresh, true, "audioMenu", 3, 5), 0)
+            m.assertEqual(DialogStartIndex({ field: "subsMenu", selected: 1 }, true, "subsMenu", 3, 5), 1)
+        end sub
+
         @describe("DialogRows")
 
         @it("accepts a plain string as an option that carries no flags")
@@ -47,6 +67,16 @@ namespace tests
             m.assertTrue(rows[0].danger)
             m.assertTrue(rows[1].cancel)
             m.assertFalse(rows[0].cancel)
+        end sub
+
+        @it("keeps a row's column layout through menus and shaping")
+        sub columnLayoutSurvives()
+            options = MenuOptions([{ label: "Combine", detail: "Failed", info: true, column: true }, { label: "Find" }])
+            rows = DialogRows(options, "menu", 0)
+
+            m.assertTrue(rows[0].column)
+            m.assertFalse(rows[1].column)
+            m.assertFalse(DialogRows(["One"], "confirm", 0)[0].column)
         end sub
 
         @it("appends a cancel row to a menu and to a choice but not to a confirm")
@@ -181,6 +211,123 @@ namespace tests
             m.assertEqual(SteppedRowIndex(invalid, 3, 1), 0)
         end sub
 
+        @describe("read-only rows")
+
+        function sectioned() as object
+            return DialogRows([
+                { label: "Find subtitles" },
+                { label: "Transcribe" },
+                { label: "Jobs", heading: true },
+                { label: "Translation", detail: "Running · 9s", info: true }
+            ], "menu", 0)
+        end function
+
+        @it("steps onto the lines but over the heading, in both directions")
+        sub stepsOverTheHeading()
+            rows = m.sectioned()
+
+            m.assertEqual(SteppedRowIndex(rows, 1, 1), 3)
+            m.assertEqual(SteppedRowIndex(rows, 3, -1), 1)
+            m.assertEqual(SteppedRowIndex(rows, 3, 1), 4)
+            m.assertEqual(SteppedRowIndex(rows, 4, 1), 0)
+            m.assertEqual(SteppedRowIndex(rows, 0, -1), 4)
+        end sub
+
+        @it("stays put when nothing else can take the focus")
+        sub headingsAloneStayPut()
+            rows = [{ label: "Jobs", heading: true }, { label: "More", heading: true }]
+
+            m.assertEqual(SteppedRowIndex(rows, 0, 1), 0)
+        end sub
+
+        @it("never rests the focus on a heading")
+        sub opensOnAFocusableRow()
+            rows = m.sectioned()
+
+            m.assertEqual(FocusableRowIndex(rows, 2), 3)
+            m.assertEqual(FocusableRowIndex(rows, 3), 3)
+            m.assertEqual(FocusableRowIndex(rows, 1), 1)
+            m.assertEqual(FocusableRowIndex(rows, 9), 4)
+            m.assertEqual(FocusableRowIndex([], 0), 0)
+        end sub
+
+        @it("lets the cursor rest on a line without making it a choice")
+        sub linesAreReadOnly()
+            rows = m.sectioned()
+
+            m.assertTrue(DialogRowSelectable(rows[0]))
+            m.assertFalse(DialogRowSelectable(rows[2]))
+            m.assertFalse(DialogRowSelectable(rows[3]))
+            m.assertTrue(DialogRowSelectable(rows[4]))
+        end sub
+
+        @it("draws no chevron or mark on a read-only row, and only a soft focus")
+        sub readOnlyRowsCarryNoAffordance()
+            rows = m.sectioned()
+            theme = ThemeTokens("dark")
+
+            m.assertFalse(rows[2].chevron)
+            m.assertFalse(rows[3].chevron)
+            m.assertFalse(rows[3].reserve)
+            m.assertEqual(DialogRowPaint(theme, rows[2], false).label, theme.muted)
+            m.assertEqual(DialogRowPaint(theme, rows[3], false).label, theme.text)
+            m.assertEqual(DialogRowPaint(theme, rows[3], false).fill, "")
+            m.assertEqual(DialogRowPaint(theme, rows[3], true).fill, theme.surfaceAlt)
+            m.assertEqual(DialogRowPaint(theme, rows[3], true).label, theme.text)
+            m.assertEqual(DialogRowPaint(theme, rows[3], false).detail, theme.muted)
+        end sub
+
+        @it("carries the heading and line flags through a menu")
+        sub menuOptionsCarryReadOnlyFlags()
+            options = MenuOptions([{ label: "Jobs", heading: true }, { label: "Line", info: true }, { label: "Act" }])
+
+            m.assertTrue(options[0].heading)
+            m.assertTrue(options[1].info)
+            m.assertFalse(options[2].heading)
+            m.assertFalse(options[2].info)
+        end sub
+
+        @it("carries a counted mark between the label and the value")
+        sub rowsCarryTheirMeta()
+            options = MenuOptions([{ label: "Release", meta: "12K", metaIcon: "icon-download", detail: "SRT" }, { label: "Plain" }])
+            rows = DialogRows(options, "menu", 0)
+
+            m.assertEqual(rows[0].meta, "12K")
+            m.assertEqual(rows[0].metaIcon, "icon-download")
+            m.assertEqual(rows[0].detail, "SRT")
+            m.assertTrue(rows[0].chevron)
+            m.assertEqual(rows[1].meta, "")
+            m.assertEqual(DialogRow("Text").meta, "")
+            m.assertTrue(DialogSpeech("Pick", "", rows, 0).Instr("12K") >= 0)
+        end sub
+
+        @describe("a pick that waits for the server")
+
+        @it("turns the picked row into the wait and dims the rest")
+        sub busyRowsShowTheWait()
+            rows = DialogRows([{ label: "English", detail: "EN" }, { label: "French", detail: "FR" }], "choice", 0)
+            busy = DialogBusyRows(rows, 1, "Searching…")
+            theme = ThemeTokens("dark")
+
+            m.assertEqual(busy[1].detail, "Searching…")
+            m.assertEqual(busy[1].meta, "")
+            m.assertFalse(busy[1].chevron)
+            m.assertTrue(busy[1].spinning)
+            m.assertTrue(busy[0].dimmed)
+            m.assertTrue(busy[2].dimmed)
+            m.assertEqual(DialogRowPaint(theme, busy[0], false).label, theme.muted)
+            m.assertEqual(rows[1].detail, "FR")
+            m.assertEqual(DialogBusyRows(invalid, 0, "x").Count(), 0)
+        end sub
+
+        @it("tells the screen the dialog stays open, but not for a cancel")
+        sub waitingPicksSaySo()
+            m.assertTrue(DialogPickResult("findLanguage", 1, 3, true).waiting)
+            m.assertFalse(DialogPickResult("findLanguage", 1, 3, false).waiting)
+            m.assertFalse(DialogPickResult("findLanguage", 3, 3, true).waiting)
+            m.assertTrue(DialogPickResult("findLanguage", 3, 3, true).cancelled)
+        end sub
+
         @describe("DialogChoiceResult")
 
         @it("reports an option by its index")
@@ -198,6 +345,48 @@ namespace tests
 
             m.assertEqual(result.index, 0)
             m.assertTrue(result.cancelled)
+        end sub
+
+        @describe("DialogDetailWidth")
+
+        @it("gives a detail all it needs when the row has room")
+        sub detailFitsWhole()
+            m.assertEqual(DialogDetailWidth(600, 100, 200), 100)
+        end sub
+
+        @it("lets a long detail use what a short label leaves")
+        sub longDetailBesideShortLabel()
+            m.assertEqual(DialogDetailWidth(600, 800, 100), 500)
+        end sub
+
+        @it("never lets a detail take more than half the row from a long label")
+        sub detailNeverCrowdsTheLabel()
+            m.assertEqual(DialogDetailWidth(600, 800, 900), 300)
+            m.assertEqual(DialogDetailWidth(600, 80, 900), 80)
+        end sub
+
+        @it("gives no room when the row has none")
+        sub noRoomNoDetail()
+            m.assertEqual(DialogDetailWidth(0, 100, 50), 0)
+            m.assertEqual(DialogDetailWidth(-20, 100, 50), 0)
+        end sub
+
+        @describe("DialogColumnSpans")
+
+        @it("starts the detail column halfway, the label stopping a gap short")
+        sub columnsSplitTheRow()
+            spans = DialogColumnSpans(601, 24)
+
+            m.assertEqual(spans.at, 300)
+            m.assertEqual(spans.label, 276)
+            m.assertEqual(spans.detail, 301)
+        end sub
+
+        @it("gives nothing to a row with no room")
+        sub columnsNeedRoom()
+            m.assertEqual(DialogColumnSpans(0, 24).detail, 0)
+            m.assertEqual(DialogColumnSpans(30, 24).label, 0)
+            m.assertEqual(DialogColumnSpans(30, 24).detail, 15)
         end sub
 
         @describe("ConfirmOptions")

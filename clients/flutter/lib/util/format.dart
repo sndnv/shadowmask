@@ -42,6 +42,17 @@ String durationText(int ms) {
   return hours > 0 ? '${hours}h ${pad2(minutes)}m' : '${minutes}m';
 }
 
+String elapsedText(int ms) {
+  final int total = (ms < 0 ? 0 : ms) ~/ 1000;
+  final int hours = total ~/ 3600;
+  final int minutes = (total % 3600) ~/ 60;
+  final int seconds = total % 60;
+  if (hours > 0) {
+    return '${hours}h ${pad2(minutes)}m';
+  }
+  return minutes > 0 ? '${minutes}m ${pad2(seconds)}s' : '${seconds}s';
+}
+
 String clock(int ms) {
   final int total = (ms < 0 ? 0 : ms) ~/ 1000;
   final int hours = total ~/ 3600;

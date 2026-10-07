@@ -16,10 +16,11 @@ use domain::media::{
 use domain::repository::CatalogRepository;
 
 use crate::dto::catalog::{
-    DownloadSubtitleRequest, RenameSubtitleRequest, SubtitleCandidateDto, SubtitleTextResponse,
+    DownloadSubtitleRequest, RenameSubtitleRequest, SubtitleCandidateDto, SubtitleFileDto,
+    SubtitleTextResponse,
 };
 use crate::error::{ApiError, ApiResult};
-use crate::extract::RequireAdmin;
+use crate::extract::RequireVersionWork;
 use crate::state::{SubtitleSearchState, SubtitleState};
 
 fn is_managed(source: SubtitleSource) -> bool {
@@ -98,7 +99,7 @@ pub struct SubtitleSearchParams {
 
 pub async fn search<C, S, P>(
     State(state): State<SubtitleSearchState<C, S, P>>,
-    RequireAdmin(principal): RequireAdmin,
+    RequireVersionWork(principal): RequireVersionWork,
     Path(version): Path<String>,
     Query(params): Query<SubtitleSearchParams>,
 ) -> ApiResult<Json<Vec<SubtitleCandidateDto>>>
@@ -148,10 +149,10 @@ where
 
 pub async fn download<C, S, P>(
     State(state): State<SubtitleSearchState<C, S, P>>,
-    RequireAdmin(principal): RequireAdmin,
+    RequireVersionWork(principal): RequireVersionWork,
     Path(version): Path<String>,
     Json(request): Json<DownloadSubtitleRequest>,
-) -> ApiResult<StatusCode>
+) -> ApiResult<(StatusCode, Json<SubtitleFileDto>)>
 where
     C: CatalogRepository + Send + Sync,
     S: SubtitleStore + Send + Sync,
@@ -172,25 +173,25 @@ where
     let id = SubtitleFileId(format!("opensubtitles:{}:{}", version.0, file_id));
     if detail.subtitle_files.iter().any(|file| file.id == id) {
         let label = cleaned(request.release_name.clone());
-        let mut found = false;
+        let mut found = None;
         state
             .catalog
             .update_subtitle_files(&version, |mut held| {
                 for file in held.iter_mut().filter(|file| file.id == id) {
-                    found = true;
                     file.pinned = true;
                     if label.is_some() {
                         file.label = label.clone();
                     }
+                    found = Some(file.clone());
                 }
                 held
             })
             .await
             .map_err(|_| ApiError::internal())?;
-        if found {
+        if let Some(file) = found {
             #[rustfmt::skip]
             debug!("user [{actor}] pinned subtitle [{file_id}] already held by version [{}]", version.0);
-            return Ok(StatusCode::NO_CONTENT);
+            return Ok((StatusCode::OK, Json(file.into())));
         }
     }
     let fetched = match state.provider.download(file_id).await {
@@ -219,12 +220,12 @@ where
     };
     state.catalog.add_subtitle_file(&version, &subtitle).await.map_err(|_| ApiError::internal())?;
     debug!("user [{actor}] downloaded subtitle [{file_id}] for version [{}]", version.0);
-    Ok(StatusCode::NO_CONTENT)
+    Ok((StatusCode::CREATED, Json(subtitle.into())))
 }
 
 pub async fn view<C, S>(
     State(state): State<SubtitleState<C, S>>,
-    RequireAdmin(principal): RequireAdmin,
+    RequireVersionWork(principal): RequireVersionWork,
     Path((version, subtitle)): Path<(String, String)>,
 ) -> ApiResult<Json<SubtitleTextResponse>>
 where
@@ -251,7 +252,7 @@ where
 
 pub async fn rename<C, S>(
     State(state): State<SubtitleState<C, S>>,
-    RequireAdmin(principal): RequireAdmin,
+    RequireVersionWork(principal): RequireVersionWork,
     Path((version, subtitle)): Path<(String, String)>,
     Json(request): Json<RenameSubtitleRequest>,
 ) -> ApiResult<StatusCode>
@@ -302,7 +303,7 @@ where
 
 pub async fn delete<C, S>(
     State(state): State<SubtitleState<C, S>>,
-    RequireAdmin(principal): RequireAdmin,
+    RequireVersionWork(principal): RequireVersionWork,
     Path((version, subtitle)): Path<(String, String)>,
 ) -> ApiResult<StatusCode>
 where

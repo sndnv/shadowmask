@@ -102,6 +102,7 @@ sub onSelf()
     shared.userId = TextOrBlank(ValueAt(parsed.json, "id", ""))
     shared.username = TextOrBlank(ValueAt(parsed.json, "username", ""))
     shared.role = TextOrBlank(ValueAt(parsed.json, "role", ""))
+    shared.accountRole = TextOrBlank(ValueAt(parsed.json, "account_role", ""))
 
     m.top.advance = "reset:HomeScreen"
 end sub

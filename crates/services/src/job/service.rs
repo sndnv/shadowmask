@@ -1,14 +1,19 @@
 use std::sync::Arc;
 
+use domain::catalog::VersionId;
 use domain::common::{Page, PageRequest};
 use domain::error::JobServiceError;
-use domain::job::{Job, JobCanceller, JobId, JobKind, JobNode, JobPage, JobQuery, JobStatus};
+use domain::job::{
+    Job, JobCanceller, JobId, JobKind, JobNode, JobPage, JobQuery, JobStatus, VersionJob,
+};
+use domain::media::SubtitleFileId;
 use domain::repository::JobRepository;
 use domain::service::JobService;
 use domain::user::Principal;
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp};
 
 use crate::acl;
+use crate::library::{CombineJobPayload, TranscriptionJobPayload, TranslationJobPayload};
 
 struct NoopCanceller;
 
@@ -18,16 +23,57 @@ impl JobCanceller for NoopCanceller {
     }
 }
 
+const VERSION_JOB_WINDOW: SignedDuration = SignedDuration::from_hours(24);
+
+fn elapsed_ms(job: &Job, now: Timestamp) -> Option<u64> {
+    let end = match job.status {
+        JobStatus::Queued => return None,
+        JobStatus::Running => now,
+        _ => job.finished_at?,
+    };
+    u64::try_from(end.duration_since(job.started_at?).as_millis()).ok()
+}
+
+fn produces(job: &Job) -> (Option<String>, Option<SubtitleFileId>) {
+    match job.kind {
+        JobKind::Transcription => TranscriptionJobPayload::decode(&job.payload)
+            .map(|payload| (payload.source_language.clone(), Some(payload.produces())))
+            .unwrap_or_default(),
+        JobKind::Translation => TranslationJobPayload::decode(&job.payload)
+            .ok()
+            .and_then(|payload| match payload.target_languages.as_slice() {
+                [language] => Some((Some(language.clone()), Some(payload.produces(language)))),
+                _ => None,
+            })
+            .unwrap_or_default(),
+        JobKind::Combine => CombineJobPayload::decode(&job.payload)
+            .map(|payload| (None, Some(payload.produces())))
+            .unwrap_or_default(),
+        _ => (None, None),
+    }
+}
+
 #[derive(Clone)]
 pub struct JobServiceImpl<J> {
     jobs: J,
     canceller: Arc<dyn JobCanceller>,
     parked: Arc<[JobKind]>,
+    pools: Arc<[Vec<JobKind>]>,
 }
 
 impl<J> JobServiceImpl<J> {
     pub fn new(jobs: J) -> Self {
-        Self { jobs, canceller: Arc::new(NoopCanceller), parked: Arc::from([]) }
+        Self {
+            jobs,
+            canceller: Arc::new(NoopCanceller),
+            parked: Arc::from([]),
+            pools: Arc::from([]),
+        }
+    }
+
+    pub fn with_pools(mut self, pools: Vec<Vec<JobKind>>) -> Self {
+        self.pools = pools.into();
+        self
     }
 
     pub fn with_canceller(mut self, canceller: Arc<dyn JobCanceller>) -> Self {
@@ -124,6 +170,30 @@ where
             && job.kind != JobKind::LibraryScan
             && !self.parked.contains(&job.kind)
     }
+
+    async fn version_jobs(
+        &self,
+        caller: &Principal,
+        version: &VersionId,
+    ) -> Result<Vec<VersionJob>, JobServiceError> {
+        if !acl::works_on_versions(caller) {
+            return Err(JobServiceError::Forbidden);
+        }
+        let now = Timestamp::now();
+        let jobs = self.jobs.list_for_version(version, now - VERSION_JOB_WINDOW).await?;
+        let mut described = Vec::with_capacity(jobs.len());
+        for job in jobs {
+            let pool = self.pools.iter().find(|kinds| kinds.contains(&job.kind));
+            let ahead = match (job.status, pool) {
+                (JobStatus::Queued, Some(kinds)) => Some(self.jobs.count_ahead(&job, kinds).await?),
+                _ => None,
+            };
+            let (language, subtitle) = produces(&job);
+            let elapsed_ms = elapsed_ms(&job, now);
+            described.push(VersionJob { job, ahead, elapsed_ms, language, subtitle });
+        }
+        Ok(described)
+    }
 }
 
 #[cfg(test)]
@@ -136,11 +206,11 @@ mod tests {
     const PAGE: PageRequest = PageRequest { offset: 0, limit: 50 };
 
     fn admin() -> Principal {
-        Principal { user: UserId("admin".into()), role: Role::Admin }
+        Principal { user: UserId("admin".into()), role: Role::Admin, account_admin: true }
     }
 
     fn member() -> Principal {
-        Principal { user: UserId("u1".into()), role: Role::User }
+        Principal { user: UserId("u1".into()), role: Role::User, account_admin: false }
     }
 
     fn job_with(id: &str, kind: JobKind, status: JobStatus) -> Job {
@@ -425,5 +495,145 @@ mod tests {
             JobStatus::Failed,
             "a re-queued scan would skip the library's scan slot"
         );
+    }
+
+    fn version_work(id: &str, mut job: Job, status: JobStatus, created_secs_ago: i64) -> Job {
+        let created = Timestamp::now() - SignedDuration::from_secs(created_secs_ago);
+        job.id = JobId(id.into());
+        job.status = status;
+        job.created_at = created;
+        job.updated_at = created;
+        job
+    }
+
+    fn by_id<'a>(jobs: &'a [VersionJob], id: &str) -> &'a VersionJob {
+        jobs.iter().find(|entry| entry.job.id.0 == id).expect("listed")
+    }
+
+    #[tokio::test]
+    async fn a_versions_jobs_say_what_they_produce_and_how_long_they_took() {
+        use crate::library::{transcription_job, translation_job, translation_job_with_source};
+        let v1 = VersionId("v1".into());
+        let svc = svc().with_pools(vec![vec![JobKind::Transcription, JobKind::Translation]]);
+        let mut running = version_work(
+            "translate-zh",
+            translation_job_with_source(&v1, "sf-en", "zh"),
+            JobStatus::Running,
+            120,
+        );
+        running.started_at = Some(Timestamp::now() - SignedDuration::from_secs(90));
+        let mut finished = version_work(
+            "translate-many",
+            translation_job(&v1, &["fr".to_owned(), "de".to_owned()]).unwrap(),
+            JobStatus::Succeeded,
+            300,
+        );
+        let started = Timestamp::now() - SignedDuration::from_secs(60);
+        finished.started_at = Some(started);
+        finished.finished_at = Some(started + SignedDuration::from_secs(10));
+        for job in [
+            version_work(
+                "transcribe",
+                transcription_job(&v1, "/m/a.mkv", Some("en".into()), None, true),
+                JobStatus::Queued,
+                10,
+            ),
+            running,
+            finished,
+        ] {
+            svc.jobs.enqueue(job).await.unwrap();
+        }
+
+        let jobs = svc.version_jobs(&admin(), &v1).await.unwrap();
+
+        let ids: Vec<&str> = jobs.iter().map(|entry| entry.job.id.0.as_str()).collect();
+        assert_eq!(ids, ["transcribe", "translate-zh", "translate-many"]);
+        let transcribe = by_id(&jobs, "transcribe");
+        assert_eq!(transcribe.ahead, Some(0));
+        assert_eq!(transcribe.elapsed_ms, None);
+        assert_eq!(transcribe.language.as_deref(), Some("en"));
+        assert_eq!(transcribe.subtitle, Some(SubtitleFileId("generated:v1".into())));
+        let translating = by_id(&jobs, "translate-zh");
+        assert_eq!(translating.ahead, None);
+        assert!(translating.elapsed_ms.is_some_and(|ms| ms >= 90_000));
+        assert_eq!(translating.language.as_deref(), Some("zh"));
+        assert_eq!(translating.subtitle, Some(SubtitleFileId("machine:v1:zh".into())));
+        let many = by_id(&jobs, "translate-many");
+        assert_eq!(many.elapsed_ms, Some(10_000));
+        assert_eq!((many.language.clone(), many.subtitle.clone()), (None, None));
+    }
+
+    #[tokio::test]
+    async fn combine_names_its_subtitle_and_a_job_never_started_has_no_elapsed_time() {
+        use crate::library::{combine_job, upscale_job};
+        let v1 = VersionId("v1".into());
+        let svc = svc().with_pools(vec![vec![JobKind::Upscale, JobKind::Combine]]);
+        let mut failed =
+            version_work("combine", combine_job(&v1, "sf-en", "sf-fr"), JobStatus::Failed, 30);
+        failed.finished_at = Some(Timestamp::now());
+        svc.jobs.enqueue(failed).await.unwrap();
+        svc.jobs
+            .enqueue(version_work("upscale", upscale_job(&v1, 2160), JobStatus::Queued, 20))
+            .await
+            .unwrap();
+        svc.jobs
+            .enqueue(version_work(
+                "earlier-upscale",
+                upscale_job(&VersionId("v2".into()), 2160),
+                JobStatus::Queued,
+                60,
+            ))
+            .await
+            .unwrap();
+
+        let jobs = svc.version_jobs(&admin(), &v1).await.unwrap();
+
+        let combine = by_id(&jobs, "combine");
+        assert_eq!(combine.subtitle, Some(SubtitleFileId("combined:v1:sf-en:sf-fr".into())));
+        assert_eq!(combine.language, None);
+        assert_eq!(combine.elapsed_ms, None);
+        assert_eq!(combine.ahead, None);
+        let upscale = by_id(&jobs, "upscale");
+        assert_eq!(upscale.ahead, Some(1), "another version's upscale is in the same pool");
+        assert_eq!((upscale.language.clone(), upscale.subtitle.clone()), (None, None));
+    }
+
+    #[tokio::test]
+    async fn a_switched_off_kind_has_nothing_ahead_because_no_pool_runs_it() {
+        use crate::library::transcription_job;
+        let v1 = VersionId("v1".into());
+        let svc = svc().with_pools(vec![vec![JobKind::Upscale]]);
+        svc.jobs
+            .enqueue(version_work(
+                "transcribe",
+                transcription_job(&v1, "/m/a.mkv", None, None, true),
+                JobStatus::Queued,
+                5,
+            ))
+            .await
+            .unwrap();
+
+        let jobs = svc.version_jobs(&admin(), &v1).await.unwrap();
+
+        assert_eq!(jobs[0].ahead, None);
+        assert_eq!(jobs[0].language, None);
+    }
+
+    #[tokio::test]
+    async fn a_versions_jobs_are_for_admins_and_their_linked_devices() {
+        let v1 = VersionId("v1".into());
+        let device = |account_admin| Principal {
+            user: UserId("admin".into()),
+            role: Role::Player,
+            account_admin,
+        };
+
+        assert!(svc().version_jobs(&device(true), &v1).await.unwrap().is_empty());
+        for refused in [member(), device(false)] {
+            assert!(matches!(
+                svc().version_jobs(&refused, &v1).await.unwrap_err(),
+                JobServiceError::Forbidden
+            ));
+        }
     }
 }

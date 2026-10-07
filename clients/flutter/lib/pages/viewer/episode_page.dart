@@ -306,9 +306,10 @@ class _EpisodeBodyState extends State<_EpisodeBody>
                             userId: widget.user.id,
                             versions: ordered,
                             onProgressCleared: _reload,
-                            admin: widget.user.isAdmin
+                            admin: widget.user.worksOnVersions
                                 ? AdminApi(widget.api)
                                 : null,
+                            adminPages: widget.user.isAdmin,
                           ),
                         ),
                       if (widget.user.isAdmin && seriesId != null)

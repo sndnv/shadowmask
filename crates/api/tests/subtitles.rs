@@ -17,11 +17,14 @@ use domain::media::{
     SubtitleFile, SubtitleFileId, SubtitleFormat, SubtitleReader, SubtitleSource, SubtitleStore,
 };
 use domain::repository::CatalogRepository;
+use domain::user::UserId;
 use jiff::Timestamp;
 use mocks::MockCatalogRepo;
 
 const ADMIN: &str = "Bearer access:admin";
 const USER: &str = "Bearer access:u1";
+const ADMIN_TV: &str = "Bearer device:admin";
+const USER_TV: &str = "Bearer device:u1";
 
 #[derive(Clone, Default)]
 struct MockStore {
@@ -118,6 +121,8 @@ async fn seed(files: &[SubtitleFile]) -> (MockCatalogRepo, MockStore) {
 
 fn app(catalog: MockCatalogRepo, store: MockStore) -> Router {
     let generator = Generator::new();
+    generator.auth.add_linked_device(UserId("admin".into()), true);
+    generator.auth.add_linked_device(UserId("u1".into()), false);
     let auth = AppState::new(
         generator.auth.clone(),
         generator.catalog.clone(),
@@ -161,7 +166,7 @@ async fn send_body(
 }
 
 fn uri(subtitle: &str) -> String {
-    format!("/api/v1/admin/versions/v1/subtitles/{subtitle}")
+    format!("/api/v1/versions/v1/subtitles/{subtitle}")
 }
 
 async fn language_of(catalog: &MockCatalogRepo, subtitle: &str) -> Option<String> {
@@ -472,8 +477,52 @@ async fn rename_write_error_is_internal() {
 #[tokio::test]
 async fn non_admin_is_forbidden() {
     let (catalog, store) = seed(&[]).await;
-    let (status, _) = send(app(catalog, store), "GET", &uri("generated:v1"), Some(USER)).await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
+    for method in ["GET", "PUT", "DELETE"] {
+        let (status, _) = send_body(
+            app(catalog.clone(), store.clone()),
+            method,
+            &uri("generated:v1"),
+            Some(USER),
+            r#"{"language":"fr"}"#,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{method}");
+    }
+}
+
+#[tokio::test]
+async fn an_admins_linked_device_manages_subtitles_and_a_plain_one_may_not() {
+    let (catalog, store) =
+        seed(&[file("generated:v1", SubtitleSource::Generated, "/subs/v1/gen.vtt", None)]).await;
+    store.seed("/subs/v1/gen.vtt", "WEBVTT\n\nhello\n");
+    let app = || app(catalog.clone(), store.clone());
+    let body = r#"{"language":"fr"}"#;
+
+    for method in ["GET", "PUT", "DELETE"] {
+        let (status, _) = send_body(app(), method, &uri("generated:v1"), Some(USER_TV), body).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{method} as a plain device");
+    }
+    let (status, _) = send(app(), "GET", &uri("generated:v1"), Some(ADMIN_TV)).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = send_body(app(), "PUT", &uri("generated:v1"), Some(ADMIN_TV), body).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(language_of(&catalog, "generated:v1").await.as_deref(), Some("fr"));
+    let (status, _) = send(app(), "DELETE", &uri("generated:v1"), Some(ADMIN_TV)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(!store.has("/subs/v1/gen.vtt"));
+}
+
+#[tokio::test]
+async fn the_admin_path_is_gone() {
+    let (catalog, store) = seed(&[]).await;
+    let (status, _) = send(
+        app(catalog, store),
+        "GET",
+        "/api/v1/admin/versions/v1/subtitles/generated:v1",
+        Some(ADMIN),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

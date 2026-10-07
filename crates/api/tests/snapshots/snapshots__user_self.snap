@@ -4,6 +4,7 @@ expression: value
 ---
 {
   "body": {
+    "account_role": "user",
     "active": true,
     "bitrate_cap": null,
     "concurrent_stream_limit": null,

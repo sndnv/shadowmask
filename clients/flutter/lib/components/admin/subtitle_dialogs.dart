@@ -237,7 +237,7 @@ class _SubtitleSearchDialogState extends State<_SubtitleSearchDialog> {
     }
     setState(() => _pending.add(id));
     try {
-      await widget.admin.subtitleDownload(
+      final bool added = await widget.admin.subtitleDownload(
         widget.versionId,
         fileId: c.fileId,
         language: c.language,
@@ -249,7 +249,9 @@ class _SubtitleSearchDialogState extends State<_SubtitleSearchDialog> {
           _pending.remove(id);
           _held.add(id);
         });
-        Toasts.of(context).success(Strings.toastDownloaded);
+        Toasts.of(
+          context,
+        ).success(added ? Strings.toastDownloaded : Strings.toastAlreadyAdded);
       }
     } catch (e) {
       if (mounted) {

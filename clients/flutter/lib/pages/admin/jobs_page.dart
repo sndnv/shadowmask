@@ -353,19 +353,13 @@ class _ErrorCell extends StatelessWidget {
 
   final Job job;
 
-  static final RegExp _prefix = RegExp(
-    r'^(retryable|permanent) job failure:\s*',
-    caseSensitive: false,
-  );
-
   @override
   Widget build(BuildContext context) {
-    final String? raw = job.lastError;
-    if (raw == null || raw.isEmpty) {
+    final String? text = jobFailureReason(job.lastError);
+    if (text == null) {
       return const SizedBox.shrink();
     }
     final Tokens t = context.tokens;
-    final String text = raw.replaceFirst(_prefix, '');
     final String label = text.length > 16 ? '${text.substring(0, 16)}…' : text;
     return Align(
       alignment: Alignment.centerLeft,

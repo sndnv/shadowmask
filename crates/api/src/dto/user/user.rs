@@ -20,6 +20,13 @@ pub struct UserResponse {
     pub updated_at: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct SelfResponse {
+    #[serde(flatten)]
+    pub user: UserResponse,
+    pub account_role: RoleDto,
+}
+
 impl From<User> for UserResponse {
     fn from(u: User) -> Self {
         UserResponse {

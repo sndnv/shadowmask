@@ -24,6 +24,16 @@ String jobKindLabel(JobKind kind) => switch (kind) {
 
 String shortJobId(String id) => id.split('-').first;
 
+final RegExp _failurePrefix = RegExp(
+  r'^(retryable|permanent) job failure:\s*',
+  caseSensitive: false,
+);
+
+String? jobFailureReason(String? raw) {
+  final String text = (raw ?? '').replaceFirst(_failurePrefix, '').trim();
+  return text.isEmpty ? null : text;
+}
+
 String jobPriorityLabel(JobPriority priority) => switch (priority) {
   JobPriority.low => 'Low',
   JobPriority.normal => 'Normal',

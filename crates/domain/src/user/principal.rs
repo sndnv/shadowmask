@@ -4,4 +4,5 @@ use crate::user::{Role, UserId};
 pub struct Principal {
     pub user: UserId,
     pub role: Role,
+    pub account_admin: bool,
 }

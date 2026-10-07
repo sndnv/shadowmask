@@ -13,6 +13,10 @@ pub fn is_automation(caller: &Principal) -> bool {
     caller.role == Role::Automation
 }
 
+pub fn works_on_versions(caller: &Principal) -> bool {
+    is_admin(caller) || (caller.role == Role::Player && caller.account_admin)
+}
+
 pub fn can_access_library(access: &[LibraryId], library: &LibraryId) -> bool {
     access.iter().any(|granted| granted == library)
 }
@@ -97,7 +101,21 @@ mod tests {
     }
 
     fn principal(role: Role) -> Principal {
-        Principal { user: UserId("u1".to_owned()), role }
+        Principal { user: UserId("u1".to_owned()), role, account_admin: role == Role::Admin }
+    }
+
+    #[test]
+    fn version_work_is_for_admins_and_their_linked_devices() {
+        let device = |account_admin| Principal { account_admin, ..principal(Role::Player) };
+        let promoted = Principal { account_admin: true, ..principal(Role::User) };
+        let automation = Principal { account_admin: true, ..principal(Role::Automation) };
+
+        assert!(works_on_versions(&principal(Role::Admin)));
+        assert!(works_on_versions(&device(true)));
+        assert!(!works_on_versions(&device(false)));
+        assert!(!works_on_versions(&principal(Role::User)));
+        assert!(!works_on_versions(&promoted));
+        assert!(!works_on_versions(&automation));
     }
 
     fn rating(system: &str, code: &str) -> ContentRating {
@@ -252,7 +270,8 @@ mod tests {
     #[tokio::test]
     async fn a_view_is_the_same_whoever_asks_for_it() {
         let users = repo_with(account("u1", Role::User, None), &["lib1"]).await;
-        let elevated = Principal { user: UserId("u1".into()), role: Role::Admin };
+        let elevated =
+            Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true };
 
         let as_caller = viewer(&users, &elevated.user).await.unwrap();
         let as_target = viewer(&users, &UserId("u1".into())).await.unwrap();

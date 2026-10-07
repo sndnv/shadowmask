@@ -30,6 +30,8 @@ Future<bool> showTranscribeDialog(
   required AdminApi admin,
   required String versionId,
   required int audioTrackIndex,
+  List<AudioTrack> tracks = const <AudioTrack>[],
+  String queuedToast = Strings.toastQueuedTrackJobs,
 }) async =>
     await showDialog<bool>(
       context: context,
@@ -37,6 +39,8 @@ Future<bool> showTranscribeDialog(
         admin: admin,
         versionId: versionId,
         audioTrackIndex: audioTrackIndex,
+        tracks: tracks,
+        queuedToast: queuedToast,
       ),
     ) ??
     false;
@@ -46,11 +50,18 @@ Future<bool> showTranslateDialog(
   required AdminApi admin,
   required String versionId,
   required SubtitleFile source,
+  List<SubtitleFile> sources = const <SubtitleFile>[],
+  String queuedToast = Strings.toastQueuedTrackJobs,
 }) async =>
     await showDialog<bool>(
       context: context,
-      builder: (BuildContext _) =>
-          _TranslateDialog(admin: admin, versionId: versionId, source: source),
+      builder: (BuildContext _) => _TranslateDialog(
+        admin: admin,
+        versionId: versionId,
+        source: source,
+        sources: sources,
+        queuedToast: queuedToast,
+      ),
     ) ??
     false;
 
@@ -59,11 +70,16 @@ Future<bool> showCombineDialog(
   required AdminApi admin,
   required String versionId,
   required List<SubtitleFile> subs,
+  String queuedToast = Strings.toastQueuedTrackJobs,
 }) async =>
     await showDialog<bool>(
       context: context,
-      builder: (BuildContext _) =>
-          _CombineDialog(admin: admin, versionId: versionId, subs: subs),
+      builder: (BuildContext _) => _CombineDialog(
+        admin: admin,
+        versionId: versionId,
+        subs: subs,
+        queuedToast: queuedToast,
+      ),
     ) ??
     false;
 
@@ -151,17 +167,22 @@ class _TranscribeDialog extends StatefulWidget {
     required this.admin,
     required this.versionId,
     required this.audioTrackIndex,
+    required this.tracks,
+    required this.queuedToast,
   });
 
   final AdminApi admin;
   final String versionId;
   final int audioTrackIndex;
+  final List<AudioTrack> tracks;
+  final String queuedToast;
 
   @override
   State<_TranscribeDialog> createState() => _TranscribeDialogState();
 }
 
 class _TranscribeDialogState extends State<_TranscribeDialog> {
+  late int _track = widget.audioTrackIndex;
   String _sourceLanguage = '';
   bool _submitting = false;
 
@@ -170,11 +191,11 @@ class _TranscribeDialogState extends State<_TranscribeDialog> {
     try {
       await widget.admin.transcribe(
         widget.versionId,
-        audioTrackIndex: widget.audioTrackIndex,
+        audioTrackIndex: _track,
         sourceLanguage: _sourceLanguage,
       );
       if (mounted) {
-        Toasts.of(context).success(Strings.toastQueuedTrackJobs);
+        Toasts.of(context).success(widget.queuedToast);
         Navigator.of(context).pop(true);
       }
     } catch (e) {
@@ -191,12 +212,28 @@ class _TranscribeDialogState extends State<_TranscribeDialog> {
       title: Strings.transcribe,
       submitting: _submitting,
       onSubmit: _submit,
-      child: LanguageDropdown(
-        label: Strings.fieldSourceLanguage,
-        help: Strings.sourceLanguageHelp,
-        value: _sourceLanguage,
-        emptyLabel: Strings.optionAutoDetect,
-        onChanged: (String v) => setState(() => _sourceLanguage = v),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        spacing: Space.s3,
+        children: <Widget>[
+          if (widget.tracks.length > 1)
+            LabelledDropdown<int>(
+              label: Strings.fieldAudioTrack,
+              value: _track,
+              items: <(int, String)>[
+                for (final AudioTrack a in widget.tracks)
+                  (a.index, audioTrackLabel(a)),
+              ],
+              onChanged: (int v) => setState(() => _track = v),
+            ),
+          LanguageDropdown(
+            label: Strings.fieldSourceLanguage,
+            help: Strings.sourceLanguageHelp,
+            value: _sourceLanguage,
+            emptyLabel: Strings.optionAutoDetect,
+            onChanged: (String v) => setState(() => _sourceLanguage = v),
+          ),
+        ],
       ),
     );
   }
@@ -207,17 +244,22 @@ class _TranslateDialog extends StatefulWidget {
     required this.admin,
     required this.versionId,
     required this.source,
+    required this.sources,
+    required this.queuedToast,
   });
 
   final AdminApi admin;
   final String versionId;
   final SubtitleFile source;
+  final List<SubtitleFile> sources;
+  final String queuedToast;
 
   @override
   State<_TranslateDialog> createState() => _TranslateDialogState();
 }
 
 class _TranslateDialogState extends State<_TranslateDialog> {
+  late String _source = widget.source.id;
   String _targetLanguage = '';
   bool _submitting = false;
   String? _targetError;
@@ -231,11 +273,11 @@ class _TranslateDialogState extends State<_TranslateDialog> {
     try {
       await widget.admin.translate(
         widget.versionId,
-        sourceSubtitleId: widget.source.id,
+        sourceSubtitleId: _source,
         targetLanguage: _targetLanguage,
       );
       if (mounted) {
-        Toasts.of(context).success(Strings.toastQueuedTrackJobs);
+        Toasts.of(context).success(widget.queuedToast);
         Navigator.of(context).pop(true);
       }
     } catch (e) {
@@ -252,16 +294,29 @@ class _TranslateDialogState extends State<_TranslateDialog> {
       title: Strings.translate,
       submitting: _submitting,
       onSubmit: _submit,
-      child: LanguageDropdown(
-        label: Strings.fieldTargetLanguage,
-        help: Strings.targetLanguageHelp,
-        value: _targetLanguage,
-        emptyLabel: Strings.optionNoLanguage,
-        error: _targetError,
-        onChanged: (String v) => setState(() {
-          _targetLanguage = v;
-          _targetError = null;
-        }),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        spacing: Space.s3,
+        children: <Widget>[
+          if (widget.sources.length > 1)
+            LabelledDropdown<String>(
+              label: Strings.fieldSourceSubtitle,
+              value: _source,
+              items: _subtitleOptions(widget.sources),
+              onChanged: (String v) => setState(() => _source = v),
+            ),
+          LanguageDropdown(
+            label: Strings.fieldTargetLanguage,
+            help: Strings.targetLanguageHelp,
+            value: _targetLanguage,
+            emptyLabel: Strings.optionNoLanguage,
+            error: _targetError,
+            onChanged: (String v) => setState(() {
+              _targetLanguage = v;
+              _targetError = null;
+            }),
+          ),
+        ],
       ),
     );
   }
@@ -272,11 +327,13 @@ class _CombineDialog extends StatefulWidget {
     required this.admin,
     required this.versionId,
     required this.subs,
+    required this.queuedToast,
   });
 
   final AdminApi admin;
   final String versionId;
   final List<SubtitleFile> subs;
+  final String queuedToast;
 
   @override
   State<_CombineDialog> createState() => _CombineDialogState();
@@ -303,7 +360,7 @@ class _CombineDialogState extends State<_CombineDialog> {
         bottomSubtitleId: _bottom,
       );
       if (mounted) {
-        Toasts.of(context).success(Strings.toastQueuedTrackJobs);
+        Toasts.of(context).success(widget.queuedToast);
         Navigator.of(context).pop(true);
       }
     } catch (e) {

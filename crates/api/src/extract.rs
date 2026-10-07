@@ -2,6 +2,7 @@ use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 
 use domain::user::{Principal, Role};
+use services::acl;
 
 use crate::error::ApiError;
 
@@ -43,6 +44,25 @@ where
     }
 }
 
+#[derive(Debug)]
+pub struct RequireVersionWork(pub Principal);
+
+impl<S> FromRequestParts<S> for RequireVersionWork
+where
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let principal = AuthUser::from_request_parts(parts, state).await?.0;
+        if acl::works_on_versions(&principal) {
+            Ok(RequireVersionWork(principal))
+        } else {
+            Err(ApiError::forbidden("admin role or an admin's linked device required"))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -59,7 +79,28 @@ mod tests {
     }
 
     fn principal(role: Role) -> Principal {
-        Principal { user: UserId("u1".into()), role }
+        Principal { user: UserId("u1".into()), role, account_admin: role == Role::Admin }
+    }
+
+    #[tokio::test]
+    async fn version_work_takes_an_admin_or_an_admins_device() {
+        let device = |account_admin| Principal { account_admin, ..principal(Role::Player) };
+        for allowed in [principal(Role::Admin), device(true)] {
+            let mut parts = parts_with(Some(allowed));
+            assert!(RequireVersionWork::from_request_parts(&mut parts, &()).await.is_ok());
+        }
+
+        for refused in [device(false), principal(Role::User)] {
+            let mut parts = parts_with(Some(refused));
+            let forbidden =
+                RequireVersionWork::from_request_parts(&mut parts, &()).await.unwrap_err();
+            assert_eq!(forbidden.into_response().status(), StatusCode::FORBIDDEN);
+        }
+
+        let mut parts = parts_with(None);
+        let unauthorized =
+            RequireVersionWork::from_request_parts(&mut parts, &()).await.unwrap_err();
+        assert_eq!(unauthorized.into_response().status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]

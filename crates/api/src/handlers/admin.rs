@@ -4,14 +4,11 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use tracing::debug;
 
-use domain::catalog::{EpisodeId, MovieId, SeasonId, SeriesId, VersionFilter, VersionId};
+use domain::catalog::{EpisodeId, MovieId, SeasonId, SeriesId, VersionFilter};
 use domain::job::{JobId, JobQuery};
 use domain::library::LibraryId;
-use domain::media::SubtitleFileId;
 
-use crate::dto::catalog::{
-    CombineRequest, TranscribeRequest, TranslateRequest, UpscaleRequest, VersionResponse,
-};
+use crate::dto::catalog::VersionResponse;
 use crate::dto::job::{JobNodeResponse, JobResponse, JobsResponse};
 use crate::dto::library::FetchRequest;
 use crate::error::{ApiError, ApiResult};
@@ -157,22 +154,6 @@ pub async fn versions<S: AppServices>(
     Ok(Json(PageResponse::from_page(versions, |v| VersionResponse::with_path(v, true))))
 }
 
-pub async fn delete_version<S: AppServices>(
-    State(state): State<S>,
-    RequireAdmin(principal): RequireAdmin,
-    Path(id): Path<String>,
-) -> ApiResult<StatusCode> {
-    let actor = &principal.user.0;
-    let version = VersionId(id);
-    state
-        .library()
-        .delete_version(&principal, &version)
-        .await
-        .map_err(log_fail(actor, "delete version"))?;
-    debug!("User [{actor}] deleted version [{}]", version.0);
-    Ok(StatusCode::NO_CONTENT)
-}
-
 pub async fn delete_movie<S: AppServices>(
     State(state): State<S>,
     RequireAdmin(principal): RequireAdmin,
@@ -237,65 +218,6 @@ pub async fn delete_episode<S: AppServices>(
     Ok(StatusCode::NO_CONTENT)
 }
 
-pub async fn transcribe_version<S: AppServices>(
-    State(state): State<S>,
-    RequireAdmin(principal): RequireAdmin,
-    Path(id): Path<String>,
-    Json(req): Json<TranscribeRequest>,
-) -> ApiResult<StatusCode> {
-    let actor = &principal.user.0;
-    let version = VersionId(id);
-    state
-        .library()
-        .trigger_transcription(&principal, &version, req.audio_track_index, req.source_language)
-        .await
-        .map_err(log_fail(actor, "trigger transcription"))?;
-    debug!("User [{actor}] triggered transcription for version [{}]", version.0);
-    Ok(StatusCode::ACCEPTED)
-}
-
-pub async fn translate_version<S: AppServices>(
-    State(state): State<S>,
-    RequireAdmin(principal): RequireAdmin,
-    Path(id): Path<String>,
-    Json(req): Json<TranslateRequest>,
-) -> ApiResult<StatusCode> {
-    let actor = &principal.user.0;
-    let version = VersionId(id);
-    state
-        .library()
-        .trigger_translation(
-            &principal,
-            &version,
-            &SubtitleFileId(req.source_subtitle_id),
-            req.target_language,
-        )
-        .await
-        .map_err(log_fail(actor, "trigger translation"))?;
-    debug!("User [{actor}] triggered translation for version [{}]", version.0);
-    Ok(StatusCode::ACCEPTED)
-}
-
-pub async fn upscale_version<S: AppServices>(
-    State(state): State<S>,
-    RequireAdmin(principal): RequireAdmin,
-    Path(id): Path<String>,
-    Json(req): Json<UpscaleRequest>,
-) -> ApiResult<StatusCode> {
-    let actor = &principal.user.0;
-    if req.target_height == 0 {
-        return Err(ApiError::bad_request("target_height must be positive"));
-    }
-    let version = VersionId(id);
-    state
-        .library()
-        .trigger_upscale(&principal, &version, req.target_height)
-        .await
-        .map_err(log_fail(actor, "trigger upscale"))?;
-    debug!("User [{actor}] triggered upscale for version [{}]", version.0);
-    Ok(StatusCode::ACCEPTED)
-}
-
 pub async fn create_fetch<S: AppServices>(
     State(state): State<S>,
     RequireAdmin(principal): RequireAdmin,
@@ -310,30 +232,5 @@ pub async fn create_fetch<S: AppServices>(
         .await
         .map_err(log_fail(actor, "trigger content fetch"))?;
     debug!("User [{actor}] triggered content fetch into library [{}]", library.0);
-    Ok(StatusCode::ACCEPTED)
-}
-
-pub async fn combine_subtitles<S: AppServices>(
-    State(state): State<S>,
-    RequireAdmin(principal): RequireAdmin,
-    Path(id): Path<String>,
-    Json(req): Json<CombineRequest>,
-) -> ApiResult<StatusCode> {
-    let actor = &principal.user.0;
-    if req.top_subtitle_id == req.bottom_subtitle_id {
-        return Err(ApiError::bad_request("top and bottom subtitles must differ"));
-    }
-    let version = VersionId(id);
-    state
-        .library()
-        .trigger_combine(
-            &principal,
-            &version,
-            &SubtitleFileId(req.top_subtitle_id),
-            &SubtitleFileId(req.bottom_subtitle_id),
-        )
-        .await
-        .map_err(log_fail(actor, "trigger combine"))?;
-    debug!("User [{actor}] triggered subtitle combine for version [{}]", version.0);
     Ok(StatusCode::ACCEPTED)
 }

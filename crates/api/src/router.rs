@@ -13,7 +13,7 @@ use tower_http::services::ServeDir;
 
 use crate::handlers::{
     admin, auth, catalog, discovery, download, image, job_log, library, server, sessions, stream,
-    subtitle, trickplay, user_library, users, webhook,
+    subtitle, trickplay, user_library, users, version, webhook,
 };
 use crate::middleware::{jwt, track_stream_bytes};
 use crate::state::{
@@ -65,8 +65,13 @@ pub fn router<S: AppServices>(state: S) -> Router {
             "/series/{id}/seasons/{season_id}/episodes/{episode_id}/versions",
             get(catalog::episode_versions::<S>),
         )
-        .route("/versions/{id}", get(catalog::version_detail::<S>))
+        .route("/versions/{id}", get(catalog::version_detail::<S>).delete(version::delete::<S>))
         .route("/versions/{id}/relink", post(catalog::relink_version::<S>))
+        .route("/versions/{id}/jobs", get(version::jobs::<S>))
+        .route("/versions/{id}/upscale", post(version::upscale::<S>))
+        .route("/versions/{id}/subtitles/transcribe", post(version::transcribe::<S>))
+        .route("/versions/{id}/subtitles/{subtitle_id}/translate", post(version::translate::<S>))
+        .route("/versions/{id}/subtitles/{subtitle_id}/combine", post(version::combine::<S>))
         .route("/titles/batch", post(catalog::title_cards::<S>))
         .route("/people/batch", post(catalog::people_batch::<S>))
         .route("/people/{id}", get(catalog::person::<S>))
@@ -100,15 +105,10 @@ pub fn router<S: AppServices>(state: S) -> Router {
         .route("/admin/jobs/{id}/cancel", post(admin::cancel_job::<S>))
         .route("/admin/jobs/{id}/retry", post(admin::retry_job::<S>))
         .route("/admin/versions", get(admin::versions::<S>))
-        .route("/admin/versions/{id}", delete(admin::delete_version::<S>))
         .route("/admin/movies/{id}", delete(admin::delete_movie::<S>))
         .route("/admin/series/{id}", delete(admin::delete_series::<S>))
         .route("/admin/seasons/{id}", delete(admin::delete_season::<S>))
         .route("/admin/episodes/{id}", delete(admin::delete_episode::<S>))
-        .route("/admin/versions/{id}/transcribe", post(admin::transcribe_version::<S>))
-        .route("/admin/versions/{id}/translate", post(admin::translate_version::<S>))
-        .route("/admin/versions/{id}/upscale", post(admin::upscale_version::<S>))
-        .route("/admin/versions/{id}/subtitles/combine", post(admin::combine_subtitles::<S>))
         .route("/admin/fetch", post(admin::create_fetch::<S>))
         .route("/search", get(discovery::search::<S>))
         .route("/sessions", post(sessions::start::<S>))
@@ -240,7 +240,7 @@ where
 {
     Router::new()
         .route(
-            "/api/v1/admin/versions/{id}/subtitles/{subtitle_id}",
+            "/api/v1/versions/{id}/subtitles/{subtitle_id}",
             get(subtitle::view::<C, S>)
                 .put(subtitle::rename::<C, S>)
                 .delete(subtitle::delete::<C, S>),
@@ -257,11 +257,8 @@ where
     P: SubtitleProvider + Send + Sync + 'static,
 {
     Router::new()
-        .route("/api/v1/admin/versions/{id}/subtitles/search", get(subtitle::search::<C, S, P>))
-        .route(
-            "/api/v1/admin/versions/{id}/subtitles/download",
-            post(subtitle::download::<C, S, P>),
-        )
+        .route("/api/v1/versions/{id}/subtitles/search", get(subtitle::search::<C, S, P>))
+        .route("/api/v1/versions/{id}/subtitles/download", post(subtitle::download::<C, S, P>))
         .route_layer(from_fn_with_state(auth, jwt::<A>))
         .with_state(state)
 }

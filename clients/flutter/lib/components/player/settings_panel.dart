@@ -81,6 +81,7 @@ class PlayerSettingsPanel extends StatefulWidget {
     this.waitForBuffer,
     this.onWaitForBuffer,
     this.onShortcuts,
+    this.onAddSubtitles,
     this.dense = false,
     this.busy = false,
   });
@@ -106,6 +107,7 @@ class PlayerSettingsPanel extends StatefulWidget {
   final bool? waitForBuffer;
   final ValueChanged<bool>? onWaitForBuffer;
   final VoidCallback? onShortcuts;
+  final VoidCallback? onAddSubtitles;
   final ValueChanged<PlaybackControls> onControls;
   final ValueChanged<double> onSpeed;
   final ValueChanged<bool> onDiagnostics;
@@ -290,6 +292,21 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
                 ).textTheme.bodySmall?.copyWith(color: t.muted),
               ),
             ),
+          if (widget.onAddSubtitles != null) ...<Widget>[
+            Divider(color: t.border, height: Space.s5),
+            _row(
+              Strings.moreSubtitles,
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: widget.onAddSubtitles,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text(Strings.addSubtitles),
+                ),
+              ),
+              help: Strings.moreSubtitlesHelp,
+            ),
+          ],
         ];
       case PlayerPanel.settings:
         return <Widget>[

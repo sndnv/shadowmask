@@ -52,6 +52,7 @@ fn config(root: &Path) -> WireConfig {
         remux_read_rate: 10.0,
         max_transcode_height: None,
         profile_overrides_dir: None,
+        job_pools: Vec::new(),
     }
 }
 

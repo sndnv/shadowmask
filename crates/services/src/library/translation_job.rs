@@ -1,5 +1,6 @@
 use domain::catalog::VersionId;
 use domain::job::{Job, JobKind, JobPriority};
+use domain::media::SubtitleFileId;
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +20,10 @@ impl TranslationJobPayload {
 
     pub fn decode(raw: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str::<Wire>(raw).map(Self::from)
+    }
+
+    pub fn produces(&self, language: &str) -> SubtitleFileId {
+        SubtitleFileId(format!("machine:{}:{language}", self.version_id.0))
     }
 }
 

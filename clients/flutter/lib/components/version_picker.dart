@@ -8,9 +8,11 @@ import 'package:shadowmask/components/admin/subtitle_dialogs.dart';
 import 'package:shadowmask/components/admin/version_job_dialogs.dart';
 import 'package:shadowmask/components/outline_pill.dart';
 import 'package:shadowmask/components/toast_host.dart';
+import 'package:shadowmask/components/version_job_lines.dart';
 import 'package:shadowmask/components/version_label.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/download_link.dart';
+import 'package:shadowmask/model/job/version_job.dart';
 import 'package:shadowmask/model/session/resume_position.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
@@ -27,6 +29,8 @@ import 'package:shadowmask/util/format.dart';
 import 'package:shadowmask/util/languages.dart';
 import 'package:shadowmask/util/subtitle_labels.dart';
 import 'package:shadowmask/view/failure_reason.dart';
+import 'package:shadowmask/view/version_job_status.dart';
+import 'package:shadowmask/view/version_jobs_watch.dart';
 import 'package:shadowmask/view/version_order.dart';
 
 const double kVersionActionsWidth = 210;
@@ -43,14 +47,6 @@ const double kVersionRowSideBySide =
     kVersionActionsWidth +
     Space.s2 +
     _kIconButtonWidth;
-
-const double kVersionAdminActionsWidth = 2 * _kIconButtonWidth;
-
-String audioTrackLabel(AudioTrack a) => <String>[
-  if (a.language != null) languageLabel(a.language!),
-  a.codec,
-  '${a.channels}ch',
-].join(' · ');
 
 int distinctSubtitleLanguages(VersionDetail d) {
   final Set<String> langs = <String>{};
@@ -93,6 +89,7 @@ class VersionPicker extends StatefulWidget {
     this.onProgressCleared,
     this.showHeading = true,
     this.admin,
+    this.adminPages = false,
   });
 
   final CatalogApi catalog;
@@ -102,6 +99,7 @@ class VersionPicker extends StatefulWidget {
   final VoidCallback? onProgressCleared;
   final bool showHeading;
   final AdminApi? admin;
+  final bool adminPages;
 
   @override
   State<VersionPicker> createState() => _VersionPickerState();
@@ -109,11 +107,23 @@ class VersionPicker extends StatefulWidget {
 
 class _VersionPickerState extends State<VersionPicker> {
   late final List<Version> _ordered = orderedVersions(widget.versions);
-  late Future<List<VersionDetail?>> _details = _load();
+  List<VersionDetail?>? _details;
+  int _generation = 0;
 
-  void _reload() => setState(() {
-    _details = _load();
-  });
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  Future<List<VersionDetail?>> _reload() async {
+    final int generation = ++_generation;
+    final List<VersionDetail?> details = await _load();
+    if (mounted && generation == _generation) {
+      setState(() => _details = details);
+    }
+    return details;
+  }
 
   Future<List<VersionDetail?>> _load() => Future.wait(
     _ordered.map((Version v) async {
@@ -128,66 +138,61 @@ class _VersionPickerState extends State<VersionPicker> {
   @override
   Widget build(BuildContext context) {
     final int count = widget.versions.length;
-    return FutureBuilder<List<VersionDetail?>>(
-      future: _details,
-      builder:
-          (BuildContext context, AsyncSnapshot<List<VersionDetail?>> snap) {
-            final List<VersionDetail?>? details = snap.data;
-            return Column(
+    final List<VersionDetail?>? details = _details;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        if (widget.showHeading) ...<Widget>[
+          Text(
+            Strings.countLabel(Strings.versionsHeading, count),
+            style: Theme.of(context).textTheme.headlineMedium,
+          ),
+          const SizedBox(height: Space.s3),
+        ],
+        if (count == 0)
+          Text(
+            Strings.noVersionsAvailable,
+            style: TextStyle(color: context.tokens.muted),
+          )
+        else
+          Container(
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: context.tokens.surface,
+              borderRadius: const BorderRadius.all(Radii.md),
+              border: Border.all(color: context.tokens.border),
+            ),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                if (widget.showHeading) ...<Widget>[
-                  Text(
-                    Strings.countLabel(Strings.versionsHeading, count),
-                    style: Theme.of(context).textTheme.headlineMedium,
+                for (int i = 0; i < _ordered.length; i++)
+                  _VersionRow(
+                    version: _ordered[i],
+                    number: versionNumberLabel(i),
+                    detail: details != null && i < details.length
+                        ? details[i]
+                        : null,
+                    playback: widget.playback,
+                    userId: widget.userId,
+                    showTopBorder: i > 0,
+                    onDismissed: widget.onProgressCleared,
+                    admin: widget.admin,
+                    adminPages: widget.adminPages,
+                    onChanged: _reload,
                   ),
-                  const SizedBox(height: Space.s3),
-                ],
-                if (count == 0)
-                  Text(
-                    Strings.noVersionsAvailable,
-                    style: TextStyle(color: context.tokens.muted),
-                  )
-                else
-                  Container(
-                    clipBehavior: Clip.antiAlias,
-                    decoration: BoxDecoration(
-                      color: context.tokens.surface,
-                      borderRadius: const BorderRadius.all(Radii.md),
-                      border: Border.all(color: context.tokens.border),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        for (int i = 0; i < _ordered.length; i++)
-                          _VersionRow(
-                            version: _ordered[i],
-                            number: versionNumberLabel(i),
-                            detail: details != null && i < details.length
-                                ? details[i]
-                                : null,
-                            playback: widget.playback,
-                            userId: widget.userId,
-                            showTopBorder: i > 0,
-                            onDismissed: widget.onProgressCleared,
-                            admin: widget.admin,
-                            onChanged: _reload,
-                          ),
-                      ],
-                    ),
-                  ),
-                if (count > 0) ...<Widget>[
-                  const SizedBox(height: Space.s2),
-                  Text(
-                    Strings.downloadNoSubtitles,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: context.tokens.muted,
-                    ),
-                  ),
-                ],
               ],
-            );
-          },
+            ),
+          ),
+        if (count > 0) ...<Widget>[
+          const SizedBox(height: Space.s2),
+          Text(
+            Strings.downloadNoSubtitles,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: context.tokens.muted),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -202,6 +207,7 @@ class _VersionRow extends StatefulWidget {
     required this.showTopBorder,
     required this.onDismissed,
     required this.admin,
+    required this.adminPages,
     required this.onChanged,
   });
 
@@ -213,7 +219,8 @@ class _VersionRow extends StatefulWidget {
   final bool showTopBorder;
   final VoidCallback? onDismissed;
   final AdminApi? admin;
-  final VoidCallback onChanged;
+  final bool adminPages;
+  final Future<List<VersionDetail?>> Function() onChanged;
 
   @override
   State<_VersionRow> createState() => _VersionRowState();
@@ -224,6 +231,7 @@ class _VersionRowState extends State<_VersionRow> {
   int _positionMs = 0;
   bool _busyDismiss = false;
   bool _busyDownload = false;
+  VersionJobsWatch? _jobs;
 
   void _toggleOpen() => setState(() => _open = !_open);
 
@@ -262,6 +270,7 @@ class _VersionRowState extends State<_VersionRow> {
   Future<void> _run(Future<bool> action) async {
     if (await action && mounted) {
       widget.onChanged();
+      _jobs?.refresh();
     }
   }
 
@@ -272,18 +281,20 @@ class _VersionRowState extends State<_VersionRow> {
     VersionDetail? d,
   ) {
     final AdminApi? admin = widget.admin;
-    if (admin == null) {
-      return const <Widget>[];
-    }
     return <Widget>[
-      IconButton(
-        onPressed: () => Navigator.of(context).pushNamed(versionRoute(v.id)),
-        tooltip: Strings.openVersion,
-        icon: Icon(Icons.settings_outlined, color: t.muted),
-      ),
-      _subtitlesMenu(context, t, admin, v, d),
+      if (widget.adminPages)
+        IconButton(
+          onPressed: () => Navigator.of(context).pushNamed(versionRoute(v.id)),
+          tooltip: Strings.openVersion,
+          icon: Icon(Icons.settings_outlined, color: t.muted),
+        ),
+      if (admin != null) _subtitlesMenu(context, t, admin, v, d),
     ];
   }
+
+  double get _adminActionsWidth =>
+      _kIconButtonWidth *
+      ((widget.adminPages ? 1 : 0) + (widget.admin == null ? 0 : 1));
 
   Widget _subtitlesMenu(
     BuildContext context,
@@ -301,6 +312,7 @@ class _VersionRowState extends State<_VersionRow> {
         admin: admin,
         versionId: v.id,
         audioTrackIndex: track.index,
+        queuedToast: Strings.toastQueued,
       ),
     );
     return MenuAnchor(
@@ -351,12 +363,28 @@ class _VersionRowState extends State<_VersionRow> {
                     admin: admin,
                     versionId: v.id,
                     source: file,
+                    queuedToast: Strings.toastQueued,
                   ),
                 ),
                 child: Text(subtitleFileLabel(file)),
               ),
           ],
           child: const Text(Strings.translate),
+        ),
+        MenuItemButton(
+          leadingIcon: const Icon(Icons.merge_outlined),
+          onPressed: files.length < 2
+              ? null
+              : () => _run(
+                  showCombineDialog(
+                    context,
+                    admin: admin,
+                    versionId: v.id,
+                    subs: files,
+                    queuedToast: Strings.toastQueued,
+                  ),
+                ),
+          child: const Text(Strings.combineSubtitles),
         ),
       ],
       child: IconButton(
@@ -374,7 +402,24 @@ class _VersionRowState extends State<_VersionRow> {
     if (widget.version.available) {
       _loadResume();
     }
+    final AdminApi? admin = widget.admin;
+    if (admin != null) {
+      _jobs = VersionJobsWatch(
+        fetch: () => admin.versionJobs(widget.version.id),
+        onFinished: _reread,
+      )..refresh();
+    }
   }
+
+  @override
+  void dispose() {
+    _jobs?.dispose();
+    super.dispose();
+  }
+
+  Future<bool> _reread() async => (await widget.onChanged()).any(
+    (VersionDetail? d) => d?.id == widget.version.id,
+  );
 
   Future<void> _loadResume() async {
     try {
@@ -431,10 +476,9 @@ class _VersionRowState extends State<_VersionRow> {
       ),
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
-          final double sideBySide =
-              kVersionRowSideBySide +
-              (widget.admin == null ? 0 : kVersionAdminActionsWidth);
+          final double sideBySide = kVersionRowSideBySide + _adminActionsWidth;
           final bool narrow = constraints.maxWidth < sideBySide;
+          final VersionJobsWatch? jobs = _jobs;
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -443,12 +487,30 @@ class _VersionRowState extends State<_VersionRow> {
               else
                 _wideHeader(context, t, v, d, available),
               if (_open) _detailBody(context, t, v, d, available, narrow),
+              if (jobs != null) _jobLines(jobs, d),
             ],
           );
         },
       ),
     );
   }
+
+  Widget _jobLines(VersionJobsWatch jobs, VersionDetail? d) =>
+      ValueListenableBuilder<List<VersionJob>>(
+        valueListenable: jobs,
+        builder: (BuildContext context, List<VersionJob> rows, Widget? _) =>
+            subtitleWork(rows).isEmpty
+            ? const SizedBox.shrink()
+            : Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  Space.s3,
+                  0,
+                  Space.s3,
+                  Space.s2,
+                ),
+                child: VersionJobLines(jobs: rows, detail: d),
+              ),
+      );
 
   Widget _label(Tokens t, Version v, bool available) => Text.rich(
     TextSpan(
@@ -596,7 +658,10 @@ class _VersionRowState extends State<_VersionRow> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            if (narrow && (available || widget.admin != null)) ...<Widget>[
+            if (narrow &&
+                (available ||
+                    widget.admin != null ||
+                    widget.adminPages)) ...<Widget>[
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: <Widget>[

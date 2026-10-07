@@ -18,6 +18,8 @@
     <script type="text/brightscript" uri="pkg:/source/screen.brs" />
     <script type="text/brightscript" uri="pkg:/source/capability.brs" />
     <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+    <script type="text/brightscript" uri="pkg:/source/languages.brs" />
+    <script type="text/brightscript" uri="pkg:/source/work.brs" />
 
     <children>
         <Rectangle id="background" />

@@ -19,6 +19,7 @@ import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/util/downloads.dart';
+import 'package:shadowmask/view/version_jobs_watch.dart';
 import 'package:shadowmask/view/version_order.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -209,11 +210,40 @@ void main() {
   group('admin actions', () {
     final Version single = Version.fromJson(_json('v-uhd', 'uhd'));
 
-    ApiClient adminApi({required bool withFiles, List<String>? reads}) {
+    ApiClient adminApi({
+      required bool withFiles,
+      bool twoFiles = false,
+      List<String>? reads,
+      List<Uri>? combines,
+      List<List<Map<String, dynamic>>>? jobs,
+      List<String>? jobReads,
+      bool heldAfterWork = false,
+    }) {
       bool held = withFiles;
+      int polls = 0;
       return ApiClient(
         baseUrl: 'http://test',
         httpClient: MockClient((http.Request req) async {
+          if (req.url.path.endsWith('/versions/v-uhd/jobs')) {
+            jobReads?.add(req.url.path);
+            if (heldAfterWork && polls > 0) {
+              held = true;
+            }
+            final List<List<Map<String, dynamic>>> script =
+                jobs ?? const <List<Map<String, dynamic>>>[];
+            final List<Map<String, dynamic>> rows = script.isEmpty
+                ? const <Map<String, dynamic>>[]
+                : script[polls < script.length ? polls : script.length - 1];
+            polls++;
+            return http.Response(jsonEncode(rows), 200);
+          }
+          if (req.url.path.endsWith('/combine')) {
+            combines?.add(req.url);
+            return http.Response(
+              jsonEncode(<String, String>{'job_id': 'j1'}),
+              202,
+            );
+          }
           if (req.url.path.endsWith('/subtitles/search')) {
             return http.Response(
               jsonEncode(<dynamic>[
@@ -229,10 +259,22 @@ void main() {
           }
           if (req.url.path.endsWith('/subtitles/download')) {
             held = true;
-            return http.Response('', 204);
+            return http.Response(
+              jsonEncode(<String, dynamic>{
+                'id': 'opensubtitles:v-uhd:7',
+                'language': 'fr',
+                'format': 'srt',
+                'source': 'open_subtitles',
+                'pinned': true,
+              }),
+              201,
+            );
           }
           if (req.url.path.endsWith('/versions/v-uhd')) {
             reads?.add(req.url.path);
+            if (heldAfterWork && held) {
+              await Future<void>.delayed(const Duration(seconds: 2));
+            }
             return http.Response(
               jsonEncode(<String, dynamic>{
                 ..._json('v-uhd', 'uhd')..remove('available'),
@@ -258,6 +300,13 @@ void main() {
                       'format': 'srt',
                       'source': 'external',
                     },
+                  if (twoFiles)
+                    <String, dynamic>{
+                      'id': 'sf2',
+                      'language': 'fr',
+                      'format': 'srt',
+                      'source': 'external',
+                    },
                 ],
               }),
               200,
@@ -272,6 +321,7 @@ void main() {
       WidgetTester tester, {
       required ApiClient api,
       required bool admin,
+      bool? adminPages,
       double width = 760,
     }) async {
       final List<String> routes = <String>[];
@@ -299,6 +349,7 @@ void main() {
                                 userId: 'u1',
                                 versions: <Version>[single],
                                 admin: admin ? AdminApi(api) : null,
+                                adminPages: adminPages ?? admin,
                               ),
                             ),
                           ),
@@ -389,6 +440,64 @@ void main() {
       );
     });
 
+    testWidgets('combine needs two subtitle files', (
+      WidgetTester tester,
+    ) async {
+      await pumpPicker(tester, api: adminApi(withFiles: true), admin: true);
+      await tester.tap(find.byTooltip(Strings.subtitlesHeading));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<MenuItemButton>(
+              find.widgetWithText(MenuItemButton, Strings.combineSubtitles),
+            )
+            .onPressed,
+        isNull,
+      );
+    });
+
+    testWidgets('combine from the menu queues the top file and reloads', (
+      WidgetTester tester,
+    ) async {
+      final List<String> reads = <String>[];
+      final List<Uri> combines = <Uri>[];
+      await pumpPicker(
+        tester,
+        api: adminApi(
+          withFiles: true,
+          twoFiles: true,
+          reads: reads,
+          combines: combines,
+        ),
+        admin: true,
+      );
+      final int before = reads.length;
+
+      await tester.tap(find.byTooltip(Strings.subtitlesHeading));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(Strings.combineSubtitles));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, Strings.save));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(combines, hasLength(1));
+      expect(combines.single.pathSegments.skip(2), <String>[
+        'versions',
+        'v-uhd',
+        'subtitles',
+        'sf1',
+        'combine',
+      ]);
+      expect(combines.single.queryParameters, <String, String>{
+        'bottom_subtitle_id': 'sf2',
+      });
+      expect(reads, hasLength(before + 1));
+
+      await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+    });
+
     testWidgets('a subtitle downloaded from the menu reloads the row', (
       WidgetTester tester,
     ) async {
@@ -421,6 +530,219 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(reads, hasLength(before + 1));
       expect(cc('1'), findsOneWidget);
+    });
+
+    testWidgets('an admin\'s linked device works on subtitles but not pages', (
+      WidgetTester tester,
+    ) async {
+      await pumpPicker(
+        tester,
+        api: adminApi(withFiles: true),
+        admin: true,
+        adminPages: false,
+      );
+
+      expect(find.byTooltip(Strings.openVersion), findsNothing);
+      expect(find.byTooltip(Strings.subtitlesHeading), findsOneWidget);
+    });
+
+    testWidgets('subtitle work shows under its version row', (
+      WidgetTester tester,
+    ) async {
+      await pumpPicker(
+        tester,
+        api: adminApi(
+          withFiles: true,
+          jobs: <List<Map<String, dynamic>>>[
+            <Map<String, dynamic>>[
+              <String, dynamic>{
+                'id': 'j1',
+                'kind': 'translation',
+                'status': 'queued',
+                'ahead': 2,
+                'created_at': '2026-10-06T10:00:00Z',
+                'language': 'es',
+                'subtitle_id': 'machine:v-uhd:es',
+              },
+              <String, dynamic>{
+                'id': 'j2',
+                'kind': 'trickplay',
+                'status': 'queued',
+                'ahead': 0,
+                'created_at': '2026-10-06T10:00:00Z',
+              },
+            ],
+          ],
+        ),
+        admin: true,
+      );
+
+      expect(find.text('Translation · Spanish'), findsOneWidget);
+      expect(find.text('Queued · 2 jobs ahead'), findsOneWidget);
+      expect(find.text('Trickplay'), findsNothing);
+    });
+
+    testWidgets('an open row keeps its work below the details', (
+      WidgetTester tester,
+    ) async {
+      await pumpPicker(
+        tester,
+        api: adminApi(
+          withFiles: true,
+          jobs: <List<Map<String, dynamic>>>[
+            <Map<String, dynamic>>[
+              <String, dynamic>{
+                'id': 'j1',
+                'kind': 'transcription',
+                'status': 'queued',
+                'ahead': 0,
+                'created_at': '2026-10-06T10:00:00Z',
+              },
+            ],
+          ],
+        ),
+        admin: true,
+      );
+      final Finder line = find.text('Queued · next in line');
+      final Finder details = find.text(Strings.audioHeading.toUpperCase());
+      expect(details, findsNothing);
+      final double closedTop = tester.getTopLeft(line).dy;
+
+      await tester.tap(find.byIcon(Icons.expand_more));
+      await tester.pumpAndSettle();
+
+      expect(details, findsWidgets);
+      final double lastDetail = tester.getRect(details.last).bottom;
+      expect(tester.getTopLeft(line).dy, greaterThan(lastDetail));
+      expect(tester.getTopLeft(line).dy, greaterThan(closedTop));
+    });
+
+    testWidgets('finished work reloads the row and reads as ready', (
+      WidgetTester tester,
+    ) async {
+      final List<String> reads = <String>[];
+      Map<String, dynamic> job(String status) => <String, dynamic>{
+        'id': 'j1',
+        'kind': 'translation',
+        'status': status,
+        'ahead': 0,
+        'created_at': '2026-10-06T10:00:00Z',
+        'language': 'en',
+        'subtitle_id': 'sf1',
+      };
+      await pumpPicker(
+        tester,
+        api: adminApi(
+          withFiles: true,
+          reads: reads,
+          jobs: <List<Map<String, dynamic>>>[
+            <Map<String, dynamic>>[job('queued')],
+            <Map<String, dynamic>>[job('succeeded')],
+          ],
+        ),
+        admin: true,
+      );
+      final int before = reads.length;
+      expect(find.text('Queued · next in line'), findsOneWidget);
+
+      await tester.pump(kJobsBusyPoll);
+      await tester.pumpAndSettle();
+
+      expect(reads, hasLength(before + 1));
+      expect(find.text('Ready · English (external) added'), findsOneWidget);
+    });
+
+    testWidgets('finished work never reads as empty before the row reloads', (
+      WidgetTester tester,
+    ) async {
+      Map<String, dynamic> job(String status) => <String, dynamic>{
+        'id': 'j1',
+        'kind': 'transcription',
+        'status': status,
+        'ahead': 0,
+        'created_at': '2026-10-06T10:00:00Z',
+        'language': 'en',
+        'subtitle_id': 'sf1',
+      };
+      await pumpPicker(
+        tester,
+        api: adminApi(
+          withFiles: false,
+          heldAfterWork: true,
+          jobs: <List<Map<String, dynamic>>>[
+            <Map<String, dynamic>>[job('queued')],
+            <Map<String, dynamic>>[job('succeeded')],
+          ],
+        ),
+        admin: true,
+      );
+      expect(find.text('Queued · next in line'), findsOneWidget);
+
+      final Finder ready = find.text('Ready · English (external) added');
+      await tester.pump(kJobsBusyPoll);
+      for (int frame = 0; frame < 60 && ready.evaluate().isEmpty; frame++) {
+        expect(find.text('Queued · next in line'), findsOneWidget);
+        expect(find.text(Strings.jobNoSubtitle), findsNothing);
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(ready, findsOneWidget);
+    });
+
+    testWidgets('with nothing running the row reads its work once', (
+      WidgetTester tester,
+    ) async {
+      final List<String> jobReads = <String>[];
+      await pumpPicker(
+        tester,
+        api: adminApi(withFiles: true, jobReads: jobReads),
+        admin: true,
+      );
+      await tester.pump(const Duration(minutes: 5));
+
+      expect(jobReads, hasLength(1));
+    });
+
+    testWidgets('starting work reads the row\'s work at once', (
+      WidgetTester tester,
+    ) async {
+      final List<String> jobReads = <String>[];
+      await pumpPicker(
+        tester,
+        api: adminApi(withFiles: true, twoFiles: true, jobReads: jobReads),
+        admin: true,
+      );
+      expect(jobReads, hasLength(1));
+
+      await tester.tap(find.byTooltip(Strings.subtitlesHeading));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(Strings.combineSubtitles));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, Strings.save));
+      await tester.pumpAndSettle();
+
+      expect(jobReads, hasLength(2));
+
+      await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+    });
+
+    testWidgets('a viewer never asks for version work', (
+      WidgetTester tester,
+    ) async {
+      final List<String> paths = <String>[];
+      await pumpPicker(
+        tester,
+        api: ApiClient(
+          baseUrl: 'http://test',
+          httpClient: MockClient((http.Request req) async {
+            paths.add(req.url.path);
+            return http.Response('{}', 200);
+          }),
+        ),
+        admin: false,
+      );
+      await tester.pump(const Duration(minutes: 5));
+
+      expect(paths.where((String p) => p.endsWith('/jobs')), isEmpty);
     });
 
     testWidgets('a phone row keeps the admin actions in the expanded body', (

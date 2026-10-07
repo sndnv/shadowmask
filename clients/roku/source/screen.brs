@@ -4,7 +4,8 @@ function SessionFor(shared as object) as object
         token: shared.token,
         userId: shared.userId,
         username: shared.username,
-        role: shared.role
+        role: shared.role,
+        accountRole: shared.accountRole
     }
 end function
 

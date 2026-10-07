@@ -868,6 +868,7 @@ abstract final class Strings {
   static const String toastRereadQueued = 'Re-read queued.';
   static const String toastFetchQueued = 'Fetch queued. Track it under Jobs.';
   static const String toastQueuedTrackJobs = 'Queued. Track it under Jobs.';
+  static const String toastQueued = 'Queued.';
   static const String toastUserCreated = 'User created.';
   static const String toastUserDeleted = 'User deleted.';
   static const String toastUserDeactivated = 'User deactivated.';
@@ -877,6 +878,7 @@ abstract final class Strings {
   static const String toastLogsWiped = 'Logs wiped.';
   static const String toastRenamed = 'Renamed.';
   static const String toastDownloaded = 'Subtitle added.';
+  static const String toastAlreadyAdded = 'Already added.';
   static const String toastResolved = 'Resolved.';
   static const String toastDismissed = 'Dismissed.';
   static const String toastDeleted = 'Deleted.';
@@ -912,6 +914,29 @@ abstract final class Strings {
   static const String statusFailed = 'Failed';
   static const String statusSucceeded = 'Succeeded';
   static const String statusCancelled = 'Cancelled';
+  static String jobQueued(int? ahead) => switch (ahead) {
+    null => 'Queued · feature switched off',
+    0 => 'Queued · next in line',
+    1 => 'Queued · 1 job ahead',
+    _ => 'Queued · $ahead jobs ahead',
+  };
+  static String jobRunning(String elapsed) => 'Running · $elapsed';
+  static String jobReady(String produced) => 'Ready · $produced added';
+  static String jobFailed(String? reason) =>
+      reason == null ? statusFailed : '$statusFailed · $reason';
+  static const String jobNoSubtitle = 'Finished, no subtitle produced';
+  static String producedSubtitle(String? language, String source) =>
+      language == null ? '$source subtitle' : '$language ($source)';
+  static const String addSubtitles = 'Add…';
+  static const String addSubtitlesHeading = 'Add subtitles';
+  static const String moreSubtitles = 'More subtitles';
+  static const String jobsHeading = 'Jobs';
+  static const String subtitleJobsHelp =
+      'Subtitles being made for this version. Once ready, they appear in the '
+      'subtitle list; closing this dialog does not stop them.';
+  static const String moreSubtitlesHelp =
+      'Find a subtitle online, or make one from the audio, by translating '
+      'another subtitle, or by combining two.';
   static String jobsActiveCount(int n) => 'Active ($n)';
   static String jobsAllCount(int n) => 'All ($n)';
   static const String columnJob = 'Job';
@@ -1025,6 +1050,8 @@ abstract final class Strings {
   static const String fieldTargetLanguage = 'Target language';
   static const String fieldTopSubtitle = 'Top subtitle';
   static const String fieldBottomSubtitle = 'Bottom subtitle';
+  static const String fieldAudioTrack = 'Audio track';
+  static const String fieldSourceSubtitle = 'Subtitle to translate';
   static const String fieldLanguage = 'Language';
   static const String fieldSearchQuery = 'Query';
 

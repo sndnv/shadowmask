@@ -8,6 +8,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/model/job/job_node.dart';
 import 'package:shadowmask/model/job/jobs_feed.dart';
+import 'package:shadowmask/model/job/version_job.dart';
 import 'package:shadowmask/view/page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -196,6 +197,36 @@ void main() {
     expect(page.items.single.path, '/movies/x.mkv');
   });
 
+  test('versionJobs GETs the version\'s work and parses each row', () async {
+    late http.Request seen;
+    final AdminApi admin = _admin(
+      _capture(
+        (http.Request req) => seen = req,
+        body: jsonEncode(<dynamic>[
+          <String, dynamic>{
+            'id': 'j1',
+            'kind': 'transcription',
+            'status': 'running',
+            'ahead': null,
+            'created_at': '2026-10-06T10:00:00Z',
+            'started_at': '2026-10-06T10:01:00Z',
+            'elapsed_ms': 4000,
+            'language': 'en',
+            'subtitle_id': 'generated:v 1',
+          },
+        ]),
+      ),
+    );
+
+    final List<VersionJob> jobs = await admin.versionJobs('v 1');
+
+    expect(seen.method, 'GET');
+    expect(seen.url.pathSegments.skip(2), <String>['versions', 'v 1', 'jobs']);
+    expect(jobs.single.id, 'j1');
+    expect(jobs.single.elapsedMs, 4000);
+    expect(jobs.single.subtitleId, 'generated:v 1');
+  });
+
   test('transcribe omits a null audio index but sends the language', () async {
     late http.Request seen;
     final AdminApi admin = _admin(
@@ -204,23 +235,49 @@ void main() {
 
     await admin.transcribe('v1', sourceLanguage: 'en');
 
-    expect(seen.url.path, '/api/v1/admin/versions/v1/transcribe');
-    expect(jsonDecode(seen.body), <String, dynamic>{'source_language': 'en'});
+    expect(seen.method, 'POST');
+    expect(seen.url.path, '/api/v1/versions/v1/subtitles/transcribe');
+    expect(seen.url.queryParameters, <String, String>{'source_language': 'en'});
+    expect(seen.body, isEmpty);
   });
 
-  test('translate sends source subtitle and target language', () async {
+  test('transcribe sends a picked audio track as a query param', () async {
     late http.Request seen;
     final AdminApi admin = _admin(
       _capture((http.Request req) => seen = req, status: 202),
     );
 
-    await admin.translate('v1', sourceSubtitleId: 's1', targetLanguage: 'es');
+    await admin.transcribe('v1', audioTrackIndex: 2);
 
-    expect(seen.url.path, '/api/v1/admin/versions/v1/translate');
-    expect(jsonDecode(seen.body), <String, dynamic>{
-      'source_subtitle_id': 's1',
-      'target_language': 'es',
+    expect(seen.url.queryParameters, <String, String>{
+      'audio_track_index': '2',
     });
+  });
+
+  test('translate puts the source subtitle in the path', () async {
+    late http.Request seen;
+    final AdminApi admin = _admin(
+      _capture((http.Request req) => seen = req, status: 202),
+    );
+
+    await admin.translate(
+      'v1',
+      sourceSubtitleId: 'generated:v1',
+      targetLanguage: 'es',
+    );
+
+    expect(seen.method, 'POST');
+    expect(seen.url.pathSegments, <String>[
+      'api',
+      'v1',
+      'versions',
+      'v1',
+      'subtitles',
+      'generated:v1',
+      'translate',
+    ]);
+    expect(seen.url.queryParameters, <String, String>{'target_language': 'es'});
+    expect(seen.body, isEmpty);
   });
 
   test('upscale sends the target height', () async {
@@ -231,11 +288,12 @@ void main() {
 
     await admin.upscale('v1', targetHeight: 2160);
 
-    expect(seen.url.path, '/api/v1/admin/versions/v1/upscale');
-    expect(jsonDecode(seen.body), <String, dynamic>{'target_height': 2160});
+    expect(seen.url.path, '/api/v1/versions/v1/upscale');
+    expect(seen.url.queryParameters, <String, String>{'target_height': '2160'});
+    expect(seen.body, isEmpty);
   });
 
-  test('combineSubtitles sends top and bottom ids', () async {
+  test('combineSubtitles puts the top id in the path', () async {
     late http.Request seen;
     final AdminApi admin = _admin(
       _capture((http.Request req) => seen = req, status: 202),
@@ -247,11 +305,11 @@ void main() {
       bottomSubtitleId: 'b',
     );
 
-    expect(seen.url.path, '/api/v1/admin/versions/v1/subtitles/combine');
-    expect(jsonDecode(seen.body), <String, dynamic>{
-      'top_subtitle_id': 't',
+    expect(seen.url.path, '/api/v1/versions/v1/subtitles/t/combine');
+    expect(seen.url.queryParameters, <String, String>{
       'bottom_subtitle_id': 'b',
     });
+    expect(seen.body, isEmpty);
   });
 
   test('relink posts to the version relink route with a target', () async {
@@ -284,7 +342,7 @@ void main() {
 
     await admin.subtitleSearch('v1', query: 'matrix', language: 'en');
 
-    expect(seen.url.path, '/api/v1/admin/versions/v1/subtitles/search');
+    expect(seen.url.path, '/api/v1/versions/v1/subtitles/search');
     expect(seen.url.queryParameters['q'], 'matrix');
     expect(seen.url.queryParameters['language'], 'en');
   });
@@ -292,16 +350,36 @@ void main() {
   test('subtitleDownload sends the file id', () async {
     late http.Request seen;
     final AdminApi admin = _admin(
-      _capture((http.Request req) => seen = req, status: 202),
+      _capture(
+        (http.Request req) => seen = req,
+        status: 201,
+        body: jsonEncode(<String, dynamic>{'id': 'opensubtitles:v1:f1'}),
+      ),
     );
 
-    await admin.subtitleDownload('v1', fileId: 'f1', language: 'en');
+    final bool added = await admin.subtitleDownload(
+      'v1',
+      fileId: 'f1',
+      language: 'en',
+    );
 
-    expect(seen.url.path, '/api/v1/admin/versions/v1/subtitles/download');
+    expect(added, isTrue);
+    expect(seen.url.path, '/api/v1/versions/v1/subtitles/download');
     expect(jsonDecode(seen.body), <String, dynamic>{
       'file_id': 'f1',
       'language': 'en',
     });
+  });
+
+  test('subtitleDownload reports a file the version already holds', () async {
+    final AdminApi admin = _admin(
+      _capture(
+        (http.Request _) {},
+        body: jsonEncode(<String, dynamic>{'id': 'opensubtitles:v1:f1'}),
+      ),
+    );
+
+    expect(await admin.subtitleDownload('v1', fileId: 'f1'), isFalse);
   });
 
   test('subtitleText GETs the subtitle and unwraps the content', () async {
@@ -316,7 +394,7 @@ void main() {
     final String text = await admin.subtitleText('v1', 's1');
 
     expect(seen.method, 'GET');
-    expect(seen.url.path, '/api/v1/admin/versions/v1/subtitles/s1');
+    expect(seen.url.path, '/api/v1/versions/v1/subtitles/s1');
     expect(text, 'Hallo');
   });
 
@@ -329,7 +407,7 @@ void main() {
     await admin.renameSubtitle('v1', 's1', language: 'fr');
 
     expect(seen.method, 'PUT');
-    expect(seen.url.path, '/api/v1/admin/versions/v1/subtitles/s1');
+    expect(seen.url.path, '/api/v1/versions/v1/subtitles/s1');
     expect(jsonDecode(seen.body), <String, dynamic>{'language': 'fr'});
   });
 
@@ -342,10 +420,10 @@ void main() {
     await admin.deleteSubtitle('v1', 's1');
 
     expect(seen.method, 'DELETE');
-    expect(seen.url.path, '/api/v1/admin/versions/v1/subtitles/s1');
+    expect(seen.url.path, '/api/v1/versions/v1/subtitles/s1');
   });
 
-  test('deleteVersion DELETEs the admin version route', () async {
+  test('deleteVersion DELETEs the version route', () async {
     late http.Request seen;
     final AdminApi admin = _admin(
       _capture((http.Request req) => seen = req, status: 204),
@@ -354,7 +432,7 @@ void main() {
     await admin.deleteVersion('v1');
 
     expect(seen.method, 'DELETE');
-    expect(seen.url.path, '/api/v1/admin/versions/v1');
+    expect(seen.url.path, '/api/v1/versions/v1');
   });
 
   test(

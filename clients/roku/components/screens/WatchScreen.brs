@@ -32,6 +32,7 @@ sub init()
     m.upNextCount = m.top.FindNode("upNextCount")
     m.upNextActions = m.top.FindNode("upNextActions")
     m.countdown = m.top.FindNode("countdown")
+    m.jobsTimer = m.top.FindNode("jobs")
 
     m.showDiagnostics = ReadDiagnostics()
     m.audioGuideOn = false
@@ -76,6 +77,17 @@ sub init()
     m.resumeMs = 0
     m.pendingMs = 0
     m.tasks = []
+    m.work = false
+    m.jobsFor = ""
+    m.jobs = invalid
+    m.jobsLoaded = false
+    m.jobsTask = invalid
+    m.versionTask = invalid
+    m.workTask = invalid
+    m.announce = []
+    m.settling = invalid
+    m.workSource = ""
+    m.openChoice = ""
 
     m.video.notificationInterval = 1
     m.video.enableTrickPlay = false
@@ -94,6 +106,7 @@ sub init()
     m.watchdog.ObserveField("fire", "onWatchdogFired")
     m.upNextActions.ObserveField("activated", "onUpNextAction")
     m.video.ObserveField("streamInfo", "onStreamInfo")
+    m.jobsTimer.ObserveField("fire", "onJobsFired")
 end sub
 
 sub render()
@@ -442,15 +455,18 @@ sub onAction(event as object)
     RestartHide()
 end sub
 
-sub AskChoice(field as string, title as string, options as object, selected as integer, kind = "choice" as string)
+sub AskChoice(field as string, title as string, options as object, selected as integer, kind = "choice" as string, keep = false as boolean, busy = "" as string)
     m.hide.control = "stop"
     m.choiceOptions = options
+    m.openChoice = field
     m.top.choiceRequest = {
         field: field,
         title: title,
         kind: kind,
         options: MenuOptions(options),
-        selected: selected
+        selected: selected,
+        keep: keep,
+        busy: busy
     }
 end sub
 
@@ -472,7 +488,15 @@ end sub
 sub OpenSubtitleMenu()
     m.settingMenu = "subsMenu"
     m.settingRows = SubtitleRows(m.controls, m.version)
+    if m.work then m.settingRows.Push(MoreSubtitlesRow())
     AskChoice("subsMenu", Phrase("heading.subtitles"), m.settingRows, 0, "menu")
+end sub
+
+sub OpenWorkMenu(keep = false as boolean)
+    m.settingMenu = "workMenu"
+    m.settingRows = WorkRows(m.version, m.jobs)
+    AskChoice("workMenu", Phrase("work.menuTitle"), m.settingRows, 0, "menu", keep, Phrase("work.starting"))
+    if not keep then PollJobs()
 end sub
 
 sub OpenAudioMenu()
@@ -484,6 +508,11 @@ end sub
 sub ReopenMenu()
     if m.settingMenu = "subsMenu"
         OpenSubtitleMenu()
+        return
+    end if
+
+    if m.settingMenu = "workMenu"
+        OpenWorkMenu()
         return
     end if
 
@@ -536,13 +565,16 @@ sub onChoice()
     result = m.top.choiceResult
     if result = invalid or m.released then return
 
+    m.openChoice = ""
+
     if TextOrBlank(ValueAt(result, "field", "")) = "stalled"
         HandledStall(result)
         return
     end if
 
-    FocusBar()
+    if ValueAt(result, "waiting", false) <> true then FocusBar()
     if result.cancelled
+        m.workTask = invalid
         if ReopenedSettingMenu(TextOrBlank(result.field)) then return
 
         RestartHide()
@@ -556,7 +588,13 @@ sub onChoice()
 end sub
 
 function ReopenedSettingMenu(field as string) as boolean
+    if field = "workMenu"
+        OpenSubtitleMenu()
+        return true
+    end if
+
     leaves = ["quality", "audio", "subtitle", "delivery", "offset", "autoplay"]
+    leaves.Append(WorkChoiceFields())
 
     isLeaf = false
     for each name in leaves
@@ -580,12 +618,22 @@ function ReopenedSettingMenu(field as string) as boolean
         return true
     end if
 
+    if menu = "workMenu"
+        OpenWorkMenu()
+        return true
+    end if
+
     return false
 end function
 
 sub RunChoice(field as string, chosen as object)
     if field = "settings" or field = "subsMenu" or field = "audioMenu"
         RunSetting(TextOrBlank(ValueAt(chosen, "id", "")))
+        return
+    end if
+
+    if field = "workMenu"
+        RunWorkAction(TextOrBlank(ValueAt(chosen, "id", "")))
         return
     end if
 
@@ -621,7 +669,238 @@ sub RunChoice(field as string, chosen as object)
         return
     end if
 
-    if field = "offset" then StepOffset(TextOrBlank(ValueAt(chosen, "id", "")))
+    if field = "offset"
+        StepOffset(TextOrBlank(ValueAt(chosen, "id", "")))
+        return
+    end if
+
+    RunWorkChoice(field, chosen)
+end sub
+
+sub RunWorkChoice(field as string, chosen as object)
+    session = SessionFor(m.global)
+    id = TextOrBlank(ValueAt(chosen, "id", ""))
+    code = TextOrBlank(ValueAt(chosen, "code", ""))
+
+    if field = "transcribeTrack"
+        PostWork(TranscribeRequest(session.serverUrl, session.token, PlayingVersionId(), Int(ValueAt(chosen, "index", 0))))
+    else if field = "translateSource"
+        m.workSource = id
+        OpenTranslateTarget()
+    else if field = "translateTarget"
+        PostWork(TranslateRequest(session.serverUrl, session.token, PlayingVersionId(), m.workSource, code))
+    else if field = "combineTop"
+        m.workSource = id
+        OpenCombineBottom()
+    else if field = "combineBottom"
+        PostWork(CombineRequest(session.serverUrl, session.token, PlayingVersionId(), m.workSource, id))
+    else if field = "findLanguage"
+        SearchSubtitles(code)
+    else if field = "findPick"
+        DownloadSubtitle(ValueAt(chosen, "candidate", invalid))
+    end if
+end sub
+
+sub StartTranscribe()
+    options = AudioOptions(m.version)
+    if options.Count() = 1
+        session = SessionFor(m.global)
+        PostWork(TranscribeRequest(session.serverUrl, session.token, PlayingVersionId(), options[0].index))
+        return
+    end if
+
+    AskChoice("transcribeTrack", Phrase("work.audioTrack"), options, IndexOfValue(options, "index", Int(m.controls.audioTrack)), "choice", false, Phrase("work.starting"))
+end sub
+
+sub OpenTranslateSource()
+    options = SubtitleFileOptions(m.version)
+    if options.Count() = 1
+        m.workSource = options[0].id
+        OpenTranslateTarget()
+        return
+    end if
+
+    watching = SubtitleRef(m.controls.subtitle)
+    AskChoice("translateSource", Phrase("work.translateFrom"), options, IndexOfValue(options, "id", TextOrBlank(ValueAt(watching, "id", ""))))
+end sub
+
+sub OpenTranslateTarget()
+    AskChoice("translateTarget", Phrase("work.translateTo"), LanguageOptions(m.version), 0, "choice", false, Phrase("work.starting"))
+end sub
+
+sub OpenCombineTop()
+    AskChoice("combineTop", Phrase("work.combineTop"), SubtitleFileOptions(m.version), 0)
+end sub
+
+sub OpenCombineBottom()
+    AskChoice("combineBottom", Phrase("work.combineBottom"), SubtitleFileOptions(m.version, m.workSource), 0, "choice", false, Phrase("work.starting"))
+end sub
+
+sub OpenFindLanguage()
+    AskChoice("findLanguage", Phrase("work.findLanguage"), LanguageOptions(m.version), 0, "choice", false, Phrase("work.searching"))
+end sub
+
+function AnsweredWork(event as object) as dynamic
+    if m.workTask = invalid or not m.workTask.IsSameNode(event.GetRoSGNode()) then return invalid
+    m.workTask = invalid
+
+    parsed = Answered(event)
+    if m.released then return invalid
+    return parsed
+end function
+
+sub PostWork(request as object)
+    m.workTask = SendRequest(request, "onWorkQueued")
+end sub
+
+sub onWorkQueued(event as object)
+    parsed = AnsweredWork(event)
+    if parsed = invalid then return
+
+    if parsed.ok
+        RaiseToast("ok", Phrase("work.queued"))
+    else
+        RaiseToast("err", parsed.error)
+    end if
+    OpenWorkMenu()
+end sub
+
+sub SearchSubtitles(language as string)
+    session = SessionFor(m.global)
+    m.workTask = SendRequest(SubtitleSearchRequest(session.serverUrl, session.token, PlayingVersionId(), language), "onSubtitlesFound")
+end sub
+
+sub onSubtitlesFound(event as object)
+    parsed = AnsweredWork(event)
+    if parsed = invalid then return
+
+    if not parsed.ok
+        RaiseToast("err", parsed.error)
+        OpenWorkMenu()
+        return
+    end if
+
+    options = CandidateOptions(parsed.json, m.version)
+    if options.Count() = 0
+        RaiseToast("ok", Phrase("work.noResults"))
+        OpenWorkMenu()
+        return
+    end if
+
+    AskChoice("findPick", Phrase("work.pickResult"), options, FirstPickable(options), "menu", false, Phrase("work.downloading"))
+end sub
+
+sub DownloadSubtitle(candidate as dynamic)
+    session = SessionFor(m.global)
+    m.workTask = SendRequest(SubtitleDownloadRequest(session.serverUrl, session.token, PlayingVersionId(), candidate), "onSubtitleDownloaded")
+end sub
+
+sub onSubtitleDownloaded(event as object)
+    parsed = AnsweredWork(event)
+    if parsed = invalid then return
+
+    if not parsed.ok
+        RaiseToast("err", parsed.error)
+    else
+        RaiseToast("ok", DownloadedNote(parsed.status))
+        RefreshVersion()
+    end if
+    OpenWorkMenu()
+end sub
+
+sub StartWork()
+    m.work = WorksOnVersions(SessionFor(m.global))
+    if not m.work or m.jobsFor = PlayingVersionId() then return
+
+    ForgetWork()
+    m.jobsFor = PlayingVersionId()
+end sub
+
+sub ForgetWork()
+    m.jobsTimer.control = "stop"
+    m.jobsTask = invalid
+    m.versionTask = invalid
+    m.workTask = invalid
+    m.jobsFor = ""
+    m.jobs = invalid
+    m.jobsLoaded = false
+    m.announce = []
+    m.settling = invalid
+end sub
+
+sub ScheduleJobs(wanted as boolean)
+    if not wanted then return
+
+    m.jobsTimer.duration = WorkBusyPollSeconds()
+    m.jobsTimer.control = "start"
+end sub
+
+sub PollJobs()
+    m.jobsTimer.control = "stop"
+    session = SessionFor(m.global)
+    m.jobsTask = SendRequest(VersionJobsRequest(session.serverUrl, session.token, m.jobsFor), "onJobs")
+end sub
+
+sub onJobsFired()
+    if m.released then return
+    PollJobs()
+end sub
+
+sub onJobs(event as object)
+    if m.jobsTask = invalid or not m.jobsTask.IsSameNode(event.GetRoSGNode()) then return
+    m.jobsTask = invalid
+    parsed = Answered(event)
+    if m.released then return
+
+    if parsed.ok and type(parsed.json) = "roArray"
+        finished = []
+        if m.jobsLoaded then finished = SubtitleWork(FinishedJobs(m.jobs, parsed.json))
+        if finished.Count() > 0
+            m.announce = finished
+            m.settling = parsed.json
+            RefreshVersion()
+            return
+        end if
+
+        m.jobsLoaded = true
+        m.jobs = parsed.json
+        RefreshOpenMenu()
+    end if
+    ScheduleJobs(AwaitedWork(m.jobs))
+end sub
+
+sub RefreshVersion()
+    session = SessionFor(m.global)
+    m.versionTask = SendRequest(VersionRequest(session.serverUrl, session.token, PlayingVersionId()), "onVersionRefreshed")
+end sub
+
+sub onVersionRefreshed(event as object)
+    if m.versionTask = invalid or not m.versionTask.IsSameNode(event.GetRoSGNode()) then return
+    m.versionTask = invalid
+    parsed = Answered(event)
+    if m.released then return
+
+    settling = m.settling
+    m.settling = invalid
+    if not parsed.ok or m.version = invalid
+        m.announce = []
+        ScheduleJobs(settling <> invalid)
+        return
+    end if
+
+    m.version = parsed.json
+    if settling <> invalid then m.jobs = settling
+    for each job in m.announce
+        note = JobAnnouncement(job, m.version)
+        RaiseToast(note.kind, note.message)
+    end for
+    m.announce = []
+    RefreshOpenMenu()
+    ScheduleJobs(settling <> invalid and AwaitedWork(m.jobs))
+end sub
+
+sub RefreshOpenMenu()
+    if m.openChoice = "workMenu" then OpenWorkMenu(true)
 end sub
 
 sub StepOffset(towards as string)
@@ -638,6 +917,11 @@ sub StepOffset(towards as string)
 end sub
 
 sub RunSetting(id as string)
+    if id = "more"
+        OpenWorkMenu()
+        return
+    end if
+
     if id = "audio"
         OpenAudio()
         return
@@ -680,6 +964,20 @@ sub RunSetting(id as string)
         RefreshProgress()
     end if
     ReopenMenu()
+end sub
+
+sub RunWorkAction(id as string)
+    if id = "find"
+        OpenFindLanguage()
+    else if id = "transcribe"
+        StartTranscribe()
+    else if id = "translate"
+        OpenTranslateSource()
+    else if id = "combine"
+        OpenCombineTop()
+    else
+        OpenWorkMenu()
+    end if
 end sub
 
 sub ApplyControls()
@@ -1012,6 +1310,8 @@ sub PlayNeighbour(target as dynamic)
     if target = invalid then return
 
     m.top.choiceRequest = DialogCloseRequest()
+    m.openChoice = ""
+    ForgetWork()
     m.carried = CarriedTracks(m.controls, m.version)
 
     StopCountdown()
@@ -1085,6 +1385,7 @@ sub onVersion(event as object)
     end if
 
     m.version = parsed.json
+    StartWork()
 
     if m.carried <> invalid
         m.controls = ControlsForCarried(m.carried, m.version)
@@ -1336,6 +1637,7 @@ sub onWatchdogFired()
 
     m.stallWarned = true
     m.watchdog.control = "stop"
+    m.openChoice = "stalled"
     m.top.choiceRequest = {
         field: "stalled",
         title: Phrase("player.stalled"),
@@ -1583,6 +1885,7 @@ sub onRelease()
     m.countdown.control = "stop"
     m.hold.control = "stop"
     m.watchdog.control = "stop"
+    m.jobsTimer.control = "stop"
     RestoreCaptionMode()
     EndSession()
 

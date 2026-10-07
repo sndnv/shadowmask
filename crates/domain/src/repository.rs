@@ -592,6 +592,16 @@ pub trait JobRepository {
         &self,
         cutoff: Timestamp,
     ) -> impl Future<Output = Result<Vec<JobId>, RepositoryError>> + Send;
+    fn list_for_version(
+        &self,
+        version: &VersionId,
+        finished_since: Timestamp,
+    ) -> impl Future<Output = Result<Vec<Job>, RepositoryError>> + Send;
+    fn count_ahead(
+        &self,
+        job: &Job,
+        kinds: &[JobKind],
+    ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
 }
 
 pub trait AuthTokenRepository {

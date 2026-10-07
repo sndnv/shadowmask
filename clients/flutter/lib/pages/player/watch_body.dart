@@ -4,10 +4,12 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/capability_scope.dart';
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
+import 'package:shadowmask/components/player/add_subtitles_dialog.dart';
 import 'package:shadowmask/components/player/diagnostics_overlay.dart';
 import 'package:shadowmask/components/player/overlay_bar.dart';
 import 'package:shadowmask/components/player/player_frame.dart';
@@ -39,6 +41,7 @@ import 'package:shadowmask/model/session/client_decoding.dart';
 import 'package:shadowmask/model/session/negotiation.dart';
 import 'package:shadowmask/model/session/playback_session.dart';
 import 'package:shadowmask/model/session/resume_position.dart';
+import 'package:shadowmask/model/session/subtitle_selection.dart';
 import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/nav/route_observer.dart';
 import 'package:shadowmask/nav/routes.dart';
@@ -55,6 +58,7 @@ import 'package:shadowmask/view/play_target.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/view/player_shortcuts.dart';
 import 'package:shadowmask/view/track_carry.dart';
+import 'package:shadowmask/view/version_jobs_watch.dart';
 
 const int kStallSeconds = 20;
 
@@ -146,6 +150,10 @@ class _WatchBodyState extends State<WatchBody>
   bool _stalled = false;
   int _negotiation = 0;
   final FocusNode _keys = FocusNode(debugLabel: 'player-shortcuts');
+  AdminApi? _admin;
+  VersionJobsWatch? _jobs;
+  final ValueNotifier<VersionDetail?> _versionFeed =
+      ValueNotifier<VersionDetail?>(null);
 
   @override
   void initState() {
@@ -155,6 +163,54 @@ class _WatchBodyState extends State<WatchBody>
     _controller.snapshot.addListener(_onSnapshot);
     _controller.fullscreen.addListener(_onFullscreen);
     WidgetsBinding.instance.addObserver(this);
+    if (widget.user.worksOnVersions) {
+      final AdminApi admin = AdminApi(widget.api);
+      _admin = admin;
+      _jobs = VersionJobsWatch(
+        fetch: () => admin.versionJobs(widget.versionId),
+        onFinished: _refetchVersion,
+      );
+    }
+  }
+
+  Future<bool> _refetchVersion() async {
+    try {
+      final VersionDetail version = await CatalogApi(
+        widget.api,
+      ).version(widget.versionId);
+      if (mounted && _version != null) {
+        setState(() => _version = version);
+        _versionFeed.value = version;
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void _onWork() {
+    _jobs?.refresh();
+    _refetchVersion();
+  }
+
+  Future<void> _addSubtitles() async {
+    final AdminApi? admin = _admin;
+    final VersionJobsWatch? jobs = _jobs;
+    if (admin == null || jobs == null) {
+      return;
+    }
+    jobs.refresh();
+    final SubtitleSelection? watching = _controls.subtitle;
+    await showAddSubtitlesDialog(
+      context,
+      admin: admin,
+      version: _versionFeed,
+      jobs: jobs,
+      onWork: _onWork,
+      audioTrack: _controls.audioTrack,
+      watchingFileId: watching?.kind == SubtitleKind.file ? watching?.id : null,
+    );
+    _reclaimKeys();
   }
 
   @override
@@ -240,6 +296,8 @@ class _WatchBodyState extends State<WatchBody>
     _countdown?.cancel();
     _stallWatch?.cancel();
     _keys.dispose();
+    _jobs?.dispose();
+    _versionFeed.dispose();
     _heartbeat?.cancel();
     _endSession();
     _trickplay?.dispose();
@@ -294,6 +352,7 @@ class _WatchBodyState extends State<WatchBody>
     _session = session;
     _negotiation++;
     _version = version;
+    _versionFeed.value = version;
     _originMs = session.originMs;
     _sequential = session.sequential;
     _controls = _controls.withSelection(session.selected);
@@ -1161,6 +1220,9 @@ class _WatchBodyState extends State<WatchBody>
                                         onShortcuts: widget.touch
                                             ? null
                                             : _showShortcuts,
+                                        onAddSubtitles: _admin == null
+                                            ? null
+                                            : _addSubtitles,
                                         onClose: _closePanel,
                                         dense: compactViewport(context),
                                       ),

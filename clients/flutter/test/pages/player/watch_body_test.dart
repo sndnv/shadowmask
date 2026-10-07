@@ -28,6 +28,7 @@ import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
+import 'package:shadowmask/view/version_jobs_watch.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class FakePlayerController implements PlayerController {
@@ -443,6 +444,17 @@ Future<void> _settleAroundSpinner(WidgetTester tester) async {
 
 const SelfUser _user = SelfUser(id: 'u1', username: 'u', role: UserRole.user);
 
+const SelfUser _linkedAdmin = SelfUser(
+  id: 'u1',
+  username: 'u',
+  role: UserRole.player,
+  accountRole: UserRole.admin,
+);
+
+http.Response? _noJobs(http.Request r) => r.url.path.endsWith('/jobs')
+    ? http.Response(jsonEncode(<dynamic>[]), 200)
+    : null;
+
 Widget _shellShaped(ApiClient api, FakePlayerController fake, bool bounded) =>
     MaterialApp(
       theme: buildTheme(AppThemeVariant.dark),
@@ -484,12 +496,22 @@ Widget _app(
   int seekOriginMs = 0,
   bool touch = false,
   Future<http.Response> Function(int call)? onUpdate,
+  SelfUser user = _user,
+  http.Response? Function(http.Request r)? intercept,
+  Duration? Function(http.Request r)? lag,
 }) {
   int updates = 0;
   final ApiClient api = ApiClient(
     baseUrl: 'http://test',
     httpClient: MockClient((http.Request r) {
       seen?.add(r);
+      final http.Response? caught = intercept?.call(r);
+      if (caught != null) {
+        final Duration? wait = lag?.call(r);
+        return wait == null
+            ? Future<http.Response>.value(caught)
+            : Future<http.Response>.delayed(wait, () => caught);
+      }
       if (onUpdate != null && r.url.path.endsWith('/update')) {
         return onUpdate(updates++);
       }
@@ -528,7 +550,7 @@ Widget _app(
     home: Scaffold(
       body: WatchBody(
         api: api,
-        user: _user,
+        user: user,
         versionId: 'v1',
         initialControls: controls,
         controllerFactory: (_) => fake,
@@ -851,6 +873,218 @@ void main() {
 
     expect(find.text(Strings.playerOffset), findsOneWidget);
     expect(find.text(Strings.playerBurnIn), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a plain viewer is offered no subtitle work and polls none', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(_app(fake, seen: seen));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.subtitles).first);
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.addSubtitles), findsNothing);
+    expect(
+      seen.where((http.Request r) => r.url.path.endsWith('/jobs')),
+      isEmpty,
+    );
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a device linked to an admin works on subtitles in the player', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(
+      _app(fake, seen: seen, user: _linkedAdmin, intercept: _noJobs),
+    );
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(minutes: 1));
+    bool readJobs(http.Request r) => r.url.path == '/api/v1/versions/v1/jobs';
+    expect(seen.where(readJobs), isEmpty);
+
+    await tester.tap(find.byIcon(Icons.subtitles).first);
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.searchSubtitles), findsNothing);
+    expect(seen.where(readJobs), isEmpty);
+
+    await tester.tap(find.text(Strings.addSubtitles));
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.addSubtitlesHeading), findsOneWidget);
+    TextButton action(String label) =>
+        tester.widget<TextButton>(find.widgetWithText(TextButton, label));
+    expect(action(Strings.searchSubtitles).onPressed, isNotNull);
+    expect(action(Strings.transcribe).onPressed, isNotNull);
+    expect(action(Strings.translate).onPressed, isNull);
+    expect(action(Strings.combineSubtitles).onPressed, isNull);
+    expect(seen.where(readJobs), hasLength(1));
+
+    await tester.pump(const Duration(minutes: 1));
+    expect(seen.where(readJobs), hasLength(1));
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('finished work puts the new subtitle in the player menu', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    int polls = 0;
+    bool translated = false;
+    await tester.pumpWidget(
+      _app(
+        fake,
+        user: _linkedAdmin,
+        intercept: (http.Request r) {
+          if (r.url.path == '/api/v1/versions/v1/jobs') {
+            final String status = polls++ == 0 ? 'running' : 'succeeded';
+            translated = status == 'succeeded';
+            return http.Response(
+              jsonEncode(<dynamic>[
+                <String, dynamic>{
+                  'id': 'j1',
+                  'kind': 'translation',
+                  'status': status,
+                  'created_at': '2026-10-06T10:00:00Z',
+                  'elapsed_ms': 3000,
+                  'language': 'es',
+                  'subtitle_id': 'machine:v1:es',
+                },
+              ]),
+              200,
+            );
+          }
+          if (translated && r.url.path == '/api/v1/versions/v1') {
+            final Map<String, dynamic> body =
+                jsonDecode(_route(r).body) as Map<String, dynamic>;
+            body['subtitle_files'] = <dynamic>[
+              <String, dynamic>{
+                'id': 'machine:v1:es',
+                'language': 'es',
+                'format': 'srt',
+                'source': 'machine_translated',
+              },
+            ];
+            return http.Response(jsonEncode(body), 200);
+          }
+          return null;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.subtitles).first);
+    await tester.pumpAndSettle();
+    expect(polls, 0);
+
+    Future<void> settleDialog() async {
+      for (int i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    await tester.tap(find.text(Strings.addSubtitles));
+    await settleDialog();
+    expect(polls, 1);
+    expect(find.text('Running · 3s'), findsOneWidget);
+
+    await tester.tapAt(const Offset(4, 4));
+    await settleDialog();
+    expect(find.text(Strings.addSubtitlesHeading), findsNothing);
+
+    await tester.pump(kJobsBusyPoll);
+    await settleDialog();
+    expect(polls, 2);
+
+    await tester.tap(find.text(Strings.addSubtitles));
+    await tester.pumpAndSettle();
+    expect(find.text('Ready · Spanish (translated) added'), findsOneWidget);
+
+    await tester.tapAt(const Offset(4, 4));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerNoSubtitles).last);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Spanish srt'), findsWidgets);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('work finishing under an open dialog never reads as empty', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    int polls = 0;
+    bool translated = false;
+    await tester.pumpWidget(
+      _app(
+        fake,
+        user: _linkedAdmin,
+        intercept: (http.Request r) {
+          if (r.url.path == '/api/v1/versions/v1/jobs') {
+            final String status = polls++ == 0 ? 'running' : 'succeeded';
+            translated = status == 'succeeded';
+            return http.Response(
+              jsonEncode(<dynamic>[
+                <String, dynamic>{
+                  'id': 'j1',
+                  'kind': 'translation',
+                  'status': status,
+                  'created_at': '2026-10-06T10:00:00Z',
+                  'elapsed_ms': 3000,
+                  'language': 'es',
+                  'subtitle_id': 'machine:v1:es',
+                },
+              ]),
+              200,
+            );
+          }
+          if (translated && r.url.path == '/api/v1/versions/v1') {
+            final Map<String, dynamic> body =
+                jsonDecode(_route(r).body) as Map<String, dynamic>;
+            body['subtitle_files'] = <dynamic>[
+              <String, dynamic>{
+                'id': 'machine:v1:es',
+                'language': 'es',
+                'format': 'srt',
+                'source': 'machine_translated',
+              },
+            ];
+            return http.Response(jsonEncode(body), 200);
+          }
+          return null;
+        },
+        lag: (http.Request r) =>
+            translated && r.url.path == '/api/v1/versions/v1'
+            ? const Duration(seconds: 2)
+            : null,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.subtitles).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.addSubtitles));
+    for (int i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(find.text('Running · 3s'), findsOneWidget);
+
+    final Finder ready = find.text('Ready · Spanish (translated) added');
+    await tester.pump(kJobsBusyPoll);
+    for (int frame = 0; frame < 60 && ready.evaluate().isEmpty; frame++) {
+      expect(find.text('Running · 3s'), findsOneWidget);
+      expect(find.text(Strings.jobNoSubtitle), findsNothing);
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(polls, 2);
+    expect(ready, findsOneWidget);
 
     await tester.pumpWidget(const SizedBox());
   });
