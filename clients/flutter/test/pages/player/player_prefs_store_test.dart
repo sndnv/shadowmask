@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/pages/player/player_prefs_store.dart';
+import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -15,6 +16,24 @@ void main() {
       expect((await store.load()).autoplaySeconds, 10);
     },
   );
+
+  test('converting starts on Auto and a chosen default survives', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    expect((await store.load()).delivery, DeliveryPreference.auto);
+
+    await store.saveDelivery(DeliveryPreference.always);
+
+    expect((await store.load()).delivery, DeliveryPreference.always);
+  });
+
+  test('a converting value no longer offered reads as Auto', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'shadowmask.player.delivery': 'sometimes',
+    });
+
+    expect((await store.load()).delivery, DeliveryPreference.auto);
+  });
 
   test('a chosen delay survives a reload', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});

@@ -25,22 +25,15 @@ Future<List<ItemState>> _leafStates(
   return catalog.stateBatch(userId, leaves);
 }
 
-Future<Set<String>> _watchedRollups(
+Future<List<WatchedRollup>> _rollups(
   CatalogApi catalog,
   String userId,
   List<TitleRef> targets,
 ) async {
   if (targets.isEmpty) {
-    return const <String>{};
+    return const <WatchedRollup>[];
   }
-  final List<WatchedRollup> rollups = await catalog.stateRollup(
-    userId,
-    targets,
-  );
-  return <String>{
-    for (final WatchedRollup r in rollups)
-      if (r.watched) _key(r.target),
-  };
+  return catalog.stateRollup(userId, targets);
 }
 
 Future<void> tagWatched(
@@ -63,6 +56,7 @@ Future<void> tagWatched(
     return;
   }
   final Set<String> watched = <String>{};
+  final Map<String, int> episodes = <String, int>{};
   final Map<String, int> percent = <String, int>{};
   final Map<String, ItemState> known = <String, ItemState>{};
   bool leavesAnswered = false;
@@ -82,16 +76,25 @@ Future<void> tagWatched(
           }
         })
         .catchError((Object _) {}),
-    _watchedRollups(catalog, userId, targets)
-        .then((Set<String> rolled) {
+    _rollups(catalog, userId, targets)
+        .then((List<WatchedRollup> rollups) {
           rollupsAnswered = true;
-          watched.addAll(rolled);
+          for (final WatchedRollup r in rollups) {
+            if (r.watched) {
+              watched.add(_key(r.target));
+            }
+            episodes[_key(r.target)] = r.totalEpisodes;
+          }
         })
         .catchError((Object _) {}),
   ]);
   for (final CatalogCard c in cards) {
     if (watched.contains(_key(c.ref))) {
       c.watched = true;
+    }
+    final int total = episodes[_key(c.ref)] ?? 0;
+    if (c.ref.type == TitleKind.season && total > 0) {
+      c.subtitle = Strings.episodeCountLabel(total);
     }
     if (withProgress) {
       final int? found = percent[_key(c.ref)];

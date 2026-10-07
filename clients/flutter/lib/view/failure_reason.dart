@@ -11,6 +11,7 @@ const Map<String, String> _reasons = <String, String>{
   'session_not_found': Strings.reasonNotFound,
   'scan_in_progress': Strings.reasonScanInProgress,
   'not_cancellable': Strings.reasonNotCancellable,
+  'not_retryable': Strings.reasonNotRetryable,
   'concurrent_limit': Strings.reasonConcurrentLimit,
   'feature_disabled': Strings.reasonFeatureDisabled,
   'not_empty': Strings.reasonNotEmpty,

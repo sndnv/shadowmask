@@ -39,18 +39,41 @@
             return;
           }
           document.getElementById("refresh").addEventListener("click", load);
+          renderFilter();
           await load();
         } catch (err) {
           main.textContent = "Could not load.";
         }
       }
 
+      function renderFilter() {
+        const filter = sm.el("input", {
+          type: "search",
+          name: "filter",
+          value: sm.qs("filter") || "",
+          placeholder: "path, title, library, quality...",
+          autocomplete: "off",
+          "aria-label": "Filter versions",
+        });
+        const slot = document.getElementById("filter-slot");
+        slot.textContent = "";
+        slot.appendChild(
+          sm.el("form", { method: "get", action: "versions.html" }, [
+            sm.el("label", null, ["Filter ", filter]),
+            " ",
+            sm.el("button", { type: "submit" }, "Apply"),
+          ]),
+        );
+      }
+
       function query() {
         const params = new URLSearchParams();
         const offset = sm.qs("offset");
         const limit = sm.qs("limit");
+        const filter = sm.qs("filter");
         if (offset) params.set("offset", offset);
         if (limit) params.set("limit", limit);
+        if (filter) params.set("filter", filter);
         const qs = params.toString();
         return qs ? "?" + qs : "";
       }
@@ -65,11 +88,9 @@
           cards.forEach((c) => {
             const key = c.type + ":" + c.id;
             if (c.type === "episode") {
-              const code =
-                c.season_number != null
-                  ? sm.episodeCode(c.season_number, c.number)
-                  : "E" + c.number;
-              names[key] = (c.series_title || c.title) + " " + code;
+              names[key] = c.series_title
+                ? sm.seriesEpisodeLine(c.series_title, c.season_number, c.number, "")
+                : sm.episodeLine(c.season_number, c.number, c.title);
             } else {
               names[key] = c.title + (c.year ? " (" + c.year + ")" : "");
             }
@@ -87,7 +108,11 @@
             "Versions (" + page.total + ")";
           main.textContent = "";
           if (!page.items.length) {
-            main.appendChild(sm.el("p", { text: "No versions found." }));
+            main.appendChild(
+              sm.el("p", {
+                text: sm.qs("filter") ? "No versions match the filter." : "No versions found.",
+              }),
+            );
             return;
           }
           page.items.sort((a, b) => (a.path || "").localeCompare(b.path || ""));
@@ -108,7 +133,6 @@
             "",
           ];
           const tbody = sm.el("tbody", null);
-          const filterPairs = [];
           page.items.forEach((v) => {
             const name =
               names[v.title.type + ":" + v.title.id] || v.title.type + " " + v.title.id;
@@ -154,7 +178,6 @@
             ]);
             tbody.appendChild(mainRow);
             tbody.appendChild(detailRow);
-            filterPairs.push({ row: mainRow, detail: detailRow });
           });
           const table = sm.el("table", null, [
             sm.el(
@@ -164,24 +187,6 @@
             ),
             tbody,
           ]);
-          const applyFilter = (q) => {
-            const needle = q.trim().toLowerCase();
-            filterPairs.forEach(({ row, detail }) => {
-              const show = !needle || row.textContent.toLowerCase().includes(needle);
-              row.hidden = !show;
-              if (!show) detail.hidden = true;
-            });
-          };
-          const filter = sm.el("input", {
-            type: "search",
-            placeholder: "path, title, library, quality...",
-            autocomplete: "off",
-            "aria-label": "Filter versions",
-          });
-          filter.addEventListener("input", () => applyFilter(filter.value));
-          const slot = document.getElementById("filter-slot");
-          slot.textContent = "";
-          slot.appendChild(sm.el("label", null, ["Filter ", filter]));
           main.appendChild(sm.el("div", { class: "sm-table-wrap" }, table));
           main.appendChild(sm.pager(page.total, page.offset, page.limit));
         } catch (err) {

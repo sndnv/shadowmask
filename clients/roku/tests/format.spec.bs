@@ -22,6 +22,16 @@ namespace tests
             m.assertEqual(SecondsToMs(1.5), 1500)
         end sub
 
+        @describe("EpisodeCode")
+
+        @it("pads both numbers and drops a missing season")
+        sub padsEpisodeCode()
+            m.assertEqual(EpisodeCode(2, 3), "S02E03")
+            m.assertEqual(EpisodeCode(0, 12), "S00E12")
+            m.assertEqual(EpisodeCode(invalid, 3), "E03")
+            m.assertEqual(EpisodeCode(2, invalid), "")
+        end sub
+
         @describe("FormatDuration")
 
         @it("omits the hour part below an hour")

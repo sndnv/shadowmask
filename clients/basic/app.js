@@ -1021,11 +1021,29 @@ const sm = (() => {
   }
 
   function episodeCode(season, number) {
-    return "S" + pad2(season) + "E" + pad2(number);
+    const code = "E" + pad2(number);
+    return season == null ? code : "S" + pad2(season) + code;
   }
 
-  function episodeCount(n) {
-    return n === 1 ? "1 episode" : n + " episodes";
+  function episodeLine(season, number, title) {
+    const name = (title || "").trim();
+    const parts = [episodeCode(season, number)];
+    if (name && name !== "Episode " + number) parts.push(name);
+    return parts.join(" · ");
+  }
+
+  function seriesEpisodeLine(series, season, number, title) {
+    const named = (series || "").trim();
+    const line = episodeLine(season, number, title);
+    return named ? named + " · " + line : line;
+  }
+
+  function newEpisodeCount(n) {
+    return n === 1 ? "1 new episode" : n + " new episodes";
+  }
+
+  function movieCount(n) {
+    return n === 1 ? "1 movie" : n + " movies";
   }
 
   function groupCode(code) {
@@ -1140,7 +1158,10 @@ const sm = (() => {
     pad2,
     gigabytes,
     episodeCode,
-    episodeCount,
+    episodeLine,
+    seriesEpisodeLine,
+    newEpisodeCount,
+    movieCount,
     groupCode,
     sortControls,
     mosaicPoster,

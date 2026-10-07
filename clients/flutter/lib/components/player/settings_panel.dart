@@ -130,7 +130,8 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
   );
   late bool _burn = widget.controls.burn;
   late bool _downmix = widget.controls.downmix;
-  late DeliveryPreference _delivery = widget.controls.delivery;
+  late DeliveryPreference _delivery =
+      widget.controls.delivery ?? DeliveryPreference.auto;
   late double _speed = widget.speed;
   late bool _diag = widget.diagnostics;
   late int _autoplay =

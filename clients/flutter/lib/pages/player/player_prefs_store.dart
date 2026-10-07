@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:shadowmask/player/player_controller.dart';
+import 'package:shadowmask/view/playback_controls.dart';
 
 typedef PlayerPrefs = ({
   double volume,
@@ -13,6 +14,7 @@ typedef PlayerPrefs = ({
   int bufferSeconds,
   int bufferBytes,
   bool waitForBuffer,
+  DeliveryPreference delivery,
 });
 
 const List<int> kAutoplayDelays = <int>[0, 5, 10, 15, 30];
@@ -37,6 +39,7 @@ const PlayerPrefs kDefaultPlayerPrefs = (
   bufferSeconds: kDefaultBufferSeconds,
   bufferBytes: kDefaultBufferBytes,
   waitForBuffer: false,
+  delivery: DeliveryPreference.auto,
 );
 
 class PlayerPrefsStore {
@@ -52,6 +55,7 @@ class PlayerPrefsStore {
   static const String _bufferKey = 'shadowmask.player.buffer_seconds';
   static const String _bufferBytesKey = 'shadowmask.player.buffer_bytes';
   static const String _waitKey = 'shadowmask.player.wait_for_buffer';
+  static const String _deliveryKey = 'shadowmask.player.delivery';
 
   Future<PlayerPrefs> load() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -84,6 +88,7 @@ class PlayerPrefsStore {
           : kDefaultPlayerPrefs.bufferBytes,
       waitForBuffer:
           prefs.getBool(_waitKey) ?? kDefaultPlayerPrefs.waitForBuffer,
+      delivery: DeliveryPreference.fromWire(prefs.getString(_deliveryKey)),
     );
   }
 
@@ -135,5 +140,10 @@ class PlayerPrefsStore {
   Future<void> saveWaitForBuffer(bool wait) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_waitKey, wait);
+  }
+
+  Future<void> saveDelivery(DeliveryPreference delivery) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_deliveryKey, delivery.wire);
   }
 }

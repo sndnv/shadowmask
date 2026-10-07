@@ -136,9 +136,7 @@ function TitleText() as string
     title = TextOrBlank(ValueAt(m.episode, "title", ""))
     if IsBlank(title) then title = TextOrBlank(ValueAt(m.top.target, "title", ""))
 
-    code = EpisodeCode(ValueAt(m.episode, "season_number", invalid), ValueAt(m.episode, "number", invalid))
-    if IsBlank(code) then return title
-    return JoinParts([code, title])
+    return EpisodeLabel(ValueAt(m.episode, "season_number", invalid), { number: ValueAt(m.episode, "number", invalid), title: title })
 end function
 
 sub BuildActions()

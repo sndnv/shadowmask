@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/components/app_dropdown.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/util/scoped_value.dart';
 import 'package:shadowmask/components/player/player_frame.dart';
@@ -51,6 +52,9 @@ class FakePlayerController implements PlayerController {
   bool? attachedAutoplay;
   bool streamSeeks = true;
   bool hlsBuffers = true;
+  Completer<void>? attachGate;
+  int failedAttaches = 0;
+  final List<bool> attachedSubtitles = <bool>[];
 
   @override
   ValueListenable<PlayerSnapshot> get snapshot => _snapshot;
@@ -124,6 +128,10 @@ class FakePlayerController implements PlayerController {
     );
   }
 
+  void opening() {
+    _snapshot.value = const PlayerSnapshot(durationMs: 100000, buffering: true);
+  }
+
   void at({required int positionMs, int bufferedAheadMs = 0}) {
     _snapshot.value = PlayerSnapshot(
       durationMs: 100000,
@@ -156,10 +164,17 @@ class FakePlayerController implements PlayerController {
   Future<void> attach(
     String manifestUrl, {
     required PlaybackMode mode,
+    required bool subtitles,
     int positionMs = 0,
     bool autoplay = true,
   }) async {
     calls.add('attach:${mode.name}');
+    attachedSubtitles.add(subtitles);
+    await attachGate?.future;
+    if (failedAttaches > 0) {
+      failedAttaches--;
+      throw Exception('no stream');
+    }
     attached = manifestUrl;
     attachedPositionMs = positionMs;
     attachedAutoplay = autoplay;
@@ -214,6 +229,17 @@ class FakePlayerController implements PlayerController {
   @override
   Future<void> dispose() async {}
 }
+
+http.Response? _resumeAt40s(http.Request r) =>
+    r.method == 'GET' && r.url.path.contains('/progress/')
+    ? http.Response(jsonEncode(<String, dynamic>{'position_ms': 40000}), 200)
+    : null;
+
+List<int> _reported(List<http.Request> seen) => <int>[
+  for (final http.Request r in seen)
+    if (r.method == 'POST' && r.url.path.endsWith('/progress'))
+      (jsonDecode(r.body) as Map<String, dynamic>)['position_ms'] as int,
+];
 
 http.Response _route(http.Request req) {
   final String path = req.url.path;
@@ -1389,6 +1415,185 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  group('a start that outlives the player', () {
+    bool startRequest(http.Request r) =>
+        r.method == 'POST' && r.url.path == '/api/v1/sessions';
+
+    Widget slowStart(FakePlayerController fake, List<http.Request> seen) =>
+        _app(
+          fake,
+          seen: seen,
+          intercept: (http.Request r) => startRequest(r) ? _route(r) : null,
+          lag: (http.Request r) => const Duration(seconds: 5),
+        );
+
+    int ends(List<http.Request> seen) => seen
+        .where(
+          (http.Request r) =>
+              r.method == 'DELETE' && r.url.path == '/api/v1/sessions/s1',
+        )
+        .length;
+
+    int beats(List<http.Request> seen) => seen
+        .where(
+          (http.Request r) =>
+              r.method == 'POST' &&
+              r.url.path == '/api/v1/sessions/s1/progress',
+        )
+        .length;
+
+    testWidgets('a session that answers after leaving is ended unplayed', (
+      WidgetTester tester,
+    ) async {
+      final FakePlayerController fake = FakePlayerController();
+      final List<http.Request> seen = <http.Request>[];
+      await tester.pumpWidget(slowStart(fake, seen));
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(seen.where(startRequest), hasLength(1));
+      expect(ends(seen), 0);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 5));
+
+      expect(ends(seen), 1);
+      expect(fake.calls.where((String c) => c.startsWith('attach')), isEmpty);
+
+      await tester.pump(const Duration(seconds: 60));
+
+      expect(beats(seen), 0);
+    });
+
+    testWidgets('leaving while the stream attaches never starts a heartbeat', (
+      WidgetTester tester,
+    ) async {
+      final FakePlayerController fake = FakePlayerController()
+        ..attachGate = Completer<void>();
+      final List<http.Request> seen = <http.Request>[];
+      await tester.pumpWidget(_app(fake, seen: seen, intercept: _resumeAt40s));
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(fake.calls, contains('attach:direct'));
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+
+      expect(ends(seen), 1);
+      final int flushed = beats(seen);
+
+      fake.attachGate!.complete();
+      await tester.pump(const Duration(seconds: 60));
+
+      expect(beats(seen), flushed);
+      expect(ends(seen), 1);
+      expect(_reported(seen), everyElement(40000));
+    });
+
+    testWidgets('a route covering a starting player ends the late session', (
+      WidgetTester tester,
+    ) async {
+      final FakePlayerController fake = FakePlayerController();
+      final List<http.Request> seen = <http.Request>[];
+      await tester.pumpWidget(slowStart(fake, seen));
+      await tester.pump(const Duration(seconds: 1));
+
+      final NavigatorState navigator = Navigator.of(
+        tester.element(find.byType(WatchBody)),
+      );
+      navigator.push(
+        MaterialPageRoute<void>(builder: (BuildContext _) => const SizedBox()),
+      );
+      await tester.pump(const Duration(seconds: 5));
+
+      expect(ends(seen), 1);
+      expect(fake.calls.where((String c) => c.startsWith('attach')), isEmpty);
+
+      navigator.pop();
+      await tester.pump(const Duration(seconds: 6));
+
+      expect(seen.where(startRequest), hasLength(2));
+      expect(fake.calls.where((String c) => c.startsWith('attach')), [
+        'attach:direct',
+      ]);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 6));
+    });
+  });
+
+  testWidgets('a retry after a failed attach keeps the resume point', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController()
+      ..failedAttaches = 1;
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(_app(fake, seen: seen, intercept: _resumeAt40s));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(Strings.retry));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+
+    expect(_reported(seen), isNotEmpty);
+    expect(_reported(seen), everyElement(40000));
+  });
+
+  testWidgets('progress keeps the resume point until the player plays', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(_app(fake, seen: seen, intercept: _resumeAt40s));
+    await tester.pumpAndSettle();
+
+    fake.opening();
+    await tester.pump();
+
+    expect(_reported(seen), isNotEmpty);
+    expect(_reported(seen), everyElement(40000));
+
+    fake.at(positionMs: 41000);
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+
+    expect(_reported(seen).last, 41000);
+  });
+
+  testWidgets('a retry ends the failed session before starting another', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController()
+      ..failedAttaches = 1;
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(_app(fake, seen: seen));
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.couldNotStartPlayback), findsOneWidget);
+
+    await tester.tap(find.text(Strings.retry));
+    await tester.pumpAndSettle();
+
+    final List<String> lifecycle = seen
+        .where(
+          (http.Request r) =>
+              (r.method == 'POST' && r.url.path == '/api/v1/sessions') ||
+              r.method == 'DELETE',
+        )
+        .map((http.Request r) => '${r.method} ${r.url.path}')
+        .toList();
+    expect(lifecycle, <String>[
+      'POST /api/v1/sessions',
+      'DELETE /api/v1/sessions/s1',
+      'POST /api/v1/sessions',
+    ]);
+    expect(fake.attached, '/stream/tok/file');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('starts a fresh session when the page is uncovered', (
     WidgetTester tester,
   ) async {
@@ -1581,6 +1786,235 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
     await tester.pumpAndSettle();
+  });
+
+  group('the saved converting default', () {
+    Future<String?> startedWith(
+      WidgetTester tester, {
+      PlaybackControls controls = const PlaybackControls(),
+    }) async {
+      final List<http.Request> seen = <http.Request>[];
+      await tester.pumpWidget(
+        _app(FakePlayerController(), seen: seen, controls: controls),
+      );
+      await tester.pumpAndSettle();
+      final http.Request start = seen.firstWhere(
+        (http.Request r) =>
+            r.method == 'POST' && r.url.path == '/api/v1/sessions',
+      );
+      return (jsonDecode(start.body) as Map<String, dynamic>)['delivery']
+          as String?;
+    }
+
+    testWidgets('starts the session when the video chose nothing', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'shadowmask.player.delivery': 'always',
+      });
+
+      expect(await startedWith(tester), 'always');
+
+      await tester.tap(find.byIcon(Icons.settings).first);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.descendant(
+          of: find.byType(AppDropdown<DeliveryPreference>),
+          matching: find.text(Strings.playerDeliveryAlways),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('gives way to a choice made for this video', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'shadowmask.player.delivery': 'always',
+      });
+
+      expect(
+        await startedWith(
+          tester,
+          controls: const PlaybackControls(delivery: DeliveryPreference.auto),
+        ),
+        isNull,
+      );
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('is not overridden by the last video', (
+      WidgetTester tester,
+    ) async {
+      final List<String> pushed = <String>[];
+      await tester.pumpWidget(
+        _app(
+          FakePlayerController(),
+          episodic: true,
+          pushed: pushed,
+          controls: const PlaybackControls(delivery: DeliveryPreference.never),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.skip_next));
+      await tester.pumpAndSettle();
+
+      expect(
+        Uri.parse(pushed.single).queryParameters.containsKey('delivery'),
+        isFalse,
+      );
+    });
+  });
+
+  group('the player draws only the subtitles the server sent', () {
+    http.Response started(
+      String mode,
+      String manifest,
+      String? delivery, {
+      bool sequential = false,
+    }) => http.Response(
+      jsonEncode(<String, dynamic>{
+        'session_id': 's1',
+        'mode': mode,
+        'manifest_url': manifest,
+        'sequential': sequential,
+        'heartbeat_interval_s': 10,
+        'selected': <String, dynamic>{
+          'audio_track': 1,
+          if (delivery != null)
+            'subtitle_track': <String, dynamic>{'type': 'embedded', 'index': 2},
+          'subtitle_delivery': delivery,
+        },
+        'trickplay': <dynamic>[],
+      }),
+      201,
+    );
+
+    bool isStart(http.Request r) =>
+        r.method == 'POST' && r.url.path == '/api/v1/sessions';
+
+    testWidgets("a direct file with nothing chosen hides the file's own", (
+      WidgetTester tester,
+    ) async {
+      final FakePlayerController fake = FakePlayerController();
+      await tester.pumpWidget(_app(fake));
+      await tester.pumpAndSettle();
+
+      expect(fake.attachedSubtitles, <bool>[false]);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a subtitle sent as WebVTT is drawn', (
+      WidgetTester tester,
+    ) async {
+      final FakePlayerController fake = FakePlayerController();
+      await tester.pumpWidget(
+        _app(
+          fake,
+          intercept: (http.Request r) => isStart(r)
+              ? started('remux', '/stream/tok/master.m3u8', 'hls_vtt')
+              : null,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(fake.attachedSubtitles, <bool>[true]);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a burned subtitle is not drawn a second time', (
+      WidgetTester tester,
+    ) async {
+      final FakePlayerController fake = FakePlayerController();
+      await tester.pumpWidget(
+        _app(
+          fake,
+          intercept: (http.Request r) => isStart(r)
+              ? started('transcode', '/stream/tok/master.m3u8', 'burned')
+              : null,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(fake.attachedSubtitles, <bool>[false]);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('turning subtitles off re-attaches without them', (
+      WidgetTester tester,
+    ) async {
+      final FakePlayerController fake = FakePlayerController();
+      await tester.pumpWidget(
+        _app(
+          fake,
+          intercept: (http.Request r) => isStart(r)
+              ? started('remux', '/stream/tok/master.m3u8', 'hls_vtt')
+              : null,
+          onUpdate: (int _) => Future<http.Response>.value(
+            _renegotiated('direct', '/stream/tok2/file'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.subtitles).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('English').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(Strings.playerNoSubtitles).last);
+      await tester.pumpAndSettle();
+
+      expect(fake.attachedSubtitles, <bool>[true, false]);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a seek restart keeps the subtitle it was drawing', (
+      WidgetTester tester,
+    ) async {
+      final FakePlayerController fake = FakePlayerController();
+      await tester.pumpWidget(
+        _app(
+          fake,
+          sequential: true,
+          seekOriginMs: 88000,
+          intercept: (http.Request r) => isStart(r)
+              ? started(
+                  'remux',
+                  '/stream/tok/master.m3u8',
+                  'hls_vtt',
+                  sequential: true,
+                )
+              : null,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      fake.at(positionMs: 1000);
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit9);
+      await tester.pumpAndSettle();
+
+      expect(fake.attached, '/stream/tok3/master.m3u8');
+      expect(fake.attachedSubtitles, <bool>[true, true]);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    });
   });
 
   testWidgets('space toggles playback from the keyboard', (
@@ -2652,6 +3086,20 @@ void main() {
           'the account preference has to keep answering for someone who '
           'never overrode it',
     );
+  });
+
+  testWidgets('an episode is titled series, code and title, dot-separated', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake, episodic: true));
+    await tester.pumpAndSettle();
+
+    expect(find.text('The Show · S01E01 · Pilot'), findsWidgets);
+    expect(find.textContaining('S01E01:'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
   });
 
   testWidgets('an episode gets both steps, with no way back from the first', (

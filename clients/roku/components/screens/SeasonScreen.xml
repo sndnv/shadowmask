@@ -4,6 +4,7 @@
     <script type="text/brightscript" uri="pkg:/components/screens/LayoutTick.brs" />
     <script type="text/brightscript" uri="pkg:/components/screens/DetailHero.brs" />
     <script type="text/brightscript" uri="pkg:/components/screens/CardMenu.brs" />
+    <script type="text/brightscript" uri="pkg:/components/screens/EpisodePlay.brs" />
     <script type="text/brightscript" uri="pkg:/components/api/Http.brs" />
     <script type="text/brightscript" uri="pkg:/source/util.brs" />
     <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
@@ -51,6 +52,8 @@
                     <Label id="facts" />
                     <ActionBar id="navActions" />
                     <ActionBar id="actions" />
+                    <Label id="actionLead" visible="false" />
+                    <Label id="actionNote" visible="false" />
                     <Label id="overview" />
                     <ActionBar id="overviewToggle" />
                 </Group>

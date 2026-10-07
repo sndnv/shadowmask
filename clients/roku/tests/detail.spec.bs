@@ -269,6 +269,21 @@ namespace tests
             m.assertFalse(rows[0].available)
         end sub
 
+        @describe("season counts")
+
+        @it("counts regular seasons only, so Specials never inflate the heading")
+        sub countsRegularSeasons()
+            m.assertEqual(RegularSeasonCount([m.season("sp", 0), m.season("s1", 1), m.season("s2", 2)]), 2)
+            m.assertEqual(RegularSeasonCount([m.season("sp", 0)]), 0)
+            m.assertEqual(RegularSeasonCount(invalid), 0)
+        end sub
+
+        @it("drops a count of 0 from a heading")
+        sub headingDropsZero()
+            m.assertEqual(CountedHeading("Seasons", 3), "Seasons (3)")
+            m.assertEqual(CountedHeading("Seasons", 0), "Seasons")
+        end sub
+
         @describe("season and episode ordering")
 
         @it("orders seasons by number however the server listed them")
@@ -289,6 +304,21 @@ namespace tests
         sub wrapsNextSeason()
             seasons = [m.season("s1", 1), m.season("s2", 2)]
             m.assertEqual(NextSeason(seasons, { "s1": true, "s2": true }).id, "s1")
+        end sub
+
+        @it("never lets the specials win while the series has a regular season")
+        sub skipsSpecials()
+            seasons = [m.season("sp", 0), m.season("s1", 1), m.season("s2", 2)]
+
+            m.assertEqual(NextSeason(seasons, {}).id, "s1")
+            m.assertEqual(NextSeason(seasons, { "s1": true }).id, "s2")
+            m.assertEqual(NextSeason(seasons, { "s1": true, "s2": true }).id, "s1")
+        end sub
+
+        @it("plays the specials of a series that has nothing else")
+        sub playsOnlySpecials()
+            m.assertEqual(NextSeason([m.season("sp", 0)], {}).id, "sp")
+            m.assertEqual(NextSeason([m.season("sp", 0)], { "sp": true }).id, "sp")
         end sub
 
         @it("picks the first unwatched episode of a season")
@@ -401,10 +431,10 @@ namespace tests
 
         @it("labels a neighbour with its code and title, which is what the button shows")
         sub labelsNeighbours()
-            episodes = [m.episode("e1", "s1", 1), m.episode("e2", "s1", 2)]
+            episodes = [m.episode("e1", "s1", 1), { id: "e2", season_id: "s1", series_id: "sr1", number: 2, title: "Earth" }]
             neighbours = EpisodeNeighbours(episodes[0], [m.season("s1", 1)], { "s1": episodes })
 
-            m.assertEqual(neighbours.following.label, "S01E02 · Episode 2")
+            m.assertEqual(neighbours.following.label, "S01E02 · Earth")
         end sub
 
         @it("offers nothing at the first and last episode of the series")
@@ -427,20 +457,36 @@ namespace tests
 
         @describe("EpisodePlayerTitle")
 
-        @it("names the show, the code and the episode")
+        @it("names the show, the code and the episode, dot-separated")
         sub episodePlayerTitleFull()
             episode = { series_title: "Severance", season_number: 2, number: 1, title: "Hello, Ms. Cobel" }
 
-            m.assertEqual(EpisodePlayerTitle(episode), "Severance - S02E01: Hello, Ms. Cobel")
+            m.assertEqual(EpisodePlayerTitle(episode), "Severance · S02E01 · Hello, Ms. Cobel")
         end sub
 
         @it("drops whichever part the server did not send")
         sub episodePlayerTitlePartial()
-            m.assertEqual(EpisodePlayerTitle({ season_number: 2, number: 1, title: "Pilot" }), "S02E01: Pilot")
-            m.assertEqual(EpisodePlayerTitle({ series_title: "Severance", title: "Pilot" }), "Severance - Pilot")
-            m.assertEqual(EpisodePlayerTitle({ series_title: "Severance", season_number: 2, number: 1 }), "Severance - S02E01")
+            m.assertEqual(EpisodePlayerTitle({ season_number: 2, number: 1, title: "Pilot" }), "S02E01 · Pilot")
+            m.assertEqual(EpisodePlayerTitle({ series_title: "Severance", title: "Pilot" }), "Severance · Pilot")
+            m.assertEqual(EpisodePlayerTitle({ series_title: "Severance", season_number: 2, number: 1 }), "Severance · S02E01")
             m.assertEqual(EpisodePlayerTitle({ title: "Pilot" }), "Pilot")
             m.assertEqual(EpisodePlayerTitle(invalid), "")
+        end sub
+
+        @describe("EpisodeLabel")
+
+        @it("joins the code and the title, and keeps a dash inside the title")
+        sub episodeLabelJoins()
+            m.assertEqual(EpisodeLabel(2, { number: 2, title: "Earth" }), "S02E02 · Earth")
+            m.assertEqual(EpisodeLabel(2, { number: 2, title: "Earth - Part 1" }), "S02E02 · Earth - Part 1")
+            m.assertEqual(EpisodeLabel(invalid, { number: 2, title: "Earth" }), "E02 · Earth")
+        end sub
+
+        @it("leaves the code alone when the title is missing or only repeats the number")
+        sub episodeLabelUntitled()
+            m.assertEqual(EpisodeLabel(2, { number: 2, title: "" }), "S02E02")
+            m.assertEqual(EpisodeLabel(2, { number: 2, title: "Episode 2" }), "S02E02")
+            m.assertEqual(EpisodeLabel(2, { number: 2, title: "Episode 12" }), "S02E02 · Episode 12")
         end sub
 
         @describe("EpisodeWithContext")
@@ -458,6 +504,27 @@ namespace tests
             m.assertEqual(full.season_number, 9)
         end sub
 
+        @describe("EpisodesInSeason")
+
+        @it("names each episode's series and season from the season")
+        sub episodesInSeasonTakeTheSeason()
+            season = { id: "se2", series_title: "Skyline", number: 2 }
+            placed = EpisodesInSeason([{ id: "e1", number: 1, title: "Arrival" }, { id: "e2", number: 2, title: "Earth" }], season)
+
+            m.assertEqual(placed.Count(), 2)
+            m.assertEqual(placed[1].series_title, "Skyline")
+            m.assertEqual(placed[1].season_number, 2)
+            m.assertEqual(EpisodeCard(placed[1]).subtitle, "Skyline · S02E02")
+        end sub
+
+        @it("keeps what an episode already says")
+        sub episodesInSeasonKeepTheirOwn()
+            placed = EpisodesInSeason([{ id: "e1", number: 1, series_title: "Own", season_number: 5 }], { series_title: "Skyline", number: 2 })
+
+            m.assertEqual(placed[0].series_title, "Own")
+            m.assertEqual(placed[0].season_number, 5)
+        end sub
+
         @describe("EpisodePlayTarget")
 
         @it("resolves straight to a playable version with its episode context")
@@ -467,7 +534,7 @@ namespace tests
 
             target = EpisodePlayTarget(episode, "sr1", "se2", versions)
 
-            m.assertEqual(target.title, "S02E03: Pilot")
+            m.assertEqual(target.title, "S02E03 · Pilot")
             m.assertEqual(target.versionId, "v9")
             m.assertEqual(target.episode.id, "e3")
             m.assertEqual(target.episode.seriesId, "sr1")
@@ -482,7 +549,7 @@ namespace tests
 
             target = EpisodePlayTarget(episode, "sr1", "se2", versions, "Severance", 2)
 
-            m.assertEqual(target.title, "Severance - S02E01: Pilot")
+            m.assertEqual(target.title, "Severance · S02E01 · Pilot")
             m.assertEqual(target.label, "S02E01 · Pilot")
             m.assertEqual(target.seriesTitle, "Severance")
             m.assertEqual(target.seasonNumber, 2)
@@ -495,6 +562,96 @@ namespace tests
             m.assertInvalid(EpisodePlayTarget(episode, "sr1", "se2", { items: [] }))
             m.assertInvalid(EpisodePlayTarget(episode, "sr1", "se2", invalid))
             m.assertInvalid(EpisodePlayTarget(invalid, "sr1", "se2", { items: [{ id: "v9", available: true }] }))
+        end sub
+
+        @describe("EpisodeVersionTarget")
+
+        @it("plays the chosen version from its resume point, titled with the season")
+        sub episodeVersionTargetResumes()
+            episode = { id: "e3", number: 3, title: "Pilot" }
+
+            target = EpisodeVersionTarget(episode, "sr1", "se2", { id: "v2" }, "Skyline", 1, 40)
+
+            m.assertEqual(target.versionId, "v2")
+            m.assertEqual(target.percent, 40)
+            m.assertEqual(target.title, "Skyline · S01E03 · Pilot")
+            m.assertEqual(target.episode.seasonId, "se2")
+        end sub
+
+        @describe("NextEpisodeButton")
+
+        @it("keeps the label short and speaks the episode in words")
+        sub nextEpisodeButtonSpeaks()
+            episode = { id: "e3", number: 3, title: "The Hollow Men" }
+            button = NextEpisodeButton(episode, 2, {}, true)
+
+            m.assertEqual(button.id, "play")
+            m.assertEqual(button.label, Phrase("action.play"))
+            m.assertEqual(button.speech, "Play, Season 2, Episode 3, The Hollow Men")
+        end sub
+
+        @it("says Resume when the episode is part-watched, and leaves the season out where asked")
+        sub nextEpisodeButtonResumes()
+            button = NextEpisodeButton(m.episode("e3", "s2", 3), 2, { "e3": 40 }, false)
+
+            m.assertEqual(button.label, Phrase("action.resume"))
+            m.assertEqual(button.speech, "Resume, Episode 3")
+        end sub
+
+        @it("reads Play until the episode is known")
+        sub nextEpisodeButtonUnresolved()
+            button = NextEpisodeButton(invalid, invalid, {}, true)
+
+            m.assertEqual(button.label, Phrase("action.play"))
+            m.assertFalse(button.DoesExist("speech"))
+        end sub
+
+        @describe("NextEpisodeNote")
+
+        @it("leads with Up next, then names the season, the episode and its title")
+        sub nextEpisodeNoteNamesIt()
+            episode = { id: "e2", number: 2, title: "Earth" }
+            note = NextEpisodeNote(episode, 2, true)
+
+            m.assertEqual(note.lead, Phrase("detail.upNextLead"))
+            m.assertEqual(note.episode, "S02E02 · Earth")
+            m.assertEqual(NextEpisodeNote(episode, 2, false).episode, "E02 · Earth")
+        end sub
+
+        @it("keeps a dash inside a title apart from the separator")
+        sub nextEpisodeNoteDashedTitle()
+            note = NextEpisodeNote({ id: "e2", number: 2, title: "Earth - Part 1" }, 2, true)
+
+            m.assertEqual(note.episode, "S02E02 · Earth - Part 1")
+        end sub
+
+        @it("leaves out a title that is missing or only repeats the number")
+        sub nextEpisodeNoteUntitled()
+            m.assertEqual(NextEpisodeNote({ id: "e4", number: 4, title: " " }, 1, true).episode, "S01E04")
+            m.assertEqual(NextEpisodeNote(m.episode("e5", "s1", 5), 1, true).episode, "S01E05")
+        end sub
+
+        @it("is blank until the episode is known, so the line is held but empty")
+        sub nextEpisodeNoteUnresolved()
+            note = NextEpisodeNote(invalid, 1, true)
+
+            m.assertEqual(note.lead, "")
+            m.assertEqual(note.episode, "")
+        end sub
+
+        @describe("ProgressIdMap")
+
+        @it("keeps only the titles with progress, keyed by id")
+        sub mapsProgress()
+            entries = [
+                { title: { "type": "episode", "id": "e1" }, progress_percent: 0 },
+                { title: { "type": "episode", "id": "e2" }, progress_percent: 55 }
+            ]
+            progress = ProgressIdMap(entries, "title")
+
+            m.assertEqual(progress.Count(), 1)
+            m.assertEqual(progress["e2"], 55)
+            m.assertEqual(ProgressIdMap(invalid, "title").Count(), 0)
         end sub
 
         @describe("PickedPlayTarget")
@@ -515,7 +672,7 @@ namespace tests
 
             picked = PickedPlayTarget({ versionId: "v9", resolve: true, percent: 0 }, "episode", episode)
 
-            m.assertEqual(picked.title, "Severance - S02E03: Pilot")
+            m.assertEqual(picked.title, "Severance · S02E03 · Pilot")
             m.assertEqual(picked.label, "S02E03 · Pilot")
             m.assertEqual(picked.seriesTitle, "Severance")
             m.assertEqual(picked.seasonNumber, 2)
@@ -1282,6 +1439,22 @@ namespace tests
         sub holdsOnNonsense()
             m.assertEqual(RevealOffset(9, [0, 400], [400, 400], 900, 120), 120)
             m.assertEqual(RevealOffset(0, invalid, invalid, 900, 120), 120)
+        end sub
+
+        @it("shows the top of a section taller than the screen, where focus lands")
+        sub revealsATallSectionsTop()
+            tops = [0, 400]
+            heights = [400, 1200]
+
+            m.assertEqual(RevealOffset(1, tops, heights, 900, 0), 400)
+        end sub
+
+        @it("scrolls a span inside a section just far enough to show it")
+        sub revealsASpan()
+            m.assertEqual(SpanOffset(1000, 1400, 900, 400, 2000), 500)
+            m.assertEqual(SpanOffset(300, 400, 900, 500, 2000), 300)
+            m.assertEqual(SpanOffset(600, 700, 900, 400, 2000), 400)
+            m.assertEqual(SpanOffset(1800, 1990, 900, 400, 1500), 600)
         end sub
 
         @it("takes the caller's own bottom pad, which a dialog sets to none")

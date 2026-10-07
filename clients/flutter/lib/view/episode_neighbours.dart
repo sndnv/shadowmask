@@ -2,7 +2,6 @@ import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/episode.dart';
 import 'package:shadowmask/model/catalog/season.dart';
-import 'package:shadowmask/util/format.dart';
 
 class EpisodeLink {
   const EpisodeLink({
@@ -93,7 +92,7 @@ List<String> seasonsToLoad(
 EpisodeLink? _link(Episode episode, Season season) => EpisodeLink(
   id: episode.id,
   seasonId: episode.seasonId,
-  label: '${episodeCode(season.number, episode.number)} · ${episode.title}',
+  label: Strings.episodeLine(season.number, episode.number, episode.title),
 );
 
 EpisodeNeighbours neighboursOf(

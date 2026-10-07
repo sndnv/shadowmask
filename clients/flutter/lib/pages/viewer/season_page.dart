@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/admin_api.dart';
@@ -9,6 +10,7 @@ import 'package:shadowmask/components/breadcrumbs.dart';
 import 'package:shadowmask/components/card_art.dart';
 import 'package:shadowmask/components/crumb.dart';
 import 'package:shadowmask/components/detail_split.dart';
+import 'package:shadowmask/components/episode_play_button.dart';
 import 'package:shadowmask/components/random_button.dart';
 import 'package:shadowmask/components/section_heading.dart';
 import 'package:shadowmask/components/facts_row.dart';
@@ -70,7 +72,7 @@ typedef _SeasonData = ({
   Season season,
   List<CatalogCard> cards,
   WatchedRollup rollup,
-  Episode? next,
+  Future<NextEpisode?> next,
   SeasonNeighbours neighbours,
 });
 
@@ -94,6 +96,8 @@ class _SeasonBody extends StatefulWidget {
 class _SeasonBodyState extends State<_SeasonBody> with Mutations<_SeasonBody> {
   late final CatalogApi _catalog = CatalogApi(widget.api);
   late final TitleRef _ref = TitleRef(type: TitleKind.season, id: widget.id);
+  final GlobalKey<EpisodePlayButtonState> _play =
+      GlobalKey<EpisodePlayButtonState>();
   late Future<_SeasonData> _future = _load();
 
   void _reload() {
@@ -128,7 +132,16 @@ class _SeasonBodyState extends State<_SeasonBody> with Mutations<_SeasonBody> {
     );
     List<Episode> episodes = const <Episode>[];
     try {
-      episodes = await _catalog.episodes(widget.id, series: season.seriesId);
+      episodes = <Episode>[
+        for (final Episode e in await _catalog.episodes(
+          widget.id,
+          series: season.seriesId,
+        ))
+          e.copyWith(
+            seriesTitle: e.seriesTitle ?? season.seriesTitle,
+            seasonNumber: e.seasonNumber ?? season.number,
+          ),
+      ];
     } catch (_) {}
     final List<CatalogCard> cards = episodes
         .map(CatalogCard.fromEpisode)
@@ -142,10 +155,20 @@ class _SeasonBodyState extends State<_SeasonBody> with Mutations<_SeasonBody> {
       season: season,
       cards: cards,
       rollup: rollup,
-      next: firstUnwatched(episodes, <String>{
-        for (final CatalogCard c in cards)
-          if (c.watched) c.ref.id,
-      }),
+      next: SynchronousFuture<NextEpisode?>(
+        nextInSeason(
+          season.number,
+          episodes,
+          <String>{
+            for (final CatalogCard c in cards)
+              if (c.watched) c.ref.id,
+          },
+          <String, int>{
+            for (final CatalogCard c in cards)
+              if (c.progressPercent != null) c.ref.id: c.progressPercent!,
+          },
+        ),
+      ),
       neighbours: await _neighbours(season),
     );
   }
@@ -182,7 +205,6 @@ class _SeasonBodyState extends State<_SeasonBody> with Mutations<_SeasonBody> {
         final Season s = data.season;
         final WatchedRollup rollup = data.rollup;
         final String title = s.title ?? Strings.seasonLabel(s.number);
-        final Episode? next = data.next;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -200,12 +222,10 @@ class _SeasonBodyState extends State<_SeasonBody> with Mutations<_SeasonBody> {
             ),
             DetailSplit(
               poster: PosterPlay(
-                tooltip: Strings.nextEpisode,
-                onTap: next == null
+                tooltip: Strings.play,
+                onTap: data.cards.isEmpty
                     ? null
-                    : () => Navigator.of(context).pushNamed(
-                        episodeRoute(next.id, series: s.seriesId, season: s.id),
-                      ),
+                    : () => _play.currentState?.press(),
                 child: CardArt(
                   artwork: _poster(data),
                   aspect: CardAspect.poster,
@@ -278,7 +298,21 @@ class _SeasonBodyState extends State<_SeasonBody> with Mutations<_SeasonBody> {
                     showWatchlistFavorite: false,
                     episodeCount: rollup.totalEpisodes,
                     onWatchedChanged: (bool _) => _reload(),
+                    leading: data.cards.isEmpty
+                        ? null
+                        : EpisodePlayButton(
+                            key: _play,
+                            catalog: _catalog,
+                            userId: widget.user.id,
+                            seriesId: s.seriesId,
+                            next: data.next,
+                            withSeason: false,
+                          ),
                   ),
+                  if (data.cards.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: Space.s2),
+                    NextEpisodeNote(next: data.next, withSeason: false),
+                  ],
                 ],
               ),
             ),

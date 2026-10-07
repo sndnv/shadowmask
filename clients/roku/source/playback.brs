@@ -775,6 +775,19 @@ function DeliveryLabel(delivery as dynamic) as string
     return Phrase("player.deliveryAuto")
 end function
 
+function ValidDelivery(value as dynamic) as string
+    wanted = LCase(TextOrBlank(value))
+    for each option in DeliveryOptions()
+        if option.value = wanted then return wanted
+    end for
+    return "auto"
+end function
+
+function WithDefaultDelivery(controls as object, delivery as dynamic) as object
+    controls.delivery = ValidDelivery(delivery)
+    return controls
+end function
+
 function OnOrOff(value as dynamic) as string
     if value = true then return Phrase("state.on")
     return Phrase("state.off")

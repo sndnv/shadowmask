@@ -365,7 +365,7 @@ class _VersionsBlockState extends State<_VersionsBlock> {
     if (refs.isNotEmpty) {
       try {
         for (final CatalogCard card in await widget.catalog.titleCards(refs)) {
-          titles[card.ref.id] = card.title;
+          titles[card.ref.id] = card.listName;
         }
       } catch (_) {}
     }

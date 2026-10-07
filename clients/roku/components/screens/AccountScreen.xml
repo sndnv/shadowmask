@@ -62,6 +62,10 @@
                 <Group id="playbackSection" visible="false">
                     <RoundedBox id="playbackPanel" />
                     <Label id="playbackHeading" />
+                    <Label id="deliveryName" />
+                    <ActionBar id="deliveryActions" />
+                    <Label id="deliveryHelp" />
+                    <Rectangle id="deliveryRule" />
                     <Label id="autoplayName" />
                     <ActionBar id="autoplayActions" />
                     <Label id="autoplayHelp" />

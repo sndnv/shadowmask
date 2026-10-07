@@ -49,7 +49,7 @@
               href: sm.href.season(episode.season_id, episode.series_id),
             });
           }
-          crumbs.push({ label: episode.title || "Episode " + episode.number });
+          crumbs.push({ label: sm.episodeCode(episode.season_number, episode.number) });
           main.appendChild(sm.breadcrumbs(crumbs));
           const me = await sm.self().catch(() => null);
           const picker = await sm.versionPicker(me && me.id, (versions && versions.items) || []);
@@ -72,7 +72,7 @@
           add("Added", sm.time(episode.added_at));
           add("Updated", sm.time(episode.updated_at));
           const info = sm.el("div", { class: "sm-detail-info" }, [
-            sm.el("h1", { text: "Episode " + episode.number + ": " + episode.title }),
+            sm.el("h1", { text: sm.episodeLine(episode.season_number, episode.number, episode.title) }),
             dl,
             episode.overview ? sm.el("p", { text: episode.overview }) : null,
           ]);
@@ -86,7 +86,7 @@
               sm.deleteTitleButton(
                 "episodes",
                 episode.id,
-                "Episode " + episode.number + ": " + episode.title,
+                sm.episodeLine(episode.season_number, episode.number, episode.title),
                 held === 0
                   ? null
                   : "Remove its " +

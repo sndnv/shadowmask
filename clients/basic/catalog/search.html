@@ -85,7 +85,7 @@
             href: sm.href.episode(r.id, r.season_id),
             artwork: r.artwork,
             title: r.title,
-            subtitle: "Episode",
+            subtitle: sm.seriesEpisodeLine(r.series_title, r.season_number, r.number, ""),
             ref: { type: "episode", id: r.id },
           };
         }

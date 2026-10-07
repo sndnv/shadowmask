@@ -8,6 +8,7 @@ import 'package:shadowmask/pages/account/playback_block.dart';
 import 'package:shadowmask/pages/player/player_prefs_store.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
+import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Widget _host() => MaterialApp(
@@ -80,11 +81,13 @@ void main() {
     await tester.pumpWidget(_host());
     await tester.pumpAndSettle();
 
-    final Rect row = tester.getRect(find.byType(ListTile).first);
+    final Rect row = tester.getRect(
+      find.widgetWithText(ListTile, Strings.playerAutoplayNext),
+    );
     final Rect toggleRow = tester.getRect(find.byType(ListTile).last);
     final Rect label = tester.getRect(find.text(Strings.playerAutoplayNext));
     final Rect help = tester.getRect(find.text(Strings.playerAutoplayNextHelp));
-    final Rect divider = tester.getRect(find.byType(Divider));
+    final Rect divider = tester.getRect(find.byType(Divider).last);
     final Rect toggle = tester.getRect(find.text(Strings.playerDiagnostics));
 
     expect(
@@ -145,6 +148,43 @@ void main() {
       0,
       reason: 'the player reads the same store on its next launch',
     );
+  });
+
+  testWidgets('converting comes first and sets what each video starts with', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text(Strings.playerDelivery)).dy,
+      lessThan(tester.getTopLeft(find.text(Strings.playerAutoplayNext)).dy),
+    );
+    expect(find.text(Strings.accountDeliveryHelp), findsOneWidget);
+
+    await tester.tap(find.text(Strings.playerDeliveryAuto));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerDeliveryAlways).last);
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.toastSettingSaved), findsOneWidget);
+    expect(
+      (await const PlayerPrefsStore().load()).delivery,
+      DeliveryPreference.always,
+    );
+  });
+
+  testWidgets('it shows the converting default already saved', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'shadowmask.player.delivery': 'never',
+    });
+
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.playerDeliveryNever), findsOneWidget);
   });
 
   testWidgets('turning diagnostics on from the account page persists it', (

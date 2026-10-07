@@ -57,8 +57,8 @@
                 artwork: i.artwork,
                 title: i.title,
                 subtitle:
-                  i.episode_count != null
-                    ? sm.episodeCount(i.episode_count)
+                  i.episode_count > 0
+                    ? sm.newEpisodeCount(i.episode_count)
                     : i.year
                       ? String(i.year)
                       : null,
@@ -146,10 +146,7 @@
             href: sm.href.episode(e.id, e.season_id),
             artwork: hasSeries ? e.series_artwork : e.artwork,
             title: hasSeries ? e.series_title : e.title,
-            subtitle:
-              e.season_number != null
-                ? sm.episodeCode(e.season_number, e.number)
-                : "Episode " + e.number,
+            subtitle: sm.episodeCode(e.season_number, e.number),
             caption: hasSeries ? e.title : null,
           };
         });

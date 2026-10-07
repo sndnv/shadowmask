@@ -78,7 +78,7 @@
           });
         }
         crumbs.push({
-          label: card.title || "Episode " + card.number,
+          label: sm.episodeCode(card.season_number, card.number),
           href: sm.href.episode(card.id, card.season_id, seriesId || undefined),
         });
         crumbs.push(versionCrumb);

@@ -69,6 +69,52 @@ void main() {
     expect(paths.where((String p) => p.endsWith('/state/rollup')).length, 1);
   });
 
+  test(
+    'a season card counts its episodes; a series card keeps its own',
+    () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        httpClient: MockClient(
+          (http.Request req) async => http.Response(
+            jsonEncode(<dynamic>[
+              <String, dynamic>{
+                'target': <String, dynamic>{'type': 'series', 'id': 'sr1'},
+                'total_episodes': 30,
+              },
+              <String, dynamic>{
+                'target': <String, dynamic>{'type': 'season', 'id': 'se1'},
+                'total_episodes': 10,
+              },
+              <String, dynamic>{
+                'target': <String, dynamic>{'type': 'season', 'id': 'se2'},
+                'total_episodes': 0,
+              },
+            ]),
+            200,
+            headers: <String, String>{'content-type': 'application/json'},
+          ),
+        ),
+      );
+
+      final CatalogCard series = CatalogCard(
+        ref: const TitleRef(type: TitleKind.series, id: 'sr1'),
+        title: 'Skyline',
+        subtitle: '2008 · 3 seasons',
+        route: '/sr1',
+      );
+      final List<CatalogCard> cards = <CatalogCard>[
+        series,
+        _card(TitleKind.season, 'se1'),
+        _card(TitleKind.season, 'se2'),
+      ];
+      await tagWatched(CatalogApi(api), 'u1', cards);
+
+      expect(series.subtitle, '2008 · 3 seasons');
+      expect(cards[1].subtitle, '10 episodes');
+      expect(cards[2].subtitle, isNull, reason: 'a count of 0 is left out');
+    },
+  );
+
   test('no rollup call when no card rolls up', () async {
     final List<String> paths = <String>[];
     final ApiClient api = ApiClient(

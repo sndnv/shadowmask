@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/admin/admin_filter_field.dart';
+import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/admin/jobs_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
@@ -27,6 +28,8 @@ Map<String, dynamic> _job(
   'progress': 0.5,
   'attempts': 1,
   'cancellable': status == 'queued' || status == 'running',
+  'retryable':
+      (status == 'failed' || status == 'cancelled') && kind != 'library_scan',
   'parent_id': ?parent,
   'created_at': created,
   'updated_at': created,
@@ -42,10 +45,12 @@ bool _hit(Map<String, dynamic> job, String needle) =>
         .contains(needle.replaceAll('_', ' ').toLowerCase());
 
 class _Server {
-  _Server(this.jobs);
+  _Server(this.jobs, {this.refuse = const <String>{}});
 
   final List<Map<String, dynamic>> jobs;
+  final Set<String> refuse;
   final List<Uri> seen = <Uri>[];
+  final List<String> retried = <String>[];
 
   http.Response route(http.Request req) {
     if (req.url.path == '/api/v1/users/self') {
@@ -57,6 +62,12 @@ class _Server {
         }),
         200,
       );
+    }
+    final RegExpMatch? retry = RegExp(
+      r'^/api/v1/admin/jobs/([^/]+)/retry$',
+    ).firstMatch(req.url.path);
+    if (retry != null && req.method == 'POST') {
+      return _retry(retry.group(1)!);
     }
     if (req.url.path != '/api/v1/admin/jobs') {
       return http.Response('{}', 200);
@@ -85,16 +96,40 @@ class _Server {
       200,
     );
   }
+
+  http.Response _retry(String id) {
+    retried.add(id);
+    if (refuse.contains(id)) {
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'error': <String, dynamic>{
+            'code': 'not_retryable',
+            'message': 'job is not retryable',
+          },
+        }),
+        409,
+      );
+    }
+    final Map<String, dynamic> job = jobs.firstWhere(
+      (Map<String, dynamic> j) => j['id'] == id,
+    );
+    job
+      ..['status'] = 'queued'
+      ..['cancellable'] = true
+      ..['retryable'] = false;
+    return http.Response(jsonEncode(job), 200);
+  }
 }
 
 Future<_Server> _pump(
   WidgetTester tester,
-  List<Map<String, dynamic>> jobs,
-) async {
+  List<Map<String, dynamic>> jobs, {
+  Set<String> refuse = const <String>{},
+}) async {
   tester.view.physicalSize = const Size(1800, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  final _Server server = _Server(jobs);
+  final _Server server = _Server(jobs, refuse: refuse);
   final ApiClient api = ApiClient(
     baseUrl: 'http://test',
     httpClient: MockClient((http.Request req) async => server.route(req)),
@@ -105,6 +140,8 @@ Future<_Server> _pump(
       setVariant: (_) {},
       child: MaterialApp(
         theme: buildTheme(AppThemeVariant.dark),
+        builder: (BuildContext context, Widget? child) =>
+            ToastHost(child: child ?? const SizedBox.shrink()),
         onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
           builder: (_) => settings.name == null || settings.name == '/'
               ? JobsPage(api: api)
@@ -153,6 +190,57 @@ void main() {
 
     expect(find.text(Strings.cancelJob), findsWidgets);
     expect(find.text(Strings.confirmCancelJob('Library scan')), findsOneWidget);
+  });
+
+  testWidgets('a failed job offers a retry, a running one a cancel', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, <Map<String, dynamic>>[
+      _job('run', 'artwork', 'running'),
+      _job('bad', 'subtitles', 'failed'),
+      _job('scan', 'library_scan', 'failed'),
+    ]);
+    await tester.tap(find.text(Strings.jobsAllCount(3)));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip(Strings.retryJob), findsOneWidget);
+    expect(find.byTooltip(Strings.cancelJob), findsOneWidget);
+  });
+
+  testWidgets('retrying queues the job again and reloads', (
+    WidgetTester tester,
+  ) async {
+    final _Server server = await _pump(tester, <Map<String, dynamic>>[
+      _job('bad', 'subtitles', 'failed'),
+    ]);
+    await tester.tap(find.text(Strings.jobsAllCount(1)));
+    await tester.pumpAndSettle();
+    final int reads = server.seen.length;
+
+    await tester.tap(find.byTooltip(Strings.retryJob));
+    await tester.pumpAndSettle();
+
+    expect(server.retried, <String>['bad']);
+    expect(server.seen.length, reads + 1);
+    expect(find.text(Strings.toastJobRetried), findsOneWidget);
+    expect(find.byTooltip(Strings.retryJob), findsNothing);
+    expect(find.byTooltip(Strings.cancelJob), findsOneWidget);
+  });
+
+  testWidgets('a refused retry says why', (WidgetTester tester) async {
+    await _pump(
+      tester,
+      <Map<String, dynamic>>[_job('bad', 'subtitles', 'failed')],
+      refuse: <String>{'bad'},
+    );
+    await tester.tap(find.text(Strings.jobsAllCount(1)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip(Strings.retryJob));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining(Strings.reasonNotRetryable), findsOneWidget);
+    expect(find.byTooltip(Strings.retryJob), findsOneWidget);
   });
 
   testWidgets('the tab counts come from the server, not the loaded page', (

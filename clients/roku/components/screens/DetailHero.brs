@@ -11,6 +11,8 @@ sub InitHero()
         crewLinks: m.top.FindNode("crewLinks"),
         navActions: m.top.FindNode("navActions"),
         actions: m.top.FindNode("actions"),
+        actionLead: m.top.FindNode("actionLead"),
+        actionNote: m.top.FindNode("actionNote"),
         overview: m.top.FindNode("overview"),
         overviewToggle: m.top.FindNode("overviewToggle")
     }
@@ -89,6 +91,7 @@ function DrawHero(theme as object, content as object, width as integer) as integ
         offset = offset + space.s3 + Int(m.hero.actions.barHeight) + space.s3
     end if
 
+    offset = HeroNote(theme, ValueAt(content, "actionNote", invalid), textLeft, column, offset)
     offset = HeroOverview(theme, content, textLeft, column, offset)
 
     Announce(HeroSpeech(content))
@@ -209,6 +212,38 @@ function HeroLine(node as dynamic, text as dynamic, size as integer, color as st
     node.translation = [left, offset]
 
     return offset + TextBlockHeight(size, lines) + SpacingScale().s2
+end function
+
+function HeroNote(theme as object, note as dynamic, left as integer, width as integer, offset as integer) as integer
+    lead = m.hero.actionLead
+    node = m.hero.actionNote
+    if lead = invalid or node = invalid then return offset
+
+    shown = type(note) = "roAssociativeArray"
+    lead.visible = shown
+    node.visible = shown
+    if not shown then return offset
+
+    size = TypeScale().textSm
+    leadText = TextOrBlank(ValueAt(note, "lead", ""))
+    leadWidth = 0
+    if not IsBlank(leadText) then leadWidth = TextWidth(leadText, size, false) + SpacingScale().s1
+
+    lead.text = leadText
+    lead.color = theme.muted
+    lead.font = SizedFont(size)
+    lead.maxLines = 1
+    lead.translation = [left, offset]
+
+    node.text = TextOrBlank(ValueAt(note, "episode", ""))
+    node.color = theme.muted
+    node.font = SizedBoldFont(size)
+    node.width = width - leadWidth
+    node.maxLines = 1
+    node.ellipsisText = "…"
+    node.translation = [left + leadWidth, offset]
+
+    return offset + TextBlockHeight(size, 1) + SpacingScale().s2
 end function
 
 function HeroChips(node as dynamic, theme as object, chips as dynamic, left as integer, width as integer, offset as integer) as integer

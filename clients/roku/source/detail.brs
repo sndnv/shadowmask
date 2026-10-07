@@ -440,8 +440,66 @@ function FirstUnseen(items as dynamic, seen as dynamic) as dynamic
     return items[0]
 end function
 
+function ProgressIdMap(entries as dynamic, refField as string) as object
+    percents = {}
+    if type(entries) <> "roArray" then return percents
+
+    for each entry in entries
+        id = TextOrBlank(ValueAt(entry, refField + ".id", ""))
+        percent = Int(ValueAt(entry, "progress_percent", 0))
+        if not IsBlank(id) and percent > 0 then percents[id] = percent
+    end for
+    return percents
+end function
+
+function RegularSeasonCount(seasons as dynamic) as integer
+    count = 0
+    if type(seasons) <> "roArray" then return count
+
+    for each season in seasons
+        if Int(ValueAt(season, "number", 0)) > 0 then count = count + 1
+    end for
+    return count
+end function
+
 function NextSeason(seasons as dynamic, watchedIds as dynamic) as dynamic
-    return FirstUnseen(OrderedSeasons(seasons), watchedIds)
+    ordered = OrderedSeasons(seasons)
+    regular = []
+    for each season in ordered
+        if Int(ValueAt(season, "number", 0)) > 0 then regular.Push(season)
+    end for
+    if regular.Count() = 0 then return FirstUnseen(ordered, watchedIds)
+    return FirstUnseen(regular, watchedIds)
+end function
+
+function OwnEpisodeTitle(episode as dynamic) as string
+    title = TextOrBlank(ValueAt(episode, "title", "")).Trim()
+    numbered = PhraseWith("status.episode", { number: Int(ValueAt(episode, "number", 0)) })
+    if title = numbered then return ""
+    return title
+end function
+
+function NextEpisodeNote(episode as dynamic, seasonNumber as dynamic, withSeason as boolean) as object
+    if episode = invalid then return { lead: "", episode: "" }
+
+    season = invalid
+    if withSeason then season = seasonNumber
+    return { lead: Phrase("detail.upNextLead"), episode: EpisodeLabel(season, episode) }
+end function
+
+function NextEpisodeButton(episode as dynamic, seasonNumber as dynamic, progress as dynamic, withSeason as boolean) as object
+    button = { id: "play", label: Phrase("action.play"), icon: "icon-play", style: "primary" }
+    if episode = invalid then return button
+
+    if ResumePercentFor(progress, ValueAt(episode, "id", "")) > 0 then button.label = Phrase("action.resume")
+
+    spoken = [button.label]
+    if withSeason and seasonNumber <> invalid then spoken.Push(PhraseWith("status.season", { number: Int(seasonNumber) }))
+    spoken.Push(PhraseWith("status.episode", { number: Int(ValueAt(episode, "number", 0)) }))
+    title = OwnEpisodeTitle(episode)
+    if not IsBlank(title) then spoken.Push(title)
+    button.speech = spoken.Join(", ")
+    return button
 end function
 
 function FirstUnwatched(episodes as dynamic, watchedIds as dynamic) as dynamic
@@ -456,25 +514,13 @@ end function
 
 function EpisodeLabel(seasonNumber as dynamic, episode as dynamic) as string
     code = EpisodeCode(seasonNumber, ValueAt(episode, "number", invalid))
-    title = TextOrBlank(ValueAt(episode, "title", ""))
-    return JoinParts([code, title])
+    if IsBlank(code) then return TextOrBlank(ValueAt(episode, "title", "")).Trim()
+    return JoinParts([code, OwnEpisodeTitle(episode)])
 end function
 
 function EpisodePlayerTitle(episode as dynamic) as string
     series = TextOrBlank(ValueAt(episode, "series_title", ""))
-    code = EpisodeCode(ValueAt(episode, "season_number", invalid), ValueAt(episode, "number", invalid))
-    episodeName = TextOrBlank(ValueAt(episode, "title", ""))
-
-    tail = episodeName
-    if not IsBlank(code)
-        tail = code
-        if not IsBlank(episodeName) then tail = code + ": " + episodeName
-    end if
-
-    if IsBlank(series) then return tail
-    if IsBlank(tail) then return series
-
-    return series + " - " + tail
+    return JoinParts([series, EpisodeLabel(ValueAt(episode, "season_number", invalid), episode)])
 end function
 
 function EpisodePlayTarget(episode as dynamic, seriesId as dynamic, seasonId as dynamic, versions as dynamic, seriesTitle = "" as dynamic, seasonNumber = invalid as dynamic) as dynamic
@@ -486,15 +532,19 @@ function EpisodePlayTarget(episode as dynamic, seriesId as dynamic, seasonId as 
     chosen = ResolvePlayTarget(available, {})
     if chosen = invalid then chosen = available[0]
 
+    return EpisodeVersionTarget(episode, seriesId, seasonId, chosen, seriesTitle, seasonNumber, 0)
+end function
+
+function EpisodeVersionTarget(episode as dynamic, seriesId as dynamic, seasonId as dynamic, version as dynamic, seriesTitle as dynamic, seasonNumber as dynamic, percent as integer) as object
     full = EpisodeWithContext(episode, seriesTitle, seasonNumber)
 
     return {
-        versionId: TextOrBlank(ValueAt(chosen, "id", "")),
+        versionId: TextOrBlank(ValueAt(version, "id", "")),
         title: EpisodePlayerTitle(full),
         label: EpisodeLabel(ValueAt(full, "season_number", invalid), full),
         seriesTitle: TextOrBlank(ValueAt(full, "series_title", "")),
         seasonNumber: ValueAt(full, "season_number", invalid),
-        percent: 0,
+        percent: percent,
         episode: {
             id: TextOrBlank(ValueAt(episode, "id", "")),
             seriesId: TextOrBlank(seriesId),
@@ -557,6 +607,16 @@ function EpisodeWithContext(episode as dynamic, seriesTitle as dynamic, seasonNu
     if ValueAt(merged, "season_number", invalid) = invalid then merged.season_number = seasonNumber
 
     return merged
+end function
+
+function EpisodesInSeason(episodes as object, season as dynamic) as object
+    seriesTitle = ValueAt(season, "series_title", "")
+    seasonNumber = ValueAt(season, "number", invalid)
+    placed = []
+    for each episode in episodes
+        placed.Push(EpisodeWithContext(episode, seriesTitle, seasonNumber))
+    end for
+    return placed
 end function
 
 function EpisodeLink(episode as dynamic, season as dynamic) as object
@@ -1456,15 +1516,16 @@ function RevealOffset(index as integer, tops as dynamic, heights as dynamic, vie
     if pad < 0 then pad = ContentBottomPad()
 
     total = tops[tops.Count() - 1] + heights[heights.Count() - 1] + pad
+    return SpanOffset(tops[index], tops[index] + heights[index] + pad, viewport, current, total)
+end function
+
+function SpanOffset(top as integer, bottom as integer, viewport as float, current as integer, total as integer) as integer
     limit = total - viewport
     if limit < 0 then limit = 0
 
     offset = current
-    top = tops[index]
-    bottom = top + heights[index] + pad
-
-    if top < offset then offset = top
     if bottom - offset > viewport then offset = bottom - viewport
+    if top < offset then offset = top
     if offset > limit then offset = limit
     if offset < 0 then offset = 0
 

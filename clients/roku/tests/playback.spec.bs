@@ -15,6 +15,32 @@ namespace tests
             end for
         end sub
 
+        @describe("the converting default")
+
+        @it("keeps only a value the player offers")
+        sub keepsOfferedDelivery()
+            m.assertEqual(ValidDelivery("always"), "always")
+            m.assertEqual(ValidDelivery("NEVER"), "never")
+            m.assertEqual(ValidDelivery("sometimes"), "auto")
+            m.assertEqual(ValidDelivery(invalid), "auto")
+        end sub
+
+        @it("starts a video's controls from the saved default")
+        sub startsFromSavedDelivery()
+            controls = WithDefaultDelivery(DefaultControls(), "always")
+
+            m.assertEqual(controls.delivery, "always")
+            m.assertEqual(ControlsStartBody(controls).delivery, "always")
+            m.assertEqual(ControlsUpdateBody(controls).delivery, "always")
+        end sub
+
+        @it("leaves an Auto default off the start body")
+        sub autoDeliveryStaysImplicit()
+            controls = WithDefaultDelivery(DefaultControls(), "auto")
+
+            m.assertFalse(ControlsStartBody(controls).DoesExist("delivery"))
+        end sub
+
         @describe("SessionFrom")
 
         @it("reads what the server negotiated")
@@ -277,7 +303,7 @@ namespace tests
         sub upNextLabelPrefersTheShortForm()
             ' The header already carries the show name; repeating it here just
             ' pushes the episode title out of a one-line label.
-            target = { title: "Severance - S02E01: Pilot", label: "S02E01 · Pilot" }
+            target = { title: "Severance · S02E01 · Pilot", label: "S02E01 · Pilot" }
 
             m.assertEqual(UpNextLabel(target), "S02E01 · Pilot")
         end sub

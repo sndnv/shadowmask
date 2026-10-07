@@ -40,6 +40,7 @@
         <ActionBar id="crumbs" />
         <Label id="heading" />
         <Label id="overview" />
+        <Label id="moviesHeading" visible="false" />
         <CardGrid id="grid" visible="false" />
         <ScrollBar id="scrollBar" />
         <StateNote id="note" kind="loading" visible="false" />

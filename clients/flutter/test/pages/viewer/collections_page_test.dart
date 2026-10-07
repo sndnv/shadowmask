@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/pagination.dart';
+import 'package:shadowmask/components/random_button.dart';
+import 'package:shadowmask/components/section_heading.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/viewer/collections_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
@@ -25,6 +27,7 @@ Map<String, dynamic> _page(int offset) {
           'id': 'c$n',
           'name': 'Collection $n',
           'artwork': <String, dynamic>{},
+          'movies': <String>[for (int m = 0; m < n; m++) 'm$m'],
         },
     ],
     'total': _total,
@@ -52,11 +55,26 @@ ApiClient _api(List<int> offsets) => ApiClient(
       offsets.add(offset);
       return http.Response(jsonEncode(_page(offset)), 200);
     }
+    if (req.url.path == '/api/v1/movies/collections/c3') {
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'id': 'c3',
+          'name': 'Trilogy',
+          'artwork': <String, dynamic>{},
+          'movies': <String>['m1', 'm2', 'm3'],
+          'items': <Map<String, dynamic>>[
+            for (int m = 1; m <= 3; m++)
+              <String, dynamic>{'id': 'm$m', 'title': 'Part $m'},
+          ],
+        }),
+        200,
+      );
+    }
     return http.Response(jsonEncode(<dynamic>[]), 200);
   }),
 );
 
-Future<void> _pump(WidgetTester tester, ApiClient api) async {
+Future<void> _pump(WidgetTester tester, ApiClient api, {String? id}) async {
   tester.view.physicalSize = const Size(1400, 1000);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -66,8 +84,9 @@ Future<void> _pump(WidgetTester tester, ApiClient api) async {
       setVariant: (_) {},
       child: MaterialApp(
         theme: buildTheme(AppThemeVariant.dark),
-        onGenerateRoute: (_) =>
-            MaterialPageRoute<void>(builder: (_) => CollectionsPage(api: api)),
+        onGenerateRoute: (_) => MaterialPageRoute<void>(
+          builder: (_) => CollectionsPage(api: api, id: id),
+        ),
       ),
     ),
   );
@@ -90,6 +109,37 @@ void main() {
     expect(
       find.text(Strings.countLabel(Strings.navigationCollections, _total)),
       findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'a collection card counts its movies, and an empty one says nothing',
+    (WidgetTester tester) async {
+      await _pump(tester, _api(<int>[]));
+
+      expect(find.text('1 movie'), findsOneWidget);
+      expect(find.text('4 movies'), findsOneWidget);
+      expect(find.text('0 movies'), findsNothing);
+    },
+  );
+
+  testWidgets('a collection page counts its movies over the grid', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, _api(<int>[]), id: 'c3');
+
+    final Finder heading = find.text(
+      Strings.countLabel(Strings.moviesHeading, 3),
+    );
+    expect(heading, findsOneWidget);
+    expect(find.text('Trilogy'), findsWidgets);
+    expect(
+      find.descendant(
+        of: find.ancestor(of: heading, matching: find.byType(SectionHeading)),
+        matching: find.byType(RandomButton),
+      ),
+      findsOneWidget,
+      reason: 'random play sits on the Movies heading, as on the season page',
     );
   });
 }

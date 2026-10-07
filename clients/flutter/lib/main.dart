@@ -27,10 +27,12 @@ import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/theme/theme_store.dart';
 import 'package:shadowmask/util/api_base.dart';
+import 'package:shadowmask/util/bundled_fonts.dart';
 import 'package:shadowmask/util/bundled_licenses.dart';
 import 'package:shadowmask/util/scoped_value.dart';
 import 'package:shadowmask/util/client_capabilities.dart';
 import 'package:shadowmask/util/client_platform.dart';
+import 'package:shadowmask/util/desktop_entry.dart';
 import 'package:shadowmask/util/url_strategy.dart';
 import 'package:shadowmask/util/window.dart';
 
@@ -39,10 +41,12 @@ Future<void> main() async {
   LicenseRegistry.addLicense(
     () => bundledLicenseEntries(bundlePlatform(), rootBundle),
   );
+  await loadBundledFonts(bundlePlatform(), rootBundle);
   await dotenv.load(fileName: '.env', isOptional: true);
   usePathUrlStrategy();
   remoteImage = kIsWeb ? NetworkImage.new : CachedNetworkImageProvider.new;
   await configureWindow();
+  await refreshDesktopEntry();
   await initializePlayer();
   const ThemeStore themeStore = ThemeStore();
   const ServerStore serverStore = ServerStore();

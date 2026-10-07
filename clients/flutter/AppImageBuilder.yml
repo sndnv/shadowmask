@@ -15,6 +15,7 @@ script:
   - mkdir -p AppDir/usr/share/doc/shadowmask/licenses
   - cp CREDITS.md AppDir/usr/share/doc/shadowmask/
   - cp assets/licenses/LGPL-2.1.txt AppDir/usr/share/doc/shadowmask/licenses/
+  - cp assets/licenses/Roboto-OFL.txt AppDir/usr/share/doc/shadowmask/licenses/
   - install -m 755 deployment/linux/shadowmask-launch AppDir/shadowmask-launch
 
 AppDir:

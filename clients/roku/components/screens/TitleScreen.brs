@@ -38,7 +38,14 @@ sub init()
     m.versionChoices = []
     m.pendingWatched = false
     m.nextEpisode = invalid
+    m.nextEpisodes = []
+    m.nextSeasonId = ""
     m.nextSeasonNumber = invalid
+    m.nextProgress = {}
+    m.nextResolved = false
+    m.nextTask = invalid
+    m.playWhenResolved = false
+    m.episodePlay = invalid
     m.dismissedVersion = ""
     m.resumable = {}
     m.state = { watched: false, watchlisted: false, favorite: false }
@@ -136,8 +143,14 @@ function HeroContent() as object
         crewButtons: CrewBar(),
         genreChips: GenreChipList(ValueAt(m.detail, "genres", invalid)),
         ratingChips: RatingChipList(ValueAt(m.detail, "ratings", invalid)),
+        actionNote: ActionNote(),
         overview: OverviewText()
     }
+end function
+
+function ActionNote() as dynamic
+    if m.kind <> "series" or m.seasonCards.Count() = 0 then return invalid
+    return NextEpisodeNote(m.nextEpisode, m.nextSeasonNumber, true)
 end function
 
 function OverviewText() as string
@@ -194,7 +207,7 @@ sub LayoutSeasons(theme as object, width as integer)
 
     space = SpacingScale()
     headingHeight = SectionHeadingHeight()
-    DrawSectionHeading(m.seasonsHeading, theme, CountLabel(Phrase("heading.seasons"), m.seasonCards.Count()), width)
+    DrawSectionHeading(m.seasonsHeading, theme, CountedHeading(Phrase("heading.seasons"), RegularSeasonCount(m.seasonCards)), width)
 
     if m.seasonCards.Count() = 0
         m.seasons.visible = false
@@ -246,7 +259,7 @@ sub BuildActions()
 
     if m.kind = "series"
         if m.seasonCards.Count() > 0
-            buttons.Push({ id: "play", label: Phrase("action.nextEpisode"), icon: "icon-play", style: "primary" })
+            buttons.Push(NextEpisodeButton(m.nextEpisode, m.nextSeasonNumber, m.nextProgress, true))
         end if
         buttons.Push(WatchedButton())
         if m.seasonCards.Count() > 0
@@ -432,6 +445,7 @@ sub onRollups(event as object)
         ApplyStates(m.seasonCards, [], parsed.json)
         m.seasons.cardStates = CardStateList(m.seasonCards)
     end if
+    ResolveNextEpisode()
     Refresh()
 end sub
 
@@ -621,7 +635,11 @@ end sub
 
 sub PressPlay()
     if m.kind = "series"
-        ResolveNextEpisode()
+        if m.nextResolved and m.nextTask = invalid
+            PlayNextEpisode()
+        else
+            m.playWhenResolved = true
+        end if
         return
     end if
 
@@ -648,6 +666,7 @@ end sub
 sub onChoice()
     result = m.top.choiceResult
     if HandledCardMenuChoice(result) then return
+    if HandledEpisodeVersionChoice(result) then return
 
     if result <> invalid and TextOrBlank(ValueAt(result, "field", "")) = "watched"
         if WatchedConfirmAccepted(result) then ApplyWatched(m.pendingWatched)
@@ -711,22 +730,29 @@ sub ResolveNextEpisode()
 
     season = NextSeason(m.seasonCards, watched)
     if season = invalid
-        RaiseToast("err", Phrase("empty.noEpisodes"))
+        SettleNextEpisode(invalid, {})
         return
     end if
 
     m.nextSeasonId = TextOrBlank(ValueAt(season, "id", ""))
     m.nextSeasonNumber = ValueAt(season, "number", invalid)
     session = SessionFor(m.global)
-    Ask(EpisodesRequest(session.serverUrl, session.token, m.id, m.nextSeasonId), "onNextEpisodes")
+    m.nextTask = Ask(EpisodesRequest(session.serverUrl, session.token, m.id, m.nextSeasonId), "onNextEpisodes")
 end sub
 
-sub onNextEpisodes(event as object)
+function NextAnswer(event as object) as dynamic
     parsed = Answered(event)
-    if m.released then return
+    if m.released then return invalid
+    if m.nextTask = invalid or not m.nextTask.IsSameNode(event.GetRoSGNode()) then return invalid
+    return parsed
+end function
+
+sub onNextEpisodes(event as object)
+    parsed = NextAnswer(event)
+    if parsed = invalid then return
 
     if not parsed.ok or type(parsed.json) <> "roArray" or parsed.json.Count() = 0
-        RaiseToast("err", Phrase("empty.noEpisodes"))
+        SettleNextEpisode(invalid, {})
         return
     end if
 
@@ -738,41 +764,37 @@ sub onNextEpisodes(event as object)
     end for
 
     session = SessionFor(m.global)
-    Ask(StateBatchRequest(session.serverUrl, session.token, session.userId, refs), "onNextStates")
+    m.nextTask = Ask(StateBatchRequest(session.serverUrl, session.token, session.userId, refs), "onNextStates")
 end sub
 
 sub onNextStates(event as object)
-    parsed = Answered(event)
-    if m.released then return
+    parsed = NextAnswer(event)
+    if parsed = invalid then return
 
     watched = {}
-    if parsed.ok then watched = WatchedIdSet(parsed.json, "title")
-
-    episode = FirstUnwatched(m.nextEpisodes, watched)
-    if episode = invalid
-        RaiseToast("err", Phrase("empty.noEpisodes"))
-        return
+    progress = {}
+    if parsed.ok
+        watched = WatchedIdSet(parsed.json, "title")
+        progress = ProgressIdMap(parsed.json, "title")
     end if
 
-    m.nextEpisode = episode
-    session = SessionFor(m.global)
-    Ask(EpisodeVersionsRequest(session.serverUrl, session.token, m.id, m.nextSeasonId, TextOrBlank(ValueAt(episode, "id", ""))), "onNextEpisodeVersions")
+    SettleNextEpisode(FirstUnwatched(m.nextEpisodes, watched), progress)
 end sub
 
-sub onNextEpisodeVersions(event as object)
-    parsed = Answered(event)
-    if m.released then return
+sub SettleNextEpisode(episode as dynamic, progress as object)
+    m.nextTask = invalid
+    m.nextResolved = true
+    m.nextEpisode = episode
+    m.nextProgress = progress
+    Refresh()
 
-    target = invalid
-    if parsed.ok then target = EpisodePlayTarget(m.nextEpisode, m.id, m.nextSeasonId, parsed.json, TitleText(), m.nextSeasonNumber)
+    if not m.playWhenResolved then return
+    m.playWhenResolved = false
+    PlayNextEpisode()
+end sub
 
-    if target = invalid
-        RaiseToast("err", Phrase("empty.nothingToPlay"))
-        return
-    end if
-
-    m.top.advanceTarget = target
-    m.top.advance = "WatchScreen"
+sub PlayNextEpisode()
+    PlayEpisode(m.nextEpisode, m.id, m.nextSeasonId, m.nextSeasonNumber, TitleText())
 end sub
 
 sub PressRandom()

@@ -67,6 +67,8 @@ const int kPrebufferGiveUpSeconds = 10;
 const int kBufferReachMs = 1000;
 const int kSeekReachMs = 30000;
 
+bool playerDrawsSubtitles(String? delivery) => delivery == 'hls_vtt';
+
 class WatchBody extends StatefulWidget {
   const WatchBody({
     super.key,
@@ -102,6 +104,7 @@ class _WatchBodyState extends State<WatchBody>
   static const PlayerPrefsStore _prefs = PlayerPrefsStore();
   late Future<bool> _boot = _start();
   bool _unloadBound = false;
+  int _starts = 0;
 
   PlaybackControls _controls = const PlaybackControls();
   double _speed = 1;
@@ -126,6 +129,8 @@ class _WatchBodyState extends State<WatchBody>
   String? _detailRoute;
   List<Crumb> _crumbs = const <Crumb>[];
   String? _lastState;
+  int _startPositionMs = 0;
+  bool _played = false;
   ScopedValue<bool>? _immersive;
   ClientDecoding? _decoding;
   int _autoplaySeconds = kDefaultPlayerPrefs.autoplaySeconds;
@@ -268,6 +273,7 @@ class _WatchBodyState extends State<WatchBody>
   }
 
   void _release() {
+    _starts++;
     _heartbeat?.cancel();
     _heartbeat = null;
     _cancelCountdown();
@@ -316,9 +322,16 @@ class _WatchBodyState extends State<WatchBody>
     }
   }
 
-  void _retry() => setState(() {
-    _boot = _start();
-  });
+  void _retry() {
+    _heartbeat?.cancel();
+    _heartbeat = null;
+    _endSession();
+    setState(() {
+      _boot = _start();
+    });
+  }
+
+  bool _superseded(int start) => !mounted || start != _starts;
 
   void _warnProfileVersion(int reported) {
     if (_warnedProfile || profileVersionMatches(reported) || !mounted) {
@@ -331,6 +344,7 @@ class _WatchBodyState extends State<WatchBody>
   }
 
   Future<bool> _startSession({bool autoplay = true}) async {
+    final int start = ++_starts;
     final ServerInfo info = await _pb.serverInfo().catchError(
       (_) => const ServerInfo(),
     );
@@ -341,6 +355,10 @@ class _WatchBodyState extends State<WatchBody>
     final VersionDetail version = await CatalogApi(
       widget.api,
     ).version(widget.versionId);
+    final PlayerPrefs prefs = await _prefs.load().catchError(
+      (_) => kDefaultPlayerPrefs,
+    );
+    _controls = _controls.withDefaultDelivery(prefs.delivery);
     final PlaybackSession session = await _pb.startSession(
       versionId: widget.versionId,
       startPositionMs: resume.positionMs,
@@ -349,7 +367,17 @@ class _WatchBodyState extends State<WatchBody>
       decoding: _decoding,
       controls: _controls,
     );
+    if (_superseded(start)) {
+      _pb.endSession(session.sessionId);
+      return false;
+    }
     _session = session;
+    _startPositionMs = resume.positionMs;
+    _played = false;
+    if (!_unloadBound) {
+      _unloadBound = true;
+      addUnloadListener(_endSessionBeacon);
+    }
     _negotiation++;
     _version = version;
     _versionFeed.value = version;
@@ -366,9 +394,6 @@ class _WatchBodyState extends State<WatchBody>
           ? session.trickplay
           : version.trickplay,
     );
-    final PlayerPrefs prefs = await _prefs.load().catchError(
-      (_) => kDefaultPlayerPrefs,
-    );
     _networkTimeout = prefs.networkTimeoutSeconds;
     _controller.setNetworkTimeout(_networkTimeout);
     _bufferSeconds = prefs.bufferSeconds;
@@ -381,9 +406,13 @@ class _WatchBodyState extends State<WatchBody>
     await _controller.attach(
       session.manifestUrl,
       mode: session.mode,
+      subtitles: playerDrawsSubtitles(_subtitleDelivery),
       positionMs: _attachOffset(resume.positionMs),
       autoplay: autoplay && _prebuffered,
     );
+    if (_superseded(start)) {
+      return false;
+    }
     if (!_prebuffered && !_controller.buffersAhead) {
       _prebuffered = true;
       _controller.play();
@@ -397,10 +426,6 @@ class _WatchBodyState extends State<WatchBody>
     }
     _startHeartbeat(session.heartbeatIntervalS);
     _watchForStall();
-    if (!_unloadBound) {
-      _unloadBound = true;
-      addUnloadListener(_endSessionBeacon);
-    }
     if (_controls.offsetMs != 0) {
       await _applyControls(
         _controls,
@@ -445,12 +470,12 @@ class _WatchBodyState extends State<WatchBody>
         } catch (_) {}
       }
       final int? seasonNumber = season?.number ?? episode.seasonNumber;
-      final String label = Strings.episodeTitleWithCode(
+      _title = Strings.seriesEpisodeLine(
+        seriesTitle,
         seasonNumber,
         episode.number,
         episode.title,
       );
-      _title = seriesTitle != null ? '$seriesTitle - $label' : label;
       _seriesId = seriesId;
       _neighbours = await loadNeighbours(catalog, episode);
       _detailRoute = episodeRoute(episode.id, series: seriesId);
@@ -465,7 +490,10 @@ class _WatchBodyState extends State<WatchBody>
                   : Strings.seasonsHeading),
           route: seasonRoute(episode.seasonId, series: seriesId),
         ),
-        Crumb(label, route: _detailRoute),
+        Crumb(
+          Strings.episodeCode(seasonNumber, episode.number),
+          route: _detailRoute,
+        ),
         const Crumb(Strings.watchHeading),
       ];
     } catch (_) {}
@@ -533,6 +561,7 @@ class _WatchBodyState extends State<WatchBody>
   }
 
   void _startHeartbeat(int intervalS) {
+    _heartbeat?.cancel();
     _heartbeat = Timer.periodic(Duration(seconds: max(1, intervalS)), (_) {
       _sendProgress(_controller.snapshot.value.playing ? 'playing' : 'paused');
     });
@@ -543,6 +572,7 @@ class _WatchBodyState extends State<WatchBody>
       return;
     }
     final PlayerSnapshot s = _controller.snapshot.value;
+    _played = _played || s.playing;
     final String state = s.playing ? 'playing' : 'paused';
     if (state != _lastState) {
       _lastState = state;
@@ -655,7 +685,7 @@ class _WatchBodyState extends State<WatchBody>
   void _sendProgress(String state) {
     final String? sid = _session?.sessionId;
     if (sid != null) {
-      _pb.progress(sid, _view.positionMs, state);
+      _pb.progress(sid, _played ? _view.positionMs : _startPositionMs, state);
     }
   }
 
@@ -708,6 +738,7 @@ class _WatchBodyState extends State<WatchBody>
       await _controller.attach(
         neg.manifestUrl,
         mode: neg.mode,
+        subtitles: playerDrawsSubtitles(neg.selected?.subtitleDelivery),
         positionMs: _attachOffset(keepMs),
         autoplay: autoplay,
       );
@@ -946,6 +977,7 @@ class _WatchBodyState extends State<WatchBody>
       await _controller.attach(
         neg.manifestUrl,
         mode: neg.mode,
+        subtitles: playerDrawsSubtitles(_subtitleDelivery),
         positionMs: _attachOffset(targetMs),
       );
       if (mounted && negotiation == _negotiation) {

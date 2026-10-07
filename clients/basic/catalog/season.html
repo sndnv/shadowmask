@@ -105,8 +105,8 @@
               episodes.map((e) => ({
                 href: sm.href.episode(e.id, e.season_id, season.series_id),
                 artwork: e.artwork,
-                title: e.number + ". " + e.title,
-                subtitle: e.air_date ? sm.date(e.air_date) : null,
+                title: e.title,
+                subtitle: sm.seriesEpisodeLine(season.series_title, season.number, e.number, ""),
                 ref: { type: "episode", id: e.id },
               })),
               { landscape: true },

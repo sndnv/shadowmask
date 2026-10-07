@@ -120,6 +120,7 @@ class NativePlayerController implements PlayerController {
   Future<void> attach(
     String manifestUrl, {
     required PlaybackMode mode,
+    required bool subtitles,
     int positionMs = 0,
     bool autoplay = true,
   }) async {
@@ -132,8 +133,12 @@ class NativePlayerController implements PlayerController {
         ? manifestUrl
         : '$_baseUrl$manifestUrl';
     await _setProperty('start', '0');
+    await _setProperty('sid', subtitles ? 'auto' : 'no');
     await _setProperty('network-timeout', '$_networkTimeout');
     await _applyBuffer();
+    if (generation != _generation) {
+      return;
+    }
     await _player.open(Media(url), play: autoplay && positionMs <= 0);
     if (positionMs > 0) {
       await _resumeAt(positionMs, generation, autoplay);

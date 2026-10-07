@@ -19,6 +19,7 @@ import 'package:shadowmask/components/card_rail.dart';
 import 'package:shadowmask/components/cast_rail.dart';
 import 'package:shadowmask/components/crew_line.dart';
 import 'package:shadowmask/components/detail_split.dart';
+import 'package:shadowmask/components/episode_play_button.dart';
 import 'package:shadowmask/components/genre_chips.dart';
 import 'package:shadowmask/components/overview_text.dart';
 import 'package:shadowmask/components/library_toggles.dart';
@@ -42,7 +43,6 @@ import 'package:shadowmask/components/title_heading.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/view/page.dart';
 import 'package:shadowmask/model/catalog/collection.dart';
-import 'package:shadowmask/model/catalog/episode.dart';
 import 'package:shadowmask/model/catalog/detail_dimensions.dart';
 import 'package:shadowmask/model/catalog/movie.dart';
 import 'package:shadowmask/model/catalog/movie_detail.dart';
@@ -629,12 +629,15 @@ typedef _SeriesData = ({
   List<Season> seasons,
   List<CatalogCard> cards,
   WatchedRollup rollup,
+  Future<NextEpisode?> next,
 });
 
 class _SeriesDetailBodyState extends State<_SeriesDetailBody>
     with Mutations<_SeriesDetailBody> {
   late final CatalogApi _catalog = CatalogApi(widget.api);
   late final TitleRef _ref = TitleRef(type: TitleKind.series, id: widget.id);
+  final GlobalKey<EpisodePlayButtonState> _play =
+      GlobalKey<EpisodePlayButtonState>();
   late Future<_SeriesData> _future = _load();
 
   void _reload() {
@@ -731,25 +734,18 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
       seasons: seasons,
       cards: seasonCards,
       rollup: rollup,
-    );
-  }
-
-  Future<void> _openNext(_SeriesData data) async {
-    final Episode? next = await resolveNextEpisode(
-      _catalog,
-      widget.user.id,
-      widget.id,
-      data.seasons,
-      <String>{
-        for (final CatalogCard c in data.cards)
-          if (c.watched) c.ref.id,
-      },
-    );
-    if (!mounted || next == null) {
-      return;
-    }
-    Navigator.of(context).pushNamed(
-      episodeRoute(next.id, series: widget.id, season: next.seasonId),
+      next: seasons.isEmpty
+          ? Future<NextEpisode?>.value()
+          : resolveNextEpisode(
+              _catalog,
+              widget.user.id,
+              widget.id,
+              seasons,
+              <String>{
+                for (final CatalogCard c in seasonCards)
+                  if (c.watched) c.ref.id,
+              },
+            ),
     );
   }
 
@@ -773,8 +769,10 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
             PageBackdrop(artwork: d.artwork, imageBase: _catalog.imageBase),
             DetailSplit(
               poster: PosterPlay(
-                tooltip: Strings.nextEpisode,
-                onTap: data.seasons.isEmpty ? null : () => _openNext(data),
+                tooltip: Strings.play,
+                onTap: data.seasons.isEmpty
+                    ? null
+                    : () => _play.currentState?.press(),
                 child: CardArt(
                   artwork: d.artwork,
                   aspect: CardAspect.poster,
@@ -822,15 +820,34 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
                   ),
                 ],
               ),
-              actions: LibraryToggles(
-                catalog: _catalog,
-                userId: widget.user.id,
-                ref: _ref,
-                title: d.title,
-                initialWatched: rollup.watched,
-                showWatchlistFavorite: false,
-                episodeCount: rollup.totalEpisodes,
-                onWatchedChanged: (bool _) => _reload(),
+              actions: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  LibraryToggles(
+                    catalog: _catalog,
+                    userId: widget.user.id,
+                    ref: _ref,
+                    title: d.title,
+                    initialWatched: rollup.watched,
+                    showWatchlistFavorite: false,
+                    episodeCount: rollup.totalEpisodes,
+                    onWatchedChanged: (bool _) => _reload(),
+                    leading: data.seasons.isEmpty
+                        ? null
+                        : EpisodePlayButton(
+                            key: _play,
+                            catalog: _catalog,
+                            userId: widget.user.id,
+                            seriesId: widget.id,
+                            next: data.next,
+                            withSeason: true,
+                          ),
+                  ),
+                  if (data.seasons.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: Space.s2),
+                    NextEpisodeNote(next: data.next, withSeason: true),
+                  ],
+                ],
               ),
               info: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -839,6 +856,15 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
                     FactsRow.of(<(String, String?)>[
                       (Strings.factYear, d.year?.toString()),
                       (Strings.factRating, d.contentRating?.label),
+                      (
+                        Strings.watchedLabel,
+                        rollup.totalEpisodes == 0
+                            ? null
+                            : Strings.watchedCount(
+                                rollup.watchedEpisodes,
+                                rollup.totalEpisodes,
+                              ),
+                      ),
                     ]),
                     labels: false,
                   ),
@@ -865,9 +891,9 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
             ],
             const SizedBox(height: Space.s5),
             SectionHeading(
-              title: Strings.countLabel(
+              title: Strings.countedHeading(
                 Strings.seasonsHeading,
-                seasonCards.length,
+                data.seasons.where((Season s) => s.number > 0).length,
               ),
               trailing: data.seasons.isEmpty
                   ? null

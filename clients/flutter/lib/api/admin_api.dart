@@ -44,6 +44,9 @@ class AdminApi {
   Future<void> cancelJob(String id) =>
       _api.sendVoid('POST', '/api/v1/admin/jobs/${_enc(id)}/cancel');
 
+  Future<void> retryJob(String id) =>
+      _api.sendVoid('POST', '/api/v1/admin/jobs/${_enc(id)}/retry');
+
   Future<List<String>> jobLog(String id, {String? level}) => _api.getJson(
     withQuery('/api/v1/admin/jobs/${_enc(id)}/logs', <String, String?>{
       'level': level,
@@ -62,8 +65,15 @@ class AdminApi {
         NowPlaying.fromJson,
       );
 
-  Future<Paged<Version>> versions({int offset = 0, int? limit}) => _api.getPage(
-    withQuery('/api/v1/admin/versions', _pageParams(offset, limit)),
+  Future<Paged<Version>> versions({
+    int offset = 0,
+    int? limit,
+    String? filter,
+  }) => _api.getPage(
+    withQuery('/api/v1/admin/versions', <String, String?>{
+      ..._pageParams(offset, limit),
+      if (filter != null && filter.isNotEmpty) 'filter': filter,
+    }),
     Version.fromJson,
   );
 

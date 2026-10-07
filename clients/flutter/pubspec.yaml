@@ -35,6 +35,7 @@ dependencies:
   package_info_plus: ^10.2.1
   url_launcher: ^6.3.2
   path: ^1.9.1
+  xdg_directories: ^1.1.0
 
 dev_dependencies:
   flutter_test:
@@ -51,3 +52,4 @@ flutter:
     - CREDITS.md
     - assets/licenses/
     - assets/attribution/
+    - assets/fonts/

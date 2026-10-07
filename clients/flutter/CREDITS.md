@@ -24,11 +24,13 @@ The Android application bundles a different build of most of the same libraries,
 [Android application](#android-application) below.
 
 This file and the licence texts it links are bundled into every build, so they travel inside the
-APK, IPA, disk image and AppImage. `assets/licenses/` is distributed from the repository's
-`licenses/` by `assets/refresh_assets.py` and must not be edited by hand.
+APK, IPA, disk image and AppImage. `assets/licenses/` is distributed by `assets/refresh_assets.py`
+from the repository's `licenses/`, and the Roboto text from its `assets/fonts/`; it must not be
+edited by hand.
 
-The `../../licenses/` links below resolve in the repository. Inside an artifact the texts are
-re-rooted next to this file, so every text named is present but the link is repo-shaped:
+The `../../licenses/` links below, and the Roboto row's `../../assets/fonts/`, resolve in the
+repository. Inside an artifact the texts are re-rooted next to this file, so every text named is
+present but the link is repo-shaped:
 
 | Artifact          | This file                       | Licence texts                        |
 |-------------------|---------------------------------|--------------------------------------|
@@ -36,8 +38,8 @@ re-rooted next to this file, so every text named is present but the link is repo
 | AppImage          | `usr/share/doc/shadowmask/`     | `usr/share/doc/shadowmask/licenses/` |
 | APK / IPA         | `flutter_assets/CREDITS.md`     | `flutter_assets/assets/licenses/`    |
 
-The AppImage carries only `LGPL-2.1.txt`: it bundles the GNU C Library and nothing else. See
-[Linux application](#linux-application).
+The AppImage carries `LGPL-2.1.txt` and `Roboto-OFL.txt`: it bundles the GNU C Library and the
+Roboto font. See [Linux application](#linux-application) and [Font](#font).
 
 The same texts are readable under Account → Profile → About → Third-party licenses, alongside the
 Dart packages, per-platform so a build credits only what it bundles.
@@ -47,6 +49,16 @@ It also credits the content providers, with TMDB's logo
 notice: *This product uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise
 approved by TMDB.* The logo must not be recoloured, reproportioned or rotated; the notice is
 verbatim and pinned by a test.
+
+## Font
+
+Every build carries Roboto (Regular, Medium and Bold, the hinted static faces of release v3.016) in
+`assets/fonts/`, distributed from the repository's `assets/fonts/` by `assets/refresh_assets.py`.
+Only the Linux application draws its text with it; the other platforms use their system font.
+
+| Font   | License     | License text                                        | Source                                          |
+|--------|-------------|-----------------------------------------------------|-------------------------------------------------|
+| Roboto | SIL OFL-1.1 | [Roboto-OFL.txt](../../assets/fonts/Roboto-OFL.txt) | https://github.com/googlefonts/roboto-3-classic |
 
 ## Bundled libraries
 
@@ -104,8 +116,8 @@ uchardet.
 
 ## Linux application
 
-The AppImage bundles the GNU C Library, and links libmpv and GTK from the host without
-redistributing either.
+The AppImage bundles the GNU C Library and the Roboto font (see [Font](#font)), and links libmpv
+and GTK from the host without redistributing either.
 
 | Library               | License           | License text                                | Source                        |
 |-----------------------|-------------------|---------------------------------------------|-------------------------------|

@@ -152,6 +152,16 @@ void main() {
     );
   });
 
+  testWidgets('the heading names the code and the title, the crumb the code', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, _api(<String>[]));
+
+    expect(find.text('S00E03 · A Christmas Special'), findsOneWidget);
+    expect(find.text('S00E03'), findsOneWidget);
+    expect(find.textContaining('Episode 3'), findsNothing);
+  });
+
   testWidgets('a single version plays straight from the artwork', (
     WidgetTester tester,
   ) async {

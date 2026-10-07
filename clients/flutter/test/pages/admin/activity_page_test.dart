@@ -151,6 +151,27 @@ void main() {
     expect(find.text('went to /title?type=movie&id=m1'), findsOneWidget);
   });
 
+  testWidgets('an episode row names its series, code and title', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, <Map<String, dynamic>>[
+      <String, dynamic>{
+        ..._session('s1', 'u7', 'playing'),
+        'card': <String, dynamic>{
+          'title': <String, dynamic>{'type': 'episode', 'id': 'e2'},
+          'display_title': 'Earth',
+          'series_title': 'Skyline',
+          'season_number': 2,
+          'episode_number': 2,
+          'duration_ms': 2400000,
+          'progress_percent': 10,
+        },
+      },
+    ]);
+
+    expect(find.text('Skyline · S02E02 · Earth'), findsOneWidget);
+  });
+
   testWidgets('the row tint separates playing from paused', (
     WidgetTester tester,
   ) async {

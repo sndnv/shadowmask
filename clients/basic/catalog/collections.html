@@ -41,7 +41,7 @@
               href: sm.href.collection(c.id),
               artwork: c.artwork,
               title: c.name,
-              subtitle: c.movies.length + " movies",
+              subtitle: c.movies.length > 0 ? sm.movieCount(c.movies.length) : null,
               mosaic: true,
             })),
           ),

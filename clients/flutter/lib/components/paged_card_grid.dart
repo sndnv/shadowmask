@@ -36,9 +36,9 @@ class PagedCardGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final CardAspect aspect = aspectOf(cards);
-    final int placeholders = failed
-        ? 0
-        : math.min(kPlaceholderCards, math.max(0, remaining));
+    final int placeholders = loading && !failed
+        ? math.min(kPlaceholderCards, math.max(0, remaining))
+        : 0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -46,14 +46,17 @@ class PagedCardGrid extends StatelessWidget {
           onLoad: onLoad,
           enabled: !loading && !failed && remaining > 0,
           threshold: cardRowHeight(aspect) * kPrefetchRows,
-          child: CardGrid(
-            cards: cards,
-            imageBase: imageBase,
-            aspect: aspect,
-            trailing: (double width) => <Widget>[
-              for (int i = 0; i < placeholders; i++)
-                SkeletonCard(aspect: aspect, width: width),
-            ],
+          child: SkeletonPulse(
+            active: placeholders > 0,
+            child: CardGrid(
+              cards: cards,
+              imageBase: imageBase,
+              aspect: aspect,
+              trailing: (double width) => <Widget>[
+                for (int i = 0; i < placeholders; i++)
+                  SkeletonCard(aspect: aspect, width: width),
+              ],
+            ),
           ),
         ),
         if (failed) _MoreFailed(onRetry: onLoad),
@@ -73,8 +76,11 @@ class _MoreFailed extends StatelessWidget {
     return SelectionContainer.disabled(
       child: Padding(
         padding: const EdgeInsets.only(top: Space.s4),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: Space.s3,
+          runSpacing: Space.s2,
           children: <Widget>[
             Text(
               Strings.couldNotLoadMore,
@@ -82,7 +88,6 @@ class _MoreFailed extends StatelessWidget {
                 context,
               ).textTheme.bodySmall?.copyWith(color: t.muted),
             ),
-            const SizedBox(width: Space.s3),
             OutlinedButton(
               onPressed: onRetry,
               style: OutlinedButton.styleFrom(

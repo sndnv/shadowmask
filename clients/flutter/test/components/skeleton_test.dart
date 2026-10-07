@@ -184,6 +184,33 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('a resting pulse holds still and wakes when made active', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(const SkeletonPulse(active: false, child: Skeleton(width: 40))),
+    );
+    await tester.pumpAndSettle();
+
+    final double? resting = _pulse(tester);
+    expect(tester.binding.hasScheduledFrame, isFalse);
+
+    await tester.pumpWidget(
+      _host(const SkeletonPulse(child: Skeleton(width: 40))),
+    );
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(tester.binding.hasScheduledFrame, isTrue);
+    expect(_pulse(tester), isNot(resting));
+
+    await tester.pumpWidget(
+      _host(const SkeletonPulse(active: false, child: Skeleton(width: 40))),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.binding.hasScheduledFrame, isFalse);
+  });
+
   testWidgets('one ticker drives every bar in a shape', (
     WidgetTester tester,
   ) async {

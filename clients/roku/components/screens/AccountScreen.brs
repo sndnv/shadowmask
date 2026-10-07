@@ -6,7 +6,7 @@ sub init()
         { id: "historyRail" },
         { id: "emptyLibrary", focus: "libraryNote" },
         { id: "profileSection", focus: "supportActions" },
-        { id: "playbackSection", focus: "autoplayActions" },
+        { id: "playbackSection", focus: "deliveryActions" },
         { id: "appearanceSection", focus: "themeCards" },
         { id: "serverSection", focus: "serverActions" },
         { id: "sessionSection", focus: "sessionActions" },
@@ -29,6 +29,10 @@ sub init()
     m.supportFacts = m.top.FindNode("supportFacts")
     m.supportActions = m.top.FindNode("supportActions")
     m.playbackHeading = m.top.FindNode("playbackHeading")
+    m.deliveryName = m.top.FindNode("deliveryName")
+    m.deliveryActions = m.top.FindNode("deliveryActions")
+    m.deliveryHelp = m.top.FindNode("deliveryHelp")
+    m.deliveryRule = m.top.FindNode("deliveryRule")
     m.autoplayName = m.top.FindNode("autoplayName")
     m.autoplayActions = m.top.FindNode("autoplayActions")
     m.autoplayHelp = m.top.FindNode("autoplayHelp")
@@ -69,6 +73,7 @@ sub init()
 
     m.tabs.ObserveField("activated", "onTab")
     m.supportActions.ObserveField("activated", "onSupportAction")
+    m.deliveryActions.ObserveField("activated", "onPlaybackAction")
     m.autoplayActions.ObserveField("activated", "onPlaybackAction")
     m.timeDisplayActions.ObserveField("activated", "onPlaybackAction")
     m.diagnosticsActions.ObserveField("activated", "onPlaybackAction")
@@ -408,12 +413,32 @@ function DrawPlayback(theme as object, width as integer, at as integer, top as i
     return offset - top
 end function
 
+sub RevealPlaybackRow()
+    for each row in PlaybackRows()
+        if row.bar.isInFocusChain()
+            help = row.help.boundingRect()
+            RevealSectionSpan(Int(row.name.translation[1]), Int(help.y + help.height))
+            return
+        end if
+    end for
+end sub
+
 function PlaybackBars() as object
-    return [m.autoplayActions, m.timeDisplayActions, m.diagnosticsActions]
+    return [m.deliveryActions, m.autoplayActions, m.timeDisplayActions, m.diagnosticsActions]
 end function
 
 function PlaybackRows() as object
     return [
+        {
+            name: m.deliveryName,
+            bar: m.deliveryActions,
+            help: m.deliveryHelp,
+            rule: m.deliveryRule,
+            id: "delivery",
+            label: Phrase("player.converting"),
+            value: DeliveryLabel(ReadDelivery()),
+            hint: Phrase("help.delivery")
+        },
         {
             name: m.autoplayName,
             bar: m.autoplayActions,
@@ -724,6 +749,11 @@ end sub
 sub onPlaybackAction(event as object)
     id = TextOrBlank(event.GetData())
 
+    if id = "delivery"
+        RequestPlaybackChoice("delivery", Phrase("player.converting"), DeliveryOptions(), ReadDelivery())
+        return
+    end if
+
     if id = "autoplay"
         RequestPlaybackChoice("autoplay", Phrase("player.autoplayNext"), AutoplayOptions(), AutoplayValue(ReadAutoplayNext(), ReadAutoplayDelay()))
         return
@@ -752,7 +782,11 @@ sub RequestPlaybackChoice(field as string, title as string, options as object, c
 end sub
 
 function ChosenPlaybackValue(result as object) as integer
-    return Int(m.playbackChoices[ClampInt(result.index, 0, m.playbackChoices.Count() - 1)].value)
+    return Int(ChosenPlaybackOption(result))
+end function
+
+function ChosenPlaybackOption(result as object) as dynamic
+    return m.playbackChoices[ClampInt(result.index, 0, m.playbackChoices.Count() - 1)].value
 end function
 
 sub onThemePick(event as object)
@@ -927,6 +961,14 @@ sub onChoice()
         return
     end if
 
+    if field = "delivery"
+        if type(m.playbackChoices) <> "roArray" then return
+
+        WriteDelivery(TextOrBlank(ChosenPlaybackOption(result)))
+        Layout()
+        return
+    end if
+
     if field = "autoplay"
         if type(m.playbackChoices) <> "roArray" then return
 
@@ -1039,7 +1081,10 @@ function onKeyEvent(key as string, press as boolean) as boolean
         end for
     end if
 
-    if HandledNodeStep(key, PlaybackBars()) then return true
+    if HandledNodeStep(key, PlaybackBars())
+        RevealPlaybackRow()
+        return true
+    end if
     if HandledNodeStep(key, [m.themeCards, m.contrastBar]) then return true
 
     if key = "up" and m.sectionIndex <= 0 and not CrumbsFocused()
