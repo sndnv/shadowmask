@@ -25,7 +25,8 @@ use uuid::Uuid;
 
 use super::{
     FetchJobPayload, IngestJobPayload, MetadataJobPayload, RelinkJobPayload, combine_job,
-    parse_filename, queue_scan, transcription_job, translation_job_with_source, upscale_job,
+    container_language, parse_filename, queue_scan, transcription_job, translation_job_with_source,
+    upscale_job,
 };
 use crate::acl;
 use crate::job::queued_job;
@@ -782,6 +783,7 @@ where
         let job = transcription_job(
             version,
             &detail.version.path,
+            container_language(&detail.audio, audio_track_index),
             source_language,
             audio_track_index,
             true,
@@ -2485,6 +2487,34 @@ mod tests {
             TranscriptionJobPayload::decode(&enqueued[0].payload).unwrap().force,
             "an admin asking for a transcription always means force"
         );
+    }
+
+    #[tokio::test]
+    async fn a_picked_source_language_is_the_hint_and_the_track_tag_is_only_logged() {
+        use crate::library::TranscriptionJobPayload;
+        use domain::catalog::VersionId;
+        use domain::common::LanguageCode;
+        use domain::media::AudioTrack;
+        use domain::repository::CatalogRepository;
+        let v1 = VersionId("v1".into());
+        let catalog = seeded_version_catalog();
+        let audio = [(1, "fr"), (2, "en")].map(|(index, tag)| AudioTrack {
+            index,
+            codec: "aac".into(),
+            channels: 2,
+            language: Some(LanguageCode(tag.into())),
+            bitrate: None,
+        });
+        catalog.set_version_tracks(&v1, &[], &audio, &[], &[]).await.unwrap();
+        let (svc, jobs) = trigger_svc(catalog, true, false, false);
+
+        svc.trigger_transcription(&admin(), &v1, Some(2), Some("ja".into())).await.unwrap();
+
+        let payload =
+            TranscriptionJobPayload::decode(&jobs.list().await.unwrap()[0].payload).unwrap();
+        assert_eq!(payload.language_hint.as_deref(), Some("ja"));
+        assert_eq!(payload.source_language.as_deref(), Some("en"));
+        assert_eq!(payload.audio_track_index, Some(2));
     }
 
     #[tokio::test]

@@ -236,6 +236,35 @@ void main() {
     _versionWrites.clear();
   });
 
+  testWidgets('the subtitle column names languages like the audio column', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      subtitleFiles: <Map<String, dynamic>>[
+        _file('sf1', 'nl'),
+        _file('sf2', 'en+fr'),
+        _file('sf3', 'und'),
+      ],
+    );
+
+    for (final String name in <String>[
+      'English',
+      'Dutch',
+      'English + French',
+      Strings.unknownValue,
+    ]) {
+      expect(
+        _inSection(Strings.subtitlesHeading, find.text(name)),
+        findsOneWidget,
+        reason: name,
+      );
+    }
+    for (final String code in <String>['EN', 'NL', 'EN+FR', 'UND']) {
+      expect(find.text(code), findsNothing, reason: code);
+    }
+  });
+
   testWidgets('the admin page no longer offers playback', (
     WidgetTester tester,
   ) async {
@@ -754,7 +783,7 @@ void main() {
       reason: 'and are reached through it rather than sitting in the row',
     );
 
-    for (final String value in <String>['SRT', 'EN', 'NL']) {
+    for (final String value in <String>['SRT', 'Dutch']) {
       final Size cell = tester.getSize(find.text(value).first);
       expect(cell.width, greaterThan(0), reason: value);
       expect(cell.height, lessThan(22), reason: '$value wrapped');

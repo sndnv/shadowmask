@@ -3,7 +3,7 @@ use domain::error::RepositoryError;
 use domain::job::{JobId, TranscriptionTrigger};
 use domain::repository::{CatalogRepository, JobRepository};
 
-use super::{select_audio_track, transcription_job};
+use super::{container_language, select_audio_track, transcription_job};
 
 pub struct TranscriptionEnqueuer<J, C> {
     jobs: J,
@@ -39,15 +39,11 @@ where
         }
         let preferred = self.subtitle_languages.first().map(String::as_str);
         let audio_track_index = select_audio_track(&detail.audio, preferred);
-        let source_language = audio_track_index
-            .and_then(|index| detail.audio.iter().find(|track| track.index == index))
-            .or_else(|| detail.audio.first())
-            .and_then(|track| track.language.as_ref())
-            .map(|code| code.0.clone());
         let mut job = transcription_job(
             version_id,
             &detail.version.path,
-            source_language,
+            container_language(&detail.audio, audio_track_index),
+            None,
             audio_track_index,
             false,
         );

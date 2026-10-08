@@ -17,7 +17,7 @@ namespace tests
                     { index: 1, codec: "eac3", channels: 6, language: "en" },
                     { index: 2, codec: "aac", channels: 2, language: "es" }
                 ],
-                subtitles: [{ index: 3, language: "eng", format: "srt" }],
+                subtitles: [{ index: 3, language: "en", format: "srt" }],
                 subtitle_files: files
             }
         end function
@@ -347,6 +347,55 @@ namespace tests
             m.assertEqual(LanguageName(invalid), "")
         end sub
 
+        @it("names both Norwegian written forms")
+        sub norwegianNames()
+            m.assertEqual(LanguageName("nb"), "Norwegian Bokmål")
+            m.assertEqual(LanguageName("nn"), "Norwegian Nynorsk")
+        end sub
+
+        @it("names an undetermined language Unknown")
+        sub undeterminedName()
+            m.assertEqual(LanguageName("und"), "Unknown")
+            m.assertEqual(LanguageName("UND"), "Unknown")
+        end sub
+
+        @it("names a combined code by its parts")
+        sub combinedNames()
+            m.assertEqual(LanguageName("en+fr"), "English + French")
+            m.assertEqual(LanguageName("en+und"), "English + Unknown")
+            m.assertEqual(LanguageName("pt-BR+zh-TW"), "Portuguese (Brazil) + Chinese (Traditional)")
+        end sub
+
+        @it("names a listed region in any case or separator")
+        sub regionalNames()
+            m.assertEqual(LanguageName("pt-BR"), "Portuguese (Brazil)")
+            m.assertEqual(LanguageName("pt-PT"), "Portuguese (Portugal)")
+            m.assertEqual(LanguageName("zh-CN"), "Chinese (Simplified)")
+            m.assertEqual(LanguageName("zh-TW"), "Chinese (Traditional)")
+            m.assertEqual(LanguageName("pt-br"), "Portuguese (Brazil)")
+            m.assertEqual(LanguageName("PT_br"), "Portuguese (Brazil)")
+        end sub
+
+        @it("names an unlisted region by its language and region")
+        sub unlistedRegionNames()
+            m.assertEqual(LanguageName("en-US"), "English (US)")
+            m.assertEqual(LanguageName("fr_ca"), "French (CA)")
+            m.assertEqual(LanguageName("xx-YY"), "XX-YY")
+            m.assertEqual(LanguageName("en-USA"), "EN-USA")
+            m.assertEqual(LanguageName("eng-US"), "ENG-US")
+            m.assertEqual(LanguageName("en-US-x"), "EN-US-X")
+        end sub
+
+        @it("keeps a listed region of the version under its own code")
+        sub versionRegionalLanguages()
+            version = m.version([m.file("a", "pt-br", "external"), m.file("b", "en-US", "external")])
+
+            m.assertEqual(VersionLanguages(version), ["en", "es", "pt-BR"])
+            options = LanguageOptions(version)
+            m.assertEqual(options[2].label, "Portuguese (Brazil)")
+            m.assertEqual(options[2].detail, "PT-BR")
+        end sub
+
         @it("puts the version's own languages first, then the rest by name")
         sub versionLanguagesLead()
             options = LanguageOptions(m.version([m.file("a", "fr", "external")]))
@@ -362,7 +411,9 @@ namespace tests
 
         @it("skips a language code the list does not know")
         sub unknownCodesAreSkipped()
-            m.assertEqual(VersionLanguages(m.version()), ["en", "es"])
+            version = m.version([m.file("a", "xx", "external"), m.file("b", "und", "external"), m.file("c", "en+fr", "combined")])
+
+            m.assertEqual(VersionLanguages(version), ["en", "es"])
             m.assertEqual(VersionLanguages(invalid).Count(), 0)
         end sub
 

@@ -138,7 +138,7 @@ where
 fn has_language(files: &[SubtitleFile], language: &LanguageCode) -> bool {
     files.iter().any(|file| {
         matches!(file.source, SubtitleSource::External | SubtitleSource::MachineTranslated)
-            && file.language.as_ref() == Some(language)
+            && file.language.as_ref().is_some_and(|have| language.matches(have))
     })
 }
 
@@ -146,7 +146,10 @@ fn pick_source<'a>(files: &'a [SubtitleFile], target: &LanguageCode) -> Option<&
     const ORDER: [SubtitleSource; 3] =
         [SubtitleSource::External, SubtitleSource::OpenSubtitles, SubtitleSource::Generated];
     ORDER.into_iter().find_map(|source| {
-        files.iter().find(|file| file.source == source && file.language.as_ref() != Some(target))
+        files.iter().find(|file| {
+            file.source == source
+                && !file.language.as_ref().is_some_and(|have| target.matches(have))
+        })
     })
 }
 
@@ -343,6 +346,47 @@ mod tests {
             && f.language == Some(LanguageCode("fr".into()))));
         assert!(files.iter().any(|f| f.source == SubtitleSource::OpenSubtitles
             && f.language == Some(LanguageCode("fr".into()))));
+    }
+
+    #[tokio::test]
+    async fn a_file_in_a_region_of_the_target_satisfies_it() {
+        let catalog = MockCatalogRepo::new();
+        seed(
+            &catalog,
+            &[
+                sub("os-en", SubtitleSource::OpenSubtitles, Some("en")),
+                sub("ext-pt", SubtitleSource::External, Some("pt-BR")),
+            ],
+        )
+        .await;
+        let handler = handler(ProviderMode::Ok, catalog.clone(), MockStore::default());
+
+        handler.handle(&job(payload(&["pt"]))).await.unwrap();
+
+        assert_eq!(files_of(&catalog).await.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_file_in_a_region_of_the_target_is_not_its_source() {
+        let catalog = MockCatalogRepo::new();
+        seed(
+            &catalog,
+            &[
+                sub("os-pt", SubtitleSource::OpenSubtitles, Some("pt-BR")),
+                sub("os-en", SubtitleSource::OpenSubtitles, Some("en")),
+            ],
+        )
+        .await;
+        let handler = handler(ProviderMode::Ok, catalog.clone(), MockStore::default());
+
+        handler.handle(&job(payload(&["pt"]))).await.unwrap();
+
+        let mt = files_of(&catalog)
+            .await
+            .into_iter()
+            .find(|f| f.source == SubtitleSource::MachineTranslated)
+            .unwrap();
+        assert_eq!(mt.translated_from, Some(SubtitleFileId("os-en".into())));
     }
 
     #[tokio::test]

@@ -37,7 +37,7 @@ fn elapsed_ms(job: &Job, now: Timestamp) -> Option<u64> {
 fn produces(job: &Job) -> (Option<String>, Option<SubtitleFileId>) {
     match job.kind {
         JobKind::Transcription => TranscriptionJobPayload::decode(&job.payload)
-            .map(|payload| (payload.source_language.clone(), Some(payload.produces())))
+            .map(|payload| (payload.language_hint.clone(), Some(payload.produces())))
             .unwrap_or_default(),
         JobKind::Translation => TranslationJobPayload::decode(&job.payload)
             .ok()
@@ -534,7 +534,14 @@ mod tests {
         for job in [
             version_work(
                 "transcribe",
-                transcription_job(&v1, "/m/a.mkv", Some("en".into()), None, true),
+                transcription_job(
+                    &v1,
+                    "/m/a.mkv",
+                    Some("fr".into()),
+                    Some("en".into()),
+                    None,
+                    true,
+                ),
                 JobStatus::Queued,
                 10,
             ),
@@ -606,7 +613,7 @@ mod tests {
         svc.jobs
             .enqueue(version_work(
                 "transcribe",
-                transcription_job(&v1, "/m/a.mkv", None, None, true),
+                transcription_job(&v1, "/m/a.mkv", Some("fr".into()), None, None, true),
                 JobStatus::Queued,
                 5,
             ))
@@ -616,7 +623,7 @@ mod tests {
         let jobs = svc.version_jobs(&admin(), &v1).await.unwrap();
 
         assert_eq!(jobs[0].ahead, None);
-        assert_eq!(jobs[0].language, None);
+        assert_eq!(jobs[0].language, None, "the container tag is not a language anyone asked for");
     }
 
     #[tokio::test]

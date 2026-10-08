@@ -69,7 +69,10 @@ impl<W: SourceWalker, P: MediaProbe> Scanner<W, P> {
                     }
                     candidates.push(entry);
                 } else if is_subtitle_file(&entry.path) {
-                    subtitles.entry(dir_of(&entry.path).to_owned()).or_default().push(entry.path);
+                    subtitles
+                        .entry(sidecar_dir(&entry.path).to_owned())
+                        .or_default()
+                        .push(entry.path);
                 }
             }
         }
@@ -164,10 +167,21 @@ fn is_media_candidate(path: &str, extensions: &[String]) -> bool {
 
 fn is_subtitle_file(path: &str) -> bool {
     match basename(path).rsplit_once('.') {
-        Some((stem, ext)) if !stem.is_empty() => ["srt", "vtt", "ass", "ssa", "sub"]
-            .iter()
-            .any(|allowed| allowed.eq_ignore_ascii_case(ext)),
+        Some((stem, ext)) if !stem.is_empty() => {
+            ["srt", "vtt", "ass", "ssa"].iter().any(|allowed| allowed.eq_ignore_ascii_case(ext))
+        }
         _ => false,
+    }
+}
+
+const SUBTITLE_DIRS: [&str; 2] = ["subs", "subtitles"];
+
+fn sidecar_dir(path: &str) -> &str {
+    let dir = dir_of(path);
+    if SUBTITLE_DIRS.contains(&basename(dir).to_ascii_lowercase().as_str()) {
+        dir_of(dir)
+    } else {
+        dir
     }
 }
 
@@ -185,8 +199,12 @@ fn claim_sidecars(
             continue;
         };
         videos.sort_unstable();
+        let only = match videos.as_slice() {
+            [only] => Some(*only),
+            _ => None,
+        };
         for sidecar in found {
-            if let Some(owner) = sidecar_owner(&sidecar, videos) {
+            if let Some(owner) = sidecar_owner(&sidecar, videos).or(only) {
                 claimed.entry(owner.to_owned()).or_default().push(sidecar);
             }
         }
@@ -530,8 +548,64 @@ mod tests {
         assert!(is_subtitle_file("/m/a.vtt"));
         assert!(!is_subtitle_file("/m/a.mkv"));
         assert!(!is_subtitle_file("/m/.srt"));
+        assert!(!is_subtitle_file("/m/a.sub"), "a lone VobSub track cannot play");
         assert_eq!(dir_of("/m/a/movie.mkv"), "/m/a");
         assert_eq!(dir_of("movie.mkv"), "");
+        assert_eq!(sidecar_dir("/m/a/Subs/English.srt"), "/m/a");
+        assert_eq!(sidecar_dir("/m/a/SUBTITLES/English.srt"), "/m/a");
+        assert_eq!(sidecar_dir("/m/a/movie.en.srt"), "/m/a");
+        assert_eq!(sidecar_dir("/m/a/Subs/Episode/English.srt"), "/m/a/Subs/Episode");
+    }
+
+    #[tokio::test]
+    async fn a_subs_folder_belongs_to_the_folder_above_it() {
+        let walker = MockSourceWalker::new().with_entries(
+            "/m",
+            vec![
+                entry("/m/Film/Film.mkv", 10),
+                entry("/m/Film/Subs/English.srt", 1),
+                entry("/m/Film/Subs/2_Danish.srt", 1),
+                entry("/m/Film/Subtitles/Film.fr.srt", 1),
+                entry("/m/Film/Subs/Film.sub", 1),
+                entry("/m/Flat/Alpha.mkv", 10),
+                entry("/m/Flat/Beta.mkv", 10),
+                entry("/m/Flat/Subs/English.srt", 1),
+                entry("/m/Flat/Subs/Alpha.en.srt", 1),
+                entry("/m/Show/Season 1/Show.S01E01.mkv", 10),
+                entry("/m/Show/Season 1/Show.S01E02.mkv", 10),
+                entry("/m/Show/Season 1/Subs/Show.S01E01/English.srt", 1),
+            ],
+        );
+        let scanner = Scanner::new(walker, MockMediaProbe::new());
+
+        let report = scanner.scan(&library(&["/m"]), quiet()).await.unwrap();
+        let siblings = |path: &str| {
+            let mut found = report
+                .discovered
+                .iter()
+                .find(|d| d.path == path)
+                .unwrap()
+                .subtitle_siblings
+                .clone();
+            found.sort();
+            found
+        };
+
+        assert_eq!(
+            siblings("/m/Film/Film.mkv"),
+            [
+                "/m/Film/Subs/2_Danish.srt",
+                "/m/Film/Subs/English.srt",
+                "/m/Film/Subtitles/Film.fr.srt"
+            ]
+        );
+        assert_eq!(siblings("/m/Flat/Alpha.mkv"), ["/m/Flat/Subs/Alpha.en.srt"]);
+        assert!(
+            siblings("/m/Flat/Beta.mkv").is_empty(),
+            "a file named only by language cannot say which of two films it belongs to"
+        );
+        assert!(siblings("/m/Show/Season 1/Show.S01E01.mkv").is_empty());
+        assert!(siblings("/m/Show/Season 1/Show.S01E02.mkv").is_empty());
     }
 
     #[tokio::test]

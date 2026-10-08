@@ -1,3 +1,4 @@
+use domain::common::LanguageCode;
 use domain::error::TranscriptionError;
 use domain::job::{Job, TranslationTrigger};
 use domain::media::{
@@ -47,9 +48,10 @@ where
             return Ok(());
         }
 
+        let hint = payload.language_hint.clone().map(LanguageCode);
         let request = TranscriptionSpec {
             audio_path: payload.source_path.clone(),
-            source_language: None,
+            source_language: hint.clone(),
             audio_track_index: payload.audio_track_index,
         };
         let track = payload
@@ -62,13 +64,9 @@ where
             .map(str::trim)
             .filter(|code| !code.is_empty() && *code != "und")
             .unwrap_or("unknown");
-        tracing::info!(
-            "transcribing version [{}] from [{}] (audio track {}, container language {})",
-            payload.version_id.0,
-            payload.source_path,
-            track,
-            container_language
-        );
+        let spoken = payload.language_hint.as_deref().unwrap_or("detected");
+        #[rustfmt::skip]
+        tracing::info!("transcribing version [{}] from [{}] (audio track {track}, container language {container_language}, spoken language {spoken})", payload.version_id.0, payload.source_path);
         let subtitle = match self.provider.transcribe(&request).await {
             Ok(subtitle) => {
                 tracing::info!(
@@ -100,7 +98,7 @@ where
         let file = SubtitleFile {
             id: payload.produces(),
             version: payload.version_id.clone(),
-            language: None,
+            language: hint,
             format: subtitle.format,
             source: SubtitleSource::Generated,
             path,
@@ -260,6 +258,7 @@ mod tests {
             version_id: VersionId("v1".into()),
             source_path: "/m/v1.mkv".into(),
             source_language: None,
+            language_hint: None,
             audio_track_index: None,
             force,
         }
@@ -564,6 +563,7 @@ mod tests {
             version_id: VersionId("v1".into()),
             source_path: "/m/v1.mkv".into(),
             source_language: None,
+            language_hint: None,
             audio_track_index: Some(3),
             force: false,
         }
@@ -589,6 +589,7 @@ mod tests {
             version_id: VersionId("v1".into()),
             source_path: "/m/v1.mkv".into(),
             source_language: Some("en".into()),
+            language_hint: None,
             audio_track_index: None,
             force: false,
         }
@@ -599,6 +600,34 @@ mod tests {
         assert_eq!(*provider.seen_language.lock().unwrap(), Some(None));
         let detail = catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap();
         assert_eq!(detail.subtitle_files[0].language, None);
+    }
+
+    #[tokio::test]
+    async fn a_language_hint_reaches_whisper_and_labels_the_file() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(version());
+        let provider = CapturingProvider::default();
+        let handler = TranscriptionJobHandler::new(
+            provider.clone(),
+            catalog.clone(),
+            MockStore::default(),
+            MockTrigger::default(),
+        );
+        let raw = TranscriptionJobPayload {
+            version_id: VersionId("v1".into()),
+            source_path: "/m/v1.mkv".into(),
+            source_language: Some("en".into()),
+            language_hint: Some("ja".into()),
+            audio_track_index: None,
+            force: true,
+        }
+        .encode();
+
+        handler.handle(&job(raw)).await.unwrap();
+
+        assert_eq!(*provider.seen_language.lock().unwrap(), Some(Some("ja".into())));
+        let detail = catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap();
+        assert_eq!(detail.subtitle_files[0].language, Some(LanguageCode("ja".into())));
     }
 
     #[tokio::test]
@@ -615,6 +644,7 @@ mod tests {
             version_id: VersionId("v1".into()),
             source_path: "/m/v1.mkv".into(),
             source_language: Some("und".into()),
+            language_hint: None,
             audio_track_index: None,
             force: false,
         }

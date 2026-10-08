@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod auth;
 pub mod catalog;
+pub mod diagnostics;
 pub mod discovery;
 pub mod download;
 pub mod image;

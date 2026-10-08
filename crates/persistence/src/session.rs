@@ -50,10 +50,21 @@ fn record_gauges(sessions: &HashMap<SessionId, PlaybackSession>) {
     metrics::gauge!("active_devices").set(devices.len() as f64);
 }
 
+fn mode_label(mode: DeliveryMode) -> &'static str {
+    match mode {
+        DeliveryMode::Direct => "direct",
+        DeliveryMode::Remux => "remux",
+        DeliveryMode::Transcode => "transcode",
+    }
+}
+
 impl SessionRegistry for InMemorySessionRegistry {
     async fn insert(&self, session: PlaybackSession) -> Result<(), RepositoryError> {
         let mut sessions = self.sessions.write().unwrap();
-        sessions.insert(session.id.clone(), session);
+        let mode = session.mode;
+        if sessions.insert(session.id.clone(), session).is_none() {
+            metrics::counter!("sessions_started_total", "mode" => mode_label(mode)).increment(1);
+        }
         record_gauges(&sessions);
         Ok(())
     }
@@ -224,6 +235,21 @@ mod tests {
         assert!(rendered.contains("sessions_active{mode=\"transcode\"} 1"));
         assert!(rendered.contains("active_users 2"));
         assert!(rendered.contains("active_devices 1"));
+    }
+
+    #[test]
+    fn a_new_session_counts_once_by_its_mode() {
+        let rendered = recorded(|| async {
+            let registry = InMemorySessionRegistry::new();
+            registry.insert(session_mode("s1", "u1", DeliveryMode::Direct, None)).await.unwrap();
+            registry.insert(session_mode("s2", "u1", DeliveryMode::Remux, None)).await.unwrap();
+            registry.insert(session_mode("s3", "u2", DeliveryMode::Transcode, None)).await.unwrap();
+            registry.insert(session_mode("s4", "u2", DeliveryMode::Transcode, None)).await.unwrap();
+            registry.insert(session_mode("s1", "u1", DeliveryMode::Transcode, None)).await.unwrap();
+        });
+        assert!(rendered.contains("sessions_started_total{mode=\"direct\"} 1"));
+        assert!(rendered.contains("sessions_started_total{mode=\"remux\"} 1"));
+        assert!(rendered.contains("sessions_started_total{mode=\"transcode\"} 2"));
     }
 
     #[test]

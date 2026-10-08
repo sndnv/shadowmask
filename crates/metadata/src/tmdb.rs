@@ -36,7 +36,7 @@ impl TmdbClient {
         image_base_url: impl Into<String>,
     ) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: crate::http::client(),
             base_url: base_url.into(),
             image_base_url: image_base_url.into(),
             api_key: api_key.into(),

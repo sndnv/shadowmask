@@ -7,6 +7,7 @@ use std::time::Duration;
 use axum::Router;
 use axum_server::Handle;
 use axum_server::tls_rustls::RustlsConfig;
+use domain::diagnostics::ServerDiagnostics;
 use domain::job::{JobKind, JobPriority};
 use domain::repository::JobRepository;
 use fetch::{YtDlpFetcher, yt_dlp_version};
@@ -22,6 +23,7 @@ use jobs::{
 };
 use media::artwork::FsArtworkStore;
 use media::cache::CacheEvictor;
+use media::diagnostics::{CachedDiagnostics, FfmpegCapabilityProbe, SegmentBenchmark};
 use media::download_token::HmacDownloadTokens;
 use media::probe::FfprobeMediaProbe;
 use media::scan::WalkdirSourceWalker;
@@ -443,6 +445,12 @@ impl Runtime {
         let Built { state, stream, session, artwork_store, images, trickplay } =
             build_state(&repos, &wire, &cancel)?;
         let job_logs = FsJobLogStore::new(&config.job_log_dir);
+        let diagnostics = CachedDiagnostics::new(FfmpegCapabilityProbe::new(
+            config.hardware_acceleration.into(),
+            config.vaapi_device.to_string_lossy(),
+            vaapi_device.clone(),
+        ));
+        diagnostics.recheck();
         let capabilities =
             crate::capabilities::server_capabilities(crate::capabilities::CapabilityInputs {
                 transcription: transcription_available,
@@ -474,6 +482,18 @@ impl Runtime {
             ),
         ))
         .merge(::api::job_log_router(state.clone(), ::api::JobLogState::new(job_logs.clone())))
+        .merge(::api::diagnostics_router(
+            state.clone(),
+            ::api::DiagnosticsState::new(
+                diagnostics,
+                SegmentBenchmark::new(
+                    config.transcode_cache.join("benchmark"),
+                    VideoEncoder::from_device(vaapi_device.clone()),
+                    config.max_transcode_height,
+                ),
+                repos.catalog.clone(),
+            ),
+        ))
         .merge(::api::download_router(
             state.clone(),
             ::api::DownloadState::new(

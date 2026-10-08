@@ -29,7 +29,7 @@ impl OpenSubtitlesClient {
 
     pub fn with_base_url(api_key: impl Into<String>, base_url: impl Into<String>) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: crate::http::client(),
             base_url: base_url.into(),
             api_key: api_key.into(),
             limiter: Arc::new(RateLimiter::new(Duration::ZERO)),
@@ -56,8 +56,41 @@ fn format_from_name(name: Option<&str>) -> SubtitleFormat {
         .unwrap_or(SubtitleFormat::Srt)
 }
 
+const PROVIDER_CODES: [(&str, &str); 5] = [
+    ("pt-BR", "pt-br"),
+    ("pt-PT", "pt-pt"),
+    ("zh-CN", "zh-cn"),
+    ("zh-TW", "zh-tw"),
+    ("az", "az-az"),
+];
+
+fn provider_codes(language: &LanguageCode) -> Vec<String> {
+    if let Some((_, provider)) =
+        PROVIDER_CODES.iter().find(|(ours, _)| ours.eq_ignore_ascii_case(&language.0))
+    {
+        return vec![(*provider).to_owned()];
+    }
+    let base = LanguageCode(language.base().to_ascii_lowercase());
+    let regions: Vec<String> = PROVIDER_CODES
+        .iter()
+        .filter(|(ours, _)| base.matches(&LanguageCode((*ours).to_owned())))
+        .map(|(_, provider)| (*provider).to_owned())
+        .collect();
+    if regions.is_empty() { vec![base.0] } else { regions }
+}
+
+fn our_code(provider: String) -> LanguageCode {
+    PROVIDER_CODES
+        .iter()
+        .find(|(_, code)| code.eq_ignore_ascii_case(&provider))
+        .map_or(LanguageCode(provider), |(ours, _)| LanguageCode((*ours).to_owned()))
+}
+
 fn join_languages(languages: &[LanguageCode]) -> String {
-    languages.iter().map(|language| language.0.as_str()).collect::<Vec<_>>().join(",")
+    let mut codes: Vec<String> = languages.iter().flat_map(provider_codes).collect();
+    codes.sort();
+    codes.dedup();
+    codes.join(",")
 }
 
 async fn json<T: DeserializeOwned>(
@@ -87,13 +120,14 @@ impl SubtitleProvider for OpenSubtitlesClient {
         if let Some(episode) = query.episode {
             params.push(("episode_number", episode.to_string()));
         }
+        params.sort_by_key(|(name, _)| *name);
         let response: RawSearchResponse =
             json(&self.limiter, self.get(&url).query(&params)).await?;
         let candidates: Vec<SubtitleCandidate> = response
             .data
             .into_iter()
             .flat_map(|sub| {
-                let language = sub.attributes.language.map(LanguageCode);
+                let language = sub.attributes.language.map(our_code);
                 let release = sub.attributes.release;
                 let download_count = sub.attributes.download_count;
                 let rating = sub.attributes.ratings.filter(|value| *value > 0.0);
@@ -221,6 +255,66 @@ mod tests {
         assert_eq!(candidates[0].rating, Some(8.5));
         assert_eq!(candidates[1].file_id, "43");
         assert_eq!(candidates[1].format, SubtitleFormat::Srt);
+    }
+
+    async fn sent_url(languages: &[&str]) -> reqwest::Url {
+        let server =
+            serve_get(ResponseTemplate::new(200).set_body_json(json!({ "data": [] }))).await;
+        let client = OpenSubtitlesClient::with_base_url("k", server.uri());
+        let search = SubtitleQuery {
+            languages: languages.iter().map(|code| LanguageCode((*code).to_owned())).collect(),
+            ..query()
+        };
+        let _ = client.search(&search).await;
+        server.received_requests().await.unwrap().remove(0).url
+    }
+
+    async fn sent_languages(languages: &[&str]) -> String {
+        let url = sent_url(languages).await;
+        url.query_pairs().find(|(name, _)| name == "languages").unwrap().1.into_owned()
+    }
+
+    #[tokio::test]
+    async fn the_search_parameters_are_sorted() {
+        assert_eq!(
+            sent_url(&["en"]).await.query(),
+            Some(
+                "episode_number=2&imdb_id=tt0133093&languages=en&query=the+matrix&season_number=1"
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn a_bare_language_asks_for_every_region_the_provider_lists() {
+        assert_eq!(sent_languages(&["pt"]).await, "pt-br,pt-pt");
+        assert_eq!(sent_languages(&["zh"]).await, "zh-cn,zh-tw");
+    }
+
+    #[tokio::test]
+    async fn a_language_is_sent_in_the_provider_form() {
+        assert_eq!(sent_languages(&["zh-TW", "AZ", "en-US", "fr"]).await, "az-az,en,fr,zh-tw");
+        assert_eq!(sent_languages(&["pt-br", "pt"]).await, "pt-br,pt-pt");
+    }
+
+    #[tokio::test]
+    async fn a_returned_language_comes_back_in_our_form() {
+        let data = ["pt-BR", "zh-TW", "az-az", "ze", "en"].map(
+            |language| json!({ "attributes": {"language": language, "files": [{"file_id": 1}]} }),
+        );
+        let server =
+            serve_get(ResponseTemplate::new(200).set_body_json(json!({ "data": data }))).await;
+        let client = OpenSubtitlesClient::with_base_url("k", server.uri());
+        let languages: Vec<Option<LanguageCode>> = client
+            .search(&query())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|candidate| candidate.language)
+            .collect();
+        assert_eq!(
+            languages,
+            ["pt-BR", "zh-TW", "az", "ze", "en"].map(|code| Some(LanguageCode(code.to_owned())))
+        );
     }
 
     #[tokio::test]

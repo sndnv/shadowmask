@@ -5,6 +5,7 @@ use serde::Deserialize;
 use tracing::debug;
 
 use domain::catalog::VersionId;
+use domain::common::LanguageCode;
 use domain::job::JobId;
 use domain::media::SubtitleFileId;
 use domain::service::{JobService, LibraryService};
@@ -82,7 +83,10 @@ pub async fn transcribe<S: AppServices>(
 ) -> ApiResult<Started> {
     let actor = &principal.user.0;
     let version = VersionId(id);
-    let source_language = params.source_language.filter(|language| !language.trim().is_empty());
+    let source_language = params
+        .source_language
+        .filter(|language| !language.trim().is_empty())
+        .map(|language| LanguageCode::canonical(language.trim()).0);
     let job = state
         .library()
         .trigger_transcription(&principal, &version, params.audio_track_index, source_language)
@@ -110,7 +114,7 @@ pub async fn translate<S: AppServices>(
             &principal,
             &version,
             &SubtitleFileId(subtitle),
-            target_language.to_owned(),
+            LanguageCode::canonical(target_language).0,
         )
         .await
         .map_err(log_fail(actor, "trigger translation"))?;

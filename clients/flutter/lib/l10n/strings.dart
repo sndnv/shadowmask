@@ -588,6 +588,8 @@ abstract final class Strings {
   static const String reasonUsernameTaken = 'That username is already taken.';
   static const String reasonUnknownLinkCode =
       'That code is not valid, or it has already been used.';
+  static const String reasonBenchmarkRunning =
+      'A benchmark is already running.';
 
   static const String requiredNewPassword = 'A new password is required.';
   static const String passwordsDoNotMatch = 'The passwords do not match.';
@@ -700,6 +702,156 @@ abstract final class Strings {
   static const String adminUsersAbout = 'Manage users and access.';
   static const String adminJobsAbout = 'Background job queue.';
   static const String adminActivityAbout = 'Recent server activity.';
+  static const String adminServer = 'Server';
+  static const String adminServerAbout = 'Transcoding diagnostics.';
+
+  static const String capabilitiesHeading = 'Capabilities';
+  static const String recheck = 'Re-check';
+  static const String errorRecheck = 'Could not start a check.';
+  static const String noValue = '—';
+  static const String couldNotLoadCapabilities =
+      'Could not load the capabilities.';
+  static const String factChecked = 'Checked';
+  static const String capabilitiesNotYet = 'Not yet';
+  static const String capabilitiesChecking = 'Checking…';
+  static const String hostHeading = 'Host';
+  static const String ffmpegHeading = 'FFmpeg';
+  static const String hardwareHeading = 'Hardware encoding';
+  static const String encodersHeading = 'Encoders';
+  static const String factCpu = 'CPU';
+  static const String factCores = 'Cores';
+  static const String factThreads = 'Threads';
+  static const String factVersion = 'Version';
+  static const String factError = 'Error';
+  static const String factAccelerations = 'Accelerations';
+  static const String factMode = 'Mode';
+  static const String factDevice = 'Device';
+  static const String factDevicePresent = 'Device present';
+  static const String factInUse = 'In use';
+  static const String factTestEncode = 'Test encode';
+  static const String factFfmpegError = 'ffmpeg error';
+  static const String factLowPowerError = 'Low-power error';
+  static const String componentPresent = 'Present';
+  static const String componentMissing = 'Missing';
+  static const String noneFound = 'None';
+  static const String unknownValue = 'Unknown';
+  static String testWorks(String elapsed, {required bool lowPower}) =>
+      lowPower ? 'Works in low-power mode, $elapsed' : 'Works, $elapsed';
+  static const String testFailed = 'Failed';
+  static String testSkipped(String? reason) =>
+      reason == null ? 'Skipped' : 'Skipped, $reason';
+
+  static const String benchmarkHeading = 'Benchmark';
+  static const String chooseVersionHeading = 'Choose a version';
+  static const String requiredVersionSearch =
+      'Enter a path, title, library or quality to search for.';
+  static const String benchmarkAction = 'Benchmark';
+  static const String toastBenchmarkStarted = 'Benchmark started.';
+  static const String errorStartBenchmark = 'Could not start the benchmark.';
+  static const String couldNotLoadBenchmark = 'Could not load the benchmark.';
+  static const String benchmarkIdle = 'No benchmark has run yet.';
+  static String benchmarkRunning(int done, int total) =>
+      'Running, $done of $total runs';
+  static const String benchmarkDone = 'Done';
+  static const String factStatus = 'Status';
+  static const String factProgress = 'Progress';
+  static const String factSource = 'Source';
+  static const String factKeyframeRead = 'Keyframe read';
+  static const String emptyBenchmarkRuns = 'No runs yet.';
+  static const String columnSegment = 'Segment';
+  static const String columnEncoder = 'Encoder';
+  static const String columnOutcome = 'Outcome';
+  static const String columnTime = 'Time';
+  static const String columnRealtime = 'Realtime';
+  static const String columnDetail = 'Detail';
+  static const String outcomeOk = 'OK';
+  static const String outcomeFailed = 'Failed';
+  static const String outcomeTooSlow = 'Too slow';
+  static String segmentAt(int segment, String at) => '#$segment at $at';
+
+  static const String totalsHeading = 'Metrics';
+  static const String couldNotLoadTotals =
+      'Could not read /metrics. A reverse proxy may be blocking it.';
+  static const String totalsEmpty =
+      'Nothing has streamed since the server started.';
+  static const String columnSegments = 'Segments';
+  static const String columnFailed = 'Failed';
+  static const String columnAverage = 'Average';
+  static const String columnDelivery = 'Delivery';
+  static const String columnSessions = 'Sessions';
+  static const String columnStreamStarts = 'Stream starts';
+  static const String columnFirstSegment = 'First segment';
+  static const String columnFallbacks = 'Software fallbacks';
+  static const String columnAbandoned = 'Abandoned segments';
+  static const String columnKeyframeReads = 'Keyframe reads';
+  static const String columnKeyframeAverage = 'Keyframe average';
+  static const String columnKeyframeFailures = 'Keyframe failures';
+  static const String columnDirectBytes = 'Direct bytes';
+  static const String columnSegmentBytes = 'Segment bytes';
+
+  static const String helpMode =
+      'How the server picks its video encoder. auto: the GPU (VAAPI) when the '
+      'device exists, otherwise software. vaapi: the same, with a warning in '
+      'the log when the device is missing. off: always software.';
+  static const String helpInUse = 'Whether transcodes encode on the GPU.';
+  static const String helpTestEncode =
+      'A one-second test video encoded on the GPU at each check, to prove '
+      'hardware encoding works. It is retried in low-power mode if the normal '
+      'one fails, and skipped when the GPU is not in use.';
+  static const String helpAccelerations =
+      'Hardware methods this ffmpeg build has. Shadowmask uses vaapi.';
+  static const String helpEncoders =
+      'The video encoders playback uses: libx264 on the CPU and h264_vaapi on '
+      'the GPU. A cross means this ffmpeg lacks it.';
+  static const String helpFilters =
+      'The filters playback uses to scale, tone-map HDR to SDR and burn in '
+      'subtitles. A cross means this ffmpeg lacks it.';
+  static const String helpKeyframeRead =
+      "How long reading the file's keyframes took. Playback does this before "
+      'every transcode to plan its segments.';
+  static const String helpSegment =
+      'Which piece of the film was transcoded, and where it starts. Playback '
+      'transcodes in pieces of about 4 seconds.';
+  static const String helpEncoder =
+      'vaapi encodes on the GPU, software on the CPU. remux copies the video '
+      'without re-encoding it.';
+  static const String helpOutcome =
+      'OK: the segment was produced. Failed: ffmpeg stopped with an error, '
+      'shown in Detail. Too slow: it took over 60 seconds and was stopped.';
+  static const String helpTime = 'How long transcoding the segment took.';
+  static const String helpRealtime =
+      'Seconds of video made per second spent. Below 1× the server cannot '
+      'keep up with playback.';
+  static const String helpSegments =
+      'Segments produced since the server started.';
+  static const String helpSegmentsFailed =
+      'Segments that could not be produced.';
+  static const String helpAverage = 'Average time to produce one segment.';
+  static const String helpDelivery =
+      'How a play is served. direct: the file as it is. remux: repackaged '
+      'without re-encoding. transcode: re-encoded.';
+  static const String helpSessions =
+      'Plays started in this mode since the server started.';
+  static const String helpStreamStarts =
+      'Streams started for remux and transcode. Seeking or changing tracks '
+      'starts a new one.';
+  static const String helpStreamsFailed = 'Streams that could not start.';
+  static const String helpFirstSegment =
+      'Average wait from a stream starting to its first segment being ready.';
+  static const String helpFallbacks =
+      'GPU segments that failed and were redone on the CPU.';
+  static const String helpAbandoned =
+      'Segments the player stopped waiting for before they were ready.';
+  static const String helpKeyframeReads =
+      "Reads of a file's keyframes before a stream starts.";
+  static const String helpKeyframeAverage = 'Average time of a keyframe read.';
+  static const String helpKeyframeFailures =
+      'Keyframe reads that failed. Playback then treats the whole file as one '
+      'segment.';
+  static const String helpDirectBytes =
+      'Bytes sent for direct play since the server started.';
+  static const String helpSegmentBytes =
+      'Bytes of remux and transcode segments sent since the server started.';
 
   static const String relink = 'Relink';
   static const String rename = 'Rename';

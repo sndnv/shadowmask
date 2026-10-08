@@ -247,6 +247,7 @@ function BuildStringTable() as object
         "status.watchedAt": "Watched {when}",
         "status.timesWatched": "{count}x",
         "status.notSet": "Not set",
+        "language.unknown": "Unknown",
 
         "home.continueWatching": "Continue watching",
         "home.upNext": "Up next",

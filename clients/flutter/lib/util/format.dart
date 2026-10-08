@@ -50,6 +50,10 @@ String elapsedText(int ms) {
   return minutes > 0 ? '${minutes}m ${pad2(seconds)}s' : '${seconds}s';
 }
 
+String secondsText(double ms) => '${(ms / 1000).toStringAsFixed(2)} s';
+
+String realtimeText(double factor) => '${factor.toStringAsFixed(2)}×';
+
 String clock(int ms) {
   final int total = (ms < 0 ? 0 : ms) ~/ 1000;
   final int hours = total ~/ 3600;

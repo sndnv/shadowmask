@@ -14,6 +14,7 @@ import 'package:shadowmask/pages/account/profile_edit_dialog.dart';
 import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
+import 'package:shadowmask/util/languages.dart';
 
 class ProfileBlock extends StatefulWidget {
   const ProfileBlock({
@@ -103,11 +104,15 @@ class _ProfileBlockState extends State<ProfileBlock> {
       (Strings.fieldRole, p.role.name),
       (
         Strings.fieldPreferredAudio,
-        p.preferredAudio.isEmpty ? null : p.preferredAudio.join(', '),
+        p.preferredAudio.isEmpty
+            ? null
+            : p.preferredAudio.map(languageLabel).join(', '),
       ),
       (
         Strings.fieldPreferredSubtitle,
-        p.preferredSubtitle.isEmpty ? null : p.preferredSubtitle.join(', '),
+        p.preferredSubtitle.isEmpty
+            ? null
+            : p.preferredSubtitle.map(languageLabel).join(', '),
       ),
       (Strings.fieldMaximumRating, p.maxContentRating?.label),
       (Strings.fieldConcurrentStreams, p.concurrentStreamLimit?.toString()),

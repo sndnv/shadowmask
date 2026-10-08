@@ -16,6 +16,7 @@ use domain::session::{
 };
 
 use crate::probe::FfprobeMediaProbe;
+use crate::stream_metrics;
 use crate::subtitle_extraction_store::{ExtractionEntry, FsSubtitleExtractionStore};
 use crate::transcode::{
     DEFAULT_READ_RATE, INIT_SEGMENT, TARGET_MS, TokioProcessSpawner, VideoEncoder,
@@ -47,6 +48,8 @@ struct Generation {
 struct Jit {
     plan: SegmentPlan,
     spec: TranscodeSpec,
+    opened: Instant,
+    first_ready: bool,
 }
 
 #[derive(Default)]
@@ -274,6 +277,26 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
             .is_some_and(|entry| entry.generations.contains_key(&generation))
     }
 
+    fn record_first(&self, session: &SessionId, generation: StreamGeneration) {
+        let first = {
+            let mut sessions = self.inner.sessions.write().unwrap();
+            let jit = sessions
+                .get_mut(session)
+                .and_then(|entry| entry.generations.get_mut(&generation))
+                .and_then(|entry| entry.jit.as_mut());
+            match jit {
+                Some(jit) if !jit.first_ready => {
+                    jit.first_ready = true;
+                    Some((jit.spec.copy, jit.opened.elapsed()))
+                }
+                _ => None,
+            }
+        };
+        if let Some((copy, elapsed)) = first {
+            stream_metrics::first_segment(copy, elapsed);
+        }
+    }
+
     fn generation_container(
         &self,
         session: &SessionId,
@@ -382,10 +405,14 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
                     .output_dir
                     .join(VARIANT)
             };
-            return self.await_produced(session, generation, &base.join(file)).await;
+            self.await_produced(session, generation, &base.join(file)).await?;
+            if file != INIT_SEGMENT {
+                self.record_first(session, generation);
+            }
+            return Ok(());
         }
         let index = parse_segment_index(file, container).ok_or(StreamError::Invalid)?;
-        let (out_path, part_path, attempts) = {
+        let (out_path, part_path, attempts, media_ms) = {
             let sessions = self.inner.sessions.read().unwrap();
             let entry = sessions
                 .get(session)
@@ -397,17 +424,16 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
             let out_path = variant_dir.join(segment_file_name(index, container));
             let part_path = variant_dir.join(segment_part_name(index, container));
             let part = part_path.to_string_lossy().into_owned();
+            let label = stream_metrics::encoder_label(jit.spec.copy, &self.inner.encoder);
             let mut attempts =
-                vec![build_segment_args(&jit.spec, segment, &part, &self.inner.encoder)];
-            if self.inner.encoder.is_hardware() {
-                attempts.push(build_segment_args(
-                    &jit.spec,
-                    segment,
-                    &part,
-                    &VideoEncoder::Software,
+                vec![(label, build_segment_args(&jit.spec, segment, &part, &self.inner.encoder))];
+            if self.inner.encoder.is_hardware() && !jit.spec.copy {
+                attempts.push((
+                    stream_metrics::encoder_label(jit.spec.copy, &VideoEncoder::Software),
+                    build_segment_args(&jit.spec, segment, &part, &VideoEncoder::Software),
                 ));
             }
-            (out_path, part_path, attempts)
+            (out_path, part_path, attempts, segment.duration_ms)
         };
         if out_path.is_file() {
             self.touch_now(session);
@@ -422,9 +448,14 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
         let mut attempt = SegmentAttempt::started(session, generation, index);
         let mut produced = false;
         let mut cancelled = false;
-        for args in &attempts {
+        for (position, (label, args)) in attempts.iter().enumerate() {
+            if position > 0 {
+                stream_metrics::fallback();
+            }
+            let started = Instant::now();
             match self.inner.spawner.run_captured(&self.inner.binary, args).await {
                 Ok(output) if output.success && has_content(&part_path).await => {
+                    stream_metrics::segment_produced(label, started.elapsed(), media_ms);
                     produced = true;
                     break;
                 }
@@ -438,6 +469,7 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
                     break;
                 }
                 Ok(output) => {
+                    stream_metrics::segment_failed(label);
                     let detail = output.failure_detail(10);
                     tracing::warn!(
                         "segment [{index}] of stream [{}/{}] was not produced: {detail}",
@@ -446,6 +478,7 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
                     );
                 }
                 Err(err) => {
+                    stream_metrics::segment_failed(label);
                     let binary = self.inner.binary.clone();
                     tracing::warn!(
                         "segment [{index}] of stream [{}/{}] could not run [{binary}]: {err}",
@@ -464,6 +497,7 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S,
             return Err(StreamError::Invalid);
         }
         self.touch_now(session);
+        self.record_first(session, generation);
         Ok(())
     }
 
@@ -700,10 +734,9 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> StreamSource
     }
 }
 
-impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> TranscodeManager
-    for HlsStreamSource<S, P>
-{
-    async fn start(&self, spec: TranscodeSpec) -> Result<TranscodeStarted, TranscodeError> {
+impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> HlsStreamSource<S, P> {
+    async fn start_stream(&self, spec: TranscodeSpec) -> Result<TranscodeStarted, TranscodeError> {
+        let opened = Instant::now();
         let session = spec.session.clone();
         let generation = spec.generation;
         let output_dir = self.session_dir(&session).join(generation.dir_name());
@@ -713,7 +746,19 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> TranscodeManager
             .await
             .expect("create_dir_all task panicked")
             .map_err(|e| TranscodeError::Spawn(e.to_string()))?;
-        let keyframes = self.inner.prober.keyframes(&spec.input_path).await.unwrap_or_default();
+        let reading = Instant::now();
+        let keyframes = match self.inner.prober.keyframes(&spec.input_path).await {
+            Ok(keyframes) => {
+                stream_metrics::keyframes_read(reading.elapsed(), false);
+                keyframes
+            }
+            Err(err) => {
+                stream_metrics::keyframes_read(reading.elapsed(), true);
+                #[rustfmt::skip]
+                tracing::warn!("stream [{}/{}] could not read the keyframes of [{}], so the whole file is one segment: {err}", session.0, generation.0, spec.input_path);
+                Vec::new()
+            }
+        };
         let container = spec.container;
         let full = match container {
             SegmentContainer::MpegTs => plan_segments(&keyframes, spec.duration_ms, TARGET_MS),
@@ -764,7 +809,7 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> TranscodeManager
                         output_dir: output_dir.clone(),
                         ..registration
                     },
-                    jit: Some(Jit { plan, spec }),
+                    jit: Some(Jit { plan, spec, opened, first_ready: false }),
                     producer,
                 },
             );
@@ -787,6 +832,17 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> TranscodeManager
             origin_ms,
             sequential: container == SegmentContainer::Fmp4,
         })
+    }
+}
+
+impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> TranscodeManager
+    for HlsStreamSource<S, P>
+{
+    async fn start(&self, spec: TranscodeSpec) -> Result<TranscodeStarted, TranscodeError> {
+        let copy = spec.copy;
+        let started = self.start_stream(spec).await;
+        stream_metrics::stream_started(copy, started.is_ok());
+        started
     }
 
     async fn touch(&self, session: &SessionId) -> Result<(), TranscodeError> {
@@ -845,6 +901,7 @@ impl Drop for SegmentAttempt {
         if self.settled {
             return;
         }
+        stream_metrics::segment_abandoned();
         let seconds = self.started.elapsed().as_secs_f64();
         tracing::warn!(
             "segment [{}] of stream [{}] was abandoned after [{seconds:.1}s]: the client stopped waiting before it could be produced",
@@ -2497,5 +2554,229 @@ mod tests {
         assert!(segment_matches("seg_00000.m4s", SegmentContainer::Fmp4));
         assert!(segment_matches(INIT_SEGMENT, SegmentContainer::Fmp4));
         assert!(!segment_matches("seg_00000.ts", SegmentContainer::Fmp4));
+    }
+
+    fn recorded<F, Fut>(work: F) -> String
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            let runtime =
+                tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            runtime.block_on(work());
+        });
+        handle.render()
+    }
+
+    async fn serve<S: ProcessSpawner + 'static>(
+        src: &HlsStreamSource<S, MockProbe>,
+        spec: TranscodeSpec,
+        files: &[&str],
+    ) {
+        let started = src.start(spec).await.expect("start");
+        src.register(
+            SessionId("s1".to_owned()),
+            GEN,
+            transcode_registration(PathBuf::from(&started.output_dir)),
+        );
+        for file in files {
+            let _ = src.media_path(&claims("s1"), VARIANT, file).await;
+        }
+    }
+
+    fn two_segments() -> MockProbe {
+        MockProbe { keyframes: vec![4_000, 8_000], fail: false }
+    }
+
+    #[test]
+    fn a_produced_segment_is_counted_with_its_encoder_and_media_time() {
+        let rendered = recorded(|| async {
+            let (_dir, src) = engine(MockSpawner::default(), two_segments());
+            serve(&src, spec("s1", 12_000), &["seg_00000.ts", "seg_00001.ts"]).await;
+        });
+
+        for line in [
+            "stream_starts_total{delivery=\"transcode\",outcome=\"ok\"} 1",
+            "stream_keyframe_probe_duration_milliseconds_count 1",
+            "transcode_segments_total{encoder=\"software\",outcome=\"ok\"} 2",
+            "transcode_media_milliseconds_total{encoder=\"software\"} 8000",
+            "transcode_segment_duration_milliseconds_count{encoder=\"software\"} 2",
+            "stream_first_segment_milliseconds_count{delivery=\"transcode\"} 1",
+        ] {
+            assert!(rendered.contains(line), "missing [{line}] in:\n{rendered}");
+        }
+        assert!(!rendered.contains("transcode_fallbacks_total"));
+    }
+
+    #[test]
+    fn a_hardware_failure_redone_in_software_is_a_fallback() {
+        let rendered = recorded(|| async {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let src = HlsStreamSource::with_parts(
+                dir.path(),
+                extraction(&dir),
+                FailFirstSpawner::default(),
+                two_segments(),
+            )
+            .with_encoder(VideoEncoder::Vaapi { device: "/dev/dri/renderD128".to_owned() });
+            serve(&src, spec("s1", 12_000), &["seg_00000.ts"]).await;
+        });
+
+        for line in [
+            "transcode_segments_total{encoder=\"vaapi\",outcome=\"failed\"} 1",
+            "transcode_segments_total{encoder=\"software\",outcome=\"ok\"} 1",
+            "transcode_fallbacks_total 1",
+        ] {
+            assert!(rendered.contains(line), "missing [{line}] in:\n{rendered}");
+        }
+    }
+
+    #[test]
+    fn a_failed_copy_on_a_hardware_host_is_not_redone_in_software() {
+        let spawner = FailFirstSpawner::default();
+        let ran = spawner.clone();
+        let rendered = recorded(|| async {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let src =
+                HlsStreamSource::with_parts(dir.path(), extraction(&dir), spawner, two_segments())
+                    .with_encoder(VideoEncoder::Vaapi { device: "/dev/dri/renderD128".to_owned() });
+            let copy = TranscodeSpec { copy: true, ..spec("s1", 12_000) };
+            serve(&src, copy, &["seg_00000.ts"]).await;
+        });
+
+        assert_eq!(ran.calls.load(Ordering::SeqCst), 1);
+        assert!(
+            rendered.contains("transcode_segments_total{encoder=\"remux\",outcome=\"failed\"} 1"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("transcode_fallbacks_total"), "{rendered}");
+    }
+
+    #[test]
+    fn a_copied_segment_is_counted_as_remux() {
+        let rendered = recorded(|| async {
+            let (_dir, src) = engine(MockSpawner::default(), two_segments());
+            let copy = TranscodeSpec { copy: true, ..spec("s1", 12_000) };
+            serve(&src, copy, &["seg_00000.ts"]).await;
+        });
+
+        for line in [
+            "stream_starts_total{delivery=\"remux\",outcome=\"ok\"} 1",
+            "transcode_segments_total{encoder=\"remux\",outcome=\"ok\"} 1",
+            "stream_first_segment_milliseconds_count{delivery=\"remux\"} 1",
+        ] {
+            assert!(rendered.contains(line), "missing [{line}] in:\n{rendered}");
+        }
+    }
+
+    #[test]
+    fn a_segment_that_cannot_run_or_fails_is_counted_as_failed() {
+        let rendered = recorded(|| async {
+            let (_dir, unspawnable) =
+                engine(MockSpawner { unspawnable: true, ..Default::default() }, two_segments());
+            serve(&unspawnable, spec("s1", 12_000), &["seg_00000.ts"]).await;
+            let (_dir, failing) =
+                engine(MockSpawner { fail: true, ..Default::default() }, two_segments());
+            serve(&failing, spec("s1", 12_000), &["seg_00000.ts"]).await;
+        });
+
+        assert!(
+            rendered
+                .contains("transcode_segments_total{encoder=\"software\",outcome=\"failed\"} 2"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("stream_first_segment_milliseconds"), "{rendered}");
+    }
+
+    #[test]
+    fn a_segment_cancelled_with_its_stream_counts_nothing() {
+        let rendered = recorded(|| async {
+            let spawner = TornDownSpawner::default();
+            let dir = tempfile::tempdir().expect("tempdir");
+            let src = HlsStreamSource::with_parts(
+                dir.path(),
+                extraction(&dir),
+                spawner.clone(),
+                two_segments(),
+            );
+            let teardown = src.clone();
+            *spawner.on_run.lock().unwrap() =
+                Some(Box::new(move || teardown.remove(&SessionId("s1".to_owned()))));
+            serve(&src, spec("s1", 12_000), &["seg_00000.ts"]).await;
+        });
+
+        assert!(!rendered.contains("transcode_segments_total"), "{rendered}");
+    }
+
+    #[test]
+    fn an_abandoned_segment_is_counted() {
+        let rendered = recorded(|| async {
+            drop(SegmentAttempt::started(&SessionId("s1".to_owned()), GEN, 3));
+            let mut settled = SegmentAttempt::started(&SessionId("s1".to_owned()), GEN, 4);
+            settled.settled();
+        });
+
+        assert!(rendered.contains("transcode_segments_abandoned_total 1"), "{rendered}");
+    }
+
+    #[test]
+    fn a_failed_keyframe_read_is_counted_and_the_stream_still_starts() {
+        let rendered = recorded(|| async {
+            let (_dir, src) =
+                engine(MockSpawner::default(), MockProbe { keyframes: Vec::new(), fail: true });
+            serve(&src, spec("s1", 12_000), &[]).await;
+        });
+
+        for line in [
+            "stream_keyframe_probe_failures_total 1",
+            "stream_starts_total{delivery=\"transcode\",outcome=\"ok\"} 1",
+        ] {
+            assert!(rendered.contains(line), "missing [{line}] in:\n{rendered}");
+        }
+    }
+
+    #[test]
+    fn a_start_that_fails_is_counted() {
+        let rendered = recorded(|| async {
+            let (dir, src) = engine(MockSpawner::default(), two_segments());
+            std::fs::write(dir.path().join("s1"), b"in the way").unwrap();
+            assert!(src.start(spec("s1", 12_000)).await.is_err());
+        });
+
+        assert!(
+            rendered.contains("stream_starts_total{delivery=\"transcode\",outcome=\"failed\"} 1"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn the_producer_counts_its_first_media_segment_once_and_not_the_init() {
+        let init_only = recorded(|| async {
+            let (_dir, src) = fmp4_engine(
+                ProducerSpawner { segments: 2, ..ProducerSpawner::default() },
+                MockProbe { keyframes: vec![0, 4_000, 8_000], fail: false },
+            );
+            src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+            src.media_path(&claims("s1"), VARIANT, INIT_SEGMENT).await.expect("init");
+        });
+        let segments = recorded(|| async {
+            let (_dir, src) = fmp4_engine(
+                ProducerSpawner { segments: 2, ..ProducerSpawner::default() },
+                MockProbe { keyframes: vec![0, 4_000, 8_000], fail: false },
+            );
+            src.start(fmp4_spec("s1", 12_000)).await.expect("start");
+            for file in [INIT_SEGMENT, "seg_00000.m4s", "seg_00001.m4s"] {
+                src.media_path(&claims("s1"), VARIANT, file).await.expect("served");
+            }
+        });
+
+        assert!(!init_only.contains("stream_first_segment_milliseconds"), "{init_only}");
+        assert!(
+            segments.contains("stream_first_segment_milliseconds_count{delivery=\"remux\"} 1"),
+            "{segments}"
+        );
     }
 }

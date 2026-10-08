@@ -9,19 +9,22 @@ repository.workspace = true
 
 [dependencies]
 domain.workspace = true
-tokio = { workspace = true, features = ["process", "sync", "rt", "fs", "io-util"] }
+tokio = { workspace = true, features = ["process", "sync", "rt", "fs", "io-util", "time"] }
 serde = { workspace = true }
 serde_json.workspace = true
 jiff.workspace = true
 jsonwebtoken.workspace = true
+metrics.workspace = true
 walkdir.workspace = true
 notify.workspace = true
 regex.workspace = true
 sha2.workspace = true
+sysinfo.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt", "time"] }
+tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }
+metrics-exporter-prometheus = { workspace = true }
 tempfile.workspace = true
 proptest.workspace = true
 

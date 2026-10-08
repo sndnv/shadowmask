@@ -75,6 +75,32 @@ impl TrickplayState {
     }
 }
 
+pub struct DiagnosticsState<D, B, C> {
+    pub diagnostics: Arc<D>,
+    pub benchmark: Arc<B>,
+    pub catalog: Arc<C>,
+}
+
+impl<D, B, C> DiagnosticsState<D, B, C> {
+    pub fn new(diagnostics: D, benchmark: B, catalog: C) -> Self {
+        Self {
+            diagnostics: Arc::new(diagnostics),
+            benchmark: Arc::new(benchmark),
+            catalog: Arc::new(catalog),
+        }
+    }
+}
+
+impl<D, B, C> Clone for DiagnosticsState<D, B, C> {
+    fn clone(&self) -> Self {
+        Self {
+            diagnostics: Arc::clone(&self.diagnostics),
+            benchmark: Arc::clone(&self.benchmark),
+            catalog: Arc::clone(&self.catalog),
+        }
+    }
+}
+
 pub struct JobLogState<J> {
     pub store: Arc<J>,
 }

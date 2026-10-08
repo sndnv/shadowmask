@@ -16,6 +16,7 @@ String adminVersionsRoute() => '/admin/versions';
 String adminCollectionsRoute() => '/admin/collections';
 String adminActivityRoute() => '/admin/activity';
 String adminFetchRoute() => '/admin/fetch';
+String adminServerRoute() => '/admin/server';
 
 String jobRoute(String id) => '/admin/job?id=${_enc(id)}';
 String adminUserRoute(String id) => '/admin/user?id=${_enc(id)}';

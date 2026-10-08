@@ -49,6 +49,7 @@ regex = "1"
 sanitize-filename = "0.6"
 unicode-normalization = "0.1"
 isolang = { version = "2.4", default-features = false }
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 url = "2"
 walkdir = "2"
 notify = "8"

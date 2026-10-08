@@ -62,6 +62,7 @@ impl KeyframeProbe for FfprobeMediaProbe {
                 "csv=print_section=0",
             ])
             .arg(path)
+            .kill_on_drop(true)
             .output()
             .await
             .map_err(|e| ProbeError::Backend(e.to_string()))?;
@@ -194,7 +195,7 @@ fn audio_track(s: FfStream) -> AudioTrack {
         index: s.index,
         codec: s.codec_name.unwrap_or_default(),
         channels: s.channels.unwrap_or(0),
-        language: s.tags.language.as_deref().map(LanguageCode::from_file_tag),
+        language: s.tags.language.as_deref().map(LanguageCode::canonical),
         bitrate: parse_bitrate(s.bit_rate.as_deref()),
     }
 }
@@ -202,7 +203,7 @@ fn audio_track(s: FfStream) -> AudioTrack {
 fn subtitle_track(s: FfStream) -> EmbeddedSubtitleTrack {
     EmbeddedSubtitleTrack {
         index: s.index,
-        language: s.tags.language.as_deref().map(LanguageCode::from_file_tag),
+        language: s.tags.language.as_deref().map(LanguageCode::canonical),
         format: subtitle_format(s.codec_name.as_deref()),
         forced: s.disposition.forced == 1,
         default: s.disposition.default == 1,

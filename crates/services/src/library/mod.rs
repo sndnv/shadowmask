@@ -51,7 +51,9 @@ pub use scan_queue::{is_nightly_library, queue_scan, settle_interrupted_scans};
 pub use scanner::{DEFAULT_PROBE_CONCURRENCY, Scanner};
 pub use service::LibraryServiceImpl;
 pub use subtitle_job::SubtitleJobPayload;
-pub use transcription_job::{TranscriptionJobPayload, select_audio_track, transcription_job};
+pub use transcription_job::{
+    TranscriptionJobPayload, container_language, select_audio_track, transcription_job,
+};
 pub use transcription_trigger::TranscriptionEnqueuer;
 pub use translation_job::{TranslationJobPayload, translation_job, translation_job_with_source};
 pub use translation_trigger::TranslationEnqueuer;

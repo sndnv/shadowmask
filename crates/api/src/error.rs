@@ -1,11 +1,12 @@
 use axum::Json;
+use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
 use domain::error::{
-    AuthError, CatalogError, DiscoveryError, DownloadTokenError, JobLogError, JobServiceError,
-    LibraryError, SessionError, StreamError, StreamTokenError, UserError,
+    AuthError, BenchmarkError, CatalogError, DiscoveryError, DownloadTokenError, JobLogError,
+    JobServiceError, LibraryError, SessionError, StreamError, StreamTokenError, UserError,
 };
 use domain::session::PlaybackSession;
 
@@ -130,6 +131,22 @@ impl From<SessionError> for ApiError {
             SessionError::Forbidden => ApiError::new(StatusCode::FORBIDDEN, "access_denied", msg),
             SessionError::Repository(_) => ApiError::internal(),
         }
+    }
+}
+
+impl From<BenchmarkError> for ApiError {
+    fn from(err: BenchmarkError) -> Self {
+        match err {
+            BenchmarkError::Running => {
+                ApiError::new(StatusCode::CONFLICT, "benchmark_running", err.to_string())
+            }
+        }
+    }
+}
+
+impl From<JsonRejection> for ApiError {
+    fn from(rejection: JsonRejection) -> Self {
+        ApiError::new(rejection.status(), "bad_request", rejection.body_text())
     }
 }
 

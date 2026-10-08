@@ -5,6 +5,7 @@ use axum::response::Redirect;
 use axum::routing::{delete, get, post, put};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
+use domain::diagnostics::{ServerDiagnostics, TranscodeBenchmark};
 use domain::job::JobLogStore;
 use domain::media::{SubtitleProvider, SubtitleReader, SubtitleStore};
 use domain::repository::CatalogRepository;
@@ -12,13 +13,13 @@ use domain::session::{DownloadTokens, StreamSource, StreamTokens};
 use tower_http::services::ServeDir;
 
 use crate::handlers::{
-    admin, auth, catalog, discovery, download, image, job_log, library, server, sessions, stream,
-    subtitle, trickplay, user_library, users, version, webhook,
+    admin, auth, catalog, diagnostics, discovery, download, image, job_log, library, server,
+    sessions, stream, subtitle, trickplay, user_library, users, version, webhook,
 };
 use crate::middleware::{jwt, track_stream_bytes};
 use crate::state::{
-    AppServices, DownloadState, ImageState, JobLogState, StreamState, SubtitleSearchState,
-    SubtitleState, TrickplayState, WebhookClient, WebhookState,
+    AppServices, DiagnosticsState, DownloadState, ImageState, JobLogState, StreamState,
+    SubtitleSearchState, SubtitleState, TrickplayState, WebhookClient, WebhookState,
 };
 
 pub fn router<S: AppServices>(state: S) -> Router {
@@ -208,6 +209,24 @@ pub fn job_log_router<S: AppServices, J: JobLogStore + 'static>(
 ) -> Router {
     Router::new()
         .route("/api/v1/admin/jobs/{id}/logs", get(job_log::read::<J>).delete(job_log::wipe::<J>))
+        .route_layer(from_fn_with_state(auth, jwt::<S>))
+        .with_state(state)
+}
+
+pub fn diagnostics_router<S, D, B, C>(auth: S, state: DiagnosticsState<D, B, C>) -> Router
+where
+    S: AppServices,
+    D: ServerDiagnostics + 'static,
+    B: TranscodeBenchmark + 'static,
+    C: CatalogRepository + Send + Sync + 'static,
+{
+    Router::new()
+        .route("/api/v1/admin/server/capabilities", get(diagnostics::capabilities::<D, B, C>))
+        .route("/api/v1/admin/server/capabilities/recheck", post(diagnostics::recheck::<D, B, C>))
+        .route(
+            "/api/v1/admin/server/benchmark",
+            get(diagnostics::benchmark::<D, B, C>).post(diagnostics::start_benchmark::<D, B, C>),
+        )
         .route_layer(from_fn_with_state(auth, jwt::<S>))
         .with_state(state)
 }

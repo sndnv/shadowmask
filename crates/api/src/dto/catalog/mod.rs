@@ -54,5 +54,6 @@ pub use title_batch::{TitleBatchRequest, TitleCardResponse};
 pub use update_collection_request::UpdateCollectionRequest;
 pub use version::VersionResponse;
 pub use version_detail::{
-    MarkersDto, SubtitleFileDto, SubtitleFormatDto, TrickplayRefDto, VersionDetailResponse,
+    HdrFormatDto, MarkersDto, SubtitleFileDto, SubtitleFormatDto, TrickplayRefDto,
+    VersionDetailResponse,
 };

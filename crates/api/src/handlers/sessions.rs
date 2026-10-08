@@ -1,4 +1,3 @@
-use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use tracing::debug;
@@ -10,7 +9,7 @@ use crate::dto::session::{
     SessionStartedResponse, StartSessionRequest, UpdateSessionRequest,
 };
 use crate::error::ApiResult;
-use crate::extract::AuthUser;
+use crate::extract::{AuthUser, Json};
 use crate::handlers::log_fail;
 use domain::service::SessionService;
 

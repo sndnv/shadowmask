@@ -1501,15 +1501,10 @@ sub Attach(positionMs as integer)
     m.giveUp.control = "start"
 end sub
 
-function CaptionsWanted() as boolean
-    if m.session = invalid then return false
-    if SubtitlesAreBurned(m.session.selected) then return false
-
-    return SubtitleRef(m.controls.subtitle) <> invalid
-end function
-
 sub ApplyCaptionMode()
-    if CaptionsWanted()
+    wanted = CaptionsWanted(m.session, m.controls.subtitle)
+    m.video.suppressCaptions = not wanted
+    if wanted
         if TextOrBlank(m.global.captionMode) = "On" then return
 
         m.captionsForced = true

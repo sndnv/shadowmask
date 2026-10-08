@@ -65,6 +65,10 @@ const sm = (() => {
     return res;
   }
 
+  function publicGet(path) {
+    return raw(path);
+  }
+
   async function json(path, opts) {
     const res = await api(path, opts);
     if (!res.ok) {
@@ -1120,6 +1124,7 @@ const sm = (() => {
     login,
     logout,
     api,
+    publicGet,
     json,
     self,
     refresh,
@@ -1157,6 +1162,7 @@ const sm = (() => {
     accessAwareEmpty,
     pad2,
     gigabytes,
+    durationText,
     episodeCode,
     episodeLine,
     seriesEpisodeLine,

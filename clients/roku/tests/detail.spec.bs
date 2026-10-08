@@ -838,24 +838,24 @@ namespace tests
 
         @it("names the common speaker layouts rather than counting channels")
         sub namesChannelLayouts()
-            m.assertEqual(AudioTrackLine({ codec: "eac3", channels: 6, language: "eng" }), "EAC3 · 5.1 · ENG")
+            m.assertEqual(AudioTrackLine({ codec: "eac3", channels: 6, language: "en" }), "EAC3 · 5.1 · EN")
             m.assertEqual(AudioTrackLine({ codec: "aac", channels: 2 }), "AAC · 2.0")
             m.assertEqual(AudioTrackLine({ codec: "dts", channels: 3 }), "DTS · 3 channels")
         end sub
 
         @it("flags a forced or default subtitle track")
         sub flagsSubtitleTracks()
-            m.assertEqual(SubtitleTrackLine({ language: "eng", format: "srt", forced: true }), "ENG · SRT · Forced")
-            m.assertEqual(SubtitleTrackLine({ language: "deu", format: "pgs" }), "DEU · PGS")
+            m.assertEqual(SubtitleTrackLine({ language: "en", format: "srt", forced: true }), "EN · SRT · Forced")
+            m.assertEqual(SubtitleTrackLine({ language: "de", format: "pgs" }), "DE · PGS")
         end sub
 
         @it("prefers a subtitle file's own label, since that is what an admin named it")
         sub labelsSubtitleFiles()
-            file = { label: "English SDH", language: "eng", format: "srt", source: "external" }
+            file = { label: "English SDH", language: "en", format: "srt", source: "external" }
             m.assertEqual(SubtitleFileLine(file), "English SDH · SRT · External")
 
-            unlabelled = { language: "fra", format: "vtt", source: "machine_translated" }
-            m.assertEqual(SubtitleFileLine(unlabelled), "FRA · VTT · Translated")
+            unlabelled = { language: "fr", format: "vtt", source: "machine_translated" }
+            m.assertEqual(SubtitleFileLine(unlabelled), "FR · VTT · Translated")
         end sub
 
         @it("gathers the lines of one track kind, skipping anything it cannot describe")

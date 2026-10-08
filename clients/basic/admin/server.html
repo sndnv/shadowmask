@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Admin server</title>
+  </head>
+  <body>
+    <h1 class="sm-visually-hidden">Server</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs"><a href="index.html">Admin</a> / Server</p>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      const POLL_MS = 2000;
+      const SEARCH_LIMIT = 10;
+      const ENCODER_ORDER = ["vaapi", "software", "remux"];
+      const DELIVERY_ORDER = ["direct", "remux", "transcode"];
+
+      sm.chrome();
+      if (sm.requireAuth()) guard();
+
+      async function guard() {
+        const main = document.getElementById("main");
+        try {
+          const me = await sm.self();
+          if (me.role !== "admin") {
+            main.textContent = "Not Authorized.";
+            return;
+          }
+          main.textContent = "";
+          render(main);
+        } catch (err) {
+          main.textContent = "Could not load.";
+        }
+      }
+
+      function render(main) {
+        const capsBody = sm.el("div");
+        const refreshCaps = poller(
+          capsBody,
+          () => sm.json("/api/v1/admin/server/capabilities"),
+          "Could not load the capabilities.",
+          renderCapabilities,
+          (r) => r.state === "checking",
+        );
+        const recheck = sm.el("button", { type: "button" }, "Re-check");
+        recheck.addEventListener("click", async () => {
+          try {
+            await sm.json("/api/v1/admin/server/capabilities/recheck", { method: "POST" });
+          } catch (err) {
+            sm.toast("Could not start a check.", "danger");
+          }
+          await refreshCaps();
+        });
+        main.appendChild(section("Capabilities", [recheck], capsBody));
+
+        const benchBody = sm.el("div");
+        const refreshBench = poller(
+          benchBody,
+          () => sm.json("/api/v1/admin/server/benchmark"),
+          "Could not load the benchmark.",
+          renderBenchmark,
+          (r) => r.state === "running",
+        );
+        main.appendChild(section("Benchmark", [], [searchForm(refreshBench), benchBody]));
+
+        const totalsBody = sm.el("div");
+        const refreshTotals = poller(
+          totalsBody,
+          loadTotals,
+          "Could not read /metrics. A reverse proxy may be blocking it.",
+          renderTotals,
+          () => false,
+        );
+        const refresh = sm.el("button", { type: "button" }, "Refresh");
+        refresh.addEventListener("click", refreshTotals);
+        main.appendChild(section("Metrics", [refresh], totalsBody));
+
+        refreshCaps();
+        refreshBench();
+        refreshTotals();
+      }
+
+      function section(title, actions, body) {
+        return sm.el("section", null, [
+          sm.el("h2", { text: title }),
+          actions.length ? sm.el("p", null, actions) : null,
+          body,
+        ]);
+      }
+
+      function poller(body, load, errorText, draw, busy) {
+        let timer = null;
+        let generation = 0;
+        body.textContent = "Loading…";
+        async function refresh() {
+          clearTimeout(timer);
+          const mine = ++generation;
+          try {
+            const data = await load();
+            if (mine !== generation) return;
+            body.textContent = "";
+            body.appendChild(draw(data));
+            if (busy(data)) timer = setTimeout(refresh, POLL_MS);
+          } catch (err) {
+            if (mine !== generation) return;
+            body.textContent = errorText;
+          }
+        }
+        return refresh;
+      }
+
+      function facts(pairs) {
+        return sm.el(
+          "dl",
+          null,
+          pairs
+            .filter(([, value]) => value !== null && value !== undefined && value !== "")
+            .map(([key, value]) => [sm.el("dt", { text: key }), sm.el("dd", null, value)]),
+        );
+      }
+
+      function seconds(ms) {
+        return (ms / 1000).toFixed(2) + " s";
+      }
+
+      function realtime(factor) {
+        return factor.toFixed(2) + "×";
+      }
+
+      function clock(ms) {
+        const total = Math.floor(Math.max(ms, 0) / 1000);
+        const hours = Math.floor(total / 3600);
+        const minutes = Math.floor((total % 3600) / 60);
+        const secs = sm.pad2(total % 60);
+        return hours > 0 ? hours + ":" + sm.pad2(minutes) + ":" + secs : minutes + ":" + secs;
+      }
+
+      function renderCapabilities(r) {
+        const out = sm.el("div");
+        const checked =
+          r.state === "checking"
+            ? "Checking…"
+            : r.state === "ready"
+              ? sm.time(r.checked_at)
+              : "Not yet";
+        out.appendChild(sm.el("h3", { text: "Host" }));
+        out.appendChild(
+          facts(
+            [["Checked", checked]].concat(
+              r.host
+                ? [
+                    ["CPU", r.host.cpu || "Unknown"],
+                    ["Cores", r.host.cores == null ? "Unknown" : String(r.host.cores)],
+                    ["Threads", String(r.host.threads)],
+                  ]
+                : [],
+            ),
+          ),
+        );
+        if (r.ffmpeg) {
+          const f = r.ffmpeg;
+          out.appendChild(sm.el("h3", { text: "FFmpeg" }));
+          out.appendChild(
+            facts([
+              ["Version", f.version],
+              ["Error", f.error],
+              ["Accelerations", f.hwaccels.length ? f.hwaccels.join(", ") : "None"],
+            ]),
+          );
+          out.appendChild(components("Encoder", f.encoders));
+          out.appendChild(components("Filter", f.filters));
+        }
+        if (r.hardware) {
+          const h = r.hardware;
+          const failed = h.test.outcome === "failed";
+          const code = (text) => (failed && text ? sm.el("code", { text }) : null);
+          out.appendChild(sm.el("h3", { text: "Hardware encoding" }));
+          out.appendChild(
+            facts([
+              ["Mode", h.mode],
+              ["Device", sm.el("code", { text: h.device })],
+              ["Device present", h.device_present ? "Yes" : "No"],
+              ["In use", h.in_use ? "Yes" : "No"],
+              ["Test encode", testText(h.test)],
+              ["ffmpeg error", code(h.test.detail)],
+              ["Low-power error", code(h.test.low_power_detail)],
+            ]),
+          );
+        }
+        return out;
+      }
+
+      function components(kind, items) {
+        return sm.table(
+          [kind, "Present"],
+          items.map((c) => [c.name, c.present ? "Present" : "Missing"]),
+          { rowClass: (i) => (items[i].present ? null : "sm-row-failed") },
+        );
+      }
+
+      function testText(test) {
+        if (test.outcome === "works") {
+          const elapsed = (test.elapsed_ms || 0) + " ms";
+          return test.low_power ? "Works in low-power mode, " + elapsed : "Works, " + elapsed;
+        }
+        if (test.outcome === "failed") return "Failed";
+        return test.detail ? "Skipped, " + test.detail : "Skipped";
+      }
+
+      function searchForm(refreshBench) {
+        const input = sm.el("input", {
+          type: "search",
+          placeholder: "path, title, library, quality...",
+          autocomplete: "off",
+          "aria-label": "Find a version to benchmark",
+        });
+        const results = sm.el("div");
+        const form = sm.el("form", null, [
+          sm.el("label", null, ["Find a version to benchmark ", input]),
+          " ",
+          sm.el("button", { type: "submit" }, "Search"),
+        ]);
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const needle = input.value.trim();
+          results.textContent = "";
+          if (!needle) return;
+          results.textContent = "Loading…";
+          try {
+            const params = new URLSearchParams({ filter: needle, limit: String(SEARCH_LIMIT) });
+            const page = await sm.json("/api/v1/admin/versions?" + params.toString());
+            results.textContent = "";
+            if (!page.items.length) {
+              results.appendChild(sm.el("p", { text: "No versions match the filter." }));
+              return;
+            }
+            const rows = page.items.map((v) => {
+              const start = sm.el("button", { type: "button" }, "Benchmark");
+              start.addEventListener("click", () => startBenchmark(v.id, refreshBench));
+              return [sm.el("code", { text: v.path || v.id }), v.quality.toUpperCase(), v.container, start];
+            });
+            results.appendChild(sm.table(["Path", "Quality", "Container", ""], rows));
+          } catch (err) {
+            results.textContent = "Could not load versions.";
+          }
+        });
+        return sm.el("div", null, [form, results]);
+      }
+
+      async function startBenchmark(versionId, refreshBench) {
+        try {
+          await sm.json("/api/v1/admin/server/benchmark", {
+            method: "POST",
+            body: JSON.stringify({ version_id: versionId }),
+          });
+          sm.toast("Benchmark started.", "ok");
+        } catch (err) {
+          sm.toast(
+            err.code === "benchmark_running"
+              ? "A benchmark is already running."
+              : "Could not start the benchmark.",
+            "danger",
+          );
+        }
+        await refreshBench();
+      }
+
+      function sourceText(s) {
+        return [
+          s.codec ? s.codec.toUpperCase() : null,
+          s.width != null && s.height != null ? s.width + "×" + s.height : null,
+          s.hdr ? s.hdr.toUpperCase() : "SDR",
+          sm.durationText(s.duration_ms),
+        ]
+          .filter((part) => part)
+          .join(" · ");
+      }
+
+      function outcomeText(outcome) {
+        return outcome === "ok" ? "OK" : outcome === "too_slow" ? "Too slow" : "Failed";
+      }
+
+      function renderBenchmark(r) {
+        if (r.state === "idle") return sm.el("p", { text: "No benchmark has run yet." });
+        const out = sm.el("div");
+        out.appendChild(
+          sm.el(
+            "p",
+            { class: "sm-status" },
+            r.state === "running"
+              ? "Running, " + r.progress.done + " of " + r.progress.total + " runs done."
+              : "Done.",
+          ),
+        );
+        out.appendChild(
+          facts([
+            ["Version", r.version_id ? sm.el("code", { text: r.version_id }) : null],
+            ["Started", sm.time(r.started_at)],
+            ["Finished", sm.time(r.finished_at)],
+            ["Source", r.source ? sourceText(r.source) : null],
+            [
+              "Keyframe read",
+              r.keyframes_error || (r.keyframes_ms != null ? seconds(r.keyframes_ms) : null),
+            ],
+          ]),
+        );
+        if (!r.runs.length) {
+          out.appendChild(sm.el("p", { text: "No runs yet." }));
+          return out;
+        }
+        out.appendChild(
+          sm.table(
+            ["Segment", "Encoder", "Outcome", "Time", "Realtime", "Detail"],
+            r.runs.map((run) => [
+              "#" + run.segment + " at " + clock(run.start_ms),
+              run.encoder,
+              outcomeText(run.outcome),
+              seconds(run.elapsed_ms),
+              run.outcome === "ok" ? realtime(run.realtime) : "—",
+              run.detail || "",
+            ]),
+            {
+              rowClass: (i) =>
+                r.runs[i].outcome === "failed"
+                  ? "sm-row-failed"
+                  : r.runs[i].outcome === "too_slow"
+                    ? "sm-row-pending"
+                    : null,
+            },
+          ),
+        );
+        return out;
+      }
+
+      async function loadTotals() {
+        const res = await sm.publicGet("/metrics");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return totals(parseMetrics(await res.text()));
+      }
+
+      function parseMetrics(text) {
+        const samples = [];
+        for (const raw of text.split("\n")) {
+          const line = raw.trim();
+          if (!line || line.startsWith("#")) continue;
+          const sample = parseLine(line);
+          if (sample) samples.push(sample);
+        }
+        return samples;
+      }
+
+      function parseLine(line) {
+        const brace = line.indexOf("{");
+        const space = line.search(/\s/);
+        const labels = {};
+        let name;
+        let rest;
+        if (brace >= 0 && (space < 0 || brace < space)) {
+          name = line.slice(0, brace);
+          let i = brace + 1;
+          for (;;) {
+            while (line[i] === "," || line[i] === " ") i += 1;
+            if (i >= line.length) return null;
+            if (line[i] === "}") break;
+            const eq = line.indexOf("=", i);
+            if (eq < 0 || line[eq + 1] !== '"') return null;
+            let j = eq + 2;
+            let value = "";
+            while (j < line.length && line[j] !== '"') {
+              if (line[j] === "\\" && j + 1 < line.length) {
+                value += line[j + 1] === "n" ? "\n" : line[j + 1];
+                j += 2;
+              } else {
+                value += line[j];
+                j += 1;
+              }
+            }
+            if (j >= line.length) return null;
+            labels[line.slice(i, eq).trim()] = value;
+            i = j + 1;
+          }
+          rest = line.slice(i + 1);
+        } else {
+          if (space < 0) return null;
+          name = line.slice(0, space);
+          rest = line.slice(space);
+        }
+        const token = rest.trim().split(/\s+/)[0];
+        const value = token === "+Inf" ? Infinity : token === "-Inf" ? -Infinity : Number(token);
+        if (!name || !token || (Number.isNaN(value) && token !== "NaN")) return null;
+        return { name, labels, value };
+      }
+
+      function totals(samples) {
+        const sum = (name, match) =>
+          samples
+            .filter(
+              (s) =>
+                s.name === name &&
+                Object.entries(match || {}).every(([k, v]) => s.labels[k] === v),
+            )
+            .reduce((acc, s) => acc + s.value, 0);
+        const seen = (sources, order) => {
+          const found = new Set();
+          for (const s of samples) {
+            for (const [name, label] of sources) {
+              if (s.name === name && s.labels[label] != null) found.add(s.labels[label]);
+            }
+          }
+          return order
+            .filter((v) => found.has(v))
+            .concat([...found].filter((v) => !order.includes(v)).sort());
+        };
+        const encoders = seen(
+          [
+            ["transcode_segments_total", "encoder"],
+            ["transcode_segment_duration_milliseconds_count", "encoder"],
+            ["transcode_media_milliseconds_total", "encoder"],
+          ],
+          ENCODER_ORDER,
+        ).map((encoder) => ({
+          encoder,
+          produced: sum("transcode_segments_total", { encoder, outcome: "ok" }),
+          failed: sum("transcode_segments_total", { encoder, outcome: "failed" }),
+          timeMs: sum("transcode_segment_duration_milliseconds_sum", { encoder }),
+          timed: sum("transcode_segment_duration_milliseconds_count", { encoder }),
+          mediaMs: sum("transcode_media_milliseconds_total", { encoder }),
+        }));
+        const deliveries = seen(
+          [
+            ["sessions_started_total", "mode"],
+            ["stream_starts_total", "delivery"],
+            ["stream_first_segment_milliseconds_count", "delivery"],
+          ],
+          DELIVERY_ORDER,
+        ).map((delivery) => ({
+          delivery,
+          sessions: sum("sessions_started_total", { mode: delivery }),
+          started: sum("stream_starts_total", { delivery, outcome: "ok" }),
+          failed: sum("stream_starts_total", { delivery, outcome: "failed" }),
+          firstMs: sum("stream_first_segment_milliseconds_sum", { delivery }),
+          firsts: sum("stream_first_segment_milliseconds_count", { delivery }),
+        }));
+        return {
+          encoders,
+          deliveries,
+          fallbacks: sum("transcode_fallbacks_total"),
+          abandoned: sum("transcode_segments_abandoned_total"),
+          keyframeReads: sum("stream_keyframe_probe_duration_milliseconds_count"),
+          keyframeMs: sum("stream_keyframe_probe_duration_milliseconds_sum"),
+          keyframeFailures: sum("stream_keyframe_probe_failures_total"),
+          directBytes: sum("stream_bytes_sent_total", { kind: "file" }),
+          segmentBytes: sum("stream_bytes_sent_total", { kind: "segment" }),
+        };
+      }
+
+      function average(total, count) {
+        return count ? seconds(total / count) : "—";
+      }
+
+      function renderTotals(t) {
+        const empty =
+          !t.encoders.length &&
+          !t.deliveries.length &&
+          !t.fallbacks &&
+          !t.abandoned &&
+          !t.keyframeReads &&
+          !t.keyframeFailures &&
+          !t.directBytes &&
+          !t.segmentBytes;
+        if (empty) return sm.el("p", { text: "Nothing has streamed since the server started." });
+        const out = sm.el("div");
+        if (t.encoders.length) {
+          out.appendChild(
+            sm.table(
+              ["Encoder", "Segments", "Failed", "Average", "Realtime"],
+              t.encoders.map((e) => [
+                e.encoder,
+                String(e.produced),
+                String(e.failed),
+                average(e.timeMs, e.timed),
+                e.timeMs > 0 ? realtime(e.mediaMs / e.timeMs) : "—",
+              ]),
+            ),
+          );
+        }
+        if (t.deliveries.length) {
+          out.appendChild(
+            sm.table(
+              ["Delivery", "Sessions", "Stream starts", "Failed", "First segment"],
+              t.deliveries.map((d) => {
+                const streams = d.delivery !== "direct";
+                return [
+                  d.delivery,
+                  String(d.sessions),
+                  streams ? String(d.started) : "—",
+                  streams ? String(d.failed) : "—",
+                  streams ? average(d.firstMs, d.firsts) : "—",
+                ];
+              }),
+            ),
+          );
+        }
+        out.appendChild(
+          sm.table(
+            [
+              "Software fallbacks",
+              "Abandoned segments",
+              "Keyframe reads",
+              "Keyframe average",
+              "Keyframe failures",
+              "Direct bytes",
+              "Segment bytes",
+            ],
+            [
+              [
+                String(t.fallbacks),
+                String(t.abandoned),
+                String(t.keyframeReads),
+                average(t.keyframeMs, t.keyframeReads),
+                String(t.keyframeFailures),
+                sm.gigabytes(t.directBytes),
+                sm.gigabytes(t.segmentBytes),
+              ],
+            ],
+          ),
+        );
+        return out;
+      }
+    </script>
+  </body>
+</html>

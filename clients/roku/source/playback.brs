@@ -888,3 +888,10 @@ end function
 function SubtitlesAreBurned(selected as dynamic) as boolean
     return LCase(TextOrBlank(ValueAt(selected, "subtitle_delivery", ""))) = "burned"
 end function
+
+function CaptionsWanted(session as dynamic, subtitle as dynamic) as boolean
+    if session = invalid then return false
+    if SubtitlesAreBurned(ValueAt(session, "selected", invalid)) then return false
+
+    return SubtitleRef(subtitle) <> invalid
+end function

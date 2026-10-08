@@ -95,9 +95,7 @@ fn by_language(
         available
             .files
             .iter()
-            .find(|file| {
-                file.language.as_ref().is_some_and(|code| code.0.eq_ignore_ascii_case(&want.0))
-            })
+            .find(|file| file.language.as_ref().is_some_and(|code| want.matches(code)))
             .map(|file| SubtitleTrackRef::File(file.id.clone()))
     })
 }
@@ -309,6 +307,39 @@ mod tests {
         assert_eq!(
             resolved.remembered,
             Some(SubtitleOverride::Track(SubtitleTrackRef::File(SubtitleFileId("sf1".into()))))
+        );
+    }
+
+    #[test]
+    fn a_regional_subtitle_language_skips_the_other_region() {
+        let files = vec![file("pt-pt", Some("pt-PT")), file("pt-br", Some("pt-BR"))];
+        let resolved = resolve_subtitle(
+            &SubtitleRequest::Language(language("pt-BR")),
+            None,
+            &AvailableSubtitles { embedded: &[], files: &files },
+            &[],
+        );
+
+        assert_eq!(
+            resolved.remembered,
+            Some(SubtitleOverride::Track(SubtitleTrackRef::File(SubtitleFileId("pt-br".into()))))
+        );
+    }
+
+    #[test]
+    fn a_regional_subtitle_language_takes_a_track_of_its_language() {
+        let tracks = vec![subtitle(2, Some("pt"))];
+        let files = vec![file("pt-pt", Some("pt-PT"))];
+        let resolved = resolve_subtitle(
+            &SubtitleRequest::Language(language("pt-BR")),
+            None,
+            &AvailableSubtitles { embedded: &tracks, files: &files },
+            &[],
+        );
+
+        assert_eq!(
+            resolved.remembered,
+            Some(SubtitleOverride::Track(SubtitleTrackRef::Embedded(2)))
         );
     }
 

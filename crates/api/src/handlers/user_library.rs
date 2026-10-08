@@ -1,4 +1,3 @@
-use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use tracing::debug;
@@ -12,7 +11,7 @@ use crate::dto::user_library::{
     WatchedRollupBatchRequest, WatchedRollupResponse, WatchlistItemResponse,
 };
 use crate::error::{ApiError, ApiResult};
-use crate::extract::AuthUser;
+use crate::extract::{AuthUser, Json};
 use crate::handlers::{log_fail, require_admin_or_self};
 use crate::pagination::{PageParams, PageResponse};
 use domain::service::UserLibraryService;
