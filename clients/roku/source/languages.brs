@@ -16,6 +16,8 @@ function LanguageTable() as object
         { code: "my", name: "Burmese" },
         { code: "ca", name: "Catalan" },
         { code: "zh", name: "Chinese" },
+        { code: "zh-CN", name: "Chinese (Simplified)" },
+        { code: "zh-TW", name: "Chinese (Traditional)" },
         { code: "hr", name: "Croatian" },
         { code: "cs", name: "Czech" },
         { code: "da", name: "Danish" },
@@ -55,9 +57,13 @@ function LanguageTable() as object
         { code: "mn", name: "Mongolian" },
         { code: "ne", name: "Nepali" },
         { code: "no", name: "Norwegian" },
+        { code: "nb", name: "Norwegian Bokmål" },
+        { code: "nn", name: "Norwegian Nynorsk" },
         { code: "fa", name: "Persian" },
         { code: "pl", name: "Polish" },
         { code: "pt", name: "Portuguese" },
+        { code: "pt-BR", name: "Portuguese (Brazil)" },
+        { code: "pt-PT", name: "Portuguese (Portugal)" },
         { code: "pa", name: "Punjabi" },
         { code: "ro", name: "Romanian" },
         { code: "ru", name: "Russian" },
@@ -86,19 +92,35 @@ function LanguageTable() as object
 end function
 
 function KnownLanguage(code as dynamic) as dynamic
-    wanted = LCase(TextOrBlank(code))
+    wanted = LCase(TextOrBlank(code)).Replace("_", "-")
     if IsBlank(wanted) then return invalid
 
     for each entry in LanguageTable()
-        if entry.code = wanted then return entry
+        if LCase(entry.code) = wanted then return entry
     end for
     return invalid
 end function
 
 function LanguageName(code as dynamic) as string
-    entry = KnownLanguage(code)
+    text = TextOrBlank(code)
+    if Instr(1, text, "+") > 0
+        names = []
+        for each part in text.Split("+")
+            names.Push(LanguageName(part))
+        end for
+        return names.Join(" + ")
+    end if
+    if LCase(text) = "und" then return Phrase("language.unknown")
+
+    entry = KnownLanguage(text)
     if entry <> invalid then return entry.name
-    return UCase(TextOrBlank(code))
+
+    parts = text.Replace("_", "-").Split("-")
+    if parts.Count() = 2 and Len(parts[0]) = 2 and Len(parts[1]) = 2
+        base = KnownLanguage(parts[0])
+        if base <> invalid then return base.name + " (" + UCase(parts[1]) + ")"
+    end if
+    return UCase(text)
 end function
 
 function VersionLanguages(version as dynamic) as object

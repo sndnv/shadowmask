@@ -34,13 +34,17 @@ impl From<StartSessionRequest> for SessionStartInput {
             capabilities: r.capabilities.into(),
             audio: match (r.audio_track, r.audio_language) {
                 (Some(index), _) => AudioRequest::Track(index),
-                (None, Some(language)) => AudioRequest::Language(LanguageCode(language)),
+                (None, Some(language)) => {
+                    AudioRequest::Language(LanguageCode::canonical(&language))
+                }
                 (None, None) => AudioRequest::Unspecified,
             },
             subtitle: match (r.subtitle_off, r.subtitle, r.subtitle_language) {
                 (true, _, _) => SubtitleRequest::Off,
                 (false, Some(selection), _) => SubtitleRequest::Track(selection.into()),
-                (false, None, Some(language)) => SubtitleRequest::Language(LanguageCode(language)),
+                (false, None, Some(language)) => {
+                    SubtitleRequest::Language(LanguageCode::canonical(&language))
+                }
                 (false, None, None) => SubtitleRequest::Unspecified,
             },
             target_height: r.target_height,
@@ -83,6 +87,13 @@ mod tests {
         let input = parse(r#","audio_language":"fr","subtitle_language":"de""#);
         assert!(matches!(input.audio, AudioRequest::Language(ref l) if l.0 == "fr"));
         assert!(matches!(input.subtitle, SubtitleRequest::Language(ref l) if l.0 == "de"));
+    }
+
+    #[test]
+    fn a_requested_language_is_stored_in_its_one_form() {
+        let input = parse(r#","audio_language":"ENG","subtitle_language":"pt_br""#);
+        assert!(matches!(input.audio, AudioRequest::Language(ref l) if l.0 == "en"));
+        assert!(matches!(input.subtitle, SubtitleRequest::Language(ref l) if l.0 == "pt-BR"));
     }
 
     #[test]

@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use serde::Deserialize;
@@ -20,7 +19,7 @@ use crate::dto::catalog::{
     SubtitleTextResponse,
 };
 use crate::error::{ApiError, ApiResult};
-use crate::extract::RequireVersionWork;
+use crate::extract::{Json, RequireVersionWork};
 use crate::state::{SubtitleSearchState, SubtitleState};
 
 fn is_managed(source: SubtitleSource) -> bool {
@@ -116,8 +115,9 @@ where
         .await
         .map_err(|_| ApiError::internal())?
         .ok_or_else(|| ApiError::not_found("version not found"))?;
-    let languages =
-        cleaned(params.language).map(|value| vec![LanguageCode(value)]).unwrap_or_default();
+    let languages = cleaned(params.language)
+        .map(|value| vec![LanguageCode::canonical(&value)])
+        .unwrap_or_default();
     let typed = cleaned(params.q);
     let context = title_context(state.catalog.as_ref(), &detail.version.title).await?;
     let imdb_id = typed.is_none().then_some(context.imdb_id).flatten();
@@ -210,7 +210,7 @@ where
     let subtitle = SubtitleFile {
         id,
         version: version.clone(),
-        language: cleaned(request.language).map(LanguageCode),
+        language: cleaned(request.language).map(|value| LanguageCode::canonical(&value)),
         format: fetched.format,
         source: SubtitleSource::OpenSubtitles,
         path,
@@ -281,7 +281,7 @@ where
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(|value| LanguageCode(value.to_owned()));
+        .map(LanguageCode::canonical);
     let mut found = false;
     state
         .catalog

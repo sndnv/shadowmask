@@ -20,6 +20,7 @@ const Map<String, String> _reasons = <String, String>{
   'negotiation_failed': Strings.reasonNegotiationFailed,
   kUsernameTaken: Strings.reasonUsernameTaken,
   'unknown_link_code': Strings.reasonUnknownLinkCode,
+  'benchmark_running': Strings.reasonBenchmarkRunning,
 };
 
 String? failureCode(Object? error) => error is ApiException ? error.code : null;

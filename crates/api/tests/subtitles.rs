@@ -358,6 +358,24 @@ async fn admin_renames_a_generated_subtitle_and_leaves_others() {
 }
 
 #[tokio::test]
+async fn a_renamed_language_is_stored_in_its_one_form() {
+    let (catalog, store) =
+        seed(&[file("generated:v1", SubtitleSource::Generated, "/subs/v1/gen.vtt", None)]).await;
+
+    let (status, _) = send_body(
+        app(catalog.clone(), store),
+        "PUT",
+        &uri("generated:v1"),
+        Some(ADMIN),
+        r#"{"language":" pt_br "}"#,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(language_of(&catalog, "generated:v1").await, Some("pt-BR".to_owned()));
+}
+
+#[tokio::test]
 async fn renaming_to_blank_clears_the_language() {
     let (catalog, store) =
         seed(&[file("generated:v1", SubtitleSource::Generated, "/subs/v1/gen.vtt", None)]).await;

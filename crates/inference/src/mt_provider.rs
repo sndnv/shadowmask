@@ -26,8 +26,8 @@ where
         texts: Vec<String>,
         request: &TranslationSpec,
     ) -> Result<Vec<String>, TranslationError> {
-        let source = request.source_language.as_ref().map(|code| code.0.clone());
-        let target = request.target_language.0.clone();
+        let source = request.source_language.as_ref().map(|code| code.base().to_owned());
+        let target = request.target_language.base().to_owned();
         self.engine.translate(texts, source, target).await
     }
 
@@ -106,6 +106,7 @@ mod tests {
 
     enum EngineMode {
         Echo,
+        Languages,
         Hallucinate,
         Fail,
     }
@@ -118,12 +119,16 @@ mod tests {
         async fn translate(
             &self,
             texts: Vec<String>,
-            _source_language: Option<String>,
+            source_language: Option<String>,
             target_language: String,
         ) -> Result<Vec<String>, TranslationError> {
             match self.mode {
                 EngineMode::Echo => {
                     Ok(texts.into_iter().map(|text| format!("{target_language}:{text}")).collect())
+                }
+                EngineMode::Languages => {
+                    let pair = format!("{}>{target_language}", source_language.unwrap_or_default());
+                    Ok(texts.into_iter().map(|_| pair.clone()).collect())
                 }
                 EngineMode::Hallucinate => {
                     Ok(texts.into_iter().map(|_| "Thanks for watching".into()).collect())
@@ -166,6 +171,20 @@ mod tests {
 
         assert_eq!(subtitle.format, SubtitleFormat::Srt);
         assert!(subtitle.content.contains("fr:hello"));
+    }
+
+    #[tokio::test]
+    async fn the_engine_is_given_languages_without_their_region() {
+        let content = "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhello\n";
+        let provider = MtProvider::new(MockEngine { mode: EngineMode::Languages });
+        let spec = TranslationSpec {
+            target_language: LanguageCode("pt-BR".into()),
+            ..request(content, SubtitleFormat::Vtt, Some("zh-TW"))
+        };
+
+        let subtitle = provider.translate(&spec).await.unwrap();
+
+        assert!(subtitle.content.contains("zh>pt"), "{}", subtitle.content);
     }
 
     #[tokio::test]

@@ -532,6 +532,34 @@ async fn search_catalog_error_is_internal() {
 }
 
 #[tokio::test]
+async fn a_searched_and_a_downloaded_language_are_stored_in_their_one_form() {
+    let provider = MockProvider::default();
+    let seen = provider.seen.clone();
+    let catalog = seeded(&[]).await;
+    let (status, _) = get(
+        app(catalog.clone(), MockStore::default(), provider),
+        &format!("{SEARCH}?language=pt_br"),
+        Some(ADMIN),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(seen.take().languages, vec![LanguageCode("pt-BR".into())]);
+
+    let (status, body) = post(
+        app(catalog.clone(), MockStore::default(), MockProvider::default()),
+        DOWNLOAD,
+        Some(ADMIN),
+        r#"{"file_id":"42","language":"ENG"}"#,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::CREATED);
+    let created: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(created["language"], "en");
+    assert_eq!(files(&catalog).await[0].language.as_ref().unwrap().0, "en");
+}
+
+#[tokio::test]
 async fn admin_download_adds_row_keeping_others() {
     let catalog = seeded(&[
         subtitle("sidecar", SubtitleSource::External, "/m/v1.en.srt"),

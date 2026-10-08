@@ -31,6 +31,7 @@ class AdminColumn<T> {
     this.essential = false,
     this.narrowCell,
     this.narrowFixedWidth,
+    this.help,
   });
 
   final String label;
@@ -42,6 +43,7 @@ class AdminColumn<T> {
   final bool essential;
   final AdminCell<T>? narrowCell;
   final double? narrowFixedWidth;
+  final String? help;
 
   AdminCell<T> cellFor(bool narrow) => narrow ? (narrowCell ?? cell) : cell;
 

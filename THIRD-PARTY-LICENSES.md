@@ -15,8 +15,8 @@ server image are credited from the *Third-party content* section of the
 
 | License | Crates |
 | --- | ---: |
-| Apache License 2.0 | 285 |
-| MIT License | 99 |
+| Apache License 2.0 | 287 |
+| MIT License | 100 |
 | Unicode License v3 | 19 |
 | ISC License | 7 |
 | BSD 3-Clause "New" or "Revised" License | 6 |
@@ -9088,6 +9088,8 @@ Used by:
 - [miniz_oxide 0.9.1](https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide)
 - [monostate-impl 0.1.18](https://github.com/dtolnay/monostate)
 - [monostate 0.1.18](https://github.com/dtolnay/monostate)
+- [objc2-core-foundation 0.3.2](https://github.com/madsmtm/objc2)
+- [objc2-io-kit 0.3.2](https://github.com/madsmtm/objc2)
 - [paste 1.0.15](https://github.com/dtolnay/paste)
 - [pastey 0.2.3](https://github.com/as1100k/pastey)
 - [pear 0.2.9](https://github.com/SergioBenitez/Pear)
@@ -11192,6 +11194,36 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+````
+
+Used by:
+
+- [sysinfo 0.39.6](https://github.com/GuillaumeGomez/sysinfo)
+
+````text
+The MIT License (MIT)
+
+Copyright (c) 2015 Guillaume Gomez
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
 ````
 
 Used by:

@@ -112,21 +112,19 @@ A translation model is driven in one of two ways:
 
 - **Single-direction models** (for example `Helsinki-NLP/opus-mt-en-es`, English to Spanish) need no
   extra configuration, but only translate that one pair. Fine when you have a single target language.
-- **Multilingual models** (MADLAD, Opus-MT `en-mul`, and similar) translate into whichever language
-  you ask for, so one model covers every entry in `SHADOWMASK_TARGET_LANGUAGES`. They need a language
-  token, which you set with a prefix (below).
+- **Multilingual models** (MADLAD) translate into whichever language you ask for, so one model
+  covers every entry in `SHADOWMASK_TARGET_LANGUAGES`. They need a language token, which you set
+  with a prefix (below).
 
-A prefix is a template. `{target}` is replaced with the target language code (from
-`SHADOWMASK_TARGET_LANGUAGES`, for example `es`) and `{source}` with the source code (empty when
-unknown). `SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX` is prepended to the input text;
-`SHADOWMASK_ENRICHMENT_TRANSLATION_TARGET_PREFIX` is fed to the decoder as its first token. Set
-whichever your model expects:
+A prefix is a template. `{target}` is replaced with the target language code and `{source}` with
+the source code (empty when unknown). Both are two-letter codes without a region: a target of `es`
+gives `es`, and `pt-BR` gives `pt`. `SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX` is prepended
+to the input text; `SHADOWMASK_ENRICHMENT_TRANSLATION_TARGET_PREFIX` is fed to the decoder as its
+first token. Set whichever your model expects:
 
-| Model family         | Prefix setting                                                 |
-|----------------------|----------------------------------------------------------------|
-| MADLAD               | `SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX=<2{target}>`  |
-| Opus-MT multilingual | `SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX=>>{target}<<` |
-| decoder-token models | `SHADOWMASK_ENRICHMENT_TRANSLATION_TARGET_PREFIX={target}`     |
+| Model family | Prefix setting                                                |
+|--------------|---------------------------------------------------------------|
+| MADLAD       | `SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX=<2{target}>` |
 
 Models are published as transformers checkpoints, so a raw download is not enough. Convert with
 `ct2-transformers-converter` from the `ctranslate2` pip package. Two flags matter:

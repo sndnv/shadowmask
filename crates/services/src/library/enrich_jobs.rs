@@ -10,7 +10,8 @@ use uuid::Uuid;
 
 use super::{
     ArtworkJobItem, ArtworkJobPayload, MetadataJobPayload, SubtitleJobPayload,
-    TranscriptionJobPayload, TrickplayJobPayload, select_audio_track, translation_job,
+    TranscriptionJobPayload, TrickplayJobPayload, container_language, select_audio_track,
+    translation_job,
 };
 use crate::job::queued_job;
 
@@ -101,15 +102,11 @@ where
         }
         let preferred = self.subtitle_languages.first().map(String::as_str);
         let audio_track_index = select_audio_track(audio, preferred);
-        let source_language = audio_track_index
-            .and_then(|index| audio.iter().find(|track| track.index == index))
-            .or_else(|| audio.first())
-            .and_then(|track| track.language.as_ref())
-            .map(|code| code.0.clone());
         let raw = TranscriptionJobPayload {
             version_id: version_id.clone(),
             source_path: source_path.to_owned(),
-            source_language,
+            source_language: container_language(audio, audio_track_index),
+            language_hint: None,
             audio_track_index,
             force: false,
         }

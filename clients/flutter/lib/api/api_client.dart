@@ -200,6 +200,14 @@ class ApiClient {
     return res.bodyBytes;
   }
 
+  Future<String> publicText(String path) async {
+    final http.Response res = await _raw('GET', path);
+    if (res.statusCode >= 400) {
+      throw _errorFrom(res);
+    }
+    return res.body;
+  }
+
   Future<AuthTokens?> currentTokens() => _store.load();
 
   Future<void> login(String username, String password) async {

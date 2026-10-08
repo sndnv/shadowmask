@@ -48,36 +48,16 @@ const double kVersionRowSideBySide =
     Space.s2 +
     _kIconButtonWidth;
 
-int distinctSubtitleLanguages(VersionDetail d) {
-  final Set<String> langs = <String>{};
-  for (final SubtitleTrack s in d.subtitles) {
-    if (s.language != null) {
-      langs.add(s.language!.toLowerCase());
-    }
-  }
-  for (final SubtitleFile f in d.subtitleFiles) {
-    if (f.language != null) {
-      langs.add(f.language!.toLowerCase());
-    }
-  }
-  return langs.length;
-}
+Iterable<String> _subtitleLanguageCodes(VersionDetail d) => <String?>[
+  for (final SubtitleTrack s in d.subtitles) s.language,
+  for (final SubtitleFile f in d.subtitleFiles) f.language,
+].nonNulls.expand(languageParts);
 
-List<String> subtitleLanguages(VersionDetail d) {
-  final Set<String> langs = <String>{};
-  for (final SubtitleTrack s in d.subtitles) {
-    if (s.language != null) {
-      langs.add(languageLabel(s.language!));
-    }
-  }
-  for (final SubtitleFile f in d.subtitleFiles) {
-    if (f.language != null) {
-      langs.add(languageLabel(f.language!));
-    }
-  }
-  final List<String> sorted = langs.toList()..sort();
-  return sorted;
-}
+int distinctSubtitleLanguages(VersionDetail d) =>
+    _subtitleLanguageCodes(d).toSet().length;
+
+List<String> subtitleLanguages(VersionDetail d) =>
+    _subtitleLanguageCodes(d).map(languageLabel).toSet().toList()..sort();
 
 class VersionPicker extends StatefulWidget {
   const VersionPicker({

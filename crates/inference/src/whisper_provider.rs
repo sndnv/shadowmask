@@ -1,3 +1,4 @@
+use domain::common::LanguageCode;
 use domain::error::TranscriptionError;
 use domain::media::{
     FetchedSubtitle, SubtitleFormat, TranscriptionProvider, TranscriptionSpec, is_hallucinated_text,
@@ -31,16 +32,27 @@ where
         let samples =
             decode_audio(&self.spawner, "ffmpeg", &request.audio_path, request.audio_track_index)
                 .await?;
-        let language = request.source_language.as_ref().map(|code| code.0.clone());
+        let language = request.source_language.as_ref().map(whisper_language);
         let mut segments = self.engine.transcribe(samples, language).await?;
         segments.retain(|segment| !is_hallucinated_text(&segment.text));
         Ok(FetchedSubtitle { content: segments_to_vtt(&segments), format: SubtitleFormat::Vtt })
     }
 }
 
+const WHISPER_NAMES: [(&str, &str); 2] = [("fil", "tl"), ("nb", "no")];
+
+fn whisper_language(code: &LanguageCode) -> String {
+    let base = code.base().to_ascii_lowercase();
+    WHISPER_NAMES
+        .iter()
+        .find(|(ours, _)| *ours == base)
+        .map_or(base, |(_, whisper)| (*whisper).to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use std::io;
+    use std::sync::{Arc, Mutex};
 
     use crate::Segment;
 
@@ -98,6 +110,43 @@ mod tests {
         assert_eq!(subtitle.format, SubtitleFormat::Vtt);
         assert!(subtitle.content.starts_with("WEBVTT"));
         assert!(subtitle.content.contains("hello"));
+    }
+
+    #[derive(Clone, Default)]
+    struct LanguageEngine {
+        seen: Arc<Mutex<Vec<Option<String>>>>,
+    }
+
+    impl WhisperEngine for LanguageEngine {
+        async fn transcribe(
+            &self,
+            _samples: Vec<f32>,
+            language: Option<String>,
+        ) -> Result<Vec<Segment>, TranscriptionError> {
+            self.seen.lock().unwrap().push(language);
+            Ok(Vec::new())
+        }
+    }
+
+    #[tokio::test]
+    async fn whisper_gets_the_language_by_its_own_name() {
+        let engine = LanguageEngine::default();
+        let provider = WhisperProvider::new(engine.clone(), MockSpawner { ok: true });
+
+        for code in ["ja", "pt-BR", "fil", "nb", "EN"] {
+            let spec = TranscriptionSpec {
+                source_language: Some(LanguageCode(code.to_owned())),
+                ..request()
+            };
+            provider.transcribe(&spec).await.unwrap();
+        }
+        provider.transcribe(&request()).await.unwrap();
+
+        assert_eq!(
+            *engine.seen.lock().unwrap(),
+            [Some("ja"), Some("pt"), Some("tl"), Some("no"), Some("en"), None]
+                .map(|code| code.map(str::to_owned))
+        );
     }
 
     #[tokio::test]

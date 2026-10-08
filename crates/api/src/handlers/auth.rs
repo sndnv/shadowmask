@@ -1,4 +1,3 @@
-use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use tracing::debug;
@@ -11,7 +10,7 @@ use crate::dto::auth::{
     RefreshRequest, TokenPairResponse,
 };
 use crate::error::ApiResult;
-use crate::extract::AuthUser;
+use crate::extract::{AuthUser, Json};
 use crate::handlers::{deny_player, log_fail, require_admin_or_self};
 use domain::service::AuthService;
 

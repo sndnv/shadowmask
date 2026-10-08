@@ -14,7 +14,9 @@ Optional local AI (transcription, translation, upscaling) applies to both and is
 
 Settings can also come from a `shadowmask.toml` next to the binary. Environment beats file, file
 beats default. `SHADOWMASK_TARGET_LANGUAGES` and `SHADOWMASK_CORS_ALLOWED_ORIGINS` are
-comma-separated lists; everything else is a single value. Webhook clients are TOML-only. A
+comma-separated lists; everything else is a single value. Target languages are read in any case and
+in two or three letters (`EN`, `eng` and `en` are the same language), with an optional region
+(`pt-BR`, or `pt` for either Portuguese). Webhook clients are TOML-only. A
 `SHADOWMASK_` variable that is neither one of the server settings below nor referenced by
 `users.toml` or `libraries.toml` in the bootstrap directory is logged as ignored at startup, so a typo or a name
 that has been renamed shows up in the log rather than as a server that quietly runs on a default.
@@ -165,7 +167,7 @@ the bundled provider, and external providers are not implemented. Leave them at 
 | `SHADOWMASK_ENRICHMENT_TRANSLATION_PROVIDER`      | Translation provider                     | `none`                   |
 | `SHADOWMASK_ENRICHMENT_TRANSLATION_MODEL_PATH`    | Model dir, relative to the model cache   | unset                    |
 | `SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX` | Input language token, e.g. `<2{target}>` | unset                    |
-| `SHADOWMASK_ENRICHMENT_TRANSLATION_TARGET_PREFIX` | Output language token, e.g. `{target}`   | unset                    |
+| `SHADOWMASK_ENRICHMENT_TRANSLATION_TARGET_PREFIX` | Output language token, see ENRICHMENT.md | unset                    |
 | `SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED`         | Upscaling on                             | `false`                  |
 | `SHADOWMASK_ENRICHMENT_UPSCALING_PROVIDER`        | Upscaling provider                       | `none`                   |
 | `SHADOWMASK_ENRICHMENT_UPSCALING_MODEL_PATH`      | Model dir, relative to the model cache   | unset                    |

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/api/api_exception.dart';
 import 'package:shadowmask/api/authentication_failure.dart';
 import 'package:shadowmask/api/authorization_failure.dart';
 import 'package:shadowmask/model/user/self_user.dart';
@@ -190,6 +191,65 @@ void main() {
     );
     await api.login('ada', 'pw');
     expect(api.currentUser(), throwsA(isA<AuthorizationFailure>()));
+  });
+
+  test('a public read sends no token and returns the body', () async {
+    final List<http.Request> seen = <http.Request>[];
+    final ApiClient api = _client(
+      MockClient((http.Request req) async {
+        seen.add(req);
+        if (req.url.path == '/api/v1/auth/login') {
+          return http.Response(
+            jsonEncode(<String, String>{
+              'access_token': 'a1',
+              'refresh_token': 'r1',
+            }),
+            200,
+          );
+        }
+        return http.Response('up 1\n', 200);
+      }),
+    );
+    await api.login('ada', 'pw');
+
+    expect(await api.publicText('/metrics'), 'up 1\n');
+    expect(seen.last.url.path, '/metrics');
+    expect(seen.last.headers.containsKey('Authorization'), isFalse);
+  });
+
+  test('a refused public read is an error and keeps the session', () async {
+    final List<String> paths = <String>[];
+    final ApiClient api = _client(
+      MockClient((http.Request req) async {
+        paths.add(req.url.path);
+        if (req.url.path == '/api/v1/auth/login') {
+          return http.Response(
+            jsonEncode(<String, String>{
+              'access_token': 'a1',
+              'refresh_token': 'r1',
+            }),
+            200,
+          );
+        }
+        return http.Response('Unauthorized', 401);
+      }),
+    );
+    await api.login('ada', 'pw');
+
+    await expectLater(
+      api.publicText('/metrics'),
+      throwsA(
+        isA<ApiException>()
+            .having((ApiException e) => e.status, 'status', 401)
+            .having(
+              (ApiException e) => e,
+              'kind',
+              isNot(isA<AuthenticationFailure>()),
+            ),
+      ),
+    );
+    expect(paths, isNot(contains('/api/v1/auth/refresh')));
+    expect((await api.currentTokens())?.accessToken, 'a1');
   });
 
   test('an unauthenticated call maps to AuthenticationFailure', () async {

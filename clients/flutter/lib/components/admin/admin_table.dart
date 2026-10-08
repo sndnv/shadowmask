@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/components/admin/admin_column.dart';
+import 'package:shadowmask/components/admin/field_help.dart';
 import 'package:shadowmask/components/hover_tap.dart';
 import 'package:shadowmask/components/status_text.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
@@ -202,6 +203,22 @@ class _AdminTableState<T> extends State<AdminTable<T>> {
   }
 
   Widget _headerContent(Tokens t, TextStyle style, int index, int? sortColumn) {
+    final AdminColumn<T> col = widget.columns[index];
+    final Widget title = _headerTitle(t, style, index, sortColumn);
+    final String? help = col.help;
+    if (help == null) {
+      return title;
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Flexible(child: title),
+        FieldHelp(title: col.label, body: help),
+      ],
+    );
+  }
+
+  Widget _headerTitle(Tokens t, TextStyle style, int index, int? sortColumn) {
     final AdminColumn<T> col = widget.columns[index];
     final Text label = Text(
       col.label.toUpperCase(),

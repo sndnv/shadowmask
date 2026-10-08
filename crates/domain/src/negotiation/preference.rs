@@ -21,7 +21,7 @@ pub fn preferred_subtitle_track(
 }
 
 fn spoken(language: Option<&LanguageCode>, want: &LanguageCode) -> bool {
-    language.is_some_and(|code| code.0.eq_ignore_ascii_case(&want.0))
+    language.is_some_and(|code| want.matches(code))
 }
 
 #[cfg(test)]
@@ -66,6 +66,21 @@ mod tests {
         let tracks = vec![audio(3, Some("EN"))];
 
         assert_eq!(preferred_audio_track(&tracks, &want(&["en"])), Some(3));
+    }
+
+    #[test]
+    fn a_regional_preference_takes_a_track_of_its_language() {
+        let tracks = vec![audio(0, Some("en")), audio(1, Some("pt"))];
+
+        assert_eq!(preferred_audio_track(&tracks, &want(&["pt-BR"])), Some(1));
+    }
+
+    #[test]
+    fn a_bare_preference_takes_any_region_of_its_language() {
+        let tracks = vec![subtitle(0, Some("en"), false), subtitle(1, Some("zh-TW"), false)];
+
+        assert_eq!(preferred_subtitle_track(&tracks, &want(&["zh"])), Some(1));
+        assert_eq!(preferred_subtitle_track(&tracks, &want(&["zh-CN"])), None);
     }
 
     #[test]

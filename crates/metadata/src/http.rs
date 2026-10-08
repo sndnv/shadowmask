@@ -8,13 +8,27 @@ use crate::rate_limiter::RateLimiter;
 
 const DEFAULT_RETRY_AFTER: Duration = Duration::from_secs(5);
 const BODY_EXCERPT_CHARS: usize = 200;
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
+pub(crate) fn client() -> reqwest::Client {
+    client_with(REQUEST_TIMEOUT)
+}
+
+fn client_with(timeout: Duration) -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(timeout)
+        .build()
+        .expect("the HTTP client builds with the bundled TLS backend")
+}
 
 pub(crate) async fn send_ok(
     limiter: &RateLimiter,
     request: reqwest::RequestBuilder,
 ) -> Result<reqwest::Response, String> {
     limiter.acquire().await;
-    let response = request.send().await.map_err(|e| e.without_url().to_string())?;
+    let response = request.send().await.map_err(describe)?;
     let status = response.status();
     if status.is_success() {
         return Ok(response);
@@ -33,6 +47,14 @@ pub(crate) async fn get_json<T: DeserializeOwned>(
 ) -> Result<T, MetadataError> {
     let response = send_ok(limiter, request).await.map_err(MetadataError::Backend)?;
     response.json::<T>().await.map_err(|e| MetadataError::Parse(e.without_url().to_string()))
+}
+
+fn describe(error: reqwest::Error) -> String {
+    if error.is_timeout() {
+        "the provider did not answer in time".to_owned()
+    } else {
+        error.without_url().to_string()
+    }
 }
 
 fn status_message(status: reqwest::StatusCode, body: &str) -> String {
@@ -102,6 +124,28 @@ mod tests {
         assert!(excerpt.starts_with("line one line two x"));
         assert_eq!(excerpt.chars().count(), BODY_EXCERPT_CHARS);
         assert!(!message.contains(['\n', '\r', '\t']));
+    }
+
+    #[tokio::test]
+    async fn a_provider_that_does_not_answer_in_time_fails() {
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(wiremock::matchers::any())
+            .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(5)))
+            .mount(&server)
+            .await;
+        let limiter = RateLimiter::new(Duration::ZERO);
+
+        let message = send_ok(&limiter, client_with(Duration::from_millis(100)).get(server.uri()))
+            .await
+            .unwrap_err();
+
+        assert_eq!(message, "the provider did not answer in time");
+    }
+
+    #[test]
+    fn the_shared_client_builds() {
+        let _ = client();
     }
 
     #[test]

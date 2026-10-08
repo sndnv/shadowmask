@@ -64,6 +64,54 @@ void main() {
     expect(headerRight, closeTo(cellRight, 1));
   });
 
+  testWidgets('a column with help opens it from its header', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      AdminTable<String>(
+        columns: <AdminColumn<String>>[
+          AdminColumn<String>(
+            label: 'Name',
+            sortKey: (String s) => s,
+            help: 'What the name is.',
+            cell: (BuildContext c, String s) => Text(s),
+          ),
+          AdminColumn<String>(
+            label: 'Size',
+            help: 'How big it is.',
+            align: AdminColumnAlign.end,
+            cell: (BuildContext c, String s) => Text('${s.length}'),
+          ),
+          AdminColumn<String>(
+            label: 'Plain',
+            cell: (BuildContext c, String s) => Text('plain $s'),
+          ),
+        ],
+        rows: const <String>['banana', 'apple'],
+        emptyText: 'None',
+      ),
+    );
+
+    expect(find.byTooltip('What is this?'), findsNWidgets(2));
+
+    await tester.tap(find.byTooltip('What is this?').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Size'), findsOneWidget);
+    expect(find.text('How big it is.'), findsOneWidget);
+
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('NAME'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('apple')).dy,
+      lessThan(tester.getTopLeft(find.text('banana')).dy),
+    );
+  });
+
   testWidgets('renders a cell per row', (WidgetTester tester) async {
     await _pump(
       tester,

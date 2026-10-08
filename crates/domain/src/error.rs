@@ -66,7 +66,7 @@ pub enum CatalogError {
 
 #[derive(Debug, Error)]
 pub enum LibraryError {
-    #[error("library not found")]
+    #[error("not found")]
     NotFound,
     #[error("scan already in progress")]
     ScanInProgress,
@@ -270,6 +270,12 @@ pub enum DownloadTokenError {
     Invalid,
     #[error("failed to create download link: {0}")]
     Create(String),
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum BenchmarkError {
+    #[error("a benchmark is already running")]
+    Running,
 }
 
 #[derive(Debug, Error)]

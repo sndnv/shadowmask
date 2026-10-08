@@ -87,6 +87,12 @@ class DashboardPage extends StatelessWidget {
               icon: Icons.bolt_outlined,
               onTap: () => go(adminActivityRoute()),
             ),
+            AdminLinkCard(
+              title: Strings.adminServer,
+              description: Strings.adminServerAbout,
+              icon: Icons.memory_outlined,
+              onTap: () => go(adminServerRoute()),
+            ),
           ],
         ),
       ],

@@ -1,4 +1,3 @@
-use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use serde::Deserialize;
@@ -21,7 +20,7 @@ use crate::dto::catalog::{
 };
 use crate::dto::discovery::PersonResponse;
 use crate::error::{ApiError, ApiResult};
-use crate::extract::{AuthUser, RequireAdmin};
+use crate::extract::{AuthUser, Json, RequireAdmin};
 use crate::handlers::log_fail;
 use crate::pagination::{PageParams, PageResponse};
 use domain::service::{CatalogService, LibraryService};

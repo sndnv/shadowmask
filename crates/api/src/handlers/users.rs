@@ -1,4 +1,3 @@
-use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use tracing::debug;
@@ -12,7 +11,7 @@ use crate::dto::user::{
     SetActiveRequest, SetLibraryAccessRequest, UpdateProfileRequest, UserResponse,
 };
 use crate::error::{ApiError, ApiResult};
-use crate::extract::{AuthUser, RequireAdmin};
+use crate::extract::{AuthUser, Json, RequireAdmin};
 use crate::handlers::{deny_player, log_fail, require_admin_or_self};
 use crate::pagination::{PageParams, PageResponse};
 use domain::service::{AuthService, DiscoveryService, SessionService, UserService};

@@ -103,7 +103,7 @@ where
             let Some(candidate) = candidates
                 .iter()
                 .filter(|candidate| {
-                    candidate.language.as_ref() == Some(language)
+                    candidate.language.as_ref().is_some_and(|have| language.matches(have))
                         && candidate
                             .release_name
                             .as_deref()
@@ -504,6 +504,43 @@ mod tests {
         assert_eq!(files[0].path, store.stored.lock().unwrap()[0], "/subs/v1/42.vtt was written");
         assert_eq!(files[0].format, SubtitleFormat::Vtt);
         assert_eq!(files[0].label.as_deref(), Some(RELEASE));
+    }
+
+    #[tokio::test]
+    async fn a_target_takes_the_regions_it_covers_and_no_other() {
+        let catalog = seeded();
+        let raw = SubtitleJobPayload {
+            version_id: VersionId("v1".into()),
+            imdb_id: Some("tt1".into()),
+            title: Some("Paper Skies".into()),
+            languages: vec!["pt".into(), "zh-TW".into()],
+            season: None,
+            episode: None,
+            transcribe_on_miss: false,
+        }
+        .encode();
+
+        SubtitlesJobHandler::new(
+            MockProvider {
+                mode: ProviderMode::Ok(vec![candidate("1", "pt-BR"), candidate("2", "zh-CN")]),
+            },
+            catalog.clone(),
+            MockStore::default(),
+            MockTrigger::default(),
+            MockTranscription::default(),
+        )
+        .handle(&job(raw))
+        .await
+        .unwrap();
+
+        let files = held(&catalog).await;
+        assert_eq!(
+            files
+                .iter()
+                .map(|file| (file.id.0.as_str(), file.language.as_ref().map(|l| l.0.as_str())))
+                .collect::<Vec<_>>(),
+            [("opensubtitles:v1:1", Some("pt-BR"))]
+        );
     }
 
     #[tokio::test]

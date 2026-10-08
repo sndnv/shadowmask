@@ -2,6 +2,7 @@
 
 pub mod catalog;
 pub mod common;
+pub mod diagnostics;
 pub mod discovery;
 pub mod error;
 pub mod job;

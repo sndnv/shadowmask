@@ -13,7 +13,7 @@ pub struct ImageArtworkPipeline {
 
 impl ImageArtworkPipeline {
     pub fn new() -> Self {
-        Self { client: reqwest::Client::new() }
+        Self { client: crate::http::client() }
     }
 }
 

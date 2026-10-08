@@ -760,27 +760,27 @@ namespace tests
         @it("remembers the language of the track, not its index")
         sub remembersLanguages()
             version = {
-                audio: [{ index: 0, language: "eng" }, { index: 1, language: "jpn" }],
-                subtitles: [{ index: 3, language: "swe" }]
+                audio: [{ index: 0, language: "en" }, { index: 1, language: "ja" }],
+                subtitles: [{ index: 3, language: "sv" }]
             }
             controls = DefaultControls()
             controls.audioTrack = 1
             controls.subtitle = { "type": "embedded", index: 3 }
 
             carried = CarriedTracks(controls, version)
-            m.assertEqual(carried.audioLanguage, "jpn")
-            m.assertEqual(carried.subtitleLanguage, "swe")
+            m.assertEqual(carried.audioLanguage, "ja")
+            m.assertEqual(carried.subtitleLanguage, "sv")
             m.assertFalse(carried.subtitleOff)
         end sub
 
         @it("finds the same language at a different index on the next episode")
         sub findsLanguageAtANewIndex()
             later = {
-                audio: [{ index: 0, language: "jpn" }, { index: 1, language: "eng" }],
-                subtitles: [{ index: 7, language: "swe" }]
+                audio: [{ index: 0, language: "ja" }, { index: 1, language: "en" }],
+                subtitles: [{ index: 7, language: "sv" }]
             }
 
-            controls = ControlsForCarried({ audioLanguage: "jpn", subtitleLanguage: "swe", subtitleOff: false }, later)
+            controls = ControlsForCarried({ audioLanguage: "ja", subtitleLanguage: "sv", subtitleOff: false }, later)
             m.assertEqual(controls.audioTrack, 0)
             m.assertEqual(controls.subtitle.index, 7)
             m.assertEqual(controls.subtitle["type"], "embedded")
@@ -788,14 +788,14 @@ namespace tests
 
         @it("carries a subtitle file by language too")
         sub carriesSubtitleFiles()
-            version = { subtitle_files: [{ id: "f1", language: "swe" }] }
+            version = { subtitle_files: [{ id: "f1", language: "sv" }] }
             controls = DefaultControls()
             controls.subtitle = { "type": "file", id: "f1" }
 
             carried = CarriedTracks(controls, version)
-            m.assertEqual(carried.subtitleLanguage, "swe")
+            m.assertEqual(carried.subtitleLanguage, "sv")
 
-            later = { subtitle_files: [{ id: "f9", language: "swe" }] }
+            later = { subtitle_files: [{ id: "f9", language: "sv" }] }
             m.assertEqual(ControlsForCarried(carried, later).subtitle.id, "f9")
         end sub
 
@@ -805,18 +805,18 @@ namespace tests
             controls.subtitleOff = true
             controls.subtitle = { "type": "embedded", index: 3 }
 
-            carried = CarriedTracks(controls, { subtitles: [{ index: 3, language: "swe" }] })
+            carried = CarriedTracks(controls, { subtitles: [{ index: 3, language: "sv" }] })
             m.assertTrue(carried.subtitleOff)
             m.assertEqual(carried.subtitleLanguage, "")
 
-            later = ControlsForCarried(carried, { subtitles: [{ index: 3, language: "swe" }] })
+            later = ControlsForCarried(carried, { subtitles: [{ index: 3, language: "sv" }] })
             m.assertTrue(later.subtitleOff)
             m.assertInvalid(later.subtitle)
         end sub
 
         @it("falls back to the default when the next episode has no such language")
         sub fallsBackWhenLanguageIsMissing()
-            controls = ControlsForCarried({ audioLanguage: "jpn", subtitleLanguage: "swe", subtitleOff: false }, { audio: [{ index: 0, language: "eng" }] })
+            controls = ControlsForCarried({ audioLanguage: "ja", subtitleLanguage: "sv", subtitleOff: false }, { audio: [{ index: 0, language: "en" }] })
 
             m.assertEqual(controls.audioTrack, DefaultControls().audioTrack)
             m.assertInvalid(controls.subtitle)
@@ -824,7 +824,7 @@ namespace tests
 
         @it("matches a language whatever case the server sent it in")
         sub matchesLanguageCaseInsensitively()
-            m.assertEqual(AudioIndexForLanguage({ audio: [{ index: 4, language: "JPN" }] }, "jpn"), 4)
+            m.assertEqual(AudioIndexForLanguage({ audio: [{ index: 4, language: "JA" }] }, "ja"), 4)
         end sub
 
         @it("survives a version with no tracks at all")
@@ -1028,6 +1028,34 @@ namespace tests
             m.assertTrue(SubtitlesAreBurned({ subtitle_delivery: "burned" }))
             m.assertFalse(SubtitlesAreBurned({ subtitle_delivery: "hls_vtt" }))
             m.assertFalse(SubtitlesAreBurned(invalid))
+        end sub
+
+        @describe("CaptionsWanted")
+
+        @it("wants captions for a chosen subtitle the player draws")
+        sub wantsCaptionsForADrawnSubtitle()
+            session = { selected: { subtitle_delivery: "hls_vtt" } }
+            m.assertTrue(CaptionsWanted(session, { "type": "embedded", index: 3 }))
+            m.assertTrue(CaptionsWanted(session, { "type": "file", id: "f1" }))
+            m.assertTrue(CaptionsWanted({ selected: invalid }, { "type": "file", id: "f1" }))
+        end sub
+
+        @it("wants none with subtitles off, so a file's own track stays hidden")
+        sub wantsNoCaptionsWhenOff()
+            session = { selected: { subtitle_delivery: "none" } }
+            m.assertFalse(CaptionsWanted(session, invalid))
+            m.assertFalse(CaptionsWanted(session, { "type": "file", id: "" }))
+        end sub
+
+        @it("wants none when the pixels already carry the subtitle")
+        sub wantsNoCaptionsWhenBurned()
+            session = { selected: { subtitle_delivery: "burned" } }
+            m.assertFalse(CaptionsWanted(session, { "type": "embedded", index: 3 }))
+        end sub
+
+        @it("wants none before a session exists")
+        sub wantsNoCaptionsWithoutASession()
+            m.assertFalse(CaptionsWanted(invalid, { "type": "embedded", index: 3 }))
         end sub
 
         @describe("session requests")

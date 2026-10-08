@@ -85,7 +85,7 @@ function LanguageValues(codes as dynamic) as object
 
     names = []
     for each code in codes
-        names.Push(UCase(TextOrBlank(code)))
+        names.Push(LanguageName(code))
     end for
     return [JoinParts(names)]
 end function

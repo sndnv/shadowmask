@@ -1,4 +1,5 @@
 use domain::catalog::VersionId;
+use domain::common::LanguageCode;
 use domain::job::{Job, JobKind, JobPriority};
 use domain::media::{AudioTrack, SubtitleFileId};
 use jiff::Timestamp;
@@ -11,6 +12,7 @@ pub struct TranscriptionJobPayload {
     pub version_id: VersionId,
     pub source_path: String,
     pub source_language: Option<String>,
+    pub language_hint: Option<String>,
     pub audio_track_index: Option<u32>,
     pub force: bool,
 }
@@ -35,6 +37,8 @@ struct Wire {
     source_path: String,
     source_language: Option<String>,
     #[serde(default)]
+    language_hint: Option<String>,
+    #[serde(default)]
     audio_track_index: Option<u32>,
     #[serde(default)]
     force: bool,
@@ -46,6 +50,7 @@ impl From<&TranscriptionJobPayload> for Wire {
             version_id: payload.version_id.0.clone(),
             source_path: payload.source_path.clone(),
             source_language: payload.source_language.clone(),
+            language_hint: payload.language_hint.clone(),
             audio_track_index: payload.audio_track_index,
             force: payload.force,
         }
@@ -58,6 +63,7 @@ impl From<Wire> for TranscriptionJobPayload {
             version_id: VersionId(wire.version_id),
             source_path: wire.source_path,
             source_language: wire.source_language,
+            language_hint: wire.language_hint,
             audio_track_index: wire.audio_track_index,
             force: wire.force,
         }
@@ -68,6 +74,7 @@ pub fn transcription_job(
     version_id: &VersionId,
     source_path: &str,
     source_language: Option<String>,
+    language_hint: Option<String>,
     audio_track_index: Option<u32>,
     force: bool,
 ) -> Job {
@@ -75,6 +82,7 @@ pub fn transcription_job(
         version_id: version_id.clone(),
         source_path: source_path.to_owned(),
         source_language,
+        language_hint,
         audio_track_index,
         force,
     }
@@ -82,11 +90,19 @@ pub fn transcription_job(
     queued_job(JobKind::Transcription, JobPriority::Low, raw, None, Timestamp::now())
 }
 
+pub fn container_language(tracks: &[AudioTrack], index: Option<u32>) -> Option<String> {
+    index
+        .and_then(|index| tracks.iter().find(|track| track.index == index))
+        .or_else(|| tracks.first())
+        .and_then(|track| track.language.as_ref())
+        .map(|code| code.0.clone())
+}
+
 pub fn select_audio_track(tracks: &[AudioTrack], preferred: Option<&str>) -> Option<u32> {
-    let preferred = preferred?;
+    let preferred = LanguageCode(preferred?.to_owned());
     tracks
         .iter()
-        .find(|track| track.language.as_ref().map(|l| l.0.as_str()) == Some(preferred))
+        .find(|track| track.language.as_ref().is_some_and(|have| preferred.matches(have)))
         .map(|track| track.index)
 }
 
@@ -100,6 +116,7 @@ mod tests {
             version_id: VersionId("v1".into()),
             source_path: "/media/v1.mkv".into(),
             source_language: Some("en".into()),
+            language_hint: Some("ja".into()),
             audio_track_index: Some(2),
             force: true,
         };
@@ -113,6 +130,7 @@ mod tests {
             version_id: VersionId("v2".into()),
             source_path: "/media/v2.mkv".into(),
             source_language: None,
+            language_hint: None,
             audio_track_index: None,
             force: false,
         };
@@ -139,6 +157,14 @@ mod tests {
     }
 
     #[test]
+    fn a_job_queued_before_the_hint_existed_has_none() {
+        let legacy = r#"{"version_id":"v5","source_path":"/media/v5.mkv","source_language":"ja","audio_track_index":1,"force":true}"#;
+        let decoded = TranscriptionJobPayload::decode(legacy).unwrap();
+        assert_eq!(decoded.language_hint, None);
+        assert_eq!(decoded.source_language.as_deref(), Some("ja"));
+    }
+
+    #[test]
     fn decode_rejects_malformed_json() {
         assert!(TranscriptionJobPayload::decode("not json").is_err());
     }
@@ -149,6 +175,7 @@ mod tests {
             &VersionId("v1".into()),
             "/media/v1.mkv",
             Some("es".into()),
+            Some("ca".into()),
             Some(2),
             false,
         );
@@ -158,14 +185,26 @@ mod tests {
         assert_eq!(decoded.version_id, VersionId("v1".into()));
         assert_eq!(decoded.source_path, "/media/v1.mkv");
         assert_eq!(decoded.source_language.as_deref(), Some("es"));
+        assert_eq!(decoded.language_hint.as_deref(), Some("ca"));
         assert_eq!(decoded.audio_track_index, Some(2));
         assert!(!decoded.force);
     }
 
     #[test]
     fn transcription_job_carries_the_force_flag() {
-        let job = transcription_job(&VersionId("v1".into()), "/media/v1.mkv", None, None, true);
+        let job =
+            transcription_job(&VersionId("v1".into()), "/media/v1.mkv", None, None, None, true);
         assert!(TranscriptionJobPayload::decode(&job.payload).unwrap().force);
+    }
+
+    #[test]
+    fn the_container_language_is_the_chosen_tracks_or_the_first() {
+        let tracks = [track(1, Some("en")), track(2, Some("ja")), track(3, None)];
+        assert_eq!(container_language(&tracks, Some(2)).as_deref(), Some("ja"));
+        assert_eq!(container_language(&tracks, None).as_deref(), Some("en"));
+        assert_eq!(container_language(&tracks, Some(9)).as_deref(), Some("en"));
+        assert_eq!(container_language(&tracks, Some(3)), None);
+        assert_eq!(container_language(&[], None), None);
     }
 
     fn track(index: u32, language: Option<&str>) -> AudioTrack {
@@ -188,6 +227,12 @@ mod tests {
     fn select_audio_track_returns_first_match() {
         let tracks = [track(1, Some("en")), track(2, Some("en"))];
         assert_eq!(select_audio_track(&tracks, Some("en")), Some(1));
+    }
+
+    #[test]
+    fn a_regional_preference_finds_a_track_of_its_language() {
+        let tracks = [track(1, Some("en")), track(2, Some("pt"))];
+        assert_eq!(select_audio_track(&tracks, Some("pt-BR")), Some(2));
     }
 
     #[test]

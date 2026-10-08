@@ -1,10 +1,49 @@
-use axum::extract::FromRequestParts;
+use axum::extract::{FromRequest, FromRequestParts, OptionalFromRequest, Request};
 use axum::http::request::Parts;
+use axum::response::{IntoResponse, Response};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use domain::user::{Principal, Role};
 use services::acl;
 
 use crate::error::ApiError;
+
+#[derive(Debug)]
+pub struct Json<T>(pub T);
+
+impl<T, S> FromRequest<S> for Json<T>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
+        let axum::Json(value) =
+            <axum::Json<T> as FromRequest<S>>::from_request(request, state).await?;
+        Ok(Json(value))
+    }
+}
+
+impl<T, S> OptionalFromRequest<S> for Json<T>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request(request: Request, state: &S) -> Result<Option<Self>, Self::Rejection> {
+        let value = <axum::Json<T> as OptionalFromRequest<S>>::from_request(request, state).await?;
+        Ok(value.map(|axum::Json(value)| Json(value)))
+    }
+}
+
+impl<T: Serialize> IntoResponse for Json<T> {
+    fn into_response(self) -> Response {
+        axum::Json(self.0).into_response()
+    }
+}
 
 #[derive(Debug)]
 pub struct AuthUser(pub Principal);

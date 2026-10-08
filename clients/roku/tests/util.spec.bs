@@ -158,14 +158,15 @@ namespace tests
                 username: "ada",
                 role: "player",
                 preferred_audio: ["en", "fr"],
-                preferred_subtitle: ["en"],
+                preferred_subtitle: ["pt-BR", "und"],
                 max_content_rating: { system: "mpaa", code: "pg-13" },
                 concurrent_stream_limit: 2,
                 bitrate_cap: 8000000
             })
 
             m.assertEqual(rows[0].values[0], "ada")
-            m.assertEqual(rows[2].values[0], "EN · FR")
+            m.assertEqual(rows[2].values[0], "English · French")
+            m.assertEqual(rows[3].values[0], "Portuguese (Brazil) · Unknown")
             m.assertEqual(rows[4].values[0], "MPAA PG-13")
             m.assertEqual(rows[5].values[0], "2")
         end sub

@@ -630,7 +630,7 @@ class _Subtitles extends StatelessWidget {
             size: AdminColumnSize.small,
             essential: true,
             cell: (BuildContext context, SubtitleRow s) =>
-                Text(s.language?.toUpperCase() ?? '-'),
+                Text(s.language == null ? '-' : languageLabel(s.language!)),
           ),
           AdminColumn<SubtitleRow>(
             label: Strings.columnFlags,

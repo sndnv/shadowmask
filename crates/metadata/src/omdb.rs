@@ -29,7 +29,7 @@ impl OmdbClient {
 
     pub fn with_base_url(api_key: impl Into<String>, base_url: impl Into<String>) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: crate::http::client(),
             base_url: base_url.into(),
             api_key: api_key.into(),
             limiter: Arc::new(RateLimiter::new(Duration::ZERO)),

@@ -3,6 +3,8 @@ use std::ffi::OsString;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use domain::common::LanguageCode;
+use domain::diagnostics::AccelerationMode;
 use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
 use serde::{Deserialize, Serialize};
@@ -206,6 +208,16 @@ pub enum HardwareAccelerationMode {
     Vaapi,
 }
 
+impl From<HardwareAccelerationMode> for AccelerationMode {
+    fn from(mode: HardwareAccelerationMode) -> Self {
+        match mode {
+            HardwareAccelerationMode::Off => AccelerationMode::Off,
+            HardwareAccelerationMode::Auto => AccelerationMode::Auto,
+            HardwareAccelerationMode::Vaapi => AccelerationMode::Vaapi,
+        }
+    }
+}
+
 pub fn resolve_vaapi_device(
     mode: HardwareAccelerationMode,
     device: &str,
@@ -393,7 +405,14 @@ impl Config {
             config.target_languages = languages;
         }
         let mut seen = BTreeSet::new();
-        config.target_languages.retain(|language| seen.insert(language.clone()));
+        config.target_languages = config
+            .target_languages
+            .iter()
+            .map(|language| language.trim())
+            .filter(|language| !language.is_empty())
+            .map(|language| LanguageCode::canonical(language).0)
+            .filter(|language| seen.insert(language.clone()))
+            .collect();
         if let Some(origins) = list_from_env(std::env::vars_os(), "cors_allowed_origins") {
             config.cors_allowed_origins = origins;
         }
@@ -740,6 +759,25 @@ mod tests {
             assert_eq!(
                 Config::load().unwrap().config.target_languages,
                 vec!["fr".to_owned(), "en".to_owned()]
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn target_languages_are_written_one_way() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("SHADOWMASK_TARGET_LANGUAGES", "EN, en, pt_br, ENG, scc");
+            assert_eq!(
+                Config::load().unwrap().config.target_languages,
+                vec!["en".to_owned(), "pt-BR".to_owned(), "sr".to_owned()]
+            );
+            jail.clear_env();
+            jail.create_file("shadowmask.toml", r#"target_languages = [" DE ", "", "fre"]"#)?;
+            assert_eq!(
+                Config::load().unwrap().config.target_languages,
+                vec!["de".to_owned(), "fr".to_owned()]
             );
             Ok(())
         });
@@ -1293,6 +1331,16 @@ mod tests {
         };
         assert_eq!(transcription_model_dir(&overridden), PathBuf::from("/models/w"));
         assert_eq!(translation_model_dir(&overridden), PathBuf::from("/models/t"));
+    }
+
+    #[test]
+    fn each_hardware_setting_has_its_diagnostics_mode() {
+        assert_eq!(AccelerationMode::from(HardwareAccelerationMode::Off), AccelerationMode::Off);
+        assert_eq!(AccelerationMode::from(HardwareAccelerationMode::Auto), AccelerationMode::Auto);
+        assert_eq!(
+            AccelerationMode::from(HardwareAccelerationMode::Vaapi),
+            AccelerationMode::Vaapi
+        );
     }
 
     #[test]

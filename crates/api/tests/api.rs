@@ -899,6 +899,41 @@ async fn a_started_transcription_is_listed_with_its_place_in_the_queue() {
 }
 
 #[tokio::test]
+async fn a_requested_job_language_is_stored_in_its_one_form() {
+    let ctx = Ctx::new();
+    ctx.library_repo.insert_library(library("lib1"));
+    ctx.catalog_repo.add_version(version(
+        "v1",
+        TitleId::Movie(MovieId("m1".into())),
+        "lib1",
+        Quality::Hd,
+    ));
+    ctx.catalog_repo
+        .set_subtitle_files(&VersionId("v1".into()), &[subtitle_file("sf-en")])
+        .await
+        .unwrap();
+
+    for uri in [
+        "/api/v1/versions/v1/subtitles/transcribe?source_language=ENG",
+        "/api/v1/versions/v1/subtitles/sf-en/translate?target_language=pt_br",
+    ] {
+        let (status, _) = call(ctx.app(), Method::POST, uri, Some(ADMIN), None).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "POST {uri}");
+    }
+    let (_, jobs) =
+        call(ctx.app(), Method::GET, "/api/v1/versions/v1/jobs", Some(ADMIN), None).await;
+
+    let languages: Vec<(&str, &str)> = jobs
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| (row["kind"].as_str().unwrap(), row["language"].as_str().unwrap()))
+        .collect();
+    assert!(languages.contains(&("transcription", "en")), "{languages:?}");
+    assert!(languages.contains(&("translation", "pt-BR")), "{languages:?}");
+}
+
+#[tokio::test]
 async fn an_admins_linked_device_works_on_versions_and_nothing_else() {
     const TV: &str = "device:admin";
     const PLAIN_TV: &str = "device:u1";
@@ -983,6 +1018,65 @@ async fn only_a_scan_asked_to_reread_queues_a_reread() {
         let queued = ctx.jobs_repo.list().await.unwrap();
         assert_eq!(ScanJobPayload::decode(&queued[0].payload).mode, mode);
     }
+}
+
+async fn post_raw(
+    app: Router,
+    uri: &str,
+    content_type: Option<&str>,
+    body: &str,
+) -> (StatusCode, Value) {
+    let mut builder = Request::builder()
+        .method(Method::POST)
+        .uri(uri)
+        .header(header::AUTHORIZATION, format!("Bearer {ADMIN}"));
+    if let Some(content_type) = content_type {
+        builder = builder.header(header::CONTENT_TYPE, content_type);
+    }
+    let response = app.oneshot(builder.body(Body::from(body.to_owned())).unwrap()).await.unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+}
+
+#[tokio::test]
+async fn a_malformed_body_answers_in_the_error_format() {
+    use domain::repository::JobRepository;
+
+    let ctx = Ctx::new();
+    ctx.library_repo.insert_library(library("lib1"));
+    let scan = "/api/v1/libraries/lib1/scan";
+    let login = "/api/v1/auth/login";
+    let json = Some("application/json");
+    let cases = [
+        (scan, json, r#"{"reread":"yes"}"#, StatusCode::UNPROCESSABLE_ENTITY),
+        (scan, json, "", StatusCode::BAD_REQUEST),
+        (scan, json, "{", StatusCode::BAD_REQUEST),
+        (login, None, r#"{"username":"a","password":"b"}"#, StatusCode::UNSUPPORTED_MEDIA_TYPE),
+    ];
+
+    for (uri, content_type, body, expected) in cases {
+        let (status, response) = post_raw(ctx.app(), uri, content_type, body).await;
+
+        assert_eq!(status, expected, "{uri} {body:?}");
+        assert_eq!(response["error"]["code"], "bad_request", "{uri} {body:?}");
+        assert!(
+            response["error"]["message"].as_str().is_some_and(|message| !message.is_empty()),
+            "{uri} {body:?}: {response}"
+        );
+    }
+    assert!(ctx.jobs_repo.list().await.unwrap().is_empty(), "no malformed scan was queued");
+}
+
+#[tokio::test]
+async fn a_missing_library_reads_not_found() {
+    let ctx = Ctx::new();
+
+    let (status, body) =
+        call(ctx.app(), Method::GET, "/api/v1/libraries/ghost", Some(ADMIN), None).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"]["message"], "not found");
 }
 
 #[tokio::test]
