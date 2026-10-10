@@ -13,8 +13,8 @@ use domain::error::RepositoryError;
 use domain::library::LibraryId;
 use domain::media::{
     AudioTrack, Chapter, CreditsMarker, DetectedMarkers, EmbeddedSubtitleTrack, HdrFormat,
-    IntroMarker, SubtitleFile, SubtitleFileId, SubtitleFormat, SubtitleSource, TrickplayAsset,
-    VideoTrack,
+    IntroMarker, PlaybackPrep, SubtitleFile, SubtitleFileId, SubtitleFormat, SubtitleSource,
+    TrickplayAsset, VideoTrack,
 };
 use domain::metadata::{
     ContentRating, Credit, CreditedPerson, ExternalId, Extra, Genre, GenreId, Person, PersonId,
@@ -36,6 +36,10 @@ use crate::pool::{backend, checkpoint, column, from_millis, open, ping, to_milli
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations/catalog");
 
+const PREP_KEYFRAMES_SQL: &str =
+    "SELECT keyframes AS prep FROM version_playback_prep WHERE version_id = ?";
+const PREP_EXTRACTED_SQL: &str =
+    "SELECT extracted_subtitles AS prep FROM version_playback_prep WHERE version_id = ?";
 const LIST_SEASONS_SQL: &str = "SELECT * FROM seasons WHERE series_id = ? ORDER BY number, id";
 const LIST_EPISODES_SQL: &str = "SELECT * FROM episodes WHERE season_id = ? ORDER BY number, id";
 const LIST_VERSIONS_SQL: &str =
@@ -840,6 +844,19 @@ impl SqliteCatalogRepo {
             });
         }
         Ok(DetectedMarkers { intros, credits })
+    }
+
+    async fn load_prep(
+        &self,
+        query: &'static str,
+        version_id: &str,
+    ) -> Result<Option<String>, RepositoryError> {
+        let row = sqlx::query(query)
+            .bind(version_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(backend)?;
+        row.as_ref().map(|row| column(row, "prep")).transpose()
     }
 
     async fn load_trickplay(
@@ -2318,6 +2335,10 @@ impl CatalogRepository for SqliteCatalogRepo {
         let chapters = self.load_chapters(&vid).await?;
         let markers = self.load_markers(&vid).await?;
         let trickplay = self.load_trickplay(&vid).await?;
+        let extracted_subtitles = match self.load_prep(PREP_EXTRACTED_SQL, &vid).await? {
+            Some(raw) => serde_json::from_str(&raw).map_err(backend)?,
+            None => Vec::new(),
+        };
         Ok(Some(VersionDetail {
             version,
             video,
@@ -2327,6 +2348,7 @@ impl CatalogRepository for SqliteCatalogRepo {
             chapters,
             markers,
             trickplay,
+            extracted_subtitles,
         }))
     }
 
@@ -2536,7 +2558,9 @@ impl CatalogRepository for SqliteCatalogRepo {
         let _op = DbOpGuard::new("catalog", "set_version_tracks");
         let vid = version.0.as_str();
         let mut tx = self.pool.begin().await.map_err(backend)?;
-        for table in ["video_tracks", "audio_tracks", "subtitle_tracks", "chapters"] {
+        for table in
+            ["video_tracks", "audio_tracks", "subtitle_tracks", "chapters", "version_playback_prep"]
+        {
             sqlx::query(AssertSqlSafe(format!("DELETE FROM {table} WHERE version_id = ?")))
                 .bind(vid)
                 .execute(&mut *tx)
@@ -2612,6 +2636,35 @@ impl CatalogRepository for SqliteCatalogRepo {
         }
         tx.commit().await.map_err(backend)?;
         Ok(())
+    }
+
+    async fn set_playback_prep(
+        &self,
+        version: &VersionId,
+        prep: &PlaybackPrep,
+    ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "set_playback_prep");
+        let keyframes = serde_json::to_string(&prep.keyframes).map_err(backend)?;
+        let extracted = serde_json::to_string(&prep.extracted_subtitles).map_err(backend)?;
+        sqlx::query(
+            "INSERT OR REPLACE INTO version_playback_prep \
+             (version_id, keyframes, extracted_subtitles) VALUES (?, ?, ?)",
+        )
+        .bind(version.0.as_str())
+        .bind(keyframes)
+        .bind(extracted)
+        .execute(&self.pool)
+        .await
+        .map_err(backend)?;
+        Ok(())
+    }
+
+    async fn keyframes(&self, version: &VersionId) -> Result<Option<Vec<u64>>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "keyframes");
+        self.load_prep(PREP_KEYFRAMES_SQL, &version.0)
+            .await?
+            .map(|raw| serde_json::from_str(&raw).map_err(backend))
+            .transpose()
     }
 
     async fn set_trickplay(

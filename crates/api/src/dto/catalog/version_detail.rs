@@ -153,7 +153,12 @@ impl From<VersionDetail> for VersionDetailResponse {
             path: None,
             video: d.video.into_iter().map(Into::into).collect(),
             audio: d.audio.into_iter().map(Into::into).collect(),
-            subtitles: d.subtitles.into_iter().map(Into::into).collect(),
+            subtitles: d
+                .subtitles
+                .into_iter()
+                .filter(|track| d.extracted_subtitles.contains(&track.index))
+                .map(Into::into)
+                .collect(),
             subtitle_files: d.subtitle_files.into_iter().map(Into::into).collect(),
             chapters: d.chapters.into_iter().map(Into::into).collect(),
             markers: d.markers.into(),
@@ -315,6 +320,7 @@ mod tests {
             chapters: Vec::new(),
             markers: DetectedMarkers { intros: Vec::new(), credits: Vec::new() },
             trickplay: Vec::new(),
+            extracted_subtitles: Vec::new(),
         }
     }
 
@@ -326,6 +332,25 @@ mod tests {
 
         let shown = VersionDetailResponse::with_path(detail(), true);
         assert_eq!(shown.path.as_deref(), Some("/media/v1.mkv"));
+    }
+
+    #[test]
+    fn an_embedded_track_is_listed_only_once_it_is_extracted() {
+        let track = |index| EmbeddedSubtitleTrack {
+            index,
+            language: None,
+            format: SubtitleFormat::Srt,
+            forced: false,
+            default: false,
+        };
+        let response = VersionDetailResponse::from(VersionDetail {
+            subtitles: vec![track(2), track(3)],
+            extracted_subtitles: vec![3],
+            ..detail()
+        });
+
+        let listed: Vec<u32> = response.subtitles.iter().map(|track| track.index).collect();
+        assert_eq!(listed, vec![3]);
     }
 
     #[test]

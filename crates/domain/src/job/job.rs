@@ -24,10 +24,11 @@ pub enum JobKind {
     ScheduledScan,
     Retention,
     OrphanSweep,
+    PlaybackPrep,
 }
 
 impl JobKind {
-    pub const ALL: [JobKind; 19] = [
+    pub const ALL: [JobKind; 20] = [
         JobKind::LibraryScan,
         JobKind::Metadata,
         JobKind::Artwork,
@@ -47,11 +48,13 @@ impl JobKind {
         JobKind::ScheduledScan,
         JobKind::Retention,
         JobKind::OrphanSweep,
+        JobKind::PlaybackPrep,
     ];
 
-    pub const PER_VERSION: [JobKind; 7] = [
+    pub const PER_VERSION: [JobKind; 8] = [
         JobKind::Subtitles,
         JobKind::Trickplay,
+        JobKind::PlaybackPrep,
         JobKind::Relink,
         JobKind::Transcription,
         JobKind::Translation,
@@ -60,7 +63,14 @@ impl JobKind {
     ];
 
     pub fn is_process_killable(&self) -> bool {
-        matches!(self, JobKind::Trickplay | JobKind::Upscale | JobKind::Subtitles | JobKind::Fetch)
+        matches!(
+            self,
+            JobKind::Trickplay
+                | JobKind::Upscale
+                | JobKind::Subtitles
+                | JobKind::Fetch
+                | JobKind::PlaybackPrep
+        )
     }
 
     pub fn from_slug(slug: &str) -> Option<JobKind> {
@@ -88,6 +98,7 @@ impl JobKind {
             JobKind::ScheduledScan => "scheduled_scan",
             JobKind::Retention => "retention",
             JobKind::OrphanSweep => "orphan_sweep",
+            JobKind::PlaybackPrep => "playback_prep",
         }
     }
 }
@@ -196,6 +207,7 @@ mod tests {
             (JobKind::ScheduledScan, "scheduled_scan"),
             (JobKind::Retention, "retention"),
             (JobKind::OrphanSweep, "orphan_sweep"),
+            (JobKind::PlaybackPrep, "playback_prep"),
         ];
         for (kind, slug) in kinds {
             assert_eq!(kind.slug(), slug);
@@ -230,7 +242,13 @@ mod tests {
 
     #[test]
     fn process_killable_kinds() {
-        for kind in [JobKind::Trickplay, JobKind::Upscale, JobKind::Subtitles, JobKind::Fetch] {
+        for kind in [
+            JobKind::Trickplay,
+            JobKind::Upscale,
+            JobKind::Subtitles,
+            JobKind::Fetch,
+            JobKind::PlaybackPrep,
+        ] {
             assert!(kind.is_process_killable(), "{kind:?} should be killable");
         }
         for kind in [

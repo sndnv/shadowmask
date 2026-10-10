@@ -1,34 +1,38 @@
 use domain::catalog::{Version, VersionId};
 use domain::error::UpscaleError;
-use domain::job::Job;
+use domain::job::{Job, JobKind, JobPriority};
 use domain::media::{MediaProbe, UpscaleProvider, UpscaleSpec};
-use domain::repository::CatalogRepository;
+use domain::repository::{CatalogRepository, JobRepository};
 use jiff::Timestamp;
+use services::job::queued_job;
 use services::library::{
-    UpscaleJobPayload, container_of, derive_id, quality_from_height, upscaled_output_path,
+    PlaybackPrepJobPayload, UpscaleJobPayload, container_of, derive_id, quality_from_height,
+    upscaled_output_path,
 };
 use uuid::Uuid;
 
 use crate::error::JobError;
 use crate::job_handler::JobHandler;
 
-pub struct UpscaleJobHandler<P, C, M> {
+pub struct UpscaleJobHandler<P, C, M, J> {
     provider: P,
     catalog: C,
     probe: M,
+    jobs: J,
 }
 
-impl<P, C, M> UpscaleJobHandler<P, C, M> {
-    pub fn new(provider: P, catalog: C, probe: M) -> Self {
-        Self { provider, catalog, probe }
+impl<P, C, M, J> UpscaleJobHandler<P, C, M, J> {
+    pub fn new(provider: P, catalog: C, probe: M, jobs: J) -> Self {
+        Self { provider, catalog, probe, jobs }
     }
 }
 
-impl<P, C, M> JobHandler for UpscaleJobHandler<P, C, M>
+impl<P, C, M, J> JobHandler for UpscaleJobHandler<P, C, M, J>
 where
     P: UpscaleProvider + Send + Sync,
     C: CatalogRepository + Send + Sync,
     M: MediaProbe + Send + Sync,
+    J: JobRepository + Send + Sync,
 {
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         let payload = UpscaleJobPayload::decode(&job.payload)
@@ -100,7 +104,14 @@ where
                 &probe.chapters,
             )
             .await
-            .map_err(|e| JobError::Retryable(e.to_string()))
+            .map_err(|e| JobError::Retryable(e.to_string()))?;
+        let prep = PlaybackPrepJobPayload { version_id: version_id.clone() }.encode();
+        let queued = queued_job(JobKind::PlaybackPrep, JobPriority::High, prep, Some(&job.id), now);
+        if let Err(err) = self.jobs.enqueue(queued).await {
+            #[rustfmt::skip]
+            tracing::warn!("upscaled version [{}] was not queued for playback prep, so it stays unprepared until its files are re-read: {err}", version_id.0);
+        }
+        Ok(())
     }
 }
 
@@ -114,7 +125,7 @@ mod tests {
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
     use domain::media::{ProbeResult, UpscaleOutput, VideoTrack};
     use jiff::Timestamp;
-    use mocks::MockCatalogRepo;
+    use mocks::{MockCatalogRepo, MockJobStore};
     use services::library::{UpscaleJobPayload, derive_id};
 
     use super::*;
@@ -228,7 +239,9 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         catalog.add_version(source_version());
         let (prov, captured) = provider(Mode::Ok);
-        let handler = UpscaleJobHandler::new(prov, catalog.clone(), MockProbe::default());
+        let jobs = MockJobStore::new();
+        let handler =
+            UpscaleJobHandler::new(prov, catalog.clone(), MockProbe::default(), jobs.clone());
 
         handler.handle(&job(payload())).await.unwrap();
 
@@ -245,12 +258,41 @@ mod tests {
         assert_eq!(detail.version.title, TitleId::Movie(MovieId("m1".into())));
         assert!(detail.version.available);
         assert_eq!(detail.video.len(), 1);
+
+        let queued = jobs.list().await.unwrap();
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].kind, JobKind::PlaybackPrep);
+        assert_eq!(queued[0].priority, JobPriority::High);
+        assert_eq!(queued[0].status, JobStatus::Queued);
+        assert_eq!(queued[0].parent_id, Some(JobId("job-1".into())));
+        assert_eq!(PlaybackPrepJobPayload::decode(&queued[0].payload).unwrap().version_id, new_id);
+    }
+
+    #[tokio::test]
+    async fn an_upscale_that_cannot_queue_its_prep_still_succeeds() {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(source_version());
+        let (prov, captured) = provider(Mode::Ok);
+        let jobs = MockJobStore::new();
+        jobs.set_fail();
+        let handler = UpscaleJobHandler::new(prov, catalog.clone(), MockProbe::default(), jobs);
+
+        handler.handle(&job(payload())).await.unwrap();
+
+        let out_path = captured.lock().unwrap().clone().unwrap();
+        let new_id = VersionId(derive_id("version", &out_path));
+        assert!(catalog.version_detail(&new_id).await.unwrap().is_some());
     }
 
     #[tokio::test]
     async fn a_version_that_is_gone_is_a_no_op() {
         let (prov, captured) = provider(Mode::Ok);
-        let handler = UpscaleJobHandler::new(prov, MockCatalogRepo::new(), MockProbe::default());
+        let handler = UpscaleJobHandler::new(
+            prov,
+            MockCatalogRepo::new(),
+            MockProbe::default(),
+            MockJobStore::new(),
+        );
 
         handler.handle(&job(payload())).await.unwrap();
 
@@ -262,85 +304,82 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         catalog.add_version(source_version());
         let (prov, captured) = provider(Mode::Unsupported);
-        let handler = UpscaleJobHandler::new(prov, catalog.clone(), MockProbe::default());
+        let jobs = MockJobStore::new();
+        let handler =
+            UpscaleJobHandler::new(prov, catalog.clone(), MockProbe::default(), jobs.clone());
 
         handler.handle(&job(payload())).await.unwrap();
 
         let out_path = captured.lock().unwrap().clone().unwrap();
         let new_id = VersionId(derive_id("version", &out_path));
         assert!(catalog.version_detail(&new_id).await.unwrap().is_none());
+        assert!(jobs.list().await.unwrap().is_empty());
+    }
+
+    async fn fails_without_queueing(
+        mode: Mode,
+        probe: MockProbe,
+        catalog: MockCatalogRepo,
+    ) -> JobError {
+        let (prov, _) = provider(mode);
+        let jobs = MockJobStore::new();
+        let handler = UpscaleJobHandler::new(prov, catalog, probe, jobs.clone());
+        let err = handler.handle(&job(payload())).await.unwrap_err();
+        assert!(jobs.list().await.unwrap().is_empty());
+        err
+    }
+
+    fn with_source() -> MockCatalogRepo {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_version(source_version());
+        catalog
     }
 
     #[tokio::test]
     async fn precondition_is_permanent() {
-        let catalog = MockCatalogRepo::new();
-        catalog.add_version(source_version());
-        let (prov, _) = provider(Mode::Precondition);
-        let handler = UpscaleJobHandler::new(prov, catalog, MockProbe::default());
-        assert!(matches!(
-            handler.handle(&job(payload())).await.unwrap_err(),
-            JobError::Permanent(_)
-        ));
+        let err =
+            fails_without_queueing(Mode::Precondition, MockProbe::default(), with_source()).await;
+        assert!(matches!(err, JobError::Permanent(_)));
     }
 
     #[tokio::test]
     async fn backend_failure_is_retryable() {
-        let catalog = MockCatalogRepo::new();
-        catalog.add_version(source_version());
-        let (prov, _) = provider(Mode::Backend);
-        let handler = UpscaleJobHandler::new(prov, catalog, MockProbe::default());
-        assert!(matches!(
-            handler.handle(&job(payload())).await.unwrap_err(),
-            JobError::Retryable(_)
-        ));
+        let err = fails_without_queueing(Mode::Backend, MockProbe::default(), with_source()).await;
+        assert!(matches!(err, JobError::Retryable(_)));
     }
 
     #[tokio::test]
     async fn probe_failure_is_retryable() {
-        let catalog = MockCatalogRepo::new();
-        catalog.add_version(source_version());
-        let (prov, _) = provider(Mode::Ok);
-        let handler =
-            UpscaleJobHandler::new(prov, catalog, MockProbe { fail: true, ..MockProbe::default() });
-        assert!(matches!(
-            handler.handle(&job(payload())).await.unwrap_err(),
-            JobError::Retryable(_)
-        ));
+        let probe = MockProbe { fail: true, ..MockProbe::default() };
+        let err = fails_without_queueing(Mode::Ok, probe, with_source()).await;
+        assert!(matches!(err, JobError::Retryable(_)));
     }
 
     #[tokio::test]
     async fn version_detail_failure_is_retryable() {
-        let catalog = MockCatalogRepo::new();
-        catalog.add_version(source_version());
+        let catalog = with_source();
         catalog.set_fail();
-        let (prov, _) = provider(Mode::Ok);
-        let handler = UpscaleJobHandler::new(prov, catalog, MockProbe::default());
-        assert!(matches!(
-            handler.handle(&job(payload())).await.unwrap_err(),
-            JobError::Retryable(_)
-        ));
+        let err = fails_without_queueing(Mode::Ok, MockProbe::default(), catalog).await;
+        assert!(matches!(err, JobError::Retryable(_)));
     }
 
     #[tokio::test]
     async fn persist_failure_is_retryable() {
-        let catalog = MockCatalogRepo::new();
-        catalog.add_version(source_version());
-        let (prov, _) = provider(Mode::Ok);
-        let handler = UpscaleJobHandler::new(
-            prov,
-            catalog.clone(),
-            MockProbe { fail_catalog_after: Some(catalog), ..MockProbe::default() },
-        );
-        assert!(matches!(
-            handler.handle(&job(payload())).await.unwrap_err(),
-            JobError::Retryable(_)
-        ));
+        let catalog = with_source();
+        let probe = MockProbe { fail_catalog_after: Some(catalog.clone()), ..MockProbe::default() };
+        let err = fails_without_queueing(Mode::Ok, probe, catalog).await;
+        assert!(matches!(err, JobError::Retryable(_)));
     }
 
     #[tokio::test]
     async fn invalid_payload_is_permanent() {
         let (prov, _) = provider(Mode::Ok);
-        let handler = UpscaleJobHandler::new(prov, MockCatalogRepo::new(), MockProbe::default());
+        let handler = UpscaleJobHandler::new(
+            prov,
+            MockCatalogRepo::new(),
+            MockProbe::default(),
+            MockJobStore::new(),
+        );
         assert!(matches!(
             handler.handle(&job("garbage".into())).await.unwrap_err(),
             JobError::Permanent(_)

@@ -8,9 +8,9 @@ distribute it to the clients with `./refresh_assets.py`. Do not edit the copies
 inside `clients/*`; they are generated from this directory and `--verify` will fail
 if they drift.
 
-Not everything here is distributed. `brand/shadowmask.logo-retro.svg` and everything
-under `screenshots/` are referenced only by the root `README.md` and have no entry in
-`refresh_assets.py`. `icons/flutter/linux_icon_*.png` are read straight from here by
+Not everything here is distributed. Everything under `screenshots/` is referenced only by
+the root `README.md` and has no entry in `refresh_assets.py`.
+`icons/flutter/linux_icon_*.png` are read straight from here by
 `clients/flutter/AppImageBuilder.yml` when the AppImage is packaged.
 
 ## Layout
@@ -63,8 +63,8 @@ because each platform masks differently.
   `brandMarkSvg` in `clients/flutter/lib/components/brand_mark.dart` generates at runtime**, which
   the basic client cannot call because it is Dart. Same `viewBox`, tube, dot grid and opacity, so
   the two clients render the same mark; change one and change the other.
-- `brand/shadowmask.logo-retro.svg` - the same without a plate in the retro theme's colours.
-  Currently unreferenced: the root README used it before switching to the desktop icon.
+- `brand/shadowmask.logo-retro.svg` - the same without a plate in the retro theme's colours. Not
+  referenced anywhere.
 - `placeholders/{poster,landscape,person}.svg` - artwork fallbacks.
   Everything under `glyphs/` is **pure white on transparent** and tinted at runtime through Roku's
   `Poster.blendColor`, which multiplies: any colour baked into a source would survive the tint and come

@@ -17,7 +17,8 @@ use crate::library::{
     UnmatchedFile, UnmatchedFileId,
 };
 use crate::media::{
-    AudioTrack, Chapter, EmbeddedSubtitleTrack, SubtitleFile, TrickplayAsset, VideoTrack,
+    AudioTrack, Chapter, EmbeddedSubtitleTrack, PlaybackPrep, SubtitleFile, TrickplayAsset,
+    VideoTrack,
 };
 use crate::metadata::{Credit, Genre, Person, PersonId, TitleEnrichment};
 use crate::playback::{
@@ -243,6 +244,15 @@ pub trait CatalogRepository {
         version: &VersionId,
         assets: &[TrickplayAsset],
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn set_playback_prep(
+        &self,
+        version: &VersionId,
+        prep: &PlaybackPrep,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn keyframes(
+        &self,
+        version: &VersionId,
+    ) -> impl Future<Output = Result<Option<Vec<u64>>, RepositoryError>> + Send;
     fn set_subtitle_files(
         &self,
         version: &VersionId,
@@ -315,6 +325,10 @@ pub trait VersionCatalog {
         &self,
         id: &VersionId,
     ) -> impl Future<Output = Result<Option<Version>, RepositoryError>> + Send;
+    fn keyframes(
+        &self,
+        id: &VersionId,
+    ) -> impl Future<Output = Result<Option<Vec<u64>>, RepositoryError>> + Send;
 }
 
 impl<T: CatalogRepository + Send + Sync> VersionCatalog for T {
@@ -327,6 +341,10 @@ impl<T: CatalogRepository + Send + Sync> VersionCatalog for T {
 
     async fn get_version(&self, id: &VersionId) -> Result<Option<Version>, RepositoryError> {
         CatalogRepository::get_version(self, id).await
+    }
+
+    async fn keyframes(&self, id: &VersionId) -> Result<Option<Vec<u64>>, RepositoryError> {
+        CatalogRepository::keyframes(self, id).await
     }
 }
 
@@ -548,7 +566,7 @@ pub trait SessionRegistry {
     fn remove_idle(
         &self,
         cutoff: Timestamp,
-    ) -> impl Future<Output = Result<usize, RepositoryError>> + Send;
+    ) -> impl Future<Output = Result<Vec<SessionId>, RepositoryError>> + Send;
 }
 
 pub trait JobRepository {

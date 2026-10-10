@@ -11,8 +11,8 @@ use domain::common::{Page, PageRequest};
 use domain::error::RepositoryError;
 use domain::library::LibraryId;
 use domain::media::{
-    AudioTrack, Chapter, DetectedMarkers, EmbeddedSubtitleTrack, SubtitleFile, TrickplayAsset,
-    VideoTrack,
+    AudioTrack, Chapter, DetectedMarkers, EmbeddedSubtitleTrack, PlaybackPrep, SubtitleFile,
+    TrickplayAsset, VideoTrack,
 };
 use domain::metadata::{
     ContentRating, Credit, CreditedPerson, Genre, Person, PersonId, TitleEnrichment,
@@ -46,6 +46,7 @@ struct State {
     trickplay: HashMap<VersionId, Vec<TrickplayAsset>>,
     subtitle_files: HashMap<VersionId, Vec<SubtitleFile>>,
     markers: HashMap<VersionId, DetectedMarkers>,
+    playback_prep: HashMap<VersionId, PlaybackPrep>,
 }
 
 fn kind_rank(title: &TitleRef) -> u8 {
@@ -235,6 +236,15 @@ impl MockCatalogRepo {
         );
         state.subtitle_files.insert(id.clone(), detail.subtitle_files);
         state.trickplay.insert(id.clone(), detail.trickplay);
+        if !detail.extracted_subtitles.is_empty() {
+            state.playback_prep.insert(
+                id.clone(),
+                PlaybackPrep {
+                    keyframes: Vec::new(),
+                    extracted_subtitles: detail.extracted_subtitles,
+                },
+            );
+        }
         state.markers.insert(id, detail.markers);
     }
 
@@ -636,6 +646,11 @@ impl CatalogRepository for MockCatalogRepo {
             chapters: tracks.chapters,
             markers: state.markers.get(id).cloned().unwrap_or_default(),
             trickplay: state.trickplay.get(id).cloned().unwrap_or_default(),
+            extracted_subtitles: state
+                .playback_prep
+                .get(id)
+                .map(|prep| prep.extracted_subtitles.clone())
+                .unwrap_or_default(),
         };
         if self.clear_subtitles_after_read.swap(false, Ordering::Relaxed) {
             state.subtitle_files.remove(id);
@@ -880,7 +895,8 @@ impl CatalogRepository for MockCatalogRepo {
         chapters: &[Chapter],
     ) -> Result<(), RepositoryError> {
         self.guard()?;
-        self.state.lock().unwrap().tracks.insert(
+        let mut state = self.state.lock().unwrap();
+        state.tracks.insert(
             version.clone(),
             VersionTracks {
                 video: video.to_vec(),
@@ -889,7 +905,26 @@ impl CatalogRepository for MockCatalogRepo {
                 chapters: chapters.to_vec(),
             },
         );
+        state.playback_prep.remove(version);
         Ok(())
+    }
+
+    async fn set_playback_prep(
+        &self,
+        version: &VersionId,
+        prep: &PlaybackPrep,
+    ) -> Result<(), RepositoryError> {
+        self.guard()?;
+        if self.fail_writes.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend("mock catalog write failure".to_owned()));
+        }
+        self.state.lock().unwrap().playback_prep.insert(version.clone(), prep.clone());
+        Ok(())
+    }
+
+    async fn keyframes(&self, version: &VersionId) -> Result<Option<Vec<u64>>, RepositoryError> {
+        self.guard()?;
+        Ok(self.state.lock().unwrap().playback_prep.get(version).map(|prep| prep.keyframes.clone()))
     }
 
     async fn set_trickplay(

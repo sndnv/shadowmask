@@ -8,7 +8,7 @@ use tower::ServiceExt;
 
 use api::{StreamState, stream_router};
 use domain::catalog::VersionId;
-use domain::media::MediaProbe;
+use domain::media::{KeyframeProbe, MediaProbe};
 use domain::session::{
     DeliveryMode, SegmentContainer, SessionId, StreamClaims, StreamGeneration, StreamRegistration,
     StreamRegistry, StreamTokens, TranscodeManager, TranscodeSpec,
@@ -51,6 +51,10 @@ async fn serves_a_jit_segment_end_to_end() {
         .expect("ffprobe should succeed; is ffmpeg installed and on PATH?");
     assert!(!probe.video.is_empty(), "fixture must have a video track");
     assert!(probe.duration_ms > 0);
+    let keyframes = FfprobeMediaProbe::default()
+        .keyframes(&input_path)
+        .await
+        .expect("the fixture's keyframes should be readable");
 
     let cache = tempfile::tempdir().unwrap();
     let session = SessionId(SESSION.to_owned());
@@ -63,6 +67,7 @@ async fn serves_a_jit_segment_end_to_end() {
             version: VersionId("ver-1".to_owned()),
             input_path,
             duration_ms: probe.duration_ms,
+            keyframes: Some(keyframes),
             copy: true,
             container: SegmentContainer::MpegTs,
             seek_ms: None,

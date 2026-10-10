@@ -1,4 +1,4 @@
-use domain::session::{Segment, SegmentContainer, SegmentPlan, SoftSubtitleSource, TranscodeSpec};
+use domain::session::{Segment, SegmentContainer, SegmentPlan, TranscodeSpec};
 
 use crate::transcode::VideoEncoder;
 
@@ -167,26 +167,8 @@ pub(crate) fn build_segment_args(
     args
 }
 
-pub(crate) fn build_subtitle_extract_args(
-    video_input: &str,
-    source: &SoftSubtitleSource,
-    out_vtt: &str,
-) -> Vec<String> {
-    let mut args = vec!["-nostdin".to_owned(), "-y".to_owned(), "-i".to_owned()];
-    match source {
-        SoftSubtitleSource::Embedded(index) => {
-            args.push(video_input.to_owned());
-            args.push("-map".to_owned());
-            args.push(format!("0:{index}"));
-        }
-        SoftSubtitleSource::File(path) => {
-            args.push(path.clone());
-        }
-    }
-    args.push("-f".to_owned());
-    args.push("webvtt".to_owned());
-    args.push(out_vtt.to_owned());
-    args
+pub(crate) fn build_subtitle_extract_args(input: &str, out_vtt: &str) -> Vec<String> {
+    ["-nostdin", "-y", "-i", input, "-f", "webvtt", out_vtt].map(str::to_owned).to_vec()
 }
 
 pub(crate) fn subtitle_media_playlist(duration_ms: u64, vtt_name: &str) -> String {
@@ -240,6 +222,7 @@ mod tests {
             version: VersionId("ver-1".to_owned()),
             input_path: "/media/movie.mkv".to_owned(),
             duration_ms: 120_000,
+            keyframes: None,
             copy: false,
             container: SegmentContainer::MpegTs,
             seek_ms: None,
@@ -694,35 +677,8 @@ mod tests {
     }
 
     #[test]
-    fn subtitle_extract_embedded_maps_stream() {
-        let args = build_subtitle_extract_args(
-            "/media/movie.mkv",
-            &SoftSubtitleSource::Embedded(3),
-            "/cache/s1/subs/subs.vtt",
-        );
-        assert_eq!(
-            args,
-            vec![
-                "-nostdin",
-                "-y",
-                "-i",
-                "/media/movie.mkv",
-                "-map",
-                "0:3",
-                "-f",
-                "webvtt",
-                "/cache/s1/subs/subs.vtt",
-            ]
-        );
-    }
-
-    #[test]
     fn subtitle_extract_file_reads_sidecar() {
-        let args = build_subtitle_extract_args(
-            "/media/movie.mkv",
-            &SoftSubtitleSource::File("/media/movie.en.srt".to_owned()),
-            "/cache/s1/subs/subs.vtt",
-        );
+        let args = build_subtitle_extract_args("/media/movie.en.srt", "/cache/s1/subs/subs.vtt");
         assert_eq!(
             args,
             vec![

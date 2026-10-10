@@ -9,6 +9,7 @@ pub struct TranscodeSpec {
     pub version: VersionId,
     pub input_path: String,
     pub duration_ms: u64,
+    pub keyframes: Option<Vec<u64>>,
     pub copy: bool,
     pub container: SegmentContainer,
     pub seek_ms: Option<u64>,

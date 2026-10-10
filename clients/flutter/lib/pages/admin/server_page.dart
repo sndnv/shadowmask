@@ -867,28 +867,6 @@ class _TotalsView extends StatelessWidget {
                   Text('${t.abandoned}'),
             ),
             AdminColumn<TranscodeTotals>(
-              label: Strings.columnKeyframeReads,
-              essential: true,
-              align: AdminColumnAlign.end,
-              help: Strings.helpKeyframeReads,
-              cell: (BuildContext context, TranscodeTotals t) =>
-                  Text('${t.keyframeReads}'),
-            ),
-            AdminColumn<TranscodeTotals>(
-              label: Strings.columnKeyframeAverage,
-              align: AdminColumnAlign.end,
-              help: Strings.helpKeyframeAverage,
-              cell: (BuildContext context, TranscodeTotals t) =>
-                  Text(_average(t.averageKeyframeMs)),
-            ),
-            AdminColumn<TranscodeTotals>(
-              label: Strings.columnKeyframeFailures,
-              align: AdminColumnAlign.end,
-              help: Strings.helpKeyframeFailures,
-              cell: (BuildContext context, TranscodeTotals t) =>
-                  Text('${t.keyframeFailures}'),
-            ),
-            AdminColumn<TranscodeTotals>(
               label: Strings.columnDirectBytes,
               essential: true,
               align: AdminColumnAlign.end,

@@ -9,18 +9,19 @@ use sha2::{Digest, Sha256};
 const IDENTITY_LEN: usize = 16;
 
 #[derive(Debug, Clone)]
-pub struct FsSubtitleExtractionStore {
+pub struct FsPlaybackPrepStore {
     root: PathBuf,
 }
 
 #[derive(Debug)]
-pub(crate) struct ExtractionEntry {
+pub(crate) struct PrepEntry {
     pub(crate) dir: PathBuf,
     pub(crate) path: PathBuf,
     pub(crate) prefix: String,
+    pub(crate) extension: String,
 }
 
-impl FsSubtitleExtractionStore {
+impl FsPlaybackPrepStore {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
     }
@@ -30,19 +31,29 @@ impl FsSubtitleExtractionStore {
         version: &VersionId,
         input_path: &str,
         source: &SoftSubtitleSource,
-    ) -> Result<ExtractionEntry, TranscodeError> {
-        if !crate::derived_assets::is_plain_name(&version.0) {
-            #[rustfmt::skip]
-            return Err(TranscodeError::Spawn(format!("refusing to cache a subtitle outside the store for version [{}]", version.0)));
-        }
+    ) -> Result<PrepEntry, TranscodeError> {
         let read = match source {
             SoftSubtitleSource::Embedded(_) => input_path,
             SoftSubtitleSource::File(path) => path.as_str(),
         };
         let prefix = match source {
-            SoftSubtitleSource::Embedded(index) => format!("embedded-{index}"),
+            SoftSubtitleSource::Embedded(index) => embedded_prefix(*index),
             SoftSubtitleSource::File(path) => format!("file-{}", digest(path.as_bytes())),
         };
+        self.output(version, read, &prefix, "vtt").await
+    }
+
+    pub(crate) async fn output(
+        &self,
+        version: &VersionId,
+        read: &str,
+        prefix: &str,
+        extension: &str,
+    ) -> Result<PrepEntry, TranscodeError> {
+        if !crate::derived_assets::is_plain_name(&version.0) {
+            #[rustfmt::skip]
+            return Err(TranscodeError::Spawn(format!("refusing to write outside the playback prep store for version [{}]", version.0)));
+        }
         let (size, modified) = match tokio::fs::metadata(read).await {
             Ok(meta) => (meta.len(), meta.modified().ok()),
             Err(_) => (0, None),
@@ -52,15 +63,16 @@ impl FsSubtitleExtractionStore {
             .map_or(0, |since| since.as_secs());
         let identity = digest(format!("{read}|{prefix}|{size}|{modified}").as_bytes());
         let dir = self.root.join(&version.0);
-        let path = dir.join(format!("{prefix}-{identity}.vtt"));
-        Ok(ExtractionEntry { dir, path, prefix })
+        let path = dir.join(format!("{prefix}-{identity}.{extension}"));
+        Ok(PrepEntry { dir, path, prefix: prefix.to_owned(), extension: extension.to_owned() })
     }
 
-    pub(crate) async fn prune_siblings(&self, entry: &ExtractionEntry) {
+    pub(crate) async fn prune_siblings(&self, entry: &PrepEntry) {
         let Ok(mut entries) = tokio::fs::read_dir(&entry.dir).await else {
             return;
         };
         let lead = format!("{}-", entry.prefix);
+        let tail = format!(".{}", entry.extension);
         while let Ok(Some(found)) = entries.next_entry().await {
             let path = found.path();
             if path == entry.path {
@@ -69,20 +81,24 @@ impl FsSubtitleExtractionStore {
             let Some(name) = found.file_name().to_str().map(str::to_owned) else {
                 continue;
             };
-            if name.starts_with(&lead) && name.ends_with(".vtt") {
+            if name.starts_with(&lead) && name.ends_with(&tail) {
                 let _ = tokio::fs::remove_file(&path).await;
             }
         }
     }
 }
 
+pub(crate) fn embedded_prefix(index: u32) -> String {
+    format!("embedded-{index}")
+}
+
 fn digest(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().take(IDENTITY_LEN / 2).map(|byte| format!("{byte:02x}")).collect()
 }
 
-impl DerivedAssetStore for FsSubtitleExtractionStore {
+impl DerivedAssetStore for FsPlaybackPrepStore {
     fn label(&self) -> &'static str {
-        "subtitle extraction"
+        "playback prep"
     }
 
     async fn list_dirs(&self) -> Result<Vec<DerivedAssetDir>, CacheError> {
@@ -106,9 +122,9 @@ impl DerivedAssetStore for FsSubtitleExtractionStore {
 mod tests {
     use super::*;
 
-    fn store() -> (tempfile::TempDir, FsSubtitleExtractionStore) {
+    fn store() -> (tempfile::TempDir, FsPlaybackPrepStore) {
         let dir = tempfile::tempdir().expect("tempdir");
-        let store = FsSubtitleExtractionStore::new(dir.path());
+        let store = FsPlaybackPrepStore::new(dir.path());
         (dir, store)
     }
 
@@ -224,7 +240,7 @@ mod tests {
             )
             .await
             .expect_err("refused");
-        assert!(err.to_string().contains("outside the store"));
+        assert!(err.to_string().contains("outside the playback prep store"));
     }
 
     #[tokio::test]
@@ -267,7 +283,7 @@ mod tests {
         let owned = dir.path().join("ver-1");
         std::fs::create_dir_all(&owned).expect("dir");
         std::fs::write(owned.join("embedded-3-abc.vtt"), b"WEBVTT").expect("write");
-        assert_eq!(store.label(), "subtitle extraction");
+        assert_eq!(store.label(), "playback prep");
         let dirs = store.list_dirs().await.expect("dirs");
         assert_eq!(dirs.len(), 1);
         assert_eq!(dirs[0].owner, "ver-1");

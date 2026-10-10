@@ -1,6 +1,6 @@
 use domain::catalog::{ArtworkId, ArtworkOwner, VersionId};
 use domain::error::RepositoryError;
-use domain::job::{JobId, JobKind, JobPriority};
+use domain::job::{JobId, JobKind, JobPriority, JobStatus};
 use domain::library::DiscoveredFile;
 use domain::media::AudioTrack;
 use domain::metadata::{Artwork, ArtworkKind, PersonId};
@@ -9,9 +9,9 @@ use jiff::Timestamp;
 use uuid::Uuid;
 
 use super::{
-    ArtworkJobItem, ArtworkJobPayload, MetadataJobPayload, SubtitleJobPayload,
-    TranscriptionJobPayload, TrickplayJobPayload, container_language, select_audio_track,
-    translation_job,
+    ArtworkJobItem, ArtworkJobPayload, MetadataJobPayload, PlaybackPrepJobPayload,
+    SubtitleJobPayload, TranscriptionJobPayload, TrickplayJobPayload, container_language,
+    select_audio_track, translation_job,
 };
 use crate::job::queued_job;
 
@@ -53,6 +53,7 @@ where
         parent: Option<&JobId>,
     ) -> Result<(), RepositoryError> {
         let audio = &file.probe.audio;
+        self.enqueue_playback_prep(version_id, parent).await?;
         self.enqueue_trickplay(version_id, &file.path, file.probe.duration_ms, parent).await?;
         let transcription_wanted =
             self.transcription_enabled && !has_native_subtitle && !audio.is_empty();
@@ -140,6 +141,27 @@ where
         let now = Timestamp::now();
         self.jobs
             .enqueue(queued_job(JobKind::Subtitles, JobPriority::Normal, raw, parent, now))
+            .await
+    }
+
+    pub(super) async fn enqueue_playback_prep(
+        &self,
+        version_id: &VersionId,
+        parent: Option<&JobId>,
+    ) -> Result<(), RepositoryError> {
+        let now = Timestamp::now();
+        let pending = self
+            .jobs
+            .list_for_version(version_id, now)
+            .await?
+            .into_iter()
+            .any(|job| job.kind == JobKind::PlaybackPrep && job.status == JobStatus::Queued);
+        if pending {
+            return Ok(());
+        }
+        let raw = PlaybackPrepJobPayload { version_id: version_id.clone() }.encode();
+        self.jobs
+            .enqueue(queued_job(JobKind::PlaybackPrep, JobPriority::High, raw, parent, now))
             .await
     }
 

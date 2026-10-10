@@ -12,35 +12,35 @@ use crate::job_handler::JobHandler;
 
 const OWNER_CHUNK: usize = 500;
 
-pub struct OrphanSweepHandler<C, A, S, T, E> {
+pub struct OrphanSweepHandler<C, A, S, T, P> {
     catalog: C,
     artwork: A,
     subtitles: S,
     trickplay: T,
-    extraction: E,
+    prep: P,
     grace: SignedDuration,
 }
 
-impl<C, A, S, T, E> OrphanSweepHandler<C, A, S, T, E> {
+impl<C, A, S, T, P> OrphanSweepHandler<C, A, S, T, P> {
     pub fn new(
         catalog: C,
         artwork: A,
         subtitles: S,
         trickplay: T,
-        extraction: E,
+        prep: P,
         grace: SignedDuration,
     ) -> Self {
-        Self { catalog, artwork, subtitles, trickplay, extraction, grace }
+        Self { catalog, artwork, subtitles, trickplay, prep, grace }
     }
 }
 
-impl<C, A, S, T, E> OrphanSweepHandler<C, A, S, T, E>
+impl<C, A, S, T, P> OrphanSweepHandler<C, A, S, T, P>
 where
     C: CatalogRepository + Send + Sync,
     A: DerivedAssetStore,
     S: DerivedAssetStore,
     T: DerivedAssetStore,
-    E: DerivedAssetStore,
+    P: DerivedAssetStore,
 {
     async fn sweep<F, G>(
         &self,
@@ -135,13 +135,13 @@ where
     }
 }
 
-impl<C, A, S, T, E> JobHandler for OrphanSweepHandler<C, A, S, T, E>
+impl<C, A, S, T, P> JobHandler for OrphanSweepHandler<C, A, S, T, P>
 where
     C: CatalogRepository + Send + Sync,
     A: DerivedAssetStore,
     S: DerivedAssetStore,
     T: DerivedAssetStore,
-    E: DerivedAssetStore,
+    P: DerivedAssetStore,
 {
     async fn handle(&self, _job: &Job) -> Result<(), JobError> {
         let Ok(cutoff) = Timestamp::now().checked_sub(self.grace) else {
@@ -160,9 +160,9 @@ where
         self.sweep(&self.artwork, artwork, artwork_paths, cutoff).await?;
         self.sweep(&self.subtitles, versions, subtitle_paths, cutoff).await?;
         self.sweep(&self.trickplay, versions, trickplay_paths, cutoff).await?;
-        let (removed, _) = self.sweep_dirs(&self.extraction, versions, cutoff).await?;
+        let (removed, _) = self.sweep_dirs(&self.prep, versions, cutoff).await?;
         #[rustfmt::skip]
-        tracing::info!(store = self.extraction.label(), removed, "orphan sweep complete");
+        tracing::info!(store = self.prep.label(), removed, "orphan sweep complete");
         Ok(())
     }
 }
@@ -568,47 +568,44 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_dead_version_loses_its_extracted_subtitles() {
-        let extraction = StubStore::with(vec![dir("v-gone", SignedDuration::from_hours(48))]);
+    async fn a_dead_version_loses_its_playback_prep() {
+        let prep = StubStore::with(vec![dir("v-gone", SignedDuration::from_hours(48))]);
         OrphanSweepHandler::new(
             MockCatalogRepo::new(),
             StubStore::default(),
             StubStore::default(),
             StubStore::default(),
-            extraction.clone(),
+            prep.clone(),
             SignedDuration::from_hours(24),
         )
         .handle(&sweep_job())
         .await
         .unwrap();
-        assert_eq!(extraction.removed(), vec!["v-gone".to_owned()]);
+        assert_eq!(prep.removed(), vec!["v-gone".to_owned()]);
     }
 
     #[tokio::test]
-    async fn a_live_version_keeps_extracts_no_database_row_knows_about() {
+    async fn a_live_version_keeps_prep_files_no_database_row_knows_about() {
         let catalog = MockCatalogRepo::new();
         catalog.add_version(version("v1"));
-        let extraction = StubStore::holding(
+        let prep = StubStore::holding(
             vec![dir("v1", SignedDuration::from_hours(48))],
-            vec![(
-                "v1",
-                vec![file("/extract/v1/embedded-3-abc.vtt", SignedDuration::from_hours(48))],
-            )],
+            vec![("v1", vec![file("/prep/v1/embedded-3-abc.vtt", SignedDuration::from_hours(48))])],
         );
         OrphanSweepHandler::new(
             catalog,
             StubStore::default(),
             StubStore::default(),
             StubStore::default(),
-            extraction.clone(),
+            prep.clone(),
             SignedDuration::from_hours(24),
         )
         .handle(&sweep_job())
         .await
         .unwrap();
-        assert!(extraction.removed().is_empty());
+        assert!(prep.removed().is_empty());
         #[rustfmt::skip]
-        assert!(extraction.removed_files().is_empty(), "an extract is in no subtitle row, so a file pass would delete every one of them");
+        assert!(prep.removed_files().is_empty(), "a prep file is in no subtitle row, so a file pass would delete every one of them");
     }
 
     #[tokio::test]

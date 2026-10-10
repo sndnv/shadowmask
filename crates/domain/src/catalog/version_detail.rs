@@ -14,4 +14,5 @@ pub struct VersionDetail {
     pub chapters: Vec<Chapter>,
     pub markers: DetectedMarkers,
     pub trickplay: Vec<TrickplayAsset>,
+    pub extracted_subtitles: Vec<u32>,
 }

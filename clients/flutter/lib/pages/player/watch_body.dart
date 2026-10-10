@@ -119,6 +119,8 @@ class _WatchBodyState extends State<WatchBody>
   Timer? _heartbeat;
   String? _status;
   bool _applying = false;
+  bool _applySlow = false;
+  Timer? _applyWatch;
   String? _mode;
   String? _container;
   String? _subtitleDelivery;
@@ -301,6 +303,7 @@ class _WatchBodyState extends State<WatchBody>
     _controller.snapshot.removeListener(_onSnapshot);
     _countdown?.cancel();
     _stallWatch?.cancel();
+    _applyWatch?.cancel();
     _keys.dispose();
     _jobs?.dispose();
     _versionFeed.dispose();
@@ -726,11 +729,18 @@ class _WatchBodyState extends State<WatchBody>
     _controller.pause();
     setState(() {
       _applying = true;
+      _applySlow = false;
       _status = null;
+    });
+    _applyWatch?.cancel();
+    _applyWatch = Timer(const Duration(seconds: kStallSeconds), () {
+      if (mounted) {
+        setState(() => _applySlow = true);
+      }
     });
     try {
       final neg = await _pb.update(sid, next);
-      if (negotiation != _negotiation) {
+      if (!mounted || negotiation != _negotiation) {
         return;
       }
       _originMs = neg.originMs;
@@ -759,7 +769,11 @@ class _WatchBodyState extends State<WatchBody>
       }
     } finally {
       if (mounted && negotiation == _negotiation) {
-        setState(() => _applying = false);
+        _applyWatch?.cancel();
+        setState(() {
+          _applying = false;
+          _applySlow = false;
+        });
       }
     }
   }
@@ -1175,7 +1189,9 @@ class _WatchBodyState extends State<WatchBody>
                       onKeepWaiting: _stalled && !_applying
                           ? _keepWaiting
                           : null,
-                      onGoBack: _stalled && !_applying ? _leavePlayer : null,
+                      onGoBack: (_stalled && !_applying) || _applySlow
+                          ? _leavePlayer
+                          : null,
                       onPlayNow: _prebuffered || _applying ? null : _playNow,
                       ended: snap.ended,
                       onCentrePlay: _centrePlay,

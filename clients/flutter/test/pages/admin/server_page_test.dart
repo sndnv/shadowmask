@@ -109,9 +109,6 @@ transcode_segments_abandoned_total 3
 stream_starts_total{delivery="transcode",outcome="ok"} 9
 stream_first_segment_milliseconds_sum{delivery="transcode"} 27000
 stream_first_segment_milliseconds_count{delivery="transcode"} 9
-stream_keyframe_probe_duration_milliseconds_sum 6000
-stream_keyframe_probe_duration_milliseconds_count 4
-stream_keyframe_probe_failures_total 1
 sessions_started_total{mode="direct"} 5
 sessions_started_total{mode="transcode"} 6
 stream_bytes_sent_total{kind="file"} 307717731
@@ -790,7 +787,7 @@ void main() {
 
     expect(find.text('Metrics'), findsOneWidget);
     expect(find.text('SOFTWARE FALLBACKS'), findsOneWidget);
-    expect(find.text('KEYFRAME FAILURES'), findsOneWidget);
+    expect(find.text('KEYFRAME READS'), findsNothing);
     expect(find.text('SESSIONS'), findsOneWidget);
     expect(find.text('STREAM STARTS'), findsOneWidget);
     expect(find.text('vaapi'), findsNWidgets(2));
@@ -807,9 +804,6 @@ void main() {
     expect(find.text('6'), findsOneWidget);
     expect(find.text('9'), findsOneWidget);
     expect(find.text('3.00 s'), findsOneWidget);
-    expect(find.text('4'), findsOneWidget);
-    expect(find.text('1.50 s'), findsOneWidget);
-    expect(find.text('1'), findsOneWidget);
     expect(
       tester.getTopLeft(find.text('direct')).dy,
       lessThan(tester.getTopLeft(find.text('transcode')).dy),
@@ -842,7 +836,7 @@ void main() {
     );
 
     expect(find.text('remux'), findsOneWidget);
-    expect(find.text('—'), findsNWidgets(3));
+    expect(find.text('—'), findsNWidgets(2));
   });
 
   testWidgets('nothing streamed yet says so', (WidgetTester tester) async {

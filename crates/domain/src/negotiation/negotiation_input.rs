@@ -15,4 +15,5 @@ pub struct NegotiationInput {
     pub force_burn: bool,
     pub downmix_stereo: bool,
     pub delivery: DeliveryPreference,
+    pub prepared: bool,
 }

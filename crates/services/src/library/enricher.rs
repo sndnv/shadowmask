@@ -678,7 +678,8 @@ where
                 &file.probe.subtitles,
                 &file.probe.chapters,
             )
-            .await
+            .await?;
+        self.enqueue.enqueue_playback_prep(&version_id, None).await
     }
 
     async fn persist_enrichment(
@@ -1225,7 +1226,7 @@ mod tests {
         TrickplayJobPayload,
     };
     use domain::error::MetadataError;
-    use domain::job::JobKind;
+    use domain::job::{Job, JobKind, JobPriority, JobStatus};
     use domain::library::{
         DiscoveredFile, LibraryId, LibraryOrigin, ResolutionStatus, SkipReason, SkippedFile,
         WatcherStrategy,
@@ -2188,7 +2189,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_reread_refreshes_what_is_stored_about_a_known_file_and_queues_nothing() {
+    async fn a_reread_refreshes_what_is_stored_about_a_known_file() {
         let catalog = MockCatalogRepo::new();
         let jobs = MockJobStore::new();
         let svc = enricher(catalog.clone(), None, jobs.clone());
@@ -2227,7 +2228,78 @@ mod tests {
         assert_eq!((&reread.title, reread.added_at), (&ingested.title, ingested.added_at));
         let detail = catalog.version_detail(&reread.id).await.unwrap().unwrap();
         assert_eq!(detail.audio.len(), 1);
-        assert_eq!(jobs.list().await.unwrap().len(), queued);
+        assert_eq!(
+            jobs.list().await.unwrap().len(),
+            queued,
+            "the preparation a re-read asks for is already waiting from the ingest"
+        );
+    }
+
+    async fn playback_preps(jobs: &MockJobStore) -> Vec<Job> {
+        jobs.list().await.unwrap().into_iter().filter(|j| j.kind == JobKind::PlaybackPrep).collect()
+    }
+
+    async fn settle_playback_prep(jobs: &MockJobStore, status: JobStatus) {
+        for mut job in playback_preps(jobs).await {
+            job.status = status;
+            jobs.update(job).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn a_new_file_is_prepared_for_playback_ahead_of_its_trickplay() {
+        let jobs = MockJobStore::new();
+        let svc = enricher(MockCatalogRepo::new(), None, jobs.clone());
+
+        svc.enrich(&library(LibraryKind::Movie), &report(&["/m/Drift (2020) 1080p.mkv"]), None)
+            .await;
+
+        let preps = playback_preps(&jobs).await;
+        assert_eq!(preps.len(), 1);
+        assert_eq!(preps[0].priority, JobPriority::High);
+        let trickplay =
+            jobs.list().await.unwrap().into_iter().find(|j| j.kind == JobKind::Trickplay);
+        assert!(trickplay.is_some_and(|job| job.priority < preps[0].priority));
+    }
+
+    #[tokio::test]
+    async fn a_reread_prepares_a_known_file_again_once() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog, None, jobs.clone());
+        let library = library(LibraryKind::Movie);
+        let scan = report(&["/m/Drift (2020) 1080p.mkv"]);
+        svc.enrich(&library, &scan, None).await;
+        settle_playback_prep(&jobs, JobStatus::Succeeded).await;
+
+        svc.reread(&library, &scan).await;
+        svc.reread(&library, &scan).await;
+
+        let queued: Vec<Job> = playback_preps(&jobs)
+            .await
+            .into_iter()
+            .filter(|job| job.status == JobStatus::Queued)
+            .collect();
+        assert_eq!(queued.len(), 1, "a second re-read finds the first one's job still waiting");
+        assert_eq!(queued[0].priority, JobPriority::High);
+    }
+
+    #[tokio::test]
+    async fn a_reread_queues_beside_a_preparation_that_is_already_running() {
+        let jobs = MockJobStore::new();
+        let svc = enricher(MockCatalogRepo::new(), None, jobs.clone());
+        let library = library(LibraryKind::Movie);
+        let scan = report(&["/m/Drift (2020) 1080p.mkv"]);
+        svc.enrich(&library, &scan, None).await;
+        settle_playback_prep(&jobs, JobStatus::Running).await;
+
+        svc.reread(&library, &scan).await;
+
+        assert_eq!(
+            playback_preps(&jobs).await.len(),
+            2,
+            "a running job may be reading the tracks the re-read just replaced"
+        );
     }
 
     #[tokio::test]

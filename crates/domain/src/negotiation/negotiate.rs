@@ -64,6 +64,12 @@ pub fn negotiate(input: &NegotiationInput, profile: &CapabilityProfile) -> Negot
         }
         DeliveryPreference::NeverConvert => wanted,
     };
+    let mode = if mode == DeliveryMode::Remux && !input.prepared {
+        reasons.push(NegotiationReason::Preparing);
+        DeliveryMode::Transcode
+    } else {
+        mode
+    };
 
     NegotiationOutcome {
         mode,
@@ -223,6 +229,7 @@ mod tests {
             force_burn: false,
             downmix_stereo: false,
             delivery: DeliveryPreference::Auto,
+            prepared: true,
         }
     }
 
@@ -292,6 +299,42 @@ mod tests {
         let out = negotiate(&i, &profile());
         assert_eq!(out.mode, DeliveryMode::Transcode);
         assert_eq!(out.selected.subtitle_delivery, Some(SubtitleDelivery::Burned));
+    }
+
+    #[test]
+    fn a_remux_of_a_version_not_prepared_yet_is_transcoded_instead() {
+        let i = NegotiationInput { container: Container::Mkv, prepared: false, ..input() };
+        let out = negotiate(&i, &profile());
+        assert_eq!(out.mode, DeliveryMode::Transcode);
+        assert_eq!(out.reasons, vec![NegotiationReason::Container, NegotiationReason::Preparing]);
+    }
+
+    #[test]
+    fn never_convert_still_transcodes_a_remux_that_has_no_keyframes() {
+        let i = NegotiationInput {
+            container: Container::Mkv,
+            delivery: DeliveryPreference::NeverConvert,
+            prepared: false,
+            ..input()
+        };
+        assert_eq!(negotiate(&i, &profile()).mode, DeliveryMode::Transcode);
+    }
+
+    #[test]
+    fn a_version_not_prepared_yet_still_plays_directly_or_transcodes_as_it_would() {
+        let direct = NegotiationInput { prepared: false, ..input() };
+        let out = negotiate(&direct, &profile());
+        assert_eq!(out.mode, DeliveryMode::Direct);
+        assert!(out.reasons.is_empty());
+
+        let transcode = NegotiationInput {
+            video: vec![video_track("vp9", 1920, 1080, 8, None, Some(5_000_000))],
+            prepared: false,
+            ..input()
+        };
+        let out = negotiate(&transcode, &profile());
+        assert_eq!(out.mode, DeliveryMode::Transcode);
+        assert_eq!(out.reasons, vec![NegotiationReason::VideoCodec]);
     }
 
     #[test]
@@ -718,6 +761,7 @@ mod prop_tests {
                 Just(DeliveryPreference::NeverConvert),
                 Just(DeliveryPreference::AlwaysConvert),
             ],
+            prepared in any::<bool>(),
         ) -> NegotiationInput {
             let height = if width >= 3840 { 2160 } else { 1080 };
             let subtitles = subtitle
@@ -762,6 +806,7 @@ mod prop_tests {
                 force_burn,
                 downmix_stereo,
                 delivery,
+                prepared,
             }
         }
     }
@@ -842,8 +887,19 @@ mod prop_tests {
                 DeliveryPreference::NeverConvert => prop_assert!(
                     out.mode != DeliveryMode::Transcode
                         || out.selected.subtitle_delivery == Some(SubtitleDelivery::Burned)
+                        || out.reasons.contains(&NegotiationReason::Preparing)
                 ),
             }
+        }
+
+        #[test]
+        fn a_version_without_keyframes_transcodes_only_what_would_have_been_remuxed(input in inputs()) {
+            let ready = negotiate(&NegotiationInput { prepared: true, ..input.clone() }, &profile());
+            let out = negotiate(&input, &profile());
+            let held_back = !input.prepared && ready.mode == DeliveryMode::Remux;
+            prop_assert_eq!(out.reasons.contains(&NegotiationReason::Preparing), held_back);
+            let expected = if held_back { DeliveryMode::Transcode } else { ready.mode };
+            prop_assert_eq!(out.mode, expected);
         }
     }
 }
