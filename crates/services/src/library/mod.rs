@@ -13,6 +13,7 @@ mod matcher;
 mod metadata_fetch;
 mod metadata_job;
 mod parse;
+mod playback_prep_job;
 mod relink_job;
 mod scan_job;
 mod scan_queue;
@@ -45,6 +46,7 @@ pub use metadata_job::MetadataJobPayload;
 pub use parse::{
     confidence, parse_filename, quality_from_height, quality_token, upscaled_output_path,
 };
+pub use playback_prep_job::PlaybackPrepJobPayload;
 pub use relink_job::RelinkJobPayload;
 pub use scan_job::ScanJobPayload;
 pub use scan_queue::{is_nightly_library, queue_scan, settle_interrupted_scans};

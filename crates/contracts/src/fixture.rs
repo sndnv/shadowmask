@@ -325,6 +325,7 @@ pub fn version_detail(id: &str) -> VersionDetail {
             tile_height: 180,
             sheet_paths: vec!["sheet-000.jpg".into(), "sheet-001.jpg".into()],
         }],
+        extracted_subtitles: vec![3, 4],
     }
 }
 

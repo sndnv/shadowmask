@@ -15,9 +15,9 @@ pub use error::JobError;
 pub use handlers::{
     ArtworkJobHandler, CacheEvictionHandler, CombineJobHandler, CompositeJobHandler,
     FetchJobHandler, IngestJobHandler, LibraryScanHandler, MetadataJobHandler, OrphanSweepHandler,
-    RelinkJobHandler, RetentionHandler, ScheduledScanHandler, SearchReindexHandler,
-    SubtitlesJobHandler, TranscriptionJobHandler, TranslationJobHandler, TrickplayJobHandler,
-    UpscaleJobHandler,
+    PlaybackPrepJobHandler, RelinkJobHandler, RetentionHandler, ScheduledScanHandler,
+    SearchReindexHandler, SubtitlesJobHandler, TranscriptionJobHandler, TranslationJobHandler,
+    TrickplayJobHandler, UpscaleJobHandler,
 };
 pub use job_handler::JobHandler;
 pub use job_pools::{DEFAULT_POOL, JobPool, PoolError, PoolRequest, default_pools, resolve_pools};

@@ -45,6 +45,17 @@ pub fn plan_segments(keyframes_ms: &[u64], duration_ms: u64, target_ms: u64) -> 
     SegmentPlan { segments }
 }
 
+pub fn plan_fixed_segments(duration_ms: u64, target_ms: u64) -> SegmentPlan {
+    let target = target_ms.max(1);
+    let mut segments = Vec::new();
+    let mut start = 0u64;
+    while start < duration_ms {
+        segments.push(Segment { start_ms: start, duration_ms: target.min(duration_ms - start) });
+        start += target;
+    }
+    SegmentPlan { segments }
+}
+
 pub fn plan_segments_on_grid(
     keyframes_ms: &[u64],
     duration_ms: u64,
@@ -97,6 +108,25 @@ mod tests {
     #[test]
     fn zero_duration_yields_no_segments() {
         assert!(plan_segments(&[4_000], 0, 4_000).segments.is_empty());
+        assert!(plan_fixed_segments(0, 4_000).segments.is_empty());
+    }
+
+    #[test]
+    fn a_fixed_plan_cuts_every_target_and_ends_on_the_remainder() {
+        let plan = plan_fixed_segments(15_000, 4_000);
+        assert_eq!(starts(&plan), vec![0, 4_000, 8_000, 12_000]);
+        assert_eq!(durations(&plan), vec![4_000, 4_000, 4_000, 3_000]);
+    }
+
+    #[test]
+    fn a_fixed_plan_of_an_exact_multiple_has_no_empty_tail() {
+        let plan = plan_fixed_segments(8_000, 4_000);
+        assert_eq!(durations(&plan), vec![4_000, 4_000]);
+    }
+
+    #[test]
+    fn a_fixed_plan_survives_a_zero_target() {
+        assert_eq!(durations(&plan_fixed_segments(3, 0)), vec![1, 1, 1]);
     }
 
     #[test]

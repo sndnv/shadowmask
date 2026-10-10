@@ -30,9 +30,6 @@ stream_starts_total{delivery="transcode",outcome="failed"} 1
 stream_starts_total{delivery="remux",outcome="ok"} 2
 stream_first_segment_milliseconds_sum{delivery="transcode"} 9000
 stream_first_segment_milliseconds_count{delivery="transcode"} 3
-stream_keyframe_probe_duration_milliseconds_sum 6000
-stream_keyframe_probe_duration_milliseconds_count 4
-stream_keyframe_probe_failures_total 1
 sessions_started_total{mode="direct"} 4
 sessions_started_total{mode="transcode"} 5
 stream_bytes_sent_total{kind="file"} 3000
@@ -67,7 +64,7 @@ void main() {
     expect(remux.realtime, isNull);
   });
 
-  test('totals per delivery, keyframe reads, fallbacks and abandons', () {
+  test('totals per delivery, fallbacks and abandons', () {
     final TranscodeTotals totals = TranscodeTotals.fromSamples(
       parseMetrics(_kExposition),
     );
@@ -92,9 +89,6 @@ void main() {
     expect(transcode.averageFirstSegmentMs, 3000);
     expect(totals.fallbacks, 2);
     expect(totals.abandoned, 4);
-    expect(totals.keyframeReads, 4);
-    expect(totals.averageKeyframeMs, 1500);
-    expect(totals.keyframeFailures, 1);
     expect(totals.directBytes, 3000);
     expect(totals.segmentBytes, 2000);
     expect(totals.isEmpty, isFalse);
@@ -108,15 +102,12 @@ void main() {
     expect(totals.isEmpty, isTrue);
     expect(totals.encoders, isEmpty);
     expect(totals.deliveries, isEmpty);
-    expect(totals.averageKeyframeMs, isNull);
   });
 
   test('any single total makes the totals non-empty', () {
     for (final String line in <String>[
       'transcode_fallbacks_total 1',
       'transcode_segments_abandoned_total 1',
-      'stream_keyframe_probe_duration_milliseconds_count 1',
-      'stream_keyframe_probe_failures_total 1',
       'stream_bytes_sent_total{kind="file"} 1',
       'stream_bytes_sent_total{kind="segment"} 1',
       'stream_starts_total{delivery="remux",outcome="ok"} 1',

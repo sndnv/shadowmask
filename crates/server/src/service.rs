@@ -16,8 +16,8 @@ use jiff::{SignedDuration, Timestamp};
 use jobs::{
     ArtworkJobHandler, CacheEvictionHandler, CancelRegistry, CombineJobHandler,
     CompositeJobHandler, FetchJobHandler, IngestJobHandler, JobQueue, LibraryScanHandler,
-    MetadataJobHandler, OrphanSweepHandler, PoolRequest, RelinkJobHandler, RetentionHandler,
-    RetryPolicy, Schedule, ScheduledScanHandler, Scheduler, SearchReindexHandler,
+    MetadataJobHandler, OrphanSweepHandler, PlaybackPrepJobHandler, PoolRequest, RelinkJobHandler,
+    RetentionHandler, RetryPolicy, Schedule, ScheduledScanHandler, Scheduler, SearchReindexHandler,
     SubtitlesJobHandler, TranscriptionJobHandler, TranslationJobHandler, TrickplayJobHandler,
     UpscaleJobHandler, Worker, resolve_pools,
 };
@@ -25,9 +25,10 @@ use media::artwork::FsArtworkStore;
 use media::cache::CacheEvictor;
 use media::diagnostics::{CachedDiagnostics, FfmpegCapabilityProbe, SegmentBenchmark};
 use media::download_token::HmacDownloadTokens;
+use media::playback_prep::FfmpegPlaybackPreparer;
+use media::playback_prep_store::FsPlaybackPrepStore;
 use media::probe::FfprobeMediaProbe;
 use media::scan::WalkdirSourceWalker;
-use media::subtitle_extraction_store::FsSubtitleExtractionStore;
 use media::subtitle_store::FsSubtitleStore;
 use media::transcode::VideoEncoder;
 use media::trickplay::{FfmpegTrickplayGenerator, TrickplayConfig};
@@ -88,7 +89,8 @@ type TranslationProviderImpl = inference::MtProvider<inference::Ct2TranslationEn
 type TranslationProviderImpl = inference::DisabledTranslationProvider;
 type TranslationHandler =
     TranslationJobHandler<TranslationProviderImpl, SqliteCatalogRepo, FsSubtitleStore>;
-type UpscaleHandler = UpscaleJobHandler<FfmpegUpscaler, SqliteCatalogRepo, FfprobeMediaProbe>;
+type UpscaleHandler =
+    UpscaleJobHandler<FfmpegUpscaler, SqliteCatalogRepo, FfprobeMediaProbe, SqliteJobRepo>;
 type CombineHandler =
     CombineJobHandler<inference::SubtitleMerger, SqliteCatalogRepo, FsSubtitleStore>;
 type FetchHandler = FetchJobHandler<
@@ -105,8 +107,9 @@ type SweepHandler = OrphanSweepHandler<
     FsArtworkStore,
     FsSubtitleStore,
     FfmpegTrickplayGenerator,
-    FsSubtitleExtractionStore,
+    FsPlaybackPrepStore,
 >;
+type PrepHandler = PlaybackPrepJobHandler<SqliteCatalogRepo, FfmpegPlaybackPreparer>;
 type JobWorker = Worker<
     SqliteJobRepo,
     CompositeJobHandler<
@@ -127,6 +130,7 @@ type JobWorker = Worker<
         NightlyHandler,
         RetentionJobHandler,
         SweepHandler,
+        PrepHandler,
     >,
     FsJobLogStore,
 >;
@@ -426,7 +430,7 @@ impl Runtime {
             access_ttl_secs: config.access_ttl_secs,
             refresh_ttl_secs: config.refresh_ttl_secs,
             transcode_cache: config.transcode_cache.clone(),
-            subtitle_extraction_cache: config.subtitle_extraction_cache.clone(),
+            playback_prep_dir: config.playback_prep_dir.clone(),
             artwork_cache: config.artwork_cache.clone(),
             trickplay_cache: config.trickplay_cache.clone(),
             tmdb_api_key: config.tmdb_api_key.clone(),
@@ -565,6 +569,7 @@ impl Runtime {
             FfmpegUpscaler::new().with_encoder(VideoEncoder::from_device(vaapi_device.clone())),
             repos.catalog.clone(),
             FfprobeMediaProbe::default(),
+            repos.jobs.clone(),
         );
         let combine = CombineJobHandler::new(
             inference::SubtitleMerger,
@@ -678,8 +683,12 @@ impl Runtime {
             FsArtworkStore::new(&config.artwork_cache),
             FsSubtitleStore::new(&config.subtitle_cache),
             FfmpegTrickplayGenerator::new(&config.trickplay_cache),
-            FsSubtitleExtractionStore::new(&config.subtitle_extraction_cache),
+            FsPlaybackPrepStore::new(&config.playback_prep_dir),
             SignedDuration::from_secs(config.orphan_sweep_grace_secs),
+        );
+        let prep = PlaybackPrepJobHandler::new(
+            repos.catalog.clone(),
+            FfmpegPlaybackPreparer::new(FsPlaybackPrepStore::new(&config.playback_prep_dir)),
         );
         let handler = Arc::new(CompositeJobHandler::new(
             scan,
@@ -699,6 +708,7 @@ impl Runtime {
             nightly,
             retention,
             sweep,
+            prep,
         ));
         if !parked.is_empty() {
             let names = parked.iter().map(|kind| kind.slug()).collect::<Vec<_>>().join(", ");

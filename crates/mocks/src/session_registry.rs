@@ -70,12 +70,10 @@ impl SessionRegistry for MockSessionRegistry {
         Ok(())
     }
 
-    async fn remove_idle(&self, cutoff: Timestamp) -> Result<usize, RepositoryError> {
+    async fn remove_idle(&self, cutoff: Timestamp) -> Result<Vec<SessionId>, RepositoryError> {
         self.guard()?;
         let mut sessions = self.sessions.lock().unwrap();
-        let before = sessions.len();
-        sessions.retain(|_, s| s.last_heartbeat_at >= cutoff);
-        Ok(before - sessions.len())
+        Ok(sessions.extract_if(|_, s| s.last_heartbeat_at < cutoff).map(|(id, _)| id).collect())
     }
 }
 
@@ -128,6 +126,19 @@ mod tests {
 
         registry.remove(&SessionId("s1".into())).await.unwrap();
         assert!(registry.get(&SessionId("s1".into())).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn remove_idle_returns_only_the_sessions_it_dropped() {
+        let registry = MockSessionRegistry::new();
+        registry.insert(session("stale", "u1", 0)).await.unwrap();
+        registry.insert(session("live", "u1", 2)).await.unwrap();
+
+        let dropped =
+            registry.remove_idle(Timestamp::from_second(1_700_000_001).unwrap()).await.unwrap();
+
+        assert_eq!(dropped, vec![SessionId("stale".into())]);
+        assert!(registry.get(&SessionId("live".into())).await.unwrap().is_some());
     }
 
     #[tokio::test]

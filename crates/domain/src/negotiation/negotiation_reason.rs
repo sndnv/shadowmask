@@ -14,6 +14,7 @@ pub enum NegotiationReason {
     SubtitleSoft,
     Downmix,
     Forced,
+    Preparing,
 }
 
 impl NegotiationReason {
@@ -33,6 +34,7 @@ impl NegotiationReason {
             Self::SubtitleSoft => "subtitle_soft",
             Self::Downmix => "downmix",
             Self::Forced => "forced",
+            Self::Preparing => "preparing",
         }
     }
 }
@@ -66,6 +68,7 @@ mod tests {
             NegotiationReason::SubtitleSoft,
             NegotiationReason::Downmix,
             NegotiationReason::Forced,
+            NegotiationReason::Preparing,
         ];
         let mut names: Vec<&str> = all.iter().map(|reason| reason.as_str()).collect();
         names.sort_unstable();

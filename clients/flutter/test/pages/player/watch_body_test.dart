@@ -1311,6 +1311,72 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('a renegotiation that never answers offers a way out', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
+    final List<String> pushed = <String>[];
+    final Completer<http.Response> answer = Completer<http.Response>();
+    await tester.pumpWidget(
+      _app(
+        fake,
+        seen: seen,
+        episodic: true,
+        pushed: pushed,
+        onUpdate: (int _) => answer.future,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.subtitles).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerNoSubtitles).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('English').last);
+    await tester.pump();
+
+    expect(find.text(Strings.applyingPlaybackChanges), findsOneWidget);
+    await tester.pump(Duration(seconds: _stallDelay - 1));
+    expect(
+      find.text(Strings.playerGoBack),
+      findsNothing,
+      reason: 'a change that is merely slow keeps the plain spinner',
+    );
+
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text(Strings.playerGoBack), findsOneWidget);
+    expect(find.text(Strings.playerKeepWaiting), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    await tester.tap(find.text(Strings.playerGoBack));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+
+    expect(pushed.single, episodeRoute('e1', series: 's1'));
+    expect(
+      seen.any(
+        (http.Request r) =>
+            r.method == 'DELETE' && r.url.path == '/api/v1/sessions/s1',
+      ),
+      isTrue,
+    );
+
+    fake.calls.clear();
+    answer.complete(_renegotiated('remux', '/stream/second/master.m3u8'));
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(
+      fake.calls.where((String c) => c.startsWith('attach')),
+      isEmpty,
+      reason: 'an answer that arrives after leaving attaches nothing',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('a failed renegotiation resumes the stream it paused', (
     WidgetTester tester,
   ) async {

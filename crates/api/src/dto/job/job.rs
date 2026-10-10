@@ -24,6 +24,7 @@ pub enum JobKindDto {
     ScheduledScan,
     Retention,
     OrphanSweep,
+    PlaybackPrep,
 }
 
 impl From<JobKind> for JobKindDto {
@@ -48,6 +49,7 @@ impl From<JobKind> for JobKindDto {
             JobKind::ScheduledScan => JobKindDto::ScheduledScan,
             JobKind::Retention => JobKindDto::Retention,
             JobKind::OrphanSweep => JobKindDto::OrphanSweep,
+            JobKind::PlaybackPrep => JobKindDto::PlaybackPrep,
         }
     }
 }
@@ -167,6 +169,7 @@ mod tests {
             (JobKind::ScheduledScan, "scheduled_scan"),
             (JobKind::Retention, "retention"),
             (JobKind::OrphanSweep, "orphan_sweep"),
+            (JobKind::PlaybackPrep, "playback_prep"),
         ] {
             let dto = JobKindDto::from(kind);
             assert_eq!(serde_json::to_value(dto).unwrap(), expected);

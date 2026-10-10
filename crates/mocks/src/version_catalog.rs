@@ -6,9 +6,12 @@ use domain::catalog::{Version, VersionDetail, VersionId};
 use domain::error::RepositoryError;
 use domain::repository::VersionCatalog;
 
+pub const PREPARED_KEYFRAMES: [u64; 3] = [0, 4_000, 8_000];
+
 #[derive(Clone, Default)]
 pub struct MockVersionCatalog {
     versions: Arc<Mutex<HashMap<VersionId, VersionDetail>>>,
+    keyframes: Arc<Mutex<HashMap<VersionId, Vec<u64>>>>,
     fail: Arc<AtomicBool>,
     detail_lookups: Arc<AtomicUsize>,
 }
@@ -19,11 +22,21 @@ impl MockVersionCatalog {
     }
 
     pub fn insert(&self, detail: VersionDetail) {
+        self.set_keyframes(&detail.version.id, Some(PREPARED_KEYFRAMES.to_vec()));
         self.versions.lock().unwrap().insert(detail.version.id.clone(), detail);
+    }
+
+    pub fn set_keyframes(&self, id: &VersionId, keyframes: Option<Vec<u64>>) {
+        let mut stored = self.keyframes.lock().unwrap();
+        match keyframes {
+            Some(keyframes) => stored.insert(id.clone(), keyframes),
+            None => stored.remove(id),
+        };
     }
 
     pub fn remove(&self, id: &VersionId) {
         self.versions.lock().unwrap().remove(id);
+        self.keyframes.lock().unwrap().remove(id);
     }
 
     pub fn set_fail(&self) {
@@ -56,6 +69,11 @@ impl VersionCatalog for MockVersionCatalog {
     async fn get_version(&self, id: &VersionId) -> Result<Option<Version>, RepositoryError> {
         self.guard()?;
         Ok(self.versions.lock().unwrap().get(id).map(|detail| detail.version.clone()))
+    }
+
+    async fn keyframes(&self, id: &VersionId) -> Result<Option<Vec<u64>>, RepositoryError> {
+        self.guard()?;
+        Ok(self.keyframes.lock().unwrap().get(id).cloned())
     }
 }
 
@@ -90,6 +108,7 @@ mod tests {
             chapters: Vec::new(),
             markers: DetectedMarkers::default(),
             trickplay: Vec::new(),
+            extracted_subtitles: Vec::new(),
         }
     }
 
@@ -108,5 +127,21 @@ mod tests {
         let catalog = MockVersionCatalog::new();
         catalog.set_fail();
         assert!(catalog.version_detail(&VersionId("v1".into())).await.is_err());
+        assert!(catalog.keyframes(&VersionId("v1".into())).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn an_inserted_version_is_prepared_until_its_keyframes_are_cleared() {
+        let catalog = MockVersionCatalog::new();
+        let id = VersionId("v1".into());
+        catalog.insert(detail("v1"));
+        assert_eq!(catalog.keyframes(&id).await.unwrap(), Some(PREPARED_KEYFRAMES.to_vec()));
+
+        catalog.set_keyframes(&id, None);
+        assert_eq!(catalog.keyframes(&id).await.unwrap(), None);
+
+        catalog.set_keyframes(&id, Some(vec![0, 2_000]));
+        catalog.remove(&id);
+        assert_eq!(catalog.keyframes(&id).await.unwrap(), None);
     }
 }

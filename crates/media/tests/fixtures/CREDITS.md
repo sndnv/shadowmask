@@ -15,6 +15,14 @@ Big Buck Bunny, Sunflower version.
 - Source: FFmpeg FATE sample suite, https://samples.ffmpeg.org
 - License: not established; the FATE sample collection carries no blanket license
 
+## `supsample.mkv`
+
+Ten seconds of 720x480 H.264 with one PGS subtitle.
+
+- Source: FFmpeg samples, https://samples.ffmpeg.org/sub/PGS/supsample.mkv
+- SHA-256: `e6c8f93f57d0371603704d7e7b16933e6c4c5df669da42b42a2a84de881e0f27`
+- License: not established; the FFmpeg sample collection carries no blanket license
+
 ## Generated fixtures
 
 All other fixtures in this directory are generated with FFmpeg and are covered by this project's

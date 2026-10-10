@@ -224,6 +224,7 @@ fn spec_for(target: &BenchmarkTarget, max_height: Option<u32>) -> TranscodeSpec 
         version: target.version.clone(),
         input_path: target.path.clone(),
         duration_ms: target.duration_ms,
+        keyframes: None,
         copy: false,
         container: SegmentContainer::MpegTs,
         seek_ms: None,

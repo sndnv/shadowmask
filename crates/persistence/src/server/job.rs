@@ -60,6 +60,7 @@ fn kind_to_str(kind: JobKind) -> &'static str {
         JobKind::ScheduledScan => "scheduled_scan",
         JobKind::Retention => "retention",
         JobKind::OrphanSweep => "orphan_sweep",
+        JobKind::PlaybackPrep => "playback_prep",
     }
 }
 
@@ -84,6 +85,7 @@ fn kind_from_str(value: &str) -> Result<JobKind, RepositoryError> {
         "scheduled_scan" => Ok(JobKind::ScheduledScan),
         "retention" => Ok(JobKind::Retention),
         "orphan_sweep" => Ok(JobKind::OrphanSweep),
+        "playback_prep" => Ok(JobKind::PlaybackPrep),
         other => Err(backend(format!("unknown job kind: {other}"))),
     }
 }

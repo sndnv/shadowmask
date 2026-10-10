@@ -215,6 +215,12 @@ pub enum TrickplayError {
 }
 
 #[derive(Debug, Error)]
+pub enum PlaybackPrepError {
+    #[error("preparing the version for playback failed: {0}")]
+    Backend(String),
+}
+
+#[derive(Debug, Error)]
 pub enum FetchError {
     #[error("failed to start fetch: {0}")]
     Spawn(String),

@@ -42,7 +42,9 @@ pub use playback_session::{PlaybackSession, SessionId};
 pub use playback_state::PlaybackState;
 pub use renegotiated::Renegotiated;
 pub use segment_container::{SegmentContainer, segment_container_for};
-pub use segment_plan::{Segment, SegmentPlan, plan_segments, plan_segments_on_grid};
+pub use segment_plan::{
+    Segment, SegmentPlan, plan_fixed_segments, plan_segments, plan_segments_on_grid,
+};
 pub use selected_tracks::SelectedTracks;
 pub use session_start_input::SessionStartInput;
 pub use session_started::SessionStarted;

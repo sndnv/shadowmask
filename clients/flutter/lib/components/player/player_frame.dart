@@ -570,7 +570,7 @@ class _Waiting extends StatelessWidget {
                     fontSize: 11,
                   ),
                 ),
-              if (onKeepWaiting != null)
+              if (onKeepWaiting != null || onGoBack != null)
                 Padding(
                   padding: const EdgeInsets.only(top: Space.s2),
                   child: Row(
@@ -581,10 +581,11 @@ class _Waiting extends StatelessWidget {
                           onPressed: onGoBack,
                           child: const Text(Strings.playerGoBack),
                         ),
-                      TextButton(
-                        onPressed: onKeepWaiting,
-                        child: const Text(Strings.playerKeepWaiting),
-                      ),
+                      if (onKeepWaiting != null)
+                        TextButton(
+                          onPressed: onKeepWaiting,
+                          child: const Text(Strings.playerKeepWaiting),
+                        ),
                     ],
                   ),
                 )
@@ -601,7 +602,7 @@ class _Waiting extends StatelessWidget {
         ),
       ),
     );
-    return onKeepWaiting == null && onPlayNow == null
+    return onKeepWaiting == null && onGoBack == null && onPlayNow == null
         ? IgnorePointer(child: panel)
         : panel;
   }

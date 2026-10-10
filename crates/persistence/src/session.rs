@@ -88,12 +88,11 @@ impl SessionRegistry for InMemorySessionRegistry {
         Ok(())
     }
 
-    async fn remove_idle(&self, cutoff: Timestamp) -> Result<usize, RepositoryError> {
+    async fn remove_idle(&self, cutoff: Timestamp) -> Result<Vec<SessionId>, RepositoryError> {
         let mut sessions = self.sessions.write().unwrap();
-        let before = sessions.len();
-        sessions.retain(|_, s| s.last_heartbeat_at >= cutoff);
-        let removed = before - sessions.len();
-        if removed > 0 {
+        let removed: Vec<SessionId> =
+            sessions.extract_if(|_, s| s.last_heartbeat_at < cutoff).map(|(id, _)| id).collect();
+        if !removed.is_empty() {
             record_gauges(&sessions);
         }
         Ok(removed)
@@ -186,19 +185,19 @@ mod tests {
 
         let dropped = registry.remove_idle(cutoff).await.unwrap();
 
-        assert_eq!(dropped, 1);
+        assert_eq!(dropped, vec![SessionId("stale".into())]);
         let left = registry.list_all(page(0, 10)).await.unwrap();
         assert_eq!(left.total, 2);
         assert!(!left.items.iter().any(|s| s.id == SessionId("stale".into())));
     }
 
     #[tokio::test]
-    async fn remove_idle_with_nothing_to_drop_reports_zero() {
+    async fn remove_idle_with_nothing_to_drop_reports_none() {
         let registry = InMemorySessionRegistry::new();
         registry.insert(session("live", "u1", 10)).await.unwrap();
         let cutoff = Timestamp::from_second(1_700_000_000).unwrap();
 
-        assert_eq!(registry.remove_idle(cutoff).await.unwrap(), 0);
+        assert!(registry.remove_idle(cutoff).await.unwrap().is_empty());
         assert_eq!(registry.list_all(page(0, 10)).await.unwrap().total, 1);
     }
 

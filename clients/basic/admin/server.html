@@ -449,9 +449,6 @@
           deliveries,
           fallbacks: sum("transcode_fallbacks_total"),
           abandoned: sum("transcode_segments_abandoned_total"),
-          keyframeReads: sum("stream_keyframe_probe_duration_milliseconds_count"),
-          keyframeMs: sum("stream_keyframe_probe_duration_milliseconds_sum"),
-          keyframeFailures: sum("stream_keyframe_probe_failures_total"),
           directBytes: sum("stream_bytes_sent_total", { kind: "file" }),
           segmentBytes: sum("stream_bytes_sent_total", { kind: "segment" }),
         };
@@ -467,8 +464,6 @@
           !t.deliveries.length &&
           !t.fallbacks &&
           !t.abandoned &&
-          !t.keyframeReads &&
-          !t.keyframeFailures &&
           !t.directBytes &&
           !t.segmentBytes;
         if (empty) return sm.el("p", { text: "Nothing has streamed since the server started." });
@@ -509,9 +504,6 @@
             [
               "Software fallbacks",
               "Abandoned segments",
-              "Keyframe reads",
-              "Keyframe average",
-              "Keyframe failures",
               "Direct bytes",
               "Segment bytes",
             ],
@@ -519,9 +511,6 @@
               [
                 String(t.fallbacks),
                 String(t.abandoned),
-                String(t.keyframeReads),
-                average(t.keyframeMs, t.keyframeReads),
-                String(t.keyframeFailures),
                 sm.gigabytes(t.directBytes),
                 sm.gigabytes(t.segmentBytes),
               ],

@@ -40,13 +40,6 @@ pub(crate) fn stream_started(copy: bool, ok: bool) {
         .increment(1);
 }
 
-pub(crate) fn keyframes_read(elapsed: Duration, failed: bool) {
-    metrics::histogram!("stream_keyframe_probe_duration_milliseconds").record(millis(elapsed));
-    if failed {
-        metrics::counter!("stream_keyframe_probe_failures_total").increment(1);
-    }
-}
-
 pub(crate) fn first_segment(copy: bool, elapsed: Duration) {
     metrics::histogram!("stream_first_segment_milliseconds", "delivery" => delivery(copy))
         .record(millis(elapsed));

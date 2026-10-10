@@ -11,9 +11,6 @@ class TranscodeTotals {
     this.deliveries = const <DeliveryTotals>[],
     this.fallbacks = 0,
     this.abandoned = 0,
-    this.keyframeReads = 0,
-    this.keyframeMs = 0,
-    this.keyframeFailures = 0,
     this.directBytes = 0,
     this.segmentBytes = 0,
   });
@@ -104,11 +101,6 @@ class TranscodeTotals {
       ],
       fallbacks: total('transcode_fallbacks_total').round(),
       abandoned: total('transcode_segments_abandoned_total').round(),
-      keyframeReads: total(
-        'stream_keyframe_probe_duration_milliseconds_count',
-      ).round(),
-      keyframeMs: total('stream_keyframe_probe_duration_milliseconds_sum'),
-      keyframeFailures: total('stream_keyframe_probe_failures_total').round(),
       directBytes: total('stream_bytes_sent_total', <String, String>{
         'kind': 'file',
       }).round(),
@@ -122,9 +114,6 @@ class TranscodeTotals {
   final List<DeliveryTotals> deliveries;
   final int fallbacks;
   final int abandoned;
-  final int keyframeReads;
-  final double keyframeMs;
-  final int keyframeFailures;
   final int directBytes;
   final int segmentBytes;
 
@@ -133,11 +122,6 @@ class TranscodeTotals {
       deliveries.isEmpty &&
       fallbacks == 0 &&
       abandoned == 0 &&
-      keyframeReads == 0 &&
-      keyframeFailures == 0 &&
       directBytes == 0 &&
       segmentBytes == 0;
-
-  double? get averageKeyframeMs =>
-      keyframeReads == 0 ? null : keyframeMs / keyframeReads;
 }

@@ -6,6 +6,7 @@ String jobKindLabel(JobKind kind) => switch (kind) {
   JobKind.artwork => 'Artwork',
   JobKind.subtitles => 'Subtitles',
   JobKind.trickplay => 'Trickplay',
+  JobKind.playbackPrep => 'Playback prep',
   JobKind.fingerprint => 'Fingerprint',
   JobKind.dedup => 'Dedup',
   JobKind.cacheEviction => 'Cache eviction',

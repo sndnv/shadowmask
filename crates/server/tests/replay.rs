@@ -15,7 +15,7 @@ use domain::catalog::{
 use domain::common::{LanguageCode, Quality};
 use domain::library::{LibraryId, MatchCandidate, UnmatchedFile, UnmatchedFileId};
 use domain::media::{
-    AudioTrack, DetectedMarkers, EmbeddedSubtitleTrack, SubtitleFile, SubtitleFileId,
+    AudioTrack, DetectedMarkers, EmbeddedSubtitleTrack, PlaybackPrep, SubtitleFile, SubtitleFileId,
     SubtitleFormat, SubtitleSource, VideoTrack,
 };
 use domain::playback::PlaybackProgress;
@@ -39,7 +39,7 @@ fn config(root: &Path) -> WireConfig {
         access_ttl_secs: 3600,
         refresh_ttl_secs: 86_400,
         transcode_cache: root.join("transcode"),
-        subtitle_extraction_cache: root.join("subtitle-extraction"),
+        playback_prep_dir: root.join("playback-prep"),
         artwork_cache: root.join("artwork"),
         trickplay_cache: root.join("trickplay"),
         tmdb_api_key: None,
@@ -126,6 +126,7 @@ fn direct_v1_detail() -> VersionDetail {
         chapters: Vec::new(),
         markers: DetectedMarkers { intros: Vec::new(), credits: Vec::new() },
         trickplay: Vec::new(),
+        extracted_subtitles: vec![1],
     }
 }
 
@@ -148,6 +149,14 @@ async fn seed(repos: &Repos, hash: &str) {
     }
 
     repos.catalog.insert_version_detail(direct_v1_detail()).await.unwrap();
+    repos
+        .catalog
+        .set_playback_prep(
+            &VersionId("v1".into()),
+            &PlaybackPrep { keyframes: vec![0, 4_000], extracted_subtitles: vec![1] },
+        )
+        .await
+        .unwrap();
     for version in fixture::catalog_versions().into_iter().filter(|v| v.id.0 != "v1") {
         repos.catalog.insert_version(version).await.unwrap();
     }

@@ -41,11 +41,14 @@ Keys in `shadowmask.toml` are not checked: a misspelled or renamed key there is 
 | `SHADOWMASK_ARTWORK_CACHE`             | Artwork                                          | `data/artwork` (`/data/artwork`)                         |
 | `SHADOWMASK_TRICKPLAY_CACHE`           | Trickplay sprites                                | `data/trickplay` (`/data/trickplay`)                     |
 | `SHADOWMASK_SUBTITLE_CACHE`            | Subtitles                                        | `data/subtitles` (`/data/subtitles`)                     |
-| `SHADOWMASK_SUBTITLE_EXTRACTION_CACHE` | Subtitle tracks pulled out of media files        | `data/subtitle-extraction` (`/data/subtitle-extraction`) |
+| `SHADOWMASK_PLAYBACK_PREP_DIR`         | Keyframes and subtitle tracks from playback prep | `data/playback-prep` (`/data/playback-prep`)             |
 | `SHADOWMASK_JOB_LOG_DIR`               | Per-job logs                                     | `data/job-logs` (`/data/job-logs`)                       |
 | `SHADOWMASK_BOOTSTRAP_DIR`             | `libraries.toml`, `users.toml`                   | `bootstrap` (`/config/bootstrap`)                        |
 | `SHADOWMASK_BASIC_CLIENT_DIR`          | Basic client served at `/ui/basic/`              | `clients/basic` (`/usr/share/shadowmask/basic`)          |
 | `SHADOWMASK_PROFILE_OVERRIDES_DIR`     | JSON playback profiles, one file per device type | unset                                                    |
+
+`SHADOWMASK_PLAYBACK_PREP_DIR` is not a cache. If its files are deleted, a title streams without its
+embedded subtitles until "Re-read files" runs on it.
 
 ### Metadata providers
 
@@ -80,9 +83,12 @@ Each kind runs on one pool, up to that pool's concurrency. Unassigned kinds run 
 | Pool         | Concurrency | Kinds                                     |
 |--------------|-------------|-------------------------------------------|
 | `default`    | `4`         | everything not named below                |
-| `trickplay`  | `1`         | `trickplay`                               |
+| `media`      | `1`         | `playback_prep`, `trickplay`              |
 | `enrichment` | `1`         | `transcription`, `translation`, `upscale` |
 | `fetch`      | `1`         | `fetch`                                   |
+
+`playback_prep` runs for each new or changed file after a scan or "Re-read files". Until it
+finishes, the file's embedded subtitles are hidden and the file is transcoded instead of remuxed.
 
 | Variable                                  | Description                             | Default |
 |-------------------------------------------|-----------------------------------------|---------|
@@ -95,13 +101,13 @@ whether that pool is one of the three above, named in the environment or named i
 `shadowmask.toml`. An unknown kind, a kind claimed by two pools, or a concurrency of zero stops the
 server at startup.
 
-Kinds: `library_scan`, `metadata`, `artwork`, `subtitles`, `trickplay`, `fingerprint`, `dedup`,
-`cache_eviction`, `search_reindex`, `ingest`, `relink`, `transcription`, `translation`, `upscale`,
-`combine`, `fetch`, `scheduled_scan`, `retention`, `orphan_sweep`.
+Kinds: `library_scan`, `metadata`, `artwork`, `subtitles`, `trickplay`, `playback_prep`,
+`fingerprint`, `dedup`, `cache_eviction`, `search_reindex`, `ingest`, `relink`, `transcription`,
+`translation`, `upscale`, `combine`, `fetch`, `scheduled_scan`, `retention`, `orphan_sweep`.
 
 ```yaml
 SHADOWMASK_JOB_POOLS_DEFAULT_CONCURRENCY: "8"
-SHADOWMASK_JOB_POOLS_TRICKPLAY_CONCURRENCY: "2"
+SHADOWMASK_JOB_POOLS_MEDIA_CONCURRENCY: "2"
 SHADOWMASK_JOB_POOLS_ARTWORK_KINDS: "artwork"
 SHADOWMASK_JOB_POOLS_ARTWORK_CONCURRENCY: "6"
 ```
@@ -169,8 +175,6 @@ the bundled provider, and external providers are not implemented. Leave them at 
 | `SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX` | Input language token, e.g. `<2{target}>` | unset                    |
 | `SHADOWMASK_ENRICHMENT_TRANSLATION_TARGET_PREFIX` | Output language token, see ENRICHMENT.md | unset                    |
 | `SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED`         | Upscaling on                             | `false`                  |
-| `SHADOWMASK_ENRICHMENT_UPSCALING_PROVIDER`        | Upscaling provider                       | `none`                   |
-| `SHADOWMASK_ENRICHMENT_UPSCALING_MODEL_PATH`      | Model dir, relative to the model cache   | unset                    |
 | `SHADOWMASK_ENRICHMENT_UPSCALING_TARGET_HEIGHT`   | Upscale target height                    | `1080`                   |
 
 ### Content fetch

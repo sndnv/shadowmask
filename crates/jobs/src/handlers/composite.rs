@@ -21,6 +21,7 @@ pub struct CompositeJobHandler<
     Nightly,
     Retention,
     Sweep,
+    Prep,
 > {
     scan: Scan,
     reindex: Reindex,
@@ -39,6 +40,7 @@ pub struct CompositeJobHandler<
     nightly: Nightly,
     retention: Retention,
     sweep: Sweep,
+    prep: Prep,
 }
 
 impl<
@@ -59,6 +61,7 @@ impl<
     Nightly,
     Retention,
     Sweep,
+    Prep,
 >
     CompositeJobHandler<
         Scan,
@@ -78,6 +81,7 @@ impl<
         Nightly,
         Retention,
         Sweep,
+        Prep,
     >
 {
     #[allow(clippy::too_many_arguments)]
@@ -99,6 +103,7 @@ impl<
         nightly: Nightly,
         retention: Retention,
         sweep: Sweep,
+        prep: Prep,
     ) -> Self {
         Self {
             scan,
@@ -118,6 +123,7 @@ impl<
             nightly,
             retention,
             sweep,
+            prep,
         }
     }
 }
@@ -140,6 +146,7 @@ impl<
     Nightly,
     Retention,
     Sweep,
+    Prep,
 > JobHandler
     for CompositeJobHandler<
         Scan,
@@ -159,6 +166,7 @@ impl<
         Nightly,
         Retention,
         Sweep,
+        Prep,
     >
 where
     Scan: JobHandler + Send + Sync,
@@ -178,6 +186,7 @@ where
     Nightly: JobHandler + Send + Sync,
     Retention: JobHandler + Send + Sync,
     Sweep: JobHandler + Send + Sync,
+    Prep: JobHandler + Send + Sync,
 {
     async fn handle(&self, job: &Job) -> Result<(), JobError> {
         match job.kind {
@@ -198,6 +207,7 @@ where
             JobKind::ScheduledScan => self.nightly.handle(job).await,
             JobKind::Retention => self.retention.handle(job).await,
             JobKind::OrphanSweep => self.sweep.handle(job).await,
+            JobKind::PlaybackPrep => self.prep.handle(job).await,
             other => Err(JobError::Permanent(format!("no handler for job kind: {other:?}"))),
         }
     }
@@ -272,6 +282,7 @@ mod tests {
         Recorder,
         Recorder,
         Recorder,
+        Recorder,
     > {
         CompositeJobHandler::new(
             Recorder::new("scan", Arc::clone(calls)),
@@ -291,6 +302,7 @@ mod tests {
             Recorder::new("nightly", Arc::clone(calls)),
             Recorder::new("retention", Arc::clone(calls)),
             Recorder::new("sweep", Arc::clone(calls)),
+            Recorder::new("prep", Arc::clone(calls)),
         )
     }
 
@@ -411,6 +423,13 @@ mod tests {
         let calls = Arc::new(Mutex::new(Vec::new()));
         composite(&calls).handle(&job(JobKind::OrphanSweep)).await.unwrap();
         assert_eq!(*calls.lock().unwrap(), ["sweep"]);
+    }
+
+    #[tokio::test]
+    async fn routes_playback_prep_to_prep_handler() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        composite(&calls).handle(&job(JobKind::PlaybackPrep)).await.unwrap();
+        assert_eq!(*calls.lock().unwrap(), ["prep"]);
     }
 
     #[tokio::test]

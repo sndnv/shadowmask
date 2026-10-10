@@ -21,6 +21,7 @@ regex.workspace = true
 sha2.workspace = true
 sysinfo.workspace = true
 tracing.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }

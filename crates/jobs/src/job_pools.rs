@@ -35,8 +35,14 @@ pub fn default_pools() -> BTreeMap<String, PoolRequest> {
     BTreeMap::from([
         (DEFAULT_POOL.to_owned(), PoolRequest { concurrency: 4, kinds: Vec::new() }),
         (
-            "trickplay".to_owned(),
-            PoolRequest { concurrency: 1, kinds: vec![JobKind::Trickplay.slug().to_owned()] },
+            "media".to_owned(),
+            PoolRequest {
+                concurrency: 1,
+                kinds: vec![
+                    JobKind::PlaybackPrep.slug().to_owned(),
+                    JobKind::Trickplay.slug().to_owned(),
+                ],
+            },
         ),
         (
             "enrichment".to_owned(),
@@ -122,7 +128,8 @@ mod tests {
         let pools = resolve_pools(&default_pools(), &[]).expect("resolve");
 
         assert_eq!(pools.len(), 4);
-        assert_eq!(pool(&pools, "trickplay").kinds, vec![JobKind::Trickplay]);
+        assert_eq!(pool(&pools, "media").kinds, vec![JobKind::PlaybackPrep, JobKind::Trickplay]);
+        assert_eq!(pool(&pools, "media").concurrency, 1);
         assert_eq!(pool(&pools, "fetch").kinds, vec![JobKind::Fetch]);
         assert_eq!(
             pool(&pools, "enrichment").kinds,
@@ -130,7 +137,7 @@ mod tests {
         );
         let total: usize = pools.iter().map(|pool| pool.kinds.len()).sum();
         assert_eq!(total, JobKind::ALL.len());
-        assert_eq!(pool(&pools, DEFAULT_POOL).kinds.len(), JobKind::ALL.len() - 5);
+        assert_eq!(pool(&pools, DEFAULT_POOL).kinds.len(), JobKind::ALL.len() - 6);
         assert_eq!(pool(&pools, DEFAULT_POOL).concurrency, 4);
     }
 
@@ -186,9 +193,9 @@ mod tests {
 
     #[test]
     fn a_pool_whose_only_kind_is_parked_is_dropped() {
-        let pools = resolve_pools(&default_pools(), &[JobKind::Trickplay]).expect("resolve");
+        let pools = resolve_pools(&default_pools(), &[JobKind::Fetch]).expect("resolve");
 
-        assert!(pools.iter().all(|pool| pool.name != "trickplay"));
+        assert!(pools.iter().all(|pool| pool.name != "fetch"));
     }
 
     #[test]

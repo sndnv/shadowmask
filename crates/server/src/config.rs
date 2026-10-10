@@ -253,7 +253,7 @@ pub struct Config {
     pub artwork_cache: PathBuf,
     pub trickplay_cache: PathBuf,
     pub subtitle_cache: PathBuf,
-    pub subtitle_extraction_cache: PathBuf,
+    pub playback_prep_dir: PathBuf,
     pub job_log_dir: PathBuf,
     pub tmdb_api_key: Option<String>,
     pub omdb_api_key: Option<String>,
@@ -309,7 +309,7 @@ impl Default for Config {
             artwork_cache: PathBuf::from("data/artwork"),
             trickplay_cache: PathBuf::from("data/trickplay"),
             subtitle_cache: PathBuf::from("data/subtitles"),
-            subtitle_extraction_cache: PathBuf::from("data/subtitle-extraction"),
+            playback_prep_dir: PathBuf::from("data/playback-prep"),
             job_log_dir: PathBuf::from("data/job-logs"),
             tmdb_api_key: None,
             omdb_api_key: None,
@@ -481,7 +481,7 @@ impl Config {
             ("artwork:", self.artwork_cache.display().to_string()),
             ("trickplay:", self.trickplay_cache.display().to_string()),
             ("subtitles:", self.subtitle_cache.display().to_string()),
-            ("subtitle_extraction:", self.subtitle_extraction_cache.display().to_string()),
+            ("playback_prep:", self.playback_prep_dir.display().to_string()),
             ("job_logs:", self.job_log_dir.display().to_string()),
         ] {
             let _ = writeln!(out, "    {key:<CACHE_KEY_WIDTH$} {value}");
@@ -628,7 +628,10 @@ mod tests {
             let config = Config::load().unwrap().config;
             assert_eq!(config.bind, SocketAddr::from(([0, 0, 0, 0], 8080)));
             assert_eq!(config.job_pools["default"].concurrency, 4);
-            assert_eq!(config.job_pools["trickplay"].kinds, vec!["trickplay".to_owned()]);
+            assert_eq!(
+                config.job_pools["media"].kinds,
+                vec!["playback_prep".to_owned(), "trickplay".to_owned()]
+            );
             assert_eq!(config.trickplay_threads, 2);
             assert!(config.trickplay_keyframes_only);
             Ok(())
@@ -922,11 +925,14 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn job_pools_are_configurable_from_env() {
         figment::Jail::expect_with(|jail| {
-            jail.set_env("SHADOWMASK_JOB_POOLS_TRICKPLAY_CONCURRENCY", "3");
+            jail.set_env("SHADOWMASK_JOB_POOLS_MEDIA_CONCURRENCY", "3");
             jail.set_env("SHADOWMASK_JOB_POOLS_HEAVY_KINDS", "upscale, combine");
             let config = Config::load().unwrap().config;
-            assert_eq!(config.job_pools["trickplay"].concurrency, 3);
-            assert_eq!(config.job_pools["trickplay"].kinds, vec!["trickplay".to_owned()]);
+            assert_eq!(config.job_pools["media"].concurrency, 3);
+            assert_eq!(
+                config.job_pools["media"].kinds,
+                vec!["playback_prep".to_owned(), "trickplay".to_owned()]
+            );
             assert_eq!(
                 config.job_pools["heavy"].kinds,
                 vec!["upscale".to_owned(), "combine".to_owned()]
@@ -1047,6 +1053,7 @@ mod tests {
     fn a_concurrency_on_a_pool_nobody_named_is_reported() {
         let named = [
             "SHADOWMASK_JOB_POOLS_ENRICHMNET_CONCURRENCY",
+            "SHADOWMASK_JOB_POOLS_MEDIA_CONCURRENCY",
             "SHADOWMASK_JOB_POOLS_TRICKPLAY_CONCURRENCY",
             "SHADOWMASK_JOB_POOLS_DEFAULT_CONCURRENCY",
             "SHADOWMASK_JOB_POOLS_HEAVY_KINDS",
@@ -1056,7 +1063,11 @@ mod tests {
 
         assert_eq!(
             unnamed_pools(vars, &named_pools(&default_job_pools())),
-            [("SHADOWMASK_JOB_POOLS_ENRICHMNET_CONCURRENCY".to_owned(), "enrichmnet".to_owned())]
+            [
+                ("SHADOWMASK_JOB_POOLS_ENRICHMNET_CONCURRENCY".to_owned(), "enrichmnet".to_owned()),
+                ("SHADOWMASK_JOB_POOLS_TRICKPLAY_CONCURRENCY".to_owned(), "trickplay".to_owned()),
+            ],
+            "the trickplay pool was renamed media, so a deployment still setting it is told"
         );
     }
 

@@ -14,6 +14,8 @@ enum JobKind {
   subtitles,
   @JsonValue('trickplay')
   trickplay,
+  @JsonValue('playback_prep')
+  playbackPrep,
   @JsonValue('fingerprint')
   fingerprint,
   @JsonValue('dedup')

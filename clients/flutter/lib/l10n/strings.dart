@@ -783,9 +783,6 @@ abstract final class Strings {
   static const String columnFirstSegment = 'First segment';
   static const String columnFallbacks = 'Software fallbacks';
   static const String columnAbandoned = 'Abandoned segments';
-  static const String columnKeyframeReads = 'Keyframe reads';
-  static const String columnKeyframeAverage = 'Keyframe average';
-  static const String columnKeyframeFailures = 'Keyframe failures';
   static const String columnDirectBytes = 'Direct bytes';
   static const String columnSegmentBytes = 'Segment bytes';
 
@@ -807,8 +804,8 @@ abstract final class Strings {
       'The filters playback uses to scale, tone-map HDR to SDR and burn in '
       'subtitles. A cross means this ffmpeg lacks it.';
   static const String helpKeyframeRead =
-      "How long reading the file's keyframes took. Playback does this before "
-      'every transcode to plan its segments.';
+      "How long the benchmark took to list the file's keyframes, which it "
+      'reads itself to pick the segments it times.';
   static const String helpSegment =
       'Which piece of the film was transcoded, and where it starts. Playback '
       'transcodes in pieces of about 4 seconds.';
@@ -842,12 +839,6 @@ abstract final class Strings {
       'GPU segments that failed and were redone on the CPU.';
   static const String helpAbandoned =
       'Segments the player stopped waiting for before they were ready.';
-  static const String helpKeyframeReads =
-      "Reads of a file's keyframes before a stream starts.";
-  static const String helpKeyframeAverage = 'Average time of a keyframe read.';
-  static const String helpKeyframeFailures =
-      'Keyframe reads that failed. Playback then treats the whole file as one '
-      'segment.';
   static const String helpDirectBytes =
       'Bytes sent for direct play since the server started.';
   static const String helpSegmentBytes =

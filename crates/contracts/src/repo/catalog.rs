@@ -7,8 +7,8 @@ use domain::common::{LanguageCode, PageRequest, Quality};
 use domain::library::LibraryId;
 use domain::media::{
     AudioTrack, Chapter, CreditsMarker, DetectedMarkers, EmbeddedSubtitleTrack, HdrFormat,
-    IntroMarker, SubtitleFile, SubtitleFileId, SubtitleFormat, SubtitleSource, TrickplayAsset,
-    VideoTrack,
+    IntroMarker, PlaybackPrep, SubtitleFile, SubtitleFileId, SubtitleFormat, SubtitleSource,
+    TrickplayAsset, VideoTrack,
 };
 use domain::metadata::{
     ArtworkKind, ContentRating, Credit, CreditRole, ExternalId, Extra, ExtraKind, Genre, GenreId,
@@ -111,6 +111,7 @@ pub fn catalog_seed() -> CatalogSeed {
             tile_height: 180,
             sheet_paths: vec!["/tp/1.jpg".into(), "/tp/2.jpg".into()],
         }],
+        extracted_subtitles: Vec::new(),
     };
     CatalogSeed {
         movies: vec![
@@ -1235,8 +1236,28 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     )
     .await
     .unwrap();
+    assert!(repo.keyframes(&uv1).await.unwrap().is_none());
+    assert!(repo.version_detail(&uv1).await.unwrap().unwrap().extracted_subtitles.is_empty());
+    repo.set_playback_prep(
+        &uv1,
+        &PlaybackPrep { keyframes: vec![0, 4_000], extracted_subtitles: vec![2, 3] },
+    )
+    .await
+    .unwrap();
+    repo.set_playback_prep(
+        &uv1,
+        &PlaybackPrep { keyframes: vec![0, 4_004, 8_008], extracted_subtitles: vec![3] },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        repo.keyframes(&uv1).await.unwrap(),
+        Some(vec![0, 4_004, 8_008]),
+        "a second preparation replaces the first"
+    );
 
     let uv1_detail = repo.version_detail(&uv1).await.unwrap().unwrap();
+    assert_eq!(uv1_detail.extracted_subtitles, vec![3]);
     assert_eq!(uv1_detail.video.len(), 1);
     assert_eq!(uv1_detail.video[0].codec, "hevc");
     assert_eq!(uv1_detail.video[0].hdr, Some(HdrFormat::DolbyVision));
@@ -1287,6 +1308,11 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     repo.set_trickplay(&uv1, &[]).await.unwrap();
     repo.set_subtitle_files(&uv1, &[]).await.unwrap();
     let uv1_cleared = repo.version_detail(&uv1).await.unwrap().unwrap();
+    assert!(
+        uv1_cleared.extracted_subtitles.is_empty(),
+        "new tracks clear what was prepared from the old ones"
+    );
+    assert!(repo.keyframes(&uv1).await.unwrap().is_none());
     assert!(uv1_cleared.video.is_empty());
     assert!(uv1_cleared.audio.is_empty());
     assert!(uv1_cleared.subtitles.is_empty());

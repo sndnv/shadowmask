@@ -21,6 +21,7 @@ void main() {
       'artwork',
       'subtitles',
       'trickplay',
+      'playback_prep',
       'fingerprint',
       'dedup',
       'cache_eviction',
