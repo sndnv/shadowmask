@@ -33,6 +33,8 @@ import 'package:shadowmask/model/server/ffmpeg_component.dart';
 import 'package:shadowmask/model/server/hardware_capabilities.dart';
 import 'package:shadowmask/model/server/hardware_test.dart';
 import 'package:shadowmask/model/server/host_capabilities.dart';
+import 'package:shadowmask/model/server/library_prep.dart';
+import 'package:shadowmask/model/server/playback_prep_report.dart';
 import 'package:shadowmask/model/server/transcode_totals.dart';
 import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/nav/nav_section.dart';
@@ -41,6 +43,7 @@ import 'package:shadowmask/pages/default/mutations.dart';
 import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
+import 'package:shadowmask/theme/radii.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -119,6 +122,10 @@ class _ServerBodyState extends State<_ServerBody> with Mutations<_ServerBody> {
 
   @override
   Widget build(BuildContext context) {
+    return SelectionArea(child: _content());
+  }
+
+  Widget _content() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -127,6 +134,14 @@ class _ServerBodyState extends State<_ServerBody> with Mutations<_ServerBody> {
           const Crumb(Strings.adminServer),
         ]),
         const SizedBox(height: Space.s4),
+        _Polled<PlaybackPrepReport>(
+          fetch: widget.server.playbackPrep,
+          busy: (PlaybackPrepReport _) => false,
+          errorText: Strings.couldNotLoadPlaybackPrep,
+          loading: const SizedBox.shrink(),
+          builder: (BuildContext context, PlaybackPrepReport r) =>
+              _PrepNotice(report: r),
+        ),
         SectionBlock(
           title: Strings.capabilitiesHeading,
           actionItems: <PageAction>[
@@ -193,12 +208,14 @@ class _Polled<T extends Object> extends StatefulWidget {
     required this.busy,
     required this.errorText,
     required this.builder,
+    this.loading,
   });
 
   final Future<T> Function() fetch;
   final bool Function(T data) busy;
   final String errorText;
   final DataBuilder<T> builder;
+  final Widget? loading;
 
   @override
   State<_Polled<T>> createState() => _PolledState<T>();
@@ -252,7 +269,92 @@ class _PolledState<T extends Object> extends State<_Polled<T>> {
     builder: widget.builder,
     errorText: widget.errorText,
     onRetry: refresh,
+    loading: widget.loading,
   );
+}
+
+class _PrepNotice extends StatelessWidget {
+  const _PrepNotice({required this.report});
+
+  final PlaybackPrepReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    if (report.libraries.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final Tokens t = context.tokens;
+    final TextStyle? body = Theme.of(
+      context,
+    ).textTheme.bodyMedium?.copyWith(color: t.warn);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.s4),
+      child: Container(
+        padding: const EdgeInsets.all(Space.s3),
+        decoration: BoxDecoration(
+          color: t.warnBg,
+          borderRadius: const BorderRadius.all(Radii.sm),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Icon(Icons.warning_amber, size: 18, color: t.warn),
+            const SizedBox(width: Space.s2),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    Strings.prepNoticeTitle,
+                    style: body?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: Space.s1),
+                  for (final LibraryPrep library in report.libraries)
+                    _PrepLine(library: library, style: body),
+                  if (report.ffmpeg case final String ffmpeg) ...<Widget>[
+                    const SizedBox(height: Space.s1),
+                    Text(Strings.prepServerFfmpeg(ffmpeg), style: body),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PrepLine extends StatelessWidget {
+  const _PrepLine({required this.library, required this.style});
+
+  final LibraryPrep library;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<String> counts = <String>[
+      if (library.outdated > 0)
+        Strings.prepOutdated(library.outdated, library.preparedWith),
+      if (library.unprepared > 0) Strings.prepUnprepared(library.unprepared),
+    ];
+    return Wrap(
+      children: <Widget>[
+        HoverTap(
+          onTap: () =>
+              Navigator.of(context).pushNamed(adminLibraryRoute(library.id)),
+          child: Text(
+            library.name,
+            style: style?.copyWith(
+              decoration: TextDecoration.underline,
+              decorationColor: style?.color,
+            ),
+          ),
+        ),
+        Text(': ${counts.join(', ')}', style: style),
+      ],
+    );
+  }
 }
 
 class _CapabilitiesView extends StatelessWidget {
@@ -497,17 +599,15 @@ class _BenchmarkView extends StatelessWidget {
     return AdminHeaderSplit(
       startWidth: _kBenchmarkInfoWidth,
       breakpoint: kCapabilityColumnsBreakpoint,
-      start: _info(t, r),
+      start: _info(r),
       end: _runs(t, r),
     );
   }
 
-  Widget _info(Tokens t, BenchmarkReport r) {
+  Widget _info(BenchmarkReport r) {
     final String? versionId = r.versionId;
     final String? finished = dateTimeText(r.finishedAt);
     final BenchmarkSource? source = r.source;
-    final String? keyframesError = r.keyframesError;
-    final int? keyframesMs = r.keyframesMs;
     final int total = r.progress.total;
     final bool running = r.state == BenchmarkState.running;
     return Column(
@@ -556,21 +656,6 @@ class _BenchmarkView extends StatelessWidget {
             _sourceText(source),
             labelWidth: _kCapabilityLabelWidth,
           ),
-        if (keyframesError != null)
-          _Fact(
-            Strings.factKeyframeRead,
-            keyframesError,
-            color: t.danger,
-            help: Strings.helpKeyframeRead,
-            labelWidth: _kCapabilityLabelWidth,
-          )
-        else if (keyframesMs != null)
-          _Fact(
-            Strings.factKeyframeRead,
-            secondsText(keyframesMs.toDouble()),
-            help: Strings.helpKeyframeRead,
-            labelWidth: _kCapabilityLabelWidth,
-          ),
       ],
     );
   }
@@ -579,6 +664,7 @@ class _BenchmarkView extends StatelessWidget {
     rows: r.runs,
     emptyText: Strings.emptyBenchmarkRuns,
     minWidth: 760,
+    selectable: true,
     rowColor: (BenchmarkRun run) => switch (run.outcome) {
       BenchmarkOutcome.ok => null,
       BenchmarkOutcome.tooSlow => t.rowWarn,
@@ -737,6 +823,7 @@ class _TotalsView extends StatelessWidget {
             rows: totals.encoders,
             emptyText: Strings.totalsEmpty,
             minWidth: 560,
+            selectable: true,
             columns: <AdminColumn<EncoderTotals>>[
               AdminColumn<EncoderTotals>(
                 label: Strings.columnEncoder,
@@ -796,6 +883,7 @@ class _TotalsView extends StatelessWidget {
             rows: totals.deliveries,
             emptyText: Strings.totalsEmpty,
             minWidth: 480,
+            selectable: true,
             columns: <AdminColumn<DeliveryTotals>>[
               AdminColumn<DeliveryTotals>(
                 label: Strings.columnDelivery,
@@ -850,6 +938,7 @@ class _TotalsView extends StatelessWidget {
           rows: <TranscodeTotals>[totals],
           emptyText: Strings.totalsEmpty,
           minWidth: 1080,
+          selectable: true,
           columns: <AdminColumn<TranscodeTotals>>[
             AdminColumn<TranscodeTotals>(
               label: Strings.columnFallbacks,

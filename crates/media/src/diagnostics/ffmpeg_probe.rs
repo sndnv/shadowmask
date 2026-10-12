@@ -159,7 +159,7 @@ fn cpu_name(brand: &str, vendor: &str, arch: &str) -> Option<String> {
     }
 }
 
-fn parse_version(text: &str) -> Option<String> {
+pub(crate) fn parse_version(text: &str) -> Option<String> {
     let line = text.lines().next()?;
     let rest = line.strip_prefix("ffmpeg version ")?;
     rest.split_whitespace().next().map(str::to_owned)

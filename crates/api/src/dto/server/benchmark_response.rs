@@ -10,8 +10,6 @@ pub struct BenchmarkResponse {
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
     pub source: Option<BenchmarkSource>,
-    pub keyframes_ms: Option<u64>,
-    pub keyframes_error: Option<String>,
     pub progress: BenchmarkProgress,
     pub runs: Vec<BenchmarkRunResult>,
 }
@@ -29,8 +27,6 @@ impl From<BenchmarkStatus> for BenchmarkResponse {
             started_at: status.started_at.map(|at| at.to_string()),
             finished_at: status.finished_at.map(|at| at.to_string()),
             source: status.target.map(BenchmarkSource::from),
-            keyframes_ms: status.keyframes_ms,
-            keyframes_error: status.keyframes_error,
             progress: BenchmarkProgress { done: status.runs.len(), total: status.total },
             runs: status.runs.into_iter().map(BenchmarkRunResult::from).collect(),
         }

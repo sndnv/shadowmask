@@ -160,7 +160,7 @@ class WebPlayerController implements PlayerController {
   bool get supportsPictureInPicture => web.document.pictureInPictureEnabled;
 
   @override
-  bool get seeksWithinStream => true;
+  bool seeksWithin(String? container) => true;
 
   @override
   Widget get view => HtmlElementView(viewType: _viewType);

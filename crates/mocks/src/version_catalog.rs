@@ -6,7 +6,7 @@ use domain::catalog::{Version, VersionDetail, VersionId};
 use domain::error::RepositoryError;
 use domain::repository::VersionCatalog;
 
-pub const PREPARED_KEYFRAMES: [u64; 3] = [0, 4_000, 8_000];
+pub const PREPARED_KEYFRAMES: [u64; 3] = [0, 4_000_000, 8_000_000];
 
 #[derive(Clone, Default)]
 pub struct MockVersionCatalog {
@@ -71,7 +71,7 @@ impl VersionCatalog for MockVersionCatalog {
         Ok(self.versions.lock().unwrap().get(id).map(|detail| detail.version.clone()))
     }
 
-    async fn keyframes(&self, id: &VersionId) -> Result<Option<Vec<u64>>, RepositoryError> {
+    async fn keyframes_us(&self, id: &VersionId) -> Result<Option<Vec<u64>>, RepositoryError> {
         self.guard()?;
         Ok(self.keyframes.lock().unwrap().get(id).cloned())
     }
@@ -127,7 +127,7 @@ mod tests {
         let catalog = MockVersionCatalog::new();
         catalog.set_fail();
         assert!(catalog.version_detail(&VersionId("v1".into())).await.is_err());
-        assert!(catalog.keyframes(&VersionId("v1".into())).await.is_err());
+        assert!(catalog.keyframes_us(&VersionId("v1".into())).await.is_err());
     }
 
     #[tokio::test]
@@ -135,13 +135,13 @@ mod tests {
         let catalog = MockVersionCatalog::new();
         let id = VersionId("v1".into());
         catalog.insert(detail("v1"));
-        assert_eq!(catalog.keyframes(&id).await.unwrap(), Some(PREPARED_KEYFRAMES.to_vec()));
+        assert_eq!(catalog.keyframes_us(&id).await.unwrap(), Some(PREPARED_KEYFRAMES.to_vec()));
 
         catalog.set_keyframes(&id, None);
-        assert_eq!(catalog.keyframes(&id).await.unwrap(), None);
+        assert_eq!(catalog.keyframes_us(&id).await.unwrap(), None);
 
-        catalog.set_keyframes(&id, Some(vec![0, 2_000]));
+        catalog.set_keyframes(&id, Some(vec![0, 2_000_000]));
         catalog.remove(&id);
-        assert_eq!(catalog.keyframes(&id).await.unwrap(), None);
+        assert_eq!(catalog.keyframes_us(&id).await.unwrap(), None);
     }
 }

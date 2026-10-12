@@ -42,9 +42,7 @@ pub use playback_session::{PlaybackSession, SessionId};
 pub use playback_state::PlaybackState;
 pub use renegotiated::Renegotiated;
 pub use segment_container::{SegmentContainer, segment_container_for};
-pub use segment_plan::{
-    Segment, SegmentPlan, plan_fixed_segments, plan_segments, plan_segments_on_grid,
-};
+pub use segment_plan::{Segment, SegmentPlan, plan_cuts, plan_fixed_segments};
 pub use selected_tracks::SelectedTracks;
 pub use session_start_input::SessionStartInput;
 pub use session_started::SessionStarted;
@@ -61,7 +59,7 @@ pub use subtitle_delivery::SubtitleDelivery;
 pub use subtitle_selection::SubtitleSelection;
 pub use track_request::{AudioRequest, SubtitleRequest};
 pub use transcode_manager::TranscodeManager;
-pub use transcode_spec::{SoftSubtitle, SoftSubtitleSource, TranscodeSpec};
+pub use transcode_spec::{BurnSubtitle, SoftSubtitle, SoftSubtitleSource, TranscodeSpec};
 pub use transcode_started::TranscodeStarted;
 
 pub const PROFILE_VERSION: u32 = 1;

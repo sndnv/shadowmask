@@ -12,11 +12,18 @@ pub(crate) fn encoder_label(copy: bool, encoder: &VideoEncoder) -> &'static str 
     }
 }
 
-pub(crate) fn segment_produced(encoder: &'static str, elapsed: Duration, media_ms: u64) {
+pub(crate) fn run_ended(encoder: &'static str, elapsed: Duration, segments: u32, media_ms: u64) {
+    if segments == 0 {
+        return;
+    }
     metrics::counter!("transcode_segments_total", "encoder" => encoder, "outcome" => "ok")
-        .increment(1);
-    metrics::histogram!("transcode_segment_duration_milliseconds", "encoder" => encoder)
-        .record(millis(elapsed));
+        .increment(u64::from(segments));
+    let histogram =
+        metrics::histogram!("transcode_segment_duration_milliseconds", "encoder" => encoder);
+    let each = millis(elapsed / segments);
+    for _ in 0..segments {
+        histogram.record(each);
+    }
     metrics::counter!("transcode_media_milliseconds_total", "encoder" => encoder)
         .increment(media_ms);
 }

@@ -756,7 +756,6 @@ abstract final class Strings {
   static const String factStatus = 'Status';
   static const String factProgress = 'Progress';
   static const String factSource = 'Source';
-  static const String factKeyframeRead = 'Keyframe read';
   static const String emptyBenchmarkRuns = 'No runs yet.';
   static const String columnSegment = 'Segment';
   static const String columnEncoder = 'Encoder';
@@ -768,6 +767,16 @@ abstract final class Strings {
   static const String outcomeFailed = 'Failed';
   static const String outcomeTooSlow = 'Too slow';
   static String segmentAt(int segment, String at) => '#$segment at $at';
+
+  static const String prepNoticeTitle = 'Run "Re-read files" on:';
+  static String prepOutdated(int count, List<String> ffmpeg) =>
+      '${_versions(count)} prepared with ffmpeg ${ffmpeg.join(', ')}';
+  static String prepUnprepared(int count) => '${_versions(count)} not prepared';
+  static String prepServerFfmpeg(String ffmpeg) => 'Server ffmpeg: $ffmpeg';
+  static const String couldNotLoadPlaybackPrep =
+      'Could not load the playback preparation status.';
+  static String _versions(int count) =>
+      count == 1 ? '1 version' : '$count versions';
 
   static const String totalsHeading = 'Metrics';
   static const String couldNotLoadTotals =
@@ -803,9 +812,6 @@ abstract final class Strings {
   static const String helpFilters =
       'The filters playback uses to scale, tone-map HDR to SDR and burn in '
       'subtitles. A cross means this ffmpeg lacks it.';
-  static const String helpKeyframeRead =
-      "How long the benchmark took to list the file's keyframes, which it "
-      'reads itself to pick the segments it times.';
   static const String helpSegment =
       'Which piece of the film was transcoded, and where it starts. Playback '
       'transcodes in pieces of about 4 seconds.';

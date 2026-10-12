@@ -8,13 +8,15 @@ use tower::ServiceExt;
 
 use api::{StreamState, stream_router};
 use domain::catalog::VersionId;
-use domain::media::{KeyframeProbe, MediaProbe};
+use domain::media::{MediaProbe, PlaybackPreparer};
 use domain::session::{
     DeliveryMode, SegmentContainer, SessionId, StreamClaims, StreamGeneration, StreamRegistration,
     StreamRegistry, StreamTokens, TranscodeManager, TranscodeSpec,
 };
 use domain::user::UserId;
 use media::hls::HlsStreamSource;
+use media::playback_prep::FfmpegPlaybackPreparer;
+use media::playback_prep_store::FsPlaybackPrepStore;
 use media::probe::FfprobeMediaProbe;
 use media::stream_token::HmacStreamTokens;
 
@@ -41,7 +43,7 @@ async fn get(app: Router, uri: &str, range: Option<&str>) -> (StatusCode, Header
 }
 
 #[tokio::test]
-async fn serves_a_jit_segment_end_to_end() {
+async fn serves_a_produced_segment_end_to_end() {
     let input = fixture();
     let input_path = input.to_string_lossy().into_owned();
 
@@ -51,10 +53,12 @@ async fn serves_a_jit_segment_end_to_end() {
         .expect("ffprobe should succeed; is ffmpeg installed and on PATH?");
     assert!(!probe.video.is_empty(), "fixture must have a video track");
     assert!(probe.duration_ms > 0);
-    let keyframes = FfprobeMediaProbe::default()
-        .keyframes(&input_path)
+    let prep = tempfile::tempdir().unwrap();
+    let keyframes = FfmpegPlaybackPreparer::new(FsPlaybackPrepStore::new(prep.path()))
+        .prepare(&VersionId("ver-1".to_owned()), &input_path, &[])
         .await
-        .expect("the fixture's keyframes should be readable");
+        .expect("the fixture should be prepared for playback")
+        .keyframes_us;
 
     let cache = tempfile::tempdir().unwrap();
     let session = SessionId(SESSION.to_owned());
@@ -67,14 +71,14 @@ async fn serves_a_jit_segment_end_to_end() {
             version: VersionId("ver-1".to_owned()),
             input_path,
             duration_ms: probe.duration_ms,
-            keyframes: Some(keyframes),
+            keyframes_us: Some(keyframes),
             copy: true,
             container: SegmentContainer::MpegTs,
             seek_ms: None,
             audio_track: None,
             max_height: None,
             max_bitrate: None,
-            burn_subtitle_path: None,
+            burn_subtitle: None,
             soft_subtitle: None,
             downmix_stereo: false,
             source_hdr: None,

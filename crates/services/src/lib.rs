@@ -6,6 +6,7 @@ pub mod job;
 pub mod library;
 pub(crate) mod page;
 pub mod password;
+pub mod playback_prep_audit;
 pub mod session;
 pub mod user;
 pub mod user_library;

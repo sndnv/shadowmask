@@ -3,13 +3,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use domain::catalog::VersionId;
-use domain::media::{
-    EmbeddedSubtitleTrack, KeyframeProbe, PlaybackPrep, PlaybackPreparer, SubtitleFormat,
-};
+use domain::media::{EmbeddedSubtitleTrack, PlaybackPrep, PlaybackPreparer, SubtitleFormat};
 use domain::process::{CommandOutput, ProcessSpawner};
 use media::playback_prep::FfmpegPlaybackPreparer;
 use media::playback_prep_store::FsPlaybackPrepStore;
-use media::probe::FfprobeMediaProbe;
 use media::transcode::TokioProcessSpawner;
 
 type Instead = fn(&[String]) -> Option<io::Result<CommandOutput>>;
@@ -83,11 +80,32 @@ fn preparer(root: &Path, spawner: Scripted) -> FfmpegPlaybackPreparer<Scripted> 
     FfmpegPlaybackPreparer::with_spawner(FsPlaybackPrepStore::new(root), spawner)
 }
 
-async fn probed_keyframes(name: &str) -> Vec<u64> {
-    FfprobeMediaProbe::default()
-        .keyframes(&fixture(name))
-        .await
-        .expect("ffprobe should list keyframes; is ffmpeg installed and on PATH?")
+fn probed_keyframes(name: &str) -> Vec<u64> {
+    let listed = std::process::Command::new("ffprobe")
+        .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time,flags"])
+        .args(["-of", "csv=p=0"])
+        .arg(fixture(name))
+        .output()
+        .expect("ffprobe should list keyframes; is ffmpeg installed and on PATH?");
+    let mut keyframes: Vec<u64> = String::from_utf8_lossy(&listed.stdout)
+        .lines()
+        .filter_map(|line| line.split_once(','))
+        .filter(|(_, flags)| flags.starts_with('K'))
+        .filter_map(|(time, _)| time.parse::<f64>().ok())
+        .map(|seconds| (seconds * 1_000_000.0).round() as u64)
+        .collect();
+    keyframes.sort_unstable();
+    keyframes
+}
+
+fn running_ffmpeg() -> String {
+    let listed = std::process::Command::new("ffmpeg")
+        .args(["-hide_banner", "-version"])
+        .output()
+        .expect("ffmpeg should run; is it installed and on PATH?");
+    let text = String::from_utf8_lossy(&listed.stdout).into_owned();
+    let first = text.lines().next().unwrap_or_default();
+    first.strip_prefix("ffmpeg version ").unwrap_or_default().split(' ').next().unwrap().to_owned()
 }
 
 fn stored(root: &Path, prefix: &str, extension: &str) -> Vec<PathBuf> {
@@ -128,9 +146,14 @@ async fn one_read_gives_the_keyframes_and_every_text_track() {
         .await
         .expect("ffmpeg should prepare the fixture; is ffmpeg installed and on PATH?");
 
-    assert_eq!(prep.keyframes, probed_keyframes("sample_full.mkv").await);
+    assert_eq!(prep.keyframes_us, probed_keyframes("sample_full.mkv"));
     assert_eq!(prep.extracted_subtitles, vec![2]);
-    assert_eq!(spawner.runs(), 3, "a header probe, one read of the file, one conversion of a copy");
+    assert_eq!(prep.prepared_with, running_ffmpeg());
+    assert_eq!(
+        spawner.runs(),
+        4,
+        "a header probe, the ffmpeg version, one read of the file, one conversion of a copy"
+    );
     let read = spawner.read();
     assert!(read.windows(2).any(|pair| pair == ["-f", "framecrc"]));
     assert!(read.windows(2).any(|pair| pair == ["-f", "matroska"]));
@@ -159,6 +182,39 @@ async fn a_prepared_version_is_not_read_again() {
 }
 
 #[tokio::test]
+async fn a_preparation_made_by_another_ffmpeg_is_read_again() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let older = Scripted {
+        instead: Some(|args| {
+            args.iter().any(|arg| arg == "-version").then(|| {
+                Ok(CommandOutput {
+                    success: true,
+                    stdout: "ffmpeg version 0.0.0-older Copyright (c) 2000\n".to_owned(),
+                    ..CommandOutput::default()
+                })
+            })
+        }),
+        ..Scripted::default()
+    };
+    let first = preparer(root.path(), older)
+        .prepare(&version(), &fixture("sample_full.mkv"), &[])
+        .await
+        .expect("prepare");
+    assert_eq!(first.prepared_with, "0.0.0-older");
+
+    let spawner = Scripted::default();
+    let again = preparer(root.path(), spawner.clone())
+        .prepare(&version(), &fixture("sample_full.mkv"), &[])
+        .await
+        .expect("prepare");
+
+    assert_eq!(spawner.reads().len(), 1, "the file was not read again by the running ffmpeg");
+    assert_eq!(again.prepared_with, running_ffmpeg());
+    assert_eq!(again.keyframes_us, first.keyframes_us);
+    assert_eq!(stored(root.path(), "keyframes", "json").len(), 1);
+}
+
+#[tokio::test]
 async fn an_image_track_is_copied_and_gets_no_webvtt() {
     let root = tempfile::tempdir().expect("tempdir");
     let spawner = Scripted::default();
@@ -167,9 +223,9 @@ async fn an_image_track_is_copied_and_gets_no_webvtt() {
         .await
         .expect("prepare");
 
-    assert_eq!(prep.keyframes, probed_keyframes("supsample.mkv").await);
+    assert_eq!(prep.keyframes_us, probed_keyframes("supsample.mkv"));
     assert_eq!(prep.extracted_subtitles, vec![1]);
-    assert_eq!(spawner.runs(), 1);
+    assert_eq!(spawner.runs(), 3, "a header probe, the ffmpeg version and one read of the file");
     assert_eq!(stored(root.path(), "embedded-1", "mks").len(), 1);
     assert!(stored(root.path(), "embedded-1", "vtt").is_empty());
 }
@@ -183,9 +239,9 @@ async fn a_track_that_cannot_be_copied_still_leaves_the_keyframes() {
         .await
         .expect("prepare");
 
-    assert_eq!(prep.keyframes, probed_keyframes("sample_full.mkv").await);
+    assert_eq!(prep.keyframes_us, probed_keyframes("sample_full.mkv"));
     assert!(prep.extracted_subtitles.is_empty());
-    assert_eq!(spawner.runs(), 2, "the read is repeated for the keyframes alone");
+    assert_eq!(spawner.reads().len(), 2, "the read is repeated for the keyframes alone");
     assert!(stored(root.path(), "embedded-9", "mks").is_empty());
     let leftovers: Vec<PathBuf> = std::fs::read_dir(root.path().join("ver-1"))
         .unwrap()
@@ -211,7 +267,7 @@ async fn a_text_track_that_cannot_become_webvtt_is_left_out_and_tried_again() {
     let prep =
         subject.prepare(&version(), &fixture("sample_full.mkv"), &tracks).await.expect("prepare");
     assert!(prep.extracted_subtitles.is_empty());
-    assert!(!prep.keyframes.is_empty());
+    assert!(!prep.keyframes_us.is_empty());
     assert!(stored(root.path(), "embedded-2", "vtt").is_empty());
     let runs = spawner.runs();
 
@@ -257,7 +313,7 @@ async fn a_copy_that_vanishes_before_it_is_kept_is_left_out() {
         .expect("prepare");
 
     assert!(prep.extracted_subtitles.is_empty());
-    assert!(!prep.keyframes.is_empty());
+    assert!(!prep.keyframes_us.is_empty());
 }
 
 #[tokio::test]
@@ -289,7 +345,7 @@ async fn a_file_that_cannot_be_read_fails() {
         .prepare(&version(), "/nonexistent/shadowmask/movie.mkv", &[])
         .await;
     assert!(without_tracks.is_err());
-    assert_eq!(spawner.runs(), 1);
+    assert!(spawner.reads().is_empty(), "the probe already failed");
 
     let with_tracks = preparer(root.path(), Scripted::default())
         .prepare(&version(), "/nonexistent/shadowmask/movie.mkv", &[track(2, SubtitleFormat::Srt)])
@@ -349,7 +405,7 @@ fn offset_mp4(dir: &Path) -> String {
 }
 
 #[tokio::test]
-async fn cues_keep_their_time_in_a_file_that_does_not_start_at_zero() {
+async fn cues_keep_the_file_clock_of_a_file_that_does_not_start_at_zero() {
     let source = tempfile::tempdir().expect("tempdir");
     let input = offset_mp4(source.path());
     let root = tempfile::tempdir().expect("tempdir");
@@ -362,7 +418,146 @@ async fn cues_keep_their_time_in_a_file_that_does_not_start_at_zero() {
     assert_eq!(prep.extracted_subtitles, vec![1]);
     let vtt = stored(root.path(), "embedded-1", "vtt");
     let cues = std::fs::read_to_string(&vtt[0]).unwrap();
-    assert!(cues.contains("00:30.000 --> 00:32.000"), "{cues}");
+    assert!(cues.contains("00:40.000 --> 00:42.000"), "a film cue at 30 s sits at 40 s: {cues}");
+}
+
+#[tokio::test]
+async fn keyframes_count_from_the_start_of_a_file_that_does_not_start_at_zero() {
+    let source = tempfile::tempdir().expect("tempdir");
+    let input = offset_mp4(source.path());
+    let root = tempfile::tempdir().expect("tempdir");
+
+    let prep = preparer(root.path(), Scripted::default())
+        .prepare(&version(), &input, &[])
+        .await
+        .expect("prepare");
+
+    assert_eq!(prep.keyframes_us.first(), Some(&0), "{:?}", prep.keyframes_us);
+    assert!(prep.keyframes_us.iter().all(|at| *at < 35_000_000), "{:?}", prep.keyframes_us);
+}
+
+fn audio_first_ts(dir: &Path) -> String {
+    let ts = dir.join("audio-first.ts");
+    let built = std::process::Command::new("ffmpeg")
+        .args(["-nostdin", "-v", "error", "-y", "-itsoffset", "0.3", "-f", "lavfi"])
+        .args(["-i", "testsrc=size=160x120:rate=25:duration=12", "-f", "lavfi"])
+        .args(["-i", "sine=frequency=440:duration=12.3", "-c:v", "libx264", "-g", "50"])
+        .args(["-pix_fmt", "yuv420p", "-c:a", "aac"])
+        .arg(&ts)
+        .status()
+        .expect("ffmpeg should build the fixture; is ffmpeg installed and on PATH?");
+    assert!(built.success());
+    ts.to_string_lossy().into_owned()
+}
+
+fn file_start_us(input: &str) -> i64 {
+    let listed = std::process::Command::new("ffprobe")
+        .args(["-v", "error", "-show_entries", "format=start_time", "-of", "csv=p=0", input])
+        .output()
+        .expect("ffprobe should run");
+    let seconds: f64 = String::from_utf8_lossy(&listed.stdout).trim().parse().unwrap();
+    (seconds * 1_000_000.0).round() as i64
+}
+
+#[tokio::test]
+async fn keyframes_of_a_file_whose_sound_starts_first_are_timed_from_the_file_start() {
+    let source = tempfile::tempdir().expect("tempdir");
+    let input = audio_first_ts(source.path());
+    let root = tempfile::tempdir().expect("tempdir");
+
+    let prep = preparer(root.path(), Scripted::default())
+        .prepare(&version(), &input, &[])
+        .await
+        .expect("prepare");
+
+    let start = file_start_us(&input);
+    let listed = std::process::Command::new("ffprobe")
+        .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time,flags"])
+        .args(["-of", "csv=p=0", &input])
+        .output()
+        .expect("ffprobe should list keyframes");
+    let expected: Vec<u64> = String::from_utf8_lossy(&listed.stdout)
+        .lines()
+        .filter_map(|line| line.split_once(','))
+        .filter(|(_, flags)| flags.starts_with('K'))
+        .filter_map(|(time, _)| time.parse::<f64>().ok())
+        .map(|seconds| ((seconds * 1_000_000.0).round() as i64 - start) as u64)
+        .collect();
+    assert_eq!(prep.keyframes_us, expected);
+    assert!(prep.keyframes_us[0] > 250_000, "the picture starts after the sound: {expected:?}");
+}
+
+fn ass_with_font(dir: &Path) -> String {
+    let script = dir.join("styled.ass");
+    std::fs::write(
+        &script,
+        "[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize\n\
+         Style: Default,Film Font,40\n\n[Events]\nFormat: Layer, Start, End, Style, Text\n\
+         Dialogue: 0,0:00:00.50,0:00:01.50,Default,Styled\n",
+    )
+    .expect("write the script");
+    let font = dir.join("film.ttf");
+    std::fs::write(&font, b"not really a font").expect("write the font");
+    let mkv = dir.join("styled.mkv");
+    let built = std::process::Command::new("ffmpeg")
+        .args(["-nostdin", "-v", "error", "-y", "-f", "lavfi"])
+        .args(["-i", "color=c=gray:s=64x64:r=2:d=2", "-i"])
+        .arg(&script)
+        .arg("-attach")
+        .arg(&font)
+        .args(["-metadata:s:t", "mimetype=application/x-truetype-font"])
+        .args(["-map", "0", "-map", "1", "-c:v", "mpeg4", "-c:s", "copy"])
+        .arg(&mkv)
+        .status()
+        .expect("ffmpeg should build the fixture; is ffmpeg installed and on PATH?");
+    assert!(built.success());
+    mkv.to_string_lossy().into_owned()
+}
+
+#[tokio::test]
+async fn an_ass_copy_keeps_the_fonts_the_film_carries() {
+    let source = tempfile::tempdir().expect("tempdir");
+    let input = ass_with_font(source.path());
+    let root = tempfile::tempdir().expect("tempdir");
+
+    let prep = preparer(root.path(), Scripted::default())
+        .prepare(&version(), &input, &[track(1, SubtitleFormat::Ass)])
+        .await
+        .expect("prepare");
+
+    assert_eq!(prep.extracted_subtitles, vec![1]);
+    let copy = stored(root.path(), "embedded-1", "mks");
+    let listed = std::process::Command::new("ffprobe")
+        .args(["-v", "error", "-show_entries", "stream=codec_type:stream_tags=filename"])
+        .args(["-of", "csv=p=0"])
+        .arg(&copy[0])
+        .output()
+        .expect("ffprobe should list the copy");
+    let streams = String::from_utf8_lossy(&listed.stdout).into_owned();
+    assert!(streams.contains("attachment,film.ttf"), "{streams}");
+}
+
+#[tokio::test]
+async fn an_ffmpeg_that_cannot_name_its_version_fails_the_preparation_and_is_asked_again() {
+    static REFUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let root = tempfile::tempdir().expect("tempdir");
+    let spawner = Scripted {
+        instead: Some(|args| {
+            let asked = args.iter().any(|arg| arg == "-version");
+            (asked && !REFUSED.swap(true, std::sync::atomic::Ordering::SeqCst))
+                .then(|| refused("cannot start"))
+                .flatten()
+        }),
+        ..Scripted::default()
+    };
+    let subject = preparer(root.path(), spawner);
+
+    let first = subject.prepare(&version(), &fixture("sample_full.mkv"), &[]).await;
+    let second = subject.prepare(&version(), &fixture("sample_full.mkv"), &[]).await;
+
+    let detail = format!("{:?}", first.unwrap_err());
+    assert!(detail.contains("could not read the ffmpeg version"), "{detail}");
+    assert_eq!(second.expect("the version is asked again").prepared_with, running_ffmpeg());
 }
 
 fn dvb_beside_srt(dir: &Path) -> String {
@@ -400,8 +595,8 @@ async fn a_track_that_cannot_become_text_is_left_out_of_the_read() {
         .expect("prepare");
 
     assert_eq!(prep.extracted_subtitles, vec![2]);
-    assert!(!prep.keyframes.is_empty());
-    assert_eq!(spawner.runs(), 3, "a header probe, one read of the file, one conversion of a copy");
+    assert!(!prep.keyframes_us.is_empty());
+    assert_eq!(spawner.reads().len(), 1);
     assert!(!spawner.read().iter().any(|arg| arg == "0:1"));
     assert!(stored(root.path(), "embedded-1", "mks").is_empty());
     assert_eq!(stored(root.path(), "embedded-2", "vtt").len(), 1);

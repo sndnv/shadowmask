@@ -7,6 +7,7 @@ use domain::session::SoftSubtitleSource;
 use sha2::{Digest, Sha256};
 
 const IDENTITY_LEN: usize = 16;
+const FORMAT: u32 = 3;
 
 #[derive(Debug, Clone)]
 pub struct FsPlaybackPrepStore {
@@ -61,7 +62,7 @@ impl FsPlaybackPrepStore {
         let modified = modified
             .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
             .map_or(0, |since| since.as_secs());
-        let identity = digest(format!("{read}|{prefix}|{size}|{modified}").as_bytes());
+        let identity = digest(format!("{FORMAT}|{read}|{prefix}|{size}|{modified}").as_bytes());
         let dir = self.root.join(&version.0);
         let path = dir.join(format!("{prefix}-{identity}.{extension}"));
         Ok(PrepEntry { dir, path, prefix: prefix.to_owned(), extension: extension.to_owned() })
@@ -217,6 +218,21 @@ mod tests {
             .expect("entry");
         assert_eq!(before.prefix, after.prefix);
         assert_ne!(before.path, after.path);
+    }
+
+    #[tokio::test]
+    async fn an_entry_written_by_an_earlier_format_is_never_read_again() {
+        let (_dir, store) = store();
+        let entry = store
+            .entry(&version(), "/media/gone.mkv", &SoftSubtitleSource::Embedded(0))
+            .await
+            .expect("entry");
+        let name = entry.path.to_string_lossy().into_owned();
+        assert!(!name.contains(&digest(b"/media/gone.mkv|embedded-0|0|0")), "before microseconds");
+        assert!(
+            !name.contains(&digest(b"2|/media/gone.mkv|embedded-0|0|0")),
+            "before the file clock"
+        );
     }
 
     #[tokio::test]

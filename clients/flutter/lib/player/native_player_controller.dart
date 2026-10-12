@@ -106,7 +106,7 @@ class NativePlayerController implements PlayerController {
   bool get supportsPictureInPicture => false;
 
   @override
-  bool get seeksWithinStream => false;
+  bool seeksWithin(String? container) => container != kFmp4Segments;
 
   @override
   Widget get view => Video(

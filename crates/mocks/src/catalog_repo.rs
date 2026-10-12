@@ -12,7 +12,7 @@ use domain::error::RepositoryError;
 use domain::library::LibraryId;
 use domain::media::{
     AudioTrack, Chapter, DetectedMarkers, EmbeddedSubtitleTrack, PlaybackPrep, SubtitleFile,
-    TrickplayAsset, VideoTrack,
+    TrickplayAsset, VersionPrepState, VideoTrack,
 };
 use domain::metadata::{
     ContentRating, Credit, CreditedPerson, Genre, Person, PersonId, TitleEnrichment,
@@ -240,8 +240,9 @@ impl MockCatalogRepo {
             state.playback_prep.insert(
                 id.clone(),
                 PlaybackPrep {
-                    keyframes: Vec::new(),
+                    keyframes_us: Vec::new(),
                     extracted_subtitles: detail.extracted_subtitles,
+                    prepared_with: String::new(),
                 },
             );
         }
@@ -922,9 +923,30 @@ impl CatalogRepository for MockCatalogRepo {
         Ok(())
     }
 
-    async fn keyframes(&self, version: &VersionId) -> Result<Option<Vec<u64>>, RepositoryError> {
+    async fn keyframes_us(&self, version: &VersionId) -> Result<Option<Vec<u64>>, RepositoryError> {
         self.guard()?;
-        Ok(self.state.lock().unwrap().playback_prep.get(version).map(|prep| prep.keyframes.clone()))
+        let state = self.state.lock().unwrap();
+        Ok(state.playback_prep.get(version).map(|prep| prep.keyframes_us.clone()))
+    }
+
+    async fn playback_prep_states(&self) -> Result<Vec<VersionPrepState>, RepositoryError> {
+        self.guard()?;
+        let state = self.state.lock().unwrap();
+        let mut states: Vec<VersionPrepState> = state
+            .versions
+            .iter()
+            .filter(|version| version.available)
+            .map(|version| VersionPrepState {
+                version: version.id.clone(),
+                library: version.library.clone(),
+                prepared_with: state
+                    .playback_prep
+                    .get(&version.id)
+                    .map(|prep| prep.prepared_with.clone()),
+            })
+            .collect();
+        states.sort_by(|a, b| a.version.0.cmp(&b.version.0));
+        Ok(states)
     }
 
     async fn set_trickplay(

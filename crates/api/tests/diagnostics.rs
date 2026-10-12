@@ -14,9 +14,9 @@ use domain::common::{LanguageCode, Quality};
 use domain::diagnostics::{
     AccelerationMode, BenchmarkOutcome, BenchmarkRun, BenchmarkStatus, BenchmarkTarget,
     CapabilityReport, DiagnosticsStatus, FfmpegReport, HardwareReport, HardwareTest, HostReport,
-    Presence, ServerDiagnostics, TranscodeBenchmark,
+    LibraryPrep, PlaybackPrepAudit, Presence, ServerDiagnostics, TranscodeBenchmark,
 };
-use domain::error::BenchmarkError;
+use domain::error::{BenchmarkError, RepositoryError};
 use domain::library::LibraryId;
 use domain::media::{AudioTrack, HdrFormat, VideoTrack};
 use domain::repository::CatalogRepository;
@@ -28,6 +28,7 @@ const USER: &str = "Bearer access:u1";
 const CAPABILITIES: &str = "/api/v1/admin/server/capabilities";
 const RECHECK: &str = "/api/v1/admin/server/capabilities/recheck";
 const BENCHMARK: &str = "/api/v1/admin/server/benchmark";
+const PREP: &str = "/api/v1/admin/server/playback-prep";
 
 #[derive(Clone, Default)]
 struct FakeDiagnostics {
@@ -94,10 +95,36 @@ fn app(diagnostics: FakeDiagnostics) -> Router {
     app_with(diagnostics, FakeBenchmark::default(), MockCatalogRepo::new())
 }
 
+#[derive(Clone, Default)]
+struct FakeAudit {
+    libraries: Vec<LibraryPrep>,
+    asked: Arc<Mutex<Vec<Option<String>>>>,
+    fail: bool,
+}
+
+impl PlaybackPrepAudit for FakeAudit {
+    async fn libraries(&self, ffmpeg: Option<&str>) -> Result<Vec<LibraryPrep>, RepositoryError> {
+        self.asked.lock().unwrap().push(ffmpeg.map(str::to_owned));
+        if self.fail {
+            return Err(RepositoryError::Backend("catalog unavailable".to_owned()));
+        }
+        Ok(self.libraries.clone())
+    }
+}
+
 fn app_with(
     diagnostics: FakeDiagnostics,
     benchmark: FakeBenchmark,
     catalog: MockCatalogRepo,
+) -> Router {
+    app_full(diagnostics, benchmark, catalog, FakeAudit::default())
+}
+
+fn app_full(
+    diagnostics: FakeDiagnostics,
+    benchmark: FakeBenchmark,
+    catalog: MockCatalogRepo,
+    audit: FakeAudit,
 ) -> Router {
     let generator = Generator::new();
     let state = AppState::new(
@@ -110,7 +137,72 @@ fn app_with(
         generator.discovery.clone(),
         generator.job.clone(),
     );
-    diagnostics_router(state, DiagnosticsState::new(diagnostics, benchmark, catalog))
+    diagnostics_router(state, DiagnosticsState::new(diagnostics, benchmark, catalog, audit))
+}
+
+fn prep_app(diagnostics: FakeDiagnostics, audit: FakeAudit) -> Router {
+    app_full(diagnostics, FakeBenchmark::default(), MockCatalogRepo::new(), audit)
+}
+
+#[tokio::test]
+async fn an_admin_learns_which_libraries_need_their_files_read_again() {
+    let diagnostics = FakeDiagnostics::default();
+    *diagnostics.status.lock().unwrap() = DiagnosticsStatus {
+        checking: false,
+        checked_at: Some(Timestamp::UNIX_EPOCH),
+        report: Some(report(HardwareTest::Works { low_power: false, elapsed_ms: 1 })),
+    };
+    let audit = FakeAudit {
+        libraries: vec![LibraryPrep {
+            library: LibraryId("films".to_owned()),
+            name: "Films".to_owned(),
+            outdated: 30,
+            unprepared: 4,
+            prepared_with: vec!["5.1.9-0+deb12u1".to_owned()],
+        }],
+        ..FakeAudit::default()
+    };
+
+    let (status, body) = send(prep_app(diagnostics, audit.clone()), "GET", PREP, ADMIN).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body,
+        json!({
+            "ffmpeg": "5.1.6",
+            "libraries": [{
+                "id": "films",
+                "name": "Films",
+                "outdated": 30,
+                "unprepared": 4,
+                "prepared_with": ["5.1.9-0+deb12u1"]
+            }]
+        })
+    );
+    assert_eq!(*audit.asked.lock().unwrap(), vec![Some("5.1.6".to_owned())]);
+}
+
+#[tokio::test]
+async fn before_the_first_check_the_running_ffmpeg_is_unknown() {
+    let audit = FakeAudit::default();
+
+    let (status, body) =
+        send(prep_app(FakeDiagnostics::default(), audit.clone()), "GET", PREP, ADMIN).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!({ "ffmpeg": null, "libraries": [] }));
+    assert_eq!(*audit.asked.lock().unwrap(), vec![None]);
+}
+
+#[tokio::test]
+async fn the_preparation_report_is_for_admins_and_fails_when_the_stores_do() {
+    let (forbidden, _) =
+        send(prep_app(FakeDiagnostics::default(), FakeAudit::default()), "GET", PREP, USER).await;
+    assert_eq!(forbidden, StatusCode::FORBIDDEN);
+
+    let failing = FakeAudit { fail: true, ..FakeAudit::default() };
+    let (status, _) = send(prep_app(FakeDiagnostics::default(), failing), "GET", PREP, ADMIN).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 async fn send(app: Router, method: &str, uri: &str, auth: &str) -> (StatusCode, Value) {
@@ -366,8 +458,6 @@ async fn the_benchmark_reads_as_its_runs() {
         target: Some(target()),
         started_at: Some(Timestamp::UNIX_EPOCH),
         finished_at: None,
-        keyframes_ms: Some(1_500),
-        keyframes_error: None,
         total: 6,
         runs: vec![
             run(
@@ -395,8 +485,6 @@ async fn the_benchmark_reads_as_its_runs() {
                 "codec": "hevc", "width": 3840, "height": 2160, "hdr": "hdr10",
                 "duration_ms": 7_200_000
             },
-            "keyframes_ms": 1_500,
-            "keyframes_error": null,
             "progress": { "done": 3, "total": 6 },
             "runs": [
                 {

@@ -96,7 +96,7 @@ impl TranscodeManager for MockTranscodeManager {
         let mut state = self.state.lock().unwrap();
         state.active.insert(session.clone(), output_dir.clone());
         state.started.push(spec);
-        Ok(TranscodeStarted { session, output_dir, origin_ms, sequential: false, subtitles })
+        Ok(TranscodeStarted { session, output_dir, origin_ms, sequential: true, subtitles })
     }
 
     async fn touch(&self, session: &SessionId) -> Result<(), TranscodeError> {
@@ -137,14 +137,14 @@ mod tests {
             version: VersionId("ver-1".to_owned()),
             input_path: "/media/m1.mkv".to_owned(),
             duration_ms: 100_000,
-            keyframes: None,
+            keyframes_us: None,
             copy: false,
             container: SegmentContainer::MpegTs,
             seek_ms: None,
             audio_track: None,
             max_height: None,
             max_bitrate: None,
-            burn_subtitle_path: None,
+            burn_subtitle: None,
             soft_subtitle: None,
             downmix_stereo: false,
             source_hdr: None,
@@ -199,7 +199,6 @@ mod tests {
             soft_subtitle: Some(SoftSubtitle {
                 source: SoftSubtitleSource::Embedded(3),
                 offset_ms: 0,
-                duration_ms: 100_000,
             }),
             ..spec("s1")
         };

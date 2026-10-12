@@ -1488,7 +1488,7 @@ sub Attach(positionMs as integer)
     content.HttpCertificatesFile = CertificatesFile()
     content.SwitchingStrategy = bounds.strategy
     if bounds.maxKbps > 0 then content.MaxBandwidth = bounds.maxKbps
-    content.PlayStart = AttachSeconds(positionMs, m.session.originMs, m.session.sequential)
+    content.PlayStart = AttachSeconds(positionMs, m.session.originMs)
 
     m.prebuffered = false
     m.painted = false

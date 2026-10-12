@@ -108,17 +108,17 @@ namespace tests
 
         @describe("AttachSeconds")
 
-        @it("starts a sequential session at the top of its own manifest")
-        sub sequentialStartsAtZero()
-            ' The server begins producing at the resume point, so the manifest
-            ' already starts there and asking to seek would leave the stream.
-            m.assertEqual(AttachSeconds(90000, 90000, true), 0)
+        @it("starts a restarted stream at the resume point inside its first segment")
+        sub restartedStreamStartsAtResume()
+            m.assertEqual(AttachSeconds(90000, 88000), 2)
+            m.assertEqual(AttachSeconds(90000, 90000), 0)
         end sub
 
         @it("starts a complete playlist at the resume point")
         sub completePlaylistStartsAtResume()
-            m.assertEqual(AttachSeconds(90000, 0, false), 90)
-            m.assertEqual(AttachSeconds(0, 0, false), 0)
+            m.assertEqual(AttachSeconds(90000, 0), 90)
+            m.assertEqual(AttachSeconds(0, 0), 0)
+            m.assertEqual(AttachSeconds(1000, 4000), 0)
         end sub
 
         @describe("TimelineMs")

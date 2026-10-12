@@ -1236,25 +1236,42 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     )
     .await
     .unwrap();
-    assert!(repo.keyframes(&uv1).await.unwrap().is_none());
+    assert!(repo.keyframes_us(&uv1).await.unwrap().is_none());
     assert!(repo.version_detail(&uv1).await.unwrap().unwrap().extracted_subtitles.is_empty());
+    let prepared_with = async |repo: &R, id: &str| -> Option<Option<String>> {
+        let states = repo.playback_prep_states().await.unwrap();
+        states.into_iter().find(|state| state.version.0 == id).map(|state| state.prepared_with)
+    };
+    assert_eq!(prepared_with(&repo, "uv1").await, Some(None), "an unprepared version is listed");
     repo.set_playback_prep(
         &uv1,
-        &PlaybackPrep { keyframes: vec![0, 4_000], extracted_subtitles: vec![2, 3] },
+        &PlaybackPrep {
+            keyframes_us: vec![0, 4_000_000],
+            extracted_subtitles: vec![2, 3],
+            prepared_with: "5.1.9-0+deb12u1".into(),
+        },
     )
     .await
     .unwrap();
     repo.set_playback_prep(
         &uv1,
-        &PlaybackPrep { keyframes: vec![0, 4_004, 8_008], extracted_subtitles: vec![3] },
+        &PlaybackPrep {
+            keyframes_us: vec![0, 4_004_000, 8_008_333],
+            extracted_subtitles: vec![3],
+            prepared_with: "9.0.2".into(),
+        },
     )
     .await
     .unwrap();
     assert_eq!(
-        repo.keyframes(&uv1).await.unwrap(),
-        Some(vec![0, 4_004, 8_008]),
+        repo.keyframes_us(&uv1).await.unwrap(),
+        Some(vec![0, 4_004_000, 8_008_333]),
         "a second preparation replaces the first"
     );
+    assert_eq!(prepared_with(&repo, "uv1").await, Some(Some("9.0.2".into())));
+    let states = repo.playback_prep_states().await.unwrap();
+    let uv1_state = states.iter().find(|state| state.version == uv1).unwrap();
+    assert_eq!(uv1_state.library, LibraryId("lib1".into()));
 
     let uv1_detail = repo.version_detail(&uv1).await.unwrap().unwrap();
     assert_eq!(uv1_detail.extracted_subtitles, vec![3]);
@@ -1312,7 +1329,8 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         uv1_cleared.extracted_subtitles.is_empty(),
         "new tracks clear what was prepared from the old ones"
     );
-    assert!(repo.keyframes(&uv1).await.unwrap().is_none());
+    assert!(repo.keyframes_us(&uv1).await.unwrap().is_none());
+    assert_eq!(prepared_with(&repo, "uv1").await, Some(None));
     assert!(uv1_cleared.video.is_empty());
     assert!(uv1_cleared.audio.is_empty());
     assert!(uv1_cleared.subtitles.is_empty());
@@ -1642,6 +1660,18 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     assert!(!available(&repo, "v2").await);
     assert!(!available(&repo, "uv1").await);
     assert!(available(&repo, "v3").await);
+    let listed: Vec<String> = repo
+        .playback_prep_states()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|state| state.version.0)
+        .collect();
+    assert!(listed.contains(&"v3".to_owned()));
+    assert!(
+        !listed.iter().any(|id| ["v1", "v2", "uv1"].contains(&id.as_str())),
+        "a missing file cannot be prepared, so it is not listed: {listed:?}"
+    );
 
     version_rows_and_deletes(&repo).await;
     manually_edited_survives_a_round_trip(&repo).await;

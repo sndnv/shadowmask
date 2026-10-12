@@ -79,9 +79,7 @@ function StreamFormatFor(mode as dynamic, container as dynamic) as string
     return "mp4"
 end function
 
-function AttachSeconds(resumeMs as integer, originMs as integer, sequential as boolean) as integer
-    if sequential then return 0
-
+function AttachSeconds(resumeMs as integer, originMs as integer) as integer
     at = resumeMs - originMs
     if at <= 0 then return 0
     return Int(at / 1000)

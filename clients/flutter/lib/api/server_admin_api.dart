@@ -1,6 +1,7 @@
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/model/server/benchmark_report.dart';
 import 'package:shadowmask/model/server/capabilities_report.dart';
+import 'package:shadowmask/model/server/playback_prep_report.dart';
 import 'package:shadowmask/model/server/transcode_totals.dart';
 import 'package:shadowmask/util/prometheus.dart';
 
@@ -24,6 +25,11 @@ class ServerAdminApi {
     'POST',
     '/api/v1/admin/server/benchmark',
     body: <String, dynamic>{'version_id': versionId},
+  );
+
+  Future<PlaybackPrepReport> playbackPrep() => _api.getJson(
+    '/api/v1/admin/server/playback-prep',
+    PlaybackPrepReport.fromJson,
   );
 
   Future<TranscodeTotals> totals() async => TranscodeTotals.fromSamples(

@@ -17,8 +17,6 @@ void main() {
         'hdr': 'hdr10',
         'duration_ms': 7200000,
       },
-      'keyframes_ms': 1500,
-      'keyframes_error': null,
       'progress': <String, dynamic>{'done': 2, 'total': 6},
       'runs': <dynamic>[
         <String, dynamic>{
@@ -49,7 +47,6 @@ void main() {
     expect(r.source?.codec, 'hevc');
     expect(r.source?.hdr, HdrFormat.hdr10);
     expect(r.source?.durationMs, 7200000);
-    expect(r.keyframesMs, 1500);
     expect(r.progress.done, 2);
     expect(r.progress.total, 6);
     expect(r.runs.first.outcome, BenchmarkOutcome.failed);
