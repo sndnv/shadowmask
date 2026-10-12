@@ -9,6 +9,7 @@ use uuid::Uuid;
 use domain::catalog::{VersionDetail, VersionId};
 use domain::common::{Page, PageRequest, paginate};
 use domain::error::SessionError;
+use domain::media::SubtitleFormat;
 use domain::negotiation::{
     AvailableSubtitles, NegotiationInput, NegotiationReason, effective_max_height, negotiate,
     resolve_audio, resolve_subtitle,
@@ -23,12 +24,12 @@ use domain::repository::{
 };
 use domain::service::SessionService;
 use domain::session::{
-    ClientCapabilities, DeliveryMode, DeliveryPreference, HeartbeatAck, PlaybackSession,
-    PlaybackState, Renegotiated, SegmentContainer, SelectedTracks, SessionId, SessionStartInput,
-    SessionStarted, SessionUpdate, SoftSubtitle, SoftSubtitleSource, StreamClaims,
-    StreamGeneration, StreamRegistration, StreamRegistry, StreamTokens, SubtitleChange,
-    SubtitleDelivery, SubtitleRendition, SubtitleRequest, SubtitleSelection, TranscodeManager,
-    TranscodeSpec, segment_container_for,
+    BurnSubtitle, ClientCapabilities, DeliveryMode, DeliveryPreference, HeartbeatAck,
+    PlaybackSession, PlaybackState, Renegotiated, SegmentContainer, SelectedTracks, SessionId,
+    SessionStartInput, SessionStarted, SessionUpdate, SoftSubtitle, SoftSubtitleSource,
+    StreamClaims, StreamGeneration, StreamRegistration, StreamRegistry, StreamTokens,
+    SubtitleChange, SubtitleDelivery, SubtitleRendition, SubtitleRequest, SubtitleSelection,
+    TranscodeManager, TranscodeSpec, segment_container_for,
 };
 use domain::user::{Principal, UserId};
 
@@ -221,15 +222,28 @@ fn with_prepared_subtitles(mut detail: VersionDetail) -> VersionDetail {
     detail
 }
 
-fn burn_path_for(selected: &SelectedTracks, detail: &VersionDetail) -> Option<String> {
+fn burn_subtitle_for(selected: &SelectedTracks, detail: &VersionDetail) -> Option<BurnSubtitle> {
     if selected.subtitle_delivery != Some(SubtitleDelivery::Burned) {
         return None;
     }
     match selected.subtitle_track.as_ref()? {
-        SubtitleTrackRef::Embedded(_) => Some(detail.version.path.clone()),
-        SubtitleTrackRef::File(id) => {
-            detail.subtitle_files.iter().find(|f| &f.id == id).map(|f| f.path.clone())
+        SubtitleTrackRef::Embedded(index) => {
+            let track = detail.subtitles.iter().find(|s| s.index == *index)?;
+            if !matches!(track.format, SubtitleFormat::Pgs | SubtitleFormat::VobSub) {
+                return Some(BurnSubtitle::EmbeddedText(*index));
+            }
+            let video = detail.video.first()?;
+            Some(BurnSubtitle::EmbeddedImage {
+                index: *index,
+                width: video.width,
+                height: video.height,
+            })
         }
+        SubtitleTrackRef::File(id) => detail
+            .subtitle_files
+            .iter()
+            .find(|f| &f.id == id)
+            .map(|f| BurnSubtitle::File(f.path.clone())),
     }
 }
 
@@ -322,11 +336,7 @@ where
                 SoftSubtitleSource::File(path)
             }
         };
-        Some(SoftSubtitle {
-            source,
-            offset_ms: self.resolve_offset(ctx, track).await,
-            duration_ms: detail.version.duration_ms,
-        })
+        Some(SoftSubtitle { source, offset_ms: self.resolve_offset(ctx, track).await })
     }
 
     async fn resolve_offset(&self, ctx: &LaunchContext, track: &SubtitleTrackRef) -> i64 {
@@ -411,10 +421,10 @@ where
         };
         let (profile, report) = self.profile_for(&ctx.capabilities);
         let max_bitrate = combine_caps(ctx.capabilities.max_bitrate, ctx.bitrate_cap);
-        let keyframes = self
+        let keyframes_us = self
             .inner
             .catalog
-            .keyframes(&detail.version.id)
+            .keyframes_us(&detail.version.id)
             .await?
             .filter(|keyframes| !keyframes.is_empty());
         let input = NegotiationInput {
@@ -429,7 +439,7 @@ where
             force_burn: ctx.force_burn,
             downmix_stereo: ctx.downmix_stereo,
             delivery: ctx.delivery,
-            prepared: keyframes.is_some(),
+            prepared: keyframes_us.is_some(),
         };
         let outcome = negotiate(&input, &profile);
         let ceiling = match profile.max_frame_rate {
@@ -477,7 +487,7 @@ where
                 },
             );
         } else {
-            let burn_subtitle_path = burn_path_for(&outcome.selected, detail);
+            let burn_subtitle = burn_subtitle_for(&outcome.selected, detail);
             let soft_subtitle = self.soft_subtitle_for(&outcome.selected, detail, ctx).await;
             let started = self
                 .inner
@@ -488,14 +498,14 @@ where
                     version: detail.version.id.clone(),
                     input_path: detail.version.path.clone(),
                     duration_ms: detail.version.duration_ms,
-                    keyframes,
+                    keyframes_us,
                     copy: remux,
                     container: segments.unwrap_or(SegmentContainer::MpegTs),
                     seek_ms: (position_ms > 0).then_some(position_ms),
                     audio_track: outcome.selected.audio_track,
                     max_height: if remux { None } else { scale_to },
                     max_bitrate,
-                    burn_subtitle_path,
+                    burn_subtitle,
                     soft_subtitle,
                     downmix_stereo: ctx.downmix_stereo,
                     source_hdr: detail.video.first().and_then(|v| v.hdr),
@@ -1443,7 +1453,7 @@ mod tests {
         assert_eq!(specs.len(), 1);
         assert_eq!(specs[0].seek_ms, None);
         assert_eq!(specs[0].max_height, None);
-        assert!(specs[0].burn_subtitle_path.is_none());
+        assert!(specs[0].burn_subtitle.is_none());
         let registration = harness.streams.registration(&started.session_id).unwrap();
         assert_eq!(registration.mode, DeliveryMode::Transcode);
         assert_eq!(
@@ -1573,7 +1583,7 @@ mod tests {
         assert!(started.manifest_url.ends_with("/master.m3u8"));
         let spec = harness.transcode.started().remove(0);
         assert!(spec.copy);
-        assert_eq!(spec.keyframes, Some(mocks::PREPARED_KEYFRAMES.to_vec()));
+        assert_eq!(spec.keyframes_us, Some(mocks::PREPARED_KEYFRAMES.to_vec()));
     }
 
     fn remuxable() -> VersionDetail {
@@ -1593,7 +1603,7 @@ mod tests {
             assert_eq!(started.container, Some(SegmentContainer::MpegTs));
             let spec = harness.transcode.started().remove(0);
             assert!(!spec.copy);
-            assert_eq!(spec.keyframes, None);
+            assert_eq!(spec.keyframes_us, None);
         }
     }
 
@@ -1606,11 +1616,11 @@ mod tests {
         let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         assert_eq!(started.mode, DeliveryMode::Transcode);
 
-        harness.catalog.set_keyframes(&version, Some(vec![0, 6_000]));
+        harness.catalog.set_keyframes(&version, Some(vec![0, 6_000_000]));
         let sought = harness.service.seek(&principal(), &started.session_id, 30_000).await.unwrap();
 
         assert_eq!(sought.mode, DeliveryMode::Remux);
-        assert_eq!(harness.transcode.started()[1].keyframes, Some(vec![0, 6_000]));
+        assert_eq!(harness.transcode.started()[1].keyframes_us, Some(vec![0, 6_000_000]));
     }
 
     fn with_unextracted_track() -> VersionDetail {
@@ -1688,8 +1698,29 @@ mod tests {
         });
         let started = harness.service.start(&principal(), request).await.unwrap();
         assert_eq!(started.mode, DeliveryMode::Transcode);
-        assert_eq!(harness.transcode.started()[0].burn_subtitle_path, Some("/media/m1".to_owned()));
+        assert_eq!(
+            harness.transcode.started()[0].burn_subtitle,
+            Some(BurnSubtitle::EmbeddedImage { index: 2, width: 1920, height: 1080 })
+        );
         assert!(harness.streams.registration(&started.session_id).unwrap().subtitle.is_none());
+    }
+
+    #[test]
+    fn a_burn_needs_a_known_track_and_an_image_burn_a_video_to_size_it() {
+        let burned = |index| {
+            selected(Some(SubtitleDelivery::Burned), Some(SubtitleTrackRef::Embedded(index)))
+        };
+        let image = vec![subtitle(2, None, SubtitleFormat::VobSub)];
+        let detail = detail_with("mkv", 1, vec![video("h264", None)], vec![], image.clone());
+        assert_eq!(
+            burn_subtitle_for(&burned(2), &detail),
+            Some(BurnSubtitle::EmbeddedImage { index: 2, width: 1920, height: 1080 })
+        );
+        assert_eq!(burn_subtitle_for(&burned(5), &detail), None);
+        let soft = selected(Some(SubtitleDelivery::HlsVtt), Some(SubtitleTrackRef::Embedded(2)));
+        assert_eq!(burn_subtitle_for(&soft, &detail), None);
+        let no_video = detail_with("mkv", 1, vec![], vec![], image);
+        assert_eq!(burn_subtitle_for(&burned(2), &no_video), None);
     }
 
     #[tokio::test]
@@ -1723,8 +1754,8 @@ mod tests {
         let started = harness.service.start(&principal(), request).await.unwrap();
         assert_eq!(started.mode, DeliveryMode::Transcode);
         assert_eq!(
-            harness.transcode.started()[0].burn_subtitle_path,
-            Some("/media/m1.en.srt".to_owned())
+            harness.transcode.started()[0].burn_subtitle,
+            Some(BurnSubtitle::File("/media/m1.en.srt".to_owned()))
         );
     }
 
@@ -1809,7 +1840,6 @@ mod tests {
             Some(SoftSubtitle {
                 source: SoftSubtitleSource::File("/media/m1.en.srt".into()),
                 offset_ms: 0,
-                duration_ms: 100_000,
             })
         );
 
@@ -2192,8 +2222,8 @@ mod tests {
         assert_eq!(renegotiated.mode, DeliveryMode::Transcode);
         assert_eq!(renegotiated.selected.subtitle_delivery, Some(SubtitleDelivery::Burned));
         assert_eq!(
-            harness.transcode.started().last().unwrap().burn_subtitle_path,
-            Some("/media/m1".to_owned())
+            harness.transcode.started().last().unwrap().burn_subtitle,
+            Some(BurnSubtitle::EmbeddedText(2))
         );
     }
 

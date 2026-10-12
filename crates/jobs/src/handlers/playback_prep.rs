@@ -83,7 +83,11 @@ mod tests {
             if self.fail {
                 return Err(PlaybackPrepError::Backend("ffmpeg".into()));
             }
-            Ok(PlaybackPrep { keyframes: vec![0, 4_000], extracted_subtitles: indices })
+            Ok(PlaybackPrep {
+                keyframes_us: vec![0, 4_000_000],
+                extracted_subtitles: indices,
+                prepared_with: "9.0.2".into(),
+            })
         }
     }
 
@@ -154,7 +158,10 @@ mod tests {
 
         assert_eq!(*preparer.seen.lock().unwrap(), vec![("/m/v1.mkv".to_owned(), vec![2])]);
         let version = VersionId("v1".into());
-        assert_eq!(catalog.keyframes(&version).await.unwrap(), Some(vec![0, 4_000]));
+        assert_eq!(catalog.keyframes_us(&version).await.unwrap(), Some(vec![0, 4_000_000]));
+        let states = catalog.playback_prep_states().await.unwrap();
+        let state = states.iter().find(|state| state.version == version).unwrap();
+        assert_eq!(state.prepared_with.as_deref(), Some("9.0.2"));
         let stored = catalog.version_detail(&version).await.unwrap().unwrap();
         assert_eq!(stored.extracted_subtitles, vec![2]);
     }

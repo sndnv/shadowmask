@@ -5,7 +5,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-FAIL_UNDER_LINES = "99.6"
+FAIL_UNDER_LINES = "99.7"
 IGNORE_COVERAGE = r"crates/server/src/main\.rs$"
 
 ATTRIBUTION = "THIRD-PARTY-LICENSES.md"

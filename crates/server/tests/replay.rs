@@ -153,7 +153,11 @@ async fn seed(repos: &Repos, hash: &str) {
         .catalog
         .set_playback_prep(
             &VersionId("v1".into()),
-            &PlaybackPrep { keyframes: vec![0, 4_000], extracted_subtitles: vec![1] },
+            &PlaybackPrep {
+                keyframes_us: vec![0, 4_000_000],
+                extracted_subtitles: vec![1],
+                prepared_with: "9.0.2".into(),
+            },
         )
         .await
         .unwrap();

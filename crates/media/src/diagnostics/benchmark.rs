@@ -6,29 +6,28 @@ use domain::diagnostics::{
     BenchmarkOutcome, BenchmarkRun, BenchmarkStatus, BenchmarkTarget, TranscodeBenchmark,
 };
 use domain::error::BenchmarkError;
-use domain::media::KeyframeProbe;
 use domain::process::ProcessSpawner;
 use domain::session::{
     Segment, SegmentContainer, SegmentPlan, SessionId, StreamGeneration, TranscodeSpec,
-    plan_segments,
+    plan_fixed_segments,
 };
 use jiff::Timestamp;
 
-use crate::probe::FfprobeMediaProbe;
-use crate::transcode::{TARGET_MS, TokioProcessSpawner, VideoEncoder, build_segment_args};
+use crate::transcode::{
+    RunWindow, TARGET_MS, TokioProcessSpawner, VideoEncoder, build_run_args, film_start,
+};
 
 const BINARY: &str = "ffmpeg";
 const RUN_CAP: Duration = Duration::from_secs(60);
-const KEYFRAME_LIMIT: Duration = Duration::from_secs(600);
+const RUN_SEGMENTS: u64 = 3;
 const QUARTERS: [u64; 3] = [1, 2, 3];
 
-pub struct SegmentBenchmark<S = TokioProcessSpawner, P = FfprobeMediaProbe> {
-    inner: Arc<Inner<S, P>>,
+pub struct SegmentBenchmark<S = TokioProcessSpawner> {
+    inner: Arc<Inner<S>>,
 }
 
-struct Inner<S, P> {
+struct Inner<S> {
     spawner: S,
-    prober: P,
     scratch: PathBuf,
     encoder: VideoEncoder,
     max_height: Option<u32>,
@@ -42,21 +41,13 @@ impl SegmentBenchmark {
         encoder: VideoEncoder,
         max_height: Option<u32>,
     ) -> Self {
-        Self::with_parts(
-            TokioProcessSpawner,
-            FfprobeMediaProbe::default(),
-            scratch,
-            encoder,
-            max_height,
-            RUN_CAP,
-        )
+        Self::with_parts(TokioProcessSpawner, scratch, encoder, max_height, RUN_CAP)
     }
 }
 
-impl<S, P> SegmentBenchmark<S, P> {
+impl<S> SegmentBenchmark<S> {
     pub fn with_parts(
         spawner: S,
-        prober: P,
         scratch: impl Into<PathBuf>,
         encoder: VideoEncoder,
         max_height: Option<u32>,
@@ -65,7 +56,6 @@ impl<S, P> SegmentBenchmark<S, P> {
         Self {
             inner: Arc::new(Inner {
                 spawner,
-                prober,
                 scratch: scratch.into(),
                 encoder,
                 max_height,
@@ -76,15 +66,13 @@ impl<S, P> SegmentBenchmark<S, P> {
     }
 }
 
-impl<S, P> Clone for SegmentBenchmark<S, P> {
+impl<S> Clone for SegmentBenchmark<S> {
     fn clone(&self) -> Self {
         Self { inner: Arc::clone(&self.inner) }
     }
 }
 
-impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> TranscodeBenchmark
-    for SegmentBenchmark<S, P>
-{
+impl<S: ProcessSpawner + 'static> TranscodeBenchmark for SegmentBenchmark<S> {
     fn status(&self) -> BenchmarkStatus {
         self.inner.status.lock().unwrap().clone()
     }
@@ -107,7 +95,7 @@ impl<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static> TranscodeBenchmark
     }
 }
 
-impl<S: ProcessSpawner, P: KeyframeProbe> Inner<S, P> {
+impl<S: ProcessSpawner> Inner<S> {
     fn update(&self, change: impl FnOnce(&mut BenchmarkStatus)) {
         change(&mut self.status.lock().unwrap());
     }
@@ -122,26 +110,18 @@ impl<S: ProcessSpawner, P: KeyframeProbe> Inner<S, P> {
 
     async fn run(self: Arc<Self>, target: BenchmarkTarget) {
         let _running = Running(&self.status);
-        let started = Instant::now();
-        let read = tokio::time::timeout(KEYFRAME_LIMIT, self.prober.keyframes(&target.path)).await;
-        let (keyframes, keyframes_error) = match read {
-            Ok(Ok(keyframes)) => (keyframes, None),
-            Ok(Err(error)) => (Vec::new(), Some(error.to_string())),
-            Err(_) => (Vec::new(), Some(keyframe_limit_message())),
-        };
-        let keyframes_ms = millis(started.elapsed());
-        let picked = picked(&plan_segments(&keyframes, target.duration_ms, TARGET_MS), &target);
+        let picked = picked(&plan_fixed_segments(target.duration_ms, TARGET_MS), &target);
         let encoders = self.encoders();
-        self.update(|status| {
-            status.keyframes_ms = Some(keyframes_ms);
-            status.keyframes_error = keyframes_error;
-            status.total = picked.len() * encoders.len();
-        });
+        self.update(|status| status.total = picked.len() * encoders.len());
         let spec = spec_for(&target, self.max_height);
+        let start_us = film_start(&self.spawner, &target.path).await.unwrap_or_else(|err| {
+            tracing::warn!("benchmark of version [{}] is timed from zero: {err}", target.version.0);
+            0
+        });
         let _ = tokio::fs::create_dir_all(&self.scratch).await;
-        for (index, segment) in picked {
+        for (index, run) in picked {
             for encoder in &encoders {
-                let run = self.run_one(&spec, index, &segment, encoder).await;
+                let run = self.run_one(&spec, index, window(&run, start_us), encoder).await;
                 self.update(|status| status.runs.push(run));
             }
         }
@@ -157,12 +137,13 @@ impl<S: ProcessSpawner, P: KeyframeProbe> Inner<S, P> {
         &self,
         spec: &TranscodeSpec,
         index: usize,
-        segment: &Segment,
+        window: RunWindow,
         encoder: &VideoEncoder,
     ) -> BenchmarkRun {
         let name = if encoder.is_hardware() { "vaapi" } else { "software" };
-        let out = self.scratch.join(format!("segment_{index}_{name}.ts"));
-        let args = build_segment_args(spec, segment, &out.to_string_lossy(), encoder);
+        let out = self.scratch.join(format!("run_{index}_{name}"));
+        let _ = tokio::fs::create_dir_all(&out).await;
+        let args = build_run_args(spec, encoder, window, 0.0, &out.to_string_lossy(), None);
         let started = Instant::now();
         let outcome =
             match tokio::time::timeout(self.cap, self.spawner.run_captured(BINARY, &args)).await {
@@ -172,11 +153,11 @@ impl<S: ProcessSpawner, P: KeyframeProbe> Inner<S, P> {
                 Ok(Ok(output)) => BenchmarkOutcome::Failed { detail: output.failure_detail(5) },
             };
         let elapsed_ms = millis(started.elapsed());
-        let _ = tokio::fs::remove_file(&out).await;
+        let _ = tokio::fs::remove_dir_all(&out).await;
         BenchmarkRun {
             segment: index,
-            start_ms: segment.start_ms,
-            duration_ms: segment.duration_ms,
+            start_ms: window.origin_us / 1_000,
+            duration_ms: window.length_ms.unwrap_or_default(),
             hardware: encoder.is_hardware(),
             outcome,
             elapsed_ms,
@@ -195,10 +176,6 @@ impl Drop for Running<'_> {
     }
 }
 
-fn keyframe_limit_message() -> String {
-    format!("the keyframe read did not finish within {} minutes", KEYFRAME_LIMIT.as_secs() / 60)
-}
-
 fn picked(plan: &SegmentPlan, target: &BenchmarkTarget) -> Vec<(usize, Segment)> {
     let mut indices: Vec<usize> = Vec::new();
     for quarter in QUARTERS {
@@ -209,8 +186,22 @@ fn picked(plan: &SegmentPlan, target: &BenchmarkTarget) -> Vec<(usize, Segment)>
     }
     indices
         .into_iter()
-        .filter_map(|index| plan.segments.get(index).map(|segment| (index, segment.clone())))
+        .filter_map(|index| {
+            let start_ms = plan.segments.get(index)?.start_ms;
+            let duration_ms = (RUN_SEGMENTS * TARGET_MS).min(target.duration_ms - start_ms);
+            Some((index, Segment { start_ms, duration_ms }))
+        })
         .collect()
+}
+
+fn window(run: &Segment, start_us: i64) -> RunWindow {
+    let segments = usize::try_from(run.duration_ms.div_ceil(TARGET_MS)).unwrap_or(usize::MAX);
+    RunWindow {
+        origin_us: run.start_ms * 1_000,
+        start_us,
+        segments,
+        length_ms: Some(run.duration_ms),
+    }
 }
 
 fn spec_for(target: &BenchmarkTarget, max_height: Option<u32>) -> TranscodeSpec {
@@ -224,14 +215,14 @@ fn spec_for(target: &BenchmarkTarget, max_height: Option<u32>) -> TranscodeSpec 
         version: target.version.clone(),
         input_path: target.path.clone(),
         duration_ms: target.duration_ms,
-        keyframes: None,
+        keyframes_us: None,
         copy: false,
         container: SegmentContainer::MpegTs,
         seek_ms: None,
         audio_track: target.audio_track,
         max_height: scale_to,
         max_bitrate: None,
-        burn_subtitle_path: None,
+        burn_subtitle: None,
         soft_subtitle: None,
         downmix_stereo: false,
         source_hdr: target.hdr,
@@ -247,19 +238,10 @@ mod tests {
     use std::io;
 
     use domain::catalog::VersionId;
-    use domain::error::ProbeError;
     use domain::media::HdrFormat;
     use domain::process::CommandOutput;
 
     use super::*;
-
-    struct Keyframes(Result<Vec<u64>, String>);
-
-    impl KeyframeProbe for Keyframes {
-        async fn keyframes(&self, _path: &str) -> Result<Vec<u64>, ProbeError> {
-            self.0.clone().map_err(ProbeError::Backend)
-        }
-    }
 
     #[derive(Default)]
     struct Recorder {
@@ -267,6 +249,7 @@ mod tests {
         stall: bool,
         missing: bool,
         panics: bool,
+        start: &'static str,
         calls: Mutex<Vec<Vec<String>>>,
     }
 
@@ -276,6 +259,13 @@ mod tests {
         }
 
         async fn run_captured(&self, program: &str, args: &[String]) -> io::Result<CommandOutput> {
+            if program == "ffprobe" {
+                if self.missing {
+                    return Err(io::Error::new(io::ErrorKind::NotFound, "No such file"));
+                }
+                let stdout = self.start.to_owned();
+                return Ok(CommandOutput { success: true, stdout, ..CommandOutput::default() });
+            }
             assert_eq!(program, "ffmpeg");
             assert!(!self.panics, "the encoder crashed");
             self.calls.lock().unwrap().push(args.to_vec());
@@ -313,22 +303,17 @@ mod tests {
         }
     }
 
-    fn every_two_seconds() -> Keyframes {
-        Keyframes(Ok((0..50).map(|n| n * 2_000).collect()))
-    }
-
     fn bench(
         recorder: Recorder,
-        keyframes: Keyframes,
         encoder: VideoEncoder,
         cap: Duration,
         scratch: &std::path::Path,
-    ) -> SegmentBenchmark<Recorder, Keyframes> {
-        SegmentBenchmark::with_parts(recorder, keyframes, scratch, encoder, Some(1080), cap)
+    ) -> SegmentBenchmark<Recorder> {
+        SegmentBenchmark::with_parts(recorder, scratch, encoder, Some(1080), cap)
     }
 
-    async fn finished<S: ProcessSpawner + 'static, P: KeyframeProbe + 'static>(
-        benchmark: &SegmentBenchmark<S, P>,
+    async fn finished<S: ProcessSpawner + 'static>(
+        benchmark: &SegmentBenchmark<S>,
     ) -> BenchmarkStatus {
         loop {
             let status = benchmark.status();
@@ -344,72 +329,68 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn three_segments_spread_through_the_film_run_on_each_encoder() {
+    async fn a_short_run_from_each_quarter_point_runs_on_each_encoder() {
         let scratch = tempfile::tempdir().unwrap();
-        let benchmark = bench(
-            Recorder::default(),
-            every_two_seconds(),
-            vaapi(),
-            RUN_CAP,
-            &scratch.path().join("bench"),
-        );
+        let benchmark = bench(Recorder::default(), vaapi(), RUN_CAP, &scratch.path().join("bench"));
 
         benchmark.start(target()).unwrap();
         let status = finished(&benchmark).await;
 
-        let runs: Vec<(u64, bool)> =
-            status.runs.iter().map(|run| (run.start_ms, run.hardware)).collect();
+        let runs: Vec<(usize, u64, bool)> =
+            status.runs.iter().map(|run| (run.segment, run.start_ms, run.hardware)).collect();
         assert_eq!(
             runs,
             [
-                (24_000, true),
-                (24_000, false),
-                (48_000, true),
-                (48_000, false),
-                (72_000, true),
-                (72_000, false)
+                (6, 24_000, true),
+                (6, 24_000, false),
+                (12, 48_000, true),
+                (12, 48_000, false),
+                (18, 72_000, true),
+                (18, 72_000, false)
             ]
         );
         assert!(status.runs.iter().all(|run| run.outcome == BenchmarkOutcome::Ok));
-        assert!(status.runs.iter().all(|run| run.duration_ms == 4_000));
+        assert!(status.runs.iter().all(|run| run.duration_ms == 12_000));
         assert_eq!(status.total, 6);
-        assert!(status.keyframes_ms.is_some());
-        assert_eq!(status.keyframes_error, None);
         assert!(status.finished_at.is_some());
         assert!(!scratch.path().join("bench").exists(), "the scratch folder is removed");
     }
 
     #[tokio::test]
-    async fn each_run_is_the_command_playback_uses() {
+    async fn each_run_is_the_command_playback_uses_for_three_segments() {
         let scratch = tempfile::tempdir().unwrap();
-        let benchmark =
-            bench(Recorder::default(), every_two_seconds(), vaapi(), RUN_CAP, scratch.path());
+        let recorder = Recorder { start: "1.400000\n", ..Recorder::default() };
+        let benchmark = bench(recorder, vaapi(), RUN_CAP, scratch.path());
 
         benchmark.start(target()).unwrap();
         finished(&benchmark).await;
 
         let calls = benchmark.inner.spawner.calls.lock().unwrap().clone();
         let spec = spec_for(&target(), Some(1080));
-        let segment = Segment { start_ms: 24_000, duration_ms: 4_000 };
-        let out = scratch.path().join("segment_6_vaapi.ts");
-        assert_eq!(calls[0], build_segment_args(&spec, &segment, &out.to_string_lossy(), &vaapi()));
+        let out = scratch.path().join("run_6_vaapi");
+        let window = RunWindow {
+            origin_us: 24_000_000,
+            start_us: 1_400_000,
+            segments: 3,
+            length_ms: Some(12_000),
+        };
+        let expected = build_run_args(&spec, &vaapi(), window, 0.0, &out.to_string_lossy(), None);
+        assert_eq!(calls[0], expected);
         let filter = calls[1].iter().skip_while(|arg| *arg != "-vf").nth(1).unwrap();
-        assert!(filter.starts_with("scale=-2:1080,"), "{filter}");
+        assert!(
+            filter.starts_with("trim=start=25.400000:end=37.400000,scale=-2:1080,"),
+            "{filter}"
+        );
         assert!(filter.contains("tonemap"), "{filter}");
         assert!(calls[1].contains(&"libx264".to_owned()));
         assert!(calls[1].contains(&"0:1".to_owned()), "the first audio track is mapped");
+        assert!(!calls[1].contains(&"-readrate".to_owned()));
     }
 
     #[tokio::test]
     async fn software_alone_runs_when_no_hardware_is_in_use() {
         let scratch = tempfile::tempdir().unwrap();
-        let benchmark = bench(
-            Recorder::default(),
-            every_two_seconds(),
-            VideoEncoder::Software,
-            RUN_CAP,
-            scratch.path(),
-        );
+        let benchmark = bench(Recorder::default(), VideoEncoder::Software, RUN_CAP, scratch.path());
 
         benchmark.start(target()).unwrap();
         let status = finished(&benchmark).await;
@@ -422,7 +403,7 @@ mod tests {
     async fn a_hardware_failure_is_reported_not_hidden() {
         let scratch = tempfile::tempdir().unwrap();
         let recorder = Recorder { vaapi_fails: true, ..Recorder::default() };
-        let benchmark = bench(recorder, every_two_seconds(), vaapi(), RUN_CAP, scratch.path());
+        let benchmark = bench(recorder, vaapi(), RUN_CAP, scratch.path());
 
         benchmark.start(target()).unwrap();
         let status = finished(&benchmark).await;
@@ -438,8 +419,7 @@ mod tests {
     async fn a_run_whose_ffmpeg_cannot_start_fails_with_the_reason() {
         let scratch = tempfile::tempdir().unwrap();
         let recorder = Recorder { missing: true, ..Recorder::default() };
-        let benchmark =
-            bench(recorder, every_two_seconds(), VideoEncoder::Software, RUN_CAP, scratch.path());
+        let benchmark = bench(recorder, VideoEncoder::Software, RUN_CAP, scratch.path());
 
         benchmark.start(target()).unwrap();
         let status = finished(&benchmark).await;
@@ -452,13 +432,8 @@ mod tests {
     async fn a_run_past_the_cap_is_too_slow() {
         let scratch = tempfile::tempdir().unwrap();
         let recorder = Recorder { stall: true, ..Recorder::default() };
-        let benchmark = bench(
-            recorder,
-            every_two_seconds(),
-            VideoEncoder::Software,
-            Duration::from_millis(20),
-            scratch.path(),
-        );
+        let benchmark =
+            bench(recorder, VideoEncoder::Software, Duration::from_millis(20), scratch.path());
 
         benchmark.start(target()).unwrap();
         let status = finished(&benchmark).await;
@@ -467,61 +442,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_file_without_keyframes_is_one_long_segment_and_says_why() {
-        let scratch = tempfile::tempdir().unwrap();
-        let benchmark = bench(
-            Recorder::default(),
-            Keyframes(Err("ffprobe failed".to_owned())),
-            VideoEncoder::Software,
-            RUN_CAP,
-            scratch.path(),
-        );
-
-        benchmark.start(target()).unwrap();
-        let status = finished(&benchmark).await;
-
-        assert_eq!(status.runs.len(), 1);
-        assert_eq!(status.runs[0].duration_ms, 100_000);
-        assert!(status.keyframes_error.as_deref().is_some_and(|e| e.contains("ffprobe failed")));
-    }
-
-    struct StalledKeyframes;
-
-    impl KeyframeProbe for StalledKeyframes {
-        async fn keyframes(&self, _path: &str) -> Result<Vec<u64>, ProbeError> {
-            std::future::pending().await
-        }
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_keyframe_read_that_never_finishes_gives_up_at_its_limit() {
-        let scratch = tempfile::tempdir().unwrap();
-        let benchmark = SegmentBenchmark::with_parts(
-            Recorder::default(),
-            StalledKeyframes,
-            scratch.path(),
-            VideoEncoder::Software,
-            Some(1080),
-            RUN_CAP,
-        );
-
-        benchmark.start(target()).unwrap();
-        let status = finished(&benchmark).await;
-
-        assert_eq!(
-            status.keyframes_error.as_deref(),
-            Some("the keyframe read did not finish within 10 minutes")
-        );
-        assert_eq!(status.runs.len(), 1);
-        assert!(status.finished_at.is_some());
-    }
-
-    #[tokio::test]
     async fn a_benchmark_that_crashes_is_not_left_running() {
         let scratch = tempfile::tempdir().unwrap();
         let recorder = Recorder { panics: true, ..Recorder::default() };
-        let benchmark =
-            bench(recorder, every_two_seconds(), VideoEncoder::Software, RUN_CAP, scratch.path());
+        let benchmark = bench(recorder, VideoEncoder::Software, RUN_CAP, scratch.path());
 
         benchmark.start(target()).unwrap();
         let status = finished(&benchmark).await;
@@ -536,13 +460,8 @@ mod tests {
     async fn a_second_start_while_running_is_refused() {
         let scratch = tempfile::tempdir().unwrap();
         let recorder = Recorder { stall: true, ..Recorder::default() };
-        let benchmark = bench(
-            recorder,
-            every_two_seconds(),
-            VideoEncoder::Software,
-            Duration::from_millis(20),
-            scratch.path(),
-        );
+        let benchmark =
+            bench(recorder, VideoEncoder::Software, Duration::from_millis(20), scratch.path());
 
         benchmark.start(target()).unwrap();
         let refused = benchmark.clone().start(target());
@@ -563,20 +482,23 @@ mod tests {
         assert_eq!(spec_for(&target(), Some(1080)).max_height, Some(1080));
     }
 
+    fn picks(duration_ms: u64) -> Vec<(usize, u64, u64)> {
+        let short = BenchmarkTarget { duration_ms, ..target() };
+        picked(&plan_fixed_segments(duration_ms, TARGET_MS), &short)
+            .into_iter()
+            .map(|(index, run)| (index, run.start_ms, run.duration_ms))
+            .collect()
+    }
+
     #[test]
-    fn a_short_film_picks_each_segment_once() {
-        let plan = plan_segments(&[0, 4_000], 6_000, TARGET_MS);
-        let short = BenchmarkTarget { duration_ms: 6_000, ..target() };
-
-        let picked = picked(&plan, &short);
-
-        assert_eq!(picked.iter().map(|(index, _)| *index).collect::<Vec<_>>(), [0, 1]);
+    fn a_short_film_runs_each_start_once_and_only_what_is_left() {
+        assert_eq!(picks(6_000), [(0, 0, 6_000)]);
+        assert_eq!(picks(10_000), [(0, 0, 10_000), (1, 4_000, 6_000)]);
+        assert_eq!(window(&Segment { start_ms: 4_000, duration_ms: 6_000 }, 0).segments, 2);
     }
 
     #[test]
     fn a_film_with_no_segments_picks_none() {
-        let empty = BenchmarkTarget { duration_ms: 0, ..target() };
-
-        assert!(picked(&plan_segments(&[], 0, TARGET_MS), &empty).is_empty());
+        assert!(picks(0).is_empty());
     }
 }

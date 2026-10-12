@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/components/admin/admin_table.dart';
 import 'package:shadowmask/components/admin/benchmark_version_dialog.dart';
 import 'package:shadowmask/components/outline_pill.dart';
 import 'package:shadowmask/components/progress_meter.dart';
@@ -76,7 +77,6 @@ Map<String, dynamic> _benchmark(
   String state, {
   int done = 0,
   List<Map<String, dynamic>> runs = const <Map<String, dynamic>>[],
-  String? keyframesError,
 }) => <String, dynamic>{
   'state': state,
   'version_id': state == 'idle' ? null : 'v1',
@@ -91,8 +91,6 @@ Map<String, dynamic> _benchmark(
           'hdr': 'hdr10',
           'duration_ms': 7200000,
         },
-  'keyframes_ms': keyframesError == null && state != 'idle' ? 1500 : null,
-  'keyframes_error': keyframesError,
   'progress': <String, dynamic>{'done': done, 'total': 6},
   'runs': runs,
 };
@@ -128,9 +126,16 @@ class _Server {
     this.versions = const <Map<String, dynamic>>[],
     this.versionsStatus = 200,
     this.startStatus = 202,
+    this.prep = const <String, dynamic>{
+      'ffmpeg': '9.0.2',
+      'libraries': <dynamic>[],
+    },
+    this.prepStatus = 200,
   }) : capabilities = capabilities ?? <Map<String, dynamic>>[_ready()],
        benchmarks = benchmarks ?? <Map<String, dynamic>>[_benchmark('idle')];
 
+  final Map<String, dynamic> prep;
+  final int prepStatus;
   final String role;
   final List<Map<String, dynamic>> capabilities;
   final List<Map<String, dynamic>> benchmarks;
@@ -183,6 +188,7 @@ class _Server {
         'limit': 10,
       }, versionsStatus),
       ('GET', '/metrics') => http.Response(metrics, metricsStatus),
+      ('GET', '/api/v1/admin/server/playback-prep') => _json(prep, prepStatus),
       _ => http.Response('{}', 200),
     };
   }
@@ -294,6 +300,30 @@ void main() {
     expect(find.byTooltip('Missing'), findsOneWidget);
     expect(find.text('/dev/dri/renderD128'), findsOneWidget);
     expect(find.text('Works in low-power mode, 420 ms'), findsOneWidget);
+  });
+
+  testWidgets('the capabilities and every table can be selected and copied', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      server: _Server(
+        benchmarks: <Map<String, dynamic>>[_benchmark('done', done: 6)],
+      ),
+    );
+
+    final Finder tables = find.byWidgetPredicate(
+      (Widget widget) => widget is AdminTable,
+    );
+    expect(tables, findsNWidgets(4));
+    final List<Finder> texts = <Finder>[
+      find.text('5.1.6-0+deb12u1'),
+      for (int i = 0; i < 4; i++)
+        find.descendant(of: tables.at(i), matching: find.byType(Text)).last,
+    ];
+    for (final Finder text in texts) {
+      expect(SelectionContainer.maybeOf(tester.element(text)), isNotNull);
+    }
   });
 
   testWidgets(
@@ -536,7 +566,6 @@ void main() {
     expect(find.byType(ProgressMeter), findsOneWidget);
     expect(find.text('33%'), findsOneWidget);
     expect(find.text('HEVC · 3840×2160 · HDR10 · 2h 00m'), findsOneWidget);
-    expect(find.text('1.50 s'), findsOneWidget);
     expect(find.text('#450 at 30:00'), findsNWidgets(2));
     expect(find.text('1.85×'), findsOneWidget);
     expect(_colorOf(tester, '1.85×'), Tokens.dark.warn);
@@ -623,18 +652,110 @@ void main() {
     },
   );
 
-  testWidgets('a failed keyframe read is shown', (WidgetTester tester) async {
+  testWidgets('a finished benchmark without runs says so', (
+    WidgetTester tester,
+  ) async {
     await _pump(
       tester,
       server: _Server(
-        benchmarks: <Map<String, dynamic>>[
-          _benchmark('done', done: 6, keyframesError: 'ffprobe failed'),
-        ],
+        benchmarks: <Map<String, dynamic>>[_benchmark('done', done: 6)],
       ),
     );
 
-    expect(find.text('ffprobe failed'), findsOneWidget);
     expect(find.text('No runs yet.'), findsOneWidget);
+  });
+
+  testWidgets('libraries prepared by another ffmpeg or not at all are listed', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      server: _Server(
+        prep: <String, dynamic>{
+          'ffmpeg': '9.0.2',
+          'libraries': <dynamic>[
+            <String, dynamic>{
+              'id': 'films',
+              'name': 'Films',
+              'outdated': 30,
+              'unprepared': 1,
+              'prepared_with': <String>['5.1.9-0+deb12u1'],
+            },
+            <String, dynamic>{
+              'id': 'shows',
+              'name': 'Shows',
+              'outdated': 0,
+              'unprepared': 4,
+              'prepared_with': <String>[],
+            },
+          ],
+        },
+      ),
+    );
+
+    expect(find.text('Run "Re-read files" on:'), findsOneWidget);
+    expect(
+      find.text(
+        ': 30 versions prepared with ffmpeg 5.1.9-0+deb12u1, 1 version not prepared',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text(': 4 versions not prepared'), findsOneWidget);
+    expect(find.text('Server ffmpeg: 9.0.2'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('Films')).dy,
+      lessThan(tester.getTopLeft(find.text('Capabilities')).dy),
+    );
+
+    await tester.tap(find.text('Shows'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('went to /admin/library?id=shows'), findsOneWidget);
+  });
+
+  testWidgets(
+    'the preparation notice says nothing about an ffmpeg not checked',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        server: _Server(
+          prep: <String, dynamic>{
+            'ffmpeg': null,
+            'libraries': <dynamic>[
+              <String, dynamic>{
+                'id': 'shows',
+                'name': 'Shows',
+                'unprepared': 4,
+              },
+            ],
+          },
+        ),
+      );
+
+      expect(find.text(': 4 versions not prepared'), findsOneWidget);
+      expect(find.textContaining('Server ffmpeg'), findsNothing);
+    },
+  );
+
+  testWidgets('every library prepared by this ffmpeg shows no notice', (
+    WidgetTester tester,
+  ) async {
+    final _Server server = await _pump(tester);
+
+    expect(server.count('GET', '/api/v1/admin/server/playback-prep'), 1);
+    expect(find.text('Run "Re-read files" on:'), findsNothing);
+  });
+
+  testWidgets('a preparation check that fails says so', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, server: _Server(prepStatus: 500));
+
+    expect(
+      find.text('Could not load the playback preparation status.'),
+      findsOneWidget,
+    );
+    expect(find.text('12th Gen Intel(R) Core(TM) i3-1220P'), findsOneWidget);
   });
 
   testWidgets('the benchmarked version links to its page', (
@@ -901,9 +1022,22 @@ void main() {
             runs: <Map<String, dynamic>>[_run('software', 'ok')],
           ),
         ],
+        prep: <String, dynamic>{
+          'ffmpeg': '9.0.2',
+          'libraries': <dynamic>[
+            <String, dynamic>{
+              'id': 'films',
+              'name': 'A library with a rather long name',
+              'outdated': 1200,
+              'unprepared': 35,
+              'prepared_with': <String>['5.1.9-0+deb12u1', '5.1.8-0+deb12u1'],
+            },
+          ],
+        },
       ),
     );
 
+    expect(find.text('Run "Re-read files" on:'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

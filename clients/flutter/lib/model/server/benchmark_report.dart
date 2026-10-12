@@ -24,8 +24,6 @@ abstract class BenchmarkReport with _$BenchmarkReport {
     String? startedAt,
     String? finishedAt,
     BenchmarkSource? source,
-    int? keyframesMs,
-    String? keyframesError,
     @Default(BenchmarkProgress()) BenchmarkProgress progress,
     @Default(<BenchmarkRun>[]) List<BenchmarkRun> runs,
   }) = _BenchmarkReport;

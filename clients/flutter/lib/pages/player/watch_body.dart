@@ -675,10 +675,10 @@ class _WatchBodyState extends State<WatchBody>
 
   int get _fullDurationMs => _version?.durationMs ?? 0;
 
+  bool get _seeksInStream => _controller.seeksWithin(_container);
+
   int _attachOffset(int timelineMs) =>
-      _sequential && !_controller.seeksWithinStream
-      ? 0
-      : timelineMs - _originMs;
+      _sequential && !_seeksInStream ? 0 : timelineMs - _originMs;
 
   PlayerSnapshot get _view => _controller.snapshot.value.onTimeline(
     originMs: _originMs,
@@ -745,6 +745,7 @@ class _WatchBodyState extends State<WatchBody>
       }
       _originMs = neg.originMs;
       _sequential = neg.sequential;
+      _container = neg.container;
       await _controller.attach(
         neg.manifestUrl,
         mode: neg.mode,
@@ -755,7 +756,6 @@ class _WatchBodyState extends State<WatchBody>
       if (mounted && negotiation == _negotiation) {
         setState(() {
           _mode = neg.mode.name;
-          _container = neg.container;
           _subtitleDelivery = neg.selected?.subtitleDelivery;
           _status = null;
         });
@@ -955,7 +955,7 @@ class _WatchBodyState extends State<WatchBody>
     if (!_sequential) {
       return true;
     }
-    if (!_controller.seeksWithinStream) {
+    if (!_seeksInStream) {
       return false;
     }
     if (targetMs < _originMs) {
@@ -988,6 +988,7 @@ class _WatchBodyState extends State<WatchBody>
       }
       _originMs = neg.originMs;
       _sequential = neg.sequential;
+      _container = neg.container;
       await _controller.attach(
         neg.manifestUrl,
         mode: neg.mode,

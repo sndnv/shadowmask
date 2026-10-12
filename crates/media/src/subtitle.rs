@@ -14,17 +14,29 @@ pub fn shift(content: &str, offset_ms: i64) -> String {
             let separator = &caps[4];
             let millis: i64 = caps[5].parse().unwrap();
             let total = hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + millis;
-            let shifted = total.saturating_add(offset_ms).max(0);
-            format!(
-                "{:02}:{:02}:{:02}{}{:03}",
-                shifted / 3_600_000,
-                shifted / 60_000 % 60,
-                shifted / 1_000 % 60,
-                separator,
-                shifted % 1_000,
-            )
+            clock(total.saturating_add(offset_ms).max(0), separator)
         })
         .into_owned()
+}
+
+pub fn with_timestamp_map(vtt: &str, stream_offset_ms: u64) -> String {
+    let local = clock(i64::try_from(stream_offset_ms).unwrap_or(i64::MAX), ".");
+    let map = format!("X-TIMESTAMP-MAP=MPEGTS:{},LOCAL:{local}", stream_offset_ms * 90);
+    match vtt.split_once('\n') {
+        Some((header, rest)) => format!("{header}\n{map}\n{rest}"),
+        None => format!("{vtt}\n{map}\n"),
+    }
+}
+
+fn clock(ms: i64, separator: &str) -> String {
+    format!(
+        "{:02}:{:02}:{:02}{}{:03}",
+        ms / 3_600_000,
+        ms / 60_000 % 60,
+        ms / 1_000 % 60,
+        separator,
+        ms % 1_000,
+    )
 }
 
 #[cfg(test)]
@@ -64,6 +76,23 @@ mod tests {
     fn lines_without_timestamps_pass_through() {
         let text = "WEBVTT\n\nNOTE just a comment\n";
         assert_eq!(shift(text, 10_000), text);
+    }
+
+    #[test]
+    fn the_timestamp_map_joins_the_header_and_says_the_cues_share_the_stream_clock() {
+        let vtt = "WEBVTT\n\n00:00:02.000 --> 00:00:03.000\nHi\n";
+        assert_eq!(
+            with_timestamp_map(vtt, 1_000),
+            "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:90000,LOCAL:00:00:01.000\n\n00:00:02.000 --> 00:00:03.000\nHi\n"
+        );
+    }
+
+    #[test]
+    fn a_header_alone_still_gets_its_timestamp_map() {
+        assert_eq!(
+            with_timestamp_map("WEBVTT", 1_000),
+            "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:90000,LOCAL:00:00:01.000\n"
+        );
     }
 }
 

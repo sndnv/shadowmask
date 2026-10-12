@@ -21,7 +21,7 @@ expression: value
         "type": "embedded"
       }
     },
-    "sequential": false,
+    "sequential": true,
     "session_id": "[session_id]",
     "trickplay": []
   },

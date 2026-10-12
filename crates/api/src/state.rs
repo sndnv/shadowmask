@@ -75,28 +75,31 @@ impl TrickplayState {
     }
 }
 
-pub struct DiagnosticsState<D, B, C> {
+pub struct DiagnosticsState<D, B, C, P> {
     pub diagnostics: Arc<D>,
     pub benchmark: Arc<B>,
     pub catalog: Arc<C>,
+    pub prep: Arc<P>,
 }
 
-impl<D, B, C> DiagnosticsState<D, B, C> {
-    pub fn new(diagnostics: D, benchmark: B, catalog: C) -> Self {
+impl<D, B, C, P> DiagnosticsState<D, B, C, P> {
+    pub fn new(diagnostics: D, benchmark: B, catalog: C, prep: P) -> Self {
         Self {
             diagnostics: Arc::new(diagnostics),
             benchmark: Arc::new(benchmark),
             catalog: Arc::new(catalog),
+            prep: Arc::new(prep),
         }
     }
 }
 
-impl<D, B, C> Clone for DiagnosticsState<D, B, C> {
+impl<D, B, C, P> Clone for DiagnosticsState<D, B, C, P> {
     fn clone(&self) -> Self {
         Self {
             diagnostics: Arc::clone(&self.diagnostics),
             benchmark: Arc::clone(&self.benchmark),
             catalog: Arc::clone(&self.catalog),
+            prep: Arc::clone(&self.prep),
         }
     }
 }

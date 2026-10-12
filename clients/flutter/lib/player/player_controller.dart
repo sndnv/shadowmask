@@ -8,6 +8,8 @@ import 'package:shadowmask/player/player_controller_stub.dart'
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
 
+const String kFmp4Segments = 'fmp4';
+
 abstract class PlayerController {
   ValueListenable<PlayerSnapshot> get snapshot;
   ValueListenable<bool> get fullscreen;
@@ -20,7 +22,7 @@ abstract class PlayerController {
 
   bool get supportsPictureInPicture;
 
-  bool get seeksWithinStream;
+  bool seeksWithin(String? container);
 
   Widget get view;
 

@@ -26,6 +26,7 @@ class AdminTable<T> extends StatefulWidget {
     this.minWidth = 720,
     this.initialSortColumn,
     this.initialSortAscending = true,
+    this.selectable = false,
   });
 
   final List<AdminColumn<T>> columns;
@@ -37,6 +38,7 @@ class AdminTable<T> extends StatefulWidget {
   final double minWidth;
   final int? initialSortColumn;
   final bool initialSortAscending;
+  final bool selectable;
 
   @override
   State<AdminTable<T>> createState() => _AdminTableState<T>();
@@ -120,52 +122,55 @@ class _AdminTableState<T> extends State<AdminTable<T>> {
       return StatusText(widget.emptyText);
     }
     final Tokens t = context.tokens;
-    return SelectionContainer.disabled(
-      child: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) {
-          final double inner = math.max(
-            0,
-            constraints.maxWidth - kTableBorder * 2,
-          );
-          final bool narrow = inner < Breakpoints.sm;
-          final List<int> visible = _visible(narrow);
-          final int? sortColumn = _sortTarget(visible);
-          final List<T> rows = _sorted(sortColumn);
-          final double width = narrow
-              ? inner
-              : math.max(inner, widget.minWidth);
-          return Container(
-            clipBehavior: Clip.antiAlias,
-            decoration: BoxDecoration(
-              color: t.surface,
-              borderRadius: const BorderRadius.all(Radii.md),
-              border: Border.all(color: t.border, width: kTableBorder),
-            ),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              physics: narrow ? const NeverScrollableScrollPhysics() : null,
-              child: SizedBox(
-                width: width,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    _header(t, visible, sortColumn, narrow: narrow),
-                    for (int i = 0; i < rows.length; i++)
-                      _row(
-                        context,
-                        t,
-                        rows[i],
-                        visible,
-                        last: i == rows.length - 1,
-                        narrow: narrow,
-                      ),
-                  ],
-                ),
+    final Widget table = _table(t);
+    return widget.selectable
+        ? table
+        : SelectionContainer.disabled(child: table);
+  }
+
+  Widget _table(Tokens t) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double inner = math.max(
+          0,
+          constraints.maxWidth - kTableBorder * 2,
+        );
+        final bool narrow = inner < Breakpoints.sm;
+        final List<int> visible = _visible(narrow);
+        final int? sortColumn = _sortTarget(visible);
+        final List<T> rows = _sorted(sortColumn);
+        final double width = narrow ? inner : math.max(inner, widget.minWidth);
+        return Container(
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: t.surface,
+            borderRadius: const BorderRadius.all(Radii.md),
+            border: Border.all(color: t.border, width: kTableBorder),
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: narrow ? const NeverScrollableScrollPhysics() : null,
+            child: SizedBox(
+              width: width,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  _header(t, visible, sortColumn, narrow: narrow),
+                  for (int i = 0; i < rows.length; i++)
+                    _row(
+                      context,
+                      t,
+                      rows[i],
+                      visible,
+                      last: i == rows.length - 1,
+                      narrow: narrow,
+                    ),
+                ],
               ),
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 

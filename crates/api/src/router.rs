@@ -5,7 +5,7 @@ use axum::response::Redirect;
 use axum::routing::{delete, get, post, put};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-use domain::diagnostics::{ServerDiagnostics, TranscodeBenchmark};
+use domain::diagnostics::{PlaybackPrepAudit, ServerDiagnostics, TranscodeBenchmark};
 use domain::job::JobLogStore;
 use domain::media::{SubtitleProvider, SubtitleReader, SubtitleStore};
 use domain::repository::CatalogRepository;
@@ -213,20 +213,26 @@ pub fn job_log_router<S: AppServices, J: JobLogStore + 'static>(
         .with_state(state)
 }
 
-pub fn diagnostics_router<S, D, B, C>(auth: S, state: DiagnosticsState<D, B, C>) -> Router
+pub fn diagnostics_router<S, D, B, C, P>(auth: S, state: DiagnosticsState<D, B, C, P>) -> Router
 where
     S: AppServices,
     D: ServerDiagnostics + 'static,
     B: TranscodeBenchmark + 'static,
     C: CatalogRepository + Send + Sync + 'static,
+    P: PlaybackPrepAudit + 'static,
 {
     Router::new()
-        .route("/api/v1/admin/server/capabilities", get(diagnostics::capabilities::<D, B, C>))
-        .route("/api/v1/admin/server/capabilities/recheck", post(diagnostics::recheck::<D, B, C>))
+        .route("/api/v1/admin/server/capabilities", get(diagnostics::capabilities::<D, B, C, P>))
+        .route(
+            "/api/v1/admin/server/capabilities/recheck",
+            post(diagnostics::recheck::<D, B, C, P>),
+        )
         .route(
             "/api/v1/admin/server/benchmark",
-            get(diagnostics::benchmark::<D, B, C>).post(diagnostics::start_benchmark::<D, B, C>),
+            get(diagnostics::benchmark::<D, B, C, P>)
+                .post(diagnostics::start_benchmark::<D, B, C, P>),
         )
+        .route("/api/v1/admin/server/playback-prep", get(diagnostics::playback_prep::<D, B, C, P>))
         .route_layer(from_fn_with_state(auth, jwt::<S>))
         .with_state(state)
 }

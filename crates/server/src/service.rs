@@ -43,6 +43,7 @@ use services::library::{
     Enricher, LibraryServiceImpl, Scanner, TranscriptionEnqueuer, TranslationEnqueuer,
     next_daily_fire, settle_interrupted_scans,
 };
+use services::playback_prep_audit::PlaybackPrepAuditImpl;
 use services::user::UserServiceImpl;
 use tokio::net::TcpListener;
 use tokio::task::JoinSet;
@@ -496,6 +497,11 @@ impl Runtime {
                     config.max_transcode_height,
                 ),
                 repos.catalog.clone(),
+                PlaybackPrepAuditImpl::new(
+                    repos.catalog.clone(),
+                    repos.jobs.clone(),
+                    repos.library.clone(),
+                ),
             ),
         ))
         .merge(::api::download_router(

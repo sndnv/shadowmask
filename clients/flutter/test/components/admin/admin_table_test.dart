@@ -112,6 +112,40 @@ void main() {
     );
   });
 
+  testWidgets('only a selectable table lets its cells be selected', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      SelectionArea(
+        child: Column(
+          children: <Widget>[
+            AdminTable<String>(
+              columns: _columns(),
+              rows: const <String>['fixed'],
+              emptyText: 'None',
+            ),
+            AdminTable<String>(
+              columns: _columns(),
+              rows: const <String>['copied'],
+              emptyText: 'None',
+              selectable: true,
+            ),
+          ],
+        ),
+      ),
+    );
+
+    expect(
+      SelectionContainer.maybeOf(tester.element(find.text('fixed'))),
+      isNull,
+    );
+    expect(
+      SelectionContainer.maybeOf(tester.element(find.text('copied'))),
+      isNotNull,
+    );
+  });
+
   testWidgets('renders a cell per row', (WidgetTester tester) async {
     await _pump(
       tester,

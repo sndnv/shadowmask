@@ -51,6 +51,7 @@ class FakePlayerController implements PlayerController {
   int? attachedPositionMs;
   bool? attachedAutoplay;
   bool streamSeeks = true;
+  final Set<String?> unseekable = <String?>{};
   bool hlsBuffers = true;
   Completer<void>? attachGate;
   int failedAttaches = 0;
@@ -78,7 +79,8 @@ class FakePlayerController implements PlayerController {
   bool get supportsPictureInPicture => true;
 
   @override
-  bool get seeksWithinStream => streamSeeks;
+  bool seeksWithin(String? container) =>
+      streamSeeks && !unseekable.contains(container);
 
   @override
   void unmute() {
@@ -324,26 +326,29 @@ http.Response _renegotiated(String mode, String manifestUrl) => http.Response(
   200,
 );
 
-http.Response _sequentialSession(int originMs) => http.Response(
-  jsonEncode(<String, dynamic>{
-    'session_id': 's1',
-    'mode': 'remux',
-    'manifest_url': '/stream/tok/master.m3u8',
-    'origin_ms': originMs,
-    'sequential': true,
-    'heartbeat_interval_s': 10,
-    'selected': <String, dynamic>{'audio_track': 1, 'subtitle_track': null},
-    'trickplay': <dynamic>[],
-  }),
-  201,
-);
+http.Response _sequentialSession(int originMs, String? container) =>
+    http.Response(
+      jsonEncode(<String, dynamic>{
+        'session_id': 's1',
+        'mode': 'remux',
+        'manifest_url': '/stream/tok/master.m3u8',
+        'origin_ms': originMs,
+        'sequential': true,
+        'container': ?container,
+        'heartbeat_interval_s': 10,
+        'selected': <String, dynamic>{'audio_track': 1, 'subtitle_track': null},
+        'trickplay': <dynamic>[],
+      }),
+      201,
+    );
 
-http.Response _seekRestart(int originMs) => http.Response(
+http.Response _seekRestart(int originMs, String? container) => http.Response(
   jsonEncode(<String, dynamic>{
     'manifest_url': '/stream/tok3/master.m3u8',
     'mode': 'remux',
     'origin_ms': originMs,
     'sequential': true,
+    'container': ?container,
     'selected': <String, dynamic>{},
   }),
   200,
@@ -520,6 +525,7 @@ Widget _app(
   bool sequential = false,
   int originMs = 0,
   int seekOriginMs = 0,
+  String? container,
   bool touch = false,
   Future<http.Response> Function(int call)? onUpdate,
   SelfUser user = _user,
@@ -543,10 +549,14 @@ Widget _app(
       }
       if (sequential) {
         if (r.method == 'POST' && r.url.path == '/api/v1/sessions') {
-          return Future<http.Response>.value(_sequentialSession(originMs));
+          return Future<http.Response>.value(
+            _sequentialSession(originMs, container),
+          );
         }
         if (r.method == 'POST' && r.url.path.endsWith('/seek')) {
-          return Future<http.Response>.value(_seekRestart(seekOriginMs));
+          return Future<http.Response>.value(
+            _seekRestart(seekOriginMs, container),
+          );
         }
       }
       if (episodic) {
@@ -3351,6 +3361,102 @@ void main() {
       isEmpty,
     );
     expect(fake.seekedMs, 1000 + kSeekStepMs);
+  });
+
+  testWidgets(
+    'a native player seeks inside mpegts segments without a restart',
+    (WidgetTester tester) async {
+      final FakePlayerController fake = FakePlayerController()
+        ..unseekable.add('fmp4');
+      final List<http.Request> seen = <http.Request>[];
+      await tester.pumpWidget(
+        _app(fake, seen: seen, sequential: true, container: 'mpegts'),
+      );
+      await tester.pumpAndSettle();
+
+      fake.at(positionMs: 1000, bufferedAheadMs: 60000);
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pumpAndSettle();
+
+      expect(
+        seen.where((http.Request r) => r.url.path.endsWith('/seek')),
+        isEmpty,
+      );
+      expect(fake.seekedMs, 1000 + kSeekStepMs);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'a native player restarted far into mpegts segments lands on the target',
+    (WidgetTester tester) async {
+      final FakePlayerController fake = FakePlayerController()
+        ..unseekable.add('fmp4');
+      final List<http.Request> seen = <http.Request>[];
+      await tester.pumpWidget(
+        _app(
+          fake,
+          seen: seen,
+          sequential: true,
+          seekOriginMs: 88000,
+          container: 'mpegts',
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      fake.at(positionMs: 1000);
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit9);
+      await tester.pumpAndSettle();
+
+      expect(
+        seen.where((http.Request r) => r.url.path.endsWith('/seek')),
+        isNotEmpty,
+      );
+      expect(
+        fake.attachedPositionMs,
+        2000,
+        reason: 'a restart begins on a segment boundary, 2s before 90s',
+      );
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets('a native player restarts fmp4 segments for every seek', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController()
+      ..unseekable.add('fmp4');
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(
+      _app(
+        fake,
+        seen: seen,
+        sequential: true,
+        seekOriginMs: 8000,
+        container: 'fmp4',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    fake.at(positionMs: 1000, bufferedAheadMs: 60000);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+
+    expect(
+      seen.where((http.Request r) => r.url.path.endsWith('/seek')),
+      isNotEmpty,
+    );
+    expect(fake.attachedPositionMs, 0);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
   });
 
   testWidgets('a session that is not produced sequentially never restarts', (

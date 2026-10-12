@@ -18,7 +18,7 @@ use crate::library::{
 };
 use crate::media::{
     AudioTrack, Chapter, EmbeddedSubtitleTrack, PlaybackPrep, SubtitleFile, TrickplayAsset,
-    VideoTrack,
+    VersionPrepState, VideoTrack,
 };
 use crate::metadata::{Credit, Genre, Person, PersonId, TitleEnrichment};
 use crate::playback::{
@@ -249,10 +249,13 @@ pub trait CatalogRepository {
         version: &VersionId,
         prep: &PlaybackPrep,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
-    fn keyframes(
+    fn keyframes_us(
         &self,
         version: &VersionId,
     ) -> impl Future<Output = Result<Option<Vec<u64>>, RepositoryError>> + Send;
+    fn playback_prep_states(
+        &self,
+    ) -> impl Future<Output = Result<Vec<VersionPrepState>, RepositoryError>> + Send;
     fn set_subtitle_files(
         &self,
         version: &VersionId,
@@ -325,7 +328,7 @@ pub trait VersionCatalog {
         &self,
         id: &VersionId,
     ) -> impl Future<Output = Result<Option<Version>, RepositoryError>> + Send;
-    fn keyframes(
+    fn keyframes_us(
         &self,
         id: &VersionId,
     ) -> impl Future<Output = Result<Option<Vec<u64>>, RepositoryError>> + Send;
@@ -343,8 +346,8 @@ impl<T: CatalogRepository + Send + Sync> VersionCatalog for T {
         CatalogRepository::get_version(self, id).await
     }
 
-    async fn keyframes(&self, id: &VersionId) -> Result<Option<Vec<u64>>, RepositoryError> {
-        CatalogRepository::keyframes(self, id).await
+    async fn keyframes_us(&self, id: &VersionId) -> Result<Option<Vec<u64>>, RepositoryError> {
+        CatalogRepository::keyframes_us(self, id).await
     }
 }
 

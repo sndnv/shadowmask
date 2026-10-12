@@ -36,8 +36,8 @@ async fn the_installed_ffmpeg_benchmarks_a_real_file() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     };
 
-    assert_eq!(status.keyframes_error, None);
     assert_eq!(status.runs.len(), 1);
+    assert_eq!(status.runs[0].duration_ms, 2_023);
     assert_eq!(status.runs[0].outcome, BenchmarkOutcome::Ok, "{:?}", status.runs[0]);
 }
 

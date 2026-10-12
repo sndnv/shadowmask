@@ -37,6 +37,10 @@
       }
 
       function render(main) {
+        const prepBody = sm.el("div");
+        main.appendChild(prepBody);
+        loadPrep(prepBody);
+
         const capsBody = sm.el("div");
         const refreshCaps = poller(
           capsBody,
@@ -81,6 +85,35 @@
         refreshCaps();
         refreshBench();
         refreshTotals();
+      }
+
+      async function loadPrep(body) {
+        try {
+          const report = await sm.json("/api/v1/admin/server/playback-prep");
+          if (report.libraries.length) body.appendChild(renderPrep(report));
+        } catch (err) {
+          body.appendChild(
+            sm.el("p", { text: "Could not load the playback preparation status." }),
+          );
+        }
+      }
+
+      function versions(count) {
+        return count === 1 ? "1 version" : count + " versions";
+      }
+
+      function renderPrep(report) {
+        const rows = report.libraries.map((l) => [
+          sm.el("a", { href: "library.html?id=" + encodeURIComponent(l.id) }, l.name),
+          l.outdated ? versions(l.outdated) + " (" + l.prepared_with.join(", ") + ")" : "—",
+          l.unprepared ? versions(l.unprepared) : "—",
+        ]);
+        return section('Run "Re-read files" on:', [], [
+          sm.table(["Library", "Prepared with another ffmpeg", "Not prepared"], rows, {
+            rowClass: () => "sm-row-pending",
+          }),
+          report.ffmpeg ? sm.el("p", { text: "Server ffmpeg: " + report.ffmpeg }) : null,
+        ]);
       }
 
       function section(title, actions, body) {
@@ -301,10 +334,6 @@
             ["Started", sm.time(r.started_at)],
             ["Finished", sm.time(r.finished_at)],
             ["Source", r.source ? sourceText(r.source) : null],
-            [
-              "Keyframe read",
-              r.keyframes_error || (r.keyframes_ms != null ? seconds(r.keyframes_ms) : null),
-            ],
           ]),
         );
         if (!r.runs.length) {
