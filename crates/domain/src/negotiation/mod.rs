@@ -5,7 +5,7 @@ mod negotiation_reason;
 mod preference;
 mod resolution;
 
-pub use negotiate::{effective_max_height, negotiate};
+pub use negotiate::{CONVERTED_AUDIO_CODEC, effective_max_height, negotiate};
 pub use negotiation_input::NegotiationInput;
 pub use negotiation_outcome::NegotiationOutcome;
 pub use negotiation_reason::NegotiationReason;

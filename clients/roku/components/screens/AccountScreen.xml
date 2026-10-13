@@ -82,7 +82,13 @@
                     <RoundedBox id="appearancePanel" />
                     <Label id="appearanceHeading" />
                     <ThemeCards id="themeCards" />
+                    <Label id="contrastName" />
                     <ActionBar id="contrastBar" />
+                    <Label id="contrastHelp" />
+                    <Rectangle id="contrastRule" />
+                    <Label id="navInsetName" />
+                    <ActionBar id="navInsetBar" />
+                    <Label id="navInsetHelp" />
                 </Group>
                 <Group id="serverSection" visible="false">
                     <RoundedBox id="serverPanel" />

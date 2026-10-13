@@ -6,6 +6,8 @@ use crate::session::{
     DeliveryMode, DeliveryPreference, SelectedTracks, SubtitleDelivery, SubtitleSelection,
 };
 
+pub const CONVERTED_AUDIO_CODEC: &str = "aac";
+
 pub fn negotiate(input: &NegotiationInput, profile: &CapabilityProfile) -> NegotiationOutcome {
     let video = input.video.first();
     let audio = selected_audio(input);
@@ -15,20 +17,21 @@ pub fn negotiate(input: &NegotiationInput, profile: &CapabilityProfile) -> Negot
         .map(|sel| subtitle_delivery_for(sel, &input.subtitles, input.force_burn));
 
     let max_height = effective_max_height(profile.max_height, input.target_height);
-    let mut reasons = Vec::new();
-    if let Some(v) = video {
-        reasons.extend(video_reasons(v, profile, max_height, input.max_bitrate));
-    }
-    if let Some(a) = audio {
-        reasons.extend(audio_reasons(a, profile));
-    }
-    if input.downmix_stereo && audio.is_some_and(|a| a.channels > 2) {
+    let mut reasons =
+        video.map(|v| video_reasons(v, profile, max_height, input.max_bitrate)).unwrap_or_default();
+    let reencode_video = !reasons.is_empty();
+    let sound = audio.map(|a| audio_reasons(a, profile)).unwrap_or_default();
+    let downmix = input.downmix_stereo && audio.is_some_and(|a| a.channels > 2);
+    let convert_audio = !sound.is_empty() || downmix;
+    reasons.extend(sound);
+    if downmix {
         reasons.push(NegotiationReason::Downmix);
     }
-    if subtitle_delivery == Some(SubtitleDelivery::Burned) {
+    let burned = subtitle_delivery == Some(SubtitleDelivery::Burned);
+    if burned {
         reasons.push(NegotiationReason::SubtitleBurn);
     }
-    let transcode = !reasons.is_empty();
+    let transcode = reencode_video || burned;
 
     let subtitle_hls = subtitle_delivery == Some(SubtitleDelivery::HlsVtt);
     let container_ok = profile.containers.contains(&input.container);
@@ -38,15 +41,15 @@ pub fn negotiate(input: &NegotiationInput, profile: &CapabilityProfile) -> Negot
     if subtitle_hls {
         reasons.push(NegotiationReason::SubtitleSoft);
     }
+    let repackage = !container_ok || subtitle_hls;
 
     let wanted = if transcode {
         DeliveryMode::Transcode
-    } else if !container_ok || subtitle_hls {
+    } else if repackage || convert_audio {
         DeliveryMode::Remux
     } else {
         DeliveryMode::Direct
     };
-    let burned = subtitle_delivery == Some(SubtitleDelivery::Burned);
     let mode = match input.delivery {
         DeliveryPreference::Auto => wanted,
         DeliveryPreference::AlwaysConvert => {
@@ -56,7 +59,7 @@ pub fn negotiate(input: &NegotiationInput, profile: &CapabilityProfile) -> Negot
             DeliveryMode::Transcode
         }
         DeliveryPreference::NeverConvert if !burned => {
-            if !container_ok || subtitle_hls {
+            if repackage {
                 DeliveryMode::Remux
             } else {
                 DeliveryMode::Direct
@@ -79,6 +82,10 @@ pub fn negotiate(input: &NegotiationInput, profile: &CapabilityProfile) -> Negot
             subtitle_delivery,
         },
         reasons,
+        convert_audio: convert_audio
+            && mode == DeliveryMode::Remux
+            && input.delivery != DeliveryPreference::NeverConvert,
+        audio_channels: audio.and_then(|a| converted_channels(a, downmix, profile)),
     }
 }
 
@@ -135,6 +142,19 @@ fn audio_reasons(a: &AudioTrack, profile: &CapabilityProfile) -> Vec<Negotiation
         Some(max) if a.channels > max => vec![NegotiationReason::AudioChannels],
         Some(_) => Vec::new(),
     }
+}
+
+fn converted_channels(a: &AudioTrack, downmix: bool, profile: &CapabilityProfile) -> Option<u8> {
+    if downmix {
+        return Some(2);
+    }
+    let limit = profile
+        .audio
+        .iter()
+        .filter(|c| c.codec == CONVERTED_AUDIO_CODEC)
+        .map(|c| c.max_channels)
+        .max()?;
+    (a.channels > limit).then_some(limit)
 }
 
 fn effective_cap(profile_cap: u64, user_cap: Option<u64>) -> u64 {
@@ -436,15 +456,96 @@ mod tests {
     }
 
     #[test]
-    fn transcode_when_audio_codec_unsupported() {
+    fn an_audio_codec_the_player_lacks_converts_only_the_sound() {
         let i = NegotiationInput { audio: vec![audio_track("eac3", 2, 1)], ..input() };
-        assert_eq!(negotiate(&i, &profile()).mode, DeliveryMode::Transcode);
+        let out = negotiate(&i, &profile());
+        assert_eq!(out.mode, DeliveryMode::Remux);
+        assert!(out.convert_audio);
+        assert_eq!(out.reasons, vec![NegotiationReason::AudioCodec]);
+        assert_eq!(out.audio_channels, None);
     }
 
     #[test]
-    fn transcode_when_audio_channels_exceed() {
+    fn too_many_channels_convert_the_sound_down_to_what_the_player_takes() {
         let i = NegotiationInput { audio: vec![audio_track("aac", 6, 1)], ..input() };
-        assert_eq!(negotiate(&i, &profile()).mode, DeliveryMode::Transcode);
+        let out = negotiate(&i, &profile());
+        assert_eq!(out.mode, DeliveryMode::Remux);
+        assert!(out.convert_audio);
+        assert_eq!(out.reasons, vec![NegotiationReason::AudioChannels]);
+        assert_eq!(out.audio_channels, Some(2));
+    }
+
+    #[test]
+    fn a_converted_sound_keeps_its_channels_when_the_player_takes_them_all() {
+        let p = CapabilityProfile {
+            audio: vec![AudioCodecCap { codec: "aac".to_owned(), max_channels: 8 }],
+            ..profile()
+        };
+        let i = NegotiationInput { audio: vec![audio_track("truehd", 8, 1)], ..input() };
+        let out = negotiate(&i, &p);
+        assert!(out.convert_audio);
+        assert_eq!(out.audio_channels, None);
+
+        let no_aac = CapabilityProfile {
+            audio: vec![AudioCodecCap { codec: "opus".to_owned(), max_channels: 2 }],
+            ..profile()
+        };
+        assert_eq!(negotiate(&i, &no_aac).audio_channels, None);
+    }
+
+    #[test]
+    fn a_video_change_transcodes_both_and_still_limits_the_channels() {
+        let i = NegotiationInput {
+            video: vec![video_track("vp9", 1920, 1080, 8, None, Some(5_000_000))],
+            audio: vec![audio_track("eac3", 6, 1)],
+            ..input()
+        };
+        let out = negotiate(&i, &profile());
+        assert_eq!(out.mode, DeliveryMode::Transcode);
+        assert!(!out.convert_audio);
+        assert_eq!(out.reasons, vec![NegotiationReason::VideoCodec, NegotiationReason::AudioCodec]);
+        assert_eq!(out.audio_channels, Some(2));
+    }
+
+    #[test]
+    fn never_convert_leaves_the_sound_as_it_is() {
+        let i = NegotiationInput {
+            audio: vec![audio_track("eac3", 2, 1)],
+            delivery: DeliveryPreference::NeverConvert,
+            ..input()
+        };
+        let out = negotiate(&i, &profile());
+        assert_eq!(out.mode, DeliveryMode::Direct);
+        assert!(!out.convert_audio);
+        assert_eq!(out.reasons, vec![NegotiationReason::AudioCodec]);
+
+        let repackaged = NegotiationInput { container: Container::Mkv, ..i };
+        let out = negotiate(&repackaged, &profile());
+        assert_eq!(out.mode, DeliveryMode::Remux);
+        assert!(!out.convert_audio);
+    }
+
+    #[test]
+    fn always_convert_transcodes_a_sound_only_change() {
+        let i = NegotiationInput {
+            audio: vec![audio_track("eac3", 2, 1)],
+            delivery: DeliveryPreference::AlwaysConvert,
+            ..input()
+        };
+        let out = negotiate(&i, &profile());
+        assert_eq!(out.mode, DeliveryMode::Transcode);
+        assert!(!out.convert_audio);
+        assert_eq!(out.reasons, vec![NegotiationReason::AudioCodec, NegotiationReason::Forced]);
+    }
+
+    #[test]
+    fn a_sound_only_change_on_a_version_not_prepared_yet_is_transcoded() {
+        let i =
+            NegotiationInput { audio: vec![audio_track("eac3", 2, 1)], prepared: false, ..input() };
+        let out = negotiate(&i, &profile());
+        assert_eq!(out.mode, DeliveryMode::Transcode);
+        assert!(!out.convert_audio);
+        assert_eq!(out.reasons, vec![NegotiationReason::AudioCodec, NegotiationReason::Preparing]);
     }
 
     #[test]
@@ -495,7 +596,8 @@ mod tests {
         };
         let out = negotiate(&i, &profile());
         assert_eq!(out.selected.audio_track, Some(2));
-        assert_eq!(out.mode, DeliveryMode::Transcode);
+        assert_eq!(out.mode, DeliveryMode::Remux);
+        assert!(out.convert_audio);
     }
 
     #[test]
@@ -549,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn downmix_forces_transcode_only_for_multichannel_audio() {
+    fn downmix_converts_only_multichannel_sound_to_stereo() {
         let surround_profile = CapabilityProfile {
             audio: vec![AudioCodecCap { codec: "aac".to_owned(), max_channels: 8 }],
             ..profile()
@@ -559,10 +661,17 @@ mod tests {
             downmix_stereo: true,
             ..input()
         };
-        assert_eq!(negotiate(&surround, &surround_profile).mode, DeliveryMode::Transcode);
+        let out = negotiate(&surround, &surround_profile);
+        assert_eq!(out.mode, DeliveryMode::Remux);
+        assert!(out.convert_audio);
+        assert_eq!(out.reasons, vec![NegotiationReason::Downmix]);
+        assert_eq!(out.audio_channels, Some(2));
 
         let already_stereo = NegotiationInput { downmix_stereo: true, ..input() };
-        assert_eq!(negotiate(&already_stereo, &surround_profile).mode, DeliveryMode::Direct);
+        let out = negotiate(&already_stereo, &surround_profile);
+        assert_eq!(out.mode, DeliveryMode::Direct);
+        assert!(!out.convert_audio);
+        assert_eq!(out.audio_channels, None);
     }
 
     #[test]
@@ -847,14 +956,31 @@ mod prop_tests {
         }
 
         #[test]
-        fn remux_implies_unsupported_container_or_soft_subtitle(input in inputs()) {
+        fn remux_implies_unsupported_container_soft_subtitle_or_sound_to_convert(input in inputs()) {
             let profile = profile();
             let out = negotiate(&input, &profile);
             if out.mode == DeliveryMode::Remux {
                 prop_assert!(
                     !profile.containers.contains(&input.container)
                         || out.selected.subtitle_delivery == Some(SubtitleDelivery::HlsVtt)
+                        || out.convert_audio
                 );
+            }
+        }
+
+        #[test]
+        fn a_sound_is_converted_alone_only_in_a_remux_for_a_sound_reason(input in inputs()) {
+            let out = negotiate(&input, &profile());
+            if out.convert_audio {
+                prop_assert_eq!(out.mode, DeliveryMode::Remux);
+                prop_assert_ne!(input.delivery, DeliveryPreference::NeverConvert);
+                prop_assert!(out.reasons.iter().any(|reason| matches!(
+                    reason,
+                    NegotiationReason::AudioCodec
+                        | NegotiationReason::AudioChannels
+                        | NegotiationReason::Downmix
+                )));
+                prop_assert!(!out.reasons.iter().any(|reason| reason.as_str().starts_with("video_")));
             }
         }
 

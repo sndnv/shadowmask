@@ -21,6 +21,24 @@ pub struct Scanner<W, P> {
     probe_concurrency: usize,
 }
 
+#[derive(Debug, Default)]
+pub struct LibraryWalk {
+    candidates: Vec<WalkedEntry>,
+    excluded: Vec<SkippedFile>,
+    subtitles: HashMap<String, Vec<String>>,
+    pub offline: Vec<String>,
+}
+
+impl LibraryWalk {
+    pub fn present(&self) -> Vec<String> {
+        self.candidates
+            .iter()
+            .map(|entry| entry.path.clone())
+            .chain(self.excluded.iter().map(|file| file.path.clone()))
+            .collect()
+    }
+}
+
 impl<W: SourceWalker, P: MediaProbe> Scanner<W, P> {
     pub fn new(walker: W, probe: P) -> Self {
         Self {
@@ -41,42 +59,70 @@ impl<W: SourceWalker, P: MediaProbe> Scanner<W, P> {
         Self { walker, probe, extensions, probe_concurrency: DEFAULT_PROBE_CONCURRENCY }
     }
 
-    pub async fn scan<F, Fut>(
-        &self,
-        library: &Library,
-        on_progress: F,
-    ) -> Result<ScanReport, WalkError>
-    where
-        F: Fn(u32, u32) -> Fut,
-        Fut: Future<Output = ()>,
-    {
+    pub async fn walk(&self, library: &Library) -> Result<LibraryWalk, WalkError> {
+        let mut walk = LibraryWalk::default();
         let mut seen = HashSet::new();
-        let mut candidates = Vec::new();
-        let mut excluded: Vec<SkippedFile> = Vec::new();
-        let mut subtitles: HashMap<String, Vec<String>> = HashMap::new();
+        let mut failures = Vec::new();
         for root in &library.roots {
-            for entry in self.walker.walk(root).await? {
-                if is_hidden(&entry.path) || !seen.insert(entry.path.clone()) {
+            let walked = match self.walker.walk(root).await {
+                Ok(walked) => walked,
+                Err(err) => {
+                    walk.offline.push(root.clone());
+                    failures.push(err);
                     continue;
                 }
-                if is_media_candidate(&entry.path, &self.extensions) {
+            };
+            let mut has_media = false;
+            for entry in walked.entries {
+                if is_hidden(&entry.path) {
+                    continue;
+                }
+                let media = is_media_candidate(&entry.path, &self.extensions);
+                has_media |= media;
+                if !seen.insert(entry.path.clone()) {
+                    continue;
+                }
+                if media {
                     if let Some(directory) = excluded_directory(&entry.path, root) {
-                        excluded.push(SkippedFile {
+                        walk.excluded.push(SkippedFile {
                             path: entry.path,
                             reason: SkipReason::ExcludedDirectory(directory),
                         });
                         continue;
                     }
-                    candidates.push(entry);
+                    walk.candidates.push(entry);
                 } else if is_subtitle_file(&entry.path) {
-                    subtitles
+                    walk.subtitles
                         .entry(sidecar_dir(&entry.path).to_owned())
                         .or_default()
                         .push(entry.path);
                 }
             }
+            if !has_media {
+                walk.offline.push(root.clone());
+            }
+            walk.offline
+                .extend(walked.unreadable.into_iter().filter(|path| !is_system_path(path, root)));
         }
+        if failures.len() == library.roots.len()
+            && let Some(err) = failures.into_iter().next()
+        {
+            return Err(err);
+        }
+        Ok(walk)
+    }
 
+    pub async fn probe_files<F, Fut>(
+        &self,
+        library: &Library,
+        walk: LibraryWalk,
+        on_progress: F,
+    ) -> ScanReport
+    where
+        F: Fn(u32, u32) -> Fut,
+        Fut: Future<Output = ()>,
+    {
+        let LibraryWalk { candidates, excluded, subtitles, offline } = walk;
         let total_candidates = candidates.len();
         let mut sidecars = claim_sidecars(&candidates, subtitles);
         let mut discovered = Vec::new();
@@ -105,7 +151,7 @@ impl<W: SourceWalker, P: MediaProbe> Scanner<W, P> {
             }
         }
 
-        Ok(ScanReport { discovered, skipped, total_candidates })
+        ScanReport { discovered, skipped, total_candidates, offline }
     }
 }
 
@@ -145,6 +191,25 @@ pub(crate) fn excluded_directory(path: &str, root: &str) -> Option<String> {
         .iter()
         .find(|part| EXTRA_DIRS.contains(&part.trim().to_ascii_lowercase().as_str()))
         .map(|part| (*part).to_owned())
+}
+
+const SYSTEM_DIRS: [&str; 7] = [
+    "lost+found",
+    "$recycle.bin",
+    "system volume information",
+    "#recycle",
+    "#snapshot",
+    "@eadir",
+    "@recycle",
+];
+
+fn is_system_path(path: &str, root: &str) -> bool {
+    relative_to(path, root).is_some_and(|relative| {
+        relative.split(['/', '\\']).any(|part| {
+            part.starts_with('.')
+                || SYSTEM_DIRS.contains(&part.trim().to_ascii_lowercase().as_str())
+        })
+    })
 }
 
 fn relative_to<'a>(path: &'a str, root: &str) -> Option<&'a str> {
@@ -266,6 +331,35 @@ mod tests {
         recording(Arc::default())
     }
 
+    async fn scan_reporting<W, P, F, Fut>(
+        scanner: &Scanner<W, P>,
+        roots: &[&str],
+        on_progress: F,
+    ) -> ScanReport
+    where
+        W: SourceWalker,
+        P: MediaProbe,
+        F: Fn(u32, u32) -> Fut,
+        Fut: Future<Output = ()>,
+    {
+        let library = library(roots);
+        let walk = scanner.walk(&library).await.unwrap();
+        scanner.probe_files(&library, walk, on_progress).await
+    }
+
+    async fn scan<W: SourceWalker, P: MediaProbe>(
+        scanner: &Scanner<W, P>,
+        roots: &[&str],
+    ) -> ScanReport {
+        scan_reporting(scanner, roots, quiet()).await
+    }
+
+    fn present(walk: &LibraryWalk) -> Vec<String> {
+        let mut paths = walk.present();
+        paths.sort();
+        paths
+    }
+
     #[derive(Default)]
     struct WatermarkProbe {
         in_flight: Arc<AtomicUsize>,
@@ -306,7 +400,7 @@ mod tests {
         let peak = Arc::clone(&probe.peak);
         let scanner = Scanner::new(many(20), probe).with_probe_concurrency(4);
 
-        let report = scanner.scan(&library(&["/m"]), quiet()).await.unwrap();
+        let report = scan(&scanner, &["/m"]).await;
 
         assert_eq!(report.discovered.len(), 20);
         assert_eq!(
@@ -327,7 +421,7 @@ mod tests {
         let peak = Arc::clone(&probe.peak);
         let scanner = Scanner::new(many(5), probe).with_probe_concurrency(0);
 
-        scanner.scan(&library(&["/m"]), quiet()).await.unwrap();
+        scan(&scanner, &["/m"]).await;
 
         assert_eq!(
             peak.load(Ordering::SeqCst),
@@ -341,7 +435,7 @@ mod tests {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let scanner = Scanner::new(many(1_000), MockMediaProbe::new());
 
-        scanner.scan(&library(&["/m"]), recording(Arc::clone(&seen))).await.unwrap();
+        scan_reporting(&scanner, &["/m"], recording(Arc::clone(&seen))).await;
 
         assert_eq!(
             *seen.lock().unwrap(),
@@ -356,7 +450,7 @@ mod tests {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let scanner = Scanner::new(many(3), MockMediaProbe::new());
 
-        scanner.scan(&library(&["/m"]), recording(Arc::clone(&seen))).await.unwrap();
+        scan_reporting(&scanner, &["/m"], recording(Arc::clone(&seen))).await;
 
         assert!(
             seen.lock().unwrap().is_empty(),
@@ -441,7 +535,7 @@ mod tests {
         );
         let scanner = Scanner::new(walker, MockMediaProbe::new());
 
-        let report = scanner.scan(&library(&["/tv"]), quiet()).await.unwrap();
+        let report = scan(&scanner, &["/tv"]).await;
         assert_eq!(report.total_candidates, 1);
         assert_eq!(report.discovered.len(), 1);
         assert_eq!(report.discovered[0].path, "/tv/Tallowbrook/Tallowbrook.Season.01/1x01.mkv");
@@ -458,7 +552,7 @@ mod tests {
         );
         let scanner = Scanner::new(walker, MockMediaProbe::new());
 
-        let report = scanner.scan(&library(&["/tv"]), quiet()).await.unwrap();
+        let report = scan(&scanner, &["/tv"]).await;
 
         assert_eq!(report.skipped.len(), 1);
         assert_eq!(report.skipped[0].path, "/tv/Tallowbrook/Extras/Bonus Disc1.mkv");
@@ -479,7 +573,7 @@ mod tests {
         let probe = MockMediaProbe::new().failing_on("/m/bad.mp4");
         let scanner = Scanner::new(walker, probe);
 
-        let report = scanner.scan(&library(&["/m"]), quiet()).await.unwrap();
+        let report = scan(&scanner, &["/m"]).await;
         assert_eq!(report.total_candidates, 2);
         assert_eq!(report.discovered.len(), 1);
         assert_eq!(report.discovered[0].path, "/m/good.mkv");
@@ -502,7 +596,7 @@ mod tests {
         );
         let scanner = Scanner::new(walker, MockMediaProbe::new());
 
-        let report = scanner.scan(&library(&["/m"]), quiet()).await.unwrap();
+        let report = scan(&scanner, &["/m"]).await;
         let movie = report.discovered.iter().find(|d| d.path == "/m/a/movie.mkv").unwrap();
         assert_eq!(movie.subtitle_siblings.len(), 2);
         assert!(movie.subtitle_siblings.contains(&"/m/a/movie.en.srt".to_owned()));
@@ -528,7 +622,7 @@ mod tests {
         );
         let scanner = Scanner::new(walker, MockMediaProbe::new());
 
-        let report = scanner.scan(&library(&["/m"]), quiet()).await.unwrap();
+        let report = scan(&scanner, &["/m"]).await;
         let siblings = |path: &str| {
             report.discovered.iter().find(|d| d.path == path).unwrap().subtitle_siblings.clone()
         };
@@ -578,7 +672,7 @@ mod tests {
         );
         let scanner = Scanner::new(walker, MockMediaProbe::new());
 
-        let report = scanner.scan(&library(&["/m"]), quiet()).await.unwrap();
+        let report = scan(&scanner, &["/m"]).await;
         let siblings = |path: &str| {
             let mut found = report
                 .discovered
@@ -615,23 +709,135 @@ mod tests {
             .with_entries("/b", vec![entry("/shared/movie.mkv", 1)]);
         let scanner = Scanner::new(walker, MockMediaProbe::new());
 
-        let report = scanner.scan(&library(&["/a", "/b"]), quiet()).await.unwrap();
+        let report = scan(&scanner, &["/a", "/b"]).await;
         assert_eq!(report.discovered.len(), 1);
     }
 
     #[tokio::test]
-    async fn scan_propagates_walk_failure() {
-        let walker = MockSourceWalker::new().with_failing("/missing");
+    async fn a_scan_whose_every_root_fails_fails_with_the_first() {
+        let walker = MockSourceWalker::new().with_failing("/missing").with_unreadable("/locked");
         let scanner = Scanner::new(walker, MockMediaProbe::new());
 
-        let err = scanner.scan(&library(&["/missing"]), quiet()).await.unwrap_err();
+        let err = scanner.walk(&library(&["/missing", "/locked"])).await.unwrap_err();
         assert!(matches!(err, WalkError::RootNotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn a_root_that_cannot_be_walked_is_offline_while_the_others_scan() {
+        let walker = MockSourceWalker::new()
+            .with_failing("/missing")
+            .with_unreadable("/locked")
+            .with_entries("/m", vec![entry("/m/movie.mkv", 1)]);
+        let scanner = Scanner::new(walker, MockMediaProbe::new());
+
+        let walk = scanner.walk(&library(&["/missing", "/m", "/locked"])).await.unwrap();
+
+        assert_eq!(walk.offline, ["/missing", "/locked"]);
+        assert_eq!(present(&walk), ["/m/movie.mkv"]);
+    }
+
+    #[tokio::test]
+    async fn a_root_without_media_files_is_offline() {
+        let walker = MockSourceWalker::new()
+            .with_entries("/m", vec![entry("/m/movie.mkv", 1)])
+            .with_entries("/unmounted", vec![entry("/unmounted/.hidden.mkv", 1)])
+            .with_entries("/subs", vec![entry("/subs/movie.en.srt", 1)]);
+        let scanner = Scanner::new(walker, MockMediaProbe::new());
+
+        let walk = scanner.walk(&library(&["/m", "/empty", "/unmounted", "/subs"])).await.unwrap();
+
+        assert_eq!(
+            walk.offline,
+            ["/empty", "/unmounted", "/subs"],
+            "a share that failed to mount leaves an empty folder, and walking it to nothing \
+             marked the whole library unavailable"
+        );
+        assert_eq!(present(&walk), ["/m/movie.mkv"]);
+    }
+
+    #[tokio::test]
+    async fn a_root_whose_files_another_root_already_listed_still_has_media() {
+        let walker = MockSourceWalker::new()
+            .with_entries("/a", vec![entry("/shared/movie.mkv", 1)])
+            .with_entries("/b", vec![entry("/shared/movie.mkv", 1)]);
+        let scanner = Scanner::new(walker, MockMediaProbe::new());
+
+        let walk = scanner.walk(&library(&["/a", "/b"])).await.unwrap();
+
+        assert!(walk.offline.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_folder_the_walk_could_not_read_is_offline() {
+        let walker = MockSourceWalker::new()
+            .with_entries("/m", vec![entry("/m/movie.mkv", 1)])
+            .with_unreadable_folder("/m", "/m/Locked");
+        let scanner = Scanner::new(walker, MockMediaProbe::new());
+
+        let walk = scanner.walk(&library(&["/m"])).await.unwrap();
+
+        assert_eq!(walk.offline, ["/m/Locked"]);
+        let report = scan(&scanner, &["/m"]).await;
+        assert_eq!(report.offline, ["/m/Locked"], "and the report carries it to enrichment");
+    }
+
+    #[tokio::test]
+    async fn a_system_or_trash_folder_the_walk_could_not_read_is_not_offline() {
+        let mut walker = MockSourceWalker::new().with_entries("/m", vec![entry("/m/movie.mkv", 1)]);
+        for folder in [
+            "/m/lost+found",
+            "/m/$RECYCLE.BIN/S-1-5-21",
+            "/m/System Volume Information",
+            "/m/#recycle",
+            "/m/Film/@eaDir",
+            "/m/.Trash-1000",
+            "/m/Locked",
+        ] {
+            walker = walker.with_unreadable_folder("/m", folder);
+        }
+        let scanner = Scanner::new(walker, MockMediaProbe::new());
+
+        let walk = scanner.walk(&library(&["/m"])).await.unwrap();
+
+        assert_eq!(walk.offline, ["/m/Locked"], "a folder no library ever reads is no outage");
+    }
+
+    #[test]
+    fn a_system_name_counts_only_below_the_root() {
+        assert!(!is_system_path("/srv/@eaDir/Movies/Locked", "/srv/@eaDir/Movies"));
+        assert!(is_system_path("/srv/Movies/@eaDir", "/srv/Movies"));
+        assert!(!is_system_path("/other/lost+found", "/srv/Movies"));
+    }
+
+    #[tokio::test]
+    async fn the_walk_counts_excluded_and_unprobed_files_as_present() {
+        let walker = MockSourceWalker::new().with_entries(
+            "/m",
+            vec![
+                entry("/m/good.mkv", 1),
+                entry("/m/bad.mkv", 1),
+                entry("/m/Film/Extras/clip.mkv", 1),
+                entry("/m/good.en.srt", 1),
+                entry("/m/.hidden.mkv", 1),
+            ],
+        );
+        let scanner = Scanner::new(walker, MockMediaProbe::new().failing_on("/m/bad.mkv"));
+
+        let walk = scanner.walk(&library(&["/m"])).await.unwrap();
+
+        assert_eq!(
+            present(&walk),
+            ["/m/Film/Extras/clip.mkv", "/m/bad.mkv", "/m/good.mkv"],
+            "an excluded file is not gone, and a probe failure can be transient"
+        );
     }
 
     #[tokio::test]
     async fn scan_of_empty_roots_is_empty() {
         let scanner = Scanner::new(MockSourceWalker::new(), MockMediaProbe::new());
-        let report = scanner.scan(&library(&[]), quiet()).await.unwrap();
+        let walk = scanner.walk(&library(&[])).await.unwrap();
+        assert!(walk.offline.is_empty());
+        let report = scan(&scanner, &[]).await;
         assert!(report.discovered.is_empty());
         assert_eq!(report.total_candidates, 0);
     }
@@ -643,7 +849,7 @@ mod tests {
         let scanner =
             Scanner::with_extensions(walker, MockMediaProbe::new(), vec!["iso".to_owned()]);
 
-        let report = scanner.scan(&library(&["/m"]), quiet()).await.unwrap();
+        let report = scan(&scanner, &["/m"]).await;
         assert_eq!(report.discovered.len(), 1);
         assert_eq!(report.discovered[0].path, "/m/disc.iso");
     }

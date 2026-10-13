@@ -21,7 +21,7 @@ use domain::metadata::{
     Rating, Studio, StudioId, TitleEnrichment,
 };
 use domain::repository::{CatalogRepository, SearchIndex};
-use domain::text::normalize_title;
+use domain::text::{is_typo_of, joined_terms, search_text, typo_allowance};
 use sqlx::migrate::Migrator;
 use sqlx::sqlite::SqliteRow;
 use sqlx::{AssertSqlSafe, Executor, Sqlite, SqliteConnection, SqlitePool};
@@ -86,6 +86,11 @@ const SERIES_EPISODE_COUNTS_SQL: &str = "SELECT COUNT(*) AS total, \
      THEN 1 ELSE 0 END), 0) AS playable \
      FROM episodes e JOIN seasons sn ON sn.id = e.season_id \
      WHERE sn.series_id = ?";
+
+const MARK_ABSENT_SQL: &str = "WITH offline(prefix) AS \
+     (SELECT rtrim(value, '/') || '/' FROM json_each(?)) \
+     UPDATE versions SET available = 0 WHERE library_id = ? AND NOT EXISTS \
+     (SELECT 1 FROM offline WHERE substr(versions.path || '/', 1, length(prefix)) = prefix)";
 
 fn mark_present_sql(paths: usize) -> String {
     let placeholders = vec!["?"; paths].join(", ");
@@ -533,15 +538,113 @@ impl SqliteCatalogRepo {
             .unwrap_or_default())
     }
 
+    async fn search_pass(
+        &self,
+        needle: &str,
+        terms: &str,
+        types: &[SearchKind],
+        filter: &TitleListFilter,
+        ceiling: i64,
+    ) -> Result<(Vec<SearchResult>, u64), RepositoryError> {
+        let mut candidates: Vec<SearchResult> = Vec::new();
+        let mut total = 0;
+        let want = |kind: SearchKind| types.is_empty() || types.contains(&kind);
+        if want(SearchKind::Movie) {
+            let mut gate_binds = Vec::new();
+            let gate = movie_gate(filter, &mut gate_binds);
+            let branch = search_branch("movie", "movies m", "m", "", "m.*", terms, &gate);
+            total += self.search_total(&branch, &gate_binds).await?;
+            for row in &self.search_page(&branch, needle, &gate_binds, ceiling).await? {
+                candidates.push(SearchResult::Movie(row_to_movie(row)?));
+            }
+        }
+        if want(SearchKind::Series) {
+            let mut gate_binds = Vec::new();
+            let gate = series_gate(filter, &mut gate_binds);
+            let branch = search_branch("series", "series e", "e", "", "e.*", terms, &gate);
+            total += self.search_total(&branch, &gate_binds).await?;
+            for row in &self.search_page(&branch, needle, &gate_binds, ceiling).await? {
+                candidates.push(SearchResult::Series(row_to_series(row)?));
+            }
+        }
+        if want(SearchKind::Episode) {
+            let mut gate_binds = Vec::new();
+            let gate = episode_gate(filter, &mut gate_binds);
+            let branch = search_branch(
+                "episode",
+                "episodes e",
+                "e",
+                " LEFT JOIN seasons sn ON sn.id = e.season_id \
+                 LEFT JOIN series sr ON sr.id = sn.series_id",
+                "e.*, sn.number AS season_no, sn.title AS season_name, \
+                 sr.id AS series_ref, sr.title AS series_name",
+                terms,
+                &gate,
+            );
+            total += self.search_total(&branch, &gate_binds).await?;
+            for row in &self.search_page(&branch, needle, &gate_binds, ceiling).await? {
+                candidates.push(SearchResult::Episode(Box::new(row_to_episode_card(row)?)));
+            }
+        }
+        if want(SearchKind::Person) {
+            let branch = search_branch("person", "people p", "p", "", "p.id, p.name", terms, "");
+            total += self.search_total(&branch, &[]).await?;
+            for row in &self.search_page(&branch, needle, &[], ceiling).await? {
+                candidates.push(SearchResult::Person(Person {
+                    id: PersonId(column(row, "id")?),
+                    name: column(row, "name")?,
+                    ..Person::default()
+                }));
+            }
+        }
+        Ok((candidates, total))
+    }
+
+    async fn typo_terms(&self, needle: &str) -> Result<Option<String>, RepositoryError> {
+        let words: Vec<&str> = needle.split_whitespace().collect();
+        let Some((shortest, longest)) = words
+            .iter()
+            .filter(|word| typo_allowance(word) > 0)
+            .map(|word| {
+                let letters = word.chars().count();
+                (letters - typo_allowance(word), letters + typo_allowance(word))
+            })
+            .reduce(|(low, high), (shortest, longest)| (low.min(shortest), high.max(longest)))
+        else {
+            return Ok(None);
+        };
+        let rows = sqlx::query(TYPO_VOCABULARY_SQL)
+            .bind(shortest as i64)
+            .bind(longest as i64)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(backend)?;
+        let vocabulary =
+            rows.iter().map(|row| column::<String>(row, "term")).collect::<Result<Vec<_>, _>>()?;
+        let mut corrected = false;
+        let groups: Vec<String> = words
+            .iter()
+            .map(|word| {
+                let mut options = vec![format!("{word}*")];
+                options.extend(
+                    vocabulary
+                        .iter()
+                        .filter(|term| !term.starts_with(word) && is_typo_of(word, term))
+                        .cloned(),
+                );
+                corrected |= options.len() > 1;
+                format!("({})", options.join(" OR "))
+            })
+            .collect();
+        Ok(corrected.then(|| groups.join(" AND ")))
+    }
+
     async fn search_total(
         &self,
         branch: &SearchBranch,
         gate: &[String],
     ) -> Result<u64, RepositoryError> {
         let mut query = sqlx::query(AssertSqlSafe(branch.count.clone())).bind(&branch.match_query);
-        for _ in 0..branch.rank_binds {
-            query = query.bind(&branch.needle);
-        }
         for bind in gate {
             query = query.bind(bind);
         }
@@ -552,16 +655,14 @@ impl SqliteCatalogRepo {
     async fn search_page(
         &self,
         branch: &SearchBranch,
+        needle: &str,
         gate: &[String],
         ceiling: i64,
     ) -> Result<Vec<SqliteRow>, RepositoryError> {
         let mut query = sqlx::query(AssertSqlSafe(branch.page.clone()))
-            .bind(&branch.needle)
-            .bind(&branch.needle)
+            .bind(needle)
+            .bind(needle)
             .bind(&branch.match_query);
-        for _ in 0..branch.rank_binds {
-            query = query.bind(&branch.needle);
-        }
         for bind in gate {
             query = query.bind(bind);
         }
@@ -1170,60 +1271,18 @@ impl SearchIndex for SqliteCatalogRepo {
         page: PageRequest,
     ) -> Result<Page<SearchResult>, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "search");
-        let needle = normalize_title(query);
+        let needle = search_text(query);
         let mut candidates: Vec<SearchResult> = Vec::new();
         let mut total = 0;
         if !needle.is_empty() {
             let ceiling = i64::from(page.offset) + i64::from(page.limit);
-            let want = |kind: SearchKind| types.is_empty() || types.contains(&kind);
-            if want(SearchKind::Movie) {
-                let mut gate_binds = Vec::new();
-                let gate = movie_gate(filter, &mut gate_binds);
-                let branch = search_branch("movie", "movies m", "m", "", "m.*", &needle, &gate);
-                total += self.search_total(&branch, &gate_binds).await?;
-                for row in &self.search_page(&branch, &gate_binds, ceiling).await? {
-                    candidates.push(SearchResult::Movie(row_to_movie(row)?));
-                }
-            }
-            if want(SearchKind::Series) {
-                let mut gate_binds = Vec::new();
-                let gate = series_gate(filter, &mut gate_binds);
-                let branch = search_branch("series", "series e", "e", "", "e.*", &needle, &gate);
-                total += self.search_total(&branch, &gate_binds).await?;
-                for row in &self.search_page(&branch, &gate_binds, ceiling).await? {
-                    candidates.push(SearchResult::Series(row_to_series(row)?));
-                }
-            }
-            if want(SearchKind::Episode) {
-                let mut gate_binds = Vec::new();
-                let gate = episode_gate(filter, &mut gate_binds);
-                let branch = search_branch(
-                    "episode",
-                    "episodes e",
-                    "e",
-                    " LEFT JOIN seasons sn ON sn.id = e.season_id \
-                     LEFT JOIN series sr ON sr.id = sn.series_id",
-                    "e.*, sn.number AS season_no, sn.title AS season_name, \
-                     sr.id AS series_ref, sr.title AS series_name",
-                    &needle,
-                    &gate,
-                );
-                total += self.search_total(&branch, &gate_binds).await?;
-                for row in &self.search_page(&branch, &gate_binds, ceiling).await? {
-                    candidates.push(SearchResult::Episode(Box::new(row_to_episode_card(row)?)));
-                }
-            }
-            if want(SearchKind::Person) {
-                let branch =
-                    search_branch("person", "people p", "p", "", "p.id, p.name", &needle, "");
-                total += self.search_total(&branch, &[]).await?;
-                for row in &self.search_page(&branch, &[], ceiling).await? {
-                    candidates.push(SearchResult::Person(Person {
-                        id: PersonId(column(row, "id")?),
-                        name: column(row, "name")?,
-                        ..Person::default()
-                    }));
-                }
+            let typed = prefix_terms(&needle);
+            (candidates, total) = self.search_pass(&needle, &typed, types, filter, ceiling).await?;
+            if total == 0
+                && let Some(corrected) = self.typo_terms(&needle).await?
+            {
+                (candidates, total) =
+                    self.search_pass(&needle, &corrected, types, filter, ceiling).await?;
             }
         }
         let mut results = domain::discovery::search(&candidates, query, types, page);
@@ -1257,14 +1316,20 @@ async fn sync_search_row(
         .execute(&mut *conn)
         .await
         .map_err(backend)?;
-    sqlx::query("INSERT INTO search_index (kind, id, title) VALUES (?, ?, ?)")
+    let (title, terms) = indexed_text(title);
+    sqlx::query("INSERT INTO search_index (kind, id, title, terms) VALUES (?, ?, ?, ?)")
         .bind(kind)
         .bind(id)
-        .bind(normalize_title(title))
+        .bind(title)
+        .bind(terms)
         .execute(&mut *conn)
         .await
         .map_err(backend)?;
     Ok(())
+}
+
+fn indexed_text(title: &str) -> (String, String) {
+    (search_text(title), joined_terms(title).join(" "))
 }
 
 async fn reindex_kind(
@@ -1276,16 +1341,16 @@ async fn reindex_kind(
     let indexed = rows
         .iter()
         .map(|row| {
-            Ok((column::<String>(row, "id")?, normalize_title(&column::<String>(row, "title")?)))
+            Ok((column::<String>(row, "id")?, indexed_text(&column::<String>(row, "title")?)))
         })
         .collect::<Result<Vec<_>, RepositoryError>>()?;
     for chunk in indexed.chunks(REINDEX_CHUNK) {
-        let values = vec!["(?, ?, ?)"; chunk.len()].join(", ");
+        let values = vec!["(?, ?, ?, ?)"; chunk.len()].join(", ");
         let mut query = sqlx::query(AssertSqlSafe(format!(
-            "INSERT INTO search_index (kind, id, title) VALUES {values}"
+            "INSERT INTO search_index (kind, id, title, terms) VALUES {values}"
         )));
-        for (id, title) in chunk {
-            query = query.bind(kind).bind(id).bind(title);
+        for (id, (title, terms)) in chunk {
+            query = query.bind(kind).bind(id).bind(title).bind(terms);
         }
         query.execute(&mut *conn).await.map_err(backend)?;
     }
@@ -1348,18 +1413,11 @@ fn search_artwork_owner(result: &SearchResult) -> (&'static str, &str) {
 struct SearchBranch {
     count: String,
     page: String,
-    rank_binds: usize,
-    needle: String,
     match_query: String,
 }
 
-fn rank_where(needle: &str) -> &'static str {
-    if needle.contains(' ') {
-        " AND (s.title = ? OR s.title LIKE ? || '%')"
-    } else {
-        " AND (s.title = ? OR s.title LIKE ? || '%' OR s.title LIKE '% ' || ? || '%')"
-    }
-}
+const TYPO_VOCABULARY_SQL: &str = "SELECT term FROM search_vocabulary \
+     WHERE length(term) BETWEEN ? AND ? AND term GLOB '*[^0-9]*'";
 
 fn search_branch(
     kind: &str,
@@ -1367,13 +1425,12 @@ fn search_branch(
     alias: &str,
     joins: &str,
     columns: &str,
-    needle: &str,
+    terms: &str,
     gate: &str,
 ) -> SearchBranch {
-    let predicate = rank_where(needle);
     let body = format!(
         "FROM search_index s JOIN {from} ON {alias}.id = s.id{joins} \
-         WHERE search_index MATCH ?{predicate}{gate}"
+         WHERE search_index MATCH ?{gate}"
     );
     SearchBranch {
         count: format!("SELECT COUNT(*) AS n {body}"),
@@ -1382,16 +1439,16 @@ fn search_branch(
              CASE WHEN s.title = ? THEN 0 WHEN s.title LIKE ? || '%' THEN 1 ELSE 2 END AS tier \
              {body} ORDER BY tier, s.title, {alias}.id LIMIT ?"
         ),
-        rank_binds: if needle.contains(' ') { 2 } else { 3 },
-        needle: needle.to_owned(),
-        match_query: fts_match(kind, needle),
+        match_query: fts_match(kind, terms),
     }
 }
 
-fn fts_match(kind: &str, needle: &str) -> String {
-    let terms =
-        needle.split_whitespace().map(|token| format!("{token}*")).collect::<Vec<_>>().join(" ");
-    format!("kind:{kind} AND title:({terms})")
+fn prefix_terms(needle: &str) -> String {
+    needle.split_whitespace().map(|word| format!("{word}*")).collect::<Vec<_>>().join(" ")
+}
+
+fn fts_match(kind: &str, terms: &str) -> String {
+    format!("kind:{kind} AND {{title terms}}:({terms})")
 }
 
 fn row_to_movie(row: &SqliteRow) -> Result<Movie, RepositoryError> {
@@ -2424,10 +2481,13 @@ impl CatalogRepository for SqliteCatalogRepo {
         &self,
         library: &LibraryId,
         present_paths: &[String],
+        offline_paths: &[String],
     ) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("catalog", "reconcile_library_versions");
+        let offline = serde_json::to_string(offline_paths).map_err(backend)?;
         let mut tx = self.pool.begin().await.map_err(backend)?;
-        sqlx::query("UPDATE versions SET available = 0 WHERE library_id = ?")
+        sqlx::query(MARK_ABSENT_SQL)
+            .bind(offline)
             .bind(library.0.as_str())
             .execute(&mut *tx)
             .await
@@ -3323,16 +3383,12 @@ mod tests {
             )
             .bind(format!("m-{n}"))
             .bind(*title)
-            .bind(normalize_title(title))
+            .bind(domain::text::normalize_title(title))
             .execute(&repo.pool)
             .await
             .unwrap();
-            sqlx::query("INSERT INTO search_index (kind, id, title) VALUES ('movie', ?, ?)")
-                .bind(format!("m-{n}"))
-                .bind(normalize_title(title))
-                .execute(&repo.pool)
-                .await
-                .unwrap();
+            let mut conn = repo.pool.acquire().await.unwrap();
+            sync_search_row(&mut conn, "movie", &format!("m-{n}"), title).await.unwrap();
         }
         repo
     }
@@ -3376,9 +3432,9 @@ mod tests {
         ] {
             sqlx::query(AssertSqlSafe(sql)).execute(&repo.pool).await.unwrap();
         }
-        let branch = search_branch("movie", "movies m", "m", "", "m.*", "shared", "");
+        let branch = search_branch("movie", "movies m", "m", "", "m.*", "shared*", "");
 
-        let rows_read = repo.search_page(&branch, &[], 10).await.unwrap().len();
+        let rows_read = repo.search_page(&branch, "shared", &[], 10).await.unwrap().len();
 
         assert_eq!(
             rows_read, 10,
@@ -3459,11 +3515,10 @@ mod tests {
         assert_eq!(
             found(&hits),
             vec!["The Matrix"],
-            "the full text index matches every title carrying both words, but a \
-             multi word query has to start the title, so SQL has to apply that \
-             rule before the limit or the page comes back empty"
+            "every title carrying both words matches, so SQL has to rank the exact \
+             title first before the limit or a chapter takes the only row"
         );
-        assert_eq!(hits.total, 1);
+        assert_eq!(hits.total, 21);
     }
 
     #[tokio::test]
@@ -3480,15 +3535,18 @@ mod tests {
     }
 
     #[test]
-    fn a_full_text_query_is_scoped_to_the_title_column() {
+    fn a_full_text_query_is_scoped_to_the_title_columns() {
         assert_eq!(
-            fts_match("episode", "ep"),
-            "kind:episode AND title:(ep*)",
+            fts_match("episode", &prefix_terms("ep")),
+            "kind:episode AND {title terms}:(ep*)",
             "kind is indexed now so that a branch only walks its own rows; drop the \
              scope and a query like ep matches the kind column of every episode, \
              putting the whole catalog back in front of the row filter"
         );
-        assert_eq!(fts_match("movie", "the matrix"), "kind:movie AND title:(the* matrix*)");
+        assert_eq!(
+            fts_match("movie", &prefix_terms("the matrix")),
+            "kind:movie AND {title terms}:(the* matrix*)"
+        );
     }
 
     #[tokio::test]
@@ -3503,7 +3561,7 @@ mod tests {
 
         let partial = repo.search("mat", &[], &unfiltered(), page).await.unwrap();
         let plural = repo.search("god", &[], &unfiltered(), page).await.unwrap();
-        let infix = repo.search("atrix", &[], &unfiltered(), page).await.unwrap();
+        let infix = repo.search("trix", &[], &unfiltered(), page).await.unwrap();
 
         assert_eq!(found(&partial), vec!["The Matrix"]);
         assert_eq!(found(&plural), vec!["Children of the Gods"]);
@@ -3517,21 +3575,116 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_multi_word_query_still_has_to_start_the_title() {
+    async fn a_multi_word_query_finds_its_words_anywhere_and_ranks_the_title_it_starts_first() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = searchable_repo(dir.path(), &["Watch The Matrix Now", "The Matrix"]).await;
+        let repo = searchable_repo(
+            dir.path(),
+            &["Watch The Matrix Now", "The Matrix", "Harry Potter and the Prisoner of Azkaban"],
+        )
+        .await;
+        let page = PageRequest { offset: 0, limit: 10 };
 
-        let hits = repo
-            .search("the matrix", &[], &unfiltered(), PageRequest { offset: 0, limit: 10 })
+        let hits = repo.search("the matrix", &[], &unfiltered(), page).await.unwrap();
+        let prisoner = repo.search("potter prisoner", &[], &unfiltered(), page).await.unwrap();
+
+        assert_eq!(found(&hits), vec!["The Matrix", "Watch The Matrix Now"]);
+        assert_eq!(
+            found(&prisoner),
+            vec!["Harry Potter and the Prisoner of Azkaban"],
+            "a query of several words had to start the title"
+        );
+    }
+
+    #[tokio::test]
+    async fn punctuation_accents_and_ampersands_do_not_stand_between_a_query_and_its_title() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = searchable_repo(
+            dir.path(),
+            &["Spider-Man: Far From Home", "Ocean's Eleven", "Amélie", "Fast & Furious", "Брат 2"],
+        )
+        .await;
+        let page = PageRequest { offset: 0, limit: 10 };
+        let titles =
+            async |query: &str| found(&repo.search(query, &[], &unfiltered(), page).await.unwrap());
+
+        assert_eq!(titles("spiderman").await, vec!["Spider-Man: Far From Home"]);
+        assert_eq!(titles("oceans").await, vec!["Ocean's Eleven"]);
+        assert_eq!(titles("amelie").await, vec!["Amélie"]);
+        assert_eq!(titles("Amélie").await, vec!["Amélie"]);
+        assert_eq!(titles("fast and furious").await, vec!["Fast & Furious"]);
+        assert_eq!(titles("брат").await, vec!["Брат 2"]);
+    }
+
+    #[tokio::test]
+    async fn a_typo_is_corrected_from_the_indexed_words_only_when_nothing_matches_as_typed() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = searchable_repo(
+            dir.path(),
+            &[
+                "The Matrix",
+                "Interstellar",
+                "House",
+                "Horse Feathers",
+                "Jaws",
+                "Episode 12345",
+                "Episode 12346",
+            ],
+        )
+        .await;
+        let page = PageRequest { offset: 0, limit: 10 };
+        let search =
+            async |query: &str| repo.search(query, &[], &unfiltered(), page).await.unwrap();
+
+        assert_eq!(found(&search("matirx").await), vec!["The Matrix"]);
+        assert_eq!(found(&search("the matirx").await), vec!["The Matrix"]);
+        assert_eq!(found(&search("intrestelar").await), vec!["Interstellar"]);
+        assert_eq!(search("intrestelar").await.total, 1);
+        assert_eq!(
+            found(&search("house").await),
+            vec!["House"],
+            "Horse is one letter away, but a title matched as typed hides the typo matches"
+        );
+        assert!(search("jasw").await.items.is_empty(), "a word of four letters is typed right");
+        assert_eq!(
+            found(&search("episdoe 12345").await),
+            vec!["Episode 12345"],
+            "a number one digit off is another episode, not a typo"
+        );
+        assert!(search("matirx zzzzzz").await.items.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_typo_with_no_close_indexed_word_reads_nothing_more() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = searchable_repo(dir.path(), &["The Matrix"]).await;
+
+        assert_eq!(repo.typo_terms("zzzzzz").await.unwrap(), None);
+        assert_eq!(repo.typo_terms("the jaw").await.unwrap(), None);
+        assert_eq!(
+            repo.typo_terms("the matirx").await.unwrap().as_deref(),
+            Some("(the*) AND (matirx* OR matrix)"),
+            "FTS5 never puts an implicit AND next to a parenthesis"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rebuild_indexes_the_joined_words_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
+        repo.upsert_movie(contracts::fixture::movie("m1")).await.unwrap();
+        sqlx::query("UPDATE movies SET title = 'Spider-Man' WHERE id = 'm1'")
+            .execute(&repo.pool)
             .await
             .unwrap();
 
-        assert_eq!(
-            found(&hits),
-            vec!["The Matrix"],
-            "a word prefix match never spans a space, so a two word query \
-             matches the start of the title or nothing"
-        );
+        repo.rebuild().await.unwrap();
+
+        let row = sqlx::query("SELECT title, terms FROM search_index WHERE id = 'm1'")
+            .fetch_one(&repo.pool)
+            .await
+            .unwrap();
+        assert_eq!(column::<String>(&row, "title").unwrap(), "spider man");
+        assert_eq!(column::<String>(&row, "terms").unwrap(), "spiderman");
     }
 
     #[tokio::test]
@@ -3621,7 +3774,7 @@ mod tests {
         .unwrap();
 
         let present: Vec<String> = (1..rows).map(|i| format!("/media/{i}.mkv")).collect();
-        repo.reconcile_library_versions(&LibraryId("lib-1".into()), &present).await.unwrap();
+        repo.reconcile_library_versions(&LibraryId("lib-1".into()), &present, &[]).await.unwrap();
 
         let available: i64 = column(
             &sqlx::query("SELECT COUNT(*) AS n FROM versions WHERE available = 1")
@@ -3838,7 +3991,7 @@ mod tests {
             .await
             .is_err()
         );
-        assert!(repo.reconcile_library_versions(&library_id, &ids).await.is_err());
+        assert!(repo.reconcile_library_versions(&library_id, &ids, &ids).await.is_err());
         let owner = ArtworkOwner::Movie(movie_id.clone());
         assert!(repo.set_artwork(&owner, &contracts::fixture::artwork_set("m1")).await.is_err());
         assert!(repo.list_artwork(&owner).await.is_err());

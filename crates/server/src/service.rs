@@ -748,7 +748,7 @@ impl Runtime {
             priority: JobPriority::Normal,
             payload: String::new(),
             every: reindex_every,
-            next_fire_at: now.saturating_add(reindex_every).unwrap_or(now),
+            next_fire_at: now,
         });
         let cache_evict_every = SignedDuration::from_secs(config.cache_eviction_every_secs);
         scheduler.register(Schedule {
@@ -1188,6 +1188,25 @@ mod tests {
             })
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_search_index_is_rebuilt_as_the_server_starts() {
+        use domain::repository::JobRepository;
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime =
+            Runtime::build(test_config(dir.path().to_owned()), test_metrics()).await.unwrap();
+
+        assert_eq!(runtime.scheduler.tick(Timestamp::now(), &runtime.queue).await.unwrap(), 1);
+
+        let queued: Vec<JobKind> =
+            runtime.repos.jobs.list().await.unwrap().into_iter().map(|job| job.kind).collect();
+        assert_eq!(
+            queued,
+            [JobKind::SearchReindex],
+            "a migration that recreates the index leaves it empty, and the first hourly \
+             rebuild came an hour after the start"
+        );
     }
 
     #[tokio::test]

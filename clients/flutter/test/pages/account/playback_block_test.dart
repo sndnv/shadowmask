@@ -132,6 +132,24 @@ void main() {
     );
   });
 
+  testWidgets('autoplay can be set to start the next episode at once', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(Strings.playerAutoplayDelay(10)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerAutoplayImmediately).last);
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.playerAutoplayImmediately), findsOneWidget);
+    expect(
+      (await const PlayerPrefsStore().load()).autoplaySeconds,
+      kAutoplayImmediately,
+    );
+  });
+
   testWidgets('turning autoplay off from the account page persists it', (
     WidgetTester tester,
   ) async {

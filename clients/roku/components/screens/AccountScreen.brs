@@ -46,7 +46,13 @@ sub init()
     m.diagnosticsHelp = m.top.FindNode("diagnosticsHelp")
     m.appearanceHeading = m.top.FindNode("appearanceHeading")
     m.themeCards = m.top.FindNode("themeCards")
+    m.contrastName = m.top.FindNode("contrastName")
     m.contrastBar = m.top.FindNode("contrastBar")
+    m.contrastHelp = m.top.FindNode("contrastHelp")
+    m.contrastRule = m.top.FindNode("contrastRule")
+    m.navInsetName = m.top.FindNode("navInsetName")
+    m.navInsetBar = m.top.FindNode("navInsetBar")
+    m.navInsetHelp = m.top.FindNode("navInsetHelp")
     m.profilePanel = m.top.FindNode("profilePanel")
     m.supportPanel = m.top.FindNode("supportPanel")
     m.playbackPanel = m.top.FindNode("playbackPanel")
@@ -79,6 +85,7 @@ sub init()
     m.diagnosticsActions.ObserveField("activated", "onPlaybackAction")
     m.themeCards.ObserveField("activated", "onThemePick")
     m.contrastBar.ObserveField("activated", "onContrastToggle")
+    m.navInsetBar.ObserveField("activated", "onNavInsetToggle")
     m.serverActions.ObserveField("activated", "onServerAction")
     m.sessionActions.ObserveField("activated", "onSessionAction")
     m.aboutActions.ObserveField("activated", "onAboutAction")
@@ -244,10 +251,6 @@ sub PaintPanel(plate as object, theme as object, at as integer, width as integer
     plate.translation = [at, 0]
 end sub
 
-function ToggleButton(id as string, label as string, on as boolean) as object
-    return { id: id, label: label, icon: "", iconOn: "icon-check", pressed: on }
-end function
-
 sub LayoutProfile(theme as object)
     space = SpacingScale()
     pad = PanelPad()
@@ -359,18 +362,28 @@ function DrawSupportColumn(theme as object, width as integer, at as integer, top
 end function
 
 function DrawPlayback(theme as object, width as integer, at as integer, top as integer) as integer
+    offset = top + DrawBlockHeading(m.playbackHeading, theme, Phrase("heading.playback"), width, at, top)
+
+    return offset - top + DrawSettingRows(theme, PlaybackRows(), width, at, offset)
+end function
+
+function DrawSettingRows(theme as object, rows as object, width as integer, at as integer, top as integer) as integer
     sizes = TypeScale()
     space = SpacingScale()
 
-    offset = top + DrawBlockHeading(m.playbackHeading, theme, Phrase("heading.playback"), width, at, top)
-
-    rows = PlaybackRows()
+    offset = top
     for index = 0 to rows.Count() - 1
         row = rows[index]
 
         row.bar.theme = theme
         row.bar.barWidth = width
-        row.bar.buttons = [{ id: row.id, label: row.value, speech: SettingRow(row.label, row.value) }]
+        button = { id: row.id, label: row.value, speech: SettingRow(row.label, row.value) }
+        if row.DoesExist("on")
+            button.icon = ""
+            button.iconOn = "icon-check"
+            button.pressed = row.on
+        end if
+        row.bar.buttons = [button]
 
         control = Int(row.bar.barSpan)
         controlHeight = BarHeight(row.bar)
@@ -413,8 +426,8 @@ function DrawPlayback(theme as object, width as integer, at as integer, top as i
     return offset - top
 end function
 
-sub RevealPlaybackRow()
-    for each row in PlaybackRows()
+sub RevealSettingRow(rows as object)
+    for each row in rows
         if row.bar.isInFocusChain()
             help = row.help.boundingRect()
             RevealSectionSpan(Int(row.name.translation[1]), Int(help.y + help.height))
@@ -467,6 +480,7 @@ function PlaybackRows() as object
             id: "diagnostics",
             label: Phrase("player.diagnostics"),
             value: OnOrOff(ReadDiagnostics()),
+            on: ReadDiagnostics(),
             hint: Phrase("help.diagnostics")
         }
     ]
@@ -483,12 +497,34 @@ function DrawAppearance(theme as object, width as integer, at as integer, top as
     m.themeCards.translation = [at, offset]
     offset = offset + Int(m.themeCards.rowHeight) + space.s4
 
-    m.contrastBar.theme = theme
-    m.contrastBar.barWidth = width
-    m.contrastBar.buttons = [ToggleButton("contrast", Phrase("action.highContrast"), ReadHighContrast())]
-    m.contrastBar.translation = [at, offset]
+    return offset - top + DrawSettingRows(theme, AppearanceRows(), width, at, offset)
+end function
 
-    return offset - top + BarHeight(m.contrastBar)
+function AppearanceRows() as object
+    return [
+        {
+            name: m.contrastName,
+            bar: m.contrastBar,
+            help: m.contrastHelp,
+            rule: m.contrastRule,
+            id: "contrast",
+            label: Phrase("action.highContrast"),
+            value: OnOrOff(ReadHighContrast()),
+            on: ReadHighContrast(),
+            hint: Phrase("help.highContrast")
+        },
+        {
+            name: m.navInsetName,
+            bar: m.navInsetBar,
+            help: m.navInsetHelp,
+            rule: invalid,
+            id: "navInset",
+            label: Phrase("action.overscanSafeMenu"),
+            value: OnOrOff(ReadNavInset()),
+            on: ReadNavInset(),
+            hint: Phrase("help.overscanSafeMenu")
+        }
+    ]
 end function
 
 function DrawServer(theme as object, width as integer, at as integer, top as integer) as integer
@@ -800,6 +836,12 @@ sub onContrastToggle()
     m.top.themeRequest = ContrastRequest()
 end sub
 
+sub onNavInsetToggle()
+    WriteNavInset(not ReadNavInset())
+    Layout()
+    m.top.themeRequest = NavInsetRequest()
+end sub
+
 sub onServerAction(event as object)
     if TextOrBlank(event.GetData()) <> "changeServer" then return
 
@@ -1082,10 +1124,13 @@ function onKeyEvent(key as string, press as boolean) as boolean
     end if
 
     if HandledNodeStep(key, PlaybackBars())
-        RevealPlaybackRow()
+        RevealSettingRow(PlaybackRows())
         return true
     end if
-    if HandledNodeStep(key, [m.themeCards, m.contrastBar]) then return true
+    if HandledNodeStep(key, [m.themeCards, m.contrastBar, m.navInsetBar])
+        RevealSettingRow(AppearanceRows())
+        return true
+    end if
 
     if key = "up" and m.sectionIndex <= 0 and not CrumbsFocused()
         m.tabs.SetFocus(true)

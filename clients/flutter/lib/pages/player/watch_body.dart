@@ -595,10 +595,14 @@ class _WatchBodyState extends State<WatchBody>
 
   void _armAutoplay() {
     final EpisodeLink? next = _neighbours.next;
-    if (_autoplayHandled || _autoplaySeconds <= 0 || next == null) {
+    if (_autoplayHandled || _autoplaySeconds == kAutoplayOff || next == null) {
       return;
     }
     _autoplayHandled = true;
+    if (_autoplaySeconds == kAutoplayImmediately) {
+      _goToEpisode(next);
+      return;
+    }
     setState(() {
       _upNext = next;
       _upNextLeft = _autoplaySeconds;
@@ -853,8 +857,12 @@ class _WatchBodyState extends State<WatchBody>
   void _changeAutoplay(int seconds) {
     setState(() => _autoplaySeconds = seconds);
     _prefs.saveAutoplaySeconds(seconds);
-    if (seconds <= 0) {
+    final EpisodeLink? next = _upNext;
+    if (seconds == kAutoplayOff) {
       _cancelCountdown();
+    } else if (seconds == kAutoplayImmediately && next != null) {
+      _cancelCountdown();
+      _goToEpisode(next);
     }
   }
 

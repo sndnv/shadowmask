@@ -11,6 +11,7 @@ repository.workspace = true
 thiserror.workspace = true
 jiff.workspace = true
 unicode-normalization.workspace = true
+strsim.workspace = true
 isolang = { workspace = true, features = ["english_names", "lowercase_names"] }
 
 [dev-dependencies]

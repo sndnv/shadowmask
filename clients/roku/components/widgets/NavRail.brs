@@ -1,6 +1,5 @@
 sub init()
-    m.backdrop = m.top.FindNode("backdrop")
-    m.edge = m.top.FindNode("edge")
+    m.panel = m.top.FindNode("panel")
     m.brand = m.top.FindNode("brand")
     m.list = m.top.FindNode("list")
     m.identity = m.top.FindNode("identity")
@@ -34,15 +33,12 @@ sub render()
     sizes = TypeScale()
     space = SpacingScale()
     width = m.top.railWidth
+    height = NavPanelHeight(m.top.inset)
 
-    m.backdrop.width = width
-    m.backdrop.height = CanvasHeight()
-    m.backdrop.color = theme.surface
-
-    m.edge.width = 2
-    m.edge.height = CanvasHeight()
-    m.edge.color = theme.border
-    m.edge.translation = [width - 2, 0]
+    m.panel.boxWidth = width
+    m.panel.boxHeight = height
+    m.panel.fillColor = NavPanelColor(theme)
+    m.panel.lineColor = theme.border
 
     m.brand.uri = "pkg:/images/brand-mark.png"
     m.brand.width = space.s8
@@ -66,7 +62,7 @@ sub render()
     m.identity.width = width - space.s5 * 2
     m.identity.maxLines = 1
     m.identity.ellipsisText = "…"
-    m.identity.translation = [space.s5, CanvasHeight() - space.s8]
+    m.identity.translation = [space.s5, height - space.s8]
 
     RefreshContent()
 end sub

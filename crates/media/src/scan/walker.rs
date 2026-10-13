@@ -1,14 +1,14 @@
 use std::path::Path;
 
 use domain::error::WalkError;
-use domain::library::{SourceWalker, WalkedEntry};
+use domain::library::{SourceWalker, Walked, WalkedEntry};
 use walkdir::WalkDir;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct WalkdirSourceWalker;
 
 impl SourceWalker for WalkdirSourceWalker {
-    async fn walk(&self, root: &str) -> Result<Vec<WalkedEntry>, WalkError> {
+    async fn walk(&self, root: &str) -> Result<Walked, WalkError> {
         let root = root.to_owned();
         tokio::task::spawn_blocking(move || walk_blocking(&root))
             .await
@@ -16,17 +16,20 @@ impl SourceWalker for WalkdirSourceWalker {
     }
 }
 
-fn walk_blocking(root: &str) -> Result<Vec<WalkedEntry>, WalkError> {
+fn walk_blocking(root: &str) -> Result<Walked, WalkError> {
     let path = Path::new(root);
     if !path.exists() {
         return Err(WalkError::RootNotFound(root.to_owned()));
     }
-    let mut entries = Vec::new();
+    let mut walked = Walked::default();
     for result in WalkDir::new(path).follow_links(false) {
         let entry = match result {
             Ok(entry) => entry,
             Err(err) if err.depth() == 0 => return Err(WalkError::Unreadable(root.to_owned())),
-            Err(_) => continue,
+            Err(err) => {
+                walked.unreadable.extend(err.path().and_then(Path::to_str).map(str::to_owned));
+                continue;
+            }
         };
         if !entry.file_type().is_file() {
             continue;
@@ -34,12 +37,14 @@ fn walk_blocking(root: &str) -> Result<Vec<WalkedEntry>, WalkError> {
         let Some(path) = entry.path().to_str() else {
             continue;
         };
-        let Ok(metadata) = entry.metadata() else {
-            continue;
-        };
-        entries.push(WalkedEntry { path: path.to_owned(), size_bytes: metadata.len() });
+        match entry.metadata() {
+            Ok(metadata) => walked
+                .entries
+                .push(WalkedEntry { path: path.to_owned(), size_bytes: metadata.len() }),
+            Err(_) => walked.unreadable.push(path.to_owned()),
+        }
     }
-    Ok(entries)
+    Ok(walked)
 }
 
 #[cfg(test)]
@@ -56,8 +61,10 @@ mod tests {
         fs::create_dir(root.join("season")).unwrap();
         fs::write(root.join("season").join("ep.mp4"), b"xyzw").unwrap();
 
-        let entries = WalkdirSourceWalker.walk(root.to_str().unwrap()).await.unwrap();
+        let walked = WalkdirSourceWalker.walk(root.to_str().unwrap()).await.unwrap();
+        let entries = walked.entries;
 
+        assert!(walked.unreadable.is_empty());
         let mut paths: Vec<String> = entries.iter().map(|e| e.path.clone()).collect();
         paths.sort();
         assert_eq!(paths.len(), 3);
@@ -81,7 +88,7 @@ mod tests {
         fs::write(dir.path().join("real.mkv"), b"ok").unwrap();
         std::os::unix::fs::symlink(outside.path(), dir.path().join("link")).unwrap();
 
-        let entries = WalkdirSourceWalker.walk(dir.path().to_str().unwrap()).await.unwrap();
+        let entries = WalkdirSourceWalker.walk(dir.path().to_str().unwrap()).await.unwrap().entries;
 
         assert!(entries.iter().any(|e| e.path.ends_with("real.mkv")));
         assert!(!entries.iter().any(|e| e.path.ends_with("hidden.mkv")));
@@ -101,7 +108,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn unreadable_subdir_is_skipped() {
+    async fn an_unreadable_subdir_is_reported_and_the_rest_is_walked() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
@@ -109,8 +116,9 @@ mod tests {
         let locked = root.join("locked");
         fs::create_dir(&locked).unwrap();
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
-        let entries = WalkdirSourceWalker.walk(root.to_str().unwrap()).await.unwrap();
+        let walked = WalkdirSourceWalker.walk(root.to_str().unwrap()).await.unwrap();
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(entries.iter().any(|e| e.path.ends_with("ok.mkv")));
+        assert!(walked.entries.iter().any(|e| e.path.ends_with("ok.mkv")));
+        assert_eq!(walked.unreadable, vec![locked.to_str().unwrap().to_owned()]);
     }
 }

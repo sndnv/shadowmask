@@ -140,6 +140,40 @@ namespace tests
             m.assertEqual(ResumePercentFor(invalid, "v1"), 0)
         end sub
 
+        @describe("PersonFilmographyCards")
+
+        @it("makes one card per title, captioned with every role and character on it")
+        sub personFilmographyMergesTitles()
+            cards = PersonFilmographyCards([
+                { title_id: "m1", kind: "movie", display_title: "Alpha", year: 2010, role: "actor", character: "Hero" },
+                { title_id: "s1", kind: "series", display_title: "Skyline", role: "writer" },
+                { title_id: "m1", kind: "movie", display_title: "Alpha", year: 2010, role: "director", character: invalid },
+                { title_id: "m1", kind: "movie", display_title: "Alpha", year: 2010, role: "actor", character: "Villain" },
+                { title_id: "s1", kind: "movie", display_title: "Other", role: "actor", character: "" }
+            ])
+
+            m.assertEqual(cards.Count(), 3)
+            m.assertEqual(cards[0].title, "Alpha")
+            m.assertEqual(cards[0].subtitle, "2010")
+            m.assertEqual(cards[0].caption, "Actor · Hero / Villain, Director")
+            m.assertEqual(cards[1].title, "Skyline")
+            m.assertEqual(cards[1].caption, "Writer")
+            m.assertEqual(cards[2].title, "Other")
+            m.assertEqual(cards[2].caption, "Actor")
+        end sub
+
+        @it("keeps a character credited twice once")
+        sub creditsCaptionDedupes()
+            caption = CreditsCaption([{ role: "actor", character: "Hero" }, { role: "actor", character: "Hero" }])
+
+            m.assertEqual(caption, "Actor · Hero")
+        end sub
+
+        @it("has no cards for a missing filmography")
+        sub personFilmographyMissing()
+            m.assertEqual(PersonFilmographyCards(invalid).Count(), 0)
+        end sub
+
         @describe("BilledActors")
 
         @it("keeps only actors and puts top billing first")
@@ -175,6 +209,35 @@ namespace tests
         sub billsNothing()
             m.assertEqual(BilledActors(invalid).Count(), 0)
             m.assertEqual(BilledActors([]).Count(), 0)
+        end sub
+
+        @describe("BilledCast")
+
+        @it("is the billed actors whenever there are any")
+        sub billedCastPrefersActors()
+            cast = BilledCast([m.credit("d1", "Director", "director", 0), m.credit("p1", "First", "actor", 3)])
+
+            m.assertEqual(cast.Count(), 1)
+            m.assertEqual(cast[0].name, "First")
+        end sub
+
+        @it("falls back to everyone credited when there is no actor, once each in billing order")
+        sub billedCastFallsBackToCrew()
+            cast = BilledCast([
+                m.credit("w2", "Second Writer", "writer", 1),
+                m.credit("d1", "Sacha", "director", 0),
+                m.credit("d1", "Sacha", "writer", 0)
+            ])
+
+            m.assertEqual(cast.Count(), 2)
+            m.assertEqual(cast[0].name, "Sacha")
+            m.assertEqual(cast[1].name, "Second Writer")
+        end sub
+
+        @it("is empty when there are no credits")
+        sub billedCastEmpty()
+            m.assertEqual(BilledCast(invalid).Count(), 0)
+            m.assertEqual(BilledCast([]).Count(), 0)
         end sub
 
         @describe("CreditPeople")

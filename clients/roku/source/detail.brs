@@ -237,11 +237,79 @@ function FreshActorTitles(cards as dynamic, shown as dynamic) as object
     return fresh
 end function
 
+function PersonFilmographyCards(filmography as dynamic) as object
+    cards = []
+    if type(filmography) <> "roArray" then return cards
+
+    titles = []
+    byKey = {}
+    byKey.SetModeCaseSensitive()
+    for each entry in filmography
+        key = TitleKey(ValueAt(entry, "kind", ""), ValueAt(entry, "title_id", ""))
+        if byKey.DoesExist(key)
+            byKey[key].credits.Push(entry)
+        else
+            title = { card: FilmographyCard(entry), credits: [entry] }
+            byKey[key] = title
+            titles.Push(title)
+        end if
+    end for
+
+    for each title in titles
+        title.card.caption = CreditsCaption(title.credits)
+        cards.Push(title.card)
+    end for
+    return cards
+end function
+
+function CreditsCaption(credits as dynamic) as string
+    roles = []
+    characters = {}
+    characters.SetModeCaseSensitive()
+    for each credit in credits
+        role = TextOrBlank(ValueAt(credit, "role", ""))
+        if not characters.DoesExist(role)
+            roles.Push(role)
+            characters[role] = []
+        end if
+        character = TextOrBlank(ValueAt(credit, "character", ""))
+        if not IsBlank(character) and not ArrayHas(characters[role], character) then characters[role].Push(character)
+    end for
+
+    parts = []
+    for each role in roles
+        named = characters[role]
+        if named.Count() > 0
+            parts.Push(Phrase("role." + role) + " · " + named.Join(" / "))
+        else
+            parts.Push(Phrase("role." + role))
+        end if
+    end for
+    return parts.Join(", ")
+end function
+
+function ArrayHas(items as object, wanted as string) as boolean
+    for each item in items
+        if item = wanted then return true
+    end for
+    return false
+end function
+
 function BilledActors(credits as dynamic) as object
+    return BilledPeople(CreditsWithRole(credits, "actor"))
+end function
+
+function BilledCast(credits as dynamic) as object
+    actors = BilledActors(credits)
+    if actors.Count() > 0 or type(credits) <> "roArray" then return actors
+    return BilledPeople(SortedBy(credits, CreditPrecedes))
+end function
+
+function BilledPeople(credits as object) as object
     people = []
     seen = {}
 
-    for each credit in CreditsWithRole(credits, "actor")
+    for each credit in credits
         id = TextOrBlank(ValueAt(credit, "person.id", ""))
         if not IsBlank(id) and not seen.DoesExist(id)
             seen[id] = true

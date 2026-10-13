@@ -195,6 +195,7 @@ pub trait CatalogRepository {
         &self,
         library: &LibraryId,
         present_paths: &[String],
+        offline_paths: &[String],
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     fn set_artwork(
         &self,
@@ -409,6 +410,7 @@ pub trait LibraryRepository {
         &self,
         library: &LibraryId,
         present_paths: &[String],
+        offline_paths: &[String],
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }
 

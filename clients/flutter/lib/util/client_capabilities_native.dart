@@ -16,11 +16,49 @@ const Map<String, int> _desktopCodecs = <String, int>{
   'av1': 12,
 };
 
+const Map<String, int> _playerAudioCodecs = <String, int>{
+  'aac': 8,
+  'ac3': 6,
+  'eac3': 8,
+  'dts': 8,
+  'truehd': 8,
+  'flac': 8,
+  'opus': 8,
+  'vorbis': 8,
+  'mp3': 2,
+};
+
 Future<ClientDecoding?> measureDecoding() async {
-  if (Platform.isAndroid || Platform.isIOS) {
-    return _fromChannel();
-  }
-  return _fromPlayer();
+  final Set<String> decoders = await _playerDecoders();
+  final ClientDecoding? measured = Platform.isAndroid || Platform.isIOS
+      ? await _fromChannel()
+      : ClientDecoding(video: desktopVideo(decoders));
+  return withPlayerAudio(measured, decoders);
+}
+
+List<VideoCodecCap> desktopVideo(Set<String> decoders) => <VideoCodecCap>[
+  for (final MapEntry<String, int> codec in _desktopCodecs.entries)
+    if (decoders.contains(codec.key))
+      VideoCodecCap(codec: codec.key, maxBitDepth: codec.value, smooth: true),
+];
+
+ClientDecoding? withPlayerAudio(
+  ClientDecoding? measured,
+  Set<String> decoders,
+) {
+  final ClientDecoding decoding = ClientDecoding(
+    video: measured?.video ?? const <VideoCodecCap>[],
+    audio: <AudioCodecCap>[
+      for (final MapEntry<String, int> codec in _playerAudioCodecs.entries)
+        if (decoders.contains(codec.key))
+          AudioCodecCap(codec: codec.key, maxChannels: codec.value),
+    ],
+    hdr: measured?.hdr,
+    maxWidth: measured?.maxWidth,
+    maxHeight: measured?.maxHeight,
+    maxFrameRate: measured?.maxFrameRate,
+  );
+  return decoding.isEmpty ? null : decoding;
 }
 
 Future<ClientDecoding?> _fromChannel() async {
@@ -30,14 +68,13 @@ Future<ClientDecoding?> _fromChannel() async {
     if (raw == null) {
       return null;
     }
-    final ClientDecoding decoding = ClientDecoding.fromChannel(raw);
-    return decoding.isEmpty ? null : decoding;
+    return ClientDecoding.fromChannel(raw);
   } catch (_) {
     return null;
   }
 }
 
-Future<ClientDecoding?> _fromPlayer() async {
+Future<Set<String>> _playerDecoders() async {
   final Player player = Player();
   try {
     final NativePlayer native = player.platform! as NativePlayer;
@@ -47,18 +84,9 @@ Future<ClientDecoding?> _fromPlayer() async {
     for (int i = 0; i < count; i++) {
       found.add(await native.getProperty('decoder-list/$i/codec'));
     }
-    final List<VideoCodecCap> video = <VideoCodecCap>[
-      for (final MapEntry<String, int> codec in _desktopCodecs.entries)
-        if (found.contains(codec.key))
-          VideoCodecCap(
-            codec: codec.key,
-            maxBitDepth: codec.value,
-            smooth: true,
-          ),
-    ];
-    return video.isEmpty ? null : ClientDecoding(video: video);
+    return found;
   } catch (_) {
-    return null;
+    return <String>{};
   } finally {
     await player.dispose();
   }

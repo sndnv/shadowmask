@@ -75,13 +75,10 @@ pub(crate) fn build_run_args(
     args.push("-copyts".to_owned());
     if origin_us > 0 {
         args.extend(["-seek_timestamp", "1"].map(str::to_owned));
-        let from = match spec.copy {
-            true => origin_us,
-            false => {
-                args.push("-noaccurate_seek".to_owned());
-                decode_from(spec, origin_us)
-            }
-        };
+        if !spec.copy || spec.convert_audio {
+            args.push("-noaccurate_seek".to_owned());
+        }
+        let from = if spec.copy { origin_us } else { decode_from(spec, origin_us) };
         let seek = on_file(start_us, from).saturating_sub(SEEK_LEAD_US);
         args.extend(["-ss".to_owned(), seconds(seek)]);
     }
@@ -102,7 +99,12 @@ pub(crate) fn build_run_args(
     }
     args.push("-sn".to_owned());
     if spec.copy {
-        args.extend(["-c", "copy"].map(str::to_owned));
+        if spec.convert_audio {
+            args.extend(["-c:v", "copy"].map(str::to_owned));
+            push_audio_args(&mut args, spec, trim_bounds(window));
+        } else {
+            args.extend(["-c", "copy"].map(str::to_owned));
+        }
         if origin_us > 0 {
             args.extend(["-copypriorss", "0"].map(str::to_owned));
         }
@@ -145,9 +147,6 @@ fn push_encode_args(
             }
         }
     }
-    if let Some(bounds) = bounds {
-        args.extend(["-af".to_owned(), format!("atrim={bounds}")]);
-    }
     match encoder {
         VideoEncoder::Vaapi { .. } => args.extend(["-c:v", "h264_vaapi"].map(str::to_owned)),
         VideoEncoder::Software => args.extend(
@@ -156,10 +155,7 @@ fn push_encode_args(
         ),
     }
     args.extend(["-g", NO_NATURAL_KEYFRAMES].map(str::to_owned));
-    args.extend(["-c:a", "aac"].map(str::to_owned));
-    if spec.downmix_stereo {
-        args.extend(["-ac", "2"].map(str::to_owned));
-    }
+    push_audio_args(args, spec, bounds);
     if let Some(bitrate) = spec.max_bitrate {
         args.extend(["-maxrate".to_owned(), bitrate.to_string()]);
         args.extend(["-bufsize".to_owned(), (bitrate * 2).to_string()]);
@@ -170,6 +166,16 @@ fn push_encode_args(
         "-fps_mode".to_owned(),
         "passthrough".to_owned(),
     ]);
+}
+
+fn push_audio_args(args: &mut Vec<String>, spec: &TranscodeSpec, bounds: Option<String>) {
+    if let Some(bounds) = bounds {
+        args.extend(["-af".to_owned(), format!("atrim={bounds}")]);
+    }
+    args.extend(["-c:a", "aac"].map(str::to_owned));
+    if let Some(channels) = spec.audio_channels {
+        args.extend(["-ac".to_owned(), channels.to_string()]);
+    }
 }
 
 fn decode_from(spec: &TranscodeSpec, origin_us: u64) -> u64 {
@@ -318,7 +324,8 @@ mod tests {
             max_bitrate: None,
             burn_subtitle: None,
             soft_subtitle: None,
-            downmix_stereo: false,
+            convert_audio: false,
+            audio_channels: None,
             source_hdr: None,
         }
     }
@@ -532,7 +539,7 @@ mod tests {
         let spec = TranscodeSpec {
             max_height: Some(720),
             max_bitrate: Some(4_000_000),
-            downmix_stereo: true,
+            audio_channels: Some(2),
             source_hdr: Some(HdrFormat::Hdr10Plus),
             ..copy_spec(SegmentContainer::MpegTs)
         };
@@ -542,6 +549,44 @@ mod tests {
             assert!(!args.iter().any(|a| a == flag), "{flag}");
         }
         assert!(!args.iter().any(|a| a == "-vaapi_device"));
+    }
+
+    #[test]
+    fn a_copy_converting_its_sound_copies_the_picture_and_encodes_aac() {
+        let spec = TranscodeSpec {
+            convert_audio: true,
+            audio_channels: Some(6),
+            audio_track: Some(2),
+            max_height: Some(720),
+            ..copy_spec(SegmentContainer::MpegTs)
+        };
+        let args = vaapi_args_for(&spec);
+        assert_eq!(maps(&args), ["0:v:0", "0:2"]);
+        assert_eq!(pair_after(&args, "-c:v").as_deref(), Some("copy"));
+        assert_eq!(pair_after(&args, "-c:a").as_deref(), Some("aac"));
+        assert_eq!(pair_after(&args, "-ac").as_deref(), Some("6"));
+        assert_eq!(pair_after(&args, "-readrate").as_deref(), Some("10"));
+        for flag in ["-c", "-af", "-ss", "-noaccurate_seek", "-copypriorss", "-vaapi_device"] {
+            assert!(!args.iter().any(|a| a == flag), "{flag}");
+        }
+        for flag in ["-vf", "-maxrate", "-force_key_frames", "-g"] {
+            assert!(!args.iter().any(|a| a == flag), "{flag}");
+        }
+    }
+
+    #[test]
+    fn a_resumed_copy_converting_its_sound_trims_it_to_the_keyframe_on_the_file_clock() {
+        let spec = TranscodeSpec { convert_audio: true, ..copy_spec(SegmentContainer::Fmp4) };
+        let args = run(&spec, on_clock(8_333_417, 9_976_780), None);
+        let input = at(&args, "-i");
+        assert_eq!(
+            args[at(&args, "-copyts")..input],
+            ["-copyts", "-seek_timestamp", "1", "-noaccurate_seek", "-ss", "18.309197"]
+        );
+        assert_eq!(pair_after(&args, "-af").as_deref(), Some("atrim=start=18.310197"));
+        assert_eq!(pair_after(&args, "-copypriorss").as_deref(), Some("0"));
+        assert!(at(&args, "-af") > input);
+        assert!(!args.iter().any(|a| a == "-ac" || a == "-vf"));
     }
 
     #[test]
@@ -792,9 +837,10 @@ mod tests {
     }
 
     #[test]
-    fn a_downmix_adds_two_channels() {
-        let spec = TranscodeSpec { downmix_stereo: true, ..base_spec() };
+    fn a_transcode_limits_its_sound_to_the_channels_asked_for() {
+        let spec = TranscodeSpec { audio_channels: Some(2), ..base_spec() };
         assert_eq!(pair_after(&args_for(&spec), "-ac").as_deref(), Some("2"));
+        assert!(!args_for(&base_spec()).iter().any(|a| a == "-ac"));
     }
 
     #[test]

@@ -238,6 +238,66 @@ function DialogMessageLines() as integer
     return 6
 end function
 
+function NavEdgeGap() as integer
+    return 32
+end function
+
+function NavLeft(inset as boolean) as integer
+    if not inset then return NavEdgeGap()
+    return SpacingScale().s10
+end function
+
+function NavTop(inset as boolean) as integer
+    if not inset then return NavEdgeGap()
+    return 76
+end function
+
+function NavPanelHeight(inset as boolean) as integer
+    return CanvasHeight() - NavTop(inset) * 2
+end function
+
+function NavPanelColor(theme as object) as string
+    return WithAlpha(theme.surface, "E6")
+end function
+
+function NavHintSize() as integer
+    return SpacingScale().s8
+end function
+
+function NavHintChevronSize() as integer
+    return SpacingScale().s4
+end function
+
+function NavHintLayout(open as boolean, railWidth as integer, inset as boolean) as object
+    chevron = NavHintChevronSize()
+    disc = NavHintSize()
+    half = disc \ 2
+    y = (CanvasHeight() - disc) \ 2
+    centred = (disc - chevron) \ 2
+
+    if open
+        return {
+            x: NavLeft(inset) + railWidth - half,
+            y: y,
+            disc: disc,
+            clip: [half, 0, half, disc],
+            opacity: 0.9,
+            chevronX: half + (half - chevron) \ 2,
+            chevronY: centred
+        }
+    end if
+
+    return {
+        x: NavLeft(inset),
+        y: y,
+        disc: disc,
+        clip: [0, 0, disc, disc],
+        opacity: 0.6,
+        chevronX: centred,
+        chevronY: centred
+    }
+end function
+
 function ScrimColor(theme as object) as string
     return WithAlpha(theme.bg, "D9")
 end function

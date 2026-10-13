@@ -2398,6 +2398,56 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('autoplay set to immediately opens the next episode at once', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'shadowmask.player.autoplay': kAutoplayImmediately,
+    });
+    final FakePlayerController fake = FakePlayerController();
+    final List<String> pushed = <String>[];
+    await tester.pumpWidget(_app(fake, episodic: true, pushed: pushed));
+    await tester.pumpAndSettle();
+
+    fake.emit(ended: true);
+    await tester.pump();
+
+    expect(find.byType(UpNextCard), findsNothing);
+
+    await tester.pumpAndSettle();
+
+    expect(pushed.single, startsWith(watchRoute('v2')));
+  });
+
+  testWidgets(
+    'choosing immediately during the countdown opens the next episode',
+    (WidgetTester tester) async {
+      final FakePlayerController fake = FakePlayerController();
+      final List<String> pushed = <String>[];
+      await tester.pumpWidget(_app(fake, episodic: true, pushed: pushed));
+      await tester.pumpAndSettle();
+
+      fake.emit(ended: true);
+      await tester.pump();
+      expect(find.byType(UpNextCard), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.settings).first);
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.text(autoplayLabel(kDefaultPlayerPrefs.autoplaySeconds)).first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(Strings.playerAutoplayImmediately).last);
+      await tester.pumpAndSettle();
+
+      expect(
+        pushed.single,
+        startsWith(watchRoute('v2')),
+        reason: 'Immediately is a choice to move on now, not to stop autoplay',
+      );
+    },
+  );
+
   testWidgets('cancelling stays cancelled while the video rests on its end', (
     WidgetTester tester,
   ) async {

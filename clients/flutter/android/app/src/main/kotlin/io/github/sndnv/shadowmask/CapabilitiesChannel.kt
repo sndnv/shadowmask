@@ -48,17 +48,6 @@ object CapabilitiesChannel {
         "video/av01" to "av1",
     )
 
-    private val AUDIO_CODECS = mapOf(
-        "audio/mp4a-latm" to "aac",
-        "audio/ac3" to "ac3",
-        "audio/eac3" to "eac3",
-        "audio/vnd.dts" to "dts",
-        "audio/opus" to "opus",
-        "audio/flac" to "flac",
-        "audio/vorbis" to "vorbis",
-        "audio/mpeg" to "mp3",
-    )
-
     private data class Video(val maxBitDepth: Int, val smooth: Boolean)
 
     private data class Ceiling(val width: Int, val height: Int, val frameRate: Int)
@@ -75,7 +64,6 @@ object CapabilitiesChannel {
 
     private fun decoding(): Map<String, Any> {
         val video = mutableMapOf<String, Video>()
-        val audio = mutableMapOf<String, Int>()
         val hdr = mutableSetOf<String>()
         var ceiling: Ceiling? = null
         var tenBitHardware = false
@@ -86,26 +74,19 @@ object CapabilitiesChannel {
             }
             val hardware = isHardware(info)
             for (type in info.supportedTypes) {
-                val mime = type.lowercase()
+                val videoCodec = VIDEO_CODECS[type.lowercase()] ?: continue
                 val caps = capabilitiesFor(info, type) ?: continue
-                val videoCodec = VIDEO_CODECS[mime]
-                if (videoCodec != null) {
-                    val depth = bitDepth(caps)
-                    val known = video[videoCodec]
-                    video[videoCodec] = Video(
-                        maxBitDepth = maxOf(known?.maxBitDepth ?: 0, depth),
-                        smooth = (known?.smooth ?: false) || hardware,
-                    )
-                    if (hardware) {
-                        hdr += hdrFormats(caps)
-                        tenBitHardware = tenBitHardware || depth >= 10
-                        ceiling = widest(ceiling, ceilingOf(caps))
-                    }
-                    continue
+                val depth = bitDepth(caps)
+                val known = video[videoCodec]
+                video[videoCodec] = Video(
+                    maxBitDepth = maxOf(known?.maxBitDepth ?: 0, depth),
+                    smooth = (known?.smooth ?: false) || hardware,
+                )
+                if (hardware) {
+                    hdr += hdrFormats(caps)
+                    tenBitHardware = tenBitHardware || depth >= 10
+                    ceiling = widest(ceiling, ceilingOf(caps))
                 }
-                val audioCodec = AUDIO_CODECS[mime] ?: continue
-                val channels = caps.audioCapabilities?.maxInputChannelCount ?: 2
-                audio[audioCodec] = maxOf(audio[audioCodec] ?: 0, channels)
             }
         }
 
@@ -120,9 +101,6 @@ object CapabilitiesChannel {
                     "max_bit_depth" to entry.maxBitDepth,
                     "smooth" to entry.smooth,
                 )
-            },
-            "audio" to audio.map { (codec, channels) ->
-                mapOf("codec" to codec, "max_channels" to channels)
             },
             "hdr" to hdr.toList(),
         )

@@ -6,7 +6,7 @@ use domain::common::{Page, PageRequest};
 use domain::error::RepositoryError;
 use domain::library::{
     DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, ResolutionStatus, ScanState,
-    UnmatchedFile, UnmatchedFileId,
+    UnmatchedFile, UnmatchedFileId, is_offline,
 };
 use domain::repository::LibraryRepository;
 
@@ -268,14 +268,16 @@ impl LibraryRepository for MockLibraryRepo {
         &self,
         library: &LibraryId,
         present_paths: &[String],
+        offline_paths: &[String],
     ) -> Result<(), RepositoryError> {
         if self.fail_reconcile.load(Ordering::Relaxed) {
             return Err(RepositoryError::Backend("mock reconcile failure".to_owned()));
         }
-        self.unmatched
-            .lock()
-            .unwrap()
-            .retain(|_, (file, _)| &file.library != library || present_paths.contains(&file.path));
+        self.unmatched.lock().unwrap().retain(|_, (file, _)| {
+            &file.library != library
+                || present_paths.contains(&file.path)
+                || is_offline(&file.path, offline_paths)
+        });
         Ok(())
     }
 }

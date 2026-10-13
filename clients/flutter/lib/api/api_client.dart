@@ -24,10 +24,13 @@ class ApiClient {
     defaultValue: 'http://localhost:8080',
   );
 
+  static const Set<int> _refusedRefresh = <int>{400, 401, 403};
+
   final String baseUrl;
   final http.Client _http;
   final TokenStore _store;
   Future<SelfUser>? _self;
+  Future<String?>? _renewing;
 
   Uri _uri(String path) => Uri.parse('$baseUrl$path');
 
@@ -75,7 +78,7 @@ class ApiClient {
       token: stored?.accessToken,
     );
     if (res.statusCode == 401 && stored != null && stored.canRefresh) {
-      final String? refreshed = await _tryRefresh(stored);
+      final String? refreshed = await _renew(stored);
       if (refreshed != null) {
         res = await _raw(method, path, body: body, token: refreshed);
       }
@@ -96,25 +99,36 @@ class ApiClient {
     return res;
   }
 
-  Future<String?> _tryRefresh(AuthTokens stored) async {
-    try {
-      final http.Response res = await _raw(
-        'POST',
-        '/api/v1/auth/refresh',
-        body: <String, String>{'refresh_token': stored.refreshToken},
-      );
-      if (res.statusCode >= 400) {
-        await _store.clear();
-        return null;
-      }
-      final AuthTokens next = AuthTokens.fromJson(
-        jsonDecode(res.body) as Map<String, dynamic>,
-      );
-      await _store.save(next);
-      return next.accessToken;
-    } catch (_) {
+  Future<String?> _renew(AuthTokens used) =>
+      _renewing ??= _refresh(used).whenComplete(() => _renewing = null);
+
+  Future<String?> _refresh(AuthTokens used) async {
+    final AuthTokens? current = await _store.load();
+    if (current == null) {
       return null;
     }
+    if (current.accessToken != used.accessToken) {
+      return current.accessToken;
+    }
+    final http.Response res = await _raw(
+      'POST',
+      '/api/v1/auth/refresh',
+      body: <String, String>{'refresh_token': used.refreshToken},
+    );
+    if (_refusedRefresh.contains(res.statusCode)) {
+      final AuthTokens? latest = await _store.load();
+      final bool replaced =
+          latest != null && latest.accessToken != used.accessToken;
+      return replaced ? latest.accessToken : null;
+    }
+    if (res.statusCode >= 400) {
+      throw _errorFrom(res);
+    }
+    final AuthTokens next = AuthTokens.fromJson(
+      jsonDecode(res.body) as Map<String, dynamic>,
+    );
+    await _store.save(next);
+    return next.accessToken;
   }
 
   ApiException _errorFrom(http.Response res) {

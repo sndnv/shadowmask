@@ -32,20 +32,39 @@ const sm = (() => {
     return fetch(API + path, Object.assign({}, opts, { headers }));
   }
 
-  async function refresh() {
-    const t = load();
-    if (!t || !t.refresh_token) {
-      throw new Error("no refresh token");
+  let renewing = null;
+
+  function renew(used) {
+    if (!renewing) {
+      renewing = refresh(used).finally(() => {
+        renewing = null;
+      });
+    }
+    return renewing;
+  }
+
+  async function refresh(used) {
+    const current = load();
+    if (!current) {
+      return null;
+    }
+    if (current.access_token !== used.access_token) {
+      return current.access_token;
     }
     const res = await raw("/api/v1/auth/refresh", {
       method: "POST",
-      body: JSON.stringify({ refresh_token: t.refresh_token }),
+      body: JSON.stringify({ refresh_token: used.refresh_token }),
     });
-    if (!res.ok) {
-      clear();
-      throw new Error("refresh failed");
+    if (res.status === 400 || res.status === 401 || res.status === 403) {
+      const latest = load();
+      return latest && latest.access_token !== used.access_token ? latest.access_token : null;
     }
-    const next = Object.assign({}, t, await res.json());
+    if (!res.ok) {
+      const err = new Error("HTTP " + res.status);
+      err.status = res.status;
+      throw err;
+    }
+    const next = Object.assign({}, current, await res.json());
     save(next);
     return next.access_token;
   }
@@ -54,8 +73,10 @@ const sm = (() => {
     const t = load();
     let res = await raw(path, opts, t && t.access_token);
     if (res.status === 401 && t && t.refresh_token) {
-      const at = await refresh();
-      res = await raw(path, opts, at);
+      const at = await renew(t);
+      if (at) {
+        res = await raw(path, opts, at);
+      }
     }
     if (res.status === 401) {
       clear();

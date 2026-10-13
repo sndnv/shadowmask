@@ -191,7 +191,7 @@ sub onPerson(event as object)
     end if
 
     m.person = parsed.json
-    m.cards = CardsFrom(ValueAt(m.person, "filmography", invalid), FilmographyCard)
+    m.cards = PersonFilmographyCards(ValueAt(m.person, "filmography", invalid))
 
     PublishBackdropUrl("")
     LoadStates()

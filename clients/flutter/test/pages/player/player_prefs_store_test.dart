@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/player/player_prefs_store.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -53,6 +54,24 @@ void main() {
       0,
       reason: 'zero has to survive, or opting out would silently revert to on',
     );
+  });
+
+  test('immediately is kept apart from off', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    await store.saveAutoplaySeconds(kAutoplayImmediately);
+
+    expect((await store.load()).autoplaySeconds, kAutoplayImmediately);
+    expect(kAutoplayImmediately, isNot(kAutoplayOff));
+  });
+
+  test('every autoplay choice reads as what it does', () {
+    expect(autoplayLabel(kAutoplayOff), Strings.playerAutoplayOff);
+    expect(
+      autoplayLabel(kAutoplayImmediately),
+      Strings.playerAutoplayImmediately,
+    );
+    expect(autoplayLabel(15), Strings.playerAutoplayDelay(15));
   });
 
   test('a delay that is no longer offered falls back to the default', () async {

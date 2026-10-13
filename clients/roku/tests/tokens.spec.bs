@@ -142,6 +142,84 @@ namespace tests
             m.assertTrue(BackdropFadeInSeconds() > BackdropFadeSeconds(), "the fade-in is not the slower one")
         end sub
 
+        @describe("nav menu")
+
+        @it("floats the overscan-safe menu inside the action-safe area")
+        sub menuFloatsInsideTheSafeArea()
+            m.assertTrue(NavLeft(true) > Int(CanvasWidth() * 0.05), "the menu is not past the action-safe line")
+            m.assertTrue(NavTop(true) > Int(CanvasHeight() * 0.05), "the menu is not below the action-safe line")
+        end sub
+
+        @it("keeps the default menu one edge gap from the left, top and bottom")
+        sub menuHugsTheEdges()
+            m.assertEqual(NavLeft(false), NavEdgeGap())
+            m.assertEqual(NavTop(false), NavEdgeGap())
+            m.assertEqual(NavEdgeGap(), 32)
+        end sub
+
+        @it("puts the overscan-safe menu further in than the default one")
+        sub safeMenuSitsFurtherIn()
+            m.assertTrue(NavLeft(true) > NavLeft(false), "the overscan-safe menu is not further right")
+            m.assertTrue(NavTop(true) > NavTop(false), "the overscan-safe menu is not further down")
+        end sub
+
+        @it("leaves the same gap above and below the menu")
+        sub menuGapsMatch()
+            m.assertEqual(NavPanelHeight(true) + NavTop(true) * 2, CanvasHeight())
+            m.assertEqual(NavPanelHeight(false) + NavTop(false) * 2, CanvasHeight())
+        end sub
+
+        @it("lets the screen show through the menu")
+        sub menuIsSeeThrough()
+            theme = ThemeTokens("dark")
+            colour = NavPanelColor(theme)
+
+            m.assertEqual(Left(colour, 8), Left(theme.surface, 8))
+            m.assertNotEqual(Right(colour, 2), "FF")
+        end sub
+
+        @it("puts the closed indicator at the menu's left edge, centred and faded")
+        sub closedIndicatorFloats()
+            for each inset in [true, false]
+                layout = NavHintLayout(false, 380, inset)
+
+                m.assertEqual(layout.x, NavLeft(inset))
+                m.assertEqual(layout.y * 2 + layout.disc, CanvasHeight())
+                m.assertEqual(layout.chevronX * 2 + NavHintChevronSize(), layout.disc)
+                m.assertEqual(layout.chevronY * 2 + NavHintChevronSize(), layout.disc)
+                m.assertEqual(layout.clip, [0, 0, layout.disc, layout.disc])
+                m.assertTrue(layout.opacity < 1, "the closed indicator is not faded")
+            end for
+        end sub
+
+        @it("shows only the half of the open indicator outside the menu's right edge")
+        sub openIndicatorStraddlesTheEdge()
+            for each inset in [true, false]
+                layout = NavHintLayout(true, 380, inset)
+                half = layout.disc \ 2
+
+                m.assertEqual(layout.x + half, NavLeft(inset) + 380)
+                m.assertEqual(layout.y * 2 + layout.disc, CanvasHeight())
+                m.assertEqual(layout.clip, [half, 0, half, layout.disc])
+                m.assertEqual((layout.chevronX - half) * 2 + NavHintChevronSize(), half)
+                m.assertEqual(layout.chevronY * 2 + NavHintChevronSize(), layout.disc)
+                m.assertTrue(layout.opacity > NavHintLayout(false, 380, inset).opacity, "the open indicator is not the stronger one")
+            end for
+        end sub
+
+        @it("fits the chevron inside the half of the open indicator that shows")
+        sub chevronFitsTheTab()
+            m.assertTrue(NavHintChevronSize() < NavHintSize() \ 2, "the chevron is wider than the tab")
+        end sub
+
+        @it("draws both indicators from one disc size")
+        sub indicatorsMatch()
+            for each inset in [true, false]
+                m.assertEqual(NavHintLayout(false, 380, inset).disc, NavHintSize())
+                m.assertEqual(NavHintLayout(true, 380, inset).disc, NavHintSize())
+            end for
+        end sub
+
     end class
 
 end namespace

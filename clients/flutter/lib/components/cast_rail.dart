@@ -10,6 +10,7 @@ import 'package:shadowmask/model/common/artwork.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/nav/routes.dart';
 import 'package:shadowmask/view/card_aspect.dart';
+import 'package:shadowmask/view/cast_order.dart';
 import 'package:shadowmask/view/catalog_card.dart';
 
 const int kCastCardLimit = 20;
@@ -19,8 +20,7 @@ List<Credit> billedCast(List<Credit> credits) {
       .where((Credit c) => c.role == CreditRole.actor)
       .toList();
   final List<Credit> all = actors.isEmpty ? credits : actors;
-  final List<Credit> ordered = List<Credit>.of(all)
-    ..sort((Credit a, Credit b) => a.order.compareTo(b.order));
+  final List<Credit> ordered = List<Credit>.of(all)..sort(byBilling);
   final Set<String> seen = <String>{};
   final List<Credit> unique = <Credit>[];
   for (final Credit c in ordered) {

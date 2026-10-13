@@ -18,7 +18,8 @@ pub struct TranscodeSpec {
     pub max_bitrate: Option<u64>,
     pub burn_subtitle: Option<BurnSubtitle>,
     pub soft_subtitle: Option<SoftSubtitle>,
-    pub downmix_stereo: bool,
+    pub convert_audio: bool,
+    pub audio_channels: Option<u8>,
     pub source_hdr: Option<HdrFormat>,
 }
 

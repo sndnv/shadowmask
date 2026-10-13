@@ -31,7 +31,7 @@ Keys in `shadowmask.toml` are not checked: a misspelled or renamed key there is 
 | `SHADOWMASK_JWT_SECRET`       | Access and refresh token signing key  | `change-me-jwt-secret`        |
 | `SHADOWMASK_STREAM_SECRET`    | Stream and download token signing key | `change-me-stream-secret`     |
 | `SHADOWMASK_ACCESS_TTL_SECS`  | Access token lifetime                 | `3600`                        |
-| `SHADOWMASK_REFRESH_TTL_SECS` | Refresh token lifetime                | `86400`                       |
+| `SHADOWMASK_REFRESH_TTL_SECS` | Refresh lifetime, renewed on each use | `2592000` (30 days)           |
 
 ### Paths
 

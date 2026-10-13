@@ -23,6 +23,7 @@
     <interface>
         <field id="theme" type="assocarray" onChange="render" />
         <field id="railWidth" type="float" value="380" onChange="render" />
+        <field id="inset" type="boolean" value="false" onChange="render" />
         <field id="section" type="string" onChange="ApplySection" />
         <field id="identity" type="string" onChange="RefreshContent" />
         <field id="selected" type="string" alwaysNotify="true" />
@@ -31,8 +32,7 @@
     </interface>
 
     <children>
-        <Rectangle id="backdrop" />
-        <Rectangle id="edge" />
+        <RoundedBox id="panel" />
         <Poster id="brand" />
         <LabelList id="list" />
         <Label id="identity" />

@@ -304,7 +304,7 @@ impl Default for Config {
             jwt_secret: "change-me-jwt-secret".to_owned(),
             stream_secret: "change-me-stream-secret".to_owned(),
             access_ttl_secs: 3600,
-            refresh_ttl_secs: 86_400,
+            refresh_ttl_secs: 2_592_000,
             transcode_cache: PathBuf::from("data/transcode"),
             artwork_cache: PathBuf::from("data/artwork"),
             trickplay_cache: PathBuf::from("data/trickplay"),
@@ -671,6 +671,17 @@ mod tests {
             let config = Config::load().unwrap().config;
             assert_eq!(config.access_ttl_secs, 7);
             assert_eq!(config.trickplay_threads, 6);
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn a_sign_in_lasts_thirty_days_unused_unless_configured() {
+        figment::Jail::expect_with(|jail| {
+            assert_eq!(Config::load().unwrap().config.refresh_ttl_secs, 30 * 24 * 60 * 60);
+            jail.set_env("SHADOWMASK_REFRESH_TTL_SECS", "86400");
+            assert_eq!(Config::load().unwrap().config.refresh_ttl_secs, 86_400);
             Ok(())
         });
     }

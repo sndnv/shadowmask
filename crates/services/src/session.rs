@@ -11,8 +11,8 @@ use domain::common::{Page, PageRequest, paginate};
 use domain::error::SessionError;
 use domain::media::SubtitleFormat;
 use domain::negotiation::{
-    AvailableSubtitles, NegotiationInput, NegotiationReason, effective_max_height, negotiate,
-    resolve_audio, resolve_subtitle,
+    AvailableSubtitles, CONVERTED_AUDIO_CODEC, NegotiationInput, NegotiationReason,
+    effective_max_height, negotiate, resolve_audio, resolve_subtitle,
 };
 use domain::playback::{
     PlaybackProgress, SubtitleOverride, SubtitleTrackRef, UserSubtitleOffset, is_complete,
@@ -457,15 +457,19 @@ where
             None => "source".to_owned(),
         };
         let remux = outcome.mode == DeliveryMode::Remux;
+        let audio_codec = match outcome.convert_audio {
+            true => Some(CONVERTED_AUDIO_CODEC),
+            false => outcome
+                .selected
+                .audio_track
+                .and_then(|idx| detail.audio.iter().find(|a| a.index == idx))
+                .map(|a| a.codec.as_str()),
+        };
         let segments = (outcome.mode != DeliveryMode::Direct).then(|| {
             segment_container_for(
                 remux,
                 detail.video.first().map(|v| v.codec.as_str()),
-                outcome
-                    .selected
-                    .audio_track
-                    .and_then(|idx| detail.audio.iter().find(|a| a.index == idx))
-                    .map(|a| a.codec.as_str()),
+                audio_codec,
             )
         });
         #[rustfmt::skip]
@@ -507,7 +511,8 @@ where
                     max_bitrate,
                     burn_subtitle,
                     soft_subtitle,
-                    downmix_stereo: ctx.downmix_stereo,
+                    convert_audio: outcome.convert_audio,
+                    audio_channels: outcome.audio_channels,
                     source_hdr: detail.video.first().and_then(|v| v.hdr),
                 })
                 .await
@@ -1586,6 +1591,52 @@ mod tests {
         assert_eq!(spec.keyframes_us, Some(mocks::PREPARED_KEYFRAMES.to_vec()));
     }
 
+    #[tokio::test]
+    async fn a_sound_the_player_lacks_is_converted_while_the_video_is_copied() {
+        let harness = Harness::new();
+        harness.catalog.insert(detail_with(
+            "mp4",
+            100_000,
+            vec![video("h264", Some(5_000_000))],
+            vec![AudioTrack { codec: "truehd".to_owned(), channels: 8, ..audio(1) }],
+            vec![],
+        ));
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
+        assert_eq!(started.mode, DeliveryMode::Remux);
+        assert_eq!(started.container, Some(SegmentContainer::MpegTs));
+        let spec = harness.transcode.started().remove(0);
+        assert!(spec.copy);
+        assert!(spec.convert_audio);
+        assert_eq!(spec.audio_channels, Some(2));
+        assert_eq!(spec.container, SegmentContainer::MpegTs);
+    }
+
+    #[tokio::test]
+    async fn a_remux_that_keeps_its_sound_picks_the_container_for_it() {
+        let harness = Harness::new();
+        harness.catalog.insert(detail_with(
+            "mkv",
+            100_000,
+            vec![video("h264", Some(5_000_000))],
+            vec![AudioTrack { codec: "truehd".to_owned(), ..audio(1) }],
+            vec![],
+        ));
+        let started = harness
+            .service
+            .start(
+                &principal(),
+                SessionStartInput {
+                    delivery: DeliveryPreference::NeverConvert,
+                    ..start_request(0)
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(started.mode, DeliveryMode::Remux);
+        assert_eq!(started.container, Some(SegmentContainer::Fmp4));
+        assert!(!harness.transcode.started()[0].convert_audio);
+    }
+
     fn remuxable() -> VersionDetail {
         detail_with("mkv", 100_000, vec![video("h264", Some(5_000_000))], vec![audio(1)], vec![])
     }
@@ -2228,11 +2279,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_downmix_passes_flag_to_spec() {
+    async fn update_downmix_converts_the_sound_to_stereo() {
         let harness = Harness::new();
-        harness.catalog.insert(transcode_detail());
-        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
-        assert!(!harness.transcode.started().last().unwrap().downmix_stereo);
+        harness.catalog.insert(detail_with(
+            "mp4",
+            100_000,
+            vec![video("vp9", Some(5_000_000))],
+            vec![AudioTrack { channels: 6, ..audio(1) }],
+            vec![],
+        ));
+        let started = harness
+            .service
+            .start(
+                &principal(),
+                reporting(ClientDecoding {
+                    audio: Some(vec![AudioCodecCap { codec: "aac".to_owned(), max_channels: 8 }]),
+                    ..ClientDecoding::default()
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(harness.transcode.started().last().unwrap().audio_channels, None);
         harness
             .service
             .update(
@@ -2249,7 +2316,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(harness.transcode.started().last().unwrap().downmix_stereo);
+        assert_eq!(harness.transcode.started().last().unwrap().audio_channels, Some(2));
     }
 
     #[tokio::test]

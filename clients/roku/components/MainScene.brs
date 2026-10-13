@@ -348,9 +348,11 @@ sub ShowRail()
     if ScreenIsImmersive(m.stack.Peek()) then return
     if m.railVisible = true and m.rail.visible then return
 
+    inset = ReadNavInset()
     m.rail.identity = m.global.username
     m.rail.section = SectionFor(m.stack.Peek())
-    m.rail.translation = [0, 0]
+    m.rail.inset = inset
+    m.rail.translation = [NavLeft(inset), NavTop(inset)]
     m.rail.visible = true
     m.railVisible = true
     m.rail.SetFocus(true)
@@ -371,27 +373,26 @@ end sub
 sub RenderNavHint()
     if m.theme = invalid or m.theme.Count() = 0 then return
 
-    space = SpacingScale()
-    chevron = ChevronSize()
-    padding = space.s2
-    half = chevron + padding * 2
-    disc = half * 2
-
     m.navHint.visible = IsPaired() and not ScreenIsImmersive(m.stack.Peek())
     if not m.navHint.visible then return
 
-    origin = 0 - half
-    if m.railVisible = true
-        origin = Int(m.rail.railWidth) - half
+    open = m.railVisible = true
+    layout = NavHintLayout(open, Int(m.rail.railWidth), ReadNavInset())
+    disc = layout.disc
+    chevron = NavHintChevronSize()
+
+    if open
         m.navHintChevron.uri = ChevronUri("right")
     else
         m.navHintChevron.uri = ChevronUri("left")
     end if
-    m.navHint.translation = [origin, Int((CanvasHeight() - disc) / 2)]
+    m.navHint.translation = [layout.x, layout.y]
+    m.navHint.clippingRect = layout.clip
+    m.navHint.opacity = layout.opacity
 
     edge = BorderThickness()
 
-    m.navHintRing.uri = GlyphUri("disc")
+    m.navHintRing.uri = GlyphUri("ring")
     m.navHintRing.width = disc
     m.navHintRing.height = disc
     m.navHintRing.blendColor = m.theme.border
@@ -406,7 +407,7 @@ sub RenderNavHint()
     m.navHintChevron.width = chevron
     m.navHintChevron.height = chevron
     m.navHintChevron.blendColor = m.theme.muted
-    m.navHintChevron.translation = [half + padding, (disc - chevron) / 2]
+    m.navHintChevron.translation = [layout.chevronX, layout.chevronY]
 end sub
 
 sub onSessionEnd(event as object)
@@ -426,6 +427,11 @@ sub onThemeRequest(event as object)
 
     if wanted = ContrastRequest()
         SetHighContrast(not m.highContrast)
+        return
+    end if
+
+    if wanted = NavInsetRequest()
+        RenderNavHint()
         return
     end if
 

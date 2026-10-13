@@ -50,7 +50,7 @@ pub use playback_prep_job::PlaybackPrepJobPayload;
 pub use relink_job::RelinkJobPayload;
 pub use scan_job::ScanJobPayload;
 pub use scan_queue::{is_nightly_library, queue_scan, settle_interrupted_scans};
-pub use scanner::{DEFAULT_PROBE_CONCURRENCY, Scanner};
+pub use scanner::{DEFAULT_PROBE_CONCURRENCY, LibraryWalk, Scanner};
 pub use service::LibraryServiceImpl;
 pub use subtitle_job::SubtitleJobPayload;
 pub use transcription_job::{

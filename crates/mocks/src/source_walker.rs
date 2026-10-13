@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use domain::error::WalkError;
-use domain::library::{SourceWalker, WalkedEntry};
+use domain::library::{SourceWalker, Walked, WalkedEntry};
 
 #[derive(Clone, Default)]
 pub struct MockSourceWalker {
-    by_root: HashMap<String, Vec<WalkedEntry>>,
+    by_root: HashMap<String, Walked>,
     not_found: HashSet<String>,
     unreadable: HashSet<String>,
 }
@@ -16,7 +16,12 @@ impl MockSourceWalker {
     }
 
     pub fn with_entries(mut self, root: &str, entries: Vec<WalkedEntry>) -> Self {
-        self.by_root.insert(root.to_owned(), entries);
+        self.by_root.entry(root.to_owned()).or_default().entries = entries;
+        self
+    }
+
+    pub fn with_unreadable_folder(mut self, root: &str, folder: &str) -> Self {
+        self.by_root.entry(root.to_owned()).or_default().unreadable.push(folder.to_owned());
         self
     }
 
@@ -32,7 +37,7 @@ impl MockSourceWalker {
 }
 
 impl SourceWalker for MockSourceWalker {
-    async fn walk(&self, root: &str) -> Result<Vec<WalkedEntry>, WalkError> {
+    async fn walk(&self, root: &str) -> Result<Walked, WalkError> {
         if self.not_found.contains(root) {
             return Err(WalkError::RootNotFound(root.to_owned()));
         }

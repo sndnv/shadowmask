@@ -123,6 +123,8 @@ pub fn search_seed() -> SearchSeed {
             rated(movie("m2", "Matrix Reloaded")),
             movie("m3", "Rematrix"),
             movie("m4", "Inception"),
+            movie("m5", "Spider-Man: Far From Home"),
+            movie("m6", "Amélie"),
         ],
         series: vec![Series { artwork: vec![poster("sr1-poster")], ..series("sr1", "The Matrix") }],
         seasons: vec![season("se1", "sr1")],
@@ -225,6 +227,22 @@ pub async fn search_index_contract<R: SearchIndex>(index: R, seed: impl AsyncFn(
 
     let reloaded = index.search("reloaded", &[], &open(), page(0, 10)).await.unwrap();
     assert_eq!(titles(&reloaded), ["Matrix Reloaded"]);
+
+    let any_order = index.search("reloaded matrix", &[], &open(), page(0, 10)).await.unwrap();
+    assert_eq!(titles(&any_order), ["Matrix Reloaded"]);
+
+    for query in ["spiderman", "spider-man", "amelie", "matirx", "the matirx", "reloaded matrix"] {
+        let found = index.search(query, &[], &open(), page(0, 10)).await.unwrap();
+        assert!(!found.items.is_empty(), "{query} finds nothing");
+        assert_eq!(
+            keys(&found),
+            keys(&search(&all, query, &[], page(0, 10))),
+            "{query} ranks differently in the index and in the pure ranker"
+        );
+    }
+    let typo = index.search("matirx", &[], &open(), page(0, 10)).await.unwrap();
+    assert_eq!(titles(&typo), ["Matrix", "Matrix Origins", "Matrix Reloaded", "The Matrix"]);
+    assert_eq!(typo.total, 4);
 
     let movies_only =
         index.search("matrix", &[SearchKind::Movie], &open(), page(0, 10)).await.unwrap();

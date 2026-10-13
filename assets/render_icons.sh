@@ -72,6 +72,7 @@ rsvg-convert -w 24 -h 48 "$glyphs/chip-cap-right.svg"      -o "$roku/chip-cap-ri
 rsvg-convert -w 24 -h 48 "$glyphs/chip-cap-left-line.svg"  -o "$roku/chip-cap-left-line.png"
 rsvg-convert -w 24 -h 48 "$glyphs/chip-cap-right-line.svg" -o "$roku/chip-cap-right-line.png"
 rsvg-convert -w 72 -h 72 "$glyphs/disc.svg"                -o "$roku/disc.png"
+rsvg-convert -w 84 -h 84 "$glyphs/ring.svg"                -o "$roku/ring.png"
 
 rsvg-convert -w 24 -h 24 "$glyphs/button-fill.9.svg" -o "$roku/button-fill.9.png"
 rsvg-convert -w 24 -h 24 "$glyphs/button-line.9.svg" -o "$roku/button-line.9.png"
