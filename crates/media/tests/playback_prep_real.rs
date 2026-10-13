@@ -80,11 +80,11 @@ fn preparer(root: &Path, spawner: Scripted) -> FfmpegPlaybackPreparer<Scripted> 
     FfmpegPlaybackPreparer::with_spawner(FsPlaybackPrepStore::new(root), spawner)
 }
 
-fn probed_keyframes(name: &str) -> Vec<u64> {
+fn probed_keyframes(input: &str) -> Vec<u64> {
+    let start = file_start_us(input);
     let listed = std::process::Command::new("ffprobe")
         .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time,flags"])
-        .args(["-of", "csv=p=0"])
-        .arg(fixture(name))
+        .args(["-of", "csv=p=0", input])
         .output()
         .expect("ffprobe should list keyframes; is ffmpeg installed and on PATH?");
     let mut keyframes: Vec<u64> = String::from_utf8_lossy(&listed.stdout)
@@ -92,7 +92,7 @@ fn probed_keyframes(name: &str) -> Vec<u64> {
         .filter_map(|line| line.split_once(','))
         .filter(|(_, flags)| flags.starts_with('K'))
         .filter_map(|(time, _)| time.parse::<f64>().ok())
-        .map(|seconds| (seconds * 1_000_000.0).round() as u64)
+        .map(|seconds| ((seconds * 1_000_000.0).round() as i64 - start) as u64)
         .collect();
     keyframes.sort_unstable();
     keyframes
@@ -146,7 +146,7 @@ async fn one_read_gives_the_keyframes_and_every_text_track() {
         .await
         .expect("ffmpeg should prepare the fixture; is ffmpeg installed and on PATH?");
 
-    assert_eq!(prep.keyframes_us, probed_keyframes("sample_full.mkv"));
+    assert_eq!(prep.keyframes_us, probed_keyframes(&fixture("sample_full.mkv")));
     assert_eq!(prep.extracted_subtitles, vec![2]);
     assert_eq!(prep.prepared_with, running_ffmpeg());
     assert_eq!(
@@ -223,7 +223,7 @@ async fn an_image_track_is_copied_and_gets_no_webvtt() {
         .await
         .expect("prepare");
 
-    assert_eq!(prep.keyframes_us, probed_keyframes("supsample.mkv"));
+    assert_eq!(prep.keyframes_us, probed_keyframes(&fixture("supsample.mkv")));
     assert_eq!(prep.extracted_subtitles, vec![1]);
     assert_eq!(spawner.runs(), 3, "a header probe, the ffmpeg version and one read of the file");
     assert_eq!(stored(root.path(), "embedded-1", "mks").len(), 1);
@@ -239,7 +239,7 @@ async fn a_track_that_cannot_be_copied_still_leaves_the_keyframes() {
         .await
         .expect("prepare");
 
-    assert_eq!(prep.keyframes_us, probed_keyframes("sample_full.mkv"));
+    assert_eq!(prep.keyframes_us, probed_keyframes(&fixture("sample_full.mkv")));
     assert!(prep.extracted_subtitles.is_empty());
     assert_eq!(spawner.reads().len(), 2, "the read is repeated for the keyframes alone");
     assert!(stored(root.path(), "embedded-9", "mks").is_empty());
@@ -470,19 +470,7 @@ async fn keyframes_of_a_file_whose_sound_starts_first_are_timed_from_the_file_st
         .await
         .expect("prepare");
 
-    let start = file_start_us(&input);
-    let listed = std::process::Command::new("ffprobe")
-        .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time,flags"])
-        .args(["-of", "csv=p=0", &input])
-        .output()
-        .expect("ffprobe should list keyframes");
-    let expected: Vec<u64> = String::from_utf8_lossy(&listed.stdout)
-        .lines()
-        .filter_map(|line| line.split_once(','))
-        .filter(|(_, flags)| flags.starts_with('K'))
-        .filter_map(|(time, _)| time.parse::<f64>().ok())
-        .map(|seconds| ((seconds * 1_000_000.0).round() as i64 - start) as u64)
-        .collect();
+    let expected = probed_keyframes(&input);
     assert_eq!(prep.keyframes_us, expected);
     assert!(prep.keyframes_us[0] > 250_000, "the picture starts after the sound: {expected:?}");
 }

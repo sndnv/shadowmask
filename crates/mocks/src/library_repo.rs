@@ -87,7 +87,7 @@ impl MockLibraryRepo {
         !self.fail_save.load(Ordering::Relaxed)
             || self
                 .saves_before_failure
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |left| left.checked_sub(1))
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |left| left.checked_sub(1))
                 .is_ok()
     }
 }
