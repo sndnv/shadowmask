@@ -1,5 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 
@@ -17,7 +18,22 @@ typedef PlayerPrefs = ({
   DeliveryPreference delivery,
 });
 
-const List<int> kAutoplayDelays = <int>[0, 5, 10, 15, 30];
+const int kAutoplayOff = 0;
+const int kAutoplayImmediately = -1;
+const List<int> kAutoplayDelays = <int>[
+  kAutoplayOff,
+  kAutoplayImmediately,
+  5,
+  10,
+  15,
+  30,
+];
+
+String autoplayLabel(int value) => switch (value) {
+  kAutoplayOff => Strings.playerAutoplayOff,
+  kAutoplayImmediately => Strings.playerAutoplayImmediately,
+  _ => Strings.playerAutoplayDelay(value),
+};
 const List<int> kNetworkTimeouts = <int>[10, 30, 60, 90];
 const List<int> kBufferTargets = <int>[30, 60, 120, 300, 600];
 const List<int> kBufferSizes = <int>[

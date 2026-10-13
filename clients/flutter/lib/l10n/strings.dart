@@ -365,9 +365,10 @@ abstract final class Strings {
       'Useful when reporting a problem with playback.';
   static const String playerAutoplayNext = 'Autoplay next';
   static const String playerAutoplayNextHelp =
-      'Start the next episode when one finishes, after a countdown you can '
-      'cancel.';
+      'Start the next episode when one finishes, at once or after a countdown '
+      'you can cancel.';
   static const String playerAutoplayOff = 'Off';
+  static const String playerAutoplayImmediately = 'Immediately';
   static String playerAutoplayDelay(int seconds) => '$seconds seconds';
   static String playerUpNextIn(int seconds) => 'Up next in ${seconds}s';
   static const String playerPlayNow = 'Play now';
@@ -831,8 +832,9 @@ abstract final class Strings {
       'Segments that could not be produced.';
   static const String helpAverage = 'Average time to produce one segment.';
   static const String helpDelivery =
-      'How a play is served. direct: the file as it is. remux: repackaged '
-      'without re-encoding. transcode: re-encoded.';
+      'How a play is served. direct: the file as it is. remux: the video '
+      'repackaged without re-encoding, the sound converted when the player '
+      'cannot play it. transcode: re-encoded.';
   static const String helpSessions =
       'Plays started in this mode since the server started.';
   static const String helpStreamStarts =

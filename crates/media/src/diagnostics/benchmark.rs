@@ -224,7 +224,8 @@ fn spec_for(target: &BenchmarkTarget, max_height: Option<u32>) -> TranscodeSpec 
         max_bitrate: None,
         burn_subtitle: None,
         soft_subtitle: None,
-        downmix_stereo: false,
+        convert_audio: false,
+        audio_channels: None,
         source_hdr: target.hdr,
     }
 }

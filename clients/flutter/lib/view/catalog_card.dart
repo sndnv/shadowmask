@@ -1,6 +1,5 @@
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/nav/routes.dart';
-import 'package:shadowmask/util/credit_labels.dart';
 import 'package:shadowmask/view/card_aspect.dart';
 import 'package:shadowmask/model/common/artwork.dart';
 import 'package:shadowmask/model/catalog/collection.dart';
@@ -145,19 +144,17 @@ class CatalogCard {
     );
   }
 
-  static CatalogCard fromFilmography(
-    FilmographyEntry e, {
-    bool withCredit = false,
-  }) => CatalogCard(
-    ref: TitleRef(type: e.kind, id: e.titleId),
-    route: titleRoute(e.kind, e.titleId),
-    title: e.displayTitle,
-    subtitle: e.kind == TitleKind.series
-        ? _yearAndSeasons(e.year, e.seasonCount)
-        : e.year?.toString(),
-    caption: withCredit ? creditCaption(e.role, e.character) : null,
-    artwork: e.artwork,
-  );
+  static CatalogCard fromFilmography(FilmographyEntry e, {String? caption}) =>
+      CatalogCard(
+        ref: TitleRef(type: e.kind, id: e.titleId),
+        route: titleRoute(e.kind, e.titleId),
+        title: e.displayTitle,
+        subtitle: e.kind == TitleKind.series
+            ? _yearAndSeasons(e.year, e.seasonCount)
+            : e.year?.toString(),
+        caption: caption,
+        artwork: e.artwork,
+      );
 
   static CatalogCard fromJson(
     Map<String, dynamic> json, {

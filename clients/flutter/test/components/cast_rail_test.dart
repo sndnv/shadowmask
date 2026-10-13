@@ -86,6 +86,17 @@ void main() {
     expect(billed.single.person.id, 'p9');
   });
 
+  test('a billing tie is broken by person id, as on Roku', () {
+    final List<Credit> billed = billedCast(<Credit>[
+      _credit('zeta', 'Zeta', CreditRole.writer, 0),
+      _credit('alpha', 'Alpha', CreditRole.director, 0),
+    ]);
+    expect(billed.map((Credit c) => c.person.id).toList(), <String>[
+      'alpha',
+      'zeta',
+    ]);
+  });
+
   testWidgets('names render before the photos arrive', (
     WidgetTester tester,
   ) async {

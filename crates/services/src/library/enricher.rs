@@ -89,6 +89,13 @@ struct FileIngest<'a> {
 }
 
 pub trait ScanEnricher {
+    fn reconcile(
+        &self,
+        library: &Library,
+        present: &[String],
+        offline: &[String],
+    ) -> impl Future<Output = ()> + Send;
+
     fn enrich(
         &self,
         library: &Library,
@@ -146,6 +153,8 @@ pub trait PersonRefresher {
 pub struct NoopEnricher;
 
 impl ScanEnricher for NoopEnricher {
+    async fn reconcile(&self, _library: &Library, _present: &[String], _offline: &[String]) {}
+
     async fn enrich(&self, _library: &Library, _report: &ScanReport, _parent: Option<&JobId>) {}
 
     async fn reread(&self, _library: &Library, _report: &ScanReport) {}
@@ -193,6 +202,14 @@ where
     J: JobRepository + Send + Sync,
     L: LibraryRepository + Send + Sync,
 {
+    async fn reconcile(&self, library: &Library, present: &[String], offline: &[String]) {
+        if let Err(err) =
+            self.catalog.reconcile_library_versions(&library.id, present, offline).await
+        {
+            warn!(library = %library.id.0, "reconciling library versions failed: {err}");
+        }
+    }
+
     async fn enrich(&self, library: &Library, report: &ScanReport, parent: Option<&JobId>) {
         let candidates: Vec<String> = report
             .discovered
@@ -206,12 +223,7 @@ where
                     .map(|file| file.path.clone()),
             )
             .collect();
-        let on_disk: Vec<String> = report
-            .discovered
-            .iter()
-            .map(|file| file.path.clone())
-            .chain(report.skipped.iter().map(|file| file.path.clone()))
-            .collect();
+        let offline = &report.offline;
         let report = self.matcher.match_files(library.kind, &report.discovered);
         for group in &report.matched {
             if let Err(err) = self.ingest_group(library, group, parent, IngestMode::Scan).await {
@@ -230,13 +242,12 @@ where
                 warn!(library = %library.id.0, "persisting unmatched file failed: {err}");
             }
         }
-        if let Err(err) = self.catalog.reconcile_library_versions(&library.id, &on_disk).await {
-            warn!(library = %library.id.0, "reconciling library versions failed: {err}");
-        }
         if let Err(err) = self.libraries.reconcile_duplicates(&library.id, &detected).await {
             warn!(library = %library.id.0, "reconciling duplicates failed: {err}");
         }
-        if let Err(err) = self.libraries.reconcile_unmatched(&library.id, &candidates).await {
+        if let Err(err) =
+            self.libraries.reconcile_unmatched(&library.id, &candidates, offline).await
+        {
             warn!(library = %library.id.0, "reconciling unmatched files failed: {err}");
         }
     }
@@ -1372,6 +1383,7 @@ mod tests {
             discovered: paths.iter().map(|p| discovered(p)).collect(),
             skipped: Vec::new(),
             total_candidates: paths.len(),
+            offline: Vec::new(),
         }
     }
 
@@ -1521,6 +1533,7 @@ mod tests {
             }],
             skipped: Vec::new(),
             total_candidates: 1,
+            offline: Vec::new(),
         }
     }
 
@@ -2147,7 +2160,12 @@ mod tests {
         resized.size_bytes = 99;
         svc.enrich(
             &library,
-            &ScanReport { discovered: vec![resized], skipped: Vec::new(), total_candidates: 1 },
+            &ScanReport {
+                discovered: vec![resized],
+                skipped: Vec::new(),
+                total_candidates: 1,
+                offline: Vec::new(),
+            },
             None,
         )
         .await;
@@ -2158,7 +2176,12 @@ mod tests {
         restretched.size_bytes = 99;
         svc.enrich(
             &library,
-            &ScanReport { discovered: vec![restretched], skipped: Vec::new(), total_candidates: 1 },
+            &ScanReport {
+                discovered: vec![restretched],
+                skipped: Vec::new(),
+                total_candidates: 1,
+                offline: Vec::new(),
+            },
             None,
         )
         .await;
@@ -2217,8 +2240,12 @@ mod tests {
             language: None,
             bitrate: None,
         }];
-        let scan =
-            ScanReport { discovered: vec![reprobed], skipped: Vec::new(), total_candidates: 1 };
+        let scan = ScanReport {
+            discovered: vec![reprobed],
+            skipped: Vec::new(),
+            total_candidates: 1,
+            offline: Vec::new(),
+        };
         svc.reread(&library, &scan).await;
         svc.enrich(&library, &scan, None).await;
 
@@ -2314,8 +2341,12 @@ mod tests {
 
         let mut resized = discovered(path);
         resized.size_bytes = 99;
-        let scan =
-            ScanReport { discovered: vec![resized], skipped: Vec::new(), total_candidates: 1 };
+        let scan = ScanReport {
+            discovered: vec![resized],
+            skipped: Vec::new(),
+            total_candidates: 1,
+            offline: Vec::new(),
+        };
         svc.reread(&library, &scan).await;
         svc.enrich(&library, &scan, None).await;
 
@@ -2607,7 +2638,12 @@ mod tests {
                 chapters: Vec::new(),
             },
         };
-        let scan = ScanReport { discovered: vec![file], skipped: Vec::new(), total_candidates: 1 };
+        let scan = ScanReport {
+            discovered: vec![file],
+            skipped: Vec::new(),
+            total_candidates: 1,
+            offline: Vec::new(),
+        };
 
         svc.enrich(&library(LibraryKind::Movie), &scan, None).await;
 
@@ -2645,7 +2681,12 @@ mod tests {
                 chapters: Vec::new(),
             },
         };
-        let scan = ScanReport { discovered: vec![file], skipped: Vec::new(), total_candidates: 1 };
+        let scan = ScanReport {
+            discovered: vec![file],
+            skipped: Vec::new(),
+            total_candidates: 1,
+            offline: Vec::new(),
+        };
 
         svc.enrich(&library(LibraryKind::Movie), &scan, None).await;
 
@@ -2679,6 +2720,7 @@ mod tests {
             discovered: vec![file],
             skipped: Vec::new(),
             total_candidates: 1,
+            offline: Vec::new(),
         };
 
         svc.enrich(&library, &scan(with_sidecar(10)), None).await;
@@ -2728,6 +2770,7 @@ mod tests {
             discovered: vec![file],
             skipped: Vec::new(),
             total_candidates: 1,
+            offline: Vec::new(),
         };
 
         svc.enrich(
@@ -2779,6 +2822,7 @@ mod tests {
             discovered: vec![DiscoveredFile { subtitle_siblings: siblings, ..discovered(path) }],
             skipped: Vec::new(),
             total_candidates: 1,
+            offline: Vec::new(),
         };
 
         svc.enrich(&library, &scan(Vec::new()), None).await;
@@ -2827,7 +2871,7 @@ mod tests {
         assert_eq!(seeded.total, 2);
         assert!(seeded.items.iter().all(|v| v.available));
 
-        svc.enrich(&lib, &report(&["/m/The Matrix (1999) 1080p.mkv"]), None).await;
+        svc.reconcile(&lib, &["/m/The Matrix (1999) 1080p.mkv".to_owned()], &[]).await;
 
         let after = catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap();
         assert_eq!(after.total, 2);
@@ -2840,25 +2884,66 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_file_the_scan_excludes_keeps_its_version_available() {
+    async fn enriching_leaves_availability_to_the_reconcile() {
         const KEPT: &str = "/m/Paper Skies (1999) 1080p.mkv";
-        const EXCLUDED: &str = "/m/Extras/Neon Harbor (1982) 1080p.mkv";
+        const UNSEEN: &str = "/m/Neon Harbor (1982) 1080p.mkv";
         let catalog = MockCatalogRepo::new();
         let svc = enricher(catalog.clone(), None, MockJobStore::new());
         let lib = library(LibraryKind::Movie);
 
-        svc.enrich(&lib, &report(&[KEPT, EXCLUDED]), None).await;
-        let mut rescan = report(&[KEPT]);
-        rescan.skipped = vec![SkippedFile {
-            path: EXCLUDED.into(),
-            reason: SkipReason::ExcludedDirectory("Extras".into()),
-        }];
-        rescan.total_candidates = 2;
-        svc.enrich(&lib, &rescan, None).await;
+        svc.enrich(&lib, &report(&[KEPT, UNSEEN]), None).await;
+        svc.enrich(&lib, &report(&[KEPT]), None).await;
 
         let after = catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap();
-        let excluded = after.items.iter().find(|v| v.path == EXCLUDED).unwrap();
-        assert!(excluded.available, "the file is excluded, not gone");
+        assert!(
+            after.items.iter().all(|v| v.available),
+            "the scan sets availability from the walk, before probing, so a file the probe \
+             reports no longer decides it"
+        );
+    }
+
+    #[tracing_test::traced_test]
+    #[tokio::test]
+    async fn a_reconcile_that_fails_is_reported() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        catalog.set_fail();
+
+        svc.reconcile(&library(LibraryKind::Movie), &[], &[]).await;
+
+        assert!(logs_contain("reconciling library versions failed"));
+    }
+
+    #[tokio::test]
+    async fn an_unmatched_file_under_an_offline_folder_keeps_its_row_and_status() {
+        const UNREACHED: &str = "/m/Share/recording.mkv";
+        let libraries = MockLibraryRepo::new();
+        let svc = enricher_with_libraries(
+            MockCatalogRepo::new(),
+            None,
+            MockJobStore::new(),
+            libraries.clone(),
+        );
+        let lib = library(LibraryKind::Movie);
+        let id = LibraryId("lib".into());
+        svc.enrich(&lib, &report(&[UNREACHED]), None).await;
+        let before = libraries.list_unmatched(&id, page()).await.unwrap().items.remove(0);
+        libraries.set_unmatched_status(&before.id, ResolutionStatus::Dismissed).await.unwrap();
+
+        let mut rescan = report(&[]);
+        rescan.offline = vec!["/m/Share".into()];
+        svc.enrich(&lib, &rescan, None).await;
+
+        assert_eq!(
+            libraries.get_unmatched(&before.id).await.unwrap().map(|file| file.created_at),
+            Some(before.created_at),
+            "a scan that could not reach the folder deleted the row, and the next one brought \
+             it back as new"
+        );
+        assert!(
+            libraries.list_unmatched(&id, page()).await.unwrap().items.is_empty(),
+            "so a dismissed file came back active"
+        );
     }
 
     #[tokio::test]
@@ -2920,33 +3005,6 @@ mod tests {
         assert_eq!(after.len(), 1);
         assert_eq!(after[0].id, before[0].id);
         assert_eq!(after[0].created_at, before[0].created_at);
-    }
-
-    #[tokio::test]
-    async fn a_file_the_probe_cannot_read_keeps_its_version_available() {
-        const KEPT: &str = "/m/Paper Skies (1999) 1080p.mkv";
-        const BROKEN: &str = "/m/Neon Harbor (1982) 1080p.mkv";
-        let catalog = MockCatalogRepo::new();
-        let svc = enricher(catalog.clone(), None, MockJobStore::new());
-        let lib = library(LibraryKind::Movie);
-
-        svc.enrich(&lib, &report(&[KEPT, BROKEN]), None).await;
-        let mut rescan = report(&[KEPT]);
-        rescan.skipped = vec![SkippedFile {
-            path: BROKEN.into(),
-            reason: SkipReason::ProbeFailed("truncated".into()),
-        }];
-        rescan.total_candidates = 2;
-        svc.enrich(&lib, &rescan, None).await;
-
-        let after = catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap();
-        let broken = after.items.iter().find(|v| v.path == BROKEN).unwrap();
-        assert!(
-            broken.available,
-            "a probe failure can be transient, so the file still counts as on disk"
-        );
-        let kept = after.items.iter().find(|v| v.path == KEPT).unwrap();
-        assert!(kept.available);
     }
 
     #[tokio::test]
@@ -3388,6 +3446,7 @@ mod tests {
 
     #[tokio::test]
     async fn noop_enricher_does_nothing() {
+        NoopEnricher.reconcile(&library(LibraryKind::Movie), &[], &[]).await;
         NoopEnricher.enrich(&library(LibraryKind::Movie), &report(&["/m/x.mkv"]), None).await;
         NoopEnricher.reread(&library(LibraryKind::Movie), &report(&["/m/x.mkv"])).await;
     }

@@ -1,8 +1,8 @@
 use std::future::Future;
 
 use crate::error::WalkError;
-use crate::library::WalkedEntry;
+use crate::library::Walked;
 
 pub trait SourceWalker {
-    fn walk(&self, root: &str) -> impl Future<Output = Result<Vec<WalkedEntry>, WalkError>> + Send;
+    fn walk(&self, root: &str) -> impl Future<Output = Result<Walked, WalkError>> + Send;
 }

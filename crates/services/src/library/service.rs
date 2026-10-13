@@ -283,7 +283,7 @@ where
             return Err(LibraryError::Forbidden);
         }
         self.libraries.get(id).await?.ok_or(LibraryError::NotFound)?;
-        self.catalog.reconcile_library_versions(id, &[]).await?;
+        self.catalog.reconcile_library_versions(id, &[], &[]).await?;
         self.users.revoke_library_access(id).await?;
         self.libraries.delete(id).await?;
         Ok(())

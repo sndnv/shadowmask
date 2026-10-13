@@ -5,4 +5,5 @@ pub struct ScanReport {
     pub discovered: Vec<DiscoveredFile>,
     pub skipped: Vec<SkippedFile>,
     pub total_candidates: usize,
+    pub offline: Vec<String>,
 }

@@ -48,7 +48,7 @@ services:
 
       # --- Tokens ---
       # SHADOWMASK_ACCESS_TTL_SECS: "3600"
-      # SHADOWMASK_REFRESH_TTL_SECS: "86400"
+      # SHADOWMASK_REFRESH_TTL_SECS: "2592000"
 
       # --- Paths (the image sets these; change only if you remap the volumes below) ---
       # SHADOWMASK_DB_ROOT: "/data"

@@ -1,6 +1,15 @@
 use crate::common::{Page, PageRequest, paginate};
 use crate::discovery::{SearchKind, SearchResult};
-use crate::text::normalize_title;
+use crate::text::{is_typo_of, joined_terms, search_text};
+
+const TYPO_TIER: u8 = 3;
+
+struct Searched<'a> {
+    candidate: &'a SearchResult,
+    id: &'a str,
+    haystack: String,
+    terms: Vec<String>,
+}
 
 pub fn search(
     candidates: &[SearchResult],
@@ -8,34 +17,55 @@ pub fn search(
     types: &[SearchKind],
     page: PageRequest,
 ) -> Page<SearchResult> {
-    let needle = normalize_title(query);
-    let mut ranked: Vec<(u8, String, &str, &SearchResult)> = Vec::new();
-    if !needle.is_empty() {
-        for candidate in candidates {
-            if !types.is_empty() && !types.contains(&candidate.kind()) {
-                continue;
-            }
-            let haystack = normalize_title(searchable(candidate));
-            if let Some(tier) = rank(&needle, &haystack) {
-                ranked.push((tier, haystack, id(candidate), candidate));
-            }
-        }
-        ranked.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)).then_with(|| a.2.cmp(b.2)));
+    let needle = search_text(query);
+    let words: Vec<&str> = needle.split_whitespace().collect();
+    let searched: Vec<Searched> = candidates
+        .iter()
+        .filter(|_| !words.is_empty())
+        .filter(|candidate| types.is_empty() || types.contains(&candidate.kind()))
+        .map(|candidate| {
+            let text = searchable(candidate);
+            let haystack = search_text(text);
+            let mut terms: Vec<String> = haystack.split_whitespace().map(str::to_owned).collect();
+            terms.extend(joined_terms(text));
+            Searched { candidate, id: id(candidate), haystack, terms }
+        })
+        .collect();
+    let mut ranked: Vec<(u8, &Searched)> = searched
+        .iter()
+        .filter_map(|entry| rank(&needle, &words, entry).map(|tier| (tier, entry)))
+        .collect();
+    if ranked.is_empty() {
+        ranked = searched
+            .iter()
+            .filter(|entry| every_word(&words, entry, is_typo_of))
+            .map(|entry| (TYPO_TIER, entry))
+            .collect();
     }
-    let matches: Vec<SearchResult> = ranked.into_iter().map(|(_, _, _, c)| c.clone()).collect();
+    ranked.sort_by(|a, b| {
+        a.0.cmp(&b.0).then_with(|| a.1.haystack.cmp(&b.1.haystack)).then_with(|| a.1.id.cmp(b.1.id))
+    });
+    let matches: Vec<SearchResult> =
+        ranked.into_iter().map(|(_, entry)| entry.candidate.clone()).collect();
     paginate(&matches, page)
 }
 
-fn rank(needle: &str, haystack: &str) -> Option<u8> {
-    if haystack == needle {
+fn rank(needle: &str, words: &[&str], entry: &Searched) -> Option<u8> {
+    if entry.haystack == needle {
         Some(0)
-    } else if haystack.starts_with(needle) {
+    } else if entry.haystack.starts_with(needle) {
         Some(1)
-    } else if haystack.split(' ').any(|word| word.starts_with(needle)) {
+    } else if every_word(words, entry, |_, _| false) {
         Some(2)
     } else {
         None
     }
+}
+
+fn every_word(words: &[&str], entry: &Searched, close: impl Fn(&str, &str) -> bool) -> bool {
+    words.iter().all(|word| {
+        entry.terms.iter().any(|term| term.starts_with(word) || close(word, term.as_str()))
+    })
 }
 
 fn searchable(result: &SearchResult) -> &str {
@@ -199,9 +229,74 @@ mod tests {
         assert_eq!(titles(&search(&candidates, "mat", all())), vec!["The Matrix"]);
         assert_eq!(titles(&search(&candidates, "god", all())), vec!["Children of the Gods"]);
         assert!(
-            search(&candidates, "atrix", all()).items.is_empty(),
+            search(&candidates, "trix", all()).items.is_empty(),
             "a partial word still has to start one, or every query becomes a substring search"
         );
+    }
+
+    #[test]
+    fn every_word_of_the_query_may_start_a_word_anywhere_in_the_title() {
+        let candidates = [
+            movie("Harry Potter and the Prisoner of Azkaban"),
+            movie("Star Wars: The Empire Strikes Back"),
+            movie("Star Trek"),
+        ];
+        assert_eq!(
+            titles(&search(&candidates, "harry potter prisoner", all())),
+            ["Harry Potter and the Prisoner of Azkaban"],
+            "a query of several words had to match the start of the title"
+        );
+        assert_eq!(
+            titles(&search(&candidates, "empire star", all())),
+            ["Star Wars: The Empire Strikes Back"]
+        );
+        assert_eq!(
+            titles(&search(&candidates, "star", all())),
+            ["Star Trek", "Star Wars: The Empire Strikes Back"]
+        );
+    }
+
+    #[test]
+    fn a_title_written_with_punctuation_or_accents_is_found_without_them() {
+        let candidates = [
+            movie("Spider-Man: Far From Home"),
+            movie("Ocean's Eleven"),
+            series("Marvel's Agents of S.H.I.E.L.D."),
+            movie("Amélie"),
+            movie("Fast & Furious"),
+            movie("Брат 2"),
+        ];
+        let found = |query: &str| titles(&search(&candidates, query, all()));
+
+        assert_eq!(found("spiderman"), ["Spider-Man: Far From Home"]);
+        assert_eq!(found("spider-man"), ["Spider-Man: Far From Home"]);
+        assert_eq!(found("oceans"), ["Ocean's Eleven"]);
+        assert_eq!(found("shield"), ["Marvel's Agents of S.H.I.E.L.D."]);
+        assert_eq!(found("amelie"), ["Amélie"]);
+        assert_eq!(found("fast and furious"), ["Fast & Furious"]);
+        assert_eq!(found("fast & furious"), ["Fast & Furious"]);
+        assert_eq!(found("брат"), ["Брат 2"]);
+    }
+
+    #[test]
+    fn a_word_typed_with_a_typo_is_found_when_nothing_matches_it_as_typed() {
+        let candidates = [
+            series("The Matrix"),
+            movie("Harry Potter and the Chamber of Secrets"),
+            movie("House"),
+            movie("Horse Feathers"),
+        ];
+        let found = |query: &str| titles(&search(&candidates, query, all()));
+
+        assert_eq!(found("matirx"), ["The Matrix"]);
+        assert_eq!(found("harry pottr chamber"), ["Harry Potter and the Chamber of Secrets"]);
+        assert_eq!(
+            found("house"),
+            ["House"],
+            "a typo match would bury what was typed right, so it only answers a query nothing else does"
+        );
+        assert_eq!(found("hosue"), ["House"]);
+        assert!(found("hpuse feathrs xyz").is_empty());
     }
 
     #[test]
@@ -280,17 +375,37 @@ mod prop_tests {
         }
 
         #[test]
-        fn every_hit_contains_query(
+        fn every_hit_has_each_query_word_start_or_nearly_spell_one_of_its_words(
             titles in prop::collection::vec("[a-z ]{0,10}", 0..16),
             query in "[a-z ]{1,6}",
         ) {
             let candidates: Vec<SearchResult> = titles.iter().map(|t| movie(t)).collect();
-            let needle = normalize_title(&query);
+            let needle = search_text(&query);
             let hits = search(&candidates, &query, all_pages());
             prop_assert!(hits.total as usize <= candidates.len());
             for item in &hits.items {
-                let hay = normalize_title(searchable(item));
-                prop_assert!(needle.is_empty() || hay.contains(&needle));
+                let hay = search_text(searchable(item));
+                prop_assert!(needle.split_whitespace().all(|word| hay
+                    .split_whitespace()
+                    .any(|term| term.starts_with(word) || is_typo_of(word, term))));
+            }
+        }
+
+        #[test]
+        fn a_typo_match_never_joins_a_match_as_typed(
+            titles in prop::collection::vec("[a-z ]{0,10}", 0..16),
+            query in "[a-z ]{1,9}",
+        ) {
+            let candidates: Vec<SearchResult> = titles.iter().map(|t| movie(t)).collect();
+            let needle = search_text(&query);
+            let as_typed = |title: &str| needle.split_whitespace().all(|word| {
+                search_text(title).split_whitespace().any(|term| term.starts_with(word))
+            });
+            let hits = search(&candidates, &query, all_pages());
+            if titles.iter().any(|title| as_typed(title)) {
+                for item in &hits.items {
+                    prop_assert!(as_typed(searchable(item)));
+                }
             }
         }
 

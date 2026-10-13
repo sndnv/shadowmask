@@ -51,6 +51,7 @@ sub init()
     m.state = { watched: false, watchlisted: false, favorite: false }
     m.rollup = {}
     m.castCards = []
+    m.actors = []
     m.castLoaded = 0
     m.castWanted = 0
     m.castPending = false
@@ -490,7 +491,9 @@ sub onCollectionStates(event as object)
 end sub
 
 sub LoadCast()
-    m.castCards = CardsFrom(BilledActors(ValueAt(m.detail, "credits", invalid)), CastCard)
+    credits = ValueAt(m.detail, "credits", invalid)
+    m.castCards = CardsFrom(BilledCast(credits), CastCard)
+    m.actors = BilledActors(credits)
     m.castLoaded = 0
     m.castWanted = 0
     m.castPending = false
@@ -543,12 +546,12 @@ sub ProbeActor()
     if m.released then return
     if m.actorCards.Count() > 0 then return
     if m.actorProbes >= MaxActorProbes() then return
-    if m.actorIndex >= m.castCards.Count() then return
+    if m.actorIndex >= m.actors.Count() then return
 
-    actor = m.castCards[m.actorIndex]
+    actor = m.actors[m.actorIndex]
     m.actorIndex = m.actorIndex + 1
     m.actorProbes = m.actorProbes + 1
-    m.actorProbeName = TextOrBlank(ValueAt(actor, "title", ""))
+    m.actorProbeName = TextOrBlank(ValueAt(actor, "name", ""))
 
     session = SessionFor(m.global)
     Ask(PersonRequest(session.serverUrl, session.token, ValueAt(actor, "id", "")), "onActorTitles")

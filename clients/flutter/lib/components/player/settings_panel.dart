@@ -319,13 +319,8 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
                 width: double.infinity,
                 tapGroupId: kPlayerPanelGroup,
                 items: <(int, String)>[
-                  for (final int seconds in kAutoplayDelays)
-                    (
-                      seconds,
-                      seconds == 0
-                          ? Strings.playerAutoplayOff
-                          : Strings.playerAutoplayDelay(seconds),
-                    ),
+                  for (final int value in kAutoplayDelays)
+                    (value, autoplayLabel(value)),
                 ],
                 onChanged: (int value) {
                   setState(() => _autoplay = value);

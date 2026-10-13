@@ -6,7 +6,7 @@ use domain::error::RepositoryError;
 use domain::library::{
     DuplicateCandidate, DuplicateCandidateId, Library, LibraryId, LibraryKind, LibraryOrigin,
     MatchCandidate, ResolutionStatus, ScanState, ScanStatus, UnmatchedFile, UnmatchedFileId,
-    WatcherStrategy,
+    WatcherStrategy, is_offline,
 };
 use domain::repository::LibraryRepository;
 use sqlx::migrate::Migrator;
@@ -660,6 +660,7 @@ impl LibraryRepository for SqliteLibraryRepo {
         &self,
         library: &LibraryId,
         present_paths: &[String],
+        offline_paths: &[String],
     ) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("library", "reconcile_unmatched");
         let keep: HashSet<&str> = present_paths.iter().map(String::as_str).collect();
@@ -671,7 +672,8 @@ impl LibraryRepository for SqliteLibraryRepo {
             .map_err(backend)?;
         let mut stale = Vec::new();
         for row in &rows {
-            if !keep.contains(column::<String>(row, "path")?.as_str()) {
+            let path = column::<String>(row, "path")?;
+            if !keep.contains(path.as_str()) && !is_offline(&path, offline_paths) {
                 stale.push(column::<String>(row, "id")?);
             }
         }
@@ -709,7 +711,7 @@ mod tests {
         .unwrap();
 
         let library = LibraryId("lib-1".into());
-        repo.reconcile_unmatched(&library, &["/media/1.mkv".to_string()]).await.unwrap();
+        repo.reconcile_unmatched(&library, &["/media/1.mkv".to_string()], &[]).await.unwrap();
         repo.reconcile_duplicates(&library, &[DuplicateCandidateId("d-1".into())]).await.unwrap();
 
         for table in ["unmatched_files", "duplicate_candidates"] {
@@ -842,7 +844,9 @@ mod tests {
         assert!(repo.set_unmatched_status(&unmatched, ResolutionStatus::Dismissed).await.is_err());
         assert!(repo.set_duplicate_status(&duplicate, ResolutionStatus::Dismissed).await.is_err());
         assert!(repo.reconcile_duplicates(&library, &[duplicate]).await.is_err());
-        assert!(repo.reconcile_unmatched(&library, &["/media/x.mkv".to_owned()]).await.is_err());
+        assert!(
+            repo.reconcile_unmatched(&library, &["/media/x.mkv".to_owned()], &[]).await.is_err()
+        );
     }
 
     #[tokio::test]

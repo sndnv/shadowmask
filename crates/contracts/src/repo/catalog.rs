@@ -1635,6 +1635,7 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     repo.reconcile_library_versions(
         &LibraryId("lib1".into()),
         &["/media/v1.mkv".to_owned(), "/media/uv1.mkv".to_owned()],
+        &[],
     )
     .await
     .unwrap();
@@ -1650,12 +1651,57 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     repo.reconcile_library_versions(
         &LibraryId("lib1".into()),
         &["/media/v1.mkv".to_owned(), "/media/v2.mp4".to_owned(), "/media/uv1.mkv".to_owned()],
+        &[],
     )
     .await
     .unwrap();
     assert!(available(&repo, "v2").await);
 
-    repo.reconcile_library_versions(&LibraryId("lib1".into()), &[]).await.unwrap();
+    for root in ["/media", "/media/", "/"] {
+        repo.reconcile_library_versions(&LibraryId("lib1".into()), &[], &[root.to_owned()])
+            .await
+            .unwrap();
+        assert!(
+            available(&repo, "v1").await
+                && available(&repo, "v2").await
+                && available(&repo, "uv1").await,
+            "a root that is offline says nothing about the files under it: {root}"
+        );
+    }
+
+    repo.reconcile_library_versions(
+        &LibraryId("lib1".into()),
+        &["/media/v1.mkv".to_owned()],
+        &["/media/v2.mp4".to_owned()],
+    )
+    .await
+    .unwrap();
+    assert!(available(&repo, "v2").await, "a file the walk could not read is left as it was");
+    assert!(!available(&repo, "uv1").await);
+
+    repo.reconcile_library_versions(
+        &LibraryId("lib1".into()),
+        &[],
+        &["/medi".to_owned(), "/media/v1".to_owned()],
+    )
+    .await
+    .unwrap();
+    assert!(
+        !available(&repo, "v1").await && !available(&repo, "v2").await,
+        "an offline path covers the files at or under it, not every path sharing its first letters"
+    );
+
+    repo.reconcile_library_versions(
+        &LibraryId("lib1".into()),
+        &["/media/v1.mkv".to_owned()],
+        &["/media".to_owned()],
+    )
+    .await
+    .unwrap();
+    assert!(available(&repo, "v1").await, "a file the walk listed is present either way");
+    assert!(!available(&repo, "v2").await, "and an unavailable version stays unavailable");
+
+    repo.reconcile_library_versions(&LibraryId("lib1".into()), &[], &[]).await.unwrap();
     assert!(!available(&repo, "v1").await);
     assert!(!available(&repo, "v2").await);
     assert!(!available(&repo, "uv1").await);

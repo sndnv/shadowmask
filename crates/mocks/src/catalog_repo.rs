@@ -9,7 +9,7 @@ use domain::catalog::{
 };
 use domain::common::{Page, PageRequest};
 use domain::error::RepositoryError;
-use domain::library::LibraryId;
+use domain::library::{LibraryId, is_offline};
 use domain::media::{
     AudioTrack, Chapter, DetectedMarkers, EmbeddedSubtitleTrack, PlaybackPrep, SubtitleFile,
     TrickplayAsset, VersionPrepState, VideoTrack,
@@ -796,12 +796,15 @@ impl CatalogRepository for MockCatalogRepo {
         &self,
         library: &LibraryId,
         present_paths: &[String],
+        offline_paths: &[String],
     ) -> Result<(), RepositoryError> {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
-        for version in state.versions.iter_mut() {
-            if version.library == *library {
-                version.available = present_paths.contains(&version.path);
+        for version in state.versions.iter_mut().filter(|version| version.library == *library) {
+            if present_paths.contains(&version.path) {
+                version.available = true;
+            } else if !is_offline(&version.path, offline_paths) {
+                version.available = false;
             }
         }
         Ok(())

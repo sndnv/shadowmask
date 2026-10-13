@@ -79,7 +79,8 @@ fn spec(clip: &Clip, copy: bool, container: SegmentContainer, seek_ms: u64) -> T
         max_bitrate: None,
         burn_subtitle: None,
         soft_subtitle: None,
-        downmix_stereo: false,
+        convert_audio: false,
+        audio_channels: None,
         source_hdr: None,
     }
 }
@@ -256,6 +257,96 @@ async fn a_transcode_starts_where_its_plan_does_whichever_sound_track_plays() {
             assert_eq!(started.origin_ms, origin_ms, "audio {audio} from {seek_ms}");
             assert_cut_as_planned(&variant, 0.05);
             assert_every_frame_once_from(&clip, &variant, origin_ms, HALF_FRAME_S);
+        }
+    }
+}
+
+async fn surround(dir: &Path, name: &str, offset: &str) -> Clip {
+    let path = dir.join(name).to_string_lossy().into_owned();
+    let built = Command::new("ffmpeg")
+        .args(["-nostdin", "-v", "error", "-y", "-f", "lavfi"])
+        .args(["-i", "testsrc2=s=160x120:r=24000/1001:d=30", "-f", "lavfi", "-i", "sine=d=30"])
+        .args(["-map", "0", "-map", "1", "-c:v", "libx264", "-preset", "veryfast"])
+        .args(["-pix_fmt", "yuv420p", "-g", "48", "-c:a", "ac3", "-ac", "6"])
+        .args(["-output_ts_offset", offset, &path])
+        .status()
+        .expect("ffmpeg should build the clip; is ffmpeg installed and on PATH?");
+    assert!(built.success(), "building [{name}]");
+    described(path, name).await
+}
+
+fn span(input: &str, stream: &str) -> (f64, f64) {
+    let listed = Command::new("ffprobe")
+        .args(["-v", "error", "-select_streams", stream])
+        .args(["-show_entries", "packet=pts_time,duration_time", "-of", "csv=p=0", input])
+        .output()
+        .expect("ffprobe should run");
+    String::from_utf8_lossy(&listed.stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split(',').map(|field| field.trim().parse::<f64>());
+            Some((fields.next()?.ok()?, fields.next()?.ok()?))
+        })
+        .fold((f64::MAX, f64::MIN), |(first, end), (at, length)| {
+            (first.min(at), end.max(at + length))
+        })
+}
+
+fn sound_format(input: &str) -> String {
+    let listed = Command::new("ffprobe")
+        .args(["-v", "error", "-select_streams", "a:0"])
+        .args(["-show_entries", "stream=codec_name,channels", "-of", "csv=p=0", input])
+        .output()
+        .expect("ffprobe should run");
+    let text = String::from_utf8_lossy(&listed.stdout).into_owned();
+    text.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or_default().to_owned()
+}
+
+const AAC_LEAD_IN_S: f64 = 0.03;
+const SOUND_END_TOLERANCE_S: f64 = 0.05;
+
+#[tokio::test]
+async fn a_copy_converting_its_sound_cuts_as_planned_and_plays_it_with_the_picture() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let zero = surround(dir.path(), "surround.mkv", "0").await;
+    let later = surround(dir.path(), "surround.mp4", "9.977").await;
+    let cases = [
+        (&zero, SegmentContainer::MpegTs),
+        (&later, SegmentContainer::MpegTs),
+        (&zero, SegmentContainer::Fmp4),
+    ];
+    for (clip, container) in cases {
+        for seek_ms in [0, 9_000] {
+            let cache = tempfile::tempdir().expect("tempdir");
+            let spec = TranscodeSpec {
+                audio_track: Some(1),
+                convert_audio: true,
+                audio_channels: Some(2),
+                ..spec(clip, true, container, seek_ms)
+            };
+
+            let (engine, started, variant) = run_to_the_end(cache.path(), spec).await;
+
+            let case = format!("{} {container:?} from {seek_ms}", clip.path);
+            let origin_us =
+                clip.keyframes_us.iter().copied().filter(|k| *k <= seek_ms * 1_000).max();
+            let origin_ms = origin_us.unwrap_or(clip.keyframes_us[0]) / 1_000;
+            assert_eq!(started.origin_ms, origin_ms, "{case}");
+            assert_cut_as_planned(&variant, 0.002);
+            assert_every_segment_served(&engine, &variant).await;
+            assert_every_frame_once_from(clip, &variant, origin_ms, FRAME_TOLERANCE_S);
+            let served = variant.join("index.m3u8").to_string_lossy().into_owned();
+            assert_eq!(sound_format(&served), "aac,2", "{case}");
+            let (picture_from, picture_to) = span(&served, "v:0");
+            let (sound_from, sound_to) = span(&served, "a:0");
+            assert!(
+                sound_from <= picture_from && picture_from - sound_from <= AAC_LEAD_IN_S,
+                "{case}: sound from {sound_from}, picture from {picture_from}"
+            );
+            assert!(
+                (sound_to - picture_to).abs() <= SOUND_END_TOLERANCE_S,
+                "{case}: sound to {sound_to}, picture to {picture_to}"
+            );
         }
     }
 }

@@ -14,10 +14,12 @@ import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/view/card_aspect.dart';
 import 'package:shadowmask/view/catalog_card.dart';
+import 'package:shadowmask/view/filmography_titles.dart';
 import 'package:shadowmask/components/skeleton.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/person_profile.dart';
 import 'package:shadowmask/model/user/self_user.dart';
+import 'package:shadowmask/util/credit_labels.dart';
 import 'package:shadowmask/util/format.dart';
 import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
@@ -65,10 +67,12 @@ class _PersonBodyState extends State<_PersonBody> {
 
   Future<(PersonProfile, List<CatalogCard>)> _load() async {
     final PersonProfile p = await _catalog.person(widget.id);
-    final List<CatalogCard> cards = p.filmography
+    final List<CatalogCard> cards = filmographyByTitle(p.filmography)
         .map(
-          (FilmographyEntry e) =>
-              CatalogCard.fromFilmography(e, withCredit: true),
+          (List<FilmographyEntry> credits) => CatalogCard.fromFilmography(
+            credits.first,
+            caption: filmographyCaption(credits),
+          ),
         )
         .toList();
     await tagWatched(_catalog, widget.userId, cards);

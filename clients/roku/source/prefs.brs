@@ -136,6 +136,22 @@ sub WriteHighContrast(value as boolean)
     WriteFlag(HighContrastKey(), value)
 end sub
 
+function NavInsetKey() as string
+    return "navInset"
+end function
+
+function NavInsetRequest() as string
+    return "navInset"
+end function
+
+function ReadNavInset() as boolean
+    return ReadFlag(NavInsetKey(), false)
+end function
+
+sub WriteNavInset(value as boolean)
+    WriteFlag(NavInsetKey(), value)
+end sub
+
 function OverrideKey(name as string) as string
     return "caps." + name
 end function

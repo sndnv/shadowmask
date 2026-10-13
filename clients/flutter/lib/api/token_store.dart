@@ -9,6 +9,7 @@ class TokenStore {
 
   Future<AuthTokens?> load() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
     final String? raw = prefs.getString(_key);
     if (raw == null) {
       return null;

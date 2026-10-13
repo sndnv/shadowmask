@@ -670,12 +670,29 @@ namespace tests
             m.assertEqual(options[1].value, CountdownOptions()[0].value)
         end sub
 
+        @it("offers Immediately right after Off, apart from it and keyed like Flutter")
+        sub offersImmediatelyAfterOff()
+            options = AutoplayOptions()
+
+            m.assertEqual(AutoplayOffValue(), 0)
+            m.assertEqual(AutoplayImmediatelyValue(), -1)
+            m.assertEqual(options[1].value, AutoplayImmediatelyValue())
+            m.assertEqual(options[1].label, "Immediately")
+        end sub
+
         @it("reads the stored pair back as the value the list is keyed on")
         sub readsStoredPairAsOneValue()
             m.assertEqual(AutoplayValue(false, 15), AutoplayOffValue())
             m.assertEqual(AutoplayValue(true, 15), 15)
+            m.assertEqual(AutoplayValue(true, -1), AutoplayImmediatelyValue())
             m.assertEqual(AutoplayValue(true, invalid), DefaultCountdownSeconds())
             m.assertEqual(AutoplayValue(true, 7), DefaultCountdownSeconds())
+        end sub
+
+        @it("names Immediately in the settings row")
+        sub namesImmediately()
+            m.assertEqual(AutoplayLabel(true, AutoplayImmediatelyValue()), "Immediately")
+            m.assertEqual(AutoplayLabel(false, AutoplayImmediatelyValue()), Phrase("state.off"))
         end sub
 
         @describe("TimeDisplayOptions")
@@ -718,13 +735,14 @@ namespace tests
         @it("offers a few delays and keeps ten as the default")
         sub offersDelays()
             m.assertEqual(DefaultCountdownSeconds(), 10)
-            m.assertEqual(CountdownOptions().Count(), 4)
-            m.assertEqual(CountdownOptions()[1].value, 10)
+            m.assertEqual(CountdownOptions().Count(), 5)
+            m.assertEqual(CountdownOptions()[2].value, 10)
         end sub
 
         @it("refuses a delay it does not offer")
         sub refusesUnknownDelay()
             m.assertEqual(ClampedCountdownSeconds(15), 15)
+            m.assertEqual(ClampedCountdownSeconds(-1), AutoplayImmediatelyValue())
             m.assertEqual(ClampedCountdownSeconds(7), DefaultCountdownSeconds())
             m.assertEqual(ClampedCountdownSeconds(0), DefaultCountdownSeconds())
         end sub

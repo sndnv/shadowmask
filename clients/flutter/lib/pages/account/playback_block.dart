@@ -118,13 +118,8 @@ class _PlaybackBlockState extends State<PlaybackBlock> {
                 label: Strings.playerAutoplayNext,
                 enabled: _loaded,
                 items: <(int, String)>[
-                  for (final int seconds in kAutoplayDelays)
-                    (
-                      seconds,
-                      seconds == 0
-                          ? Strings.playerAutoplayOff
-                          : Strings.playerAutoplayDelay(seconds),
-                    ),
+                  for (final int value in kAutoplayDelays)
+                    (value, autoplayLabel(value)),
                 ],
                 onChanged: _setAutoplay,
               ),

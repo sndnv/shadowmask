@@ -51,10 +51,28 @@ where
         let started = Timestamp::now();
         self.repo.save_scan_state(running(&id, started)).await.map_err(retryable)?;
 
+        let walk = match self.scanner.walk(&library).await {
+            Ok(walk) => walk,
+            Err(err) => {
+                self.repo.save_scan_state(failed(&id, started, &err)).await.map_err(retryable)?;
+                let message = err.to_string();
+                return Err(match err {
+                    WalkError::RootNotFound(_) => JobError::Permanent(message),
+                    WalkError::Unreadable(_) => JobError::Retryable(message),
+                });
+            }
+        };
+        for path in &walk.offline {
+            #[rustfmt::skip]
+            tracing::warn!("library [{}] is offline at [{path}], its versions are left as they were", id.0);
+        }
+        let note = offline_note(&walk.offline);
+        self.enricher.reconcile(&library, &walk.present(), &walk.offline).await;
+
         let repo = &self.repo;
-        let scanned = self
+        let report = self
             .scanner
-            .scan(&library, |done, total| {
+            .probe_files(&library, walk, |done, total| {
                 let state = probing(&id, started, done, total);
                 async move {
                     if let Err(err) = repo.save_scan_state(state).await {
@@ -63,29 +81,29 @@ where
                 }
             })
             .await;
-
-        match scanned {
-            Ok(report) => {
-                if mode == ScanMode::Reread {
-                    self.enricher.reread(&library, &report).await;
-                }
-                self.enricher.enrich(&library, &report, Some(&job.id)).await;
-                self.repo
-                    .save_scan_state(idle(&id, started, Timestamp::now()))
-                    .await
-                    .map_err(retryable)?;
-                Ok(())
-            }
-            Err(err) => {
-                self.repo.save_scan_state(failed(&id, started, &err)).await.map_err(retryable)?;
-                let message = err.to_string();
-                Err(match err {
-                    WalkError::RootNotFound(_) => JobError::Permanent(message),
-                    WalkError::Unreadable(_) => JobError::Retryable(message),
-                })
-            }
+        if mode == ScanMode::Reread {
+            self.enricher.reread(&library, &report).await;
         }
+        self.enricher.enrich(&library, &report, Some(&job.id)).await;
+        self.repo
+            .save_scan_state(idle(&id, started, Timestamp::now(), note))
+            .await
+            .map_err(retryable)?;
+        Ok(())
     }
+}
+
+const NOTED_OFFLINE: usize = 5;
+
+fn offline_note(offline: &[String]) -> Option<String> {
+    if offline.is_empty() {
+        return None;
+    }
+    let listed = offline[..offline.len().min(NOTED_OFFLINE)].join(", ");
+    Some(match offline.len().saturating_sub(NOTED_OFFLINE) {
+        0 => format!("Offline, versions left as they were: {listed}"),
+        more => format!("Offline, versions left as they were: {listed} and {more} more"),
+    })
 }
 
 fn retryable(err: RepositoryError) -> JobError {
@@ -114,14 +132,14 @@ fn probing(id: &LibraryId, started: Timestamp, done: u32, total: u32) -> ScanSta
     }
 }
 
-fn idle(id: &LibraryId, started: Timestamp, now: Timestamp) -> ScanState {
+fn idle(id: &LibraryId, started: Timestamp, now: Timestamp, note: Option<String>) -> ScanState {
     ScanState {
         library: id.clone(),
         status: ScanStatus::Idle,
         progress: 1.0,
         started_at: Some(started),
         last_scanned_at: Some(now),
-        error: None,
+        error: note,
     }
 }
 
@@ -141,20 +159,30 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
+    use domain::error::ProbeError;
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
     use domain::library::{
         Library, LibraryKind, LibraryOrigin, ScanReport, WalkedEntry, WatcherStrategy,
     };
+    use domain::media::ProbeResult;
     use mocks::{MockLibraryRepo, MockMediaProbe, MockSourceWalker};
     use services::library::NoopEnricher;
     use tracing_test::traced_test;
 
+    type Reconciled = Arc<Mutex<Vec<(Vec<String>, Vec<String>)>>>;
+
     #[derive(Clone)]
     struct SpyEnricher {
         calls: Arc<Mutex<Vec<&'static str>>>,
+        reconciled: Reconciled,
     }
 
     impl ScanEnricher for SpyEnricher {
+        async fn reconcile(&self, _library: &Library, present: &[String], offline: &[String]) {
+            self.calls.lock().unwrap().push("reconcile");
+            self.reconciled.lock().unwrap().push((present.to_vec(), offline.to_vec()));
+        }
+
         async fn enrich(&self, _library: &Library, _report: &ScanReport, _parent: Option<&JobId>) {
             self.calls.lock().unwrap().push("enrich");
         }
@@ -178,6 +206,10 @@ mod tests {
     }
 
     impl ScanEnricher for StatusSpy {
+        async fn reconcile(&self, library: &Library, _present: &[String], _offline: &[String]) {
+            self.record(library).await;
+        }
+
         async fn enrich(&self, library: &Library, _report: &ScanReport, _parent: Option<&JobId>) {
             self.record(library).await;
         }
@@ -252,6 +284,81 @@ mod tests {
         assert_eq!(state.progress, 1.0);
         assert!(state.started_at.is_some());
         assert!(state.last_scanned_at.is_some());
+        assert_eq!(state.error, None, "a scan that walked every root leaves no note");
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn an_offline_root_is_logged_and_noted_on_the_finished_scan() {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(library(&["/m", "/unmounted"]));
+        let walker = MockSourceWalker::new()
+            .with_entries("/m", vec![WalkedEntry { path: "/m/a.mkv".into(), size_bytes: 1 }]);
+        let handler = handler(repo.clone(), walker, MockMediaProbe::new());
+
+        handler.handle(&scan_job("lib")).await.unwrap();
+
+        let state = repo.scan_state(&LibraryId("lib".into())).await.unwrap().unwrap();
+        assert_eq!(state.status, ScanStatus::Idle);
+        assert_eq!(state.error.as_deref(), Some("Offline, versions left as they were: /unmounted"));
+        assert!(logs_contain("library [lib] is offline at [/unmounted]"));
+    }
+
+    #[test]
+    fn a_long_offline_list_is_cut_short_in_the_note() {
+        let offline: Vec<String> = (1..=7).map(|n| format!("/m/{n}")).collect();
+
+        assert_eq!(
+            offline_note(&offline).as_deref(),
+            Some("Offline, versions left as they were: /m/1, /m/2, /m/3, /m/4, /m/5 and 2 more")
+        );
+        assert_eq!(offline_note(&[]), None);
+    }
+
+    #[derive(Clone)]
+    struct SpyProbe {
+        calls: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    impl MediaProbe for SpyProbe {
+        async fn probe(&self, path: &str) -> Result<ProbeResult, ProbeError> {
+            self.calls.lock().unwrap().push("probe");
+            MockMediaProbe::new().failing_on("/m/bad.mkv").probe(path).await
+        }
+    }
+
+    #[tokio::test]
+    async fn availability_is_saved_from_the_walk_before_the_first_probe() {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(library(&["/m"]));
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let reconciled = Reconciled::default();
+        let walker = MockSourceWalker::new().with_entries(
+            "/m",
+            vec![
+                WalkedEntry { path: "/m/good.mkv".into(), size_bytes: 1 },
+                WalkedEntry { path: "/m/bad.mkv".into(), size_bytes: 1 },
+            ],
+        );
+        let handler = LibraryScanHandler::new(
+            repo,
+            Scanner::new(walker, SpyProbe { calls: Arc::clone(&calls) }),
+            SpyEnricher { calls: Arc::clone(&calls), reconciled: Arc::clone(&reconciled) },
+        );
+
+        handler.handle(&scan_job("lib")).await.unwrap();
+
+        assert_eq!(
+            *calls.lock().unwrap(),
+            ["reconcile", "probe", "probe", "enrich"],
+            "versions came back only once every file was probed, so a large library stayed \
+             unavailable long after its storage returned"
+        );
+        assert_eq!(
+            *reconciled.lock().unwrap(),
+            [(vec!["/m/good.mkv".to_owned(), "/m/bad.mkv".to_owned()], Vec::new())],
+            "a file the probe cannot read still counts as on disk"
+        );
     }
 
     #[tokio::test]
@@ -281,7 +388,7 @@ mod tests {
         let handler = LibraryScanHandler::new(
             repo.clone(),
             Scanner::new(MockSourceWalker::new(), MockMediaProbe::new()),
-            SpyEnricher { calls: Arc::clone(&calls) },
+            SpyEnricher { calls: Arc::clone(&calls), reconciled: Reconciled::default() },
         );
         (calls, handler)
     }
@@ -294,7 +401,7 @@ mod tests {
 
         handler.handle(&scan_job("lib")).await.unwrap();
 
-        assert_eq!(*calls.lock().unwrap(), vec!["enrich"]);
+        assert_eq!(*calls.lock().unwrap(), vec!["reconcile", "enrich"]);
         let state = repo.scan_state(&LibraryId("lib".into())).await.unwrap().unwrap();
         assert_eq!(state.status, ScanStatus::Idle);
     }
@@ -307,7 +414,7 @@ mod tests {
 
         handler.handle(&reread_job()).await.unwrap();
 
-        assert_eq!(*calls.lock().unwrap(), vec!["reread", "enrich"]);
+        assert_eq!(*calls.lock().unwrap(), vec!["reconcile", "reread", "enrich"]);
     }
 
     #[tokio::test]
@@ -325,8 +432,9 @@ mod tests {
 
         assert_eq!(
             *seen.lock().unwrap(),
-            vec![Some(ScanStatus::Running); 2],
-            "re-reading and enrichment both write, so the scan is not over until both return"
+            vec![Some(ScanStatus::Running); 3],
+            "availability, re-reading and enrichment all write, so the scan is not over until \
+             they return"
         );
         let state = repo.scan_state(&LibraryId("lib".into())).await.unwrap().unwrap();
         assert_eq!(state.status, ScanStatus::Idle, "and it is only idle once that is done");

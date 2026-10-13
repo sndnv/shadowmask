@@ -162,6 +162,21 @@ void main() {
 
     expect(show.subtitle, '2008 · 4 seasons');
     expect(film.subtitle, '2010');
+    expect(film.caption, isNull);
+  });
+
+  test('a filmography card carries the caption it is given', () {
+    final CatalogCard film = CatalogCard.fromFilmography(
+      FilmographyEntry.fromJson(<String, dynamic>{
+        'title_id': 'm1',
+        'kind': 'movie',
+        'display_title': 'Alpha',
+        'role': 'actor',
+      }),
+      caption: 'Actor, Director',
+    );
+
+    expect(film.caption, 'Actor, Director');
   });
 
   test('a collection card counts its movies, and leaves out none', () {

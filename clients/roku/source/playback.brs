@@ -186,8 +186,13 @@ function DefaultCountdownSeconds() as integer
     return 10
 end function
 
+function AutoplayImmediatelyValue() as integer
+    return -1
+end function
+
 function CountdownOptions() as object
     return [
+        { value: AutoplayImmediatelyValue(), label: Phrase("player.autoplayImmediately") },
         { value: 5, label: PhraseWith("player.delaySeconds", { seconds: 5 }) },
         { value: 10, label: PhraseWith("player.delaySeconds", { seconds: 10 }) },
         { value: 15, label: PhraseWith("player.delaySeconds", { seconds: 15 }) },
@@ -205,6 +210,7 @@ end function
 function CountdownLabel(seconds as dynamic) as string
     wanted = DefaultCountdownSeconds()
     if seconds <> invalid then wanted = ClampedCountdownSeconds(Int(seconds))
+    if wanted = AutoplayImmediatelyValue() then return Phrase("player.autoplayImmediately")
 
     return PhraseWith("player.delaySeconds", { seconds: wanted })
 end function

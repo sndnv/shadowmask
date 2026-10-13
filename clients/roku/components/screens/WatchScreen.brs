@@ -1257,6 +1257,11 @@ end function
 function StartCountdown() as boolean
     if not ReadAutoplayNext() or m.nextTarget = invalid then return false
 
+    if CountdownSeconds() = AutoplayImmediatelyValue()
+        PlayNext()
+        return true
+    end if
+
     HideBar()
     m.remaining = CountdownSeconds()
     m.upNextTitle.text = UpNextLabel(m.nextTarget)

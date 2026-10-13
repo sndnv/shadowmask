@@ -115,7 +115,7 @@ pub async fn library_repository_contract<R: LibraryRepository>(repo: R) {
     assert_eq!(repo.list_unmatched(&id, page()).await.unwrap().total, 1);
 
     repo.reconcile_duplicates(&id, std::slice::from_ref(&dup_id)).await.unwrap();
-    repo.reconcile_unmatched(&id, &["/media/x.mkv".to_owned()]).await.unwrap();
+    repo.reconcile_unmatched(&id, &["/media/x.mkv".to_owned()], &[]).await.unwrap();
     assert_eq!(repo.list_unmatched(&id, page()).await.unwrap().total, 1);
     assert_eq!(repo.list_duplicates(&id, page()).await.unwrap().total, 1);
 
@@ -125,7 +125,18 @@ pub async fn library_repository_contract<R: LibraryRepository>(repo: R) {
         0,
         "a candidate the detector no longer emits is gone, not merely hidden"
     );
-    repo.reconcile_unmatched(&id, &[]).await.unwrap();
+    repo.set_unmatched_status(&unmatched_id, ResolutionStatus::Dismissed).await.unwrap();
+    repo.reconcile_unmatched(&id, &[], &["/media/".to_owned()]).await.unwrap();
+    assert!(
+        repo.get_unmatched(&unmatched_id).await.unwrap().is_some(),
+        "a file under a folder the scan could not reach is not gone"
+    );
+    assert!(
+        repo.list_unmatched(&id, page()).await.unwrap().items.is_empty(),
+        "and stays dismissed"
+    );
+
+    repo.reconcile_unmatched(&id, &[], &[]).await.unwrap();
     assert!(
         repo.get_unmatched(&unmatched_id).await.unwrap().is_none(),
         "a file that left the disk leaves no tombstone"
