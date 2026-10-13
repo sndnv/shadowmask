@@ -686,7 +686,7 @@ Used by:
 
 Used by:
 
-- [zopfli 0.8.3](https://github.com/zopfli-rs/zopfli)
+- [zopfli 0.8.4](https://github.com/zopfli-rs/zopfli)
 
 ````text
                                  Apache License
@@ -6177,7 +6177,7 @@ Used by:
 - [bitflags 1.3.2](https://github.com/bitflags/bitflags)
 - [bitflags 2.13.2](https://github.com/bitflags/bitflags)
 - [bumpalo 3.20.3](https://github.com/fitzgen/bumpalo)
-- [cc 1.7.0](https://github.com/rust-lang/cc-rs)
+- [cc 1.8.0](https://github.com/rust-lang/cc-rs)
 - [cfg-if 1.0.5](https://github.com/rust-lang/cfg-if)
 - [cmake 0.1.58](https://github.com/rust-lang/cmake-rs)
 - [core-foundation-sys 0.8.7](https://github.com/servo/core-foundation-rs)
@@ -6250,7 +6250,7 @@ Used by:
 - [regex-syntax 0.8.11](https://github.com/rust-lang/regex)
 - [regex 1.13.1](https://github.com/rust-lang/regex)
 - [rustix 1.1.5](https://github.com/bytecodealliance/rustix)
-- [rustls-native-certs 0.8.4](https://github.com/rustls/rustls-native-certs)
+- [rustls-native-certs 0.8.5](https://github.com/rustls/rustls-native-certs)
 - [rustls 0.23.45](https://github.com/rustls/rustls)
 - [scopeguard 1.2.0](https://github.com/bluss/scopeguard)
 - [security-framework-sys 2.17.0](https://github.com/kornelski/rust-security-framework)
@@ -6916,7 +6916,7 @@ Used by:
 - [password-hash 0.6.1](https://github.com/RustCrypto/traits)
 - [phc 0.6.1](https://github.com/RustCrypto/formats)
 - [sha2 0.10.9](https://github.com/RustCrypto/hashes)
-- [sha2 0.11.0](https://github.com/RustCrypto/hashes)
+- [sha2 0.11.1](https://github.com/RustCrypto/hashes)
 - [signature 2.2.0](https://github.com/RustCrypto/traits/tree/master/signature)
 
 ````text
@@ -9275,11 +9275,11 @@ Used by:
 
 - [allocator-api2 0.2.21](https://github.com/zakarumych/allocator-api2)
 - [anyhow 1.0.104](https://github.com/dtolnay/anyhow)
-- [aws-lc-sys 0.45.0](https://github.com/aws/aws-lc-rs)
-- [cxx-build 1.0.204](https://github.com/dtolnay/cxx)
-- [cxx 1.0.204](https://github.com/dtolnay/cxx)
-- [cxxbridge-flags 1.0.204](https://github.com/dtolnay/cxx)
-- [cxxbridge-macro 1.0.204](https://github.com/dtolnay/cxx)
+- [aws-lc-sys 0.46.0](https://github.com/aws/aws-lc-rs)
+- [cxx-build 1.0.205](https://github.com/dtolnay/cxx)
+- [cxx 1.0.205](https://github.com/dtolnay/cxx)
+- [cxxbridge-flags 1.0.205](https://github.com/dtolnay/cxx)
+- [cxxbridge-macro 1.0.205](https://github.com/dtolnay/cxx)
 - [dary_heap 0.3.9](https://github.com/hanmertens/dary_heap)
 - [dunce 1.0.5](https://gitlab.com/kornelski/dunce)
 - [fdeflate 0.3.7](https://github.com/image-rs/fdeflate)
@@ -9319,7 +9319,7 @@ Used by:
 - [serde 1.0.229](https://github.com/serde-rs/serde)
 - [serde_core 1.0.229](https://github.com/serde-rs/serde)
 - [serde_derive 1.0.229](https://github.com/serde-rs/serde)
-- [serde_json 1.0.152](https://github.com/serde-rs/json)
+- [serde_json 1.0.154](https://github.com/serde-rs/json)
 - [serde_path_to_error 0.1.20](https://github.com/dtolnay/path-to-error)
 - [serde_urlencoded 0.7.1](https://github.com/nox/serde_urlencoded)
 - [shlex 2.0.1](https://github.com/comex/rust-shlex)
@@ -9328,14 +9328,14 @@ Used by:
 - [sqlx-macros 0.9.0](https://github.com/launchbadge/sqlx)
 - [sqlx-sqlite 0.9.0](https://github.com/launchbadge/sqlx)
 - [syn 2.0.119](https://github.com/dtolnay/syn)
-- [syn 3.0.7](https://github.com/dtolnay/syn)
+- [syn 3.0.9](https://github.com/dtolnay/syn)
 - [sync_wrapper 1.0.2](https://github.com/Actyx/sync_wrapper)
 - [thiserror-impl 1.0.69](https://github.com/dtolnay/thiserror)
 - [thiserror-impl 2.0.21](https://github.com/dtolnay/thiserror)
 - [thiserror 1.0.69](https://github.com/dtolnay/thiserror)
 - [thiserror 2.0.21](https://github.com/dtolnay/thiserror)
 - [uncased 0.9.10](https://github.com/SergioBenitez/uncased)
-- [unicode-ident 1.0.26](https://github.com/dtolnay/unicode-ident)
+- [unicode-ident 1.0.27](https://github.com/dtolnay/unicode-ident)
 - [utf8parse 0.2.2](https://github.com/alacritty/vte)
 - [zune-inflate 0.2.54](https://crates.io/crates/zune-inflate)
 
@@ -9527,7 +9527,7 @@ USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 Used by:
 
-- [aws-lc-sys 0.45.0](https://github.com/aws/aws-lc-rs)
+- [aws-lc-sys 0.46.0](https://github.com/aws/aws-lc-rs)
 - [exr 1.74.2](https://github.com/johannesvollmer/exrs)
 - [sha1_smol 1.0.1](https://github.com/mitsuhiko/sha1-smol)
 
@@ -9688,8 +9688,8 @@ third-party/chromium/LICENSE.
 
 Used by:
 
-- [aws-lc-rs 1.18.1](https://github.com/aws/aws-lc-rs)
-- [aws-lc-sys 0.45.0](https://github.com/aws/aws-lc-rs)
+- [aws-lc-rs 1.18.2](https://github.com/aws/aws-lc-rs)
+- [aws-lc-sys 0.46.0](https://github.com/aws/aws-lc-rs)
 
 ````text
 ISC License:
@@ -11497,7 +11497,7 @@ SOFTWARE.
 
 Used by:
 
-- [aws-lc-sys 0.45.0](https://github.com/aws/aws-lc-rs)
+- [aws-lc-sys 0.46.0](https://github.com/aws/aws-lc-rs)
 
 ````text
 The MIT License (MIT)
@@ -11739,7 +11739,7 @@ and users must comply to its license: https://github.com/fmtlib/fmt/blob/master/
 ## Unicode License v3
 Used by:
 
-- [unicode-ident 1.0.26](https://github.com/dtolnay/unicode-ident)
+- [unicode-ident 1.0.27](https://github.com/dtolnay/unicode-ident)
 
 ````text
 UNICODE LICENSE V3

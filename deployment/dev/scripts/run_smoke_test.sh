@@ -135,10 +135,20 @@ scan_idle() {
     [[ "$(jq -r '.status' <<<"$s" 2>/dev/null)" == idle ]]
 }
 
+scan_offline() {
+    local s; s=$(_body GET "$API/libraries/$1/scan" "$2") || return 1
+    [[ "$(jq -r '.error // empty' <<<"$s" 2>/dev/null)" == "Offline, versions left as they were: "* ]]
+}
+
 total_at_least() {
     local t; t=$(_body GET "$1" "$2") || return 1
     t=$(jq -r '.total' <<<"$t" 2>/dev/null) || return 1
     [[ "$t" =~ ^[0-9]+$ ]] && (( t >= $3 ))
+}
+
+prep_idle() {
+    local b; b=$(_body GET "$API/admin/jobs?state=active&filter=playback_prep&limit=1" "$1") || return 1
+    [[ "$(jq -r '.total' <<<"$b" 2>/dev/null)" == 0 ]]
 }
 
 total_of() {
@@ -161,13 +171,15 @@ ts_to_ms() {
 }
 
 offset_applied() {
-    local url="$1" want="$2" body ns om
+    local url="$1" want="$2" body ns om map stream_ms=0
     body=$(curl -sS "$url") || return 1
     grep -q ' --> ' <<<"$body" || return 1
     ns=$(grep -m1 ' --> ' <<<"$body" | sed -E 's/ *--> .*//' | tr -d '[:space:]')
     om=$(grep -m1 -oE 'ORIG=[0-9]+' <<<"$body" | cut -d= -f2)
+    map=$(grep -m1 -oE 'LOCAL:[0-9:.]+' <<<"$body" | cut -d: -f2-)
+    [[ -n "$map" ]] && stream_ms=$(ts_to_ms "$map")
     [[ -n "$ns" && -n "$om" ]] || return 1
-    (( $(ts_to_ms "$ns") == om + want ))
+    (( $(ts_to_ms "$ns") - stream_ms == om + want ))
 }
 
 subtitle_of_source() {
@@ -399,6 +411,7 @@ poll_until "movies rescan idle" 90 scan_idle "$MOVIE_LIB" "$ADMIN_TOKEN"
 poll_until "tv rescan idle" 90 scan_idle "$TV_LIB" "$ADMIN_TOKEN"
 poll_until "movie catalog row appears" 90 total_at_least "$API/movies" "$ADMIN_TOKEN" 1
 poll_until "series catalog row appears" 90 total_at_least "$API/series" "$ADMIN_TOKEN" 1
+poll_until "playback prep done" 120 prep_idle "$ADMIN_TOKEN"
 
 section "catalog + search (as [$TEST_USER])"
 mv=$(call_ok GET "$API/movies?limit=200" "$USER_TOKEN")
@@ -660,21 +673,22 @@ sp=$(call_ok POST "$API/sessions" "$ADMIN_TOKEN" \
 expect_code 204 DELETE "$API/sessions/$(jq -r '.session_id' <<<"$sp")" "$ADMIN_TOKEN"
 ok "surviving mp4 version still playable"
 
-step "full removal: delete all remaining media"
+step "full removal: an emptied root is offline, its versions left as they were"
 reset_media
 ok "removed all remaining fixture media (root dirs kept)"
 trigger_scan "$MOVIE_LIB" "$ADMIN_TOKEN"
 trigger_scan "$TV_LIB" "$ADMIN_TOKEN"
 poll_until "movies rescan idle (full removal)" 90 scan_idle "$MOVIE_LIB" "$ADMIN_TOKEN"
 poll_until "tv rescan idle (full removal)" 90 scan_idle "$TV_LIB" "$ADMIN_TOKEN"
-poll_until "mp4 version marked unavailable" 30 version_unavailable "$MP4_VER" "$ADMIN_TOKEN"
+poll_until "emptied movies root reported offline" 30 scan_offline "$MOVIE_LIB" "$ADMIN_TOKEN"
+poll_until "emptied tv root reported offline" 30 scan_offline "$TV_LIB" "$ADMIN_TOKEN"
+mp4d=$(_body GET "$API/versions/$MP4_VER" "$ADMIN_TOKEN")
+[[ "$(jq -r '.available' <<<"$mp4d")" == true ]] \
+    || die "mp4 version under an emptied (offline) root was marked unavailable"
 [[ "$(total_of "$API/movies" "$ADMIN_TOKEN")" == "$movies_before" ]] \
     || die "movie title vanished after full removal (titles must be preserved)"
 [[ "$(total_of "$API/series" "$ADMIN_TOKEN")" == "$series_before" ]] \
     || die "series title vanished after full removal (titles must be preserved)"
-ok "all titles still listed after full removal; all versions unavailable"
-expect_code 404 POST "$API/sessions" "$ADMIN_TOKEN" \
-    "$(jq -nc --arg v "$MP4_VER" '{version_id:$v,capabilities:{platform:"generic",profile_version:1}}')"
-ok "playback of a removed version -> 404"
+ok "all titles still listed after full removal; versions under the offline roots still available"
 
 log "ALL CHECKS PASSED"

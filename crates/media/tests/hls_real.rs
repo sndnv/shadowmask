@@ -369,16 +369,18 @@ async fn a_resumed_transcode_starts_on_the_grid_boundary_before_the_seek() {
 async fn a_resumed_copy_starts_on_its_keyframe_in_either_container() {
     let dir = tempfile::tempdir().expect("tempdir");
     let clip = clip(dir.path(), "copy.mkv", 20, "0", &["-g", "48"]).await;
+    let origin_us = clip.keyframes_us.iter().copied().filter(|k| *k <= 9_000_000).max();
+    let origin_ms = origin_us.expect("a keyframe before the seek") / 1_000;
     for container in [SegmentContainer::MpegTs, SegmentContainer::Fmp4] {
         let cache = tempfile::tempdir().expect("tempdir");
 
         let (engine, started, variant) =
             run_to_the_end(cache.path(), spec(&clip, true, container, 9_000)).await;
 
-        assert_eq!(started.origin_ms, 8_008, "the keyframe at or before the seek");
+        assert_eq!(started.origin_ms, origin_ms, "the keyframe at or before the seek");
         assert_cut_as_planned(&variant, 0.002);
         assert_every_segment_served(&engine, &variant).await;
-        assert_every_frame_once_from(&clip, &variant, 8_008, FRAME_TOLERANCE_S);
+        assert_every_frame_once_from(&clip, &variant, origin_ms, FRAME_TOLERANCE_S);
     }
 }
 
