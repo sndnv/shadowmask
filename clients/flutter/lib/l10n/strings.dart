@@ -272,6 +272,32 @@ abstract final class Strings {
   static const String resumeAction = 'Resume';
   static const String chooseVersion = 'Choose a version';
   static String resume(int percent) => 'Resume at $percent%';
+  static const String playOn = 'Play on…';
+  static String playOnPlaying(String name) => 'Playing on $name.';
+  static String playOnUnreachable(String name) => 'Could not reach $name.';
+  static String playOnRefused(String name) => '$name refused the request.';
+  static const String playOnHeading = 'Play from other devices';
+  static const String playOnAllow =
+      'Allow other devices to start playback here';
+  static const String playOnAllowHelp =
+      'Other devices on this network can start a title here while the app is '
+      'open.';
+  static String playOnListening(List<String> addresses, int port) =>
+      'Listening on ${addresses.join(', ')}, port $port.';
+  static const String playOnNoNetwork = 'No local network address was found.';
+  static String playOnBindFailed(int? port) => port == null
+      ? 'Could not start listening.'
+      : 'Could not start listening on port $port.';
+  static const String playOnReportFailed =
+      'Could not tell the server where to find this device.';
+  static const String playOnPort = 'Port';
+  static const String playOnPortAutomatic = 'Automatic';
+  static const String playOnPortHelp =
+      'Leave empty to use any free port. Set one only if your network needs it.';
+  static const String playOnPortInvalid =
+      'Use a port from 1024 to 65535, or leave it empty.';
+  static const String playOnCommandRefused =
+      'Could not start playback sent from another device.';
   static const String ccNone = 'None';
   static const String fullVersionDetails = 'Full version details';
   static const String subtitlesNone = 'No subtitles';

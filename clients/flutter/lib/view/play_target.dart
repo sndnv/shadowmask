@@ -1,5 +1,18 @@
 import 'package:shadowmask/model/catalog/version.dart';
 
+typedef PlayChoice = ({List<Version> ordered, Version? target});
+
+PlayChoice playChoice(
+  List<Version> ordered,
+  Set<String> inProgressVersionIds,
+) => (
+  ordered: ordered,
+  target: resolvePlayTarget(
+    ordered.where((Version v) => v.available).toList(),
+    inProgressVersionIds,
+  ),
+);
+
 Version? resolvePlayTarget(
   List<Version> available,
   Set<String> inProgressVersionIds,

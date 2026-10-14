@@ -1,6 +1,6 @@
 use jiff::Timestamp;
 
-use crate::user::UserId;
+use crate::user::{DeviceTarget, UserId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DeviceId(pub String);
@@ -13,4 +13,5 @@ pub struct Device {
     pub platform: String,
     pub created_at: Timestamp,
     pub last_seen: Option<Timestamp>,
+    pub target: Option<DeviceTarget>,
 }

@@ -354,6 +354,19 @@ function ServerInfoRequest(base as string, token as string) as object
     return BuildRequest(base, "/server/info", "GET", invalid, token)
 end function
 
+function EcpPort() as integer
+    return 8060
+end function
+
+function TargetReportRequest(base as string, token as string, addresses as object, appId as string) as object
+    body = { kind: "roku", addresses: addresses, port: EcpPort(), app_id: appId }
+    return BuildRequest(base, "/devices/self/target", "PUT", body, token)
+end function
+
+function RedeemCommandRequest(base as string, token as string, command as string) as object
+    return BuildRequest(base, "/devices/self/commands/redeem", "POST", { token: command }, token)
+end function
+
 function PersonalListDef(kind as dynamic) as object
     name = LCase(TextOrBlank(kind))
 

@@ -206,11 +206,21 @@ mod tests {
     const PAGE: PageRequest = PageRequest { offset: 0, limit: 50 };
 
     fn admin() -> Principal {
-        Principal { user: UserId("admin".into()), role: Role::Admin, account_admin: true }
+        Principal {
+            user: UserId("admin".into()),
+            role: Role::Admin,
+            account_admin: true,
+            device: None,
+        }
     }
 
     fn member() -> Principal {
-        Principal { user: UserId("u1".into()), role: Role::User, account_admin: false }
+        Principal {
+            user: UserId("u1".into()),
+            role: Role::User,
+            account_admin: false,
+            device: None,
+        }
     }
 
     fn job_with(id: &str, kind: JobKind, status: JobStatus) -> Job {
@@ -633,6 +643,7 @@ mod tests {
             user: UserId("admin".into()),
             role: Role::Player,
             account_admin,
+            device: None,
         };
 
         assert!(svc().version_jobs(&device(true), &v1).await.unwrap().is_empty());

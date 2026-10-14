@@ -8,6 +8,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/play_button.dart';
+import 'package:shadowmask/components/play_on_button.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/model/common/quality.dart';
@@ -17,6 +18,8 @@ import 'package:shadowmask/theme/radii.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/view/play_target.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../support/play_on.dart';
 
 Version _version(String id, {bool available = true}) => Version(
   id: id,
@@ -65,10 +68,15 @@ Future<_Pushes> _pump(
   List<String> inProgress = const <String>[],
   bool dismissible = false,
   List<String>? cleared,
+  PlayOnServer? server,
 }) async {
   final ApiClient api = ApiClient(
     baseUrl: 'http://test',
     httpClient: MockClient((http.Request req) async {
+      final http.Response? playOn = server?.answer(req);
+      if (playOn != null) {
+        return playOn;
+      }
       if (req.method == 'DELETE' && req.url.path.contains('/progress/')) {
         cleared?.add(req.url.pathSegments.last);
         return http.Response('', 204);
@@ -102,6 +110,7 @@ Future<_Pushes> _pump(
                   userId: 'u1',
                   versions: versions,
                   playback: dismissible ? PlaybackApi(api) : null,
+                  playOn: server?.api(api),
                 )
               : const SizedBox.shrink(),
         ),
@@ -372,5 +381,104 @@ void main() {
       findsOne,
     );
     expect(find.text('3 · FHD · mkv', findRichText: true), findsOne);
+  });
+
+  group('Play on', () {
+    testWidgets('a device that can play puts Play on after Play', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, <Version>[_version('v1')], server: PlayOnServer());
+
+      expect(find.byType(PlayOnButton), findsOneWidget);
+      expect(
+        tester.getRect(find.byType(PlayOnButton)).left,
+        greaterThanOrEqualTo(tester.getRect(find.text(Strings.play)).right),
+      );
+    });
+
+    testWidgets('no device that can play leaves Play alone', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, <Version>[
+        _version('v1'),
+      ], server: PlayOnServer(devices: const []));
+
+      expect(find.byType(PlayOnButton), findsNothing);
+    });
+
+    testWidgets('a device list that fails leaves Play alone', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, <Version>[
+        _version('v1'),
+      ], server: PlayOnServer(devicesStatus: 500));
+
+      expect(find.byType(PlayOnButton), findsNothing);
+    });
+
+    testWidgets('nothing playable offers no Play on', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, <Version>[
+        _version('v1', available: false),
+      ], server: PlayOnServer());
+
+      expect(find.byType(PlayOnButton), findsNothing);
+    });
+
+    testWidgets('Play on sends the version Play would resume', (
+      WidgetTester tester,
+    ) async {
+      final PlayOnServer server = PlayOnServer();
+      await _pump(
+        tester,
+        <Version>[_version('v1'), _version('v2')],
+        inProgress: <String>['v2'],
+        server: server,
+      );
+
+      await tester.tap(find.byIcon(Icons.devices));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SubmenuButton), findsNothing);
+
+      await tester.tap(find.text('Pixel'));
+      await tester.pumpAndSettle();
+
+      expect(server.mints, <Mint>[(device: 'd2', version: 'v2')]);
+    });
+
+    testWidgets('Play on asks for the version when Play would', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, <Version>[
+        _version('v1'),
+        _version('v2'),
+      ], server: PlayOnServer());
+
+      await tester.tap(find.byIcon(Icons.devices));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SubmenuButton), findsNWidgets(2));
+    });
+
+    testWidgets('Resume, its dismiss and Play on share one row', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        <Version>[_version('v1')],
+        inProgress: <String>['v1'],
+        dismissible: true,
+        server: PlayOnServer(),
+      );
+
+      expect(_resume(), findsOneWidget);
+      expect(_dismiss(), findsOneWidget);
+      expect(
+        tester.getRect(find.byType(PlayOnButton)).left,
+        greaterThanOrEqualTo(tester.getRect(_dismiss()).right),
+      );
+    });
   });
 }

@@ -4,7 +4,7 @@ use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use domain::user::{Principal, Role};
+use domain::user::{DeviceId, Principal, Role};
 use services::acl;
 
 use crate::error::ApiError;
@@ -102,6 +102,24 @@ where
     }
 }
 
+#[derive(Debug)]
+pub struct RequireDevice(pub Principal, pub DeviceId);
+
+impl<S> FromRequestParts<S> for RequireDevice
+where
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let principal = AuthUser::from_request_parts(parts, state).await?.0;
+        match principal.device.clone() {
+            Some(device) => Ok(RequireDevice(principal, device)),
+            None => Err(ApiError::forbidden("a linked device's API token required")),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,7 +136,35 @@ mod tests {
     }
 
     fn principal(role: Role) -> Principal {
-        Principal { user: UserId("u1".into()), role, account_admin: role == Role::Admin }
+        Principal {
+            user: UserId("u1".into()),
+            role,
+            account_admin: role == Role::Admin,
+            device: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_device_route_takes_only_a_linked_device() {
+        let roku = DeviceId("roku-1".into());
+        let device = Principal { device: Some(roku.clone()), ..principal(Role::Player) };
+        let mut parts = parts_with(Some(device));
+        let RequireDevice(signed_in, id) = RequireDevice::from_request_parts(&mut parts, &())
+            .await
+            .map_err(|_| "refused")
+            .unwrap();
+        assert_eq!(signed_in.user, UserId("u1".into()));
+        assert_eq!(id, roku);
+
+        for refused in [principal(Role::Admin), principal(Role::User)] {
+            let mut parts = parts_with(Some(refused));
+            let forbidden = RequireDevice::from_request_parts(&mut parts, &()).await.unwrap_err();
+            assert_eq!(forbidden.into_response().status(), StatusCode::FORBIDDEN);
+        }
+
+        let mut parts = parts_with(None);
+        let unauthorized = RequireDevice::from_request_parts(&mut parts, &()).await.unwrap_err();
+        assert_eq!(unauthorized.into_response().status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]

@@ -142,6 +142,23 @@ impl<S: Clone, C, D> Clone for DownloadState<S, C, D> {
     }
 }
 
+pub struct PlayOnState<S, T> {
+    pub services: S,
+    pub tokens: Arc<T>,
+}
+
+impl<S, T> PlayOnState<S, T> {
+    pub fn new(services: S, tokens: T) -> Self {
+        Self { services, tokens: Arc::new(tokens) }
+    }
+}
+
+impl<S: Clone, T> Clone for PlayOnState<S, T> {
+    fn clone(&self) -> Self {
+        Self { services: self.services.clone(), tokens: Arc::clone(&self.tokens) }
+    }
+}
+
 pub struct SubtitleState<C, S> {
     pub catalog: Arc<C>,
     pub subtitles: Arc<S>,

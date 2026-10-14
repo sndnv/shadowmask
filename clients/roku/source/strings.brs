@@ -127,6 +127,7 @@ function BuildStringTable() as object
         "error.couldNotLoadVersions": "Could not load the versions.",
         "error.couldNotLoadMore": "Could not load more.",
         "error.couldNotPickRandom": "Nothing here could be picked to play.",
+        "error.playOnRefused": "Could not start playback sent from another device.",
         "error.screenMissing": "{screen} is not available in this build.",
         "error.serverAddressInvalid": "That does not look like a server address.",
         "error.serverAddressUnanswered": "Nothing answered at that address.",

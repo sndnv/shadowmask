@@ -5,7 +5,7 @@ use domain::repository::{AuthTokenRepository, UserRepository};
 use domain::service::AuthService;
 use domain::user::{
     ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, DeviceRegistration,
-    IssuedToken, PendingLink, Principal, Role, TokenPair, User, UserId,
+    DeviceTarget, IssuedToken, PendingLink, Principal, Role, TokenPair, User, UserId,
 };
 use jiff::Timestamp;
 use jsonwebtoken::errors::ErrorKind;
@@ -265,6 +265,7 @@ where
             platform: device.platform,
             created_at: now,
             last_seen: Some(now),
+            target: None,
         };
         self.tokens.upsert_device(device.clone()).await?;
         let token = format!("{API_TOKEN_PREFIX}{}", Uuid::new_v4().simple());
@@ -294,6 +295,7 @@ where
                 user: token.user,
                 role: Role::Player,
                 account_admin: account.role == Role::Admin,
+                device: Some(token.device),
             });
         }
         let claims = self.decode(access_token, TYP_ACCESS)?;
@@ -303,6 +305,7 @@ where
             user,
             role: role_from_claim(&claims.rol)?,
             account_admin: account.role == Role::Admin,
+            device: None,
         })
     }
 
@@ -375,6 +378,28 @@ where
             return Err(AuthError::NotFound);
         }
         self.tokens.revoke_api_token(token).await?;
+        Ok(())
+    }
+
+    async fn owned_device(&self, user: &UserId, device: &DeviceId) -> Result<Device, AuthError> {
+        self.tokens
+            .get_device(device)
+            .await?
+            .filter(|candidate| &candidate.user == user)
+            .ok_or(AuthError::NotFound)
+    }
+
+    async fn report_target(
+        &self,
+        device: &DeviceId,
+        target: DeviceTarget,
+    ) -> Result<(), AuthError> {
+        self.tokens.put_device_target(device, &target).await?;
+        Ok(())
+    }
+
+    async fn clear_target(&self, device: &DeviceId) -> Result<(), AuthError> {
+        self.tokens.delete_device_target(device).await?;
         Ok(())
     }
 }
@@ -463,7 +488,12 @@ mod tests {
         let pair = svc.login("alice", "pw").await.unwrap();
         let link = svc
             .create_link_code(
-                &Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true },
+                &Principal {
+                    user: UserId("u1".into()),
+                    role: Role::Admin,
+                    account_admin: true,
+                    device: None,
+                },
                 None,
                 None,
             )
@@ -492,7 +522,12 @@ mod tests {
         let svc = seeded().await;
         let link = svc
             .create_link_code(
-                &Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true },
+                &Principal {
+                    user: UserId("u1".into()),
+                    role: Role::Admin,
+                    account_admin: true,
+                    device: None,
+                },
                 None,
                 None,
             )
@@ -530,7 +565,12 @@ mod tests {
         let svc = seeded().await;
         let link = svc
             .create_link_code(
-                &Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true },
+                &Principal {
+                    user: UserId("u1".into()),
+                    role: Role::Admin,
+                    account_admin: true,
+                    device: None,
+                },
                 None,
                 None,
             )
@@ -704,8 +744,12 @@ mod tests {
     #[tokio::test]
     async fn create_link_code_defaults_to_caller_then_redeems() {
         let svc = seeded().await;
-        let caller =
-            Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true };
+        let caller = Principal {
+            user: UserId("u1".into()),
+            role: Role::Admin,
+            account_admin: true,
+            device: None,
+        };
         let link = svc.create_link_code(&caller, None, None).await.unwrap();
         assert_eq!(link.user, UserId("u1".into()));
         assert_eq!(link.role, Role::Player);
@@ -719,8 +763,12 @@ mod tests {
     #[tokio::test]
     async fn create_link_code_honors_explicit_user_and_ttl() {
         let svc = seeded().await;
-        let caller =
-            Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true };
+        let caller = Principal {
+            user: UserId("u1".into()),
+            role: Role::Admin,
+            account_admin: true,
+            device: None,
+        };
         let before = Timestamp::now().as_second();
         let link =
             svc.create_link_code(&caller, Some(UserId("u2".into())), Some(60)).await.unwrap();
@@ -731,8 +779,12 @@ mod tests {
     #[tokio::test]
     async fn create_link_code_rejects_out_of_range_ttl() {
         let svc = seeded().await;
-        let caller =
-            Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true };
+        let caller = Principal {
+            user: UserId("u1".into()),
+            role: Role::Admin,
+            account_admin: true,
+            device: None,
+        };
         assert!(matches!(
             svc.create_link_code(&caller, None, Some(300_000_000_000)).await.unwrap_err(),
             AuthError::Repository(_)
@@ -759,8 +811,12 @@ mod tests {
     #[tokio::test]
     async fn redeem_tolerates_separators_and_case() {
         let svc = seeded().await;
-        let caller =
-            Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true };
+        let caller = Principal {
+            user: UserId("u1".into()),
+            role: Role::Admin,
+            account_admin: true,
+            device: None,
+        };
         let link = svc.create_link_code(&caller, None, None).await.unwrap();
         let typed = format!("{}-{}", &link.code[..4], link.code[4..].to_lowercase());
         let issued = svc.redeem_link_code(&typed, device()).await.unwrap();
@@ -770,8 +826,12 @@ mod tests {
     #[tokio::test]
     async fn list_and_revoke_link_codes() {
         let svc = seeded().await;
-        let caller =
-            Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true };
+        let caller = Principal {
+            user: UserId("u1".into()),
+            role: Role::Admin,
+            account_admin: true,
+            device: None,
+        };
         let a = svc.create_link_code(&caller, None, None).await.unwrap();
         let b = svc.create_link_code(&caller, None, None).await.unwrap();
         assert_eq!(svc.list_link_codes(&UserId("u1".into())).await.unwrap().len(), 2);
@@ -869,15 +929,20 @@ mod tests {
         let svc = seeded().await;
         let pair = svc.login("alice", "pw").await.unwrap();
         let issued = {
-            let boss =
-                Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true };
+            let boss = Principal {
+                user: UserId("u1".into()),
+                role: Role::Admin,
+                account_admin: true,
+                device: None,
+            };
             let link = svc.create_link_code(&boss, None, None).await.unwrap();
             svc.redeem_link_code(&link.code, device()).await.unwrap()
         };
         svc.tokens.set_fail();
 
         let user = UserId("u1".into());
-        let boss = Principal { user: user.clone(), role: Role::Admin, account_admin: true };
+        let boss =
+            Principal { user: user.clone(), role: Role::Admin, account_admin: true, device: None };
 
         macro_rules! is_repository_error {
             ($call:expr) => {
@@ -896,6 +961,9 @@ mod tests {
         is_repository_error!(svc.list_api_tokens(&user));
         is_repository_error!(svc.revoke_device(&user, &DeviceId("d1".into())));
         is_repository_error!(svc.revoke_api_token(&user, &ApiTokenId("t1".into())));
+        is_repository_error!(svc.owned_device(&user, &DeviceId("d1".into())));
+        is_repository_error!(svc.report_target(&DeviceId("d1".into()), target()));
+        is_repository_error!(svc.clear_target(&DeviceId("d1".into())));
     }
 
     // The account lookup is a separate store from the credentials, and its failure
@@ -908,7 +976,12 @@ mod tests {
         // reaches the account lookup this test is about.
         let link = svc
             .create_link_code(
-                &Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true },
+                &Principal {
+                    user: UserId("u1".into()),
+                    role: Role::Admin,
+                    account_admin: true,
+                    device: None,
+                },
                 None,
                 None,
             )
@@ -938,6 +1011,7 @@ mod tests {
             platform: "roku".into(),
             created_at: Timestamp::UNIX_EPOCH,
             last_seen: None,
+            target: None,
         }
     }
 
@@ -1004,6 +1078,65 @@ mod tests {
             1,
             "another user's device must survive a revoke aimed at it"
         );
+    }
+
+    fn target() -> DeviceTarget {
+        DeviceTarget::new(
+            "roku",
+            &["192.168.1.40".to_owned()],
+            8060,
+            Some("dev".into()),
+            Timestamp::UNIX_EPOCH,
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn only_an_api_token_login_names_its_device() {
+        let svc = seeded().await;
+        let pair = svc.login("alice", "pw").await.unwrap();
+        assert_eq!(svc.authenticate(&pair.access_token).await.unwrap().device, None);
+
+        let boss = Principal {
+            user: UserId("u1".into()),
+            role: Role::Admin,
+            account_admin: true,
+            device: None,
+        };
+        let link = svc.create_link_code(&boss, None, None).await.unwrap();
+        let issued = svc.redeem_link_code(&link.code, device()).await.unwrap();
+        assert_eq!(svc.authenticate(&issued.token).await.unwrap().device, Some(issued.device));
+    }
+
+    #[tokio::test]
+    async fn a_device_reports_and_clears_its_target() {
+        let svc = seeded().await;
+        let user = UserId("u1".into());
+        let id = DeviceId("d1".into());
+        svc.tokens.upsert_device(stored_device("d1", "u1")).await.unwrap();
+        assert_eq!(svc.owned_device(&user, &id).await.unwrap().target, None);
+
+        svc.report_target(&id, target()).await.unwrap();
+        assert_eq!(svc.owned_device(&user, &id).await.unwrap().target, Some(target()));
+        assert_eq!(svc.list_devices(&user).await.unwrap()[0].target, Some(target()));
+
+        svc.clear_target(&id).await.unwrap();
+        assert_eq!(svc.owned_device(&user, &id).await.unwrap().target, None);
+    }
+
+    #[tokio::test]
+    async fn owned_device_hides_another_users_device_and_a_missing_one() {
+        let svc = seeded().await;
+        svc.tokens.upsert_device(stored_device("foreign", "u2")).await.unwrap();
+        let user = UserId("u1".into());
+        assert!(matches!(
+            svc.owned_device(&user, &DeviceId("foreign".into())).await.unwrap_err(),
+            AuthError::NotFound
+        ));
+        assert!(matches!(
+            svc.owned_device(&user, &DeviceId("ghost".into())).await.unwrap_err(),
+            AuthError::NotFound
+        ));
     }
 
     #[tokio::test]

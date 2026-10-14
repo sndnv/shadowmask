@@ -1,4 +1,4 @@
-sub Main()
+sub Main(args as dynamic)
     screen = CreateObject("roSGScreen")
     port = CreateObject("roMessagePort")
     screen.SetMessagePort(port)
@@ -9,9 +9,13 @@ sub Main()
         device.EnableLowGeneralMemoryEvent(true)
     end if
 
+    input = CreateObject("roInput")
+    if input <> invalid then input.SetMessagePort(port)
+
     screen.CreateScene("MainScene")
     shared = screen.GetGlobalNode()
     screen.Show()
+    PassDeepLink(shared, args)
 
     while true
         message = wait(0, port)
@@ -22,7 +26,16 @@ sub Main()
             return
         end if
         if kind = "roDeviceInfoEvent" then NoteLowMemory(shared)
+        if kind = "roInputEvent" and message.IsInput() then PassDeepLink(shared, message.GetInfo())
     end while
+end sub
+
+sub PassDeepLink(shared as dynamic, info as dynamic)
+    if shared = invalid then return
+    if not shared.HasField("deepLink") then return
+    if IsBlank(DeepLinkCommand(info)) then return
+
+    shared.deepLink = info
 end sub
 
 sub EndSessionOnExit(shared as dynamic)

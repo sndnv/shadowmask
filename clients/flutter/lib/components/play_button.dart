@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/catalog_api.dart';
+import 'package:shadowmask/api/play_on_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/action_segments.dart';
+import 'package:shadowmask/components/play_on_button.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/version_menu.dart';
 import 'package:shadowmask/l10n/strings.dart';
@@ -24,6 +26,7 @@ class PlayButton extends StatefulWidget {
     this.resumable,
     this.playback,
     this.onProgressCleared,
+    this.playOn,
   });
 
   final CatalogApi catalog;
@@ -32,12 +35,14 @@ class PlayButton extends StatefulWidget {
   final Map<String, int>? resumable;
   final PlaybackApi? playback;
   final VoidCallback? onProgressCleared;
+  final PlayOnApi? playOn;
 
   @override
   State<PlayButton> createState() => _PlayButtonState();
 }
 
-class _PlayButtonState extends State<PlayButton> {
+class _PlayButtonState extends State<PlayButton>
+    with PlayOnTargets<PlayButton> {
   static const ButtonStyle _style = kActionButtonStyle;
 
   final MenuController _menu = MenuController();
@@ -55,6 +60,7 @@ class _PlayButtonState extends State<PlayButton> {
   void initState() {
     super.initState();
     _load();
+    loadPlayOnTargets(widget.playOn, widget.userId);
   }
 
   @override
@@ -104,6 +110,14 @@ class _PlayButtonState extends State<PlayButton> {
   }
 
   void _play(Version v) => Navigator.of(context).pushNamed(watchRoute(v.id));
+
+  Future<PlayChoice?> _choice() async {
+    final Future<Map<String, int>>? pending = _pending;
+    final Map<String, int> found = pending == null
+        ? _inProgress
+        : await pending;
+    return playChoice(_ordered, found.keys.toSet());
+  }
 
   void _act(Map<String, int> inProgress) {
     final Version? target = resolvePlayTarget(
@@ -178,12 +192,20 @@ class _PlayButtonState extends State<PlayButton> {
     final _Resume? resume = _resume;
     final bool paired = resume != null && widget.playback != null;
     final Widget play = _playControl(resume, paired);
-    if (!paired) {
+    final PlayOnApi? playOn = widget.playOn;
+    final bool sends =
+        playOn != null && playOnDevices.isNotEmpty && _playable.isNotEmpty;
+    if (!paired && !sends) {
       return play;
     }
     return Row(
       mainAxisSize: MainAxisSize.min,
-      children: <Widget>[play, _dismissButton(resume.version)],
+      children: <Widget>[
+        play,
+        if (paired) _dismissButton(resume.version),
+        if (sends)
+          PlayOnButton(playOn: playOn, devices: playOnDevices, choose: _choice),
+      ],
     );
   }
 

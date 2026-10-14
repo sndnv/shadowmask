@@ -1102,7 +1102,12 @@ mod tests {
     }
 
     fn principal() -> Principal {
-        Principal { user: UserId("u1".to_owned()), role: Role::User, account_admin: false }
+        Principal {
+            user: UserId("u1".to_owned()),
+            role: Role::User,
+            account_admin: false,
+            device: None,
+        }
     }
 
     fn caps(max_bitrate: Option<u64>) -> ClientCapabilities {
@@ -1377,8 +1382,12 @@ mod tests {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());
         harness.users.grant(&UserId("u1".to_owned()), &[]);
-        let boss =
-            Principal { user: UserId("u1".to_owned()), role: Role::Admin, account_admin: true };
+        let boss = Principal {
+            user: UserId("u1".to_owned()),
+            role: Role::Admin,
+            account_admin: true,
+            device: None,
+        };
 
         assert!(matches!(
             harness.service.start(&boss, start_request(0)).await,
@@ -3052,11 +3061,21 @@ mod tests {
     }
 
     fn intruder() -> Principal {
-        Principal { user: UserId("u2".to_owned()), role: Role::User, account_admin: false }
+        Principal {
+            user: UserId("u2".to_owned()),
+            role: Role::User,
+            account_admin: false,
+            device: None,
+        }
     }
 
     fn admin() -> Principal {
-        Principal { user: UserId("boss".to_owned()), role: Role::Admin, account_admin: true }
+        Principal {
+            user: UserId("boss".to_owned()),
+            role: Role::Admin,
+            account_admin: true,
+            device: None,
+        }
     }
 
     #[tokio::test]

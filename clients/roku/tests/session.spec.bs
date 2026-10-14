@@ -1,0 +1,74 @@
+namespace tests
+
+    @suite("session")
+    class SessionTests extends rooibos.BaseTestSuite
+
+        @describe("TargetAddresses")
+
+        @it("lists the addresses in interface order")
+        sub listsInInterfaceOrder()
+            found = TargetAddresses({ wlan0: "192.168.1.41", eth1: "192.168.1.40" })
+
+            m.assertEqual(found, ["192.168.1.40", "192.168.1.41"])
+        end sub
+
+        @it("keeps at most four and drops blanks")
+        sub keepsFourAndDropsBlanks()
+            found = TargetAddresses({ a: "10.0.0.1", b: " ", c: "10.0.0.3", d: "10.0.0.4", e: "10.0.0.5", f: "10.0.0.6" })
+
+            m.assertEqual(found, ["10.0.0.1", "10.0.0.3", "10.0.0.4", "10.0.0.5"])
+        end sub
+
+        @it("is empty for anything but an address map")
+        sub isEmptyForAnythingElse()
+            m.assertEqual(TargetAddresses(invalid), [])
+            m.assertEqual(TargetAddresses("192.168.1.40"), [])
+            m.assertEqual(TargetAddresses({}), [])
+        end sub
+
+        @describe("DeepLinkCommand")
+
+        @it("reads the command from launch arguments or input")
+        sub readsTheCommand()
+            m.assertEqual(DeepLinkCommand({ contentId: "v1", mediaType: "movie", command: "eyJ.cmd" }), "eyJ.cmd")
+            m.assertEqual(DeepLinkCommand({ command: " eyJ.cmd " }), "eyJ.cmd")
+        end sub
+
+        @it("is blank for a plain launch or anything but a map")
+        sub isBlankWithoutACommand()
+            m.assertEqual(DeepLinkCommand({ contentId: "v1", mediaType: "movie" }), "")
+            m.assertEqual(DeepLinkCommand({}), "")
+            m.assertEqual(DeepLinkCommand(invalid), "")
+            m.assertEqual(DeepLinkCommand("eyJ.cmd"), "")
+        end sub
+
+        @describe("TitlePageFor")
+
+        @it("opens a movie's title page")
+        sub opensAMovie()
+            page = TitlePageFor({ type: "movie", id: "m1" })
+
+            m.assertEqual(page.screen, "TitleScreen")
+            m.assertEqual(page.target, { kind: "movie", id: "m1" })
+        end sub
+
+        @it("opens an episode's page with its series and season")
+        sub opensAnEpisode()
+            page = TitlePageFor({ type: "episode", id: "e1" }, { id: "e1", series_id: "s1", season_id: "se1" })
+
+            m.assertEqual(page.screen, "EpisodeScreen")
+            m.assertEqual(page.target, { kind: "episode", id: "e1", seriesId: "s1", seasonId: "se1" })
+        end sub
+
+        @it("has no page without enough to open one")
+        sub hasNoPage()
+            m.assertEqual(TitlePageFor(invalid).screen, "")
+            m.assertEqual(TitlePageFor({ type: "movie", id: "" }).screen, "")
+            m.assertEqual(TitlePageFor({ type: "series", id: "s1" }).screen, "")
+            m.assertEqual(TitlePageFor({ type: "episode", id: "e1" }).screen, "")
+            m.assertEqual(TitlePageFor({ type: "episode", id: "e1" }, { series_id: "s1" }).screen, "")
+        end sub
+
+    end class
+
+end namespace

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/api/catalog_api.dart';
+import 'package:shadowmask/api/play_on_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/admin/dialog_shell.dart';
 import 'package:shadowmask/components/version_picker.dart';
@@ -18,6 +19,7 @@ class AllVersionsDialog extends StatelessWidget {
     this.onProgressCleared,
     this.admin,
     this.adminPages = false,
+    this.playOn,
   });
 
   final CatalogApi catalog;
@@ -27,6 +29,7 @@ class AllVersionsDialog extends StatelessWidget {
   final VoidCallback? onProgressCleared;
   final AdminApi? admin;
   final bool adminPages;
+  final PlayOnApi? playOn;
 
   static Future<void> show(
     BuildContext context, {
@@ -37,6 +40,7 @@ class AllVersionsDialog extends StatelessWidget {
     VoidCallback? onProgressCleared,
     AdminApi? admin,
     bool adminPages = false,
+    PlayOnApi? playOn,
   }) => showDialog<void>(
     context: context,
     builder: (BuildContext context) => AllVersionsDialog(
@@ -47,6 +51,7 @@ class AllVersionsDialog extends StatelessWidget {
       onProgressCleared: onProgressCleared,
       admin: admin,
       adminPages: adminPages,
+      playOn: playOn,
     ),
   );
 
@@ -64,6 +69,7 @@ class AllVersionsDialog extends StatelessWidget {
         showHeading: false,
         admin: admin,
         adminPages: adminPages,
+        playOn: playOn,
       ),
     );
   }

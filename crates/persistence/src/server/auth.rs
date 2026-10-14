@@ -1,20 +1,29 @@
+use std::net::Ipv4Addr;
 use std::path::Path;
 
 use domain::error::RepositoryError;
 use domain::repository::AuthTokenRepository;
 use domain::user::{
-    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, PendingLink, UserId,
+    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, DeviceTarget, PendingLink,
+    TargetKind, UserId,
 };
 use jiff::Timestamp;
-use sqlx::SqlitePool;
 use sqlx::migrate::Migrator;
 use sqlx::sqlite::SqliteRow;
+use sqlx::{AssertSqlSafe, SqlitePool};
 
 use crate::codec::{role_from_str, role_to_str};
 use crate::metrics::DbOpGuard;
 use crate::pool::{backend, checkpoint, column, from_millis, open, ping, to_millis};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations/auth");
+
+const DEVICE_COLUMNS: &str = "SELECT d.*, t.kind AS target_kind, t.addresses AS target_addresses, \
+     t.port AS target_port, t.app_id AS target_app_id, t.reported_at AS target_reported_at \
+     FROM devices d LEFT JOIN device_targets t ON t.device_id = d.id";
+
+const DELETE_USER_TARGETS: &str =
+    "DELETE FROM device_targets WHERE device_id IN (SELECT id FROM devices WHERE user_id = ?)";
 
 #[derive(Clone)]
 pub struct SqliteAuthTokenRepo {
@@ -64,7 +73,28 @@ fn row_to_device(row: &SqliteRow) -> Result<Device, RepositoryError> {
         platform: column(row, "platform")?,
         created_at: from_millis(column(row, "created_at")?)?,
         last_seen,
+        target: row_to_target(row)?,
     })
+}
+
+fn row_to_target(row: &SqliteRow) -> Result<Option<DeviceTarget>, RepositoryError> {
+    let Some(kind) = column::<Option<String>>(row, "target_kind")? else {
+        return Ok(None);
+    };
+    let kind = TargetKind::parse(&kind).ok_or_else(|| backend(format!("target kind [{kind}]")))?;
+    let addresses: Vec<String> =
+        serde_json::from_str(&column::<String>(row, "target_addresses")?).map_err(backend)?;
+    let addresses = addresses
+        .iter()
+        .map(|a| a.parse::<Ipv4Addr>().map_err(backend))
+        .collect::<Result<_, _>>()?;
+    Ok(Some(DeviceTarget {
+        kind,
+        addresses,
+        port: u16::try_from(column::<i64>(row, "target_port")?).map_err(backend)?,
+        app_id: column(row, "target_app_id")?,
+        reported_at: from_millis(column(row, "target_reported_at")?)?,
+    }))
 }
 
 fn row_to_api_token(row: &SqliteRow) -> Result<ApiToken, RepositoryError> {
@@ -125,6 +155,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
         for statement in [
             "DELETE FROM refresh_tokens WHERE user_id = ?",
             "DELETE FROM api_tokens WHERE user_id = ?",
+            DELETE_USER_TARGETS,
             "DELETE FROM devices WHERE user_id = ?",
         ] {
             sqlx::query(statement)
@@ -144,6 +175,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
             "DELETE FROM refresh_tokens WHERE user_id = ?",
             "DELETE FROM link_codes WHERE user_id = ?",
             "DELETE FROM api_tokens WHERE user_id = ?",
+            DELETE_USER_TARGETS,
             "DELETE FROM devices WHERE user_id = ?",
         ] {
             sqlx::query(statement)
@@ -248,7 +280,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
 
     async fn get_device(&self, id: &DeviceId) -> Result<Option<Device>, RepositoryError> {
         let _op = DbOpGuard::new("auth", "get_device");
-        let row = sqlx::query("SELECT * FROM devices WHERE id = ?")
+        let row = sqlx::query(AssertSqlSafe(format!("{DEVICE_COLUMNS} WHERE d.id = ?")))
             .bind(id.0.as_str())
             .fetch_optional(&self.pool)
             .await
@@ -305,11 +337,13 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
 
     async fn list_devices(&self, user: &UserId) -> Result<Vec<Device>, RepositoryError> {
         let _op = DbOpGuard::new("auth", "list_devices");
-        let rows = sqlx::query("SELECT * FROM devices WHERE user_id = ? ORDER BY id")
-            .bind(user.0.as_str())
-            .fetch_all(&self.pool)
-            .await
-            .map_err(backend)?;
+        let rows = sqlx::query(AssertSqlSafe(format!(
+            "{DEVICE_COLUMNS} WHERE d.user_id = ? ORDER BY d.id"
+        )))
+        .bind(user.0.as_str())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(backend)?;
         rows.iter().map(row_to_device).collect()
     }
 
@@ -325,7 +359,42 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
 
     async fn delete_device(&self, id: &DeviceId) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("auth", "delete_device");
-        sqlx::query("DELETE FROM devices WHERE id = ?")
+        let mut tx = self.pool.begin().await.map_err(backend)?;
+        for statement in
+            ["DELETE FROM device_targets WHERE device_id = ?", "DELETE FROM devices WHERE id = ?"]
+        {
+            sqlx::query(statement).bind(id.0.as_str()).execute(&mut *tx).await.map_err(backend)?;
+        }
+        tx.commit().await.map_err(backend)?;
+        Ok(())
+    }
+
+    async fn put_device_target(
+        &self,
+        id: &DeviceId,
+        target: &DeviceTarget,
+    ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("auth", "put_device_target");
+        let addresses: Vec<String> = target.addresses.iter().map(ToString::to_string).collect();
+        sqlx::query(
+            "INSERT OR REPLACE INTO device_targets \
+             (device_id, kind, addresses, port, app_id, reported_at) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id.0.as_str())
+        .bind(target.kind.as_str())
+        .bind(serde_json::to_string(&addresses).map_err(backend)?)
+        .bind(i64::from(target.port))
+        .bind(target.app_id.as_deref())
+        .bind(to_millis(target.reported_at))
+        .execute(&self.pool)
+        .await
+        .map_err(backend)?;
+        Ok(())
+    }
+
+    async fn delete_device_target(&self, id: &DeviceId) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("auth", "delete_device_target");
+        sqlx::query("DELETE FROM device_targets WHERE device_id = ?")
             .bind(id.0.as_str())
             .execute(&self.pool)
             .await
@@ -335,11 +404,15 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
 
     async fn revoke_api_token(&self, id: &ApiTokenId) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("auth", "revoke_api_token");
-        sqlx::query("DELETE FROM api_tokens WHERE id = ?")
-            .bind(id.0.as_str())
-            .execute(&self.pool)
-            .await
-            .map_err(backend)?;
+        let mut tx = self.pool.begin().await.map_err(backend)?;
+        for statement in [
+            "DELETE FROM device_targets WHERE device_id = \
+             (SELECT device_id FROM api_tokens WHERE id = ?)",
+            "DELETE FROM api_tokens WHERE id = ?",
+        ] {
+            sqlx::query(statement).bind(id.0.as_str()).execute(&mut *tx).await.map_err(backend)?;
+        }
+        tx.commit().await.map_err(backend)?;
         Ok(())
     }
 }
@@ -348,6 +421,48 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
 mod tests {
     use super::*;
     use domain::user::Role;
+
+    fn target() -> DeviceTarget {
+        DeviceTarget {
+            kind: TargetKind::Roku,
+            addresses: vec![Ipv4Addr::new(192, 168, 1, 40)],
+            port: 8060,
+            app_id: Some("dev".into()),
+            reported_at: Timestamp::UNIX_EPOCH,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_corrupt_target_row_is_a_backend_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = SqliteAuthTokenRepo::connect(&dir.path().join("auth.db")).await.unwrap();
+        let user = UserId("u1".into());
+        let device = DeviceId("d1".into());
+        repo.upsert_device(Device {
+            id: device.clone(),
+            user: user.clone(),
+            name: "Roku".into(),
+            platform: "roku".into(),
+            created_at: Timestamp::UNIX_EPOCH,
+            last_seen: None,
+            target: None,
+        })
+        .await
+        .unwrap();
+        for (column, value) in [
+            ("kind", "'cast'"),
+            ("addresses", "'not json'"),
+            ("addresses", "'[\"fd00::1\"]'"),
+            ("port", "70000"),
+        ] {
+            repo.put_device_target(&device, &target()).await.unwrap();
+            sqlx::query(AssertSqlSafe(format!("UPDATE device_targets SET {column} = {value}")))
+                .execute(&repo.pool)
+                .await
+                .unwrap();
+            assert!(repo.list_devices(&user).await.is_err(), "{column} = {value}");
+        }
+    }
 
     #[tokio::test]
     async fn surfaces_backend_error_after_close() {
@@ -360,6 +475,8 @@ mod tests {
         assert!(repo.list_devices(&UserId("u1".into())).await.is_err());
         assert!(repo.list_api_tokens(&UserId("u1".into())).await.is_err());
         assert!(repo.delete_device(&DeviceId("d1".into())).await.is_err());
+        assert!(repo.put_device_target(&DeviceId("d1".into()), &target()).await.is_err());
+        assert!(repo.delete_device_target(&DeviceId("d1".into())).await.is_err());
         assert!(repo.revoke_api_token(&ApiTokenId("t1".into())).await.is_err());
         assert!(repo.purge_user(&UserId("u1".into())).await.is_err());
     }
@@ -399,9 +516,11 @@ mod tests {
                 platform: "roku".into(),
                 created_at: Timestamp::UNIX_EPOCH,
                 last_seen: None,
+                target: None,
             })
             .await
             .unwrap();
+            repo.put_device_target(&DeviceId(format!("dev-{}", user.0)), &target()).await.unwrap();
             repo.store_api_token(ApiToken {
                 id: ApiTokenId(format!("tok-{}", user.0)),
                 user: user.clone(),
@@ -422,8 +541,15 @@ mod tests {
         assert!(repo.list_api_tokens(&doomed).await.unwrap().is_empty());
         assert!(repo.find_api_token_by_hash("hash-u1").await.unwrap().is_none());
 
+        let orphans = sqlx::query("SELECT COUNT(*) AS n FROM device_targets WHERE device_id = ?")
+            .bind("dev-u1")
+            .fetch_one(&repo.pool)
+            .await
+            .unwrap();
+        assert_eq!(column::<i64>(&orphans, "n").unwrap(), 0);
+
         assert!(repo.find_refresh(&AuthSessionId("jti-u2".into())).await.unwrap().is_some());
-        assert_eq!(repo.list_devices(&other).await.unwrap().len(), 1);
+        assert_eq!(repo.list_devices(&other).await.unwrap()[0].target, Some(target()));
         assert_eq!(repo.list_api_tokens(&other).await.unwrap().len(), 1);
     }
 }

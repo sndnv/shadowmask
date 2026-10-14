@@ -18,6 +18,8 @@ sub init()
     m.themeName = ReadThemeName()
     m.highContrast = ReadHighContrast()
     m.stack = []
+    m.command = ""
+    m.signedIn = false
 
     m.background.muteAudioGuide = true
     m.navHint.muteAudioGuide = true
@@ -54,6 +56,7 @@ sub init()
     PublishSession()
     m.global.ObserveField("backdropUrl", "onBackdrop")
     m.global.ObserveField("lowMemory", "onLowMemory")
+    m.global.ObserveField("deepLink", "onDeepLink")
     ApplyTheme()
     Bootstrap()
     m.top.SetFocus(true)
@@ -62,7 +65,7 @@ end sub
 sub PublishSession()
     shared = m.global
     if not shared.HasField("serverUrl")
-        shared.AddFields({ serverUrl: "", token: "", userId: "", username: "", role: "", accountRole: "", theme: {}, backdropUrl: "", decoding: {}, profileVersion: 0, negotiated: {}, lowMemory: 0, captionMode: "", sessionId: "" })
+        shared.AddFields({ serverUrl: "", token: "", userId: "", username: "", role: "", accountRole: "", theme: {}, backdropUrl: "", decoding: {}, profileVersion: 0, negotiated: {}, lowMemory: 0, captionMode: "", sessionId: "", deepLink: {} })
     end if
 
     shared.serverUrl = ReadServerUrl()
@@ -73,6 +76,7 @@ sub PublishSession()
 end sub
 
 sub Bootstrap()
+    m.signedIn = false
     if not IsPaired()
         ResetTo("SetupScreen")
         return
@@ -315,14 +319,118 @@ sub onAdvance()
     end if
 
     if Left(target, 6) = "reset:"
-        if Mid(target, 7) = "SetupScreen" then PublishSession()
-        ResetTo(Mid(target, 7))
+        destination = Mid(target, 7)
+        if destination = "SetupScreen"
+            m.signedIn = false
+            m.command = ""
+            PublishSession()
+        end if
+        signingIn = screen.subtype() = "BootScreen" and destination = "HomeScreen"
+        ResetTo(destination)
+        if signingIn then SignedIn()
         return
     end if
 
     payload = invalid
     if screen.HasField("advanceTarget") then payload = screen.advanceTarget
     PushScreen(target, payload)
+end sub
+
+sub SignedIn()
+    m.signedIn = true
+    ReportTarget()
+    RedeemCommand()
+end sub
+
+sub ReportTarget()
+    device = DeviceInfo()
+    if device = invalid then return
+
+    addresses = TargetAddresses(device.GetIPAddrs())
+    if addresses.Count() = 0 then return
+
+    m.reportTask = SendRequest(TargetReportRequest(ReadServerUrl(), ReadToken(), addresses, ChannelId()), "onTargetReported")
+end sub
+
+sub onTargetReported()
+    m.reportTask = invalid
+end sub
+
+sub onDeepLink()
+    command = DeepLinkCommand(m.global.deepLink)
+    if IsBlank(command) then return
+
+    m.command = command
+    RedeemCommand()
+end sub
+
+sub RedeemCommand()
+    if IsBlank(m.command) then return
+    if not IsPaired()
+        m.command = ""
+        return
+    end if
+    if not m.signedIn then return
+
+    command = m.command
+    m.command = ""
+    m.playOnTask = SendRequest(RedeemCommandRequest(ReadServerUrl(), ReadToken(), command), "onRedeemed")
+end sub
+
+function AnswersPlayOn(event as object) as boolean
+    if m.playOnTask = invalid then return false
+    return m.playOnTask.IsSameNode(event.GetRoSGNode())
+end function
+
+sub onRedeemed(event as object)
+    if not AnswersPlayOn(event) then return
+
+    parsed = ParseResponse(event.GetData().status, event.GetData().body)
+    versionId = TextOrBlank(ValueAt(parsed.json, "version_id", ""))
+    if not parsed.ok or IsBlank(versionId)
+        m.playOnTask = invalid
+        m.toast.kind = "err"
+        m.toast.message = Phrase("error.playOnRefused")
+        return
+    end if
+
+    m.playOn = { versionId: versionId, ref: invalid }
+    m.playOnTask = SendRequest(VersionRequest(ReadServerUrl(), ReadToken(), versionId), "onPlayOnVersion")
+end sub
+
+sub onPlayOnVersion(event as object)
+    if not AnswersPlayOn(event) then return
+
+    parsed = ParseResponse(event.GetData().status, event.GetData().body)
+    ref = ValueAt(parsed.json, "title", invalid)
+
+    if LCase(TextOrBlank(ValueAt(ref, "type", ""))) = "episode"
+        m.playOn.ref = ref
+        m.playOnTask = SendRequest(EpisodeByIdRequest(ReadServerUrl(), ReadToken(), ValueAt(ref, "id", "")), "onPlayOnEpisode")
+        return
+    end if
+
+    OpenPlayOn(TitlePageFor(ref))
+end sub
+
+sub onPlayOnEpisode(event as object)
+    if not AnswersPlayOn(event) then return
+
+    parsed = ParseResponse(event.GetData().status, event.GetData().body)
+    OpenPlayOn(TitlePageFor(m.playOn.ref, parsed.json))
+end sub
+
+sub OpenPlayOn(page as object)
+    m.playOnTask = invalid
+    m.keyboardDialog = invalid
+    m.top.dialog = invalid
+    CloseChoice()
+    if m.railVisible = true then HideRail(false)
+
+    ResetTo("HomeScreen")
+    if not IsBlank(page.screen) then PushScreen(page.screen, page.target)
+    PushScreen("WatchScreen", { versionId: m.playOn.versionId, resolve: true, percent: 0 })
+    m.playOn = invalid
 end sub
 
 sub onNavSelected()

@@ -28,8 +28,8 @@ use crate::session::{
     SessionStartInput, SessionStarted, SessionUpdate,
 };
 use crate::user::{
-    ApiToken, ApiTokenId, Device, DeviceId, DeviceRegistration, IssuedToken, LibraryAccess,
-    NewUser, PendingLink, Principal, TokenPair, User, UserId, UserProfileUpdate,
+    ApiToken, ApiTokenId, Device, DeviceId, DeviceRegistration, DeviceTarget, IssuedToken,
+    LibraryAccess, NewUser, PendingLink, Principal, TokenPair, User, UserId, UserProfileUpdate,
 };
 
 pub trait AuthService {
@@ -86,6 +86,18 @@ pub trait AuthService {
         user: &UserId,
         token: &ApiTokenId,
     ) -> impl Future<Output = Result<(), AuthError>> + Send;
+    fn owned_device(
+        &self,
+        user: &UserId,
+        device: &DeviceId,
+    ) -> impl Future<Output = Result<Device, AuthError>> + Send;
+    fn report_target(
+        &self,
+        device: &DeviceId,
+        target: DeviceTarget,
+    ) -> impl Future<Output = Result<(), AuthError>> + Send;
+    fn clear_target(&self, device: &DeviceId)
+    -> impl Future<Output = Result<(), AuthError>> + Send;
 }
 
 pub trait CatalogService {

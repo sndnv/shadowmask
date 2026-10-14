@@ -32,6 +32,11 @@ impl HmacCodec {
         }
     }
 
+    pub(crate) fn without_leeway(mut self) -> Self {
+        self.validation.leeway = 0;
+        self
+    }
+
     pub(crate) fn sign<T: Serialize>(&self, claims: &T) -> Result<String, String> {
         encode(&self.header, claims, &self.encoding_key).map_err(|e| e.to_string())
     }

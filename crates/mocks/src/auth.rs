@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 use domain::error::AuthError;
 use domain::service::AuthService;
 use domain::user::{
-    ApiToken, ApiTokenId, Device, DeviceId, DeviceRegistration, IssuedToken, PendingLink,
-    Principal, Role, TokenPair, UserId,
+    ApiToken, ApiTokenId, Device, DeviceId, DeviceRegistration, DeviceTarget, IssuedToken,
+    PendingLink, Principal, Role, TokenPair, UserId,
 };
 use jiff::Timestamp;
 
@@ -23,6 +23,7 @@ struct State {
     accounts: Vec<Account>,
     link_codes: HashMap<String, IssuedToken>,
     pending: HashMap<String, PendingLink>,
+    devices: Vec<Device>,
 }
 
 #[derive(Clone, Default)]
@@ -57,6 +58,10 @@ impl MockAuthService {
 
     pub fn add_link_code(&self, code: &str, token: IssuedToken) {
         self.state.lock().unwrap().link_codes.insert(code.to_string(), token);
+    }
+
+    pub fn add_device(&self, device: Device) {
+        self.state.lock().unwrap().devices.push(device);
     }
 }
 
@@ -106,6 +111,17 @@ impl AuthService for MockAuthService {
             None => (access_token.strip_prefix("access:").ok_or(AuthError::InvalidToken)?, false),
         };
         let state = self.state.lock().unwrap();
+        if let Some(linked) = state.devices.iter().find(|d| device && d.id.0 == id) {
+            return Ok(Principal {
+                user: linked.user.clone(),
+                role: Role::Player,
+                account_admin: state
+                    .accounts
+                    .iter()
+                    .any(|a| a.user == linked.user && a.role == Role::Admin),
+                device: Some(linked.id.clone()),
+            });
+        }
         let account = state
             .accounts
             .iter()
@@ -115,6 +131,7 @@ impl AuthService for MockAuthService {
             user: account.user.clone(),
             role: account.role,
             account_admin: account.account_admin,
+            device: device.then(|| DeviceId(id.to_owned())),
         })
     }
 
@@ -170,8 +187,8 @@ impl AuthService for MockAuthService {
         Ok(())
     }
 
-    async fn list_devices(&self, _user: &UserId) -> Result<Vec<Device>, AuthError> {
-        Ok(Vec::new())
+    async fn list_devices(&self, user: &UserId) -> Result<Vec<Device>, AuthError> {
+        Ok(self.state.lock().unwrap().devices.iter().filter(|d| &d.user == user).cloned().collect())
     }
 
     async fn list_api_tokens(&self, _user: &UserId) -> Result<Vec<ApiToken>, AuthError> {
@@ -183,6 +200,36 @@ impl AuthService for MockAuthService {
     }
 
     async fn revoke_api_token(&self, _user: &UserId, _token: &ApiTokenId) -> Result<(), AuthError> {
+        Ok(())
+    }
+
+    async fn owned_device(&self, user: &UserId, device: &DeviceId) -> Result<Device, AuthError> {
+        let state = self.state.lock().unwrap();
+        state
+            .devices
+            .iter()
+            .find(|d| &d.id == device && &d.user == user)
+            .cloned()
+            .ok_or(AuthError::NotFound)
+    }
+
+    async fn report_target(
+        &self,
+        device: &DeviceId,
+        target: DeviceTarget,
+    ) -> Result<(), AuthError> {
+        let mut state = self.state.lock().unwrap();
+        if let Some(stored) = state.devices.iter_mut().find(|d| &d.id == device) {
+            stored.target = Some(target);
+        }
+        Ok(())
+    }
+
+    async fn clear_target(&self, device: &DeviceId) -> Result<(), AuthError> {
+        let mut state = self.state.lock().unwrap();
+        if let Some(stored) = state.devices.iter_mut().find(|d| &d.id == device) {
+            stored.target = None;
+        }
         Ok(())
     }
 }
@@ -302,10 +349,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_added_device_signs_in_and_holds_its_target() {
+        let svc = service();
+        let user = UserId("u1".into());
+        let roku = DeviceId("roku-1".into());
+        svc.add_device(Device {
+            id: roku.clone(),
+            user: user.clone(),
+            name: "Roku".into(),
+            platform: "roku".into(),
+            created_at: Timestamp::UNIX_EPOCH,
+            last_seen: None,
+            target: None,
+        });
+
+        let principal = svc.authenticate("device:roku-1").await.unwrap();
+        assert_eq!(principal.user, user);
+        assert_eq!(principal.role, Role::Player);
+        assert!(principal.account_admin);
+        assert_eq!(principal.device, Some(roku.clone()));
+        assert_eq!(svc.authenticate("access:u1").await.unwrap().device, None);
+
+        let target = DeviceTarget::new(
+            "roku",
+            &["10.0.0.2".to_owned()],
+            8060,
+            Some("dev".into()),
+            Timestamp::UNIX_EPOCH,
+        )
+        .unwrap();
+        svc.report_target(&roku, target.clone()).await.unwrap();
+        svc.report_target(&DeviceId("ghost".into()), target.clone()).await.unwrap();
+        assert_eq!(svc.owned_device(&user, &roku).await.unwrap().target, Some(target));
+        assert_eq!(svc.list_devices(&user).await.unwrap().len(), 1);
+
+        svc.clear_target(&roku).await.unwrap();
+        svc.clear_target(&DeviceId("ghost".into())).await.unwrap();
+        assert_eq!(svc.owned_device(&user, &roku).await.unwrap().target, None);
+        assert!(matches!(
+            svc.owned_device(&UserId("u2".into()), &roku).await.unwrap_err(),
+            AuthError::NotFound
+        ));
+    }
+
+    #[tokio::test]
     async fn create_link_code_returns_code() {
         let svc = service();
-        let caller =
-            Principal { user: UserId("admin".into()), role: Role::Admin, account_admin: true };
+        let caller = Principal {
+            user: UserId("admin".into()),
+            role: Role::Admin,
+            account_admin: true,
+            device: None,
+        };
         let link = svc.create_link_code(&caller, None, None).await.unwrap();
         assert_eq!(link.code, "link-code");
         assert_eq!(link.role, Role::Player);
@@ -314,8 +409,12 @@ mod tests {
     #[tokio::test]
     async fn create_lists_then_revokes_link_code() {
         let svc = service();
-        let caller =
-            Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true };
+        let caller = Principal {
+            user: UserId("u1".into()),
+            role: Role::Admin,
+            account_admin: true,
+            device: None,
+        };
         svc.create_link_code(&caller, None, None).await.unwrap();
         let user = UserId("u1".into());
         let listed = svc.list_link_codes(&user).await.unwrap();

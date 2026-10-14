@@ -903,15 +903,30 @@ mod tests {
     }
 
     fn admin() -> Principal {
-        Principal { user: UserId("admin".into()), role: Role::Admin, account_admin: true }
+        Principal {
+            user: UserId("admin".into()),
+            role: Role::Admin,
+            account_admin: true,
+            device: None,
+        }
     }
 
     fn member() -> Principal {
-        Principal { user: UserId("u1".into()), role: Role::User, account_admin: false }
+        Principal {
+            user: UserId("u1".into()),
+            role: Role::User,
+            account_admin: false,
+            device: None,
+        }
     }
 
     fn automation() -> Principal {
-        Principal { user: UserId("webhook".into()), role: Role::Automation, account_admin: false }
+        Principal {
+            user: UserId("webhook".into()),
+            role: Role::Automation,
+            account_admin: false,
+            device: None,
+        }
     }
 
     fn page() -> PageRequest {
@@ -1180,8 +1195,12 @@ mod tests {
     #[tokio::test]
     async fn a_creator_with_no_account_is_not_granted_anything() {
         let svc = seeded().await;
-        let synthetic =
-            Principal { user: UserId("bootstrap".into()), role: Role::Admin, account_admin: true };
+        let synthetic = Principal {
+            user: UserId("bootstrap".into()),
+            role: Role::Admin,
+            account_admin: true,
+            device: None,
+        };
 
         let created = svc.create_library(&synthetic, new_library()).await;
 
@@ -2751,6 +2770,7 @@ mod tests {
             user: UserId("admin".into()),
             role: Role::Player,
             account_admin,
+            device: None,
         };
 
         svc.trigger_transcription(&device(true), &v1, None, None).await.unwrap();

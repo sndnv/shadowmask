@@ -9,17 +9,17 @@ use domain::diagnostics::{PlaybackPrepAudit, ServerDiagnostics, TranscodeBenchma
 use domain::job::JobLogStore;
 use domain::media::{SubtitleProvider, SubtitleReader, SubtitleStore};
 use domain::repository::CatalogRepository;
-use domain::session::{DownloadTokens, StreamSource, StreamTokens};
+use domain::session::{DownloadTokens, PlayCommandTokens, StreamSource, StreamTokens};
 use tower_http::services::ServeDir;
 
 use crate::handlers::{
-    admin, auth, catalog, diagnostics, discovery, download, image, job_log, library, server,
-    sessions, stream, subtitle, trickplay, user_library, users, version, webhook,
+    admin, auth, catalog, diagnostics, discovery, download, image, job_log, library, play_on,
+    server, sessions, stream, subtitle, trickplay, user_library, users, version, webhook,
 };
 use crate::middleware::{jwt, track_stream_bytes};
 use crate::state::{
-    AppServices, DiagnosticsState, DownloadState, ImageState, JobLogState, StreamState,
-    SubtitleSearchState, SubtitleState, TrickplayState, WebhookClient, WebhookState,
+    AppServices, DiagnosticsState, DownloadState, ImageState, JobLogState, PlayOnState,
+    StreamState, SubtitleSearchState, SubtitleState, TrickplayState, WebhookClient, WebhookState,
 };
 
 pub fn router<S: AppServices>(state: S) -> Router {
@@ -255,6 +255,22 @@ where
         .route_layer(from_fn_with_state(auth, jwt::<A>));
     let fetch = Router::new().route("/download/{token}", get(download::file::<A, C, D>));
     mint.merge(fetch).with_state(state)
+}
+
+pub fn play_on_router<A, T>(auth: A, state: PlayOnState<A, T>) -> Router
+where
+    A: AppServices,
+    T: PlayCommandTokens + Send + Sync + 'static,
+{
+    Router::new()
+        .route(
+            "/api/v1/devices/self/target",
+            put(play_on::report_target::<A, T>).delete(play_on::clear_target::<A, T>),
+        )
+        .route("/api/v1/devices/self/commands/redeem", post(play_on::redeem::<A, T>))
+        .route("/api/v1/devices/{did}/commands", post(play_on::mint::<A, T>))
+        .route_layer(from_fn_with_state(auth, jwt::<A>))
+        .with_state(state)
 }
 
 pub fn subtitle_router<A, C, S>(auth: A, state: SubtitleState<C, S>) -> Router

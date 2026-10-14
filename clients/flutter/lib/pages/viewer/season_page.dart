@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
+import 'package:shadowmask/api/play_on_api.dart';
 import 'package:shadowmask/components/admin/confirm_dialog.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/components/breadcrumbs.dart';
@@ -95,6 +96,7 @@ class _SeasonBody extends StatefulWidget {
 
 class _SeasonBodyState extends State<_SeasonBody> with Mutations<_SeasonBody> {
   late final CatalogApi _catalog = CatalogApi(widget.api);
+  late final PlayOnApi? _playOn = playOnApi(widget.api);
   late final TitleRef _ref = TitleRef(type: TitleKind.season, id: widget.id);
   final GlobalKey<EpisodePlayButtonState> _play =
       GlobalKey<EpisodePlayButtonState>();
@@ -307,6 +309,7 @@ class _SeasonBodyState extends State<_SeasonBody> with Mutations<_SeasonBody> {
                             seriesId: s.seriesId,
                             next: data.next,
                             withSeason: false,
+                            playOn: _playOn,
                           ),
                   ),
                   if (data.cards.isNotEmpty) ...<Widget>[

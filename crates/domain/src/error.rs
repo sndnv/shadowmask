@@ -34,8 +34,28 @@ pub enum AuthError {
     AccountDisabled,
     #[error("device or API token not found")]
     NotFound,
+    #[error("this device has not reported itself as a play-on target")]
+    NotATarget,
     #[error(transparent)]
     Repository(#[from] RepositoryError),
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum DeviceTargetError {
+    #[error("unknown target kind: {0}")]
+    Kind(String),
+    #[error("a target reports 1 to 4 addresses, not {0}")]
+    AddressCount(usize),
+    #[error("not a private IPv4 address: {0}")]
+    Address(String),
+    #[error("port outside 1 to 65535: {0}")]
+    Port(i64),
+    #[error("a Roku target needs its app id")]
+    MissingAppId,
+    #[error("app id is not 1 to 32 letters and digits: {0}")]
+    AppId(String),
+    #[error("only a Roku target has an app id")]
+    UnexpectedAppId,
 }
 
 #[derive(Debug, Error)]
@@ -275,6 +295,16 @@ pub enum DownloadTokenError {
     #[error("invalid download link")]
     Invalid,
     #[error("failed to create download link: {0}")]
+    Create(String),
+}
+
+#[derive(Debug, Error)]
+pub enum PlayCommandTokenError {
+    #[error("play command expired")]
+    Expired,
+    #[error("invalid play command")]
+    Invalid,
+    #[error("failed to create play command: {0}")]
     Create(String),
 }
 

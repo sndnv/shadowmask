@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/catalog_api.dart';
+import 'package:shadowmask/api/play_on_api.dart';
 import 'package:shadowmask/components/action_segments.dart';
 import 'package:shadowmask/components/muted_note.dart';
+import 'package:shadowmask/components/play_on_button.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/version_menu.dart';
 import 'package:shadowmask/l10n/strings.dart';
@@ -62,6 +64,7 @@ class EpisodePlayButton extends StatefulWidget {
     required this.seriesId,
     required this.next,
     required this.withSeason,
+    this.playOn,
   });
 
   final CatalogApi catalog;
@@ -69,12 +72,14 @@ class EpisodePlayButton extends StatefulWidget {
   final String seriesId;
   final Future<NextEpisode?> next;
   final bool withSeason;
+  final PlayOnApi? playOn;
 
   @override
   State<EpisodePlayButton> createState() => EpisodePlayButtonState();
 }
 
-class EpisodePlayButtonState extends State<EpisodePlayButton> {
+class EpisodePlayButtonState extends State<EpisodePlayButton>
+    with PlayOnTargets<EpisodePlayButton> {
   final MenuController _menu = MenuController();
 
   NextEpisode? _next;
@@ -85,6 +90,7 @@ class EpisodePlayButtonState extends State<EpisodePlayButton> {
   void initState() {
     super.initState();
     _listen();
+    loadPlayOnTargets(widget.playOn, widget.userId);
   }
 
   @override
@@ -119,31 +125,32 @@ class EpisodePlayButtonState extends State<EpisodePlayButton> {
 
   void _play(Version v) => Navigator.of(context).pushNamed(watchRoute(v.id));
 
+  Future<PlayChoice?> _choice() async {
+    final NextEpisode? next = await widget.next;
+    if (next == null) {
+      return null;
+    }
+    final Future<Map<String, int>> resumable = _resumable();
+    final List<Version> versions = (await widget.catalog.episodeVersions(
+      next.episode.id,
+      series: widget.seriesId,
+      season: next.episode.seasonId,
+    )).items;
+    final Map<String, int> inProgress = await resumable;
+    return playChoice(orderedVersions(versions), inProgress.keys.toSet());
+  }
+
   Future<void> press() async {
     if (_busy) {
       return;
     }
     setState(() => _busy = true);
     try {
-      final NextEpisode? next = await widget.next;
+      final PlayChoice? choice = await _choice();
       if (!mounted) {
         return;
       }
-      if (next == null) {
-        Toasts.of(context).error(Strings.nothingToPlay);
-        return;
-      }
-      final Future<Map<String, int>> resumable = _resumable();
-      final List<Version> versions = (await widget.catalog.episodeVersions(
-        next.episode.id,
-        series: widget.seriesId,
-        season: next.episode.seasonId,
-      )).items;
-      final Map<String, int> inProgress = await resumable;
-      if (!mounted) {
-        return;
-      }
-      _choose(orderedVersions(versions), inProgress);
+      _choose(choice);
     } catch (e) {
       if (mounted) {
         Toasts.of(context).error(failureText(Strings.errorAction, e));
@@ -155,23 +162,17 @@ class EpisodePlayButtonState extends State<EpisodePlayButton> {
     }
   }
 
-  void _choose(List<Version> ordered, Map<String, int> inProgress) {
-    final List<Version> available = ordered
-        .where((Version v) => v.available)
-        .toList();
-    if (available.isEmpty) {
+  void _choose(PlayChoice? choice) {
+    if (choice == null || !choice.ordered.any((Version v) => v.available)) {
       Toasts.of(context).error(Strings.nothingToPlay);
       return;
     }
-    final Version? target = resolvePlayTarget(
-      available,
-      inProgress.keys.toSet(),
-    );
+    final Version? target = choice.target;
     if (target != null) {
       _play(target);
       return;
     }
-    setState(() => _ordered = ordered);
+    setState(() => _ordered = choice.ordered);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _menu.open();
@@ -188,7 +189,7 @@ class EpisodePlayButtonState extends State<EpisodePlayButton> {
       icon: const Icon(Icons.play_arrow, size: 20),
       label: Text(nextEpisodeAction(next)),
     );
-    return SelectionContainer.disabled(
+    final Widget play = SelectionContainer.disabled(
       child: VersionMenu(
         controller: _menu,
         ordered: _ordered,
@@ -204,6 +205,17 @@ class EpisodePlayButtonState extends State<EpisodePlayButton> {
                 child: button,
               ),
       ),
+    );
+    final PlayOnApi? playOn = widget.playOn;
+    if (playOn == null || playOnDevices.isEmpty) {
+      return play;
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        play,
+        PlayOnButton(playOn: playOn, devices: playOnDevices, choose: _choice),
+      ],
     );
   }
 }

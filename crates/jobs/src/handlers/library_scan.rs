@@ -488,8 +488,12 @@ mod tests {
             MockCatalogRepo::new(),
             None::<MockMetadataProvider>,
         );
-        let admin =
-            Principal { user: UserId("admin".into()), role: Role::Admin, account_admin: true };
+        let admin = Principal {
+            user: UserId("admin".into()),
+            role: Role::Admin,
+            account_admin: true,
+            device: None,
+        };
         let id = LibraryId("lib".into());
 
         svc.trigger_scan(&admin, &id, ScanMode::Normal).await.unwrap();

@@ -29,8 +29,22 @@ class ApiClient {
   final String baseUrl;
   final http.Client _http;
   final TokenStore _store;
+  final StreamController<void> _sessionChanged =
+      StreamController<void>.broadcast();
   Future<SelfUser>? _self;
   Future<String?>? _renewing;
+
+  Stream<void> get sessionChanged => _sessionChanged.stream;
+
+  Future<void> _saveTokens(AuthTokens tokens) async {
+    await _store.save(tokens);
+    _sessionChanged.add(null);
+  }
+
+  Future<void> _clearTokens() async {
+    await _store.clear();
+    _sessionChanged.add(null);
+  }
 
   Uri _uri(String path) => Uri.parse('$baseUrl$path');
 
@@ -84,7 +98,7 @@ class ApiClient {
       }
     }
     if (res.statusCode == 401) {
-      await _store.clear();
+      await _clearTokens();
       throw AuthenticationFailure();
     }
     if (res.statusCode == 403) {
@@ -127,7 +141,7 @@ class ApiClient {
     final AuthTokens next = AuthTokens.fromJson(
       jsonDecode(res.body) as Map<String, dynamic>,
     );
-    await _store.save(next);
+    await _saveTokens(next);
     return next.accessToken;
   }
 
@@ -234,7 +248,7 @@ class ApiClient {
       throw _errorFrom(res);
     }
     forgetUser();
-    await _store.save(
+    await _saveTokens(
       AuthTokens.fromJson(jsonDecode(res.body) as Map<String, dynamic>),
     );
   }
@@ -259,7 +273,7 @@ class ApiClient {
       jsonDecode(res.body) as Map<String, dynamic>,
     );
     forgetUser();
-    await _store.save(
+    await _saveTokens(
       AuthTokens(accessToken: issued.token, deviceId: issued.deviceId),
     );
   }
@@ -279,7 +293,7 @@ class ApiClient {
       } catch (_) {}
     }
     forgetUser();
-    await _store.clear();
+    await _clearTokens();
   }
 
   void forgetUser() => _self = null;

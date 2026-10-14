@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
+import 'package:shadowmask/api/play_on_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/all_versions_dialog.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
@@ -123,6 +124,7 @@ typedef _MovieData = ({
 class _MovieDetailBodyState extends State<_MovieDetailBody>
     with Mutations<_MovieDetailBody> {
   late final CatalogApi _catalog = CatalogApi(widget.api);
+  late final PlayOnApi? _playOn = playOnApi(widget.api);
   late final TitleRef _ref = TitleRef(type: TitleKind.movie, id: widget.id);
   final MenuController _posterMenu = MenuController();
   late Future<_MovieData> _future = _load();
@@ -314,6 +316,7 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
                                 ? AdminApi(widget.api)
                                 : null,
                             adminPages: widget.user.isAdmin,
+                            playOn: _playOn,
                           ),
                         ),
                       if (widget.user.isAdmin)
@@ -368,6 +371,7 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
                       resumable: data.resumable,
                       playback: PlaybackApi(widget.api),
                       onProgressCleared: _reload,
+                      playOn: _playOn,
                     ),
                   ),
                   if (available.isEmpty) ...<Widget>[
@@ -635,6 +639,7 @@ typedef _SeriesData = ({
 class _SeriesDetailBodyState extends State<_SeriesDetailBody>
     with Mutations<_SeriesDetailBody> {
   late final CatalogApi _catalog = CatalogApi(widget.api);
+  late final PlayOnApi? _playOn = playOnApi(widget.api);
   late final TitleRef _ref = TitleRef(type: TitleKind.series, id: widget.id);
   final GlobalKey<EpisodePlayButtonState> _play =
       GlobalKey<EpisodePlayButtonState>();
@@ -841,6 +846,7 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
                             seriesId: widget.id,
                             next: data.next,
                             withSeason: true,
+                            playOn: _playOn,
                           ),
                   ),
                   if (data.seasons.isNotEmpty) ...<Widget>[

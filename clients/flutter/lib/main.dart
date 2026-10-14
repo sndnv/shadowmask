@@ -12,6 +12,7 @@ import 'package:shadowmask/api/server_store.dart';
 import 'package:shadowmask/api/token_store.dart';
 import 'package:shadowmask/app_router.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
+import 'package:shadowmask/components/play_on_host.dart';
 import 'package:shadowmask/components/remote_image.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/tooltip_dismisser.dart';
@@ -77,6 +78,8 @@ String? _resolveApiBase() => apiBaseFrom(
 
 ApiClient _defaultClient(String? baseUrl) => ApiClient(baseUrl: baseUrl);
 
+bool _androidApp() => !kIsWeb && clientPlatform() == 'android';
+
 class ShadowmaskApp extends StatefulWidget {
   const ShadowmaskApp({
     super.key,
@@ -90,6 +93,7 @@ class ShadowmaskApp extends StatefulWidget {
     this.capabilityStore = const CapabilityOverridesStore(),
     this.decoding,
     this.initialOverrides = const CapabilityOverrides(),
+    this.receivesCommands = _androidApp,
   });
 
   final String? initialServer;
@@ -102,6 +106,7 @@ class ShadowmaskApp extends StatefulWidget {
   final CapabilityOverridesStore capabilityStore;
   final ClientDecoding? decoding;
   final CapabilityOverrides initialOverrides;
+  final bool Function() receivesCommands;
 
   @override
   State<ShadowmaskApp> createState() => _ShadowmaskAppState();
@@ -115,6 +120,7 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
   late CapabilityOverrides _overrides = widget.initialOverrides;
   late ApiClient _api = widget.clientFactory(_server);
   late AppRouter _router = AppRouter(_api);
+  GlobalKey<NavigatorState> _navigator = GlobalKey<NavigatorState>();
   late bool _systemHighContrast = WidgetsBinding
       .instance
       .platformDispatcher
@@ -185,6 +191,7 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
       _server = address;
       _api = widget.clientFactory(address);
       _router = AppRouter(_api);
+      _navigator = GlobalKey<NavigatorState>();
     });
   }
 
@@ -228,16 +235,21 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
 
   Widget _app() => MaterialApp(
     key: ValueKey<String?>(_server),
+    navigatorKey: _navigator,
     title: Strings.appTitle,
     debugShowCheckedModeBanner: false,
     theme: buildTheme(_variant, highContrast: _contrast),
     builder: (BuildContext context, Widget? child) => TooltipDismisser(
-      child: ToastHost(child: child ?? const SizedBox.shrink()),
+      child: ToastHost(child: _commands(child ?? const SizedBox.shrink())),
     ),
     navigatorObservers: <NavigatorObserver>[appRouteObserver],
     onGenerateRoute: _router.router.generator,
     onGenerateInitialRoutes: _initialRoutes,
   );
+
+  Widget _commands(Widget child) => widget.receivesCommands()
+      ? PlayOnHost(api: _api, navigator: _navigator, child: child)
+      : child;
 
   List<Route<dynamic>> _initialRoutes(String initialRoute) {
     final Route<dynamic> route =
