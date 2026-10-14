@@ -101,7 +101,12 @@ mod tests {
     }
 
     fn principal(role: Role) -> Principal {
-        Principal { user: UserId("u1".to_owned()), role, account_admin: role == Role::Admin }
+        Principal {
+            user: UserId("u1".to_owned()),
+            role,
+            account_admin: role == Role::Admin,
+            device: None,
+        }
     }
 
     #[test]
@@ -270,8 +275,12 @@ mod tests {
     #[tokio::test]
     async fn a_view_is_the_same_whoever_asks_for_it() {
         let users = repo_with(account("u1", Role::User, None), &["lib1"]).await;
-        let elevated =
-            Principal { user: UserId("u1".into()), role: Role::Admin, account_admin: true };
+        let elevated = Principal {
+            user: UserId("u1".into()),
+            role: Role::Admin,
+            account_admin: true,
+            device: None,
+        };
 
         let as_caller = viewer(&users, &elevated.user).await.unwrap();
         let as_target = viewer(&users, &UserId("u1".into())).await.unwrap();

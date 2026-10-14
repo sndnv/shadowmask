@@ -5,12 +5,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/components/play_on_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/entry/link_code_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
+import 'package:shadowmask/view/play_on_receiver.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../support/play_on_target.dart';
 
 Widget _host(Widget child) => ThemeScope(
   variant: AppThemeVariant.dark,
@@ -197,5 +201,57 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('sign in'), findsOneWidget);
+  });
+
+  testWidgets('linking starts with other devices not allowed to play here', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'shadowmask.playOn.enabled': true,
+    });
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      httpClient: MockClient(
+        (http.Request request) async => request.url.path == '/api/v1/auth/link'
+            ? http.Response(
+                jsonEncode(<String, dynamic>{
+                  'token': 'smk_abc',
+                  'device_id': 'dev-7',
+                }),
+                200,
+              )
+            : http.Response('', 204),
+      ),
+    );
+    final FakeBinder binder = FakeBinder();
+    final PlayOnReceiver receiver = PlayOnReceiver(
+      api: api,
+      onPlay: (String _) async {},
+      onRefused: () {},
+      bind: binder.call,
+      addresses: () async => kWifi,
+    );
+    addTearDown(receiver.dispose);
+    receiver.load();
+    await tester.pumpWidget(
+      PlayOnScope(
+        receiver: receiver,
+        child: _host(
+          LinkCodePage(api: api, defaultDeviceName: () async => 'Pixel'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(binder.asked, isEmpty);
+
+    await tester.enterText(_field(Strings.linkCodeLabel), '7G2K9QMP');
+    await tester.tap(find.byType(FilledButton));
+    await tester.pumpAndSettle();
+
+    expect(find.text('home'), findsOneWidget);
+    expect(receiver.linked, isTrue);
+    expect(receiver.enabled, isFalse);
+    expect(binder.asked, isEmpty);
+    expect(receiver.status, PlayOnStatus.off);
   });
 }

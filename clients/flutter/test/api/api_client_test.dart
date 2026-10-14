@@ -547,4 +547,82 @@ void main() {
     expect(paths, <String>['/api/v1/auth/link']);
     expect(await api.currentTokens(), isNull);
   });
+
+  test('a login, a refresh and a sign-out each announce a change', () async {
+    final ApiClient api = _client(
+      MockClient((http.Request req) async {
+        if (req.url.path == '/api/v1/auth/login') {
+          return _pair('stale', 'r1');
+        }
+        if (req.url.path == '/api/v1/auth/refresh') {
+          return _pair('fresh', 'r2');
+        }
+        if (req.url.path == '/api/v1/auth/logout') {
+          return http.Response('', 204);
+        }
+        final bool fresh = req.headers['Authorization'] == 'Bearer fresh';
+        return http.Response(
+          fresh
+              ? jsonEncode(<String, String>{
+                  'id': 'u1',
+                  'username': 'ada',
+                  'role': 'user',
+                })
+              : '',
+          fresh ? 200 : 401,
+        );
+      }),
+    );
+    int changes = 0;
+    api.sessionChanged.listen((_) => changes += 1);
+
+    await api.login('ada', 'pw');
+    await pumpEventQueue();
+    expect(changes, 1);
+
+    await api.currentUser();
+    await pumpEventQueue();
+    expect(changes, 2);
+
+    await api.logout();
+    await pumpEventQueue();
+    expect(changes, 3);
+  });
+
+  test(
+    'a link and a 401 that signs the device out announce a change',
+    () async {
+      final ApiClient api = _client(
+        MockClient(
+          (http.Request req) async => req.url.path == '/api/v1/auth/link'
+              ? http.Response(
+                  jsonEncode(<String, dynamic>{
+                    'token': 'smk_abc',
+                    'device_id': 'dev-7',
+                  }),
+                  200,
+                )
+              : http.Response('', 401),
+        ),
+      );
+      int changes = 0;
+      api.sessionChanged.listen((_) => changes += 1);
+
+      await api.redeemLinkCode(
+        'C0DE',
+        deviceName: 'Tablet',
+        platform: 'android',
+      );
+      await pumpEventQueue();
+      expect(changes, 1);
+
+      await expectLater(
+        api.currentUser(),
+        throwsA(isA<AuthenticationFailure>()),
+      );
+      await pumpEventQueue();
+      expect(changes, 2);
+      expect(await api.linkedDeviceId(), isEmpty);
+    },
+  );
 }

@@ -4,6 +4,7 @@ pub mod common;
 pub mod discovery;
 pub mod job;
 pub mod library;
+pub mod play_on;
 pub mod server;
 pub mod session;
 pub mod user;

@@ -5,8 +5,9 @@ use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
 use domain::error::{
-    AuthError, BenchmarkError, CatalogError, DiscoveryError, DownloadTokenError, JobLogError,
-    JobServiceError, LibraryError, SessionError, StreamError, StreamTokenError, UserError,
+    AuthError, BenchmarkError, CatalogError, DeviceTargetError, DiscoveryError, DownloadTokenError,
+    JobLogError, JobServiceError, LibraryError, PlayCommandTokenError, SessionError, StreamError,
+    StreamTokenError, UserError,
 };
 use domain::session::PlaybackSession;
 
@@ -40,6 +41,10 @@ impl ApiError {
 
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new(StatusCode::NOT_FOUND, "not_found", message)
+    }
+
+    pub fn version_not_found(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::NOT_FOUND, "version_not_found", message)
     }
 
     pub fn bad_gateway(message: impl Into<String>) -> Self {
@@ -94,7 +99,29 @@ impl From<AuthError> for ApiError {
                 ApiError::new(StatusCode::FORBIDDEN, "account_disabled", msg)
             }
             AuthError::NotFound => ApiError::new(StatusCode::NOT_FOUND, "not_found", msg),
+            AuthError::NotATarget => ApiError::new(StatusCode::CONFLICT, "not_a_target", msg),
             AuthError::Repository(_) => ApiError::internal(),
+        }
+    }
+}
+
+impl From<DeviceTargetError> for ApiError {
+    fn from(err: DeviceTargetError) -> Self {
+        ApiError::bad_request(err.to_string())
+    }
+}
+
+impl From<PlayCommandTokenError> for ApiError {
+    fn from(err: PlayCommandTokenError) -> Self {
+        let msg = err.to_string();
+        match err {
+            PlayCommandTokenError::Expired => {
+                ApiError::new(StatusCode::FORBIDDEN, "play_command_expired", msg)
+            }
+            PlayCommandTokenError::Invalid => {
+                ApiError::new(StatusCode::FORBIDDEN, "invalid_play_command", msg)
+            }
+            PlayCommandTokenError::Create(_) => ApiError::internal(),
         }
     }
 }
@@ -315,6 +342,28 @@ mod tests {
         assert_eq!(ApiError::bad_request("x").code, "bad_request");
         assert_eq!(ApiError::bad_gateway("x").status, StatusCode::BAD_GATEWAY);
         assert_eq!(ApiError::bad_gateway("x").code, "upstream_error");
+        assert_eq!(ApiError::version_not_found("x").status, StatusCode::NOT_FOUND);
+        assert_eq!(ApiError::version_not_found("x").code, "version_not_found");
+    }
+
+    #[test]
+    fn play_on_error_mappings() {
+        let not_a_target = ApiError::from(AuthError::NotATarget);
+        assert_eq!(not_a_target.status, StatusCode::CONFLICT);
+        assert_eq!(not_a_target.code, "not_a_target");
+        let bad_report = ApiError::from(DeviceTargetError::Port(0));
+        assert_eq!(bad_report.status, StatusCode::BAD_REQUEST);
+        assert_eq!(bad_report.code, "bad_request");
+        assert_eq!(bad_report.message, "port outside 1 to 65535: 0");
+        let expired = ApiError::from(PlayCommandTokenError::Expired);
+        assert_eq!(expired.status, StatusCode::FORBIDDEN);
+        assert_eq!(expired.code, "play_command_expired");
+        let invalid = ApiError::from(PlayCommandTokenError::Invalid);
+        assert_eq!(invalid.status, StatusCode::FORBIDDEN);
+        assert_eq!(invalid.code, "invalid_play_command");
+        let create = ApiError::from(PlayCommandTokenError::Create("boom".into()));
+        assert_eq!(create.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(create.code, "internal");
     }
 
     #[test]

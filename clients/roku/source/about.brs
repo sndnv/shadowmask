@@ -32,6 +32,12 @@ function AboutTitle() as string
     return name + " " + version
 end function
 
+function ChannelId() as string
+    info = CreateObject("roAppInfo")
+    if info = invalid then return ""
+    return TextOrBlank(info.GetID())
+end function
+
 function AttributionRows() as object
     return [
         { label: BundledFontName(), values: [BundledFontLicense()] }

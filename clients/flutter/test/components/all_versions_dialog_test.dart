@@ -23,6 +23,8 @@ import 'package:shadowmask/view/version_jobs_watch.dart';
 import 'package:shadowmask/view/version_order.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../support/play_on.dart';
+
 Map<String, dynamic> _json(String id, String quality) => <String, dynamic>{
   'id': id,
   'title': <String, dynamic>{'type': 'movie', 'id': 'm1'},
@@ -40,9 +42,13 @@ final List<Version> _shuffled = <Version>[
   Version.fromJson(_json('v-fhd', 'fhd')),
 ];
 
-ApiClient _api() => ApiClient(
+ApiClient _api([PlayOnServer? server]) => ApiClient(
   baseUrl: 'http://test',
   httpClient: MockClient((http.Request req) async {
+    final http.Response? playOn = server?.answer(req);
+    if (playOn != null) {
+      return playOn;
+    }
     for (final Version v in _shuffled) {
       if (req.url.path.endsWith('/versions/${v.id}')) {
         return http.Response(
@@ -763,6 +769,112 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.byTooltip(Strings.openVersion), findsOneWidget);
       expect(find.byTooltip(Strings.subtitlesHeading), findsOneWidget);
+    });
+  });
+
+  group('Play on', () {
+    final List<Version> withMissing = <Version>[
+      ..._shuffled.take(2),
+      Version.fromJson(_json('v-hd', 'hd')..['available'] = false),
+    ];
+
+    Widget picker(
+      PlayOnServer server, {
+      double width = 760,
+      List<Version>? versions,
+    }) {
+      final ApiClient api = _api(server);
+      return SizedBox(
+        width: width,
+        child: VersionPicker(
+          catalog: CatalogApi(api),
+          playback: PlaybackApi(api),
+          userId: 'u1',
+          versions: versions ?? _shuffled,
+          playOn: server.api(api),
+        ),
+      );
+    }
+
+    testWidgets('each available version offers Play on', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, picker(PlayOnServer(), versions: withMissing));
+
+      expect(find.byTooltip(Strings.playOn), findsNWidgets(2));
+      expect(find.byIcon(Icons.download_outlined), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('no device that can play leaves the rows as they were', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, picker(PlayOnServer(devices: const [])));
+
+      expect(find.byTooltip(Strings.playOn), findsNothing);
+      expect(find.text(Strings.play), findsNWidgets(3));
+    });
+
+    testWidgets('Play on in a row sends that row version', (
+      WidgetTester tester,
+    ) async {
+      final PlayOnServer server = PlayOnServer();
+      await _pump(tester, picker(server));
+
+      await tester.tap(find.byTooltip(Strings.playOn).at(1));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SubmenuButton), findsNothing);
+
+      await tester.tap(find.text('Pixel'));
+      await tester.pumpAndSettle();
+
+      expect(server.mints, <Mint>[(device: 'd2', version: 'v-fhd')]);
+      expect(find.text(Strings.playOnPlaying('Pixel')), findsOneWidget);
+      await tester.pump(kToastDuration);
+    });
+
+    testWidgets('a phone row offers Play on in its details', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, picker(PlayOnServer(), width: 280));
+
+      expect(find.byTooltip(Strings.playOn), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.expand_more).first);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byTooltip(Strings.playOn), findsOneWidget);
+    });
+
+    testWidgets('the dialog hands Play on to its picker', (
+      WidgetTester tester,
+    ) async {
+      final PlayOnServer server = PlayOnServer();
+      final ApiClient api = _api(server);
+      await _pump(
+        tester,
+        Builder(
+          builder: (BuildContext context) => TextButton(
+            onPressed: () => AllVersionsDialog.show(
+              context,
+              catalog: CatalogApi(api),
+              playback: PlaybackApi(api),
+              userId: 'u1',
+              versions: orderedVersions(_shuffled),
+              playOn: server.api(api),
+            ),
+            child: const Text('open'),
+          ),
+        ),
+        size: const Size(1200, 900),
+      );
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip(Strings.playOn), findsNWidgets(3));
     });
   });
 }

@@ -2,15 +2,18 @@ import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/api/catalog_api.dart';
+import 'package:shadowmask/api/play_on_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/action_segments.dart';
 import 'package:shadowmask/components/admin/subtitle_dialogs.dart';
 import 'package:shadowmask/components/admin/version_job_dialogs.dart';
 import 'package:shadowmask/components/outline_pill.dart';
+import 'package:shadowmask/components/play_on_button.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/version_job_lines.dart';
 import 'package:shadowmask/components/version_label.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/model/auth/device.dart';
 import 'package:shadowmask/model/catalog/download_link.dart';
 import 'package:shadowmask/model/job/version_job.dart';
 import 'package:shadowmask/model/session/resume_position.dart';
@@ -70,6 +73,7 @@ class VersionPicker extends StatefulWidget {
     this.showHeading = true,
     this.admin,
     this.adminPages = false,
+    this.playOn,
   });
 
   final CatalogApi catalog;
@@ -80,12 +84,14 @@ class VersionPicker extends StatefulWidget {
   final bool showHeading;
   final AdminApi? admin;
   final bool adminPages;
+  final PlayOnApi? playOn;
 
   @override
   State<VersionPicker> createState() => _VersionPickerState();
 }
 
-class _VersionPickerState extends State<VersionPicker> {
+class _VersionPickerState extends State<VersionPicker>
+    with PlayOnTargets<VersionPicker> {
   late final List<Version> _ordered = orderedVersions(widget.versions);
   List<VersionDetail?>? _details;
   int _generation = 0;
@@ -94,6 +100,7 @@ class _VersionPickerState extends State<VersionPicker> {
   void initState() {
     super.initState();
     _reload();
+    loadPlayOnTargets(widget.playOn, widget.userId);
   }
 
   Future<List<VersionDetail?>> _reload() async {
@@ -159,6 +166,8 @@ class _VersionPickerState extends State<VersionPicker> {
                     admin: widget.admin,
                     adminPages: widget.adminPages,
                     onChanged: _reload,
+                    playOn: widget.playOn,
+                    playOnDevices: playOnDevices,
                   ),
               ],
             ),
@@ -189,6 +198,8 @@ class _VersionRow extends StatefulWidget {
     required this.admin,
     required this.adminPages,
     required this.onChanged,
+    required this.playOn,
+    required this.playOnDevices,
   });
 
   final Version version;
@@ -201,6 +212,8 @@ class _VersionRow extends StatefulWidget {
   final AdminApi? admin;
   final bool adminPages;
   final Future<List<VersionDetail?>> Function() onChanged;
+  final PlayOnApi? playOn;
+  final List<Device> playOnDevices;
 
   @override
   State<_VersionRow> createState() => _VersionRowState();
@@ -246,6 +259,24 @@ class _VersionRowState extends State<_VersionRow> {
     tooltip: Strings.downloadVersion,
     icon: Icon(Icons.download_outlined, color: t.muted),
   );
+
+  List<Widget> _availableActions(Tokens t, Version v) {
+    final PlayOnApi? playOn = widget.playOn;
+    return <Widget>[
+      _downloadButton(t, v),
+      if (playOn != null && widget.playOnDevices.isNotEmpty)
+        PlayOnButton.icon(
+          playOn: playOn,
+          devices: widget.playOnDevices,
+          choose: () async => (ordered: <Version>[v], target: v),
+        ),
+    ];
+  }
+
+  double get _playOnWidth =>
+      widget.playOn != null && widget.playOnDevices.isNotEmpty
+      ? _kIconButtonWidth
+      : 0;
 
   Future<void> _run(Future<bool> action) async {
     if (await action && mounted) {
@@ -456,7 +487,8 @@ class _VersionRowState extends State<_VersionRow> {
       ),
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
-          final double sideBySide = kVersionRowSideBySide + _adminActionsWidth;
+          final double sideBySide =
+              kVersionRowSideBySide + _adminActionsWidth + _playOnWidth;
           final bool narrow = constraints.maxWidth < sideBySide;
           final VersionJobsWatch? jobs = _jobs;
           return Column(
@@ -551,7 +583,7 @@ class _VersionRowState extends State<_VersionRow> {
                     child: _label(t, v, available),
                   ),
                 ),
-                if (available) _downloadButton(t, v),
+                if (available) ..._availableActions(t, v),
                 ..._adminActions(context, t, v, d),
               ],
             ),
@@ -652,7 +684,7 @@ class _VersionRowState extends State<_VersionRow> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      if (available) _downloadButton(t, v),
+                      if (available) ..._availableActions(t, v),
                       ..._adminActions(context, t, v, d),
                     ],
                   ),

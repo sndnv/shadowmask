@@ -6,6 +6,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/server_scope.dart';
 import 'package:shadowmask/api/server_store.dart';
 import 'package:shadowmask/api/token_store.dart';
+import 'package:shadowmask/components/play_on_host.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/tooltip_dismisser.dart';
 import 'package:shadowmask/l10n/strings.dart';
@@ -58,6 +59,37 @@ void main() {
       find.descendant(of: host, matching: find.byType(Navigator)),
       findsWidgets,
     );
+  });
+
+  testWidgets('the Android app receives commands above the navigator', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      ShadowmaskApp(
+        initialServer: 'http://test',
+        clientFactory: _factory(),
+        receivesCommands: () => true,
+      ),
+    );
+    await tester.pump();
+
+    final Finder host = find.byType(PlayOnHost);
+    expect(host, findsOneWidget);
+    expect(
+      find.descendant(of: host, matching: find.byType(Navigator)),
+      findsWidgets,
+    );
+    expect(
+      find.ancestor(of: host, matching: find.byType(ToastHost)),
+      findsOneWidget,
+      reason: 'a refused command shows a toast',
+    );
+  });
+
+  testWidgets('other apps receive no commands', (WidgetTester tester) async {
+    await _pumpConfigured(tester);
+
+    expect(find.byType(PlayOnHost), findsNothing);
   });
 
   testWidgets('a configured server boots past the entry screen', (

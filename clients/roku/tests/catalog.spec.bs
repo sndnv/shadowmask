@@ -417,6 +417,34 @@ namespace tests
             m.assertEqual(request.url, "http://host/api/v1/users/u%201/devices/dev%2F1")
         end sub
 
+        @describe("TargetReportRequest")
+
+        @it("reports this Roku's addresses, ECP port and channel id")
+        sub reportsThisRoku()
+            request = TargetReportRequest("http://host", "smk_a", ["192.168.1.40", "10.0.0.2"], "dev")
+
+            m.assertEqual(request.url, "http://host/api/v1/devices/self/target")
+            m.assertEqual(request.method, "PUT")
+            m.assertEqual(request.headers["Authorization"], "Bearer smk_a")
+            body = ParseJson(request.body)
+            m.assertEqual(body.kind, "roku")
+            m.assertEqual(body.addresses, ["192.168.1.40", "10.0.0.2"])
+            m.assertEqual(body.port, 8060)
+            m.assertEqual(body.app_id, "dev")
+        end sub
+
+        @describe("RedeemCommandRequest")
+
+        @it("redeems a command with this device's own token")
+        sub redeemsACommand()
+            request = RedeemCommandRequest("http://host", "smk_a", "eyJ.cmd")
+
+            m.assertEqual(request.url, "http://host/api/v1/devices/self/commands/redeem")
+            m.assertEqual(request.method, "POST")
+            m.assertEqual(request.headers["Authorization"], "Bearer smk_a")
+            m.assertEqual(ParseJson(request.body).token, "eyJ.cmd")
+        end sub
+
     end class
 
 end namespace

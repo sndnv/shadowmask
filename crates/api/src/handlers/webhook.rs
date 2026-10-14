@@ -74,6 +74,7 @@ pub async fn scan<S: AppServices>(
         user: UserId(client.name.clone()),
         role: Role::Automation,
         account_admin: false,
+        device: None,
     };
     let library = LibraryId(id);
     match state.services.library().trigger_scan(&principal, &library, ScanMode::Normal).await {

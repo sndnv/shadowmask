@@ -7,6 +7,7 @@ pub mod download;
 pub mod image;
 pub mod job_log;
 pub mod library;
+pub mod play_on;
 pub mod server;
 pub mod sessions;
 pub mod stream;

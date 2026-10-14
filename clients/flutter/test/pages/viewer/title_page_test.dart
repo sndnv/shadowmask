@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/components/play_on_button.dart';
 import 'package:shadowmask/components/poster_play.dart';
 import 'package:shadowmask/components/progress_bar.dart';
 import 'package:shadowmask/components/toast_host.dart';
@@ -15,6 +16,8 @@ import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../support/play_on.dart';
 
 Map<String, dynamic> _version(String id, String label) => <String, dynamic>{
   'id': id,
@@ -92,11 +95,16 @@ ApiClient _api({
       const <String, List<Map<String, dynamic>>>{},
   List<Map<String, dynamic>> collections = const <Map<String, dynamic>>[],
   List<String>? seen,
+  PlayOnServer? server,
 }) {
   bool cleared = false;
   return ApiClient(
     baseUrl: 'http://test',
     httpClient: MockClient((http.Request req) async {
+      final http.Response? playOn = server?.answer(req);
+      if (playOn != null) {
+        return playOn;
+      }
       seen?.add(req.url.path);
       if (req.url.path == '/api/v1/people/batch') {
         return http.Response(
@@ -219,6 +227,24 @@ Future<void> _pump(
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+
+  testWidgets('a device that can play puts Play on beside Play and in the '
+      'versions dialog', (WidgetTester tester) async {
+    await _pump(
+      tester,
+      _api(
+        versions: <Map<String, dynamic>>[_version('v1', 'fhd')],
+        server: PlayOnServer(),
+      ),
+    );
+
+    expect(find.byType(PlayOnButton), findsOneWidget);
+
+    await tester.tap(find.byTooltip(Strings.versionsHeading));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PlayOnButton), findsNWidgets(2));
+  });
 
   testWidgets('the poster opens the version menu when nothing resumes', (
     WidgetTester tester,

@@ -6,6 +6,7 @@ build_version=5
 ui_resolutions=fhd
 rsg_version=1.2
 requires_mkv=1
+supports_input_launch=1
 
 mm_icon_focus_hd=pkg:/images/channel-poster-hd.png
 mm_icon_focus_fhd=pkg:/images/channel-poster-fhd.png

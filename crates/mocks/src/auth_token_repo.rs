@@ -5,7 +5,8 @@ use std::sync::{Arc, Mutex};
 use domain::error::RepositoryError;
 use domain::repository::AuthTokenRepository;
 use domain::user::{
-    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, PendingLink, UserId,
+    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, DeviceTarget, PendingLink,
+    UserId,
 };
 use jiff::Timestamp;
 
@@ -14,8 +15,21 @@ struct State {
     refresh: HashMap<AuthSessionId, AuthSession>,
     links: HashMap<String, PendingLink>,
     devices: HashMap<DeviceId, Device>,
+    targets: HashMap<DeviceId, DeviceTarget>,
     api_tokens: HashMap<String, ApiToken>,
     purged: Vec<UserId>,
+}
+
+impl State {
+    fn with_target(&self, device: &Device) -> Device {
+        Device { target: self.targets.get(&device.id).cloned(), ..device.clone() }
+    }
+
+    fn remove_devices_of(&mut self, user: &UserId) {
+        let devices = &self.devices;
+        self.targets.retain(|id, _| devices.get(id).is_none_or(|d| &d.user != user));
+        self.devices.retain(|_, d| &d.user != user);
+    }
 }
 
 #[derive(Clone, Default)]
@@ -53,7 +67,7 @@ impl AuthTokenRepository for MockAuthTokenRepo {
         state.refresh.retain(|_, s| &s.user != user);
         state.links.retain(|_, l| &l.user != user);
         state.api_tokens.retain(|_, t| &t.user != user);
-        state.devices.retain(|_, d| &d.user != user);
+        state.remove_devices_of(user);
         state.purged.push(user.clone());
         Ok(())
     }
@@ -83,7 +97,7 @@ impl AuthTokenRepository for MockAuthTokenRepo {
         let mut state = self.state.lock().unwrap();
         state.refresh.retain(|_, session| &session.user != user);
         state.api_tokens.retain(|_, token| &token.user != user);
-        state.devices.retain(|_, device| &device.user != user);
+        state.remove_devices_of(user);
         Ok(())
     }
 
@@ -154,7 +168,8 @@ impl AuthTokenRepository for MockAuthTokenRepo {
 
     async fn get_device(&self, id: &DeviceId) -> Result<Option<Device>, RepositoryError> {
         self.guard()?;
-        Ok(self.state.lock().unwrap().devices.get(id).cloned())
+        let state = self.state.lock().unwrap();
+        Ok(state.devices.get(id).map(|device| state.with_target(device)))
     }
 
     async fn store_api_token(&self, token: ApiToken) -> Result<(), RepositoryError> {
@@ -187,14 +202,12 @@ impl AuthTokenRepository for MockAuthTokenRepo {
 
     async fn list_devices(&self, user: &UserId) -> Result<Vec<Device>, RepositoryError> {
         self.guard()?;
-        let mut devices: Vec<Device> = self
-            .state
-            .lock()
-            .unwrap()
+        let state = self.state.lock().unwrap();
+        let mut devices: Vec<Device> = state
             .devices
             .values()
             .filter(|device| &device.user == user)
-            .cloned()
+            .map(|device| state.with_target(device))
             .collect();
         devices.sort_by(|a, b| a.id.0.cmp(&b.id.0));
         Ok(devices)
@@ -217,13 +230,41 @@ impl AuthTokenRepository for MockAuthTokenRepo {
 
     async fn delete_device(&self, id: &DeviceId) -> Result<(), RepositoryError> {
         self.guard()?;
-        self.state.lock().unwrap().devices.remove(id);
+        let mut state = self.state.lock().unwrap();
+        state.targets.remove(id);
+        state.devices.remove(id);
+        Ok(())
+    }
+
+    async fn put_device_target(
+        &self,
+        id: &DeviceId,
+        target: &DeviceTarget,
+    ) -> Result<(), RepositoryError> {
+        self.guard()?;
+        self.state.lock().unwrap().targets.insert(id.clone(), target.clone());
+        Ok(())
+    }
+
+    async fn delete_device_target(&self, id: &DeviceId) -> Result<(), RepositoryError> {
+        self.guard()?;
+        self.state.lock().unwrap().targets.remove(id);
         Ok(())
     }
 
     async fn revoke_api_token(&self, id: &ApiTokenId) -> Result<(), RepositoryError> {
         self.guard()?;
-        self.state.lock().unwrap().api_tokens.retain(|_, token| &token.id != id);
+        let mut state = self.state.lock().unwrap();
+        let devices: Vec<DeviceId> = state
+            .api_tokens
+            .values()
+            .filter(|token| &token.id == id)
+            .map(|token| token.device.clone())
+            .collect();
+        for device in &devices {
+            state.targets.remove(device);
+        }
+        state.api_tokens.retain(|_, token| &token.id != id);
         Ok(())
     }
 }
@@ -260,6 +301,7 @@ mod tests {
             platform: "roku".to_owned(),
             created_at: Timestamp::UNIX_EPOCH,
             last_seen: Some(Timestamp::UNIX_EPOCH),
+            target: None,
         }
     }
 
@@ -428,6 +470,7 @@ mod tests {
         assert!(repo.list_devices(&UserId("u1".into())).await.is_err());
         assert!(repo.list_api_tokens(&UserId("u1".into())).await.is_err());
         assert!(repo.delete_device(&DeviceId("d1".into())).await.is_err());
+        assert!(repo.delete_device_target(&DeviceId("d1".into())).await.is_err());
         assert!(repo.revoke_api_token(&ApiTokenId("t1".into())).await.is_err());
     }
 }

@@ -8,6 +8,7 @@ import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/components/episode_play_button.dart';
+import 'package:shadowmask/components/play_on_button.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/toggle_button.dart';
 import 'package:shadowmask/l10n/strings.dart';
@@ -16,6 +17,8 @@ import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/view/next_episode.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../support/play_on.dart';
 
 NextEpisode _next({int progress = 0, String title = 'Three'}) => (
   episode: Episode(id: 'e3', seasonId: 'se2', number: 3, title: title),
@@ -63,10 +66,15 @@ Future<_Pushes> _pump(
   List<String>? seen,
   double width = 800,
   bool withSeason = true,
+  PlayOnServer? server,
 }) async {
   final ApiClient api = ApiClient(
     baseUrl: 'http://test',
     httpClient: MockClient((http.Request req) async {
+      final http.Response? playOn = server?.answer(req);
+      if (playOn != null) {
+        return playOn;
+      }
       seen?.add(req.url.path);
       if (req.url.path.endsWith('/continue')) {
         return http.Response(
@@ -117,6 +125,7 @@ Future<_Pushes> _pump(
                           seriesId: 's1',
                           next: next,
                           withSeason: withSeason,
+                          playOn: server?.api(api),
                         ),
                         NextEpisodeNote(next: next, withSeason: withSeason),
                         const Text('below'),
@@ -136,6 +145,11 @@ Future<_Pushes> _pump(
 
 Future<void> _press(WidgetTester tester, String label) async {
   await tester.tap(find.text(label));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _pressPlayOn(WidgetTester tester) async {
+  await tester.tap(find.byIcon(Icons.devices));
   await tester.pumpAndSettle();
 }
 
@@ -341,5 +355,77 @@ void main() {
     expect(find.text(Strings.nothingToPlay), findsOneWidget);
     expect(seen, isEmpty);
     await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  group('Play on', () {
+    testWidgets('sits after Play when a device can play', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        Future<NextEpisode?>.value(_next()),
+        server: PlayOnServer(),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PlayOnButton), findsOneWidget);
+      expect(
+        tester.getRect(find.byType(PlayOnButton)).left,
+        greaterThanOrEqualTo(tester.getRect(find.text(Strings.play)).right),
+      );
+    });
+
+    testWidgets('is absent when no device can play', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        Future<NextEpisode?>.value(_next()),
+        server: PlayOnServer(devices: const []),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PlayOnButton), findsNothing);
+    });
+
+    testWidgets('sends the next episode version Play would start', (
+      WidgetTester tester,
+    ) async {
+      final PlayOnServer server = PlayOnServer();
+      final List<String> seen = <String>[];
+      final _Pushes pushes = await _pump(
+        tester,
+        Future<NextEpisode?>.value(_next()),
+        versions: <Map<String, dynamic>>[_version('v1')],
+        seen: seen,
+        server: server,
+      );
+      await tester.pumpAndSettle();
+
+      await _pressPlayOn(tester);
+      await tester.tap(find.text('Living room'));
+      await tester.pumpAndSettle();
+
+      expect(
+        seen,
+        contains('/api/v1/series/s1/seasons/se2/episodes/e3/versions'),
+      );
+      expect(server.mints, <Mint>[(device: 'd1', version: 'v1')]);
+      expect(server.lan.last.url.queryParameters['mediaType'], 'episode');
+      expect(pushes.names, isEmpty, reason: 'this device plays nothing');
+      await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+    });
+
+    testWidgets('no episode to send says there is nothing to play', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, Future<NextEpisode?>.value(), server: PlayOnServer());
+      await tester.pumpAndSettle();
+
+      await _pressPlayOn(tester);
+
+      expect(find.text(Strings.nothingToPlay), findsOneWidget);
+      await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+    });
   });
 }

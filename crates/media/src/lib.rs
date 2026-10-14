@@ -5,6 +5,7 @@ pub mod diagnostics;
 pub mod download_token;
 pub mod hls;
 mod hmac_token;
+pub mod play_command_token;
 pub mod playback_prep;
 pub mod playback_prep_store;
 pub mod probe;

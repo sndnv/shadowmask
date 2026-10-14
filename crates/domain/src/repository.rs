@@ -26,8 +26,8 @@ use crate::playback::{
 };
 use crate::session::{PlaybackSession, SessionId};
 use crate::user::{
-    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, LibraryAccess, PendingLink,
-    User, UserId,
+    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, DeviceTarget,
+    LibraryAccess, PendingLink, User, UserId,
 };
 
 pub trait CatalogRepository {
@@ -694,6 +694,15 @@ pub trait AuthTokenRepository {
         user: &UserId,
     ) -> impl Future<Output = Result<Vec<ApiToken>, RepositoryError>> + Send;
     fn delete_device(
+        &self,
+        id: &DeviceId,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn put_device_target(
+        &self,
+        id: &DeviceId,
+        target: &DeviceTarget,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn delete_device_target(
         &self,
         id: &DeviceId,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;

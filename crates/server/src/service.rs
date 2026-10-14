@@ -25,6 +25,7 @@ use media::artwork::FsArtworkStore;
 use media::cache::CacheEvictor;
 use media::diagnostics::{CachedDiagnostics, FfmpegCapabilityProbe, SegmentBenchmark};
 use media::download_token::HmacDownloadTokens;
+use media::play_command_token::HmacPlayCommandTokens;
 use media::playback_prep::FfmpegPlaybackPreparer;
 use media::playback_prep_store::FsPlaybackPrepStore;
 use media::probe::FfprobeMediaProbe;
@@ -511,6 +512,10 @@ impl Runtime {
                 repos.catalog.clone(),
                 HmacDownloadTokens::new(&download_secret),
             ),
+        ))
+        .merge(::api::play_on_router(
+            state.clone(),
+            ::api::PlayOnState::new(state.clone(), HmacPlayCommandTokens::new(&download_secret)),
         ));
         if config.opensubtitles_api_key.is_some() {
             router = router.merge(::api::subtitle_search_router(

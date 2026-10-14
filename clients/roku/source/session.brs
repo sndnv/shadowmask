@@ -134,3 +134,44 @@ end sub
 sub ClearSession()
     ClearKeys(SessionKeys())
 end sub
+
+function MaxTargetAddresses() as integer
+    return 4
+end function
+
+function TargetAddresses(addresses as dynamic) as object
+    found = []
+    if type(addresses) <> "roAssociativeArray" then return found
+
+    names = addresses.Keys()
+    names.Sort()
+    for each name in names
+        address = TextOrBlank(addresses[name]).Trim()
+        if not IsBlank(address) and found.Count() < MaxTargetAddresses() then found.Push(address)
+    end for
+    return found
+end function
+
+function DeepLinkCommand(info as dynamic) as string
+    if type(info) <> "roAssociativeArray" then return ""
+    return TextOrBlank(ValueAt(info, "command", "")).Trim()
+end function
+
+function NoTitlePage() as object
+    return { screen: "", target: {} }
+end function
+
+function TitlePageFor(ref as dynamic, episode = invalid as dynamic) as object
+    kind = LCase(TextOrBlank(ValueAt(ref, "type", "")))
+    id = TextOrBlank(ValueAt(ref, "id", ""))
+    if IsBlank(id) then return NoTitlePage()
+
+    if kind = "movie" then return { screen: "TitleScreen", target: { kind: "movie", id: id } }
+    if kind <> "episode" then return NoTitlePage()
+
+    seriesId = TextOrBlank(ValueAt(episode, "series_id", ""))
+    seasonId = TextOrBlank(ValueAt(episode, "season_id", ""))
+    if IsBlank(seriesId) or IsBlank(seasonId) then return NoTitlePage()
+
+    return { screen: "EpisodeScreen", target: { kind: "episode", id: id, seriesId: seriesId, seasonId: seasonId } }
+end function

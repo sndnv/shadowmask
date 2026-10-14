@@ -1,5 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'package:shadowmask/model/auth/device_target.dart';
+
 part 'device.freezed.dart';
 part 'device.g.dart';
 
@@ -12,6 +14,7 @@ abstract class Device with _$Device {
     required String platform,
     required String createdAt,
     String? lastSeen,
+    DeviceTarget? target,
   }) = _Device;
 
   factory Device.fromJson(Map<String, dynamic> json) => _$DeviceFromJson(json);

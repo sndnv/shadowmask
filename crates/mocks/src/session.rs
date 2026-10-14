@@ -230,7 +230,12 @@ mod tests {
     use domain::user::{Role, UserId};
 
     fn principal(user: &str) -> Principal {
-        Principal { user: UserId(user.into()), role: Role::User, account_admin: false }
+        Principal {
+            user: UserId(user.into()),
+            role: Role::User,
+            account_admin: false,
+            device: None,
+        }
     }
 
     fn page() -> PageRequest {
