@@ -8,8 +8,11 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/components/admin/labelled_field.dart';
 import 'package:shadowmask/components/admin/subtitle_dialogs.dart';
+import 'package:shadowmask/components/language_dropdown.dart';
 import 'package:shadowmask/components/outline_pill.dart';
+import 'package:shadowmask/components/start_ellipsis_text.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
@@ -52,11 +55,16 @@ Future<void> _close(WidgetTester tester, _Close how) async {
   await tester.pumpAndSettle();
 }
 
+const String _kLongRelease =
+    'Paper.Skies.2019.REMASTERED.1080p.BluRay.x264.DTS-HD.MA.5.1-SOMEGROUP';
+
 Future<List<http.Request>> _open(
   WidgetTester tester, {
   required List<SubtitleFile> existing,
   Completer<http.Response>? download,
   List<bool>? results,
+  String? path,
+  String freshRelease = 'Fresh.Release',
 }) async {
   final List<http.Request> seen = <http.Request>[];
   final ApiClient api = ApiClient(
@@ -67,7 +75,7 @@ Future<List<http.Request>> _open(
         return http.Response(
           jsonEncode(<dynamic>[
             _candidate('42', 'Held.Release', downloads: 1234),
-            _candidate('99', 'Fresh.Release'),
+            _candidate('99', freshRelease),
           ]),
           200,
         );
@@ -92,6 +100,7 @@ Future<List<http.Request>> _open(
                 admin: AdminApi(api),
                 versionId: 'v1',
                 existing: existing,
+                path: path,
               );
               results?.add(changed);
             },
@@ -349,7 +358,7 @@ void main() {
     expect(results, <bool>[false]);
   }, variant: closes);
 
-  testWidgets('a download count sits left of its button, compact', (
+  testWidgets('a download count leads the details, compact', (
     WidgetTester tester,
   ) async {
     await _open(tester, existing: <SubtitleFile>[_held('42')]);
@@ -357,16 +366,124 @@ void main() {
     expect(find.byType(OutlinePill), findsOneWidget);
     expect(find.text('1.23K'), findsOneWidget);
     expect(find.byTooltip('1,234 downloads'), findsOneWidget);
-    final double pillEnd = tester.getTopRight(find.byType(OutlinePill)).dx;
     expect(
-      tester.getTopLeft(find.widgetWithText(TextButton, Strings.downloaded)).dx,
-      pillEnd + Space.s2,
-      reason: 'the hover surface keeps clear of the pill',
+      tester.getTopLeft(find.text('English · srt').first).dx,
+      tester.getTopRight(find.byType(OutlinePill)).dx + Space.s2,
     );
     expect(
-      tester.getTopLeft(find.text(Strings.downloaded)).dx,
-      pillEnd + kButtonPaddingX,
-      reason: 'the label sits where the theme padding put it',
+      tester.getTopLeft(find.text('English · srt').last).dx,
+      tester.getTopLeft(find.text('Fresh.Release')).dx,
+      reason: 'a result with no count starts with its details',
+    );
+    expect(
+      tester.getTopRight(find.text(Strings.downloaded)).dx,
+      tester
+              .getTopRight(find.widgetWithText(TextButton, Strings.downloaded))
+              .dx -
+          (kButtonPaddingX - Space.s2),
+      reason: 'the label sits where the row padding put it',
+    );
+  });
+
+  final ValueVariant<Size> screens = ValueVariant<Size>(<Size>{
+    const Size(800, 600),
+    const Size(360, 740),
+  });
+
+  testWidgets('a result reads as its name above its details and button', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = screens.currentValue!;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await _open(tester, existing: <SubtitleFile>[_held('42')]);
+
+    final Rect name = tester.getRect(find.text('Held.Release'));
+    final Rect details = tester.getRect(find.text('English · srt').first);
+    final Rect pill = tester.getRect(find.byType(OutlinePill));
+    final Rect button = tester.getRect(
+      find.widgetWithText(TextButton, Strings.downloaded),
+    );
+    final double end = tester
+        .getRect(find.widgetWithText(FilledButton, Strings.searchSubtitles))
+        .right;
+
+    expect(button.top, greaterThanOrEqualTo(name.bottom));
+    expect(pill.left, name.left);
+    expect(pill.center.dy, moreOrLessEquals(button.center.dy, epsilon: 1));
+    expect(button.right, end, reason: 'the button sits flush right');
+    expect(details.right, lessThan(button.left));
+  }, variant: screens);
+
+  final ValueVariant<double> fonts = ValueVariant<double>(<double>{0.85, 1.15});
+
+  testWidgets('the query, language and button match at any font size', (
+    WidgetTester tester,
+  ) async {
+    tester.platformDispatcher.textScaleFactorTestValue = fonts.currentValue!;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await _open(tester, existing: <SubtitleFile>[]);
+
+    final Rect query = tester.getRect(find.byType(TextField));
+    final Rect language = tester.getRect(find.byType(LanguageDropdown));
+    final Rect button = tester.getRect(
+      find.widgetWithText(FilledButton, Strings.searchSubtitles),
+    );
+    expect(query.top, language.top);
+    expect(query.bottom, language.bottom);
+    expect(query.top, button.top);
+    expect(query.bottom, button.bottom);
+  }, variant: fonts);
+
+  testWidgets('a long name is cut and read in full on a long press', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 740);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await _open(
+      tester,
+      existing: <SubtitleFile>[],
+      freshRelease: _kLongRelease,
+    );
+
+    final Finder cut = find.textContaining('…');
+    expect(cut, findsOneWidget);
+    expect(find.text(_kLongRelease), findsNothing);
+
+    await tester.longPress(cut);
+    await tester.pumpAndSettle();
+
+    expect(find.text(_kLongRelease), findsOneWidget);
+  });
+
+  testWidgets('the search names its version by file name, above the query', (
+    WidgetTester tester,
+  ) async {
+    await _open(
+      tester,
+      existing: <SubtitleFile>[],
+      path: '/media/movies/Paper Skies (2019)/Paper.Skies.2019.1080p.mkv',
+    );
+
+    final Finder name = find.text('Paper.Skies.2019.1080p');
+    expect(name, findsOneWidget);
+    expect(
+      tester.getRect(name).bottom,
+      lessThanOrEqualTo(tester.getRect(find.byType(LabelledTextField)).top),
+    );
+    expect(find.byType(StartEllipsisText), findsNWidgets(3));
+  });
+
+  testWidgets('a version with no path names nothing above the query', (
+    WidgetTester tester,
+  ) async {
+    await _open(tester, existing: <SubtitleFile>[]);
+
+    expect(
+      find.byType(StartEllipsisText),
+      findsNWidgets(2),
+      reason: 'only the two results are named',
     );
   });
 

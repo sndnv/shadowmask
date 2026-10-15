@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/admin/labelled_field.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
+import 'package:shadowmask/theme/space.dart';
 
 Widget _host(Widget child) => MaterialApp(
   theme: buildTheme(AppThemeVariant.dark),
@@ -43,6 +44,77 @@ void main() {
     );
 
     semantics.dispose();
+  });
+
+  final ValueVariant<double> fitting = ValueVariant<double>(<double>{
+    0.85,
+    1.0,
+    1.15,
+    1.3,
+  });
+
+  testWidgets('a one-line field keeps the control height at any font size', (
+    WidgetTester tester,
+  ) async {
+    tester.platformDispatcher.textScaleFactorTestValue = fitting.currentValue!;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final TextEditingController controller = TextEditingController(
+      text: 'Blade Runner',
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      _host(LabelledTextField(controller: controller, label: 'Title')),
+    );
+
+    expect(tester.getSize(find.byType(TextField)).height, kControlHeight);
+  }, variant: fitting);
+
+  testWidgets('a one-line field grows around text taller than the control', (
+    WidgetTester tester,
+  ) async {
+    tester.platformDispatcher.textScaleFactorTestValue = 1.5;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final TextEditingController controller = TextEditingController(
+      text: 'Blade Runner',
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      _host(LabelledTextField(controller: controller, label: 'Title')),
+    );
+
+    final Rect field = tester.getRect(find.byType(TextField));
+    final Rect text = tester.getRect(find.byType(EditableText));
+    expect(field.height, greaterThan(kControlHeight));
+    expect(text.top, greaterThanOrEqualTo(field.top));
+    expect(text.bottom, lessThanOrEqualTo(field.bottom));
+  });
+
+  testWidgets('a multi-line field keeps its padding at any font size', (
+    WidgetTester tester,
+  ) async {
+    final TextEditingController controller = TextEditingController(
+      text: 'A long overview',
+    );
+    addTearDown(controller.dispose);
+    Future<double> inset(double scale) async {
+      tester.platformDispatcher.textScaleFactorTestValue = scale;
+      await tester.pumpWidget(
+        _host(
+          LabelledTextField(
+            controller: controller,
+            label: 'Overview',
+            maxLines: 3,
+          ),
+        ),
+      );
+      return tester.getRect(find.byType(EditableText)).top -
+          tester.getRect(find.byType(TextField)).top;
+    }
+
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    expect(await inset(1.3), await inset(1.0));
   });
 
   testWidgets('a dropdown reads as its label and its current choice', (

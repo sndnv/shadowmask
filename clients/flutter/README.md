@@ -81,9 +81,11 @@ Two parts of the recipe are load-bearing:
 * `runtime.env` points `APPDIR_EXEC_PATH` at `shadowmask-launch`, the libmpv check, and
   `runtime.preserve` keeps its shebang absolute. `app_info.exec` must stay the ELF binary.
 
-The macOS build is neither signed nor notarized. On first open, right-click the app and choose Open,
-or run `xattr -dr com.apple.quarantine` against it. The iOS `.ipa` is built `--no-codesign`, so it
-installs only by sideloading with your own signing identity. The Android `.apk` is signed in CI.
+The macOS build is neither signed nor notarized, so macOS refuses the first open. Open it once, then
+choose Open Anyway under System Settings > Privacy & Security, or run
+`xattr -dr com.apple.quarantine /Applications/shadowmask.app`. The iOS `.ipa` is built
+`--no-codesign`, so it installs only by sideloading with your own signing identity. The Android
+`.apk` is signed in CI.
 
 The macOS and iOS bundles vendor mpv, FFmpeg and nine supporting libraries, and the Android APK
 vendors a different build of most of the same ones. They are attributed in

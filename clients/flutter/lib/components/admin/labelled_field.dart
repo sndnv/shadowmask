@@ -1,7 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/components/admin/field_help.dart';
 import 'package:shadowmask/components/app_dropdown.dart';
+import 'package:shadowmask/theme/space.dart';
 
 class LabelledTextField extends StatelessWidget {
   const LabelledTextField({
@@ -53,12 +56,30 @@ class LabelledTextField extends StatelessWidget {
         onSubmitted: onSubmitted,
         decoration: InputDecoration(
           isDense: true,
+          contentPadding: _singleLinePadding(context),
           hintText: hint,
           errorText: error,
         ),
       ),
     ),
   );
+
+  EdgeInsetsGeometry? _singleLinePadding(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final EdgeInsetsGeometry? base = theme.inputDecorationTheme.contentPadding;
+    final TextStyle? style = theme.textTheme.bodyLarge;
+    final double? size = style?.fontSize;
+    final double? height = style?.height;
+    if (maxLines != 1 || base == null || size == null || height == null) {
+      return null;
+    }
+    final double line = (MediaQuery.textScalerOf(context).scale(size) * height)
+        .roundToDouble();
+    final double vertical = math.max(0, (kControlHeight - line) / 2);
+    return base
+        .resolve(Directionality.of(context))
+        .copyWith(top: vertical, bottom: vertical);
+  }
 }
 
 class LabelledDropdown<T> extends StatelessWidget {

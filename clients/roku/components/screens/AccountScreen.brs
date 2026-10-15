@@ -33,6 +33,10 @@ sub init()
     m.deliveryActions = m.top.FindNode("deliveryActions")
     m.deliveryHelp = m.top.FindNode("deliveryHelp")
     m.deliveryRule = m.top.FindNode("deliveryRule")
+    m.subtitleSizeName = m.top.FindNode("subtitleSizeName")
+    m.subtitleSizeActions = m.top.FindNode("subtitleSizeActions")
+    m.subtitleSizeHelp = m.top.FindNode("subtitleSizeHelp")
+    m.subtitleSizeRule = m.top.FindNode("subtitleSizeRule")
     m.autoplayName = m.top.FindNode("autoplayName")
     m.autoplayActions = m.top.FindNode("autoplayActions")
     m.autoplayHelp = m.top.FindNode("autoplayHelp")
@@ -80,6 +84,7 @@ sub init()
     m.tabs.ObserveField("activated", "onTab")
     m.supportActions.ObserveField("activated", "onSupportAction")
     m.deliveryActions.ObserveField("activated", "onPlaybackAction")
+    m.subtitleSizeActions.ObserveField("activated", "onPlaybackAction")
     m.autoplayActions.ObserveField("activated", "onPlaybackAction")
     m.timeDisplayActions.ObserveField("activated", "onPlaybackAction")
     m.diagnosticsActions.ObserveField("activated", "onPlaybackAction")
@@ -437,7 +442,7 @@ sub RevealSettingRow(rows as object)
 end sub
 
 function PlaybackBars() as object
-    return [m.deliveryActions, m.autoplayActions, m.timeDisplayActions, m.diagnosticsActions]
+    return [m.deliveryActions, m.subtitleSizeActions, m.autoplayActions, m.timeDisplayActions, m.diagnosticsActions]
 end function
 
 function PlaybackRows() as object
@@ -451,6 +456,16 @@ function PlaybackRows() as object
             label: Phrase("player.converting"),
             value: DeliveryLabel(ReadDelivery()),
             hint: Phrase("help.delivery")
+        },
+        {
+            name: m.subtitleSizeName,
+            bar: m.subtitleSizeActions,
+            help: m.subtitleSizeHelp,
+            rule: m.subtitleSizeRule,
+            id: "subtitleSize",
+            label: Phrase("player.subtitleSize"),
+            value: SubtitleSizeLabel(ReadSubtitleSize()),
+            hint: Phrase("help.subtitleSize")
         },
         {
             name: m.autoplayName,
@@ -790,6 +805,11 @@ sub onPlaybackAction(event as object)
         return
     end if
 
+    if id = "subtitleSize"
+        RequestPlaybackChoice("subtitleSize", Phrase("player.subtitleSize"), SubtitleSizeOptions(), ReadSubtitleSize())
+        return
+    end if
+
     if id = "autoplay"
         RequestPlaybackChoice("autoplay", Phrase("player.autoplayNext"), AutoplayOptions(), AutoplayValue(ReadAutoplayNext(), ReadAutoplayDelay()))
         return
@@ -1007,6 +1027,14 @@ sub onChoice()
         if type(m.playbackChoices) <> "roArray" then return
 
         WriteDelivery(TextOrBlank(ChosenPlaybackOption(result)))
+        Layout()
+        return
+    end if
+
+    if field = "subtitleSize"
+        if type(m.playbackChoices) <> "roArray" then return
+
+        WriteSubtitleSize(TextOrBlank(ChosenPlaybackOption(result)))
         Layout()
         return
     end if

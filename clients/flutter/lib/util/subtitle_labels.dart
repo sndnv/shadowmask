@@ -19,8 +19,9 @@ String subtitleFileLabel(SubtitleFile s) => <String>[
   if (s.label != null) s.label!,
 ].join(' · ');
 
-String subtitleCandidateLabel(SubtitleCandidate c) => <String>[
-  c.releaseName ?? c.fileId,
+String subtitleCandidateName(SubtitleCandidate c) => c.releaseName ?? c.fileId;
+
+String subtitleCandidateDetails(SubtitleCandidate c) => <String>[
   c.language == null ? '—' : languageLabel(c.language!),
   c.format.name,
 ].join(' · ');

@@ -8,6 +8,7 @@ import 'package:shadowmask/pages/player/player_prefs_store.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/subtitle_size.dart';
 
 class PlaybackBlock extends StatefulWidget {
   const PlaybackBlock({super.key, this.store = const PlayerPrefsStore()});
@@ -20,6 +21,7 @@ class PlaybackBlock extends StatefulWidget {
 
 class _PlaybackBlockState extends State<PlaybackBlock> {
   DeliveryPreference _delivery = kDefaultPlayerPrefs.delivery;
+  SubtitleSize _subtitleSize = kDefaultPlayerPrefs.subtitleSize;
   int _autoplaySeconds = kDefaultPlayerPrefs.autoplaySeconds;
   bool _diagnostics = kDefaultPlayerPrefs.diagnostics;
   bool _loaded = false;
@@ -39,6 +41,7 @@ class _PlaybackBlockState extends State<PlaybackBlock> {
     }
     setState(() {
       _delivery = prefs.delivery;
+      _subtitleSize = prefs.subtitleSize;
       _autoplaySeconds = prefs.autoplaySeconds;
       _diagnostics = prefs.diagnostics;
       _loaded = true;
@@ -48,6 +51,12 @@ class _PlaybackBlockState extends State<PlaybackBlock> {
   void _setDelivery(DeliveryPreference delivery) {
     setState(() => _delivery = delivery);
     widget.store.saveDelivery(delivery);
+    Toasts.of(context).success(Strings.toastSettingSaved);
+  }
+
+  void _setSubtitleSize(SubtitleSize size) {
+    setState(() => _subtitleSize = size);
+    widget.store.saveSubtitleSize(size);
     Toasts.of(context).success(Strings.toastSettingSaved);
   }
 
@@ -95,6 +104,33 @@ class _PlaybackBlockState extends State<PlaybackBlock> {
                   (DeliveryPreference.always, Strings.playerDeliveryAlways),
                 ],
                 onChanged: _setDelivery,
+              ),
+            ),
+          ),
+          Divider(color: t.border, height: 1),
+          Material(
+            color: Colors.transparent,
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text(
+                Strings.subtitleSize,
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              subtitle: Text(
+                Strings.subtitleSizeHelp,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: t.muted),
+              ),
+              trailing: AppDropdown<SubtitleSize>(
+                value: _subtitleSize,
+                label: Strings.subtitleSize,
+                enabled: _loaded,
+                items: <(SubtitleSize, String)>[
+                  for (final SubtitleSize size in SubtitleSize.values)
+                    (size, size.label),
+                ],
+                onChanged: _setSubtitleSize,
               ),
             ),
           ),

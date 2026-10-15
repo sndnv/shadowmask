@@ -22,6 +22,7 @@
     <script src="../app.js"></script>
     <script>
       sm.chrome();
+      document.getElementById("player").dataset.subtitleSize = sm.subtitleSize();
       let session = null;
       let hls = null;
       let heartbeatTimer = null;
@@ -29,6 +30,8 @@
       let uid = null;
       let versionId = null;
       let versionDetail = null;
+      let subtitleSizeLabel = null;
+      let subtitleOffsetLabel = null;
       let diagTimer = null;
       let screenLock = null;
       let awake = false;
@@ -455,6 +458,7 @@
           session.manifest_url = r.manifest_url;
           session.mode = r.mode;
           session.selected = r.selected;
+          syncBurnedSubtitles();
           originMs = r.origin_ms || 0;
           sequential = r.sequential === true;
           document.getElementById("status").textContent = modeLine(r);
@@ -508,6 +512,13 @@
         }
         crumbs.push({ label: "Watch" });
         back.appendChild(sm.breadcrumbs(crumbs));
+      }
+
+      function syncBurnedSubtitles() {
+        const delivery = session && session.selected && session.selected.subtitle_delivery;
+        const burned = controls.burn || delivery === "burned";
+        if (subtitleSizeLabel) subtitleSizeLabel.hidden = burned;
+        if (subtitleOffsetLabel) subtitleOffsetLabel.hidden = burned;
       }
 
       async function buildControls() {
@@ -622,6 +633,14 @@
           rowMid.appendChild(sm.el("label", null, ["Timeout ", select]));
         }
         {
+          const video = document.getElementById("player");
+          const select = sm.subtitleSizeSelect((size) => {
+            video.dataset.subtitleSize = size;
+          });
+          subtitleSizeLabel = sm.el("label", null, ["Subtitle size ", select]);
+          rowMid.appendChild(subtitleSizeLabel);
+        }
+        {
           const embedded = (version && version.subtitles) || [];
           const files = (version && version.subtitle_files) || [];
           const options = [sm.el("option", { value: "" }, "No subtitles")];
@@ -685,11 +704,14 @@
             });
           });
           rowBottom.appendChild(sm.el("label", null, ["Subtitles ", select]));
-          rowBottom.appendChild(sm.el("label", null, ["Offset ", offsetInput]));
+          subtitleOffsetLabel = sm.el("label", null, ["Offset ", offsetInput]);
+          rowBottom.appendChild(subtitleOffsetLabel);
+          syncBurnedSubtitles();
           const burn = sm.el("input", { type: "checkbox" });
           burn.checked = controls.burn;
           burn.addEventListener("change", () => {
             controls.burn = burn.checked;
+            syncBurnedSubtitles();
             writeParams();
             sendUpdate({});
           });

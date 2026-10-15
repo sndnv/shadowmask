@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/player/player_frame.dart';
+import 'package:shadowmask/components/player/player_sheet.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
@@ -12,6 +13,22 @@ MouseCursor _videoCursor(WidgetTester tester) => tester
     .firstWhere((MouseRegion r) => r.onHover != null)
     .cursor;
 
+double _chromeOpacity(WidgetTester tester) => tester
+    .widget<AnimatedOpacity>(
+      find
+          .ancestor(
+            of: find.text('back'),
+            matching: find.byType(AnimatedOpacity),
+          )
+          .first,
+    )
+    .opacity;
+
+Future<void> _tapPicture(WidgetTester tester) async {
+  await tester.tapAt(tester.getCenter(find.byType(AspectRatio)));
+  await tester.pump(kDoubleTapTimeout);
+}
+
 Future<void> _pump(
   WidgetTester tester, {
   required bool fullscreen,
@@ -19,6 +36,9 @@ Future<void> _pump(
   Size box = const Size(1600, 900),
   Widget? settings,
   VoidCallback? onDismissSettings,
+  Widget? sheet,
+  GlobalKey<ScaffoldState>? sheetHost,
+  ValueChanged<bool>? onSheetChanged,
   bool touch = false,
   VoidCallback? onTapVideo,
   VoidCallback? onDoubleTapVideo,
@@ -28,8 +48,12 @@ Future<void> _pump(
   String? waiting,
   VoidCallback? onGoBack,
   VoidCallback? onKeepWaiting,
+  String keepWaitingLabel = Strings.playerKeepWaiting,
   Widget? diagnostics,
   double? videoAspect,
+  bool playing = true,
+  bool keepVisible = false,
+  Widget overlay = const SizedBox(key: Key('overlay'), height: 40),
 }) async {
   tester.view.physicalSize = box;
   tester.view.devicePixelRatio = 1;
@@ -50,9 +74,10 @@ Future<void> _pump(
                   fit: fullscreen ? FlexFit.tight : FlexFit.loose,
                   child: PlayerFrame(
                     view: view,
-                    overlay: const SizedBox(key: Key('overlay'), height: 40),
+                    overlay: overlay,
                     back: const Text('back'),
-                    playing: true,
+                    playing: playing,
+                    keepVisible: keepVisible,
                     fullscreen: fullscreen,
                     onTapVideo: onTapVideo ?? () {},
                     onDoubleTapVideo: onDoubleTapVideo,
@@ -61,9 +86,13 @@ Future<void> _pump(
                     touch: touch,
                     settings: settings,
                     onDismissSettings: onDismissSettings,
+                    sheet: sheet,
+                    sheetHost: sheetHost,
+                    onSheetChanged: onSheetChanged,
                     waiting: waiting,
                     onGoBack: onGoBack,
                     onKeepWaiting: onKeepWaiting,
+                    keepWaitingLabel: keepWaitingLabel,
                     diagnostics: diagnostics,
                     videoAspect: videoAspect,
                   ),
@@ -282,10 +311,11 @@ void main() {
     );
   });
 
-  testWidgets('tapping the video dismisses a panel that covers the stage', (
+  testWidgets('tapping the video dismisses a panel and reaches nothing else', (
     WidgetTester tester,
   ) async {
     int dismissed = 0;
+    int taps = 0;
     await _pump(
       tester,
       fullscreen: false,
@@ -293,14 +323,207 @@ void main() {
       box: const Size(360, 800),
       settings: const SizedBox(key: Key('panel'), width: 340, height: 400),
       onDismissSettings: () => dismissed++,
+      onTapVideo: () => taps++,
     );
 
     await tester.tapAt(
       tester.getRect(find.byType(AspectRatio)).topLeft + const Offset(4, 4),
     );
+    await tester.pump(kDoubleTapTimeout);
+
+    expect(dismissed, 1);
+    expect(taps, 0);
+  });
+
+  testWidgets('a tap in a dialog over the player keeps the panel open', (
+    WidgetTester tester,
+  ) async {
+    int dismissed = 0;
+    await _pump(
+      tester,
+      fullscreen: true,
+      view: const _View(),
+      settings: Builder(
+        builder: (BuildContext context) => TextButton(
+          onPressed: () => showDialog<void>(
+            context: context,
+            builder: (BuildContext _) =>
+                const AlertDialog(content: Text('help body')),
+          ),
+          child: const Text('open help'),
+        ),
+      ),
+      onDismissSettings: () => dismissed++,
+    );
+
+    await tester.tap(find.text('open help'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('help body'));
+    await tester.pump();
+
+    expect(dismissed, 0);
+  });
+
+  testWidgets('the controls hide on their own once a panel lets them go', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      fullscreen: true,
+      view: const _View(),
+      touch: true,
+      keepVisible: true,
+    );
+    await tester.pump(const Duration(seconds: 3));
+    expect(_chromeOpacity(tester), 1);
+
+    await _pump(tester, fullscreen: true, view: const _View(), touch: true);
+    await tester.pump(const Duration(seconds: 3));
+
+    expect(_chromeOpacity(tester), 0);
+  });
+
+  testWidgets('the bar keeps its state when the waiting layer comes and goes', (
+    WidgetTester tester,
+  ) async {
+    const Widget bar = _View(key: Key('bar'));
+    await _pump(tester, fullscreen: true, view: const _View(), overlay: bar);
+    final _ViewState before = tester.state<_ViewState>(
+      find.byKey(const Key('bar')),
+    );
+
+    await _pump(
+      tester,
+      fullscreen: true,
+      view: const _View(),
+      overlay: bar,
+      waiting: 'loading',
+    );
+    await _pump(tester, fullscreen: true, view: const _View(), overlay: bar);
+
+    expect(
+      identical(tester.state<_ViewState>(find.byKey(const Key('bar'))), before),
+      isTrue,
+    );
+    expect(before.mounts, 1);
+  });
+
+  testWidgets('a tap beside the sheet closes it and reaches nothing else', (
+    WidgetTester tester,
+  ) async {
+    final GlobalKey<ScaffoldState> host = GlobalKey<ScaffoldState>();
+    final List<bool> changes = <bool>[];
+    int taps = 0;
+    await _pump(
+      tester,
+      fullscreen: true,
+      view: const _View(),
+      box: const Size(900, 400),
+      touch: true,
+      sheet: const SizedBox(key: Key('sheet')),
+      sheetHost: host,
+      onSheetChanged: changes.add,
+      onTapVideo: () => taps++,
+    );
+
+    host.currentState!.openEndDrawer();
+    await tester.pumpAndSettle();
+    final Rect sheet = tester.getRect(find.byKey(const Key('sheet')));
+    expect(sheet.right, 900);
+    expect(sheet.width, playerSheetWidth(900));
+
+    await tester.tapAt(const Offset(100, 200));
+    await tester.pumpAndSettle();
+    await tester.pump(kDoubleTapTimeout);
+
+    expect(find.byKey(const Key('sheet')), findsNothing);
+    expect(changes, <bool>[true, false]);
+    expect(taps, 0);
+    expect(_chromeOpacity(tester), 1);
+  });
+
+  testWidgets('on touch a tap hides the controls that show, and shows them', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, fullscreen: true, view: const _View(), touch: true);
+    expect(_chromeOpacity(tester), 1);
+
+    await _tapPicture(tester);
+
+    expect(_chromeOpacity(tester), 0);
+
+    await _tapPicture(tester);
+
+    expect(_chromeOpacity(tester), 1);
+  });
+
+  testWidgets('a paused touch player hides the controls on a tap too', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      fullscreen: true,
+      view: const _View(),
+      touch: true,
+      playing: false,
+    );
+    await tester.pump(const Duration(seconds: 3));
+    expect(_chromeOpacity(tester), 1);
+
+    await _tapPicture(tester);
+    await tester.pump(const Duration(seconds: 3));
+
+    expect(_chromeOpacity(tester), 0);
+  });
+
+  testWidgets('a pointer tap on the picture only shows the controls', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, fullscreen: true, view: const _View());
+
+    await _tapPicture(tester);
+
+    expect(_chromeOpacity(tester), 1);
+  });
+
+  testWidgets('a touch tap while a panel holds the controls leaves them up', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      fullscreen: true,
+      view: const _View(),
+      touch: true,
+      keepVisible: true,
+    );
+
+    await _tapPicture(tester);
+
+    expect(_chromeOpacity(tester), 1);
+  });
+
+  testWidgets('a tap on a control in the bar dismisses an open panel', (
+    WidgetTester tester,
+  ) async {
+    int dismissed = 0;
+    int pressed = 0;
+    await _pump(
+      tester,
+      fullscreen: true,
+      view: const _View(),
+      settings: const SizedBox(key: Key('panel'), width: 300, height: 200),
+      onDismissSettings: () => dismissed++,
+      overlay: TextButton(
+        onPressed: () => pressed++,
+        child: const Text('bar control'),
+      ),
+    );
+
+    await tester.tap(find.text('bar control'));
     await tester.pump();
 
     expect(dismissed, 1);
+    expect(pressed, 1);
   });
 
   testWidgets('a touch double tap seeks by the half of the frame it lands on', (
@@ -505,6 +728,27 @@ void main() {
     await tester.pump();
 
     expect(backs, 1);
+  });
+
+  testWidgets('a failure offers to dismiss it instead of to keep waiting', (
+    WidgetTester tester,
+  ) async {
+    int dismissed = 0;
+    await _pump(
+      tester,
+      fullscreen: false,
+      view: const _View(),
+      waiting: Strings.playerFailed,
+      onGoBack: () {},
+      onKeepWaiting: () => dismissed++,
+      keepWaitingLabel: Strings.dismiss,
+    );
+
+    expect(find.text(Strings.playerKeepWaiting), findsNothing);
+    await tester.tap(find.text(Strings.dismiss));
+    await tester.pump();
+
+    expect(dismissed, 1);
   });
 }
 

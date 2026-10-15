@@ -40,11 +40,7 @@ class MatchRow extends StatelessWidget {
             horizontal: Space.s2,
             vertical: Space.s2,
           ),
-          child: Text(
-            label,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: t.text),
-          ),
+          child: Text(label, style: TextStyle(color: t.text)),
         ),
       ),
     );

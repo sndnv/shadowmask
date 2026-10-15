@@ -609,6 +609,7 @@ class _Subtitles extends StatelessWidget {
               admin: admin,
               versionId: d.id,
               existing: files,
+              path: d.path,
             ),
           ),
         ),

@@ -13,6 +13,7 @@ import 'package:shadowmask/components/player/add_subtitles_dialog.dart';
 import 'package:shadowmask/components/player/diagnostics_overlay.dart';
 import 'package:shadowmask/components/player/overlay_bar.dart';
 import 'package:shadowmask/components/player/player_frame.dart';
+import 'package:shadowmask/components/player/player_sheet.dart';
 import 'package:shadowmask/components/player/settings_panel.dart';
 import 'package:shadowmask/components/player/shortcuts_dialog.dart';
 import 'package:shadowmask/components/player/timeline.dart';
@@ -29,6 +30,7 @@ import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/view/profile_version.dart';
+import 'package:shadowmask/view/subtitle_size.dart';
 import 'package:shadowmask/view/video_aspect.dart';
 import 'package:shadowmask/model/catalog/episode.dart';
 import 'package:shadowmask/model/catalog/movie_detail.dart';
@@ -111,13 +113,17 @@ class _WatchBodyState extends State<WatchBody>
   bool _diag = false;
   bool _remaining = false;
   PlayerPanel? _panel;
+  bool _sheetOpen = false;
+  final GlobalKey<ScaffoldState> _sheetHost = GlobalKey<ScaffoldState>();
   PlaybackSession? _session;
   VersionDetail? _version;
   int _originMs = 0;
   bool _sequential = false;
   TrickplayLoader? _trickplay;
   Timer? _heartbeat;
-  String? _status;
+  late final StreamSubscription<String> _errorEvents;
+  String? _error;
+  int _errorProgressMs = 0;
   bool _applying = false;
   bool _applySlow = false;
   Timer? _applyWatch;
@@ -137,6 +143,7 @@ class _WatchBodyState extends State<WatchBody>
   ClientDecoding? _decoding;
   int _autoplaySeconds = kDefaultPlayerPrefs.autoplaySeconds;
   int _networkTimeout = kDefaultPlayerPrefs.networkTimeoutSeconds;
+  SubtitleSize _subtitleSize = kDefaultPlayerPrefs.subtitleSize;
   int _bufferSeconds = kDefaultPlayerPrefs.bufferSeconds;
   int _bufferBytes = kDefaultPlayerPrefs.bufferBytes;
   bool _waitForBuffer = kDefaultPlayerPrefs.waitForBuffer;
@@ -154,6 +161,7 @@ class _WatchBodyState extends State<WatchBody>
   Timer? _stallWatch;
   int _stalledSeconds = 0;
   int _lastProgressMs = -1;
+  int _lastPositionMs = -1;
   bool _stalled = false;
   int _negotiation = 0;
   final FocusNode _keys = FocusNode(debugLabel: 'player-shortcuts');
@@ -169,6 +177,7 @@ class _WatchBodyState extends State<WatchBody>
     _carrySelection = _controls.hasTrackRequest;
     _controller.snapshot.addListener(_onSnapshot);
     _controller.fullscreen.addListener(_onFullscreen);
+    _errorEvents = _controller.errors.listen(_onError);
     WidgetsBinding.instance.addObserver(this);
     if (widget.user.worksOnVersions) {
       final AdminApi admin = AdminApi(widget.api);
@@ -301,6 +310,7 @@ class _WatchBodyState extends State<WatchBody>
     _controller.fullscreen.removeListener(_onFullscreen);
     _immersive?.releaseAfterFrame(true, false, owner: this);
     _controller.snapshot.removeListener(_onSnapshot);
+    unawaited(_errorEvents.cancel());
     _countdown?.cancel();
     _stallWatch?.cancel();
     _applyWatch?.cancel();
@@ -399,6 +409,8 @@ class _WatchBodyState extends State<WatchBody>
     );
     _networkTimeout = prefs.networkTimeoutSeconds;
     _controller.setNetworkTimeout(_networkTimeout);
+    _subtitleSize = prefs.subtitleSize;
+    _controller.setSubtitleSize(_subtitleSize);
     _bufferSeconds = prefs.bufferSeconds;
     _bufferBytes = prefs.bufferBytes;
     _waitForBuffer = prefs.waitForBuffer;
@@ -406,6 +418,7 @@ class _WatchBodyState extends State<WatchBody>
     _lastBufferMs = 0;
     _bufferStalledSeconds = 0;
     _controller.setBuffer(seconds: _bufferSeconds, bytes: _bufferBytes);
+    _error = null;
     await _controller.attach(
       session.manifestUrl,
       mode: session.mode,
@@ -523,7 +536,14 @@ class _WatchBodyState extends State<WatchBody>
         return;
       }
       final int progress = snap.positionMs + snap.bufferedAheadMs;
-      if (!snap.waiting || progress != _lastProgressMs) {
+      if (progress != _errorProgressMs) {
+        _error = null;
+      }
+      final bool paused = !snap.playing && !snap.waiting && !snap.ended;
+      final bool frozen =
+          _error != null && !paused && snap.positionMs == _lastPositionMs;
+      _lastPositionMs = snap.positionMs;
+      if (!(snap.waiting || frozen) || progress != _lastProgressMs) {
         _lastProgressMs = progress;
         _stalledSeconds = 0;
         if (_stalled) {
@@ -540,7 +560,21 @@ class _WatchBodyState extends State<WatchBody>
 
   void _keepWaiting() {
     _stalledSeconds = 0;
-    setState(() => _stalled = false);
+    setState(() {
+      _error = null;
+      _stalled = false;
+    });
+  }
+
+  void _onError(String message) {
+    if (!mounted) {
+      return;
+    }
+    final PlayerSnapshot snap = _controller.snapshot.value;
+    setState(() {
+      _error = message;
+      _errorProgressMs = snap.positionMs + snap.bufferedAheadMs;
+    });
   }
 
   void _centrePlay() {
@@ -587,10 +621,25 @@ class _WatchBodyState extends State<WatchBody>
       return;
     }
     if (s.ended) {
+      if (_error != null &&
+          s.positionMs + s.bufferedAheadMs == _errorProgressMs) {
+        _failAtEnd(s);
+        return;
+      }
       _armAutoplay();
       return;
     }
     _autoplayHandled = false;
+  }
+
+  void _failAtEnd(PlayerSnapshot s) {
+    _autoplayHandled = true;
+    _stalledSeconds = kStallSeconds;
+    _lastProgressMs = s.positionMs + s.bufferedAheadMs;
+    _lastPositionMs = s.positionMs;
+    if (!_stalled) {
+      setState(() => _stalled = true);
+    }
   }
 
   void _armAutoplay() {
@@ -734,7 +783,6 @@ class _WatchBodyState extends State<WatchBody>
     setState(() {
       _applying = true;
       _applySlow = false;
-      _status = null;
     });
     _applyWatch?.cancel();
     _applyWatch = Timer(const Duration(seconds: kStallSeconds), () {
@@ -750,6 +798,7 @@ class _WatchBodyState extends State<WatchBody>
       _originMs = neg.originMs;
       _sequential = neg.sequential;
       _container = neg.container;
+      _error = null;
       await _controller.attach(
         neg.manifestUrl,
         mode: neg.mode,
@@ -761,12 +810,11 @@ class _WatchBodyState extends State<WatchBody>
         setState(() {
           _mode = neg.mode.name;
           _subtitleDelivery = neg.selected?.subtitleDelivery;
-          _status = null;
         });
       }
     } catch (_) {
       if (mounted && negotiation == _negotiation) {
-        setState(() => _status = Strings.renegotiationFailed);
+        Toasts.of(context).error(Strings.renegotiationFailed);
         if (wasPlaying) {
           _controller.play();
         }
@@ -803,12 +851,40 @@ class _WatchBodyState extends State<WatchBody>
 
   void _closePanel() {
     setState(() => _panel = null);
+    final ScaffoldState? host = _sheetHost.currentState;
+    if (host != null && host.isEndDrawerOpen) {
+      host.closeEndDrawer();
+    }
     _reclaimKeys();
+  }
+
+  void _openSheet() {
+    if (_version == null) {
+      return;
+    }
+    setState(() => _panel = null);
+    _sheetHost.currentState?.openEndDrawer();
+  }
+
+  void _onSheetChanged(bool open) {
+    if (!mounted) {
+      return;
+    }
+    setState(() => _sheetOpen = open);
+    if (!open) {
+      _reclaimKeys();
+    }
   }
 
   void _changeRemaining(bool on) {
     setState(() => _remaining = on);
     _prefs.saveRemaining(on);
+  }
+
+  void _changeSubtitleSize(SubtitleSize size) {
+    setState(() => _subtitleSize = size);
+    _prefs.saveSubtitleSize(size);
+    _controller.setSubtitleSize(size);
   }
 
   void _changeNetworkTimeout(int seconds) {
@@ -927,7 +1003,7 @@ class _WatchBodyState extends State<WatchBody>
   }
 
   void _back() {
-    if (_panel != null) {
+    if (_panel != null || _sheetOpen) {
       _closePanel();
       return;
     }
@@ -997,6 +1073,7 @@ class _WatchBodyState extends State<WatchBody>
       _originMs = neg.originMs;
       _sequential = neg.sequential;
       _container = neg.container;
+      _error = null;
       await _controller.attach(
         neg.manifestUrl,
         mode: neg.mode,
@@ -1047,10 +1124,6 @@ class _WatchBodyState extends State<WatchBody>
 
   void _onTapVideo() {
     _reclaimKeys();
-    if (_panel != null) {
-      setState(() => _panel = null);
-      return;
-    }
     if (_controller.mutedByPolicy.value) {
       _controller.unmute();
       return;
@@ -1067,6 +1140,9 @@ class _WatchBodyState extends State<WatchBody>
     }
     if (!_prebuffered) {
       return Strings.playerBuffering;
+    }
+    if (_stalled && _error != null) {
+      return Strings.playerFailed;
     }
     if (!snap.waiting) {
       return null;
@@ -1088,6 +1164,9 @@ class _WatchBodyState extends State<WatchBody>
         snap.bufferedAheadMs / 1000,
         _prebufferTargetMs(snap) ~/ 1000,
       );
+    }
+    if (_stalled && _error != null) {
+      return _error;
     }
     if (!snap.waiting) {
       return null;
@@ -1140,7 +1219,56 @@ class _WatchBodyState extends State<WatchBody>
   );
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => _page(context);
+
+  Widget _settingsPanel(
+    BuildContext context,
+    PlayerPanel panel,
+    VersionDetail version, {
+    ChoiceOpener? openChoice,
+  }) => ValueListenableBuilder<bool>(
+    valueListenable: _controller.pictureInPicture,
+    builder: (BuildContext context, bool pip, Widget? _) => PlayerSettingsPanel(
+      panel: panel,
+      controls: _controls,
+      version: version,
+      speed: _speed,
+      diagnostics: _diag,
+      mode: _mode,
+      container: _container,
+      subtitleDelivery: _subtitleDelivery,
+      pictureInPicture: _controller.supportsPictureInPicture ? pip : null,
+      onPictureInPicture: _controller.togglePictureInPicture,
+      busy: _applying,
+      onControls: (PlaybackControls next) {
+        if (_applying) {
+          return;
+        }
+        _applyControls(next);
+      },
+      onSpeed: _changeSpeed,
+      onDiagnostics: _changeDiagnostics,
+      autoplaySeconds: _neighbours.next != null ? _autoplaySeconds : null,
+      onAutoplaySeconds: _changeAutoplay,
+      subtitleSize: _subtitleSize,
+      onSubtitleSize: _changeSubtitleSize,
+      networkTimeoutSeconds: _canBuffer ? _networkTimeout : null,
+      onNetworkTimeoutSeconds: _canBuffer ? _changeNetworkTimeout : null,
+      bufferSeconds: _canBuffer ? _bufferSeconds : null,
+      onBufferSeconds: _canBuffer ? _changeBufferSeconds : null,
+      bufferBytes: _canBuffer ? _bufferBytes : null,
+      onBufferBytes: _canBuffer ? _changeBufferBytes : null,
+      waitForBuffer: _canBuffer ? _waitForBuffer : null,
+      onWaitForBuffer: _canBuffer ? _changeWaitForBuffer : null,
+      onShortcuts: widget.touch ? null : _showShortcuts,
+      onAddSubtitles: _admin == null ? null : _addSubtitles,
+      openChoice: openChoice,
+      onClose: _closePanel,
+      dense: compactViewport(context),
+    ),
+  );
+
+  Widget _page(BuildContext context) {
     return buildBlock<bool>(
       future: _boot,
       errorText: Strings.couldNotStartPlayback,
@@ -1191,10 +1319,12 @@ class _WatchBodyState extends State<WatchBody>
                       playing: snap.playing,
                       fullscreen: fullscreen,
                       onTapVideo: _onTapVideo,
-                      keepVisible: _panel != null,
-                      status: snap.error ?? _status,
+                      keepVisible: _panel != null || _sheetOpen,
                       waiting: _waitingLabel(snap),
                       waitingDetail: _waitingDetail(snap),
+                      keepWaitingLabel: _error == null
+                          ? Strings.playerKeepWaiting
+                          : Strings.dismiss,
                       onKeepWaiting: _stalled && !_applying
                           ? _keepWaiting
                           : null,
@@ -1217,74 +1347,24 @@ class _WatchBodyState extends State<WatchBody>
                             )
                           : null,
                       settings: _panel != null && version != null
-                          ? ValueListenableBuilder<bool>(
-                              valueListenable: _controller.pictureInPicture,
-                              builder:
-                                  (BuildContext context, bool pip, Widget? _) =>
-                                      PlayerSettingsPanel(
-                                        panel: _panel!,
-                                        controls: _controls,
-                                        version: version,
-                                        speed: _speed,
-                                        diagnostics: _diag,
-                                        mode: _mode,
-                                        container: _container,
-                                        subtitleDelivery: _subtitleDelivery,
-                                        pictureInPicture:
-                                            _controller.supportsPictureInPicture
-                                            ? pip
-                                            : null,
-                                        onPictureInPicture:
-                                            _controller.togglePictureInPicture,
-                                        busy: _applying,
-                                        onControls: (PlaybackControls next) {
-                                          if (_applying) {
-                                            return;
-                                          }
-                                          _applyControls(next);
-                                        },
-                                        onSpeed: _changeSpeed,
-                                        onDiagnostics: _changeDiagnostics,
-                                        autoplaySeconds:
-                                            _neighbours.next != null
-                                            ? _autoplaySeconds
-                                            : null,
-                                        onAutoplaySeconds: _changeAutoplay,
-                                        networkTimeoutSeconds: _canBuffer
-                                            ? _networkTimeout
-                                            : null,
-                                        onNetworkTimeoutSeconds: _canBuffer
-                                            ? _changeNetworkTimeout
-                                            : null,
-                                        bufferSeconds: _canBuffer
-                                            ? _bufferSeconds
-                                            : null,
-                                        onBufferSeconds: _canBuffer
-                                            ? _changeBufferSeconds
-                                            : null,
-                                        bufferBytes: _canBuffer
-                                            ? _bufferBytes
-                                            : null,
-                                        onBufferBytes: _canBuffer
-                                            ? _changeBufferBytes
-                                            : null,
-                                        waitForBuffer: _canBuffer
-                                            ? _waitForBuffer
-                                            : null,
-                                        onWaitForBuffer: _canBuffer
-                                            ? _changeWaitForBuffer
-                                            : null,
-                                        onShortcuts: widget.touch
-                                            ? null
-                                            : _showShortcuts,
-                                        onAddSubtitles: _admin == null
-                                            ? null
-                                            : _addSubtitles,
-                                        onClose: _closePanel,
-                                        dense: compactViewport(context),
-                                      ),
+                          ? _settingsPanel(context, _panel!, version)
+                          : null,
+                      sheet: widget.touch && version != null
+                          ? PlayerSheet(
+                              section: (PlayerPanel panel, ChoiceOpener open) =>
+                                  _settingsPanel(
+                                    context,
+                                    panel,
+                                    version,
+                                    openChoice: open,
+                                  ),
+                              summary: (PlayerPanel panel) =>
+                                  panelSummary(panel, _controls, version),
+                              onClose: _closePanel,
                             )
                           : null,
+                      sheetHost: _sheetHost,
+                      onSheetChanged: _onSheetChanged,
                       onDismissSettings: _closePanel,
                       upNext: _upNext == null
                           ? null
@@ -1317,6 +1397,9 @@ class _WatchBodyState extends State<WatchBody>
                                         remaining: _remaining,
                                         onPlayPause: _controller.togglePlay,
                                         onOpenPanel: _openPanel,
+                                        onOpenSheet: widget.touch
+                                            ? _openSheet
+                                            : null,
                                         onToggleFullscreen:
                                             _controller.toggleFullscreen,
                                         onToggleWide: widget.onToggleWide,

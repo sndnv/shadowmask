@@ -11,6 +11,7 @@ import 'package:shadowmask/model/session/playback_mode.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
+import 'package:shadowmask/view/subtitle_size.dart';
 
 @JS('Hls')
 extension type _Hls._(JSObject _) implements JSObject {
@@ -49,6 +50,14 @@ extension type _HlsConfig._(JSObject _) implements JSObject {
 extension type _HlsEvents._(JSObject _) implements JSObject {
   @JS('MANIFEST_PARSED')
   external String get manifestParsed;
+  @JS('ERROR')
+  external String get error;
+}
+
+extension type _HlsErrorData._(JSObject _) implements JSObject {
+  external bool get fatal;
+  external String get type;
+  external String get details;
 }
 
 extension type _HlsLevel._(JSObject _) implements JSObject {
@@ -67,6 +76,7 @@ class WebPlayerController implements PlayerController {
   WebPlayerController(this._baseUrl)
     : _viewType = 'sm-player-${_viewCounter++}' {
     _video = web.document.createElement('video') as web.HTMLVideoElement
+      ..id = _viewType
       ..controls = false
       ..setAttribute('playsinline', '')
       ..style.width = '100%'
@@ -104,6 +114,7 @@ class WebPlayerController implements PlayerController {
       'ended',
       ((web.Event _) => _holdScreen(false)).toJS,
     );
+    _video.addEventListener('error', ((web.Event _) => _onVideoError()).toJS);
     _onVisibilityChange = ((web.Event _) {
       if (_awake && web.document.visibilityState == 'visible') {
         _acquireScreen();
@@ -126,6 +137,9 @@ class WebPlayerController implements PlayerController {
   Timer? _timer;
   double _rate = 1;
   PlaybackMode _mode = PlaybackMode.direct;
+  final StreamController<String> _errors = StreamController<String>.broadcast();
+  final List<String> _recentErrors = <String>[];
+  web.HTMLStyleElement? _cueStyle;
 
   final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
     const PlayerSnapshot(),
@@ -143,6 +157,9 @@ class WebPlayerController implements PlayerController {
 
   @override
   ValueListenable<bool> get fullscreen => _fullscreen;
+
+  @override
+  Stream<String> get errors => _errors.stream;
 
   @override
   ValueListenable<bool> get mutedByPolicy => _mutedByPolicy;
@@ -207,6 +224,13 @@ class WebPlayerController implements PlayerController {
           _resume(autoplay);
         }).toJS,
       );
+      hls.on(
+        _Hls.events.error,
+        ((JSAny? _, _HlsErrorData data) => _report(
+          '${data.type}: ${data.details}',
+          fatal: data.fatal,
+        )).toJS,
+      );
       return;
     }
     if (_video.canPlayType('application/vnd.apple.mpegurl').isNotEmpty) {
@@ -214,9 +238,43 @@ class WebPlayerController implements PlayerController {
       _seekOnReady(positionMs, autoplay);
       return;
     }
-    _snapshot.value = const PlayerSnapshot(
-      error: 'This browser cannot play HLS video.',
+    _report('This browser cannot play HLS video.', fatal: true);
+  }
+
+  @override
+  void setSubtitleSize(SubtitleSize size) {
+    final String? fontSize = cueFontSize(size);
+    web.HTMLStyleElement? style = _cueStyle;
+    if (style == null) {
+      style = web.document.createElement('style') as web.HTMLStyleElement;
+      web.document.head?.appendChild(style);
+      _cueStyle = style;
+    }
+    style.textContent = fontSize == null
+        ? ''
+        : '#$_viewType::cue { font-size: $fontSize; }';
+  }
+
+  void _onVideoError() {
+    final web.MediaError? error = _video.error;
+    if (error == null) {
+      return;
+    }
+    _report(
+      error.message.isEmpty ? 'media error ${error.code}' : error.message,
+      fatal: true,
     );
+  }
+
+  void _report(String message, {required bool fatal}) {
+    final String text = redactStreamTokens(message);
+    _recentErrors.add(text);
+    while (_recentErrors.length > 8) {
+      _recentErrors.removeAt(0);
+    }
+    if (fatal && !_errors.isClosed) {
+      _errors.add(text);
+    }
   }
 
   void _seekOnReady(int positionMs, bool autoplay) {
@@ -437,6 +495,7 @@ class WebPlayerController implements PlayerController {
     lines.add(
       'frames: ${q.droppedVideoFrames} dropped / ${q.totalVideoFrames}',
     );
+    lines.addAll(_recentErrors);
     return PlayerDiagnostics(lines);
   }
 
@@ -489,6 +548,8 @@ class WebPlayerController implements PlayerController {
     _video.pause();
     _video.removeAttribute('src');
     _video.load();
+    _cueStyle?.remove();
+    await _errors.close();
     _snapshot.dispose();
     _fullscreen.dispose();
     _mutedByPolicy.dispose();

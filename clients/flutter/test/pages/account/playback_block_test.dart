@@ -9,6 +9,7 @@ import 'package:shadowmask/pages/player/player_prefs_store.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/subtitle_size.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Widget _host() => MaterialApp(
@@ -190,6 +191,39 @@ void main() {
       (await const PlayerPrefsStore().load()).delivery,
       DeliveryPreference.always,
     );
+  });
+
+  testWidgets('the subtitle size is chosen here and saved', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.subtitleSizeHelp), findsOneWidget);
+
+    await tester.tap(find.text(Strings.subtitleSizeDefault));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.subtitleSizeLarge).last);
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.toastSettingSaved), findsOneWidget);
+    expect(
+      (await const PlayerPrefsStore().load()).subtitleSize,
+      SubtitleSize.large,
+    );
+  });
+
+  testWidgets('it shows the subtitle size already saved', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'shadowmask.player.subtitle_size': 'small',
+    });
+
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.subtitleSizeSmall), findsOneWidget);
   });
 
   testWidgets('it shows the converting default already saved', (

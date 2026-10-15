@@ -114,86 +114,88 @@ class _LinkCodePageState extends State<LinkCodePage> {
     final ServerScope? scope = ServerScope.of(context);
     return BarePage(
       child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 360),
-          child: Padding(
-            padding: const EdgeInsets.all(Space.s4),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                Text(
-                  Strings.linkDeviceTitle,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-                const SizedBox(height: Space.s3),
-                Text(
-                  Strings.linkDeviceHelp,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: t.muted),
-                ),
-                const SizedBox(height: Space.s4),
-                TextField(
-                  controller: _code,
-                  autofocus: true,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  textCapitalization: TextCapitalization.characters,
-                  textInputAction: TextInputAction.next,
-                  inputFormatters: <TextInputFormatter>[_LinkCodeFormatter()],
-                  style: monoStyle.copyWith(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 3,
+        child: SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: Padding(
+              padding: const EdgeInsets.all(Space.s4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  Text(
+                    Strings.linkDeviceTitle,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.headlineMedium,
                   ),
-                  decoration: const InputDecoration(
-                    labelText: Strings.linkCodeLabel,
-                  ),
-                  onSubmitted: (_) => _deviceFocus.requestFocus(),
-                ),
-                const SizedBox(height: Space.s3),
-                TextField(
-                  controller: _device,
-                  focusNode: _deviceFocus,
-                  textInputAction: TextInputAction.done,
-                  decoration: const InputDecoration(
-                    labelText: Strings.deviceNameLabel,
-                  ),
-                  onSubmitted: (_) => _submit(),
-                ),
-                if (_error != null) ...<Widget>[
                   const SizedBox(height: Space.s3),
-                  SelectableText(
-                    _error!,
+                  Text(
+                    Strings.linkDeviceHelp,
                     style: Theme.of(
                       context,
-                    ).textTheme.bodyMedium?.copyWith(color: t.danger),
+                    ).textTheme.bodySmall?.copyWith(color: t.muted),
                   ),
-                ],
-                const SizedBox(height: Space.s4),
-                FilledButton(
-                  onPressed: _busy ? null : _submit,
-                  child: Text(
-                    _busy ? Strings.linking : Strings.linkDeviceAction,
+                  const SizedBox(height: Space.s4),
+                  TextField(
+                    controller: _code,
+                    autofocus: true,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    textCapitalization: TextCapitalization.characters,
+                    textInputAction: TextInputAction.next,
+                    inputFormatters: <TextInputFormatter>[_LinkCodeFormatter()],
+                    style: monoStyle.copyWith(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 3,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: Strings.linkCodeLabel,
+                    ),
+                    onSubmitted: (_) => _deviceFocus.requestFocus(),
                   ),
-                ),
-                const SizedBox(height: Space.s2),
-                TextButton(
-                  onPressed: _busy
-                      ? null
-                      : () => Navigator.of(context).pushReplacementNamed('/'),
-                  child: const Text(Strings.usePassword),
-                ),
-                if (scope != null)
+                  const SizedBox(height: Space.s3),
+                  TextField(
+                    controller: _device,
+                    focusNode: _deviceFocus,
+                    textInputAction: TextInputAction.done,
+                    decoration: const InputDecoration(
+                      labelText: Strings.deviceNameLabel,
+                    ),
+                    onSubmitted: (_) => _submit(),
+                  ),
+                  if (_error != null) ...<Widget>[
+                    const SizedBox(height: Space.s3),
+                    SelectableText(
+                      _error!,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyMedium?.copyWith(color: t.danger),
+                    ),
+                  ],
+                  const SizedBox(height: Space.s4),
+                  FilledButton(
+                    onPressed: _busy ? null : _submit,
+                    child: Text(
+                      _busy ? Strings.linking : Strings.linkDeviceAction,
+                    ),
+                  ),
+                  const SizedBox(height: Space.s2),
                   TextButton(
-                    onPressed: _busy ? null : () => _changeServer(scope),
-                    child: const Text(Strings.changeServer),
+                    onPressed: _busy
+                        ? null
+                        : () => Navigator.of(context).pushReplacementNamed('/'),
+                    child: const Text(Strings.usePassword),
                   ),
-                const SizedBox(height: Space.s6),
-                const Center(child: BrandMark(size: 40)),
-              ],
+                  if (scope != null)
+                    TextButton(
+                      onPressed: _busy ? null : () => _changeServer(scope),
+                      child: const Text(Strings.changeServer),
+                    ),
+                  const SizedBox(height: Space.s6),
+                  const Center(child: BrandMark(size: 40)),
+                ],
+              ),
             ),
           ),
         ),

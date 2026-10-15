@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,11 +12,15 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/app_dropdown.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/util/scoped_value.dart';
+import 'package:shadowmask/components/player/overlay_bar.dart';
 import 'package:shadowmask/components/player/player_frame.dart';
+import 'package:shadowmask/components/player/player_sheet.dart';
 import 'package:shadowmask/components/player/settings_panel.dart';
 import 'package:shadowmask/components/player/shortcuts_dialog.dart';
 import 'package:shadowmask/components/player/up_next_card.dart';
+import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/view/player_shortcuts.dart';
+import 'package:shadowmask/view/subtitle_size.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/model/session/playback_mode.dart';
@@ -41,10 +46,12 @@ class FakePlayerController implements PlayerController {
   final ValueNotifier<bool> _muted = ValueNotifier<bool>(false);
   final ValueNotifier<double> _volume = ValueNotifier<double>(1);
   final ValueNotifier<bool> _pip = ValueNotifier<bool>(false);
+  final StreamController<String> _errors = StreamController<String>.broadcast();
   final List<String> calls = <String>[];
   int? seekedMs;
   double? rate;
   int? networkTimeout;
+  SubtitleSize? subtitleSize;
   int? bufferSeconds;
   int? bufferBytes;
   String? attached;
@@ -62,6 +69,11 @@ class FakePlayerController implements PlayerController {
 
   @override
   ValueListenable<bool> get fullscreen => _fullscreen;
+
+  @override
+  Stream<String> get errors => _errors.stream;
+
+  void fail(String message) => _errors.add(message);
 
   @override
   ValueListenable<bool> get mutedByPolicy => _mutedByPolicy;
@@ -144,6 +156,23 @@ class FakePlayerController implements PlayerController {
     );
   }
 
+  void pausedAt({required int positionMs}) {
+    _snapshot.value = PlayerSnapshot(
+      durationMs: 100000,
+      positionMs: positionMs,
+      ready: true,
+    );
+  }
+
+  void endedAt({required int positionMs}) {
+    _snapshot.value = PlayerSnapshot(
+      durationMs: 100000,
+      positionMs: positionMs,
+      ready: true,
+      ended: true,
+    );
+  }
+
   void stall({
     required int positionMs,
     bool ready = true,
@@ -208,6 +237,9 @@ class FakePlayerController implements PlayerController {
     networkTimeout = seconds;
     calls.add('timeout:$seconds');
   }
+
+  @override
+  void setSubtitleSize(SubtitleSize size) => subtitleSize = size;
 
   @override
   bool get buffersAhead => hlsBuffers;
@@ -531,6 +563,7 @@ Widget _app(
   SelfUser user = _user,
   http.Response? Function(http.Request r)? intercept,
   Duration? Function(http.Request r)? lag,
+  bool toasts = false,
 }) {
   int updates = 0;
   final ApiClient api = ApiClient(
@@ -574,6 +607,9 @@ Widget _app(
   return MaterialApp(
     theme: buildTheme(AppThemeVariant.dark),
     navigatorObservers: <NavigatorObserver>[appRouteObserver],
+    builder: toasts
+        ? (BuildContext context, Widget? child) => ToastHost(child: child!)
+        : null,
     onGenerateRoute: pushed == null
         ? null
         : (RouteSettings settings) {
@@ -913,6 +949,41 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets(
+    'the subtitle size is applied at start and saved from the panel',
+    (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'shadowmask.player.subtitle_size': 'large',
+      });
+      final FakePlayerController fake = FakePlayerController();
+      await tester.pumpWidget(_app(fake));
+      await tester.pumpAndSettle();
+
+      expect(fake.subtitleSize, SubtitleSize.large);
+
+      await tester.tap(find.byIcon(Icons.subtitles).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(Strings.playerNoSubtitles).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('English').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(Strings.subtitleSizeLarge).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(Strings.subtitleSizeSmall).last);
+      await tester.pumpAndSettle();
+
+      expect(fake.subtitleSize, SubtitleSize.small);
+      expect(
+        (await SharedPreferences.getInstance()).getString(
+          'shadowmask.player.subtitle_size',
+        ),
+        'small',
+      );
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets('a plain viewer is offered no subtitle work and polls none', (
     WidgetTester tester,
   ) async {
@@ -1140,6 +1211,226 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text(Strings.playerQuality), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a click on the controls dismisses the panel and still acts', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.video_settings));
+    await tester.pumpAndSettle();
+    fake.calls.clear();
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(OverlayBar),
+        matching: find.byIcon(Icons.play_arrow),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.playerQuality), findsNothing);
+    expect(fake.calls, contains('toggle'));
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a panel button still closes its own panel and switches', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+
+    final Finder audio = find.descendant(
+      of: find.byType(OverlayBar),
+      matching: find.byIcon(Icons.audiotrack),
+    );
+    await tester.tap(find.byIcon(Icons.video_settings));
+    await tester.pumpAndSettle();
+    await tester.tap(audio);
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.playerQuality), findsNothing);
+    expect(find.text(Strings.playerStereoDownmix), findsOneWidget);
+
+    await tester.tap(audio);
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.playerStereoDownmix), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('on touch the options button opens the sheet of sections', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake, touch: true));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.tune));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PlayerSheet), findsOneWidget);
+    expect(find.text(Strings.playerOptions), findsOneWidget);
+    for (final PlayerPanel panel in PlayerPanel.values) {
+      expect(find.text(panel.title), findsOneWidget);
+    }
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a subtitle track is chosen through the sheet', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake, touch: true));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.tune));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(Strings.playerSubtitles));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerNoSubtitles));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('English').last);
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip(Strings.playerOffsetEarlier), findsOneWidget);
+    expect(find.text(Strings.playerSubtitles), findsWidgets);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'a track chosen through the sheet while playing keeps its place',
+    (WidgetTester tester) async {
+      final FakePlayerController fake = FakePlayerController();
+      final Completer<http.Response> slow = Completer<http.Response>();
+      await tester.pumpWidget(
+        _app(fake, touch: true, onUpdate: (int _) => slow.future),
+      );
+      await tester.pumpAndSettle();
+      fake.at(positionMs: 1000);
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.tune));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(Strings.playerSubtitles));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(Strings.playerNoSubtitles));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.textContaining('English').last);
+      await tester.pump();
+
+      expect(find.text(Strings.applyingPlaybackChanges), findsOneWidget);
+      expect(find.byTooltip(Strings.playerOffsetEarlier), findsOneWidget);
+
+      slow.complete(_renegotiated('remux', '/stream/second/master.m3u8'));
+      await tester.pumpAndSettle();
+
+      expect(find.text(Strings.applyingPlaybackChanges), findsNothing);
+      expect(find.byTooltip(Strings.playerOffsetEarlier), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('a tap beside the sheet closes it and leaves the controls up', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake, touch: true));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.tune));
+    await tester.pumpAndSettle();
+
+    await tester.tapAt(
+      tester.getCenter(find.byType(PlayerFrame)) - const Offset(200, 0),
+    );
+    await tester.pumpAndSettle();
+    await tester.pump(kDoubleTapTimeout);
+
+    expect(find.byType(PlayerSheet), findsNothing);
+    expect(
+      tester
+          .widget<AnimatedOpacity>(
+            find
+                .ancestor(
+                  of: find.byType(OverlayBar),
+                  matching: find.byType(AnimatedOpacity),
+                )
+                .first,
+          )
+          .opacity,
+      1,
+    );
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('escape closes the sheet before it touches full screen', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake, touch: true));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.tune));
+    await tester.pumpAndSettle();
+    fake.calls.clear();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PlayerSheet), findsNothing);
+    expect(fake.calls, isNot(contains('fullscreen')));
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a help topic read in the sheet leaves the sheet open', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake, touch: true));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.tune));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(PlayerPanel.video.title));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip(Strings.whatIsThis).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerQualityHelp));
+    await tester.pumpAndSettle();
+    Navigator.of(tester.element(find.text(Strings.playerQualityHelp))).pop();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PlayerSheet), findsOneWidget);
+    expect(find.text(Strings.playerQuality), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('Back closes the sheet before it leaves the player', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake, touch: true));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.tune));
+    await tester.pumpAndSettle();
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PlayerSheet), findsNothing);
+    expect(find.byType(WatchBody), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox());
   });
@@ -1395,6 +1686,7 @@ void main() {
       _app(
         fake,
         onUpdate: (int _) => Future<http.Response>.error(Exception('down')),
+        toasts: true,
       ),
     );
     await tester.pumpAndSettle();
@@ -2662,6 +2954,247 @@ void main() {
     );
   });
 
+  testWidgets('an error that playback moves past is never shown', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+
+    fake.at(positionMs: 1000);
+    await tester.pump();
+    fake.fail('Could not open codec.');
+    await tester.pump();
+    fake.at(positionMs: 3000);
+    await tester.pump(const Duration(seconds: 2));
+    fake.stall(positionMs: 3000);
+    await tester.pump(Duration(seconds: _stallDelay + 1));
+
+    expect(find.text(Strings.playerTooSlow), findsOneWidget);
+    expect(find.text(Strings.playerFailed), findsNothing);
+    expect(find.text('Could not open codec.'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('an error then nothing moving for the stall time is a failure', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+
+    fake.stall(positionMs: 0, ready: false);
+    await tester.pump();
+    fake.fail('Failed to open the stream.');
+    await tester.pump();
+
+    expect(find.text(Strings.playerLoading), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.text('Failed to open the stream.'), findsNothing);
+
+    await tester.pump(Duration(seconds: _stallDelay - 1));
+    expect(find.text(Strings.playerFailed), findsNothing);
+
+    await tester.pump(const Duration(seconds: 2));
+
+    expect(find.text(Strings.playerFailed), findsOneWidget);
+    expect(find.text('Failed to open the stream.'), findsOneWidget);
+    expect(find.text(Strings.playerTooSlow), findsNothing);
+    expect(find.text(Strings.dismiss), findsOneWidget);
+    expect(find.text(Strings.playerKeepWaiting), findsNothing);
+    expect(find.text(Strings.playerGoBack), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('dismissing a failure waits again, and a new error counts', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+    fake.stall(positionMs: 0, ready: false);
+    await tester.pump();
+    fake.fail('first');
+    await tester.pump(Duration(seconds: _stallDelay + 1));
+    expect(find.text(Strings.playerFailed), findsOneWidget);
+
+    await tester.tap(find.text(Strings.dismiss));
+    await tester.pump();
+
+    expect(find.text(Strings.playerFailed), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    await tester.pump(Duration(seconds: _stallDelay + 1));
+
+    expect(find.text(Strings.playerTooSlow), findsOneWidget);
+    expect(find.text('first'), findsNothing);
+
+    fake.fail('second');
+    await tester.pump();
+
+    expect(find.text(Strings.playerFailed), findsOneWidget);
+    expect(find.text('second'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a failure clears once playback moves again', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+    fake.stall(positionMs: 0, ready: false);
+    await tester.pump();
+    fake.fail('gone');
+    await tester.pump(Duration(seconds: _stallDelay + 1));
+    expect(find.text(Strings.playerFailed), findsOneWidget);
+
+    fake.at(positionMs: 2000);
+    await tester.pump(const Duration(seconds: 2));
+
+    expect(find.text(Strings.playerFailed), findsNothing);
+    expect(find.text('gone'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a new stream forgets the errors of the one before', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+    fake.at(positionMs: 1000);
+    await tester.pump();
+    fake.fail('old stream');
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.video_settings));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerOriginalAt(1080)).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('720p').last);
+    await tester.pumpAndSettle();
+    fake.stall(positionMs: 1000);
+    await tester.pump(Duration(seconds: _stallDelay + 1));
+
+    expect(find.text(Strings.playerTooSlow), findsOneWidget);
+    expect(find.text(Strings.playerFailed), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('an error with the picture frozen and no spinner is a failure', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+    fake.at(positionMs: 5000);
+    await tester.pump(const Duration(seconds: 2));
+    fake.fail('decode error');
+    await tester.pump();
+
+    await tester.pump(Duration(seconds: _stallDelay - 1));
+    expect(find.text(Strings.playerFailed), findsNothing);
+
+    await tester.pump(const Duration(seconds: 2));
+
+    expect(find.text(Strings.playerFailed), findsOneWidget);
+    expect(find.text('decode error'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a paused player holds an error until it plays again', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake));
+    await tester.pumpAndSettle();
+    fake.pausedAt(positionMs: 5000);
+    await tester.pump(const Duration(seconds: 2));
+    fake.fail('decode error');
+    await tester.pump();
+
+    await tester.pump(Duration(seconds: _stallDelay + 5));
+    expect(find.text(Strings.playerFailed), findsNothing);
+
+    fake.at(positionMs: 5000);
+    await tester.pump(Duration(seconds: _stallDelay - 1));
+    expect(find.text(Strings.playerFailed), findsNothing);
+
+    await tester.pump(const Duration(seconds: 3));
+
+    expect(find.text(Strings.playerFailed), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets(
+    'an end straight after an error is a failure, not the next episode',
+    (WidgetTester tester) async {
+      final FakePlayerController fake = FakePlayerController();
+      final List<String> pushed = <String>[];
+      await tester.pumpWidget(_app(fake, episodic: true, pushed: pushed));
+      await tester.pumpAndSettle();
+      fake.at(positionMs: 40000);
+      await tester.pump();
+      fake.fail('stream died');
+      await tester.pump();
+
+      fake.endedAt(positionMs: 40000);
+      await tester.pump();
+
+      expect(find.text(Strings.playerFailed), findsOneWidget);
+      expect(find.text('stream died'), findsOneWidget);
+      expect(find.byType(UpNextCard), findsNothing);
+
+      await tester.tap(find.text(Strings.dismiss));
+      await tester.pump();
+      fake.endedAt(positionMs: 40000);
+      await tester.pump(const Duration(seconds: 15));
+
+      expect(find.text(Strings.playerFailed), findsNothing);
+      expect(find.byType(UpNextCard), findsNothing);
+      expect(pushed, isEmpty);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets('an end that playback reached after an error is a plain end', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(_app(fake, episodic: true));
+    await tester.pumpAndSettle();
+    fake.at(positionMs: 40000);
+    await tester.pump();
+    fake.fail('Could not open codec.');
+    await tester.pump();
+
+    fake.emit(ended: true);
+    await tester.pump();
+
+    expect(find.text(Strings.playerFailed), findsNothing);
+    expect(find.byType(UpNextCard), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets(
     'the middle of the player plays, and offers a replay at the end',
     (WidgetTester tester) async {
@@ -2724,7 +3257,7 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('on touch a tap only reveals, and a double tap seeks', (
+  testWidgets('on touch a tap never pauses, and a double tap seeks', (
     WidgetTester tester,
   ) async {
     final FakePlayerController fake = FakePlayerController();

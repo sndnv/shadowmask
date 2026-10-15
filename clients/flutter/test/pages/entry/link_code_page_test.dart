@@ -36,6 +36,29 @@ Finder _field(String label) =>
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
+  testWidgets('a short screen scrolls to the button instead of overflowing', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      httpClient: MockClient((http.Request _) async => http.Response('', 500)),
+    );
+    await tester.pumpWidget(
+      _host(LinkCodePage(api: api, defaultDeviceName: () async => 'Pixel 7')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byType(FilledButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+
+    expect(find.text(Strings.linkCodeRequired), findsOneWidget);
+  });
+
   testWidgets('a code and a device name are both required', (
     WidgetTester tester,
   ) async {

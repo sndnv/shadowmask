@@ -5,6 +5,7 @@ import 'package:shadowmask/components/app_dropdown.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/player/player_prefs_store.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/subtitle_size.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
 import 'package:shadowmask/theme/radii.dart';
@@ -34,10 +35,91 @@ String _originalLabel(VersionDetail version) {
   return source > 0 ? Strings.playerOriginalAt(source) : Strings.playerOriginal;
 }
 
+String _qualityLabel(VersionDetail version, int? rung) =>
+    rung == null ? _originalLabel(version) : Strings.qualityRung(rung);
+
+String _audioLabel(AudioTrack a) => <String>[
+  '${Strings.playerAudio} ${a.index}',
+  a.codec,
+  if (a.language != null) languageLabel(a.language!),
+].join(' ');
+
+String _embeddedLabel(SubtitleTrack s) => <String>[
+  Strings.subtitleTrackLabel(s.index),
+  s.format.name,
+  if (s.language != null) languageLabel(s.language!),
+].join(' ');
+
+String _fileLabel(SubtitleFile f) => <String>[
+  f.language == null ? '?' : languageLabel(f.language!),
+  f.format.name,
+  '(${subtitleSourceLabel(f.source)})',
+  if (f.label != null) f.label!,
+].join(' ');
+
+List<(String, String)> _subtitleItems(VersionDetail version) =>
+    <(String, String)>[
+      ('', Strings.playerNoSubtitles),
+      for (final SubtitleTrack s in version.subtitles)
+        ('embedded:${s.index}', _embeddedLabel(s)),
+      for (final SubtitleFile f in version.subtitleFiles)
+        ('file:${f.id}', _fileLabel(f)),
+    ];
+
+String? panelSummary(
+  PlayerPanel panel,
+  PlaybackControls controls,
+  VersionDetail version,
+) {
+  switch (panel) {
+    case PlayerPanel.video:
+      return _qualityLabel(version, controls.height);
+    case PlayerPanel.audio:
+      for (final AudioTrack a in version.audio) {
+        if (a.index == controls.audioTrack) {
+          return _audioLabel(a);
+        }
+      }
+      return null;
+    case PlayerPanel.subtitles:
+      final String wire = controls.subtitle?.toWire() ?? '';
+      for (final (String, String) item in _subtitleItems(version)) {
+        if (item.$1 == wire) {
+          return item.$2;
+        }
+      }
+      return null;
+    case PlayerPanel.settings:
+      return null;
+  }
+}
+
+int steppedOffset(int ms, int delta) =>
+    (ms + delta).clamp(-kOffsetBoundMs, kOffsetBoundMs);
+
 const List<double> _speeds = <double>[0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const double _kControlColumn = 168;
 const double _kDenseControlColumn = 132;
 const double _kDenseRowPad = 3;
+const double kSheetRowHeight = 48;
+const int kOffsetStepMs = 250;
+const int kOffsetBoundMs = 30000;
+
+class PlayerChoice {
+  const PlayerChoice({
+    required this.title,
+    required this.labels,
+    required this.selected,
+    required this.onPick,
+  });
+
+  final String title;
+  final List<String> labels;
+  final int selected;
+  final ValueChanged<int> onPick;
+}
+
+typedef ChoiceOpener = void Function(PlayerChoice choice);
 
 const Object kPlayerPanelGroup = Object();
 
@@ -72,6 +154,8 @@ class PlayerSettingsPanel extends StatefulWidget {
     this.onPictureInPicture,
     this.autoplaySeconds,
     this.onAutoplaySeconds,
+    this.subtitleSize,
+    this.onSubtitleSize,
     this.networkTimeoutSeconds,
     this.onNetworkTimeoutSeconds,
     this.bufferSeconds,
@@ -82,6 +166,7 @@ class PlayerSettingsPanel extends StatefulWidget {
     this.onWaitForBuffer,
     this.onShortcuts,
     this.onAddSubtitles,
+    this.openChoice,
     this.dense = false,
     this.busy = false,
   });
@@ -98,6 +183,8 @@ class PlayerSettingsPanel extends StatefulWidget {
   final VoidCallback? onPictureInPicture;
   final int? autoplaySeconds;
   final ValueChanged<int>? onAutoplaySeconds;
+  final SubtitleSize? subtitleSize;
+  final ValueChanged<SubtitleSize>? onSubtitleSize;
   final int? networkTimeoutSeconds;
   final ValueChanged<int>? onNetworkTimeoutSeconds;
   final int? bufferSeconds;
@@ -108,6 +195,7 @@ class PlayerSettingsPanel extends StatefulWidget {
   final ValueChanged<bool>? onWaitForBuffer;
   final VoidCallback? onShortcuts;
   final VoidCallback? onAddSubtitles;
+  final ChoiceOpener? openChoice;
   final ValueChanged<PlaybackControls> onControls;
   final ValueChanged<double> onSpeed;
   final ValueChanged<bool> onDiagnostics;
@@ -136,6 +224,8 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
   late bool _diag = widget.diagnostics;
   late int _autoplay =
       widget.autoplaySeconds ?? kDefaultPlayerPrefs.autoplaySeconds;
+  late SubtitleSize _subtitleSize =
+      widget.subtitleSize ?? kDefaultPlayerPrefs.subtitleSize;
   late int _timeout =
       widget.networkTimeoutSeconds ?? kDefaultPlayerPrefs.networkTimeoutSeconds;
   late int _buffer = widget.bufferSeconds ?? kDefaultPlayerPrefs.bufferSeconds;
@@ -170,64 +260,47 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
     switch (widget.panel) {
       case PlayerPanel.video:
         return <Widget>[
-          _row(
+          _choice<int?>(
             Strings.playerQuality,
-            AppDropdown<int?>(
-              value: _height,
-              width: double.infinity,
-              tapGroupId: kPlayerPanelGroup,
-              items: <(int?, String)>[
-                for (final int? rung in _offeredRungs(v))
-                  (
-                    rung,
-                    rung == null
-                        ? _originalLabel(v)
-                        : Strings.qualityRung(rung),
-                  ),
-              ],
-              onChanged: (int? value) {
-                setState(() => _height = value);
-                _apply();
-              },
-            ),
+            _height,
+            <(int?, String)>[
+              for (final int? rung in _offeredRungs(v))
+                (rung, _qualityLabel(v, rung)),
+            ],
+            (int? value) {
+              setState(() => _height = value);
+              _apply();
+            },
             help: Strings.playerQualityHelp,
           ),
-          _row(
+          _choice<double>(
             Strings.playerSpeed,
-            AppDropdown<double>(
-              value: _speed,
-              width: double.infinity,
-              tapGroupId: kPlayerPanelGroup,
-              items: <(double, String)>[
-                for (final double rate in _speeds)
-                  (rate, rate == 1.0 ? Strings.playerNormalSpeed : '${rate}x'),
-              ],
-              onChanged: (double value) {
-                setState(() => _speed = value);
-                widget.onSpeed(value);
-              },
-            ),
+            _speed,
+            <(double, String)>[
+              for (final double rate in _speeds)
+                (rate, rate == 1.0 ? Strings.playerNormalSpeed : '${rate}x'),
+            ],
+            (double value) {
+              setState(() => _speed = value);
+              widget.onSpeed(value);
+            },
           ),
         ];
       case PlayerPanel.audio:
         return <Widget>[
-          _row(
+          _choice<int?>(
             Strings.playerAudio,
-            AppDropdown<int?>(
-              value: _audio,
-              width: double.infinity,
-              tapGroupId: kPlayerPanelGroup,
-              items: v.audio.isEmpty
-                  ? <(int?, String)>[(null, Strings.playerNoAudio)]
-                  : <(int?, String)>[
-                      for (final AudioTrack a in v.audio)
-                        (a.index, _audioLabel(a)),
-                    ],
-              onChanged: (int? value) {
-                setState(() => _audio = value);
-                _apply();
-              },
-            ),
+            _audio,
+            v.audio.isEmpty
+                ? <(int?, String)>[(null, Strings.playerNoAudio)]
+                : <(int?, String)>[
+                    for (final AudioTrack a in v.audio)
+                      (a.index, _audioLabel(a)),
+                  ],
+            (int? value) {
+              setState(() => _audio = value);
+              _apply();
+            },
           ),
           _switch(Strings.playerStereoDownmix, _downmix, (bool value) {
             setState(() => _downmix = value);
@@ -236,26 +309,13 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
         ];
       case PlayerPanel.subtitles:
         return <Widget>[
-          _row(
-            Strings.playerSubtitles,
-            AppDropdown<String>(
-              value: _sub,
-              width: double.infinity,
-              tapGroupId: kPlayerPanelGroup,
-              items: <(String, String)>[
-                ('', Strings.playerNoSubtitles),
-                for (final SubtitleTrack s in v.subtitles)
-                  ('embedded:${s.index}', _embeddedLabel(s)),
-                for (final SubtitleFile f in v.subtitleFiles)
-                  ('file:${f.id}', _fileLabel(f)),
-              ],
-              onChanged: (String value) {
-                setState(() => _sub = value);
-                _apply();
-              },
-            ),
-          ),
-          if (_sub.isNotEmpty && !burnedIn)
+          _choice<String>(Strings.playerSubtitles, _sub, _subtitleItems(v), (
+            String value,
+          ) {
+            setState(() => _sub = value);
+            _apply();
+          }),
+          if (_sub.isNotEmpty && !burnedIn && !_sheet)
             _row(
               Strings.playerOffset,
               SizedBox(
@@ -278,6 +338,20 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
               ),
               help: Strings.playerOffsetHelp,
             ),
+          if (_sub.isNotEmpty && !burnedIn && widget.onSubtitleSize != null)
+            _choice<SubtitleSize>(
+              Strings.playerSubtitleSize,
+              _subtitleSize,
+              <(SubtitleSize, String)>[
+                for (final SubtitleSize size in SubtitleSize.values)
+                  (size, size.label),
+              ],
+              (SubtitleSize value) {
+                setState(() => _subtitleSize = value);
+                widget.onSubtitleSize?.call(value);
+              },
+              help: Strings.subtitleSizeHelp,
+            ),
           if (_sub.isNotEmpty && hasSubs)
             _switch(Strings.playerBurnIn, _burn, (bool value) {
               setState(() => _burn = value);
@@ -293,6 +367,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
                 ).textTheme.bodySmall?.copyWith(color: t.muted),
               ),
             ),
+          if (_sub.isNotEmpty && !burnedIn && _sheet) _offsetStepper(t),
           if (widget.onAddSubtitles != null) ...<Widget>[
             Divider(color: t.border, height: Space.s5),
             _row(
@@ -312,39 +387,31 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
       case PlayerPanel.settings:
         return <Widget>[
           if (widget.autoplaySeconds != null)
-            _row(
+            _choice<int>(
               Strings.playerAutoplayNext,
-              AppDropdown<int>(
-                value: _autoplay,
-                width: double.infinity,
-                tapGroupId: kPlayerPanelGroup,
-                items: <(int, String)>[
-                  for (final int value in kAutoplayDelays)
-                    (value, autoplayLabel(value)),
-                ],
-                onChanged: (int value) {
-                  setState(() => _autoplay = value);
-                  widget.onAutoplaySeconds?.call(value);
-                },
-              ),
+              _autoplay,
+              <(int, String)>[
+                for (final int value in kAutoplayDelays)
+                  (value, autoplayLabel(value)),
+              ],
+              (int value) {
+                setState(() => _autoplay = value);
+                widget.onAutoplaySeconds?.call(value);
+              },
               help: Strings.playerAutoplayNextHelp,
             ),
           if (widget.onNetworkTimeoutSeconds != null)
-            _row(
+            _choice<int>(
               Strings.playerNetworkTimeout,
-              AppDropdown<int>(
-                value: _timeout,
-                width: double.infinity,
-                tapGroupId: kPlayerPanelGroup,
-                items: <(int, String)>[
-                  for (final int seconds in kNetworkTimeouts)
-                    (seconds, Strings.playerAutoplayDelay(seconds)),
-                ],
-                onChanged: (int value) {
-                  setState(() => _timeout = value);
-                  widget.onNetworkTimeoutSeconds?.call(value);
-                },
-              ),
+              _timeout,
+              <(int, String)>[
+                for (final int seconds in kNetworkTimeouts)
+                  (seconds, Strings.playerAutoplayDelay(seconds)),
+              ],
+              (int value) {
+                setState(() => _timeout = value);
+                widget.onNetworkTimeoutSeconds?.call(value);
+              },
               help: Strings.playerNetworkTimeoutHelp,
             ),
           if (widget.pictureInPicture != null)
@@ -381,39 +448,31 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
             ),
             const SizedBox(height: Space.s2),
             if (widget.onBufferSeconds != null)
-              _row(
+              _choice<int>(
                 Strings.playerBufferTarget,
-                AppDropdown<int>(
-                  value: _buffer,
-                  width: double.infinity,
-                  tapGroupId: kPlayerPanelGroup,
-                  items: <(int, String)>[
-                    for (final int seconds in kBufferTargets)
-                      (seconds, Strings.playerBufferDuration(seconds)),
-                  ],
-                  onChanged: (int value) {
-                    setState(() => _buffer = value);
-                    widget.onBufferSeconds?.call(value);
-                  },
-                ),
+                _buffer,
+                <(int, String)>[
+                  for (final int seconds in kBufferTargets)
+                    (seconds, Strings.playerBufferDuration(seconds)),
+                ],
+                (int value) {
+                  setState(() => _buffer = value);
+                  widget.onBufferSeconds?.call(value);
+                },
                 help: Strings.playerBufferHelp,
               ),
             if (widget.onBufferBytes != null)
-              _row(
+              _choice<int>(
                 Strings.playerBufferLimit,
-                AppDropdown<int>(
-                  value: _bufferBytes,
-                  width: double.infinity,
-                  tapGroupId: kPlayerPanelGroup,
-                  items: <(int, String)>[
-                    for (final int bytes in kBufferSizes)
-                      (bytes, Strings.playerBufferSize(bytes)),
-                  ],
-                  onChanged: (int value) {
-                    setState(() => _bufferBytes = value);
-                    widget.onBufferBytes?.call(value);
-                  },
-                ),
+                _bufferBytes,
+                <(int, String)>[
+                  for (final int bytes in kBufferSizes)
+                    (bytes, Strings.playerBufferSize(bytes)),
+                ],
+                (int value) {
+                  setState(() => _bufferBytes = value);
+                  widget.onBufferBytes?.call(value);
+                },
                 help: Strings.playerBufferLimitHelp,
               ),
             if (widget.onWaitForBuffer != null)
@@ -432,22 +491,18 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
             ),
           ),
           const SizedBox(height: Space.s2),
-          _row(
+          _choice<DeliveryPreference>(
             Strings.playerDelivery,
-            AppDropdown<DeliveryPreference>(
-              value: _delivery,
-              width: double.infinity,
-              tapGroupId: kPlayerPanelGroup,
-              items: const <(DeliveryPreference, String)>[
-                (DeliveryPreference.auto, Strings.playerDeliveryAuto),
-                (DeliveryPreference.never, Strings.playerDeliveryNever),
-                (DeliveryPreference.always, Strings.playerDeliveryAlways),
-              ],
-              onChanged: (DeliveryPreference value) {
-                setState(() => _delivery = value);
-                _apply();
-              },
-            ),
+            _delivery,
+            const <(DeliveryPreference, String)>[
+              (DeliveryPreference.auto, Strings.playerDeliveryAuto),
+              (DeliveryPreference.never, Strings.playerDeliveryNever),
+              (DeliveryPreference.always, Strings.playerDeliveryAlways),
+            ],
+            (DeliveryPreference value) {
+              setState(() => _delivery = value);
+              _apply();
+            },
             help: Strings.playerDeliveryHelp,
           ),
           _switch(Strings.playerDiagnostics, _diag, (bool value) {
@@ -480,6 +535,30 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
+    final Widget rows = AbsorbPointer(
+      absorbing: widget.busy,
+      child: Opacity(
+        opacity: widget.busy ? 0.5 : 1,
+        child: SingleChildScrollView(
+          padding: _sheet
+              ? const EdgeInsets.symmetric(
+                  horizontal: Space.s4,
+                  vertical: Space.s2,
+                )
+              : EdgeInsets.all(widget.dense ? Space.s2 : Space.s4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: _sheet
+                ? CrossAxisAlignment.stretch
+                : CrossAxisAlignment.start,
+            children: _rows(context, t),
+          ),
+        ),
+      ),
+    );
+    if (_sheet) {
+      return rows;
+    }
     return Material(
       color: t.surface,
       clipBehavior: Clip.antiAlias,
@@ -492,22 +571,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           _header(t),
-          Flexible(
-            child: AbsorbPointer(
-              absorbing: widget.busy,
-              child: Opacity(
-                opacity: widget.busy ? 0.5 : 1,
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.all(widget.dense ? Space.s2 : Space.s4),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: _rows(context, t),
-                  ),
-                ),
-              ),
-            ),
-          ),
+          Flexible(child: rows),
         ],
       ),
     );
@@ -552,6 +616,8 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
     );
   }
 
+  bool get _sheet => widget.openChoice != null;
+
   Widget _row(
     String label,
     Widget control, {
@@ -559,11 +625,15 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
     String? help,
   }) {
     final Tokens t = context.tokens;
-    final bool dense = widget.dense;
+    final bool dense = widget.dense && !_sheet;
     return Padding(
       padding: EdgeInsets.symmetric(vertical: dense ? _kDenseRowPad : Space.s1),
       child: SizedBox(
-        height: dense ? kControlHeight : kControlHeight + Space.s1,
+        height: _sheet
+            ? kSheetRowHeight
+            : dense
+            ? kControlHeight
+            : kControlHeight + Space.s1,
         child: Row(
           children: <Widget>[
             Expanded(
@@ -574,8 +644,8 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
                       label,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: t.muted,
-                        fontSize: dense ? 13 : null,
+                        color: _sheet ? t.text : t.muted,
+                        fontSize: _sheet ? 16 : (dense ? 13 : null),
                       ),
                     ),
                   ),
@@ -616,22 +686,154 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
     ),
   );
 
-  String _audioLabel(AudioTrack a) => <String>[
-    '${Strings.playerAudio} ${a.index}',
-    a.codec,
-    if (a.language != null) languageLabel(a.language!),
-  ].join(' ');
+  Widget _choice<T>(
+    String label,
+    T value,
+    List<(T, String)> items,
+    ValueChanged<T> onChanged, {
+    String? help,
+  }) {
+    final ChoiceOpener? open = widget.openChoice;
+    if (open == null) {
+      return _row(
+        label,
+        AppDropdown<T>(
+          value: value,
+          width: double.infinity,
+          tapGroupId: kPlayerPanelGroup,
+          items: items,
+          onChanged: onChanged,
+        ),
+        help: help,
+      );
+    }
+    final int selected = items.indexWhere(
+      ((T, String) item) => item.$1 == value,
+    );
+    return _drill(
+      label,
+      selected < 0 ? '' : items[selected].$2,
+      () => open(
+        PlayerChoice(
+          title: label,
+          labels: <String>[for (final (T, String) item in items) item.$2],
+          selected: selected,
+          onPick: (int index) => onChanged(items[index].$1),
+        ),
+      ),
+      help: help,
+    );
+  }
 
-  String _embeddedLabel(SubtitleTrack s) => <String>[
-    Strings.subtitleTrackLabel(s.index),
-    s.format.name,
-    if (s.language != null) languageLabel(s.language!),
-  ].join(' ');
+  Widget _drill(
+    String label,
+    String current,
+    VoidCallback onTap, {
+    String? help,
+  }) {
+    final Tokens t = context.tokens;
+    return InkWell(
+      onTap: onTap,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: kSheetRowHeight),
+        child: _apart(
+          <Widget>[
+            Flexible(
+              child: Text(label, style: TextStyle(color: t.text, fontSize: 16)),
+            ),
+            if (help != null) FieldHelp(title: label, body: help),
+          ],
+          <Widget>[
+            Flexible(
+              child: Text(
+                current,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: t.muted, fontSize: 15),
+              ),
+            ),
+            Icon(Icons.chevron_right, color: t.muted),
+          ],
+        ),
+      ),
+    );
+  }
 
-  String _fileLabel(SubtitleFile f) => <String>[
-    f.language == null ? '?' : languageLabel(f.language!),
-    f.format.name,
-    '(${subtitleSourceLabel(f.source)})',
-    if (f.label != null) f.label!,
-  ].join(' ');
+  Widget _apart(List<Widget> start, List<Widget> end) => Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: <Widget>[
+      Flexible(
+        child: Row(mainAxisSize: MainAxisSize.min, children: start),
+      ),
+      Flexible(
+        child: Padding(
+          padding: const EdgeInsets.only(left: Space.s2),
+          child: Row(mainAxisSize: MainAxisSize.min, children: end),
+        ),
+      ),
+    ],
+  );
+
+  Widget _offsetStepper(Tokens t) {
+    final int ms = int.tryParse(_offset.text) ?? 0;
+    void step(int next) {
+      setState(() => _offset.text = next == 0 ? '' : '$next');
+      _apply();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: Space.s2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          _apart(
+            <Widget>[
+              Flexible(
+                child: Text(
+                  Strings.playerOffset,
+                  style: TextStyle(color: t.text, fontSize: 16),
+                ),
+              ),
+              const FieldHelp(
+                title: Strings.playerOffset,
+                body: Strings.playerOffsetHelp,
+              ),
+            ],
+            <Widget>[
+              Flexible(
+                child: Text(
+                  Strings.playerOffsetValue(ms),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: t.muted, fontSize: 15),
+                ),
+              ),
+            ],
+          ),
+          Row(
+            children: <Widget>[
+              IconButton(
+                onPressed: () => step(steppedOffset(ms, -kOffsetStepMs)),
+                tooltip: Strings.playerOffsetEarlier,
+                icon: Icon(Icons.remove, color: t.text),
+              ),
+              Expanded(
+                child: Center(
+                  child: TextButton(
+                    onPressed: ms == 0 ? null : () => step(0),
+                    child: const Text(Strings.playerOffsetReset),
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: () => step(steppedOffset(ms, kOffsetStepMs)),
+                tooltip: Strings.playerOffsetLater,
+                icon: Icon(Icons.add, color: t.text),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }

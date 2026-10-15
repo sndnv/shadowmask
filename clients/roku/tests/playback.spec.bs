@@ -896,7 +896,7 @@ namespace tests
         sub everySettingHasAnId()
             rows = SettingsRows(DefaultControls(), {})
             rows.Append(AudioRows(DefaultControls(), invalid))
-            rows.Append(SubtitleRows(DefaultControls(), invalid))
+            rows.Append(SubtitleRows(DefaultControls(), invalid, "default", false))
 
             for each row in rows
                 m.assertFalse(IsBlank(row.id))
@@ -906,19 +906,74 @@ namespace tests
 
         @describe("SubtitleRows")
 
-        @it("offers offset and burn-in only once a subtitle is on")
+        @it("offers offset, size and burn-in only once a subtitle is on")
         sub subtitleRowsFollowTheSelection()
-            off = SubtitleRows(DefaultControls(), invalid)
+            off = SubtitleRows(DefaultControls(), invalid, "large", false)
             m.assertEqual(off.Count(), 1)
             m.assertEqual(off[0].id, "subtitle")
 
             controls = DefaultControls()
             controls.subtitle = { type: "embedded", index: 2 }
 
-            on = SubtitleRows(controls, invalid)
-            m.assertEqual(on.Count(), 3)
+            on = SubtitleRows(controls, invalid, "large", false)
+            m.assertEqual(on.Count(), 4)
             m.assertEqual(on[1].id, "offset")
-            m.assertEqual(on[2].id, "burn")
+            m.assertEqual(on[2].id, "subtitleSize")
+            m.assertEqual(on[2].detail, Phrase("player.subtitleSizeLarge"))
+            m.assertEqual(on[3].id, "burn")
+        end sub
+
+        @it("offers no offset or size for subtitles burned into the picture")
+        sub burnedSubtitlesHaveNoOffsetOrSize()
+            controls = DefaultControls()
+            controls.subtitle = { type: "embedded", index: 2 }
+            controls.burn = true
+
+            rows = SubtitleRows(controls, invalid, "large", false)
+
+            m.assertEqual(rows.Count(), 2)
+            m.assertEqual(rows[0].id, "subtitle")
+            m.assertEqual(rows[1].id, "burn")
+        end sub
+
+        @it("offers no offset or size for subtitles the server burned in")
+        sub serverBurnedSubtitlesHaveNoOffsetOrSize()
+            controls = DefaultControls()
+            controls.subtitle = { type: "embedded", index: 2 }
+
+            rows = SubtitleRows(controls, invalid, "large", true)
+
+            m.assertEqual(rows.Count(), 2)
+            m.assertEqual(rows[0].id, "subtitle")
+            m.assertEqual(rows[1].id, "burn")
+            m.assertEqual(rows[1].detail, Phrase("state.off"))
+        end sub
+
+        @describe("the subtitle size")
+
+        @it("keeps only a size the player offers, else Default")
+        sub keepsOfferedSize()
+            m.assertEqual(ValidSubtitleSize("large"), "large")
+            m.assertEqual(ValidSubtitleSize("SMALL"), "small")
+            m.assertEqual(ValidSubtitleSize("huge"), "default")
+            m.assertEqual(ValidSubtitleSize(invalid), "default")
+        end sub
+
+        @it("asks the Roku for the same step by name")
+        sub captionStyleNamesTheStep()
+            m.assertEqual(CaptionStyleFor("default"), { "Text/Size": "Default" })
+            m.assertEqual(CaptionStyleFor("small"), { "Text/Size": "Small" })
+            m.assertEqual(CaptionStyleFor("medium"), { "Text/Size": "Medium" })
+            m.assertEqual(CaptionStyleFor("large"), { "Text/Size": "Large" })
+            m.assertEqual(CaptionStyleFor("huge"), { "Text/Size": "Default" })
+        end sub
+
+        @it("labels every size")
+        sub labelsEverySize()
+            for each option in SubtitleSizeOptions()
+                m.assertEqual(SubtitleSizeLabel(option.value), option.label)
+                m.assertFalse(IsBlank(option.label))
+            end for
         end sub
 
         @describe("AudioRows")

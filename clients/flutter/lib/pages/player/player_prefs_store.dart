@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/subtitle_size.dart';
 
 typedef PlayerPrefs = ({
   double volume,
@@ -16,6 +17,7 @@ typedef PlayerPrefs = ({
   int bufferBytes,
   bool waitForBuffer,
   DeliveryPreference delivery,
+  SubtitleSize subtitleSize,
 });
 
 const int kAutoplayOff = 0;
@@ -56,6 +58,7 @@ const PlayerPrefs kDefaultPlayerPrefs = (
   bufferBytes: kDefaultBufferBytes,
   waitForBuffer: false,
   delivery: DeliveryPreference.auto,
+  subtitleSize: SubtitleSize.deviceDefault,
 );
 
 class PlayerPrefsStore {
@@ -72,6 +75,7 @@ class PlayerPrefsStore {
   static const String _bufferBytesKey = 'shadowmask.player.buffer_bytes';
   static const String _waitKey = 'shadowmask.player.wait_for_buffer';
   static const String _deliveryKey = 'shadowmask.player.delivery';
+  static const String _subtitleSizeKey = 'shadowmask.player.subtitle_size';
 
   Future<PlayerPrefs> load() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -105,6 +109,7 @@ class PlayerPrefsStore {
       waitForBuffer:
           prefs.getBool(_waitKey) ?? kDefaultPlayerPrefs.waitForBuffer,
       delivery: DeliveryPreference.fromWire(prefs.getString(_deliveryKey)),
+      subtitleSize: SubtitleSize.fromWire(prefs.getString(_subtitleSizeKey)),
     );
   }
 
@@ -161,5 +166,10 @@ class PlayerPrefsStore {
   Future<void> saveDelivery(DeliveryPreference delivery) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setString(_deliveryKey, delivery.wire);
+  }
+
+  Future<void> saveSubtitleSize(SubtitleSize size) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_subtitleSizeKey, size.wire);
   }
 }

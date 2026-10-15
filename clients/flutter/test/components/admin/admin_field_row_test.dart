@@ -54,6 +54,41 @@ void main() {
     );
   });
 
+  final ValueVariant<double> fonts = ValueVariant<double>(<double>{1.0, 2.0});
+
+  testWidgets('a button grown by the font size moves the row onto lines', (
+    WidgetTester tester,
+  ) async {
+    tester.platformDispatcher.textScaleFactorTestValue = fonts.currentValue!;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+    await tester.pumpWidget(
+      _host(512, <AdminField>[
+        const AdminField(flex: 1, SizedBox(key: Key('query'), height: 40)),
+        const AdminField(
+          width: 160,
+          SizedBox(key: Key('language'), height: 40),
+        ),
+        AdminField(
+          FilledButton(
+            key: const Key('button'),
+            onPressed: () {},
+            child: const Text('Search subtitles'),
+          ),
+        ),
+      ]),
+    );
+
+    expect(tester.takeException(), isNull);
+    final Rect query = tester.getRect(find.byKey(const Key('query')));
+    final Rect button = tester.getRect(find.byKey(const Key('button')));
+    if (fonts.currentValue == 1.0) {
+      expect(button.left, greaterThan(query.right));
+    } else {
+      expect(button.top, greaterThan(query.bottom - 1));
+    }
+  }, variant: fonts);
+
   testWidgets('the threshold follows what the fields actually need', (
     WidgetTester tester,
   ) async {
