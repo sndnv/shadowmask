@@ -1,0 +1,7 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: shadowmask
+    static_configs:
+      - targets: [ "shadowmask:8080" ]

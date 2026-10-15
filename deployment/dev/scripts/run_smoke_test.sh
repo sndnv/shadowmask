@@ -210,7 +210,7 @@ assert_subtitle_serves() {
         "$(jq -nc --arg v "$ver" '{version_id:$v,capabilities:{platform:"generic",profile_version:1}}')" 201 "start session for [$sub]")
     sid=$(jq -r '.session_id' <<<"$ss")
     upd=$(call_ok POST "$API/sessions/$sid/update" "$token" \
-        "$(jq -nc --arg id "$sub" '{audio_track:null,subtitle:{action:"set",track:{type:"file",id:$id},offset_ms:null}}')" 200 "select subtitle [$sub]")
+        "$(jq -nc --arg id "$sub" '{position_ms:0,audio_track:null,subtitle:{action:"set",track:{type:"file",id:$id},offset_ms:null}}')" 200 "select subtitle [$sub]")
     man=$(jq -r '.manifest_url' <<<"$upd")
     base="${man%/master.m3u8}"
     poll_until "vtt for [$sub] ready" 120 http_get_ok "$BASE_URL$base/subs/subs.vtt"
@@ -474,7 +474,7 @@ SUB_ID=$(jq -r '.subtitle_files[0].id // empty' <<<"$det")
 [[ -n "$SUB_ID" ]] || die "mkv version has no discovered subtitle_files"
 note "selecting sidecar subtitle [$SUB_ID]"
 upd=$(call_ok POST "$API/sessions/$SESSION_ID/update" "$USER_TOKEN" \
-    "$(jq -nc --arg id "$SUB_ID" '{audio_track:null,subtitle:{action:"set",track:{type:"file",id:$id},offset_ms:null}}')" 200 "select sidecar subtitle")
+    "$(jq -nc --arg id "$SUB_ID" --argjson p "$PAUSE_MS" '{position_ms:$p,audio_track:null,subtitle:{action:"set",track:{type:"file",id:$id},offset_ms:null}}')" 200 "select sidecar subtitle")
 SUB_MANIFEST=$(jq -r '.manifest_url' <<<"$upd")
 poll_until "subtitle master playlist ready" 60 http_get_ok "$BASE_URL$SUB_MANIFEST"
 grep -q 'TYPE=SUBTITLES' <<<"$(curl -sS "$BASE_URL$SUB_MANIFEST")" || die "master missing SUBTITLES rendition"
@@ -485,14 +485,14 @@ ok "sidecar subtitle served as WEBVTT"
 
 step "subtitle offset: shift by 5000ms and verify cue timing"
 upd2=$(call_ok POST "$API/sessions/$SESSION_ID/update" "$USER_TOKEN" \
-    "$(jq -nc --arg id "$SUB_ID" '{audio_track:null,subtitle:{action:"set",track:{type:"file",id:$id},offset_ms:5000}}')" 200 "select sidecar subtitle with offset")
+    "$(jq -nc --arg id "$SUB_ID" --argjson p "$PAUSE_MS" '{position_ms:$p,audio_track:null,subtitle:{action:"set",track:{type:"file",id:$id},offset_ms:5000}}')" 200 "select sidecar subtitle with offset")
 STREAM_BASE2="$(jq -r '.manifest_url' <<<"$upd2")"
 STREAM_BASE2="${STREAM_BASE2%/master.m3u8}"
 poll_until "subtitle offset applied (+5000ms)" 60 offset_applied "$BASE_URL$STREAM_BASE2/subs/subs.vtt" 5000
 ok "subtitle offset applied: first cue shifted by exactly 5000ms"
 
 call_ok POST "$API/sessions/$SESSION_ID/seek" "$USER_TOKEN" "$(jq -nc --argjson p "$((MKV_DURATION_MS / 2))" '{position_ms:$p}')" 200 "seek" >/dev/null
-call_ok POST "$API/sessions/$SESSION_ID/update" "$USER_TOKEN" "$(jq -nc '{audio_track:null,subtitle:{action:"keep"}}')" 200 "update tracks" >/dev/null
+call_ok POST "$API/sessions/$SESSION_ID/update" "$USER_TOKEN" "$(jq -nc --argjson p "$((MKV_DURATION_MS / 2))" '{position_ms:$p,audio_track:null,subtitle:{action:"keep"}}')" 200 "update tracks" >/dev/null
 pr=$(call_ok GET "$API/users/$TEST_UID/progress/$MKV_VER" "$USER_TOKEN")
 [[ "$(jq -r 'if .==null then "null" else "set" end' <<<"$pr")" == "set" ]] || die "no resume progress recorded"
 call_ok GET "$API/users/$TEST_UID/continue" "$USER_TOKEN" >/dev/null

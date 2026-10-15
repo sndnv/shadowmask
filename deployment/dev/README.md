@@ -138,6 +138,12 @@ firehose:
   see every query. Everything else (hyper/axum/tower) stays at `warn`.
 - `RUST_LOG`, if set, overrides both with a raw `tracing` filter directive.
 
+## Monitoring (optional)
+
+`docker compose --profile monitoring up -d` (with `-f docker-compose.base.yml` for the base stack)
+also starts Prometheus (port `9090`) and Grafana (port `3000`, first login `admin` / `admin`), using
+the production configuration. See "Metrics and health" in [`../README.md`](../README.md#metrics-and-health).
+
 ## Smoke test
 
 `scripts/run_smoke_test.sh` drives an already-running stack through the full product surface (auth,
