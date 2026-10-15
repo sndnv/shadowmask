@@ -355,7 +355,7 @@ pub fn requests() -> Vec<EndpointCase> {
             "POST",
             "/api/v1/sessions/{session}/update",
             Token::User,
-            Some(json!({"audio_track": 2, "subtitle": {"action": "keep"}})),
+            Some(json!({"position_ms": 2000, "audio_track": 2, "subtitle": {"action": "keep"}})),
         ),
         case("session_end", "DELETE", "/api/v1/sessions/{session}", Token::User, None),
         case("users_list", "GET", "/api/v1/users", Token::Admin, None),

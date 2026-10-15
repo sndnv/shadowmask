@@ -4,7 +4,7 @@ use std::sync::RwLock;
 use domain::common::{Page, PageRequest, paginate};
 use domain::error::RepositoryError;
 use domain::repository::SessionRegistry;
-use domain::session::{DeliveryMode, PlaybackSession, SessionId};
+use domain::session::{DeliveryMode, PlaybackSession, PlaybackState, SessionId};
 use domain::user::{DeviceId, UserId};
 use jiff::Timestamp;
 
@@ -27,27 +27,36 @@ impl InMemorySessionRegistry {
 }
 
 fn record_gauges(sessions: &HashMap<SessionId, PlaybackSession>) {
-    let mut direct = 0u64;
-    let mut remux = 0u64;
-    let mut transcode = 0u64;
+    let mut active = [0u64; 3];
+    let mut playing = [0u64; 3];
     let mut users: HashSet<&UserId> = HashSet::new();
     let mut devices: HashSet<&DeviceId> = HashSet::new();
     for session in sessions.values() {
-        match session.mode {
-            DeliveryMode::Direct => direct += 1,
-            DeliveryMode::Remux => remux += 1,
-            DeliveryMode::Transcode => transcode += 1,
+        let slot = mode_slot(session.mode);
+        active[slot] += 1;
+        if session.state == PlaybackState::Playing {
+            playing[slot] += 1;
         }
         users.insert(&session.user);
         if let Some(device) = &session.device {
             devices.insert(device);
         }
     }
-    metrics::gauge!("sessions_active", "mode" => "direct").set(direct as f64);
-    metrics::gauge!("sessions_active", "mode" => "remux").set(remux as f64);
-    metrics::gauge!("sessions_active", "mode" => "transcode").set(transcode as f64);
+    for mode in [DeliveryMode::Direct, DeliveryMode::Remux, DeliveryMode::Transcode] {
+        let slot = mode_slot(mode);
+        metrics::gauge!("sessions_active", "mode" => mode_label(mode)).set(active[slot] as f64);
+        metrics::gauge!("sessions_playing", "mode" => mode_label(mode)).set(playing[slot] as f64);
+    }
     metrics::gauge!("active_users").set(users.len() as f64);
     metrics::gauge!("active_devices").set(devices.len() as f64);
+}
+
+fn mode_slot(mode: DeliveryMode) -> usize {
+    match mode {
+        DeliveryMode::Direct => 0,
+        DeliveryMode::Remux => 1,
+        DeliveryMode::Transcode => 2,
+    }
 }
 
 fn mode_label(mode: DeliveryMode) -> &'static str {
@@ -103,7 +112,7 @@ impl SessionRegistry for InMemorySessionRegistry {
 mod tests {
     use super::*;
     use domain::catalog::VersionId;
-    use domain::session::{PlaybackState, SelectedTracks};
+    use domain::session::SelectedTracks;
     use jiff::Timestamp;
     use metrics_exporter_prometheus::PrometheusBuilder;
 
@@ -234,6 +243,33 @@ mod tests {
         assert!(rendered.contains("sessions_active{mode=\"transcode\"} 1"));
         assert!(rendered.contains("active_users 2"));
         assert!(rendered.contains("active_devices 1"));
+    }
+
+    #[test]
+    fn only_sessions_that_last_reported_playing_count_as_playing() {
+        let rendered = recorded(|| async {
+            let registry = InMemorySessionRegistry::new();
+            registry.insert(session_mode("s1", "u1", DeliveryMode::Transcode, None)).await.unwrap();
+            registry
+                .insert(PlaybackSession {
+                    state: PlaybackState::Paused,
+                    ..session_mode("s2", "u1", DeliveryMode::Transcode, None)
+                })
+                .await
+                .unwrap();
+            registry
+                .insert(PlaybackSession {
+                    state: PlaybackState::Paused,
+                    ..session_mode("s3", "u2", DeliveryMode::Direct, None)
+                })
+                .await
+                .unwrap();
+        });
+        assert!(rendered.contains("sessions_active{mode=\"transcode\"} 2"));
+        assert!(rendered.contains("sessions_playing{mode=\"transcode\"} 1"));
+        assert!(rendered.contains("sessions_active{mode=\"direct\"} 1"));
+        assert!(rendered.contains("sessions_playing{mode=\"direct\"} 0"));
+        assert!(rendered.contains("sessions_playing{mode=\"remux\"} 0"));
     }
 
     #[test]

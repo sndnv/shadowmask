@@ -635,9 +635,10 @@ mod tests {
             worker.run_once(now).await.unwrap();
         });
         assert!(rendered.contains("jobs_total"));
-        assert!(rendered.contains("job=\"library_scan\""));
+        assert!(rendered.contains("kind=\"library_scan\""));
         assert!(rendered.contains("outcome=\"succeeded\""));
-        assert!(rendered.contains("job_duration_milliseconds"));
+        assert!(rendered.contains("job_duration_milliseconds_count{kind=\"library_scan\"}"));
+        assert!(!rendered.contains("job=\""));
         assert!(rendered.contains("jobs_active{pool=\"trickplay\"} 0"));
     }
 

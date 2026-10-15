@@ -178,6 +178,7 @@ impl SessionService for MockSessionService {
     ) -> Result<Renegotiated, SessionError> {
         let mut guard = self.state.lock().unwrap();
         let s = guard.sessions.get_mut(session).ok_or(SessionError::NotFound)?;
+        s.position_ms = update.position_ms;
         if let Some(audio) = update.audio_track {
             s.selected.audio_track = Some(audio);
         }
@@ -332,6 +333,7 @@ mod tests {
             &principal("u1"),
             &id,
             SessionUpdate {
+                position_ms: 42_000,
                 audio_track: None,
                 subtitle: SubtitleChange::Keep,
                 target_height: None,
@@ -342,17 +344,15 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(
-            svc.active_sessions(&principal("u1"), page()).await.unwrap().items[0]
-                .selected
-                .audio_track,
-            Some(0)
-        );
+        let active = svc.active_sessions(&principal("u1"), page()).await.unwrap();
+        assert_eq!(active.items[0].selected.audio_track, Some(0));
+        assert_eq!(active.items[0].position_ms, 42_000);
 
         svc.update(
             &principal("u1"),
             &id,
             SessionUpdate {
+                position_ms: 42_000,
                 audio_track: Some(2),
                 subtitle: SubtitleChange::Set(SubtitleSelection {
                     track: SubtitleTrackRef::Embedded(1),
@@ -376,6 +376,7 @@ mod tests {
             &principal("u1"),
             &id,
             SessionUpdate {
+                position_ms: 42_000,
                 audio_track: None,
                 subtitle: SubtitleChange::Disable,
                 target_height: None,
@@ -396,6 +397,7 @@ mod tests {
                 &principal("u1"),
                 &SessionId("x".into()),
                 SessionUpdate {
+                    position_ms: 0,
                     audio_track: None,
                     subtitle: SubtitleChange::Keep,
                     target_height: None,

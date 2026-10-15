@@ -1047,9 +1047,11 @@ async fn a_malformed_body_answers_in_the_error_format() {
     ctx.library_repo.insert_library(library("lib1"));
     let scan = "/api/v1/libraries/lib1/scan";
     let login = "/api/v1/auth/login";
+    let update = "/api/v1/sessions/s1/update";
     let json = Some("application/json");
     let cases = [
         (scan, json, r#"{"reread":"yes"}"#, StatusCode::UNPROCESSABLE_ENTITY),
+        (update, json, r#"{"audio_track":1}"#, StatusCode::UNPROCESSABLE_ENTITY),
         (scan, json, "", StatusCode::BAD_REQUEST),
         (scan, json, "{", StatusCode::BAD_REQUEST),
         (login, None, r#"{"username":"a","password":"b"}"#, StatusCode::UNSUPPORTED_MEDIA_TYPE),
@@ -1165,7 +1167,7 @@ async fn a_session_that_converts_names_its_container_on_start_and_again_on_updat
         Method::POST,
         &format!("/api/v1/sessions/{sid}/update"),
         Some(USER),
-        Some(json!({"audio_track": 1})),
+        Some(json!({"position_ms": 0, "audio_track": 1})),
     )
     .await;
 
@@ -1584,7 +1586,7 @@ async fn session_routes() {
             Method::POST,
             &format!("/api/v1/sessions/{sid}/update"),
             Some(USER),
-            Some(json!({"audio_track": 2, "subtitle": change})),
+            Some(json!({"position_ms": 0, "audio_track": 2, "subtitle": change})),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
@@ -1595,7 +1597,7 @@ async fn session_routes() {
         Method::POST,
         &format!("/api/v1/sessions/{sid}/update"),
         Some(USER),
-        Some(json!({"audio_track": 3})),
+        Some(json!({"position_ms": 0, "audio_track": 3})),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -1627,7 +1629,7 @@ async fn session_failure_paths() {
         (
             Method::POST,
             format!("{unknown}/update"),
-            Some(json!({"audio_track": 1, "subtitle": {"action": "keep"}})),
+            Some(json!({"position_ms": 1, "audio_track": 1, "subtitle": {"action": "keep"}})),
         ),
         (Method::DELETE, unknown.to_string(), None),
     ];
