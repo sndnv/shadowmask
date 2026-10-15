@@ -12,11 +12,11 @@ class AdminField {
   final int flex;
   final double? width;
 
-  double get _needs {
+  double _needs(double textScale) {
     if (flex > 0) {
       return _kMinFlexWidth;
     }
-    return width ?? _kMinIntrinsicWidth;
+    return width ?? _kMinIntrinsicWidth * textScale;
   }
 }
 
@@ -30,17 +30,20 @@ class AdminFieldRow extends StatelessWidget {
   final List<AdminField> fields;
   final CrossAxisAlignment crossAxisAlignment;
 
-  double get _needed {
+  double _needed(BuildContext context) {
+    final double size = Theme.of(context).textTheme.labelLarge?.fontSize ?? 14;
+    final double textScale =
+        MediaQuery.textScalerOf(context).scale(size) / size;
     double total = 0;
     for (int i = 0; i < fields.length; i++) {
-      total += (i > 0 ? Space.s3 : 0) + fields[i]._needs;
+      total += (i > 0 ? Space.s3 : 0) + fields[i]._needs(textScale);
     }
     return total;
   }
 
   @override
   Widget build(BuildContext context) {
-    final double needed = _needed;
+    final double needed = _needed(context);
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         if (constraints.maxWidth < needed) {

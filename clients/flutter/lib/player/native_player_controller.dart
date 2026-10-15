@@ -13,6 +13,7 @@ import 'package:shadowmask/model/session/playback_mode.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
+import 'package:shadowmask/view/subtitle_size.dart';
 
 const Duration kOrientationTimeout = Duration(milliseconds: 1200);
 const Duration kOrientationPoll = Duration(milliseconds: 32);
@@ -33,10 +34,10 @@ class NativePlayerController implements PlayerController {
     unawaited(
       _video.platform.future.then<void>(
         (_) {},
-        onError: (Object error) => _onError(error.toString()),
+        onError: (Object error) => _onOutputFailure(error.toString()),
       ),
     );
-    _errors = _player.stream.error.listen(_onError);
+    _mpvErrors = _player.stream.error.listen(_onError);
     _logs = _player.stream.log.listen(_onLog);
     if (_handheld) {
       _fullscreen.value = true;
@@ -52,8 +53,9 @@ class NativePlayerController implements PlayerController {
   final String _baseUrl;
   final Player _player;
   late final VideoController _video;
-  late final StreamSubscription<String> _errors;
+  late final StreamSubscription<String> _mpvErrors;
   late final StreamSubscription<PlayerLog> _logs;
+  final StreamController<String> _errors = StreamController<String>.broadcast();
   final List<String> _recentLogs = <String>[];
   late final _FullscreenListener _window = _FullscreenListener(
     (bool value) => _fullscreen.value = value,
@@ -61,7 +63,6 @@ class NativePlayerController implements PlayerController {
 
   Timer? _timer;
   PlaybackMode _mode = PlaybackMode.direct;
-  String? _error;
   bool _seeked = false;
   int _generation = 0;
   double _beforeMute = 1;
@@ -74,6 +75,7 @@ class NativePlayerController implements PlayerController {
   int _networkTimeout = 10;
   int _bufferSeconds = kDefaultBufferSeconds;
   int _bufferBytes = kDefaultBufferBytes;
+  String? _outputFailure;
 
   final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
     const PlayerSnapshot(),
@@ -83,12 +85,20 @@ class NativePlayerController implements PlayerController {
   final ValueNotifier<bool> _muted = ValueNotifier<bool>(false);
   final ValueNotifier<double> _volume = ValueNotifier<double>(1);
   final ValueNotifier<bool> _pip = ValueNotifier<bool>(false);
+  final ValueNotifier<SubtitleSize> _subtitleSize = ValueNotifier<SubtitleSize>(
+    SubtitleSize.deviceDefault,
+  );
+  static final TextStyle _subtitleStyle =
+      const SubtitleViewConfiguration().style;
 
   @override
   ValueListenable<PlayerSnapshot> get snapshot => _snapshot;
 
   @override
   ValueListenable<bool> get fullscreen => _fullscreen;
+
+  @override
+  Stream<String> get errors => _errors.stream;
 
   @override
   ValueListenable<bool> get mutedByPolicy => _mutedByPolicy;
@@ -109,12 +119,27 @@ class NativePlayerController implements PlayerController {
   bool seeksWithin(String? container) => container != kFmp4Segments;
 
   @override
-  Widget get view => Video(
-    controller: _video,
-    controls: NoVideoControls,
-    fit: BoxFit.contain,
-    pauseUponEnteringBackgroundMode: false,
+  Widget get view => ValueListenableBuilder<SubtitleSize>(
+    valueListenable: _subtitleSize,
+    builder: (BuildContext context, SubtitleSize size, Widget? _) =>
+        LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints c) => Video(
+            controller: _video,
+            controls: NoVideoControls,
+            fit: BoxFit.contain,
+            pauseUponEnteringBackgroundMode: false,
+            subtitleViewConfiguration: SubtitleViewConfiguration(
+              style: _subtitleStyle.copyWith(
+                fontSize: subtitleFontSize(c.maxHeight, size),
+              ),
+              textScaler: TextScaler.noScaling,
+            ),
+          ),
+        ),
   );
+
+  @override
+  void setSubtitleSize(SubtitleSize size) => _subtitleSize.value = size;
 
   @override
   Future<void> attach(
@@ -125,7 +150,6 @@ class NativePlayerController implements PlayerController {
     bool autoplay = true,
   }) async {
     _mode = mode;
-    _error = null;
     _seeked = false;
     final int generation = ++_generation;
     _startTimer();
@@ -140,6 +164,9 @@ class NativePlayerController implements PlayerController {
       return;
     }
     await _player.open(Media(url), play: autoplay && positionMs <= 0);
+    if (_outputFailure case final String failure) {
+      _onError(failure);
+    }
     if (positionMs > 0) {
       await _resumeAt(positionMs, generation, autoplay);
     }
@@ -174,7 +201,6 @@ class NativePlayerController implements PlayerController {
     _timer?.cancel();
     _timer = null;
     _seeked = false;
-    _error = null;
     await _player.stop();
     _snapshot.value = const PlayerSnapshot();
   }
@@ -344,20 +370,28 @@ class NativePlayerController implements PlayerController {
     } else {
       windowManager.removeListener(_window);
     }
-    await _errors.cancel();
+    await _mpvErrors.cancel();
     await _logs.cancel();
     await _player.dispose();
+    await _errors.close();
     _snapshot.dispose();
     _fullscreen.dispose();
     _mutedByPolicy.dispose();
     _muted.dispose();
     _volume.dispose();
     _pip.dispose();
+    _subtitleSize.dispose();
   }
 
   void _onError(String message) {
-    _error = redactStreamTokens(message);
-    _tick();
+    if (!_errors.isClosed) {
+      _errors.add(redactStreamTokens(message));
+    }
+  }
+
+  void _onOutputFailure(String message) {
+    _outputFailure = message;
+    _onError(message);
   }
 
   void _onLog(PlayerLog log) {
@@ -367,7 +401,7 @@ class NativePlayerController implements PlayerController {
     while (_recentLogs.length > 8) {
       _recentLogs.removeAt(0);
     }
-    if (log.level == 'fatal' && _error == null) {
+    if (log.level == 'fatal') {
       _onError(log.text.trim());
     }
   }
@@ -393,7 +427,6 @@ class NativePlayerController implements PlayerController {
       buffering: state.buffering,
       bufferingPercent: state.bufferingPercentage,
       ended: state.completed,
-      error: _error,
     );
   }
 

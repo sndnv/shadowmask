@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/player/player_prefs_store.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/subtitle_size.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -26,6 +27,27 @@ void main() {
     await store.saveDelivery(DeliveryPreference.always);
 
     expect((await store.load()).delivery, DeliveryPreference.always);
+  });
+
+  test(
+    'the subtitle size starts on Default and a chosen one survives',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+
+      expect((await store.load()).subtitleSize, SubtitleSize.deviceDefault);
+
+      await store.saveSubtitleSize(SubtitleSize.large);
+
+      expect((await store.load()).subtitleSize, SubtitleSize.large);
+    },
+  );
+
+  test('a subtitle size no longer offered reads as Default', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'shadowmask.player.subtitle_size': 'huge',
+    });
+
+    expect((await store.load()).subtitleSize, SubtitleSize.deviceDefault);
   });
 
   test('a converting value no longer offered reads as Auto', () async {

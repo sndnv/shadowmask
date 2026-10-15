@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 
 import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/components/admin/admin_field_row.dart';
@@ -8,6 +9,7 @@ import 'package:shadowmask/components/admin/form_dialog.dart';
 import 'package:shadowmask/components/admin/labelled_field.dart';
 import 'package:shadowmask/components/language_dropdown.dart';
 import 'package:shadowmask/components/outline_pill.dart';
+import 'package:shadowmask/components/start_ellipsis_text.dart';
 import 'package:shadowmask/components/status_text.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
@@ -37,6 +39,7 @@ Future<bool> showSubtitleSearch(
   required AdminApi admin,
   required String versionId,
   required List<SubtitleFile> existing,
+  String? path,
 }) async {
   bool downloaded = false;
   final List<Future<void>> downloads = <Future<void>>[];
@@ -46,6 +49,7 @@ Future<bool> showSubtitleSearch(
       admin: admin,
       versionId: versionId,
       existing: existing,
+      path: path,
       onDownload: downloads.add,
       onDownloaded: () => downloaded = true,
     ),
@@ -190,11 +194,13 @@ class _SubtitleSearchDialog extends StatefulWidget {
     required this.existing,
     required this.onDownload,
     required this.onDownloaded,
+    this.path,
   });
 
   final AdminApi admin;
   final String versionId;
   final List<SubtitleFile> existing;
+  final String? path;
   final ValueChanged<Future<void>> onDownload;
   final VoidCallback onDownloaded;
 
@@ -270,6 +276,17 @@ class _SubtitleSearchDialogState extends State<_SubtitleSearchDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
+          if (widget.path case final String path
+              when path.isNotEmpty) ...<Widget>[
+            StartEllipsisText.middle(
+              p.basenameWithoutExtension(path),
+              style: monoStyle.copyWith(
+                color: context.tokens.muted,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: Space.s3),
+          ],
           AdminFieldRow(
             fields: <AdminField>[
               AdminField(
@@ -344,59 +361,78 @@ class _SubtitleSearchDialogState extends State<_SubtitleSearchDialog> {
                 const SizedBox(height: Space.s2),
                 for (final SubtitleCandidate c in results)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: Space.s2),
-                    child: Row(
+                    padding: const EdgeInsets.only(bottom: Space.s3),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
-                        Expanded(
-                          child: Text(
-                            subtitleCandidateLabel(c),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (c.downloadCount case final int count) ...<Widget>[
-                          const SizedBox(width: Space.s2),
-                          Tooltip(
-                            message: downloadCountLabel(count),
-                            child: OutlinePill(
-                              icon: Icons.download_outlined,
-                              text: compactCount(count),
-                            ),
-                          ),
-                          const SizedBox(width: Space.s2),
-                        ],
-                        if (_held.contains(_candidateId(c)))
-                          const TextButton(
-                            onPressed: null,
-                            style: _kRowButton,
-                            child: Text(Strings.downloaded),
-                          )
-                        else if (_pending.contains(_candidateId(c)))
-                          TextButton(
-                            onPressed: null,
-                            style: _kRowButton,
-                            child: Semantics(
-                              label: Strings.downloading,
-                              child: const SizedBox(
-                                width: _kSpinner,
-                                height: _kSpinner,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                            ),
-                          )
-                        else
-                          TextButton(
-                            onPressed: () => widget.onDownload(_download(c)),
-                            style: _kRowButton,
-                            child: const Text(Strings.download),
-                          ),
+                        StartEllipsisText.middle(subtitleCandidateName(c)),
+                        _candidateActions(context, c),
                       ],
                     ),
                   ),
               ],
             );
           },
+    );
+  }
+
+  Widget _candidateActions(BuildContext context, SubtitleCandidate c) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: <Widget>[
+        Flexible(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              if (c.downloadCount case final int count) ...<Widget>[
+                Tooltip(
+                  message: downloadCountLabel(count),
+                  child: OutlinePill(
+                    icon: Icons.download_outlined,
+                    text: compactCount(count),
+                  ),
+                ),
+                const SizedBox(width: Space.s2),
+              ],
+              Flexible(
+                child: Text(
+                  subtitleCandidateDetails(c),
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: context.tokens.muted),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: Space.s2),
+        if (_held.contains(_candidateId(c)))
+          const TextButton(
+            onPressed: null,
+            style: _kRowButton,
+            child: Text(Strings.downloaded),
+          )
+        else if (_pending.contains(_candidateId(c)))
+          TextButton(
+            onPressed: null,
+            style: _kRowButton,
+            child: Semantics(
+              label: Strings.downloading,
+              child: const SizedBox(
+                width: _kSpinner,
+                height: _kSpinner,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          )
+        else
+          TextButton(
+            onPressed: () => widget.onDownload(_download(c)),
+            style: _kRowButton,
+            child: const Text(Strings.download),
+          ),
+      ],
     );
   }
 }

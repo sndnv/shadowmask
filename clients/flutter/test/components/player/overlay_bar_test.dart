@@ -17,6 +17,7 @@ Future<void> _pump(
   bool canToggleWide = true,
   bool touch = false,
   EdgeInsets safe = EdgeInsets.zero,
+  VoidCallback? onOpenSheet,
 }) async {
   tester.view.physicalSize = Size(width, 800);
   tester.view.devicePixelRatio = 1;
@@ -55,6 +56,7 @@ Future<void> _pump(
                     ? (tooltip: 'Next', onPressed: () {})
                     : null,
                 touch: touch,
+                onOpenSheet: onOpenSheet,
               ),
             ),
           ),
@@ -127,6 +129,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(_opened, <PlayerPanel>[PlayerPanel.subtitles]);
+  });
+
+  testWidgets('on touch the options button opens the sheet, not a menu', (
+    WidgetTester tester,
+  ) async {
+    int opened = 0;
+    await _pump(tester, width: 1200, touch: true, onOpenSheet: () => opened++);
+
+    await tester.tap(find.byIcon(Icons.tune));
+    await tester.pumpAndSettle();
+
+    expect(opened, 1);
+    expect(find.text(PlayerPanel.audio.title), findsNothing);
   });
 
   testWidgets('a touch bar folds its panels and drops the screen controls', (

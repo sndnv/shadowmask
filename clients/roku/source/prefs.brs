@@ -93,6 +93,18 @@ sub WriteDelivery(value as string)
     WritePref(DeliveryKey(), ValidDelivery(value))
 end sub
 
+function SubtitleSizeKey() as string
+    return "subtitleSize"
+end function
+
+function ReadSubtitleSize() as string
+    return ValidSubtitleSize(ReadPref(SubtitleSizeKey(), "default"))
+end function
+
+sub WriteSubtitleSize(value as string)
+    WritePref(SubtitleSizeKey(), ValidSubtitleSize(value))
+end sub
+
 function RemainingTimeKey() as string
     return "remainingTime"
 end function

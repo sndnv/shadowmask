@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -11,6 +12,7 @@ import 'package:shadowmask/components/play_on_button.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/toggle_button.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/model/auth/device.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/model/common/quality.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
@@ -51,9 +53,8 @@ PlayOnApi _playOn(
 Future<void> _pump(
   WidgetTester tester,
   PlayOnApi playOn,
-  Future<PlayChoice?> Function() choose, {
-  bool plain = false,
-}) async {
+  Future<PlayChoice?> Function() choose,
+) async {
   await tester.pumpWidget(
     MaterialApp(
       theme: buildTheme(AppThemeVariant.dark),
@@ -61,22 +62,54 @@ Future<void> _pump(
         child: Scaffold(
           body: Align(
             alignment: Alignment.topLeft,
-            child: plain
-                ? PlayOnButton.icon(
-                    playOn: playOn,
-                    devices: kPlayOnDevices,
-                    choose: choose,
-                  )
-                : PlayOnButton(
-                    playOn: playOn,
-                    devices: kPlayOnDevices,
-                    choose: choose,
-                  ),
+            child: PlayOnButton(
+              playOn: playOn,
+              devices: kPlayOnDevices,
+              choose: choose,
+            ),
           ),
         ),
       ),
     ),
   );
+}
+
+Future<void> _openSubmenu(
+  WidgetTester tester,
+  PlayOnApi playOn, {
+  List<Device> devices = kPlayOnDevices,
+}) async {
+  final MenuController menu = MenuController();
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: buildTheme(AppThemeVariant.dark),
+      home: ToastHost(
+        child: Scaffold(
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: MenuAnchor(
+              controller: menu,
+              menuChildren: <Widget>[
+                PlayOnSubmenu(
+                  playOn: playOn,
+                  devices: devices,
+                  version: _version('v1'),
+                ),
+              ],
+              child: TextButton(
+                onPressed: menu.open,
+                child: const Text('more'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.tap(find.text('more'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(Strings.playOn));
+  await tester.pumpAndSettle();
 }
 
 Future<void> _open(WidgetTester tester) async {
@@ -324,19 +357,86 @@ void main() {
     );
   });
 
-  testWidgets('the dialog look is a plain icon button that sends too', (
+  testWidgets('the submenu lists the devices and sends to the one picked', (
     WidgetTester tester,
   ) async {
     final PlayOnServer server = PlayOnServer();
-    await _pump(tester, _playOn(server), _one(_version('v1')), plain: true);
+    await _openSubmenu(tester, _playOn(server));
 
-    expect(find.byType(ToggleButton), findsNothing);
-    expect(find.widgetWithIcon(IconButton, Icons.devices), findsOneWidget);
-    expect(find.byTooltip(Strings.playOn), findsOneWidget);
+    expect(find.widgetWithIcon(MenuItemButton, Icons.tv), findsOneWidget);
+    expect(
+      find.widgetWithIcon(MenuItemButton, Icons.phone_android),
+      findsOneWidget,
+    );
 
-    await _open(tester);
     await _pick(tester, 'Pixel');
 
     expect(server.mints, <Mint>[(device: 'd2', version: 'v1')]);
+    expect(server.lanCalls, <String>['POST 10.0.0.5/play']);
+    expect(find.text(Strings.playOnPlaying('Pixel')), findsOneWidget);
+  });
+
+  testWidgets('a long device name is cut and read in full on a long press', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 740);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const String name =
+        'The television in the living room downstairs, beside the bookcase';
+    final PlayOnServer server = PlayOnServer();
+    await _openSubmenu(
+      tester,
+      _playOn(server),
+      devices: const <Device>[
+        Device(
+          id: 'd3',
+          userId: 'u1',
+          name: name,
+          platform: 'roku',
+          createdAt: '2026-10-14T18:00:00Z',
+          target: kRokuTarget,
+        ),
+      ],
+    );
+
+    expect(
+      tester
+          .renderObject<RenderParagraph>(
+            find.descendant(
+              of: find.text(name),
+              matching: find.byType(RichText),
+            ),
+          )
+          .didExceedMaxLines,
+      isTrue,
+    );
+    expect(
+      tester.getRect(find.byType(MenuItemButton)).right,
+      lessThanOrEqualTo(360),
+    );
+
+    await tester.longPress(find.text(name));
+    await tester.pumpAndSettle();
+
+    expect(find.text(name), findsNWidgets(2));
+    expect(server.mints, isEmpty, reason: 'a long press sends nothing');
+  });
+
+  testWidgets('a device the submenu cannot reach says so', (
+    WidgetTester tester,
+  ) async {
+    await _openSubmenu(
+      tester,
+      _playOn(
+        PlayOnServer(),
+        targets: (http.Request req) =>
+            Future<http.Response>.error(http.ClientException('down')),
+      ),
+    );
+
+    await _pick(tester, 'Living room');
+
+    expect(find.text(Strings.playOnUnreachable('Living room')), findsOneWidget);
   });
 }

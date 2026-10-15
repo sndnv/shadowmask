@@ -66,6 +66,10 @@
                     <ActionBar id="deliveryActions" />
                     <Label id="deliveryHelp" />
                     <Rectangle id="deliveryRule" />
+                    <Label id="subtitleSizeName" />
+                    <ActionBar id="subtitleSizeActions" />
+                    <Label id="subtitleSizeHelp" />
+                    <Rectangle id="subtitleSizeRule" />
                     <Label id="autoplayName" />
                     <ActionBar id="autoplayActions" />
                     <Label id="autoplayHelp" />

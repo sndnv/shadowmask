@@ -30,7 +30,6 @@ void main() {
     expect(paused.copyWith(playing: true), isNot(paused));
     expect(paused.copyWith(buffering: true), isNot(paused));
     expect(paused.copyWith(ended: true), isNot(paused));
-    expect(paused.copyWith(error: 'gone'), isNot(paused));
   });
 
   test('a repeated reading does not notify the player', () {
@@ -73,7 +72,7 @@ void main() {
     expect(paused.waiting, isFalse);
     expect(const PlayerSnapshot().fraction, 0);
     expect(const PlayerSnapshot().waiting, isTrue);
-    expect(const PlayerSnapshot(error: 'gone').waiting, isFalse);
+    expect(const PlayerSnapshot(ended: true).waiting, isFalse);
     expect(paused.copyWith(buffering: true).waiting, isTrue);
   });
 }

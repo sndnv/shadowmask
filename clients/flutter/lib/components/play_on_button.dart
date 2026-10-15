@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/play_on_api.dart';
 import 'package:shadowmask/api/target_caller.dart';
+import 'package:shadowmask/components/long_menu_item.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/toggle_button.dart';
 import 'package:shadowmask/components/version_label.dart';
@@ -33,25 +34,83 @@ mixin PlayOnTargets<T extends StatefulWidget> on State<T> {
   }
 }
 
+Future<void> sendPlayOn(
+  Toasts toasts,
+  PlayOnApi playOn,
+  Device device,
+  Version version,
+) async {
+  final String name = device.name;
+  try {
+    switch (await playOn.send(device, version)) {
+      case PlayOnOutcome.playing:
+        toasts.success(Strings.playOnPlaying(name), emphasis: name);
+      case PlayOnOutcome.refused:
+        toasts.error(Strings.playOnRefused(name), emphasis: name);
+      case PlayOnOutcome.unreachable:
+        toasts.error(Strings.playOnUnreachable(name), emphasis: name);
+    }
+  } catch (e) {
+    toasts.error(failureText(Strings.errorAction, e));
+  }
+}
+
+List<Widget> _deviceItems(
+  Tokens t,
+  List<Device> devices,
+  ValueChanged<Device> onPick,
+) => <Widget>[
+  for (final Device d in devices)
+    LongMenuItem(
+      label: d.name,
+      onPressed: () => onPick(d),
+      leadingIcon: Icon(_kindIcon(d), size: 18, color: t.accent),
+    ),
+];
+
+IconData _kindIcon(Device d) =>
+    d.target?.kind == TargetKind.android ? Icons.phone_android : Icons.tv;
+
+class PlayOnSubmenu extends StatelessWidget {
+  const PlayOnSubmenu({
+    super.key,
+    required this.playOn,
+    required this.devices,
+    required this.version,
+  });
+
+  final PlayOnApi playOn;
+  final List<Device> devices;
+  final Version version;
+
+  @override
+  Widget build(BuildContext context) {
+    final Tokens t = context.tokens;
+    final Toasts toasts = Toasts.of(context);
+    return SubmenuButton(
+      menuStyle: appMenuStyle(t),
+      leadingIcon: const Icon(Icons.devices),
+      menuChildren: _deviceItems(
+        t,
+        devices,
+        (Device d) => sendPlayOn(toasts, playOn, d, version),
+      ),
+      child: const Text(Strings.playOn),
+    );
+  }
+}
+
 class PlayOnButton extends StatefulWidget {
   const PlayOnButton({
     super.key,
     required this.playOn,
     required this.devices,
     required this.choose,
-  }) : plain = false;
-
-  const PlayOnButton.icon({
-    super.key,
-    required this.playOn,
-    required this.devices,
-    required this.choose,
-  }) : plain = true;
+  });
 
   final PlayOnApi playOn;
   final List<Device> devices;
   final Future<PlayChoice?> Function() choose;
-  final bool plain;
 
   @override
   State<PlayOnButton> createState() => _PlayOnButtonState();
@@ -101,19 +160,9 @@ class _PlayOnButtonState extends State<PlayOnButton> {
 
   Future<void> _send(Device device, Version version) async {
     final Toasts toasts = Toasts.of(context);
-    final String name = device.name;
     setState(() => _busy = true);
     try {
-      switch (await widget.playOn.send(device, version)) {
-        case PlayOnOutcome.playing:
-          toasts.success(Strings.playOnPlaying(name), emphasis: name);
-        case PlayOnOutcome.refused:
-          toasts.error(Strings.playOnRefused(name), emphasis: name);
-        case PlayOnOutcome.unreachable:
-          toasts.error(Strings.playOnUnreachable(name), emphasis: name);
-      }
-    } catch (e) {
-      toasts.error(failureText(Strings.errorAction, e));
+      await sendPlayOn(toasts, widget.playOn, device, version);
     } finally {
       if (mounted) {
         setState(() => _busy = false);
@@ -121,17 +170,20 @@ class _PlayOnButtonState extends State<PlayOnButton> {
     }
   }
 
+  List<Widget> _versionDevices(Tokens t, Version version) =>
+      _deviceItems(t, widget.devices, (Device d) => _send(d, version));
+
   List<Widget> _items(Tokens t) {
     final Version? target = _target;
     if (target != null) {
-      return _deviceItems(t, target);
+      return _versionDevices(t, target);
     }
     return <Widget>[
       for (int i = 0; i < _ordered.length; i++)
         if (_ordered[i].available)
           SubmenuButton(
             menuStyle: appMenuStyle(t),
-            menuChildren: _deviceItems(t, _ordered[i]),
+            menuChildren: _versionDevices(t, _ordered[i]),
             child: Text.rich(
               TextSpan(
                 style: monoStyle.copyWith(color: t.text, fontSize: 13),
@@ -146,48 +198,27 @@ class _PlayOnButtonState extends State<PlayOnButton> {
     ];
   }
 
-  List<Widget> _deviceItems(Tokens t, Version version) => <Widget>[
-    for (final Device d in widget.devices)
-      MenuItemButton(
-        onPressed: () => _send(d, version),
-        leadingIcon: Icon(_kindIcon(d), size: 18, color: t.accent),
-        child: Text(d.name),
-      ),
-  ];
-
-  IconData _kindIcon(Device d) =>
-      d.target?.kind == TargetKind.android ? Icons.phone_android : Icons.tv;
-
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
-    final Widget anchor = MenuAnchor(
-      controller: _menu,
-      alignmentOffset: kMenuOffset,
-      style: appMenuStyle(t),
-      menuChildren: _items(t),
-      child: widget.plain
-          ? IconButton(
-              onPressed: _busy ? null : _press,
-              tooltip: Strings.playOn,
-              icon: Icon(Icons.devices, color: t.muted),
-            )
-          : ToggleButton(
-              icon: Icons.devices,
-              filledIcon: Icons.devices,
-              label: Strings.playOn,
-              pressed: false,
-              highlight: false,
-              busy: _busy,
-              compact: true,
-              onToggle: _press,
-            ),
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(start: Space.s2),
+      child: MenuAnchor(
+        controller: _menu,
+        alignmentOffset: kMenuOffset,
+        style: appMenuStyle(t),
+        menuChildren: _items(t),
+        child: ToggleButton(
+          icon: Icons.devices,
+          filledIcon: Icons.devices,
+          label: Strings.playOn,
+          pressed: false,
+          highlight: false,
+          busy: _busy,
+          compact: true,
+          onToggle: _press,
+        ),
+      ),
     );
-    return widget.plain
-        ? anchor
-        : Padding(
-            padding: const EdgeInsetsDirectional.only(start: Space.s2),
-            child: anchor,
-          );
   }
 }

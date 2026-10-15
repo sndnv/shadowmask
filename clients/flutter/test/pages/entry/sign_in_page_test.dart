@@ -42,6 +42,26 @@ void main() {
     expect(find.text(Strings.usernameAndPasswordRequired), findsOneWidget);
   });
 
+  testWidgets('a short screen scrolls to the button instead of overflowing', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final ApiClient api = _client(
+      MockClient((http.Request _) async => http.Response('', 401)),
+    );
+    await tester.pumpWidget(_host(SignInPage(api: api)));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byType(FilledButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+
+    expect(find.text(Strings.usernameAndPasswordRequired), findsOneWidget);
+  });
+
   testWidgets('the credentials are offered to the browser password manager', (
     WidgetTester tester,
   ) async {

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:shadowmask/components/player/player_sheet.dart';
 import 'package:shadowmask/components/player/settings_panel.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/app_theme.dart';
@@ -12,6 +13,21 @@ import 'package:shadowmask/view/player_shortcuts.dart';
 
 const double _barClearance = 84;
 const double _minPanelHeight = 140;
+
+enum _Layer {
+  view,
+  gestures,
+  hold,
+  seek,
+  panelBarrier,
+  diagnostics,
+  waiting,
+  centre,
+  top,
+  bar,
+  upNext,
+  panel,
+}
 
 class PlayerFrame extends StatefulWidget {
   const PlayerFrame({
@@ -24,12 +40,15 @@ class PlayerFrame extends StatefulWidget {
     required this.onTapVideo,
     this.diagnostics,
     this.settings,
+    this.sheet,
+    this.sheetHost,
+    this.onSheetChanged,
     this.upNext,
     this.onDismissSettings,
     this.keepVisible = false,
-    this.status,
     this.waiting,
     this.waitingDetail,
+    this.keepWaitingLabel = Strings.playerKeepWaiting,
     this.onKeepWaiting,
     this.onGoBack,
     this.onPlayNow,
@@ -48,12 +67,15 @@ class PlayerFrame extends StatefulWidget {
   final Widget back;
   final Widget? diagnostics;
   final Widget? settings;
+  final Widget? sheet;
+  final GlobalKey<ScaffoldState>? sheetHost;
+  final ValueChanged<bool>? onSheetChanged;
   final Widget? upNext;
   final VoidCallback? onDismissSettings;
   final bool keepVisible;
-  final String? status;
   final String? waiting;
   final String? waitingDetail;
+  final String keepWaitingLabel;
   final VoidCallback? onKeepWaiting;
   final VoidCallback? onGoBack;
   final VoidCallback? onPlayNow;
@@ -98,7 +120,7 @@ class _PlayerFrameState extends State<PlayerFrame> {
   @override
   void didUpdateWidget(PlayerFrame oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.keepVisible && !oldWidget.keepVisible) {
+    if (widget.keepVisible != oldWidget.keepVisible) {
       _reveal();
     }
   }
@@ -118,12 +140,23 @@ class _PlayerFrameState extends State<PlayerFrame> {
     });
   }
 
+  void _dismissPanel() {
+    if (ModalRoute.isCurrentOf(context) ?? true) {
+      widget.onDismissSettings?.call();
+    }
+  }
+
   bool get _canDoubleTap =>
       (widget.touch && widget.onSeekRelative != null) ||
       widget.onDoubleTapVideo != null;
 
   void _onTap() {
     widget.onTapVideo();
+    if (widget.touch && _visible && !widget.keepVisible) {
+      _hide?.cancel();
+      setState(() => _visible = false);
+      return;
+    }
     _reveal();
   }
 
@@ -199,8 +232,12 @@ class _PlayerFrameState extends State<PlayerFrame> {
     final Widget content = Stack(
       fit: StackFit.expand,
       children: <Widget>[
-        Positioned.fill(child: widget.view),
         Positioned.fill(
+          key: const ValueKey<_Layer>(_Layer.view),
+          child: widget.view,
+        ),
+        Positioned.fill(
+          key: const ValueKey<_Layer>(_Layer.gestures),
           child: MouseRegion(
             cursor: widget.fullscreen && !_visible
                 ? SystemMouseCursors.none
@@ -228,6 +265,7 @@ class _PlayerFrameState extends State<PlayerFrame> {
           ),
         ),
         Positioned.fill(
+          key: const ValueKey<_Layer>(_Layer.hold),
           child: IgnorePointer(
             child: AnimatedOpacity(
               opacity: _holdStep == null ? 0 : 1,
@@ -243,6 +281,7 @@ class _PlayerFrameState extends State<PlayerFrame> {
           ),
         ),
         Positioned.fill(
+          key: const ValueKey<_Layer>(_Layer.seek),
           child: IgnorePointer(
             child: AnimatedOpacity(
               opacity: _seekVisible ? 1 : 0,
@@ -261,17 +300,25 @@ class _PlayerFrameState extends State<PlayerFrame> {
             ),
           ),
         ),
+        if (widget.settings != null)
+          const Positioned.fill(
+            key: ValueKey<_Layer>(_Layer.panelBarrier),
+            child: AbsorbPointer(),
+          ),
         if (widget.diagnostics != null)
           Positioned(
+            key: const ValueKey<_Layer>(_Layer.diagnostics),
             top: Space.s3,
             right: Space.s3,
             child: widget.diagnostics!,
           ),
         if (widget.waiting != null)
           Positioned.fill(
+            key: const ValueKey<_Layer>(_Layer.waiting),
             child: _Waiting(
               label: widget.waiting!,
               detail: widget.waitingDetail,
+              keepWaitingLabel: widget.keepWaitingLabel,
               onKeepWaiting: widget.onKeepWaiting,
               onGoBack: widget.onGoBack,
               onPlayNow: widget.onPlayNow,
@@ -282,6 +329,7 @@ class _PlayerFrameState extends State<PlayerFrame> {
             widget.upNext == null &&
             widget.onCentrePlay != null)
           Positioned.fill(
+            key: const ValueKey<_Layer>(_Layer.centre),
             child: Center(
               child: _CentreAction(
                 ended: widget.ended,
@@ -290,6 +338,7 @@ class _PlayerFrameState extends State<PlayerFrame> {
             ),
           ),
         Positioned(
+          key: const ValueKey<_Layer>(_Layer.top),
           top: 0,
           left: 0,
           right: 0,
@@ -318,6 +367,7 @@ class _PlayerFrameState extends State<PlayerFrame> {
           ),
         ),
         Positioned(
+          key: const ValueKey<_Layer>(_Layer.bar),
           left: 0,
           right: 0,
           bottom: 0,
@@ -328,34 +378,14 @@ class _PlayerFrameState extends State<PlayerFrame> {
               duration: fade,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  if (widget.status != null)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Container(
-                        margin: EdgeInsets.only(left: Space.s3 + safe.left),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: Space.s2,
-                          vertical: 2,
-                        ),
-                        color: const Color(0x66000000),
-                        child: Text(
-                          widget.status!,
-                          style: monoStyle.copyWith(
-                            color: Colors.white,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ),
-                  TapRegion(groupId: kPlayerPanelGroup, child: widget.overlay),
-                ],
+                children: <Widget>[widget.overlay],
               ),
             ),
           ),
         ),
         if (widget.upNext != null)
           _AboveBar(
+            key: const ValueKey<_Layer>(_Layer.upNext),
             inset: Space.s4,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 340),
@@ -364,10 +394,11 @@ class _PlayerFrameState extends State<PlayerFrame> {
           ),
         if (widget.settings != null)
           _AboveBar(
+            key: const ValueKey<_Layer>(_Layer.panel),
             inset: Space.s3,
             child: TapRegion(
               groupId: kPlayerPanelGroup,
-              onTapOutside: (_) => widget.onDismissSettings?.call(),
+              onTapOutside: (_) => _dismissPanel(),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(
                   maxWidth: 340,
@@ -378,6 +409,27 @@ class _PlayerFrameState extends State<PlayerFrame> {
             ),
           ),
       ],
+    );
+    final Widget? sheet = widget.sheet;
+    final Widget stage = Scaffold(
+      key: widget.sheetHost,
+      backgroundColor: Colors.transparent,
+      resizeToAvoidBottomInset: false,
+      drawerScrimColor: Colors.transparent,
+      endDrawerEnableOpenDragGesture: false,
+      onEndDrawerChanged: widget.onSheetChanged,
+      endDrawer: sheet == null
+          ? null
+          : LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints c) => Drawer(
+                width: playerSheetWidth(c.maxWidth),
+                backgroundColor: t.surface,
+                shape: const RoundedRectangleBorder(),
+                semanticLabel: Strings.playerOptions,
+                child: sheet,
+              ),
+            ),
+      body: content,
     );
 
     return Container(
@@ -395,7 +447,7 @@ class _PlayerFrameState extends State<PlayerFrame> {
                   _reveal();
                 }
               },
-              child: content,
+              child: stage,
             ),
           ),
         ),
@@ -516,6 +568,7 @@ class _SeekBadge extends StatelessWidget {
 class _Waiting extends StatelessWidget {
   const _Waiting({
     required this.label,
+    required this.keepWaitingLabel,
     this.detail,
     this.onKeepWaiting,
     this.onGoBack,
@@ -523,6 +576,7 @@ class _Waiting extends StatelessWidget {
   });
 
   final String label;
+  final String keepWaitingLabel;
   final String? detail;
   final VoidCallback? onKeepWaiting;
   final VoidCallback? onGoBack;
@@ -584,7 +638,7 @@ class _Waiting extends StatelessWidget {
                       if (onKeepWaiting != null)
                         TextButton(
                           onPressed: onKeepWaiting,
-                          child: const Text(Strings.playerKeepWaiting),
+                          child: Text(keepWaitingLabel),
                         ),
                     ],
                   ),
@@ -609,7 +663,7 @@ class _Waiting extends StatelessWidget {
 }
 
 class _AboveBar extends StatelessWidget {
-  const _AboveBar({required this.inset, required this.child});
+  const _AboveBar({super.key, required this.inset, required this.child});
 
   final double inset;
   final Widget child;

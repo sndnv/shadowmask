@@ -41,7 +41,7 @@ void main() {
     }
   });
 
-  test('a candidate label still leads with the release name', () {
+  test('a candidate is named by its release, its details apart', () {
     const SubtitleCandidate c = SubtitleCandidate(
       fileId: '42',
       language: 'en',
@@ -49,8 +49,17 @@ void main() {
       format: SubtitleFormat.srt,
       downloadCount: 10,
     );
-    expect(subtitleCandidateLabel(c), startsWith('Paper.Skies.BluRay'));
-    expect(subtitleCandidateLabel(c), isNot(contains('10')));
+    expect(subtitleCandidateName(c), 'Paper.Skies.BluRay');
+    expect(subtitleCandidateDetails(c), 'English · srt');
+  });
+
+  test('a candidate with no release name is named by its file id', () {
+    const SubtitleCandidate c = SubtitleCandidate(
+      fileId: '42',
+      format: SubtitleFormat.ass,
+    );
+    expect(subtitleCandidateName(c), '42');
+    expect(subtitleCandidateDetails(c), '— · ass');
   });
 
   test('a download count reads in words, grouped', () {

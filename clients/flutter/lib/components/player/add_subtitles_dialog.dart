@@ -80,6 +80,7 @@ class AddSubtitlesDialog extends StatelessWidget {
         admin: admin,
         versionId: v.id,
         existing: files,
+        path: v.path,
       ),
     );
     final Widget transcribe = _action(

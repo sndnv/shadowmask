@@ -550,6 +550,46 @@ const sm = (() => {
     return wrap;
   }
 
+  const SUBTITLE_SIZE_KEY = "shadowmask.player.subtitle_size";
+  const SUBTITLE_SIZES = [
+    ["default", "Default"],
+    ["small", "Small"],
+    ["medium", "Medium"],
+    ["large", "Large"],
+  ];
+
+  function subtitleSize() {
+    let stored = null;
+    try {
+      stored = localStorage.getItem(SUBTITLE_SIZE_KEY);
+    } catch {
+      stored = null;
+    }
+    return SUBTITLE_SIZES.some(([value]) => value === stored) ? stored : "default";
+  }
+
+  function subtitleSizeSelect(onChange) {
+    const select = el(
+      "select",
+      null,
+      SUBTITLE_SIZES.map(([value, label]) => el("option", { value }, label)),
+    );
+    select.value = subtitleSize();
+    select.addEventListener("change", () => {
+      onChange(select.value, storeSubtitleSize(select.value));
+    });
+    return select;
+  }
+
+  function storeSubtitleSize(value) {
+    try {
+      localStorage.setItem(SUBTITLE_SIZE_KEY, value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function toast(message, kind) {
     let host = document.querySelector(".sm-toast-host");
     if (!host) {
@@ -1169,6 +1209,8 @@ const sm = (() => {
     dialog,
     openDialog,
     tabs,
+    subtitleSize,
+    subtitleSizeSelect,
     toast,
     href,
     url,

@@ -99,8 +99,25 @@ Future<void> _pump(
   await tester.pumpAndSettle();
 }
 
-Finder _download() => find.byTooltip(Strings.downloadVersion);
+Finder _more() => find.byTooltip(Strings.columnActions);
 Finder _chevron() => find.byTooltip(Strings.fullVersionDetails);
+
+Future<void> _expand(WidgetTester tester) async {
+  await tester.tap(_chevron());
+  await tester.pumpAndSettle();
+}
+
+Future<void> _openMore(WidgetTester tester) async {
+  await _expand(tester);
+  await tester.tap(_more());
+  await tester.pumpAndSettle();
+}
+
+Future<void> _download(WidgetTester tester) async {
+  await _openMore(tester);
+  await tester.tap(find.text(Strings.downloadVersion));
+  await tester.pumpAndSettle();
+}
 
 void main() {
   final DownloadStarter platform = startDownload;
@@ -123,41 +140,43 @@ void main() {
     expect(absoluteUrl('http://h/', 'download/t'), 'http://h/download/t');
   });
 
-  testWidgets('download sits by the version text, actions stay on the right', (
+  testWidgets('a closed row shows its text, CC count and chevron only', (
     WidgetTester tester,
   ) async {
     await _pump(tester, _api(<String>[]));
 
     final double text = tester.getCenter(find.byType(Text).first).dx;
-    final double download = tester.getCenter(_download()).dx;
     final double captions = tester
         .getCenter(find.byIcon(Icons.closed_caption_outlined))
         .dx;
-    final double play = tester.getCenter(find.text(Strings.play)).dx;
     final double chevron = tester.getCenter(_chevron()).dx;
 
     expect(
-      <bool>[
-        text < download,
-        download < captions,
-        captions < play,
-        play < chevron,
-      ],
-      <bool>[true, true, true, true],
+      <bool>[text < captions, captions < chevron],
+      <bool>[true, true],
       reason:
-          'left to right the row is version text, download, captions, play, '
-          'chevron (got $text, $download, $captions, $play, $chevron)',
+          'left to right the row is version text, captions, chevron '
+          '(got $text, $captions, $chevron)',
     );
-    final double label = tester
-        .getRect(find.textContaining('FHD', findRichText: true))
-        .right;
-    expect(
-      download - label,
-      lessThan(captions - download),
-      reason:
-          'download hugs the text on the left, it does not join the '
-          'cluster of controls on the right',
+    expect(find.text(Strings.play), findsNothing);
+    expect(_more(), findsNothing);
+  });
+
+  testWidgets('an open row puts play on the left and the menu on the right', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, _api(<String>[]));
+
+    await _expand(tester);
+
+    final Rect row = tester.getRect(find.byType(VersionPicker));
+    final Rect play = tester.getRect(
+      find.widgetWithText(OutlinedButton, Strings.play),
     );
+    final Rect more = tester.getRect(_more());
+    expect(play.left - row.left, lessThan(row.right - play.right));
+    expect(row.right - more.right, lessThan(more.left - row.left));
+    expect(play.center.dy, moreOrLessEquals(more.center.dy, epsilon: 1));
   });
 
   testWidgets('the chevron still opens the detail body', (
@@ -178,8 +197,7 @@ void main() {
     final List<String> seen = <String>[];
     await _pump(tester, _api(seen));
 
-    await tester.tap(_download());
-    await tester.pumpAndSettle();
+    await _download(tester);
 
     expect(seen, contains('POST /api/v1/versions/v1/download'));
     expect(find.text(Strings.toastDownloadStarted), findsOneWidget);
@@ -191,8 +209,7 @@ void main() {
   ) async {
     await _pump(tester, _api(<String>[], failDownload: true));
 
-    await tester.tap(_download());
-    await tester.pumpAndSettle();
+    await _download(tester);
 
     expect(find.text(Strings.toastDownloadStarted), findsNothing);
     expect(find.textContaining(Strings.errorDownload), findsOneWidget);
@@ -204,44 +221,30 @@ void main() {
   ) async {
     await _pump(tester, _api(<String>[]), available: false);
 
-    expect(_download(), findsNothing);
     expect(find.text(Strings.unavailable), findsOneWidget);
+    await _expand(tester);
+    expect(_more(), findsNothing, reason: 'nothing to download or open');
   });
 
-  testWidgets('the picker says sidecar subtitles are not included', (
+  testWidgets('a resumable row offers Resume and dismisses from the menu', (
     WidgetTester tester,
   ) async {
-    await _pump(tester, _api(<String>[]));
+    await _pump(tester, _api(<String>[], resumeMs: 2880000));
 
-    expect(find.text(Strings.downloadNoSubtitles), findsOneWidget);
+    await _expand(tester);
+
+    expect(
+      find.widgetWithText(FilledButton, Strings.resumeAction),
+      findsOneWidget,
+    );
+    expect(find.byTooltip(Strings.resume(40)), findsOneWidget);
+    expect(find.byTooltip(Strings.dismissResume), findsNothing);
+
+    await tester.tap(_more());
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.dismissResume), findsOneWidget);
   });
-
-  testWidgets(
-    'a resumable row uses the same segmented pair as the title page',
-    (WidgetTester tester) async {
-      await _pump(tester, _api(<String>[], resumeMs: 2880000));
-
-      final Finder resume = find.widgetWithText(
-        FilledButton,
-        Strings.resumeAction,
-      );
-      final Finder dismiss = find.byTooltip(Strings.dismissResume);
-      expect(resume, findsOneWidget);
-      expect(dismiss, findsOneWidget);
-      expect(
-        find.text(Strings.dismiss),
-        findsNothing,
-        reason:
-            'the dismiss half is the icon-only segment, not a labelled button',
-      );
-      expect(
-        tester.getRect(resume).right,
-        moreOrLessEquals(tester.getRect(dismiss).left, epsilon: 0.01),
-        reason: 'the two halves share an edge, exactly as on the title page',
-      );
-      expect(find.byTooltip(Strings.resume(40)), findsOneWidget);
-    },
-  );
 
   testWidgets('a handoff that never happened is not reported as success', (
     WidgetTester tester,
@@ -251,8 +254,7 @@ void main() {
     startDownload = (String url, String filename) async => false;
     await _pump(tester, _api(<String>[]));
 
-    await tester.tap(_download());
-    await tester.pumpAndSettle();
+    await _download(tester);
 
     expect(find.text(Strings.toastDownloadStarted), findsNothing);
     expect(find.text(Strings.errorDownload), findsOneWidget);
@@ -265,8 +267,7 @@ void main() {
   ) async {
     await _pump(tester, _api(<String>[]));
 
-    await tester.tap(_download());
-    await tester.pumpAndSettle();
+    await _download(tester);
 
     expect(started, <String>['http://test/download/tok-123']);
 

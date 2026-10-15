@@ -15,13 +15,12 @@ abstract class PlayerSnapshot with _$PlayerSnapshot {
     @Default(false) bool buffering,
     @Default(0) double bufferingPercent,
     @Default(false) bool ended,
-    String? error,
   }) = _PlayerSnapshot;
 
   double get fraction =>
       durationMs > 0 ? (positionMs / durationMs).clamp(0.0, 1.0) : 0.0;
 
-  bool get waiting => error == null && !ended && (buffering || !ready);
+  bool get waiting => !ended && (buffering || !ready);
 
   PlayerSnapshot onTimeline({required int originMs, required int fullMs}) {
     if (originMs == 0) {

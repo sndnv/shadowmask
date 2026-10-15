@@ -787,6 +787,36 @@ function ValidDelivery(value as dynamic) as string
     return "auto"
 end function
 
+function SubtitleSizeOptions() as object
+    return [
+        { value: "default", style: "Default", label: Phrase("player.subtitleSizeDefault") },
+        { value: "small", style: "Small", label: Phrase("player.subtitleSizeSmall") },
+        { value: "medium", style: "Medium", label: Phrase("player.subtitleSizeMedium") },
+        { value: "large", style: "Large", label: Phrase("player.subtitleSizeLarge") }
+    ]
+end function
+
+function SubtitleSizeOption(size as dynamic) as object
+    wanted = LCase(TextOrBlank(size))
+    options = SubtitleSizeOptions()
+    for each option in options
+        if option.value = wanted then return option
+    end for
+    return options[0]
+end function
+
+function ValidSubtitleSize(size as dynamic) as string
+    return SubtitleSizeOption(size).value
+end function
+
+function SubtitleSizeLabel(size as dynamic) as string
+    return SubtitleSizeOption(size).label
+end function
+
+function CaptionStyleFor(size as dynamic) as object
+    return { "Text/Size": SubtitleSizeOption(size).style }
+end function
+
 function WithDefaultDelivery(controls as object, delivery as dynamic) as object
     controls.delivery = ValidDelivery(delivery)
     return controls
@@ -801,13 +831,16 @@ function SettingRow(name as string, value as string) as string
     return name + ": " + value
 end function
 
-function SubtitleRows(controls as dynamic, version as dynamic) as object
+function SubtitleRows(controls as dynamic, version as dynamic, size as dynamic, burned as boolean) as object
     kept = ControlsCopy(controls)
 
     rows = [{ id: "subtitle", label: Phrase("heading.subtitles"), detail: SubtitleLabelFor(version, kept) }]
     if SubtitleRef(kept.subtitle) = invalid then return rows
 
-    rows.Push({ id: "offset", label: Phrase("player.subtitleOffset"), detail: OffsetLabel(Int(kept.offsetMs)) })
+    if kept.burn <> true and not burned
+        rows.Push({ id: "offset", label: Phrase("player.subtitleOffset"), detail: OffsetLabel(Int(kept.offsetMs)) })
+        rows.Push({ id: "subtitleSize", label: Phrase("player.subtitleSize"), detail: SubtitleSizeLabel(size) })
+    end if
     rows.Push({ id: "burn", label: Phrase("player.burnSubtitles"), detail: OnOrOff(kept.burn) })
     return rows
 end function

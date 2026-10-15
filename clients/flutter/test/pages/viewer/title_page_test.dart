@@ -242,8 +242,12 @@ void main() {
 
     await tester.tap(find.byTooltip(Strings.versionsHeading));
     await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.expand_more));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip(Strings.columnActions));
+    await tester.pumpAndSettle();
 
-    expect(find.byType(PlayOnButton), findsNWidgets(2));
+    expect(find.byType(PlayOnSubmenu), findsOneWidget);
   });
 
   testWidgets('the poster opens the version menu when nothing resumes', (

@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/admin/field_help.dart';
+import 'package:shadowmask/components/app_dropdown.dart';
 import 'package:shadowmask/components/player/settings_panel.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
+import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/subtitle_size.dart';
 
 VersionDetail _version() => VersionDetail.fromJson(<String, dynamic>{
   'id': 'v1',
@@ -31,6 +34,7 @@ Future<void> _pump(
   required String delivery,
   required bool burn,
   bool dense = false,
+  ValueChanged<SubtitleSize>? onSubtitleSize,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -54,6 +58,45 @@ Future<void> _pump(
             onDiagnostics: (_) {},
             onClose: () {},
             dense: dense,
+            subtitleSize: SubtitleSize.medium,
+            onSubtitleSize: onSubtitleSize,
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+Future<void> _pumpSheet(
+  WidgetTester tester, {
+  required PlayerPanel panel,
+  required List<PlayerChoice> opened,
+  required List<PlaybackControls> applied,
+  int offsetMs = 0,
+}) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: buildTheme(AppThemeVariant.dark),
+      home: Scaffold(
+        body: SizedBox(
+          width: 320,
+          height: 600,
+          child: PlayerSettingsPanel(
+            panel: panel,
+            controls: PlaybackControls(
+              subtitle: const SubtitleSelection.embedded(0),
+              offsetMs: offsetMs,
+            ),
+            version: _version(),
+            speed: 1,
+            diagnostics: false,
+            subtitleDelivery: 'hls_vtt',
+            onControls: applied.add,
+            onSpeed: (_) {},
+            onDiagnostics: (_) {},
+            onClose: () {},
+            openChoice: opened.add,
           ),
         ),
       ),
@@ -63,6 +106,173 @@ Future<void> _pump(
 }
 
 void main() {
+  testWidgets('in the sheet a dropdown is a row that opens its choices', (
+    WidgetTester tester,
+  ) async {
+    final List<PlayerChoice> opened = <PlayerChoice>[];
+    final List<PlaybackControls> applied = <PlaybackControls>[];
+    await _pumpSheet(
+      tester,
+      panel: PlayerPanel.video,
+      opened: opened,
+      applied: applied,
+    );
+
+    expect(find.byType(AppDropdown<int?>), findsNothing);
+
+    await tester.tap(find.text(Strings.playerQuality));
+    await tester.pump();
+
+    final PlayerChoice choice = opened.single;
+    expect(choice.title, Strings.playerQuality);
+    expect(choice.labels.first, Strings.playerOriginal);
+    expect(choice.selected, 0);
+
+    choice.onPick(choice.labels.indexOf(Strings.qualityRung(720)));
+    await tester.pump();
+
+    expect(applied.single.height, 720);
+  });
+
+  testWidgets(
+    'in the sheet every value and its chevron sit at the right edge',
+    (WidgetTester tester) async {
+      const double edge = 320 - 16;
+      await _pumpSheet(
+        tester,
+        panel: PlayerPanel.video,
+        opened: <PlayerChoice>[],
+        applied: <PlaybackControls>[],
+      );
+
+      final Finder chevrons = find.byIcon(Icons.chevron_right);
+      expect(chevrons, findsNWidgets(2));
+      for (int i = 0; i < 2; i++) {
+        expect(tester.getTopRight(chevrons.at(i)).dx, edge);
+      }
+
+      await _pumpSheet(
+        tester,
+        panel: PlayerPanel.subtitles,
+        opened: <PlayerChoice>[],
+        applied: <PlaybackControls>[],
+        offsetMs: 250,
+      );
+
+      expect(
+        tester.getTopRight(find.text(Strings.playerOffsetValue(250))).dx,
+        edge,
+      );
+    },
+  );
+
+  testWidgets('in the sheet the offset comes last, after burn-in', (
+    WidgetTester tester,
+  ) async {
+    await _pumpSheet(
+      tester,
+      panel: PlayerPanel.subtitles,
+      opened: <PlayerChoice>[],
+      applied: <PlaybackControls>[],
+    );
+
+    expect(
+      tester.getTopLeft(find.text(Strings.playerOffset)).dy,
+      greaterThan(tester.getTopLeft(find.text(Strings.playerBurnIn)).dy),
+    );
+  });
+
+  testWidgets('in the sheet the offset buttons sit right under their label', (
+    WidgetTester tester,
+  ) async {
+    await _pumpSheet(
+      tester,
+      panel: PlayerPanel.subtitles,
+      opened: <PlayerChoice>[],
+      applied: <PlaybackControls>[],
+      offsetMs: 250,
+    );
+
+    final double label = tester
+        .getBottomLeft(find.text(Strings.playerOffset))
+        .dy;
+    final double buttons = tester
+        .getTopLeft(find.byTooltip(Strings.playerOffsetEarlier))
+        .dy;
+
+    expect(buttons - label, lessThan(Space.s2));
+  });
+
+  testWidgets('in the sheet the offset steps by a quarter second', (
+    WidgetTester tester,
+  ) async {
+    final List<PlaybackControls> applied = <PlaybackControls>[];
+    await _pumpSheet(
+      tester,
+      panel: PlayerPanel.subtitles,
+      opened: <PlayerChoice>[],
+      applied: applied,
+      offsetMs: 250,
+    );
+
+    expect(find.text(Strings.playerOffsetValue(250)), findsOneWidget);
+
+    await tester.tap(find.byTooltip(Strings.playerOffsetLater));
+    await tester.pump();
+    await tester.tap(find.byTooltip(Strings.playerOffsetEarlier));
+    await tester.pump();
+    await tester.tap(find.byTooltip(Strings.playerOffsetEarlier));
+    await tester.pump();
+    await tester.tap(find.byTooltip(Strings.playerOffsetEarlier));
+    await tester.pump();
+    await tester.tap(find.text(Strings.playerOffsetReset));
+    await tester.pump();
+
+    expect(applied.map((PlaybackControls c) => c.offsetMs), <int>[
+      500,
+      250,
+      0,
+      -250,
+      0,
+    ]);
+  });
+
+  test('an offset step stops at thirty seconds either way', () {
+    expect(steppedOffset(29900, kOffsetStepMs), kOffsetBoundMs);
+    expect(steppedOffset(-kOffsetBoundMs, -kOffsetStepMs), -kOffsetBoundMs);
+    expect(steppedOffset(0, kOffsetStepMs), 250);
+  });
+
+  testWidgets('a soft stream offers the subtitle size and reports a change', (
+    WidgetTester tester,
+  ) async {
+    final List<SubtitleSize> chosen = <SubtitleSize>[];
+    await _pump(
+      tester,
+      delivery: 'hls_vtt',
+      burn: false,
+      onSubtitleSize: chosen.add,
+    );
+
+    expect(find.text(Strings.playerSubtitleSize), findsOneWidget);
+    expect(find.text(Strings.subtitleSize), findsNothing);
+
+    await tester.tap(find.text(Strings.subtitleSizeMedium));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.subtitleSizeSmall).last);
+    await tester.pumpAndSettle();
+
+    expect(chosen, <SubtitleSize>[SubtitleSize.small]);
+  });
+
+  testWidgets('a burned stream offers no size it cannot change', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, delivery: 'burned', burn: true, onSubtitleSize: (_) {});
+
+    expect(find.text(Strings.playerSubtitleSize), findsNothing);
+  });
+
   testWidgets('a soft stream offers the offset', (WidgetTester tester) async {
     await _pump(tester, delivery: 'hls_vtt', burn: false);
 

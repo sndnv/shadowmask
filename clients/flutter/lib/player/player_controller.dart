@@ -7,12 +7,15 @@ import 'package:shadowmask/player/player_controller_stub.dart'
     if (dart.library.io) 'native_player_controller.dart';
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
+import 'package:shadowmask/view/subtitle_size.dart';
 
 const String kFmp4Segments = 'fmp4';
 
 abstract class PlayerController {
   ValueListenable<PlayerSnapshot> get snapshot;
   ValueListenable<bool> get fullscreen;
+
+  Stream<String> get errors;
 
   ValueListenable<bool> get mutedByPolicy;
 
@@ -48,6 +51,7 @@ abstract class PlayerController {
   void seekTo(int positionMs);
   void setRate(double rate);
   void setNetworkTimeout(int seconds);
+  void setSubtitleSize(SubtitleSize size);
   void setBuffer({required int seconds, required int bytes});
   bool get buffersAhead;
   void toggleFullscreen();

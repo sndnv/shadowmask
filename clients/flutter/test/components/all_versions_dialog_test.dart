@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -10,6 +11,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/all_versions_dialog.dart';
+import 'package:shadowmask/components/long_menu_item.dart';
 import 'package:shadowmask/components/outline_pill.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/version_picker.dart';
@@ -89,6 +91,18 @@ List<String> _lines(WidgetTester tester) => tester
 
 bool _numbered(List<String> lines, String number, String quality) =>
     lines.contains('$number · 2h 00m · $quality · mkv · 8 MB');
+
+Finder _more() => find.byTooltip(Strings.columnActions);
+
+Future<void> _expand(WidgetTester tester, [int at = 0]) async {
+  await tester.tap(find.byIcon(Icons.expand_more).at(at));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _openMore(WidgetTester tester, [int at = 0]) async {
+  await tester.tap(_more().at(at));
+  await tester.pumpAndSettle();
+}
 
 void main() {
   final DownloadStarter platform = startDownload;
@@ -176,7 +190,7 @@ void main() {
     expect(_numbered(_lines(tester), '1', 'UHD'), isTrue);
     // Play and download move into the expanded body so the row cannot overflow.
     expect(find.text(Strings.play), findsNothing);
-    expect(find.byIcon(Icons.download_outlined), findsNothing);
+    expect(_more(), findsNothing);
     expect(find.byIcon(Icons.expand_more), findsNWidgets(3));
 
     await tester.tap(find.byIcon(Icons.expand_more).first);
@@ -184,15 +198,15 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text(Strings.play), findsOneWidget);
-    expect(find.byIcon(Icons.download_outlined), findsOneWidget);
+    expect(_more(), findsOneWidget);
     expect(
-      tester.getRect(find.byIcon(Icons.download_outlined)).left,
+      tester.getRect(_more()).left,
       greaterThan(tester.getRect(find.text(Strings.play)).right),
-      reason: 'play leads the row and download sits at the far end',
+      reason: 'play leads the row and the actions sit at the far end',
     );
   });
 
-  testWidgets('a wide row keeps play and download in place', (
+  testWidgets('a wide row reads like a phone row: actions once it opens', (
     WidgetTester tester,
   ) async {
     final ApiClient api = _api();
@@ -209,8 +223,170 @@ void main() {
       ),
     );
 
-    expect(find.text(Strings.play), findsNWidgets(3));
-    expect(find.byIcon(Icons.download_outlined), findsNWidgets(3));
+    expect(find.text(Strings.play), findsNothing);
+    expect(_more(), findsNothing);
+    expect(find.byType(OutlinePill), findsNWidgets(3));
+    expect(find.byIcon(Icons.expand_more), findsNWidgets(3));
+
+    await _expand(tester, 1);
+
+    expect(find.text(Strings.play), findsOneWidget);
+    expect(_more(), findsOneWidget);
+    expect(find.byIcon(Icons.download_outlined), findsNothing);
+  });
+
+  testWidgets('a menu holds download, play on and the version page', (
+    WidgetTester tester,
+  ) async {
+    final PlayOnServer server = PlayOnServer();
+    final ApiClient api = _api(server);
+    await _pump(
+      tester,
+      SizedBox(
+        width: 760,
+        child: VersionPicker(
+          catalog: CatalogApi(api),
+          playback: PlaybackApi(api),
+          userId: 'u1',
+          versions: <Version>[_shuffled.first],
+          adminPages: true,
+          playOn: server.api(api),
+        ),
+      ),
+    );
+
+    await _expand(tester);
+    await _openMore(tester);
+
+    expect(
+      tester.widgetList<MenuItemButton>(find.byType(MenuItemButton)).length,
+      2,
+    );
+    expect(find.text(Strings.downloadVersion), findsOneWidget);
+    expect(find.widgetWithText(SubmenuButton, Strings.playOn), findsOneWidget);
+    expect(find.text(Strings.openVersion), findsOneWidget);
+    expect(
+      tester.getRect(find.text(Strings.downloadVersion)).top,
+      lessThan(tester.getRect(find.text(Strings.playOn)).top),
+    );
+    expect(
+      tester.getRect(find.text(Strings.playOn)).top,
+      lessThan(tester.getRect(find.text(Strings.openVersion)).top),
+    );
+  });
+
+  testWidgets('a phone row in progress fits every action an admin has', (
+    WidgetTester tester,
+  ) async {
+    final PlayOnServer server = PlayOnServer();
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      httpClient: MockClient((http.Request req) async {
+        final http.Response? playOn = server.answer(req);
+        if (playOn != null) {
+          return playOn;
+        }
+        if (req.url.path.contains('/progress/')) {
+          return http.Response(
+            jsonEncode(<String, dynamic>{'position_ms': 2880000}),
+            200,
+          );
+        }
+        if (req.url.path.endsWith('/jobs')) {
+          return http.Response('[]', 200);
+        }
+        if (req.url.path.endsWith('/versions/v-uhd')) {
+          return http.Response(
+            jsonEncode(_json('v-uhd', 'uhd')..remove('available')),
+            200,
+          );
+        }
+        return http.Response('{}', 200);
+      }),
+    );
+    await _pump(
+      tester,
+      Builder(
+        builder: (BuildContext context) => TextButton(
+          onPressed: () => AllVersionsDialog.show(
+            context,
+            catalog: CatalogApi(api),
+            playback: PlaybackApi(api),
+            userId: 'u1',
+            versions: <Version>[_shuffled[1]],
+            admin: AdminApi(api),
+            adminPages: true,
+            playOn: server.api(api),
+          ),
+          child: const Text('open'),
+        ),
+      ),
+      size: const Size(412, 915),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(OutlinePill), findsOneWidget);
+
+    await _expand(tester);
+
+    expect(tester.takeException(), isNull);
+    final RenderParagraph resume = tester.renderObject<RenderParagraph>(
+      find.descendant(
+        of: find.text(Strings.resumeAction),
+        matching: find.byType(RichText),
+      ),
+    );
+    expect(
+      resume.size.width,
+      greaterThanOrEqualTo(resume.getMaxIntrinsicWidth(double.infinity)),
+      reason: 'the label shows in full',
+    );
+    expect(find.byTooltip(Strings.dismissResume), findsNothing);
+    expect(find.byTooltip(Strings.subtitlesHeading), findsOneWidget);
+
+    await _openMore(tester);
+    await tester.tap(find.text(Strings.dismissResume));
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.resumeAction), findsNothing);
+    expect(find.text(Strings.play), findsOneWidget);
+  });
+
+  testWidgets('a wide row in progress dismisses from the menu too', (
+    WidgetTester tester,
+  ) async {
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      httpClient: MockClient((http.Request req) async {
+        if (req.url.path.contains('/progress/')) {
+          return http.Response(
+            jsonEncode(<String, dynamic>{'position_ms': 2880000}),
+            200,
+          );
+        }
+        return http.Response('{}', 200);
+      }),
+    );
+    await _pump(
+      tester,
+      SizedBox(
+        width: 760,
+        child: VersionPicker(
+          catalog: CatalogApi(api),
+          playback: PlaybackApi(api),
+          userId: 'u1',
+          versions: <Version>[_shuffled.first],
+        ),
+      ),
+    );
+
+    await _expand(tester);
+
+    expect(find.text(Strings.resumeAction), findsOneWidget);
+    expect(find.byTooltip(Strings.dismissResume), findsNothing);
+    await _openMore(tester);
+    expect(find.text(Strings.dismissResume), findsOneWidget);
   });
 
   group('admin actions', () {
@@ -373,9 +549,12 @@ void main() {
 
     testWidgets('a viewer sees no admin actions', (WidgetTester tester) async {
       await pumpPicker(tester, api: adminApi(withFiles: true), admin: false);
+      await _expand(tester);
 
-      expect(find.byTooltip(Strings.openVersion), findsNothing);
       expect(find.byTooltip(Strings.subtitlesHeading), findsNothing);
+      await _openMore(tester);
+      expect(find.text(Strings.downloadVersion), findsOneWidget);
+      expect(find.text(Strings.openVersion), findsNothing);
     });
 
     testWidgets('an admin opens the version admin page from its row', (
@@ -387,7 +566,9 @@ void main() {
         admin: true,
       );
 
-      await tester.tap(find.byTooltip(Strings.openVersion));
+      await _expand(tester);
+      await _openMore(tester);
+      await tester.tap(find.text(Strings.openVersion));
       await tester.pumpAndSettle();
 
       expect(routes.last, '/version?id=v-uhd');
@@ -399,10 +580,11 @@ void main() {
     ) async {
       await pumpPicker(tester, api: adminApi(withFiles: true), admin: true);
 
+      await _expand(tester);
       await tester.tap(find.byTooltip(Strings.subtitlesHeading));
       await tester.pumpAndSettle();
 
-      expect(find.text(Strings.searchSubtitles), findsOneWidget);
+      expect(find.text(Strings.search), findsOneWidget);
       expect(find.text(Strings.translate), findsOneWidget);
 
       await tester.tap(find.text(Strings.transcribe));
@@ -416,6 +598,7 @@ void main() {
       WidgetTester tester,
     ) async {
       await pumpPicker(tester, api: adminApi(withFiles: false), admin: true);
+      await _expand(tester);
       await tester.tap(find.byTooltip(Strings.subtitlesHeading));
       await tester.pumpAndSettle();
 
@@ -433,16 +616,20 @@ void main() {
       WidgetTester tester,
     ) async {
       await pumpPicker(tester, api: adminApi(withFiles: true), admin: true);
+      await _expand(tester);
       await tester.tap(find.byTooltip(Strings.subtitlesHeading));
       await tester.pumpAndSettle();
 
+      final List<Widget> files = tester
+          .widget<SubmenuButton>(
+            find.widgetWithText(SubmenuButton, Strings.translate),
+          )
+          .menuChildren;
+      expect(files, hasLength(1));
       expect(
-        tester
-            .widget<SubmenuButton>(
-              find.widgetWithText(SubmenuButton, Strings.translate),
-            )
-            .menuChildren,
-        hasLength(1),
+        files.single,
+        isA<LongMenuItem>(),
+        reason: 'a long file name is cut and reads in full on a long press',
       );
     });
 
@@ -450,13 +637,14 @@ void main() {
       WidgetTester tester,
     ) async {
       await pumpPicker(tester, api: adminApi(withFiles: true), admin: true);
+      await _expand(tester);
       await tester.tap(find.byTooltip(Strings.subtitlesHeading));
       await tester.pumpAndSettle();
 
       expect(
         tester
             .widget<MenuItemButton>(
-              find.widgetWithText(MenuItemButton, Strings.combineSubtitles),
+              find.widgetWithText(MenuItemButton, Strings.combine),
             )
             .onPressed,
         isNull,
@@ -480,9 +668,10 @@ void main() {
       );
       final int before = reads.length;
 
+      await _expand(tester);
       await tester.tap(find.byTooltip(Strings.subtitlesHeading));
       await tester.pumpAndSettle();
-      await tester.tap(find.text(Strings.combineSubtitles));
+      await tester.tap(find.text(Strings.combine));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, Strings.save));
       await tester.pumpAndSettle();
@@ -520,9 +709,10 @@ void main() {
       expect(cc(Strings.ccNone), findsOneWidget);
       final int before = reads.length;
 
+      await _expand(tester);
       await tester.tap(find.byTooltip(Strings.subtitlesHeading));
       await tester.pumpAndSettle();
-      await tester.tap(find.text(Strings.searchSubtitles));
+      await tester.tap(find.text(Strings.search));
       await tester.pumpAndSettle();
       await tester.tap(
         find.widgetWithText(FilledButton, Strings.searchSubtitles),
@@ -547,9 +737,11 @@ void main() {
         admin: true,
         adminPages: false,
       );
+      await _expand(tester);
 
-      expect(find.byTooltip(Strings.openVersion), findsNothing);
       expect(find.byTooltip(Strings.subtitlesHeading), findsOneWidget);
+      await _openMore(tester);
+      expect(find.text(Strings.openVersion), findsNothing);
     });
 
     testWidgets('subtitle work shows under its version row', (
@@ -719,9 +911,10 @@ void main() {
       );
       expect(jobReads, hasLength(1));
 
+      await _expand(tester);
       await tester.tap(find.byTooltip(Strings.subtitlesHeading));
       await tester.pumpAndSettle();
-      await tester.tap(find.text(Strings.combineSubtitles));
+      await tester.tap(find.text(Strings.combine));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, Strings.save));
       await tester.pumpAndSettle();
@@ -761,14 +954,16 @@ void main() {
         width: 280,
       );
 
-      expect(find.byTooltip(Strings.openVersion), findsNothing);
+      expect(_more(), findsNothing);
+      expect(find.byTooltip(Strings.subtitlesHeading), findsNothing);
 
       await tester.tap(find.byIcon(Icons.expand_more));
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      expect(find.byTooltip(Strings.openVersion), findsOneWidget);
       expect(find.byTooltip(Strings.subtitlesHeading), findsOneWidget);
+      await _openMore(tester);
+      expect(find.text(Strings.openVersion), findsOneWidget);
     });
   });
 
@@ -800,19 +995,30 @@ void main() {
       WidgetTester tester,
     ) async {
       await _pump(tester, picker(PlayOnServer(), versions: withMissing));
+      await _expand(tester);
+      await _expand(tester);
+      await _expand(tester);
 
-      expect(find.byTooltip(Strings.playOn), findsNWidgets(2));
-      expect(find.byIcon(Icons.download_outlined), findsNWidgets(2));
+      expect(_more(), findsNWidgets(2));
       expect(tester.takeException(), isNull);
+      for (final int row in <int>[0, 1]) {
+        await _openMore(tester, row);
+        expect(find.text(Strings.playOn), findsOneWidget);
+        await tester.tapAt(Offset.zero);
+        await tester.pumpAndSettle();
+      }
     });
 
-    testWidgets('no device that can play leaves the rows as they were', (
+    testWidgets('no device that can play leaves Play on out of the menu', (
       WidgetTester tester,
     ) async {
       await _pump(tester, picker(PlayOnServer(devices: const [])));
+      await _expand(tester);
 
-      expect(find.byTooltip(Strings.playOn), findsNothing);
-      expect(find.text(Strings.play), findsNWidgets(3));
+      expect(find.text(Strings.play), findsOneWidget);
+      await _openMore(tester);
+      expect(find.text(Strings.downloadVersion), findsOneWidget);
+      expect(find.text(Strings.playOn), findsNothing);
     });
 
     testWidgets('Play on in a row sends that row version', (
@@ -821,11 +1027,10 @@ void main() {
       final PlayOnServer server = PlayOnServer();
       await _pump(tester, picker(server));
 
-      await tester.tap(find.byTooltip(Strings.playOn).at(1));
+      await _expand(tester, 1);
+      await _openMore(tester);
+      await tester.tap(find.text(Strings.playOn));
       await tester.pumpAndSettle();
-
-      expect(find.byType(SubmenuButton), findsNothing);
-
       await tester.tap(find.text('Pixel'));
       await tester.pumpAndSettle();
 
@@ -839,13 +1044,14 @@ void main() {
     ) async {
       await _pump(tester, picker(PlayOnServer(), width: 280));
 
-      expect(find.byTooltip(Strings.playOn), findsNothing);
+      expect(_more(), findsNothing);
 
       await tester.tap(find.byIcon(Icons.expand_more).first);
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      expect(find.byTooltip(Strings.playOn), findsOneWidget);
+      await _openMore(tester);
+      expect(find.text(Strings.playOn), findsOneWidget);
     });
 
     testWidgets('the dialog hands Play on to its picker', (
@@ -874,7 +1080,9 @@ void main() {
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
-      expect(find.byTooltip(Strings.playOn), findsNWidgets(3));
+      await _expand(tester);
+      await _openMore(tester);
+      expect(find.text(Strings.playOn), findsOneWidget);
     });
   });
 }

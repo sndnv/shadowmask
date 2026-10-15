@@ -7,6 +7,7 @@ import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/action_segments.dart';
 import 'package:shadowmask/components/admin/subtitle_dialogs.dart';
 import 'package:shadowmask/components/admin/version_job_dialogs.dart';
+import 'package:shadowmask/components/long_menu_item.dart';
 import 'package:shadowmask/components/outline_pill.dart';
 import 'package:shadowmask/components/play_on_button.dart';
 import 'package:shadowmask/components/toast_host.dart';
@@ -35,21 +36,6 @@ import 'package:shadowmask/view/failure_reason.dart';
 import 'package:shadowmask/view/version_job_status.dart';
 import 'package:shadowmask/view/version_jobs_watch.dart';
 import 'package:shadowmask/view/version_order.dart';
-
-const double kVersionActionsWidth = 210;
-
-const double _kIconButtonWidth = 48;
-const double _kCcPillWidth = 56;
-const double _kMinLabelWidth = 140;
-
-const double kVersionRowSideBySide =
-    _kMinLabelWidth +
-    _kIconButtonWidth +
-    _kCcPillWidth +
-    Space.s3 +
-    kVersionActionsWidth +
-    Space.s2 +
-    _kIconButtonWidth;
 
 Iterable<String> _subtitleLanguageCodes(VersionDetail d) => <String?>[
   for (final SubtitleTrack s in d.subtitles) s.language,
@@ -172,15 +158,6 @@ class _VersionPickerState extends State<VersionPicker>
               ],
             ),
           ),
-        if (count > 0) ...<Widget>[
-          const SizedBox(height: Space.s2),
-          Text(
-            Strings.downloadNoSubtitles,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: context.tokens.muted),
-          ),
-        ],
       ],
     );
   }
@@ -254,30 +231,6 @@ class _VersionRowState extends State<_VersionRow> {
     }
   }
 
-  Widget _downloadButton(Tokens t, Version v) => IconButton(
-    onPressed: _busyDownload ? null : _download,
-    tooltip: Strings.downloadVersion,
-    icon: Icon(Icons.download_outlined, color: t.muted),
-  );
-
-  List<Widget> _availableActions(Tokens t, Version v) {
-    final PlayOnApi? playOn = widget.playOn;
-    return <Widget>[
-      _downloadButton(t, v),
-      if (playOn != null && widget.playOnDevices.isNotEmpty)
-        PlayOnButton.icon(
-          playOn: playOn,
-          devices: widget.playOnDevices,
-          choose: () async => (ordered: <Version>[v], target: v),
-        ),
-    ];
-  }
-
-  double get _playOnWidth =>
-      widget.playOn != null && widget.playOnDevices.isNotEmpty
-      ? _kIconButtonWidth
-      : 0;
-
   Future<void> _run(Future<bool> action) async {
     if (await action && mounted) {
       widget.onChanged();
@@ -285,7 +238,9 @@ class _VersionRowState extends State<_VersionRow> {
     }
   }
 
-  List<Widget> _adminActions(
+  bool get _hasMore => widget.version.available || widget.adminPages;
+
+  List<Widget> _tools(
     BuildContext context,
     Tokens t,
     Version v,
@@ -293,19 +248,53 @@ class _VersionRowState extends State<_VersionRow> {
   ) {
     final AdminApi? admin = widget.admin;
     return <Widget>[
-      if (widget.adminPages)
-        IconButton(
-          onPressed: () => Navigator.of(context).pushNamed(versionRoute(v.id)),
-          tooltip: Strings.openVersion,
-          icon: Icon(Icons.settings_outlined, color: t.muted),
-        ),
       if (admin != null) _subtitlesMenu(context, t, admin, v, d),
+      if (_hasMore) _moreMenu(context, t, v),
     ];
   }
 
-  double get _adminActionsWidth =>
-      _kIconButtonWidth *
-      ((widget.adminPages ? 1 : 0) + (widget.admin == null ? 0 : 1));
+  Widget _moreMenu(BuildContext context, Tokens t, Version v) {
+    final MenuController controller = MenuController();
+    final PlayOnApi? playOn = widget.playOn;
+    return MenuAnchor(
+      controller: controller,
+      alignmentOffset: kMenuOffset,
+      style: appMenuStyle(t),
+      menuChildren: <Widget>[
+        if (v.available)
+          MenuItemButton(
+            leadingIcon: const Icon(Icons.download_outlined),
+            onPressed: _busyDownload ? null : _download,
+            child: const Text(Strings.downloadVersion),
+          ),
+        if (v.available && playOn != null && widget.playOnDevices.isNotEmpty)
+          PlayOnSubmenu(
+            playOn: playOn,
+            devices: widget.playOnDevices,
+            version: v,
+          ),
+        if (v.available && _positionMs > 0)
+          MenuItemButton(
+            leadingIcon: const Icon(Icons.close),
+            onPressed: _busyDismiss ? null : _dismiss,
+            child: const Text(Strings.dismissResume),
+          ),
+        if (widget.adminPages)
+          MenuItemButton(
+            leadingIcon: const Icon(Icons.settings_outlined),
+            onPressed: () =>
+                Navigator.of(context).pushNamed(versionRoute(v.id)),
+            child: const Text(Strings.openVersion),
+          ),
+      ],
+      child: IconButton(
+        tooltip: Strings.columnActions,
+        onPressed: () =>
+            controller.isOpen ? controller.close() : controller.open(),
+        icon: Icon(Icons.more_vert, color: t.muted),
+      ),
+    );
+  }
 
   Widget _subtitlesMenu(
     BuildContext context,
@@ -341,9 +330,10 @@ class _VersionRowState extends State<_VersionRow> {
                     admin: admin,
                     versionId: v.id,
                     existing: files,
+                    path: v.path,
                   ),
                 ),
-          child: const Text(Strings.searchSubtitles),
+          child: const Text(Strings.search),
         ),
         if (audio.length > 1)
           SubmenuButton(
@@ -367,7 +357,8 @@ class _VersionRowState extends State<_VersionRow> {
           leadingIcon: const Icon(Icons.translate),
           menuChildren: <Widget>[
             for (final SubtitleFile file in files)
-              MenuItemButton(
+              LongMenuItem(
+                label: subtitleFileLabel(file),
                 onPressed: () => _run(
                   showTranslateDialog(
                     context,
@@ -377,7 +368,6 @@ class _VersionRowState extends State<_VersionRow> {
                     queuedToast: Strings.toastQueued,
                   ),
                 ),
-                child: Text(subtitleFileLabel(file)),
               ),
           ],
           child: const Text(Strings.translate),
@@ -395,7 +385,7 @@ class _VersionRowState extends State<_VersionRow> {
                     queuedToast: Strings.toastQueued,
                   ),
                 ),
-          child: const Text(Strings.combineSubtitles),
+          child: const Text(Strings.combine),
         ),
       ],
       child: IconButton(
@@ -485,24 +475,13 @@ class _VersionRowState extends State<_VersionRow> {
             ? Border(top: BorderSide(color: t.border))
             : null,
       ),
-      child: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) {
-          final double sideBySide =
-              kVersionRowSideBySide + _adminActionsWidth + _playOnWidth;
-          final bool narrow = constraints.maxWidth < sideBySide;
-          final VersionJobsWatch? jobs = _jobs;
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              if (narrow)
-                _narrowHeader(context, t, v, d, available)
-              else
-                _wideHeader(context, t, v, d, available),
-              if (_open) _detailBody(context, t, v, d, available, narrow),
-              if (jobs != null) _jobLines(jobs, d),
-            ],
-          );
-        },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _header(context, t, v, d, available),
+          if (_open) _detailBody(context, t, v, d, available),
+          if (_jobs case final VersionJobsWatch jobs) _jobLines(jobs, d),
+        ],
       ),
     );
   }
@@ -532,7 +511,7 @@ class _VersionRowState extends State<_VersionRow> {
     overflow: TextOverflow.ellipsis,
   );
 
-  Widget _narrowHeader(
+  Widget _header(
     BuildContext context,
     Tokens t,
     Version v,
@@ -555,86 +534,36 @@ class _VersionRowState extends State<_VersionRow> {
                 ).textTheme.bodySmall?.copyWith(color: t.warn),
               ),
             ],
+            if (d != null) ...<Widget>[
+              const SizedBox(width: Space.s2),
+              _ccPill(distinctSubtitleLanguages(d)),
+            ],
             const SizedBox(width: Space.s2),
-            Icon(_open ? Icons.expand_less : Icons.expand_more, color: t.muted),
+            Tooltip(
+              message: Strings.fullVersionDetails,
+              child: Icon(
+                _open ? Icons.expand_less : Icons.expand_more,
+                color: t.muted,
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _wideHeader(
-    BuildContext context,
-    Tokens t,
-    Version v,
-    VersionDetail? d,
-    bool available,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: Space.s3, vertical: 9),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Row(
-              children: <Widget>[
-                Flexible(
-                  child: InkWell(
-                    onTap: _toggleOpen,
-                    child: _label(t, v, available),
-                  ),
-                ),
-                if (available) ..._availableActions(t, v),
-                ..._adminActions(context, t, v, d),
-              ],
-            ),
-          ),
-          if (d != null) _ccPill(distinctSubtitleLanguages(d)),
-          const SizedBox(width: Space.s3),
-          SizedBox(
-            width: kVersionActionsWidth,
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: _trailing(context, t, v, available),
-            ),
-          ),
-          const SizedBox(width: Space.s2),
-          IconButton(
-            onPressed: _toggleOpen,
-            tooltip: Strings.fullVersionDetails,
-            icon: Icon(
-              _open ? Icons.expand_less : Icons.expand_more,
-              color: t.muted,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _trailing(BuildContext context, Tokens t, Version v, bool available) {
-    if (!available) {
-      return Text(
-        Strings.unavailable,
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: t.warn),
-      );
-    }
+  Widget _play(BuildContext context, Version v) {
     if (_positionMs > 0) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Tooltip(
-            message: Strings.resume(_percent),
-            child: FilledButton.icon(
-              onPressed: _busyDismiss
-                  ? null
-                  : () => Navigator.of(context).pushNamed(watchRoute(v.id)),
-              style: segmented(kActionButtonStyle, kSegmentLeading),
-              icon: const Icon(Icons.play_arrow, size: 20),
-              label: const Text(Strings.resumeAction),
-            ),
-          ),
-          DismissSegment(onPressed: _busyDismiss ? null : _dismiss),
-        ],
+      return Tooltip(
+        message: Strings.resume(_percent),
+        child: FilledButton.icon(
+          onPressed: _busyDismiss
+              ? null
+              : () => Navigator.of(context).pushNamed(watchRoute(v.id)),
+          style: kActionButtonStyle,
+          icon: const Icon(Icons.play_arrow, size: 20),
+          label: const Text(Strings.resumeAction),
+        ),
       );
     }
     return OutlinedButton(
@@ -655,7 +584,6 @@ class _VersionRowState extends State<_VersionRow> {
     Version v,
     VersionDetail? d,
     bool available,
-    bool narrow,
   ) {
     final List<String> languages = d == null
         ? const <String>[]
@@ -670,23 +598,19 @@ class _VersionRowState extends State<_VersionRow> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            if (narrow &&
-                (available ||
-                    widget.admin != null ||
-                    widget.adminPages)) ...<Widget>[
+            if (available ||
+                widget.admin != null ||
+                widget.adminPages) ...<Widget>[
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: <Widget>[
                   if (available)
-                    Flexible(child: _trailing(context, t, v, available))
+                    Flexible(child: _play(context, v))
                   else
                     const Spacer(),
                   Row(
                     mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      if (available) ..._availableActions(t, v),
-                      ..._adminActions(context, t, v, d),
-                    ],
+                    children: _tools(context, t, v, d),
                   ),
                 ],
               ),

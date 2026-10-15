@@ -309,9 +309,7 @@ abstract final class Strings {
   static const String randomInSeries = 'Play a random episode from this series';
   static const String randomInSeason = 'Play a random episode from this season';
   static const String randomNothingToPlay = 'There is nothing here to play.';
-  static const String downloadVersion = 'Download the original file';
-  static const String downloadNoSubtitles =
-      'Downloads are the original file only. Separate subtitle files are not included.';
+  static const String downloadVersion = 'Download original';
   static const String toastDownloadStarted = 'Download started.';
   static const String factPath = 'Path';
   static const String chaptersHeading = 'Chapters';
@@ -364,7 +362,19 @@ abstract final class Strings {
   static const String sourceGenerated = 'Generated';
   static const String sourceTranslated = 'Translated';
   static const String sourceCombined = 'Combined';
+  static const String subtitleSize = 'Subtitle size';
+  static const String playerSubtitleSize = 'Size';
+  static const String subtitleSizeHelp =
+      'Default follows the device where it has a caption setting.';
+  static const String subtitleSizeDefault = 'Default';
+  static const String subtitleSizeSmall = 'Small';
+  static const String subtitleSizeMedium = 'Medium';
+  static const String subtitleSizeLarge = 'Large';
   static const String playerOffset = 'Offset';
+  static const String playerOffsetEarlier = 'Earlier';
+  static const String playerOffsetLater = 'Later';
+  static const String playerOffsetReset = 'Reset';
+  static String playerOffsetValue(int ms) => ms > 0 ? '+$ms ms' : '$ms ms';
   static const String playerOffsetHelp =
       'Shift the subtitles in time, in thousandths of a second. Use a positive '
       'number when they appear too early and a negative one when they lag '
@@ -498,6 +508,7 @@ abstract final class Strings {
       'This may not play at all, or may be very choppy';
   static const String playerTooSlowHint =
       'Another version of this title may play better.';
+  static const String playerFailed = 'Playback failed';
   static const String playerKeepWaiting = 'Keep waiting';
   static const String playerGoBack = 'Go back';
   static const String playerReplay = 'Watch again';
@@ -914,6 +925,8 @@ abstract final class Strings {
   static const String upscale = 'Upscale';
   static const String transcribe = 'Transcribe';
   static const String translate = 'Translate';
+  static const String search = 'Search';
+  static const String combine = 'Combine';
   static const String combineSubtitles = 'Combine subtitles';
   static const String searchSubtitles = 'Search subtitles';
   static const String deleteSubtitle = 'Delete subtitle';

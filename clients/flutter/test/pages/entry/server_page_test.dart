@@ -44,6 +44,27 @@ Future<void> _connect(WidgetTester tester, String address) async {
 }
 
 void main() {
+  testWidgets('a short screen scrolls to the button instead of overflowing', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final List<String> saved = <String>[];
+    await tester.pumpWidget(_host(probe: (_) async => true, saved: saved));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'http://one');
+    await tester.ensureVisible(
+      find.widgetWithText(FilledButton, Strings.connect),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, Strings.connect));
+    await tester.pumpAndSettle();
+
+    expect(saved, hasLength(1));
+  });
+
   testWidgets('the first run has nowhere to go back to, so it offers no way', (
     WidgetTester tester,
   ) async {

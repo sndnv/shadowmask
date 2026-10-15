@@ -99,86 +99,90 @@ class _SignInPageState extends State<SignInPage> {
     final ServerScope? scope = ServerScope.of(context);
     return BarePage(
       child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 360),
-          child: Padding(
-            padding: const EdgeInsets.all(Space.s4),
-            child: AutofillGroup(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  Text(
-                    Strings.signInTitle,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.headlineMedium,
-                  ),
-                  const SizedBox(height: Space.s4),
-                  TextField(
-                    controller: _username,
-                    autofocus: true,
-                    autofillHints: const <String>[AutofillHints.username],
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: Strings.username,
+        child: SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: Padding(
+              padding: const EdgeInsets.all(Space.s4),
+              child: AutofillGroup(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Text(
+                      Strings.signInTitle,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineMedium,
                     ),
-                    onSubmitted: (_) => _passwordFocus.requestFocus(),
-                  ),
-                  const SizedBox(height: Space.s3),
-                  TextField(
-                    controller: _password,
-                    focusNode: _passwordFocus,
-                    obscureText: _obscure,
-                    autofillHints: const <String>[AutofillHints.password],
-                    textInputAction: TextInputAction.done,
-                    decoration: InputDecoration(
-                      labelText: Strings.password,
-                      suffixIcon: IconButton(
-                        onPressed: () => setState(() => _obscure = !_obscure),
-                        tooltip: _obscure
-                            ? Strings.showPassword
-                            : Strings.hidePassword,
-                        icon: Icon(
-                          _obscure
-                              ? Icons.visibility_outlined
-                              : Icons.visibility_off_outlined,
-                          color: t.muted,
+                    const SizedBox(height: Space.s4),
+                    TextField(
+                      controller: _username,
+                      autofocus: true,
+                      autofillHints: const <String>[AutofillHints.username],
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: Strings.username,
+                      ),
+                      onSubmitted: (_) => _passwordFocus.requestFocus(),
+                    ),
+                    const SizedBox(height: Space.s3),
+                    TextField(
+                      controller: _password,
+                      focusNode: _passwordFocus,
+                      obscureText: _obscure,
+                      autofillHints: const <String>[AutofillHints.password],
+                      textInputAction: TextInputAction.done,
+                      decoration: InputDecoration(
+                        labelText: Strings.password,
+                        suffixIcon: IconButton(
+                          onPressed: () => setState(() => _obscure = !_obscure),
+                          tooltip: _obscure
+                              ? Strings.showPassword
+                              : Strings.hidePassword,
+                          icon: Icon(
+                            _obscure
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                            color: t.muted,
+                          ),
                         ),
                       ),
+                      onSubmitted: (_) => _submit(),
                     ),
-                    onSubmitted: (_) => _submit(),
-                  ),
-                  if (_error != null) ...<Widget>[
-                    const SizedBox(height: Space.s3),
-                    SelectableText(
-                      _error!,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodyMedium?.copyWith(color: t.danger),
+                    if (_error != null) ...<Widget>[
+                      const SizedBox(height: Space.s3),
+                      SelectableText(
+                        _error!,
+                        style: Theme.of(
+                          context,
+                        ).textTheme.bodyMedium?.copyWith(color: t.danger),
+                      ),
+                    ],
+                    const SizedBox(height: Space.s4),
+                    FilledButton(
+                      onPressed: _busy ? null : _submit,
+                      child: Text(
+                        _busy ? Strings.loading : Strings.signInTitle,
+                      ),
                     ),
-                  ],
-                  const SizedBox(height: Space.s4),
-                  FilledButton(
-                    onPressed: _busy ? null : _submit,
-                    child: Text(_busy ? Strings.loading : Strings.signInTitle),
-                  ),
-                  const SizedBox(height: Space.s2),
-                  TextButton(
-                    onPressed: _busy
-                        ? null
-                        : () => Navigator.of(
-                            context,
-                          ).pushReplacementNamed('/link'),
-                    child: const Text(Strings.useLinkCode),
-                  ),
-                  if (scope != null)
+                    const SizedBox(height: Space.s2),
                     TextButton(
-                      onPressed: _busy ? null : () => _changeServer(scope),
-                      child: const Text(Strings.changeServer),
+                      onPressed: _busy
+                          ? null
+                          : () => Navigator.of(
+                              context,
+                            ).pushReplacementNamed('/link'),
+                      child: const Text(Strings.useLinkCode),
                     ),
-                  const SizedBox(height: Space.s6),
-                  const Center(child: BrandMark(size: 40)),
-                ],
+                    if (scope != null)
+                      TextButton(
+                        onPressed: _busy ? null : () => _changeServer(scope),
+                        child: const Text(Strings.changeServer),
+                      ),
+                    const SizedBox(height: Space.s6),
+                    const Center(child: BrandMark(size: 40)),
+                  ],
+                ),
               ),
             ),
           ),

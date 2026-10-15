@@ -80,6 +80,18 @@ video {
   border-radius: var(--radius);
 }
 
+video[data-subtitle-size="small"]::cue {
+  font-size: 80%;
+}
+
+video[data-subtitle-size="medium"]::cue {
+  font-size: 100%;
+}
+
+video[data-subtitle-size="large"]::cue {
+  font-size: 125%;
+}
+
 .sm-player {
   position: relative;
   max-width: 900px;
@@ -132,6 +144,10 @@ video {
 
 #controls label {
   margin: 0;
+}
+
+#controls label[hidden] {
+  display: none;
 }
 
 #controls .sm-offset {

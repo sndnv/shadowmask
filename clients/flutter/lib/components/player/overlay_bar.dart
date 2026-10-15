@@ -37,6 +37,7 @@ class OverlayBar extends StatelessWidget {
     this.previousEpisode,
     this.nextEpisode,
     this.touch = false,
+    this.onOpenSheet,
   });
 
   final PlayerSnapshot snapshot;
@@ -56,6 +57,7 @@ class OverlayBar extends StatelessWidget {
   final TransportStep? previousEpisode;
   final TransportStep? nextEpisode;
   final bool touch;
+  final VoidCallback? onOpenSheet;
 
   IconData get _volumeIcon {
     if (muted || volume == 0) {
@@ -174,14 +176,24 @@ class OverlayBar extends StatelessWidget {
                       ),
                     ),
                   const Spacer(),
-                  if (compact)
-                    _PanelMenu(onOpenPanel: onOpenPanel, touch: touch)
+                  if (touch)
+                    _IcBtn(
+                      icon: Icons.tune,
+                      tooltip: Strings.playerOptions,
+                      onPressed: onOpenSheet,
+                      touch: true,
+                    )
+                  else if (compact)
+                    _PanelMenu(onOpenPanel: onOpenPanel)
                   else
                     for (final PlayerPanel panel in PlayerPanel.values)
-                      _IcBtn(
-                        icon: panel.icon,
-                        tooltip: panel.title,
-                        onPressed: () => onOpenPanel(panel),
+                      TapRegion(
+                        groupId: kPlayerPanelGroup,
+                        child: _IcBtn(
+                          icon: panel.icon,
+                          tooltip: panel.title,
+                          onPressed: () => onOpenPanel(panel),
+                        ),
                       ),
                   const SizedBox(width: _gap),
                   if (!touch && !fullscreen && onToggleWide != null)
@@ -211,10 +223,9 @@ class OverlayBar extends StatelessWidget {
 }
 
 class _PanelMenu extends StatefulWidget {
-  const _PanelMenu({required this.onOpenPanel, this.touch = false});
+  const _PanelMenu({required this.onOpenPanel});
 
   final ValueChanged<PlayerPanel> onOpenPanel;
-  final bool touch;
 
   @override
   State<_PanelMenu> createState() => _PanelMenuState();
@@ -250,7 +261,6 @@ class _PanelMenuState extends State<_PanelMenu> {
             tooltip: Strings.playerOptions,
             onPressed: () =>
                 controller.isOpen ? controller.close() : controller.open(),
-            touch: widget.touch,
           ),
     );
   }

@@ -487,7 +487,7 @@ end sub
 
 sub OpenSubtitleMenu()
     m.settingMenu = "subsMenu"
-    m.settingRows = SubtitleRows(m.controls, m.version)
+    m.settingRows = SubtitleRows(m.controls, m.version, ReadSubtitleSize(), SubtitlesAreBurned(ValueAt(m.session, "selected", invalid)))
     if m.work then m.settingRows.Push(MoreSubtitlesRow())
     AskChoice("subsMenu", Phrase("heading.subtitles"), m.settingRows, 0, "menu")
 end sub
@@ -546,6 +546,11 @@ sub OpenDelivery()
     AskChoice("delivery", Phrase("player.converting"), options, IndexOfValue(options, "value", TextOrBlank(m.controls.delivery)))
 end sub
 
+sub OpenSubtitleSize()
+    options = SubtitleSizeOptions()
+    AskChoice("subtitleSize", Phrase("player.subtitleSize"), options, IndexOfValue(options, "value", ReadSubtitleSize()))
+end sub
+
 sub OpenAutoplay()
     options = AutoplayOptions()
     current = AutoplayValue(ReadAutoplayNext(), ReadAutoplayDelay())
@@ -593,7 +598,7 @@ function ReopenedSettingMenu(field as string) as boolean
         return true
     end if
 
-    leaves = ["quality", "audio", "subtitle", "delivery", "offset", "autoplay"]
+    leaves = ["quality", "audio", "subtitle", "delivery", "offset", "subtitleSize", "autoplay"]
     leaves.Append(WorkChoiceFields())
 
     isLeaf = false
@@ -671,6 +676,13 @@ sub RunChoice(field as string, chosen as object)
 
     if field = "offset"
         StepOffset(TextOrBlank(ValueAt(chosen, "id", "")))
+        return
+    end if
+
+    if field = "subtitleSize"
+        WriteSubtitleSize(TextOrBlank(ValueAt(chosen, "value", "")))
+        ApplySubtitleSize()
+        ReopenMenu()
         return
     end if
 
@@ -936,6 +948,10 @@ sub RunSetting(id as string)
     end if
     if id = "offset"
         OpenOffset()
+        return
+    end if
+    if id = "subtitleSize"
+        OpenSubtitleSize()
         return
     end if
 
@@ -1506,7 +1522,12 @@ sub Attach(positionMs as integer)
     m.giveUp.control = "start"
 end sub
 
+sub ApplySubtitleSize()
+    m.video.captionStyle = CaptionStyleFor(ReadSubtitleSize())
+end sub
+
 sub ApplyCaptionMode()
+    ApplySubtitleSize()
     wanted = CaptionsWanted(m.session, m.controls.subtitle)
     m.video.suppressCaptions = not wanted
     if wanted
