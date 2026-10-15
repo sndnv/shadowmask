@@ -180,6 +180,13 @@ fn manifest_path(mode: DeliveryMode, token: &str) -> String {
     }
 }
 
+fn state_label(state: PlaybackState) -> &'static str {
+    match state {
+        PlaybackState::Playing => "playing",
+        PlaybackState::Paused => "paused",
+    }
+}
+
 fn combine_caps(a: Option<u64>, b: Option<u64>) -> Option<u64> {
     match (a, b) {
         (Some(a), Some(b)) => Some(a.min(b)),
@@ -690,6 +697,10 @@ where
         let mut playback = self.owned(caller, session).await?;
         let owner = playback.user.clone();
         let now = Timestamp::now();
+        if playback.state != state {
+            #[rustfmt::skip]
+            tracing::debug!("session [{}] for version [{}] went from [{}] to [{}] at [{}] ms", session.0, playback.version.0, state_label(playback.state), state_label(state), position_ms);
+        }
         playback.position_ms = position_ms;
         playback.state = state;
         playback.last_heartbeat_at = now;
@@ -853,9 +864,10 @@ where
         let generation = self.next_generation(session)?;
         let token = self.create_token(session, generation, &playback.user, &playback.version)?;
         let Launched { mode, container, selected, timeline } =
-            self.launch(session, generation, &detail, &ctx, playback.position_ms).await?;
+            self.launch(session, generation, &detail, &ctx, update.position_ms).await?;
         let manifest_url = manifest_path(mode, &token);
 
+        playback.position_ms = update.position_ms;
         playback.mode = mode;
         playback.selected = selected.clone();
         playback.last_heartbeat_at = Timestamp::now();
@@ -1726,6 +1738,7 @@ mod tests {
                 &principal(),
                 &started.session_id,
                 SessionUpdate {
+                    position_ms: 0,
                     audio_track: None,
                     subtitle: SubtitleChange::Set(embedded_track(2)),
                     target_height: None,
@@ -1909,6 +1922,7 @@ mod tests {
                 &principal(),
                 &started.session_id,
                 SessionUpdate {
+                    position_ms: 0,
                     audio_track: None,
                     subtitle: SubtitleChange::Set(SubtitleSelection {
                         track: SubtitleTrackRef::File(SubtitleFileId("sf1".into())),
@@ -2198,6 +2212,7 @@ mod tests {
                 &principal(),
                 &started.session_id,
                 SessionUpdate {
+                    position_ms: 0,
                     audio_track: None,
                     subtitle: SubtitleChange::Keep,
                     target_height: None,
@@ -2269,6 +2284,7 @@ mod tests {
                 &principal(),
                 &started.session_id,
                 SessionUpdate {
+                    position_ms: 0,
                     audio_track: None,
                     subtitle: SubtitleChange::Keep,
                     target_height: None,
@@ -2315,6 +2331,7 @@ mod tests {
                 &principal(),
                 &started.session_id,
                 SessionUpdate {
+                    position_ms: 0,
                     audio_track: None,
                     subtitle: SubtitleChange::Keep,
                     target_height: None,
@@ -2350,6 +2367,31 @@ mod tests {
         let history = harness.progress.history(&principal().user, page()).await.unwrap();
         assert_eq!(history.total, 1);
         assert!(history.items[0].completed);
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn a_heartbeat_that_changes_the_state_logs_the_change() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
+
+        harness
+            .service
+            .heartbeat(&principal(), &started.session_id, 5_000, PlaybackState::Playing)
+            .await
+            .unwrap();
+        assert!(!logs_contain("went from"));
+
+        harness
+            .service
+            .heartbeat(&principal(), &started.session_id, 6_000, PlaybackState::Paused)
+            .await
+            .unwrap();
+        assert!(logs_contain(&format!(
+            "session [{}] for version [v1] went from [playing] to [paused] at [6000] ms",
+            started.session_id.0
+        )));
     }
 
     #[tokio::test]
@@ -2557,6 +2599,7 @@ mod tests {
                 &principal(),
                 session,
                 SessionUpdate {
+                    position_ms: 0,
                     audio_track: Some(track),
                     subtitle: SubtitleChange::Set(SubtitleSelection {
                         track: SubtitleTrackRef::Embedded(1),
@@ -2659,6 +2702,7 @@ mod tests {
                 &principal(),
                 &started.session_id,
                 SessionUpdate {
+                    position_ms: 0,
                     audio_track: None,
                     subtitle: SubtitleChange::Set(SubtitleSelection {
                         track: SubtitleTrackRef::Embedded(9),
@@ -2819,6 +2863,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_update_starts_the_new_stream_where_the_viewer_is() {
+        let harness = Harness::new();
+        harness.catalog.insert(transcode_detail());
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
+        harness
+            .service
+            .heartbeat(&principal(), &started.session_id, 60_000, PlaybackState::Playing)
+            .await
+            .unwrap();
+
+        harness
+            .service
+            .update(
+                &principal(),
+                &started.session_id,
+                SessionUpdate { position_ms: 5_000, ..keep_everything() },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(harness.transcode.started().last().unwrap().seek_ms, Some(5_000));
+        assert_eq!(
+            harness.sessions.get(&started.session_id).await.unwrap().unwrap().position_ms,
+            5_000
+        );
+    }
+
+    #[tokio::test]
     async fn seek_not_found() {
         let harness = Harness::new();
         assert!(matches!(
@@ -2867,6 +2939,7 @@ mod tests {
                 &principal(),
                 &started.session_id,
                 SessionUpdate {
+                    position_ms: 0,
                     audio_track: Some(2),
                     subtitle: SubtitleChange::Keep,
                     target_height: None,
@@ -2897,6 +2970,7 @@ mod tests {
                 &principal(),
                 &started.session_id,
                 SessionUpdate {
+                    position_ms: 0,
                     audio_track: None,
                     subtitle: SubtitleChange::Set(SubtitleSelection {
                         track: SubtitleTrackRef::Embedded(2),
@@ -2917,6 +2991,7 @@ mod tests {
                 &principal(),
                 &started.session_id,
                 SessionUpdate {
+                    position_ms: 0,
                     audio_track: None,
                     subtitle: SubtitleChange::Disable,
                     target_height: None,
@@ -2940,6 +3015,7 @@ mod tests {
                     &principal(),
                     &SessionId("nope".to_owned()),
                     SessionUpdate {
+                        position_ms: 0,
                         audio_track: None,
                         subtitle: SubtitleChange::Keep,
                         target_height: None,
@@ -2965,6 +3041,7 @@ mod tests {
                     &principal(),
                     &SessionId("s1".to_owned()),
                     SessionUpdate {
+                        position_ms: 0,
                         audio_track: None,
                         subtitle: SubtitleChange::Keep,
                         target_height: None,
@@ -2991,6 +3068,7 @@ mod tests {
                     &principal(),
                     &started.session_id,
                     SessionUpdate {
+                        position_ms: 0,
                         audio_track: None,
                         subtitle: SubtitleChange::Keep,
                         target_height: None,
@@ -3130,6 +3208,7 @@ mod tests {
                     &intruder(),
                     &started.session_id,
                     SessionUpdate {
+                        position_ms: 0,
                         audio_track: Some(1),
                         subtitle: SubtitleChange::Keep,
                         target_height: None,
@@ -3216,6 +3295,7 @@ mod tests {
 
     fn keep_everything() -> SessionUpdate {
         SessionUpdate {
+            position_ms: 0,
             audio_track: None,
             subtitle: SubtitleChange::Keep,
             target_height: None,
@@ -3360,6 +3440,27 @@ mod tests {
         assert!(matches!(sought, Err(SessionError::NotFound)));
         assert!(harness.sessions.get(&session).await.unwrap().is_none());
         assert_nothing_left_of(&harness, &session);
+    }
+
+    #[tokio::test]
+    async fn an_update_writes_the_bookmark_at_the_position_it_was_sent() {
+        let harness = Harness::new();
+        harness.catalog.insert(multilingual_detail());
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
+
+        harness
+            .service
+            .update(
+                &principal(),
+                &started.session_id,
+                SessionUpdate { position_ms: 60_000, audio_track: Some(2), ..keep_everything() },
+            )
+            .await
+            .unwrap();
+
+        let row = stored_progress(&harness).await.expect("an override forces a row");
+        assert_eq!(row.position_ms, 60_000);
+        assert_eq!(row.audio_track, Some(2));
     }
 
     #[tokio::test]

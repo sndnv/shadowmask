@@ -3,7 +3,7 @@ use std::time::Instant;
 use domain::job::JobKind;
 
 pub(crate) struct ActiveJob {
-    job: &'static str,
+    kind: &'static str,
     pool: String,
     start: Instant,
 }
@@ -11,14 +11,14 @@ pub(crate) struct ActiveJob {
 impl ActiveJob {
     pub(crate) fn start(kind: JobKind, pool: &str) -> Self {
         metrics::gauge!("jobs_active", "pool" => pool.to_owned()).increment(1.0);
-        Self { job: kind.slug(), pool: pool.to_owned(), start: Instant::now() }
+        Self { kind: kind.slug(), pool: pool.to_owned(), start: Instant::now() }
     }
 
     pub(crate) fn finish(self, succeeded: bool) {
         let outcome = if succeeded { "succeeded" } else { "failed" };
-        metrics::histogram!("job_duration_milliseconds", "job" => self.job)
+        metrics::histogram!("job_duration_milliseconds", "kind" => self.kind)
             .record(self.start.elapsed().as_nanos() as f64 / 1_000_000.0);
-        metrics::counter!("jobs_total", "job" => self.job, "outcome" => outcome).increment(1);
+        metrics::counter!("jobs_total", "kind" => self.kind, "outcome" => outcome).increment(1);
     }
 }
 
