@@ -170,6 +170,10 @@ jobs:
           cp -R build/macos/Build/Products/Release/shadowmask.app dmg/
           cp CREDITS.md dmg/
           cp assets/licenses/*.txt dmg/Licenses/
+          cp -R dmg dmg-skia
+          /usr/libexec/PlistBuddy -c "Add :FLTEnableImpeller bool false" dmg-skia/shadowmask.app/Contents/Info.plist
+          codesign --force --preserve-metadata=entitlements,requirements,flags,runtime -s - dmg-skia/shadowmask.app
+          codesign --verify --deep --strict dmg-skia/shadowmask.app
           create-dmg \
             --volname "shadowmask" \
             --window-size 800 400 \
@@ -177,12 +181,21 @@ jobs:
             --app-drop-link 600 200 \
             "shadowmask-client-macos-${{ github.ref_name }}.dmg" \
             dmg/
+          create-dmg \
+            --volname "shadowmask" \
+            --window-size 800 400 \
+            --icon "shadowmask.app" 200 200 \
+            --app-drop-link 600 200 \
+            "shadowmask-client-macos-${{ github.ref_name }}-skia.dmg" \
+            dmg-skia/
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: client-macos
-          path: clients/flutter/shadowmask-client-macos-${{ github.ref_name }}.dmg
+          path: |
+            clients/flutter/shadowmask-client-macos-${{ github.ref_name }}.dmg
+            clients/flutter/shadowmask-client-macos-${{ github.ref_name }}-skia.dmg
           if-no-files-found: error
           retention-days: 1
 
@@ -312,6 +325,7 @@ jobs:
           files: |
             client-linux/shadowmask-client-linux-${{ github.ref_name }}.AppImage
             client-macos/shadowmask-client-macos-${{ github.ref_name }}.dmg
+            client-macos/shadowmask-client-macos-${{ github.ref_name }}-skia.dmg
             client-android/shadowmask-client-android-${{ github.ref_name }}.apk
             client-ios/shadowmask-client-ios-${{ github.ref_name }}.ipa
             client-roku/shadowmask-client-roku-${{ github.ref_name }}.zip
