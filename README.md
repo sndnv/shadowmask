@@ -97,6 +97,34 @@ acceleration and the rest.
 * **Basic** ([`clients/basic`](./clients/basic)) - a dependency-free HTML/JS client served by the
   server itself at `/ui/basic/`, useful as a fallback and for debugging
 
+## Installing the clients
+
+The desktop, mobile and Roku clients are attached to every
+[release](https://github.com/sndnv/shadowmask/releases).
+
+* **Web** - open the web UI's address, port 8090 in the quick start above
+* **Basic** - open `/ui/basic/` on the server's address, for example
+  `http://192.168.1.10:8080/ui/basic/`
+* **macOS** - open `shadowmask-client-macos-<version>.dmg` and drag the app to `Applications`. macOS
+  refuses the first open: open it once, then choose `Open Anyway` under `System Settings` > `Privacy &
+  Security`. If the default has display issues, use `shadowmask-client-macos-<version>-skia.dmg`
+  instead
+* **Linux** - install libmpv (`sudo apt install libmpv-dev mpv` on Debian and Ubuntu), then make
+  `shadowmask-client-linux-<version>.AppImage` executable and run it. `Account` > `Profile` >
+  `Applications` menu adds it to the desktop's applications menu
+* **Android** - open `shadowmask-client-android-<version>.apk` on the device and allow installing
+  apps from that source
+* **iOS** - sideload `shadowmask-client-ios-<version>.ipa` with Sideloadly or AltStore and your
+  Apple ID. With a free Apple ID it has to be signed again every 7 days
+* **Roku** - [turn on developer mode](https://developer.roku.com/docs/developer-program/getting-started/developer-setup.md),
+  open the device's address in a browser, sign in as `rokudev` with the developer password, then
+  upload `shadowmask-client-roku-<version>.zip` and install it
+
+The desktop, mobile and Roku clients ask for the server's address first, for example
+`http://192.168.1.10:8080`. Sign in with a username and password, or with a link code: create one
+under `Account` > `Devices & Access` in a client that is signed in, then enter it on the new device.
+Roku signs in with a link code only.
+
 ## Components
 
 A Cargo workspace where every crate depends inward on `domain`:
