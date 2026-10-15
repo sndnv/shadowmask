@@ -1523,8 +1523,8 @@ Used by:
 
 Used by:
 
-- [zerocopy-derive 0.8.62](https://github.com/google/zerocopy)
-- [zerocopy 0.8.62](https://github.com/google/zerocopy)
+- [zerocopy-derive 0.8.63](https://github.com/google/zerocopy)
+- [zerocopy 0.8.63](https://github.com/google/zerocopy)
 
 ````text
                                  Apache License
@@ -6188,7 +6188,7 @@ Used by:
 - [crossbeam-utils 0.8.23](https://github.com/crossbeam-rs/crossbeam)
 - [displaydoc 0.2.7](https://github.com/yaahc/displaydoc)
 - [either 1.19.0](https://github.com/rayon-rs/either)
-- [equivalent 1.0.2](https://github.com/indexmap-rs/equivalent)
+- [equivalent 1.0.3](https://github.com/indexmap-rs/equivalent)
 - [errno 0.3.14](https://github.com/lambda-fairy/rust-errno)
 - [event-listener 5.4.2](https://github.com/smol-rs/event-listener)
 - [evmap 11.0.0](https://github.com/jonhoo/evmap.git)
@@ -6251,7 +6251,7 @@ Used by:
 - [regex 1.13.1](https://github.com/rust-lang/regex)
 - [rustix 1.1.5](https://github.com/bytecodealliance/rustix)
 - [rustls-native-certs 0.8.5](https://github.com/rustls/rustls-native-certs)
-- [rustls 0.23.45](https://github.com/rustls/rustls)
+- [rustls 0.23.46](https://github.com/rustls/rustls)
 - [scopeguard 1.2.0](https://github.com/bluss/scopeguard)
 - [security-framework-sys 2.17.0](https://github.com/kornelski/rust-security-framework)
 - [security-framework 3.7.0](https://github.com/kornelski/rust-security-framework)
@@ -11075,7 +11075,7 @@ Used by:
 
 - [tokio-stream 0.1.19](https://github.com/tokio-rs/tokio)
 - [tokio-util 0.7.20](https://github.com/tokio-rs/tokio)
-- [tokio 1.53.2](https://github.com/tokio-rs/tokio)
+- [tokio 1.53.3](https://github.com/tokio-rs/tokio)
 
 ````text
 MIT License
