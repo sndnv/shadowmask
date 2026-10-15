@@ -47,12 +47,21 @@ Linux `.AppImage`, an Android `.apk` and an unsigned iOS `.ipa` to the GitHub re
 [`publish_branch.yml`](../../.github/workflows/publish_branch.yml) builds the same set on demand and
 uploads them as workflow artifacts.
 
+macOS gets two disk images: the default one renders with Impeller, and the `-skia` one holds the
+same app with `FLTEnableImpeller` set to false in its `Info.plist`, re-signed ad hoc.
+
 Locally:
 
 ```
 flutter build macos --release
 create-dmg --volname "shadowmask" --window-size 800 400 --app-drop-link 600 200 \
   shadowmask.dmg build/macos/Build/Products/Release/shadowmask.app/
+
+mkdir skia && cp -R build/macos/Build/Products/Release/shadowmask.app skia/
+/usr/libexec/PlistBuddy -c "Add :FLTEnableImpeller bool false" skia/shadowmask.app/Contents/Info.plist
+codesign --force --preserve-metadata=entitlements,requirements,flags,runtime -s - skia/shadowmask.app
+create-dmg --volname "shadowmask" --window-size 800 400 --app-drop-link 600 200 \
+  shadowmask-skia.dmg skia/
 
 flutter build linux --release
 appimage-builder --skip-test
