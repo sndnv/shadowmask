@@ -213,3 +213,33 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+
+  # Optional monitoring, started with: docker compose --profile monitoring up -d
+  prometheus:
+    image: docker.io/prom/prometheus
+    restart: always
+    profiles: [ "monitoring" ]
+    logging:
+      driver: none
+    ports:
+      - "${SHADOWMASK_PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./telemetry/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: docker.io/grafana/grafana
+    restart: always
+    profiles: [ "monitoring" ]
+    logging:
+      driver: none
+    ports:
+      - "${SHADOWMASK_GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./telemetry/grafana:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  prometheus-data:
+  grafana-data:

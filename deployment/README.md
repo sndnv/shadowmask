@@ -6,6 +6,7 @@ the repository root.
 - [`dev`](./dev) - builds and runs the server locally for development and testing; the
   end-to-end smoke test runs against this stack.
 - [`production`](./production) - a template for running the published image in production.
+- [`grafana`](./grafana) - Grafana dashboards for the optional `monitoring` services of both.
 
 Optional local AI (transcription, translation, upscaling) applies to both and is documented in
 [`ENRICHMENT.md`](./ENRICHMENT.md).
@@ -205,16 +206,18 @@ Read at container start; a change needs a restart.
 
 Read by `deployment/production/docker-compose.yml` itself, not by the server.
 
-| Variable                   | Description                                                            | Default                  |
-|----------------------------|------------------------------------------------------------------------|--------------------------|
-| `SHADOWMASK_MOVIES_DIR`    | Host path mounted at `/media/movies`. Required                         | none                     |
-| `SHADOWMASK_TV_DIR`        | Host path mounted at `/media/tv`. Required                             | none                     |
-| `SHADOWMASK_WEB_UI_ORIGIN` | Origin the UI is served from; becomes `SHADOWMASK_CORS_ALLOWED_ORIGINS` | `http://localhost:8090`  |
-| `SHADOWMASK_VERSION`       | Image tag for both services                                            | `latest`                 |
-| `SHADOWMASK_PORT`          | Published server port                                                  | `8080`                   |
-| `SHADOWMASK_WEB_UI_PORT`   | Published web UI port                                                  | `8090`                   |
-| `SHADOWMASK_MEM_LIMIT`     | Server container memory and swap limit                                 | `8g`                     |
-| `SHADOWMASK_EXTERNAL_DIR`  | Host path for fetched content, when that mount is enabled              | `./local/external`       |
+| Variable                     | Description                                                             | Default                 |
+|------------------------------|-------------------------------------------------------------------------|-------------------------|
+| `SHADOWMASK_MOVIES_DIR`      | Host path mounted at `/media/movies`. Required                          | none                    |
+| `SHADOWMASK_TV_DIR`          | Host path mounted at `/media/tv`. Required                              | none                    |
+| `SHADOWMASK_WEB_UI_ORIGIN`   | Origin the UI is served from; becomes `SHADOWMASK_CORS_ALLOWED_ORIGINS` | `http://localhost:8090` |
+| `SHADOWMASK_VERSION`         | Image tag for both services                                             | `latest`                |
+| `SHADOWMASK_PORT`            | Published server port                                                   | `8080`                  |
+| `SHADOWMASK_WEB_UI_PORT`     | Published web UI port                                                   | `8090`                  |
+| `SHADOWMASK_MEM_LIMIT`       | Server container memory and swap limit                                  | `8g`                    |
+| `SHADOWMASK_EXTERNAL_DIR`    | Host path for fetched content, when that mount is enabled               | `./local/external`      |
+| `SHADOWMASK_PROMETHEUS_PORT` | Published Prometheus port, `monitoring` profile                         | `9090`                  |
+| `SHADOWMASK_GRAFANA_PORT`    | Published Grafana port, `monitoring` profile                            | `3000`                  |
 
 ## Scanning
 
@@ -388,3 +391,63 @@ sites, and public fetches, are unaffected.
 
 The file holds live session secrets: mount it read-only and never commit it. Using your account to
 download is subject to that site's terms.
+
+## Metrics and health
+
+The server answers these on its own port, without authentication. Keep `/metrics` on the local
+network; do not publish it through a public reverse proxy.
+
+| Endpoint        | Answer                                                         |
+|-----------------|----------------------------------------------------------------|
+| `/health`       | `200`, `{"status":"ok","version":...}`, while the server runs  |
+| `/health/ready` | `200` once the database answers, `503` until then              |
+| `/metrics`      | Prometheus text format                                         |
+
+Counters and histograms count from server start. Durations are in milliseconds.
+
+| Metric                                    | Type      | Labels                         |
+|-------------------------------------------|-----------|--------------------------------|
+| `build_info`                              | gauge     | `version`                      |
+| `http_requests_total`                     | counter   | `method`, `endpoint`           |
+| `http_responses_total`                    | counter   | `method`, `endpoint`, `status` |
+| `http_response_duration_milliseconds`     | histogram | `method`, `endpoint`           |
+| `stream_bytes_sent_total`                 | counter   | `kind`                         |
+| `sessions_active`                         | gauge     | `mode`                         |
+| `sessions_playing`                        | gauge     | `mode`                         |
+| `sessions_started_total`                  | counter   | `mode`                         |
+| `active_users`                            | gauge     |                                |
+| `active_devices`                          | gauge     |                                |
+| `stream_starts_total`                     | counter   | `delivery`, `outcome`          |
+| `stream_first_segment_milliseconds`       | histogram | `delivery`                     |
+| `transcode_segments_total`                | counter   | `encoder`, `outcome`           |
+| `transcode_segment_duration_milliseconds` | histogram | `encoder`                      |
+| `transcode_media_milliseconds_total`      | counter   | `encoder`                      |
+| `transcode_fallbacks_total`               | counter   |                                |
+| `transcode_segments_abandoned_total`      | counter   |                                |
+| `jobs_active`                             | gauge     | `pool`                         |
+| `jobs_total`                              | counter   | `kind`, `outcome`              |
+| `job_duration_milliseconds`               | histogram | `kind`                         |
+| `db_operations_total`                     | counter   | `store`, `operation`           |
+| `db_operation_duration_milliseconds`      | histogram | `store`, `operation`           |
+
+### Prometheus and Grafana
+
+The production and dev compose files carry `prometheus` and `grafana` services in the `monitoring`
+profile:
+
+```
+docker compose --profile monitoring up -d
+```
+
+- Grafana listens on `SHADOWMASK_GRAFANA_PORT` (`3000`). The first login is `admin` / `admin`,
+  and Grafana asks for a new password. The dashboards are in its `server` folder, from
+  [`grafana/dashboards/server`](./grafana/dashboards/server).
+- Prometheus listens on `SHADOWMASK_PROMETHEUS_PORT` (`9090`), scrapes the server every 15 seconds
+  ([`production/telemetry/prometheus/prometheus.yml`](./production/telemetry/prometheus/prometheus.yml))
+  and keeps 15 days of data, its default.
+- Both run with container logging off (`logging: driver: none`).
+- With TLS on the server, add `scheme: https` to the scrape job, and
+  `tls_config: { insecure_skip_verify: true }` for a self-signed certificate.
+
+For a Prometheus and Grafana you already run: scrape `http://<server>:8080/metrics`, and give the
+dashboards a Prometheus data source with the uid `prom`.
