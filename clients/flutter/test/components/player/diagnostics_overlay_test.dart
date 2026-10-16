@@ -3,6 +3,7 @@ import 'dart:ui' show DisplayFeature, DisplayFeatureState, DisplayFeatureType;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/player/diagnostics_overlay.dart';
+import 'package:shadowmask/player/playback_log.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/theme/app_theme.dart';
@@ -10,9 +11,12 @@ import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 
 class _StubController implements PlayerController {
+  _StubController(this.lines);
+
+  final List<String> lines;
+
   @override
-  PlayerDiagnostics diagnostics() =>
-      const PlayerDiagnostics(<String>['mode: direct']);
+  PlayerDiagnostics diagnostics() => PlayerDiagnostics(lines);
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -22,6 +26,7 @@ Widget _host({
   EdgeInsets padding = EdgeInsets.zero,
   EdgeInsets viewPadding = EdgeInsets.zero,
   List<DisplayFeature> features = const <DisplayFeature>[],
+  List<String> lines = const <String>['mode: direct'],
 }) => ThemeScope(
   variant: AppThemeVariant.dark,
   setVariant: (_) {},
@@ -33,7 +38,9 @@ Widget _host({
         viewPadding: viewPadding,
         displayFeatures: features,
       ),
-      child: Scaffold(body: DiagnosticsOverlay(controller: _StubController())),
+      child: Scaffold(
+        body: DiagnosticsOverlay(controller: _StubController(lines)),
+      ),
     ),
   ),
 );
@@ -77,5 +84,18 @@ void main() {
       _text(tester),
       contains('insets: padding 0,24,0,0  view 0,0,0,0  cutouts 0'),
     );
+  });
+
+  testWidgets('a long line is cut so it cannot cover the picture', (
+    WidgetTester tester,
+  ) async {
+    final String long = '09:49:52 ${'e' * 200}';
+    await tester.pumpWidget(_host(lines: <String>['mode: hls', long]));
+
+    final List<String> shown = _text(tester).split('\n');
+
+    expect(shown, contains('${long.substring(0, kOverlayLineLength)}…'));
+    expect(shown, isNot(contains(long)));
+    expect(shown, contains('mode: hls'));
   });
 }

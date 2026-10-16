@@ -3,6 +3,7 @@ import 'dart:ui' show DisplayFeature, DisplayFeatureType;
 
 import 'package:flutter/material.dart';
 
+import 'package:shadowmask/player/playback_log.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/radii.dart';
@@ -50,7 +51,7 @@ class _DiagnosticsOverlayState extends State<DiagnosticsOverlay> {
       if (widget.sourceLine != null) widget.sourceLine!,
       _insetsLine(context),
       ...widget.controller.diagnostics().lines,
-    ];
+    ].map(clipLine).toList();
     return Container(
       padding: const EdgeInsets.all(Space.s2),
       decoration: BoxDecoration(

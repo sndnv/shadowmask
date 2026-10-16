@@ -12,6 +12,7 @@ import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/player/add_subtitles_dialog.dart';
 import 'package:shadowmask/components/player/diagnostics_overlay.dart';
 import 'package:shadowmask/components/player/overlay_bar.dart';
+import 'package:shadowmask/components/player/playback_log_dialog.dart';
 import 'package:shadowmask/components/player/player_frame.dart';
 import 'package:shadowmask/components/player/player_sheet.dart';
 import 'package:shadowmask/components/player/settings_panel.dart';
@@ -127,6 +128,7 @@ class _WatchBodyState extends State<WatchBody>
   bool _applying = false;
   bool _applySlow = false;
   Timer? _applyWatch;
+  bool _restarting = false;
   String? _mode;
   String? _container;
   String? _subtitleDelivery;
@@ -285,6 +287,7 @@ class _WatchBodyState extends State<WatchBody>
 
   void _release() {
     _starts++;
+    _supersedeNegotiations();
     _heartbeat?.cancel();
     _heartbeat = null;
     _cancelCountdown();
@@ -346,6 +349,14 @@ class _WatchBodyState extends State<WatchBody>
 
   bool _superseded(int start) => !mounted || start != _starts;
 
+  void _supersedeNegotiations() {
+    _negotiation++;
+    _applyWatch?.cancel();
+    _applying = false;
+    _applySlow = false;
+    _restarting = false;
+  }
+
   void _warnProfileVersion(int reported) {
     if (_warnedProfile || profileVersionMatches(reported) || !mounted) {
       return;
@@ -385,13 +396,12 @@ class _WatchBodyState extends State<WatchBody>
       return false;
     }
     _session = session;
-    _startPositionMs = resume.positionMs;
-    _played = false;
+    _attachingAt(resume.positionMs);
     if (!_unloadBound) {
       _unloadBound = true;
       addUnloadListener(_endSessionBeacon);
     }
-    _negotiation++;
+    _supersedeNegotiations();
     _version = version;
     _versionFeed.value = version;
     _originMs = session.originMs;
@@ -683,9 +693,18 @@ class _WatchBodyState extends State<WatchBody>
   Future<void> _goToEpisode(EpisodeLink link) async {
     _cancelCountdown();
     final String route = await _episodeRoute(link);
-    if (mounted) {
-      await Navigator.of(context).pushReplacementNamed(route);
+    if (!mounted) {
+      return;
     }
+    final NavigatorState nav = Navigator.of(context);
+    final ModalRoute<dynamic>? page = ModalRoute.of(context);
+    if (page != null && !page.isCurrent) {
+      nav.popUntil((Route<dynamic> r) => r == page || r is! PopupRoute);
+      if (!page.isCurrent) {
+        return;
+      }
+    }
+    await nav.pushReplacementNamed(route);
   }
 
   Future<String> _episodeRoute(EpisodeLink link) async {
@@ -738,10 +757,17 @@ class _WatchBodyState extends State<WatchBody>
     fullMs: _fullDurationMs,
   );
 
+  int get _knownPositionMs => _played ? _view.positionMs : _startPositionMs;
+
+  void _attachingAt(int positionMs) {
+    _startPositionMs = positionMs;
+    _played = false;
+  }
+
   void _sendProgress(String state) {
     final String? sid = _session?.sessionId;
     if (sid != null) {
-      _pb.progress(sid, _played ? _view.positionMs : _startPositionMs, state);
+      _pb.progress(sid, _knownPositionMs, state);
     }
   }
 
@@ -776,7 +802,7 @@ class _WatchBodyState extends State<WatchBody>
     if (sid == null) {
       return;
     }
-    final int keepMs = seekMs ?? _view.positionMs;
+    final int keepMs = seekMs ?? _knownPositionMs;
     final int negotiation = ++_negotiation;
     final bool wasPlaying = _controller.snapshot.value.playing;
     _controller.pause();
@@ -791,7 +817,7 @@ class _WatchBodyState extends State<WatchBody>
       }
     });
     try {
-      final neg = await _pb.update(sid, next);
+      final neg = await _pb.update(sid, next, keepMs);
       if (!mounted || negotiation != _negotiation) {
         return;
       }
@@ -799,6 +825,7 @@ class _WatchBodyState extends State<WatchBody>
       _sequential = neg.sequential;
       _container = neg.container;
       _error = null;
+      _attachingAt(keepMs);
       await _controller.attach(
         neg.manifestUrl,
         mode: neg.mode,
@@ -1018,6 +1045,12 @@ class _WatchBodyState extends State<WatchBody>
     _reclaimKeys();
   }
 
+  Future<void> _showPlaybackLog() async {
+    _closePanel();
+    await showPlaybackLogDialog(context, _controller.log());
+    _reclaimKeys();
+  }
+
   void _stepEpisode(EpisodeLink? link) {
     if (link != null) {
       _goToEpisode(link);
@@ -1031,7 +1064,7 @@ class _WatchBodyState extends State<WatchBody>
     }
     final int target = toFraction != null
         ? (s.durationMs * toFraction).round()
-        : s.positionMs + deltaMs!;
+        : _knownPositionMs + deltaMs!;
     _seekTo(target.clamp(0, s.durationMs));
   }
 
@@ -1052,6 +1085,12 @@ class _WatchBodyState extends State<WatchBody>
   }
 
   void _seekTo(int targetMs) {
+    if (_applying || _restarting) {
+      return;
+    }
+    if (!_played) {
+      _startPositionMs = targetMs;
+    }
     if (_reachable(targetMs)) {
       _controller.seekTo(targetMs - _originMs);
       return;
@@ -1065,25 +1104,29 @@ class _WatchBodyState extends State<WatchBody>
       return;
     }
     final int negotiation = ++_negotiation;
+    setState(() => _restarting = true);
     try {
       final Negotiation neg = await _pb.seek(sid, targetMs);
-      if (negotiation != _negotiation) {
+      if (!mounted || negotiation != _negotiation) {
         return;
       }
       _originMs = neg.originMs;
       _sequential = neg.sequential;
       _container = neg.container;
       _error = null;
+      _attachingAt(targetMs);
       await _controller.attach(
         neg.manifestUrl,
         mode: neg.mode,
         subtitles: playerDrawsSubtitles(_subtitleDelivery),
         positionMs: _attachOffset(targetMs),
       );
+    } catch (_) {
+    } finally {
       if (mounted && negotiation == _negotiation) {
-        setState(() {});
+        setState(() => _restarting = false);
       }
-    } catch (_) {}
+    }
   }
 
   void _nudgeVolume(double by) {
@@ -1239,9 +1282,9 @@ class _WatchBodyState extends State<WatchBody>
       subtitleDelivery: _subtitleDelivery,
       pictureInPicture: _controller.supportsPictureInPicture ? pip : null,
       onPictureInPicture: _controller.togglePictureInPicture,
-      busy: _applying,
+      busy: _applying || _restarting,
       onControls: (PlaybackControls next) {
-        if (_applying) {
+        if (_applying || _restarting) {
           return;
         }
         _applyControls(next);
@@ -1261,6 +1304,7 @@ class _WatchBodyState extends State<WatchBody>
       waitForBuffer: _canBuffer ? _waitForBuffer : null,
       onWaitForBuffer: _canBuffer ? _changeWaitForBuffer : null,
       onShortcuts: widget.touch ? null : _showShortcuts,
+      onShowLog: _showPlaybackLog,
       onAddSubtitles: _admin == null ? null : _addSubtitles,
       openChoice: openChoice,
       onClose: _closePanel,

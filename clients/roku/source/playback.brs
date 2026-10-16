@@ -25,8 +25,10 @@ function SeekSessionRequest(base as string, token as string, sessionId as dynami
     return BuildRequest(base, SessionPath(sessionId) + "/seek", "POST", { position_ms: positionMs }, token)
 end function
 
-function UpdateSessionRequest(base as string, token as string, sessionId as dynamic, controls as dynamic) as object
-    return BuildRequest(base, SessionPath(sessionId) + "/update", "POST", ControlsUpdateBody(controls), token)
+function UpdateSessionRequest(base as string, token as string, sessionId as dynamic, controls as dynamic, positionMs as integer) as object
+    body = ControlsUpdateBody(controls)
+    body.position_ms = positionMs
+    return BuildRequest(base, SessionPath(sessionId) + "/update", "POST", body, token)
 end function
 
 function EndSessionRequest(base as string, token as string, sessionId as dynamic) as object
@@ -91,6 +93,12 @@ function TimelineMs(positionSeconds as dynamic, originMs as integer, sequential 
     if sequential then return originMs + at
 
     return at
+end function
+
+function KnownTimelineMs(painted as boolean, attachMs as integer, positionSeconds as dynamic, originMs as integer, sequential as boolean) as integer
+    if not painted then return attachMs
+
+    return TimelineMs(positionSeconds, originMs, sequential)
 end function
 
 function SegmentGraceMs() as integer
@@ -298,7 +306,69 @@ function YesOrNo(value as dynamic) as string
     return Phrase("state.no")
 end function
 
-function PlayerDiagnostics(session as dynamic, info as dynamic) as object
+function PlaybackLogLimit() as integer
+    return 100
+end function
+
+function LastEventLength() as integer
+    return 48
+end function
+
+function PlaybackClock(hours as integer, minutes as integer, seconds as integer) as string
+    return PadTwo(hours) + ":" + PadTwo(minutes) + ":" + PadTwo(seconds)
+end function
+
+function NowClock() as string
+    now = CreateObject("roDateTime")
+    now.ToLocalTime()
+    return PlaybackClock(now.GetHours(), now.GetMinutes(), now.GetSeconds())
+end function
+
+function SecondsText(value as float) as string
+    tenths = Int(value * 10 + 0.5)
+    return Int(tenths / 10).ToStr() + "." + (tenths MOD 10).ToStr()
+end function
+
+function PlaybackStateLine(clock as string, state as string, positionS as float, durationS as float, bufferPercent as integer) as string
+    duration = "?"
+    if durationS > 0 then duration = SecondsText(durationS)
+
+    line = clock + " " + state + " at " + SecondsText(positionS) + "/" + duration + " s"
+    if bufferPercent >= 0 then line = line + ", buffer " + bufferPercent.ToStr() + "%"
+    return line
+end function
+
+function PlaybackErrorLine(clock as string, code as integer, message as string, detail as string) as string
+    line = clock + " error [" + code.ToStr() + "] " + message
+    if not IsBlank(detail) then line = line + " (" + detail + ")"
+    return line
+end function
+
+function AppendPlaybackLog(lines as object, line as string) as object
+    lines.Push(line)
+    while lines.Count() > PlaybackLogLimit()
+        lines.Shift()
+    end while
+    return lines
+end function
+
+function ClipText(text as string, length as integer) as string
+    if Len(text) <= length then return text
+    return Left(text, length) + "…"
+end function
+
+function PlaybackLogText(lines as dynamic) as string
+    if type(lines) <> "roArray" or lines.Count() = 0 then return Phrase("player.playbackLogEmpty")
+
+    text = ""
+    for each line in lines
+        if text <> "" then text = text + Chr(10)
+        text = text + line
+    end for
+    return text
+end function
+
+function PlayerDiagnostics(session as dynamic, info as dynamic, lastEvent = "" as string) as object
     mode = TextOrBlank(ValueAt(session, "mode", ""))
     if IsBlank(mode) then mode = Phrase("status.unavailable")
 
@@ -318,7 +388,7 @@ function PlayerDiagnostics(session as dynamic, info as dynamic) as object
     origin = Phrase("diagnostics.fromStart")
     if ValueAt(session, "sequential", false) = true then origin = FormatDuration(Int(ValueAt(session, "originMs", 0)))
 
-    return [
+    rows = [
         { label: Phrase("diagnostics.mode"), values: [mode] },
         { label: Phrase("fact.container"), values: [container] },
         { label: Phrase("diagnostics.state"), values: [state] },
@@ -328,6 +398,8 @@ function PlayerDiagnostics(session as dynamic, info as dynamic) as object
         { label: Phrase("diagnostics.underrun"), values: [YesOrNo(ValueAt(info, "isUnderrun", false))] },
         { label: Phrase("diagnostics.startTime"), values: [start] }
     ]
+    if not IsBlank(lastEvent) then rows.Push({ label: Phrase("diagnostics.lastEvent"), values: [ClipText(lastEvent, LastEventLength())] })
+    return rows
 end function
 
 function VideoInfo(streamInfo as dynamic, buffering as dynamic, startSeconds as dynamic, state = "" as string) as object
@@ -861,7 +933,8 @@ function SettingsRows(controls as dynamic, flags as dynamic) as object
         { id: "delivery", label: Phrase("player.converting"), detail: DeliveryLabel(kept.delivery) },
         { id: "remaining", label: Phrase("player.timeDisplay"), detail: TimeDisplayLabel(ValueAt(flags, "remaining", false)) },
         { id: "autoplay", label: Phrase("player.autoplayNext"), detail: AutoplayLabel(ValueAt(flags, "autoplay", true), ValueAt(flags, "autoplayDelay", invalid)) },
-        { id: "diagnostics", label: Phrase("player.diagnostics"), detail: OnOrOff(ValueAt(flags, "diagnostics", false)) }
+        { id: "diagnostics", label: Phrase("player.diagnostics"), detail: OnOrOff(ValueAt(flags, "diagnostics", false)) },
+        { id: "playbackLog", label: Phrase("player.playbackLog"), detail: "" }
     ]
 end function
 

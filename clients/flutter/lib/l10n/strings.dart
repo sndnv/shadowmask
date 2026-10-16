@@ -399,6 +399,12 @@ abstract final class Strings {
   static const String playerDiagnosticsHelp =
       'Show technical detail about what is playing, on top of the video. '
       'Useful when reporting a problem with playback.';
+  static const String playerLog = 'Playback log';
+  static const String playerLogHelp =
+      'Everything the player noted since this video opened, each line with '
+      'its time. Useful when playback stops on its own.';
+  static const String playerLogShow = 'Show';
+  static const String playerLogEmpty = 'Nothing logged yet.';
   static const String playerAutoplayNext = 'Autoplay next';
   static const String playerAutoplayNextHelp =
       'Start the next episode when one finishes, at once or after a countdown '

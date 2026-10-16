@@ -10,6 +10,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'package:shadowmask/model/session/playback_mode.dart';
+import 'package:shadowmask/player/playback_log.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
@@ -56,7 +57,7 @@ class NativePlayerController implements PlayerController {
   late final StreamSubscription<String> _mpvErrors;
   late final StreamSubscription<PlayerLog> _logs;
   final StreamController<String> _errors = StreamController<String>.broadcast();
-  final List<String> _recentLogs = <String>[];
+  final PlaybackLog _log = PlaybackLog();
   late final _FullscreenListener _window = _FullscreenListener(
     (bool value) => _fullscreen.value = value,
   );
@@ -357,9 +358,12 @@ class NativePlayerController implements PlayerController {
       'frames: $_dropped dropped',
       'seekable: $_seekable  start: $_start',
       'net timeout: $_timeout',
-      ..._recentLogs,
+      ..._log.recent(),
     ]);
   }
+
+  @override
+  List<String> log() => _log.lines;
 
   @override
   Future<void> dispose() async {
@@ -391,16 +395,14 @@ class NativePlayerController implements PlayerController {
 
   void _onOutputFailure(String message) {
     _outputFailure = message;
+    _log.add(redactStreamTokens('video output failed: $message'));
     _onError(message);
   }
 
   void _onLog(PlayerLog log) {
-    _recentLogs.add(
+    _log.add(
       redactStreamTokens('${log.level[0]} ${log.prefix}: ${log.text.trim()}'),
     );
-    while (_recentLogs.length > 8) {
-      _recentLogs.removeAt(0);
-    }
     if (log.level == 'fatal') {
       _onError(log.text.trim());
     }

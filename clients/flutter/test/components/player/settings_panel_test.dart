@@ -546,6 +546,34 @@ void main() {
 
     expect(find.text(Strings.addSubtitles), findsNothing);
   });
+
+  testWidgets('the playback log sits under diagnostics and opens on Show', (
+    WidgetTester tester,
+  ) async {
+    int shown = 0;
+    await tester.pumpWidget(_settings(mode: 'hls', onShowLog: () => shown++));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text(Strings.playerLog)).dy,
+      greaterThan(tester.getTopLeft(find.text(Strings.playerDiagnostics)).dy),
+    );
+
+    await tester.ensureVisible(find.text(Strings.playerLogShow));
+    await tester.tap(find.text(Strings.playerLogShow));
+    await tester.pump();
+
+    expect(shown, 1);
+  });
+
+  testWidgets('no playback log row without a way to show it', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(_settings(mode: 'hls'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.playerLog), findsNothing);
+  });
 }
 
 Widget _subtitles({VoidCallback? onAddSubtitles}) => MaterialApp(
@@ -579,6 +607,7 @@ Widget _settings({
   ValueChanged<int>? onBufferBytes,
   bool? waitForBuffer,
   ValueChanged<bool>? onWaitForBuffer,
+  VoidCallback? onShowLog,
 }) => MaterialApp(
   theme: buildTheme(AppThemeVariant.dark),
   home: Scaffold(
@@ -598,6 +627,7 @@ Widget _settings({
         onBufferBytes: onBufferBytes,
         waitForBuffer: waitForBuffer,
         onWaitForBuffer: onWaitForBuffer,
+        onShowLog: onShowLog,
         onControls: onControls ?? (_) {},
         onSpeed: (_) {},
         onDiagnostics: (_) {},

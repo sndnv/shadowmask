@@ -199,6 +199,8 @@ function BuildStringTable() as object
         "player.previousEpisode": "Previous episode",
         "player.nextEpisode": "Next episode",
         "player.diagnostics": "Diagnostics",
+        "player.playbackLog": "Playback log",
+        "player.playbackLogEmpty": "Nothing logged yet.",
 
         "work.more": "More subtitles",
         "work.add": "Add…",
@@ -354,6 +356,7 @@ function BuildStringTable() as object
         "diagnostics.state": "State",
         "diagnostics.timeline": "Timeline",
         "diagnostics.fromStart": "From start",
+        "diagnostics.lastEvent": "Last event",
         "diagnostics.picture": "Largest picture",
         "diagnostics.hdr": "HDR",
         "diagnostics.containers": "Containers",

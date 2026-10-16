@@ -1067,6 +1067,14 @@ const sm = (() => {
     return hours > 0 ? hours + "h " + pad2(total % 60) + "m" : (total % 60) + "m";
   }
 
+  function clockText(ms) {
+    const seconds = Math.max(0, Math.floor(ms / 1000));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor(seconds / 60) % 60;
+    const tail = pad2(seconds % 60);
+    return hours > 0 ? hours + ":" + pad2(minutes) + ":" + tail : minutes + ":" + tail;
+  }
+
   const QUALITY_RANK = { sd: 0, hd: 1, fhd: 2, uhd: 3 };
 
   function orderedVersions(versions) {
@@ -1226,6 +1234,7 @@ const sm = (() => {
     pad2,
     gigabytes,
     durationText,
+    clockText,
     episodeCode,
     episodeLine,
     seriesEpisodeLine,

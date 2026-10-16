@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:web/web.dart' as web;
 
 import 'package:shadowmask/model/session/playback_mode.dart';
+import 'package:shadowmask/player/playback_log.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
@@ -52,6 +53,8 @@ extension type _HlsEvents._(JSObject _) implements JSObject {
   external String get manifestParsed;
   @JS('ERROR')
   external String get error;
+  @JS('BUFFER_EOS')
+  external String get bufferEos;
 }
 
 extension type _HlsErrorData._(JSObject _) implements JSObject {
@@ -108,12 +111,25 @@ class WebPlayerController implements PlayerController {
     _video.addEventListener('play', ((web.Event _) => _holdScreen(true)).toJS);
     _video.addEventListener(
       'pause',
-      ((web.Event _) => _holdScreen(false)).toJS,
+      ((web.Event _) {
+        _holdScreen(false);
+        _event('pause');
+      }).toJS,
     );
     _video.addEventListener(
       'ended',
-      ((web.Event _) => _holdScreen(false)).toJS,
+      ((web.Event _) {
+        _holdScreen(false);
+        _event('ended');
+      }).toJS,
     );
+    for (final String name in <String>[
+      'waiting',
+      'stalled',
+      'durationchange',
+    ]) {
+      _video.addEventListener(name, ((web.Event _) => _event(name)).toJS);
+    }
     _video.addEventListener('error', ((web.Event _) => _onVideoError()).toJS);
     _onVisibilityChange = ((web.Event _) {
       if (_awake && web.document.visibilityState == 'visible') {
@@ -138,7 +154,7 @@ class WebPlayerController implements PlayerController {
   double _rate = 1;
   PlaybackMode _mode = PlaybackMode.direct;
   final StreamController<String> _errors = StreamController<String>.broadcast();
-  final List<String> _recentErrors = <String>[];
+  final PlaybackLog _log = PlaybackLog();
   web.HTMLStyleElement? _cueStyle;
 
   final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
@@ -231,6 +247,10 @@ class WebPlayerController implements PlayerController {
           fatal: data.fatal,
         )).toJS,
       );
+      hls.on(
+        _Hls.events.bufferEos,
+        (() => _event('hls end of stream buffered')).toJS,
+      );
       return;
     }
     if (_video.canPlayType('application/vnd.apple.mpegurl').isNotEmpty) {
@@ -268,13 +288,26 @@ class WebPlayerController implements PlayerController {
 
   void _report(String message, {required bool fatal}) {
     final String text = redactStreamTokens(message);
-    _recentErrors.add(text);
-    while (_recentErrors.length > 8) {
-      _recentErrors.removeAt(0);
-    }
+    _log.add(text);
     if (fatal && !_errors.isClosed) {
       _errors.add(text);
     }
+  }
+
+  void _event(String name) {
+    final web.TimeRanges ranges = _video.buffered;
+    _log.add(
+      playbackEventLine(
+        name,
+        positionS: _video.currentTime,
+        durationS: _video.duration,
+        buffered: <(double, double)>[
+          for (int i = 0; i < ranges.length; i++)
+            (ranges.start(i), ranges.end(i)),
+        ],
+        hidden: web.document.visibilityState == 'hidden',
+      ),
+    );
   }
 
   void _seekOnReady(int positionMs, bool autoplay) {
@@ -495,9 +528,12 @@ class WebPlayerController implements PlayerController {
     lines.add(
       'frames: ${q.droppedVideoFrames} dropped / ${q.totalVideoFrames}',
     );
-    lines.addAll(_recentErrors);
+    lines.addAll(_log.recent());
     return PlayerDiagnostics(lines);
   }
+
+  @override
+  List<String> log() => _log.lines;
 
   void _teardownHls() {
     _hls?.destroy();
