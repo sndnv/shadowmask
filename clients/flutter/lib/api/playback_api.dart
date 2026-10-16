@@ -77,12 +77,15 @@ class PlaybackApi {
     Negotiation.fromJson,
   );
 
-  Future<Negotiation> update(String sessionId, PlaybackControls controls) =>
-      _api.postJson(
-        '/api/v1/sessions/${_enc(sessionId)}/update',
-        controls.toUpdateBody(),
-        Negotiation.fromJson,
-      );
+  Future<Negotiation> update(
+    String sessionId,
+    PlaybackControls controls,
+    int positionMs,
+  ) => _api.postJson(
+    '/api/v1/sessions/${_enc(sessionId)}/update',
+    <String, dynamic>{...controls.toUpdateBody(), 'position_ms': positionMs},
+    Negotiation.fromJson,
+  );
 
   Future<Uint8List> trickplaySheet(String versionId, int sheet) =>
       _api.bytes('/api/v1/trickplay/${_enc(versionId)}/$sheet');

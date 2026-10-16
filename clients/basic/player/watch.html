@@ -12,8 +12,16 @@
       <h1 class="sm-visually-hidden">Watch</h1>
       <p id="back"></p>
       <div class="sm-player">
-        <video id="player" controls playsinline width="960"></video>
+        <video id="player" playsinline width="960"></video>
         <pre id="diag" class="sm-diag" hidden></pre>
+        <div class="sm-bar">
+          <button type="button" id="play" class="sm-secondary">Play</button>
+          <input type="range" id="scrub" min="0" max="0" step="1000" value="0" aria-label="Position" disabled />
+          <span id="clock" class="sm-clock">0:00 / 0:00</span>
+          <button type="button" id="mute" class="sm-secondary">Mute</button>
+          <input type="range" id="volume" min="0" max="1" step="0.05" value="1" aria-label="Volume" />
+          <button type="button" id="fullscreen" class="sm-secondary">Fullscreen</button>
+        </div>
       </div>
       <div id="controls"></div>
       <p id="status" aria-live="polite">Loading&hellip;</p>
@@ -39,11 +47,18 @@
       let selAudio = null;
       let selSub = "";
       let selOffset = 0;
-      let resumeMs = 0;
+      let pendingMs = null;
+      let readyHandler = null;
       let originMs = 0;
       let sequential = false;
+      let starting = true;
       let applying = false;
       let restarting = false;
+      let scrubbing = false;
+      let heldMs = 0;
+      let reachMs = 0;
+      let nativeSeekTimer = null;
+      let busyFocus = null;
       let playbackRate = 1;
       const networkTimeouts = [10, 30, 60, 90];
       const deliveryModes = ["auto", "never", "always"];
@@ -113,7 +128,6 @@
             .json("/api/v1/users/" + encodeURIComponent(uid) + "/progress/" + encodeURIComponent(versionId))
             .catch(() => null);
           const startPos = resume && resume.position_ms ? resume.position_ms : 0;
-          resumeMs = startPos;
           session = await sm.json("/api/v1/sessions", {
             method: "POST",
             body: JSON.stringify(
@@ -128,19 +142,26 @@
             ),
           });
           window.addEventListener("pagehide", endSession);
+          window.addEventListener("pageshow", (e) => {
+            if (e.persisted && ended) location.reload();
+          });
           originMs = session.origin_ms || 0;
           sequential = session.sequential === true;
           status.textContent = modeLine(session);
           await attach(session.manifest_url, session.mode, startPos - originMs);
-          wireSequentialSeeks();
+          wireBar();
           startHeartbeat(session.heartbeat_interval_s || 10);
           wirePlaybackProgress();
           wireScreenLock();
           await buildControls();
+          renderBar();
           await applyInitialParams();
         } catch (err) {
           if (!heartbeatTimer) endSession();
           status.textContent = "Could not start playback (" + err.message + ").";
+        } finally {
+          starting = false;
+          document.getElementById("scrub").disabled = !session || ended;
         }
       }
 
@@ -162,6 +183,9 @@
 
       async function attach(url, mode, positionMs) {
         const video = document.getElementById("player");
+        pendingMs = originMs + positionMs;
+        if (readyHandler) video.removeEventListener("loadedmetadata", readyHandler);
+        readyHandler = null;
         teardownHls();
         if (mode === "direct") {
           video.src = url;
@@ -178,9 +202,11 @@
           hls.loadSource(url);
           hls.attachMedia(video);
           hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
-            if (positionMs) video.currentTime = positionMs / 1000;
+            if (positionMs) seekLocal(video, positionMs);
+            pendingMs = null;
             autostart(video);
           });
+          hls.on(window.Hls.Events.FRAG_BUFFERED, renderBar);
           return;
         }
         if (video.canPlayType("application/vnd.apple.mpegurl")) {
@@ -194,29 +220,166 @@
       }
 
       function seekOnReady(video, positionMs) {
-        const handler = () => {
-          if (positionMs) video.currentTime = positionMs / 1000;
+        readyHandler = () => {
+          readyHandler = null;
+          if (positionMs) seekLocal(video, positionMs);
+          pendingMs = null;
           autostart(video);
-          video.removeEventListener("loadedmetadata", handler);
         };
-        video.addEventListener("loadedmetadata", handler);
+        video.addEventListener("loadedmetadata", readyHandler, { once: true });
       }
 
-      function wireSequentialSeeks() {
-        if (!sequential) return;
+      function titleMs(video) {
+        if (pendingMs != null) return pendingMs;
+        return originMs + Math.floor(video.currentTime * 1000);
+      }
+
+      function fullMs(video) {
+        const known = versionDetail && versionDetail.duration_ms;
+        if (known > 0) return known;
+        return Number.isFinite(video.duration) ? originMs + Math.floor(video.duration * 1000) : 0;
+      }
+
+      function producedMs(video) {
+        return Math.floor((video.currentTime + bufferedAhead(video)) * 1000) + 30000;
+      }
+
+      function seekLocal(video, localMs) {
+        reachMs = Math.max(producedMs(video), localMs);
+        video.currentTime = localMs / 1000;
+      }
+
+      function seekTimeline(targetMs) {
         const video = document.getElementById("player");
+        if (!sequential) {
+          seekLocal(video, targetMs);
+          return;
+        }
+        const local = targetMs - originMs;
+        if (local >= 0 && local <= producedMs(video)) {
+          seekLocal(video, local);
+          return;
+        }
+        restartAt(targetMs);
+      }
+
+      function renderBar() {
+        const video = document.getElementById("player");
+        const scrub = document.getElementById("scrub");
+        const total = fullMs(video);
+        const playing = restarting ? heldMs : titleMs(video);
+        const at = scrubbing ? parseInt(scrub.value, 10) : Math.min(playing, total || Infinity);
+        if (!video.seeking) reachMs = producedMs(video);
+        scrub.max = String(total);
+        if (!scrubbing) scrub.value = String(at);
+        scrub.setAttribute("aria-valuetext", sm.clockText(at) + " of " + sm.clockText(total));
+        document.getElementById("clock").textContent = sm.clockText(at) + " / " + sm.clockText(total);
+        document.getElementById("play").textContent = video.paused ? "Play" : "Pause";
+      }
+
+      function renderVolume() {
+        const video = document.getElementById("player");
+        const silent = video.muted || video.volume === 0;
+        document.getElementById("mute").textContent = silent ? "Unmute" : "Mute";
+        document.getElementById("volume").value = String(silent ? 0 : video.volume);
+      }
+
+      function togglePlay() {
+        if (applying || restarting) return;
+        const video = document.getElementById("player");
+        if (video.ended && sequential && originMs > 0) {
+          restartAt(0);
+          return;
+        }
+        if (video.paused) {
+          video.play().catch(() => {});
+          return;
+        }
+        video.pause();
+      }
+
+      function toggleFullscreen() {
+        const box = document.querySelector(".sm-player");
+        const video = document.getElementById("player");
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+          return;
+        }
+        if (box.requestFullscreen) {
+          box.requestFullscreen().catch(() => {});
+          return;
+        }
+        if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+      }
+
+      function volumeSettable(video) {
+        const kept = video.volume;
+        video.volume = kept === 0.5 ? 0.25 : 0.5;
+        const settable = video.volume !== kept;
+        video.volume = kept;
+        return settable;
+      }
+
+      function wireBar() {
+        const video = document.getElementById("player");
+        const box = document.querySelector(".sm-player");
+        const scrub = document.getElementById("scrub");
+        const volume = document.getElementById("volume");
+        const fullscreen = document.getElementById("fullscreen");
+        for (const name of ["timeupdate", "durationchange", "loadedmetadata", "play", "pause", "ended", "emptied", "progress"]) {
+          video.addEventListener(name, renderBar);
+        }
         video.addEventListener("seeking", () => {
-          if (restarting || ended) return;
-          const target = Math.floor(video.currentTime * 1000);
-          const produced = Math.floor((video.currentTime + bufferedAhead(video)) * 1000) + 30000;
-          if (target <= produced) return;
-          restartAt(originMs + target);
+          if (!sequential || restarting || applying) return;
+          clearTimeout(nativeSeekTimer);
+          const local = Math.floor(video.currentTime * 1000);
+          if (local <= reachMs) return;
+          const target = originMs + local;
+          nativeSeekTimer = setTimeout(() => restartAt(target), 300);
         });
+        video.addEventListener("volumechange", renderVolume);
+        video.addEventListener("click", togglePlay);
+        document.getElementById("play").addEventListener("click", togglePlay);
+        scrub.addEventListener("input", () => {
+          scrubbing = true;
+          renderBar();
+        });
+        scrub.addEventListener("change", () => {
+          scrubbing = false;
+          seekTimeline(parseInt(scrub.value, 10));
+        });
+        const settle = () =>
+          setTimeout(() => {
+            if (!scrubbing) return;
+            scrubbing = false;
+            renderBar();
+          }, 0);
+        document.addEventListener("pointerup", settle);
+        document.addEventListener("pointercancel", settle);
+        document.getElementById("mute").addEventListener("click", () => {
+          video.muted = !video.muted;
+          if (!video.muted && video.volume === 0) video.volume = 1;
+        });
+        volume.hidden = !volumeSettable(video);
+        volume.addEventListener("input", () => {
+          video.volume = parseFloat(volume.value);
+          video.muted = video.volume === 0;
+        });
+        fullscreen.hidden = !box.requestFullscreen && !video.webkitEnterFullscreen;
+        fullscreen.addEventListener("click", toggleFullscreen);
+        document.addEventListener("fullscreenchange", () => {
+          fullscreen.textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen";
+        });
+        renderBar();
+        renderVolume();
       }
 
       async function restartAt(timelineMs) {
-        if (!session || restarting) return;
+        if (!session || ended || starting || restarting || applying) return;
         restarting = true;
+        setControlsBusy(true);
+        heldMs = timelineMs;
+        renderBar();
         try {
           const r = await sm.json(
             "/api/v1/sessions/" + encodeURIComponent(session.session_id) + "/seek",
@@ -231,6 +394,8 @@
           document.getElementById("status").textContent = "Could not seek there (" + err.message + ").";
         } finally {
           restarting = false;
+          setControlsBusy(false);
+          renderBar();
         }
       }
 
@@ -249,7 +414,7 @@
           .api("/api/v1/sessions/" + encodeURIComponent(session.session_id) + "/progress", {
             method: "POST",
             body: JSON.stringify({
-              position_ms: originMs + Math.floor(video.currentTime * 1000),
+              position_ms: titleMs(video),
               state,
             }),
           })
@@ -420,17 +585,17 @@
         if (track) {
           extra.subtitle = { action: "set", track, offset_ms: selOffset || null };
         }
-        const video = document.getElementById("player");
-        const resumePos = Math.max(resumeMs, originMs + Math.floor(video.currentTime * 1000));
-        await sendUpdate(extra, resumePos);
+        await sendUpdate(extra);
       }
 
       function setControlsBusy(busy) {
         const root = document.getElementById("controls");
         if (!root) return;
         root.setAttribute("aria-busy", busy ? "true" : "false");
-        for (const el of root.querySelectorAll("select, input, button")) {
+        const bar = [document.getElementById("play"), document.getElementById("scrub")];
+        for (const el of [...root.querySelectorAll("select, input, button"), ...bar]) {
           if (busy) {
+            if (el === document.activeElement) busyFocus = el;
             el.dataset.wasDisabled = el.disabled ? "1" : "";
             el.disabled = true;
           } else if (el.dataset.wasDisabled !== undefined) {
@@ -438,13 +603,17 @@
             delete el.dataset.wasDisabled;
           }
         }
+        if (!busy && busyFocus) {
+          const now = document.activeElement;
+          if (!now || now === document.body || now === busyFocus) busyFocus.focus({ preventScroll: true });
+          busyFocus = null;
+        }
       }
 
       async function renegotiate(suffix, body, forcedPositionMs) {
-        if (!session || ended || applying) return;
+        if (!session || ended || applying || restarting) return;
         const video = document.getElementById("player");
-        const keepPos =
-          forcedPositionMs != null ? forcedPositionMs : originMs + Math.floor(video.currentTime * 1000);
+        const keepPos = forcedPositionMs != null ? forcedPositionMs : titleMs(video);
         const wasPlaying = !video.paused;
         video.pause();
         applying = true;
@@ -453,7 +622,7 @@
         try {
           const r = await sm.json(
             "/api/v1/sessions/" + encodeURIComponent(session.session_id) + suffix,
-            { method: "POST", body: JSON.stringify(body) },
+            { method: "POST", body: JSON.stringify(Object.assign({}, body, { position_ms: keepPos })) },
           );
           session.manifest_url = r.manifest_url;
           session.mode = r.mode;
@@ -628,7 +797,7 @@
             } catch (_) {}
             if (!session) return;
             const video = document.getElementById("player");
-            attach(session.manifest_url, session.mode, Math.floor(video.currentTime * 1000));
+            attach(session.manifest_url, session.mode, titleMs(video) - originMs);
           });
           rowMid.appendChild(sm.el("label", null, ["Timeout ", select]));
         }

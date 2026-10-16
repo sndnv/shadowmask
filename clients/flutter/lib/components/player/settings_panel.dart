@@ -165,6 +165,7 @@ class PlayerSettingsPanel extends StatefulWidget {
     this.waitForBuffer,
     this.onWaitForBuffer,
     this.onShortcuts,
+    this.onShowLog,
     this.onAddSubtitles,
     this.openChoice,
     this.dense = false,
@@ -194,6 +195,7 @@ class PlayerSettingsPanel extends StatefulWidget {
   final bool? waitForBuffer;
   final ValueChanged<bool>? onWaitForBuffer;
   final VoidCallback? onShortcuts;
+  final VoidCallback? onShowLog;
   final VoidCallback? onAddSubtitles;
   final ChoiceOpener? openChoice;
   final ValueChanged<PlaybackControls> onControls;
@@ -509,6 +511,18 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
             setState(() => _diag = value);
             widget.onDiagnostics(value);
           }, help: Strings.playerDiagnosticsHelp),
+          if (widget.onShowLog != null)
+            _row(
+              Strings.playerLog,
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: widget.onShowLog,
+                  child: const Text(Strings.playerLogShow),
+                ),
+              ),
+              help: Strings.playerLogHelp,
+            ),
           if (widget.mode != null)
             _row(
               Strings.playerModeLabel,

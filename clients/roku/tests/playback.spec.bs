@@ -134,6 +134,20 @@ namespace tests
             m.assertEqual(TimelineMs(-1.0, 0, false), 0)
         end sub
 
+        @describe("KnownTimelineMs")
+
+        @it("reports where the stream was attached until it has played")
+        sub attachedUntilPlayed()
+            m.assertEqual(KnownTimelineMs(false, 2400000, 0.0, 0, false), 2400000)
+            m.assertEqual(KnownTimelineMs(false, 2400000, 0.0, 2398000, true), 2400000)
+        end sub
+
+        @it("reports the player's position once it has played")
+        sub playerOncePlayed()
+            m.assertEqual(KnownTimelineMs(true, 2400000, 30.0, 0, false), 30000)
+            m.assertEqual(KnownTimelineMs(true, 2400000, 30.0, 2398000, true), 2428000)
+        end sub
+
         @describe("IsReplayKey")
 
         @it("answers to the name the firmware sends for the instant replay button")
@@ -528,6 +542,62 @@ namespace tests
             m.assertEqual(rows[2].values[0], Phrase("status.unavailable"))
             m.assertEqual(rows[4].values[0], Phrase("status.unavailable"))
             m.assertEqual(rows[7].values[0], Phrase("status.unavailable"))
+            m.assertEqual(rows.Count(), 8)
+        end sub
+
+        @it("shows the newest log line, cut short, as the last event")
+        sub showsTheLastEvent()
+            line = "09:49:52 finished at 231.4/596.0 s, buffer 100%, and then some more text"
+            rows = PlayerDiagnostics({ mode: "transcode" }, VideoInfo(invalid, invalid, 0), line)
+
+            m.assertEqual(rows.Count(), 9)
+            m.assertEqual(rows[8].label, Phrase("diagnostics.lastEvent"))
+            m.assertEqual(rows[8].values[0], Left(line, LastEventLength()) + "…")
+        end sub
+
+        @describe("the playback log")
+
+        @it("stamps each line with the local time")
+        sub stampsTheTime()
+            m.assertEqual(PlaybackClock(9, 5, 3), "09:05:03")
+            m.assertEqual(PlaybackClock(23, 59, 0), "23:59:00")
+        end sub
+
+        @it("names the state, the position, the duration and the buffer")
+        sub describesAState()
+            m.assertEqual(PlaybackStateLine("09:49:52", "finished", 231.44, 596.0, 100), "09:49:52 finished at 231.4/596.0 s, buffer 100%")
+            m.assertEqual(PlaybackStateLine("09:49:50", "buffering", 0, 0, -1), "09:49:50 buffering at 0.0/? s")
+        end sub
+
+        @it("names an error by its code, message and detail")
+        sub describesAnError()
+            m.assertEqual(PlaybackErrorLine("09:49:52", -3, "Unable to load", "manifest 404"), "09:49:52 error [-3] Unable to load (manifest 404)")
+            m.assertEqual(PlaybackErrorLine("09:49:52", -5, "Unsupported", ""), "09:49:52 error [-5] Unsupported")
+        end sub
+
+        @it("keeps the newest hundred lines")
+        sub keepsTheNewestLines()
+            m.assertEqual(PlaybackLogLimit(), 100)
+            lines = []
+            for i = 0 to PlaybackLogLimit()
+                AppendPlaybackLog(lines, "line " + i.ToStr())
+            end for
+
+            m.assertEqual(lines.Count(), PlaybackLogLimit())
+            m.assertEqual(lines[0], "line 1")
+            m.assertEqual(lines[lines.Count() - 1], "line " + PlaybackLogLimit().ToStr())
+        end sub
+
+        @it("joins the lines for the dialog and says when there are none")
+        sub joinsTheLines()
+            m.assertEqual(PlaybackLogText(["a", "b"]), "a" + Chr(10) + "b")
+            m.assertEqual(PlaybackLogText([]), Phrase("player.playbackLogEmpty"))
+        end sub
+
+        @it("cuts a long line and keeps a short one")
+        sub clipsLines()
+            m.assertEqual(ClipText("short", 10), "short")
+            m.assertEqual(ClipText("abcdefghij", 4), "abcd…")
         end sub
 
         @describe("FormatKbps")
@@ -648,6 +718,8 @@ namespace tests
             m.assertEqual(rows[2].detail, Phrase("state.off"))
             m.assertEqual(rows[3].label, Phrase("player.diagnostics"))
             m.assertEqual(rows[3].detail, Phrase("state.off"))
+            m.assertEqual(rows[4].id, "playbackLog")
+            m.assertEqual(rows[4].label, Phrase("player.playbackLog"))
         end sub
 
         @it("folds the delay into the autoplay row when autoplay is on")
@@ -1144,8 +1216,10 @@ namespace tests
             m.assertEqual(seek.url, "http://host/api/v1/sessions/s1/seek")
             m.assertEqual(ParseJson(seek.body).position_ms, 60000)
 
-            update = UpdateSessionRequest("http://host", "t", "s1", DefaultControls())
+            update = UpdateSessionRequest("http://host", "t", "s1", DefaultControls(), 5000)
             m.assertEqual(update.url, "http://host/api/v1/sessions/s1/update")
+            m.assertEqual(ParseJson(update.body).position_ms, 5000)
+            m.assertEqual(ParseJson(update.body).delivery, "auto")
 
             ended = EndSessionRequest("http://host", "t", "s1")
             m.assertEqual(ended.url, "http://host/api/v1/sessions/s1")

@@ -56,6 +56,7 @@ abstract class PlayerController {
   bool get buffersAhead;
   void toggleFullscreen();
   PlayerDiagnostics diagnostics();
+  List<String> log();
   Future<void> dispose();
 }
 
