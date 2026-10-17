@@ -43,9 +43,19 @@ extension type _HlsConfig._(JSObject _) implements JSObject {
   external set maxBufferLength(int value);
   external set maxMaxBufferLength(int value);
   external set maxBufferSize(int value);
-  external set manifestLoadingTimeOut(int value);
-  external set levelLoadingTimeOut(int value);
-  external set fragLoadingTimeOut(int value);
+  external _HlsLoadPolicy get manifestLoadPolicy;
+  external _HlsLoadPolicy get playlistLoadPolicy;
+  external _HlsLoadPolicy get fragLoadPolicy;
+}
+
+extension type _HlsLoadPolicy._(JSObject _) implements JSObject {
+  @JS('default')
+  external _HlsLoaderPolicy get defaults;
+}
+
+extension type _HlsLoaderPolicy._(JSObject _) implements JSObject {
+  external set maxTimeToFirstByteMs(int value);
+  external set maxLoadTimeMs(int value);
 }
 
 extension type _HlsEvents._(JSObject _) implements JSObject {
@@ -499,10 +509,16 @@ class WebPlayerController implements PlayerController {
     if (hls == null) {
       return;
     }
-    hls.config
-      ..manifestLoadingTimeOut = seconds * 1000
-      ..levelLoadingTimeOut = seconds * 1000
-      ..fragLoadingTimeOut = seconds * 1000;
+    final _HlsConfig config = hls.config;
+    for (final _HlsLoadPolicy policy in <_HlsLoadPolicy>[
+      config.manifestLoadPolicy,
+      config.playlistLoadPolicy,
+      config.fragLoadPolicy,
+    ]) {
+      policy.defaults
+        ..maxTimeToFirstByteMs = seconds * 1000
+        ..maxLoadTimeMs = seconds * 1000;
+    }
   }
 
   @override
