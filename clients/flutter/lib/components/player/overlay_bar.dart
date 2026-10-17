@@ -47,7 +47,7 @@ class OverlayBar extends StatelessWidget {
   final bool muted;
   final double volume;
   final bool remaining;
-  final VoidCallback onPlayPause;
+  final VoidCallback? onPlayPause;
   final ValueChanged<PlayerPanel> onOpenPanel;
   final VoidCallback onToggleFullscreen;
   final VoidCallback? onToggleWide;

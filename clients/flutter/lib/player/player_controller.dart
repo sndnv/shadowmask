@@ -63,6 +63,11 @@ abstract class PlayerController {
 const int kDefaultBufferBytes = 256 * 1024 * 1024;
 const int kDefaultBufferSeconds = 60;
 const int kDefaultNetworkTimeoutSeconds = 10;
+const int kSeekReachMs = 30000;
+const int kSeekSettleMs = 1000;
+const int kSeekSettleWaitMs = 2000;
+
+bool playerDrawsSubtitles(String? delivery) => delivery == 'hls_vtt';
 
 typedef PlayerControllerFactory = PlayerController Function(String baseUrl);
 

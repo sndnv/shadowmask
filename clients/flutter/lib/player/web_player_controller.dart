@@ -147,6 +147,8 @@ class WebPlayerController implements PlayerController {
   web.WakeLockSentinel? _screen;
   bool _awake = false;
   _Hls? _hls;
+  JSFunction? _onReady;
+  Completer<void>? _attaching;
   int _bufferSeconds = kDefaultBufferSeconds;
   int _bufferBytes = kDefaultBufferBytes;
   int _networkTimeoutSeconds = kDefaultNetworkTimeoutSeconds;
@@ -205,14 +207,23 @@ class WebPlayerController implements PlayerController {
     required bool subtitles,
     int positionMs = 0,
     bool autoplay = true,
-  }) async {
+  }) {
     _mode = mode;
+    _dropReady();
+    _settle('superseded by another stream');
     _teardownHls();
     _startTimer();
+    final Completer<void> attached = Completer<void>();
+    _attaching = attached;
+    _load(manifestUrl, positionMs, autoplay);
+    return attached.future;
+  }
+
+  void _load(String manifestUrl, int positionMs, bool autoplay) {
     final String url = manifestUrl.startsWith('http')
         ? manifestUrl
         : '$_baseUrl$manifestUrl';
-    if (mode == PlaybackMode.direct) {
+    if (_mode == PlaybackMode.direct) {
       _video.src = url;
       _seekOnReady(positionMs, autoplay);
       return;
@@ -233,12 +244,7 @@ class WebPlayerController implements PlayerController {
       hls.attachMedia(_video);
       hls.on(
         _Hls.events.manifestParsed,
-        (() {
-          if (positionMs > 0) {
-            _video.currentTime = positionMs / 1000;
-          }
-          _resume(autoplay);
-        }).toJS,
+        (() => _ready(positionMs, autoplay)).toJS,
       );
       hls.on(
         _Hls.events.error,
@@ -289,8 +295,33 @@ class WebPlayerController implements PlayerController {
   void _report(String message, {required bool fatal}) {
     final String text = redactStreamTokens(message);
     _log.add(text);
-    if (fatal && !_errors.isClosed) {
+    if (!fatal) {
+      return;
+    }
+    _settle(text);
+    if (!_errors.isClosed) {
       _errors.add(text);
+    }
+  }
+
+  void _settle([String? failure]) {
+    final Completer<void>? pending = _attaching;
+    _attaching = null;
+    if (pending == null) {
+      return;
+    }
+    if (failure == null) {
+      pending.complete();
+    } else {
+      pending.completeError(Exception(failure));
+    }
+  }
+
+  void _dropReady() {
+    final JSFunction? ready = _onReady;
+    _onReady = null;
+    if (ready != null) {
+      _video.removeEventListener('loadedmetadata', ready);
     }
   }
 
@@ -311,15 +342,20 @@ class WebPlayerController implements PlayerController {
   }
 
   void _seekOnReady(int positionMs, bool autoplay) {
-    late final JSFunction handler;
-    handler = ((web.Event _) {
-      if (positionMs > 0) {
-        _video.currentTime = positionMs / 1000;
-      }
-      _resume(autoplay);
-      _video.removeEventListener('loadedmetadata', handler);
+    final JSFunction ready = ((web.Event _) {
+      _dropReady();
+      _ready(positionMs, autoplay);
     }).toJS;
-    _video.addEventListener('loadedmetadata', handler);
+    _onReady = ready;
+    _video.addEventListener('loadedmetadata', ready);
+  }
+
+  void _ready(int positionMs, bool autoplay) {
+    if (positionMs > 0) {
+      _video.currentTime = positionMs / 1000;
+    }
+    _resume(autoplay);
+    _settle();
   }
 
   Future<void> _resume(bool autoplay) async {
@@ -417,6 +453,8 @@ class WebPlayerController implements PlayerController {
 
   @override
   Future<void> detach() async {
+    _dropReady();
+    _settle('detached');
     _teardownHls();
     _timer?.cancel();
     _timer = null;
@@ -575,6 +613,8 @@ class WebPlayerController implements PlayerController {
 
   @override
   Future<void> dispose() async {
+    _dropReady();
+    _settle('disposed');
     _timer?.cancel();
     _timer = null;
     web.document.removeEventListener('fullscreenchange', _onFullscreenChange);

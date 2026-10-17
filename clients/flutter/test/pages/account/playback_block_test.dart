@@ -146,7 +146,7 @@ void main() {
 
     expect(find.text(Strings.playerAutoplayImmediately), findsOneWidget);
     expect(
-      (await const PlayerPrefsStore().load()).autoplaySeconds,
+      (await const PlayerPrefsStore().load()).autoplayNextS,
       kAutoplayImmediately,
     );
   });
@@ -163,7 +163,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      (await const PlayerPrefsStore().load()).autoplaySeconds,
+      (await const PlayerPrefsStore().load()).autoplayNextS,
       0,
       reason: 'the player reads the same store on its next launch',
     );
@@ -188,7 +188,7 @@ void main() {
 
     expect(find.text(Strings.toastSettingSaved), findsOneWidget);
     expect(
-      (await const PlayerPrefsStore().load()).delivery,
+      (await const PlayerPrefsStore().load()).defaultDelivery,
       DeliveryPreference.always,
     );
   });

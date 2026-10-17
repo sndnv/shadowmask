@@ -5,6 +5,7 @@ import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/nav/nav_section.dart';
 import 'package:shadowmask/player/player_controller.dart';
+import 'package:shadowmask/player/state/local_settings.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -43,8 +44,8 @@ class _WatchPageState extends State<WatchPage> {
   }
 
   Future<void> _restoreWide() async {
-    final PlayerPrefs prefs = await _prefs.load().catchError(
-      (_) => kDefaultPlayerPrefs,
+    final LocalSettings prefs = await _prefs.load().catchError(
+      (_) => const LocalSettings(),
     );
     if (mounted && prefs.wide != _wide) {
       setState(() => _wide = prefs.wide);

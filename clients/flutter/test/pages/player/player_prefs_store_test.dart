@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/player/player_prefs_store.dart';
+import 'package:shadowmask/player/state/local_settings.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,18 +16,18 @@ void main() {
     () async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
 
-      expect((await store.load()).autoplaySeconds, 10);
+      expect((await store.load()).autoplayNextS, 10);
     },
   );
 
   test('converting starts on Auto and a chosen default survives', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
 
-    expect((await store.load()).delivery, DeliveryPreference.auto);
+    expect((await store.load()).defaultDelivery, DeliveryPreference.auto);
 
     await store.saveDelivery(DeliveryPreference.always);
 
-    expect((await store.load()).delivery, DeliveryPreference.always);
+    expect((await store.load()).defaultDelivery, DeliveryPreference.always);
   });
 
   test(
@@ -55,7 +56,7 @@ void main() {
       'shadowmask.player.delivery': 'sometimes',
     });
 
-    expect((await store.load()).delivery, DeliveryPreference.auto);
+    expect((await store.load()).defaultDelivery, DeliveryPreference.auto);
   });
 
   test('a chosen delay survives a reload', () async {
@@ -63,7 +64,7 @@ void main() {
 
     await store.saveAutoplaySeconds(30);
 
-    expect((await store.load()).autoplaySeconds, 30);
+    expect((await store.load()).autoplayNextS, 30);
   });
 
   test('off is a real choice, not a missing one', () async {
@@ -72,7 +73,7 @@ void main() {
     await store.saveAutoplaySeconds(0);
 
     expect(
-      (await store.load()).autoplaySeconds,
+      (await store.load()).autoplayNextS,
       0,
       reason: 'zero has to survive, or opting out would silently revert to on',
     );
@@ -83,7 +84,7 @@ void main() {
 
     await store.saveAutoplaySeconds(kAutoplayImmediately);
 
-    expect((await store.load()).autoplaySeconds, kAutoplayImmediately);
+    expect((await store.load()).autoplayNextS, kAutoplayImmediately);
     expect(kAutoplayImmediately, isNot(kAutoplayOff));
   });
 
@@ -102,7 +103,7 @@ void main() {
     });
 
     expect(
-      (await store.load()).autoplaySeconds,
+      (await store.load()).autoplayNextS,
       10,
       reason:
           'a stored value outside kAutoplayDelays would not match any '
@@ -110,12 +111,29 @@ void main() {
     );
   });
 
+  test(
+    'a first launch starts unmuted, windowed and with nothing extra on',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+
+      final LocalSettings first = await store.load();
+
+      expect(first.volume, 1);
+      expect(first.muted, isFalse);
+      expect(first.mutedByPolicy, isFalse);
+      expect(first.fullscreen, isFalse);
+      expect(first.pictureInPicture, isFalse);
+      expect(first.remaining, isFalse);
+      expect(first.diagnostics, isFalse);
+    },
+  );
+
   test('the other player preferences still round-trip', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
 
     await store.saveVolume(0.5);
     await store.saveRemaining(true);
-    final PlayerPrefs prefs = await store.load();
+    final LocalSettings prefs = await store.load();
 
     expect(prefs.volume, 0.5);
     expect(prefs.remaining, isTrue);
@@ -126,7 +144,7 @@ void main() {
 
     await store.saveVolume(0.4);
     await store.saveMuted(true);
-    final PlayerPrefs prefs = await store.load();
+    final LocalSettings prefs = await store.load();
 
     expect(
       prefs.muted,
@@ -155,11 +173,11 @@ void main() {
   test('the buffer target starts at a minute and survives a reload', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
 
-    expect((await store.load()).bufferSeconds, 60);
+    expect((await store.load()).bufferS, 60);
 
     await store.saveBufferSeconds(300);
 
-    expect((await store.load()).bufferSeconds, 300);
+    expect((await store.load()).bufferS, 300);
   });
 
   test('a buffer target that is no longer offered falls back', () async {
@@ -168,7 +186,7 @@ void main() {
     });
 
     expect(
-      (await store.load()).bufferSeconds,
+      (await store.load()).bufferS,
       60,
       reason:
           'the dropdown throws on a value it cannot show, so a target outside '
@@ -206,5 +224,53 @@ void main() {
     await store.saveWaitForBuffer(true);
 
     expect((await store.load()).waitForBuffer, isTrue);
+  });
+
+  test('a change saves the player settings that changed and leaves the '
+      'wide screen and the converting default to their owners', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'shadowmask.player.wide': true,
+      'shadowmask.player.delivery': 'never',
+    });
+    final LocalSettings was = await store.load();
+    final LocalSettings now = was.copyWith(
+      speed: 2,
+      volume: 0.5,
+      muted: true,
+      remaining: true,
+      diagnostics: true,
+      autoplayNextS: 30,
+      networkTimeoutS: 60,
+      bufferS: 300,
+      bufferBytes: 1024 * 1024 * 1024,
+      waitForBuffer: true,
+      subtitleSize: SubtitleSize.large,
+      wide: false,
+      defaultDelivery: DeliveryPreference.always,
+    );
+
+    await store.saveChanged(was, now);
+
+    expect(
+      await store.load(),
+      now.copyWith(
+        speed: 1,
+        wide: true,
+        defaultDelivery: DeliveryPreference.never,
+      ),
+    );
+  });
+
+  test('a change writes nothing for the settings it left alone', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    await store.saveChanged(
+      const LocalSettings(),
+      const LocalSettings(volume: 0.5),
+    );
+
+    expect((await SharedPreferences.getInstance()).getKeys(), <String>{
+      'shadowmask.player.volume',
+    });
   });
 }

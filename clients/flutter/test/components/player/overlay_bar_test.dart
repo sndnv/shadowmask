@@ -18,6 +18,7 @@ Future<void> _pump(
   bool touch = false,
   EdgeInsets safe = EdgeInsets.zero,
   VoidCallback? onOpenSheet,
+  VoidCallback? onPlayPause,
 }) async {
   tester.view.physicalSize = Size(width, 800);
   tester.view.devicePixelRatio = 1;
@@ -42,7 +43,7 @@ Future<void> _pump(
                 muted: false,
                 volume: 0.5,
                 remaining: false,
-                onPlayPause: () {},
+                onPlayPause: onPlayPause,
                 onOpenPanel: _opened.add,
                 onToggleFullscreen: () {},
                 onToggleWide: canToggleWide ? () {} : null,
@@ -69,6 +70,24 @@ Future<void> _pump(
 
 void main() {
   setUp(_opened.clear);
+
+  testWidgets('the play button acts when wired and is disabled when not', (
+    WidgetTester tester,
+  ) async {
+    int pressed = 0;
+    await _pump(tester, width: 1200, onPlayPause: () => pressed++);
+    await tester.tap(find.byTooltip(Strings.playerPlay));
+    expect(pressed, 1);
+
+    await _pump(tester, width: 1200);
+    final IconButton button = tester.widget<IconButton>(
+      find.ancestor(
+        of: find.byIcon(Icons.play_arrow),
+        matching: find.byType(IconButton),
+      ),
+    );
+    expect(button.onPressed, isNull);
+  });
 
   testWidgets('a wide bar shows the volume slider and every panel button', (
     WidgetTester tester,

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/model/session/selected_tracks.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/subtitle_choice.dart';
 
 void main() {
   group('PlaybackControls', () {
@@ -11,7 +12,7 @@ void main() {
         burn: true,
         downmix: true,
         audioTrack: 1,
-        subtitle: SubtitleSelection.embedded(2),
+        subtitle: SubtitleChoice.on(SubtitleSelection.embedded(2)),
         offsetMs: -250,
       ).toUpdateBody();
       expect(body['target_height'], 720);
@@ -25,10 +26,18 @@ void main() {
       });
     });
 
-    // The update body always states the preference, so clearing it back to
-    // automatic reaches the server as a change rather than as an omission.
-    test('the delivery preference is always stated on an update', () {
-      expect(const PlaybackControls().toUpdateBody()['delivery'], 'auto');
+    test('the delivery preference is stated on an update when set, auto '
+        'included', () {
+      expect(
+        const PlaybackControls().toUpdateBody().containsKey('delivery'),
+        isFalse,
+      );
+      expect(
+        const PlaybackControls(
+          delivery: DeliveryPreference.auto,
+        ).toUpdateBody()['delivery'],
+        'auto',
+      );
       expect(
         const PlaybackControls(
           delivery: DeliveryPreference.always,
@@ -126,7 +135,7 @@ void main() {
       expect(c.burn, isTrue);
       expect(c.downmix, isFalse);
       expect(c.audioTrack, 3);
-      expect(c.subtitle!.toWire(), 'file:z');
+      expect(c.subtitle.selection?.toWire(), 'file:z');
       expect(c.offsetMs, 100);
       expect(c.toQuery(), <String, String?>{
         'height': '480',
@@ -145,7 +154,7 @@ void main() {
       expect(c.audioLanguage, 'fr');
       expect(c.subtitleLanguage, 'en');
       expect(c.audioTrack, isNull);
-      expect(c.subtitle, isNull);
+      expect(c.subtitle, const SubtitleChoice.auto());
       expect(c.toQuery(), <String, String?>{'alang': 'fr', 'slang': 'en'});
     });
 
@@ -153,10 +162,41 @@ void main() {
       final PlaybackControls c = PlaybackControls.fromQuery(<String, String>{
         'soff': '1',
       });
-      expect(c.subtitleOff, isTrue);
+      expect(c.subtitle, const SubtitleChoice.off());
       expect(c.hasTrackRequest, isTrue);
       expect(c.toStartBody()['subtitle_off'], true);
       expect(c.toQuery(), <String, String?>{'soff': '1'});
+    });
+
+    test(
+      'an old address with both a subtitle and off reads as the subtitle',
+      () {
+        final PlaybackControls c = PlaybackControls.fromQuery(<String, String>{
+          'sub': 'embedded:2',
+          'soff': '1',
+        });
+
+        expect(
+          c.subtitle,
+          const SubtitleChoice.on(SubtitleSelection.embedded(2)),
+        );
+        expect(c.toStartBody().containsKey('subtitle_off'), isFalse);
+        expect(c.toQuery(), <String, String?>{'sub': 'embedded:2'});
+      },
+    );
+
+    test('any one track choice is a track request', () {
+      for (final PlaybackControls one in const <PlaybackControls>[
+        PlaybackControls(audioTrack: 1),
+        PlaybackControls(audioLanguage: 'fr'),
+        PlaybackControls(
+          subtitle: SubtitleChoice.on(SubtitleSelection.embedded(2)),
+        ),
+        PlaybackControls(subtitleLanguage: 'en'),
+        PlaybackControls(subtitle: SubtitleChoice.off()),
+      ]) {
+        expect(one.hasTrackRequest, isTrue, reason: '$one');
+      }
     });
 
     test('the default carries no query', () {
@@ -172,7 +212,7 @@ void main() {
           burn: true,
           downmix: true,
           audioTrack: 1,
-          subtitle: SubtitleSelection.file('s9'),
+          subtitle: SubtitleChoice.on(SubtitleSelection.file('s9')),
         ).toStartBody(),
         <String, dynamic>{
           'target_height': 720,
@@ -199,7 +239,7 @@ void main() {
     test('wraps the subtitle as a selection and carries its offset', () {
       expect(
         const PlaybackControls(
-          subtitle: SubtitleSelection.embedded(2),
+          subtitle: SubtitleChoice.on(SubtitleSelection.embedded(2)),
           offsetMs: 250,
         ).toStartBody()['subtitle'],
         <String, dynamic>{
@@ -223,7 +263,10 @@ void main() {
         ),
       );
       expect(got.audioTrack, 4);
-      expect(got.subtitle, const SubtitleSelection.embedded(6));
+      expect(
+        got.subtitle,
+        const SubtitleChoice.on(SubtitleSelection.embedded(6)),
+      );
       expect(got.height, 480);
       expect(got.offsetMs, 50);
       expect(
@@ -239,7 +282,7 @@ void main() {
     test('a request the server could not honour leaves the carry standing', () {
       const PlaybackControls asked = PlaybackControls(subtitleLanguage: 'fr');
       final PlaybackControls got = asked.withSelection(const SelectedTracks());
-      expect(got.subtitle, isNull);
+      expect(got.subtitle, const SubtitleChoice.auto());
       expect(
         got.subtitleLanguage,
         'fr',
@@ -259,9 +302,11 @@ void main() {
         const PlaybackControls(downmix: true),
         const PlaybackControls(audioTrack: 1),
         const PlaybackControls(audioLanguage: 'en'),
-        const PlaybackControls(subtitle: SubtitleSelection.embedded(1)),
+        const PlaybackControls(
+          subtitle: SubtitleChoice.on(SubtitleSelection.embedded(1)),
+        ),
         const PlaybackControls(subtitleLanguage: 'en'),
-        const PlaybackControls(subtitleOff: true),
+        const PlaybackControls(subtitle: SubtitleChoice.off()),
         const PlaybackControls(offsetMs: 5),
         const PlaybackControls(delivery: DeliveryPreference.auto),
       ]) {
@@ -276,9 +321,8 @@ void main() {
         downmix: true,
         audioTrack: 1,
         audioLanguage: 'en',
-        subtitle: SubtitleSelection.embedded(2),
+        subtitle: SubtitleChoice.on(SubtitleSelection.embedded(2)),
         subtitleLanguage: 'fr',
-        subtitleOff: true,
         offsetMs: 5,
         delivery: DeliveryPreference.never,
       );
@@ -293,7 +337,7 @@ void main() {
         ),
         full.copyWith(
           audioTrack: 3,
-          subtitle: const SubtitleSelection.embedded(4),
+          subtitle: const SubtitleChoice.on(SubtitleSelection.embedded(4)),
         ),
       );
       expect(full.withDefaultDelivery(DeliveryPreference.always), full);
@@ -302,6 +346,40 @@ void main() {
             .copyWith(delivery: null)
             .withDefaultDelivery(DeliveryPreference.always),
         full.copyWith(delivery: DeliveryPreference.always),
+      );
+    });
+
+    test('two controls are the same update when their bodies match', () {
+      const PlaybackControls none = PlaybackControls();
+
+      expect(
+        const PlaybackControls(delivery: DeliveryPreference.auto).sameUpdateAs(
+          const PlaybackControls(delivery: DeliveryPreference.never),
+        ),
+        isFalse,
+      );
+      expect(
+        none.sameUpdateAs(
+          const PlaybackControls(audioLanguage: 'en', subtitleLanguage: 'fr'),
+        ),
+        isTrue,
+      );
+      expect(
+        none.sameUpdateAs(const PlaybackControls(offsetMs: 1500)),
+        isTrue,
+        reason: 'an offset with no subtitle is not sent',
+      );
+      expect(none.sameUpdateAs(const PlaybackControls(audioTrack: 1)), isFalse);
+      expect(
+        const PlaybackControls(
+          subtitle: SubtitleChoice.on(SubtitleSelection.embedded(2)),
+        ).sameUpdateAs(
+          const PlaybackControls(
+            subtitle: SubtitleChoice.on(SubtitleSelection.embedded(2)),
+            offsetMs: 1500,
+          ),
+        ),
+        isFalse,
       );
     });
   });

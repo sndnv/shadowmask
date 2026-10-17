@@ -1,6 +1,7 @@
 import 'package:shadowmask/model/catalog/version_detail.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/subtitle_choice.dart';
 
 String? _clean(String? language) =>
     (language != null && language.isNotEmpty) ? language : null;
@@ -43,13 +44,14 @@ String? subtitleLanguageOf(
 PlaybackControls carryTracks(PlaybackControls controls, VersionDetail version) {
   final String? audio =
       audioLanguageOf(version, controls.audioTrack) ?? controls.audioLanguage;
-  final String? subtitle = controls.subtitleOff
+  final bool off = controls.subtitle is SubtitleOff;
+  final String? subtitle = off
       ? null
-      : subtitleLanguageOf(version, controls.subtitle) ??
+      : subtitleLanguageOf(version, controls.subtitle.selection) ??
             controls.subtitleLanguage;
   return PlaybackControls(
     audioLanguage: audio,
     subtitleLanguage: subtitle,
-    subtitleOff: controls.subtitleOff,
+    subtitle: off ? const SubtitleChoice.off() : const SubtitleChoice.auto(),
   );
 }
