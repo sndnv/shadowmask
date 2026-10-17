@@ -15,7 +15,7 @@
         <video id="player" playsinline width="960"></video>
         <pre id="diag" class="sm-diag" hidden></pre>
         <div class="sm-bar">
-          <button type="button" id="play" class="sm-secondary">Play</button>
+          <button type="button" id="play" class="sm-secondary" disabled>Play</button>
           <input type="range" id="scrub" min="0" max="0" step="1000" value="0" aria-label="Position" disabled />
           <span id="clock" class="sm-clock">0:00 / 0:00</span>
           <button type="button" id="mute" class="sm-secondary">Mute</button>
@@ -25,282 +25,423 @@
       </div>
       <div id="controls"></div>
       <p id="status" aria-live="polite">Loading&hellip;</p>
+      <button type="button" id="retry" class="sm-secondary" hidden>Retry</button>
     </main>
     <script src="../vendor/hls.min.js"></script>
     <script src="../app.js"></script>
-    <script>
+    <script type="module">
+      import { PlaybackRunner } from "./runner.js";
+      import {
+        controlsFromQuery,
+        controlsToQuery,
+        DELIVERY_MODES,
+        NETWORK_TIMEOUTS,
+        trackFromWire,
+        trackToWire,
+        watching,
+      } from "./session.js";
+
       sm.chrome();
-      document.getElementById("player").dataset.subtitleSize = sm.subtitleSize();
-      let session = null;
-      let hls = null;
-      let heartbeatTimer = null;
-      let ended = false;
-      let uid = null;
-      let versionId = null;
-      let versionDetail = null;
-      let subtitleSizeLabel = null;
-      let subtitleOffsetLabel = null;
+      const video = document.getElementById("player");
+      video.dataset.subtitleSize = sm.subtitleSize();
+      const timeoutKey = "shadowmask.player.network_timeout";
+      const versionId = sm.qs("version");
+      const player = videoPlayer(video);
+      const ui = {};
+      let runner = null;
+      let version = null;
+      let gatherFailed = null;
+      let scrubbing = false;
+      let busyFocus = null;
       let diagTimer = null;
       let screenLock = null;
       let awake = false;
-      const controls = { height: null, burn: false, downmix: false, delivery: "auto" };
-      let selAudio = null;
-      let selSub = "";
-      let selOffset = 0;
-      let pendingMs = null;
-      let readyHandler = null;
-      let originMs = 0;
-      let sequential = false;
-      let starting = true;
-      let applying = false;
-      let restarting = false;
-      let scrubbing = false;
-      let heldMs = 0;
-      let reachMs = 0;
-      let nativeSeekTimer = null;
-      let busyFocus = null;
-      let playbackRate = 1;
-      const networkTimeouts = [10, 30, 60, 90];
-      const deliveryModes = ["auto", "never", "always"];
-      const timeoutKey = "shadowmask.player.network_timeout";
-      let networkTimeout = loadChoice(timeoutKey, networkTimeouts, networkTimeouts[0]);
+
+      if (sm.requireAuth()) open();
 
       function loadChoice(key, options, fallback) {
         let stored = null;
         try {
           stored = parseInt(localStorage.getItem(key), 10);
-        } catch (_) {
-          stored = null;
+        } catch (err) {
+          void err;
         }
         return options.indexOf(stored) >= 0 ? stored : fallback;
       }
 
-      function readParams() {
-        const p = new URLSearchParams(location.search);
-        const asInt = (v) => (v != null && v !== "" ? parseInt(v, 10) : null);
-        controls.height = asInt(p.get("height"));
-        controls.burn = p.get("burn") === "1";
-        controls.downmix = p.get("downmix") === "1";
-        controls.delivery = deliveryModes.indexOf(p.get("delivery")) > 0 ? p.get("delivery") : "auto";
-        selAudio = p.has("audio") ? asInt(p.get("audio")) : null;
-        selSub = p.get("sub") || "";
-        selOffset = asInt(p.get("offset")) || 0;
+      function saveLocal(local) {
+        try {
+          localStorage.setItem(timeoutKey, String(local.networkTimeoutS));
+        } catch (err) {
+          void err;
+        }
       }
 
-      function writeParams() {
-        const p = new URLSearchParams();
-        p.set("version", versionId);
-        if (controls.height != null) p.set("height", String(controls.height));
-        if (controls.burn) p.set("burn", "1");
-        if (controls.downmix) p.set("downmix", "1");
-        if (controls.delivery !== "auto") p.set("delivery", controls.delivery);
-        if (selAudio != null) p.set("audio", String(selAudio));
-        if (selSub) p.set("sub", selSub);
-        if (selOffset) p.set("offset", String(selOffset));
-        history.replaceState(null, "", location.pathname + "?" + p.toString());
+      function clientPlatform() {
+        const agent = navigator.userAgent;
+        if (agent.includes("Chrome/") || agent.includes("Chromium/")) return "chrome";
+        if (agent.includes("Firefox/")) return "firefox";
+        if (agent.includes("Safari/")) return "safari";
+        return "generic";
       }
 
-      function parseSubValue(value) {
-        if (!value) return null;
-        const sep = value.indexOf(":");
-        const kind = value.slice(0, sep);
-        const key = value.slice(sep + 1);
-        return kind === "embedded"
-          ? { type: "embedded", index: parseInt(key, 10) }
-          : { type: "file", id: key };
+      function sessionApi() {
+        const path = (id) => "/api/v1/sessions/" + encodeURIComponent(id);
+        const post = (body, extra) =>
+          Object.assign({ method: "POST", body: JSON.stringify(body) }, extra || {});
+        return {
+          start: (body) => sm.json("/api/v1/sessions", post(body)),
+          update: (id, body) => sm.json(path(id) + "/update", post(body)),
+          seek: (id, positionMs) => sm.json(path(id) + "/seek", post({ position_ms: positionMs })),
+          progress: (id, positionMs, state) =>
+            sm.api(path(id) + "/progress", post({ position_ms: positionMs, state }, { keepalive: true })),
+          end: (id) => {
+            const t = sm.tokens();
+            const token = t && t.access_token;
+            return fetch(path(id), {
+              method: "DELETE",
+              headers: token ? { Authorization: "Bearer " + token } : {},
+              keepalive: true,
+            });
+          },
+        };
       }
 
-      if (sm.requireAuth()) start();
+      function bufferedAhead(media) {
+        const ranges = media.buffered;
+        const at = media.currentTime;
+        for (let i = 0; i < ranges.length; i++) {
+          if (at >= ranges.start(i) - 0.5 && at <= ranges.end(i)) {
+            return Math.max(0, ranges.end(i) - at);
+          }
+        }
+        return 0;
+      }
 
-      async function start() {
-        const status = document.getElementById("status");
-        versionId = sm.qs("version");
+      function mediaError(error) {
+        const names = ["media error", "aborted", "network error", "decode error", "format not supported"];
+        return (error && names[error.code]) || names[0];
+      }
+
+      function videoPlayer(media) {
+        let hls = null;
+        let networkTimeoutS = NETWORK_TIMEOUTS[0];
+        let pending = null;
+        let onMeta = null;
+        let loaded = false;
+        let own = false;
+        let seekTimer = null;
+        let onReading = null;
+        let onError = null;
+        let onSeek = null;
+
+        function reading() {
+          return {
+            positionMs: Math.floor(media.currentTime * 1000),
+            durationMs: Number.isFinite(media.duration) ? Math.floor(media.duration * 1000) : 0,
+            bufferedAheadMs: Math.floor(bufferedAhead(media) * 1000),
+            playing: !media.paused,
+            ended: media.ended,
+          };
+        }
+
+        function report() {
+          if (onReading) onReading(reading());
+        }
+
+        function fail(detail) {
+          if (pending) {
+            const p = pending;
+            pending = null;
+            p.reject(new Error(detail));
+            return;
+          }
+          if (loaded && onError) onError("Playback failed (" + detail + ").");
+        }
+
+        function drop(reason) {
+          if (onMeta) {
+            media.removeEventListener("loadedmetadata", onMeta);
+            onMeta = null;
+          }
+          if (pending) {
+            const p = pending;
+            pending = null;
+            p.reject(new Error(reason));
+          }
+        }
+
+        function teardown() {
+          loaded = false;
+          clearTimeout(seekTimer);
+          seekTimer = null;
+          if (hls) {
+            hls.destroy();
+            hls = null;
+          }
+          if (media.getAttribute("src")) {
+            media.removeAttribute("src");
+            media.load();
+          }
+        }
+
+        function hlsConfig() {
+          const wait = networkTimeoutS * 1000;
+          return { manifestLoadingTimeOut: wait, levelLoadingTimeOut: wait, fragLoadingTimeOut: wait };
+        }
+
+        function attach(url, mode, offsetMs) {
+          drop("superseded");
+          teardown();
+          return new Promise((resolve, reject) => {
+            const mine = { resolve, reject };
+            pending = mine;
+            const ready = () => {
+              if (pending !== mine) return;
+              pending = null;
+              onMeta = null;
+              if (offsetMs) {
+                own = true;
+                media.currentTime = offsetMs / 1000;
+              }
+              loaded = true;
+              resolve();
+            };
+            if (mode !== "direct" && window.Hls && window.Hls.isSupported()) {
+              const instance = new window.Hls(hlsConfig());
+              hls = instance;
+              instance.on(window.Hls.Events.MANIFEST_PARSED, ready);
+              instance.on(window.Hls.Events.FRAG_BUFFERED, report);
+              instance.on(window.Hls.Events.ERROR, (_, data) => {
+                if (hls === instance && data && data.fatal) fail(data.details || data.type || "stream error");
+              });
+              instance.loadSource(url);
+              instance.attachMedia(media);
+              return;
+            }
+            if (mode === "direct" || media.canPlayType("application/vnd.apple.mpegurl")) {
+              onMeta = ready;
+              media.addEventListener("loadedmetadata", onMeta, { once: true });
+              media.src = url;
+              return;
+            }
+            fail("this browser needs hls.js or native HLS");
+          });
+        }
+
+        for (const name of ["timeupdate", "durationchange", "loadedmetadata", "play", "pause", "ended", "progress", "seeked"]) {
+          media.addEventListener(name, report);
+        }
+        media.addEventListener("seeked", () => {
+          own = false;
+        });
+        media.addEventListener("seeking", () => {
+          if (own || !loaded) return;
+          clearTimeout(seekTimer);
+          seekTimer = setTimeout(() => {
+            if (loaded && onSeek) onSeek(Math.floor(media.currentTime * 1000));
+          }, 300);
+        });
+        media.addEventListener("error", () => {
+          if (pending || loaded) fail(mediaError(media.error));
+        });
+
+        return {
+          listen(reads, errs, seeks) {
+            onReading = reads;
+            onError = errs;
+            onSeek = seeks;
+            return () => {
+              onReading = null;
+              onError = null;
+              onSeek = null;
+            };
+          },
+          reading,
+          attach,
+          seekTo(offsetMs) {
+            own = true;
+            media.currentTime = offsetMs / 1000;
+          },
+          play() {
+            const started = media.play();
+            if (started && started.catch) {
+              started.catch((err) => {
+                if (!err || err.name !== "NotAllowedError") return;
+                media.muted = true;
+                media.play().catch(() => {});
+              });
+            }
+          },
+          pause() {
+            media.pause();
+          },
+          detach() {
+            drop("detached");
+            teardown();
+          },
+          setNetworkTimeout(seconds) {
+            networkTimeoutS = seconds;
+            if (!hls) return;
+            const wait = seconds * 1000;
+            for (const key of ["manifestLoadPolicy", "playlistLoadPolicy", "fragLoadPolicy"]) {
+              Object.assign(hls.config[key].default, { maxTimeToFirstByteMs: wait, maxLoadTimeMs: wait });
+            }
+          },
+          hls: () => hls,
+        };
+      }
+
+      async function open() {
         if (!versionId) {
-          status.textContent = "No version specified.";
+          document.getElementById("status").textContent = "No version specified.";
           return;
         }
-        readParams();
+        runner = new PlaybackRunner({
+          api: sessionApi(),
+          player,
+          platform: clientPlatform(),
+          saveLocal,
+          versionId,
+          remote: controlsFromQuery(new URLSearchParams(location.search)),
+          local: { networkTimeoutS: loadChoice(timeoutKey, NETWORK_TIMEOUTS, NETWORK_TIMEOUTS[0]) },
+          playing: true,
+        });
+        runner.subscribe(render);
+        window.addEventListener("pagehide", () => {
+          runner.leave();
+          stopDiag();
+          holdScreen(false);
+        });
+        window.addEventListener("pageshow", (e) => {
+          if (e.persisted && runner.state.status.life === "closed") location.reload();
+        });
+        wireBar();
+        wireScreenLock();
+        render(runner.state, null);
+        await gather();
+      }
+
+      async function gather() {
         try {
           const me = await sm.self();
-          uid = me.id;
-          const info = await sm.json("/api/v1/server/info").catch(() => ({ profile_version: 1 }));
-          const resume = await sm
-            .json("/api/v1/users/" + encodeURIComponent(uid) + "/progress/" + encodeURIComponent(versionId))
-            .catch(() => null);
-          const startPos = resume && resume.position_ms ? resume.position_ms : 0;
-          session = await sm.json("/api/v1/sessions", {
-            method: "POST",
-            body: JSON.stringify(
-              Object.assign(
-                {
-                  version_id: versionId,
-                  start_position_ms: startPos,
-                  capabilities: { platform: clientPlatform(), profile_version: info.profile_version || 1 },
-                },
-                controls.delivery !== "auto" ? { delivery: controls.delivery } : {},
-              ),
-            ),
+          const [info, resume, detail] = await Promise.all([
+            sm.json("/api/v1/server/info").catch(() => ({ profile_version: 1 })),
+            sm
+              .json("/api/v1/users/" + encodeURIComponent(me.id) + "/progress/" + encodeURIComponent(versionId))
+              .catch(() => null),
+            sm.json("/api/v1/versions/" + encodeURIComponent(versionId)).catch(() => null),
+          ]);
+          version = detail;
+          buildControls();
+          renderBreadcrumb(version);
+          runner.opened({
+            durationMs: (version && version.duration_ms) || 0,
+            resumeMs: resume && resume.position_ms ? resume.position_ms : 0,
+            profileVersion: info.profile_version || 1,
           });
-          window.addEventListener("pagehide", endSession);
-          window.addEventListener("pageshow", (e) => {
-            if (e.persisted && ended) location.reload();
-          });
-          originMs = session.origin_ms || 0;
-          sequential = session.sequential === true;
-          status.textContent = modeLine(session);
-          await attach(session.manifest_url, session.mode, startPos - originMs);
-          wireBar();
-          startHeartbeat(session.heartbeat_interval_s || 10);
-          wirePlaybackProgress();
-          wireScreenLock();
-          await buildControls();
-          renderBar();
-          await applyInitialParams();
+          render(runner.state, null);
         } catch (err) {
-          if (!heartbeatTimer) endSession();
-          status.textContent = "Could not start playback (" + err.message + ").";
-        } finally {
-          starting = false;
-          document.getElementById("scrub").disabled = !session || ended;
+          gatherFailed = "Could not start playback (" + err.message + ").";
+          render(runner.state, null);
         }
       }
 
-      function modeLine(s) {
-        return "Mode: " + s.mode + (s.container ? " (" + s.container + ")" : "");
-      }
-
-      function autostart(video) {
-        video.defaultPlaybackRate = playbackRate;
-        video.playbackRate = playbackRate;
-        const started = video.play();
-        if (started && started.catch) {
-          started.catch(() => {
-            video.muted = true;
-            video.play().catch(() => {});
-          });
+      function render(s, before) {
+        renderBar(s);
+        renderStatus(s);
+        renderControls(s);
+        restoreFocus();
+        const wasStart = before && before.status.sent && before.status.sent.kind === "start";
+        if (before && before.status.gathered && !wasStart && s.remote !== before.remote) {
+          history.replaceState(null, "", location.pathname + "?" + controlsToQuery(versionId, s.remote));
         }
       }
 
-      async function attach(url, mode, positionMs) {
-        const video = document.getElementById("player");
-        pendingMs = originMs + positionMs;
-        if (readyHandler) video.removeEventListener("loadedmetadata", readyHandler);
-        readyHandler = null;
-        teardownHls();
-        if (mode === "direct") {
-          video.src = url;
-          seekOnReady(video, positionMs);
-          return;
-        }
-        if (window.Hls && window.Hls.isSupported()) {
-          const wait = networkTimeout * 1000;
-          hls = new window.Hls({
-            manifestLoadingTimeOut: wait,
-            levelLoadingTimeOut: wait,
-            fragLoadingTimeOut: wait,
-          });
-          hls.loadSource(url);
-          hls.attachMedia(video);
-          hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
-            if (positionMs) seekLocal(video, positionMs);
-            pendingMs = null;
-            autostart(video);
-          });
-          hls.on(window.Hls.Events.FRAG_BUFFERED, renderBar);
-          return;
-        }
-        if (video.canPlayType("application/vnd.apple.mpegurl")) {
-          video.src = url;
-          seekOnReady(video, positionMs);
-          return;
-        }
-        document.getElementById("status").textContent =
-          "This browser needs clients/basic/vendor/hls.min.js for HLS playback, or native HLS support. Mode: " +
-          mode;
+      function setDisabled(el, disabled) {
+        if (disabled && !el.disabled && el === document.activeElement) busyFocus = el;
+        el.disabled = disabled;
       }
 
-      function seekOnReady(video, positionMs) {
-        readyHandler = () => {
-          readyHandler = null;
-          if (positionMs) seekLocal(video, positionMs);
-          pendingMs = null;
-          autostart(video);
-        };
-        video.addEventListener("loadedmetadata", readyHandler, { once: true });
+      function restoreFocus() {
+        if (!busyFocus || busyFocus.disabled) return;
+        const now = document.activeElement;
+        if (!now || now === document.body) busyFocus.focus({ preventScroll: true });
+        busyFocus = null;
       }
 
-      function titleMs(video) {
-        if (pendingMs != null) return pendingMs;
-        return originMs + Math.floor(video.currentTime * 1000);
-      }
-
-      function fullMs(video) {
-        const known = versionDetail && versionDetail.duration_ms;
-        if (known > 0) return known;
-        return Number.isFinite(video.duration) ? originMs + Math.floor(video.duration * 1000) : 0;
-      }
-
-      function producedMs(video) {
-        return Math.floor((video.currentTime + bufferedAhead(video)) * 1000) + 30000;
-      }
-
-      function seekLocal(video, localMs) {
-        reachMs = Math.max(producedMs(video), localMs);
-        video.currentTime = localMs / 1000;
-      }
-
-      function seekTimeline(targetMs) {
-        const video = document.getElementById("player");
-        if (!sequential) {
-          seekLocal(video, targetMs);
-          return;
-        }
-        const local = targetMs - originMs;
-        if (local >= 0 && local <= producedMs(video)) {
-          seekLocal(video, local);
-          return;
-        }
-        restartAt(targetMs);
-      }
-
-      function renderBar() {
-        const video = document.getElementById("player");
+      function renderBar(s) {
         const scrub = document.getElementById("scrub");
-        const total = fullMs(video);
-        const playing = restarting ? heldMs : titleMs(video);
-        const at = scrubbing ? parseInt(scrub.value, 10) : Math.min(playing, total || Infinity);
-        if (!video.seeking) reachMs = producedMs(video);
+        const play = document.getElementById("play");
+        const total = s.durationMs;
+        const at = scrubbing ? parseInt(scrub.value, 10) : Math.min(s.timeline.positionMs, total || Infinity);
+        const live = watching(s);
         scrub.max = String(total);
         if (!scrubbing) scrub.value = String(at);
         scrub.setAttribute("aria-valuetext", sm.clockText(at) + " of " + sm.clockText(total));
         document.getElementById("clock").textContent = sm.clockText(at) + " / " + sm.clockText(total);
-        document.getElementById("play").textContent = video.paused ? "Play" : "Pause";
+        play.textContent = s.timeline.playing ? "Pause" : "Play";
+        setDisabled(play, !live);
+        setDisabled(scrub, !live);
+      }
+
+      function modeLine(stream) {
+        return "Mode: " + stream.mode + (stream.container ? " (" + stream.container + ")" : "");
+      }
+
+      function statusText(s) {
+        if (gatherFailed) return gatherFailed;
+        if (s.status.error) return s.status.error;
+        const sent = s.status.sent;
+        if (sent) {
+          const doing = sent.kind === "controls" ? "Applying changes…" : sent.kind === "seek" ? "Seeking…" : "Loading…";
+          return s.status.slow ? doing + " Taking longer than usual." : doing;
+        }
+        if (s.status.notice === "changeFailed") return "Could not apply the change.";
+        if (s.status.notice === "seekFailed") return "Could not jump to that point.";
+        return s.stream ? modeLine(s.stream) : "Loading…";
+      }
+
+      function renderStatus(s) {
+        const status = document.getElementById("status");
+        const text = statusText(s);
+        if (status.textContent !== text) status.textContent = text;
+        document.getElementById("retry").hidden = !gatherFailed && !(s.status.error && s.status.life === "open");
+      }
+
+      function renderControls(s) {
+        if (!ui.quality) return;
+        const busy = s.status.sent != null || s.status.life !== "open";
+        const r = s.remote;
+        if (ui.shownRemote !== r) {
+          ui.shownRemote = r;
+          ui.quality.value = r.height == null ? "" : String(r.height);
+          if (r.audioTrack != null) ui.audio.value = String(r.audioTrack);
+          ui.subtitles.value = r.subtitle.kind === "on" ? trackToWire(r.subtitle.track) : "";
+          ui.offset.value = String(r.offsetMs);
+          ui.burn.checked = r.burn;
+          ui.downmix.checked = r.downmix;
+          ui.delivery.value = r.delivery;
+        }
+        if (ui.shownLocal !== s.local) {
+          ui.shownLocal = s.local;
+          ui.timeout.value = String(s.local.networkTimeoutS);
+        }
+        for (const el of ui.stream) setDisabled(el, el.dataset.never === "1" || busy);
+        const burned = r.burn || (s.stream != null && s.stream.subtitleDelivery === "burned");
+        ui.sizeLabel.hidden = burned;
+        ui.offsetLabel.hidden = burned;
+        document.getElementById("controls").setAttribute("aria-busy", busy ? "true" : "false");
       }
 
       function renderVolume() {
-        const video = document.getElementById("player");
         const silent = video.muted || video.volume === 0;
         document.getElementById("mute").textContent = silent ? "Unmute" : "Mute";
         document.getElementById("volume").value = String(silent ? 0 : video.volume);
       }
 
-      function togglePlay() {
-        if (applying || restarting) return;
-        const video = document.getElementById("player");
-        if (video.ended && sequential && originMs > 0) {
-          restartAt(0);
-          return;
-        }
-        if (video.paused) {
-          video.play().catch(() => {});
-          return;
-        }
-        video.pause();
-      }
-
       function toggleFullscreen() {
         const box = document.querySelector(".sm-player");
-        const video = document.getElementById("player");
         if (document.fullscreenElement) {
           document.exitFullscreen().catch(() => {});
           return;
@@ -312,7 +453,7 @@
         if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
       }
 
-      function volumeSettable(video) {
+      function volumeSettable() {
         const kept = video.volume;
         video.volume = kept === 0.5 ? 0.25 : 0.5;
         const settable = video.volume !== kept;
@@ -321,38 +462,33 @@
       }
 
       function wireBar() {
-        const video = document.getElementById("player");
         const box = document.querySelector(".sm-player");
         const scrub = document.getElementById("scrub");
         const volume = document.getElementById("volume");
         const fullscreen = document.getElementById("fullscreen");
-        for (const name of ["timeupdate", "durationchange", "loadedmetadata", "play", "pause", "ended", "emptied", "progress"]) {
-          video.addEventListener(name, renderBar);
-        }
-        video.addEventListener("seeking", () => {
-          if (!sequential || restarting || applying) return;
-          clearTimeout(nativeSeekTimer);
-          const local = Math.floor(video.currentTime * 1000);
-          if (local <= reachMs) return;
-          const target = originMs + local;
-          nativeSeekTimer = setTimeout(() => restartAt(target), 300);
-        });
         video.addEventListener("volumechange", renderVolume);
-        video.addEventListener("click", togglePlay);
-        document.getElementById("play").addEventListener("click", togglePlay);
+        video.addEventListener("click", () => runner.toggle());
+        document.getElementById("play").addEventListener("click", () => runner.toggle());
+        document.getElementById("retry").addEventListener("click", () => {
+          if (gatherFailed) {
+            location.reload();
+            return;
+          }
+          runner.retry();
+        });
         scrub.addEventListener("input", () => {
           scrubbing = true;
-          renderBar();
+          renderBar(runner.state);
         });
         scrub.addEventListener("change", () => {
           scrubbing = false;
-          seekTimeline(parseInt(scrub.value, 10));
+          runner.seek(parseInt(scrub.value, 10));
         });
         const settle = () =>
           setTimeout(() => {
             if (!scrubbing) return;
             scrubbing = false;
-            renderBar();
+            renderBar(runner.state);
           }, 0);
         document.addEventListener("pointerup", settle);
         document.addEventListener("pointercancel", settle);
@@ -360,7 +496,7 @@
           video.muted = !video.muted;
           if (!video.muted && video.volume === 0) video.volume = 1;
         });
-        volume.hidden = !volumeSettable(video);
+        volume.hidden = !volumeSettable();
         volume.addEventListener("input", () => {
           video.volume = parseFloat(volume.value);
           video.muted = video.volume === 0;
@@ -370,70 +506,7 @@
         document.addEventListener("fullscreenchange", () => {
           fullscreen.textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen";
         });
-        renderBar();
         renderVolume();
-      }
-
-      async function restartAt(timelineMs) {
-        if (!session || ended || starting || restarting || applying) return;
-        restarting = true;
-        setControlsBusy(true);
-        heldMs = timelineMs;
-        renderBar();
-        try {
-          const r = await sm.json(
-            "/api/v1/sessions/" + encodeURIComponent(session.session_id) + "/seek",
-            { method: "POST", body: JSON.stringify({ position_ms: timelineMs }) },
-          );
-          session.manifest_url = r.manifest_url;
-          session.mode = r.mode;
-          originMs = r.origin_ms || 0;
-          sequential = r.sequential === true;
-          await attach(r.manifest_url, r.mode, timelineMs - originMs);
-        } catch (err) {
-          document.getElementById("status").textContent = "Could not seek there (" + err.message + ").";
-        } finally {
-          restarting = false;
-          setControlsBusy(false);
-          renderBar();
-        }
-      }
-
-      function teardownHls() {
-        if (hls) {
-          hls.destroy();
-          hls = null;
-        }
-      }
-
-      function sendProgress(stateOverride) {
-        if (!session || ended) return;
-        const video = document.getElementById("player");
-        const state = stateOverride || (video.paused ? "paused" : "playing");
-        sm
-          .api("/api/v1/sessions/" + encodeURIComponent(session.session_id) + "/progress", {
-            method: "POST",
-            body: JSON.stringify({
-              position_ms: titleMs(video),
-              state,
-            }),
-          })
-          .catch(() => {});
-      }
-
-      function wirePlaybackProgress() {
-        const video = document.getElementById("player");
-        video.addEventListener("playing", () => sendProgress("playing"));
-        video.addEventListener("pause", () => sendProgress("paused"));
-        video.addEventListener("ended", () => sendProgress("playing"));
-      }
-
-      function clientPlatform() {
-        const agent = navigator.userAgent;
-        if (agent.includes("Chrome/") || agent.includes("Chromium/")) return "chrome";
-        if (agent.includes("Firefox/")) return "firefox";
-        if (agent.includes("Safari/")) return "safari";
-        return "generic";
       }
 
       function holdScreen(hold) {
@@ -464,25 +537,12 @@
       }
 
       function wireScreenLock() {
-        const video = document.getElementById("player");
         video.addEventListener("play", () => holdScreen(true));
         video.addEventListener("pause", () => holdScreen(false));
         video.addEventListener("ended", () => holdScreen(false));
         document.addEventListener("visibilitychange", () => {
           if (awake && document.visibilityState === "visible") acquireScreen();
         });
-      }
-
-      function startHeartbeat(intervalS) {
-        stopHeartbeat();
-        heartbeatTimer = setInterval(() => sendProgress(), Math.max(1, intervalS) * 1000);
-      }
-
-      function stopHeartbeat() {
-        if (heartbeatTimer) {
-          clearInterval(heartbeatTimer);
-          heartbeatTimer = null;
-        }
       }
 
       function stopDiag() {
@@ -492,24 +552,14 @@
         }
       }
 
-      function bufferedAhead(video) {
-        const ranges = video.buffered;
-        const at = video.currentTime;
-        for (let i = 0; i < ranges.length; i++) {
-          if (at >= ranges.start(i) - 0.5 && at <= ranges.end(i)) {
-            return Math.max(0, ranges.end(i) - at);
-          }
-        }
-        return 0;
-      }
-
       function renderDiag() {
         const box = document.getElementById("diag");
         if (!box) return;
-        const video = document.getElementById("player");
-        const source = versionDetail && versionDetail.video && versionDetail.video[0];
+        const stream = runner.state.stream;
+        const hls = player.hls();
+        const source = version && version.video && version.video[0];
         const lines = [
-          "mode: " + (session ? session.mode : "-"),
+          "mode: " + (stream ? stream.mode : "-"),
           source
             ? "source: " + source.codec + " " + source.width + "x" + source.height + " @ " + source.frame_rate + "fps"
             : "source: -",
@@ -537,108 +587,6 @@
           lines.push("frames: " + q.droppedVideoFrames + " dropped / " + q.totalVideoFrames);
         }
         box.textContent = lines.join("\n");
-      }
-
-      function endSession() {
-        if (ended || !session) return;
-        ended = true;
-        stopHeartbeat();
-        stopDiag();
-        holdScreen(false);
-        const t = sm.tokens();
-        const token = t && t.access_token;
-        fetch("/api/v1/sessions/" + encodeURIComponent(session.session_id), {
-          method: "DELETE",
-          headers: token ? { Authorization: "Bearer " + token } : {},
-          keepalive: true,
-        }).catch(() => {});
-      }
-
-      function sendUpdate(extra, forcedPositionMs) {
-        return renegotiate(
-          "/update",
-          Object.assign(
-            {
-              target_height: controls.height,
-              force_burn: controls.burn,
-              downmix_stereo: controls.downmix,
-            },
-            controls.delivery !== "auto" ? { delivery: controls.delivery } : {},
-            extra || {},
-          ),
-          forcedPositionMs,
-        );
-      }
-
-      async function applyInitialParams() {
-        const hasParams =
-          controls.height != null ||
-          controls.burn ||
-          controls.downmix ||
-          controls.delivery !== "auto" ||
-          selAudio != null ||
-          selSub !== "";
-        if (!hasParams) return;
-        const extra = {};
-        if (selAudio != null) extra.audio_track = selAudio;
-        const track = parseSubValue(selSub);
-        if (track) {
-          extra.subtitle = { action: "set", track, offset_ms: selOffset || null };
-        }
-        await sendUpdate(extra);
-      }
-
-      function setControlsBusy(busy) {
-        const root = document.getElementById("controls");
-        if (!root) return;
-        root.setAttribute("aria-busy", busy ? "true" : "false");
-        const bar = [document.getElementById("play"), document.getElementById("scrub")];
-        for (const el of [...root.querySelectorAll("select, input, button"), ...bar]) {
-          if (busy) {
-            if (el === document.activeElement) busyFocus = el;
-            el.dataset.wasDisabled = el.disabled ? "1" : "";
-            el.disabled = true;
-          } else if (el.dataset.wasDisabled !== undefined) {
-            el.disabled = el.dataset.wasDisabled === "1";
-            delete el.dataset.wasDisabled;
-          }
-        }
-        if (!busy && busyFocus) {
-          const now = document.activeElement;
-          if (!now || now === document.body || now === busyFocus) busyFocus.focus({ preventScroll: true });
-          busyFocus = null;
-        }
-      }
-
-      async function renegotiate(suffix, body, forcedPositionMs) {
-        if (!session || ended || applying || restarting) return;
-        const video = document.getElementById("player");
-        const keepPos = forcedPositionMs != null ? forcedPositionMs : titleMs(video);
-        const wasPlaying = !video.paused;
-        video.pause();
-        applying = true;
-        setControlsBusy(true);
-        document.getElementById("status").textContent = "Applying changes…";
-        try {
-          const r = await sm.json(
-            "/api/v1/sessions/" + encodeURIComponent(session.session_id) + suffix,
-            { method: "POST", body: JSON.stringify(Object.assign({}, body, { position_ms: keepPos })) },
-          );
-          session.manifest_url = r.manifest_url;
-          session.mode = r.mode;
-          session.selected = r.selected;
-          syncBurnedSubtitles();
-          originMs = r.origin_ms || 0;
-          sequential = r.sequential === true;
-          document.getElementById("status").textContent = modeLine(r);
-          await attach(r.manifest_url, r.mode, keepPos - originMs);
-        } catch (err) {
-          document.getElementById("status").textContent = "Renegotiation failed (" + err.message + ").";
-          if (wasPlaying) autostart(video);
-        } finally {
-          applying = false;
-          setControlsBusy(false);
-        }
       }
 
       async function renderBreadcrumb(v) {
@@ -683,27 +631,20 @@
         back.appendChild(sm.breadcrumbs(crumbs));
       }
 
-      function syncBurnedSubtitles() {
-        const delivery = session && session.selected && session.selected.subtitle_delivery;
-        const burned = controls.burn || delivery === "burned";
-        if (subtitleSizeLabel) subtitleSizeLabel.hidden = burned;
-        if (subtitleOffsetLabel) subtitleOffsetLabel.hidden = burned;
+      function changeRemote(fields) {
+        runner.changeRemote(Object.assign({}, runner.state.remote, fields));
       }
 
-      async function buildControls() {
+      function buildControls() {
         const box = document.getElementById("controls");
         box.textContent = "";
-        const version = await sm
-          .json("/api/v1/versions/" + encodeURIComponent(versionId))
-          .catch(() => null);
-        versionDetail = version;
-        renderBreadcrumb(version);
         const rowTop = sm.el("div", { class: "sm-controls-row" });
         const rowMid = sm.el("div", { class: "sm-controls-row" });
         const rowBottom = sm.el("div", { class: "sm-controls-row" });
         box.appendChild(rowTop);
         box.appendChild(rowMid);
         box.appendChild(rowBottom);
+        ui.stream = [];
         {
           const vid0 = (version && version.video && version.video[0]) || null;
           const originalLabel = vid0
@@ -725,12 +666,11 @@
             null,
             rungs.map(([label, value]) => sm.el("option", { value }, label)),
           );
-          select.value = controls.height == null ? "" : String(controls.height);
           select.addEventListener("change", () => {
-            controls.height = select.value === "" ? null : parseInt(select.value, 10);
-            writeParams();
-            sendUpdate({});
+            changeRemote({ height: select.value === "" ? null : parseInt(select.value, 10) });
           });
+          ui.quality = select;
+          ui.stream.push(select);
           rowTop.appendChild(sm.el("label", null, ["Video Quality ", select]));
         }
         {
@@ -745,17 +685,12 @@
               )
             : [sm.el("option", { value: "" }, "No audio")];
           const select = sm.el("select", null, options);
-          if (!audio.length) select.disabled = true;
-          if (selAudio != null) {
-            select.value = String(selAudio);
-          } else if (session.selected && session.selected.audio_track != null) {
-            select.value = String(session.selected.audio_track);
-          }
+          select.dataset.never = audio.length ? "" : "1";
           select.addEventListener("change", () => {
-            selAudio = parseInt(select.value, 10);
-            writeParams();
-            sendUpdate({ audio_track: selAudio });
+            changeRemote({ audioTrack: parseInt(select.value, 10) });
           });
+          ui.audio = select;
+          ui.stream.push(select);
           rowMid.appendChild(sm.el("label", null, ["Audio Track ", select]));
         }
         {
@@ -772,12 +707,11 @@
             null,
             rates.map(([label, value]) => sm.el("option", { value }, label)),
           );
-          select.value = String(playbackRate);
+          select.value = String(video.defaultPlaybackRate || 1);
           select.addEventListener("change", () => {
-            playbackRate = parseFloat(select.value) || 1;
-            const video = document.getElementById("player");
-            video.defaultPlaybackRate = playbackRate;
-            video.playbackRate = playbackRate;
+            const rate = parseFloat(select.value) || 1;
+            video.defaultPlaybackRate = rate;
+            video.playbackRate = rate;
           });
           rowTop.appendChild(sm.el("label", null, ["Speed ", select]));
         }
@@ -785,33 +719,25 @@
           const select = sm.el(
             "select",
             null,
-            networkTimeouts.map((seconds) =>
-              sm.el("option", { value: String(seconds) }, seconds + "s"),
-            ),
+            NETWORK_TIMEOUTS.map((seconds) => sm.el("option", { value: String(seconds) }, seconds + "s")),
           );
-          select.value = String(networkTimeout);
           select.addEventListener("change", () => {
-            networkTimeout = parseInt(select.value, 10) || networkTimeouts[0];
-            try {
-              localStorage.setItem(timeoutKey, String(networkTimeout));
-            } catch (_) {}
-            if (!session) return;
-            const video = document.getElementById("player");
-            attach(session.manifest_url, session.mode, titleMs(video) - originMs);
+            runner.changeLocal({ networkTimeoutS: parseInt(select.value, 10) || NETWORK_TIMEOUTS[0] });
           });
+          ui.timeout = select;
           rowMid.appendChild(sm.el("label", null, ["Timeout ", select]));
         }
         {
-          const video = document.getElementById("player");
           const select = sm.subtitleSizeSelect((size) => {
             video.dataset.subtitleSize = size;
           });
-          subtitleSizeLabel = sm.el("label", null, ["Subtitle size ", select]);
-          rowMid.appendChild(subtitleSizeLabel);
+          ui.sizeLabel = sm.el("label", null, ["Subtitle size ", select]);
+          rowMid.appendChild(ui.sizeLabel);
         }
         {
           const embedded = (version && version.subtitles) || [];
           const files = (version && version.subtitle_files) || [];
+          const none = !embedded.length && !files.length;
           const options = [sm.el("option", { value: "" }, "No subtitles")];
           embedded.forEach((s) => {
             options.push(
@@ -832,68 +758,37 @@
             );
           });
           const select = sm.el("select", null, options);
-          if (!embedded.length && !files.length) select.disabled = true;
-          const selected = session.selected && session.selected.subtitle_track;
-          if (selSub) {
-            select.value = selSub;
-          } else if (selected && selected.type === "embedded") {
-            select.value = "embedded:" + selected.index;
-          } else if (selected && selected.type === "file") {
-            select.value = "file:" + selected.id;
-          }
-          const offsetInput = sm.el("input", {
-            type: "number",
-            step: "100",
-            value: String(selOffset),
-            class: "sm-offset",
-          });
-          offsetInput.disabled = !embedded.length && !files.length;
-          const trackOf = () => parseSubValue(select.value);
+          select.dataset.never = none ? "1" : "";
           select.addEventListener("change", () => {
-            selSub = select.value;
-            writeParams();
-            const track = trackOf();
-            if (!track) {
-              sendUpdate({ subtitle: { action: "disable" } });
-            } else {
-              sendUpdate({ subtitle: { action: "set", track: track, offset_ms: selOffset || null } });
-            }
+            const track = trackFromWire(select.value);
+            changeRemote({ subtitle: track ? { kind: "on", track } : { kind: "off" } });
           });
-          offsetInput.addEventListener("change", () => {
-            selOffset = Math.round(parseFloat(offsetInput.value) || 0);
-            writeParams();
-            const track = trackOf();
-            if (!track) return;
-            sendUpdate({
-              subtitle: {
-                action: "set",
-                track: track,
-                offset_ms: selOffset,
-              },
-            });
+          const offset = sm.el("input", { type: "number", step: "100", class: "sm-offset" });
+          offset.dataset.never = none ? "1" : "";
+          offset.addEventListener("change", () => {
+            changeRemote({ offsetMs: Math.round(parseFloat(offset.value) || 0) });
           });
+          ui.subtitles = select;
+          ui.offset = offset;
+          ui.stream.push(select, offset);
           rowBottom.appendChild(sm.el("label", null, ["Subtitles ", select]));
-          subtitleOffsetLabel = sm.el("label", null, ["Offset ", offsetInput]);
-          rowBottom.appendChild(subtitleOffsetLabel);
-          syncBurnedSubtitles();
+          ui.offsetLabel = sm.el("label", null, ["Offset ", offset]);
+          rowBottom.appendChild(ui.offsetLabel);
           const burn = sm.el("input", { type: "checkbox" });
-          burn.checked = controls.burn;
           burn.addEventListener("change", () => {
-            controls.burn = burn.checked;
-            syncBurnedSubtitles();
-            writeParams();
-            sendUpdate({});
+            changeRemote({ burn: burn.checked });
           });
+          ui.burn = burn;
+          ui.stream.push(burn);
           rowBottom.appendChild(sm.el("label", null, ["Burn in ", burn]));
         }
         {
           const downmix = sm.el("input", { type: "checkbox" });
-          downmix.checked = controls.downmix;
           downmix.addEventListener("change", () => {
-            controls.downmix = downmix.checked;
-            writeParams();
-            sendUpdate({});
+            changeRemote({ downmix: downmix.checked });
           });
+          ui.downmix = downmix;
+          ui.stream.push(downmix);
           rowMid.appendChild(sm.el("label", null, ["Downmix to stereo ", downmix]));
           const diag = sm.el("input", { type: "checkbox" });
           diag.addEventListener("change", () => {
@@ -914,14 +809,13 @@
           const select = sm.el(
             "select",
             null,
-            deliveryModes.map((mode) => sm.el("option", { value: mode }, mode)),
+            DELIVERY_MODES.map((mode) => sm.el("option", { value: mode }, mode)),
           );
-          select.value = controls.delivery;
           select.addEventListener("change", () => {
-            controls.delivery = select.value;
-            writeParams();
-            sendUpdate({});
+            changeRemote({ delivery: select.value });
           });
+          ui.delivery = select;
+          ui.stream.push(select);
           rowTop.appendChild(sm.el("label", null, ["Delivery ", select]));
         }
       }
