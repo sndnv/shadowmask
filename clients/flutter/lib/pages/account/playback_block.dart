@@ -5,6 +5,7 @@ import 'package:shadowmask/components/section_block.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/player/player_prefs_store.dart';
+import 'package:shadowmask/player/state/local_settings.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/view/playback_controls.dart';
@@ -20,10 +21,10 @@ class PlaybackBlock extends StatefulWidget {
 }
 
 class _PlaybackBlockState extends State<PlaybackBlock> {
-  DeliveryPreference _delivery = kDefaultPlayerPrefs.delivery;
-  SubtitleSize _subtitleSize = kDefaultPlayerPrefs.subtitleSize;
-  int _autoplaySeconds = kDefaultPlayerPrefs.autoplaySeconds;
-  bool _diagnostics = kDefaultPlayerPrefs.diagnostics;
+  DeliveryPreference _delivery = const LocalSettings().defaultDelivery;
+  SubtitleSize _subtitleSize = const LocalSettings().subtitleSize;
+  int _autoplaySeconds = const LocalSettings().autoplayNextS;
+  bool _diagnostics = const LocalSettings().diagnostics;
   bool _loaded = false;
 
   @override
@@ -33,16 +34,16 @@ class _PlaybackBlockState extends State<PlaybackBlock> {
   }
 
   Future<void> _load() async {
-    final PlayerPrefs prefs = await widget.store.load().catchError(
-      (Object _) => kDefaultPlayerPrefs,
+    final LocalSettings prefs = await widget.store.load().catchError(
+      (Object _) => const LocalSettings(),
     );
     if (!mounted) {
       return;
     }
     setState(() {
-      _delivery = prefs.delivery;
+      _delivery = prefs.defaultDelivery;
       _subtitleSize = prefs.subtitleSize;
-      _autoplaySeconds = prefs.autoplaySeconds;
+      _autoplaySeconds = prefs.autoplayNextS;
       _diagnostics = prefs.diagnostics;
       _loaded = true;
     });

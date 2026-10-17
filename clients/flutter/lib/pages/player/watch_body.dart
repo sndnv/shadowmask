@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -23,8 +22,17 @@ import 'package:shadowmask/components/breadcrumbs.dart';
 import 'package:shadowmask/components/crumb.dart';
 import 'package:shadowmask/components/player/trickplay_loader.dart';
 import 'package:shadowmask/components/player/trickplay_thumb.dart';
+import 'package:shadowmask/player/playback_runner.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
+import 'package:shadowmask/player/state/local_settings.dart';
+import 'package:shadowmask/player/state/playback_life.dart';
+import 'package:shadowmask/player/state/playback_notice.dart';
+import 'package:shadowmask/player/state/playback_state.dart';
+import 'package:shadowmask/player/state/playback_stream.dart';
+import 'package:shadowmask/player/state/playback_title.dart';
+import 'package:shadowmask/player/state/sent_change.dart';
+import 'package:shadowmask/player/watches/buffer_watch.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/components/toast_host.dart';
@@ -41,8 +49,6 @@ import 'package:shadowmask/model/common/artwork.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/model/server/server_info.dart';
 import 'package:shadowmask/model/session/client_decoding.dart';
-import 'package:shadowmask/model/session/negotiation.dart';
-import 'package:shadowmask/model/session/playback_session.dart';
 import 'package:shadowmask/model/session/resume_position.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
 import 'package:shadowmask/model/user/self_user.dart';
@@ -62,15 +68,6 @@ import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/view/player_shortcuts.dart';
 import 'package:shadowmask/view/track_carry.dart';
 import 'package:shadowmask/view/version_jobs_watch.dart';
-
-const int kStallSeconds = 20;
-
-const int kPrebufferGiveUpSeconds = 10;
-
-const int kBufferReachMs = 1000;
-const int kSeekReachMs = 30000;
-
-bool playerDrawsSubtitles(String? delivery) => delivery == 'hls_vtt';
 
 class WatchBody extends StatefulWidget {
   const WatchBody({
@@ -101,71 +98,34 @@ class WatchBody extends StatefulWidget {
 class _WatchBodyState extends State<WatchBody>
     with RouteAware, WidgetsBindingObserver {
   late final PlaybackApi _pb = PlaybackApi(widget.api);
-  late final PlayerController _controller = widget.controllerFactory(
-    _pb.baseUrl,
-  );
+  late final PlayerController _controller;
   static const PlayerPrefsStore _prefs = PlayerPrefsStore();
-  late Future<bool> _boot = _start();
-  bool _unloadBound = false;
-  int _starts = 0;
+  late Future<void> _opening = _open();
+  late final PlaybackRunner _runner;
+  late PlaybackState _shown;
+  bool _gatherFailed = false;
+  bool _covered = false;
+  LocalSettings _saved = const LocalSettings();
 
-  PlaybackControls _controls = const PlaybackControls();
-  double _speed = 1;
-  bool _diag = false;
-  bool _remaining = false;
   PlayerPanel? _panel;
   bool _sheetOpen = false;
   final GlobalKey<ScaffoldState> _sheetHost = GlobalKey<ScaffoldState>();
-  PlaybackSession? _session;
-  VersionDetail? _version;
-  int _originMs = 0;
-  bool _sequential = false;
   TrickplayLoader? _trickplay;
-  Timer? _heartbeat;
-  late final StreamSubscription<String> _errorEvents;
-  String? _error;
-  int _errorProgressMs = 0;
-  bool _applying = false;
-  bool _applySlow = false;
-  Timer? _applyWatch;
-  bool _restarting = false;
-  String? _mode;
-  String? _container;
-  String? _subtitleDelivery;
-  String? _title;
+  String? _trickplayFor;
   Artwork? _backdropArt;
   bool _claimedBackdrop = false;
   bool _ownsBackdrop = false;
   String? _detailRoute;
   List<Crumb> _crumbs = const <Crumb>[];
-  String? _lastState;
-  int _startPositionMs = 0;
-  bool _played = false;
+  String? _seriesId;
   ScopedValue<bool>? _immersive;
   ClientDecoding? _decoding;
-  int _autoplaySeconds = kDefaultPlayerPrefs.autoplaySeconds;
-  int _networkTimeout = kDefaultPlayerPrefs.networkTimeoutSeconds;
-  SubtitleSize _subtitleSize = kDefaultPlayerPrefs.subtitleSize;
-  int _bufferSeconds = kDefaultPlayerPrefs.bufferSeconds;
-  int _bufferBytes = kDefaultPlayerPrefs.bufferBytes;
-  bool _waitForBuffer = kDefaultPlayerPrefs.waitForBuffer;
-  bool _prebuffered = true;
-  int _lastBufferMs = 0;
-  int _bufferStalledSeconds = 0;
-  String? _seriesId;
-  EpisodeNeighbours _neighbours = const EpisodeNeighbours();
   EpisodeLink? _upNext;
   int _upNextLeft = 0;
   Timer? _countdown;
-  bool _autoplayHandled = false;
+  bool _upNextOff = false;
   bool _carrySelection = false;
   bool _warnedProfile = false;
-  Timer? _stallWatch;
-  int _stalledSeconds = 0;
-  int _lastProgressMs = -1;
-  int _lastPositionMs = -1;
-  bool _stalled = false;
-  int _negotiation = 0;
   final FocusNode _keys = FocusNode(debugLabel: 'player-shortcuts');
   AdminApi? _admin;
   VersionJobsWatch? _jobs;
@@ -175,11 +135,21 @@ class _WatchBodyState extends State<WatchBody>
   @override
   void initState() {
     super.initState();
-    _controls = widget.initialControls;
-    _carrySelection = _controls.hasTrackRequest;
-    _controller.snapshot.addListener(_onSnapshot);
-    _controller.fullscreen.addListener(_onFullscreen);
-    _errorEvents = _controller.errors.listen(_onError);
+    _controller = widget.controllerFactory(_pb.baseUrl);
+    _runner = PlaybackRunner(
+      api: _pb,
+      player: _controller,
+      saveLocal: _saveLocal,
+      platform: clientPlatform(),
+      versionId: widget.versionId,
+      controls: widget.initialControls,
+      playing: true,
+    );
+    _shown = _runner.state.value;
+    _runner.state.addListener(_onState);
+    addUnloadListener(_onUnload);
+    addRestoreListener(_onRestore);
+    _carrySelection = widget.initialControls.hasTrackRequest;
     WidgetsBinding.instance.addObserver(this);
     if (widget.user.worksOnVersions) {
       final AdminApi admin = AdminApi(widget.api);
@@ -191,14 +161,15 @@ class _WatchBodyState extends State<WatchBody>
     }
   }
 
+  PlaybackState get _state => _runner.state.value;
+
   Future<bool> _refetchVersion() async {
     try {
       final VersionDetail version = await CatalogApi(
         widget.api,
       ).version(widget.versionId);
-      if (mounted && _version != null) {
-        setState(() => _version = version);
-        _versionFeed.value = version;
+      if (mounted) {
+        _runner.refreshVersion(version);
       }
       return true;
     } catch (_) {
@@ -214,18 +185,19 @@ class _WatchBodyState extends State<WatchBody>
   Future<void> _addSubtitles() async {
     final AdminApi? admin = _admin;
     final VersionJobsWatch? jobs = _jobs;
+    final PlaybackState s = _state;
     if (admin == null || jobs == null) {
       return;
     }
     jobs.refresh();
-    final SubtitleSelection? watching = _controls.subtitle;
+    final SubtitleSelection? watching = s.remote.subtitle.selection;
     await showAddSubtitlesDialog(
       context,
       admin: admin,
       version: _versionFeed,
       jobs: jobs,
       onWork: _onWork,
-      audioTrack: _controls.audioTrack,
+      audioTrack: s.remote.audioTrack,
       watchingFileId: watching?.kind == SubtitleKind.file ? watching?.id : null,
     );
     _reclaimKeys();
@@ -242,7 +214,7 @@ class _WatchBodyState extends State<WatchBody>
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _onFullscreen();
+        _publishImmersive();
       }
     });
     final ModalRoute<dynamic>? route = ModalRoute.of(context);
@@ -251,14 +223,26 @@ class _WatchBodyState extends State<WatchBody>
     }
   }
 
-  void _onFullscreen() =>
-      _immersive?.publish(_controller.fullscreen.value, owner: this);
+  static bool _failed(PlaybackState s) =>
+      s.stream == null && s.status.error != null;
+
+  bool _immersed(PlaybackState s) =>
+      !_gatherFailed && s.local.fullscreen && !_failed(s);
+
+  void _publishImmersive() =>
+      _immersive?.publish(_immersed(_state), owner: this);
 
   @override
-  void didPushNext() => _release();
+  void didPushNext() {
+    _covered = true;
+    _background();
+  }
 
   @override
-  void didPopNext() => _restart();
+  void didPopNext() {
+    _covered = false;
+    _foreground(playing: true);
+  }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -266,95 +250,39 @@ class _WatchBodyState extends State<WatchBody>
       return;
     }
     if (state == AppLifecycleState.paused) {
-      _release();
+      _background();
       return;
     }
     if (state == AppLifecycleState.resumed) {
-      _restart(autoplay: false);
+      _foreground(playing: false);
     }
   }
 
-  void _restart({bool autoplay = true}) {
-    if (_session != null ||
-        !mounted ||
-        !(ModalRoute.of(context)?.isCurrent ?? false)) {
-      return;
-    }
-    setState(() {
-      _boot = _start(autoplay: autoplay);
-    });
-  }
-
-  void _release() {
-    _starts++;
-    _supersedeNegotiations();
-    _heartbeat?.cancel();
-    _heartbeat = null;
+  void _background() {
     _cancelCountdown();
-    _controller.pause();
-    _endSession();
-    unawaited(_controller.detach());
+    _runner.background();
   }
 
-  void _endSession() {
-    final String? sid = _session?.sessionId;
-    if (sid == null) {
+  void _foreground({required bool playing}) {
+    if (!mounted || _covered) {
       return;
     }
-    _flushProgress();
-    _pb.endSession(sid);
-    _session = null;
+    _runner.foreground(playing: playing);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     appRouteObserver.unsubscribe(this);
-    _controller.fullscreen.removeListener(_onFullscreen);
     _immersive?.releaseAfterFrame(true, false, owner: this);
-    _controller.snapshot.removeListener(_onSnapshot);
-    unawaited(_errorEvents.cancel());
     _countdown?.cancel();
-    _stallWatch?.cancel();
-    _applyWatch?.cancel();
     _keys.dispose();
     _jobs?.dispose();
     _versionFeed.dispose();
-    _heartbeat?.cancel();
-    _endSession();
     _trickplay?.dispose();
-    _controller.dispose();
+    _runner.state.removeListener(_onState);
+    unawaited(_runner.leave().whenComplete(_controller.dispose));
     super.dispose();
-  }
-
-  Future<bool> _start({bool autoplay = true}) async {
-    try {
-      final bool started = await _startSession(autoplay: autoplay);
-      _immersive?.publish(_controller.fullscreen.value, owner: this);
-      return started;
-    } catch (_) {
-      _immersive?.publish(false, owner: this);
-      rethrow;
-    }
-  }
-
-  void _retry() {
-    _heartbeat?.cancel();
-    _heartbeat = null;
-    _endSession();
-    setState(() {
-      _boot = _start();
-    });
-  }
-
-  bool _superseded(int start) => !mounted || start != _starts;
-
-  void _supersedeNegotiations() {
-    _negotiation++;
-    _applyWatch?.cancel();
-    _applying = false;
-    _applySlow = false;
-    _restarting = false;
   }
 
   void _warnProfileVersion(int reported) {
@@ -367,8 +295,19 @@ class _WatchBodyState extends State<WatchBody>
     ).error(Strings.errorProfileVersion(reported, kExpectedProfileVersion));
   }
 
-  Future<bool> _startSession({bool autoplay = true}) async {
-    final int start = ++_starts;
+  Future<void> _open() async {
+    try {
+      await _gather();
+    } catch (_) {
+      if (mounted) {
+        _gatherFailed = true;
+        _publishImmersive();
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _gather() async {
     final ServerInfo info = await _pb.serverInfo().catchError(
       (_) => const ServerInfo(),
     );
@@ -379,88 +318,106 @@ class _WatchBodyState extends State<WatchBody>
     final VersionDetail version = await CatalogApi(
       widget.api,
     ).version(widget.versionId);
-    final PlayerPrefs prefs = await _prefs.load().catchError(
-      (_) => kDefaultPlayerPrefs,
+    final LocalSettings prefs = await _prefs.load().catchError(
+      (_) => const LocalSettings(),
     );
-    _controls = _controls.withDefaultDelivery(prefs.delivery);
-    final PlaybackSession session = await _pb.startSession(
-      versionId: widget.versionId,
-      startPositionMs: resume.positionMs,
+    if (!mounted) {
+      return;
+    }
+    _saved = prefs;
+    _runner.opened(
+      title: PlaybackTitle(version: version),
+      local: prefs.copyWith(decoding: _decoding),
+      resumeMs: resume.positionMs,
       profileVersion: info.profileVersion,
-      platform: clientPlatform(),
-      decoding: _decoding,
-      controls: _controls,
     );
-    if (_superseded(start)) {
-      _pb.endSession(session.sessionId);
-      return false;
-    }
-    _session = session;
-    _attachingAt(resume.positionMs);
-    if (!_unloadBound) {
-      _unloadBound = true;
-      addUnloadListener(_endSessionBeacon);
-    }
-    _supersedeNegotiations();
-    _version = version;
     _versionFeed.value = version;
-    _originMs = session.originMs;
-    _sequential = session.sequential;
-    _controls = _controls.withSelection(session.selected);
-    _mode = session.mode.name;
-    _container = session.container;
-    _subtitleDelivery = session.selected?.subtitleDelivery;
+    unawaited(_loadTitle(version.title));
+  }
+
+  void _reopen() {
+    _gatherFailed = false;
+    _publishImmersive();
+    setState(() => _opening = _open());
+  }
+
+  Future<void> _saveLocal(LocalSettings local) {
+    final LocalSettings was = _saved;
+    _saved = local;
+    return _prefs.saveChanged(was, local);
+  }
+
+  void _onUnload() => unawaited(_runner.leave());
+
+  void _onRestore() {
+    if (mounted && _state.status.life == PlaybackLife.closed) {
+      reloadPage();
+    }
+  }
+
+  void _onState() {
+    final PlaybackState was = _shown;
+    final PlaybackState now = _runner.state.value;
+    _shown = now;
+    if (!mounted) {
+      return;
+    }
+    if (_immersed(now) != _immersed(was)) {
+      _publishImmersive();
+    }
+    if (was.status.gathered &&
+        was.status.sent is! SentStart &&
+        now.remote != was.remote) {
+      _carrySelection =
+          _carrySelection ||
+          now.remote.audioTrack != was.remote.audioTrack ||
+          now.remote.subtitle != was.remote.subtitle;
+      _writeUrl(now.remote);
+    }
+    final PlaybackNotice? notice = now.status.notice;
+    if (notice != null && was.status.notice == null) {
+      Toasts.of(context).error(switch (notice) {
+        PlaybackNotice.changeFailed => Strings.renegotiationFailed,
+        PlaybackNotice.seekFailed => Strings.seekFailed,
+      });
+    }
+    if (now.title.version != was.title.version) {
+      _versionFeed.value = now.title.version;
+    }
+    _followTrickplay(now);
+    _followEnd(now);
+  }
+
+  void _followTrickplay(PlaybackState s) {
+    final PlaybackStream? stream = s.stream;
+    if (stream == null || stream.sessionId == _trickplayFor) {
+      return;
+    }
+    _trickplayFor = stream.sessionId;
+    _trickplay?.dispose();
     _trickplay = TrickplayLoader(
       api: _pb,
       versionId: widget.versionId,
-      refs: session.trickplay.isNotEmpty
-          ? session.trickplay
-          : version.trickplay,
+      refs: stream.trickplay.isNotEmpty
+          ? stream.trickplay
+          : s.title.version?.trickplay ?? const <TrickplayRef>[],
     );
-    _networkTimeout = prefs.networkTimeoutSeconds;
-    _controller.setNetworkTimeout(_networkTimeout);
-    _subtitleSize = prefs.subtitleSize;
-    _controller.setSubtitleSize(_subtitleSize);
-    _bufferSeconds = prefs.bufferSeconds;
-    _bufferBytes = prefs.bufferBytes;
-    _waitForBuffer = prefs.waitForBuffer;
-    _prebuffered = !(_waitForBuffer && autoplay);
-    _lastBufferMs = 0;
-    _bufferStalledSeconds = 0;
-    _controller.setBuffer(seconds: _bufferSeconds, bytes: _bufferBytes);
-    _error = null;
-    await _controller.attach(
-      session.manifestUrl,
-      mode: session.mode,
-      subtitles: playerDrawsSubtitles(_subtitleDelivery),
-      positionMs: _attachOffset(resume.positionMs),
-      autoplay: autoplay && _prebuffered,
-    );
-    if (_superseded(start)) {
-      return false;
+  }
+
+  void _followEnd(PlaybackState s) {
+    if (s.timeline.playing || !s.timeline.ended) {
+      _upNextOff = false;
+      _cancelCountdown();
+      return;
     }
-    if (!_prebuffered && !_controller.buffersAhead) {
-      _prebuffered = true;
-      _controller.play();
+    if (s.status.stalled) {
+      _upNextOff = true;
     }
-    _remaining = prefs.remaining;
-    _diag = prefs.diagnostics;
-    _autoplaySeconds = prefs.autoplaySeconds;
-    _controller.setVolume(prefs.volume);
-    if (prefs.muted) {
-      _controller.setMuted(true);
+    if (!s.watching || s.status.stalled || s.status.error != null) {
+      _cancelCountdown();
+      return;
     }
-    _startHeartbeat(session.heartbeatIntervalS);
-    _watchForStall();
-    if (_controls.offsetMs != 0) {
-      await _applyControls(
-        _controls,
-        seekMs: resume.positionMs,
-        autoplay: autoplay,
-      );
-    }
-    await _loadTitle(version.title);
-    return true;
+    _armAutoplay(s);
   }
 
   Future<void> _loadTitle(TitleRef ref) async {
@@ -468,22 +425,30 @@ class _WatchBodyState extends State<WatchBody>
     if (ref.type == TitleKind.movie) {
       try {
         final MovieDetail movie = await catalog.movie(ref.id);
-        _backdropArt = movie.artwork;
-        _title = movie.year != null
-            ? Strings.titleWithYear(movie.title, movie.year!)
-            : movie.title;
-        _detailRoute = movieRoute(movie.id);
-        _crumbs = <Crumb>[
-          Crumb(Strings.navigationMovies, route: moviesRoute()),
-          Crumb(movie.title, route: _detailRoute),
-          const Crumb(Strings.watchHeading),
-        ];
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _backdropArt = movie.artwork;
+          _detailRoute = movieRoute(movie.id);
+          _crumbs = <Crumb>[
+            Crumb(Strings.navigationMovies, route: moviesRoute()),
+            Crumb(movie.title, route: _detailRoute),
+            const Crumb(Strings.watchHeading),
+          ];
+        });
+        _runner.describe(
+          name: movie.year != null
+              ? Strings.titleWithYear(movie.title, movie.year!)
+              : movie.title,
+          previous: null,
+          next: null,
+        );
       } catch (_) {}
       return;
     }
     try {
       final Episode episode = await catalog.episode(ref.id);
-      _backdropArt = episode.seriesArtwork ?? episode.artwork;
       Season? season;
       try {
         season = await catalog.season(episode.seasonId);
@@ -496,104 +461,50 @@ class _WatchBodyState extends State<WatchBody>
         } catch (_) {}
       }
       final int? seasonNumber = season?.number ?? episode.seasonNumber;
-      _title = Strings.seriesEpisodeLine(
-        seriesTitle,
-        seasonNumber,
-        episode.number,
-        episode.title,
+      final EpisodeNeighbours neighbours = await loadNeighbours(
+        catalog,
+        episode,
       );
-      _seriesId = seriesId;
-      _neighbours = await loadNeighbours(catalog, episode);
-      _detailRoute = episodeRoute(episode.id, series: seriesId);
-      _crumbs = <Crumb>[
-        Crumb(Strings.navigationSeries, route: seriesListRoute()),
-        if (seriesId != null)
-          Crumb(seriesTitle ?? seriesId, route: seriesRoute(seriesId)),
-        Crumb(
-          season?.title ??
-              (seasonNumber != null
-                  ? Strings.seasonLabel(seasonNumber)
-                  : Strings.seasonsHeading),
-          route: seasonRoute(episode.seasonId, series: seriesId),
-        ),
-        Crumb(
-          Strings.episodeCode(seasonNumber, episode.number),
-          route: _detailRoute,
-        ),
-        const Crumb(Strings.watchHeading),
-      ];
-    } catch (_) {}
-  }
-
-  void _watchForStall() {
-    _stallWatch ??= Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) {
         return;
       }
-      final PlayerSnapshot snap = _controller.snapshot.value;
-      if (!_prebuffered) {
-        final int ahead = snap.bufferedAheadMs;
-        if (ahead + kBufferReachMs >= _prebufferTargetMs(snap)) {
-          _playNow();
-          return;
-        }
-        if (ahead > _lastBufferMs) {
-          _bufferStalledSeconds = 0;
-        } else if (++_bufferStalledSeconds >= kPrebufferGiveUpSeconds) {
-          _playNow();
-        }
-        _lastBufferMs = ahead;
-        return;
-      }
-      final int progress = snap.positionMs + snap.bufferedAheadMs;
-      if (progress != _errorProgressMs) {
-        _error = null;
-      }
-      final bool paused = !snap.playing && !snap.waiting && !snap.ended;
-      final bool frozen =
-          _error != null && !paused && snap.positionMs == _lastPositionMs;
-      _lastPositionMs = snap.positionMs;
-      if (!(snap.waiting || frozen) || progress != _lastProgressMs) {
-        _lastProgressMs = progress;
-        _stalledSeconds = 0;
-        if (_stalled) {
-          setState(() => _stalled = false);
-        }
-        return;
-      }
-      _stalledSeconds += 1;
-      if (_stalledSeconds >= kStallSeconds && !_stalled) {
-        setState(() => _stalled = true);
-      }
-    });
+      final String detail = episodeRoute(episode.id, series: seriesId);
+      setState(() {
+        _backdropArt = episode.seriesArtwork ?? episode.artwork;
+        _seriesId = seriesId;
+        _detailRoute = detail;
+        _crumbs = <Crumb>[
+          Crumb(Strings.navigationSeries, route: seriesListRoute()),
+          if (seriesId != null)
+            Crumb(seriesTitle ?? seriesId, route: seriesRoute(seriesId)),
+          Crumb(
+            season?.title ??
+                (seasonNumber != null
+                    ? Strings.seasonLabel(seasonNumber)
+                    : Strings.seasonsHeading),
+            route: seasonRoute(episode.seasonId, series: seriesId),
+          ),
+          Crumb(
+            Strings.episodeCode(seasonNumber, episode.number),
+            route: detail,
+          ),
+          const Crumb(Strings.watchHeading),
+        ];
+      });
+      _runner.describe(
+        name: Strings.seriesEpisodeLine(
+          seriesTitle,
+          seasonNumber,
+          episode.number,
+          episode.title,
+        ),
+        previous: neighbours.previous,
+        next: neighbours.next,
+      );
+    } catch (_) {}
   }
 
-  void _keepWaiting() {
-    _stalledSeconds = 0;
-    setState(() {
-      _error = null;
-      _stalled = false;
-    });
-  }
-
-  void _onError(String message) {
-    if (!mounted) {
-      return;
-    }
-    final PlayerSnapshot snap = _controller.snapshot.value;
-    setState(() {
-      _error = message;
-      _errorProgressMs = snap.positionMs + snap.bufferedAheadMs;
-    });
-  }
-
-  void _centrePlay() {
-    if (_controller.snapshot.value.ended) {
-      _cancelCountdown();
-      _controller.seekTo(0);
-    }
-    _controller.togglePlay();
-  }
+  void _togglePlay() => _runner.toggle();
 
   void _leavePlayer() {
     final NavigatorState navigator = Navigator.of(context);
@@ -607,64 +518,22 @@ class _WatchBodyState extends State<WatchBody>
     }
   }
 
-  void _startHeartbeat(int intervalS) {
-    _heartbeat?.cancel();
-    _heartbeat = Timer.periodic(Duration(seconds: max(1, intervalS)), (_) {
-      _sendProgress(_controller.snapshot.value.playing ? 'playing' : 'paused');
-    });
-  }
-
-  void _onSnapshot() {
-    if (!mounted) {
+  void _armAutoplay(PlaybackState s) {
+    final EpisodeLink? next = s.title.next;
+    final int seconds = s.local.autoplayNextS;
+    if (_upNextOff ||
+        _upNext != null ||
+        seconds == kAutoplayOff ||
+        next == null) {
       return;
     }
-    final PlayerSnapshot s = _controller.snapshot.value;
-    _played = _played || s.playing;
-    final String state = s.playing ? 'playing' : 'paused';
-    if (state != _lastState) {
-      _lastState = state;
-      _sendProgress(state);
-    }
-    if (s.playing) {
-      _autoplayHandled = false;
-      _cancelCountdown();
-      return;
-    }
-    if (s.ended) {
-      if (_error != null &&
-          s.positionMs + s.bufferedAheadMs == _errorProgressMs) {
-        _failAtEnd(s);
-        return;
-      }
-      _armAutoplay();
-      return;
-    }
-    _autoplayHandled = false;
-  }
-
-  void _failAtEnd(PlayerSnapshot s) {
-    _autoplayHandled = true;
-    _stalledSeconds = kStallSeconds;
-    _lastProgressMs = s.positionMs + s.bufferedAheadMs;
-    _lastPositionMs = s.positionMs;
-    if (!_stalled) {
-      setState(() => _stalled = true);
-    }
-  }
-
-  void _armAutoplay() {
-    final EpisodeLink? next = _neighbours.next;
-    if (_autoplayHandled || _autoplaySeconds == kAutoplayOff || next == null) {
-      return;
-    }
-    _autoplayHandled = true;
-    if (_autoplaySeconds == kAutoplayImmediately) {
+    if (seconds == kAutoplayImmediately) {
       _goToEpisode(next);
       return;
     }
     setState(() {
       _upNext = next;
-      _upNextLeft = _autoplaySeconds;
+      _upNextLeft = seconds;
     });
     _countdown = Timer.periodic(const Duration(seconds: 1), (Timer timer) {
       if (!mounted) {
@@ -690,8 +559,13 @@ class _WatchBodyState extends State<WatchBody>
     }
   }
 
-  Future<void> _goToEpisode(EpisodeLink link) async {
+  void _dismissUpNext() {
+    _upNextOff = true;
     _cancelCountdown();
+  }
+
+  Future<void> _goToEpisode(EpisodeLink link) async {
+    _dismissUpNext();
     final String route = await _episodeRoute(link);
     if (!mounted) {
       return;
@@ -724,19 +598,21 @@ class _WatchBodyState extends State<WatchBody>
   }
 
   Map<String, String?> _carried() {
-    final VersionDetail? version = _version;
+    final PlaybackState s = _state;
+    final VersionDetail? version = s.title.version;
     if (!_carrySelection || version == null) {
       return const <String, String?>{};
     }
-    return carryTracks(_controls, version).toQuery();
+    return carryTracks(s.remote, version).toQuery();
   }
 
   TransportStep? _step(
+    PlaybackTitle title,
     EpisodeLink? link,
     String none,
     String Function(String) named,
   ) {
-    if (_neighbours.previous == null && _neighbours.next == null) {
+    if (title.previous == null && title.next == null) {
       return null;
     }
     return (
@@ -745,132 +621,23 @@ class _WatchBodyState extends State<WatchBody>
     );
   }
 
-  int get _fullDurationMs => _version?.durationMs ?? 0;
+  void _changeRemote(PlaybackControls next) => _runner.changeRemote(next);
 
-  bool get _seeksInStream => _controller.seeksWithin(_container);
-
-  int _attachOffset(int timelineMs) =>
-      _sequential && !_seeksInStream ? 0 : timelineMs - _originMs;
-
-  PlayerSnapshot get _view => _controller.snapshot.value.onTimeline(
-    originMs: _originMs,
-    fullMs: _fullDurationMs,
+  void _writeUrl(PlaybackControls controls) => replaceUrl(
+    withQuery('/watch', <String, String?>{
+      'version': widget.versionId,
+      ...controls.toQuery(),
+    }),
   );
 
-  int get _knownPositionMs => _played ? _view.positionMs : _startPositionMs;
+  void _changeLocal(LocalSettings Function(LocalSettings local) change) =>
+      _runner.changeLocal(change);
 
-  void _attachingAt(int positionMs) {
-    _startPositionMs = positionMs;
-    _played = false;
-  }
-
-  void _sendProgress(String state) {
-    final String? sid = _session?.sessionId;
-    if (sid != null) {
-      _pb.progress(sid, _knownPositionMs, state);
-    }
-  }
-
-  void _flushProgress() {
-    _sendProgress(_controller.snapshot.value.playing ? 'playing' : 'paused');
-  }
-
-  void _endSessionBeacon() => _endSession();
-
-  void _writeUrl() {
-    replaceUrl(
-      withQuery('/watch', <String, String?>{
-        'version': widget.versionId,
-        ..._controls.toQuery(),
-      }),
-    );
-  }
-
-  Future<void> _applyControls(
-    PlaybackControls next, {
-    int? seekMs,
-    bool autoplay = true,
-  }) async {
-    _carrySelection =
-        _carrySelection ||
-        next.audioTrack != _controls.audioTrack ||
-        next.subtitle != _controls.subtitle ||
-        next.subtitleOff != _controls.subtitleOff;
-    setState(() => _controls = next);
-    _writeUrl();
-    final String? sid = _session?.sessionId;
-    if (sid == null) {
-      return;
-    }
-    final int keepMs = seekMs ?? _knownPositionMs;
-    final int negotiation = ++_negotiation;
-    final bool wasPlaying = _controller.snapshot.value.playing;
-    _controller.pause();
-    setState(() {
-      _applying = true;
-      _applySlow = false;
-    });
-    _applyWatch?.cancel();
-    _applyWatch = Timer(const Duration(seconds: kStallSeconds), () {
-      if (mounted) {
-        setState(() => _applySlow = true);
-      }
-    });
-    try {
-      final neg = await _pb.update(sid, next, keepMs);
-      if (!mounted || negotiation != _negotiation) {
-        return;
-      }
-      _originMs = neg.originMs;
-      _sequential = neg.sequential;
-      _container = neg.container;
-      _error = null;
-      _attachingAt(keepMs);
-      await _controller.attach(
-        neg.manifestUrl,
-        mode: neg.mode,
-        subtitles: playerDrawsSubtitles(neg.selected?.subtitleDelivery),
-        positionMs: _attachOffset(keepMs),
-        autoplay: autoplay,
-      );
-      if (mounted && negotiation == _negotiation) {
-        setState(() {
-          _mode = neg.mode.name;
-          _subtitleDelivery = neg.selected?.subtitleDelivery;
-        });
-      }
-    } catch (_) {
-      if (mounted && negotiation == _negotiation) {
-        Toasts.of(context).error(Strings.renegotiationFailed);
-        if (wasPlaying) {
-          _controller.play();
-        }
-      }
-    } finally {
-      if (mounted && negotiation == _negotiation) {
-        _applyWatch?.cancel();
-        setState(() {
-          _applying = false;
-          _applySlow = false;
-        });
-      }
-    }
-  }
-
-  void _changeSpeed(double rate) {
-    setState(() => _speed = rate);
-    _controller.setRate(rate);
-  }
-
-  void _holdSpeed(double? rate) => _controller.setRate(rate ?? _speed);
-
-  void _changeDiagnostics(bool on) {
-    setState(() => _diag = on);
-    _prefs.saveDiagnostics(on);
-  }
+  void _holdSpeed(double? rate) =>
+      _controller.setRate(rate ?? _state.local.speed);
 
   void _openPanel(PlayerPanel panel) {
-    if (_version == null) {
+    if (_state.title.version == null) {
       return;
     }
     setState(() => _panel = _panel == panel ? null : panel);
@@ -886,7 +653,7 @@ class _WatchBodyState extends State<WatchBody>
   }
 
   void _openSheet() {
-    if (_version == null) {
+    if (_state.title.version == null) {
       return;
     }
     setState(() => _panel = null);
@@ -903,63 +670,10 @@ class _WatchBodyState extends State<WatchBody>
     }
   }
 
-  void _changeRemaining(bool on) {
-    setState(() => _remaining = on);
-    _prefs.saveRemaining(on);
-  }
-
-  void _changeSubtitleSize(SubtitleSize size) {
-    setState(() => _subtitleSize = size);
-    _prefs.saveSubtitleSize(size);
-    _controller.setSubtitleSize(size);
-  }
-
-  void _changeNetworkTimeout(int seconds) {
-    setState(() => _networkTimeout = seconds);
-    _prefs.saveNetworkTimeoutSeconds(seconds);
-    _controller.setNetworkTimeout(seconds);
-  }
-
   bool get _canBuffer => _controller.buffersAhead;
 
-  int _prebufferTargetMs(PlayerSnapshot snap) {
-    final int chosen = _bufferSeconds * 1000;
-    final int left = snap.durationMs - snap.positionMs;
-    return left > 0 && left < chosen ? left : chosen;
-  }
-
-  void _changeBufferSeconds(int seconds) {
-    setState(() => _bufferSeconds = seconds);
-    _prefs.saveBufferSeconds(seconds);
-    _controller.setBuffer(seconds: seconds, bytes: _bufferBytes);
-  }
-
-  void _changeBufferBytes(int bytes) {
-    setState(() => _bufferBytes = bytes);
-    _prefs.saveBufferBytes(bytes);
-    _controller.setBuffer(seconds: _bufferSeconds, bytes: bytes);
-  }
-
-  void _changeWaitForBuffer(bool wait) {
-    setState(() {
-      _waitForBuffer = wait;
-      if (!wait) {
-        _prebuffered = true;
-      }
-    });
-    _prefs.saveWaitForBuffer(wait);
-  }
-
-  void _playNow() {
-    _lastBufferMs = 0;
-    _bufferStalledSeconds = 0;
-    setState(() => _prebuffered = true);
-    _controller.play();
-  }
-
   void _changeAutoplay(int seconds) {
-    setState(() => _autoplaySeconds = seconds);
-    _prefs.saveAutoplaySeconds(seconds);
+    _changeLocal((LocalSettings l) => l.copyWith(autoplayNextS: seconds));
     final EpisodeLink? next = _upNext;
     if (seconds == kAutoplayOff) {
       _cancelCountdown();
@@ -1001,7 +715,7 @@ class _WatchBodyState extends State<WatchBody>
   void _run(PlayerShortcut action) {
     switch (action) {
       case PlayerShortcut.playPause:
-        _controller.togglePlay();
+        _togglePlay();
       case PlayerShortcut.seekBack:
         _seekBy(-kSeekStepMs);
       case PlayerShortcut.seekForward:
@@ -1017,11 +731,11 @@ class _WatchBodyState extends State<WatchBody>
       case PlayerShortcut.wide:
         widget.onToggleWide?.call();
       case PlayerShortcut.previousEpisode:
-        _stepEpisode(_neighbours.previous);
+        _stepEpisode(_state.title.previous);
       case PlayerShortcut.nextEpisode:
-        _stepEpisode(_neighbours.next);
+        _stepEpisode(_state.title.next);
       case PlayerShortcut.remaining:
-        _changeRemaining(!_remaining);
+        _changeLocal((LocalSettings l) => l.copyWith(remaining: !l.remaining));
       case PlayerShortcut.legend:
         _showShortcuts();
       case PlayerShortcut.back:
@@ -1057,95 +771,26 @@ class _WatchBodyState extends State<WatchBody>
     }
   }
 
-  void _seekBy(int? deltaMs, {double? toFraction}) {
-    final PlayerSnapshot s = _view;
-    if (s.durationMs <= 0) {
-      return;
-    }
-    final int target = toFraction != null
-        ? (s.durationMs * toFraction).round()
-        : _knownPositionMs + deltaMs!;
-    _seekTo(target.clamp(0, s.durationMs));
-  }
+  void _seekBy(int? deltaMs, {double? toFraction}) => toFraction != null
+      ? _runner.seekToFraction(toFraction)
+      : _runner.seekBy(deltaMs!);
 
-  bool _reachable(int targetMs) {
-    if (!_sequential) {
-      return true;
-    }
-    if (!_seeksInStream) {
-      return false;
-    }
-    if (targetMs < _originMs) {
-      return false;
-    }
-    final PlayerSnapshot raw = _controller.snapshot.value;
-    final int produced =
-        _originMs + raw.positionMs + raw.bufferedAheadMs + kSeekReachMs;
-    return targetMs <= produced;
-  }
+  void _nudgeVolume(double by) => _changeLocal(
+    (LocalSettings l) => _atVolume(l, (l.volume + by).clamp(0.0, 1.0)),
+  );
 
-  void _seekTo(int targetMs) {
-    if (_applying || _restarting) {
-      return;
-    }
-    if (!_played) {
-      _startPositionMs = targetMs;
-    }
-    if (_reachable(targetMs)) {
-      _controller.seekTo(targetMs - _originMs);
-      return;
-    }
-    unawaited(_restartAt(targetMs));
-  }
+  void _changeVolume(double level) =>
+      _changeLocal((LocalSettings l) => _atVolume(l, level));
 
-  Future<void> _restartAt(int targetMs) async {
-    final String? sid = _session?.sessionId;
-    if (sid == null) {
-      return;
-    }
-    final int negotiation = ++_negotiation;
-    setState(() => _restarting = true);
-    try {
-      final Negotiation neg = await _pb.seek(sid, targetMs);
-      if (!mounted || negotiation != _negotiation) {
-        return;
-      }
-      _originMs = neg.originMs;
-      _sequential = neg.sequential;
-      _container = neg.container;
-      _error = null;
-      _attachingAt(targetMs);
-      await _controller.attach(
-        neg.manifestUrl,
-        mode: neg.mode,
-        subtitles: playerDrawsSubtitles(_subtitleDelivery),
-        positionMs: _attachOffset(targetMs),
-      );
-    } catch (_) {
-    } finally {
-      if (mounted && negotiation == _negotiation) {
-        setState(() => _restarting = false);
-      }
-    }
-  }
-
-  void _nudgeVolume(double by) {
-    _changeVolume((_controller.volume.value + by).clamp(0.0, 1.0));
-  }
-
-  void _changeVolume(double level) {
-    _controller.setVolume(level);
-    _prefs.saveVolume(level);
-    _prefs.saveMuted(_controller.muted.value);
-  }
+  static LocalSettings _atVolume(LocalSettings l, double level) =>
+      l.copyWith(volume: level, muted: level == 0 && l.muted);
 
   void _toggleMute() {
-    final bool next = !_controller.muted.value;
-    _controller.setMuted(next);
-    _prefs.saveMuted(next);
-    if (!next) {
-      _prefs.saveVolume(_controller.volume.value);
+    if (_controller.mutedByPolicy.value) {
+      _controller.unmute();
+      return;
     }
+    _changeLocal((LocalSettings l) => l.copyWith(muted: !l.muted));
   }
 
   void _reclaimAfterPointer() {
@@ -1174,23 +819,40 @@ class _WatchBodyState extends State<WatchBody>
     if (widget.touch) {
       return;
     }
-    _controller.togglePlay();
+    _togglePlay();
   }
 
-  String? _waitingLabel(PlayerSnapshot snap) {
-    if (_applying) {
+  static PlayerSnapshot _shownReading(PlaybackState s) => PlayerSnapshot(
+    positionMs: s.timeline.positionMs,
+    durationMs: s.title.version?.durationMs ?? 0,
+    bufferedAheadMs: s.timeline.bufferedAheadMs,
+    playing: s.timeline.playing,
+    ready: true,
+    buffering: s.timeline.waiting,
+    bufferingPercent: s.timeline.bufferingPercent,
+    ended: s.timeline.ended,
+  );
+
+  String? _waitingLabel(PlaybackState s, PlayerSnapshot snap) {
+    final SentChange? sent = s.status.sent;
+    if (sent is SentControls) {
       return Strings.applyingPlaybackChanges;
     }
-    if (!_prebuffered) {
+    if (sent != null) {
+      return snap.positionMs > 0
+          ? Strings.playerBuffering
+          : Strings.playerLoading;
+    }
+    if (s.status.holding) {
       return Strings.playerBuffering;
     }
-    if (_stalled && _error != null) {
+    if (s.status.stalled && s.status.error != null) {
       return Strings.playerFailed;
     }
     if (!snap.waiting) {
       return null;
     }
-    if (_stalled) {
+    if (s.status.stalled) {
       return Strings.playerTooSlow;
     }
     return snap.positionMs > 0
@@ -1198,23 +860,23 @@ class _WatchBodyState extends State<WatchBody>
         : Strings.playerLoading;
   }
 
-  String? _waitingDetail(PlayerSnapshot snap) {
-    if (_applying) {
+  String? _waitingDetail(PlaybackState s, PlayerSnapshot snap) {
+    if (s.status.sent != null) {
       return null;
     }
-    if (!_prebuffered) {
+    if (s.status.holding) {
       return Strings.playerBufferingTo(
         snap.bufferedAheadMs / 1000,
-        _prebufferTargetMs(snap) ~/ 1000,
+        bufferTargetMs(snap, s.local.bufferS) ~/ 1000,
       );
     }
-    if (_stalled && _error != null) {
-      return _error;
+    if (s.status.stalled && s.status.error != null) {
+      return s.status.error;
     }
     if (!snap.waiting) {
       return null;
     }
-    if (_stalled) {
+    if (s.status.stalled) {
       return Strings.playerTooSlowHint;
     }
     if (snap.bufferedAheadMs > 0) {
@@ -1226,8 +888,7 @@ class _WatchBodyState extends State<WatchBody>
     return null;
   }
 
-  String? _sourceLine() {
-    final VersionDetail? version = _version;
+  String? _sourceLine(VersionDetail? version) {
     if (version == null || version.video.isEmpty) {
       return null;
     }
@@ -1236,7 +897,7 @@ class _WatchBodyState extends State<WatchBody>
         '@ ${v.frameRate.toStringAsFixed(0)}fps';
   }
 
-  Widget _titleRow() => Padding(
+  Widget _titleRow(String? name) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: Space.s2),
     child: Row(
       children: <Widget>[
@@ -1249,7 +910,7 @@ class _WatchBodyState extends State<WatchBody>
           ),
         Expanded(
           child: Text(
-            _title ?? '',
+            name ?? '',
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: Colors.white,
@@ -1262,236 +923,236 @@ class _WatchBodyState extends State<WatchBody>
   );
 
   @override
-  Widget build(BuildContext context) => _page(context);
+  Widget build(BuildContext context) => buildBlock<void>(
+    future: _opening,
+    errorText: Strings.couldNotStartPlayback,
+    onRetry: _reopen,
+    builder: (BuildContext context, void _) =>
+        ValueListenableBuilder<PlaybackState>(
+          valueListenable: _runner.state,
+          builder: (BuildContext context, PlaybackState s, Widget? _) =>
+              s.stream == null ? _waiting(context, s) : _page(context, s),
+        ),
+  );
+
+  Widget _waiting(BuildContext context, PlaybackState s) {
+    final String? error = s.status.error;
+    return buildSnapshot<void>(
+      context,
+      error == null
+          ? const AsyncSnapshot<void>.waiting()
+          : AsyncSnapshot<void>.withError(ConnectionState.done, error),
+      builder: (BuildContext context, void _) => const SizedBox.shrink(),
+      errorText: error,
+      onRetry: _runner.retry,
+    );
+  }
 
   Widget _settingsPanel(
     BuildContext context,
+    PlaybackState s,
     PlayerPanel panel,
     VersionDetail version, {
     ChoiceOpener? openChoice,
-  }) => ValueListenableBuilder<bool>(
-    valueListenable: _controller.pictureInPicture,
-    builder: (BuildContext context, bool pip, Widget? _) => PlayerSettingsPanel(
-      panel: panel,
-      controls: _controls,
-      version: version,
-      speed: _speed,
-      diagnostics: _diag,
-      mode: _mode,
-      container: _container,
-      subtitleDelivery: _subtitleDelivery,
-      pictureInPicture: _controller.supportsPictureInPicture ? pip : null,
-      onPictureInPicture: _controller.togglePictureInPicture,
-      busy: _applying || _restarting,
-      onControls: (PlaybackControls next) {
-        if (_applying || _restarting) {
-          return;
-        }
-        _applyControls(next);
-      },
-      onSpeed: _changeSpeed,
-      onDiagnostics: _changeDiagnostics,
-      autoplaySeconds: _neighbours.next != null ? _autoplaySeconds : null,
-      onAutoplaySeconds: _changeAutoplay,
-      subtitleSize: _subtitleSize,
-      onSubtitleSize: _changeSubtitleSize,
-      networkTimeoutSeconds: _canBuffer ? _networkTimeout : null,
-      onNetworkTimeoutSeconds: _canBuffer ? _changeNetworkTimeout : null,
-      bufferSeconds: _canBuffer ? _bufferSeconds : null,
-      onBufferSeconds: _canBuffer ? _changeBufferSeconds : null,
-      bufferBytes: _canBuffer ? _bufferBytes : null,
-      onBufferBytes: _canBuffer ? _changeBufferBytes : null,
-      waitForBuffer: _canBuffer ? _waitForBuffer : null,
-      onWaitForBuffer: _canBuffer ? _changeWaitForBuffer : null,
-      onShortcuts: widget.touch ? null : _showShortcuts,
-      onShowLog: _showPlaybackLog,
-      onAddSubtitles: _admin == null ? null : _addSubtitles,
-      openChoice: openChoice,
-      onClose: _closePanel,
-      dense: compactViewport(context),
-    ),
+  }) => PlayerSettingsPanel(
+    panel: panel,
+    controls: s.remote,
+    version: version,
+    speed: s.local.speed,
+    diagnostics: s.local.diagnostics,
+    mode: s.stream?.mode.name,
+    container: s.stream?.container,
+    subtitleDelivery: s.stream?.subtitleDelivery,
+    pictureInPicture: _controller.supportsPictureInPicture
+        ? s.local.pictureInPicture
+        : null,
+    onPictureInPicture: _controller.togglePictureInPicture,
+    busy: s.status.sent != null,
+    onControls: _changeRemote,
+    onSpeed: (double rate) =>
+        _changeLocal((LocalSettings l) => l.copyWith(speed: rate)),
+    onDiagnostics: (bool on) =>
+        _changeLocal((LocalSettings l) => l.copyWith(diagnostics: on)),
+    autoplaySeconds: s.title.next != null ? s.local.autoplayNextS : null,
+    onAutoplaySeconds: _changeAutoplay,
+    subtitleSize: s.local.subtitleSize,
+    onSubtitleSize: (SubtitleSize size) =>
+        _changeLocal((LocalSettings l) => l.copyWith(subtitleSize: size)),
+    networkTimeoutSeconds: _canBuffer ? s.local.networkTimeoutS : null,
+    onNetworkTimeoutSeconds: _canBuffer
+        ? (int seconds) => _changeLocal(
+            (LocalSettings l) => l.copyWith(networkTimeoutS: seconds),
+          )
+        : null,
+    bufferSeconds: _canBuffer ? s.local.bufferS : null,
+    onBufferSeconds: _canBuffer
+        ? (int seconds) =>
+              _changeLocal((LocalSettings l) => l.copyWith(bufferS: seconds))
+        : null,
+    bufferBytes: _canBuffer ? s.local.bufferBytes : null,
+    onBufferBytes: _canBuffer
+        ? (int bytes) =>
+              _changeLocal((LocalSettings l) => l.copyWith(bufferBytes: bytes))
+        : null,
+    waitForBuffer: _canBuffer ? s.local.waitForBuffer : null,
+    onWaitForBuffer: _canBuffer
+        ? (bool wait) =>
+              _changeLocal((LocalSettings l) => l.copyWith(waitForBuffer: wait))
+        : null,
+    onShortcuts: widget.touch ? null : _showShortcuts,
+    onShowLog: _showPlaybackLog,
+    onAddSubtitles: _admin == null ? null : _addSubtitles,
+    openChoice: openChoice,
+    onClose: _closePanel,
+    dense: compactViewport(context),
   );
 
-  Widget _page(BuildContext context) {
-    return buildBlock<bool>(
-      future: _boot,
-      errorText: Strings.couldNotStartPlayback,
-      onRetry: _retry,
-      builder: (BuildContext context, bool _) {
-        return ValueListenableBuilder<bool>(
-          valueListenable: _controller.fullscreen,
-          builder: (BuildContext context, bool fullscreen, _) {
-            return ValueListenableBuilder<PlayerSnapshot>(
-              valueListenable: _controller.snapshot,
-              builder: (BuildContext context, PlayerSnapshot raw, _) {
-                final PlayerSnapshot snap = raw.onTimeline(
-                  originMs: _originMs,
-                  fullMs: _fullDurationMs,
-                );
-                final double buffered = snap.durationMs > 0
-                    ? ((snap.positionMs + snap.bufferedAheadMs) /
-                              snap.durationMs)
-                          .clamp(0.0, 1.0)
-                    : 0.0;
-                final TrickplayLoader? tp = _trickplay;
-                final Timeline timeline = Timeline(
-                  fraction: snap.fraction,
-                  bufferedFraction: buffered,
-                  durationMs: snap.durationMs,
-                  onSeek: (double f) => _seekTo((f * snap.durationMs).round()),
-                  thumbBuilder: (tp != null && tp.available)
-                      ? (int ms) => TrickplayThumb(
-                          tile: tp.tileFor(ms, () {
-                            if (mounted) {
-                              setState(() {});
-                            }
-                          }),
-                          positionMs: ms,
-                        )
-                      : null,
-                );
-                final VersionDetail? version = _version;
-                final Widget frame = Focus(
-                  autofocus: true,
-                  focusNode: _keys,
-                  onKeyEvent: _onKey,
-                  child: Listener(
-                    onPointerUp: (_) => _reclaimAfterPointer(),
-                    child: PlayerFrame(
-                      view: _controller.view,
-                      videoAspect: videoAspect(version),
-                      playing: snap.playing,
-                      fullscreen: fullscreen,
-                      onTapVideo: _onTapVideo,
-                      keepVisible: _panel != null || _sheetOpen,
-                      waiting: _waitingLabel(snap),
-                      waitingDetail: _waitingDetail(snap),
-                      keepWaitingLabel: _error == null
-                          ? Strings.playerKeepWaiting
-                          : Strings.dismiss,
-                      onKeepWaiting: _stalled && !_applying
-                          ? _keepWaiting
-                          : null,
-                      onGoBack: (_stalled && !_applying) || _applySlow
-                          ? _leavePlayer
-                          : null,
-                      onPlayNow: _prebuffered || _applying ? null : _playNow,
-                      ended: snap.ended,
-                      onCentrePlay: _centrePlay,
-                      touch: widget.touch,
-                      onSeekRelative: _seekBy,
-                      onHoldSpeed: _holdSpeed,
-                      onDoubleTapVideo: widget.touch
-                          ? null
-                          : _controller.toggleFullscreen,
-                      diagnostics: _diag
-                          ? DiagnosticsOverlay(
-                              controller: _controller,
-                              sourceLine: _sourceLine(),
-                            )
-                          : null,
-                      settings: _panel != null && version != null
-                          ? _settingsPanel(context, _panel!, version)
-                          : null,
-                      sheet: widget.touch && version != null
-                          ? PlayerSheet(
-                              section: (PlayerPanel panel, ChoiceOpener open) =>
-                                  _settingsPanel(
-                                    context,
-                                    panel,
-                                    version,
-                                    openChoice: open,
-                                  ),
-                              summary: (PlayerPanel panel) =>
-                                  panelSummary(panel, _controls, version),
-                              onClose: _closePanel,
-                            )
-                          : null,
-                      sheetHost: _sheetHost,
-                      onSheetChanged: _onSheetChanged,
-                      onDismissSettings: _closePanel,
-                      upNext: _upNext == null
-                          ? null
-                          : UpNextCard(
-                              label: _upNext!.label,
-                              remainingSeconds: _upNextLeft,
-                              onPlay: () => _goToEpisode(_upNext!),
-                              onCancel: _cancelCountdown,
-                            ),
-                      back: _titleRow(),
-                      overlay: ValueListenableBuilder<bool>(
-                        valueListenable: _controller.muted,
-                        builder:
-                            (BuildContext context, bool muted, Widget? _) =>
-                                ValueListenableBuilder<double>(
-                                  valueListenable: _controller.volume,
-                                  builder:
-                                      (
-                                        BuildContext context,
-                                        double level,
-                                        Widget? _,
-                                      ) => OverlayBar(
-                                        snapshot: snap,
-                                        timeline: timeline,
-                                        fullscreen: fullscreen,
-                                        wide: widget.wide,
-                                        touch: widget.touch,
-                                        muted: muted,
-                                        volume: level,
-                                        remaining: _remaining,
-                                        onPlayPause: _controller.togglePlay,
-                                        onOpenPanel: _openPanel,
-                                        onOpenSheet: widget.touch
-                                            ? _openSheet
-                                            : null,
-                                        onToggleFullscreen:
-                                            _controller.toggleFullscreen,
-                                        onToggleWide: widget.onToggleWide,
-                                        onToggleMute: _toggleMute,
-                                        onVolume: _changeVolume,
-                                        onToggleRemaining: () =>
-                                            _changeRemaining(!_remaining),
-                                        previousEpisode: _step(
-                                          _neighbours.previous,
-                                          Strings.noEarlierEpisode,
-                                          Strings.previousNamed,
-                                        ),
-                                        nextEpisode: _step(
-                                          _neighbours.next,
-                                          Strings.noLaterEpisode,
-                                          Strings.nextNamed,
-                                        ),
-                                      ),
-                                ),
+  Widget _page(BuildContext context, PlaybackState s) {
+    final PlayerSnapshot snap = _shownReading(s);
+    final bool fullscreen = s.local.fullscreen;
+    final bool blocked = !s.watching;
+    final VersionDetail? version = s.title.version;
+    final double buffered = snap.durationMs > 0
+        ? ((snap.positionMs + snap.bufferedAheadMs) / snap.durationMs).clamp(
+            0.0,
+            1.0,
+          )
+        : 0.0;
+    final TrickplayLoader? tp = _trickplay;
+    final Timeline timeline = Timeline(
+      fraction: snap.fraction,
+      bufferedFraction: buffered,
+      durationMs: snap.durationMs,
+      onSeek: blocked ? null : _runner.seekToFraction,
+      thumbBuilder: (tp != null && tp.available)
+          ? (int ms) => TrickplayThumb(
+              tile: tp.tileFor(ms, () {
+                if (mounted) {
+                  setState(() {});
+                }
+              }),
+              positionMs: ms,
+            )
+          : null,
+    );
+    final bool stalled = s.status.stalled && s.status.sent == null;
+    final Widget frame = Focus(
+      autofocus: true,
+      focusNode: _keys,
+      onKeyEvent: _onKey,
+      child: Listener(
+        onPointerUp: (_) => _reclaimAfterPointer(),
+        child: PlayerFrame(
+          view: _controller.view,
+          videoAspect: videoAspect(version),
+          playing: snap.playing,
+          fullscreen: fullscreen,
+          onTapVideo: _onTapVideo,
+          keepVisible: _panel != null || _sheetOpen,
+          waiting: _waitingLabel(s, snap),
+          waitingDetail: _waitingDetail(s, snap),
+          keepWaitingLabel: s.status.error == null
+              ? Strings.playerKeepWaiting
+              : Strings.dismiss,
+          onKeepWaiting: stalled ? _runner.keepWaiting : null,
+          onGoBack: stalled || s.status.slow ? _leavePlayer : null,
+          onPlayNow: s.status.holding ? _runner.play : null,
+          ended: snap.ended,
+          onCentrePlay: _togglePlay,
+          touch: widget.touch,
+          onSeekRelative: _seekBy,
+          onHoldSpeed: _holdSpeed,
+          onDoubleTapVideo: widget.touch ? null : _controller.toggleFullscreen,
+          diagnostics: s.local.diagnostics
+              ? DiagnosticsOverlay(
+                  controller: _controller,
+                  sourceLine: _sourceLine(version),
+                )
+              : null,
+          settings: _panel != null && version != null
+              ? _settingsPanel(context, s, _panel!, version)
+              : null,
+          sheet: widget.touch && version != null
+              ? PlayerSheet(
+                  section: (PlayerPanel panel, ChoiceOpener open) =>
+                      _settingsPanel(
+                        context,
+                        s,
+                        panel,
+                        version,
+                        openChoice: open,
                       ),
-                    ),
-                  ),
-                );
-                BackdropScope.keep(context);
-                return LayoutBuilder(
-                  builder: (BuildContext context, BoxConstraints c) => Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      if (!fullscreen) Breadcrumbs(_crumbs),
-                      Flexible(
-                        flex: c.hasBoundedHeight ? 1 : 0,
-                        fit: fullscreen ? FlexFit.tight : FlexFit.loose,
-                        child: frame,
-                      ),
-                      if (_ownsBackdrop && _backdropArt != null)
-                        PageBackdrop(
-                          artwork: _backdropArt,
-                          imageBase: CatalogApi(widget.api).imageBase,
-                        ),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
-        );
-      },
+                  summary: (PlayerPanel panel) =>
+                      panelSummary(panel, s.remote, version),
+                  onClose: _closePanel,
+                )
+              : null,
+          sheetHost: _sheetHost,
+          onSheetChanged: _onSheetChanged,
+          onDismissSettings: _closePanel,
+          upNext: _upNext == null
+              ? null
+              : UpNextCard(
+                  label: _upNext!.label,
+                  remainingSeconds: _upNextLeft,
+                  onPlay: () => _goToEpisode(_upNext!),
+                  onCancel: _dismissUpNext,
+                ),
+          back: _titleRow(s.title.name),
+          overlay: OverlayBar(
+            snapshot: snap,
+            timeline: timeline,
+            fullscreen: fullscreen,
+            wide: widget.wide,
+            touch: widget.touch,
+            muted: s.local.muted || s.local.mutedByPolicy,
+            volume: s.local.volume,
+            remaining: s.local.remaining,
+            onPlayPause: blocked ? null : _togglePlay,
+            onOpenPanel: _openPanel,
+            onOpenSheet: widget.touch ? _openSheet : null,
+            onToggleFullscreen: _controller.toggleFullscreen,
+            onToggleWide: widget.onToggleWide,
+            onToggleMute: _toggleMute,
+            onVolume: _changeVolume,
+            onToggleRemaining: () => _changeLocal(
+              (LocalSettings l) => l.copyWith(remaining: !l.remaining),
+            ),
+            previousEpisode: _step(
+              s.title,
+              s.title.previous,
+              Strings.noEarlierEpisode,
+              Strings.previousNamed,
+            ),
+            nextEpisode: _step(
+              s.title,
+              s.title.next,
+              Strings.noLaterEpisode,
+              Strings.nextNamed,
+            ),
+          ),
+        ),
+      ),
+    );
+    BackdropScope.keep(context);
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints c) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          if (!fullscreen) Breadcrumbs(_crumbs),
+          Flexible(
+            flex: c.hasBoundedHeight ? 1 : 0,
+            fit: fullscreen ? FlexFit.tight : FlexFit.loose,
+            child: frame,
+          ),
+          if (_ownsBackdrop && _backdropArt != null)
+            PageBackdrop(
+              artwork: _backdropArt,
+              imageBase: CatalogApi(widget.api).imageBase,
+            ),
+        ],
+      ),
     );
   }
 }

@@ -95,6 +95,7 @@ class PlayerFrame extends StatefulWidget {
 
 class _PlayerFrameState extends State<PlayerFrame> {
   bool _visible = true;
+  int _pressed = 0;
   Timer? _hide;
   Offset? _doubleTapAt;
   int _seekDelta = 0;
@@ -134,11 +135,30 @@ class _PlayerFrameState extends State<PlayerFrame> {
       return;
     }
     _hide = Timer(const Duration(milliseconds: 2800), () {
-      if (mounted && widget.playing) {
+      if (mounted && widget.playing && _pressed == 0) {
         setState(() => _visible = false);
       }
     });
   }
+
+  void _press() {
+    _pressed++;
+    _hide?.cancel();
+  }
+
+  void _release() {
+    _pressed--;
+    if (_pressed == 0) {
+      _reveal();
+    }
+  }
+
+  Widget _held(Widget chrome) => Listener(
+    onPointerDown: (_) => _press(),
+    onPointerUp: (_) => _release(),
+    onPointerCancel: (_) => _release(),
+    child: chrome,
+  );
 
   void _dismissPanel() {
     if (ModalRoute.isCurrentOf(context) ?? true) {
@@ -344,24 +364,26 @@ class _PlayerFrameState extends State<PlayerFrame> {
           right: 0,
           child: IgnorePointer(
             ignoring: !_visible,
-            child: AnimatedOpacity(
-              opacity: _visible ? 1 : 0,
-              duration: fade,
-              child: Container(
-                padding: EdgeInsets.fromLTRB(
-                  Space.s3 + safe.left,
-                  Space.s3 + safe.top,
-                  Space.s3 + safe.right,
-                  Space.s5,
-                ),
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: <Color>[Color(0xB3000000), Color(0x00000000)],
+            child: _held(
+              AnimatedOpacity(
+                opacity: _visible ? 1 : 0,
+                duration: fade,
+                child: Container(
+                  padding: EdgeInsets.fromLTRB(
+                    Space.s3 + safe.left,
+                    Space.s3 + safe.top,
+                    Space.s3 + safe.right,
+                    Space.s5,
                   ),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: <Color>[Color(0xB3000000), Color(0x00000000)],
+                    ),
+                  ),
+                  child: widget.back,
                 ),
-                child: widget.back,
               ),
             ),
           ),
@@ -373,12 +395,14 @@ class _PlayerFrameState extends State<PlayerFrame> {
           bottom: 0,
           child: IgnorePointer(
             ignoring: !_visible,
-            child: AnimatedOpacity(
-              opacity: _visible ? 1 : 0,
-              duration: fade,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[widget.overlay],
+            child: _held(
+              AnimatedOpacity(
+                opacity: _visible ? 1 : 0,
+                duration: fade,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[widget.overlay],
+                ),
               ),
             ),
           ),

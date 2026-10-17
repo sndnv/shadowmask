@@ -273,6 +273,47 @@ void main() {
     expect(_videoCursor(tester), SystemMouseCursors.none);
   });
 
+  for (final PointerDeviceKind kind in <PointerDeviceKind>[
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+  ]) {
+    testWidgets('the controls stay while a ${kind.name} holds the bar, and '
+        'fade after it lets go', (WidgetTester tester) async {
+      int moved = 0;
+      await _pump(
+        tester,
+        fullscreen: true,
+        view: const _View(),
+        overlay: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragUpdate: (_) => moved++,
+          child: const SizedBox(
+            key: Key('overlay'),
+            width: double.infinity,
+            height: 40,
+          ),
+        ),
+      );
+
+      final TestGesture drag = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('overlay'))),
+        kind: kind,
+      );
+      for (int i = 0; i < 5; i++) {
+        await drag.moveBy(const Offset(40, 0));
+        await tester.pump(const Duration(seconds: 1));
+      }
+      expect(_chromeOpacity(tester), 1);
+      expect(moved, greaterThan(0), reason: 'the bar still gets the drag');
+
+      await drag.up();
+      await tester.pump(const Duration(milliseconds: 2700));
+      expect(_chromeOpacity(tester), 1);
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(_chromeOpacity(tester), 0);
+    });
+  }
+
   testWidgets('a fading overlay leaves the cursor alone when windowed', (
     WidgetTester tester,
   ) async {

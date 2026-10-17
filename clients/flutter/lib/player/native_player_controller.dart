@@ -64,8 +64,8 @@ class NativePlayerController implements PlayerController {
 
   Timer? _timer;
   PlaybackMode _mode = PlaybackMode.direct;
-  bool _seeked = false;
   int _generation = 0;
+  Completer<void> _replaced = Completer<void>();
   double _beforeMute = 1;
   String _decoder = 'unknown';
   String _dropped = 'n/a';
@@ -151,8 +151,9 @@ class NativePlayerController implements PlayerController {
     bool autoplay = true,
   }) async {
     _mode = mode;
-    _seeked = false;
-    final int generation = ++_generation;
+    _replace();
+    final int generation = _generation;
+    final Future<void> replaced = _replaced.future;
     _startTimer();
     final String url = manifestUrl.startsWith('http')
         ? manifestUrl
@@ -161,47 +162,45 @@ class NativePlayerController implements PlayerController {
     await _setProperty('sid', subtitles ? 'auto' : 'no');
     await _setProperty('network-timeout', '$_networkTimeout');
     await _applyBuffer();
-    if (generation != _generation) {
-      return;
-    }
-    await _player.open(Media(url), play: autoplay && positionMs <= 0);
+    _current(generation);
+    await _player.open(Media(url), play: false);
     if (_outputFailure case final String failure) {
       _onError(failure);
     }
+    await Future.any(<Future<void>>[_lengthKnown(), replaced]);
+    _current(generation);
     if (positionMs > 0) {
-      await _resumeAt(positionMs, generation, autoplay);
-    }
-  }
-
-  Future<void> _resumeAt(int positionMs, int generation, bool autoplay) async {
-    final bool ready = await _durationArrives();
-    if (generation != _generation) {
-      return;
-    }
-    if (ready && !_seeked) {
       await _player.seek(Duration(milliseconds: positionMs));
+      _current(generation);
     }
     if (autoplay) {
       await _player.play();
     }
   }
 
-  Future<bool> _durationArrives() async {
-    if (_player.state.duration > Duration.zero) {
-      return true;
+  void _replace() {
+    _generation++;
+    if (!_replaced.isCompleted) {
+      _replaced.complete();
     }
-    return _player.stream.duration
-        .firstWhere((Duration d) => d > Duration.zero)
-        .then((_) => true)
-        .timeout(const Duration(seconds: 10), onTimeout: () => false);
+    _replaced = Completer<void>();
   }
+
+  void _current(int generation) {
+    if (generation != _generation) {
+      throw StateError('superseded by another stream');
+    }
+  }
+
+  Future<void> _lengthKnown() => _player.state.duration > Duration.zero
+      ? Future<void>.value()
+      : _player.stream.duration.firstWhere((Duration d) => d > Duration.zero);
 
   @override
   Future<void> detach() async {
-    _generation++;
+    _replace();
     _timer?.cancel();
     _timer = null;
-    _seeked = false;
     await _player.stop();
     _snapshot.value = const PlayerSnapshot();
   }
@@ -259,7 +258,6 @@ class NativePlayerController implements PlayerController {
   @override
   void seekTo(int positionMs) {
     unmute();
-    _seeked = true;
     _player.seek(Duration(milliseconds: positionMs));
   }
 
@@ -367,6 +365,7 @@ class NativePlayerController implements PlayerController {
 
   @override
   Future<void> dispose() async {
+    _replace();
     _timer?.cancel();
     _timer = null;
     if (_handheld) {

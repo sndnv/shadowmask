@@ -4,7 +4,9 @@ import 'package:shadowmask/components/admin/field_help.dart';
 import 'package:shadowmask/components/app_dropdown.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/player/player_prefs_store.dart';
+import 'package:shadowmask/player/state/local_settings.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/subtitle_choice.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
@@ -82,7 +84,7 @@ String? panelSummary(
       }
       return null;
     case PlayerPanel.subtitles:
-      final String wire = controls.subtitle?.toWire() ?? '';
+      final String wire = controls.subtitle.selection?.toWire() ?? '';
       for (final (String, String) item in _subtitleItems(version)) {
         if (item.$1 == wire) {
           return item.$2;
@@ -210,29 +212,44 @@ class PlayerSettingsPanel extends StatefulWidget {
 }
 
 class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
-  late int? _height = widget.controls.height;
-  late int? _audio = widget.controls.audioTrack;
-  late String _sub = widget.controls.subtitle?.toWire() ?? '';
-  late final TextEditingController _offset = TextEditingController(
-    text: widget.controls.offsetMs == 0
-        ? ''
-        : widget.controls.offsetMs.toString(),
-  );
-  late bool _burn = widget.controls.burn;
-  late bool _downmix = widget.controls.downmix;
-  late DeliveryPreference _delivery =
-      widget.controls.delivery ?? DeliveryPreference.auto;
+  late int? _height;
+  late int? _audio;
+  late SubtitleChoice _subtitle;
+  late String _sub;
+  final TextEditingController _offset = TextEditingController();
+  late bool _burn;
+  late bool _downmix;
+  late DeliveryPreference? _delivery;
+  PlaybackControls? _asked;
   late double _speed = widget.speed;
   late bool _diag = widget.diagnostics;
   late int _autoplay =
-      widget.autoplaySeconds ?? kDefaultPlayerPrefs.autoplaySeconds;
+      widget.autoplaySeconds ?? const LocalSettings().autoplayNextS;
   late SubtitleSize _subtitleSize =
-      widget.subtitleSize ?? kDefaultPlayerPrefs.subtitleSize;
+      widget.subtitleSize ?? const LocalSettings().subtitleSize;
   late int _timeout =
-      widget.networkTimeoutSeconds ?? kDefaultPlayerPrefs.networkTimeoutSeconds;
-  late int _buffer = widget.bufferSeconds ?? kDefaultPlayerPrefs.bufferSeconds;
-  late int _bufferBytes = widget.bufferBytes ?? kDefaultPlayerPrefs.bufferBytes;
-  late bool _wait = widget.waitForBuffer ?? kDefaultPlayerPrefs.waitForBuffer;
+      widget.networkTimeoutSeconds ?? const LocalSettings().networkTimeoutS;
+  late int _buffer = widget.bufferSeconds ?? const LocalSettings().bufferS;
+  late int _bufferBytes =
+      widget.bufferBytes ?? const LocalSettings().bufferBytes;
+  late bool _wait = widget.waitForBuffer ?? const LocalSettings().waitForBuffer;
+
+  @override
+  void initState() {
+    super.initState();
+    _show(widget.controls);
+  }
+
+  @override
+  void didUpdateWidget(PlayerSettingsPanel old) {
+    super.didUpdateWidget(old);
+    final PlaybackControls? asked = _asked;
+    if (widget.controls != old.controls ||
+        (asked != null && widget.controls != asked)) {
+      _asked = null;
+      _show(widget.controls);
+    }
+  }
 
   @override
   void dispose() {
@@ -240,19 +257,34 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
     super.dispose();
   }
 
+  void _show(PlaybackControls controls) {
+    _height = controls.height;
+    _audio = controls.audioTrack;
+    _subtitle = controls.subtitle;
+    _sub = controls.subtitle.selection?.toWire() ?? '';
+    _offset.text = controls.offsetMs == 0 ? '' : controls.offsetMs.toString();
+    _burn = controls.burn;
+    _downmix = controls.downmix;
+    _delivery = controls.delivery;
+  }
+
+  Widget _stream(Widget row) => AbsorbPointer(
+    absorbing: widget.busy,
+    child: Opacity(opacity: widget.busy ? 0.5 : 1, child: row),
+  );
+
   void _apply() {
-    widget.onControls(
-      PlaybackControls(
-        height: _height,
-        burn: _burn,
-        downmix: _downmix,
-        audioTrack: _audio,
-        subtitle: SubtitleSelection.fromWire(_sub.isEmpty ? null : _sub),
-        subtitleOff: _sub.isEmpty,
-        offsetMs: int.tryParse(_offset.text) ?? 0,
-        delivery: _delivery,
-      ),
+    final PlaybackControls asked = PlaybackControls(
+      height: _height,
+      burn: _burn,
+      downmix: _downmix,
+      audioTrack: _audio,
+      subtitle: _subtitle,
+      offsetMs: int.tryParse(_offset.text) ?? 0,
+      delivery: _delivery,
     );
+    _asked = asked;
+    widget.onControls(asked);
   }
 
   List<Widget> _rows(BuildContext context, Tokens t) {
@@ -262,18 +294,20 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
     switch (widget.panel) {
       case PlayerPanel.video:
         return <Widget>[
-          _choice<int?>(
-            Strings.playerQuality,
-            _height,
-            <(int?, String)>[
-              for (final int? rung in _offeredRungs(v))
-                (rung, _qualityLabel(v, rung)),
-            ],
-            (int? value) {
-              setState(() => _height = value);
-              _apply();
-            },
-            help: Strings.playerQualityHelp,
+          _stream(
+            _choice<int?>(
+              Strings.playerQuality,
+              _height,
+              <(int?, String)>[
+                for (final int? rung in _offeredRungs(v))
+                  (rung, _qualityLabel(v, rung)),
+              ],
+              (int? value) {
+                setState(() => _height = value);
+                _apply();
+              },
+              help: Strings.playerQualityHelp,
+            ),
           ),
           _choice<double>(
             Strings.playerSpeed,
@@ -290,55 +324,71 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
         ];
       case PlayerPanel.audio:
         return <Widget>[
-          _choice<int?>(
-            Strings.playerAudio,
-            _audio,
-            v.audio.isEmpty
-                ? <(int?, String)>[(null, Strings.playerNoAudio)]
-                : <(int?, String)>[
-                    for (final AudioTrack a in v.audio)
-                      (a.index, _audioLabel(a)),
-                  ],
-            (int? value) {
-              setState(() => _audio = value);
-              _apply();
-            },
+          _stream(
+            _choice<int?>(
+              Strings.playerAudio,
+              _audio,
+              v.audio.isEmpty
+                  ? <(int?, String)>[(null, Strings.playerNoAudio)]
+                  : <(int?, String)>[
+                      for (final AudioTrack a in v.audio)
+                        (a.index, _audioLabel(a)),
+                    ],
+              (int? value) {
+                setState(() => _audio = value);
+                _apply();
+              },
+            ),
           ),
-          _switch(Strings.playerStereoDownmix, _downmix, (bool value) {
-            setState(() => _downmix = value);
-            _apply();
-          }, help: Strings.playerStereoDownmixHelp),
+          _stream(
+            _switch(Strings.playerStereoDownmix, _downmix, (bool value) {
+              setState(() => _downmix = value);
+              _apply();
+            }, help: Strings.playerStereoDownmixHelp),
+          ),
         ];
       case PlayerPanel.subtitles:
         return <Widget>[
-          _choice<String>(Strings.playerSubtitles, _sub, _subtitleItems(v), (
-            String value,
-          ) {
-            setState(() => _sub = value);
-            _apply();
-          }),
+          _stream(
+            _choice<String>(Strings.playerSubtitles, _sub, _subtitleItems(v), (
+              String value,
+            ) {
+              final SubtitleSelection? track = SubtitleSelection.fromWire(
+                value,
+              );
+              setState(() {
+                _sub = value;
+                _subtitle = track == null
+                    ? const SubtitleChoice.off()
+                    : SubtitleChoice.on(track);
+              });
+              _apply();
+            }),
+          ),
           if (_sub.isNotEmpty && !burnedIn && !_sheet)
-            _row(
-              Strings.playerOffset,
-              SizedBox(
-                height: kControlHeight,
-                child: TextField(
-                  controller: _offset,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    hintText: '0',
-                    suffixText: 'ms',
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: Space.s2,
-                      vertical: Space.s2,
+            _stream(
+              _row(
+                Strings.playerOffset,
+                SizedBox(
+                  height: kControlHeight,
+                  child: TextField(
+                    controller: _offset,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      hintText: '0',
+                      suffixText: 'ms',
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: Space.s2,
+                        vertical: Space.s2,
+                      ),
                     ),
+                    onSubmitted: (_) => _apply(),
+                    onTapOutside: (_) => _apply(),
                   ),
-                  onSubmitted: (_) => _apply(),
-                  onTapOutside: (_) => _apply(),
                 ),
+                help: Strings.playerOffsetHelp,
               ),
-              help: Strings.playerOffsetHelp,
             ),
           if (_sub.isNotEmpty && !burnedIn && widget.onSubtitleSize != null)
             _choice<SubtitleSize>(
@@ -355,10 +405,12 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
               help: Strings.subtitleSizeHelp,
             ),
           if (_sub.isNotEmpty && hasSubs)
-            _switch(Strings.playerBurnIn, _burn, (bool value) {
-              setState(() => _burn = value);
-              _apply();
-            }, help: Strings.playerBurnInHelp),
+            _stream(
+              _switch(Strings.playerBurnIn, _burn, (bool value) {
+                setState(() => _burn = value);
+                _apply();
+              }, help: Strings.playerBurnInHelp),
+            ),
           if (_sub.isNotEmpty && burnedIn && !_burn)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: Space.s2),
@@ -369,7 +421,8 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
                 ).textTheme.bodySmall?.copyWith(color: t.muted),
               ),
             ),
-          if (_sub.isNotEmpty && !burnedIn && _sheet) _offsetStepper(t),
+          if (_sub.isNotEmpty && !burnedIn && _sheet)
+            _stream(_offsetStepper(t)),
           if (widget.onAddSubtitles != null) ...<Widget>[
             Divider(color: t.border, height: Space.s5),
             _row(
@@ -493,19 +546,21 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
             ),
           ),
           const SizedBox(height: Space.s2),
-          _choice<DeliveryPreference>(
-            Strings.playerDelivery,
-            _delivery,
-            const <(DeliveryPreference, String)>[
-              (DeliveryPreference.auto, Strings.playerDeliveryAuto),
-              (DeliveryPreference.never, Strings.playerDeliveryNever),
-              (DeliveryPreference.always, Strings.playerDeliveryAlways),
-            ],
-            (DeliveryPreference value) {
-              setState(() => _delivery = value);
-              _apply();
-            },
-            help: Strings.playerDeliveryHelp,
+          _stream(
+            _choice<DeliveryPreference?>(
+              Strings.playerDelivery,
+              _delivery,
+              const <(DeliveryPreference?, String)>[
+                (DeliveryPreference.auto, Strings.playerDeliveryAuto),
+                (DeliveryPreference.never, Strings.playerDeliveryNever),
+                (DeliveryPreference.always, Strings.playerDeliveryAlways),
+              ],
+              (DeliveryPreference? value) {
+                setState(() => _delivery = value);
+                _apply();
+              },
+              help: Strings.playerDeliveryHelp,
+            ),
           ),
           _switch(Strings.playerDiagnostics, _diag, (bool value) {
             setState(() => _diag = value);
@@ -549,25 +604,16 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
-    final Widget rows = AbsorbPointer(
-      absorbing: widget.busy,
-      child: Opacity(
-        opacity: widget.busy ? 0.5 : 1,
-        child: SingleChildScrollView(
-          padding: _sheet
-              ? const EdgeInsets.symmetric(
-                  horizontal: Space.s4,
-                  vertical: Space.s2,
-                )
-              : EdgeInsets.all(widget.dense ? Space.s2 : Space.s4),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: _sheet
-                ? CrossAxisAlignment.stretch
-                : CrossAxisAlignment.start,
-            children: _rows(context, t),
-          ),
-        ),
+    final Widget rows = SingleChildScrollView(
+      padding: _sheet
+          ? const EdgeInsets.symmetric(horizontal: Space.s4, vertical: Space.s2)
+          : EdgeInsets.all(widget.dense ? Space.s2 : Space.s4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: _sheet
+            ? CrossAxisAlignment.stretch
+            : CrossAxisAlignment.start,
+        children: _rows(context, t),
       ),
     );
     if (_sheet) {

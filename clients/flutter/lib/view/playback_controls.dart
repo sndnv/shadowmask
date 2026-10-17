@@ -2,6 +2,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'package:shadowmask/model/session/selected_tracks.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
+import 'package:shadowmask/view/subtitle_choice.dart';
 
 part 'playback_controls.freezed.dart';
 
@@ -30,9 +31,8 @@ abstract class PlaybackControls with _$PlaybackControls {
     @Default(false) bool downmix,
     int? audioTrack,
     String? audioLanguage,
-    SubtitleSelection? subtitle,
+    @Default(SubtitleChoice.auto()) SubtitleChoice subtitle,
     String? subtitleLanguage,
-    @Default(false) bool subtitleOff,
     @Default(0) int offsetMs,
     DeliveryPreference? delivery,
   }) = _PlaybackControls;
@@ -41,15 +41,19 @@ abstract class PlaybackControls with _$PlaybackControls {
     int? asInt(String? v) =>
         (v != null && v.isNotEmpty) ? int.tryParse(v) : null;
     String? asText(String? v) => (v != null && v.isNotEmpty) ? v : null;
+    final SubtitleSelection? track = SubtitleSelection.fromWire(q['sub']);
     return PlaybackControls(
       height: asInt(q['height']),
       burn: q['burn'] == '1',
       downmix: q['downmix'] == '1',
       audioTrack: asInt(q['audio']),
       audioLanguage: asText(q['alang']),
-      subtitle: SubtitleSelection.fromWire(q['sub']),
+      subtitle: track != null
+          ? SubtitleChoice.on(track)
+          : q['soff'] == '1'
+          ? const SubtitleChoice.off()
+          : const SubtitleChoice.auto(),
       subtitleLanguage: asText(q['slang']),
-      subtitleOff: q['soff'] == '1',
       offsetMs: asInt(q['offset']) ?? 0,
       delivery: q.containsKey('delivery')
           ? DeliveryPreference.fromWire(q['delivery'])
@@ -60,14 +64,16 @@ abstract class PlaybackControls with _$PlaybackControls {
   bool get hasTrackRequest =>
       audioTrack != null ||
       audioLanguage != null ||
-      subtitle != null ||
-      subtitleLanguage != null ||
-      subtitleOff;
+      subtitle is! SubtitleAuto ||
+      subtitleLanguage != null;
 
-  PlaybackControls withSelection(SelectedTracks? selected) => copyWith(
-    audioTrack: selected?.audioTrack ?? audioTrack,
-    subtitle: selected?.subtitleTrack ?? subtitle,
-  );
+  PlaybackControls withSelection(SelectedTracks? selected) {
+    final SubtitleSelection? track = selected?.subtitleTrack;
+    return copyWith(
+      audioTrack: selected?.audioTrack ?? audioTrack,
+      subtitle: track != null ? SubtitleChoice.on(track) : subtitle,
+    );
+  }
 
   PlaybackControls withDefaultDelivery(DeliveryPreference fallback) =>
       delivery != null ? this : copyWith(delivery: fallback);
@@ -78,13 +84,13 @@ abstract class PlaybackControls with _$PlaybackControls {
     if (downmix) 'downmix_stereo': true,
     if (audioTrack != null) 'audio_track': audioTrack,
     if (audioLanguage != null) 'audio_language': audioLanguage,
-    if (subtitle != null)
+    if (subtitle.selection case final SubtitleSelection track)
       'subtitle': <String, dynamic>{
-        'track': subtitle!.toJson(),
+        'track': track.toJson(),
         if (offsetMs != 0) 'offset_ms': offsetMs,
       },
     if (subtitleLanguage != null) 'subtitle_language': subtitleLanguage,
-    if (subtitleOff) 'subtitle_off': true,
+    if (subtitle is SubtitleOff) 'subtitle_off': true,
     if (delivery != null && delivery != DeliveryPreference.auto)
       'delivery': delivery!.wire,
   };
@@ -94,15 +100,16 @@ abstract class PlaybackControls with _$PlaybackControls {
       'target_height': height,
       'force_burn': burn,
       'downmix_stereo': downmix,
-      'delivery': (delivery ?? DeliveryPreference.auto).wire,
+      'delivery': ?delivery?.wire,
     };
     if (audioTrack != null) {
       body['audio_track'] = audioTrack;
     }
-    if (subtitle != null) {
+    final SubtitleSelection? track = subtitle.selection;
+    if (track != null) {
       body['subtitle'] = <String, dynamic>{
         'action': 'set',
-        'track': subtitle!.toJson(),
+        'track': track.toJson(),
         if (offsetMs != 0) 'offset_ms': offsetMs,
       };
     } else {
@@ -111,15 +118,19 @@ abstract class PlaybackControls with _$PlaybackControls {
     return body;
   }
 
+  bool sameUpdateAs(PlaybackControls other) => const DeepCollectionEquality()
+      .equals(toUpdateBody(), other.toUpdateBody());
+
   Map<String, String?> toQuery() => <String, String?>{
     if (height != null) 'height': height.toString(),
     if (burn) 'burn': '1',
     if (downmix) 'downmix': '1',
     if (audioTrack != null) 'audio': audioTrack.toString(),
     if (audioLanguage != null) 'alang': audioLanguage,
-    if (subtitle != null) 'sub': subtitle!.toWire(),
+    if (subtitle.selection case final SubtitleSelection track)
+      'sub': track.toWire(),
     if (subtitleLanguage != null) 'slang': subtitleLanguage,
-    if (subtitleOff) 'soff': '1',
+    if (subtitle is SubtitleOff) 'soff': '1',
     if (offsetMs != 0) 'offset': offsetMs.toString(),
     if (delivery != null) 'delivery': delivery!.wire,
   };

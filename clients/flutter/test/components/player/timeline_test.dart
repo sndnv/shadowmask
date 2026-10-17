@@ -7,7 +7,7 @@ import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 
-Widget _host({required void Function(double) onSeek, bool withThumb = true}) =>
+Widget _host({required void Function(double)? onSeek, bool withThumb = true}) =>
     MaterialApp(
       theme: buildTheme(AppThemeVariant.dark),
       home: Scaffold(
@@ -169,6 +169,37 @@ void main() {
       ),
     );
 
+    semantics.dispose();
+  });
+
+  testWidgets('a timeline that cannot seek is greyed and takes no input', (
+    WidgetTester tester,
+  ) async {
+    final SemanticsHandle semantics = tester.ensureSemantics();
+    await tester.pumpWidget(_host(onSeek: null));
+
+    await tester.tapAt(tester.getCenter(find.byType(Timeline)));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('thumb')), findsNothing);
+    expect(
+      tester
+          .widget<Opacity>(
+            find.descendant(
+              of: find.byType(Timeline),
+              matching: find.byType(Opacity),
+            ),
+          )
+          .opacity,
+      0.5,
+    );
+    expect(
+      tester
+          .getSemantics(find.bySemanticsLabel(Strings.timelineLabel))
+          .getSemanticsData()
+          .hasAction(SemanticsAction.increase),
+      isFalse,
+    );
     semantics.dispose();
   });
 }

@@ -1,0 +1,1 @@
+enum PlaybackNotice { changeFailed, seekFailed }

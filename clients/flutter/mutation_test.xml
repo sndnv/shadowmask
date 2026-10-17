@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mutations version="1.2">
+  <commands>
+    <command group="build" expected-return="0" timeout="300">dart run build_runner build --delete-conflicting-outputs</command>
+    <command group="test" expected-return="0" timeout="30">flutter test --no-pub test/player test/pages/player/player_prefs_store_test.dart test/view/playback_controls_test.dart</command>
+  </commands>
+  <rules>
+    <regex pattern="\btrue\b" id="dart.bool.true">
+      <mutation text="false"/>
+    </regex>
+    <regex pattern="\bfalse\b" id="dart.bool.false">
+      <mutation text="true"/>
+    </regex>
+    <regex pattern="!([_a-zA-Z(])" id="dart.not.remove">
+      <mutation text="$1"/>
+    </regex>
+    <regex pattern="\s&lt;\s" id="dart.op.lt">
+      <mutation text=" &lt;= "/>
+    </regex>
+    <regex pattern="\s&gt;\s" id="dart.op.gt">
+      <mutation text=" &gt;= "/>
+    </regex>
+    <regex pattern="\bif \(([^{}]*?)\)(\s+)(?!\{)" id="dart.collection_if">
+      <mutation text="if (!($1))$2"/>
+    </regex>
+  </rules>
+</mutations>

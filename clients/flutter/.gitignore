@@ -15,6 +15,7 @@ build/
 
 # Coverage
 coverage/
+mutation-test-report/
 
 # Runtime configuration; copied from deployment/dev/.env.template
 web/assets/.env

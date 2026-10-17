@@ -25,7 +25,7 @@ class Timeline extends StatefulWidget {
   final double fraction;
   final double bufferedFraction;
   final int durationMs;
-  final void Function(double fraction) onSeek;
+  final void Function(double fraction)? onSeek;
   final Widget Function(int positionMs)? thumbBuilder;
 
   @override
@@ -66,6 +66,7 @@ class _TimelineState extends State<Timeline> {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
+    final void Function(double fraction)? seek = widget.onSeek;
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final double width = constraints.maxWidth;
@@ -75,14 +76,14 @@ class _TimelineState extends State<Timeline> {
         final double? scrub = _scrub;
         final int scrubMs = ((scrub ?? widget.fraction) * widget.durationMs)
             .round();
-        return Semantics(
+        final Widget bar = Semantics(
           slider: true,
           label: Strings.timelineLabel,
           value: _reading(widget.fraction),
           increasedValue: _reading(_stepped(1)),
           decreasedValue: _reading(_stepped(-1)),
-          onIncrease: () => widget.onSeek(_stepped(1)),
-          onDecrease: () => widget.onSeek(_stepped(-1)),
+          onIncrease: seek == null ? null : () => seek(_stepped(1)),
+          onDecrease: seek == null ? null : () => seek(_stepped(-1)),
           child: MouseRegion(
             onEnter: (_) {
               _hovering = true;
@@ -97,7 +98,7 @@ class _TimelineState extends State<Timeline> {
               behavior: HitTestBehavior.opaque,
               onTapDown: (TapDownDetails d) => preview(d.localPosition.dx),
               onTapUp: (TapUpDetails d) {
-                widget.onSeek(fractionAt(d.localPosition.dx));
+                seek?.call(fractionAt(d.localPosition.dx));
                 clear();
               },
               onTapCancel: clear,
@@ -106,7 +107,7 @@ class _TimelineState extends State<Timeline> {
               onHorizontalDragEnd: (_) {
                 final double? at = _scrub;
                 if (at != null) {
-                  widget.onSeek(at);
+                  seek?.call(at);
                 }
                 clear();
               },
@@ -142,6 +143,9 @@ class _TimelineState extends State<Timeline> {
             ),
           ),
         );
+        return seek == null
+            ? IgnorePointer(child: Opacity(opacity: 0.5, child: bar))
+            : bar;
       },
     );
   }

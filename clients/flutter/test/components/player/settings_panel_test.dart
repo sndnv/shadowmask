@@ -10,6 +10,7 @@ import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/subtitle_choice.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 
 VersionDetail _version() => VersionDetail.fromJson(<String, dynamic>{
@@ -46,7 +47,7 @@ Future<void> _pump(
             panel: PlayerPanel.subtitles,
             controls: PlaybackControls(
               burn: burn,
-              subtitle: const SubtitleSelection.embedded(0),
+              subtitle: const SubtitleChoice.on(SubtitleSelection.embedded(0)),
               offsetMs: 250,
             ),
             version: _version(),
@@ -74,6 +75,9 @@ Future<void> _pumpSheet(
   required List<PlayerChoice> opened,
   required List<PlaybackControls> applied,
   int offsetMs = 0,
+  SubtitleChoice subtitle = const SubtitleChoice.on(
+    SubtitleSelection.embedded(0),
+  ),
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -84,10 +88,7 @@ Future<void> _pumpSheet(
           height: 600,
           child: PlayerSettingsPanel(
             panel: panel,
-            controls: PlaybackControls(
-              subtitle: const SubtitleSelection.embedded(0),
-              offsetMs: offsetMs,
-            ),
+            controls: PlaybackControls(subtitle: subtitle, offsetMs: offsetMs),
             version: _version(),
             speed: 1,
             diagnostics: false,
@@ -132,6 +133,56 @@ void main() {
     await tester.pump();
 
     expect(applied.single.height, 720);
+  });
+
+  testWidgets('a change elsewhere leaves the subtitle as the panel was given '
+      'it', (WidgetTester tester) async {
+    final List<PlayerChoice> opened = <PlayerChoice>[];
+    final List<PlaybackControls> applied = <PlaybackControls>[];
+    await _pumpSheet(
+      tester,
+      panel: PlayerPanel.video,
+      opened: opened,
+      applied: applied,
+      subtitle: const SubtitleChoice.auto(),
+    );
+
+    await tester.tap(find.text(Strings.playerQuality));
+    await tester.pump();
+    opened.single.onPick(
+      opened.single.labels.indexOf(Strings.qualityRung(720)),
+    );
+    await tester.pump();
+
+    expect(
+      applied.single.subtitle,
+      const SubtitleChoice.auto(),
+      reason:
+          'no subtitle is showing, but the server may still pick one on the '
+          'next start; only choosing Off turns that off',
+    );
+  });
+
+  testWidgets('choosing no subtitles turns them off', (
+    WidgetTester tester,
+  ) async {
+    final List<PlayerChoice> opened = <PlayerChoice>[];
+    final List<PlaybackControls> applied = <PlaybackControls>[];
+    await _pumpSheet(
+      tester,
+      panel: PlayerPanel.subtitles,
+      opened: opened,
+      applied: applied,
+    );
+
+    await tester.tap(find.text(Strings.playerSubtitles));
+    await tester.pump();
+    opened.single.onPick(
+      opened.single.labels.indexOf(Strings.playerNoSubtitles),
+    );
+    await tester.pump();
+
+    expect(applied.last.subtitle, const SubtitleChoice.off());
   });
 
   testWidgets(
@@ -574,7 +625,209 @@ void main() {
 
     expect(find.text(Strings.playerLog), findsNothing);
   });
+
+  testWidgets('while a change is in flight the quality is blocked and the '
+      'speed is not', (WidgetTester tester) async {
+    final List<PlaybackControls> sent = <PlaybackControls>[];
+    final List<double> speeds = <double>[];
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.video,
+        busy: true,
+        onControls: sent.add,
+        onSpeed: speeds.add,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(Strings.playerOriginal), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.playerOriginal), findsOneWidget);
+    await tester.tap(find.text(Strings.playerNormalSpeed));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('1.5x').last);
+    await tester.pumpAndSettle();
+
+    expect(sent, isEmpty);
+    expect(speeds, <double>[1.5]);
+  });
+
+  testWidgets('while a change is in flight the subtitle settings are blocked '
+      'and their size is not', (WidgetTester tester) async {
+    final List<PlaybackControls> sent = <PlaybackControls>[];
+    final List<SubtitleSize> sizes = <SubtitleSize>[];
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.subtitles,
+        busy: true,
+        onControls: sent.add,
+        onSubtitleSize: sizes.add,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(Strings.playerBurnIn), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(SubtitleSize.medium.label));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(SubtitleSize.large.label).last);
+    await tester.pumpAndSettle();
+
+    expect(sent, isEmpty);
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+    expect(sizes, <SubtitleSize>[SubtitleSize.large]);
+  });
+
+  testWidgets('while a change is in flight the converting choice is blocked '
+      'and diagnostics are not', (WidgetTester tester) async {
+    final List<PlaybackControls> sent = <PlaybackControls>[];
+    final List<bool> diagnostics = <bool>[];
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.settings,
+        busy: true,
+        onControls: sent.add,
+        onDiagnostics: diagnostics.add,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.text(Strings.playerDeliveryAuto),
+      warnIfMissed: false,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.playerDeliveryAlways), findsNothing);
+    await tester.tap(find.text(Strings.playerDiagnostics));
+    await tester.pumpAndSettle();
+
+    expect(sent, isEmpty);
+    expect(diagnostics, <bool>[true]);
+  });
+
+  testWidgets('settings changed from outside show while the panel is open', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.subtitles,
+        controls: const PlaybackControls(
+          subtitle: SubtitleChoice.on(SubtitleSelection.embedded(0)),
+          offsetMs: 250,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller?.text,
+      '250',
+    );
+
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.subtitles,
+        controls: const PlaybackControls(
+          subtitle: SubtitleChoice.on(SubtitleSelection.embedded(0)),
+          burn: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller?.text,
+      '',
+    );
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+  });
+
+  testWidgets('a choice the parent does not take goes back to what it has', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(_panel(panel: PlayerPanel.audio));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerStereoDownmix));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+
+    await tester.pumpWidget(_panel(panel: PlayerPanel.audio));
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+  });
+
+  testWidgets('a rebuild with the same settings keeps what is being typed', (
+    WidgetTester tester,
+  ) async {
+    const PlaybackControls controls = PlaybackControls(
+      subtitle: SubtitleChoice.on(SubtitleSelection.embedded(0)),
+    );
+    await tester.pumpWidget(
+      _panel(panel: PlayerPanel.subtitles, controls: controls),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '500');
+
+    await tester.pumpWidget(
+      _panel(panel: PlayerPanel.subtitles, controls: controls),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller?.text,
+      '500',
+    );
+  });
+
+  testWidgets('a converting choice that was never set is not sent back as '
+      'one', (WidgetTester tester) async {
+    final List<PlaybackControls> sent = <PlaybackControls>[];
+    await tester.pumpWidget(
+      _panel(panel: PlayerPanel.audio, onControls: sent.add),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(Strings.playerStereoDownmix));
+    await tester.pumpAndSettle();
+
+    expect(sent.single.downmix, isTrue);
+    expect(sent.single.delivery, isNull);
+  });
 }
+
+Widget _panel({
+  required PlayerPanel panel,
+  PlaybackControls controls = const PlaybackControls(
+    subtitle: SubtitleChoice.on(SubtitleSelection.embedded(0)),
+  ),
+  bool busy = false,
+  ValueChanged<PlaybackControls>? onControls,
+  ValueChanged<double>? onSpeed,
+  ValueChanged<bool>? onDiagnostics,
+  ValueChanged<SubtitleSize>? onSubtitleSize,
+}) => MaterialApp(
+  theme: buildTheme(AppThemeVariant.dark),
+  home: Scaffold(
+    body: SizedBox(
+      width: 420,
+      child: PlayerSettingsPanel(
+        panel: panel,
+        controls: controls,
+        version: _version(),
+        speed: 1,
+        diagnostics: false,
+        subtitleDelivery: 'hls_vtt',
+        subtitleSize: SubtitleSize.medium,
+        onSubtitleSize: onSubtitleSize ?? (_) {},
+        busy: busy,
+        onControls: onControls ?? (_) {},
+        onSpeed: onSpeed ?? (_) {},
+        onDiagnostics: onDiagnostics ?? (_) {},
+        onClose: () {},
+      ),
+    ),
+  ),
+);
 
 Widget _subtitles({VoidCallback? onAddSubtitles}) => MaterialApp(
   theme: buildTheme(AppThemeVariant.dark),

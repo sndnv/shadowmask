@@ -4,6 +4,7 @@ import 'package:shadowmask/model/common/quality.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/subtitle_choice.dart';
 import 'package:shadowmask/view/track_carry.dart';
 
 VersionDetail _version({
@@ -36,7 +37,7 @@ void main() {
       final PlaybackControls carried = carryTracks(
         const PlaybackControls(
           audioTrack: 2,
-          subtitle: SubtitleSelection.embedded(3),
+          subtitle: SubtitleChoice.on(SubtitleSelection.embedded(3)),
         ),
         v,
       );
@@ -48,7 +49,7 @@ void main() {
         reason:
             'stream 2 of this file has nothing to do with stream 2 of the next',
       );
-      expect(carried.subtitle, isNull);
+      expect(carried.subtitle, const SubtitleChoice.auto());
     });
 
     test('a sidecar file carries its language, never its id', () {
@@ -63,7 +64,9 @@ void main() {
         ],
       );
       final PlaybackControls carried = carryTracks(
-        const PlaybackControls(subtitle: SubtitleSelection.file('sub-1')),
+        const PlaybackControls(
+          subtitle: SubtitleChoice.on(SubtitleSelection.file('sub-1')),
+        ),
         v,
       );
       expect(carried.subtitleLanguage, 'nl');
@@ -80,7 +83,7 @@ void main() {
       final PlaybackControls carried = carryTracks(
         const PlaybackControls(
           audioTrack: 1,
-          subtitle: SubtitleSelection.embedded(2),
+          subtitle: SubtitleChoice.on(SubtitleSelection.embedded(2)),
         ),
         v,
       );
@@ -106,13 +109,12 @@ void main() {
       );
       final PlaybackControls carried = carryTracks(
         const PlaybackControls(
-          subtitle: SubtitleSelection.embedded(2),
+          subtitle: SubtitleChoice.off(),
           subtitleLanguage: 'en',
-          subtitleOff: true,
         ),
         v,
       );
-      expect(carried.subtitleOff, isTrue);
+      expect(carried.subtitle, const SubtitleChoice.off());
       expect(carried.subtitleLanguage, isNull);
       expect(carried.toQuery(), <String, String?>{'soff': '1'});
     });

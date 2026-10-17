@@ -1,24 +1,9 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:shadowmask/l10n/strings.dart';
-import 'package:shadowmask/player/player_controller.dart';
+import 'package:shadowmask/player/state/local_settings.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
-
-typedef PlayerPrefs = ({
-  double volume,
-  bool muted,
-  bool remaining,
-  bool diagnostics,
-  bool wide,
-  int autoplaySeconds,
-  int networkTimeoutSeconds,
-  int bufferSeconds,
-  int bufferBytes,
-  bool waitForBuffer,
-  DeliveryPreference delivery,
-  SubtitleSize subtitleSize,
-});
 
 const int kAutoplayOff = 0;
 const int kAutoplayImmediately = -1;
@@ -46,23 +31,10 @@ const List<int> kBufferSizes = <int>[
   1024 * 1024 * 1024,
 ];
 
-const PlayerPrefs kDefaultPlayerPrefs = (
-  volume: 1.0,
-  muted: false,
-  remaining: false,
-  diagnostics: false,
-  wide: false,
-  autoplaySeconds: 10,
-  networkTimeoutSeconds: kDefaultNetworkTimeoutSeconds,
-  bufferSeconds: kDefaultBufferSeconds,
-  bufferBytes: kDefaultBufferBytes,
-  waitForBuffer: false,
-  delivery: DeliveryPreference.auto,
-  subtitleSize: SubtitleSize.deviceDefault,
-);
-
 class PlayerPrefsStore {
   const PlayerPrefsStore();
+
+  static const LocalSettings _defaults = LocalSettings();
 
   static const String _volumeKey = 'shadowmask.player.volume';
   static const String _mutedKey = 'shadowmask.player.muted';
@@ -77,40 +49,57 @@ class PlayerPrefsStore {
   static const String _deliveryKey = 'shadowmask.player.delivery';
   static const String _subtitleSizeKey = 'shadowmask.player.subtitle_size';
 
-  Future<PlayerPrefs> load() async {
+  Future<LocalSettings> load() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
-    final double volume = (prefs.getDouble(_volumeKey) ?? 1).clamp(0.0, 1.0);
-    final int autoplay =
-        prefs.getInt(_autoplayKey) ?? kDefaultPlayerPrefs.autoplaySeconds;
-    final int timeout =
-        prefs.getInt(_timeoutKey) ?? kDefaultPlayerPrefs.networkTimeoutSeconds;
-    final int buffer =
-        prefs.getInt(_bufferKey) ?? kDefaultPlayerPrefs.bufferSeconds;
-    final int bytes =
-        prefs.getInt(_bufferBytesKey) ?? kDefaultPlayerPrefs.bufferBytes;
-    return (
+    final double volume = (prefs.getDouble(_volumeKey) ?? _defaults.volume)
+        .clamp(0.0, 1.0);
+    final int autoplay = prefs.getInt(_autoplayKey) ?? _defaults.autoplayNextS;
+    final int timeout = prefs.getInt(_timeoutKey) ?? _defaults.networkTimeoutS;
+    final int buffer = prefs.getInt(_bufferKey) ?? _defaults.bufferS;
+    final int bytes = prefs.getInt(_bufferBytesKey) ?? _defaults.bufferBytes;
+    final String? delivery = prefs.getString(_deliveryKey);
+    final String? subtitleSize = prefs.getString(_subtitleSizeKey);
+    return LocalSettings(
       volume: volume,
-      muted: prefs.getBool(_mutedKey) ?? false,
-      remaining: prefs.getBool(_remainingKey) ?? false,
-      diagnostics: prefs.getBool(_diagnosticsKey) ?? false,
-      wide: prefs.getBool(_wideKey) ?? false,
-      autoplaySeconds: kAutoplayDelays.contains(autoplay)
+      muted: prefs.getBool(_mutedKey) ?? _defaults.muted,
+      remaining: prefs.getBool(_remainingKey) ?? _defaults.remaining,
+      diagnostics: prefs.getBool(_diagnosticsKey) ?? _defaults.diagnostics,
+      wide: prefs.getBool(_wideKey) ?? _defaults.wide,
+      autoplayNextS: kAutoplayDelays.contains(autoplay)
           ? autoplay
-          : kDefaultPlayerPrefs.autoplaySeconds,
-      networkTimeoutSeconds: kNetworkTimeouts.contains(timeout)
+          : _defaults.autoplayNextS,
+      networkTimeoutS: kNetworkTimeouts.contains(timeout)
           ? timeout
-          : kDefaultPlayerPrefs.networkTimeoutSeconds,
-      bufferSeconds: kBufferTargets.contains(buffer)
-          ? buffer
-          : kDefaultPlayerPrefs.bufferSeconds,
-      bufferBytes: kBufferSizes.contains(bytes)
-          ? bytes
-          : kDefaultPlayerPrefs.bufferBytes,
-      waitForBuffer:
-          prefs.getBool(_waitKey) ?? kDefaultPlayerPrefs.waitForBuffer,
-      delivery: DeliveryPreference.fromWire(prefs.getString(_deliveryKey)),
-      subtitleSize: SubtitleSize.fromWire(prefs.getString(_subtitleSizeKey)),
+          : _defaults.networkTimeoutS,
+      bufferS: kBufferTargets.contains(buffer) ? buffer : _defaults.bufferS,
+      bufferBytes: kBufferSizes.contains(bytes) ? bytes : _defaults.bufferBytes,
+      waitForBuffer: prefs.getBool(_waitKey) ?? _defaults.waitForBuffer,
+      defaultDelivery: delivery == null
+          ? _defaults.defaultDelivery
+          : DeliveryPreference.fromWire(delivery),
+      subtitleSize: subtitleSize == null
+          ? _defaults.subtitleSize
+          : SubtitleSize.fromWire(subtitleSize),
     );
+  }
+
+  Future<void> saveChanged(LocalSettings was, LocalSettings now) async {
+    await Future.wait(<Future<void>>[
+      if (now.volume != was.volume) saveVolume(now.volume),
+      if (now.muted != was.muted) saveMuted(now.muted),
+      if (now.remaining != was.remaining) saveRemaining(now.remaining),
+      if (now.diagnostics != was.diagnostics) saveDiagnostics(now.diagnostics),
+      if (now.autoplayNextS != was.autoplayNextS)
+        saveAutoplaySeconds(now.autoplayNextS),
+      if (now.networkTimeoutS != was.networkTimeoutS)
+        saveNetworkTimeoutSeconds(now.networkTimeoutS),
+      if (now.bufferS != was.bufferS) saveBufferSeconds(now.bufferS),
+      if (now.bufferBytes != was.bufferBytes) saveBufferBytes(now.bufferBytes),
+      if (now.waitForBuffer != was.waitForBuffer)
+        saveWaitForBuffer(now.waitForBuffer),
+      if (now.subtitleSize != was.subtitleSize)
+        saveSubtitleSize(now.subtitleSize),
+    ]);
   }
 
   Future<void> saveMuted(bool muted) async {
