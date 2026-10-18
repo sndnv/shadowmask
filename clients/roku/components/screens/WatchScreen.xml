@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <component name="WatchScreen" extends="Group">
     <script type="text/brightscript" uri="pkg:/components/screens/WatchScreen.brs" />
+    <script type="text/brightscript" uri="pkg:/components/screens/WatchRunner.brs" />
+    <script type="text/brightscript" uri="pkg:/components/Timers.brs" />
     <script type="text/brightscript" uri="pkg:/components/api/Http.brs" />
     <script type="text/brightscript" uri="pkg:/source/util.brs" />
     <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
@@ -18,6 +20,7 @@
     <script type="text/brightscript" uri="pkg:/source/screen.brs" />
     <script type="text/brightscript" uri="pkg:/source/capability.brs" />
     <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playbackstate.brs" />
     <script type="text/brightscript" uri="pkg:/source/languages.brs" />
     <script type="text/brightscript" uri="pkg:/source/work.brs" />
 
@@ -33,7 +36,7 @@
         <field id="choiceResult" type="assocarray" onChange="onChoice" />
         <field id="toastRequest" type="assocarray" alwaysNotify="true" />
         <field id="release" type="boolean" onChange="onRelease" />
-        <field id="sessionEnd" type="string" alwaysNotify="true" />
+        <field id="sessionEnd" type="assocarray" alwaysNotify="true" />
         <field id="focusedChild" type="node" onChange="onFocus" />
     </interface>
 
@@ -69,7 +72,6 @@
             <ActionBar id="upNextActions" />
         </Group>
         <Timer id="heartbeat" repeat="true" />
-        <Timer id="giveUp" repeat="false" />
         <Timer id="hide" repeat="false" />
         <Timer id="countdown" repeat="true" />
         <Timer id="hold" repeat="true" />

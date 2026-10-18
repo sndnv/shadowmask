@@ -295,7 +295,7 @@ namespace tests
 
         @it("shows what the last session negotiated")
         sub showsLastNegotiation()
-            started = SessionFrom({ session_id: "s1", mode: "transcode", container: "mpegts" })
+            started = PlaybackStreamOf({ session_id: "s1", mode: "transcode", container: "mpegts" })
             m.assertEqual(DiagnosticRows({}, 1, started)[6].values[0], "transcode · mpegts")
         end sub
 

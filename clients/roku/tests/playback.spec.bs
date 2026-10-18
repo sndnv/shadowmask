@@ -3,6 +3,19 @@ namespace tests
     @suite("playback")
     class PlaybackTests extends rooibos.BaseTestSuite
 
+        function startingState() as object
+            return PlaybackStep(PlaybackOpens("v1", DefaultControls()), { kind: "opened", durationMs: 600000, resumeMs: 0, remote: DefaultControls() }).state
+        end function
+
+        function watchingState() as object
+            started = PlaybackStep(m.startingState(), { kind: "started", id: 1, json: { session_id: "s1", manifest_url: "/stream/t/master.m3u8", mode: "direct", heartbeat_interval_s: 10 } }).state
+            return PlaybackStep(started, { kind: "loaded", id: 1 }).state
+        end function
+
+        function placedState() as object
+            return PlaybackStep(m.watchingState(), { kind: "reads", reading: { positionMs: 0, durationMs: 600000, bufferedAheadMs: 0, playing: true, ended: false } }).state
+        end function
+
         @describe("the nodes the player is built from")
 
         @it("can create every custom node WatchScreen expects to find")
@@ -39,37 +52,6 @@ namespace tests
             controls = WithDefaultDelivery(DefaultControls(), "auto")
 
             m.assertFalse(ControlsStartBody(controls).DoesExist("delivery"))
-        end sub
-
-        @describe("SessionFrom")
-
-        @it("reads what the server negotiated")
-        sub readsNegotiatedSession()
-            started = SessionFrom({
-                session_id: "s1",
-                mode: "transcode",
-                container: "mpegts",
-                manifest_url: "/stream/tok/master.m3u8",
-                origin_ms: 90000,
-                sequential: true,
-                heartbeat_interval_s: 15,
-                selected: { audio_track: 2 }
-            })
-
-            m.assertEqual(started.id, "s1")
-            m.assertEqual(started.manifestUrl, "/stream/tok/master.m3u8")
-            m.assertEqual(started.originMs, 90000)
-            m.assertTrue(started.sequential)
-            m.assertEqual(started.heartbeatSeconds, 15)
-            m.assertEqual(started.selected.audio_track, 2)
-        end sub
-
-        @it("falls back to an interval rather than never beating")
-        sub fallsBackToAnInterval()
-            ' A seek answers with the renegotiated session, which carries no
-            ' interval; a zero there would stop the heartbeat that slides the
-            ' stream token, and playback would die a minute later.
-            m.assertEqual(SessionFrom({ session_id: "s1" }).heartbeatSeconds, HeartbeatFallbackSeconds())
         end sub
 
         @describe("StreamUrl")
@@ -121,33 +103,6 @@ namespace tests
             m.assertEqual(AttachSeconds(1000, 4000), 0)
         end sub
 
-        @describe("TimelineMs")
-
-        @it("adds the origin only for a sequential session")
-        sub addsOriginWhenSequential()
-            m.assertEqual(TimelineMs(30.0, 90000, true), 120000)
-            m.assertEqual(TimelineMs(30.0, 0, false), 30000)
-        end sub
-
-        @it("never reports a position before the start")
-        sub neverReportsNegative()
-            m.assertEqual(TimelineMs(-1.0, 0, false), 0)
-        end sub
-
-        @describe("KnownTimelineMs")
-
-        @it("reports where the stream was attached until it has played")
-        sub attachedUntilPlayed()
-            m.assertEqual(KnownTimelineMs(false, 2400000, 0.0, 0, false), 2400000)
-            m.assertEqual(KnownTimelineMs(false, 2400000, 0.0, 2398000, true), 2400000)
-        end sub
-
-        @it("reports the player's position once it has played")
-        sub playerOncePlayed()
-            m.assertEqual(KnownTimelineMs(true, 2400000, 30.0, 0, false), 30000)
-            m.assertEqual(KnownTimelineMs(true, 2400000, 30.0, 2398000, true), 2428000)
-        end sub
-
         @describe("IsReplayKey")
 
         @it("answers to the name the firmware sends for the instant replay button")
@@ -159,44 +114,6 @@ namespace tests
             m.assertTrue(IsReplayKey("InstantReplay"))
             m.assertFalse(IsReplayKey("rewind"))
             m.assertFalse(IsReplayKey(invalid))
-        end sub
-
-        @describe("SeekPlan")
-
-        @it("seeks locally in a complete playlist")
-        sub localInCompletePlaylist()
-            plan = SeekPlan(120000, 0, false, 0)
-
-            m.assertFalse(plan.server)
-            m.assertEqual(plan.seconds, 120)
-        end sub
-
-        @it("seeks locally inside what has been produced")
-        sub localInsideProduced()
-            plan = SeekPlan(120000, 90000, true, 60000)
-
-            m.assertFalse(plan.server)
-            m.assertEqual(plan.seconds, 30)
-        end sub
-
-        @it("asks the server for anything behind the origin")
-        sub serverBehindOrigin()
-            ' A sequential manifest holds nothing before its origin, so this is
-            ' a restart whatever the buffer says.
-            plan = SeekPlan(30000, 90000, true, 600000)
-
-            m.assertTrue(plan.server)
-            m.assertEqual(plan.positionMs, 30000)
-        end sub
-
-        @it("asks the server for anything past what has been produced")
-        sub serverPastProduced()
-            m.assertTrue(SeekPlan(600000, 90000, true, 60000).server)
-        end sub
-
-        @it("never seeks before the start")
-        sub clampsBelowZero()
-            m.assertEqual(SeekPlan(-5000, 0, false, 0).seconds, 0)
         end sub
 
         @describe("HoldStepMs")
@@ -311,6 +228,112 @@ namespace tests
             m.assertFalse(buttons[4].disabled)
         end sub
 
+        @it("leaves only the settings enabled during a change")
+        sub playerButtonsBusy()
+            for each button in PlayerButtons(true, false, true, true, true, true)
+                m.assertEqual(ValueAt(button, "disabled", false) = true, button.id <> "settings", button.id)
+            end for
+
+            for each button in PlayerButtons(true, false, true, true, true)
+                m.assertFalse(ValueAt(button, "disabled", false) = true, button.id)
+            end for
+
+            m.assertTrue(PlayerButtons(false, true, false, false, false, true)[2].disabled)
+        end sub
+
+        @describe("PlaybackNote")
+
+        @it("shows the loading note until the gather and the change in flight are done")
+        sub noteWhileLoading()
+            fresh = PlaybackOpens("v1", DefaultControls())
+            m.assertEqual(PlaybackNote(fresh, "Loading Alien…").kind, "loading")
+            m.assertEqual(PlaybackNote(fresh, "Loading Alien…").message, "Loading Alien…")
+
+            starting = m.startingState()
+            m.assertEqual(PlaybackNote(starting, "Loading Alien…").kind, "loading")
+            m.assertEqual(PlaybackNote(starting, "Loading Alien…").message, "Loading Alien…")
+        end sub
+
+        @it("says when a change is taking longer than usual")
+        sub noteWhenSlow()
+            slow = PlaybackStep(m.startingState(), { kind: "changeSlow", id: 1 }).state
+
+            m.assertEqual(PlaybackNote(slow, "Loading Alien…").kind, "loading")
+            m.assertEqual(PlaybackNote(slow, "Loading Alien…").message, "Loading Alien… " + Phrase("player.slow"))
+        end sub
+
+        @it("shows the error in place of the loading note")
+        sub noteShowsTheError()
+            refused = PlaybackStep(m.startingState(), { kind: "refusedStart", id: 1, message: "Could not play (gone)." }).state
+            note = PlaybackNote(refused, "Loading Alien…")
+
+            m.assertEqual(note.kind, "error")
+            m.assertEqual(note.message, "Could not play (gone).")
+        end sub
+
+        @it("keeps the loading note after the load until the first frame shows")
+        sub noteUntilTheFirstFrame()
+            loaded = m.watchingState()
+            m.assertEqual(PlaybackNote(loaded, "Loading Alien…").kind, "loading")
+            m.assertEqual(PlaybackNote(loaded, "Loading Alien…").message, "Loading Alien…")
+
+            paused = PlaybackStep(loaded, { kind: "toggle" }).state
+            m.assertEqual(PlaybackNote(paused, "Loading Alien…").kind, "empty")
+        end sub
+
+        @it("shows nothing while watching or once closed")
+        sub noteClearsWhileWatching()
+            watching = m.placedState()
+            m.assertEqual(PlaybackNote(watching, "Loading Alien…").kind, "empty")
+            m.assertEqual(PlaybackNote(watching, "Loading Alien…").message, "")
+
+            ended = PlaybackStep(watching, { kind: "reads", reading: { positionMs: 600000, durationMs: 600000, bufferedAheadMs: 0, playing: false, ended: true } }).state
+            m.assertEqual(PlaybackNote(ended, "Loading Alien…").kind, "empty")
+
+            refused = PlaybackStep(m.startingState(), { kind: "refusedStart", id: 1, message: "Could not play (gone)." }).state
+            closed = PlaybackStep(refused, { kind: "leave" }).state
+            m.assertEqual(PlaybackNote(closed, "Loading Alien…").kind, "empty")
+            m.assertEqual(PlaybackNote(closed, "Loading Alien…").message, "")
+        end sub
+
+        @describe("PausedGlyph")
+
+        @it("marks a paused stream with play")
+        sub pausedMarkWhilePaused()
+            paused = PlaybackStep(m.watchingState(), { kind: "toggle" }).state
+
+            m.assertEqual(PausedGlyph(paused), "icon-play-large")
+        end sub
+
+        @it("marks the end with replay")
+        sub pausedMarkAtTheEnd()
+            ended = PlaybackStep(m.watchingState(), { kind: "reads", reading: { positionMs: 600000, durationMs: 600000, bufferedAheadMs: 0, playing: false, ended: true } }).state
+
+            m.assertEqual(PausedGlyph(ended), "icon-replay-large")
+        end sub
+
+        @it("shows no mark while playing, during a change or without a stream")
+        sub noPausedMarkOtherwise()
+            watching = m.watchingState()
+            m.assertEqual(PausedGlyph(watching), "")
+
+            lower = DefaultControls()
+            lower.height = 480
+            changing = PlaybackStep(PlaybackStep(watching, { kind: "toggle" }).state, { kind: "changeRemote", controls: lower }).state
+            m.assertEqual(PausedGlyph(changing), "")
+
+            m.assertEqual(PausedGlyph(PlaybackOpens("v1", DefaultControls())), "")
+        end sub
+
+        @describe("NoticeText")
+
+        @it("words each notice a failed change leaves behind")
+        sub wordsTheNotices()
+            m.assertEqual(NoticeText("changeFailed"), "Could not switch playback options.")
+            m.assertEqual(NoticeText("seekFailed"), "Could not jump to that point.")
+            m.assertEqual(NoticeText(""), "")
+        end sub
+
         @describe("UpNextLabel")
 
         @it("shows the episode code and name, not the full player title")
@@ -382,35 +405,6 @@ namespace tests
 
             m.assertEqual(LastEpisodeOf(episodes).id, "e2")
             m.assertInvalid(LastEpisodeOf([]))
-        end sub
-
-        @describe("RetryPosition")
-
-        @it("resumes where the player actually got to")
-        sub retryPrefersTheLastKnownPosition()
-            ' The heartbeat is usually what stopped, so the stored position can
-            ' be staler than what the node reached before it failed.
-            m.assertEqual(RetryPosition(420000, 60000), 420000)
-        end sub
-
-        @it("falls back to the stored position when the player never started")
-        sub retryFallsBackToStored()
-            m.assertEqual(RetryPosition(0, 60000), 60000)
-        end sub
-
-        @it("starts from the beginning when neither is known")
-        sub retryWithoutAnyPosition()
-            m.assertEqual(RetryPosition(0, 0), 0)
-            m.assertEqual(RetryPosition(-1, -1), 0)
-        end sub
-
-        @describe("ProducedMs")
-
-        @it("takes the furthest of the segment being fetched and the position")
-        sub producedTakesTheFrontier()
-            m.assertEqual(ProducedMs({ segStartTime: 120.0 }, 30.0), 120000 + SegmentGraceMs())
-            m.assertEqual(ProducedMs({ segStartTime: 0.0 }, 30.0), 30000 + SegmentGraceMs())
-            m.assertEqual(ProducedMs(invalid, 30.0), 30000 + SegmentGraceMs())
         end sub
 
         @describe("TimelineFraction")
@@ -1166,43 +1160,6 @@ namespace tests
             m.assertEqual(ControlsWithSelection(controls, invalid).height, 480)
         end sub
 
-        @describe("SubtitlesAreBurned")
-
-        @it("knows when the pixels already carry the subtitles")
-        sub knowsBurnedSubtitles()
-            m.assertTrue(SubtitlesAreBurned({ subtitle_delivery: "burned" }))
-            m.assertFalse(SubtitlesAreBurned({ subtitle_delivery: "hls_vtt" }))
-            m.assertFalse(SubtitlesAreBurned(invalid))
-        end sub
-
-        @describe("CaptionsWanted")
-
-        @it("wants captions for a chosen subtitle the player draws")
-        sub wantsCaptionsForADrawnSubtitle()
-            session = { selected: { subtitle_delivery: "hls_vtt" } }
-            m.assertTrue(CaptionsWanted(session, { "type": "embedded", index: 3 }))
-            m.assertTrue(CaptionsWanted(session, { "type": "file", id: "f1" }))
-            m.assertTrue(CaptionsWanted({ selected: invalid }, { "type": "file", id: "f1" }))
-        end sub
-
-        @it("wants none with subtitles off, so a file's own track stays hidden")
-        sub wantsNoCaptionsWhenOff()
-            session = { selected: { subtitle_delivery: "none" } }
-            m.assertFalse(CaptionsWanted(session, invalid))
-            m.assertFalse(CaptionsWanted(session, { "type": "file", id: "" }))
-        end sub
-
-        @it("wants none when the pixels already carry the subtitle")
-        sub wantsNoCaptionsWhenBurned()
-            session = { selected: { subtitle_delivery: "burned" } }
-            m.assertFalse(CaptionsWanted(session, { "type": "embedded", index: 3 }))
-        end sub
-
-        @it("wants none before a session exists")
-        sub wantsNoCaptionsWithoutASession()
-            m.assertFalse(CaptionsWanted(invalid, { "type": "embedded", index: 3 }))
-        end sub
-
         @describe("session requests")
 
         @it("addresses every session endpoint the player uses")
@@ -1237,6 +1194,25 @@ namespace tests
             m.assertEqual(body.version_id, "v1")
             m.assertEqual(body.target_height, 720)
             m.assertEqual(body.capabilities.platform, "roku")
+        end sub
+
+        @it("waits past the change bound for a start, an update or a seek, so the bound decides")
+        sub changeRequestsOutlastTheBound()
+            requests = [
+                StartSessionRequest("http://host", "t", "v1", 0, CapabilitiesBody({}, 1)),
+                UpdateSessionRequest("http://host", "t", "s1", DefaultControls(), 5000),
+                SeekSessionRequest("http://host", "t", "s1", 60000)
+            ]
+            for each request in requests
+                m.assertTrue(request.timeout > ChangeRequestSeconds())
+            end for
+            m.assertEqual(HeartbeatRequest("http://host", "t", "s1", 0, "paused").timeout, RequestTimeoutSeconds())
+        end sub
+
+        @it("names the progress state the server expects")
+        sub progressStates()
+            m.assertEqual(ProgressState(true), "playing")
+            m.assertEqual(ProgressState(false), "paused")
         end sub
 
         @describe("ResumeRequest")

@@ -13,7 +13,21 @@ function StartSessionRequest(base as string, token as string, versionId as strin
     for each key in chosen
         body[key] = chosen[key]
     end for
-    return BuildRequest(base, "/sessions", "POST", body, token)
+    return ChangeRequest(BuildRequest(base, "/sessions", "POST", body, token))
+end function
+
+function SessionRequestSeconds() as integer
+    return ChangeRequestSeconds() + 5
+end function
+
+function ChangeRequest(request as object) as object
+    request.timeout = SessionRequestSeconds()
+    return request
+end function
+
+function ProgressState(playing as boolean) as string
+    if playing then return "playing"
+    return "paused"
 end function
 
 function HeartbeatRequest(base as string, token as string, sessionId as dynamic, positionMs as integer, state as string) as object
@@ -22,13 +36,13 @@ function HeartbeatRequest(base as string, token as string, sessionId as dynamic,
 end function
 
 function SeekSessionRequest(base as string, token as string, sessionId as dynamic, positionMs as integer) as object
-    return BuildRequest(base, SessionPath(sessionId) + "/seek", "POST", { position_ms: positionMs }, token)
+    return ChangeRequest(BuildRequest(base, SessionPath(sessionId) + "/seek", "POST", { position_ms: positionMs }, token))
 end function
 
 function UpdateSessionRequest(base as string, token as string, sessionId as dynamic, controls as dynamic, positionMs as integer) as object
     body = ControlsUpdateBody(controls)
     body.position_ms = positionMs
-    return BuildRequest(base, SessionPath(sessionId) + "/update", "POST", body, token)
+    return ChangeRequest(BuildRequest(base, SessionPath(sessionId) + "/update", "POST", body, token))
 end function
 
 function EndSessionRequest(base as string, token as string, sessionId as dynamic) as object
@@ -37,22 +51,6 @@ end function
 
 function HeartbeatFallbackSeconds() as integer
     return 10
-end function
-
-function SessionFrom(json as dynamic) as object
-    beat = Int(ValueAt(json, "heartbeat_interval_s", 0))
-    if beat <= 0 then beat = HeartbeatFallbackSeconds()
-
-    return {
-        id: TextOrBlank(ValueAt(json, "session_id", "")),
-        mode: TextOrBlank(ValueAt(json, "mode", "")),
-        container: TextOrBlank(ValueAt(json, "container", "")),
-        manifestUrl: TextOrBlank(ValueAt(json, "manifest_url", "")),
-        originMs: Int(ValueAt(json, "origin_ms", 0)),
-        sequential: ValueAt(json, "sequential", false) = true,
-        heartbeatSeconds: beat,
-        selected: ValueAt(json, "selected", invalid)
-    }
 end function
 
 function StreamUrl(base as string, path as dynamic) as string
@@ -85,44 +83,6 @@ function AttachSeconds(resumeMs as integer, originMs as integer) as integer
     at = resumeMs - originMs
     if at <= 0 then return 0
     return Int(at / 1000)
-end function
-
-function TimelineMs(positionSeconds as dynamic, originMs as integer, sequential as boolean) as integer
-    at = Int(positionSeconds * 1000.0)
-    if at < 0 then at = 0
-    if sequential then return originMs + at
-
-    return at
-end function
-
-function KnownTimelineMs(painted as boolean, attachMs as integer, positionSeconds as dynamic, originMs as integer, sequential as boolean) as integer
-    if not painted then return attachMs
-
-    return TimelineMs(positionSeconds, originMs, sequential)
-end function
-
-function SegmentGraceMs() as integer
-    return 4000
-end function
-
-function ProducedMs(segment as dynamic, positionSeconds as dynamic) as integer
-    at = Int(positionSeconds * 1000.0)
-    if at < 0 then at = 0
-
-    fetching = Int(ValueAt(segment, "segStartTime", 0) * 1000.0)
-    if fetching > at then at = fetching
-    return at + SegmentGraceMs()
-end function
-
-function SeekPlan(targetMs as integer, originMs as integer, sequential as boolean, reachMs as integer) as object
-    at = targetMs
-    if at < 0 then at = 0
-
-    if not sequential then return { server: false, seconds: Int(at / 1000), positionMs: at }
-    if at < originMs then return { server: true, seconds: 0, positionMs: at }
-    if at - originMs > reachMs then return { server: true, seconds: 0, positionMs: at }
-
-    return { server: false, seconds: Int((at - originMs) / 1000), positionMs: at }
 end function
 
 function TimelineSpan(positionMs as dynamic, scrubMs as dynamic, durationMs as dynamic, width as integer) as object
@@ -464,8 +424,8 @@ function HoldTickMultiplied(ticks as integer) as boolean
     return HoldSpeedAt(HoldHeldSeconds(ticks)) > HoldSpeeds()[0]
 end function
 
-function PlayerButtons(playing as boolean, finished as boolean, episode as boolean, hasPrevious as boolean, hasNext as boolean) as object
-    transport = { id: "play", icon: "icon-play", label: Phrase("player.play"), style: "glyph" }
+function PlayerButtons(playing as boolean, finished as boolean, episode as boolean, hasPrevious as boolean, hasNext as boolean, busy = false as boolean) as object
+    transport = { id: "play", icon: "icon-play", label: Phrase("player.play"), style: "glyph", disabled: busy }
     if playing
         transport.icon = "icon-pause"
         transport.label = Phrase("player.pause")
@@ -477,23 +437,47 @@ function PlayerButtons(playing as boolean, finished as boolean, episode as boole
     end if
 
     buttons = [
-        { id: "quality", icon: "icon-quality", label: Phrase("player.quality"), style: "glyph" },
-        { id: "subtitle", icon: "icon-subtitles", label: Phrase("heading.subtitles"), style: "glyph" }
+        { id: "quality", icon: "icon-quality", label: Phrase("player.quality"), style: "glyph", disabled: busy },
+        { id: "subtitle", icon: "icon-subtitles", label: Phrase("heading.subtitles"), style: "glyph", disabled: busy }
     ]
 
     if episode
-        buttons.Push({ id: "previous", icon: "icon-previous", label: Phrase("player.previousEpisode"), style: "glyph", spaceBefore: true, disabled: not hasPrevious })
+        buttons.Push({ id: "previous", icon: "icon-previous", label: Phrase("player.previousEpisode"), style: "glyph", spaceBefore: true, disabled: busy or not hasPrevious })
         buttons.Push(transport)
-        buttons.Push({ id: "next", icon: "icon-next", label: Phrase("player.nextEpisode"), style: "glyph", disabled: not hasNext })
+        buttons.Push({ id: "next", icon: "icon-next", label: Phrase("player.nextEpisode"), style: "glyph", disabled: busy or not hasNext })
     else
         transport.spaceBefore = true
         buttons.Push(transport)
     end if
 
-    buttons.Push({ id: "audio", icon: "icon-audio", label: Phrase("heading.audio"), style: "glyph", spaceBefore: true })
+    buttons.Push({ id: "audio", icon: "icon-audio", label: Phrase("heading.audio"), style: "glyph", spaceBefore: true, disabled: busy })
     buttons.Push({ id: "settings", icon: "icon-settings", label: Phrase("player.settings"), style: "glyph" })
 
     return buttons
+end function
+
+function PlaybackNote(s as object, loading as string) as object
+    if s.status.life <> "open" then return { kind: "empty", message: "" }
+    if not IsBlank(s.status.error) then return { kind: "error", message: s.status.error }
+    if s.status.slow then return { kind: "loading", message: loading + " " + Phrase("player.slow") }
+    if not s.status.gathered or s.status.sent <> invalid then return { kind: "loading", message: loading }
+    if IsWatching(s) and s.timeline.playing and not s.timeline.placed then return { kind: "loading", message: loading }
+
+    return { kind: "empty", message: "" }
+end function
+
+function PausedGlyph(s as object) as string
+    if not IsWatching(s) or s.timeline.playing then return ""
+    if s.timeline.ended then return "icon-replay-large"
+
+    return "icon-play-large"
+end function
+
+function NoticeText(notice as string) as string
+    if notice = "changeFailed" then return Phrase("player.changeFailed")
+    if notice = "seekFailed" then return Phrase("player.seekFailed")
+
+    return ""
 end function
 
 function UpNextLabel(target as dynamic) as string
@@ -520,13 +504,6 @@ function TitleWithYear(title as dynamic, year as dynamic) as string
     if IsBlank(name) or IsBlank(stamp) then return name
 
     return name + " (" + stamp + ")"
-end function
-
-function RetryPosition(lastMs as integer, storedMs as integer) as integer
-    if lastMs > 0 then return lastMs
-    if storedMs > 0 then return storedMs
-
-    return 0
 end function
 
 function AbrSwitchingStrategy() as string
@@ -993,15 +970,4 @@ function SourceHeightOf(version as dynamic) as integer
     if type(tracks) <> "roArray" or tracks.Count() = 0 then return 0
 
     return Int(ValueAt(tracks[0], "height", 0))
-end function
-
-function SubtitlesAreBurned(selected as dynamic) as boolean
-    return LCase(TextOrBlank(ValueAt(selected, "subtitle_delivery", ""))) = "burned"
-end function
-
-function CaptionsWanted(session as dynamic, subtitle as dynamic) as boolean
-    if session = invalid then return false
-    if SubtitlesAreBurned(ValueAt(session, "selected", invalid)) then return false
-
-    return SubtitleRef(subtitle) <> invalid
 end function

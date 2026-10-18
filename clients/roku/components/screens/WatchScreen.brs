@@ -6,7 +6,6 @@ sub init()
     m.pausedDisc = m.top.FindNode("pausedDisc")
     m.pausedGlyph = m.top.FindNode("pausedGlyph")
     m.beat = m.top.FindNode("heartbeat")
-    m.giveUp = m.top.FindNode("giveUp")
     m.hide = m.top.FindNode("hide")
 
     m.bar = m.top.FindNode("bar")
@@ -50,15 +49,15 @@ sub init()
     m.holdTicks = 0
     m.holdTargetMs = -1
     m.holdDeferred = false
-    m.finished = false
     m.choiceOptions = []
     m.settingRows = []
     m.remaining = 0
-    m.errored = false
-    m.retryMs = 0
+    m.gatherError = ""
+    m.revealed = false
     m.barVisible = false
     m.barCommitted = false
     m.barOpened = invalid
+    m.busyFocus = -1
     m.captionsForced = false
     m.stallTicks = 0
     m.stallMark = -1
@@ -66,19 +65,8 @@ sub init()
     m.playbackLog = []
     m.released = false
     m.loaded = false
-    m.playing = false
-    m.prebuffered = false
-    m.painted = false
-    m.beating = false
-    m.applying = false
-    m.restarting = false
-    m.session = invalid
     m.version = invalid
-    m.controls = StartingControls()
     m.carried = invalid
-    m.resumeMs = 0
-    m.pendingMs = 0
-    m.attachMs = 0
     m.tasks = []
     m.work = false
     m.jobsFor = ""
@@ -95,11 +83,6 @@ sub init()
     m.video.notificationInterval = 1
     m.video.enableTrickPlay = false
     m.video.enableUI = false
-    m.video.ObserveField("state", "onVideoState")
-    m.video.ObserveField("bufferingStatus", "onBuffering")
-    m.video.ObserveField("position", "onPosition")
-    m.beat.ObserveField("fire", "onBeatFired")
-    m.giveUp.ObserveField("fire", "onGiveUp")
     m.hide.ObserveField("fire", "onHideFired")
     m.actions.ObserveField("activated", "onAction")
     m.actions.ObserveField("focusIndex", "onBarStepped")
@@ -110,6 +93,9 @@ sub init()
     m.upNextActions.ObserveField("activated", "onUpNextAction")
     m.video.ObserveField("streamInfo", "onStreamInfo")
     m.jobsTimer.ObserveField("fire", "onJobsFired")
+
+    RunnerInit()
+    RunnerOpen("", StartingControls())
 end sub
 
 sub render()
@@ -198,15 +184,9 @@ sub DrawPausedMark(theme as object)
 end sub
 
 sub RefreshPausedMark()
-    m.pausedMark.visible = m.prebuffered and not m.playing and not m.errored and not m.upNext.visible
-    if not m.pausedMark.visible then return
-
-    if m.finished
-        m.pausedGlyph.uri = GlyphUri("icon-replay-large")
-        return
-    end if
-
-    m.pausedGlyph.uri = GlyphUri("icon-play-large")
+    glyph = PausedGlyph(m.playback)
+    m.pausedMark.visible = not IsBlank(glyph) and not m.upNext.visible
+    if m.pausedMark.visible then m.pausedGlyph.uri = GlyphUri(glyph)
 end sub
 
 sub DrawHeader(theme as object)
@@ -275,12 +255,13 @@ sub DrawTime(node as object, theme as object, left as integer, top as integer, w
 end sub
 
 sub BuildBarButtons()
-    if m.errored
+    if Errored()
         m.actions.buttons = [{ id: "retry", label: Phrase("action.retry"), style: "primary" }]
         return
     end if
 
-    m.actions.buttons = PlayerButtons(m.playing, m.finished, EpisodeContext() <> invalid, m.previousTarget <> invalid, m.nextTarget <> invalid)
+    timeline = m.playback.timeline
+    m.actions.buttons = PlayerButtons(timeline.playing, timeline.ended, EpisodeContext() <> invalid, m.previousTarget <> invalid, m.nextTarget <> invalid, m.playback.status.sent <> invalid)
 end sub
 
 function FullDurationMs() as integer
@@ -316,12 +297,12 @@ sub ShowBar(seeking = false as boolean)
 end sub
 
 sub ComposeBar(seeking = false as boolean)
-    ShowTimeRow(not m.errored)
+    ShowTimeRow(not Errored())
     RefreshHeader()
     RefreshProgress()
     BuildBarButtons()
 
-    if seeking and not m.errored
+    if seeking and not Errored()
         TakeFocus(m.timeline)
         return
     end if
@@ -373,7 +354,7 @@ sub MarkBarCommitted()
 end sub
 
 function HandledBarBack() as boolean
-    if not m.playing then return false
+    if not PlaybackPlaying(m.playback) then return false
     if m.barCommitted
         HideBar()
         return true
@@ -387,7 +368,7 @@ end function
 
 sub RestartHide()
     m.hide.control = "stop"
-    if not m.playing then return
+    if not PlaybackPlaying(m.playback) then return
 
     m.hide.duration = HideSecondsFor(m.audioGuideOn)
     m.hide.control = "start"
@@ -403,21 +384,8 @@ sub onHideFired()
     HideBar()
 end sub
 
-sub onPosition()
-    if m.barVisible
-        RefreshHeader()
-        RefreshProgress()
-    end if
-    RefreshDiagnostics()
-end sub
-
 sub onAction(event as object)
     id = TextOrBlank(event.GetData())
-
-    if id = "replay"
-        RestartPlayback()
-        return
-    end if
 
     if id = "retry"
         RetryPlayback()
@@ -454,7 +422,7 @@ sub onAction(event as object)
         return
     end if
 
-    if id = "play" then TogglePlay()
+    if id = "play" or id = "replay" then TogglePlay()
     RestartHide()
 end sub
 
@@ -484,13 +452,13 @@ end function
 
 sub OpenSettings()
     m.settingMenu = "settings"
-    m.settingRows = SettingsRows(m.controls, PlayerFlags())
+    m.settingRows = SettingsRows(PlaybackControls(), PlayerFlags())
     AskChoice("settings", Phrase("player.settings"), m.settingRows, 0, "menu")
 end sub
 
 sub OpenSubtitleMenu()
     m.settingMenu = "subsMenu"
-    m.settingRows = SubtitleRows(m.controls, m.version, ReadSubtitleSize(), SubtitlesAreBurned(ValueAt(m.session, "selected", invalid)))
+    m.settingRows = SubtitleRows(PlaybackControls(), m.version, ReadSubtitleSize(), PlaybackBurned())
     if m.work then m.settingRows.Push(MoreSubtitlesRow())
     AskChoice("subsMenu", Phrase("heading.subtitles"), m.settingRows, 0, "menu")
 end sub
@@ -504,7 +472,7 @@ end sub
 
 sub OpenAudioMenu()
     m.settingMenu = "audioMenu"
-    m.settingRows = AudioRows(m.controls, m.version)
+    m.settingRows = AudioRows(PlaybackControls(), m.version)
     AskChoice("audioMenu", Phrase("heading.audio"), m.settingRows, 0, "menu")
 end sub
 
@@ -529,24 +497,24 @@ end sub
 
 sub OpenQuality()
     options = QualityRungs(SourceHeightOf(m.version))
-    AskChoice("quality", Phrase("player.quality"), options, IndexOfValue(options, "height", Int(m.controls.height)))
+    AskChoice("quality", Phrase("player.quality"), options, IndexOfValue(options, "height", Int(PlaybackControls().height)))
 end sub
 
 sub OpenAudio()
     options = AudioOptions(m.version)
     if options.Count() = 0 then return
 
-    AskChoice("audio", Phrase("heading.audio"), options, IndexOfValue(options, "index", Int(m.controls.audioTrack)))
+    AskChoice("audio", Phrase("heading.audio"), options, IndexOfValue(options, "index", Int(PlaybackControls().audioTrack)))
 end sub
 
 sub OpenSubtitle()
     options = SubtitleOptions(m.version)
-    AskChoice("subtitle", Phrase("heading.subtitles"), options, IndexOfSubtitle(options, m.controls))
+    AskChoice("subtitle", Phrase("heading.subtitles"), options, IndexOfSubtitle(options, PlaybackControls()))
 end sub
 
 sub OpenDelivery()
     options = DeliveryOptions()
-    AskChoice("delivery", Phrase("player.converting"), options, IndexOfValue(options, "value", TextOrBlank(m.controls.delivery)))
+    AskChoice("delivery", Phrase("player.converting"), options, IndexOfValue(options, "value", TextOrBlank(PlaybackControls().delivery)))
 end sub
 
 sub OpenSubtitleSize()
@@ -566,7 +534,7 @@ sub OpenOffset()
         { id: "later", label: Phrase("player.offsetLater") },
         { id: "reset", label: Phrase("player.offsetReset") }
     ]
-    AskChoice("offset", SettingRow(Phrase("player.subtitleOffset"), OffsetLabel(Int(m.controls.offsetMs))), steps, 0)
+    AskChoice("offset", SettingRow(Phrase("player.subtitleOffset"), OffsetLabel(Int(PlaybackControls().offsetMs))), steps, 0)
 end sub
 
 sub onChoice()
@@ -652,14 +620,14 @@ sub RunChoice(field as string, chosen as object)
     end if
 
     if field = "quality"
-        wanted = ControlsCopy(m.controls)
+        wanted = ControlsCopy(PlaybackControls())
         wanted.height = Int(ValueAt(chosen, "height", 0))
         ApplyControls(wanted)
         return
     end if
 
     if field = "audio"
-        wanted = ControlsCopy(m.controls)
+        wanted = ControlsCopy(PlaybackControls())
         wanted.audioTrack = Int(ValueAt(chosen, "index", -1))
         ApplyControls(wanted)
         return
@@ -667,7 +635,7 @@ sub RunChoice(field as string, chosen as object)
 
     if field = "subtitle"
         ref = ValueAt(chosen, "ref", invalid)
-        wanted = ControlsCopy(m.controls)
+        wanted = ControlsCopy(PlaybackControls())
         wanted.subtitle = ref
         wanted.subtitleOff = ref = invalid
         ApplyControls(wanted)
@@ -675,7 +643,7 @@ sub RunChoice(field as string, chosen as object)
     end if
 
     if field = "delivery"
-        wanted = ControlsCopy(m.controls)
+        wanted = ControlsCopy(PlaybackControls())
         wanted.delivery = TextOrBlank(ValueAt(chosen, "value", "auto"))
         ApplyControls(wanted)
         return
@@ -734,7 +702,7 @@ sub StartTranscribe()
         return
     end if
 
-    AskChoice("transcribeTrack", Phrase("work.audioTrack"), options, IndexOfValue(options, "index", Int(m.controls.audioTrack)), "choice", false, Phrase("work.starting"))
+    AskChoice("transcribeTrack", Phrase("work.audioTrack"), options, IndexOfValue(options, "index", Int(PlaybackControls().audioTrack)), "choice", false, Phrase("work.starting"))
 end sub
 
 sub OpenTranslateSource()
@@ -745,7 +713,7 @@ sub OpenTranslateSource()
         return
     end if
 
-    watching = SubtitleRef(m.controls.subtitle)
+    watching = SubtitleRef(PlaybackControls().subtitle)
     AskChoice("translateSource", Phrase("work.translateFrom"), options, IndexOfValue(options, "id", TextOrBlank(ValueAt(watching, "id", ""))))
 end sub
 
@@ -929,13 +897,13 @@ sub RefreshOpenMenu()
 end sub
 
 sub StepOffset(towards as string)
-    wanted = ControlsCopy(m.controls)
+    wanted = ControlsCopy(PlaybackControls())
     if towards = "reset"
         wanted.offsetMs = 0
     else if towards = "earlier"
-        wanted.offsetMs = SteppedOffset(Int(m.controls.offsetMs), 0 - OffsetStepMs())
+        wanted.offsetMs = SteppedOffset(Int(PlaybackControls().offsetMs), 0 - OffsetStepMs())
     else
-        wanted.offsetMs = SteppedOffset(Int(m.controls.offsetMs), OffsetStepMs())
+        wanted.offsetMs = SteppedOffset(Int(PlaybackControls().offsetMs), OffsetStepMs())
     end if
 
     ApplyControls(wanted)
@@ -970,15 +938,15 @@ sub RunSetting(id as string)
     end if
 
     if id = "burn"
-        wanted = ControlsCopy(m.controls)
-        wanted.burn = not (m.controls.burn = true)
+        wanted = ControlsCopy(PlaybackControls())
+        wanted.burn = not (PlaybackControls().burn = true)
         ApplyControls(wanted)
         ReopenMenu()
         return
     end if
     if id = "downmix"
-        wanted = ControlsCopy(m.controls)
-        wanted.downmix = not (m.controls.downmix = true)
+        wanted = ControlsCopy(PlaybackControls())
+        wanted.downmix = not (PlaybackControls().downmix = true)
         ApplyControls(wanted)
         ReopenMenu()
         return
@@ -1015,42 +983,26 @@ sub RunWorkAction(id as string)
     end if
 end sub
 
-function Transitioning() as boolean
-    return m.applying or m.restarting
+function PlaybackControls() as object
+    return m.playback.remote
+end function
+
+function PlaybackBurned() as boolean
+    if m.playback.stream = invalid then return false
+    return m.playback.stream.subtitleDelivery = "burned"
+end function
+
+function PlaybackPlaying(s as object) as boolean
+    return IsWatching(s) and s.timeline.playing
+end function
+
+function Errored() as boolean
+    return not IsBlank(m.gatherError) or not IsBlank(m.playback.status.error)
 end function
 
 sub ApplyControls(wanted as object)
-    if m.session = invalid
-        m.controls = wanted
-        return
-    end if
-    if Transitioning() then return
-
-    m.controls = wanted
-    m.applying = true
-    MarkBarCommitted()
-    m.pendingMs = TimelineNow()
-    m.attachMs = m.pendingMs
-    m.painted = false
-    m.video.control = "stop"
-    ShowNote(LoadingNote(), "loading")
-
-    session = SessionFor(m.global)
-    m.updateTask = SendRequest(UpdateSessionRequest(session.serverUrl, session.token, m.session.id, m.controls, m.pendingMs), "onUpdated")
-end sub
-
-sub onUpdated(event as object)
-    parsed = Answered(event)
-    m.applying = false
-    if m.released then return
-
-    if not parsed.ok
-        FailPlayback(PhraseWith("error.couldNotPlay", { detail: PlaybackDetail(parsed) }), m.pendingMs)
-        return
-    end if
-
-    Adopt(parsed.json)
-    Attach(m.pendingMs)
+    if IsWatching(m.playback) then MarkBarCommitted()
+    PostPlayback({ kind: "changeRemote", controls: ControlsCopy(wanted) })
 end sub
 
 sub FocusBar()
@@ -1059,42 +1011,21 @@ sub FocusBar()
     TakeFocus(m.actions)
 end sub
 
-sub RestartPlayback()
-    m.retryMs = 0
-    ReloadPlayback()
-end sub
-
 sub RetryPlayback()
-    ReloadPlayback()
+    if IsBlank(m.gatherError)
+        PostPlayback({ kind: "retry" })
+        return
+    end if
+
+    m.gatherError = ""
+    ClearFailure()
+    ShowNote(LoadingNote(), "loading")
+    Load()
 end sub
 
 function StartingControls() as object
     return WithDefaultDelivery(DefaultControls(), ReadDelivery())
 end function
-
-sub ReloadPlayback()
-    EndSession()
-
-    m.session = invalid
-    m.version = invalid
-    m.controls = StartingControls()
-    m.nextTarget = invalid
-    m.nextEpisode = invalid
-    m.previousTarget = invalid
-    m.previousEpisode = invalid
-    m.resumeMs = 0
-    m.prebuffered = false
-    m.painted = false
-    m.playing = false
-    m.finished = false
-    m.errored = false
-    ClearHold()
-
-    HideBar()
-    ShowTimeRow(true)
-    ShowNote(LoadingNote(), "loading")
-    Load()
-end sub
 
 sub DrawDiagnostics(theme as object)
     space = SpacingScale()
@@ -1117,7 +1048,7 @@ sub RefreshDiagnostics()
 
     lastEvent = ""
     if m.playbackLog.Count() > 0 then lastEvent = m.playbackLog[m.playbackLog.Count() - 1]
-    m.diagnostics.rows = PlayerDiagnostics(m.session, VideoInfo(m.video.streamInfo, m.video.bufferingStatus, m.video.timeToStartStreaming, TextOrBlank(m.video.state)), lastEvent)
+    m.diagnostics.rows = PlayerDiagnostics(m.playback.stream, VideoInfo(m.video.streamInfo, m.video.bufferingStatus, m.video.timeToStartStreaming, TextOrBlank(m.video.state)), lastEvent)
     m.diagnosticsScrim.height = m.diagnostics.listHeight + SpacingScale().s5 * 2
 end sub
 
@@ -1368,47 +1299,119 @@ sub PlayNeighbour(target as dynamic)
     m.top.choiceRequest = DialogCloseRequest()
     m.openChoice = ""
     ForgetWork()
-    m.carried = CarriedTracks(m.controls, m.version)
+    m.carried = CarriedTracks(PlaybackControls(), m.version)
 
     StopCountdown()
-    EndSession()
 
     m.playbackLog = []
     m.nextTarget = invalid
     m.nextEpisode = invalid
     m.previousTarget = invalid
     m.previousEpisode = invalid
-    m.session = invalid
     m.version = invalid
-    m.controls = StartingControls()
-    m.resumeMs = 0
-    m.retryMs = 0
-    m.prebuffered = false
-    m.painted = false
-    m.playing = false
-    m.finished = false
-    m.errored = false
+    m.gatherError = ""
+    m.revealed = false
     m.loaded = false
     ClearHold()
 
     HideBar()
     ShowTimeRow(true)
+    RefreshStage()
     m.top.target = target
     ShowNote(LoadingNote(), "loading")
 end sub
 
-sub EndSession()
-    StopBeating()
-    m.video.control = "stop"
-    m.global.sessionId = ""
-    if m.session <> invalid and not IsBlank(m.session.id) then m.top.sessionEnd = m.session.id
+sub PlaybackChanged(before as object, after as object)
+    if m.released then return
+
+    failed = not IsBlank(after.status.error)
+    if failed and IsBlank(before.status.error) then ShowFailure()
+    if not failed and not IsBlank(before.status.error) then ClearFailure()
+    DrawNote(before, after)
+    if BarChanged(before, after) then FollowBusy(before, after)
+    if after.timeline.placed and not m.revealed then RevealStage()
+    FollowWatchdog(before, after)
+    if PlaybackPlaying(before) <> PlaybackPlaying(after) or before.timeline.placed <> after.timeline.placed then RestartHide()
+    RefreshPausedMark()
+    if not IsBlank(after.status.notice) and after.status.notice <> before.status.notice then RaiseToast("err", NoticeText(after.status.notice))
+    if m.barVisible
+        RefreshHeader()
+        RefreshProgress()
+    end if
+    RefreshDiagnostics()
+    FollowEnd(before, after)
 end sub
+
+sub DrawNote(before as object, after as object)
+    if not IsBlank(m.gatherError) then return
+
+    loading = LoadingNote()
+    was = PlaybackNote(before, loading)
+    now = PlaybackNote(after, loading)
+    if was.kind = now.kind and was.message = now.message then return
+
+    ShowNote(now.message, now.kind)
+end sub
+
+function BarChanged(before as object, after as object) as boolean
+    if before.timeline.playing <> after.timeline.playing then return true
+    if before.timeline.ended <> after.timeline.ended then return true
+    if IsBlank(before.status.error) <> IsBlank(after.status.error) then return true
+
+    return (before.status.sent = invalid) <> (after.status.sent = invalid)
+end function
+
+sub FollowBusy(before as object, after as object)
+    wasBusy = before.status.sent <> invalid
+    busy = after.status.sent <> invalid
+    if busy and not wasBusy then m.busyFocus = m.actions.focusIndex
+
+    BuildBarButtons()
+    if busy then return
+
+    if wasBusy and m.busyFocus >= 0 and not Errored() then m.actions.focusIndex = m.busyFocus
+    m.busyFocus = -1
+end sub
+
+sub RevealStage()
+    m.revealed = true
+    RefreshStage()
+    PublishBackdropUrl("")
+end sub
+
+sub FollowWatchdog(before as object, after as object)
+    playing = PlaybackPlaying(after)
+    if playing = PlaybackPlaying(before) then return
+
+    if playing
+        StartWatchdog()
+        return
+    end if
+
+    StopWatchdog()
+end sub
+
+sub FollowEnd(before as object, after as object)
+    if not WatchingTheEnd(after)
+        if m.upNext.visible then StopCountdown()
+        return
+    end if
+    if WatchingTheEnd(before) then return
+
+    if StartCountdown() then return
+    ShowBar()
+end sub
+
+function WatchingTheEnd(s as object) as boolean
+    return IsWatching(s) and s.timeline.ended
+end function
 
 function PlayingVersionId() as string
     return TextOrBlank(ValueAt(m.top.target, "versionId", ""))
 end function
 
 sub Load()
+    RunnerOpen(PlayingVersionId(), StartingControls())
     if IsBlank(PlayingVersionId())
         ShowNote(Phrase("empty.nothingToPlay"), "empty")
         return
@@ -1437,17 +1440,12 @@ sub onVersion(event as object)
     if m.released then return
 
     if not parsed.ok
-        FailPlayback(Phrase("error.couldNotLoadVersion"), 0)
+        FailGather(Phrase("error.couldNotLoadVersion"))
         return
     end if
 
     m.version = parsed.json
     StartWork()
-
-    if m.carried <> invalid
-        m.controls = WithDefaultDelivery(ControlsForCarried(m.carried, m.version), ReadDelivery())
-        m.carried = invalid
-    end if
 
     if AskedPickedTitle() then return
     AskResume()
@@ -1494,84 +1492,25 @@ sub onResume(event as object)
     parsed = Answered(event)
     if m.released then return
 
-    m.resumeMs = RetryPosition(m.retryMs, Int(ValueAt(parsed.json, "position_ms", 0)))
-    m.retryMs = 0
-    StartSession()
-end sub
+    resumeMs = Int(ValueAt(parsed.json, "position_ms", 0))
+    if resumeMs < 0 then resumeMs = 0
 
-sub StartSession()
-    session = SessionFor(m.global)
-    capabilities = CapabilitiesBody(DeviceDecoding(), Int(m.global.profileVersion))
+    remote = PlaybackControls()
+    if m.carried <> invalid then remote = WithDefaultDelivery(ControlsForCarried(m.carried, m.version), ReadDelivery())
+    m.carried = invalid
 
-    Ask(StartSessionRequest(session.serverUrl, session.token, PlayingVersionId(), m.resumeMs, capabilities, m.controls), "onStarted")
-end sub
-
-sub onStarted(event as object)
-    parsed = Answered(event)
-    if m.released then return
-
-    if not parsed.ok
-        FailPlayback(PhraseWith("error.couldNotPlay", { detail: PlaybackDetail(parsed) }), m.resumeMs)
-        return
-    end if
-
-    Adopt(parsed.json)
-    Attach(m.resumeMs)
+    PostPlayback({ kind: "opened", durationMs: Int(ValueAt(m.version, "duration_ms", 0)), resumeMs: resumeMs, remote: ControlsCopy(remote) })
     ResolveNext()
 end sub
 
-sub Adopt(json as dynamic)
-    m.session = SessionFrom(json)
-    m.controls = ControlsWithSelection(m.controls, m.session.selected)
-    m.global.negotiated = m.session
-    m.global.sessionId = TextOrBlank(m.session.id)
-    RefreshDiagnostics()
-end sub
-
-sub Attach(positionMs as integer)
-    if m.session = invalid then return
-
-    session = SessionFor(m.global)
-    bounds = AbrBounds(0)
-
-    content = CreateObject("roSGNode", "ContentNode")
-    content.url = StreamUrl(session.serverUrl, m.session.manifestUrl)
-    content.streamFormat = StreamFormatFor(m.session.mode, ValueAt(m.version, "container", ""))
-    content.title = TextOrBlank(ValueAt(m.top.target, "title", ""))
-    content.HttpCertificatesFile = CertificatesFile()
-    content.SwitchingStrategy = bounds.strategy
-    if bounds.maxKbps > 0 then content.MaxBandwidth = bounds.maxKbps
-    content.PlayStart = AttachSeconds(positionMs, m.session.originMs)
-
-    m.attachMs = positionMs
-    m.prebuffered = false
-    m.painted = false
-    RefreshPausedMark()
-    ApplyCaptionMode()
-    m.video.content = content
-
-    m.video.control = "prebuffer"
-    m.giveUp.duration = PrebufferGiveUpSeconds()
-    m.giveUp.control = "start"
+sub FailGather(message as string)
+    m.gatherError = message
+    ShowFailure()
+    ShowNote(message, "error")
 end sub
 
 sub ApplySubtitleSize()
     m.video.captionStyle = CaptionStyleFor(ReadSubtitleSize())
-end sub
-
-sub ApplyCaptionMode()
-    ApplySubtitleSize()
-    wanted = CaptionsWanted(m.session, m.controls.subtitle)
-    m.video.suppressCaptions = not wanted
-    if wanted
-        if TextOrBlank(m.global.captionMode) = "On" then return
-
-        m.captionsForced = true
-        m.video.globalCaptionMode = "On"
-        return
-    end if
-
-    RestoreCaptionMode()
 end sub
 
 sub RestoreCaptionMode()
@@ -1584,82 +1523,12 @@ sub RestoreCaptionMode()
     m.video.globalCaptionMode = mode
 end sub
 
-sub onBuffering()
-    if m.prebuffered then return
-
-    status = m.video.bufferingStatus
-    if type(status) <> "roAssociativeArray" then return
-    if ValueAt(status, "prebufferDone", false) = true then Play()
-end sub
-
-sub onGiveUp()
-    Play()
-end sub
-
-sub Play()
-    if m.prebuffered then return
-
-    m.prebuffered = true
-    m.giveUp.control = "stop"
-    RefreshStage()
-    m.video.control = "play"
-end sub
-
 sub RefreshStage()
-    m.stage.visible = m.painted or m.errored
-end sub
-
-sub onVideoState()
-    state = TextOrBlank(m.video.state)
-    NoteVideoState(state)
-
-    if state = "playing"
-        m.playing = true
-        m.finished = false
-        m.painted = true
-        RefreshStage()
-        PublishBackdropUrl("")
-        ShowNote("", "loading")
-        BuildBarButtons()
-        RefreshPausedMark()
-        RestartHide()
-        StartBeating()
-        StartWatchdog()
-        return
-    end if
-
-    if state = "paused"
-        m.playing = false
-        StopWatchdog()
-        BuildBarButtons()
-        RefreshPausedMark()
-        RestartHide()
-        return
-    end if
-
-    if state = "finished"
-        m.playing = false
-        m.finished = true
-        StopWatchdog()
-        RefreshPausedMark()
-        SendBeat("paused")
-        StopBeating()
-        if StartCountdown() then return
-
-        BuildBarButtons()
-        ShowBar()
-        return
-    end if
-
-    if state = "error"
-        StopWatchdog()
-        FailPlayback(PhraseWith("error.couldNotPlay", { detail: VideoDetail() }), TimelineNow())
-        RefreshPausedMark()
-    end if
+    m.stage.visible = m.revealed or Errored()
 end sub
 
 sub NoteVideoState(state as string)
-    if IsBlank(state) or m.session = invalid then return
+    if IsBlank(state) or m.playback.stream = invalid then return
 
     buffer = -1
     status = m.video.bufferingStatus
@@ -1716,7 +1585,7 @@ sub StopWatchdog()
 end sub
 
 sub onWatchdogFired()
-    if not m.playing or m.errored or m.stallWarned then return
+    if not PlaybackPlaying(m.playback) or m.stallWarned then return
 
     status = m.video.bufferingStatus
     buffered = 0
@@ -1754,88 +1623,28 @@ function PlaybackDetail(parsed as object) as string
     return Phrase("error.couldNotLoad")
 end function
 
-sub StartBeating()
-    if m.beating or m.session = invalid then return
-
-    m.beating = true
-    m.beat.duration = m.session.heartbeatSeconds
-    m.beat.control = "start"
-end sub
-
-sub StopBeating()
-    m.beating = false
-    m.beat.control = "stop"
-end sub
-
-sub onBeatFired()
-    SendBeat(PlaybackStateName())
-end sub
-
-function PlaybackStateName() as string
-    if m.playing then return "playing"
-    return "paused"
-end function
-
-sub SendBeat(state as string)
-    if m.released or m.session = invalid or IsBlank(m.session.id) then return
-
-    session = SessionFor(m.global)
-    m.beatTask = SendRequest(HeartbeatRequest(session.serverUrl, session.token, m.session.id, TimelineNow(), state), "onBeatSent")
-end sub
-
-sub onBeatSent(event as object)
-    parsed = Answered(event)
-    if m.released or parsed.ok then return
-
-    if parsed.status >= 400 and parsed.status < 500 then StopBeating()
-end sub
-
 function TimelineNow() as integer
-    if m.session = invalid then return 0
-
-    return KnownTimelineMs(m.painted, m.attachMs, m.video.position, m.session.originMs, m.session.sequential)
+    return m.playback.timeline.positionMs
 end function
 
 sub SeekBy(deltaMs as integer)
     ShowBar(true)
-    if m.session = invalid then return
+    if not IsWatching(m.playback) then return
 
-    SeekTo(TimelineNow() + deltaMs)
+    MarkBarCommitted()
+    PostPlayback({ kind: "seekBy", deltaMs: deltaMs })
 end sub
 
 sub SeekTo(atMs as integer)
-    if m.session = invalid or Transitioning() then return
+    if not IsWatching(m.playback) then return
 
     MarkBarCommitted()
-    produced = ProducedMs(m.video.streamingSegment, m.video.position)
-    plan = SeekPlan(atMs, m.session.originMs, m.session.sequential, produced)
-
-    if not plan.server
-        if not m.painted then m.attachMs = plan.positionMs
-        m.video.seek = plan.seconds
-        return
-    end if
-
-    SeekToServer(plan.positionMs)
-end sub
-
-sub SeekToServer(atMs as integer)
-    if m.session = invalid then return
-
-    m.restarting = true
-    m.pendingMs = atMs
-    m.attachMs = atMs
-    m.painted = false
-    m.video.control = "stop"
-    ShowNote(LoadingNote(), "loading")
-
-    session = SessionFor(m.global)
-    m.seekTask = SendRequest(SeekSessionRequest(session.serverUrl, session.token, m.session.id, atMs), "onSeeked")
+    PostPlayback({ kind: "seek", positionMs: atMs })
 end sub
 
 sub StartHold(key as string)
     ShowBar(true)
-    if m.session = invalid then return
+    if not IsWatching(m.playback) then return
 
     m.holdKey = key
     m.holdTicks = 0
@@ -1878,7 +1687,7 @@ sub ClearHold()
 end sub
 
 sub JumpBy(stepMs as integer, ghostOnly as boolean)
-    if m.session = invalid or Transitioning() then return
+    if not IsWatching(m.playback) then return
 
     delta = stepMs
     if m.holdKey = "left" then delta = 0 - stepMs
@@ -1895,65 +1704,24 @@ sub JumpBy(stepMs as integer, ghostOnly as boolean)
     m.timeline.scrubMs = at
     RefreshProgress()
 
-    if ghostOnly
-        m.holdDeferred = true
-        return
-    end if
-
-    produced = ProducedMs(m.video.streamingSegment, m.video.position)
-    plan = SeekPlan(at, m.session.originMs, m.session.sequential, produced)
-
-    if plan.server
+    if ghostOnly or not SeeksLocally(m.playback, at)
         m.holdDeferred = true
         return
     end if
 
     m.holdDeferred = false
-    if not m.painted then m.attachMs = plan.positionMs
-    m.video.seek = plan.seconds
-end sub
-
-sub onSeeked(event as object)
-    parsed = Answered(event)
-    m.restarting = false
-    if m.released then return
-
-    if not parsed.ok
-        FailPlayback(PhraseWith("error.couldNotPlay", { detail: PlaybackDetail(parsed) }), m.pendingMs)
-        return
-    end if
-
-    Adopt(parsed.json)
-    Attach(m.pendingMs)
+    PostPlayback({ kind: "seek", positionMs: at })
 end sub
 
 sub TogglePlay()
-    if m.session = invalid then return
-    if not m.prebuffered
-        Play()
-        return
-    end if
-
-    if m.playing
-        m.video.control = "pause"
-        SendBeat("paused")
-        return
-    end if
-
-    m.video.control = "resume"
+    PostPlayback({ kind: "toggle" })
 end sub
 
-sub FailPlayback(message as string, atMs as integer)
-    m.errored = true
-    m.retryMs = atMs
-    m.playing = false
-    m.finished = false
+sub ShowFailure()
     RefreshStage()
     ClearHold()
-    m.giveUp.control = "stop"
     StopCountdown()
-    StopBeating()
-    ShowNote(message, "error")
+    StopWatchdog()
 
     if m.barVisible
         ComposeBar()
@@ -1961,6 +1729,12 @@ sub FailPlayback(message as string, atMs as integer)
     end if
 
     ShowBar()
+end sub
+
+sub ClearFailure()
+    HideBar()
+    ShowTimeRow(true)
+    RefreshStage()
 end sub
 
 function LoadingNote() as string
@@ -1980,13 +1754,12 @@ sub onRelease()
     if not m.top.release then return
 
     m.released = true
-    m.giveUp.control = "stop"
     m.countdown.control = "stop"
     m.hold.control = "stop"
     m.watchdog.control = "stop"
     m.jobsTimer.control = "stop"
     RestoreCaptionMode()
-    EndSession()
+    RunnerRelease()
 
     for each task in m.tasks
         if task <> invalid then task.control = "STOP"
@@ -2019,7 +1792,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
         return false
     end if
 
-    if m.errored then return false
+    if Errored() then return false
 
     if m.barVisible
         RestartHide()
