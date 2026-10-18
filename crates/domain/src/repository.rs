@@ -568,7 +568,7 @@ pub trait SessionRegistry {
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<PlaybackSession>, RepositoryError>> + Send;
     fn remove(&self, id: &SessionId) -> impl Future<Output = Result<(), RepositoryError>> + Send;
-    fn remove_idle(
+    fn list_idle(
         &self,
         cutoff: Timestamp,
     ) -> impl Future<Output = Result<Vec<SessionId>, RepositoryError>> + Send;

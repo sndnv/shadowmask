@@ -97,14 +97,13 @@ impl SessionRegistry for InMemorySessionRegistry {
         Ok(())
     }
 
-    async fn remove_idle(&self, cutoff: Timestamp) -> Result<Vec<SessionId>, RepositoryError> {
-        let mut sessions = self.sessions.write().unwrap();
-        let removed: Vec<SessionId> =
-            sessions.extract_if(|_, s| s.last_heartbeat_at < cutoff).map(|(id, _)| id).collect();
-        if !removed.is_empty() {
-            record_gauges(&sessions);
-        }
-        Ok(removed)
+    async fn list_idle(&self, cutoff: Timestamp) -> Result<Vec<SessionId>, RepositoryError> {
+        Ok(self
+            .sorted()
+            .into_iter()
+            .filter(|s| s.last_heartbeat_at < cutoff)
+            .map(|s| s.id)
+            .collect())
     }
 }
 
@@ -185,29 +184,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn remove_idle_drops_only_what_stopped_heartbeating() {
+    async fn list_idle_names_only_what_stopped_heartbeating_and_keeps_it() {
         let registry = InMemorySessionRegistry::new();
         for (i, id) in ["stale", "borderline", "live"].iter().enumerate() {
             registry.insert(session(id, "u1", i as i64)).await.unwrap();
         }
         let cutoff = Timestamp::from_second(1_700_000_001).unwrap();
 
-        let dropped = registry.remove_idle(cutoff).await.unwrap();
+        let idle = registry.list_idle(cutoff).await.unwrap();
 
-        assert_eq!(dropped, vec![SessionId("stale".into())]);
-        let left = registry.list_all(page(0, 10)).await.unwrap();
-        assert_eq!(left.total, 2);
-        assert!(!left.items.iter().any(|s| s.id == SessionId("stale".into())));
+        assert_eq!(idle, vec![SessionId("stale".into())]);
+        assert_eq!(registry.list_all(page(0, 10)).await.unwrap().total, 3);
     }
 
     #[tokio::test]
-    async fn remove_idle_with_nothing_to_drop_reports_none() {
+    async fn list_idle_with_nothing_idle_names_none() {
         let registry = InMemorySessionRegistry::new();
         registry.insert(session("live", "u1", 10)).await.unwrap();
         let cutoff = Timestamp::from_second(1_700_000_000).unwrap();
 
-        assert!(registry.remove_idle(cutoff).await.unwrap().is_empty());
-        assert_eq!(registry.list_all(page(0, 10)).await.unwrap().total, 1);
+        assert!(registry.list_idle(cutoff).await.unwrap().is_empty());
     }
 
     fn recorded<F, Fut>(work: F) -> String

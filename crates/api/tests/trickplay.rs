@@ -1,11 +1,12 @@
 use std::path::Path;
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{HeaderMap, Request, StatusCode, header};
 use tower::ServiceExt;
 
-use api::{AppState, TrickplayState, trickplay_router};
+use api::{AppState, TrickplayState, bounded, trickplay_router};
 use contracts::Generator;
 
 const VERSION_ID: &str = "550e8400-e29b-41d4-a716-446655440000";
@@ -27,7 +28,7 @@ fn app(dir: &Path) -> Router {
         generator.discovery.clone(),
         generator.job.clone(),
     );
-    trickplay_router(state, TrickplayState::new(dir))
+    bounded(trickplay_router(state, TrickplayState::new(dir)), Duration::from_secs(60))
 }
 
 async fn send(

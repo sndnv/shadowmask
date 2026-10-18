@@ -1,6 +1,7 @@
-use std::collections::HashMap;
+mod cells;
+
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use jiff::{SignedDuration, Timestamp};
 use tracing::{info, warn};
@@ -34,11 +35,12 @@ use domain::session::{
 use domain::user::{Principal, UserId};
 
 use crate::acl;
+use cells::{Live, SessionCells};
 
 const HEARTBEAT_INTERVAL_S: u32 = 10;
 const MISSED_HEARTBEATS_BEFORE_REAP: i64 = 6;
 const DEFAULT_BANDWIDTH: u64 = 4_000_000;
-const TOKEN_TTL_SECS: i64 = 3600;
+const TOKEN_TTL_SECS: i64 = 129_600;
 
 #[derive(Clone, Copy, Default)]
 struct Timeline {
@@ -85,21 +87,25 @@ struct Inner<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> {
     users: U,
     progress: Pg,
     preferences: Pf,
-    contexts: RwLock<HashMap<SessionId, LaunchContext>>,
-    generations: RwLock<HashMap<SessionId, u32>>,
+    cells: SessionCells,
 }
 
 pub struct DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> {
     #[allow(clippy::type_complexity)]
     inner: Arc<Inner<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf>>,
     max_transcode_height: Option<u32>,
+    token_ttl_secs: i64,
 }
 
 impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> Clone
     for DefaultSessionService<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf>
 {
     fn clone(&self) -> Self {
-        Self { inner: Arc::clone(&self.inner), max_transcode_height: self.max_transcode_height }
+        Self {
+            inner: Arc::clone(&self.inner),
+            max_transcode_height: self.max_transcode_height,
+            token_ttl_secs: self.token_ttl_secs,
+        }
     }
 }
 
@@ -127,15 +133,20 @@ impl<Vc, Pr, Tm, Tk, Sr, Reg, U, Pg, Pf> DefaultSessionService<Vc, Pr, Tm, Tk, S
                 users,
                 progress,
                 preferences,
-                contexts: RwLock::new(HashMap::new()),
-                generations: RwLock::new(HashMap::new()),
+                cells: SessionCells::default(),
             }),
             max_transcode_height: None,
+            token_ttl_secs: TOKEN_TTL_SECS,
         }
     }
 
     pub fn with_max_transcode_height(mut self, height: Option<u32>) -> Self {
         self.max_transcode_height = height;
+        self
+    }
+
+    pub fn with_token_ttl_secs(mut self, secs: i64) -> Self {
+        self.token_ttl_secs = secs;
         self
     }
 }
@@ -147,9 +158,26 @@ where
     Reg: SessionRegistry,
 {
     async fn release(&self, session: &SessionId) {
-        self.inner.generations.write().unwrap().remove(session);
         let _ = self.inner.transcode.stop(session).await;
         self.inner.streams.remove(session);
+    }
+
+    async fn clear(&self, session: &SessionId) -> Result<(), SessionError> {
+        self.release(session).await;
+        self.inner.sessions.remove(session).await?;
+        Ok(())
+    }
+
+    async fn teardown(&self, session: &SessionId, live: &mut Live) -> Result<(), SessionError> {
+        live.ended = true;
+        self.clear(session).await
+    }
+
+    async fn end_any(&self, session: &SessionId) -> Result<(), SessionError> {
+        match self.inner.cells.end(session, async |live| self.teardown(session, live).await).await {
+            Err(SessionError::NotFound) => self.clear(session).await,
+            ended => ended,
+        }
     }
 
     pub async fn reap_idle(&self) -> usize {
@@ -158,18 +186,46 @@ where
             - SignedDuration::from_secs(
                 i64::from(HEARTBEAT_INTERVAL_S) * MISSED_HEARTBEATS_BEFORE_REAP,
             );
-        match self.inner.sessions.remove_idle(cutoff).await {
-            Ok(dropped) if dropped.is_empty() => {}
-            Ok(dropped) => {
-                info!("Reaped [{}] playback sessions that stopped heartbeating", dropped.len());
-                for session in &dropped {
-                    self.release(session).await;
-                    self.inner.contexts.write().unwrap().remove(session);
+        match self.inner.sessions.list_idle(cutoff).await {
+            Ok(idle) => {
+                let mut dropped = 0;
+                for session in &idle {
+                    dropped += usize::from(self.reap(session, cutoff).await);
+                }
+                if dropped > 0 {
+                    info!("Reaped [{dropped}] playback sessions that stopped heartbeating");
                 }
             }
             Err(err) => warn!("Could not reap idle playback sessions: [{err}]"),
         }
         reaped
+    }
+
+    async fn reap(&self, session: &SessionId, cutoff: Timestamp) -> bool {
+        let reaped = self
+            .inner
+            .cells
+            .try_run(session, async |live| {
+                let idle = self
+                    .inner
+                    .sessions
+                    .get(session)
+                    .await?
+                    .is_none_or(|playback| playback.last_heartbeat_at < cutoff);
+                if idle {
+                    self.teardown(session, live).await?;
+                }
+                Ok(idle)
+            })
+            .await;
+        let reaped = match reaped {
+            None => Ok(false),
+            Some(Err(SessionError::NotFound)) => self.clear(session).await.map(|()| true),
+            Some(reaped) => reaped,
+        };
+        #[rustfmt::skip]
+        let reaped = reaped.inspect_err(|err| warn!("Could not reap session [{}]: [{err}]", session.0));
+        reaped.unwrap_or(false)
     }
 }
 
@@ -304,28 +360,6 @@ where
         Ok(())
     }
 
-    async fn teardown(&self, session: &SessionId) -> Result<(), SessionError> {
-        self.release(session).await;
-        self.inner.sessions.remove(session).await?;
-        self.inner.contexts.write().unwrap().remove(session);
-        Ok(())
-    }
-
-    fn ended(&self, session: &SessionId) -> bool {
-        !self.inner.generations.read().unwrap().contains_key(session)
-    }
-
-    async fn abandon(
-        &self,
-        session: &SessionId,
-        generation: StreamGeneration,
-    ) -> Result<Renegotiated, SessionError> {
-        #[rustfmt::skip]
-        tracing::debug!("session [{}] ended while generation [{}] was launching, so the launch was stopped", session.0, generation.0);
-        self.teardown(session).await?;
-        Err(SessionError::NotFound)
-    }
-
     async fn soft_subtitle_for(
         &self,
         selected: &SelectedTracks,
@@ -360,18 +394,6 @@ where
             .unwrap_or(0)
     }
 
-    fn first_generation(&self, session: &SessionId) -> StreamGeneration {
-        self.inner.generations.write().unwrap().insert(session.clone(), 1);
-        StreamGeneration(1)
-    }
-
-    fn next_generation(&self, session: &SessionId) -> Result<StreamGeneration, SessionError> {
-        let mut generations = self.inner.generations.write().unwrap();
-        let counter = generations.get_mut(session).ok_or(SessionError::NotFound)?;
-        *counter += 1;
-        Ok(StreamGeneration(*counter))
-    }
-
     fn create_token(
         &self,
         session: &SessionId,
@@ -379,7 +401,7 @@ where
         user: &UserId,
         version: &VersionId,
     ) -> Result<String, SessionError> {
-        let expires_at = Timestamp::from_second(Timestamp::now().as_second() + TOKEN_TTL_SECS)
+        let expires_at = Timestamp::from_second(Timestamp::now().as_second() + self.token_ttl_secs)
             .unwrap_or(Timestamp::MAX);
         let claims = StreamClaims {
             session: session.clone(),
@@ -623,7 +645,7 @@ where
 
         let session_id = SessionId(Uuid::new_v4().to_string());
         let now = Timestamp::now();
-        let generation = self.first_generation(&session_id);
+        let generation = StreamGeneration(1);
         let ctx = LaunchContext {
             user: caller.user.clone(),
             version: request.version.clone(),
@@ -638,31 +660,36 @@ where
             downmix_stereo: request.downmix_stereo,
             delivery: request.delivery,
         };
-        let opened = async {
-            let token =
-                self.create_token(&session_id, generation, &caller.user, &request.version)?;
-            let launched = self
-                .launch(&session_id, generation, &detail, &ctx, request.start_position_ms)
-                .await?;
-            self.inner
-                .sessions
-                .insert(PlaybackSession {
-                    id: session_id.clone(),
-                    user: caller.user.clone(),
-                    device: None,
-                    version: request.version,
-                    mode: launched.mode,
-                    position_ms: request.start_position_ms,
-                    state: PlaybackState::Playing,
-                    selected: launched.selected.clone(),
-                    started_at: now,
-                    last_heartbeat_at: now,
-                    completed: false,
-                })
-                .await?;
-            Ok::<_, SessionError>((token, launched))
-        }
-        .await;
+        let live = Live { ctx, generation: generation.0, ended: false };
+        let opened = self
+            .inner
+            .cells
+            .create(&session_id, live, async |live| {
+                let token =
+                    self.create_token(&session_id, generation, &caller.user, &request.version)?;
+                let launched = self
+                    .launch(&session_id, generation, &detail, &live.ctx, request.start_position_ms)
+                    .await?;
+                self.remember_tracks(&live.ctx, request.start_position_ms).await?;
+                self.inner
+                    .sessions
+                    .insert(PlaybackSession {
+                        id: session_id.clone(),
+                        user: caller.user.clone(),
+                        device: None,
+                        version: request.version.clone(),
+                        mode: launched.mode,
+                        position_ms: request.start_position_ms,
+                        state: PlaybackState::Playing,
+                        selected: launched.selected.clone(),
+                        started_at: now,
+                        last_heartbeat_at: now,
+                        completed: false,
+                    })
+                    .await?;
+                Ok((token, launched))
+            })
+            .await;
         let (token, Launched { mode, container, selected, timeline }) = match opened {
             Ok(opened) => opened,
             Err(err) => {
@@ -670,7 +697,6 @@ where
                 return Err(err);
             }
         };
-        self.inner.contexts.write().unwrap().insert(session_id.clone(), ctx);
         let manifest_url = manifest_path(mode, &token);
 
         Ok(SessionStarted {
@@ -694,58 +720,59 @@ where
         position_ms: u64,
         state: PlaybackState,
     ) -> Result<HeartbeatAck, SessionError> {
-        let mut playback = self.owned(caller, session).await?;
-        let owner = playback.user.clone();
-        let now = Timestamp::now();
-        if playback.state != state {
-            #[rustfmt::skip]
-            tracing::debug!("session [{}] for version [{}] went from [{}] to [{}] at [{}] ms", session.0, playback.version.0, state_label(playback.state), state_label(state), position_ms);
-        }
-        playback.position_ms = position_ms;
-        playback.state = state;
-        playback.last_heartbeat_at = now;
-        let version = playback.version.clone();
-        let ctx = self.inner.contexts.read().unwrap().get(session).cloned();
-        let remembered = ctx.as_ref().filter(|ctx| ctx.has_override());
+        self.inner
+            .cells
+            .run(session, async |live| {
+                let mut playback = self.owned(caller, session).await?;
+                let owner = playback.user.clone();
+                let now = Timestamp::now();
+                if playback.state != state {
+                    #[rustfmt::skip]
+                    tracing::debug!("session [{}] for version [{}] went from [{}] to [{}] at [{}] ms", session.0, playback.version.0, state_label(playback.state), state_label(state), position_ms);
+                }
+                playback.position_ms = position_ms;
+                playback.state = state;
+                playback.last_heartbeat_at = now;
+                let version = playback.version.clone();
+                let remembered = Some(&live.ctx).filter(|ctx| ctx.has_override());
 
-        let played = self.inner.catalog.get_version(&version).await?;
-        let duration_ms = played.as_ref().map_or(0, |played| played.duration_ms);
-        let completed_title =
-            played.and_then(|played| is_complete(position_ms, duration_ms).then_some(played.title));
-        let already_counted = playback.completed;
-        playback.completed |= completed_title.is_some();
+                let played = self.inner.catalog.get_version(&version).await?;
+                let duration_ms = played.as_ref().map_or(0, |played| played.duration_ms);
+                let completed_title = played.and_then(|played| {
+                    is_complete(position_ms, duration_ms).then_some(played.title)
+                });
+                let already_counted = playback.completed;
+                playback.completed |= completed_title.is_some();
 
-        self.inner.sessions.insert(playback).await?;
-        if self.ended(session) {
-            self.inner.sessions.remove(session).await?;
-        } else {
-            let _ = self.inner.transcode.touch(session).await;
-        }
+                self.inner.sessions.insert(playback).await?;
+                let _ = self.inner.transcode.touch(session).await;
 
-        if let Some(title) = completed_title {
-            if !already_counted {
-                self.inner.progress.record_view(&owner, &title, now).await?;
-                self.inner.preferences.remove_watchlist(&owner, title.id()).await?;
-            }
-            self.inner.progress.delete(&owner, &version).await?;
-        } else if is_started(position_ms, duration_ms)
-            || remembered.is_some()
-            || self.inner.progress.get(&owner, &version).await?.is_some()
-        {
-            self.inner
-                .progress
-                .upsert(PlaybackProgress {
-                    user: owner.clone(),
-                    version: version.clone(),
-                    position_ms,
-                    audio_track: remembered.and_then(|ctx| ctx.remembered_audio),
-                    subtitle: remembered.and_then(|ctx| ctx.remembered_subtitle.clone()),
-                    updated_at: now,
-                })
-                .await?;
-        }
+                if let Some(title) = completed_title {
+                    if !already_counted {
+                        self.inner.progress.record_view(&owner, &title, now).await?;
+                        self.inner.preferences.remove_watchlist(&owner, title.id()).await?;
+                    }
+                    self.inner.progress.delete(&owner, &version).await?;
+                } else if is_started(position_ms, duration_ms)
+                    || remembered.is_some()
+                    || self.inner.progress.get(&owner, &version).await?.is_some()
+                {
+                    self.inner
+                        .progress
+                        .upsert(PlaybackProgress {
+                            user: owner.clone(),
+                            version: version.clone(),
+                            position_ms,
+                            audio_track: remembered.and_then(|ctx| ctx.remembered_audio),
+                            subtitle: remembered.and_then(|ctx| ctx.remembered_subtitle.clone()),
+                            updated_at: now,
+                        })
+                        .await?;
+                }
 
-        Ok(HeartbeatAck { heartbeat_interval_s: HEARTBEAT_INTERVAL_S })
+                Ok(HeartbeatAck { heartbeat_interval_s: HEARTBEAT_INTERVAL_S })
+            })
+            .await
     }
 
     async fn seek(
@@ -754,47 +781,43 @@ where
         session: &SessionId,
         position_ms: u64,
     ) -> Result<Renegotiated, SessionError> {
-        let mut playback = self.owned(caller, session).await?;
-        let ctx = self
-            .inner
-            .contexts
-            .read()
-            .unwrap()
-            .get(session)
-            .cloned()
-            .ok_or(SessionError::NotFound)?;
-        let detail = self
-            .inner
-            .catalog
-            .version_detail(&playback.version)
-            .await?
-            .map(with_prepared_subtitles)
-            .ok_or(SessionError::VersionNotFound)?;
+        self.inner
+            .cells
+            .run_abortable(session, async |live| {
+                let mut playback = self.owned(caller, session).await?;
+                let detail = self
+                    .inner
+                    .catalog
+                    .version_detail(&playback.version)
+                    .await?
+                    .map(with_prepared_subtitles)
+                    .ok_or(SessionError::VersionNotFound)?;
 
-        let generation = self.next_generation(session)?;
-        let token = self.create_token(session, generation, &playback.user, &playback.version)?;
-        let Launched { mode, container, selected, timeline } =
-            self.launch(session, generation, &detail, &ctx, position_ms).await?;
-        let manifest_url = manifest_path(mode, &token);
+                live.generation += 1;
+                let generation = StreamGeneration(live.generation);
+                let token =
+                    self.create_token(session, generation, &playback.user, &playback.version)?;
+                let Launched { mode, container, selected, timeline } =
+                    self.launch(session, generation, &detail, &live.ctx, position_ms).await?;
+                let manifest_url = manifest_path(mode, &token);
 
-        playback.position_ms = position_ms;
-        playback.last_heartbeat_at = Timestamp::now();
-        playback.mode = mode;
-        playback.selected = selected.clone();
-        self.inner.sessions.insert(playback).await?;
-        if self.ended(session) {
-            return self.abandon(session, generation).await;
-        }
+                playback.position_ms = position_ms;
+                playback.last_heartbeat_at = Timestamp::now();
+                playback.mode = mode;
+                playback.selected = selected.clone();
+                self.inner.sessions.insert(playback).await?;
 
-        Ok(Renegotiated {
-            session_id: session.clone(),
-            mode,
-            container,
-            manifest_url,
-            origin_ms: timeline.origin_ms,
-            sequential: timeline.sequential,
-            selected,
-        })
+                Ok(Renegotiated {
+                    session_id: session.clone(),
+                    mode,
+                    container,
+                    manifest_url,
+                    origin_ms: timeline.origin_ms,
+                    sequential: timeline.sequential,
+                    selected,
+                })
+            })
+            .await
     }
 
     async fn update(
@@ -803,101 +826,106 @@ where
         session: &SessionId,
         update: SessionUpdate,
     ) -> Result<Renegotiated, SessionError> {
-        let mut playback = self.owned(caller, session).await?;
-        let mut ctx = self
-            .inner
-            .contexts
-            .read()
-            .unwrap()
-            .get(session)
-            .cloned()
-            .ok_or(SessionError::NotFound)?;
+        self.inner
+            .cells
+            .run_abortable(session, async |live| {
+                let mut playback = self.owned(caller, session).await?;
+                let mut ctx = live.ctx.clone();
 
-        let detail = self
-            .inner
-            .catalog
-            .version_detail(&playback.version)
-            .await?
-            .map(with_prepared_subtitles)
-            .ok_or(SessionError::VersionNotFound)?;
-        let available =
-            AvailableSubtitles { embedded: &detail.subtitles, files: &detail.subtitle_files };
+                let detail = self
+                    .inner
+                    .catalog
+                    .version_detail(&playback.version)
+                    .await?
+                    .map(with_prepared_subtitles)
+                    .ok_or(SessionError::VersionNotFound)?;
+                let available = AvailableSubtitles {
+                    embedded: &detail.subtitles,
+                    files: &detail.subtitle_files,
+                };
 
-        if let Some(audio) = update
-            .audio_track
-            .filter(|index| detail.audio.iter().any(|track| track.index == *index))
-        {
-            ctx.requested_audio = Some(audio);
-            ctx.remembered_audio = Some(audio);
-        }
-        ctx.target_height = update.target_height;
-        ctx.force_burn = update.force_burn;
-        ctx.downmix_stereo = update.downmix_stereo;
-        ctx.delivery = update.delivery;
-        match update.subtitle {
-            SubtitleChange::Keep => {}
-            SubtitleChange::Disable => {
-                ctx.requested_subtitle = None;
-                ctx.remembered_subtitle = Some(SubtitleOverride::Off);
-            }
-            SubtitleChange::Set(selection) => {
-                let resolved =
-                    resolve_subtitle(&SubtitleRequest::Track(selection), None, &available, &[]);
-                if let Some(selection) = resolved.selected {
-                    if let Some(offset_ms) = selection.offset_ms {
-                        self.inner
-                            .preferences
-                            .set_subtitle_offset(UserSubtitleOffset {
-                                user: playback.user.clone(),
-                                version: playback.version.clone(),
-                                subtitle: selection.track.clone(),
-                                offset_ms,
-                            })
-                            .await?;
-                    }
-                    ctx.remembered_subtitle = resolved.remembered;
-                    ctx.requested_subtitle = Some(selection);
+                if let Some(audio) = update
+                    .audio_track
+                    .filter(|index| detail.audio.iter().any(|track| track.index == *index))
+                {
+                    ctx.requested_audio = Some(audio);
+                    ctx.remembered_audio = Some(audio);
                 }
-            }
-        }
+                ctx.target_height = update.target_height;
+                ctx.force_burn = update.force_burn;
+                ctx.downmix_stereo = update.downmix_stereo;
+                ctx.delivery = update.delivery;
+                match update.subtitle {
+                    SubtitleChange::Keep => {}
+                    SubtitleChange::Disable => {
+                        ctx.requested_subtitle = None;
+                        ctx.remembered_subtitle = Some(SubtitleOverride::Off);
+                    }
+                    SubtitleChange::Set(selection) => {
+                        let request = SubtitleRequest::Track(selection);
+                        let resolved = resolve_subtitle(&request, None, &available, &[]);
+                        if let Some(selection) = resolved.selected {
+                            if let Some(offset_ms) = selection.offset_ms {
+                                self.inner
+                                    .preferences
+                                    .set_subtitle_offset(UserSubtitleOffset {
+                                        user: playback.user.clone(),
+                                        version: playback.version.clone(),
+                                        subtitle: selection.track.clone(),
+                                        offset_ms,
+                                    })
+                                    .await?;
+                            }
+                            ctx.remembered_subtitle = resolved.remembered;
+                            ctx.requested_subtitle = Some(selection);
+                        }
+                    }
+                }
 
-        let generation = self.next_generation(session)?;
-        let token = self.create_token(session, generation, &playback.user, &playback.version)?;
-        let Launched { mode, container, selected, timeline } =
-            self.launch(session, generation, &detail, &ctx, update.position_ms).await?;
-        let manifest_url = manifest_path(mode, &token);
+                live.generation += 1;
+                let generation = StreamGeneration(live.generation);
+                let token =
+                    self.create_token(session, generation, &playback.user, &playback.version)?;
+                let Launched { mode, container, selected, timeline } =
+                    self.launch(session, generation, &detail, &ctx, update.position_ms).await?;
+                let manifest_url = manifest_path(mode, &token);
 
-        playback.position_ms = update.position_ms;
-        playback.mode = mode;
-        playback.selected = selected.clone();
-        playback.last_heartbeat_at = Timestamp::now();
-        let position_ms = playback.position_ms;
-        self.inner.contexts.write().unwrap().insert(session.clone(), ctx.clone());
-        self.inner.sessions.insert(playback).await?;
-        if self.ended(session) {
-            return self.abandon(session, generation).await;
-        }
-        self.remember_tracks(&ctx, position_ms).await?;
+                playback.position_ms = update.position_ms;
+                playback.mode = mode;
+                playback.selected = selected.clone();
+                playback.last_heartbeat_at = Timestamp::now();
+                let position_ms = playback.position_ms;
+                live.ctx = ctx;
+                self.inner.sessions.insert(playback).await?;
+                self.remember_tracks(&live.ctx, position_ms).await?;
 
-        Ok(Renegotiated {
-            session_id: session.clone(),
-            mode,
-            container,
-            manifest_url,
-            origin_ms: timeline.origin_ms,
-            sequential: timeline.sequential,
-            selected,
-        })
+                Ok(Renegotiated {
+                    session_id: session.clone(),
+                    mode,
+                    container,
+                    manifest_url,
+                    origin_ms: timeline.origin_ms,
+                    sequential: timeline.sequential,
+                    selected,
+                })
+            })
+            .await
     }
 
     async fn end(&self, caller: &Principal, session: &SessionId) -> Result<(), SessionError> {
         self.owned(caller, session).await?;
-        self.teardown(session).await
+        self.inner
+            .cells
+            .end(session, async |live| {
+                self.owned(caller, session).await?;
+                self.teardown(session, live).await
+            })
+            .await
     }
 
     async fn end_all_for_user(&self, user: &UserId) -> Result<(), SessionError> {
         for session in self.inner.sessions.list_for_user(user).await? {
-            self.teardown(&session.id).await?;
+            self.end_any(&session.id).await?;
         }
         Ok(())
     }
@@ -931,8 +959,9 @@ mod tests {
     use domain::session::{AudioRequest, SubtitleRequest};
     use domain::user::{Role, User};
 
+    use futures::FutureExt;
     use mocks::{
-        MockPreferencesRepo, MockProfileRegistry, MockProgressRepo, MockSessionRegistry,
+        Hold, MockPreferencesRepo, MockProfileRegistry, MockProgressRepo, MockSessionRegistry,
         MockStreamRegistry, MockStreamTokens, MockTranscodeManager, MockUserRepo,
         MockVersionCatalog,
     };
@@ -1337,8 +1366,7 @@ mod tests {
         harness.service.reap_idle().await;
 
         assert!(harness.sessions.get(&session).await.unwrap().is_none());
-        assert!(harness.service.inner.contexts.read().unwrap().get(&session).is_none());
-        assert!(harness.service.inner.generations.read().unwrap().get(&session).is_none());
+        assert!(!harness.service.inner.cells.holds(&session));
         assert!(harness.streams.registered_generation(&session).is_none());
         assert_eq!(harness.transcode.stopped(), vec![session]);
     }
@@ -1349,19 +1377,20 @@ mod tests {
         harness.catalog.insert(transcode_detail());
         let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         let session = started.session_id;
-        harness.service.inner.generations.write().unwrap().remove(&session);
+        let hold = harness.catalog.hold_next_version_read();
+        let caller = principal();
 
-        harness
-            .service
-            .heartbeat(&principal(), &session, 30_000, PlaybackState::Paused)
-            .await
-            .unwrap();
+        let (beat, ended) = tokio::join!(
+            harness.service.heartbeat(&caller, &session, 30_000, PlaybackState::Paused),
+            while_held(hold, harness.service.end(&caller, &session))
+        );
 
+        assert!(beat.is_ok() && ended.is_ok());
         assert!(
             harness.sessions.get(&session).await.unwrap().is_none(),
             "a session ended while its heartbeat was in flight stays ended"
         );
-        assert!(harness.transcode.touched().is_empty());
+        assert_nothing_left_of(&harness, &session);
         let saved = harness
             .progress
             .get(&UserId("u1".to_owned()), &VersionId("v1".to_owned()))
@@ -2001,8 +2030,7 @@ mod tests {
             Err(SessionError::NegotiationFailed)
         ));
         assert!(harness.sessions.list_all(page()).await.unwrap().items.is_empty());
-        assert!(harness.service.inner.generations.read().unwrap().is_empty());
-        assert!(harness.service.inner.contexts.read().unwrap().is_empty());
+        assert!(harness.service.inner.cells.is_empty());
     }
 
     #[tokio::test]
@@ -2016,7 +2044,7 @@ mod tests {
         ));
         assert!(harness.sessions.list_all(page()).await.unwrap().items.is_empty());
         assert!(harness.transcode.started().is_empty());
-        assert!(harness.service.inner.generations.read().unwrap().is_empty());
+        assert!(harness.service.inner.cells.is_empty());
     }
 
     #[tokio::test]
@@ -2030,8 +2058,7 @@ mod tests {
         let session = harness.transcode.started()[0].session.clone();
         assert_eq!(harness.transcode.stopped(), vec![session.clone()]);
         assert!(harness.streams.registration(&session).is_none());
-        assert!(harness.service.inner.generations.read().unwrap().is_empty());
-        assert!(harness.service.inner.contexts.read().unwrap().is_empty());
+        assert!(harness.service.inner.cells.is_empty());
     }
 
     #[tokio::test]
@@ -3111,6 +3138,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn end_all_for_user_clears_a_registry_entry_an_earlier_teardown_left_behind() {
+        let harness = Harness::new();
+        harness.sessions.insert(bare_session("left")).await.unwrap();
+
+        harness.service.end_all_for_user(&UserId("u1".to_owned())).await.unwrap();
+
+        assert!(harness.sessions.get(&SessionId("left".to_owned())).await.unwrap().is_none());
+        assert_eq!(harness.streams.removed(), vec![SessionId("left".to_owned())]);
+    }
+
+    #[tokio::test]
     async fn end_all_for_a_user_with_nothing_playing_is_a_no_op() {
         let harness = Harness::new();
 
@@ -3364,24 +3402,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ending_a_session_forgets_its_generation_counter() {
+    async fn ending_a_session_forgets_its_state() {
         let harness = Harness::new();
         harness.catalog.insert(transcode_detail());
         let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         harness.service.end(&principal(), &started.session_id).await.unwrap();
-        assert!(
-            harness.service.inner.generations.read().unwrap().get(&started.session_id).is_none()
-        );
+        assert!(!harness.service.inner.cells.holds(&started.session_id));
     }
 
     fn assert_nothing_left_of(harness: &Harness, session: &SessionId) {
-        assert!(harness.service.inner.contexts.read().unwrap().get(session).is_none());
-        assert!(harness.service.inner.generations.read().unwrap().get(session).is_none());
+        assert!(!harness.service.inner.cells.holds(session));
         assert!(harness.streams.registered_generation(session).is_none());
         assert_eq!(
             harness.transcode.stopped(),
-            vec![session.clone(), session.clone()],
-            "the end stops the old stream and the launch that finished after it is stopped too"
+            vec![session.clone()],
+            "the end stops the stream the operation before it left running"
         );
     }
 
@@ -3401,24 +3436,22 @@ mod tests {
         let change = SessionUpdate { audio_track: Some(2), ..keep_everything() };
         let caller = principal();
 
-        let (updated, ()) =
-            tokio::join!(harness.service.update(&caller, &session, change), async {
-                hold.reached().await;
-                harness.service.end(&principal(), &session).await.unwrap();
-                hold.release();
-            });
+        let (updated, ended) = tokio::join!(
+            harness.service.update(&caller, &session, change),
+            while_held(hold, harness.service.end(&caller, &session))
+        );
 
-        assert!(matches!(updated, Err(SessionError::NotFound)));
+        assert!(
+            matches!(updated, Err(SessionError::NotFound)),
+            "the end cancels the update in flight"
+        );
+        assert!(ended.is_ok());
         assert!(harness.sessions.get(&session).await.unwrap().is_none());
         assert_nothing_left_of(&harness, &session);
-        assert!(
-            harness
-                .progress
-                .get(&UserId("u1".to_owned()), &VersionId("v1".to_owned()))
-                .await
-                .unwrap()
-                .is_none(),
-            "a track chosen by someone who left before it applied is not remembered"
+        assert_eq!(
+            stored_progress(&harness).await.and_then(|row| row.audio_track),
+            None,
+            "a track whose launch was cancelled is not remembered"
         );
     }
 
@@ -3431,15 +3464,80 @@ mod tests {
         let hold = harness.transcode.hold_next_start();
         let caller = principal();
 
-        let (sought, ()) = tokio::join!(harness.service.seek(&caller, &session, 5_000), async {
+        let (sought, ended) = tokio::join!(
+            harness.service.seek(&caller, &session, 5_000),
+            while_held(hold, harness.service.end(&caller, &session))
+        );
+
+        assert!(
+            matches!(sought, Err(SessionError::NotFound)),
+            "the end cancels the seek in flight"
+        );
+        assert!(ended.is_ok());
+        assert!(harness.sessions.get(&session).await.unwrap().is_none());
+        assert_nothing_left_of(&harness, &session);
+    }
+
+    #[tokio::test]
+    async fn an_end_cancels_a_seek_whose_launch_never_finishes() {
+        let harness = Harness::new();
+        harness.catalog.insert(transcode_detail());
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
+        let session = started.session_id;
+        let hold = harness.transcode.hold_next_start();
+        let caller = principal();
+
+        let (sought, ended) = tokio::join!(harness.service.seek(&caller, &session, 5_000), async {
             hold.reached().await;
-            harness.service.end(&principal(), &session).await.unwrap();
-            hold.release();
+            harness.service.end(&caller, &session).await
         });
 
         assert!(matches!(sought, Err(SessionError::NotFound)));
+        assert!(ended.is_ok(), "the end did not wait for the launch");
         assert!(harness.sessions.get(&session).await.unwrap().is_none());
         assert_nothing_left_of(&harness, &session);
+    }
+
+    #[tokio::test]
+    async fn removing_a_user_cancels_an_update_whose_launch_never_finishes() {
+        let harness = Harness::new();
+        harness.catalog.insert(two_track_transcode());
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
+        let session = started.session_id;
+        let hold = harness.transcode.hold_next_start();
+        let caller = principal();
+        let change = SessionUpdate { audio_track: Some(2), ..keep_everything() };
+
+        let (updated, ended) =
+            tokio::join!(harness.service.update(&caller, &session, change), async {
+                hold.reached().await;
+                harness.service.end_all_for_user(&caller.user).await
+            });
+
+        assert!(matches!(updated, Err(SessionError::NotFound)));
+        assert!(ended.is_ok(), "the end did not wait for the launch");
+        assert!(harness.sessions.get(&session).await.unwrap().is_none());
+        assert_nothing_left_of(&harness, &session);
+    }
+
+    #[tokio::test]
+    async fn an_end_from_another_user_leaves_the_owners_launch_running() {
+        let harness = Harness::new();
+        harness.catalog.insert(transcode_detail());
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
+        let session = started.session_id;
+        let hold = harness.transcode.hold_next_start();
+        let (caller, stranger) = (principal(), intruder());
+
+        let (sought, refused) = tokio::join!(
+            harness.service.seek(&caller, &session, 5_000),
+            while_held(hold, harness.service.end(&stranger, &session))
+        );
+
+        assert!(sought.is_ok(), "the owner's seek was not cancelled");
+        assert!(matches!(refused, Err(SessionError::NotFound)));
+        assert!(harness.sessions.get(&session).await.unwrap().is_some());
+        assert!(harness.service.inner.cells.holds(&session));
     }
 
     #[tokio::test]
@@ -3469,7 +3567,7 @@ mod tests {
         harness.catalog.insert(transcode_detail());
         let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
         let session = started.session_id;
-        harness.service.inner.generations.write().unwrap().remove(&session);
+        harness.service.end(&principal(), &session).await.unwrap();
 
         let updated = harness.service.update(&principal(), &session, keep_everything()).await;
         let sought = harness.service.seek(&principal(), &session, 5_000).await;
@@ -3486,5 +3584,333 @@ mod tests {
             .expect("a manifest url carries its token")
             .0;
         harness.tokens.verify(token).expect("the token verifies")
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum Held {
+        Seek,
+        Update,
+        Heartbeat,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum Fired {
+        Heartbeat,
+        Seek,
+        Update,
+        End,
+        EndAll,
+        Reap,
+    }
+
+    fn two_track_transcode() -> VersionDetail {
+        detail_with(
+            "mp4",
+            100_000,
+            vec![video("vp9", Some(5_000_000))],
+            vec![audio(1), audio(2)],
+            vec![],
+        )
+    }
+
+    fn hold_for(harness: &Harness, held: Held) -> Hold {
+        match held {
+            Held::Seek | Held::Update => harness.transcode.hold_next_start(),
+            Held::Heartbeat => harness.catalog.hold_next_version_read(),
+        }
+    }
+
+    fn held_position(held: Held, beat_ms: u64) -> u64 {
+        match held {
+            Held::Seek => 5_000,
+            Held::Update => 6_000,
+            Held::Heartbeat => beat_ms,
+        }
+    }
+
+    fn fired_position(fired: Fired, beat_ms: u64) -> Option<u64> {
+        match fired {
+            Fired::Heartbeat => Some(beat_ms + 1_000),
+            Fired::Seek => Some(9_000),
+            Fired::Update => Some(10_000),
+            Fired::End | Fired::EndAll | Fired::Reap => None,
+        }
+    }
+
+    async fn run_held(
+        harness: &Harness,
+        held: Held,
+        session: &SessionId,
+        beat_ms: u64,
+    ) -> Result<(), SessionError> {
+        let caller = principal();
+        let at = held_position(held, beat_ms);
+        match held {
+            Held::Seek => harness.service.seek(&caller, session, at).await.map(drop),
+            Held::Update => {
+                let change =
+                    SessionUpdate { position_ms: at, audio_track: Some(2), ..keep_everything() };
+                harness.service.update(&caller, session, change).await.map(drop)
+            }
+            Held::Heartbeat => harness
+                .service
+                .heartbeat(&caller, session, at, PlaybackState::Paused)
+                .await
+                .map(drop),
+        }
+    }
+
+    async fn run_fired(
+        harness: &Harness,
+        fired: Fired,
+        session: &SessionId,
+        beat_ms: u64,
+    ) -> Result<(), SessionError> {
+        let caller = principal();
+        let at = fired_position(fired, beat_ms).unwrap_or(0);
+        match fired {
+            Fired::Heartbeat => harness
+                .service
+                .heartbeat(&caller, session, at, PlaybackState::Playing)
+                .await
+                .map(drop),
+            Fired::Seek => harness.service.seek(&caller, session, at).await.map(drop),
+            Fired::Update => {
+                let change = SessionUpdate {
+                    position_ms: at,
+                    subtitle: SubtitleChange::Disable,
+                    ..keep_everything()
+                };
+                harness.service.update(&caller, session, change).await.map(drop)
+            }
+            Fired::End => harness.service.end(&caller, session).await,
+            Fired::EndAll => harness.service.end_all_for_user(&caller.user).await,
+            Fired::Reap => {
+                harness.service.reap_idle().await;
+                Ok(())
+            }
+        }
+    }
+
+    async fn while_held<T>(hold: Hold, fire: impl Future<Output = T>) -> T {
+        hold.reached().await;
+        let (fired, ()) = tokio::join!(fire, async { hold.release() });
+        fired
+    }
+
+    async fn race(
+        harness: &Harness,
+        held: Held,
+        fired: Fired,
+        session: &SessionId,
+        beat_ms: u64,
+    ) -> (Result<(), SessionError>, Result<(), SessionError>) {
+        let hold = hold_for(harness, held);
+        tokio::join!(
+            run_held(harness, held, session, beat_ms),
+            while_held(hold, run_fired(harness, fired, session, beat_ms))
+        )
+    }
+
+    async fn look_idle(harness: &Harness, session: &SessionId) {
+        let mut idle = harness.sessions.get(session).await.unwrap().unwrap();
+        idle.last_heartbeat_at = Timestamp::UNIX_EPOCH;
+        harness.sessions.insert(idle).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn every_operation_fired_during_another_keeps_the_session_invariants() {
+        let fired_all =
+            [Fired::Heartbeat, Fired::Seek, Fired::Update, Fired::End, Fired::EndAll, Fired::Reap];
+        for held in [Held::Seek, Held::Update, Held::Heartbeat] {
+            for fired in fired_all {
+                let label = format!("{fired:?} during {held:?}");
+                let harness = Harness::new();
+                harness.catalog.insert(two_track_transcode());
+                let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
+                let session = started.session_id;
+                if matches!(fired, Fired::Reap) {
+                    look_idle(&harness, &session).await;
+                }
+
+                let (held_result, fired_result) =
+                    race(&harness, held, fired, &session, 7_000).await;
+
+                let ended = matches!(fired, Fired::End | Fired::EndAll);
+                let cancelled = ended && !matches!(held, Held::Heartbeat);
+                match cancelled {
+                    true => assert!(
+                        matches!(held_result, Err(SessionError::NotFound)),
+                        "{label}: the end cancels the held launch"
+                    ),
+                    false => assert!(held_result.is_ok(), "{label}: the held operation finishes"),
+                }
+                assert!(fired_result.is_ok(), "{label}: the fired operation finishes");
+                assert_eq!(harness.sessions.started_count(), 1, "{label}: one start");
+                let entry = harness.sessions.get(&session).await.unwrap();
+                assert_eq!(entry.is_some(), !ended, "{label}: only an end ends the session");
+                assert_eq!(
+                    harness.service.inner.cells.holds(&session),
+                    !ended,
+                    "{label}: the cell and the registry agree"
+                );
+                if ended {
+                    assert_nothing_left_of(&harness, &session);
+                    let late = harness
+                        .service
+                        .heartbeat(&principal(), &session, 11_000, PlaybackState::Playing)
+                        .await;
+                    assert!(matches!(late, Err(SessionError::NotFound)), "{label}: ended stays");
+                    assert!(harness.sessions.get(&session).await.unwrap().is_none(), "{label}");
+                }
+                if let Some(entry) = entry {
+                    let last = fired_position(fired, 7_000).unwrap_or(held_position(held, 7_000));
+                    assert_eq!(entry.position_ms, last, "{label}: the registry shows the last one");
+                    let audio = match held {
+                        Held::Update => Some(2),
+                        Held::Seek | Held::Heartbeat => started.selected.audio_track,
+                    };
+                    assert_eq!(entry.selected.audio_track, audio, "{label}: the newest selection");
+                }
+                let chosen = (
+                    (matches!(held, Held::Update) && !cancelled).then_some(2),
+                    matches!(fired, Fired::Update).then_some(SubtitleOverride::Off),
+                );
+                match stored_progress(&harness).await {
+                    Some(row) => assert_eq!(
+                        (row.audio_track, row.subtitle),
+                        chosen,
+                        "{label}: the bookmark carries the newest choice"
+                    ),
+                    None => assert_eq!(chosen, (None, None), "{label}: a choice is saved"),
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_view_counts_once_whatever_runs_beside_the_heartbeat_that_completes_it() {
+        let pairs = [
+            (Held::Seek, Fired::Heartbeat),
+            (Held::Update, Fired::Heartbeat),
+            (Held::Heartbeat, Fired::Seek),
+            (Held::Heartbeat, Fired::Update),
+            (Held::Heartbeat, Fired::Heartbeat),
+        ];
+        for (held, fired) in pairs {
+            let label = format!("{fired:?} during {held:?}");
+            let harness = Harness::new();
+            harness.catalog.insert(two_track_transcode());
+            let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
+            let session = started.session_id;
+
+            let (held_result, fired_result) = race(&harness, held, fired, &session, 95_000).await;
+            harness
+                .service
+                .heartbeat(&principal(), &session, 99_000, PlaybackState::Playing)
+                .await
+                .unwrap();
+
+            assert!(held_result.is_ok() && fired_result.is_ok(), "{label}");
+            let history = harness.progress.history(&principal().user, page()).await.unwrap();
+            assert_eq!(history.items[0].play_count, 1, "{label}: one session, one view");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_track_chosen_at_the_start_is_saved_before_any_heartbeat() {
+        let harness = Harness::new();
+        harness.catalog.insert(two_track_transcode());
+        let request = SessionStartInput { audio: AudioRequest::Track(2), ..start_request(42_000) };
+
+        harness.service.start(&principal(), request).await.unwrap();
+
+        let row = stored_progress(&harness).await.expect("a chosen track forces a row");
+        assert_eq!(row.audio_track, Some(2));
+        assert_eq!(row.position_ms, 42_000);
+    }
+
+    #[tokio::test]
+    async fn an_operation_waiting_behind_an_end_finds_the_session_gone() {
+        let harness = Harness::new();
+        harness.catalog.insert(transcode_detail());
+        let session =
+            harness.service.start(&principal(), start_request(0)).await.unwrap().session_id;
+        let hold = harness.transcode.hold_next_stop();
+        let caller = principal();
+
+        let (ended, beat) = tokio::join!(harness.service.end(&caller, &session), async {
+            hold.reached().await;
+            harness.sessions.set_fail();
+            let beat = harness.service.heartbeat(&caller, &session, 8_000, PlaybackState::Playing);
+            let (beat, ()) = tokio::join!(beat, async { hold.release() });
+            beat
+        });
+
+        assert!(ended.is_err(), "the registry is down, so the end cannot remove its entry");
+        assert!(
+            matches!(beat, Err(SessionError::NotFound)),
+            "the session ended, whatever the registry still holds"
+        );
+        assert_nothing_left_of(&harness, &session);
+    }
+
+    async fn idle_since(harness: &Harness, session: &SessionId, started_s: i64) {
+        let mut idle = harness.sessions.get(session).await.unwrap().unwrap();
+        idle.started_at = Timestamp::from_second(started_s).unwrap();
+        idle.last_heartbeat_at = Timestamp::UNIX_EPOCH;
+        harness.sessions.insert(idle).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_session_that_heartbeats_while_the_reaper_ends_another_is_kept() {
+        let harness = Harness::new();
+        harness.catalog.insert(two_track_transcode());
+        let first = harness.service.start(&principal(), start_request(0)).await.unwrap().session_id;
+        let second =
+            harness.service.start(&principal(), start_request(0)).await.unwrap().session_id;
+        idle_since(&harness, &first, 1).await;
+        idle_since(&harness, &second, 2).await;
+        let hold = harness.transcode.hold_next_stop();
+        let caller = principal();
+
+        let (_, beat) = tokio::join!(
+            harness.service.reap_idle(),
+            while_held(
+                hold,
+                harness.service.heartbeat(&caller, &second, 8_000, PlaybackState::Playing)
+            )
+        );
+
+        assert!(beat.is_ok());
+        assert!(harness.sessions.get(&first).await.unwrap().is_none());
+        assert!(
+            harness.sessions.get(&second).await.unwrap().is_some(),
+            "the reaper reads the heartbeat again once it holds the session"
+        );
+        assert!(harness.service.inner.cells.holds(&second));
+    }
+
+    #[tokio::test]
+    async fn the_reaper_passes_over_a_busy_session_without_waiting_for_it() {
+        let harness = Harness::new();
+        harness.catalog.insert(two_track_transcode());
+        let session =
+            harness.service.start(&principal(), start_request(0)).await.unwrap().session_id;
+        look_idle(&harness, &session).await;
+        let hold = harness.transcode.hold_next_start();
+        let caller = principal();
+
+        let (sought, passed) =
+            tokio::join!(harness.service.seek(&caller, &session, 5_000), async {
+                hold.reached().await;
+                let passed = harness.service.reap_idle().now_or_never().is_some();
+                hold.release();
+                passed
+            });
+
+        assert!(sought.is_ok());
+        assert!(passed, "the reaper finishes while the session is still busy");
+        assert!(harness.sessions.get(&session).await.unwrap().is_some());
     }
 }

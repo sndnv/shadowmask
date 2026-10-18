@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::Extension;
 use axum::Router;
@@ -84,6 +85,7 @@ pub struct WireConfig {
     pub stream_secret: Vec<u8>,
     pub access_ttl_secs: i64,
     pub refresh_ttl_secs: i64,
+    pub stream_token_ttl_secs: i64,
     pub transcode_cache: PathBuf,
     pub playback_prep_dir: PathBuf,
     pub artwork_cache: PathBuf,
@@ -96,6 +98,7 @@ pub struct WireConfig {
     pub fetch_cookies_file: Option<PathBuf>,
     pub vaapi_device: Option<String>,
     pub remux_read_rate: f64,
+    pub stream_start_timeout: Duration,
     pub max_transcode_height: Option<u32>,
     pub profile_overrides_dir: Option<PathBuf>,
     pub job_pools: Vec<Vec<JobKind>>,
@@ -179,7 +182,8 @@ pub fn build_state(
     let profiles = BuiltinProfiles::load_from_dir(cfg.profile_overrides_dir.as_deref())?;
     let hls = HlsStreamSource::new(&cfg.transcode_cache, &cfg.playback_prep_dir)
         .with_encoder(VideoEncoder::from_device(cfg.vaapi_device.clone()))
-        .with_read_rate(cfg.remux_read_rate);
+        .with_read_rate(cfg.remux_read_rate)
+        .with_prepare_limit(cfg.stream_start_timeout);
     let artwork_store = FsArtworkStore::new(&cfg.artwork_cache);
     let images = ImageState::new(&cfg.artwork_cache);
     let trickplay = TrickplayState::new(&cfg.trickplay_cache);
@@ -203,7 +207,8 @@ pub fn build_state(
         repos.progress.clone(),
         repos.preferences.clone(),
     )
-    .with_max_transcode_height(cfg.max_transcode_height);
+    .with_max_transcode_height(cfg.max_transcode_height)
+    .with_token_ttl_secs(cfg.stream_token_ttl_secs);
     let provider = cfg.tmdb_api_key.clone().map(TmdbClient::new);
     let library = LibraryServiceImpl::new(
         repos.library.clone(),
@@ -258,12 +263,46 @@ pub fn app(
     trickplay: TrickplayState,
     webhook_clients: Vec<WebhookClient>,
     capabilities: Vec<Capability>,
+    request_timeout: Duration,
 ) -> Router {
-    ::api::router(state.clone())
+    let routes = ::api::router(state.clone())
         .merge(::api::stream_router(stream))
         .merge(::api::image_router(images))
         .merge(::api::webhook_router(state.clone(), webhook_clients))
-        .merge(::api::trickplay_router(state, trickplay))
-        .layer(from_fn(::api::middleware::track_http))
-        .layer(Extension(ServerCapabilities(capabilities)))
+        .merge(::api::trickplay_router(state, trickplay));
+    tracked(routes, request_timeout).layer(Extension(ServerCapabilities(capabilities)))
+}
+
+fn tracked(routes: Router, request_timeout: Duration) -> Router {
+    ::api::bounded(routes, request_timeout).layer(from_fn(::api::middleware::track_http))
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use axum::routing::get;
+    use metrics_exporter_prometheus::PrometheusBuilder;
+    use tower::ServiceExt;
+
+    use super::*;
+
+    #[test]
+    fn a_request_that_times_out_is_counted_with_its_504() {
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+            rt.block_on(async {
+                let hung = Router::new().route("/movies/{id}", get(std::future::pending::<()>));
+                let request = Request::builder().uri("/movies/42").body(Body::empty()).unwrap();
+                let app = tracked(hung, Duration::from_millis(50));
+                let response = app.oneshot(request).await.unwrap();
+                assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+            });
+        });
+        let rendered = handle.render();
+        assert!(rendered.contains("endpoint=\"/movies/{id}\""));
+        assert!(rendered.contains("status=\"504\""));
+    }
 }

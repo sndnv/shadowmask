@@ -22,7 +22,7 @@
         "rooibos-roku"
     ],
     "rooibos": {
-        "isRecordingCodeCoverage": false,
+        "codeCoverage": false,
         "testsFilePattern": [
             "tests/**/*.spec.bs"
         ],

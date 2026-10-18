@@ -426,11 +426,14 @@ impl Runtime {
             })
             .collect();
         let pools = resolve_pools(&requested, &parked)?;
+        let stream_start_timeout = config.stream_start_timeout();
+        let request_timeout = config.request_timeout();
         let wire = WireConfig {
             jwt_secret: config.jwt_secret.into_bytes(),
             stream_secret: config.stream_secret.into_bytes(),
             access_ttl_secs: config.access_ttl_secs,
             refresh_ttl_secs: config.refresh_ttl_secs,
+            stream_token_ttl_secs: config.stream_token_ttl_secs,
             transcode_cache: config.transcode_cache.clone(),
             playback_prep_dir: config.playback_prep_dir.clone(),
             artwork_cache: config.artwork_cache.clone(),
@@ -443,6 +446,7 @@ impl Runtime {
             fetch_cookies_file: config.fetch_providers.cookies_file.clone(),
             vaapi_device: vaapi_device.clone(),
             remux_read_rate: config.remux_read_rate,
+            stream_start_timeout,
             max_transcode_height: config.max_transcode_height,
             profile_overrides_dir: config.profile_overrides_dir.clone(),
             job_pools: pools.iter().map(|pool| pool.kinds.clone()).collect(),
@@ -470,55 +474,59 @@ impl Runtime {
                 hardware_transcode_available: vaapi_present,
                 hardware_transcode_enabled: vaapi_device.is_some(),
             });
-        let mut router = app(
+        let routes = app(
             state.clone(),
             stream,
             images,
             trickplay,
             config.webhook_clients.clone(),
             capabilities,
-        )
-        .merge(observability_router(metrics, repos.clone()))
-        .merge(::api::basic_ui_router(&config.basic_client_dir))
-        .merge(::api::subtitle_router(
-            state.clone(),
-            ::api::SubtitleState::new(
-                repos.catalog.clone(),
-                FsSubtitleStore::new(&config.subtitle_cache),
-            ),
-        ))
-        .merge(::api::job_log_router(state.clone(), ::api::JobLogState::new(job_logs.clone())))
-        .merge(::api::diagnostics_router(
-            state.clone(),
-            ::api::DiagnosticsState::new(
-                diagnostics,
-                SegmentBenchmark::new(
-                    config.transcode_cache.join("benchmark"),
-                    VideoEncoder::from_device(vaapi_device.clone()),
-                    config.max_transcode_height,
-                ),
-                repos.catalog.clone(),
-                PlaybackPrepAuditImpl::new(
-                    repos.catalog.clone(),
-                    repos.jobs.clone(),
-                    repos.library.clone(),
-                ),
-            ),
-        ))
-        .merge(::api::download_router(
-            state.clone(),
-            ::api::DownloadState::new(
+            request_timeout,
+        );
+        let mut merged = observability_router(metrics, repos.clone())
+            .merge(::api::basic_ui_router(&config.basic_client_dir))
+            .merge(::api::subtitle_router(
                 state.clone(),
-                repos.catalog.clone(),
-                HmacDownloadTokens::new(&download_secret),
-            ),
-        ))
-        .merge(::api::play_on_router(
-            state.clone(),
-            ::api::PlayOnState::new(state.clone(), HmacPlayCommandTokens::new(&download_secret)),
-        ));
+                ::api::SubtitleState::new(
+                    repos.catalog.clone(),
+                    FsSubtitleStore::new(&config.subtitle_cache),
+                ),
+            ))
+            .merge(::api::job_log_router(state.clone(), ::api::JobLogState::new(job_logs.clone())))
+            .merge(::api::diagnostics_router(
+                state.clone(),
+                ::api::DiagnosticsState::new(
+                    diagnostics,
+                    SegmentBenchmark::new(
+                        config.transcode_cache.join("benchmark"),
+                        VideoEncoder::from_device(vaapi_device.clone()),
+                        config.max_transcode_height,
+                    ),
+                    repos.catalog.clone(),
+                    PlaybackPrepAuditImpl::new(
+                        repos.catalog.clone(),
+                        repos.jobs.clone(),
+                        repos.library.clone(),
+                    ),
+                ),
+            ))
+            .merge(::api::download_router(
+                state.clone(),
+                ::api::DownloadState::new(
+                    state.clone(),
+                    repos.catalog.clone(),
+                    HmacDownloadTokens::new(&download_secret),
+                ),
+            ))
+            .merge(::api::play_on_router(
+                state.clone(),
+                ::api::PlayOnState::new(
+                    state.clone(),
+                    HmacPlayCommandTokens::new(&download_secret),
+                ),
+            ));
         if config.opensubtitles_api_key.is_some() {
-            router = router.merge(::api::subtitle_search_router(
+            merged = merged.merge(::api::subtitle_search_router(
                 state,
                 ::api::SubtitleSearchState::new(
                     repos.catalog.clone(),
@@ -530,6 +538,7 @@ impl Runtime {
                 ),
             ));
         }
+        let mut router = routes.merge(::api::bounded(merged, request_timeout));
         if !config.cors_allowed_origins.is_empty() {
             router = router.layer(::api::cors_layer(&config.cors_allowed_origins));
         }

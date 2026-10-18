@@ -459,7 +459,10 @@ function playerReads(s, reading) {
   const stream = s.stream;
   const atMs = stream.originMs + reading.positionMs;
   const seekingToMs = s.timeline.seekingToMs;
-  const settled = seekingToMs == null || Math.abs(atMs - seekingToMs) <= SEEK_SETTLE_MS;
+  const settled =
+    seekingToMs == null ||
+    Math.abs(atMs - seekingToMs) <= SEEK_SETTLE_MS ||
+    (reading.ended && atMs < seekingToMs);
   const fillsDuration = s.durationMs <= 0 && reading.durationMs > 0;
   return withProgress(s, [
     Object.assign(

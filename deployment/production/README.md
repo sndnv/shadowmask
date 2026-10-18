@@ -72,9 +72,8 @@ Log levels are set per target in the compose `environment:` block:
 
 ## Monitoring (optional)
 
-`docker compose --profile monitoring up -d` also starts Prometheus (port `9090`) and Grafana (port
-`3000`, first login `admin` / `admin`). See "Metrics and health" in
-[`../README.md`](../README.md#metrics-and-health).
+`docker compose --profile monitoring up -d` also starts Prometheus and Grafana; see "Prometheus and
+Grafana" in [`../README.md`](../README.md#prometheus-and-grafana).
 
 ## Hardware acceleration
 

@@ -12,15 +12,22 @@ use domain::job::{
 use domain::repository::JobRepository;
 use jiff::Timestamp;
 
+use crate::hold::{Hold, NextHold};
+
 #[derive(Clone, Default)]
 pub struct MockJobStore {
     jobs: Arc<Mutex<HashMap<JobId, Job>>>,
     fail: Arc<AtomicBool>,
+    enqueue_hold: NextHold,
 }
 
 impl MockJobStore {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn hold_next_enqueue(&self) -> Hold {
+        self.enqueue_hold.arm()
     }
 
     pub fn seed(&self, job: Job) {
@@ -58,6 +65,7 @@ fn walk(jobs: &HashMap<JobId, Job>, parent: &JobId, depth: u32, out: &mut Vec<Jo
 
 impl JobRepository for MockJobStore {
     async fn enqueue(&self, job: Job) -> Result<(), RepositoryError> {
+        self.enqueue_hold.pass().await;
         self.guard()?;
         self.jobs.lock().unwrap().insert(job.id.clone(), job);
         Ok(())

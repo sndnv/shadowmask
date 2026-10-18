@@ -9,6 +9,8 @@ use domain::user::{
 };
 use jiff::Timestamp;
 
+use crate::hold::{Hold, NextHold};
+
 #[derive(Debug, Clone)]
 struct Account {
     username: String,
@@ -24,16 +26,26 @@ struct State {
     link_codes: HashMap<String, IssuedToken>,
     pending: HashMap<String, PendingLink>,
     devices: Vec<Device>,
+    logged_out: Vec<UserId>,
 }
 
 #[derive(Clone, Default)]
 pub struct MockAuthService {
     state: Arc<Mutex<State>>,
+    logout_hold: NextHold,
 }
 
 impl MockAuthService {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn logged_out(&self) -> Vec<UserId> {
+        self.state.lock().unwrap().logged_out.clone()
+    }
+
+    pub fn hold_next_logout_all(&self) -> Hold {
+        self.logout_hold.arm()
     }
 
     pub fn add_account(&self, username: &str, password: &str, user: UserId, role: Role) {
@@ -183,7 +195,9 @@ impl AuthService for MockAuthService {
         Ok(())
     }
 
-    async fn logout_all(&self, _user: &UserId) -> Result<(), AuthError> {
+    async fn logout_all(&self, user: &UserId) -> Result<(), AuthError> {
+        self.logout_hold.pass().await;
+        self.state.lock().unwrap().logged_out.push(user.clone());
         Ok(())
     }
 

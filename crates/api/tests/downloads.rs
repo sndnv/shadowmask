@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
@@ -6,7 +7,7 @@ use axum::http::{HeaderMap, Request, StatusCode, header};
 use serde_json::Value;
 use tower::ServiceExt;
 
-use api::{AppState, DownloadState, download_router};
+use api::{AppState, DownloadState, bounded, download_router};
 use contracts::Generator;
 use domain::catalog::{MovieId, TitleId, Version, VersionId};
 use domain::common::Quality;
@@ -60,7 +61,7 @@ fn harness(extra: &[Version], repo_versions: &[Version]) -> Harness {
     }
     let tokens = MockDownloadTokens::new();
     let app = download_router(state.clone(), DownloadState::new(state, repo, tokens.clone()));
-    Harness { app, tokens }
+    Harness { app: bounded(app, Duration::from_secs(60)), tokens }
 }
 
 fn seeded_file(dir: &Path, name: &str) -> String {

@@ -1,15 +1,17 @@
+use std::time::Duration;
+
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Method, Request, StatusCode, header};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use api::{AppState, router};
+use api::{AppState, bounded, router};
 use contracts::{Generator, requests};
 use domain::user::{Role, UserId};
 
 fn build_app(generator: &Generator) -> Router {
-    router(AppState::new(
+    let state = AppState::new(
         generator.auth.clone(),
         generator.catalog.clone(),
         generator.session.clone(),
@@ -18,7 +20,8 @@ fn build_app(generator: &Generator) -> Router {
         generator.user_library.clone(),
         generator.discovery.clone(),
         generator.job.clone(),
-    ))
+    );
+    bounded(router(state), Duration::from_secs(60))
 }
 
 fn method(name: &str) -> Method {

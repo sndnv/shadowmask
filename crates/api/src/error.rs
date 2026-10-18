@@ -54,6 +54,10 @@ impl ApiError {
     pub fn internal() -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", "internal server error")
     }
+
+    pub fn timeout() -> Self {
+        Self::new(StatusCode::GATEWAY_TIMEOUT, "timeout", "the server took too long to answer")
+    }
 }
 
 #[derive(Serialize)]

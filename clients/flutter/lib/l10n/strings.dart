@@ -401,8 +401,7 @@ abstract final class Strings {
       'Useful when reporting a problem with playback.';
   static const String playerLog = 'Playback log';
   static const String playerLogHelp =
-      'Everything the player noted since this video opened, each line with '
-      'its time. Useful when playback stops on its own.';
+      'What the player logged since this video opened.';
   static const String playerLogShow = 'Show';
   static const String playerLogEmpty = 'Nothing logged yet.';
   static const String playerAutoplayNext = 'Autoplay next';

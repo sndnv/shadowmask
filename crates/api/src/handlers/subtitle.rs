@@ -13,6 +13,7 @@ use domain::media::{
     SubtitleStore, prune_orphaned_translations, same_release,
 };
 use domain::repository::CatalogRepository;
+use domain::user::Principal;
 
 use crate::dto::catalog::{
     DownloadSubtitleRequest, RenameSubtitleRequest, SubtitleCandidateDto, SubtitleFileDto,
@@ -20,6 +21,7 @@ use crate::dto::catalog::{
 };
 use crate::error::{ApiError, ApiResult};
 use crate::extract::{Json, RequireVersionWork};
+use crate::handlers::to_completion;
 use crate::state::{SubtitleSearchState, SubtitleState};
 
 fn is_managed(source: SubtitleSource) -> bool {
@@ -154,12 +156,25 @@ pub async fn download<C, S, P>(
     Json(request): Json<DownloadSubtitleRequest>,
 ) -> ApiResult<(StatusCode, Json<SubtitleFileDto>)>
 where
+    C: CatalogRepository + Send + Sync + 'static,
+    S: SubtitleStore + Send + Sync + 'static,
+    P: SubtitleProvider + Send + Sync + 'static,
+{
+    to_completion(fetch(state, principal, VersionId(version), request)).await
+}
+
+async fn fetch<C, S, P>(
+    state: SubtitleSearchState<C, S, P>,
+    principal: Principal,
+    version: VersionId,
+    request: DownloadSubtitleRequest,
+) -> ApiResult<(StatusCode, Json<SubtitleFileDto>)>
+where
     C: CatalogRepository + Send + Sync,
     S: SubtitleStore + Send + Sync,
     P: SubtitleProvider + Send + Sync,
 {
     let actor = &principal.user.0;
-    let version = VersionId(version);
     let detail = state
         .catalog
         .version_detail(&version)
@@ -307,11 +322,23 @@ pub async fn delete<C, S>(
     Path((version, subtitle)): Path<(String, String)>,
 ) -> ApiResult<StatusCode>
 where
+    C: CatalogRepository + Send + Sync + 'static,
+    S: SubtitleStore + Send + Sync + 'static,
+{
+    to_completion(discard(state, principal, VersionId(version), subtitle)).await
+}
+
+async fn discard<C, S>(
+    state: SubtitleState<C, S>,
+    principal: Principal,
+    version: VersionId,
+    subtitle: String,
+) -> ApiResult<StatusCode>
+where
     C: CatalogRepository + Send + Sync,
     S: SubtitleStore + Send + Sync,
 {
     let actor = &principal.user.0;
-    let version = VersionId(version);
     let detail = state
         .catalog
         .version_detail(&version)

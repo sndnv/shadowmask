@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
@@ -7,7 +8,7 @@ use axum::http::{Request, StatusCode, header};
 use serde_json::Value;
 use tower::ServiceExt;
 
-use api::{AppState, SubtitleState, subtitle_router};
+use api::{AppState, SubtitleState, bounded, subtitle_router};
 use contracts::Generator;
 use domain::catalog::{MovieId, TitleId, Version, VersionId};
 use domain::common::{LanguageCode, Quality};
@@ -19,7 +20,7 @@ use domain::media::{
 use domain::repository::CatalogRepository;
 use domain::user::UserId;
 use jiff::Timestamp;
-use mocks::MockCatalogRepo;
+use mocks::{MockCatalogRepo, NextHold};
 
 const ADMIN: &str = "Bearer access:admin";
 const USER: &str = "Bearer access:u1";
@@ -30,6 +31,7 @@ const USER_TV: &str = "Bearer device:u1";
 struct MockStore {
     files: Arc<Mutex<HashMap<String, String>>>,
     fail_remove: bool,
+    remove_hold: NextHold,
 }
 
 impl MockStore {
@@ -58,6 +60,7 @@ impl SubtitleStore for MockStore {
     }
 
     async fn remove(&self, path: &str) -> Result<(), SubtitleError> {
+        self.remove_hold.pass().await;
         if self.fail_remove {
             return Err(SubtitleError::Store("boom".into()));
         }
@@ -120,6 +123,10 @@ async fn seed(files: &[SubtitleFile]) -> (MockCatalogRepo, MockStore) {
 }
 
 fn app(catalog: MockCatalogRepo, store: MockStore) -> Router {
+    app_within(catalog, store, Duration::from_secs(60))
+}
+
+fn app_within(catalog: MockCatalogRepo, store: MockStore, limit: Duration) -> Router {
     let generator = Generator::new();
     generator.auth.add_linked_device(UserId("admin".into()), true);
     generator.auth.add_linked_device(UserId("u1".into()), false);
@@ -133,7 +140,7 @@ fn app(catalog: MockCatalogRepo, store: MockStore) -> Router {
         generator.discovery.clone(),
         generator.job.clone(),
     );
-    subtitle_router(auth, SubtitleState::new(catalog, store))
+    bounded(subtitle_router(auth, SubtitleState::new(catalog, store)), limit)
 }
 
 async fn send(app: Router, method: &str, uri: &str, auth: Option<&str>) -> (StatusCode, Vec<u8>) {
@@ -226,6 +233,28 @@ async fn admin_deletes_generated_subtitle_and_file() {
         catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap().subtitle_files;
     assert!(remaining.is_empty());
     assert!(!store.has("/subs/v1/gen.vtt"));
+}
+
+#[tokio::test]
+async fn a_delete_that_times_out_still_removes_the_file() {
+    let (catalog, store) =
+        seed(&[file("generated:v1", SubtitleSource::Generated, "/subs/v1/gen.vtt", None)]).await;
+    store.seed("/subs/v1/gen.vtt", "WEBVTT\n\nhello\n");
+    let hold = store.remove_hold.arm();
+    let app = app_within(catalog.clone(), store.clone(), Duration::from_millis(50));
+
+    let (status, _) = send(app, "DELETE", &uri("generated:v1"), Some(ADMIN)).await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT);
+    hold.reached().await;
+    hold.release();
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+
+    let remaining =
+        catalog.version_detail(&VersionId("v1".into())).await.unwrap().unwrap().subtitle_files;
+    assert!(remaining.is_empty());
+    assert!(!store.has("/subs/v1/gen.vtt"), "the file goes with its row");
 }
 
 #[tokio::test]

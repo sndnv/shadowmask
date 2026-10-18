@@ -5,7 +5,7 @@ use jiff::Timestamp;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use api::{AppState, WebhookClient, router, webhook_router};
+use api::{AppState, WebhookClient, bounded, router, webhook_router};
 use domain::catalog::*;
 use domain::common::LanguageCode;
 use domain::common::Quality;
@@ -25,10 +25,13 @@ use services::library::LibraryServiceImpl;
 use services::user::UserServiceImpl;
 use services::user_library::UserLibraryServiceImpl;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing_test::traced_test;
 
 const ADMIN: &str = "access:admin";
 const USER: &str = "access:u1";
+const LIMIT: Duration = Duration::from_secs(60);
+const CUT: Duration = Duration::from_millis(50);
 
 type CatalogSvc = CatalogServiceImpl<MockCatalogRepo, MockUserRepo>;
 type UserSvc = UserServiceImpl<MockUserRepo, MockAuthTokenRepo, MockUserDataStore>;
@@ -54,6 +57,8 @@ struct Ctx {
     auth: MockAuthService,
     catalog_repo: MockCatalogRepo,
     users_repo: MockUserRepo,
+    tokens_repo: MockAuthTokenRepo,
+    user_data: MockUserDataStore,
     library_repo: MockLibraryRepo,
     jobs_repo: MockJobStore,
     catalog: CatalogSvc,
@@ -86,6 +91,8 @@ impl Ctx {
         let progress_repo = MockProgressRepo::new();
         let preferences_repo = MockPreferencesRepo::new();
         let search_index = MockSearchIndex::new();
+        let tokens_repo = MockAuthTokenRepo::new();
+        let user_data = MockUserDataStore::new();
         Ctx {
             auth,
             catalog: CatalogServiceImpl::new(catalog_repo.clone(), users_repo.clone()),
@@ -98,11 +105,7 @@ impl Ctx {
             )
             .with_enrichment_flags(true, true, true)
             .with_content_fetch(true),
-            user: UserServiceImpl::new(
-                users_repo.clone(),
-                MockAuthTokenRepo::new(),
-                MockUserDataStore::new(),
-            ),
+            user: UserServiceImpl::new(users_repo.clone(), tokens_repo.clone(), user_data.clone()),
             user_library: UserLibraryServiceImpl::new(
                 Arc::new(progress_repo.clone()),
                 Arc::new(preferences_repo.clone()),
@@ -118,6 +121,8 @@ impl Ctx {
             ),
             catalog_repo,
             users_repo,
+            tokens_repo,
+            user_data,
             library_repo,
             jobs_repo,
             progress_repo,
@@ -134,11 +139,15 @@ impl Ctx {
     }
 
     fn app(&self) -> Router {
-        router(self.state())
+        self.app_within(LIMIT)
+    }
+
+    fn app_within(&self, limit: Duration) -> Router {
+        bounded(router(self.state()), limit)
     }
 
     fn webhook_app(&self, clients: Vec<WebhookClient>) -> Router {
-        webhook_router(self.state(), clients)
+        bounded(webhook_router(self.state(), clients), LIMIT)
     }
 
     fn state(
@@ -166,6 +175,20 @@ impl Ctx {
     }
 }
 
+fn request(method: Method, uri: &str, token: Option<&str>, body: Option<Value>) -> Request<Body> {
+    let mut builder = Request::builder().method(method).uri(uri);
+    if let Some(token) = token {
+        builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    match body {
+        Some(body) => builder
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap(),
+        None => builder.body(Body::empty()).unwrap(),
+    }
+}
+
 async fn call(
     app: Router,
     method: Method,
@@ -173,18 +196,7 @@ async fn call(
     token: Option<&str>,
     body: Option<Value>,
 ) -> (StatusCode, Value) {
-    let mut builder = Request::builder().method(method).uri(uri);
-    if let Some(token) = token {
-        builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
-    }
-    let request = match body {
-        Some(body) => builder
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(body.to_string()))
-            .unwrap(),
-        None => builder.body(Body::empty()).unwrap(),
-    };
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request(method, uri, token, body)).await.unwrap();
     let status = response.status();
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let value = if bytes.is_empty() {
@@ -1614,6 +1626,191 @@ async fn session_routes() {
     assert!(logs_contain("User [admin] retrieved 1 active sessions"));
 }
 
+async fn start_playback(ctx: &Ctx) -> String {
+    let start = json!({
+        "version_id": "v1",
+        "capabilities": {"platform": "web", "profile_version": 1},
+        "audio_track": 0
+    });
+    let (_, body) =
+        call(ctx.app(), Method::POST, "/api/v1/sessions", Some(USER), Some(start)).await;
+    body["session_id"].as_str().unwrap().to_owned()
+}
+
+async fn sessions_total(ctx: &Ctx) -> u64 {
+    let activity = "/api/v1/users/activity";
+    let (_, body) = call(ctx.app(), Method::GET, activity, Some(ADMIN), None).await;
+    body["total"].as_u64().unwrap()
+}
+
+async fn hang_up_once_held(ctx: &Ctx, request: Request<Body>, hold: &Hold) {
+    tokio::select! {
+        _ = ctx.app().oneshot(request) => panic!("the work is held, so no answer comes yet"),
+        () = hold.reached() => {}
+    }
+    assert_eq!(sessions_total(ctx).await, 1, "the session is there while the work is held");
+    hold.release();
+}
+
+async fn sessions_total_once_settled(ctx: &Ctx) -> u64 {
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+        if sessions_total(ctx).await == 0 {
+            break;
+        }
+    }
+    sessions_total(ctx).await
+}
+
+#[tokio::test]
+async fn an_end_finishes_even_when_the_client_hangs_up_while_it_waits() {
+    let ctx = Ctx::new();
+    let sid = start_playback(&ctx).await;
+    let hold = ctx.session.hold_next_end();
+    let end = request(Method::DELETE, &format!("/api/v1/sessions/{sid}"), Some(USER), None);
+
+    hang_up_once_held(&ctx, end, &hold).await;
+
+    assert_eq!(
+        sessions_total_once_settled(&ctx).await,
+        0,
+        "the end runs to completion after the client has gone"
+    );
+}
+
+#[tokio::test]
+async fn stopping_a_removed_users_playback_finishes_even_when_the_admin_hangs_up() {
+    for deactivate in [true, false] {
+        let ctx = Ctx::new();
+        start_playback(&ctx).await;
+        let hold = ctx.session.hold_next_end_all();
+        let removal = match deactivate {
+            true => {
+                let inactive = Some(json!({"active": false}));
+                request(Method::PUT, "/api/v1/users/u1/active", Some(ADMIN), inactive)
+            }
+            false => request(Method::DELETE, "/api/v1/users/u1", Some(ADMIN), None),
+        };
+
+        hang_up_once_held(&ctx, removal, &hold).await;
+
+        assert_eq!(
+            sessions_total_once_settled(&ctx).await,
+            0,
+            "deactivate [{deactivate}]: the playback stops after the admin has gone"
+        );
+    }
+}
+
+async fn time_out_once_held(app: Router, request: Request<Body>, hold: &Hold) {
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+    hold.reached().await;
+    hold.release();
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+}
+
+#[tokio::test]
+async fn deleting_a_user_finishes_even_when_the_request_times_out() {
+    let ctx = Ctx::new();
+    start_playback(&ctx).await;
+    let hold = ctx.user_data.hold_next_purge();
+    let removal = request(Method::DELETE, "/api/v1/users/u1", Some(ADMIN), None);
+
+    time_out_once_held(ctx.app_within(CUT), removal, &hold).await;
+
+    assert_eq!(ctx.user_data.purged(), vec![UserId("u1".into())], "the data goes with the row");
+    assert_eq!(sessions_total(&ctx).await, 0, "and the playback stops");
+}
+
+#[tokio::test]
+async fn deactivating_a_user_finishes_even_when_the_request_times_out() {
+    let ctx = Ctx::new();
+    start_playback(&ctx).await;
+    let hold = ctx.tokens_repo.hold_next_purge();
+    let inactive = Some(json!({"active": false}));
+    let deactivation = request(Method::PUT, "/api/v1/users/u1/active", Some(ADMIN), inactive);
+
+    time_out_once_held(ctx.app_within(CUT), deactivation, &hold).await;
+
+    assert_eq!(ctx.tokens_repo.purged(), vec![UserId("u1".into())], "the tokens are revoked");
+    assert_eq!(sessions_total(&ctx).await, 0, "and the playback stops");
+}
+
+#[tokio::test]
+async fn changing_a_password_signs_out_everywhere_even_when_the_request_times_out() {
+    let ctx = Ctx::new();
+    let hold = ctx.auth.hold_next_logout_all();
+    let fresh = Some(json!({"new_password": "fresh"}));
+    let change = request(Method::PUT, "/api/v1/users/u1/password", Some(ADMIN), fresh);
+
+    time_out_once_held(ctx.app_within(CUT), change, &hold).await;
+
+    assert_eq!(ctx.auth.logged_out(), vec![UserId("u1".into())], "the old sessions are revoked");
+}
+
+#[tokio::test]
+async fn creating_a_library_grants_it_to_its_creator_even_when_the_request_times_out() {
+    let ctx = Ctx::new();
+    let hold = ctx.users_repo.hold_next_access_change();
+    let films = json!({"name": "Films", "kind": "movie", "watcher": "manual", "roots": ["/m"]});
+    let creation = request(Method::POST, "/api/v1/libraries", Some(ADMIN), Some(films));
+
+    time_out_once_held(ctx.app_within(CUT), creation, &hold).await;
+
+    let (_, libraries) = call(ctx.app(), Method::GET, "/api/v1/libraries", Some(ADMIN), None).await;
+    assert_eq!(libraries[0]["name"], "Films");
+    let mine = "/api/v1/users/admin/libraries";
+    let (_, access) = call(ctx.app(), Method::GET, mine, Some(ADMIN), None).await;
+    let granted: Vec<&Value> =
+        access.as_array().unwrap().iter().map(|a| &a["library_id"]).collect();
+    assert!(granted.contains(&&libraries[0]["id"]), "the creator can browse what they made");
+}
+
+#[tokio::test]
+async fn a_scan_is_queued_even_when_the_request_times_out() {
+    use domain::repository::JobRepository;
+
+    let ctx = Ctx::new();
+    ctx.library_repo.insert_library(library("lib1"));
+    let hold = ctx.jobs_repo.hold_next_enqueue();
+    let scan = request(Method::POST, "/api/v1/libraries/lib1/scan", Some(ADMIN), None);
+
+    time_out_once_held(ctx.app_within(CUT), scan, &hold).await;
+
+    let queued = ctx.jobs_repo.list().await.unwrap();
+    assert!(
+        queued.iter().any(|job| job.kind == JobKind::LibraryScan),
+        "a library marked queued has its scan job"
+    );
+}
+
+#[tokio::test]
+async fn a_webhook_scan_is_queued_even_when_the_request_times_out() {
+    use domain::repository::JobRepository;
+
+    let ctx = Ctx::new();
+    ctx.library_repo.insert_library(library("lib1"));
+    let sonarr = WebhookClient {
+        name: "sonarr".into(),
+        secret: "sec".into(),
+        libraries: vec!["lib1".into()],
+    };
+    let app = bounded(webhook_router(ctx.state(), vec![sonarr]), CUT);
+    let hold = ctx.jobs_repo.hold_next_enqueue();
+    let scan = request(Method::POST, "/api/v1/webhooks/libraries/lib1/scan?token=sec", None, None);
+
+    time_out_once_held(app, scan, &hold).await;
+
+    let queued = ctx.jobs_repo.list().await.unwrap();
+    assert!(
+        queued.iter().any(|job| job.kind == JobKind::LibraryScan),
+        "a library marked queued has its scan job"
+    );
+}
+
 #[tokio::test]
 async fn session_failure_paths() {
     let ctx = Ctx::new();
@@ -1860,10 +2057,7 @@ async fn deactivating_and_deleting_both_stop_playback_in_flight() {
         let (status, body) =
             call(ctx.app(), Method::GET, "/api/v1/users/activity", Some(ADMIN), None).await;
         assert_eq!(status, StatusCode::OK);
-        assert!(
-            body["items"].as_array().unwrap().is_empty(),
-            "the playback session [{sid}] outlived the account"
-        );
+        assert_eq!(body["total"], 0, "the playback session [{sid}] outlived the account");
     }
 }
 

@@ -10,6 +10,8 @@ use domain::user::{
 };
 use jiff::Timestamp;
 
+use crate::hold::{Hold, NextHold};
+
 #[derive(Default)]
 struct State {
     refresh: HashMap<AuthSessionId, AuthSession>,
@@ -36,11 +38,16 @@ impl State {
 pub struct MockAuthTokenRepo {
     state: Arc<Mutex<State>>,
     fail: Arc<AtomicBool>,
+    purge_hold: NextHold,
 }
 
 impl MockAuthTokenRepo {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn hold_next_purge(&self) -> Hold {
+        self.purge_hold.arm()
     }
 
     pub fn set_fail(&self) {
@@ -62,6 +69,7 @@ impl MockAuthTokenRepo {
 
 impl AuthTokenRepository for MockAuthTokenRepo {
     async fn purge_user(&self, user: &UserId) -> Result<(), RepositoryError> {
+        self.purge_hold.pass().await;
         self.guard()?;
         let mut state = self.state.lock().unwrap();
         state.refresh.retain(|_, s| &s.user != user);

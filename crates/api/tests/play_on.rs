@@ -1,10 +1,12 @@
+use std::time::Duration;
+
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use api::{AppState, PlayOnState, play_on_router, router};
+use api::{AppState, PlayOnState, bounded, play_on_router, router};
 use contracts::Generator;
 use domain::catalog::{MovieId, TitleId, Version, VersionId};
 use domain::common::Quality;
@@ -82,7 +84,7 @@ fn harness(roku_reported: bool) -> Harness {
     let tokens = MockPlayCommandTokens::new();
     let app = router(state.clone())
         .merge(play_on_router(state.clone(), PlayOnState::new(state, tokens.clone())));
-    Harness { app, tokens }
+    Harness { app: bounded(app, Duration::from_secs(60)), tokens }
 }
 
 async fn send(
