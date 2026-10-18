@@ -138,6 +138,8 @@ function BuildStringTable() as object
         "error.profileVersion": "This server speaks profile version {reported}; this app expects {expected}. Update whichever is older.",
         "error.signInRequired": "Sign-in required.",
         "error.couldNotPlay": "Could not start playback ({detail}).",
+        "error.playbackFailed": "Playback failed ({detail}).",
+        "error.noAnswer": "no answer",
         "error.serverUnreachable": "Cannot reach the server",
         "error.serverUnreachableBody": "The server did not answer. It may be restarting, or this device may be offline.",
 
@@ -163,6 +165,9 @@ function BuildStringTable() as object
 
         "player.loading": "Loading…",
         "player.loadingTitle": "Loading {title}…",
+        "player.slow": "Taking longer than usual.",
+        "player.changeFailed": "Could not switch playback options.",
+        "player.seekFailed": "Could not jump to that point.",
         "player.play": "Play",
         "player.pause": "Pause",
         "player.replay": "Watch again",

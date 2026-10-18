@@ -1,0 +1,1073 @@
+namespace tests
+
+    @suite("playback state")
+    class PlaybackStateTests extends rooibos.BaseTestSuite
+
+        function stepped(before as object, event as object) as object
+            taken = PlaybackStep(before, event)
+            m.check(before, taken.state, taken.commands)
+            return taken
+        end function
+
+        sub check(before as object, after as object, commands as object)
+            change = after.status.sent
+            carried = { sendStart: "start", sendUpdate: "controls", sendSeek: "seek", loadStream: "load" }
+            stops = m.commandOf(commands, "stopPlayer") <> invalid
+            for each command in commands
+                if carried.DoesExist(command.kind)
+                    m.assertNotInvalid(change, command.kind + " with no change in flight")
+                    if change <> invalid
+                        m.assertEqual(change.kind, carried[command.kind])
+                        m.assertEqual(command.id, change.id)
+                    end if
+                end if
+                if command.kind = "playPlayer" then m.assertInvalid(change, "played during a change")
+                if command.kind = "sendUpdate" or command.kind = "sendSeek"
+                    m.assertNotInvalid(before.stream, "a request with no session")
+                    if before.stream <> invalid then m.assertEqual(command.sessionId, before.stream.sessionId)
+                    m.assertTrue(stops, "the stream runs while the server changes it")
+                end if
+                if command.kind = "sendStart" then m.assertTrue(after.status.gathered, "a start before the gather")
+                if command.kind = "sendProgress"
+                    m.assertNotInvalid(after.stream, "progress with no session")
+                    if after.stream <> invalid then m.assertEqual(command.sessionId, after.stream.sessionId)
+                end if
+                if command.kind = "seekPlayer" or command.kind = "sendSeek" then m.assertFalse(after.timeline.ended, "ended after a seek")
+                if before.status.life = "closed"
+                    m.assertEqual(command.kind, "endSession")
+                    m.assertEqual(command.positionMs, -1)
+                end if
+            end for
+
+            if IsWatching(after) and ReportsPlaying(after) <> ReportsPlaying(before)
+                reported = []
+                for each command in commands
+                    if command.kind = "sendProgress" then reported.Push(command.playing)
+                end for
+                m.assertEqual(reported.Count(), 1, "a change between playing and paused not reported once")
+                if reported.Count() = 1 then m.assertEqual(reported[0], ReportsPlaying(after))
+            end if
+
+            m.assertTrue(after.status.lastChangeId >= before.status.lastChangeId, "a change id went back")
+            if after.status.life = "closed"
+                m.assertInvalid(after.stream, "a stream after leaving")
+                m.assertInvalid(change, "a change after leaving")
+            end if
+            if change <> invalid
+                m.assertEqual(after.status.life, "open")
+                if not IsBlank(after.status.notice) then m.assertEqual(change.kind, "load", "a notice during a change other than the reload")
+            end if
+            if after.status.slow then m.assertNotInvalid(change, "slow with no change in flight")
+            if change <> invalid and change.kind = "load" then m.assertFalse(after.timeline.ended, "ended while loading")
+            if change <> invalid and change.kind = "load" then m.assertFalse(after.timeline.placed, "placed while loading")
+            if after.timeline.ended then m.assertFalse(after.timeline.placed, "placed at the end")
+            if change <> invalid and change.kind <> "start" then m.assertNotInvalid(after.stream, "a change with no stream")
+            if not IsBlank(after.status.error)
+                m.assertInvalid(after.stream, "an error with a stream")
+                m.assertInvalid(change, "an error with a change")
+            end if
+        end sub
+
+        function answer(changes = invalid as dynamic) as object
+            json = {
+                session_id: "s1",
+                manifest_url: "/hls/s1/master.m3u8",
+                origin_ms: 60000,
+                sequential: true,
+                mode: "transcode",
+                container: "mpegts",
+                heartbeat_interval_s: 10,
+                selected: { audio_track: 1, subtitle_delivery: "sidecar" }
+            }
+            if changes <> invalid then json.Append(changes)
+            return json
+        end function
+
+        function opened(lastChangeId = 0 as integer) as object
+            fresh = PlaybackOpens("v1", DefaultControls(), lastChangeId)
+            return m.stepped(fresh, { kind: "opened", durationMs: 600000, resumeMs: 90000, remote: DefaultControls() }).state
+        end function
+
+        function justLoaded(json = invalid as dynamic) as object
+            answered = json
+            if answered = invalid then answered = m.answer()
+            started = m.stepped(m.opened(), { kind: "started", id: 1, json: answered }).state
+            return m.stepped(started, { kind: "loaded", id: 1 }).state
+        end function
+
+        function watching(json = invalid as dynamic) as object
+            s = m.justLoaded(json)
+            return m.stepped(s, m.reading(s.timeline.positionMs - s.stream.originMs)).state
+        end function
+
+        function flat() as object
+            return m.watching(m.answer({ sequential: false, origin_ms: 0 }))
+        end function
+
+        function loadedPaused() as object
+            paused = m.stepped(m.watching(), { kind: "toggle" }).state
+            updated = m.stepped(m.changed(paused).state, { kind: "updated", id: 2, json: m.answer() }).state
+            return m.stepped(updated, { kind: "loaded", id: 2 }).state
+        end function
+
+        function reading(positionMs as integer, playing = true as boolean, bufferedAheadMs = 0 as integer, ended = false as boolean, durationMs = 0 as integer) as object
+            return { kind: "reads", reading: { positionMs: positionMs, durationMs: durationMs, bufferedAheadMs: bufferedAheadMs, playing: playing, ended: ended } }
+        end function
+
+        function changed(s as object, height = 720 as integer) as object
+            controls = ControlsCopy(s.remote)
+            controls.height = height
+            return m.stepped(s, { kind: "changeRemote", controls: controls })
+        end function
+
+        function kinds(commands as object) as string
+            names = []
+            for each command in commands
+                names.Push(command.kind)
+            end for
+            return names.Join(",")
+        end function
+
+        function commandOf(commands as object, kind as string) as dynamic
+            for each command in commands
+                if command.kind = kind then return command
+            end for
+            return invalid
+        end function
+
+        @describe("opening")
+
+        @it("starts the session at the resume point with the settings it gathered")
+        sub openedStarts()
+            controls = DefaultControls()
+            controls.height = 720
+            taken = m.stepped(PlaybackOpens("v1", DefaultControls()), { kind: "opened", durationMs: 600000, resumeMs: 90000, remote: controls })
+
+            m.assertEqual(m.kinds(taken.commands), "sendStart")
+            m.assertEqual(taken.commands[0].positionMs, 90000)
+            m.assertEqual(taken.commands[0].controls.height, 720)
+            m.assertEqual(taken.state.timeline.positionMs, 90000)
+            m.assertEqual(taken.state.durationMs, 600000)
+            m.assertTrue(taken.state.status.gathered)
+            m.assertEqual(taken.state.status.sent.kind, "start")
+        end sub
+
+        @it("starts nothing on a second gather or after leaving")
+        sub openedOnce()
+            event = { kind: "opened", durationMs: 600000, resumeMs: 90000, remote: DefaultControls() }
+            m.assertEqual(m.kinds(m.stepped(m.opened(), event).commands), "")
+
+            left = m.stepped(PlaybackOpens("v1", DefaultControls()), { kind: "leave" }).state
+            m.assertEqual(m.kinds(m.stepped(left, event).commands), "")
+        end sub
+
+        @describe("the server's answers")
+
+        @it("loads the start's stream at the resume point with the server's picks")
+        sub startedLoads()
+            json = m.answer({ selected: { audio_track: 2, subtitle_track: { type: "embedded", index: 3 }, subtitle_delivery: "sidecar" } })
+            taken = m.stepped(m.opened(), { kind: "started", id: 1, json: json })
+
+            m.assertEqual(m.kinds(taken.commands), "loadStream")
+            m.assertEqual(taken.commands[0].offsetMs, 30000)
+            m.assertTrue(taken.commands[0].captions)
+            m.assertEqual(taken.state.stream.sessionId, "s1")
+            m.assertEqual(taken.state.stream.manifestUrl, "/hls/s1/master.m3u8")
+            m.assertEqual(taken.state.remote.audioTrack, 2)
+            m.assertEqual(taken.state.remote.subtitle.index, 3)
+            m.assertEqual(taken.state.timeline.seekingToMs, 90000)
+            m.assertEqual(taken.state.timeline.reachMs, 90000)
+        end sub
+
+        @it("leaves captions to a burned subtitle and to no subtitle")
+        sub captionsOnlyForSidecars()
+            burned = m.answer({ selected: { subtitle_track: { type: "embedded", index: 3 }, subtitle_delivery: "burned" } })
+            m.assertFalse(m.stepped(m.opened(), { kind: "started", id: 1, json: burned }).commands[0].captions)
+            m.assertFalse(m.stepped(m.opened(), { kind: "started", id: 1, json: m.answer() }).commands[0].captions)
+        end sub
+
+        @it("beats at the fallback interval when the answer has none")
+        sub fallbackInterval()
+            json = m.answer()
+            json.Delete("heartbeat_interval_s")
+            taken = m.stepped(m.opened(), { kind: "started", id: 1, json: json })
+
+            m.assertEqual(taken.state.stream.heartbeatS, HeartbeatFallbackSeconds())
+        end sub
+
+        @it("ends the session of a start answered after leaving")
+        sub lateStartEnded()
+            left = m.stepped(m.opened(), { kind: "leave" }).state
+            taken = m.stepped(left, { kind: "started", id: 1, json: m.answer() })
+
+            m.assertEqual(m.kinds(taken.commands), "endSession")
+            m.assertEqual(taken.commands[0].sessionId, "s1")
+            m.assertInvalid(taken.state.stream)
+        end sub
+
+        @it("goes on from the last id, so the previous episode's late start is ended")
+        sub idsGoOnAcrossEpisodes()
+            s = m.opened(3)
+            m.assertEqual(s.status.sent.id, 4)
+
+            late = m.stepped(s, { kind: "started", id: 1, json: m.answer({ session_id: "s0" }) })
+            m.assertEqual(m.kinds(late.commands), "endSession")
+            m.assertEqual(late.commands[0].sessionId, "s0")
+
+            m.assertEqual(m.kinds(m.stepped(late.state, { kind: "started", id: 4, json: m.answer() }).commands), "loadStream")
+        end sub
+
+        @it("shows a refused start with no stream")
+        sub refusedStart()
+            taken = m.stepped(m.opened(), { kind: "refusedStart", id: 1, message: "Could not start playback (busy)." })
+
+            m.assertEqual(m.kinds(taken.commands), "")
+            m.assertEqual(taken.state.status.error, "Could not start playback (busy).")
+            m.assertInvalid(taken.state.status.sent)
+            m.assertInvalid(taken.state.stream)
+        end sub
+
+        @it("ignores an answer for another change")
+        sub otherAnswerIgnored()
+            s = m.changed(m.watching()).state
+            taken = m.stepped(s, { kind: "updated", id: 1, json: m.answer() })
+
+            m.assertEqual(m.kinds(taken.commands), "")
+            m.assertEqual(taken.state.status.sent.kind, "controls")
+        end sub
+
+        @describe("loading")
+
+        @it("plays a loaded stream when playing, and reports it")
+        sub loadedPlays()
+            started = m.stepped(m.opened(), { kind: "started", id: 1, json: m.answer() }).state
+            taken = m.stepped(started, { kind: "loaded", id: 1 })
+
+            m.assertEqual(m.kinds(taken.commands), "playPlayer,sendProgress")
+            m.assertTrue(taken.commands[1].playing)
+            m.assertEqual(taken.commands[1].positionMs, 90000)
+            m.assertInvalid(taken.state.status.sent)
+        end sub
+
+        @it("keeps a stream loaded while paused paused")
+        sub loadedStaysPaused()
+            paused = m.stepped(m.watching(), { kind: "toggle" }).state
+            updated = m.stepped(m.changed(paused).state, { kind: "updated", id: 2, json: m.answer() }).state
+
+            m.assertEqual(m.kinds(m.stepped(updated, { kind: "loaded", id: 2 }).commands), "")
+        end sub
+
+        @it("ends the session of a stream that fails to load")
+        sub failedToLoad()
+            started = m.stepped(m.opened(), { kind: "started", id: 1, json: m.answer() }).state
+            taken = m.stepped(started, { kind: "failedToLoad", id: 1, message: "Playback failed (gone)." })
+
+            m.assertEqual(m.kinds(taken.commands), "endSession,unloadPlayer")
+            m.assertEqual(taken.commands[0].sessionId, "s1")
+            m.assertEqual(taken.state.status.error, "Playback failed (gone).")
+            m.assertInvalid(taken.state.stream)
+        end sub
+
+        @it("ignores a load reported for another change")
+        sub otherLoadIgnored()
+            started = m.stepped(m.opened(), { kind: "started", id: 1, json: m.answer() }).state
+
+            m.assertEqual(m.kinds(m.stepped(started, { kind: "loaded", id: 2 }).commands), "")
+            m.assertEqual(m.kinds(m.stepped(started, { kind: "failedToLoad", id: 2, message: "x" }).commands), "")
+        end sub
+
+        @describe("the player's readings")
+
+        @it("move the position and the reach once settled")
+        sub readingsMove()
+            taken = m.stepped(m.justLoaded(), m.reading(30500, true, 12000))
+
+            m.assertEqual(taken.state.timeline.positionMs, 90500)
+            m.assertEqual(taken.state.timeline.seekingToMs, -1)
+            m.assertEqual(taken.state.timeline.reachMs, 102500)
+        end sub
+
+        @it("fill a length the server does not know")
+        sub readingsFillLength()
+            s = m.watching()
+            s.durationMs = 0
+
+            m.assertEqual(m.stepped(s, m.reading(30000, true, 0, false, 540000)).state.durationMs, 600000)
+            m.assertEqual(m.stepped(m.watching(), m.reading(30000, true, 0, false, 300000)).state.durationMs, 600000)
+        end sub
+
+        @it("hold the reach while far from a seek target")
+        sub readingsHoldReach()
+            taken = m.stepped(m.justLoaded(), m.reading(0, true, 50000))
+
+            m.assertEqual(taken.state.timeline.reachMs, 90000)
+        end sub
+
+        @it("take the end with no position, keeping the position")
+        sub readingsEndWithoutPosition()
+            taken = m.stepped(m.justLoaded(), m.reading(-1, false, 0, true))
+
+            m.assertTrue(taken.state.timeline.ended)
+            m.assertEqual(taken.state.timeline.positionMs, 90000)
+            m.assertEqual(taken.state.timeline.seekingToMs, -1)
+            m.assertEqual(taken.state.timeline.reachMs, 90000)
+        end sub
+
+        @it("place the node once it reports a position, until the end or the next load")
+        sub readingsPlace()
+            s = m.justLoaded()
+            m.assertFalse(s.timeline.placed)
+            m.assertFalse(m.stepped(s, m.reading(-1)).state.timeline.placed)
+
+            placed = m.stepped(s, m.reading(0)).state
+            m.assertTrue(placed.timeline.placed)
+            m.assertEqual(placed.timeline.seekingToMs, 90000)
+            m.assertTrue(m.stepped(placed, m.reading(-1)).state.timeline.placed)
+            m.assertFalse(m.stepped(placed, m.reading(30000, false, 0, true)).state.timeline.placed)
+
+            reloaded = m.stepped(m.changed(placed).state, { kind: "updated", id: 2, json: m.answer() }).state
+            m.assertFalse(reloaded.timeline.placed)
+        end sub
+
+        @it("wait while far from a seek target, until the settle frees them")
+        sub readingsWaitForTarget()
+            far = m.stepped(m.justLoaded(), m.reading(0))
+            m.assertEqual(far.state.timeline.positionMs, 90000)
+            m.assertEqual(far.state.timeline.seekingToMs, 90000)
+
+            settled = m.stepped(far.state, { kind: "seekSettled", targetMs: 90000 }).state
+            m.assertEqual(settled.timeline.seekingToMs, -1)
+            m.assertEqual(m.stepped(settled, m.reading(0)).state.timeline.positionMs, 60000)
+        end sub
+
+        @it("keep the position before the stream has played")
+        sub readingsWithoutPosition()
+            taken = m.stepped(m.justLoaded(), m.reading(-1, false))
+
+            m.assertEqual(taken.state.timeline.positionMs, 90000)
+            m.assertEqual(taken.state.timeline.seekingToMs, 90000)
+            m.assertFalse(taken.state.timeline.playing)
+            m.assertEqual(m.kinds(taken.commands), "sendProgress")
+        end sub
+
+        @it("are ignored during a change")
+        sub readingsIgnoredDuringChange()
+            s = m.changed(m.watching()).state
+            taken = m.stepped(s, m.reading(40000, false))
+
+            m.assertEqual(taken.state.timeline.positionMs, 90000)
+            m.assertTrue(taken.state.timeline.playing)
+        end sub
+
+        @it("report a change between playing and paused, once")
+        sub readingsReportPause()
+            paused = m.stepped(m.watching(), m.reading(30000, false))
+            m.assertEqual(m.kinds(paused.commands), "sendProgress")
+            m.assertFalse(paused.commands[0].playing)
+
+            m.assertEqual(m.kinds(m.stepped(paused.state, m.reading(30000, false)).commands), "")
+        end sub
+
+        @it("take the end however far from a held target, freeing the hold")
+        sub readingsEndSettles()
+            taken = m.stepped(m.justLoaded(), m.reading(0, false, 5000, true))
+
+            m.assertTrue(taken.state.timeline.ended)
+            m.assertEqual(taken.state.timeline.seekingToMs, -1)
+            m.assertEqual(taken.state.timeline.positionMs, 60000)
+            m.assertEqual(taken.state.timeline.reachMs, 65000)
+            m.assertTrue(m.stepped(m.watching(), m.reading(30000, false, 0, true)).state.timeline.ended)
+        end sub
+
+        @it("keep an end reached during a hold through the steps that follow")
+        sub endReachedDuringHold()
+            held = m.stepped(m.flat(), { kind: "seek", positionMs: 600000 }).state
+            ended = m.stepped(held, m.reading(598500, false, 0, true)).state
+            m.assertTrue(ended.timeline.ended)
+            m.assertEqual(ended.timeline.positionMs, 598500)
+            m.assertEqual(ended.timeline.seekingToMs, -1)
+
+            stepped = m.stepped(ended, { kind: "seekBy", deltaMs: 10000 })
+            m.assertEqual(m.kinds(stepped.commands), "")
+            m.assertTrue(stepped.state.timeline.ended)
+        end sub
+
+        @it("leave the end once the node reports a position again")
+        sub readingsLeaveTheEnd()
+            ended = m.stepped(m.watching(), m.reading(30000, false, 0, true)).state
+            taken = m.stepped(ended, m.reading(25000))
+
+            m.assertFalse(taken.state.timeline.ended)
+            m.assertTrue(taken.state.timeline.placed)
+            m.assertEqual(taken.state.timeline.positionMs, 85000)
+        end sub
+
+        @describe("player errors")
+
+        @it("end the stream while watching, with Try again")
+        sub errorEndsStream()
+            taken = m.stepped(m.watching(), { kind: "errs", message: "Could not start playback (decoder)." })
+
+            m.assertEqual(m.kinds(taken.commands), "endSession,unloadPlayer")
+            m.assertEqual(taken.commands[0].positionMs, 90000)
+            m.assertFalse(taken.commands[0].playing)
+            m.assertEqual(taken.state.status.error, "Could not start playback (decoder).")
+            m.assertInvalid(taken.state.stream)
+        end sub
+
+        @it("are ignored during a start or a change")
+        sub errorIgnoredDuringChange()
+            m.assertEqual(m.kinds(m.stepped(m.opened(), { kind: "errs", message: "x" }).commands), "")
+
+            taken = m.stepped(m.changed(m.watching()).state, { kind: "errs", message: "x" })
+            m.assertEqual(m.kinds(taken.commands), "")
+            m.assertTrue(IsBlank(taken.state.status.error))
+        end sub
+
+        @describe("seeking")
+
+        @it("moves the player within reach and holds the target")
+        sub seekWithinReach()
+            s = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
+            taken = m.stepped(s, { kind: "seek", positionMs: 130000 })
+
+            m.assertEqual(m.kinds(taken.commands), "seekPlayer")
+            m.assertEqual(taken.commands[0].offsetMs, 70000)
+            m.assertEqual(taken.state.timeline.positionMs, 130000)
+            m.assertEqual(taken.state.timeline.seekingToMs, 130000)
+        end sub
+
+        @it("stops the stream and asks the server past reach or before the stream's start")
+        sub seekPastReach()
+            s = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
+            taken = m.stepped(s, { kind: "seek", positionMs: 130001 })
+
+            m.assertEqual(m.kinds(taken.commands), "stopPlayer,sendSeek")
+            m.assertEqual(taken.commands[1].positionMs, 130001)
+            m.assertEqual(taken.state.status.sent.previousMs, 90000)
+            m.assertEqual(taken.state.timeline.positionMs, 130001)
+            m.assertEqual(taken.state.timeline.seekingToMs, -1)
+
+            m.assertEqual(m.kinds(m.stepped(s, { kind: "seek", positionMs: 59999 }).commands), "stopPlayer,sendSeek")
+        end sub
+
+        @it("seeks anywhere in a stream that is not sequential")
+        sub seekFlatStream()
+            taken = m.stepped(m.flat(), { kind: "seek", positionMs: 500000 })
+
+            m.assertEqual(m.kinds(taken.commands), "seekPlayer")
+            m.assertEqual(taken.commands[0].offsetMs, 500000)
+        end sub
+
+        @it("keeps a seek within the title")
+        sub seekWithinTitle()
+            m.assertEqual(m.stepped(m.flat(), { kind: "seek", positionMs: -5000 }).commands[0].offsetMs, 0)
+            m.assertEqual(m.stepped(m.flat(), { kind: "seek", positionMs: 900000 }).commands[0].offsetMs, 600000)
+        end sub
+
+        @it("refuses seeks, steps and play or pause during a change")
+        sub refusedDuringChange()
+            s = m.changed(m.watching()).state
+
+            m.assertEqual(m.kinds(m.stepped(s, { kind: "seek", positionMs: 100000 }).commands), "")
+            m.assertEqual(m.kinds(m.stepped(s, { kind: "seekBy", deltaMs: 10000 }).commands), "")
+            m.assertEqual(m.kinds(m.stepped(s, { kind: "toggle" }).commands), "")
+            m.assertEqual(m.stepped(s, { kind: "seek", positionMs: 100000 }).state.timeline.positionMs, 90000)
+        end sub
+
+        @it("adds steps to a seek still settling")
+        sub stepsAddUp()
+            once = m.stepped(m.flat(), { kind: "seekBy", deltaMs: 10000 })
+            twice = m.stepped(once.state, { kind: "seekBy", deltaMs: 10000 })
+
+            m.assertEqual(twice.state.timeline.positionMs, 110000)
+            m.assertEqual(twice.commands[0].offsetMs, 110000)
+        end sub
+
+        @it("takes no step with no length known")
+        sub stepNeedsLength()
+            s = m.flat()
+            s.durationMs = 0
+
+            m.assertEqual(m.kinds(m.stepped(s, { kind: "seekBy", deltaMs: 10000 }).commands), "")
+        end sub
+
+        @it("loads the server seek's stream at the target, keeping the session")
+        sub seekedLoads()
+            s = m.stepped(m.watching(), { kind: "seek", positionMs: 300000 }).state
+            json = { manifest_url: "/hls/s1/b.m3u8", origin_ms: 300000, sequential: true, mode: "transcode", container: "mpegts" }
+            taken = m.stepped(s, { kind: "seeked", id: 2, json: json })
+
+            m.assertEqual(m.kinds(taken.commands), "loadStream")
+            m.assertEqual(taken.commands[0].offsetMs, 0)
+            m.assertEqual(taken.state.stream.manifestUrl, "/hls/s1/b.m3u8")
+            m.assertEqual(taken.state.stream.sessionId, "s1")
+            m.assertEqual(taken.state.stream.heartbeatS, 10)
+            m.assertEqual(taken.state.timeline.seekingToMs, 300000)
+        end sub
+
+        @it("reloads the stream at a target within reach when the node is not placed, blocking until loaded")
+        sub seekReloadsUnplaced()
+            taken = m.stepped(m.justLoaded(), { kind: "seek", positionMs: 100000 })
+
+            m.assertEqual(m.kinds(taken.commands), "loadStream")
+            m.assertEqual(taken.commands[0].id, 2)
+            m.assertEqual(taken.commands[0].offsetMs, 40000)
+            m.assertEqual(taken.commands[0].stream.manifestUrl, "/hls/s1/master.m3u8")
+            m.assertEqual(taken.state.status.sent.kind, "load")
+            m.assertEqual(taken.state.timeline.positionMs, 100000)
+            m.assertEqual(taken.state.timeline.seekingToMs, 100000)
+            m.assertEqual(m.kinds(m.stepped(taken.state, { kind: "seekBy", deltaMs: 10000 }).commands), "")
+            m.assertEqual(m.kinds(m.stepped(taken.state, { kind: "loaded", id: 2 }).commands), "playPlayer,sendProgress")
+        end sub
+
+        @it("reloads a stream loaded paused for a step, and keeps it paused")
+        sub seekReloadsPaused()
+            taken = m.stepped(m.loadedPaused(), { kind: "seekBy", deltaMs: 10000 })
+
+            m.assertEqual(m.kinds(taken.commands), "loadStream")
+            m.assertEqual(taken.commands[0].id, 3)
+            m.assertEqual(taken.commands[0].offsetMs, 40000)
+            m.assertEqual(m.kinds(m.stepped(taken.state, { kind: "loaded", id: 3 }).commands), "")
+        end sub
+
+        @it("ends the stream with the error when a reload for a seek fails")
+        sub seekReloadFails()
+            reloading = m.stepped(m.justLoaded(), { kind: "seek", positionMs: 100000 }).state
+            taken = m.stepped(reloading, { kind: "failedToLoad", id: 2, message: "Playback failed (gone)." })
+
+            m.assertEqual(m.kinds(taken.commands), "endSession,unloadPlayer")
+            m.assertEqual(taken.commands[0].positionMs, 100000)
+            m.assertEqual(taken.state.status.error, "Playback failed (gone).")
+            m.assertInvalid(taken.state.stream)
+
+            timedOut = m.stepped(reloading, { kind: "changeTimedOut", id: 2, changeKind: "load", message: "x" })
+            m.assertEqual(m.kinds(timedOut.commands), "endSession,unloadPlayer")
+        end sub
+
+        @it("keeps the reach on a reload, so steps past what was read go to the server")
+        sub reloadKeepsReach()
+            reloading = m.stepped(m.loadedPaused(), { kind: "seekBy", deltaMs: 30000 })
+            m.assertEqual(m.kinds(reloading.commands), "loadStream")
+            m.assertEqual(reloading.state.timeline.reachMs, 90000)
+
+            reloaded = m.stepped(reloading.state, { kind: "loaded", id: 3 }).state
+            m.assertEqual(m.kinds(m.stepped(reloaded, { kind: "seekBy", deltaMs: 30000 }).commands), "stopPlayer,sendSeek")
+        end sub
+
+        @it("does nothing for a seek at or past the end once ended, and reloads for one back from it")
+        sub seekAtTheEnd()
+            ended = m.stepped(m.flat(), m.reading(598500, false, 0, true)).state
+            m.assertTrue(ended.timeline.ended)
+
+            m.assertEqual(m.kinds(m.stepped(ended, { kind: "seek", positionMs: 900000 }).commands), "")
+            m.assertEqual(m.kinds(m.stepped(ended, { kind: "seek", positionMs: 598500 }).commands), "")
+            forward = m.stepped(ended, { kind: "seekBy", deltaMs: 10000 })
+            m.assertEqual(m.kinds(forward.commands), "")
+            m.assertTrue(forward.state.timeline.ended)
+
+            back = m.stepped(ended, { kind: "seekBy", deltaMs: -10000 })
+            m.assertEqual(m.kinds(back.commands), "loadStream")
+            m.assertEqual(back.commands[0].offsetMs, 588500)
+            m.assertFalse(back.state.timeline.ended)
+        end sub
+
+        @it("takes an end past the title's length at the length, so a step forward still does nothing")
+        sub endPastTheTitle()
+            ended = m.stepped(m.flat(), m.reading(600300, false, 0, true)).state
+            m.assertEqual(ended.timeline.positionMs, 600000)
+
+            m.assertEqual(m.kinds(m.stepped(ended, { kind: "seekBy", deltaMs: 10000 }).commands), "")
+            m.assertEqual(m.kinds(m.stepped(ended, { kind: "seek", positionMs: 600000 }).commands), "")
+        end sub
+
+        @describe("play and pause")
+
+        @it("toggles pause and play, reporting each")
+        sub togglePausesAndPlays()
+            paused = m.stepped(m.watching(), { kind: "toggle" })
+            m.assertEqual(m.kinds(paused.commands), "pausePlayer,sendProgress")
+            m.assertFalse(paused.state.timeline.playing)
+
+            m.assertEqual(m.kinds(m.stepped(paused.state, { kind: "toggle" }).commands), "playPlayer,sendProgress")
+        end sub
+
+        @it("replays from the start at the end, reloading the stream")
+        sub toggleReplays()
+            ended = m.stepped(m.flat(), m.reading(600000, false, 0, true)).state
+            m.assertTrue(ended.timeline.ended)
+
+            taken = m.stepped(ended, { kind: "toggle" })
+            m.assertEqual(m.kinds(taken.commands), "loadStream")
+            m.assertEqual(taken.commands[0].offsetMs, 0)
+            m.assertEqual(taken.state.status.sent.kind, "load")
+            m.assertTrue(taken.state.timeline.playing)
+            m.assertFalse(taken.state.timeline.ended)
+            m.assertEqual(m.kinds(m.stepped(taken.state, { kind: "loaded", id: 2 }).commands), "playPlayer,sendProgress")
+        end sub
+
+        @it("asks the server for a replay the stream cannot reach, and puts paused back when it fails")
+        sub replayThroughServer()
+            ended = m.stepped(m.watching(), m.reading(30000, false, 0, true)).state
+            taken = m.stepped(ended, { kind: "toggle" })
+
+            m.assertEqual(m.kinds(taken.commands), "stopPlayer,sendSeek")
+            m.assertEqual(taken.commands[1].positionMs, 0)
+            m.assertTrue(taken.state.timeline.playing)
+
+            failed = m.stepped(taken.state, { kind: "failed", id: 2 }).state
+            m.assertFalse(failed.timeline.playing)
+            m.assertEqual(failed.timeline.positionMs, 90000)
+        end sub
+
+        @it("replays nothing at the end during a change or after an error")
+        sub replayNeedsWatching()
+            ended = m.stepped(m.watching(), m.reading(30000, false, 0, true)).state
+            during = m.stepped(m.changed(ended).state, { kind: "toggle" })
+            m.assertEqual(m.kinds(during.commands), "")
+            m.assertEqual(during.state.status.sent.kind, "controls")
+
+            failed = m.stepped(ended, { kind: "errs", message: "x" }).state
+            m.assertTrue(failed.timeline.ended)
+            m.assertEqual(m.kinds(m.stepped(failed, { kind: "toggle" }).commands), "")
+        end sub
+
+        @it("replays an end at the start by reloading at 0, not by playing the finished node")
+        sub replayFromAnEndAtZero()
+            opened = m.stepped(PlaybackOpens("v1", DefaultControls()), { kind: "opened", durationMs: 600000, resumeMs: 0, remote: DefaultControls() }).state
+            started = m.stepped(opened, { kind: "started", id: 1, json: m.answer({ sequential: false, origin_ms: 0 }) }).state
+            ended = m.stepped(m.stepped(started, { kind: "loaded", id: 1 }).state, m.reading(-1, false, 0, true)).state
+            m.assertTrue(ended.timeline.ended)
+            m.assertEqual(ended.timeline.positionMs, 0)
+
+            taken = m.stepped(ended, { kind: "toggle" })
+            m.assertEqual(m.kinds(taken.commands), "loadStream")
+            m.assertEqual(taken.commands[0].offsetMs, 0)
+            m.assertTrue(taken.state.timeline.playing)
+        end sub
+
+        @describe("stream settings")
+
+        @it("stops the stream and sends the update at the position")
+        sub changeSendsUpdate()
+            taken = m.changed(m.watching())
+
+            m.assertEqual(m.kinds(taken.commands), "stopPlayer,sendUpdate")
+            m.assertEqual(taken.commands[1].positionMs, 90000)
+            m.assertEqual(taken.commands[1].controls.height, 720)
+            m.assertEqual(taken.state.remote.height, 720)
+            m.assertEqual(taken.state.status.sent.previous.height, 0)
+        end sub
+
+        @it("loads the update's stream at the position sent, with its subtitle delivery")
+        sub updatedLoads()
+            s = m.changed(m.watching()).state
+            json = { manifest_url: "/hls/s1/c.m3u8", origin_ms: 60000, sequential: true, mode: "transcode", container: "mpegts", selected: { subtitle_delivery: "burned" } }
+            taken = m.stepped(s, { kind: "updated", id: 2, json: json })
+
+            m.assertEqual(m.kinds(taken.commands), "loadStream")
+            m.assertEqual(taken.commands[0].offsetMs, 30000)
+            m.assertFalse(taken.commands[0].captions)
+            m.assertEqual(taken.state.stream.subtitleDelivery, "burned")
+            m.assertEqual(taken.state.stream.manifestUrl, "/hls/s1/c.m3u8")
+        end sub
+
+        @it("sends nothing with no stream or for the same update")
+        sub changeWithoutRequest()
+            refused = m.stepped(m.opened(), { kind: "refusedStart", id: 1, message: "x" }).state
+            kept = m.changed(refused)
+            m.assertEqual(m.kinds(kept.commands), "")
+            m.assertEqual(kept.state.remote.height, 720)
+
+            s = m.watching()
+            controls = ControlsCopy(s.remote)
+            controls.offsetMs = 500
+            same = m.stepped(s, { kind: "changeRemote", controls: controls })
+            m.assertEqual(m.kinds(same.commands), "")
+            m.assertEqual(same.state.remote.offsetMs, 500)
+        end sub
+
+        @it("loads the new stream of a change made at the end off the end")
+        sub changeAtTheEnd()
+            ended = m.stepped(m.watching(), m.reading(30000, false, 0, true)).state
+            m.assertTrue(ended.timeline.ended)
+
+            loading = m.stepped(m.changed(ended).state, { kind: "updated", id: 2, json: m.answer() }).state
+            m.assertFalse(loading.timeline.ended)
+        end sub
+
+        @it("refuses a change during a change and after leaving")
+        sub changeRefused()
+            busy = m.changed(m.watching()).state
+            m.assertEqual(m.kinds(m.changed(busy, 480).commands), "")
+            m.assertEqual(m.changed(busy, 480).state.remote.height, 720)
+
+            left = m.stepped(m.watching(), { kind: "leave" }).state
+            m.assertEqual(m.kinds(m.changed(left).commands), "")
+        end sub
+
+        @describe("a failed change")
+
+        @it("puts the setting back, says so and reloads the old stream at the position")
+        sub failedUpdateReloads()
+            taken = m.stepped(m.changed(m.watching()).state, { kind: "failed", id: 2 })
+
+            m.assertEqual(m.kinds(taken.commands), "loadStream")
+            m.assertEqual(taken.commands[0].offsetMs, 30000)
+            m.assertEqual(taken.commands[0].stream.manifestUrl, "/hls/s1/master.m3u8")
+            m.assertEqual(taken.state.remote.height, 0)
+            m.assertEqual(taken.state.status.notice, "changeFailed")
+
+            loaded = m.stepped(taken.state, { kind: "loaded", id: 2 })
+            m.assertEqual(m.kinds(loaded.commands), "playPlayer,sendProgress")
+            m.assertEqual(loaded.state.status.notice, "changeFailed")
+        end sub
+
+        @it("puts a seek's position and pause back, says so and reloads there")
+        sub failedSeekReloads()
+            paused = m.stepped(m.watching(), { kind: "toggle" }).state
+            taken = m.stepped(m.stepped(paused, { kind: "seek", positionMs: 300000 }).state, { kind: "failed", id: 2 })
+
+            m.assertEqual(m.kinds(taken.commands), "loadStream")
+            m.assertEqual(taken.commands[0].offsetMs, 30000)
+            m.assertEqual(taken.state.timeline.positionMs, 90000)
+            m.assertFalse(taken.state.timeline.playing)
+            m.assertEqual(taken.state.status.notice, "seekFailed")
+            m.assertEqual(m.kinds(m.stepped(taken.state, { kind: "loaded", id: 2 }).commands), "")
+        end sub
+
+        @it("keeps the reach on the reload after a failed request")
+        sub failedReloadKeepsReach()
+            s = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
+            reloading = m.stepped(m.changed(s).state, { kind: "failed", id: 2 })
+            m.assertEqual(reloading.state.timeline.reachMs, 100000)
+
+            reloaded = m.stepped(reloading.state, { kind: "loaded", id: 2 }).state
+            m.assertEqual(m.kinds(m.stepped(reloaded, { kind: "seek", positionMs: 125000 }).commands), "loadStream")
+        end sub
+
+        @it("draws captions on the reload for the subtitle put back")
+        sub failedReloadCaptions()
+            subtitled = m.watching(m.answer({ selected: { subtitle_track: { type: "embedded", index: 3 }, subtitle_delivery: "sidecar" } }))
+            dropped = ControlsCopy(subtitled.remote)
+            dropped.subtitle = invalid
+            dropped.subtitleOff = true
+            m.assertTrue(m.stepped(m.stepped(subtitled, { kind: "changeRemote", controls: dropped }).state, { kind: "failed", id: 2 }).commands[0].captions)
+
+            bare = m.watching()
+            added = ControlsCopy(bare.remote)
+            added.subtitle = { type: "embedded", index: 3 }
+            m.assertFalse(m.stepped(m.stepped(bare, { kind: "changeRemote", controls: added }).state, { kind: "failed", id: 2 }).commands[0].captions)
+        end sub
+
+        @it("ends the session when the reload fails")
+        sub failedReload()
+            reloading = m.stepped(m.changed(m.watching()).state, { kind: "failed", id: 2 }).state
+            taken = m.stepped(reloading, { kind: "failedToLoad", id: 2, message: "Playback failed (gone)." })
+
+            m.assertEqual(m.kinds(taken.commands), "endSession,unloadPlayer")
+            m.assertEqual(taken.state.status.error, "Playback failed (gone).")
+        end sub
+
+        @it("ignores a failure when nothing is requested")
+        sub failureIgnored()
+            m.assertEqual(m.kinds(m.stepped(m.opened(), { kind: "failed", id: 1 }).commands), "")
+
+            loading = m.stepped(m.changed(m.watching()).state, { kind: "updated", id: 2, json: m.answer() }).state
+            m.assertEqual(m.kinds(m.stepped(loading, { kind: "failed", id: 2 }).commands), "")
+        end sub
+
+        @describe("Try again")
+
+        @it("starts at the position with the chosen settings")
+        sub retryStarts()
+            failed = m.stepped(m.watching(), { kind: "errs", message: "x" }).state
+            chosen = m.changed(failed).state
+            taken = m.stepped(chosen, { kind: "retry" })
+
+            m.assertEqual(m.kinds(taken.commands), "sendStart")
+            m.assertEqual(taken.commands[0].id, 2)
+            m.assertEqual(taken.commands[0].positionMs, 90000)
+            m.assertEqual(taken.commands[0].controls.height, 720)
+            m.assertTrue(IsBlank(taken.state.status.error))
+        end sub
+
+        @it("only follows an error")
+        sub retryNeedsError()
+            m.assertEqual(m.kinds(m.stepped(m.watching(), { kind: "retry" }).commands), "")
+            m.assertEqual(m.kinds(m.stepped(m.opened(), { kind: "retry" }).commands), "")
+        end sub
+
+        @describe("leaving")
+
+        @it("ends the session at the last position and unloads")
+        sub leaveEnds()
+            taken = m.stepped(m.watching(), { kind: "leave" })
+
+            m.assertEqual(m.kinds(taken.commands), "endSession,unloadPlayer")
+            m.assertEqual(taken.commands[0].positionMs, 90000)
+            m.assertTrue(taken.commands[0].playing)
+            m.assertEqual(taken.state.status.life, "closed")
+            m.assertInvalid(taken.state.stream)
+        end sub
+
+        @it("reports paused when leaving during a change")
+        sub leaveDuringChange()
+            m.assertFalse(m.stepped(m.changed(m.watching()).state, { kind: "leave" }).commands[0].playing)
+        end sub
+
+        @it("ends nothing during the start, and nothing twice")
+        sub leaveDuringStart()
+            left = m.stepped(m.opened(), { kind: "leave" })
+            m.assertEqual(m.kinds(left.commands), "")
+            m.assertEqual(m.kinds(m.stepped(left.state, { kind: "leave" }).commands), "")
+        end sub
+
+        @it("beats and slows nothing after leaving")
+        sub nothingAfterLeaving()
+            left = m.stepped(m.watching(), { kind: "leave" }).state
+            m.assertEqual(m.kinds(m.stepped(left, { kind: "heartbeatDue" }).commands), "")
+
+            started = m.stepped(m.opened(), { kind: "leave" }).state
+            m.assertFalse(m.stepped(started, { kind: "changeSlow", id: 1 }).state.status.slow)
+        end sub
+
+        @it("opens the next episode after leaving, going on from the last id")
+        sub opensNextEpisode()
+            left = m.stepped(m.changed(m.watching()).state, { kind: "leave" }).state
+            controls = DefaultControls()
+            controls.audioTrack = 2
+            taken = m.stepped(left, { kind: "open", versionId: "v2", remote: controls })
+
+            m.assertEqual(m.kinds(taken.commands), "")
+            m.assertEqual(taken.state.versionId, "v2")
+            m.assertEqual(taken.state.status.life, "open")
+            m.assertFalse(taken.state.status.gathered)
+            m.assertEqual(taken.state.status.lastChangeId, 2)
+            m.assertEqual(taken.state.remote.audioTrack, 2)
+            m.assertInvalid(taken.state.stream)
+
+            event = { kind: "opened", durationMs: 600000, resumeMs: 0, remote: controls }
+            m.assertEqual(m.stepped(taken.state, event).commands[0].id, 3)
+        end sub
+
+        @it("opens the next episode fresh after an end that was paused, failed and noted")
+        sub opensNextEpisodeFresh()
+            noted = m.stepped(m.stepped(m.changed(m.watching()).state, { kind: "failed", id: 2 }).state, { kind: "loaded", id: 2 }).state
+            ended = m.stepped(noted, m.reading(30000, false, 0, true)).state
+            failed = m.stepped(ended, { kind: "errs", message: "x" }).state
+            m.assertEqual(failed.status.notice, "changeFailed")
+            m.assertFalse(IsBlank(failed.status.error))
+            m.assertTrue(failed.timeline.ended)
+
+            left = m.stepped(failed, { kind: "leave" }).state
+            fresh = m.stepped(left, { kind: "open", versionId: "v2", remote: DefaultControls() }).state
+
+            m.assertTrue(fresh.timeline.playing)
+            m.assertFalse(fresh.timeline.ended)
+            m.assertEqual(fresh.timeline.positionMs, 0)
+            m.assertEqual(fresh.timeline.seekingToMs, -1)
+            m.assertEqual(fresh.durationMs, 0)
+            m.assertTrue(IsBlank(fresh.status.error))
+            m.assertTrue(IsBlank(fresh.status.notice))
+        end sub
+
+        @it("clears a notice at the next change and at Try again")
+        sub noticeClearedByNextChange()
+            noted = m.stepped(m.stepped(m.changed(m.watching()).state, { kind: "failed", id: 2 }).state, { kind: "loaded", id: 2 }).state
+            m.assertEqual(noted.status.notice, "changeFailed")
+            m.assertTrue(IsBlank(m.changed(noted, 480).state.status.notice))
+            m.assertTrue(IsBlank(m.stepped(noted, { kind: "seek", positionMs: 300000 }).state.status.notice))
+
+            reloaded = m.stepped(noted, { kind: "seek", positionMs: 100000 })
+            m.assertEqual(m.kinds(reloaded.commands), "loadStream")
+            m.assertTrue(IsBlank(reloaded.state.status.notice))
+            m.assertEqual(reloaded.state.status.lastChangeId, 3)
+
+            failed = m.stepped(noted, { kind: "errs", message: "x" }).state
+            m.assertEqual(failed.status.notice, "changeFailed")
+            m.assertTrue(IsBlank(m.stepped(failed, { kind: "retry" }).state.status.notice))
+        end sub
+
+        @it("opens nothing over a state still open")
+        sub openRefusedWhileOpen()
+            taken = m.stepped(m.watching(), { kind: "open", versionId: "v2", remote: DefaultControls() })
+
+            m.assertEqual(taken.state.versionId, "v1")
+            m.assertNotInvalid(taken.state.stream)
+        end sub
+
+        @describe("timer events")
+
+        @it("beat with the position, paused during a change, and not without a stream")
+        sub heartbeat()
+            beat = m.stepped(m.watching(), { kind: "heartbeatDue" })
+            m.assertEqual(m.kinds(beat.commands), "sendProgress")
+            m.assertTrue(beat.commands[0].playing)
+            m.assertEqual(beat.commands[0].positionMs, 90000)
+
+            m.assertFalse(m.stepped(m.changed(m.watching()).state, { kind: "heartbeatDue" }).commands[0].playing)
+            m.assertEqual(m.kinds(m.stepped(m.opened(), { kind: "heartbeatDue" }).commands), "")
+        end sub
+
+        @it("mark only the change in flight slow, through its load")
+        sub slowFollowsChange()
+            slow = m.stepped(m.opened(), { kind: "changeSlow", id: 1 }).state
+            m.assertTrue(slow.status.slow)
+            m.assertFalse(m.stepped(m.opened(), { kind: "changeSlow", id: 5 }).state.status.slow)
+
+            started = m.stepped(slow, { kind: "started", id: 1, json: m.answer() }).state
+            m.assertTrue(started.status.slow)
+            m.assertFalse(m.stepped(started, { kind: "loaded", id: 1 }).state.status.slow)
+        end sub
+
+        @it("are cleared however a slow change ends")
+        sub slowClearedOnEveryEnd()
+            slowStart = m.stepped(m.opened(), { kind: "changeSlow", id: 1 }).state
+            m.assertFalse(m.stepped(slowStart, { kind: "refusedStart", id: 1, message: "x" }).state.status.slow)
+            m.assertFalse(m.stepped(slowStart, { kind: "leave" }).state.status.slow)
+
+            slowLoad = m.stepped(slowStart, { kind: "started", id: 1, json: m.answer() }).state
+            m.assertFalse(m.stepped(slowLoad, { kind: "failedToLoad", id: 1, message: "x" }).state.status.slow)
+
+            slowChange = m.stepped(m.changed(m.watching()).state, { kind: "changeSlow", id: 2 }).state
+            m.assertTrue(slowChange.status.slow)
+            m.assertFalse(m.stepped(slowChange, { kind: "changeTimedOut", id: 2, changeKind: "controls", message: "x" }).state.status.slow)
+        end sub
+
+        @it("fail a start with no answer")
+        sub startTimesOut()
+            taken = m.stepped(m.opened(), { kind: "changeTimedOut", id: 1, changeKind: "start", message: "Could not start playback (no answer)." })
+
+            m.assertEqual(taken.state.status.error, "Could not start playback (no answer).")
+            m.assertInvalid(taken.state.status.sent)
+        end sub
+
+        @it("end the session of a load with no answer")
+        sub loadTimesOut()
+            started = m.stepped(m.opened(), { kind: "started", id: 1, json: m.answer() }).state
+            taken = m.stepped(started, { kind: "changeTimedOut", id: 1, changeKind: "load", message: "Playback failed (no answer)." })
+
+            m.assertEqual(m.kinds(taken.commands), "endSession,unloadPlayer")
+            m.assertEqual(taken.state.status.error, "Playback failed (no answer).")
+        end sub
+
+        @it("end the session of an update or seek with no answer, put back")
+        sub requestTimesOut()
+            update = m.stepped(m.changed(m.watching()).state, { kind: "changeTimedOut", id: 2, changeKind: "controls", message: "Playback failed (no answer)." })
+            m.assertEqual(m.kinds(update.commands), "endSession,unloadPlayer")
+            m.assertEqual(update.state.remote.height, 0)
+            m.assertEqual(update.state.status.error, "Playback failed (no answer).")
+
+            sought = m.stepped(m.watching(), { kind: "seek", positionMs: 300000 }).state
+            seek = m.stepped(sought, { kind: "changeTimedOut", id: 2, changeKind: "seek", message: "x" })
+            m.assertEqual(seek.state.timeline.positionMs, 90000)
+            m.assertEqual(seek.commands[0].positionMs, 90000)
+        end sub
+
+        @it("leave the load a request turned into to its own bound")
+        sub requestTimeoutSparesLoad()
+            loading = m.stepped(m.changed(m.watching()).state, { kind: "updated", id: 2, json: m.answer() }).state
+            taken = m.stepped(loading, { kind: "changeTimedOut", id: 2, changeKind: "controls", message: "x" })
+
+            m.assertEqual(m.kinds(taken.commands), "")
+            m.assertEqual(taken.state.status.sent.kind, "load")
+        end sub
+
+        @it("settle only their own target")
+        sub settleOwnTarget()
+            m.assertEqual(m.stepped(m.justLoaded(), { kind: "seekSettled", targetMs: 80000 }).state.timeline.seekingToMs, 90000)
+        end sub
+
+        @describe("PlaybackTimers")
+
+        @it("beats per session and interval, and stops everything on leaving")
+        sub timersHeartbeat()
+            s = m.watching()
+            plan = PlaybackTimers(s, s, [])
+            m.assertEqual(plan.heartbeatKey, "s1@10")
+            m.assertEqual(plan.heartbeatS, 10)
+
+            left = m.stepped(s, { kind: "leave" })
+            closed = PlaybackTimers(s, left.state, left.commands)
+            m.assertEqual(closed.heartbeatKey, "")
+            m.assertEqual(closed.slowId, -1)
+            m.assertEqual(closed.timeoutKey, "")
+            m.assertEqual(closed.settle, "stop")
+        end sub
+
+        @it("follows the change in flight with slow and the timeout")
+        sub timersFollowChange()
+            opened = m.opened()
+            start = PlaybackTimers(opened, opened, [])
+            m.assertEqual(start.slowId, 1)
+            m.assertEqual(start.timeoutKey, "start@1")
+            m.assertEqual(start.timeoutS, ChangeRequestSeconds())
+
+            started = m.stepped(opened, { kind: "started", id: 1, json: m.answer() }).state
+            loading = PlaybackTimers(opened, started, [])
+            m.assertEqual(loading.slowId, 1)
+            m.assertEqual(loading.timeoutKey, "load@1")
+            m.assertEqual(loading.timeoutId, 1)
+            m.assertEqual(loading.timeoutKind, "load")
+            m.assertEqual(loading.timeoutS, ChangeLoadSeconds())
+
+            loaded = m.stepped(started, { kind: "loaded", id: 1 })
+            done = PlaybackTimers(started, loaded.state, loaded.commands)
+            m.assertEqual(done.slowId, -1)
+            m.assertEqual(done.timeoutKey, "")
+        end sub
+
+        @it("settles after a local seek or a change that ends on a target, never during one")
+        sub timersSettle()
+            s = m.flat()
+            sought = m.stepped(s, { kind: "seek", positionMs: 120000 })
+            nearby = PlaybackTimers(s, sought.state, sought.commands)
+            m.assertEqual(nearby.settle, "arm")
+            m.assertEqual(nearby.settleMs, 120000)
+
+            started = m.stepped(m.opened(), { kind: "started", id: 1, json: m.answer() }).state
+            m.assertEqual(PlaybackTimers(m.opened(), started, []).settle, "stop")
+            loaded = m.stepped(started, { kind: "loaded", id: 1 })
+            ending = PlaybackTimers(started, loaded.state, loaded.commands)
+            m.assertEqual(ending.settle, "arm")
+            m.assertEqual(ending.settleMs, 90000)
+
+            moved = m.stepped(s, m.reading(90000))
+            m.assertEqual(PlaybackTimers(s, moved.state, moved.commands).settle, "keep")
+        end sub
+
+        @describe("PlaybackReadsNow")
+
+        @it("reads the player when a change ends without playing")
+        sub readsNow()
+            paused = m.stepped(m.watching(), { kind: "toggle" }).state
+            updated = m.stepped(m.changed(paused).state, { kind: "updated", id: 2, json: m.answer() }).state
+            loaded = m.stepped(updated, { kind: "loaded", id: 2 })
+            m.assertTrue(PlaybackReadsNow(updated, loaded.state, loaded.commands))
+
+            started = m.stepped(m.opened(), { kind: "started", id: 1, json: m.answer() }).state
+            playing = m.stepped(started, { kind: "loaded", id: 1 })
+            m.assertFalse(PlaybackReadsNow(started, playing.state, playing.commands))
+
+            left = m.stepped(updated, { kind: "leave" })
+            m.assertFalse(PlaybackReadsNow(updated, left.state, left.commands))
+            m.assertFalse(PlaybackReadsNow(paused, paused, []))
+        end sub
+
+        @describe("SeeksLocally")
+
+        @it("holds only targets the stream reaches on a placed node")
+        sub seeksLocally()
+            s = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
+
+            m.assertTrue(SeeksLocally(s, 130000))
+            m.assertFalse(SeeksLocally(s, 130001))
+            m.assertFalse(SeeksLocally(s, 59999))
+            m.assertFalse(SeeksLocally(m.changed(s).state, 100000))
+            m.assertFalse(SeeksLocally(m.justLoaded(), 100000))
+        end sub
+
+    end class
+
+end namespace

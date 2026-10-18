@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <component name="MainScene" extends="Scene">
     <script type="text/brightscript" uri="pkg:/components/MainScene.brs" />
+    <script type="text/brightscript" uri="pkg:/components/Timers.brs" />
     <script type="text/brightscript" uri="pkg:/components/api/Http.brs" />
     <script type="text/brightscript" uri="pkg:/source/util.brs" />
     <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
@@ -18,6 +19,7 @@
     <script type="text/brightscript" uri="pkg:/source/screen.brs" />
     <script type="text/brightscript" uri="pkg:/source/capability.brs" />
     <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playbackstate.brs" />
     <script type="text/brightscript" uri="pkg:/source/languages.brs" />
     <script type="text/brightscript" uri="pkg:/source/work.brs" />
 

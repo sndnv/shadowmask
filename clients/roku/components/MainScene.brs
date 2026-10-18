@@ -20,6 +20,10 @@ sub init()
     m.stack = []
     m.command = ""
     m.signedIn = false
+    m.ends = []
+    m.endSerial = 0
+    m.endTasks = []
+    m.endTimer = invalid
 
     m.background.muteAudioGuide = true
     m.navHint.muteAudioGuide = true
@@ -65,7 +69,7 @@ end sub
 sub PublishSession()
     shared = m.global
     if not shared.HasField("serverUrl")
-        shared.AddFields({ serverUrl: "", token: "", userId: "", username: "", role: "", accountRole: "", theme: {}, backdropUrl: "", decoding: {}, profileVersion: 0, negotiated: {}, lowMemory: 0, captionMode: "", sessionId: "", deepLink: {} })
+        shared.AddFields({ serverUrl: "", token: "", userId: "", username: "", role: "", accountRole: "", theme: {}, backdropUrl: "", decoding: {}, profileVersion: 0, negotiated: {}, lowMemory: 0, captionMode: "", sessionId: "", endsQueued: 0, endsDone: 0, deepLink: {} })
     end if
 
     shared.serverUrl = ReadServerUrl()
@@ -519,14 +523,51 @@ sub RenderNavHint()
 end sub
 
 sub onSessionEnd(event as object)
-    id = TextOrBlank(event.GetData())
-    if IsBlank(id) then return
+    ending = event.GetData()
+    if IsBlank(TextOrBlank(ValueAt(ending, "sessionId", ""))) then return
 
-    m.endTask = SendRequest(EndSessionRequest(ReadServerUrl(), ReadToken(), id), "onSessionEnded")
+    m.ends.Push(ending)
+    m.global.endsQueued = Int(m.global.endsQueued) + 1
+    if m.ends.Count() = 1 then SendEnd()
 end sub
 
-sub onSessionEnded()
-    m.endTask = invalid
+sub SendEnd()
+    ending = m.ends[0]
+    base = ReadServerUrl()
+    token = ReadToken()
+    positionMs = Int(ValueAt(ending, "positionMs", -1))
+
+    m.endTasks = []
+    if positionMs >= 0 then m.endTasks.Push(SendRequest(HeartbeatRequest(base, token, ending.sessionId, positionMs, ProgressState(ValueAt(ending, "playing", false) = true)), "onEndAnswered"))
+    m.endTasks.Push(SendRequest(EndSessionRequest(base, token, ending.sessionId), "onEndAnswered"))
+
+    m.endSerial = m.endSerial + 1
+    m.endTimer = ArmTimer(EndWaitSeconds(), "onEndWaitFired", { serial: m.endSerial })
+end sub
+
+sub onEndAnswered(event as object)
+    answered = event.GetRoSGNode()
+    for index = 0 to m.endTasks.Count() - 1
+        if m.endTasks[index].IsSameNode(answered)
+            m.endTasks.Delete(index)
+            if m.endTasks.Count() = 0 then NextEnd()
+            return
+        end if
+    end for
+end sub
+
+sub onEndWaitFired(event as object)
+    if m.endTasks.Count() = 0 or Int(TimerData(event).serial) <> m.endSerial then return
+    NextEnd()
+end sub
+
+sub NextEnd()
+    m.endTasks = []
+    StopTimer(m.endTimer)
+    m.endTimer = invalid
+    m.ends.Shift()
+    m.global.endsDone = Int(m.global.endsDone) + 1
+    if m.ends.Count() > 0 then SendEnd()
 end sub
 
 sub onThemeRequest(event as object)
