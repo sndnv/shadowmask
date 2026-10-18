@@ -1,9 +1,11 @@
 use std::time::Instant;
 
 use axum::extract::{MatchedPath, Request, State};
+use axum::http::Method;
 use axum::http::header::{AUTHORIZATION, CONTENT_LENGTH};
 use axum::middleware::Next;
 use axum::response::Response;
+use tracing::warn;
 
 use domain::service::AuthService;
 
@@ -63,6 +65,16 @@ pub async fn track_http(request: Request, next: Next) -> Response {
     response
 }
 
+pub(crate) async fn timed_out(
+    method: Method,
+    matched: Option<MatchedPath>,
+    seconds: u64,
+) -> ApiError {
+    let route = matched.as_ref().map_or("unmatched", MatchedPath::as_str);
+    warn!("Request [{method} {route}] gave up after [{seconds}s] with no answer");
+    ApiError::timeout()
+}
+
 pub async fn track_stream_bytes(request: Request, next: Next) -> Response {
     let kind = stream_kind(request.uri().path());
     let response = next.run(request).await;
@@ -89,6 +101,7 @@ fn content_length(response: &Response) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use std::future::Future;
+    use std::time::Duration;
 
     use axum::Router;
     use axum::body::Body;
@@ -99,6 +112,7 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
+    use crate::router::bounded;
 
     fn recorded<F, Fut>(work: F) -> String
     where
@@ -108,7 +122,7 @@ mod tests {
         let recorder = PrometheusBuilder::new().build_recorder();
         let handle = recorder.handle();
         metrics::with_local_recorder(&recorder, || {
-            let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
             rt.block_on(work());
         });
         handle.render()
@@ -153,6 +167,18 @@ mod tests {
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         });
         assert!(rendered.contains("endpoint=\"unmatched\""));
+    }
+
+    #[test]
+    fn http_middleware_records_a_request_that_timed_out() {
+        let rendered = recorded(|| async {
+            let hung = Router::new().route("/movies/{id}", get(std::future::pending::<()>));
+            let app = bounded(hung, Duration::from_millis(50)).layer(from_fn(track_http));
+            let response = app.oneshot(request("/movies/42")).await.unwrap();
+            assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+        });
+        assert!(rendered.contains("endpoint=\"/movies/{id}\""));
+        assert!(rendered.contains("status=\"504\""));
     }
 
     #[test]

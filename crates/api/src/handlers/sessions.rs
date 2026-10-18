@@ -10,7 +10,7 @@ use crate::dto::session::{
 };
 use crate::error::ApiResult;
 use crate::extract::{AuthUser, Json};
-use crate::handlers::log_fail;
+use crate::handlers::{log_fail, to_completion};
 use domain::service::SessionService;
 
 use crate::state::AppServices;
@@ -86,9 +86,11 @@ pub async fn end<S: AppServices>(
     AuthUser(principal): AuthUser,
     Path(id): Path<String>,
 ) -> ApiResult<StatusCode> {
-    let actor = &principal.user.0;
+    let actor = principal.user.0.clone();
     let id = SessionId(id);
-    state.session().end(&principal, &id).await.map_err(log_fail(actor, "end a session"))?;
+    let session = id.clone();
+    let ended = to_completion(async move { state.session().end(&principal, &session).await });
+    ended.await.map_err(log_fail(&actor, "end a session"))?;
     debug!("User [{actor}] ended session [{}]", id.0);
     Ok(StatusCode::NO_CONTENT)
 }

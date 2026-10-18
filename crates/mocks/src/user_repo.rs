@@ -10,6 +10,8 @@ use domain::user::{LibraryAccess, User, UserId};
 
 use domain::common::paginate;
 
+use crate::hold::{Hold, NextHold};
+
 #[derive(Default)]
 struct State {
     users: Vec<User>,
@@ -20,11 +22,16 @@ struct State {
 pub struct MockUserRepo {
     state: Arc<Mutex<State>>,
     fail: Arc<AtomicBool>,
+    access_hold: NextHold,
 }
 
 impl MockUserRepo {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn hold_next_access_change(&self) -> Hold {
+        self.access_hold.arm()
     }
 
     pub fn insert(&self, user: User) {
@@ -121,6 +128,7 @@ impl UserRepository for MockUserRepo {
         id: &UserId,
         libraries: &[LibraryId],
     ) -> Result<(), RepositoryError> {
+        self.access_hold.pass().await;
         self.guard()?;
         self.state.lock().unwrap().access.insert(id.clone(), libraries.to_vec());
         Ok(())

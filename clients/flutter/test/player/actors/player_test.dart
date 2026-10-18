@@ -136,6 +136,30 @@ void main() {
     expect(run.state.timeline.seekingToMs, isNull);
   });
 
+  test('an end the player reaches short of a held seek target settles it as '
+      'ended', () {
+    final PlaybackRun run = PlaybackRun.watching()
+      ..apply(_reads(const PlayerSnapshot(positionMs: 6290000, playing: true)))
+      ..apply((PlaybackState s) => viewerSeeks(s, kTitleMs))
+      ..apply(_reads(const PlayerSnapshot(positionMs: 6305000, ended: true)));
+
+    expect(run.state.timeline.ended, isTrue);
+    expect(run.state.timeline.seekingToMs, isNull);
+    expect(run.state.timeline.positionMs, 6305000);
+  });
+
+  test('an end read at the old position after a seek back from the end is '
+      'ignored', () {
+    final PlaybackRun run = PlaybackRun.watching()
+      ..apply(_reads(const PlayerSnapshot(positionMs: kTitleMs, ended: true)))
+      ..apply((PlaybackState s) => viewerSeeks(s, 600000))
+      ..apply(_reads(const PlayerSnapshot(positionMs: kTitleMs, ended: true)));
+
+    expect(run.state.timeline.ended, isFalse);
+    expect(run.state.timeline.seekingToMs, 600000);
+    expect(run.state.timeline.positionMs, 600000);
+  });
+
   test(
     'loaded completes the change, plays if playing and tells the server',
     () {

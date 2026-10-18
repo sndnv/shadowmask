@@ -110,6 +110,11 @@ services:
       # SHADOWMASK_REMUX_READ_RATE: "10.0"
       # Caps the height the server re-encodes to. Direct play and remux are never downscaled.
       # SHADOWMASK_MAX_TRANSCODE_HEIGHT: "1080"
+      # How long a stream may take to read its file before its start, seek or update fails; 0 = no limit.
+      # SHADOWMASK_STREAM_START_TIMEOUT_SECS: "20"
+      # How long a request may take to answer before it gets a 504; 0 = no limit. Keep it above the
+      # stream start timeout. Streams and downloads are never cut: the limit ends when they start.
+      # SHADOWMASK_REQUEST_TIMEOUT_SECS: "90"
       # SHADOWMASK_CACHE_EVICTION_EVERY_SECS: "3600"
       # SHADOWMASK_JOB_RETENTION_DAYS: "30"
       # SHADOWMASK_RETENTION_EVERY_SECS: "86400"

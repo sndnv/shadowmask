@@ -33,10 +33,19 @@ const DEFAULT_BINARY: &str = "ffmpeg";
 const DEFAULT_IDLE_TIMEOUT: SignedDuration = SignedDuration::from_secs(30);
 const PRODUCED_WAIT: Duration = Duration::from_secs(30);
 const PRODUCED_POLL: Duration = Duration::from_millis(100);
+const PREPARE_LIMIT: Duration = Duration::from_secs(20);
 
 struct Session {
     generations: HashMap<StreamGeneration, Generation>,
     last_active: Timestamp,
+    start_us: Option<i64>,
+}
+
+struct Prepared {
+    start_us: i64,
+    known_start: Option<i64>,
+    subtitles: bool,
+    burn: Option<Burn>,
 }
 
 struct Generation {
@@ -119,6 +128,7 @@ struct Inner<S> {
     prep_store: FsPlaybackPrepStore,
     idle_timeout: SignedDuration,
     produced_wait: Duration,
+    prepare_limit: Duration,
     encoder: VideoEncoder,
     read_rate: f64,
     spawner: S,
@@ -155,6 +165,7 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
                 prep_store: FsPlaybackPrepStore::new(prep_root),
                 idle_timeout: DEFAULT_IDLE_TIMEOUT,
                 produced_wait: PRODUCED_WAIT,
+                prepare_limit: PREPARE_LIMIT,
                 encoder: VideoEncoder::Software,
                 read_rate: DEFAULT_READ_RATE,
                 spawner,
@@ -190,6 +201,13 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
     pub fn with_read_rate(mut self, read_rate: f64) -> Self {
         if let Some(inner) = Arc::get_mut(&mut self.inner) {
             inner.read_rate = read_rate;
+        }
+        self
+    }
+
+    pub fn with_prepare_limit(mut self, prepare_limit: Duration) -> Self {
+        if let Some(inner) = Arc::get_mut(&mut self.inner) {
+            inner.prepare_limit = prepare_limit;
         }
         self
     }
@@ -518,13 +536,24 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
         }
     }
 
-    async fn start_of(&self, spec: &TranscodeSpec) -> i64 {
+    async fn start_of(&self, spec: &TranscodeSpec) -> Option<i64> {
+        match self.known_start(&spec.session) {
+            None => self.read_start(spec).await,
+            known => known,
+        }
+    }
+
+    fn known_start(&self, session: &SessionId) -> Option<i64> {
+        self.inner.sessions.read().unwrap().get(session).and_then(|s| s.start_us)
+    }
+
+    async fn read_start(&self, spec: &TranscodeSpec) -> Option<i64> {
         match film_start(&self.inner.spawner, &spec.input_path).await {
-            Ok(start_us) => start_us,
+            Ok(start_us) => Some(start_us),
             Err(err) => {
                 #[rustfmt::skip]
                 tracing::warn!("stream [{}/{}] is timed as if its file started at zero: {err}", spec.session.0, spec.generation.0);
-                0
+                None
             }
         }
     }
@@ -635,6 +664,7 @@ impl<S: ProcessSpawner + 'static> StreamRegistry for HlsStreamSource<S> {
         let existing = sessions.entry(session).or_insert_with(|| Session {
             generations: HashMap::new(),
             last_active: Timestamp::now(),
+            start_us: None,
         });
         match existing.generations.get_mut(&generation) {
             Some(current) => current.registration = entry,
@@ -721,25 +751,15 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
         let opened = Instant::now();
         let session = spec.session.clone();
         let generation = spec.generation;
-        let output_dir = self.session_dir(&session).join(generation.dir_name());
+        let session_dir = self.session_dir(&session);
+        let output_dir = session_dir.join(generation.dir_name());
         let variant_dir = output_dir.join(VARIANT);
-        let make = variant_dir.clone();
-        spawn_blocking(move || std::fs::create_dir_all(make))
-            .await
-            .expect("create_dir_all task panicked")
-            .map_err(|e| TranscodeError::Spawn(e.to_string()))?;
         let (origin_us, plan) = plan_run(&spec);
-        let playlist = media_playlist(&plan, spec.container);
-        let index_path = variant_dir.join(MEDIA_PLAYLIST);
-        spawn_blocking(move || std::fs::write(index_path, playlist))
-            .await
-            .expect("write playlist task panicked")
-            .map_err(|e| TranscodeError::Spawn(e.to_string()))?;
-        let start_us = self.start_of(&spec).await;
-        let length_ms = plan.segments.iter().map(|segment| segment.duration_ms).sum();
-        let subtitles =
-            self.write_subtitle_rendition(&output_dir, &spec, length_ms, start_us).await;
-        let burn = self.burn_for(&spec).await;
+        let limit = self.inner.prepare_limit;
+        let preparing = self.prepare(&spec, &output_dir, &variant_dir, &plan);
+        let prepared = prepared_in_time(tokio::time::timeout(limit, preparing).await, &spec, limit);
+        let Prepared { start_us, known_start, subtitles, burn } =
+            discard_on_failure(prepared, &session_dir, &output_dir)?;
         let producer =
             self.spawn_producer(&spec, &variant_dir, origin_us, start_us, &plan, burn.as_ref());
         let run = Run {
@@ -755,7 +775,9 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
             let entry = sessions.entry(session.clone()).or_insert_with(|| Session {
                 generations: HashMap::new(),
                 last_active: Timestamp::now(),
+                start_us: None,
             });
+            entry.start_us = known_start;
             let registration = entry
                 .generations
                 .get(&generation)
@@ -794,6 +816,32 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
             sequential: true,
             subtitles,
         })
+    }
+
+    async fn prepare(
+        &self,
+        spec: &TranscodeSpec,
+        output_dir: &Path,
+        variant_dir: &Path,
+        plan: &SegmentPlan,
+    ) -> Result<Prepared, TranscodeError> {
+        let make = variant_dir.to_path_buf();
+        spawn_blocking(move || std::fs::create_dir_all(make))
+            .await
+            .expect("create_dir_all task panicked")
+            .map_err(|e| TranscodeError::Spawn(e.to_string()))?;
+        let playlist = media_playlist(plan, spec.container);
+        let index_path = variant_dir.join(MEDIA_PLAYLIST);
+        spawn_blocking(move || std::fs::write(index_path, playlist))
+            .await
+            .expect("write playlist task panicked")
+            .map_err(|e| TranscodeError::Spawn(e.to_string()))?;
+        let known_start = self.start_of(spec).await;
+        let start_us = known_start.unwrap_or(0);
+        let length_ms = plan.segments.iter().map(|segment| segment.duration_ms).sum();
+        let subtitles = self.write_subtitle_rendition(output_dir, spec, length_ms, start_us).await;
+        let burn = self.burn_for(spec).await;
+        Ok(Prepared { start_us, known_start, subtitles, burn })
     }
 }
 
@@ -867,6 +915,38 @@ async fn prepared(entry: &PrepEntry, index: u32) -> Result<PathBuf, TranscodeErr
     }
     #[rustfmt::skip]
     return Err(TranscodeError::Spawn(format!("embedded track [{index}] has not been extracted; \"Re-read files\" on the title prepares it")));
+}
+
+fn prepared_in_time(
+    prepared: Result<Result<Prepared, TranscodeError>, tokio::time::error::Elapsed>,
+    spec: &TranscodeSpec,
+    limit: Duration,
+) -> Result<Prepared, TranscodeError> {
+    match prepared {
+        Ok(prepared) => prepared,
+        Err(_) => {
+            let seconds = limit.as_secs_f64();
+            #[rustfmt::skip]
+            tracing::warn!("stream [{}/{}] gave up after [{seconds}s]: its file or the cache did not answer in time", spec.session.0, spec.generation.0);
+            Err(TranscodeError::Spawn(format!("not ready within [{seconds}s]")))
+        }
+    }
+}
+
+fn discard_on_failure(
+    prepared: Result<Prepared, TranscodeError>,
+    session_dir: &Path,
+    output_dir: &Path,
+) -> Result<Prepared, TranscodeError> {
+    if prepared.is_ok() {
+        return prepared;
+    }
+    let (session_dir, output_dir) = (session_dir.to_path_buf(), output_dir.to_path_buf());
+    spawn_blocking(move || {
+        let _ = std::fs::remove_dir_all(&output_dir);
+        let _ = std::fs::remove_dir(&session_dir);
+    });
+    prepared
 }
 
 async fn remove_dir_off_lock(dir: PathBuf) {
@@ -977,6 +1057,7 @@ mod tests {
     const CUE: &[u8] = b"WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n";
     const GEN: StreamGeneration = StreamGeneration(1);
     const VAAPI: &str = "/dev/dri/renderD128";
+    const SHORT_LIMIT: Duration = Duration::from_secs(1);
 
     struct DropFlag(Arc<AtomicUsize>);
 
@@ -996,10 +1077,13 @@ mod tests {
         empty_init: bool,
         extract_fails: bool,
         slow_extract: bool,
+        extract_hang: bool,
         film_start: Option<&'static str>,
         probe_unspawnable: bool,
+        probe_hang: bool,
         runs: Arc<Mutex<Vec<Vec<String>>>>,
         extracts: Arc<AtomicUsize>,
+        probes: Arc<AtomicUsize>,
         dropped: Arc<AtomicUsize>,
     }
 
@@ -1012,12 +1096,20 @@ mod tests {
             self.extracts.load(Ordering::SeqCst)
         }
 
+        fn probes(&self) -> usize {
+            self.probes.load(Ordering::SeqCst)
+        }
+
         fn dropped(&self) -> usize {
             self.dropped.load(Ordering::SeqCst)
         }
 
         async fn extract(&self, args: &[String]) -> std::io::Result<bool> {
             self.extracts.fetch_add(1, Ordering::SeqCst);
+            if self.extract_hang {
+                let _flag = DropFlag(Arc::clone(&self.dropped));
+                std::future::pending::<()>().await;
+            }
             if self.slow_extract {
                 tokio::time::sleep(Duration::from_millis(80)).await;
             }
@@ -1039,8 +1131,13 @@ mod tests {
                 let success = self.run(program, args).await?;
                 return Ok(CommandOutput { success, ..CommandOutput::default() });
             }
+            self.probes.fetch_add(1, Ordering::SeqCst);
             if self.probe_unspawnable {
                 return Err(std::io::Error::other("no such binary"));
+            }
+            if self.probe_hang {
+                let _flag = DropFlag(Arc::clone(&self.dropped));
+                std::future::pending::<()>().await;
             }
             Ok(match self.film_start {
                 Some(start) => CommandOutput {
@@ -1222,6 +1319,11 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         fake.dropped()
+    }
+
+    async fn gone_soon(path: &Path) -> bool {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        !path.exists()
     }
 
     fn live_generations(src: &HlsStreamSource<Fake>, session: &str) -> Vec<StreamGeneration> {
@@ -1420,6 +1522,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_later_generation_is_timed_from_the_start_the_first_one_read() {
+        let fake = Fake { film_start: Some("1.400000\n"), ..Fake::default() };
+        let (_dir, src) = engine(fake.clone());
+        src.start(spec("s1", 8_000)).await.expect("start");
+        src.start(spec_at("s1", StreamGeneration(2), 8_000)).await.expect("renegotiate");
+        let runs = started_runs(&fake, 2).await;
+        assert_eq!(fake.probes(), 1, "the second generation probed the file again");
+        assert_eq!(pair_after(&runs[0], "-output_ts_offset").as_deref(), Some("-0.400000"));
+        assert_eq!(pair_after(&runs[1], "-output_ts_offset").as_deref(), Some("-0.400000"));
+    }
+
+    #[tokio::test]
+    async fn a_start_that_could_not_be_read_is_read_again_by_the_next_generation() {
+        let fake = Fake::default();
+        let (_dir, src) = engine(fake.clone());
+        src.start(spec("s1", 8_000)).await.expect("start");
+        src.start(spec_at("s1", StreamGeneration(2), 8_000)).await.expect("renegotiate");
+        assert_eq!(fake.probes(), 2, "a failed read was kept for the session");
+    }
+
+    #[tokio::test]
+    async fn a_session_that_went_direct_reads_its_start_again() {
+        let fake = Fake { film_start: Some("1.400000\n"), ..Fake::default() };
+        let (_dir, src) = engine(fake.clone());
+        src.start(spec("s1", 8_000)).await.expect("start");
+        src.stop(&sid("s1")).await.expect("stop");
+        src.register(sid("s1"), StreamGeneration(2), direct_registration());
+        src.start(spec_at("s1", StreamGeneration(3), 8_000)).await.expect("renegotiate");
+        assert_eq!(fake.probes(), 2);
+    }
+
+    #[tokio::test]
     async fn a_copy_resumed_part_way_starts_on_the_keyframe_before_the_seek() {
         let fake = Fake::default();
         let (_dir, src) = engine(fake.clone());
@@ -1485,6 +1619,49 @@ mod tests {
         let src = HlsStreamSource::with_parts(file.path(), file.path(), Fake::default());
         let err = src.start(spec("s1", 1_000)).await.unwrap_err();
         assert!(matches!(err, TranscodeError::Spawn(_)));
+    }
+
+    #[tokio::test]
+    async fn a_probe_that_never_answers_fails_the_start_within_the_limit() {
+        let fake = Fake { probe_hang: true, ..Fake::default() };
+        let (dir, src) = engine(fake.clone());
+        let src = src.with_prepare_limit(SHORT_LIMIT);
+        let err = src.start(spec("s1", 8_000)).await.unwrap_err();
+        assert!(matches!(&err, TranscodeError::Spawn(detail) if detail == "not ready within [1s]"));
+        assert!(live_generations(&src, "s1").is_empty());
+        assert!(fake.runs().is_empty());
+        assert_eq!(fake.dropped(), 1, "the probe was left running");
+        assert!(gone_soon(&dir.path().join("s1")).await, "the start left its cache behind");
+    }
+
+    #[tokio::test]
+    async fn an_extraction_that_never_answers_fails_the_start_within_the_limit() {
+        let fake = Fake { extract_hang: true, ..Fake::default() };
+        let (dir, src) = engine(fake.clone());
+        let src = src.with_prepare_limit(SHORT_LIMIT);
+        let err = src.start(with_subtitle(spec("s1", 10_000), soft(0))).await.unwrap_err();
+        assert!(matches!(err, TranscodeError::Spawn(_)));
+        assert!(live_generations(&src, "s1").is_empty());
+        assert!(fake.runs().is_empty());
+        assert_eq!(fake.dropped(), 1, "the extraction was left running");
+        assert!(gone_soon(&dir.path().join("s1")).await, "the start left its cache behind");
+    }
+
+    #[tokio::test]
+    async fn a_renegotiation_that_runs_out_of_time_leaves_the_earlier_generation_playing() {
+        let fake = Fake { extract_hang: true, hang: true, ..Fake::default() };
+        let (dir, src) = engine(fake.clone());
+        let src = src.with_prepare_limit(SHORT_LIMIT);
+        src.start(spec("s1", 8_000)).await.expect("start");
+        let late = with_subtitle(spec_at("s1", StreamGeneration(2), 8_000), soft(0));
+        assert!(src.start(late).await.is_err());
+        assert_eq!(live_generations(&src, "s1"), vec![GEN]);
+        assert!(src.media_path(&claims("s1"), VARIANT, MEDIA_PLAYLIST).await.is_ok());
+        assert_eq!(started_runs(&fake, 1).await.len(), 1);
+        assert_eq!(fake.dropped(), 1, "the earlier run was stopped or the extraction left");
+        let session = dir.path().join("s1");
+        assert!(gone_soon(&session.join(StreamGeneration(2).dir_name())).await);
+        assert!(session.join(GEN.dir_name()).join(VARIANT).join(MEDIA_PLAYLIST).is_file());
     }
 
     #[tokio::test]

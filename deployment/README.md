@@ -25,14 +25,15 @@ Keys in `shadowmask.toml` are not checked: a misspelled or renamed key there is 
 
 ### Core
 
-| Variable                      | Description                           | Default                       |
-|-------------------------------|---------------------------------------|-------------------------------|
-| `SHADOWMASK_DB_ROOT`          | Databases and the instance lock       | `data` (`/data` in the image) |
-| `SHADOWMASK_BIND`             | Listen address                        | `0.0.0.0:8080`                |
-| `SHADOWMASK_JWT_SECRET`       | Access and refresh token signing key  | `change-me-jwt-secret`        |
-| `SHADOWMASK_STREAM_SECRET`    | Stream and download token signing key | `change-me-stream-secret`     |
-| `SHADOWMASK_ACCESS_TTL_SECS`  | Access token lifetime                 | `3600`                        |
-| `SHADOWMASK_REFRESH_TTL_SECS` | Refresh lifetime, renewed on each use | `2592000` (30 days)           |
+| Variable                           | Description                           | Default                       |
+|------------------------------------|---------------------------------------|-------------------------------|
+| `SHADOWMASK_DB_ROOT`               | Databases and the instance lock       | `data` (`/data` in the image) |
+| `SHADOWMASK_BIND`                  | Listen address                        | `0.0.0.0:8080`                |
+| `SHADOWMASK_JWT_SECRET`            | Access and refresh token signing key  | `change-me-jwt-secret`        |
+| `SHADOWMASK_STREAM_SECRET`         | Stream and download token signing key | `change-me-stream-secret`     |
+| `SHADOWMASK_ACCESS_TTL_SECS`       | Access token lifetime                 | `3600`                        |
+| `SHADOWMASK_REFRESH_TTL_SECS`      | Refresh lifetime, renewed on each use | `2592000` (30 days)           |
+| `SHADOWMASK_STREAM_TOKEN_TTL_SECS` | Stream token lifetime                 | `129600` (36 hours)           |
 
 ### Paths
 
@@ -120,11 +121,17 @@ SHADOWMASK_JOB_POOLS_ARTWORK_CONCURRENCY: "6"
 | `SHADOWMASK_TRANSCODE_CACHE_CAP_BYTES` | Transcode cache size cap                               | `10737418240` |
 | `SHADOWMASK_REMUX_READ_RATE`           | Remux read-ahead multiplier                            | `10.0`        |
 | `SHADOWMASK_MAX_TRANSCODE_HEIGHT`      | Re-encode height cap; direct play and remux unaffected | unset         |
+| `SHADOWMASK_STREAM_START_TIMEOUT_SECS` | Time a stream may take to read its file; `0` = none    | `20`          |
+| `SHADOWMASK_REQUEST_TIMEOUT_SECS`      | Time a request may take to answer; `0` = none          | `90`          |
 | `SHADOWMASK_CACHE_EVICTION_EVERY_SECS` | Cache sweep interval                                   | `3600`        |
 | `SHADOWMASK_JOB_RETENTION_DAYS`        | Finished job and log retention                         | `30`          |
 | `SHADOWMASK_RETENTION_EVERY_SECS`      | Retention interval                                     | `86400`       |
 | `SHADOWMASK_ORPHAN_SWEEP_EVERY_SECS`   | Orphan sweep interval                                  | `86400`       |
 | `SHADOWMASK_ORPHAN_SWEEP_GRACE_SECS`   | Age before an orphan is removable                      | `86400`       |
+
+A request that takes longer than `SHADOWMASK_REQUEST_TIMEOUT_SECS` gets a `504` with code `timeout`.
+The limit stops at the start of the answer, so streams and downloads are never cut. Keep it above
+`SHADOWMASK_STREAM_START_TIMEOUT_SECS`.
 
 ### Logging
 
@@ -394,8 +401,8 @@ download is subject to that site's terms.
 
 ## Metrics and health
 
-The server answers these on its own port, without authentication. Keep `/metrics` on the local
-network; do not publish it through a public reverse proxy.
+The server answers these on its own port, without authentication. Keep `/metrics` off a public
+reverse proxy.
 
 | Endpoint        | Answer                                                         |
 |-----------------|----------------------------------------------------------------|
@@ -403,7 +410,7 @@ network; do not publish it through a public reverse proxy.
 | `/health/ready` | `200` once the database answers, `503` until then              |
 | `/metrics`      | Prometheus text format                                         |
 
-Counters and histograms count from server start. Durations are in milliseconds.
+Counters and histograms count from server start.
 
 | Metric                                    | Type      | Labels                         |
 |-------------------------------------------|-----------|--------------------------------|
@@ -439,8 +446,8 @@ profile:
 docker compose --profile monitoring up -d
 ```
 
-- Grafana listens on `SHADOWMASK_GRAFANA_PORT` (`3000`). The first login is `admin` / `admin`,
-  and Grafana asks for a new password. The dashboards are in its `server` folder, from
+- Grafana listens on `SHADOWMASK_GRAFANA_PORT` (`3000`). The first login is `admin` / `admin`.
+  The dashboards are in its `server` folder, from
   [`grafana/dashboards/server`](./grafana/dashboards/server).
 - Prometheus listens on `SHADOWMASK_PROMETHEUS_PORT` (`9090`), scrapes the server every 15 seconds
   ([`production/telemetry/prometheus/prometheus.yml`](./production/telemetry/prometheus/prometheus.yml))

@@ -96,17 +96,26 @@ fn claims() -> StreamClaims {
     }
 }
 
+fn engine(cache: &Path) -> HlsStreamSource {
+    HlsStreamSource::new(cache, cache.join("_prep")).with_read_rate(0.0)
+}
+
 async fn run_to_the_end(
     cache: &Path,
     spec: TranscodeSpec,
 ) -> (HlsStreamSource, TranscodeStarted, PathBuf) {
-    let engine = HlsStreamSource::new(cache, cache.join("_prep")).with_read_rate(0.0);
+    let engine = engine(cache);
+    let (started, variant) = finish(&engine, spec).await;
+    (engine, started, variant)
+}
+
+async fn finish(engine: &HlsStreamSource, spec: TranscodeSpec) -> (TranscodeStarted, PathBuf) {
     let started = engine.start(spec).await.expect("start");
     let variant = PathBuf::from(&started.output_dir).join("v0");
     for _ in 0..600 {
         let written = std::fs::read_to_string(variant.join("producer.m3u8")).unwrap_or_default();
         if written.contains("#EXT-X-ENDLIST") {
-            return (engine, started, variant);
+            return (started, variant);
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
@@ -359,6 +368,25 @@ async fn a_resumed_transcode_starts_on_the_grid_boundary_before_the_seek() {
 
     let (_engine, started, variant) =
         run_to_the_end(cache.path(), spec(&clip, false, SegmentContainer::MpegTs, 9_000)).await;
+
+    assert_eq!(started.origin_ms, 8_000);
+    assert_cut_as_planned(&variant, 0.05);
+    assert_every_frame_once_from(&clip, &variant, 8_000, HALF_FRAME_S);
+}
+
+#[tokio::test]
+async fn a_seek_is_timed_from_where_the_file_starts_as_the_start_before_it_was() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let clip = clip(dir.path(), "late.ts", 20, "1.46", &["-g", "48"]).await;
+    let cache = tempfile::tempdir().expect("tempdir");
+    let engine = engine(cache.path());
+    engine.start(spec(&clip, false, SegmentContainer::MpegTs, 0)).await.expect("start");
+    let seek = TranscodeSpec {
+        generation: StreamGeneration(2),
+        ..spec(&clip, false, SegmentContainer::MpegTs, 9_000)
+    };
+
+    let (started, variant) = finish(&engine, seek).await;
 
     assert_eq!(started.origin_ms, 8_000);
     assert_cut_as_planned(&variant, 0.05);

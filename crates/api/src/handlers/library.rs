@@ -4,6 +4,7 @@ use serde::Deserialize;
 use tracing::debug;
 
 use domain::library::{DuplicateCandidateId, LibraryId, ScanMode, UnmatchedFileId};
+use domain::user::Principal;
 
 use crate::dto::catalog::VersionResponse;
 use crate::dto::library::{
@@ -13,7 +14,7 @@ use crate::dto::library::{
 };
 use crate::error::ApiResult;
 use crate::extract::{AuthUser, Json, RequireAdmin};
-use crate::handlers::log_fail;
+use crate::handlers::{log_fail, to_completion};
 use crate::pagination::{PageParams, PageResponse};
 use domain::service::{CatalogService, LibraryService};
 
@@ -53,6 +54,14 @@ pub async fn create_library<S: AppServices>(
     State(state): State<S>,
     RequireAdmin(principal): RequireAdmin,
     Json(req): Json<CreateLibraryRequest>,
+) -> ApiResult<(StatusCode, Json<LibraryResponse>)> {
+    to_completion(create(state, principal, req)).await
+}
+
+async fn create<S: AppServices>(
+    state: S,
+    principal: Principal,
+    req: CreateLibraryRequest,
 ) -> ApiResult<(StatusCode, Json<LibraryResponse>)> {
     let actor = &principal.user.0;
     let library = state
@@ -119,9 +128,17 @@ pub async fn trigger_scan<S: AppServices>(
     Path(id): Path<String>,
     body: Option<Json<ScanRequest>>,
 ) -> ApiResult<StatusCode> {
-    let actor = &principal.user.0;
-    let id = LibraryId(id);
     let mode = body.map_or(ScanMode::Normal, |Json(req)| req.mode());
+    to_completion(scan(state, principal, LibraryId(id), mode)).await
+}
+
+async fn scan<S: AppServices>(
+    state: S,
+    principal: Principal,
+    id: LibraryId,
+    mode: ScanMode,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
     state
         .library()
         .trigger_scan(&principal, &id, mode)

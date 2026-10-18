@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
@@ -8,7 +9,7 @@ use axum::http::{Request, StatusCode, header};
 use serde_json::Value;
 use tower::ServiceExt;
 
-use api::{AppState, SubtitleSearchState, subtitle_search_router};
+use api::{AppState, SubtitleSearchState, bounded, subtitle_search_router};
 use contracts::Generator;
 use domain::catalog::{
     Episode, EpisodeId, Movie, MovieId, Season, SeasonId, Series, SeriesId, TitleId, TitleRef,
@@ -25,7 +26,7 @@ use domain::metadata::{ExternalId, TitleEnrichment};
 use domain::repository::CatalogRepository;
 use domain::user::UserId;
 use jiff::Timestamp;
-use mocks::MockCatalogRepo;
+use mocks::{MockCatalogRepo, NextHold};
 use tracing_test::traced_test;
 
 const ADMIN: &str = "Bearer access:admin";
@@ -37,6 +38,7 @@ const USER_TV: &str = "Bearer device:u1";
 struct MockStore {
     files: Arc<Mutex<HashMap<String, String>>>,
     fail: bool,
+    store_hold: NextHold,
 }
 
 impl MockStore {
@@ -53,6 +55,7 @@ impl SubtitleStore for MockStore {
         format: SubtitleFormat,
         content: &str,
     ) -> Result<String, SubtitleError> {
+        self.store_hold.pass().await;
         if self.fail {
             return Err(SubtitleError::Store("disk full".into()));
         }
@@ -245,6 +248,15 @@ async fn seeded_episode() -> MockCatalogRepo {
 }
 
 fn app(catalog: MockCatalogRepo, store: MockStore, provider: MockProvider) -> Router {
+    app_within(catalog, store, provider, Duration::from_secs(60))
+}
+
+fn app_within(
+    catalog: MockCatalogRepo,
+    store: MockStore,
+    provider: MockProvider,
+    limit: Duration,
+) -> Router {
     let generator = Generator::new();
     generator.auth.add_linked_device(UserId("admin".into()), true);
     generator.auth.add_linked_device(UserId("u1".into()), false);
@@ -258,7 +270,8 @@ fn app(catalog: MockCatalogRepo, store: MockStore, provider: MockProvider) -> Ro
         generator.discovery.clone(),
         generator.job.clone(),
     );
-    subtitle_search_router(auth, SubtitleSearchState::new(catalog, store, provider))
+    let searches = SubtitleSearchState::new(catalog, store, provider);
+    bounded(subtitle_search_router(auth, searches), limit)
 }
 
 async fn get(app: Router, uri: &str, auth: Option<&str>) -> (StatusCode, Vec<u8>) {
@@ -702,6 +715,31 @@ async fn downloading_a_file_the_version_lacks_calls_the_provider_once() {
     let added = files.iter().find(|file| file.id.0 == "opensubtitles:v1:42").unwrap();
     assert_eq!(added.path, "/subs/v1/42.srt");
     assert!(added.language.is_none());
+}
+
+#[tokio::test]
+async fn a_download_that_times_out_still_finishes_and_a_retry_finds_it() {
+    let catalog = seeded(&[]).await;
+    let provider = MockProvider::default();
+    let downloads = provider.downloads.clone();
+    let store = MockStore::default();
+    let hold = store.store_hold.arm();
+    let app = app_within(catalog.clone(), store, provider, Duration::from_millis(50));
+
+    let (status, _) = post(app.clone(), DOWNLOAD, Some(ADMIN), r#"{"file_id":"42"}"#).await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT);
+    hold.reached().await;
+    hold.release();
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+
+    let files = files(&catalog).await;
+    assert_eq!(files.len(), 1, "the downloaded file is recorded after the request gave up");
+    assert_eq!(files[0].id.0, "opensubtitles:v1:42");
+    let (status, _) = post(app, DOWNLOAD, Some(ADMIN), r#"{"file_id":"42"}"#).await;
+    assert_eq!(status, StatusCode::OK, "a retry finds the file already held");
+    assert_eq!(downloads.load(Ordering::SeqCst), 1, "so the quota is spent once");
 }
 
 #[tokio::test]

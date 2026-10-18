@@ -10,6 +10,7 @@ use domain::user::{Principal, Role, UserId};
 
 use crate::dto::webhook::{TokenQuery, WebhookPayload};
 use crate::error::ApiError;
+use crate::handlers::to_completion;
 use domain::service::LibraryService;
 
 use crate::state::{AppServices, WebhookClient, WebhookState};
@@ -76,8 +77,15 @@ pub async fn scan<S: AppServices>(
         account_admin: false,
         device: None,
     };
-    let library = LibraryId(id);
-    match state.services.library().trigger_scan(&principal, &library, ScanMode::Normal).await {
+    to_completion(trigger(state.services, principal, LibraryId(id))).await
+}
+
+async fn trigger<S: AppServices>(
+    services: S,
+    principal: Principal,
+    library: LibraryId,
+) -> Response {
+    match services.library().trigger_scan(&principal, &library, ScanMode::Normal).await {
         Ok(()) | Err(LibraryError::ScanInProgress) => {
             debug!(
                 "Webhook client [{}] triggered scan for library [{}]",

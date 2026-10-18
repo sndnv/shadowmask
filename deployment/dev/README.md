@@ -141,8 +141,8 @@ firehose:
 ## Monitoring (optional)
 
 `docker compose --profile monitoring up -d` (with `-f docker-compose.base.yml` for the base stack)
-also starts Prometheus (port `9090`) and Grafana (port `3000`, first login `admin` / `admin`), using
-the production configuration. See "Metrics and health" in [`../README.md`](../README.md#metrics-and-health).
+also starts Prometheus and Grafana; see "Prometheus and Grafana" in
+[`../README.md`](../README.md#prometheus-and-grafana).
 
 ## Smoke test
 

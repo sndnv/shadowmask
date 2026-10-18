@@ -9,8 +9,8 @@ pub mod state;
 
 pub use dto::server::Capability;
 pub use router::{
-    basic_ui_router, cors_layer, diagnostics_router, download_router, image_router, job_log_router,
-    play_on_router, router, stream_router, subtitle_router, subtitle_search_router,
+    basic_ui_router, bounded, cors_layer, diagnostics_router, download_router, image_router,
+    job_log_router, play_on_router, router, stream_router, subtitle_router, subtitle_search_router,
     trickplay_router, webhook_router,
 };
 pub use state::{

@@ -16,6 +16,8 @@ use uuid::Uuid;
 
 use domain::common::paginate;
 
+use crate::hold::{Hold, NextHold};
+
 const HEARTBEAT_INTERVAL_S: u32 = 10;
 
 #[derive(Debug, Default)]
@@ -27,6 +29,8 @@ struct State {
 #[derive(Clone, Default)]
 pub struct MockSessionService {
     state: Arc<Mutex<State>>,
+    end_hold: NextHold,
+    end_all_hold: NextHold,
 }
 
 impl MockSessionService {
@@ -36,6 +40,14 @@ impl MockSessionService {
 
     pub fn set_concurrent_limit(&self, limit: usize) {
         self.state.lock().unwrap().concurrent_limit = Some(limit);
+    }
+
+    pub fn hold_next_end(&self) -> Hold {
+        self.end_hold.arm()
+    }
+
+    pub fn hold_next_end_all(&self) -> Hold {
+        self.end_all_hold.arm()
     }
 }
 
@@ -197,11 +209,13 @@ impl SessionService for MockSessionService {
     }
 
     async fn end_all_for_user(&self, user: &UserId) -> Result<(), SessionError> {
+        self.end_all_hold.pass().await;
         self.state.lock().unwrap().sessions.retain(|_, s| &s.user != user);
         Ok(())
     }
 
     async fn end(&self, _caller: &Principal, session: &SessionId) -> Result<(), SessionError> {
+        self.end_hold.pass().await;
         self.state
             .lock()
             .unwrap()

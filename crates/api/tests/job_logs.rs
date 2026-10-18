@@ -1,10 +1,12 @@
+use std::time::Duration;
+
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
 use serde_json::Value;
 use tower::ServiceExt;
 
-use api::{AppState, JobLogState, job_log_router};
+use api::{AppState, JobLogState, bounded, job_log_router};
 use contracts::Generator;
 use domain::job::{JobId, JobLogLevel, JobLogStore};
 use jiff::Timestamp;
@@ -50,7 +52,7 @@ fn app(store: MockJobLogStore) -> Router {
         generator.discovery.clone(),
         generator.job.clone(),
     );
-    job_log_router(state, JobLogState::new(store))
+    bounded(job_log_router(state, JobLogState::new(store)), Duration::from_secs(60))
 }
 
 async fn send(app: Router, method: &str, uri: &str, auth: Option<&str>) -> (StatusCode, Vec<u8>) {

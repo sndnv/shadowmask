@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use domain::common::LanguageCode;
 use domain::diagnostics::AccelerationMode;
@@ -249,6 +250,7 @@ pub struct Config {
     pub stream_secret: String,
     pub access_ttl_secs: i64,
     pub refresh_ttl_secs: i64,
+    pub stream_token_ttl_secs: i64,
     pub transcode_cache: PathBuf,
     pub artwork_cache: PathBuf,
     pub trickplay_cache: PathBuf,
@@ -270,11 +272,13 @@ pub struct Config {
     pub scheduler_period_secs: u64,
     pub reaper_period_secs: u64,
     pub shutdown_timeout_secs: u64,
+    pub request_timeout_secs: u64,
     pub reindex_every_secs: i64,
     pub daily_scan_at: Option<String>,
     pub transcode_cache_cap_bytes: u64,
     pub remux_read_rate: f64,
     pub max_transcode_height: Option<u32>,
+    pub stream_start_timeout_secs: u64,
     pub cache_eviction_every_secs: i64,
     pub job_retention_days: i64,
     pub retention_every_secs: i64,
@@ -305,6 +309,7 @@ impl Default for Config {
             stream_secret: "change-me-stream-secret".to_owned(),
             access_ttl_secs: 3600,
             refresh_ttl_secs: 2_592_000,
+            stream_token_ttl_secs: 129_600,
             transcode_cache: PathBuf::from("data/transcode"),
             artwork_cache: PathBuf::from("data/artwork"),
             trickplay_cache: PathBuf::from("data/trickplay"),
@@ -326,11 +331,13 @@ impl Default for Config {
             scheduler_period_secs: 30,
             reaper_period_secs: 30,
             shutdown_timeout_secs: 30,
+            request_timeout_secs: 90,
             reindex_every_secs: 3600,
             daily_scan_at: None,
             transcode_cache_cap_bytes: 10 * 1024 * 1024 * 1024,
             remux_read_rate: 10.0,
             max_transcode_height: None,
+            stream_start_timeout_secs: 20,
             cache_eviction_every_secs: 3600,
             job_retention_days: 30,
             retention_every_secs: 86_400,
@@ -442,6 +449,14 @@ impl Config {
         Ok(Loaded { config, warnings })
     }
 
+    pub fn stream_start_timeout(&self) -> Duration {
+        limit(self.stream_start_timeout_secs)
+    }
+
+    pub fn request_timeout(&self) -> Duration {
+        limit(self.request_timeout_secs)
+    }
+
     pub fn describe(&self, yt_dlp_version: Option<&str>) -> String {
         use std::fmt::Write as _;
         let provided = |value: &str| {
@@ -462,7 +477,9 @@ impl Config {
         let _ = writeln!(out, "    db_root:          {}", self.db_root.display());
         let _ = writeln!(out, "    access_ttl_secs:  {}", self.access_ttl_secs);
         let _ = writeln!(out, "    refresh_ttl_secs: {}", self.refresh_ttl_secs);
+        let _ = writeln!(out, "    stream_token_ttl_secs: {}", self.stream_token_ttl_secs);
         let _ = writeln!(out, "    shutdown_timeout: {} s", self.shutdown_timeout_secs);
+        let _ = writeln!(out, "    request_timeout:  {}", limit_text(self.request_timeout_secs));
         let _ = writeln!(out, "    reindex_every:    {} s", self.reindex_every_secs);
         let _ = writeln!(
             out,
@@ -502,6 +519,8 @@ impl Config {
         let _ = writeln!(out, "  transcoding:");
         let _ = writeln!(out, "    hardware_acceleration: {:?}", self.hardware_acceleration);
         let _ = writeln!(out, "    vaapi_device:          {}", self.vaapi_device.display());
+        let start_timeout = limit_text(self.stream_start_timeout_secs);
+        let _ = writeln!(out, "    stream_start_timeout:  {start_timeout}");
         let _ = writeln!(out, "  metadata:");
         let _ = writeln!(out, "    tmdb_api_key:          {}", opt_secret(&self.tmdb_api_key));
         let _ = writeln!(out, "    omdb_api_key:          {}", opt_secret(&self.omdb_api_key));
@@ -590,6 +609,17 @@ impl Config {
 
 fn read_rate(rate: f64) -> String {
     if rate > 0.0 { format!("{rate}x realtime") } else { "unthrottled".to_owned() }
+}
+
+fn limit(secs: u64) -> Duration {
+    match secs {
+        0 => Duration::MAX,
+        secs => Duration::from_secs(secs),
+    }
+}
+
+fn limit_text(secs: u64) -> String {
+    if secs > 0 { format!("{secs} s") } else { "none".to_owned() }
 }
 
 const CACHE_KEY_WIDTH: usize = "max_transcode_height:".len();
@@ -1257,6 +1287,60 @@ mod tests {
                 .contains(&cache_line("remux_read_rate:", "10x realtime")),
             "a bare number reads as seconds or bytes in a startup banner"
         );
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn the_stream_start_timeout_can_be_set_by_an_admin() {
+        figment::Jail::expect_with(|jail| {
+            let config = Config::load().unwrap().config;
+            assert_eq!(config.stream_start_timeout(), Duration::from_secs(20));
+            jail.set_env("SHADOWMASK_STREAM_START_TIMEOUT_SECS", "45");
+            let config = Config::load().unwrap().config;
+            assert_eq!(config.stream_start_timeout(), Duration::from_secs(45));
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn a_stream_start_timeout_of_zero_never_gives_up() {
+        let config = Config { stream_start_timeout_secs: 0, ..Config::default() };
+        assert_eq!(config.stream_start_timeout(), Duration::MAX);
+    }
+
+    #[test]
+    fn the_stream_start_timeout_is_described_in_seconds_or_as_none() {
+        let described =
+            |secs| Config { stream_start_timeout_secs: secs, ..Config::default() }.describe(None);
+        assert!(described(20).contains("\n    stream_start_timeout:  20 s\n"));
+        assert!(described(0).contains("\n    stream_start_timeout:  none\n"));
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn the_request_timeout_can_be_set_by_an_admin() {
+        figment::Jail::expect_with(|jail| {
+            let config = Config::load().unwrap().config;
+            assert_eq!(config.request_timeout(), Duration::from_secs(90));
+            jail.set_env("SHADOWMASK_REQUEST_TIMEOUT_SECS", "100");
+            let config = Config::load().unwrap().config;
+            assert_eq!(config.request_timeout(), Duration::from_secs(100));
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn a_request_timeout_of_zero_never_gives_up() {
+        let config = Config { request_timeout_secs: 0, ..Config::default() };
+        assert_eq!(config.request_timeout(), Duration::MAX);
+    }
+
+    #[test]
+    fn the_request_timeout_is_described_in_seconds_or_as_none() {
+        let described =
+            |secs| Config { request_timeout_secs: secs, ..Config::default() }.describe(None);
+        assert!(described(90).contains("\n    request_timeout:  90 s\n"));
+        assert!(described(0).contains("\n    request_timeout:  none\n"));
     }
 
     #[test]

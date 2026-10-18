@@ -47,8 +47,8 @@ Linux `.AppImage`, an Android `.apk` and an unsigned iOS `.ipa` to the GitHub re
 [`publish_branch.yml`](../../.github/workflows/publish_branch.yml) builds the same set on demand and
 uploads them as workflow artifacts.
 
-macOS gets two disk images: the default one renders with Impeller, and the `-skia` one holds the
-same app with `FLTEnableImpeller` set to false in its `Info.plist`, re-signed ad hoc.
+macOS gets two disk images: the default renders with Impeller; `-skia` is the same app with
+`FLTEnableImpeller` false in its `Info.plist`, re-signed ad hoc.
 
 Locally:
 

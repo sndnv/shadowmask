@@ -6,6 +6,8 @@ use domain::catalog::{Version, VersionDetail, VersionId};
 use domain::error::RepositoryError;
 use domain::repository::VersionCatalog;
 
+use crate::hold::{Hold, NextHold};
+
 pub const PREPARED_KEYFRAMES: [u64; 3] = [0, 4_000_000, 8_000_000];
 
 #[derive(Clone, Default)]
@@ -14,6 +16,7 @@ pub struct MockVersionCatalog {
     keyframes: Arc<Mutex<HashMap<VersionId, Vec<u64>>>>,
     fail: Arc<AtomicBool>,
     detail_lookups: Arc<AtomicUsize>,
+    version_hold: NextHold,
 }
 
 impl MockVersionCatalog {
@@ -47,6 +50,10 @@ impl MockVersionCatalog {
         self.detail_lookups.load(Ordering::Relaxed)
     }
 
+    pub fn hold_next_version_read(&self) -> Hold {
+        self.version_hold.arm()
+    }
+
     fn guard(&self) -> Result<(), RepositoryError> {
         if self.fail.load(Ordering::Relaxed) {
             Err(RepositoryError::Backend("mock version catalog failure".to_owned()))
@@ -67,6 +74,7 @@ impl VersionCatalog for MockVersionCatalog {
     }
 
     async fn get_version(&self, id: &VersionId) -> Result<Option<Version>, RepositoryError> {
+        self.version_hold.pass().await;
         self.guard()?;
         Ok(self.versions.lock().unwrap().get(id).map(|detail| detail.version.clone()))
     }
@@ -143,5 +151,30 @@ mod tests {
         catalog.set_keyframes(&id, Some(vec![0, 2_000_000]));
         catalog.remove(&id);
         assert_eq!(catalog.keyframes_us(&id).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn a_held_version_read_waits_for_its_release_and_only_the_next_one_is_held() {
+        let catalog = MockVersionCatalog::new();
+        catalog.insert(detail("v1"));
+        let id = VersionId("v1".into());
+        let hold = catalog.hold_next_version_read();
+        let released = AtomicBool::new(false);
+
+        let (held, ()) = tokio::join!(
+            async {
+                let read = catalog.get_version(&id).await;
+                assert!(released.load(Ordering::Relaxed), "the read waits for the release");
+                read
+            },
+            async {
+                hold.reached().await;
+                released.store(true, Ordering::Relaxed);
+                hold.release();
+            }
+        );
+
+        assert!(held.unwrap().is_some());
+        assert!(catalog.get_version(&id).await.unwrap().is_some());
     }
 }

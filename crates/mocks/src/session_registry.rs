@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use domain::common::{Page, PageRequest};
@@ -15,11 +15,16 @@ use domain::common::paginate;
 pub struct MockSessionRegistry {
     sessions: Arc<Mutex<HashMap<SessionId, PlaybackSession>>>,
     fail: Arc<AtomicBool>,
+    started: Arc<AtomicUsize>,
 }
 
 impl MockSessionRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn started_count(&self) -> usize {
+        self.started.load(Ordering::Relaxed)
     }
 
     pub fn set_fail(&self) {
@@ -45,7 +50,9 @@ impl MockSessionRegistry {
 impl SessionRegistry for MockSessionRegistry {
     async fn insert(&self, session: PlaybackSession) -> Result<(), RepositoryError> {
         self.guard()?;
-        self.sessions.lock().unwrap().insert(session.id.clone(), session);
+        if self.sessions.lock().unwrap().insert(session.id.clone(), session).is_none() {
+            self.started.fetch_add(1, Ordering::Relaxed);
+        }
         Ok(())
     }
 
@@ -70,10 +77,14 @@ impl SessionRegistry for MockSessionRegistry {
         Ok(())
     }
 
-    async fn remove_idle(&self, cutoff: Timestamp) -> Result<Vec<SessionId>, RepositoryError> {
+    async fn list_idle(&self, cutoff: Timestamp) -> Result<Vec<SessionId>, RepositoryError> {
         self.guard()?;
-        let mut sessions = self.sessions.lock().unwrap();
-        Ok(sessions.extract_if(|_, s| s.last_heartbeat_at < cutoff).map(|(id, _)| id).collect())
+        Ok(self
+            .sorted()
+            .into_iter()
+            .filter(|s| s.last_heartbeat_at < cutoff)
+            .map(|s| s.id)
+            .collect())
     }
 }
 
@@ -129,16 +140,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn remove_idle_returns_only_the_sessions_it_dropped() {
+    async fn a_session_counts_as_started_once_however_often_it_is_saved() {
+        let registry = MockSessionRegistry::new();
+        registry.insert(session("s1", "u1", 1)).await.unwrap();
+        registry.insert(session("s1", "u1", 2)).await.unwrap();
+        registry.insert(session("s2", "u1", 3)).await.unwrap();
+
+        assert_eq!(registry.started_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn list_idle_names_only_the_idle_sessions_and_keeps_them() {
         let registry = MockSessionRegistry::new();
         registry.insert(session("stale", "u1", 0)).await.unwrap();
         registry.insert(session("live", "u1", 2)).await.unwrap();
 
-        let dropped =
-            registry.remove_idle(Timestamp::from_second(1_700_000_001).unwrap()).await.unwrap();
+        let idle =
+            registry.list_idle(Timestamp::from_second(1_700_000_001).unwrap()).await.unwrap();
 
-        assert_eq!(dropped, vec![SessionId("stale".into())]);
-        assert!(registry.get(&SessionId("live".into())).await.unwrap().is_some());
+        assert_eq!(idle, vec![SessionId("stale".into())]);
+        assert!(registry.get(&SessionId("stale".into())).await.unwrap().is_some());
     }
 
     #[tokio::test]
@@ -150,5 +171,6 @@ mod tests {
         assert!(registry.list_for_user(&UserId("u1".into())).await.is_err());
         assert!(registry.list_all(page()).await.is_err());
         assert!(registry.remove(&SessionId("s1".into())).await.is_err());
+        assert!(registry.list_idle(Timestamp::from_second(0).unwrap()).await.is_err());
     }
 }

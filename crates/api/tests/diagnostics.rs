@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
@@ -7,7 +8,7 @@ use axum::http::{Request, StatusCode, header};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use api::{AppState, DiagnosticsState, diagnostics_router};
+use api::{AppState, DiagnosticsState, bounded, diagnostics_router};
 use contracts::Generator;
 use domain::catalog::{MovieId, TitleId, Version, VersionId};
 use domain::common::{LanguageCode, Quality};
@@ -137,7 +138,8 @@ fn app_full(
         generator.discovery.clone(),
         generator.job.clone(),
     );
-    diagnostics_router(state, DiagnosticsState::new(diagnostics, benchmark, catalog, audit))
+    let diagnostics = DiagnosticsState::new(diagnostics, benchmark, catalog, audit);
+    bounded(diagnostics_router(state, diagnostics), Duration::from_secs(60))
 }
 
 fn prep_app(diagnostics: FakeDiagnostics, audit: FakeAudit) -> Router {

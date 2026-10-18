@@ -1,8 +1,14 @@
-use axum::Router;
+use std::time::Duration;
+
+use axum::error_handling::HandleErrorLayer;
+use axum::extract::MatchedPath;
 use axum::http::{HeaderValue, Method, header};
 use axum::middleware::{from_fn, from_fn_with_state};
 use axum::response::Redirect;
 use axum::routing::{delete, get, post, put};
+use axum::{BoxError, Router};
+use tower::ServiceBuilder;
+use tower::timeout::TimeoutLayer;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use domain::diagnostics::{PlaybackPrepAudit, ServerDiagnostics, TranscodeBenchmark};
@@ -16,7 +22,7 @@ use crate::handlers::{
     admin, auth, catalog, diagnostics, discovery, download, image, job_log, library, play_on,
     server, sessions, stream, subtitle, trickplay, user_library, users, version, webhook,
 };
-use crate::middleware::{jwt, track_stream_bytes};
+use crate::middleware::{jwt, timed_out, track_stream_bytes};
 use crate::state::{
     AppServices, DiagnosticsState, DownloadState, ImageState, JobLogState, PlayOnState,
     StreamState, SubtitleSearchState, SubtitleState, TrickplayState, WebhookClient, WebhookState,
@@ -304,6 +310,19 @@ where
         .with_state(state)
 }
 
+pub fn bounded(router: Router, limit: Duration) -> Router {
+    let seconds = limit.as_secs();
+    router.layer(
+        ServiceBuilder::new()
+            .layer(HandleErrorLayer::new(
+                move |method: Method, matched: Option<MatchedPath>, _: BoxError| {
+                    timed_out(method, matched, seconds)
+                },
+            ))
+            .layer(TimeoutLayer::new(limit)),
+    )
+}
+
 pub fn cors_layer(origins: &[String]) -> CorsLayer {
     let allowed: Vec<HeaderValue> =
         origins.iter().filter_map(|origin| origin.parse().ok()).collect();
@@ -317,6 +336,75 @@ pub fn cors_layer(origins: &[String]) -> CorsLayer {
             header::ACCEPT_RANGES,
             header::ETAG,
         ])
+}
+
+#[cfg(test)]
+mod bounded_tests {
+    use std::convert::Infallible;
+
+    use axum::body::{Body, to_bytes};
+    use axum::http::{HeaderMap, Request, StatusCode};
+    use futures::{StreamExt, stream};
+    use tower::ServiceExt;
+    use tracing_test::traced_test;
+
+    use super::*;
+
+    const SHORT: Duration = Duration::from_millis(50);
+
+    async fn answer(router: Router, uri: &str) -> (StatusCode, HeaderMap, String) {
+        let request = Request::get(uri).body(Body::empty()).unwrap();
+        let (parts, body) = router.oneshot(request).await.unwrap().into_parts();
+        let body = to_bytes(body, usize::MAX).await.unwrap();
+        (parts.status, parts.headers, String::from_utf8(body.to_vec()).unwrap())
+    }
+
+    async fn slow_body() -> Body {
+        let chunks = stream::iter(["first ", "second"]).then(async |chunk| {
+            tokio::time::sleep(SHORT * 2).await;
+            Ok::<_, Infallible>(chunk)
+        });
+        Body::from_stream(chunks)
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn a_request_with_no_answer_in_time_gets_the_timeout_envelope() {
+        let router = Router::new().route("/never/{id}", get(std::future::pending::<()>));
+
+        let (status, _, body) = answer(bounded(router, SHORT), "/never/7").await;
+
+        assert_eq!(status, StatusCode::GATEWAY_TIMEOUT);
+        let envelope =
+            r#"{"error":{"code":"timeout","message":"the server took too long to answer"}}"#;
+        assert_eq!(body, envelope);
+        assert!(logs_contain("Request [GET /never/{id}] gave up after [0s] with no answer"));
+        assert!(!logs_contain("/never/7"), "the route is logged, never the path it was asked for");
+    }
+
+    #[tokio::test]
+    async fn a_body_that_streams_past_the_limit_arrives_whole() {
+        let router = Router::new().route("/slow", get(slow_body));
+
+        let (status, _, body) = answer(bounded(router, SHORT), "/slow").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, "first second");
+    }
+
+    #[tokio::test]
+    async fn an_answer_in_time_passes_through_untouched_with_or_without_a_limit() {
+        let teapot = async || (StatusCode::IM_A_TEAPOT, [("x-kept", "yes")], "brewed");
+        for limit in [SHORT, Duration::MAX] {
+            let router = Router::new().route("/tea", get(teapot));
+
+            let (status, headers, body) = answer(bounded(router, limit), "/tea").await;
+
+            assert_eq!(status, StatusCode::IM_A_TEAPOT);
+            assert_eq!(headers.get("x-kept").unwrap(), "yes");
+            assert_eq!(body, "brewed");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -428,5 +516,28 @@ mod cors_tests {
             .await
             .unwrap();
         assert!(!response.headers().contains_key("access-control-allow-origin"));
+    }
+
+    #[tokio::test]
+    async fn a_request_that_timed_out_still_carries_the_cors_headers() {
+        let hung = Router::new().route("/api/v1/hung", get(std::future::pending::<()>));
+        let app = bounded(hung, Duration::from_millis(50))
+            .layer(cors_layer(&["http://localhost:8080".to_owned()]));
+
+        let response = app
+            .oneshot(
+                Request::get("/api/v1/hung")
+                    .header("origin", "http://localhost:8080")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+        assert_eq!(
+            response.headers().get("access-control-allow-origin").unwrap(),
+            "http://localhost:8080"
+        );
     }
 }

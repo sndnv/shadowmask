@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use tracing::debug;
 
 use domain::library::LibraryId;
-use domain::user::UserId;
+use domain::user::{Principal, UserId};
 
 use crate::dto::session::PlaybackSessionResponse;
 use crate::dto::user::{
@@ -12,7 +12,7 @@ use crate::dto::user::{
 };
 use crate::error::{ApiError, ApiResult};
 use crate::extract::{AuthUser, Json, RequireAdmin};
-use crate::handlers::{deny_player, log_fail, require_admin_or_self};
+use crate::handlers::{deny_player, log_fail, require_admin_or_self, to_completion};
 use crate::pagination::{PageParams, PageResponse};
 use domain::service::{AuthService, DiscoveryService, SessionService, UserService};
 
@@ -127,14 +127,18 @@ pub async fn delete<S: AppServices>(
     RequireAdmin(principal): RequireAdmin,
     Path(id): Path<String>,
 ) -> ApiResult<StatusCode> {
+    to_completion(remove(state, principal, UserId(id))).await
+}
+
+async fn remove<S: AppServices>(
+    state: S,
+    principal: Principal,
+    target: UserId,
+) -> ApiResult<StatusCode> {
     let actor = &principal.user.0;
-    let target = UserId(id);
     state.user().delete(&principal, &target).await.map_err(log_fail(actor, "delete a user"))?;
-    state
-        .session()
-        .end_all_for_user(&target)
-        .await
-        .map_err(log_fail(actor, "stop playback for a deleted user"))?;
+    let stopped = state.session().end_all_for_user(&target).await;
+    stopped.map_err(log_fail(actor, "stop playback for a deleted user"))?;
     debug!("User [{actor}] deleted user [{}]", target.0);
     Ok(StatusCode::NO_CONTENT)
 }
@@ -145,18 +149,26 @@ pub async fn set_active<S: AppServices>(
     Path(id): Path<String>,
     Json(req): Json<SetActiveRequest>,
 ) -> ApiResult<Json<UserResponse>> {
+    to_completion(change_active(state, principal, UserId(id), req.active)).await
+}
+
+async fn change_active<S: AppServices>(
+    state: S,
+    principal: Principal,
+    target: UserId,
+    active: bool,
+) -> ApiResult<Json<UserResponse>> {
     let actor = &principal.user.0;
-    let target = UserId(id);
     let user = state
         .user()
-        .set_active(&principal, &target, req.active)
+        .set_active(&principal, &target, active)
         .await
         .map_err(log_fail(actor, "change whether a user is active"))?;
-    if !req.active {
+    if !active {
         let stopped = state.session().end_all_for_user(&target).await;
         stopped.map_err(log_fail(actor, "stop playback for a deactivated user"))?;
     }
-    debug!("User [{actor}] set user [{}] active to [{}]", target.0, req.active);
+    debug!("User [{actor}] set user [{}] active to [{active}]", target.0);
     Ok(Json(user.into()))
 }
 
@@ -182,10 +194,19 @@ pub async fn change_password<S: AppServices>(
     Path(id): Path<String>,
     Json(req): Json<ChangePasswordRequest>,
 ) -> ApiResult<StatusCode> {
-    let actor = &principal.user.0;
     let target = UserId(id);
     deny_player(&principal)?;
     require_admin_or_self(&principal, &target)?;
+    to_completion(replace_password(state, principal, target, req)).await
+}
+
+async fn replace_password<S: AppServices>(
+    state: S,
+    principal: Principal,
+    target: UserId,
+    req: ChangePasswordRequest,
+) -> ApiResult<StatusCode> {
+    let actor = &principal.user.0;
     state
         .user()
         .change_password(&principal, &target, req.current_password.as_deref(), &req.new_password)

@@ -17,7 +17,7 @@ server image are credited from the *Third-party content* section of the
 | --- | ---: |
 | Apache License 2.0 | 289 |
 | MIT License | 100 |
-| Unicode License v3 | 19 |
+| Unicode License v3 | 20 |
 | ISC License | 7 |
 | BSD 3-Clause "New" or "Revised" License | 6 |
 | Creative Commons Zero v1.0 Universal | 1 |
@@ -6168,7 +6168,7 @@ limitations under the License.
 Used by:
 
 - [ahash 0.8.12](https://github.com/tkaitchuck/ahash)
-- [arc-swap 1.9.2](https://github.com/vorner/arc-swap)
+- [arc-swap 1.9.3](https://github.com/vorner/arc-swap)
 - [atomic-waker 1.1.2](https://github.com/smol-rs/atomic-waker)
 - [autocfg 1.5.1](https://github.com/cuviper/autocfg)
 - [base64 0.13.1](https://github.com/marshallpierce/rust-base64)
@@ -6177,7 +6177,7 @@ Used by:
 - [bitflags 1.3.2](https://github.com/bitflags/bitflags)
 - [bitflags 2.13.2](https://github.com/bitflags/bitflags)
 - [bumpalo 3.20.3](https://github.com/fitzgen/bumpalo)
-- [cc 1.8.0](https://github.com/rust-lang/cc-rs)
+- [cc 1.9.0](https://github.com/rust-lang/cc-rs)
 - [cfg-if 1.0.5](https://github.com/rust-lang/cfg-if)
 - [cmake 0.1.58](https://github.com/rust-lang/cmake-rs)
 - [core-foundation-sys 0.8.7](https://github.com/servo/core-foundation-rs)
@@ -6194,7 +6194,7 @@ Used by:
 - [evmap 11.0.0](https://github.com/jonhoo/evmap.git)
 - [fastrand 2.5.0](https://github.com/smol-rs/fastrand)
 - [filetime 0.2.29](https://github.com/alexcrichton/filetime)
-- [find-msvc-tools 0.1.14](https://github.com/rust-lang/cc-rs)
+- [find-msvc-tools 0.1.15](https://github.com/rust-lang/cc-rs)
 - [flate2 1.1.10](https://github.com/rust-lang/flate2-rs)
 - [fnv 1.0.7](https://github.com/servo/rust-fnv)
 - [form_urlencoded 1.2.2](https://github.com/servo/rust-url)
@@ -6232,10 +6232,10 @@ Used by:
 - [parking_lot 0.12.5](https://github.com/Amanieu/parking_lot)
 - [parking_lot_core 0.9.12](https://github.com/Amanieu/parking_lot)
 - [percent-encoding 2.3.2](https://github.com/servo/rust-url/)
-- [pest 2.9.3](https://github.com/pest-parser/pest)
-- [pest_derive 2.9.3](https://github.com/pest-parser/pest)
-- [pest_generator 2.9.3](https://github.com/pest-parser/pest)
-- [pest_meta 2.9.3](https://github.com/pest-parser/pest)
+- [pest 2.9.4](https://github.com/pest-parser/pest)
+- [pest_derive 2.9.4](https://github.com/pest-parser/pest)
+- [pest_generator 2.9.4](https://github.com/pest-parser/pest)
+- [pest_meta 2.9.4](https://github.com/pest-parser/pest)
 - [pkg-config 0.3.34](https://github.com/rust-lang/pkg-config-rs)
 - [png 0.17.16](https://github.com/image-rs/image-png)
 - [png 0.18.1](https://github.com/image-rs/image-png)
@@ -6267,7 +6267,7 @@ Used by:
 - [ucd-trie 0.1.7](https://github.com/BurntSushi/ucd-generate)
 - [unicase 2.10.0](https://github.com/seanmonstar/unicase)
 - [unicode-normalization-alignments 0.1.12](https://github.com/n1t0/unicode-normalization)
-- [unicode-normalization 0.1.25](https://github.com/unicode-rs/unicode-normalization)
+- [unicode-normalization 0.1.26](https://github.com/unicode-rs/unicode-normalization)
 - [unicode-segmentation 1.13.3](https://github.com/unicode-rs/unicode-segmentation)
 - [unicode-width 0.1.14](https://github.com/unicode-rs/unicode-width)
 - [unicode-width 0.2.2](https://github.com/unicode-rs/unicode-width)
@@ -9291,7 +9291,7 @@ Used by:
 - [isolang 2.4.0](https://github.com/humenda/isolang-rs)
 - [itoa 1.0.18](https://github.com/dtolnay/itoa)
 - [jiff-cron 0.3.0](https://github.com/jiff-cron/jiff-cron)
-- [libc 0.2.190](https://github.com/rust-lang/libc)
+- [libc 0.2.191](https://github.com/rust-lang/libc)
 - [link-cplusplus 1.0.12](https://github.com/dtolnay/link-cplusplus)
 - [metrics-exporter-prometheus 0.18.3](https://github.com/metrics-rs/metrics)
 - [miniz_oxide 0.8.9](https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide)
@@ -11249,7 +11249,7 @@ SOFTWARE.
 
 Used by:
 
-- [zip 2.4.2](https://github.com/zip-rs/zip2.git)
+- [zip 2.6.1](https://github.com/zip-rs/zip2.git)
 
 ````text
 The MIT License (MIT)
@@ -11740,6 +11740,7 @@ and users must comply to its license: https://github.com/fmtlib/fmt/blob/master/
 Used by:
 
 - [unicode-ident 1.0.27](https://github.com/dtolnay/unicode-ident)
+- [unicode-normalization 0.1.26](https://github.com/unicode-rs/unicode-normalization)
 
 ````text
 UNICODE LICENSE V3

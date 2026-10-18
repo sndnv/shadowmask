@@ -26,6 +26,14 @@ use domain::user::{Principal, Role, UserId};
 
 use crate::error::{ApiError, ApiResult};
 
+pub(crate) async fn to_completion<F>(work: F) -> F::Output
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    tokio::spawn(work).await.expect("work run to completion does not panic")
+}
+
 pub(crate) fn require_admin_or_self(actor: &Principal, target: &UserId) -> ApiResult<()> {
     if actor.role == Role::Admin || &actor.user == target {
         Ok(())

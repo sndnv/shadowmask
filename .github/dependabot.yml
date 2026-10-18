@@ -1,32 +1,34 @@
 version: 2
 
+multi-ecosystem-groups:
+  all:
+    schedule:
+      interval: monthly
+
 updates:
   - package-ecosystem: cargo
     directory: /
-    schedule:
-      interval: weekly
+    patterns: ["*"]
+    multi-ecosystem-group: all
 
   - package-ecosystem: pub
     directory: /clients/flutter
-    schedule:
-      interval: weekly
+    patterns: ["*"]
+    multi-ecosystem-group: all
 
   - package-ecosystem: npm
     directory: /clients/roku/tooling
-    schedule:
-      interval: weekly
+    patterns: ["*"]
+    multi-ecosystem-group: all
 
   - package-ecosystem: github-actions
     directory: /
-    schedule:
-      interval: weekly
+    patterns: ["*"]
+    multi-ecosystem-group: all
 
   - package-ecosystem: docker
-    directory: /
-    schedule:
-      interval: weekly
-
-  - package-ecosystem: docker
-    directory: /clients/flutter/deployment/production
-    schedule:
-      interval: weekly
+    directories:
+      - /
+      - /clients/flutter/deployment/production
+    patterns: ["*"]
+    multi-ecosystem-group: all

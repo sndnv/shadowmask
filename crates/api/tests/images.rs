@@ -1,11 +1,12 @@
 use std::path::Path;
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{HeaderMap, Request, StatusCode, header};
 use tower::ServiceExt;
 
-use api::{ImageState, image_router};
+use api::{ImageState, bounded, image_router};
 use tracing_test::traced_test;
 
 const ARTWORK_ID: &str = "550e8400-e29b-41d4-a716-446655440000";
@@ -17,7 +18,7 @@ fn app_serving(dir: &Path, file: &str, bytes: &[u8]) -> Router {
     let art_dir = dir.join(ARTWORK_ID);
     std::fs::create_dir_all(&art_dir).unwrap();
     std::fs::write(art_dir.join(file), bytes).unwrap();
-    image_router(ImageState::new(dir))
+    bounded(image_router(ImageState::new(dir)), Duration::from_secs(60))
 }
 
 fn app(dir: &Path) -> Router {

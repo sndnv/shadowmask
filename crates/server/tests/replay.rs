@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
@@ -38,6 +39,7 @@ fn config(root: &Path) -> WireConfig {
         stream_secret: b"replay-stream-secret-key".to_vec(),
         access_ttl_secs: 3600,
         refresh_ttl_secs: 86_400,
+        stream_token_ttl_secs: 129_600,
         transcode_cache: root.join("transcode"),
         playback_prep_dir: root.join("playback-prep"),
         artwork_cache: root.join("artwork"),
@@ -50,6 +52,7 @@ fn config(root: &Path) -> WireConfig {
         fetch_cookies_file: None,
         vaapi_device: None,
         remux_read_rate: 10.0,
+        stream_start_timeout: Duration::from_secs(20),
         max_transcode_height: None,
         profile_overrides_dir: None,
         job_pools: Vec::new(),
@@ -279,7 +282,8 @@ async fn seeded(db_root: &Path, hash: &str) -> (Repos, Router) {
         hardware_transcode_available: false,
         hardware_transcode_enabled: false,
     });
-    (repos, app(state, stream, images, trickplay, Vec::new(), capabilities))
+    let limit = Duration::from_secs(90);
+    (repos, app(state, stream, images, trickplay, Vec::new(), capabilities, limit))
 }
 
 fn method(name: &str) -> Method {

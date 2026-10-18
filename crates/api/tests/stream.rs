@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
@@ -6,7 +7,7 @@ use axum::http::{HeaderMap, Request, StatusCode, header};
 use jiff::Timestamp;
 use tower::ServiceExt;
 
-use api::{StreamState, stream_router};
+use api::{StreamState, bounded, stream_router};
 use domain::catalog::VersionId;
 use domain::error::{StreamError, StreamTokenError};
 use domain::session::{
@@ -90,7 +91,9 @@ fn app(dir: &Path) -> Router {
     std::fs::write(output_dir.join("data.bin"), b"\x00\x01\x02\x03").unwrap();
     let direct_path = dir.join("movie.mkv");
     std::fs::write(&direct_path, b"MKVDATA-DIRECT-PLAY").unwrap();
-    stream_router(StreamState::new(FakeTokens, FakeSource { output_dir, direct_path }))
+    let streams =
+        stream_router(StreamState::new(FakeTokens, FakeSource { output_dir, direct_path }));
+    bounded(streams, Duration::from_secs(60))
 }
 
 async fn send(app: Router, uri: &str, range: Option<&str>) -> (StatusCode, HeaderMap, Vec<u8>) {

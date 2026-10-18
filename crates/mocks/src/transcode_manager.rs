@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 
 use domain::error::TranscodeError;
 use domain::session::{SessionId, TranscodeManager, TranscodeSpec, TranscodeStarted};
-use tokio::sync::Notify;
+
+use crate::hold::{Hold, NextHold};
 
 #[derive(Default)]
 struct State {
@@ -15,31 +16,13 @@ struct State {
     reaped: usize,
 }
 
-#[derive(Default)]
-struct Gates {
-    reached: Notify,
-    released: Notify,
-}
-
-#[derive(Clone, Default)]
-pub struct StartHold(Arc<Gates>);
-
-impl StartHold {
-    pub async fn reached(&self) {
-        self.0.reached.notified().await;
-    }
-
-    pub fn release(&self) {
-        self.0.released.notify_one();
-    }
-}
-
 #[derive(Clone, Default)]
 pub struct MockTranscodeManager {
     state: Arc<Mutex<State>>,
     fail: Arc<AtomicBool>,
     subtitles_missing: Arc<AtomicBool>,
-    hold: Arc<Mutex<Option<StartHold>>>,
+    hold: NextHold,
+    stop_hold: NextHold,
 }
 
 impl MockTranscodeManager {
@@ -55,10 +38,12 @@ impl MockTranscodeManager {
         self.subtitles_missing.store(true, Ordering::Relaxed);
     }
 
-    pub fn hold_next_start(&self) -> StartHold {
-        let hold = StartHold::default();
-        *self.hold.lock().unwrap() = Some(hold.clone());
-        hold
+    pub fn hold_next_start(&self) -> Hold {
+        self.hold.arm()
+    }
+
+    pub fn hold_next_stop(&self) -> Hold {
+        self.stop_hold.arm()
     }
 
     pub fn started(&self) -> Vec<TranscodeSpec> {
@@ -80,11 +65,7 @@ impl MockTranscodeManager {
 
 impl TranscodeManager for MockTranscodeManager {
     async fn start(&self, spec: TranscodeSpec) -> Result<TranscodeStarted, TranscodeError> {
-        let hold = self.hold.lock().unwrap().take();
-        if let Some(hold) = hold {
-            hold.0.reached.notify_one();
-            hold.0.released.notified().await;
-        }
+        self.hold.pass().await;
         if self.fail.load(Ordering::Relaxed) {
             return Err(TranscodeError::Spawn("mock transcode failure".to_owned()));
         }
@@ -109,6 +90,7 @@ impl TranscodeManager for MockTranscodeManager {
     }
 
     async fn stop(&self, session: &SessionId) -> Result<(), TranscodeError> {
+        self.stop_hold.pass().await;
         let mut state = self.state.lock().unwrap();
         if state.active.remove(session).is_none() {
             return Err(TranscodeError::NotFound);

@@ -1,10 +1,12 @@
+use std::time::Duration;
+
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
 use serde_json::Value;
 use tower::ServiceExt;
 
-use api::{AppState, router};
+use api::{AppState, bounded, router};
 use contracts::Generator;
 use domain::catalog::{Movie, MovieId};
 use jiff::Timestamp;
@@ -12,7 +14,7 @@ use mocks::{MockCatalogRepo, MockUserRepo};
 use services::catalog::CatalogServiceImpl;
 
 fn build_app(generator: &Generator) -> Router {
-    router(AppState::new(
+    let state = AppState::new(
         generator.auth.clone(),
         generator.catalog.clone(),
         generator.session.clone(),
@@ -21,14 +23,15 @@ fn build_app(generator: &Generator) -> Router {
         generator.user_library.clone(),
         generator.discovery.clone(),
         generator.job.clone(),
-    ))
+    );
+    bounded(router(state), Duration::from_secs(60))
 }
 
 fn empty_app() -> Router {
     // Default rather than new, so the Default impl clippy requires alongside an
     // argument-free new is exercised by something rather than sitting dead.
     let generator = Generator::default();
-    router(AppState::new(
+    let state = AppState::new(
         generator.auth.clone(),
         CatalogServiceImpl::new(MockCatalogRepo::new(), MockUserRepo::new()),
         generator.session.clone(),
@@ -37,7 +40,8 @@ fn empty_app() -> Router {
         generator.user_library.clone(),
         generator.discovery.clone(),
         generator.job.clone(),
-    ))
+    );
+    bounded(router(state), Duration::from_secs(60))
 }
 
 async fn get(app: Router, uri: &str, token: Option<&str>) -> (StatusCode, Value) {

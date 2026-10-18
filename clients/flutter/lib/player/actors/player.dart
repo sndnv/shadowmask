@@ -27,7 +27,9 @@ PlaybackStep playerReads(PlaybackState s, PlayerSnapshot reading) {
   final int atMs = stream.originMs + reading.positionMs;
   final int? seekingToMs = s.timeline.seekingToMs;
   final bool settled =
-      seekingToMs == null || (atMs - seekingToMs).abs() <= kSeekSettleMs;
+      seekingToMs == null ||
+      (atMs - seekingToMs).abs() <= kSeekSettleMs ||
+      (reading.ended && atMs < seekingToMs);
   final bool playing = s.status.holding ? s.timeline.playing : reading.playing;
   final VersionDetail? version = s.title.version;
   final bool fillsDuration =
