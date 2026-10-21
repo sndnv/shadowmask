@@ -97,6 +97,7 @@ async fn serves_a_produced_segment_end_to_end() {
             direct_path: None,
             bandwidth: 1_000_000,
             subtitle: None,
+            subtitle_file: None,
         },
     );
 

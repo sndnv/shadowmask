@@ -2523,6 +2523,7 @@ mod tests {
             channels: 2,
             language: Some(LanguageCode(tag.into())),
             bitrate: None,
+            title: None,
         });
         catalog.set_version_tracks(&v1, &[], &audio, &[], &[]).await.unwrap();
         let (svc, jobs) = trigger_svc(catalog, true, false, false);

@@ -6,8 +6,7 @@
   ],
   "audio": [
     { "codec": "aac", "max_channels": 6 },
-    { "codec": "opus", "max_channels": 8 },
-    { "codec": "eac3", "max_channels": 8 }
+    { "codec": "opus", "max_channels": 8 }
   ],
   "hdr": ["hdr10", "hlg"],
   "max_width": 3840,

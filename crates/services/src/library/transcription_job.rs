@@ -214,6 +214,7 @@ mod tests {
             channels: 2,
             language: language.map(|l| domain::common::LanguageCode(l.to_owned())),
             bitrate: None,
+            title: None,
         }
     }
 

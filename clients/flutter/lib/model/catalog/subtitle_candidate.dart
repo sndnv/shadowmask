@@ -11,6 +11,7 @@ abstract class SubtitleCandidate with _$SubtitleCandidate {
     required String fileId,
     String? language,
     String? releaseName,
+    @JsonKey(unknownEnumValue: SubtitleFormat.unknown)
     required SubtitleFormat format,
     int? downloadCount,
     double? rating,

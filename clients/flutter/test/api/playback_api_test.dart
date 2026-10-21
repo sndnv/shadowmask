@@ -12,7 +12,11 @@ const String _session =
     '{"session_id":"s1","mode":"direct","manifest_url":"/stream/t/file",'
     '"origin_ms":0,"sequential":false,"heartbeat_interval_s":10}';
 
-Future<Map<String, dynamic>> _startBody({ClientDecoding? decoding}) async {
+Future<Map<String, dynamic>> _startBody({
+  ClientDecoding? decoding,
+  List<String> subtitleDeliveries = const <String>[],
+  bool selectsAudioTracks = false,
+}) async {
   late http.Request seen;
   final PlaybackApi playback = PlaybackApi(
     ApiClient(
@@ -28,6 +32,8 @@ Future<Map<String, dynamic>> _startBody({ClientDecoding? decoding}) async {
     versionId: 'v1',
     platform: 'android',
     decoding: decoding,
+    subtitleDeliveries: subtitleDeliveries,
+    selectsAudioTracks: selectsAudioTracks,
   );
 
   return jsonDecode(seen.body) as Map<String, dynamic>;
@@ -42,6 +48,21 @@ void main() {
     expect(body['capabilities'], <String, dynamic>{
       'platform': 'android',
       'profile_version': 1,
+    });
+  });
+
+  test('the tracks a player handles itself travel with the play '
+      'request', () async {
+    final Map<String, dynamic> body = await _startBody(
+      subtitleDeliveries: <String>['embedded', 'image', 'external'],
+      selectsAudioTracks: true,
+    );
+
+    expect(body['capabilities'], <String, dynamic>{
+      'platform': 'android',
+      'profile_version': 1,
+      'subtitle_deliveries': <dynamic>['embedded', 'image', 'external'],
+      'audio_tracks': true,
     });
   });
 

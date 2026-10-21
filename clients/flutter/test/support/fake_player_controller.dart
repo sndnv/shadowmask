@@ -6,6 +6,7 @@ import 'package:shadowmask/model/session/playback_mode.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
+import 'package:shadowmask/player/state/player_tracks.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 
 class WatchedNotifier<T> extends ValueNotifier<T> {
@@ -45,7 +46,11 @@ class FakePlayerController implements PlayerController {
   Completer<void>? attachGate;
   int failedAttaches = 0;
   int _streams = 0;
-  final List<bool> attachedSubtitles = <bool>[];
+  final List<PlayerTracks> attachedTracks = <PlayerTracks>[];
+
+  List<bool> get attachedSubtitles => <bool>[
+    for (final PlayerTracks tracks in attachedTracks) tracks.rendition,
+  ];
 
   @override
   ValueListenable<PlayerSnapshot> get snapshot => _snapshot;
@@ -182,18 +187,28 @@ class FakePlayerController implements PlayerController {
   }
 
   @override
+  List<String> get subtitleDeliveries => const <String>[
+    kEmbeddedDelivery,
+    kImageSubtitles,
+    kExternalSubtitles,
+  ];
+
+  @override
+  bool get selectsAudioTracks => true;
+
+  @override
   Widget get view => const SizedBox.shrink();
 
   @override
   Future<void> attach(
     String manifestUrl, {
     required PlaybackMode mode,
-    required bool subtitles,
+    required PlayerTracks tracks,
     int positionMs = 0,
     bool autoplay = true,
   }) async {
     calls.add('attach:${mode.name}');
-    attachedSubtitles.add(subtitles);
+    attachedTracks.add(tracks);
     final int stream = ++_streams;
     _snapshot.value = const PlayerSnapshot(durationMs: 100000, ready: true);
     await attachGate?.future;

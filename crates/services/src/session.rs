@@ -10,7 +10,7 @@ use uuid::Uuid;
 use domain::catalog::{VersionDetail, VersionId};
 use domain::common::{Page, PageRequest, paginate};
 use domain::error::SessionError;
-use domain::media::SubtitleFormat;
+use domain::media::VideoTrack;
 use domain::negotiation::{
     AvailableSubtitles, CONVERTED_AUDIO_CODEC, NegotiationInput, NegotiationReason,
     effective_max_height, negotiate, resolve_audio, resolve_subtitle,
@@ -29,8 +29,8 @@ use domain::session::{
     PlaybackSession, PlaybackState, Renegotiated, SegmentContainer, SelectedTracks, SessionId,
     SessionStartInput, SessionStarted, SessionUpdate, SoftSubtitle, SoftSubtitleSource,
     StreamClaims, StreamGeneration, StreamRegistration, StreamRegistry, StreamTokens,
-    SubtitleChange, SubtitleDelivery, SubtitleRendition, SubtitleRequest, SubtitleSelection,
-    TranscodeManager, TranscodeSpec, segment_container_for,
+    SubtitleChange, SubtitleDelivery, SubtitleFileSpec, SubtitleRendition, SubtitleRequest,
+    SubtitleSelection, TranscodeManager, TranscodeSpec, segment_container_for,
 };
 use domain::user::{Principal, UserId};
 
@@ -69,6 +69,16 @@ struct Launched {
     container: Option<SegmentContainer>,
     selected: SelectedTracks,
     timeline: Timeline,
+    subtitle_file: bool,
+}
+
+impl Launched {
+    fn answered(&self, token: &str) -> SelectedTracks {
+        SelectedTracks {
+            subtitle_url: self.subtitle_file.then(|| subtitle_path(token)),
+            ..self.selected.clone()
+        }
+    }
 }
 
 impl LaunchContext {
@@ -236,6 +246,10 @@ fn manifest_path(mode: DeliveryMode, token: &str) -> String {
     }
 }
 
+fn subtitle_path(token: &str) -> String {
+    format!("/stream/{token}/subtitles.vtt")
+}
+
 fn state_label(state: PlaybackState) -> &'static str {
     match state {
         PlaybackState::Playing => "playing",
@@ -253,6 +267,18 @@ fn combine_caps(a: Option<u64>, b: Option<u64>) -> Option<u64> {
 
 fn bandwidth_of(detail: &VersionDetail) -> u64 {
     detail.video.first().and_then(|v| v.bitrate).unwrap_or(DEFAULT_BANDWIDTH)
+}
+
+fn fitted_height(video: &VideoTrack, max_width: u32, max_height: u32) -> Option<u32> {
+    let by_width = match video.width > max_width {
+        true => {
+            let scaled = u64::from(video.height) * u64::from(max_width) / u64::from(video.width);
+            u32::try_from(scaled).unwrap_or(video.height) & !1
+        }
+        false => video.height,
+    };
+    let fitted = by_width.min(max_height);
+    (fitted < video.height).then_some(fitted)
 }
 
 fn subtitle_rendition(
@@ -292,7 +318,7 @@ fn burn_subtitle_for(selected: &SelectedTracks, detail: &VersionDetail) -> Optio
     match selected.subtitle_track.as_ref()? {
         SubtitleTrackRef::Embedded(index) => {
             let track = detail.subtitles.iter().find(|s| s.index == *index)?;
-            if !matches!(track.format, SubtitleFormat::Pgs | SubtitleFormat::VobSub) {
+            if !track.format.is_image() {
                 return Some(BurnSubtitle::EmbeddedText(*index));
             }
             let video = detail.video.first()?;
@@ -366,9 +392,9 @@ where
         detail: &VersionDetail,
         ctx: &LaunchContext,
     ) -> Option<SoftSubtitle> {
-        if selected.subtitle_delivery != Some(SubtitleDelivery::HlsVtt) {
-            return None;
-        }
+        let delivery = selected
+            .subtitle_delivery
+            .filter(|d| matches!(d, SubtitleDelivery::HlsVtt | SubtitleDelivery::External))?;
         let track = selected.subtitle_track.as_ref()?;
         let source = match track {
             SubtitleTrackRef::Embedded(idx) => SoftSubtitleSource::Embedded(*idx),
@@ -377,7 +403,31 @@ where
                 SoftSubtitleSource::File(path)
             }
         };
-        Some(SoftSubtitle { source, offset_ms: self.resolve_offset(ctx, track).await })
+        Some(SoftSubtitle { source, offset_ms: self.resolve_offset(ctx, track).await, delivery })
+    }
+
+    async fn direct_subtitle_file(
+        &self,
+        session_id: &SessionId,
+        generation: StreamGeneration,
+        detail: &VersionDetail,
+        subtitle: SoftSubtitle,
+    ) -> Option<PathBuf> {
+        let spec = SubtitleFileSpec {
+            session: session_id.clone(),
+            generation,
+            version: detail.version.id.clone(),
+            input_path: detail.version.path.clone(),
+            subtitle,
+        };
+        match self.inner.transcode.prepare_subtitle_file(spec).await {
+            Ok(path) => Some(path),
+            Err(err) => {
+                #[rustfmt::skip]
+                warn!("session [{}] generation [{}] plays without its subtitle file: [{err}]", session_id.0, generation.0);
+                None
+            }
+        }
     }
 
     async fn resolve_offset(&self, ctx: &LaunchContext, track: &SubtitleTrackRef) -> i64 {
@@ -469,6 +519,7 @@ where
             downmix_stereo: ctx.downmix_stereo,
             delivery: ctx.delivery,
             prepared: keyframes_us.is_some(),
+            tracks: ctx.capabilities.tracks,
         };
         let outcome = negotiate(&input, &profile);
         let ceiling = match profile.max_frame_rate {
@@ -479,8 +530,7 @@ where
         let bandwidth = bandwidth_of(detail);
         let cap = effective_max_height(profile.max_height, ctx.target_height)
             .min(self.max_transcode_height.unwrap_or(u32::MAX));
-        let scale_to =
-            detail.video.first().map(|v| v.height).filter(|height| *height > cap).map(|_| cap);
+        let scale_to = detail.video.first().and_then(|v| fitted_height(v, profile.max_width, cap));
         let height = match scale_to {
             Some(height) => height.to_string(),
             None => "source".to_owned(),
@@ -506,8 +556,15 @@ where
 
         let mut origin_ms = 0;
         let mut sequential = false;
+        let subtitle_file;
         if outcome.mode == DeliveryMode::Direct {
             let _ = self.inner.transcode.stop(session_id).await;
+            subtitle_file = match self.soft_subtitle_for(&outcome.selected, detail, ctx).await {
+                Some(subtitle) => {
+                    self.direct_subtitle_file(session_id, generation, detail, subtitle).await
+                }
+                None => None,
+            };
             self.inner.streams.register(
                 session_id.clone(),
                 generation,
@@ -517,6 +574,7 @@ where
                     direct_path: Some(PathBuf::from(&detail.version.path)),
                     bandwidth,
                     subtitle: None,
+                    subtitle_file: subtitle_file.clone(),
                 },
             );
         } else {
@@ -548,6 +606,7 @@ where
                 .map_err(|_| SessionError::NegotiationFailed)?;
             origin_ms = started.origin_ms;
             sequential = started.sequential;
+            subtitle_file = started.subtitle_file.clone();
             self.inner.streams.register(
                 session_id.clone(),
                 generation,
@@ -558,6 +617,7 @@ where
                     bandwidth,
                     subtitle: subtitle_rendition(&outcome.selected, detail)
                         .filter(|_| started.subtitles),
+                    subtitle_file: started.subtitle_file,
                 },
             );
         }
@@ -566,6 +626,7 @@ where
             container: segments,
             selected: outcome.selected,
             timeline: Timeline { origin_ms, sequential },
+            subtitle_file: subtitle_file.is_some(),
         })
     }
 }
@@ -690,23 +751,23 @@ where
                 Ok((token, launched))
             })
             .await;
-        let (token, Launched { mode, container, selected, timeline }) = match opened {
+        let (token, launched) = match opened {
             Ok(opened) => opened,
             Err(err) => {
                 self.release(&session_id).await;
                 return Err(err);
             }
         };
-        let manifest_url = manifest_path(mode, &token);
+        let manifest_url = manifest_path(launched.mode, &token);
 
         Ok(SessionStarted {
             session_id,
-            mode,
-            container,
+            mode: launched.mode,
+            container: launched.container,
             manifest_url,
-            origin_ms: timeline.origin_ms,
-            sequential: timeline.sequential,
-            selected,
+            origin_ms: launched.timeline.origin_ms,
+            sequential: launched.timeline.sequential,
+            selected: launched.answered(&token),
             heartbeat_interval_s: HEARTBEAT_INTERVAL_S,
             markers: detail.markers,
             trickplay: detail.trickplay,
@@ -797,24 +858,24 @@ where
                 let generation = StreamGeneration(live.generation);
                 let token =
                     self.create_token(session, generation, &playback.user, &playback.version)?;
-                let Launched { mode, container, selected, timeline } =
+                let launched =
                     self.launch(session, generation, &detail, &live.ctx, position_ms).await?;
-                let manifest_url = manifest_path(mode, &token);
+                let manifest_url = manifest_path(launched.mode, &token);
 
                 playback.position_ms = position_ms;
                 playback.last_heartbeat_at = Timestamp::now();
-                playback.mode = mode;
-                playback.selected = selected.clone();
+                playback.mode = launched.mode;
+                playback.selected = launched.selected.clone();
                 self.inner.sessions.insert(playback).await?;
 
                 Ok(Renegotiated {
                     session_id: session.clone(),
-                    mode,
-                    container,
+                    mode: launched.mode,
+                    container: launched.container,
                     manifest_url,
-                    origin_ms: timeline.origin_ms,
-                    sequential: timeline.sequential,
-                    selected,
+                    origin_ms: launched.timeline.origin_ms,
+                    sequential: launched.timeline.sequential,
+                    selected: launched.answered(&token),
                 })
             })
             .await
@@ -886,13 +947,13 @@ where
                 let generation = StreamGeneration(live.generation);
                 let token =
                     self.create_token(session, generation, &playback.user, &playback.version)?;
-                let Launched { mode, container, selected, timeline } =
+                let launched =
                     self.launch(session, generation, &detail, &ctx, update.position_ms).await?;
-                let manifest_url = manifest_path(mode, &token);
+                let manifest_url = manifest_path(launched.mode, &token);
 
                 playback.position_ms = update.position_ms;
-                playback.mode = mode;
-                playback.selected = selected.clone();
+                playback.mode = launched.mode;
+                playback.selected = launched.selected.clone();
                 playback.last_heartbeat_at = Timestamp::now();
                 let position_ms = playback.position_ms;
                 live.ctx = ctx;
@@ -901,12 +962,12 @@ where
 
                 Ok(Renegotiated {
                     session_id: session.clone(),
-                    mode,
-                    container,
+                    mode: launched.mode,
+                    container: launched.container,
                     manifest_url,
-                    origin_ms: timeline.origin_ms,
-                    sequential: timeline.sequential,
-                    selected,
+                    origin_ms: launched.timeline.origin_ms,
+                    sequential: launched.timeline.sequential,
+                    selected: launched.answered(&token),
                 })
             })
             .await
@@ -956,7 +1017,7 @@ mod tests {
     };
     use domain::playback::WatchlistItem;
     use domain::profile::{AudioCodecCap, CapabilityProfile, ClientDecoding, VideoCodecCap};
-    use domain::session::{AudioRequest, SubtitleRequest};
+    use domain::session::{AudioRequest, SubtitleRequest, TrackHandling};
     use domain::user::{Role, User};
 
     use futures::FutureExt;
@@ -1063,7 +1124,14 @@ mod tests {
     }
 
     fn audio(index: u32) -> AudioTrack {
-        AudioTrack { index, codec: "aac".to_owned(), channels: 2, language: None, bitrate: None }
+        AudioTrack {
+            index,
+            codec: "aac".to_owned(),
+            channels: 2,
+            language: None,
+            bitrate: None,
+            title: None,
+        }
     }
 
     fn audio_in(index: u32, language: Option<&str>) -> AudioTrack {
@@ -1081,6 +1149,7 @@ mod tests {
             format,
             forced: false,
             default: false,
+            title: None,
         }
     }
 
@@ -1157,6 +1226,7 @@ mod tests {
             profile_version: 1,
             max_bitrate,
             decoding: None,
+            tracks: TrackHandling::default(),
         }
     }
 
@@ -1185,8 +1255,10 @@ mod tests {
             state: PlaybackState::Playing,
             selected: SelectedTracks {
                 audio_track: None,
+                audio_delivery: None,
                 subtitle_track: None,
                 subtitle_delivery: None,
+                subtitle_url: None,
             },
             started_at: Timestamp::UNIX_EPOCH,
             last_heartbeat_at: Timestamp::UNIX_EPOCH,
@@ -1206,7 +1278,13 @@ mod tests {
         delivery: Option<SubtitleDelivery>,
         track: Option<SubtitleTrackRef>,
     ) -> SelectedTracks {
-        SelectedTracks { audio_track: None, subtitle_track: track, subtitle_delivery: delivery }
+        SelectedTracks {
+            audio_track: None,
+            audio_delivery: None,
+            subtitle_track: track,
+            subtitle_delivery: delivery,
+            subtitle_url: None,
+        }
     }
 
     #[test]
@@ -1683,7 +1761,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(started.mode, DeliveryMode::Remux);
-        assert_eq!(started.container, Some(SegmentContainer::Fmp4));
+        assert_eq!(started.container, Some(SegmentContainer::MpegTs));
         assert!(!harness.transcode.started()[0].convert_audio);
     }
 
@@ -1825,6 +1903,77 @@ mod tests {
         assert_eq!(burn_subtitle_for(&burned(2), &no_video), None);
     }
 
+    fn sidecar() -> SubtitleFile {
+        SubtitleFile {
+            id: SubtitleFileId("sf1".into()),
+            version: VersionId("v1".into()),
+            language: Some(LanguageCode("en".into())),
+            format: SubtitleFormat::Srt,
+            source: SubtitleSource::External,
+            path: "/media/m1.en.srt".into(),
+            translated_from: None,
+            label: None,
+            pinned: false,
+        }
+    }
+
+    async fn start_direct_with_sidecar(harness: &Harness) -> SessionStarted {
+        let mut detail = detail_with(
+            "mp4",
+            100_000,
+            vec![video("h264", Some(5_000_000))],
+            vec![audio(1)],
+            vec![],
+        );
+        detail.subtitle_files = vec![sidecar()];
+        harness.catalog.insert(detail);
+        let mut request = start_request(0);
+        request.capabilities.tracks = TrackHandling { external: true, ..TrackHandling::default() };
+        request.subtitle = SubtitleRequest::Track(SubtitleSelection {
+            track: SubtitleTrackRef::File(SubtitleFileId("sf1".into())),
+            offset_ms: None,
+        });
+        harness.service.start(&principal(), request).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_subtitle_file_in_direct_play_is_prepared_and_its_address_answered() {
+        let harness = Harness::new();
+
+        let started = start_direct_with_sidecar(&harness).await;
+
+        assert_eq!(started.mode, DeliveryMode::Direct);
+        assert_eq!(started.selected.subtitle_delivery, Some(SubtitleDelivery::External));
+        let url = started.selected.subtitle_url.clone().unwrap();
+        assert!(url.starts_with("/stream/") && url.ends_with("/subtitles.vtt"), "{url}");
+        let prepared = harness.transcode.subtitle_files();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(
+            prepared[0].subtitle.source,
+            SoftSubtitleSource::File("/media/m1.en.srt".into())
+        );
+        assert_eq!(prepared[0].subtitle.delivery, SubtitleDelivery::External);
+        let registration = harness.streams.registration(&started.session_id).unwrap();
+        assert_eq!(
+            registration.subtitle_file,
+            Some(PathBuf::from(format!("/mock/cache/{}/1/subtitles.vtt", started.session_id.0)))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_subtitle_file_that_cannot_be_prepared_leaves_direct_play_without_it() {
+        let harness = Harness::new();
+        harness.transcode.set_subtitles_missing();
+
+        let started = start_direct_with_sidecar(&harness).await;
+
+        assert_eq!(started.mode, DeliveryMode::Direct);
+        assert_eq!(started.selected.subtitle_url, None);
+        assert_eq!(harness.transcode.subtitle_files().len(), 1);
+        let registration = harness.streams.registration(&started.session_id).unwrap();
+        assert_eq!(registration.subtitle_file, None);
+    }
+
     #[tokio::test]
     async fn start_burns_file_subtitle_from_sidecar_path() {
         let harness = Harness::new();
@@ -1942,6 +2091,7 @@ mod tests {
             Some(SoftSubtitle {
                 source: SoftSubtitleSource::File("/media/m1.en.srt".into()),
                 offset_ms: 0,
+                delivery: SubtitleDelivery::HlsVtt,
             })
         );
 
@@ -2192,6 +2342,41 @@ mod tests {
         let started = harness.service.start(&principal(), request).await.unwrap();
         assert_eq!(started.mode, DeliveryMode::Transcode);
         assert_eq!(harness.transcode.started()[0].max_height, Some(720));
+    }
+
+    fn sized(width: u32, height: u32) -> VideoTrack {
+        VideoTrack { width, height, ..video("h264", None) }
+    }
+
+    #[test]
+    fn a_transcode_fits_the_picture_inside_both_limits() {
+        assert_eq!(fitted_height(&sized(2582, 1080), 1920, 1080), Some(802));
+        assert_eq!(fitted_height(&sized(2582, 1080), 2560, 1440), Some(1070));
+        assert_eq!(fitted_height(&sized(1920, 700), 1280, 720), Some(466));
+        assert_eq!(fitted_height(&sized(3840, 2160), 1920, 1080), Some(1080));
+        assert_eq!(fitted_height(&sized(2582, 1080), 3840, 720), Some(720));
+    }
+
+    #[test]
+    fn a_picture_inside_both_limits_is_not_scaled() {
+        assert_eq!(fitted_height(&sized(1920, 1080), 1920, 1080), None);
+        assert_eq!(fitted_height(&sized(720, 400), 1920, 1080), None);
+        assert_eq!(fitted_height(&sized(0, 0), 1920, 1080), None);
+    }
+
+    #[tokio::test]
+    async fn a_picture_wider_than_the_client_is_transcoded_to_its_width() {
+        let harness = Harness::new();
+        harness.catalog.insert(detail_with(
+            "mp4",
+            100_000,
+            vec![sized(2582, 1080)],
+            vec![audio(1)],
+            vec![],
+        ));
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
+        assert_eq!(started.mode, DeliveryMode::Transcode);
+        assert_eq!(harness.transcode.started()[0].max_height, Some(802));
     }
 
     #[tokio::test]

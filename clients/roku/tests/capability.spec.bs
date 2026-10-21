@@ -80,6 +80,91 @@ namespace tests
             m.assertEqual(VideoCaps([{ codec: "av1", level: "5.1", bitDepth: 10, ok: true }]).Count(), 0)
         end sub
 
+        @it("drops every candidate it does not ask about, whatever the answer")
+        sub dropsEveryUnaskedCodec()
+            answers = []
+            for each codec in UnaskedCandidates().video
+                answers.Push({ codec: codec, level: "", bitDepth: 8, ok: true })
+            end for
+
+            m.assertEqual(VideoCaps(answers).Count(), 0)
+        end sub
+
+        @describe("ProbeVideo")
+
+        @it("counts a codec when the device knows it by either name")
+        sub countsEitherName()
+            for each known in ["mpeg4 avc", "h264"]
+                device = {
+                    known: known,
+                    CanDecodeVideo: function(format as object) as object
+                        return { result: format.Codec = m.known }
+                    end function
+                }
+
+                answers = ProbeVideo(device)
+                m.assertTrue(answers[0].ok)
+                m.assertEqual(answers[0].codec, "h264")
+                m.assertFalse(answers[answers.Count() - 1].ok)
+            end for
+        end sub
+
+        @it("counts nothing when the device knows none of the names it is asked")
+        sub countsNoUnknownName()
+            device = {
+                known: "vp8",
+                CanDecodeVideo: function(format as object) as object
+                    return { result: format.Codec = m.known }
+                end function
+            }
+
+            for each answer in ProbeVideo(device)
+                m.assertFalse(answer.ok)
+            end for
+        end sub
+
+        @describe("candidates")
+
+        function candidates() as object
+            return ParseJson(ReadAsciiFile("pkg:/capabilities/candidates.json"))
+        end function
+
+        @it("asks about every candidate or names why it does not")
+        sub coversEveryCandidate()
+            list = m.candidates()
+            unasked = UnaskedCandidates()
+            asked = {
+                video: VideoProbeNames(),
+                audio: {},
+                containers: {}
+            }
+            for each codec in AudioProbeSpecs()
+                asked.audio[codec] = true
+            end for
+            for each container in ReportContainers(true)
+                asked.containers[container] = true
+            end for
+
+            for each field in ["video", "audio", "containers"]
+                listed = {}
+                for each name in list[field]
+                    listed[name] = true
+                    m.assertTrue(asked[field].DoesExist(name) <> unasked[field].DoesExist(name), field + " " + name)
+                end for
+                for each name in unasked[field]
+                    m.assertTrue(listed.DoesExist(name), field + " " + name)
+                end for
+            end for
+        end sub
+
+        @it("can override every candidate codec and hdr format")
+        sub overridesEveryCandidate()
+            list = m.candidates()
+
+            m.assertEqual(KnownVideoCodecs(), list.video)
+            m.assertEqual(HdrFormats(), list.hdr)
+        end sub
+
         @it("omits a blank level rather than sending an empty one")
         sub omitsBlankLevel()
             caps = VideoCaps([{ codec: "h264", level: "", bitDepth: 8, ok: true }])
@@ -217,8 +302,8 @@ namespace tests
 
         @it("claims mkv only when the manifest declares it")
         sub claimsMkvOnlyWhenDeclared()
-            m.assertEqual(DecodingReport({ mkv: true }).containers, ["mp4", "mkv", "ts", "hls"])
-            m.assertEqual(DecodingReport({ mkv: false }).containers, ["mp4", "ts", "hls"])
+            m.assertEqual(DecodingReport({ mkv: true }).containers, ["mp4", "mov", "m4v", "mkv", "ts", "hls"])
+            m.assertEqual(DecodingReport({ mkv: false }).containers, ["mp4", "mov", "m4v", "ts", "hls"])
         end sub
 
         @it("never reports how smoothly it decodes")
@@ -250,6 +335,14 @@ namespace tests
         sub omitsEmptyDecoding()
             m.assertFalse(CapabilitiesBody({}, 1).DoesExist("decoding"))
             m.assertFalse(CapabilitiesBody(invalid, 1).DoesExist("decoding"))
+        end sub
+
+        @it("takes its subtitles from the stream, and leaves the audio track to the server")
+        sub declaresSubtitleDeliveries()
+            body = CapabilitiesBody({}, 1)
+
+            m.assertEqual(body.subtitle_deliveries, ["hls_vtt"])
+            m.assertFalse(body.DoesExist("audio_tracks"))
         end sub
 
         @describe("DiagnosticRows")
@@ -422,8 +515,26 @@ namespace tests
 
             report = ApplyOverrides(m.measured(), overrides)
             m.assertEqual(report.max_height, 720)
+            m.assertEqual(report.max_width, 1280)
             m.assertEqual(report.max_frame_rate, 30)
             m.assertEqual(report.audio[0].codec, "aac")
+        end sub
+
+        @it("sets the width that goes with the largest picture, so it can raise the video mode")
+        sub setsWidthWithHeight()
+            widths = { "2160": 3840, "1440": 2560, "1080": 1920, "720": 1280 }
+            for each height in PictureHeights()
+                overrides = CapabilityOverrides()
+                overrides.maxHeight = height
+
+                report = ApplyOverrides(m.measured(), overrides)
+                m.assertEqual(report.max_height, height)
+                m.assertEqual(report.max_width, widths[height.ToStr()])
+            end for
+
+            untouched = CapabilityOverrides()
+            untouched.hdr = "deny"
+            m.assertEqual(ApplyOverrides(m.measured(), untouched).max_width, 1920)
         end sub
 
         @it("keeps a codec the device reported that no override knows about")

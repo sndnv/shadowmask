@@ -7,4 +7,5 @@ pub struct AudioTrack {
     pub channels: u8,
     pub language: Option<LanguageCode>,
     pub bitrate: Option<u64>,
+    pub title: Option<String>,
 }

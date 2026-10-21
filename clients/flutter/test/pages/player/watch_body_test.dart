@@ -926,7 +926,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text(Strings.playerNoSubtitles).last);
     await tester.pumpAndSettle();
-    expect(find.textContaining('Spanish srt'), findsWidgets);
+    expect(find.textContaining('Spanish · Translated'), findsWidgets);
 
     await tester.pumpWidget(const SizedBox());
   });
@@ -2647,14 +2647,36 @@ void main() {
           fake,
           sequential: true,
           seekOriginMs: 88000,
-          intercept: (http.Request r) => isStart(r)
-              ? started(
-                  'remux',
-                  '/stream/tok/master.m3u8',
-                  'hls_vtt',
-                  sequential: true,
-                )
-              : null,
+          intercept: (http.Request r) {
+            if (isStart(r)) {
+              return started(
+                'remux',
+                '/stream/tok/master.m3u8',
+                'hls_vtt',
+                sequential: true,
+              );
+            }
+            if (r.url.path.endsWith('/seek')) {
+              return http.Response(
+                jsonEncode(<String, dynamic>{
+                  'manifest_url': '/stream/tok3/master.m3u8',
+                  'mode': 'remux',
+                  'origin_ms': 88000,
+                  'sequential': true,
+                  'selected': <String, dynamic>{
+                    'audio_track': 1,
+                    'subtitle_track': <String, dynamic>{
+                      'type': 'embedded',
+                      'index': 2,
+                    },
+                    'subtitle_delivery': 'hls_vtt',
+                  },
+                }),
+                200,
+              );
+            }
+            return null;
+          },
         ),
       );
       await tester.pumpAndSettle();

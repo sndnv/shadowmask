@@ -1,0 +1,161 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Playback check</title>
+</head>
+<body>
+<video id="media" playsinline crossorigin="anonymous"></video>
+<script src="/vendor/hls.min.js"></script>
+<script type="module">
+  import { measureDecoding } from "/basic/capabilities.js";
+  window.measureDecoding = measureDecoding;
+</script>
+<script>
+  const NETWORK_TIMEOUT_S = 10;
+  const SILENCE_DB = -90;
+  const media = document.getElementById("media");
+  const problems = new Set();
+  let hls = null;
+  let analyser = null;
+
+  function listen() {
+    if (analyser) {
+      return;
+    }
+    const context = new AudioContext();
+    const source = context.createMediaElementSource(media);
+    analyser = context.createAnalyser();
+    analyser.fftSize = 8192;
+    source.connect(analyser);
+    analyser.connect(context.destination);
+    context.resume().catch(() => {});
+  }
+
+  function tone() {
+    if (!analyser) {
+      return null;
+    }
+    const bins = new Float32Array(analyser.frequencyBinCount);
+    analyser.getFloatFrequencyData(bins);
+    let peak = 0;
+    for (let i = 1; i < bins.length; i++) {
+      if (bins[i] > bins[peak]) {
+        peak = i;
+      }
+    }
+    return bins[peak] < SILENCE_DB ? null : peak * analyser.context.sampleRate / analyser.fftSize;
+  }
+
+  media.addEventListener("error", () => {
+    const error = media.error;
+    problems.add(`media error ${error ? error.code : "?"}: ${error ? error.message : ""}`);
+  });
+
+  function hlsConfig() {
+    const wait = NETWORK_TIMEOUT_S * 1000;
+    return { manifestLoadingTimeOut: wait, levelLoadingTimeOut: wait, fragLoadingTimeOut: wait };
+  }
+
+  function teardown() {
+    if (hls) {
+      hls.destroy();
+      hls = null;
+    }
+    for (const track of media.querySelectorAll("track")) {
+      track.remove();
+    }
+    if (media.getAttribute("src")) {
+      media.removeAttribute("src");
+      media.load();
+    }
+  }
+
+  function addSubtitle(url) {
+    const track = document.createElement("track");
+    track.kind = "subtitles";
+    track.src = url;
+    track.default = true;
+    media.appendChild(track);
+    track.track.mode = "showing";
+  }
+
+  window.player = {
+    attach(url, mode, offsetMs, subtitleUrl) {
+      teardown();
+      if (subtitleUrl) {
+        addSubtitle(subtitleUrl);
+      }
+      return new Promise((resolve, reject) => {
+        const ready = () => {
+          if (offsetMs) {
+            media.currentTime = offsetMs / 1000;
+          }
+          resolve();
+        };
+        if (mode !== "direct" && window.Hls && window.Hls.isSupported()) {
+          const instance = new window.Hls(hlsConfig());
+          hls = instance;
+          instance.on(window.Hls.Events.MANIFEST_PARSED, ready);
+          instance.on(window.Hls.Events.ERROR, (_, data) => {
+            if (data.fatal || /append/i.test(data.details || "")) {
+              problems.add(`hls.js ${data.fatal ? "fatal " : ""}${data.type} ${data.details}`);
+            }
+            if (data.fatal) {
+              reject(new Error(`hls.js ${data.details}`));
+            }
+          });
+          instance.loadSource(url);
+          instance.attachMedia(media);
+          return;
+        }
+        media.addEventListener("loadedmetadata", ready, { once: true });
+        media.src = url;
+      });
+    },
+    play() {
+      listen();
+      return media.play().catch((err) => {
+        if (!err || err.name !== "NotAllowedError") {
+          return;
+        }
+        media.muted = true;
+        return media.play().catch(() => {});
+      });
+    },
+    seekTo(offsetMs) {
+      media.currentTime = offsetMs / 1000;
+    },
+    reading() {
+      let ahead = 0;
+      for (let i = 0; i < media.buffered.length; i++) {
+        if (media.buffered.start(i) <= media.currentTime + 0.5 && media.buffered.end(i) > media.currentTime) {
+          ahead = (media.buffered.end(i) - media.currentTime) * 1000;
+        }
+      }
+      const texts = [];
+      for (const track of media.textTracks) {
+        if (track.mode !== "showing" || !track.activeCues) {
+          continue;
+        }
+        for (const cue of track.activeCues) {
+          texts.push(cue.text);
+        }
+      }
+      return {
+        positionMs: media.currentTime * 1000,
+        bufferedAheadMs: ahead,
+        subtitle: texts.join("\n"),
+        audio: (media.webkitAudioDecodedByteCount || 0) > 0,
+        audioIndex: null,
+        toneHz: tone(),
+        image: null,
+      };
+    },
+    problems() {
+      return [...problems];
+    },
+  };
+</script>
+</body>
+</html>

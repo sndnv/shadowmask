@@ -66,6 +66,21 @@ where
     Ok(serve_file(path, request, None).await)
 }
 
+pub async fn subtitles<T, G>(
+    State(state): State<StreamState<T, G>>,
+    Path(token): Path<String>,
+    request: Request,
+) -> ApiResult<Response>
+where
+    T: StreamTokens + Send + Sync + 'static,
+    G: StreamSource + Send + Sync + 'static,
+{
+    let claims = state.tokens.verify(&token)?;
+    let path = state.source.subtitle_file(&claims)?;
+    debug!("User [{}] fetched the stream's subtitle file", claims.user.0);
+    Ok(serve_file(path, request, Some("text/vtt")).await)
+}
+
 async fn serve_file(
     path: PathBuf,
     request: Request,

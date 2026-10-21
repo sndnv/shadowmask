@@ -6,6 +6,8 @@ import {
   SLOW_S,
   startBody,
   step,
+  SUBTITLE_DELIVERIES,
+  subtitleFileOf,
   updateBody,
 } from "./session.js";
 
@@ -28,6 +30,7 @@ export class PlaybackRunner {
   #platform;
   #saveLocal;
   #profileVersion = 1;
+  #decoding = null;
   #state;
   #queue = [];
   #draining = false;
@@ -65,8 +68,9 @@ export class PlaybackRunner {
     };
   }
 
-  opened({ durationMs, resumeMs, profileVersion }) {
+  opened({ durationMs, resumeMs, profileVersion, decoding = null }) {
     this.#profileVersion = profileVersion || 1;
+    this.#decoding = decoding;
     this.#post({ kind: "opened", durationMs, resumeMs });
   }
 
@@ -233,7 +237,14 @@ export class PlaybackRunner {
             {
               version_id: versionId,
               start_position_ms: command.positionMs,
-              capabilities: { platform: this.#platform, profile_version: this.#profileVersion },
+              capabilities: Object.assign(
+                {
+                  platform: this.#platform,
+                  profile_version: this.#profileVersion,
+                  subtitle_deliveries: SUBTITLE_DELIVERIES,
+                },
+                this.#decoding ? { decoding: this.#decoding } : {},
+              ),
             },
             startBody(command.controls),
           ),
@@ -266,7 +277,9 @@ export class PlaybackRunner {
   #load(command) {
     const stream = command.stream;
     new Promise((resolve) =>
-      resolve(this.#player.attach(stream.manifestUrl, stream.mode, command.offsetMs))
+      resolve(
+        this.#player.attach(stream.manifestUrl, stream.mode, command.offsetMs, subtitleFileOf(stream)),
+      )
     ).then(
       () => this.#post({ kind: "loaded", id: command.id }),
       (err) =>

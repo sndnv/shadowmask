@@ -12,6 +12,9 @@ Not everything here is distributed. Everything under `screenshots/` is reference
 the root `README.md` and has no entry in `refresh_assets.py`.
 `icons/flutter/linux_icon_*.png` are read straight from here by
 `clients/flutter/AppImageBuilder.yml` when the AppImage is packaged.
+`capabilities/candidates.json` is read in place by the clients' tests and the playback check;
+Roku's tests read `pkg:/`, so Roku gets a copy through `refresh_assets.py`
+(`clients/roku/capabilities/`, staged by `bsconfig-test.json` only; the app does not read it).
 
 ## Layout
 
@@ -23,8 +26,16 @@ assets/
   icons/         rasterized launcher/PWA icon sets, grouped per client
   vendor/        third-party files bundled verbatim into a client
   attribution/   provider logos we are required to display unmodified
+  capabilities/  what every client asks its player about in its capability report
   screenshots/   client captures for the root README
 ```
+
+`capabilities/candidates.json` lists, in the server's names, the video codecs, audio codecs,
+containers and HDR formats every client asks its player about when it builds its capability
+report (`04-protocol.md` section 6). Each client keeps its own table of how to ask (a MIME type,
+a decoder name, a `CanDecodeVideo` spec), and its tests fail when a candidate has no question and
+is not named as one its player cannot be asked. Add a name here when a library holds a file that
+needs it; until then such a file is converted, which still plays.
 
 `attribution/` holds provider logos that must be shown unmodified in colour, aspect and rotation.
 Replace them only with a fresh download from the provider.

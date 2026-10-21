@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/model/session/capability_overrides.dart';
 import 'package:shadowmask/model/session/client_decoding.dart';
@@ -96,6 +99,65 @@ void main() {
     expect(applied?.maxHeight, 1080);
     expect(applied?.maxFrameRate, 30);
     expect(applied?.toJson().containsKey('video'), isFalse);
+  });
+
+  test('the largest picture sets the width that goes with it', () {
+    const ClientDecoding measured = ClientDecoding(
+      video: <VideoCodecCap>[
+        VideoCodecCap(codec: 'hevc', maxBitDepth: 10, smooth: true),
+      ],
+      maxWidth: 1920,
+      maxHeight: 1080,
+    );
+    const Map<int, int> widths = <int, int>{
+      2160: 3840,
+      1440: 2560,
+      1080: 1920,
+      720: 1280,
+    };
+
+    for (final int height in kPictureHeights) {
+      final ClientDecoding? applied = CapabilityOverrides(
+        maxHeight: height,
+      ).applyTo(measured);
+      expect(applied?.maxHeight, height);
+      expect(applied?.maxWidth, widths[height]);
+    }
+    expect(
+      const CapabilityOverrides(
+        hdr: HdrChoice.deny,
+      ).applyTo(measured)?.maxWidth,
+      1920,
+    );
+  });
+
+  test('the containers the player opens are kept', () {
+    const ClientDecoding measured = ClientDecoding(
+      containers: <String>['mkv', 'avi'],
+      video: <VideoCodecCap>[
+        VideoCodecCap(codec: 'mpeg4', maxBitDepth: 8, smooth: true),
+      ],
+    );
+    final ClientDecoding? applied = const CapabilityOverrides(
+      codecs: <String, CodecSupport>{'mpeg4': CodecSupport.software},
+    ).applyTo(measured);
+    expect(applied?.containers, <String>['mkv', 'avi']);
+    expect(_codec(applied, 'mpeg4')?.smooth, isFalse);
+  });
+
+  test('every candidate video codec can be overridden', () {
+    final Map<String, dynamic> candidates =
+        jsonDecode(
+              File(
+                '../../assets/capabilities/candidates.json',
+              ).readAsStringSync(),
+            )
+            as Map<String, dynamic>;
+    expect(
+      kKnownVideoCodecs,
+      (candidates['video'] as List<dynamic>).cast<String>(),
+    );
+    expect(kHdrFormats, (candidates['hdr'] as List<dynamic>).cast<String>());
   });
 
   test('overrides survive a round trip through storage', () {

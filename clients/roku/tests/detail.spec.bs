@@ -901,15 +901,9 @@ namespace tests
 
         @it("names the common speaker layouts rather than counting channels")
         sub namesChannelLayouts()
-            m.assertEqual(AudioTrackLine({ codec: "eac3", channels: 6, language: "en" }), "EAC3 · 5.1 · EN")
-            m.assertEqual(AudioTrackLine({ codec: "aac", channels: 2 }), "AAC · 2.0")
-            m.assertEqual(AudioTrackLine({ codec: "dts", channels: 3 }), "DTS · 3 channels")
-        end sub
-
-        @it("flags a forced or default subtitle track")
-        sub flagsSubtitleTracks()
-            m.assertEqual(SubtitleTrackLine({ language: "en", format: "srt", forced: true }), "EN · SRT · Forced")
-            m.assertEqual(SubtitleTrackLine({ language: "de", format: "pgs" }), "DE · PGS")
+            m.assertEqual(ChannelLabel(6), "5.1")
+            m.assertEqual(ChannelLabel(2), "2.0")
+            m.assertEqual(ChannelLabel(3), "3 channels")
         end sub
 
         @it("prefers a subtitle file's own label, since that is what an admin named it")
@@ -923,11 +917,11 @@ namespace tests
 
         @it("gathers the lines of one track kind, skipping anything it cannot describe")
         sub gathersTrackLines()
-            detail = { audio: [{ codec: "aac", channels: 2 }, { codec: "" }] }
-            lines = TrackLines(detail, "audio", AudioTrackLine)
+            detail = { video: [{ codec: "h264", width: 1920, height: 1080 }, { codec: "" }] }
+            lines = TrackLines(detail, "video", VideoTrackLine)
 
             m.assertEqual(lines.Count(), 1)
-            m.assertEqual(lines[0], "AAC · 2.0")
+            m.assertEqual(lines[0], "H264 · 1920×1080")
         end sub
 
         @describe("ScreenForKind")

@@ -1,0 +1,48 @@
+name: shadowmask-playback
+
+services:
+  server:
+    image: ${PLAYBACK_SERVER_IMAGE}
+    init: true
+    environment:
+      SHADOWMASK_LOG_LEVEL: "debug"
+      SHADOWMASK_SQLX_LOG_LEVEL: "warn"
+      SHADOWMASK_JWT_SECRET: "playback-jwt-secret"
+      SHADOWMASK_STREAM_SECRET: "playback-stream-secret"
+      SHADOWMASK_CORS_ALLOWED_ORIGINS: "http://localhost:8096"
+      SHADOWMASK_BOOTSTRAP_MODE: "init-and-start"
+      SHADOWMASK_ADMIN_USERNAME: "admin"
+      SHADOWMASK_ADMIN_PASSWORD: "passw0rd"
+      SHADOWMASK_FETCH_PROVIDERS_ENABLED: "false"
+      SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED: "false"
+      SHADOWMASK_JOB_POOLS_MEDIA_KINDS: "playback_prep"
+      SHADOWMASK_JOB_POOLS_TRICKPLAY_KINDS: "trickplay"
+      SHADOWMASK_JOB_POOLS_TRICKPLAY_CONCURRENCY: "1"
+    volumes:
+      - playback-data:/data
+      - ${PLAYBACK_BOOTSTRAP}:/config/bootstrap:ro
+      - ${PLAYBACK_MOVIES}:/media/movies:ro
+      - ${PLAYBACK_TV}:/media/tv:ro
+
+  mpv:
+    image: localhost/shadowmask-playback-mpv:latest
+    profiles: [ "tools" ]
+    volumes:
+      - ./:/work/playback:ro
+      - ../scripts:/work/scripts:ro
+      - ${PLAYBACK_OUT}:/out
+      - ${PLAYBACK_MOVIES}:/media/movies:ro
+      - ${PLAYBACK_TV}:/media/tv:ro
+
+  browser:
+    image: localhost/shadowmask-playback-browser:latest
+    profiles: [ "tools" ]
+    shm_size: "1gb"
+    volumes:
+      - ./:/work/playback:ro
+      - ../../../clients/basic/vendor:/work/vendor:ro
+      - ../../../clients/basic/player:/work/basic:ro
+      - ${PLAYBACK_OUT}:/out
+
+volumes:
+  playback-data:

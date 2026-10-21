@@ -672,6 +672,21 @@ namespace tests
             m.assertEqual(taken.state.stream.manifestUrl, "/hls/s1/c.m3u8")
         end sub
 
+        @it("keeps the subtitle delivery a stream names, start and update alike")
+        sub keepsSubtitleDelivery()
+            started = PlaybackStreamOf({ session_id: "s1", manifest_url: "/stream/t1/file", mode: "direct", selected: { subtitle_delivery: "hls_vtt" } })
+            m.assertEqual(started.subtitleDelivery, "hls_vtt")
+
+            s = m.changed(m.watching()).state
+            json = { manifest_url: "/stream/t2/file", mode: "direct", selected: { subtitle_delivery: "burned" } }
+            taken = m.stepped(s, { kind: "updated", id: 2, json: json })
+            m.assertEqual(taken.state.stream.subtitleDelivery, "burned")
+
+            json = { manifest_url: "/stream/t3/file", mode: "direct", selected: {} }
+            cleared = m.stepped(m.changed(m.watching()).state, { kind: "updated", id: 2, json: json })
+            m.assertEqual(cleared.state.stream.subtitleDelivery, "")
+        end sub
+
         @it("sends nothing with no stream or for the same update")
         sub changeWithoutRequest()
             refused = m.stepped(m.opened(), { kind: "refusedStart", id: 1, message: "x" }).state

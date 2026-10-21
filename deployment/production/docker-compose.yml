@@ -111,6 +111,7 @@ services:
       # Caps the height the server re-encodes to. Direct play and remux are never downscaled.
       # SHADOWMASK_MAX_TRANSCODE_HEIGHT: "1080"
       # How long a stream may take to read its file before its start, seek or update fails; 0 = no limit.
+      # Direct play's subtitle file gets the same time, then the title plays without it.
       # SHADOWMASK_STREAM_START_TIMEOUT_SECS: "20"
       # How long a request may take to answer before it gets a 504; 0 = no limit. Keep it above the
       # stream start timeout. Streams and downloads are never cut: the limit ends when they start.

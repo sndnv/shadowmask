@@ -6,6 +6,7 @@ export const LOAD_TIMEOUT_MARGIN_S = 5;
 export const SLOW_S = 20;
 export const NETWORK_TIMEOUTS = [10, 30, 60, 90];
 export const DELIVERY_MODES = ["auto", "never", "always"];
+export const SUBTITLE_DELIVERIES = ["external", "hls_vtt"];
 
 const AUTO = { kind: "auto" };
 const OFF = { kind: "off" };
@@ -341,27 +342,45 @@ function awaits(s, id) {
   return s.status.life === "open" && s.status.sent != null && s.status.sent.id === id;
 }
 
-function streamOf(session) {
+function subtitleOf(selected) {
   return {
-    sessionId: session.session_id,
-    manifestUrl: session.manifest_url,
-    originMs: session.origin_ms || 0,
-    sequential: session.sequential === true,
-    mode: session.mode,
-    container: session.container || null,
-    subtitleDelivery: (session.selected && session.selected.subtitle_delivery) || null,
-    heartbeatIntervalS: session.heartbeat_interval_s || 10,
+    subtitleDelivery: (selected && selected.subtitle_delivery) || null,
+    subtitleUrl: (selected && selected.subtitle_url) || null,
   };
 }
 
+function streamOf(session) {
+  return Object.assign(
+    {
+      sessionId: session.session_id,
+      manifestUrl: session.manifest_url,
+      originMs: session.origin_ms || 0,
+      sequential: session.sequential === true,
+      mode: session.mode,
+      container: session.container || null,
+      heartbeatIntervalS: session.heartbeat_interval_s || 10,
+    },
+    subtitleOf(session.selected),
+  );
+}
+
 function replaced(stream, negotiation) {
-  return Object.assign({}, stream, {
-    manifestUrl: negotiation.manifest_url,
-    originMs: negotiation.origin_ms || 0,
-    sequential: negotiation.sequential === true,
-    mode: negotiation.mode,
-    container: negotiation.container || null,
-  });
+  return Object.assign(
+    {},
+    stream,
+    {
+      manifestUrl: negotiation.manifest_url,
+      originMs: negotiation.origin_ms || 0,
+      sequential: negotiation.sequential === true,
+      mode: negotiation.mode,
+      container: negotiation.container || null,
+    },
+    negotiation.selected ? subtitleOf(negotiation.selected) : {},
+  );
+}
+
+export function subtitleFileOf(stream) {
+  return stream.subtitleDelivery === "external" ? stream.subtitleUrl : null;
 }
 
 function load(s, stream, id, atMs) {
@@ -409,13 +428,7 @@ function serverRefusedStart(s, id, message) {
 function serverUpdated(s, id, negotiation) {
   const sent = s.status.sent;
   if (!awaits(s, id) || sent.kind !== "controls" || !s.stream) return same(s);
-  const delivery = (negotiation.selected && negotiation.selected.subtitle_delivery) || null;
-  return load(
-    s,
-    Object.assign(replaced(s.stream, negotiation), { subtitleDelivery: delivery }),
-    id,
-    sent.positionMs,
-  );
+  return load(s, replaced(s.stream, negotiation), id, sent.positionMs);
 }
 
 function serverSeeked(s, id, negotiation) {

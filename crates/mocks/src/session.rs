@@ -97,8 +97,10 @@ impl SessionService for MockSessionService {
                 AudioRequest::Track(index) => Some(index),
                 _ => None,
             },
+            audio_delivery: None,
             subtitle_delivery: requested_subtitle.as_ref().map(|_| SubtitleDelivery::HlsVtt),
             subtitle_track: requested_subtitle,
+            subtitle_url: None,
         };
         let version = request.version.clone();
         // The one knob a client has over the outcome, so the mock honours it rather than
@@ -266,6 +268,7 @@ mod tests {
                 profile_version: 1,
                 max_bitrate: None,
                 decoding: None,
+                tracks: domain::session::TrackHandling::default(),
             },
             audio: AudioRequest::Track(0),
             subtitle: SubtitleRequest::Unspecified,

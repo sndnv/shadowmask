@@ -4,9 +4,10 @@
       "index": 0,
       "codec_name": "hevc",
       "codec_type": "video",
+      "profile": "Main 10",
       "width": 3840,
       "height": 2160,
-      "bits_per_raw_sample": "10",
+      "pix_fmt": "yuv420p10le",
       "r_frame_rate": "24000/1001",
       "color_transfer": "smpte2084",
       "bit_rate": "45000000",
@@ -61,5 +62,51 @@
   ],
   "format": {
     "duration": "5400.500000"
-  }
+  },
+  "pixel_formats": [
+    {
+      "name": "yuv420p",
+      "nb_components": 3,
+      "log2_chroma_w": 1,
+      "log2_chroma_h": 1,
+      "bits_per_pixel": 12,
+      "flags": { "big_endian": 0, "palette": 0, "bitstream": 0, "hwaccel": 0, "planar": 1, "rgb": 0, "alpha": 0 },
+      "components": [
+        { "index": 1, "bit_depth": 8 },
+        { "index": 2, "bit_depth": 8 },
+        { "index": 3, "bit_depth": 8 }
+      ]
+    },
+    {
+      "name": "vaapi",
+      "nb_components": 0,
+      "flags": { "big_endian": 0, "palette": 0, "bitstream": 0, "hwaccel": 1, "planar": 0, "rgb": 0, "alpha": 0 }
+    },
+    {
+      "name": "yuv420p10le",
+      "nb_components": 3,
+      "log2_chroma_w": 1,
+      "log2_chroma_h": 1,
+      "bits_per_pixel": 15,
+      "flags": { "big_endian": 0, "palette": 0, "bitstream": 0, "hwaccel": 0, "planar": 1, "rgb": 0, "alpha": 0 },
+      "components": [
+        { "index": 1, "bit_depth": 10 },
+        { "index": 2, "bit_depth": 10 },
+        { "index": 3, "bit_depth": 10 }
+      ]
+    },
+    {
+      "name": "yuv420p12le",
+      "nb_components": 3,
+      "log2_chroma_w": 1,
+      "log2_chroma_h": 1,
+      "bits_per_pixel": 18,
+      "flags": { "big_endian": 0, "palette": 0, "bitstream": 0, "hwaccel": 0, "planar": 1, "rgb": 0, "alpha": 0 },
+      "components": [
+        { "index": 1, "bit_depth": 12 },
+        { "index": 2, "bit_depth": 12 },
+        { "index": 3, "bit_depth": 12 }
+      ]
+    }
+  ]
 }

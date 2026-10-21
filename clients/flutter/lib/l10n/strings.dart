@@ -355,7 +355,7 @@ abstract final class Strings {
       'cost of detail.';
   static const String playerAudio = 'Audio';
   static const String playerSubtitles = 'Subtitles';
-  static String subtitleTrackLabel(int index) => 'Sub $index';
+  static const String playerForced = 'Forced';
 
   static const String sourceOpenSubtitles = 'OpenSubtitles';
   static const String sourceExternal = 'External';

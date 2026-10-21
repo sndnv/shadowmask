@@ -1,0 +1,6 @@
+{
+  "video": ["h264", "hevc", "vp9", "av1", "mpeg4", "msmpeg4v3"],
+  "audio": ["aac", "mp3", "ac3", "eac3", "dts", "truehd", "flac", "opus", "vorbis", "mp2"],
+  "containers": ["mp4", "mkv", "ts", "avi", "mov", "m4v", "mpg", "m2ts", "wmv", "flv"],
+  "hdr": ["hdr10", "hdr10plus", "hlg"]
+}

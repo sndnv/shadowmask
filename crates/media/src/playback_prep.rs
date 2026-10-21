@@ -320,7 +320,10 @@ fn is_text(format: SubtitleFormat) -> bool {
 fn codec_for(format: SubtitleFormat) -> &'static str {
     match format {
         SubtitleFormat::Srt | SubtitleFormat::Vtt => "srt",
-        SubtitleFormat::Ass | SubtitleFormat::Pgs | SubtitleFormat::VobSub => "copy",
+        SubtitleFormat::Ass
+        | SubtitleFormat::Pgs
+        | SubtitleFormat::VobSub
+        | SubtitleFormat::Dvb => "copy",
     }
 }
 

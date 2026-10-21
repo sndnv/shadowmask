@@ -5,8 +5,9 @@ use std::time::Duration;
 use domain::catalog::VersionId;
 use domain::media::{EmbeddedSubtitleTrack, MediaProbe, PlaybackPreparer, SubtitleFormat};
 use domain::session::{
-    BurnSubtitle, SegmentContainer, SessionId, StreamClaims, StreamGeneration, StreamSource,
-    TranscodeManager, TranscodeSpec, TranscodeStarted,
+    BurnSubtitle, SegmentContainer, SessionId, SoftSubtitle, SoftSubtitleSource, StreamClaims,
+    StreamGeneration, StreamSource, SubtitleDelivery, SubtitleFileSpec, TranscodeManager,
+    TranscodeSpec, TranscodeStarted, segment_container_for,
 };
 use domain::user::UserId;
 use jiff::Timestamp;
@@ -302,9 +303,13 @@ fn span(input: &str, stream: &str) -> (f64, f64) {
 }
 
 fn sound_format(input: &str) -> String {
+    sound(input, "stream=codec_name,channels")
+}
+
+fn sound(input: &str, entries: &str) -> String {
     let listed = Command::new("ffprobe")
         .args(["-v", "error", "-select_streams", "a:0"])
-        .args(["-show_entries", "stream=codec_name,channels", "-of", "csv=p=0", input])
+        .args(["-show_entries", entries, "-of", "csv=p=0", input])
         .output()
         .expect("ffprobe should run");
     let text = String::from_utf8_lossy(&listed.stdout).into_owned();
@@ -356,6 +361,138 @@ async fn a_copy_converting_its_sound_cuts_as_planned_and_plays_it_with_the_pictu
                 (sound_to - picture_to).abs() <= SOUND_END_TOLERANCE_S,
                 "{case}: sound to {sound_to}, picture to {picture_to}"
             );
+        }
+    }
+}
+
+async fn coded(dir: &Path, name: &str, video: &[&str], audio: &[&str]) -> Clip {
+    let path = dir.join(name).to_string_lossy().into_owned();
+    let built = Command::new("ffmpeg")
+        .args(["-nostdin", "-v", "error", "-y", "-f", "lavfi"])
+        .args(["-i", "testsrc2=s=320x240:r=25:d=12", "-f", "lavfi"])
+        .args(["-i", "sine=d=12:sample_rate=48000", "-map", "0", "-map", "1", "-g", "50"])
+        .args(video)
+        .args(audio)
+        .arg(&path)
+        .status()
+        .expect("ffmpeg should build the clip; is ffmpeg installed and on PATH?");
+    assert!(built.success(), "building [{name}]");
+    described(path, name).await
+}
+
+fn codec(input: &str, stream: &str) -> String {
+    let listed = Command::new("ffprobe")
+        .args(["-v", "error", "-select_streams", stream])
+        .args(["-show_entries", "stream=codec_name", "-of", "csv=p=0", input])
+        .output()
+        .expect("ffprobe should run");
+    String::from_utf8_lossy(&listed.stdout).lines().next().unwrap_or_default().trim().to_owned()
+}
+
+fn decode_errors(input: &str) -> String {
+    let decoded = Command::new("ffmpeg")
+        .args(["-nostdin", "-v", "error", "-i", input, "-f", "null", "-"])
+        .output()
+        .expect("ffmpeg should run");
+    String::from_utf8_lossy(&decoded.stderr).into_owned()
+}
+
+#[tokio::test]
+async fn what_no_segment_container_carries_is_encoded_and_truehd_rides_in_mpegts() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let h264 = ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"];
+    let truehd = coded(dir.path(), "truehd.mkv", &h264, &["-c:a", "truehd", "-strict", "-2"]).await;
+    let flac = coded(dir.path(), "flac.mkv", &h264, &["-c:a", "flac"]).await;
+    let msmpeg4 =
+        coded(dir.path(), "msmpeg4.avi", &["-c:v", "msmpeg4"], &["-c:a", "libmp3lame"]).await;
+    let cases = [
+        (&truehd, true, false, "h264", "truehd"),
+        (&flac, true, true, "h264", "aac"),
+        (&msmpeg4, false, false, "h264", "aac"),
+    ];
+    for (clip, copy, convert_audio, video, audio) in cases {
+        let container = segment_container_for(copy, Some(video), Some(audio));
+        let cache = tempfile::tempdir().expect("tempdir");
+        let spec = TranscodeSpec { convert_audio, ..spec(clip, copy, container, 0) };
+
+        let (engine, _started, variant) = run_to_the_end(cache.path(), spec).await;
+
+        let served = variant.join("index.m3u8").to_string_lossy().into_owned();
+        let case = format!("{} {container:?}", clip.path);
+        assert_eq!(container, SegmentContainer::MpegTs, "{case}");
+        assert_cut_as_planned(&variant, 0.05);
+        assert_every_segment_served(&engine, &variant).await;
+        assert_eq!(codec(&served, "v:0"), video, "{case}");
+        assert_eq!(codec(&served, "a:0"), audio, "{case}");
+        let errors = decode_errors(&served);
+        assert!(errors.trim().is_empty(), "{case}: {errors}");
+    }
+}
+
+#[tokio::test]
+async fn converted_side_surround_carries_a_layout_every_segment_declares_on_its_own() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let clip = surround(dir.path(), "surround.mkv", "0").await;
+    assert_eq!(sound(&clip.path, "stream=channels,channel_layout"), "6,5.1(side)");
+    let cache = tempfile::tempdir().expect("tempdir");
+    let spec = TranscodeSpec {
+        audio_track: Some(1),
+        convert_audio: true,
+        ..spec(&clip, true, SegmentContainer::MpegTs, 0)
+    };
+
+    let (_engine, _started, variant) = run_to_the_end(cache.path(), spec).await;
+
+    let later = variant.join("seg_00001.ts").to_string_lossy().into_owned();
+    assert_eq!(
+        sound(&later, "stream=codec_name,channels,channel_layout"),
+        "aac,6,5.1",
+        "a segment without a standard AAC configuration cannot be appended by Chrome"
+    );
+}
+
+fn packets(input: &Path, stream: &str) -> Vec<(f64, bool)> {
+    let mut command = Command::new("ffprobe");
+    command.args(["-v", "error"]);
+    if !stream.is_empty() {
+        command.args(["-select_streams", stream]);
+    }
+    let listed = command
+        .args(["-show_entries", "packet=dts_time,flags", "-of", "csv=p=0"])
+        .arg(input)
+        .output()
+        .expect("ffprobe should run");
+    String::from_utf8_lossy(&listed.stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split(',');
+            let dts = fields.next()?.parse().ok()?;
+            Some((dts, fields.next().is_some_and(|flags| flags.starts_with('K'))))
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn every_transcoded_segment_opens_on_a_keyframe_an_hls_reader_keeps_after_a_seek() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let clip = clip(dir.path(), "late.ts", 20, "1.46", &["-g", "48"]).await;
+    for seek_ms in [0, 9_000] {
+        let cache = tempfile::tempdir().expect("tempdir");
+        let (_engine, _started, variant) =
+            run_to_the_end(cache.path(), spec(&clip, false, SegmentContainer::MpegTs, seek_ms))
+                .await;
+        let listed = std::fs::read_to_string(variant.join("index.m3u8")).expect("playlist");
+        let segments: Vec<&str> = listed.lines().filter(|line| line.starts_with("seg_")).collect();
+        let mut start = packets(&variant.join(segments[0]), "")[0].0;
+        for (name, duration) in segments.iter().zip(durations(&variant.join("index.m3u8"))) {
+            let (dts, keyframe) = packets(&variant.join(name), "v:0")[0];
+            assert!(keyframe, "[{name}] from [{seek_ms}] opens on a keyframe");
+            assert!(
+                dts >= start - 0.000_001,
+                "[{name}] from [{seek_ms}]: keyframe DTS [{dts}] is before [{start}], where a \
+                 reader seeking into it starts keeping packets"
+            );
+            start += duration;
         }
     }
 }
@@ -548,7 +685,14 @@ async fn burned_spans(
 }
 
 fn subtitle_track(index: u32, format: SubtitleFormat) -> EmbeddedSubtitleTrack {
-    EmbeddedSubtitleTrack { index, language: None, format, forced: false, default: false }
+    EmbeddedSubtitleTrack {
+        index,
+        language: None,
+        format,
+        forced: false,
+        default: false,
+        title: None,
+    }
 }
 
 #[tokio::test]
@@ -562,6 +706,145 @@ async fn an_image_subtitle_is_burned_at_its_own_time_from_the_start_and_from_a_r
 
     assert_spans(&spans[0], &[(false, 0.0), (true, 41.001), (false, 49.009)]);
     assert_spans(&spans[1], &[(true, 44.0), (false, 49.009)]);
+}
+
+fn dvb_pictures(dir: &Path) -> String {
+    let path = dir.join("dvb.mkv");
+    let built = Command::new("ffmpeg")
+        .args(["-nostdin", "-v", "error", "-y", "-fix_sub_duration", "-i"])
+        .arg(fixture("supsample.mkv"))
+        .args(["-map", "0:s", "-c:s", "dvbsub"])
+        .arg(&path)
+        .status()
+        .expect("ffmpeg should build the DVB track");
+    assert!(built.success());
+    path.to_string_lossy().into_owned()
+}
+
+async fn between_ticks(dir: &Path) -> Clip {
+    let made = dir.join("made.mkv").to_string_lossy().into_owned();
+    let built = Command::new("ffmpeg")
+        .args(["-nostdin", "-v", "error", "-y", "-f", "lavfi"])
+        .args(["-i", "testsrc2=s=320x240:r=24000/1001:d=20", "-f", "lavfi", "-i", "sine=d=20"])
+        .args(["-map", "0", "-map", "1", "-c:v", "libx264", "-preset", "veryfast"])
+        .args(["-pix_fmt", "yuv420p", "-g", "48", "-c:a", "aac", &made])
+        .status()
+        .expect("ffmpeg should build the clip; is ffmpeg installed and on PATH?");
+    assert!(built.success());
+    let shift = 1.5 * 1_001.0 / 24_000.0 - video_times(&made).0[0];
+    let path = dir.join("between-ticks.mkv").to_string_lossy().into_owned();
+    let shifted = Command::new("ffmpeg")
+        .args(["-nostdin", "-v", "error", "-y", "-itsoffset", &format!("{shift:.4}")])
+        .args(["-i", &made, "-i", &made, "-i", &fixture("supsample.mkv")])
+        .args(["-map", "0:v", "-map", "1:a", "-map", "2:s", "-c", "copy", &path])
+        .status()
+        .expect("ffmpeg should shift the picture");
+    assert!(shifted.success());
+    described(path, "between-ticks.mkv").await
+}
+
+#[tokio::test]
+async fn a_transcode_keeps_the_time_of_each_frame_that_falls_between_frame_rate_ticks() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let clip = between_ticks(dir.path()).await;
+    let first = video_times(&clip.path).0[0] * 24_000.0 / 1_001.0;
+    assert!((first.fract() - 0.5).abs() < 0.05, "the picture starts between ticks: {first}");
+    for seek_ms in [0, 9_000] {
+        let cache = tempfile::tempdir().expect("tempdir");
+
+        let (_engine, started, variant) =
+            run_to_the_end(cache.path(), spec(&clip, false, SegmentContainer::MpegTs, seek_ms))
+                .await;
+
+        let origin_ms = if seek_ms == 0 { clip.keyframes_us[0] / 1_000 } else { 8_000 };
+        assert_eq!(started.origin_ms, origin_ms, "from {seek_ms}");
+        assert_cut_as_planned(&variant, 0.05);
+        assert_every_frame_once_from(&clip, &variant, origin_ms, FRAME_TOLERANCE_S);
+    }
+}
+
+#[tokio::test]
+async fn a_burned_transcode_keeps_the_time_of_each_frame_that_falls_between_frame_rate_ticks() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let clip = between_ticks(dir.path()).await;
+    let track = subtitle_track(2, SubtitleFormat::Pgs);
+    for seek_ms in [0, 9_000] {
+        let cache = tempfile::tempdir().expect("tempdir");
+        FfmpegPlaybackPreparer::new(FsPlaybackPrepStore::new(cache.path().join("_prep")))
+            .prepare(&VersionId("real".to_owned()), &clip.path, std::slice::from_ref(&track))
+            .await
+            .expect("prepare");
+        let spec = TranscodeSpec {
+            burn_subtitle: Some(BurnSubtitle::EmbeddedImage { index: 2, width: 320, height: 240 }),
+            ..spec(&clip, false, SegmentContainer::MpegTs, seek_ms)
+        };
+
+        let (_engine, started, variant) = run_to_the_end(cache.path(), spec).await;
+
+        let origin_ms = if seek_ms == 0 { clip.keyframes_us[0] / 1_000 } else { 8_000 };
+        assert_eq!(started.origin_ms, origin_ms, "from {seek_ms}");
+        assert_every_frame_once_from(&clip, &variant, origin_ms, FRAME_TOLERANCE_S);
+    }
+}
+
+#[tokio::test]
+async fn a_dvb_subtitle_is_burned_like_any_other_image_subtitle() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let pictures = dvb_pictures(dir.path());
+    let film = white_film(dir.path(), &["-itsoffset", "40", "-i", &pictures], "1:s");
+    let burn = BurnSubtitle::EmbeddedImage { index: 1, width: 720, height: 480 };
+
+    let spans = burned_spans(&film, subtitle_track(1, SubtitleFormat::Dvb), burn).await;
+
+    assert_spans(&spans[0], &[(false, 0.0), (true, 41.001), (false, 49.009)]);
+    assert_spans(&spans[1], &[(true, 44.0), (false, 49.009)]);
+}
+
+fn sidecar_with_a_cue_at_ten_seconds(dir: &Path) -> String {
+    let path = dir.join("film.en.srt");
+    std::fs::write(&path, "1\n00:00:10,000 --> 00:00:11,000\nTen\n").expect("write the sidecar");
+    path.to_string_lossy().into_owned()
+}
+
+fn as_file(path: &str) -> SoftSubtitle {
+    SoftSubtitle {
+        source: SoftSubtitleSource::File(path.to_owned()),
+        offset_ms: 0,
+        delivery: SubtitleDelivery::External,
+    }
+}
+
+#[tokio::test]
+async fn a_subtitle_file_is_timed_on_the_film_in_direct_play_and_on_the_stream_in_a_stream() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let clip = clip(dir.path(), "plain.mkv", 30, "0", &["-g", "48"]).await;
+    let sidecar = sidecar_with_a_cue_at_ten_seconds(dir.path());
+    let cache = tempfile::tempdir().expect("tempdir");
+    let engine = engine(cache.path());
+
+    let direct = engine
+        .prepare_subtitle_file(SubtitleFileSpec {
+            session: SessionId("real".to_owned()),
+            generation: GENERATION,
+            version: VersionId("real".to_owned()),
+            input_path: clip.path.clone(),
+            subtitle: as_file(&sidecar),
+        })
+        .await
+        .expect("a direct subtitle file");
+    let direct = std::fs::read_to_string(direct).expect("read");
+    assert!(direct.contains("00:00:10.000 --> 00:00:11.000"), "{direct}");
+
+    let spec = TranscodeSpec {
+        soft_subtitle: Some(as_file(&sidecar)),
+        ..spec(&clip, false, SegmentContainer::MpegTs, 8_000)
+    };
+    let (_engine, started, variant) = run_to_the_end(cache.path(), spec).await;
+    assert_eq!(started.origin_ms, 8_000);
+    let streamed = std::fs::read_to_string(started.subtitle_file.expect("a stream subtitle file"))
+        .expect("read");
+    assert!(streamed.contains("00:00:02.000 --> 00:00:03.000"), "{streamed}");
+    assert!(!variant.parent().expect("output dir").join("subs").exists());
 }
 
 fn has_filter(name: &str) -> bool {

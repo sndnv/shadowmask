@@ -11,14 +11,16 @@ expression: value
         "channels": 6,
         "codec": "eac3",
         "index": 1,
-        "language": "en"
+        "language": "en",
+        "title": "Surround"
       },
       {
         "bitrate": null,
         "channels": 2,
         "codec": "aac",
         "index": 2,
-        "language": "fr"
+        "language": "fr",
+        "title": null
       }
     ],
     "available": true,
@@ -59,14 +61,16 @@ expression: value
         "forced": false,
         "format": "srt",
         "index": 3,
-        "language": "en"
+        "language": "en",
+        "title": "SDH"
       },
       {
         "default": false,
         "forced": true,
         "format": "pgs",
         "index": 4,
-        "language": "es"
+        "language": "es",
+        "title": null
       }
     ],
     "title": {

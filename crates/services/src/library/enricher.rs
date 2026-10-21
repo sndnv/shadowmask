@@ -1526,6 +1526,7 @@ mod tests {
                         channels: 2,
                         language: None,
                         bitrate: None,
+                        title: None,
                     }],
                     subtitles,
                     chapters: Vec::new(),
@@ -1544,6 +1545,7 @@ mod tests {
             format: domain::media::SubtitleFormat::Srt,
             forced: false,
             default: true,
+            title: None,
         }
     }
 
@@ -1587,6 +1589,7 @@ mod tests {
                 channels: 6,
                 language: Some(domain::common::LanguageCode("en".into())),
                 bitrate: None,
+                title: None,
             },
             domain::media::AudioTrack {
                 index: 2,
@@ -1594,6 +1597,7 @@ mod tests {
                 channels: 2,
                 language: Some(domain::common::LanguageCode("es".into())),
                 bitrate: None,
+                title: None,
             },
         ];
 
@@ -1618,6 +1622,7 @@ mod tests {
             channels: 6,
             language: Some(domain::common::LanguageCode("en".into())),
             bitrate: None,
+            title: None,
         }];
 
         svc.enrich(&library(LibraryKind::Movie), &scan, None).await;
@@ -2239,6 +2244,7 @@ mod tests {
             channels: 6,
             language: None,
             bitrate: None,
+            title: None,
         }];
         let scan = ScanReport {
             discovered: vec![reprobed],
@@ -2633,6 +2639,7 @@ mod tests {
                     channels: 6,
                     language: None,
                     bitrate: None,
+                    title: None,
                 }],
                 subtitles: Vec::new(),
                 chapters: Vec::new(),

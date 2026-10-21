@@ -60,6 +60,7 @@ class AudioCodecCap {
 
 class ClientDecoding {
   const ClientDecoding({
+    this.containers,
     this.video = const <VideoCodecCap>[],
     this.audio = const <AudioCodecCap>[],
     this.hdr,
@@ -87,6 +88,7 @@ class ClientDecoding {
     );
   }
 
+  final List<String>? containers;
   final List<VideoCodecCap> video;
   final List<AudioCodecCap> audio;
   final List<String>? hdr;
@@ -105,6 +107,7 @@ class ClientDecoding {
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
+    if (containers != null) 'containers': containers,
     if (video.isNotEmpty)
       'video': video.map((VideoCodecCap c) => c.toJson()).toList(),
     if (audio.isNotEmpty)

@@ -215,6 +215,13 @@ mod tests {
     }
 
     #[test]
+    fn chrome_leaves_eac3_to_be_converted_since_its_media_source_refuses_it() {
+        let chrome = BuiltinProfiles::load().unwrap().resolve("chrome");
+        assert!(!chrome.audio.iter().any(|a| a.codec == "eac3"));
+        assert!(chrome.audio.iter().any(|a| a.codec == "aac"));
+    }
+
+    #[test]
     fn firefox_direct_plays_4k_but_leaves_out_what_it_cannot_decode() {
         let registry = BuiltinProfiles::load().unwrap();
         let firefox = registry.resolve("firefox");

@@ -8,9 +8,13 @@ pub(crate) const PRODUCER_PLAYLIST: &str = "producer.m3u8";
 pub const DEFAULT_READ_RATE: f64 = 10.0;
 pub(crate) const OUTPUT_OFFSET_MS: u64 = 1_000;
 const NO_NATURAL_KEYFRAMES: &str = "100000";
+const NO_REORDERED_FRAMES: &str = "0";
+const MPEG_TS_CLOCK: &str = "1/90000";
 const SEEK_LEAD_US: i64 = 1_000;
 const DECODE_LOOKBACK_US: u64 = 10_000_000;
 const BURN_LOOKBACK_US: u64 = 30_000_000;
+const AAC_LAYOUTS: [(&str, u8); 7] =
+    [("mono", 1), ("stereo", 2), ("3.0", 3), ("4.0", 4), ("5.0", 5), ("5.1", 6), ("7.1", 8)];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RunWindow {
@@ -154,7 +158,7 @@ fn push_encode_args(
                 .map(str::to_owned),
         ),
     }
-    args.extend(["-g", NO_NATURAL_KEYFRAMES].map(str::to_owned));
+    args.extend(["-g", NO_NATURAL_KEYFRAMES, "-bf", NO_REORDERED_FRAMES].map(str::to_owned));
     push_audio_args(args, spec, bounds);
     if let Some(bitrate) = spec.max_bitrate {
         args.extend(["-maxrate".to_owned(), bitrate.to_string()]);
@@ -165,17 +169,26 @@ fn push_encode_args(
         format!("expr:gte(t,n_forced*{})*lt(n_forced,{})", TARGET_MS / 1000, window.segments),
         "-fps_mode".to_owned(),
         "passthrough".to_owned(),
+        "-enc_time_base:v".to_owned(),
+        MPEG_TS_CLOCK.to_owned(),
     ]);
 }
 
 fn push_audio_args(args: &mut Vec<String>, spec: &TranscodeSpec, bounds: Option<String>) {
-    if let Some(bounds) = bounds {
-        args.extend(["-af".to_owned(), format!("atrim={bounds}")]);
-    }
+    let trim = bounds.map(|bounds| format!("atrim={bounds}"));
+    let filters: Vec<String> = trim.into_iter().chain([aac_layouts(spec.audio_channels)]).collect();
+    args.extend(["-af".to_owned(), filters.join(",")]);
     args.extend(["-c:a", "aac"].map(str::to_owned));
-    if let Some(channels) = spec.audio_channels {
-        args.extend(["-ac".to_owned(), channels.to_string()]);
-    }
+}
+
+fn aac_layouts(channels: Option<u8>) -> String {
+    let limit = channels.unwrap_or(u8::MAX).max(1);
+    let layouts: Vec<&str> = AAC_LAYOUTS
+        .iter()
+        .filter(|(_, count)| *count <= limit)
+        .map(|(layout, _)| *layout)
+        .collect();
+    format!("aformat=channel_layouts={}", layouts.join("|"))
 }
 
 fn decode_from(spec: &TranscodeSpec, origin_us: u64) -> u64 {
@@ -307,6 +320,11 @@ mod tests {
     use domain::session::{SegmentContainer, SessionId, StreamGeneration, plan_cuts};
 
     const OUT: &str = "/cache/s1/1/v0";
+    const EVERY_AAC_LAYOUT: &str = "aformat=channel_layouts=mono|stereo|3.0|4.0|5.0|5.1|7.1";
+
+    fn trimmed(bounds: &str) -> String {
+        format!("atrim={bounds},{EVERY_AAC_LAYOUT}")
+    }
 
     fn base_spec() -> TranscodeSpec {
         TranscodeSpec {
@@ -480,6 +498,46 @@ mod tests {
     }
 
     #[test]
+    fn every_encode_leaves_out_reordered_frames_so_each_segment_opens_on_its_keyframe() {
+        let window = RunWindow { origin_us: 0, start_us: 0, segments: 7, length_ms: None };
+        for encoder in [VideoEncoder::Software, vaapi()] {
+            let args = build_run_args(&base_spec(), &encoder, window, 10.0, OUT, None);
+            assert_eq!(pair_after(&args, "-bf").as_deref(), Some(NO_REORDERED_FRAMES));
+        }
+        for burn in [sidecar("/media/movie.srt"), image()] {
+            let args = burned(&base_spec(), &burn, &vaapi(), 0);
+            assert_eq!(pair_after(&args, "-bf").as_deref(), Some(NO_REORDERED_FRAMES));
+        }
+        for container in [SegmentContainer::MpegTs, SegmentContainer::Fmp4] {
+            let copy = vaapi_args_for(&copy_spec(container));
+            assert!(!copy.iter().any(|a| a == "-bf"));
+            let converted =
+                vaapi_args_for(&TranscodeSpec { convert_audio: true, ..copy_spec(container) });
+            assert!(!converted.iter().any(|a| a == "-bf"));
+        }
+    }
+
+    #[test]
+    fn every_encode_keeps_the_mpegts_clock_so_no_two_frames_share_a_time() {
+        let window = RunWindow { origin_us: 0, start_us: 0, segments: 7, length_ms: None };
+        for encoder in [VideoEncoder::Software, vaapi()] {
+            let args = build_run_args(&base_spec(), &encoder, window, 10.0, OUT, None);
+            assert_eq!(pair_after(&args, "-enc_time_base:v").as_deref(), Some("1/90000"));
+        }
+        for burn in [sidecar("/media/movie.srt"), image()] {
+            let args = burned(&base_spec(), &burn, &vaapi(), 9_000);
+            assert_eq!(pair_after(&args, "-enc_time_base:v").as_deref(), Some("1/90000"));
+        }
+        for container in [SegmentContainer::MpegTs, SegmentContainer::Fmp4] {
+            let copy = args_for(&copy_spec(container));
+            assert!(!copy.iter().any(|a| a.starts_with("-enc_time_base")));
+            let converted =
+                args_for(&TranscodeSpec { convert_audio: true, ..copy_spec(container) });
+            assert!(!converted.iter().any(|a| a.starts_with("-enc_time_base")));
+        }
+    }
+
+    #[test]
     fn a_transcode_decodes_from_the_keyframe_before_its_origin_and_trims_to_it() {
         let spec = TranscodeSpec {
             keyframes_us: Some(vec![343_222, 4_023_222, 8_023_222]),
@@ -493,7 +551,7 @@ mod tests {
             ["-copyts", "-seek_timestamp", "1", "-noaccurate_seek", "-ss", "5.422222"]
         );
         assert_eq!(pair_after(&args, "-vf").as_deref(), Some("trim=start=9.400000"));
-        assert_eq!(pair_after(&args, "-af").as_deref(), Some("atrim=start=9.400000"));
+        assert_eq!(pair_after(&args, "-af"), Some(trimmed("start=9.400000")));
         assert!(at(&args, "-af") > input);
         assert!(!args.iter().any(|a| a == "-copypriorss" || a == "-t"));
     }
@@ -510,7 +568,8 @@ mod tests {
     #[test]
     fn a_transcode_from_the_start_neither_seeks_nor_trims() {
         let args = run(&base_spec(), on_clock(0, 1_400_000), None);
-        assert!(!args.iter().any(|a| a == "-ss" || a == "-vf" || a == "-af"));
+        assert!(!args.iter().any(|a| a == "-ss" || a == "-vf"));
+        assert_eq!(pair_after(&args, "-af").as_deref(), Some(EVERY_AAC_LAYOUT));
     }
 
     #[test]
@@ -545,7 +604,7 @@ mod tests {
         };
         let args = vaapi_args_for(&spec);
         assert_eq!(pair_after(&args, "-c").as_deref(), Some("copy"));
-        for flag in ["-c:v", "-c:a", "-vf", "-maxrate", "-ac", "-force_key_frames", "-g"] {
+        for flag in ["-c:v", "-c:a", "-vf", "-af", "-maxrate", "-force_key_frames", "-g"] {
             assert!(!args.iter().any(|a| a == flag), "{flag}");
         }
         assert!(!args.iter().any(|a| a == "-vaapi_device"));
@@ -564,9 +623,12 @@ mod tests {
         assert_eq!(maps(&args), ["0:v:0", "0:2"]);
         assert_eq!(pair_after(&args, "-c:v").as_deref(), Some("copy"));
         assert_eq!(pair_after(&args, "-c:a").as_deref(), Some("aac"));
-        assert_eq!(pair_after(&args, "-ac").as_deref(), Some("6"));
+        assert_eq!(
+            pair_after(&args, "-af").as_deref(),
+            Some("aformat=channel_layouts=mono|stereo|3.0|4.0|5.0|5.1")
+        );
         assert_eq!(pair_after(&args, "-readrate").as_deref(), Some("10"));
-        for flag in ["-c", "-af", "-ss", "-noaccurate_seek", "-copypriorss", "-vaapi_device"] {
+        for flag in ["-c", "-ac", "-ss", "-noaccurate_seek", "-copypriorss", "-vaapi_device"] {
             assert!(!args.iter().any(|a| a == flag), "{flag}");
         }
         for flag in ["-vf", "-maxrate", "-force_key_frames", "-g"] {
@@ -583,7 +645,7 @@ mod tests {
             args[at(&args, "-copyts")..input],
             ["-copyts", "-seek_timestamp", "1", "-noaccurate_seek", "-ss", "18.309197"]
         );
-        assert_eq!(pair_after(&args, "-af").as_deref(), Some("atrim=start=18.310197"));
+        assert_eq!(pair_after(&args, "-af"), Some(trimmed("start=18.310197")));
         assert_eq!(pair_after(&args, "-copypriorss").as_deref(), Some("0"));
         assert!(at(&args, "-af") > input);
         assert!(!args.iter().any(|a| a == "-ac" || a == "-vf"));
@@ -626,7 +688,7 @@ mod tests {
         };
         let args = run(&base_spec(), window, None);
         assert_eq!(pair_after(&args, "-vf").as_deref(), Some("trim=start=9.400000:end=21.400000"));
-        assert_eq!(pair_after(&args, "-af").as_deref(), Some("atrim=start=9.400000:end=21.400000"));
+        assert_eq!(pair_after(&args, "-af"), Some(trimmed("start=9.400000:end=21.400000")));
         assert!(!args.iter().any(|a| a == "-t"));
         let first = RunWindow { origin_us: 0, ..window };
         let args = run(&base_spec(), first, None);
@@ -823,7 +885,7 @@ mod tests {
         assert!(maps(&args).is_empty(), "ffmpeg then picks the audio as it does without a burn");
         assert!(at(&args, "-sn") > inputs(&args)[1]);
         let resumed = burned(&spec, &image(), &VideoEncoder::Software, 8_000);
-        assert_eq!(pair_after(&resumed, "-af").as_deref(), Some("atrim=start=8.000000"));
+        assert_eq!(pair_after(&resumed, "-af"), Some(trimmed("start=8.000000")));
     }
 
     #[test]
@@ -839,8 +901,37 @@ mod tests {
     #[test]
     fn a_transcode_limits_its_sound_to_the_channels_asked_for() {
         let spec = TranscodeSpec { audio_channels: Some(2), ..base_spec() };
-        assert_eq!(pair_after(&args_for(&spec), "-ac").as_deref(), Some("2"));
-        assert!(!args_for(&base_spec()).iter().any(|a| a == "-ac"));
+        let args = args_for(&spec);
+        assert_eq!(
+            pair_after(&args, "-af").as_deref(),
+            Some("aformat=channel_layouts=mono|stereo")
+        );
+        assert!(!args.iter().any(|a| a == "-ac"));
+    }
+
+    #[test]
+    fn every_aac_encode_is_held_to_a_layout_aac_has_a_configuration_for() {
+        let converting =
+            TranscodeSpec { convert_audio: true, ..copy_spec(SegmentContainer::MpegTs) };
+        for spec in [base_spec(), converting] {
+            let args = args_for(&spec);
+            assert_eq!(pair_after(&args, "-af").as_deref(), Some(EVERY_AAC_LAYOUT));
+            assert!(!args.iter().any(|a| a == "-ac"));
+        }
+        for (channels, layouts) in [
+            (0, "mono"),
+            (1, "mono"),
+            (3, "mono|stereo|3.0"),
+            (7, "mono|stereo|3.0|4.0|5.0|5.1"),
+            (8, "mono|stereo|3.0|4.0|5.0|5.1|7.1"),
+        ] {
+            let spec = TranscodeSpec { audio_channels: Some(channels), ..base_spec() };
+            assert_eq!(
+                pair_after(&args_for(&spec), "-af"),
+                Some(format!("aformat=channel_layouts={layouts}")),
+                "{channels} channels"
+            );
+        }
     }
 
     #[test]

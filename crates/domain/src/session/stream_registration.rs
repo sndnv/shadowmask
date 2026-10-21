@@ -15,4 +15,5 @@ pub struct StreamRegistration {
     pub direct_path: Option<PathBuf>,
     pub bandwidth: u64,
     pub subtitle: Option<SubtitleRendition>,
+    pub subtitle_file: Option<PathBuf>,
 }

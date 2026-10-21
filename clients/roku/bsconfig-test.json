@@ -7,6 +7,7 @@
         "components/**/*",
         "images/**/*",
         "fonts/**/*",
+        "capabilities/**/*",
         {
             "src": "tests/**/*.spec.bs",
             "dest": "source/tests"

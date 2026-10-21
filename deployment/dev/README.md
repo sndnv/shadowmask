@@ -158,3 +158,99 @@ skipped. On the enrichment image the enrichment features must be enabled with mo
 test fails; it uses the Elephants Dream speech clip from the clip cache, so run
 `scripts/generate_media.sh --real` first to populate it. Set
 `SHADOWMASK_SMOKE_TEST_SKIP_ENRICHMENT_TESTS=true` to skip the enrichment section.
+
+## Playback check
+
+`scripts/run_playback_check.sh` plays the server's streams in two players the clients use, all in
+containers (docker or podman), with a throwaway server of its own (compose project
+`shadowmask-playback`, its own volume). It does not touch the dev stack.
+
+| Player   | Image                                           | Stands in for                        |
+|----------|-------------------------------------------------|--------------------------------------|
+| chromium | Debian bookworm, Chromium, basic's hls.js       | basic and the Flutter web client     |
+| mpv      | Ubuntu 24.04, mpv 0.37 with media_kit's options | the Flutter desktop and Android apps |
+
+Per subject and player:
+
+- `play`, `resume` (20 min), `far-seek` (in a stream `/seek` and a new stream; in Direct play a
+  seek in the player, as every client does when the stream is not sequential), `near-seek`.
+- With a subtitle: `subtitles-resume`, `subtitles-far-seek`, `subtitles-seek-back` (a line three
+  times), and `subtitles-mode`: the subtitle must not change the playback mode (M139).
+- `second-audio`: the second audio track is the one heard (mpv: the playing track; chromium: the
+  tone the page hears through Web Audio, each test file track having its own). It runs last for
+  each subject, since the server remembers the tracks chosen for a version and later sessions
+  would get it.
+- mpv only: `forced-resume`, `forced-far-seek` and, with a subtitle, `forced-subtitles-far-seek`,
+  each streamed through `delivery: "always"`.
+- Image subtitles (F7, PGS and DVB): `image-subtitle-pgs`, `image-subtitle-dvb` from 58 s. mpv
+  passes when its selected track has the image codec, `sub-start` is the 60 s line and mpv draws
+  subtitles (`sub-visibility`); chromium passes when the stream plays past the line.
+
+A case fails when playback does not advance, the position is more than 1.5 s off the target, a
+subtitle line shows more than once, no audio is decoded, hls.js or the media element reports an
+error, or mpv's log has "could not find codec parameters". The run exits 1 when any case fails.
+
+In the test set a case also fails when its negotiations differ from `playback/modes.json`. Each
+entry, keyed `<player> | <subject> | <action>`, lists the negotiations of the sessions the case
+started, in order, as the server logged them: mode and segment container, reasons, and whether
+the server took the client's capability report (`report none`, `accepted` or `rejected`). The
+file holds the mode each case should get, not today's when today's is wrong, so such a case stays
+red until the fix lands; a change that alters a mode on purpose changes the file with it. The
+run's own negotiations go to `modes.json` in the report folder; `--accept-modes` copies them
+into `playback/modes.json` instead of checking, replacing only the cases that ran.
+
+```
+scripts/run_playback_check.sh                                 # the test set
+scripts/run_playback_check.sh --accept-modes                  # record the negotiations
+scripts/run_playback_check.sh --movies /path/to/movies --tv /path/to/tv --per-shape 2
+scripts/run_playback_check.sh --movies /path/to/movies --census-only
+scripts/run_playback_check.sh --player mpv --only 'F[23] .*far-seek'  # a slice
+```
+
+- `--player chromium|mpv` runs one player; `--only REGEX` runs only the cases whose
+  `<subject> | <action>` matches (subjects are the report's labels, such as `F2 H.264, AC3
+  5.1(side)`).
+- Each mpv case writes its player log to `logs/mpv/<subject number>-<action>.log` in the report
+  folder, and the report names the log of each failed case. The logs hold the stream URLs of the
+  throwaway server, whose tokens end with it.
+
+- The test set is fourteen 30 minute files (`generate_media.sh --playback`), generated inside the
+  mpv image into `media/playback` once per set version (`PLAYBACK_SET_VERSION`, written to
+  `.complete`); F7's image subtitles come from `crates/media/tests/fixtures/supsample.mkv`. F1-F7
+  are H.264 or HEVC in MKV with AAC, AC3, E-AC3 or DTS; F8-F14 are the catalog's other shapes:
+  MPEG-4 Part 2 with B-frames and MS MPEG-4 v3 in AVI with MP3, MPEG-4 Part 2 in MKV, VP9 with
+  Opus in WebM, H.264 with FLAC, H.264 with AAC in MP4, and H.264 with AAC in AVI. The report goes to
+  `media/playback/out` (`report.md`, the results as JSON, the server's log, `modes.json`).
+- Library mode mounts the catalog read-only, probes every file's headers, groups files by
+  container, video codec and depth, HDR, the first audio track, more than one audio track and
+  subtitle kind, and checks `--per-shape` files of each shape. Only the sampled movie folders and
+  show folders are scanned. The census and report name real titles, so they go outside the repo
+  (default under `$TMPDIR`). The catalog must be visible to the container engine: for podman on
+  macOS, under `$HOME`.
+- The server image is `ghcr.io/sndnv/shadowmask-server:dev-latest`, built with
+  `build_images.sh base` when missing; `--rebuild` builds it from this tree, which is how a fix
+  is checked. `SHADOWMASK_PLAYBACK_SERVER_IMAGE` picks another image.
+- The players copy what each client does, including what it leaves out, so a client change that
+  alters how it loads a stream needs the same change here:
+  - mpv: the session start of `client_capabilities_native.dart` and the desktop report of
+    `player_report.dart` (platform `desktop`: its tables, `decoder-list`, `demuxer-lavf-list`),
+    `NativePlayerController.attach` (`start`, `sid`, the buffer settings, the seek to
+    the offset once the new file's length is known), media_kit 1.2.6's player options and its
+    `open` (`stop`, `playlist-clear`, `pause`, then the load), and the timeline of
+    `actors/player.dart` (`origin_ms` plus the player's position).
+  - chromium: the session start of basic (platform `chrome`) and the `attach` of
+    `player/watch.html`, the timeline and far seek of `player/session.js`. Its capability report
+    is not a copy: the page imports basic's own `player/capabilities.js` (compose mounts
+    `clients/basic/player` read-only) and the driver sends what it measures. The page sets
+    `crossorigin` on its video because it runs on another origin than the server (basic is
+    served by the server), so Web Audio and a `<track>` from the server work.
+- **Ahead of the apps (M139, until its client phase is built):** both players already declare
+  `subtitle_deliveries` and `audio_tracks` and act on the answers M139's server phase adds: mpv
+  selects `embedded` tracks by `ff-index` (`sid`, with `sub-visibility` on for an image track),
+  loads `external` files with `sub-add` and sets `aid` when `audio_delivery` is `embedded`;
+  chromium adds a `<track>` for `external`. Today's server sends none of these, so until then
+  the players behave as the apps do.
+- Not covered: Firefox, the macOS and Android apps' own libmpv builds (0.36), anything about the
+  picture (there is no GPU or display), Roku.
+- `--keep` leaves the server running after the run; `docker compose -f playback/compose.yml down -v`
+  (or `podman compose`) removes it.

@@ -149,6 +149,7 @@ mod tests {
             channels: 2,
             language: spoken.map(language),
             bitrate: None,
+            title: None,
         }
     }
 
@@ -159,6 +160,7 @@ mod tests {
             format: SubtitleFormat::Srt,
             forced: false,
             default: false,
+            title: None,
         }
     }
 

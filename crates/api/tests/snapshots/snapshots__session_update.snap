@@ -9,9 +9,11 @@ expression: value
     "mode": "direct",
     "origin_ms": 0,
     "selected": {
+      "audio_delivery": null,
       "audio_track": 2,
       "subtitle_delivery": null,
-      "subtitle_track": null
+      "subtitle_track": null,
+      "subtitle_url": null
     },
     "sequential": false,
     "session_id": "[session_id]"

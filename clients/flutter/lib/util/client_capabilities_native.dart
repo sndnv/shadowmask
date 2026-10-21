@@ -4,61 +4,22 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'package:shadowmask/model/session/client_decoding.dart';
+import 'package:shadowmask/util/player_report.dart';
 
 const MethodChannel capabilityChannel = MethodChannel(
   'io.github.sndnv.shadowmask/capabilities',
 );
 
-const Map<String, int> _desktopCodecs = <String, int>{
-  'h264': 10,
-  'hevc': 12,
-  'vp9': 12,
-  'av1': 12,
-};
-
-const Map<String, int> _playerAudioCodecs = <String, int>{
-  'aac': 8,
-  'ac3': 6,
-  'eac3': 8,
-  'dts': 8,
-  'truehd': 8,
-  'flac': 8,
-  'opus': 8,
-  'vorbis': 8,
-  'mp3': 2,
-};
-
 Future<ClientDecoding?> measureDecoding() async {
-  final Set<String> decoders = await _playerDecoders();
-  final ClientDecoding? measured = Platform.isAndroid || Platform.isIOS
-      ? await _fromChannel()
-      : ClientDecoding(video: desktopVideo(decoders));
-  return withPlayerAudio(measured, decoders);
-}
-
-List<VideoCodecCap> desktopVideo(Set<String> decoders) => <VideoCodecCap>[
-  for (final MapEntry<String, int> codec in _desktopCodecs.entries)
-    if (decoders.contains(codec.key))
-      VideoCodecCap(codec: codec.key, maxBitDepth: codec.value, smooth: true),
-];
-
-ClientDecoding? withPlayerAudio(
-  ClientDecoding? measured,
-  Set<String> decoders,
-) {
-  final ClientDecoding decoding = ClientDecoding(
-    video: measured?.video ?? const <VideoCodecCap>[],
-    audio: <AudioCodecCap>[
-      for (final MapEntry<String, int> codec in _playerAudioCodecs.entries)
-        if (decoders.contains(codec.key))
-          AudioCodecCap(codec: codec.key, maxChannels: codec.value),
-    ],
-    hdr: measured?.hdr,
-    maxWidth: measured?.maxWidth,
-    maxHeight: measured?.maxHeight,
-    maxFrameRate: measured?.maxFrameRate,
+  final ({Set<String> decoders, Set<String> demuxers}) player =
+      await _playerLists();
+  final bool phone = Platform.isAndroid || Platform.isIOS;
+  return playerReport(
+    decoders: player.decoders,
+    demuxers: player.demuxers,
+    phone: phone,
+    hardware: phone ? await _fromChannel() : null,
   );
-  return decoding.isEmpty ? null : decoding;
 }
 
 Future<ClientDecoding?> _fromChannel() async {
@@ -74,19 +35,22 @@ Future<ClientDecoding?> _fromChannel() async {
   }
 }
 
-Future<Set<String>> _playerDecoders() async {
+Future<({Set<String> decoders, Set<String> demuxers})> _playerLists() async {
   final Player player = Player();
   try {
     final NativePlayer native = player.platform! as NativePlayer;
     final int count =
         int.tryParse(await native.getProperty('decoder-list/count')) ?? 0;
-    final Set<String> found = <String>{};
+    final Set<String> decoders = <String>{};
     for (int i = 0; i < count; i++) {
-      found.add(await native.getProperty('decoder-list/$i/codec'));
+      decoders.add(await native.getProperty('decoder-list/$i/codec'));
     }
-    return found;
+    return (
+      decoders: decoders,
+      demuxers: demuxerNames(await native.getProperty('demuxer-lavf-list')),
+    );
   } catch (_) {
-    return <String>{};
+    return (decoders: <String>{}, demuxers: <String>{});
   } finally {
     await player.dispose();
   }

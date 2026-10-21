@@ -8,6 +8,7 @@ import 'package:shadowmask/player/state/playback_notice.dart';
 import 'package:shadowmask/player/state/playback_state.dart';
 import 'package:shadowmask/player/state/playback_step.dart';
 import 'package:shadowmask/player/state/playback_stream.dart';
+import 'package:shadowmask/player/state/player_tracks.dart';
 import 'package:shadowmask/player/state/sent_change.dart';
 import 'package:shadowmask/view/episode_neighbours.dart';
 import 'package:shadowmask/view/playback_controls.dart';
@@ -35,7 +36,14 @@ PlaybackStep _load(PlaybackState s, PlaybackStream stream, int id, int atMs) {
         error: null,
       ),
     ),
-    <PlaybackCommand>[LoadStream(id: id, stream: stream, offsetMs: offsetMs)],
+    <PlaybackCommand>[
+      LoadStream(
+        id: id,
+        stream: stream,
+        offsetMs: offsetMs,
+        tracks: playerTracks(stream.selected, s.title.version),
+      ),
+    ],
   );
 }
 
@@ -49,6 +57,7 @@ PlaybackStream _replaced(
   sequential: negotiation.sequential,
   mode: negotiation.mode,
   container: negotiation.container,
+  selected: negotiation.selected ?? stream.selected,
   seeksInStream: seeksInStream,
 );
 
@@ -77,7 +86,7 @@ PlaybackStep serverStarted(
     sequential: session.sequential,
     mode: session.mode,
     container: session.container,
-    subtitleDelivery: session.selected?.subtitleDelivery,
+    selected: session.selected,
     heartbeatIntervalS: session.heartbeatIntervalS,
     seeksInStream: seeksInStream,
     trickplay: session.trickplay,
@@ -115,11 +124,7 @@ PlaybackStep serverUpdated(
   }
   return _load(
     s,
-    _replaced(
-      stream,
-      negotiation,
-      seeksInStream,
-    ).copyWith(subtitleDelivery: negotiation.selected?.subtitleDelivery),
+    _replaced(stream, negotiation, seeksInStream),
     id,
     sent.positionMs,
   );

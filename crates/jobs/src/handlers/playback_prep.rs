@@ -114,6 +114,7 @@ mod tests {
                 format: SubtitleFormat::Srt,
                 forced: false,
                 default: false,
+                title: None,
             }],
             subtitle_files: Vec::new(),
             chapters: Vec::new(),

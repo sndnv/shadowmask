@@ -24,12 +24,14 @@ expression: value
     "mode": "direct",
     "origin_ms": 0,
     "selected": {
+      "audio_delivery": null,
       "audio_track": 0,
       "subtitle_delivery": "hls_vtt",
       "subtitle_track": {
         "index": 1,
         "type": "embedded"
-      }
+      },
+      "subtitle_url": null
     },
     "sequential": false,
     "session_id": "[session_id]",

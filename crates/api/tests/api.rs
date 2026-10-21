@@ -345,6 +345,7 @@ fn audio_track(index: u32) -> AudioTrack {
         channels: 2,
         language: Some(LanguageCode("en".into())),
         bitrate: None,
+        title: None,
     }
 }
 

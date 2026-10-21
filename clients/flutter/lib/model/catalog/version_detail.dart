@@ -28,6 +28,14 @@ enum SubtitleFormat {
   pgs,
   @JsonValue('vob_sub')
   vobSub,
+  @JsonValue('dvb')
+  dvb,
+  unknown;
+
+  bool get isImage => switch (this) {
+    SubtitleFormat.pgs || SubtitleFormat.vobSub || SubtitleFormat.dvb => true,
+    _ => false,
+  };
 }
 
 enum SubtitleSource {
@@ -68,6 +76,7 @@ abstract class AudioTrack with _$AudioTrack {
     @Default(2) int channels,
     String? language,
     int? bitrate,
+    String? title,
   }) = _AudioTrack;
 
   factory AudioTrack.fromJson(Map<String, dynamic> json) =>
@@ -79,9 +88,11 @@ abstract class SubtitleTrack with _$SubtitleTrack {
   const factory SubtitleTrack({
     required int index,
     String? language,
+    @JsonKey(unknownEnumValue: SubtitleFormat.unknown)
     required SubtitleFormat format,
     @Default(false) bool forced,
     @JsonKey(name: 'default') @Default(false) bool isDefault,
+    String? title,
   }) = _SubtitleTrack;
 
   factory SubtitleTrack.fromJson(Map<String, dynamic> json) =>
@@ -93,6 +104,7 @@ abstract class SubtitleFile with _$SubtitleFile {
   const factory SubtitleFile({
     required String id,
     String? language,
+    @JsonKey(unknownEnumValue: SubtitleFormat.unknown)
     required SubtitleFormat format,
     required SubtitleSource source,
     String? label,

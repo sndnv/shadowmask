@@ -15,6 +15,7 @@ import 'package:shadowmask/player/state/playback_state.dart';
 import 'package:shadowmask/player/state/playback_step.dart';
 import 'package:shadowmask/player/state/playback_stream.dart';
 import 'package:shadowmask/player/state/playback_title.dart';
+import 'package:shadowmask/player/state/player_tracks.dart';
 import 'package:shadowmask/player/state/sent_change.dart';
 import 'package:shadowmask/view/episode_neighbours.dart';
 import 'package:shadowmask/view/playback_controls.dart';
@@ -84,7 +85,11 @@ void main() {
       sequential: true,
       mode: PlaybackMode.transcode,
       container: 'fmp4',
-      subtitleDelivery: 'hls_vtt',
+      selected: SelectedTracks(
+        audioTrack: 2,
+        subtitleTrack: SubtitleSelection.embedded(4),
+        subtitleDelivery: 'hls_vtt',
+      ),
       heartbeatIntervalS: 15,
       seeksInStream: true,
       trickplay: <TrickplayRef>[kSheets],
@@ -93,7 +98,12 @@ void main() {
     expect(
       run.apply(_started(1, session: session, positionMs: 125000)),
       const <PlaybackCommand>[
-        LoadStream(id: 1, stream: stream, offsetMs: 5000),
+        LoadStream(
+          id: 1,
+          stream: stream,
+          offsetMs: 5000,
+          tracks: PlayerTracks(rendition: true),
+        ),
       ],
     );
     expect(run.state.stream, stream);
@@ -203,7 +213,7 @@ void main() {
 
     expect(load.offsetMs, 0);
     expect(load.stream.manifestUrl, '/next.m3u8');
-    expect(run.state.stream?.subtitleDelivery, 'burned');
+    expect(run.state.stream?.selected?.subtitleDelivery, 'burned');
     expect(run.state.remote, k720);
     expect(run.state.status.sent, SentChange.load(id: id, positionMs: 90000));
     expect(
@@ -216,10 +226,13 @@ void main() {
     expect(run.state.status.sent, isNull);
   });
 
-  test('a seek answer keeps the subtitle delivery of the stream before', () {
+  test('a seek answer brings the new stream\'s subtitle file', () {
     final PlaybackRun run = PlaybackRun.watching(
       session: kTranscode.copyWith(
-        selected: const SelectedTracks(subtitleDelivery: 'hls_vtt'),
+        selected: const SelectedTracks(
+          subtitleDelivery: 'external',
+          subtitleUrl: '/stream/t1/subtitles.vtt',
+        ),
       ),
     )..apply((PlaybackState s) => viewerSeeks(s, 600000));
     final int id = run.sentId;
@@ -234,7 +247,8 @@ void main() {
                       originMs: 600000,
                       sequential: true,
                       selected: const SelectedTracks(
-                        subtitleDelivery: 'burned',
+                        subtitleDelivery: 'external',
+                        subtitleUrl: '/stream/t2/subtitles.vtt',
                       ),
                     ),
                     seeksInStream: true,
@@ -244,9 +258,37 @@ void main() {
             as LoadStream;
 
     expect(load.offsetMs, 0);
-    expect(run.state.stream?.subtitleDelivery, 'hls_vtt');
+    expect(
+      load.tracks,
+      const PlayerTracks(subtitleUrl: '/stream/t2/subtitles.vtt'),
+    );
     expect(run.state.stream?.originMs, 600000);
     expect(run.state.timeline.positionMs, 600000);
+  });
+
+  test('a seek answer naming no tracks keeps those of the stream before', () {
+    final PlaybackRun run = PlaybackRun.watching(
+      session: kTranscode.copyWith(
+        selected: const SelectedTracks(subtitleDelivery: 'hls_vtt'),
+      ),
+    )..apply((PlaybackState s) => viewerSeeks(s, 600000));
+    final int id = run.sentId;
+
+    final LoadStream load =
+        run
+                .apply(
+                  (PlaybackState s) => serverSeeked(
+                    s,
+                    id: id,
+                    negotiation: kRenegotiated.copyWith(originMs: 600000),
+                    seeksInStream: true,
+                  ),
+                )
+                .single
+            as LoadStream;
+
+    expect(run.state.stream?.selected?.subtitleDelivery, 'hls_vtt');
+    expect(load.tracks, const PlayerTracks(rendition: true));
   });
 
   test('a failed update puts the settings back, says so and resumes', () {

@@ -1,0 +1,529 @@
+{
+  "chromium | F1 H.264, AAC stereo | far-seek": [
+    "direct [] report accepted"
+  ],
+  "chromium | F1 H.264, AAC stereo | near-seek": [
+    "direct [] report accepted"
+  ],
+  "chromium | F1 H.264, AAC stereo | play": [
+    "direct [] report accepted"
+  ],
+  "chromium | F1 H.264, AAC stereo | resume": [
+    "direct [] report accepted"
+  ],
+  "chromium | F2 H.264, AC3 5.1(side) | far-seek": [
+    "remux/mpegts [audio_codec] report accepted",
+    "remux/mpegts [audio_codec] report accepted"
+  ],
+  "chromium | F2 H.264, AC3 5.1(side) | near-seek": [
+    "remux/mpegts [audio_codec] report accepted"
+  ],
+  "chromium | F2 H.264, AC3 5.1(side) | play": [
+    "remux/mpegts [audio_codec] report accepted"
+  ],
+  "chromium | F2 H.264, AC3 5.1(side) | resume": [
+    "remux/mpegts [audio_codec] report accepted"
+  ],
+  "chromium | F3 H.264, E-AC3 5.1(side) | far-seek": [
+    "remux/mpegts [audio_codec] report accepted",
+    "remux/mpegts [audio_codec] report accepted"
+  ],
+  "chromium | F3 H.264, E-AC3 5.1(side) | near-seek": [
+    "remux/mpegts [audio_codec] report accepted"
+  ],
+  "chromium | F3 H.264, E-AC3 5.1(side) | play": [
+    "remux/mpegts [audio_codec] report accepted"
+  ],
+  "chromium | F3 H.264, E-AC3 5.1(side) | resume": [
+    "remux/mpegts [audio_codec] report accepted"
+  ],
+  "chromium | F4 H.264, DTS 5.1(side) | far-seek": [
+    "remux/mpegts [audio_codec] report accepted",
+    "remux/mpegts [audio_codec] report accepted"
+  ],
+  "chromium | F4 H.264, DTS 5.1(side) | near-seek": [
+    "remux/mpegts [audio_codec] report accepted"
+  ],
+  "chromium | F4 H.264, DTS 5.1(side) | play": [
+    "remux/mpegts [audio_codec] report accepted"
+  ],
+  "chromium | F4 H.264, DTS 5.1(side) | resume": [
+    "remux/mpegts [audio_codec] report accepted"
+  ],
+  "chromium | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | far-seek": [
+    "transcode/mpegts [video_codec, audio_codec] report accepted",
+    "transcode/mpegts [video_codec, audio_codec] report accepted"
+  ],
+  "chromium | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | near-seek": [
+    "transcode/mpegts [video_codec, audio_codec] report accepted"
+  ],
+  "chromium | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | play": [
+    "transcode/mpegts [video_codec, audio_codec] report accepted"
+  ],
+  "chromium | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | resume": [
+    "transcode/mpegts [video_codec, audio_codec] report accepted"
+  ],
+  "chromium | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | subtitles-far-seek": [
+    "transcode/mpegts [video_codec, audio_codec, subtitle_soft] report accepted",
+    "transcode/mpegts [video_codec, audio_codec, subtitle_soft] report accepted"
+  ],
+  "chromium | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | subtitles-mode": [
+    "transcode/mpegts [video_codec, audio_codec] report accepted",
+    "transcode/mpegts [video_codec, audio_codec, subtitle_soft] report accepted"
+  ],
+  "chromium | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | subtitles-resume": [
+    "transcode/mpegts [video_codec, audio_codec, subtitle_soft] report accepted"
+  ],
+  "chromium | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | subtitles-seek-back": [
+    "transcode/mpegts [video_codec, audio_codec, subtitle_soft] report accepted"
+  ],
+  "chromium | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | far-seek": [
+    "direct [] report accepted"
+  ],
+  "chromium | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | near-seek": [
+    "direct [] report accepted"
+  ],
+  "chromium | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | play": [
+    "direct [] report accepted"
+  ],
+  "chromium | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | resume": [
+    "direct [] report accepted"
+  ],
+  "chromium | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | second-audio": [
+    "remux/mpegts [audio_codec, audio_track] report accepted"
+  ],
+  "chromium | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | subtitles-far-seek": [
+    "direct [] report accepted"
+  ],
+  "chromium | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | subtitles-mode": [
+    "direct [] report accepted",
+    "direct [] report accepted"
+  ],
+  "chromium | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | subtitles-resume": [
+    "direct [] report accepted"
+  ],
+  "chromium | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | subtitles-seek-back": [
+    "direct [] report accepted"
+  ],
+  "chromium | F7 H.264, AAC stereo x2, PGS + DVB | far-seek": [
+    "direct [] report accepted"
+  ],
+  "chromium | F7 H.264, AAC stereo x2, PGS + DVB | image-subtitle-dvb": [
+    "transcode/mpegts [subtitle_burn] report accepted"
+  ],
+  "chromium | F7 H.264, AAC stereo x2, PGS + DVB | image-subtitle-pgs": [
+    "transcode/mpegts [subtitle_burn] report accepted"
+  ],
+  "chromium | F7 H.264, AAC stereo x2, PGS + DVB | near-seek": [
+    "direct [] report accepted"
+  ],
+  "chromium | F7 H.264, AAC stereo x2, PGS + DVB | play": [
+    "direct [] report accepted"
+  ],
+  "chromium | F7 H.264, AAC stereo x2, PGS + DVB | resume": [
+    "direct [] report accepted"
+  ],
+  "chromium | F7 H.264, AAC stereo x2, PGS + DVB | second-audio": [
+    "remux/mpegts [audio_track] report accepted"
+  ],
+  "chromium | F8 MPEG-4 B-frames, MP3 stereo, AVI | far-seek": [
+    "transcode/mpegts [video_codec, container] report accepted",
+    "transcode/mpegts [video_codec, container] report accepted"
+  ],
+  "chromium | F8 MPEG-4 B-frames, MP3 stereo, AVI | near-seek": [
+    "transcode/mpegts [video_codec, container] report accepted"
+  ],
+  "chromium | F8 MPEG-4 B-frames, MP3 stereo, AVI | play": [
+    "transcode/mpegts [video_codec, container] report accepted"
+  ],
+  "chromium | F8 MPEG-4 B-frames, MP3 stereo, AVI | resume": [
+    "transcode/mpegts [video_codec, container] report accepted"
+  ],
+  "chromium | F9 MS MPEG-4 v3, MP3 stereo, AVI | far-seek": [
+    "transcode/mpegts [video_codec, container] report accepted",
+    "transcode/mpegts [video_codec, container] report accepted"
+  ],
+  "chromium | F9 MS MPEG-4 v3, MP3 stereo, AVI | near-seek": [
+    "transcode/mpegts [video_codec, container] report accepted"
+  ],
+  "chromium | F9 MS MPEG-4 v3, MP3 stereo, AVI | play": [
+    "transcode/mpegts [video_codec, container] report accepted"
+  ],
+  "chromium | F9 MS MPEG-4 v3, MP3 stereo, AVI | resume": [
+    "transcode/mpegts [video_codec, container] report accepted"
+  ],
+  "chromium | F10 MPEG-4 B-frames, AC3 5.1(side) | far-seek": [
+    "transcode/mpegts [video_codec, audio_codec] report accepted",
+    "transcode/mpegts [video_codec, audio_codec] report accepted"
+  ],
+  "chromium | F10 MPEG-4 B-frames, AC3 5.1(side) | near-seek": [
+    "transcode/mpegts [video_codec, audio_codec] report accepted"
+  ],
+  "chromium | F10 MPEG-4 B-frames, AC3 5.1(side) | play": [
+    "transcode/mpegts [video_codec, audio_codec] report accepted"
+  ],
+  "chromium | F10 MPEG-4 B-frames, AC3 5.1(side) | resume": [
+    "transcode/mpegts [video_codec, audio_codec] report accepted"
+  ],
+  "chromium | F11 VP9, Opus stereo, WebM | far-seek": [
+    "direct [] report accepted"
+  ],
+  "chromium | F11 VP9, Opus stereo, WebM | near-seek": [
+    "direct [] report accepted"
+  ],
+  "chromium | F11 VP9, Opus stereo, WebM | play": [
+    "direct [] report accepted"
+  ],
+  "chromium | F11 VP9, Opus stereo, WebM | resume": [
+    "direct [] report accepted"
+  ],
+  "chromium | F12 H.264, FLAC stereo | far-seek": [
+    "direct [] report accepted"
+  ],
+  "chromium | F12 H.264, FLAC stereo | near-seek": [
+    "direct [] report accepted"
+  ],
+  "chromium | F12 H.264, FLAC stereo | play": [
+    "direct [] report accepted"
+  ],
+  "chromium | F12 H.264, FLAC stereo | resume": [
+    "direct [] report accepted"
+  ],
+  "chromium | F13 H.264, AAC stereo, MP4 | far-seek": [
+    "direct [] report accepted"
+  ],
+  "chromium | F13 H.264, AAC stereo, MP4 | near-seek": [
+    "direct [] report accepted"
+  ],
+  "chromium | F13 H.264, AAC stereo, MP4 | play": [
+    "direct [] report accepted"
+  ],
+  "chromium | F13 H.264, AAC stereo, MP4 | resume": [
+    "direct [] report accepted"
+  ],
+  "chromium | F14 H.264, AAC stereo, AVI | far-seek": [
+    "transcode/mpegts [container, preparing] report accepted",
+    "transcode/mpegts [container, preparing] report accepted"
+  ],
+  "chromium | F14 H.264, AAC stereo, AVI | near-seek": [
+    "transcode/mpegts [container, preparing] report accepted"
+  ],
+  "chromium | F14 H.264, AAC stereo, AVI | play": [
+    "transcode/mpegts [container, preparing] report accepted"
+  ],
+  "chromium | F14 H.264, AAC stereo, AVI | resume": [
+    "transcode/mpegts [container, preparing] report accepted"
+  ],
+  "mpv | F1 H.264, AAC stereo | far-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F1 H.264, AAC stereo | forced-far-seek": [
+    "transcode/mpegts [forced] report accepted",
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F1 H.264, AAC stereo | forced-resume": [
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F1 H.264, AAC stereo | near-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F1 H.264, AAC stereo | play": [
+    "direct [] report accepted"
+  ],
+  "mpv | F1 H.264, AAC stereo | resume": [
+    "direct [] report accepted"
+  ],
+  "mpv | F2 H.264, AC3 5.1(side) | far-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F2 H.264, AC3 5.1(side) | forced-far-seek": [
+    "transcode/mpegts [forced] report accepted",
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F2 H.264, AC3 5.1(side) | forced-resume": [
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F2 H.264, AC3 5.1(side) | near-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F2 H.264, AC3 5.1(side) | play": [
+    "direct [] report accepted"
+  ],
+  "mpv | F2 H.264, AC3 5.1(side) | resume": [
+    "direct [] report accepted"
+  ],
+  "mpv | F3 H.264, E-AC3 5.1(side) | far-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F3 H.264, E-AC3 5.1(side) | forced-far-seek": [
+    "transcode/mpegts [forced] report accepted",
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F3 H.264, E-AC3 5.1(side) | forced-resume": [
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F3 H.264, E-AC3 5.1(side) | near-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F3 H.264, E-AC3 5.1(side) | play": [
+    "direct [] report accepted"
+  ],
+  "mpv | F3 H.264, E-AC3 5.1(side) | resume": [
+    "direct [] report accepted"
+  ],
+  "mpv | F4 H.264, DTS 5.1(side) | far-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F4 H.264, DTS 5.1(side) | forced-far-seek": [
+    "transcode/mpegts [forced] report accepted",
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F4 H.264, DTS 5.1(side) | forced-resume": [
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F4 H.264, DTS 5.1(side) | near-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F4 H.264, DTS 5.1(side) | play": [
+    "direct [] report accepted"
+  ],
+  "mpv | F4 H.264, DTS 5.1(side) | resume": [
+    "direct [] report accepted"
+  ],
+  "mpv | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | far-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | forced-far-seek": [
+    "transcode/mpegts [forced] report accepted",
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | forced-resume": [
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | forced-subtitles-far-seek": [
+    "transcode/mpegts [forced] report accepted",
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | near-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | play": [
+    "direct [] report accepted"
+  ],
+  "mpv | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | resume": [
+    "direct [] report accepted"
+  ],
+  "mpv | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | subtitles-far-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | subtitles-mode": [
+    "direct [] report accepted",
+    "direct [] report accepted"
+  ],
+  "mpv | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | subtitles-resume": [
+    "direct [] report accepted"
+  ],
+  "mpv | F5 HEVC 10-bit, E-AC3 5.1(side), embedded SRT | subtitles-seek-back": [
+    "direct [] report accepted"
+  ],
+  "mpv | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | far-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | forced-far-seek": [
+    "transcode/mpegts [forced] report accepted",
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | forced-resume": [
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | forced-subtitles-far-seek": [
+    "transcode/mpegts [forced] report accepted",
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | near-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | play": [
+    "direct [] report accepted"
+  ],
+  "mpv | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | resume": [
+    "direct [] report accepted"
+  ],
+  "mpv | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | second-audio": [
+    "direct [] report accepted"
+  ],
+  "mpv | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | subtitles-far-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | subtitles-mode": [
+    "direct [] report accepted",
+    "direct [] report accepted"
+  ],
+  "mpv | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | subtitles-resume": [
+    "direct [] report accepted"
+  ],
+  "mpv | F6 H.264, AAC stereo + AC3 5.1(side), external SRT | subtitles-seek-back": [
+    "direct [] report accepted"
+  ],
+  "mpv | F7 H.264, AAC stereo x2, PGS + DVB | far-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F7 H.264, AAC stereo x2, PGS + DVB | forced-far-seek": [
+    "transcode/mpegts [forced] report accepted",
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F7 H.264, AAC stereo x2, PGS + DVB | forced-resume": [
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F7 H.264, AAC stereo x2, PGS + DVB | image-subtitle-dvb": [
+    "direct [] report accepted"
+  ],
+  "mpv | F7 H.264, AAC stereo x2, PGS + DVB | image-subtitle-pgs": [
+    "direct [] report accepted"
+  ],
+  "mpv | F7 H.264, AAC stereo x2, PGS + DVB | near-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F7 H.264, AAC stereo x2, PGS + DVB | play": [
+    "direct [] report accepted"
+  ],
+  "mpv | F7 H.264, AAC stereo x2, PGS + DVB | resume": [
+    "direct [] report accepted"
+  ],
+  "mpv | F7 H.264, AAC stereo x2, PGS + DVB | second-audio": [
+    "direct [] report accepted"
+  ],
+  "mpv | F8 MPEG-4 B-frames, MP3 stereo, AVI | far-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F8 MPEG-4 B-frames, MP3 stereo, AVI | forced-far-seek": [
+    "transcode/mpegts [forced] report accepted",
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F8 MPEG-4 B-frames, MP3 stereo, AVI | forced-resume": [
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F8 MPEG-4 B-frames, MP3 stereo, AVI | near-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F8 MPEG-4 B-frames, MP3 stereo, AVI | play": [
+    "direct [] report accepted"
+  ],
+  "mpv | F8 MPEG-4 B-frames, MP3 stereo, AVI | resume": [
+    "direct [] report accepted"
+  ],
+  "mpv | F9 MS MPEG-4 v3, MP3 stereo, AVI | far-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F9 MS MPEG-4 v3, MP3 stereo, AVI | forced-far-seek": [
+    "transcode/mpegts [forced] report accepted",
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F9 MS MPEG-4 v3, MP3 stereo, AVI | forced-resume": [
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F9 MS MPEG-4 v3, MP3 stereo, AVI | near-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F9 MS MPEG-4 v3, MP3 stereo, AVI | play": [
+    "direct [] report accepted"
+  ],
+  "mpv | F9 MS MPEG-4 v3, MP3 stereo, AVI | resume": [
+    "direct [] report accepted"
+  ],
+  "mpv | F10 MPEG-4 B-frames, AC3 5.1(side) | far-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F10 MPEG-4 B-frames, AC3 5.1(side) | forced-far-seek": [
+    "transcode/mpegts [forced] report accepted",
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F10 MPEG-4 B-frames, AC3 5.1(side) | forced-resume": [
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F10 MPEG-4 B-frames, AC3 5.1(side) | near-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F10 MPEG-4 B-frames, AC3 5.1(side) | play": [
+    "direct [] report accepted"
+  ],
+  "mpv | F10 MPEG-4 B-frames, AC3 5.1(side) | resume": [
+    "direct [] report accepted"
+  ],
+  "mpv | F11 VP9, Opus stereo, WebM | far-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F11 VP9, Opus stereo, WebM | forced-far-seek": [
+    "transcode/mpegts [forced] report accepted",
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F11 VP9, Opus stereo, WebM | forced-resume": [
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F11 VP9, Opus stereo, WebM | near-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F11 VP9, Opus stereo, WebM | play": [
+    "direct [] report accepted"
+  ],
+  "mpv | F11 VP9, Opus stereo, WebM | resume": [
+    "direct [] report accepted"
+  ],
+  "mpv | F12 H.264, FLAC stereo | far-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F12 H.264, FLAC stereo | forced-far-seek": [
+    "transcode/mpegts [forced] report accepted",
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F12 H.264, FLAC stereo | forced-resume": [
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F12 H.264, FLAC stereo | near-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F12 H.264, FLAC stereo | play": [
+    "direct [] report accepted"
+  ],
+  "mpv | F12 H.264, FLAC stereo | resume": [
+    "direct [] report accepted"
+  ],
+  "mpv | F13 H.264, AAC stereo, MP4 | far-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F13 H.264, AAC stereo, MP4 | forced-far-seek": [
+    "transcode/mpegts [forced] report accepted",
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F13 H.264, AAC stereo, MP4 | forced-resume": [
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F13 H.264, AAC stereo, MP4 | near-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F13 H.264, AAC stereo, MP4 | play": [
+    "direct [] report accepted"
+  ],
+  "mpv | F13 H.264, AAC stereo, MP4 | resume": [
+    "direct [] report accepted"
+  ],
+  "mpv | F14 H.264, AAC stereo, AVI | far-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F14 H.264, AAC stereo, AVI | forced-far-seek": [
+    "transcode/mpegts [forced] report accepted",
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F14 H.264, AAC stereo, AVI | forced-resume": [
+    "transcode/mpegts [forced] report accepted"
+  ],
+  "mpv | F14 H.264, AAC stereo, AVI | near-seek": [
+    "direct [] report accepted"
+  ],
+  "mpv | F14 H.264, AAC stereo, AVI | play": [
+    "direct [] report accepted"
+  ],
+  "mpv | F14 H.264, AAC stereo, AVI | resume": [
+    "direct [] report accepted"
+  ]
+}

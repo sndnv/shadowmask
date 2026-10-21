@@ -3010,7 +3010,7 @@ Used by:
 - [anstyle-query 1.1.5](https://github.com/rust-cli/anstyle.git)
 - [anstyle 1.0.14](https://github.com/rust-cli/anstyle.git)
 - [colorchoice 1.0.5](https://github.com/rust-cli/anstyle.git)
-- [crc32fast 1.5.2](https://github.com/srijs/rust-crc32fast)
+- [crc32fast 1.5.3](https://github.com/srijs/rust-crc32fast)
 - [derive_builder 0.20.2](https://github.com/colin-kiegel/rust-derive-builder)
 - [derive_builder_core 0.20.2](https://github.com/colin-kiegel/rust-derive-builder)
 - [derive_builder_macro 0.20.2](https://github.com/colin-kiegel/rust-derive-builder)
@@ -9661,7 +9661,7 @@ THIS SOFTWARE.
 
 Used by:
 
-- [rustls-webpki 0.103.15](https://github.com/rustls/webpki)
+- [rustls-webpki 0.103.16](https://github.com/rustls/webpki)
 
 ````text
 Except as otherwise noted, this project is licensed under the following
@@ -9706,7 +9706,7 @@ THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES WITH REGARD TO
 ## MIT License
 Used by:
 
-- [ct2rs 0.10.1](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs 0.10.2](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 # Copyright (c) 2014 Jarryd Beck
@@ -9740,7 +9740,7 @@ target_compile_options(example PRIVATE
 
 Used by:
 
-- [ct2rs 0.10.1](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs 0.10.2](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 # Copyright (c) 2014 Jarryd Beck
@@ -9936,7 +9936,7 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- [ct2rs 0.10.1](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs 0.10.2](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 Copyright (c) 2012 - present, Victor Zverovich
@@ -9998,7 +9998,7 @@ THE SOFTWARE.
 
 Used by:
 
-- [ct2rs 0.10.1](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs 0.10.2](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 Copyright (c) 2014 Jarryd Beck
@@ -10749,7 +10749,7 @@ SOFTWARE.
 
 Used by:
 
-- [ct2rs 0.10.1](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs 0.10.2](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 MIT License
@@ -11075,7 +11075,7 @@ Used by:
 
 - [tokio-stream 0.1.19](https://github.com/tokio-rs/tokio)
 - [tokio-util 0.7.20](https://github.com/tokio-rs/tokio)
-- [tokio 1.53.3](https://github.com/tokio-rs/tokio)
+- [tokio 1.54.0](https://github.com/tokio-rs/tokio)
 
 ````text
 MIT License
@@ -11704,7 +11704,7 @@ SOFTWARE.
 
 Used by:
 
-- [ct2rs 0.10.1](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs 0.10.2](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 The MIT License (MIT)
