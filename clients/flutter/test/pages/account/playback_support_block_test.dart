@@ -187,7 +187,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('vp9 · 12-bit · software'), findsOneWidget);
-    expect(find.text(Strings.playbackSupportUpTo(1080)), findsWidgets);
+    expect(find.text('1920x1080'), findsWidgets);
   });
 
   testWidgets('denying high dynamic range empties it in the summary', (

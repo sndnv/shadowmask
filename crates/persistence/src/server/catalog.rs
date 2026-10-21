@@ -328,8 +328,8 @@ impl SqliteCatalogRepo {
         for (ordinal, track) in detail.audio.iter().enumerate() {
             sqlx::query(
                 "INSERT INTO audio_tracks \
-                 (version_id, ordinal, stream_index, codec, channels, language, bitrate) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+                 (version_id, ordinal, stream_index, codec, channels, language, bitrate, title) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(vid.as_str())
             .bind(ordinal as i64)
@@ -338,6 +338,7 @@ impl SqliteCatalogRepo {
             .bind(i64::from(track.channels))
             .bind(track.language.as_ref().map(|l| l.0.as_str()))
             .bind(track.bitrate.map(|b| b as i64))
+            .bind(track.title.as_deref())
             .execute(&mut *tx)
             .await
             .map_err(backend)?;
@@ -345,8 +346,8 @@ impl SqliteCatalogRepo {
         for (ordinal, track) in detail.subtitles.iter().enumerate() {
             sqlx::query(
                 "INSERT INTO subtitle_tracks \
-                 (version_id, ordinal, stream_index, language, format, forced, is_default) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+                 (version_id, ordinal, stream_index, language, format, forced, is_default, title) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(vid.as_str())
             .bind(ordinal as i64)
@@ -355,6 +356,7 @@ impl SqliteCatalogRepo {
             .bind(subtitle_format_to_str(track.format))
             .bind(track.forced)
             .bind(track.default)
+            .bind(track.title.as_deref())
             .execute(&mut *tx)
             .await
             .map_err(backend)?;
@@ -1215,6 +1217,7 @@ fn subtitle_format_to_str(format: SubtitleFormat) -> &'static str {
         SubtitleFormat::Vtt => "vtt",
         SubtitleFormat::Pgs => "pgs",
         SubtitleFormat::VobSub => "vobsub",
+        SubtitleFormat::Dvb => "dvb",
     }
 }
 
@@ -1225,6 +1228,7 @@ fn subtitle_format_from_str(value: &str) -> Result<SubtitleFormat, RepositoryErr
         "vtt" => Ok(SubtitleFormat::Vtt),
         "pgs" => Ok(SubtitleFormat::Pgs),
         "vobsub" => Ok(SubtitleFormat::VobSub),
+        "dvb" => Ok(SubtitleFormat::Dvb),
         other => Err(backend(format!("unknown subtitle format: {other}"))),
     }
 }
@@ -1558,6 +1562,7 @@ fn row_to_audio(row: &SqliteRow) -> Result<AudioTrack, RepositoryError> {
         channels: column::<i64>(row, "channels")? as u8,
         language: column::<Option<String>>(row, "language")?.map(LanguageCode),
         bitrate: column::<Option<i64>>(row, "bitrate")?.map(|b| b as u64),
+        title: column(row, "title")?,
     })
 }
 
@@ -1568,6 +1573,7 @@ fn row_to_subtitle(row: &SqliteRow) -> Result<EmbeddedSubtitleTrack, RepositoryE
         format: subtitle_format_from_str(&column::<String>(row, "format")?)?,
         forced: column(row, "forced")?,
         default: column(row, "is_default")?,
+        title: column(row, "title")?,
     })
 }
 
@@ -2654,8 +2660,8 @@ impl CatalogRepository for SqliteCatalogRepo {
         for (ordinal, track) in audio.iter().enumerate() {
             sqlx::query(
                 "INSERT INTO audio_tracks \
-                 (version_id, ordinal, stream_index, codec, channels, language, bitrate) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+                 (version_id, ordinal, stream_index, codec, channels, language, bitrate, title) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(vid)
             .bind(ordinal as i64)
@@ -2664,6 +2670,7 @@ impl CatalogRepository for SqliteCatalogRepo {
             .bind(i64::from(track.channels))
             .bind(track.language.as_ref().map(|l| l.0.as_str()))
             .bind(track.bitrate.map(|b| b as i64))
+            .bind(track.title.as_deref())
             .execute(&mut *tx)
             .await
             .map_err(backend)?;
@@ -2671,8 +2678,8 @@ impl CatalogRepository for SqliteCatalogRepo {
         for (ordinal, track) in subtitles.iter().enumerate() {
             sqlx::query(
                 "INSERT INTO subtitle_tracks \
-                 (version_id, ordinal, stream_index, language, format, forced, is_default) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+                 (version_id, ordinal, stream_index, language, format, forced, is_default, title) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(vid)
             .bind(ordinal as i64)
@@ -2681,6 +2688,7 @@ impl CatalogRepository for SqliteCatalogRepo {
             .bind(subtitle_format_to_str(track.format))
             .bind(track.forced)
             .bind(track.default)
+            .bind(track.title.as_deref())
             .execute(&mut *tx)
             .await
             .map_err(backend)?;
@@ -3903,6 +3911,7 @@ mod tests {
             SubtitleFormat::Vtt,
             SubtitleFormat::Pgs,
             SubtitleFormat::VobSub,
+            SubtitleFormat::Dvb,
         ] {
             assert_eq!(subtitle_format_from_str(subtitle_format_to_str(format)).unwrap(), format);
         }

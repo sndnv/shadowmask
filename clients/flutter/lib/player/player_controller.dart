@@ -7,6 +7,7 @@ import 'package:shadowmask/player/player_controller_stub.dart'
     if (dart.library.io) 'native_player_controller.dart';
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
+import 'package:shadowmask/player/state/player_tracks.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 
 const String kFmp4Segments = 'fmp4';
@@ -27,12 +28,16 @@ abstract class PlayerController {
 
   bool seeksWithin(String? container);
 
+  List<String> get subtitleDeliveries;
+
+  bool get selectsAudioTracks;
+
   Widget get view;
 
   Future<void> attach(
     String manifestUrl, {
     required PlaybackMode mode,
-    required bool subtitles,
+    required PlayerTracks tracks,
     int positionMs = 0,
     bool autoplay = true,
   });
@@ -66,8 +71,6 @@ const int kDefaultNetworkTimeoutSeconds = 10;
 const int kSeekReachMs = 30000;
 const int kSeekSettleMs = 1000;
 const int kSeekSettleWaitMs = 2000;
-
-bool playerDrawsSubtitles(String? delivery) => delivery == 'hls_vtt';
 
 typedef PlayerControllerFactory = PlayerController Function(String baseUrl);
 

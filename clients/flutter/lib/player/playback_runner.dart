@@ -21,6 +21,7 @@ import 'package:shadowmask/player/state/playback_state.dart';
 import 'package:shadowmask/player/state/playback_step.dart';
 import 'package:shadowmask/player/state/playback_stream.dart';
 import 'package:shadowmask/player/state/playback_title.dart';
+import 'package:shadowmask/player/state/player_tracks.dart';
 import 'package:shadowmask/player/state/sent_change.dart';
 import 'package:shadowmask/player/watches/buffer_watch.dart';
 import 'package:shadowmask/player/watches/stall_watch.dart';
@@ -363,13 +364,14 @@ class PlaybackRunner {
         :final int id,
         :final PlaybackStream stream,
         :final int offsetMs,
+        :final PlayerTracks tracks,
       ):
         unawaited(
           _player
               .attach(
                 stream.manifestUrl,
                 mode: stream.mode,
-                subtitles: playerDrawsSubtitles(stream.subtitleDelivery),
+                tracks: tracks,
                 positionMs: offsetMs,
                 autoplay: false,
               )
@@ -407,6 +409,8 @@ class PlaybackRunner {
               profileVersion: _profileVersion,
               platform: _platform,
               decoding: s.local.decoding,
+              subtitleDeliveries: _player.subtitleDeliveries,
+              selectsAudioTracks: _player.selectsAudioTracks,
               controls: controls,
             ),
           )

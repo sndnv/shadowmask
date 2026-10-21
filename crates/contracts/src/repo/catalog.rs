@@ -70,6 +70,7 @@ pub fn catalog_seed() -> CatalogSeed {
             channels: 6,
             language: Some(LanguageCode("en".into())),
             bitrate: Some(640_000),
+            title: Some("Director's commentary".into()),
         }],
         subtitles: vec![EmbeddedSubtitleTrack {
             index: 2,
@@ -77,6 +78,7 @@ pub fn catalog_seed() -> CatalogSeed {
             format: SubtitleFormat::Srt,
             forced: false,
             default: true,
+            title: Some("SDH".into()),
         }],
         subtitle_files: vec![SubtitleFile {
             id: SubtitleFileId("sf1".into()),
@@ -794,10 +796,12 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     assert_eq!(detail.audio.len(), 1);
     assert_eq!(detail.audio[0].channels, 6);
     assert_eq!(detail.audio[0].language, Some(LanguageCode("en".into())));
+    assert_eq!(detail.audio[0].title.as_deref(), Some("Director's commentary"));
     assert_eq!(detail.subtitles.len(), 1);
     assert_eq!(detail.subtitles[0].format, SubtitleFormat::Srt);
     assert!(detail.subtitles[0].default);
     assert!(!detail.subtitles[0].forced);
+    assert_eq!(detail.subtitles[0].title.as_deref(), Some("SDH"));
     assert_eq!(detail.subtitle_files.len(), 1);
     assert_eq!(detail.subtitle_files[0].id, SubtitleFileId("sf1".into()));
     assert_eq!(detail.subtitle_files[0].source, SubtitleSource::External);
@@ -1161,6 +1165,7 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
             channels: 8,
             language: Some(LanguageCode("de".into())),
             bitrate: Some(768_000),
+            title: Some("Kommentar".into()),
         }],
         &[
             EmbeddedSubtitleTrack {
@@ -1169,13 +1174,15 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
                 format: SubtitleFormat::Ass,
                 forced: true,
                 default: false,
+                title: None,
             },
             EmbeddedSubtitleTrack {
                 index: 3,
                 language: Some(LanguageCode("de".into())),
-                format: SubtitleFormat::Srt,
+                format: SubtitleFormat::Dvb,
                 forced: false,
                 default: true,
+                title: Some("Untertitel".into()),
             },
         ],
         &[Chapter { title: "Cold Open".into(), start_ms: 0 }],
@@ -1280,8 +1287,12 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     assert_eq!(uv1_detail.video[0].hdr, Some(HdrFormat::DolbyVision));
     assert_eq!(uv1_detail.audio.len(), 1);
     assert_eq!(uv1_detail.audio[0].channels, 8);
+    assert_eq!(uv1_detail.audio[0].title.as_deref(), Some("Kommentar"));
     assert_eq!(uv1_detail.subtitles.len(), 2);
     assert!(uv1_detail.subtitles[0].forced);
+    assert_eq!(uv1_detail.subtitles[0].title, None);
+    assert_eq!(uv1_detail.subtitles[1].format, SubtitleFormat::Dvb);
+    assert_eq!(uv1_detail.subtitles[1].title.as_deref(), Some("Untertitel"));
     assert_eq!(uv1_detail.chapters.len(), 1);
     assert_eq!(uv1_detail.trickplay.len(), 1);
     assert_eq!(uv1_detail.trickplay[0].columns, 8);

@@ -33,7 +33,7 @@ mod transcode_manager;
 mod transcode_spec;
 mod transcode_started;
 
-pub use client_capabilities::ClientCapabilities;
+pub use client_capabilities::{ClientCapabilities, TrackHandling};
 pub use delivery_mode::DeliveryMode;
 pub use delivery_preference::DeliveryPreference;
 pub use download_claims::DownloadClaims;
@@ -47,7 +47,7 @@ pub use play_command_tokens::PlayCommandTokens;
 pub use playback_session::{PlaybackSession, SessionId};
 pub use playback_state::PlaybackState;
 pub use renegotiated::Renegotiated;
-pub use segment_container::{SegmentContainer, segment_container_for};
+pub use segment_container::{SegmentContainer, segment_container_for, segments_carry};
 pub use segment_plan::{Segment, SegmentPlan, plan_cuts, plan_fixed_segments};
 pub use selected_tracks::SelectedTracks;
 pub use session_start_input::SessionStartInput;
@@ -61,11 +61,13 @@ pub use stream_source::StreamSource;
 pub use stream_token::StreamToken;
 pub use stream_tokens::StreamTokens;
 pub use subtitle_change::SubtitleChange;
-pub use subtitle_delivery::SubtitleDelivery;
+pub use subtitle_delivery::{AudioDelivery, SubtitleDelivery};
 pub use subtitle_selection::SubtitleSelection;
 pub use track_request::{AudioRequest, SubtitleRequest};
 pub use transcode_manager::TranscodeManager;
-pub use transcode_spec::{BurnSubtitle, SoftSubtitle, SoftSubtitleSource, TranscodeSpec};
+pub use transcode_spec::{
+    BurnSubtitle, SoftSubtitle, SoftSubtitleSource, SubtitleFileSpec, TranscodeSpec,
+};
 pub use transcode_started::TranscodeStarted;
 
 pub const PROFILE_VERSION: u32 = 1;

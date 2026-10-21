@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 use domain::media::HdrFormat;
 use domain::profile::{AudioCodecCap, ClientDecoding, Container, VideoCodecCap};
-use domain::session::ClientCapabilities;
+use domain::session::{ClientCapabilities, TrackHandling};
 
 #[derive(Debug, Deserialize)]
 pub struct ClientCapabilitiesDto {
@@ -10,6 +10,10 @@ pub struct ClientCapabilitiesDto {
     pub profile_version: u32,
     pub max_bitrate: Option<u64>,
     pub decoding: Option<ClientDecodingDto>,
+    #[serde(default)]
+    pub subtitle_deliveries: Vec<String>,
+    #[serde(default)]
+    pub audio_tracks: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,11 +49,20 @@ fn smooth_unless_stated() -> bool {
 
 impl From<ClientCapabilitiesDto> for ClientCapabilities {
     fn from(c: ClientCapabilitiesDto) -> Self {
+        let declares = |name: &str| c.subtitle_deliveries.iter().any(|d| d == name);
+        let tracks = TrackHandling {
+            embedded: declares("embedded"),
+            image: declares("image"),
+            external: declares("external"),
+            rendition: declares("hls_vtt"),
+            audio: c.audio_tracks,
+        };
         ClientCapabilities {
             platform: c.platform,
             profile_version: c.profile_version,
             max_bitrate: c.max_bitrate,
             decoding: c.decoding.map(ClientDecoding::from),
+            tracks,
         }
     }
 }
@@ -99,6 +112,30 @@ mod tests {
         assert_eq!(caps.platform, "chrome");
         assert!(caps.decoding.is_none());
         assert_eq!(caps.max_bitrate, None);
+        assert_eq!(caps.tracks, TrackHandling::default());
+    }
+
+    #[test]
+    fn the_tracks_a_client_handles_carry_through_and_unknown_names_are_dropped() {
+        let caps = parse(
+            r#"{"platform":"desktop","profile_version":1,
+                "subtitle_deliveries":["embedded","image","external","hls_vtt","teletext"],
+                "audio_tracks":true}"#,
+        );
+        assert_eq!(
+            caps.tracks,
+            TrackHandling {
+                embedded: true,
+                image: true,
+                external: true,
+                rendition: true,
+                audio: true
+            }
+        );
+        let browser = parse(
+            r#"{"platform":"chrome","profile_version":1,"subtitle_deliveries":["external"]}"#,
+        );
+        assert_eq!(browser.tracks, TrackHandling { external: true, ..TrackHandling::default() });
     }
 
     #[test]

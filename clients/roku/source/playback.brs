@@ -736,10 +736,55 @@ function AudioOptions(version as dynamic) as object
     tracks = ValueAt(version, "audio", invalid)
     if type(tracks) <> "roArray" then return options
 
+    names = []
     for each track in tracks
-        options.Push({ index: Int(ValueAt(track, "index", 0)), label: AudioTrackLine(track) })
+        names.Push(AudioName(track))
+    end for
+    labels = NumberedLabels(names)
+    for i = 0 to tracks.Count() - 1
+        options.Push({ index: Int(ValueAt(tracks[i], "index", 0)), label: labels[i] })
     end for
     return options
+end function
+
+function TrackLanguageName(code as dynamic) as string
+    if IsBlank(TextOrBlank(code)) then return Phrase("language.unknown")
+    return LanguageName(code)
+end function
+
+function AudioName(track as dynamic) as string
+    return JoinParts([TrackLanguageName(ValueAt(track, "language", invalid)), ValueAt(track, "title", invalid)])
+end function
+
+function SubtitleTrackName(track as dynamic) as string
+    forced = ""
+    if ValueAt(track, "forced", false) = true then forced = Phrase("track.forced")
+    return JoinParts([TrackLanguageName(ValueAt(track, "language", invalid)), ValueAt(track, "title", invalid), forced])
+end function
+
+function SubtitleFileName(file as dynamic) as string
+    made = ""
+    source = LCase(TextOrBlank(ValueAt(file, "source", "")))
+    if source = "machine_translated" then made = Phrase("track.sourceTranslated")
+    if source = "generated" then made = Phrase("track.sourceGenerated")
+    return JoinParts([TrackLanguageName(ValueAt(file, "language", invalid)), ValueAt(file, "label", invalid), made])
+end function
+
+function NumberedLabels(labels as object) as object
+    seen = {}
+    seen.SetModeCaseSensitive()
+    numbered = []
+    for each label in labels
+        count = 1
+        if seen.DoesExist(label) then count = seen[label] + 1
+        seen[label] = count
+        if count = 1
+            numbered.Push(label)
+        else
+            numbered.Push(label + " " + count.ToStr())
+        end if
+    end for
+    return numbered
 end function
 
 function AudioLabelFor(version as dynamic, index as integer) as string
@@ -750,14 +795,13 @@ function AudioLabelFor(version as dynamic, index as integer) as string
 end function
 
 function SubtitleOptions(version as dynamic) as object
-    options = [{ ref: invalid, label: Phrase("state.off") }]
-
+    entries = []
     tracks = ValueAt(version, "subtitles", invalid)
     if type(tracks) = "roArray"
         for each track in tracks
-            options.Push({
+            entries.Push({
                 ref: { type: "embedded", index: Int(ValueAt(track, "index", 0)) },
-                label: SubtitleTrackLine(track)
+                label: SubtitleTrackName(track)
             })
         end for
     end if
@@ -766,9 +810,19 @@ function SubtitleOptions(version as dynamic) as object
     if type(files) = "roArray"
         for each file in files
             id = TextOrBlank(ValueAt(file, "id", ""))
-            if not IsBlank(id) then options.Push({ ref: { type: "file", id: id }, label: SubtitleFileLine(file) })
+            if not IsBlank(id) then entries.Push({ ref: { type: "file", id: id }, label: SubtitleFileName(file) })
         end for
     end if
+
+    names = []
+    for each entry in entries
+        names.Push(entry.label)
+    end for
+    labels = NumberedLabels(names)
+    options = [{ ref: invalid, label: Phrase("state.off") }]
+    for i = 0 to entries.Count() - 1
+        options.Push({ ref: entries[i].ref, label: labels[i] })
+    end for
     return options
 end function
 

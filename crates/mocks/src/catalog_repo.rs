@@ -1955,6 +1955,7 @@ mod tests {
                 channels: 2,
                 language: None,
                 bitrate: None,
+                title: None,
             }],
             &[EmbeddedSubtitleTrack {
                 index: 2,
@@ -1962,6 +1963,7 @@ mod tests {
                 format: SubtitleFormat::Srt,
                 forced: false,
                 default: true,
+                title: None,
             }],
             &[Chapter { title: "One".into(), start_ms: 0 }],
         )

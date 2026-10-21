@@ -5,6 +5,7 @@ pub enum SubtitleFormat {
     Vtt,
     Pgs,
     VobSub,
+    Dvb,
 }
 
 static EXT_TABLE: &[(&str, SubtitleFormat)] = &[
@@ -28,7 +29,12 @@ impl SubtitleFormat {
             SubtitleFormat::Vtt => "vtt",
             SubtitleFormat::Pgs => "sup",
             SubtitleFormat::VobSub => "sub",
+            SubtitleFormat::Dvb => "dvb",
         }
+    }
+
+    pub fn is_image(self) -> bool {
+        matches!(self, SubtitleFormat::Pgs | SubtitleFormat::VobSub | SubtitleFormat::Dvb)
     }
 }
 
@@ -56,5 +62,16 @@ mod tests {
         assert_eq!(SubtitleFormat::Vtt.extension(), "vtt");
         assert_eq!(SubtitleFormat::Pgs.extension(), "sup");
         assert_eq!(SubtitleFormat::VobSub.extension(), "sub");
+        assert_eq!(SubtitleFormat::Dvb.extension(), "dvb");
+    }
+
+    #[test]
+    fn bitmap_formats_are_images_and_text_formats_are_not() {
+        for format in [SubtitleFormat::Pgs, SubtitleFormat::VobSub, SubtitleFormat::Dvb] {
+            assert!(format.is_image(), "{format:?}");
+        }
+        for format in [SubtitleFormat::Srt, SubtitleFormat::Ass, SubtitleFormat::Vtt] {
+            assert!(!format.is_image(), "{format:?}");
+        }
     }
 }

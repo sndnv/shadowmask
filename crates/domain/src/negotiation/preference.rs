@@ -36,6 +36,7 @@ mod tests {
             channels: 2,
             language: language.map(|l| LanguageCode(l.into())),
             bitrate: None,
+            title: None,
         }
     }
 
@@ -46,6 +47,7 @@ mod tests {
             format: SubtitleFormat::Srt,
             forced,
             default: false,
+            title: None,
         }
     }
 

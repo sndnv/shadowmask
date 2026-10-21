@@ -8,6 +8,7 @@ import 'package:shadowmask/model/session/client_decoding.dart';
 import 'package:shadowmask/model/session/negotiation.dart';
 import 'package:shadowmask/model/session/playback_session.dart';
 import 'package:shadowmask/model/session/selected_tracks.dart';
+import 'package:shadowmask/model/session/subtitle_selection.dart';
 import 'package:shadowmask/player/playback_runner.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/state/local_settings.dart';
@@ -15,6 +16,7 @@ import 'package:shadowmask/player/state/playback_life.dart';
 import 'package:shadowmask/player/state/playback_notice.dart';
 import 'package:shadowmask/player/state/playback_state.dart';
 import 'package:shadowmask/player/state/playback_title.dart';
+import 'package:shadowmask/player/state/player_tracks.dart';
 import 'package:shadowmask/player/state/sent_change.dart';
 import 'package:shadowmask/player/watches/buffer_watch.dart';
 import 'package:shadowmask/player/watches/stall_watch.dart';
@@ -37,6 +39,8 @@ class FakePlaybackApi extends Fake implements PlaybackApi {
   bool holdEnds = false;
   PlaybackControls? controls;
   ClientDecoding? decoding;
+  List<String>? subtitleDeliveries;
+  bool? selectsAudioTracks;
 
   @override
   Future<PlaybackSession> startSession({
@@ -45,11 +49,15 @@ class FakePlaybackApi extends Fake implements PlaybackApi {
     int profileVersion = kExpectedProfileVersion,
     String platform = 'generic',
     ClientDecoding? decoding,
+    List<String> subtitleDeliveries = const <String>[],
+    bool selectsAudioTracks = false,
     PlaybackControls controls = const PlaybackControls(),
   }) {
     calls.add('start:$versionId@$startPositionMs:$profileVersion:$platform');
     this.controls = controls;
     this.decoding = decoding;
+    this.subtitleDeliveries = subtitleDeliveries;
+    this.selectsAudioTracks = selectsAudioTracks;
     final Completer<PlaybackSession> answer = Completer<PlaybackSession>();
     starts.add(answer);
     return answer.future;
@@ -249,6 +257,41 @@ void main() {
     );
 
     expect(rig.player.attachedSubtitles, <bool>[true]);
+    await rig.leave(tester);
+  });
+
+  testWidgets('a start declares the tracks the player handles itself', (
+    WidgetTester tester,
+  ) async {
+    final Rig rig = Rig();
+
+    await tester.pump();
+
+    expect(rig.api.subtitleDeliveries, rig.player.subtitleDeliveries);
+    expect(rig.api.selectsAudioTracks, isTrue);
+    await rig.leave(tester);
+  });
+
+  testWidgets('a subtitle file and an audio track the player selects are '
+      'attached with the stream', (WidgetTester tester) async {
+    final Rig rig = Rig();
+
+    await rig.answerStart(
+      tester,
+      kDirect.copyWith(
+        selected: const SelectedTracks(
+          audioTrack: 2,
+          audioDelivery: 'embedded',
+          subtitleTrack: SubtitleSelection.file('f1'),
+          subtitleDelivery: 'external',
+          subtitleUrl: '/stream/t1/subtitles.vtt',
+        ),
+      ),
+    );
+
+    expect(rig.player.attachedTracks, const <PlayerTracks>[
+      PlayerTracks(subtitleUrl: '/stream/t1/subtitles.vtt', audioIndex: 2),
+    ]);
     await rig.leave(tester);
   });
 

@@ -2,6 +2,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'package:shadowmask/player/state/local_settings.dart';
 import 'package:shadowmask/player/state/playback_stream.dart';
+import 'package:shadowmask/player/state/player_tracks.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 
 part 'playback_command.freezed.dart';
@@ -43,6 +44,7 @@ sealed class PlaybackCommand with _$PlaybackCommand {
     required int id,
     required PlaybackStream stream,
     required int offsetMs,
+    @Default(PlayerTracks()) PlayerTracks tracks,
   }) = LoadStream;
 
   const factory PlaybackCommand.seekPlayer({required int offsetMs}) =

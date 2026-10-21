@@ -10,10 +10,12 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'package:shadowmask/model/session/playback_mode.dart';
+import 'package:shadowmask/player/mpv_tracks.dart';
 import 'package:shadowmask/player/playback_log.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
+import 'package:shadowmask/player/state/player_tracks.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 
 const Duration kOrientationTimeout = Duration(milliseconds: 1200);
@@ -120,6 +122,16 @@ class NativePlayerController implements PlayerController {
   bool seeksWithin(String? container) => container != kFmp4Segments;
 
   @override
+  List<String> get subtitleDeliveries => const <String>[
+    kEmbeddedDelivery,
+    kImageSubtitles,
+    kExternalSubtitles,
+  ];
+
+  @override
+  bool get selectsAudioTracks => true;
+
+  @override
   Widget get view => ValueListenableBuilder<SubtitleSize>(
     valueListenable: _subtitleSize,
     builder: (BuildContext context, SubtitleSize size, Widget? _) =>
@@ -146,7 +158,7 @@ class NativePlayerController implements PlayerController {
   Future<void> attach(
     String manifestUrl, {
     required PlaybackMode mode,
-    required bool subtitles,
+    required PlayerTracks tracks,
     int positionMs = 0,
     bool autoplay = true,
   }) async {
@@ -155,19 +167,19 @@ class NativePlayerController implements PlayerController {
     final int generation = _generation;
     final Future<void> replaced = _replaced.future;
     _startTimer();
-    final String url = manifestUrl.startsWith('http')
-        ? manifestUrl
-        : '$_baseUrl$manifestUrl';
-    await _setProperty('start', '0');
-    await _setProperty('sid', subtitles ? 'auto' : 'no');
+    await _setProperty('start', 'none');
+    await _setProperty('sid', tracks.rendition ? 'auto' : 'no');
+    await _setProperty('sub-visibility', tracks.subtitleImage ? 'yes' : 'no');
     await _setProperty('network-timeout', '$_networkTimeout');
     await _applyBuffer();
     _current(generation);
-    await _player.open(Media(url), play: false);
+    await _player.open(Media(_absolute(manifestUrl)), play: false);
     if (_outputFailure case final String failure) {
       _onError(failure);
     }
     await Future.any(<Future<void>>[_lengthKnown(), replaced]);
+    _current(generation);
+    await _select(tracks);
     _current(generation);
     if (positionMs > 0) {
       await _player.seek(Duration(milliseconds: positionMs));
@@ -176,6 +188,63 @@ class NativePlayerController implements PlayerController {
     if (autoplay) {
       await _player.play();
     }
+  }
+
+  String _absolute(String url) =>
+      url.startsWith('http') ? url : '$_baseUrl$url';
+
+  Future<void> _select(PlayerTracks tracks) async {
+    final PlatformPlayer? platform = _player.platform;
+    if (platform is! NativePlayer) {
+      return;
+    }
+    try {
+      final List<MpvTrack> listed = await _listTracks(platform);
+      if (tracks.subtitleIndex case final int index) {
+        await _selectTrack(platform, listed, 'sub', 'sid', index);
+      }
+      if (tracks.subtitleUrl case final String url) {
+        await platform.command(<String>['sub-add', _absolute(url), 'select']);
+      }
+      if (tracks.audioIndex case final int index) {
+        await _selectTrack(platform, listed, 'audio', 'aid', index);
+      }
+    } catch (error) {
+      _log.add(redactStreamTokens('selecting tracks failed: $error'));
+    }
+  }
+
+  Future<List<MpvTrack>> _listTracks(NativePlayer platform) async {
+    final int count =
+        int.tryParse(await platform.getProperty('track-list/count')) ?? 0;
+    final List<MpvTrack> listed = <MpvTrack>[];
+    for (int i = 0; i < count; i++) {
+      final MpvTrack? track = mpvTrackOf(
+        id: await platform.getProperty('track-list/$i/id'),
+        type: await platform.getProperty('track-list/$i/type'),
+        ffIndex: await platform.getProperty('track-list/$i/ff-index'),
+        external: await platform.getProperty('track-list/$i/external'),
+      );
+      if (track != null) {
+        listed.add(track);
+      }
+    }
+    return listed;
+  }
+
+  Future<void> _selectTrack(
+    NativePlayer platform,
+    List<MpvTrack> listed,
+    String type,
+    String property,
+    int ffIndex,
+  ) async {
+    final int? id = mpvTrackId(listed, type, ffIndex);
+    if (id == null) {
+      _log.add('no $type track for stream $ffIndex');
+      return;
+    }
+    await platform.setProperty(property, '$id');
   }
 
   void _replace() {

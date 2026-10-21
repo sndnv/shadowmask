@@ -78,6 +78,11 @@ impl StreamSource for FakeSource {
         self.ensure_live(claims)?;
         Ok(self.direct_path.clone())
     }
+
+    fn subtitle_file(&self, claims: &StreamClaims) -> Result<PathBuf, StreamError> {
+        self.ensure_live(claims)?;
+        Ok(self.output_dir.join("subtitles.vtt"))
+    }
 }
 
 fn app(dir: &Path) -> Router {
@@ -88,6 +93,7 @@ fn app(dir: &Path) -> Router {
     std::fs::write(output_dir.join("init.mp4"), b"INIT-BYTES").unwrap();
     std::fs::write(output_dir.join("index.m3u8"), b"#EXTM3U\nmedia").unwrap();
     std::fs::write(output_dir.join("subs.vtt"), b"WEBVTT\n").unwrap();
+    std::fs::write(output_dir.join("subtitles.vtt"), b"WEBVTT\n\nFILE-CUES").unwrap();
     std::fs::write(output_dir.join("data.bin"), b"\x00\x01\x02\x03").unwrap();
     let direct_path = dir.join("movie.mkv");
     std::fs::write(&direct_path, b"MKVDATA-DIRECT-PLAY").unwrap();
@@ -170,6 +176,18 @@ async fn vtt_served_with_text_vtt_content_type() {
     let (status, headers, _) = send(app(dir.path()), "/stream/good:live/subs/subs.vtt", None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(content_type(&headers), "text/vtt");
+}
+
+#[tokio::test]
+async fn the_subtitle_file_is_served_as_text_vtt_only_for_a_live_stream() {
+    let dir = tempfile::tempdir().unwrap();
+    let (status, headers, body) =
+        send(app(dir.path()), "/stream/good:live/subtitles.vtt", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(content_type(&headers), "text/vtt");
+    assert_eq!(body, b"WEBVTT\n\nFILE-CUES");
+    let (status, _, _) = send(app(dir.path()), "/stream/good:ended/subtitles.vtt", None).await;
+    assert_ne!(status, StatusCode::OK);
 }
 
 #[tokio::test]

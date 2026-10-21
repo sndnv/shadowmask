@@ -31,6 +31,8 @@
     <script src="../app.js"></script>
     <script type="module">
       import { PlaybackRunner } from "./runner.js";
+      import { audioLabels, subtitleLabels } from "./labels.js";
+      import { measureDecoding } from "./capabilities.js";
       import {
         controlsFromQuery,
         controlsToQuery,
@@ -179,10 +181,22 @@
             hls.destroy();
             hls = null;
           }
+          for (const track of media.querySelectorAll("track")) {
+            track.remove();
+          }
           if (media.getAttribute("src")) {
             media.removeAttribute("src");
             media.load();
           }
+        }
+
+        function addSubtitleFile(url) {
+          const track = document.createElement("track");
+          track.kind = "subtitles";
+          track.src = url;
+          track.default = true;
+          media.appendChild(track);
+          track.track.mode = "showing";
         }
 
         function hlsConfig() {
@@ -190,7 +204,7 @@
           return { manifestLoadingTimeOut: wait, levelLoadingTimeOut: wait, fragLoadingTimeOut: wait };
         }
 
-        function attach(url, mode, offsetMs) {
+        function attach(url, mode, offsetMs, subtitleUrl) {
           drop("superseded");
           teardown();
           return new Promise((resolve, reject) => {
@@ -223,6 +237,7 @@
               onMeta = ready;
               media.addEventListener("loadedmetadata", onMeta, { once: true });
               media.src = url;
+              if (mode === "direct" && subtitleUrl) addSubtitleFile(subtitleUrl);
               return;
             }
             fail("this browser needs hls.js or native HLS");
@@ -325,12 +340,13 @@
       async function gather() {
         try {
           const me = await sm.self();
-          const [info, resume, detail] = await Promise.all([
+          const [info, resume, detail, decoding] = await Promise.all([
             sm.json("/api/v1/server/info").catch(() => ({ profile_version: 1 })),
             sm
               .json("/api/v1/users/" + encodeURIComponent(me.id) + "/progress/" + encodeURIComponent(versionId))
               .catch(() => null),
             sm.json("/api/v1/versions/" + encodeURIComponent(versionId)).catch(() => null),
+            measureDecoding().catch(() => null),
           ]);
           version = detail;
           buildControls();
@@ -339,6 +355,7 @@
             durationMs: (version && version.duration_ms) || 0,
             resumeMs: resume && resume.position_ms ? resume.position_ms : 0,
             profileVersion: info.profile_version || 1,
+            decoding,
           });
           render(runner.state, null);
         } catch (err) {
@@ -675,14 +692,9 @@
         }
         {
           const audio = (version && version.audio) || [];
+          const labels = audioLabels(version);
           const options = audio.length
-            ? audio.map((a) =>
-                sm.el(
-                  "option",
-                  { value: String(a.index) },
-                  "Audio " + a.index + " " + a.codec + (a.language ? " " + sm.lang(a.language) : ""),
-                ),
-              )
+            ? audio.map((a, i) => sm.el("option", { value: String(a.index) }, labels[i]))
             : [sm.el("option", { value: "" }, "No audio")];
           const select = sm.el("select", null, options);
           select.dataset.never = audio.length ? "" : "1";
@@ -738,24 +750,13 @@
           const embedded = (version && version.subtitles) || [];
           const files = (version && version.subtitle_files) || [];
           const none = !embedded.length && !files.length;
+          const labels = subtitleLabels(version);
           const options = [sm.el("option", { value: "" }, "No subtitles")];
-          embedded.forEach((s) => {
-            options.push(
-              sm.el(
-                "option",
-                { value: "embedded:" + s.index },
-                "Sub " + s.index + " " + s.format + (s.language ? " " + sm.lang(s.language) : ""),
-              ),
-            );
+          embedded.forEach((s, i) => {
+            options.push(sm.el("option", { value: "embedded:" + s.index }, labels[i]));
           });
-          files.forEach((f) => {
-            options.push(
-              sm.el(
-                "option",
-                { value: "file:" + f.id },
-                sm.lang(f.language) + " " + f.format + " (" + f.source + ")",
-              ),
-            );
+          files.forEach((f, i) => {
+            options.push(sm.el("option", { value: "file:" + f.id }, labels[embedded.length + i]));
           });
           const select = sm.el("select", null, options);
           select.dataset.never = none ? "1" : "";

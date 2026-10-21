@@ -121,7 +121,7 @@ SHADOWMASK_JOB_POOLS_ARTWORK_CONCURRENCY: "6"
 | `SHADOWMASK_TRANSCODE_CACHE_CAP_BYTES` | Transcode cache size cap                               | `10737418240` |
 | `SHADOWMASK_REMUX_READ_RATE`           | Remux read-ahead multiplier                            | `10.0`        |
 | `SHADOWMASK_MAX_TRANSCODE_HEIGHT`      | Re-encode height cap; direct play and remux unaffected | unset         |
-| `SHADOWMASK_STREAM_START_TIMEOUT_SECS` | Time a stream may take to read its file; `0` = none    | `20`          |
+| `SHADOWMASK_STREAM_START_TIMEOUT_SECS` | Read time of a stream or Direct subtitle; `0` = none   | `20`          |
 | `SHADOWMASK_REQUEST_TIMEOUT_SECS`      | Time a request may take to answer; `0` = none          | `90`          |
 | `SHADOWMASK_CACHE_EVICTION_EVERY_SECS` | Cache sweep interval                                   | `3600`        |
 | `SHADOWMASK_JOB_RETENTION_DAYS`        | Finished job and log retention                         | `30`          |

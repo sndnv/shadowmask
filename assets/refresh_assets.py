@@ -195,6 +195,7 @@ def main():
             {'asset': 'icons/roku/button-line.9.png', 'target': 'images/button-line.9.png'},
             {'asset': 'icons/roku/disc.png', 'target': 'images/disc.png'},
             {'asset': 'icons/roku/ring.png', 'target': 'images/ring.png'},
+            {'asset': 'capabilities/candidates.json', 'target': 'capabilities/candidates.json'},
         ],
     }
 

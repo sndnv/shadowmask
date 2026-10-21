@@ -377,6 +377,7 @@ async fn film() -> MockCatalogRepo {
         channels: 6,
         language: Some(LanguageCode("en".to_owned())),
         bitrate: None,
+        title: None,
     };
     catalog.set_version_tracks(&id, &[video], &[audio], &[], &[]).await.unwrap();
     catalog

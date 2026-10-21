@@ -59,6 +59,7 @@ pub struct AudioTrackDto {
     pub channels: u8,
     pub language: Option<String>,
     pub bitrate: Option<u64>,
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -68,6 +69,7 @@ pub struct SubtitleTrackDto {
     pub format: SubtitleFormatDto,
     pub forced: bool,
     pub default: bool,
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -78,6 +80,7 @@ pub enum SubtitleFormatDto {
     Vtt,
     Pgs,
     VobSub,
+    Dvb,
 }
 
 #[derive(Debug, Serialize)]
@@ -201,6 +204,7 @@ impl From<AudioTrack> for AudioTrackDto {
             channels: t.channels,
             language: t.language.map(|l| l.0),
             bitrate: t.bitrate,
+            title: t.title,
         }
     }
 }
@@ -213,6 +217,7 @@ impl From<EmbeddedSubtitleTrack> for SubtitleTrackDto {
             format: t.format.into(),
             forced: t.forced,
             default: t.default,
+            title: t.title,
         }
     }
 }
@@ -225,6 +230,7 @@ impl From<SubtitleFormat> for SubtitleFormatDto {
             SubtitleFormat::Vtt => SubtitleFormatDto::Vtt,
             SubtitleFormat::Pgs => SubtitleFormatDto::Pgs,
             SubtitleFormat::VobSub => SubtitleFormatDto::VobSub,
+            SubtitleFormat::Dvb => SubtitleFormatDto::Dvb,
         }
     }
 }
@@ -342,6 +348,7 @@ mod tests {
             format: SubtitleFormat::Srt,
             forced: false,
             default: false,
+            title: Some(format!("Track {index}")),
         };
         let response = VersionDetailResponse::from(VersionDetail {
             subtitles: vec![track(2), track(3)],
@@ -351,6 +358,7 @@ mod tests {
 
         let listed: Vec<u32> = response.subtitles.iter().map(|track| track.index).collect();
         assert_eq!(listed, vec![3]);
+        assert_eq!(response.subtitles[0].title.as_deref(), Some("Track 3"));
     }
 
     #[test]
@@ -376,6 +384,7 @@ mod tests {
             (SubtitleFormat::Vtt, SubtitleFormatDto::Vtt),
             (SubtitleFormat::Pgs, SubtitleFormatDto::Pgs),
             (SubtitleFormat::VobSub, SubtitleFormatDto::VobSub),
+            (SubtitleFormat::Dvb, SubtitleFormatDto::Dvb),
         ] {
             assert_eq!(
                 serde_json::to_string(&SubtitleFormatDto::from(domain)).unwrap(),

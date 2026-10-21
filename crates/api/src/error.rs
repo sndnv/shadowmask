@@ -327,8 +327,10 @@ mod tests {
             state: PlaybackState::Playing,
             selected: SelectedTracks {
                 audio_track: None,
+                audio_delivery: None,
                 subtitle_track: None,
                 subtitle_delivery: None,
+                subtitle_url: None,
             },
             started_at: now,
             last_heartbeat_at: now,

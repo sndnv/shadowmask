@@ -89,15 +89,18 @@ void main() {
   });
 
   group('desktopEntryText', () {
-    test('points the launcher at the AppImage', () {
+    const String icon =
+        '/home/u/.local/share/icons/hicolor/512x512/apps/io.github.sndnv.shadowmask.png';
+
+    test('points the launcher at the AppImage and its icon file', () {
       expect(
-        desktopEntryText('/opt/apps/shadowmask.AppImage'),
+        desktopEntryText('/opt/apps/shadowmask.AppImage', icon),
         '[Desktop Entry]\n'
         'Type=Application\n'
         'Name=Shadowmask\n'
         'Exec="/opt/apps/shadowmask.AppImage"\n'
         'TryExec=/opt/apps/shadowmask.AppImage\n'
-        'Icon=io.github.sndnv.shadowmask\n'
+        'Icon=$icon\n'
         'Categories=AudioVideo;Video;\n'
         'StartupWMClass=io.github.sndnv.shadowmask\n'
         'Terminal=false\n',
@@ -107,6 +110,7 @@ void main() {
     test('escapes a path the launcher would otherwise misread', () {
       final List<String> lines = desktopEntryText(
         '/opt/my apps/sh"a\$d`ow\\m%k.AppImage',
+        icon,
       ).split('\n');
 
       expect(
@@ -117,10 +121,14 @@ void main() {
     });
 
     test('keeps a path with a line break on one line', () {
-      final String text = desktopEntryText('/opt/a\nb.AppImage');
+      final String text = desktopEntryText(
+        '/opt/a\nb.AppImage',
+        '/home/a\nb/icon.png',
+      );
 
       expect(text.split('\n'), contains(r'Exec="/opt/a\nb.AppImage"'));
       expect(text.split('\n'), contains(r'TryExec=/opt/a\nb.AppImage'));
+      expect(text.split('\n'), contains(r'Icon=/home/a\nb/icon.png'));
     });
   });
 
@@ -136,9 +144,12 @@ void main() {
       entry.entryFile.path,
       p.join(dataHome, 'applications', 'io.github.sndnv.shadowmask.desktop'),
     );
+    expect(await entry.entryFile.readAsString(), entry.entryText);
     expect(
-      await entry.entryFile.readAsString(),
-      desktopEntryText('/opt/apps/shadowmask.AppImage'),
+      (await entry.entryFile.readAsString()).split('\n'),
+      contains('Icon=${entry.iconFile(512).path}'),
+      reason:
+          'a name would be looked up through icon caches other programs own',
     );
     for (final int size in kDesktopIconSizes) {
       expect(
@@ -188,10 +199,22 @@ void main() {
 
       await moved.refresh();
 
-      expect(
-        await moved.entryFile.readAsString(),
-        desktopEntryText('/new/shadowmask.AppImage'),
+      expect(await moved.entryFile.readAsString(), moved.entryText);
+    });
+
+    test('points an entry that names its icon at the icon file', () async {
+      final DesktopEntry entry = entryFor('/opt/apps/shadowmask.AppImage');
+      await entry.add();
+      await entry.entryFile.writeAsString(
+        entry.entryText.replaceFirst(
+          RegExp(r'^Icon=.*$', multiLine: true),
+          'Icon=io.github.sndnv.shadowmask',
+        ),
       );
+
+      await entry.refresh();
+
+      expect(await entry.entryFile.readAsString(), entry.entryText);
     });
 
     test('leaves an entry that already points here alone', () async {

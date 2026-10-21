@@ -35,6 +35,7 @@ async fn probes_generated_file_with_all_content() {
     assert_eq!(v.codec, "h264");
     assert_eq!(v.width, 160);
     assert_eq!(v.height, 120);
+    assert_eq!(v.bit_depth, 8);
     assert!((v.frame_rate - 24.0).abs() < 0.01);
 
     assert_eq!(r.audio.len(), 1);
@@ -51,6 +52,27 @@ async fn probes_generated_file_with_all_content() {
     assert_eq!(r.chapters[0].start_ms, 0);
     assert_eq!(r.chapters[1].title, "Outro");
     assert_eq!(r.chapters[1].start_ms, 1000);
+}
+
+#[tokio::test]
+async fn a_ten_bit_hevc_file_reads_ten_bits_from_its_pixel_format() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("main10.mkv");
+    let made = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-f", "lavfi", "-i", "testsrc=d=1:s=160x120:r=24"])
+        .args(["-c:v", "libx265", "-pix_fmt", "yuv420p10le", "-x265-params", "log-level=error"])
+        .arg(&path)
+        .status()
+        .expect("ffmpeg should run");
+    assert!(made.success(), "ffmpeg should write a 10-bit HEVC clip");
+
+    let r = FfprobeMediaProbe::default()
+        .probe(&path.to_string_lossy())
+        .await
+        .expect("ffprobe should read the clip");
+
+    assert_eq!(r.video[0].codec, "hevc");
+    assert_eq!(r.video[0].bit_depth, 10);
 }
 
 #[tokio::test]

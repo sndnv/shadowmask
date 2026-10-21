@@ -181,6 +181,7 @@ where
     Router::new()
         .route("/stream/{token}/master.m3u8", get(stream::master::<T, G>))
         .route("/stream/{token}/file", get(stream::file::<T, G>))
+        .route("/stream/{token}/subtitles.vtt", get(stream::subtitles::<T, G>))
         .route("/stream/{token}/{variant}/{file}", get(stream::media::<T, G>))
         .with_state(state)
         .layer(from_fn(track_stream_bytes))

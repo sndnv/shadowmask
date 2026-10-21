@@ -12,6 +12,7 @@ import 'package:shadowmask/player/playback_log.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
+import 'package:shadowmask/player/state/player_tracks.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 
 @JS('Hls')
@@ -91,6 +92,7 @@ class WebPlayerController implements PlayerController {
     _video = web.document.createElement('video') as web.HTMLVideoElement
       ..id = _viewType
       ..controls = false
+      ..crossOrigin = 'anonymous'
       ..setAttribute('playsinline', '')
       ..style.width = '100%'
       ..style.height = '100%'
@@ -208,13 +210,22 @@ class WebPlayerController implements PlayerController {
   bool seeksWithin(String? container) => true;
 
   @override
+  List<String> get subtitleDeliveries => const <String>[
+    kExternalSubtitles,
+    kRenditionSubtitles,
+  ];
+
+  @override
+  bool get selectsAudioTracks => false;
+
+  @override
   Widget get view => HtmlElementView(viewType: _viewType);
 
   @override
   Future<void> attach(
     String manifestUrl, {
     required PlaybackMode mode,
-    required bool subtitles,
+    required PlayerTracks tracks,
     int positionMs = 0,
     bool autoplay = true,
   }) {
@@ -222,19 +233,29 @@ class WebPlayerController implements PlayerController {
     _dropReady();
     _settle('superseded by another stream');
     _teardownHls();
+    _dropSubtitleFile();
     _startTimer();
     final Completer<void> attached = Completer<void>();
     _attaching = attached;
-    _load(manifestUrl, positionMs, autoplay);
+    _load(manifestUrl, tracks.subtitleUrl, positionMs, autoplay);
     return attached.future;
   }
 
-  void _load(String manifestUrl, int positionMs, bool autoplay) {
-    final String url = manifestUrl.startsWith('http')
-        ? manifestUrl
-        : '$_baseUrl$manifestUrl';
+  String _absolute(String url) =>
+      url.startsWith('http') ? url : '$_baseUrl$url';
+
+  void _load(
+    String manifestUrl,
+    String? subtitleUrl,
+    int positionMs,
+    bool autoplay,
+  ) {
+    final String url = _absolute(manifestUrl);
     if (_mode == PlaybackMode.direct) {
       _video.src = url;
+      if (subtitleUrl != null) {
+        _addSubtitleFile(_absolute(subtitleUrl));
+      }
       _seekOnReady(positionMs, autoplay);
       return;
     }
@@ -466,6 +487,7 @@ class WebPlayerController implements PlayerController {
     _dropReady();
     _settle('detached');
     _teardownHls();
+    _dropSubtitleFile();
     _timer?.cancel();
     _timer = null;
     _video.pause();
@@ -592,6 +614,26 @@ class WebPlayerController implements PlayerController {
   void _teardownHls() {
     _hls?.destroy();
     _hls = null;
+  }
+
+  void _addSubtitleFile(String url) {
+    final web.HTMLTrackElement track =
+        web.document.createElement('track') as web.HTMLTrackElement
+          ..kind = 'subtitles'
+          ..src = url
+          ..default_ = true;
+    _video.appendChild(track);
+    track.track.mode = 'showing';
+  }
+
+  void _dropSubtitleFile() {
+    final web.NodeList tracks = _video.querySelectorAll('track');
+    for (int i = 0; i < tracks.length; i++) {
+      final web.Node? track = tracks.item(i);
+      if (track != null) {
+        _video.removeChild(track);
+      }
+    }
   }
 
   void _holdScreen(bool hold) {

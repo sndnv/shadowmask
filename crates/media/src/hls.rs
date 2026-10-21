@@ -7,12 +7,13 @@ use jiff::{SignedDuration, Timestamp};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::spawn_blocking;
 
+use domain::catalog::VersionId;
 use domain::error::{StreamError, TranscodeError};
 use domain::session::{
     BurnSubtitle, DeliveryMode, SegmentContainer, SegmentPlan, SessionId, SoftSubtitle,
     SoftSubtitleSource, StreamClaims, StreamGeneration, StreamRegistration, StreamRegistry,
-    StreamSource, TranscodeManager, TranscodeSpec, TranscodeStarted, plan_cuts,
-    plan_fixed_segments,
+    StreamSource, SubtitleDelivery, SubtitleFileSpec, TranscodeManager, TranscodeSpec,
+    TranscodeStarted, plan_cuts, plan_fixed_segments,
 };
 
 use crate::playback_prep_store::{FsPlaybackPrepStore, PrepEntry, embedded_prefix};
@@ -29,6 +30,7 @@ pub(crate) const VARIANT: &str = "v0";
 pub(crate) const MEDIA_PLAYLIST: &str = "index.m3u8";
 const SUBTITLE_GROUP: &str = "subs";
 pub(crate) const SUBTITLE_VARIANT: &str = "subs";
+pub(crate) const SUBTITLE_FILE: &str = "subtitles.vtt";
 const DEFAULT_BINARY: &str = "ffmpeg";
 const DEFAULT_IDLE_TIMEOUT: SignedDuration = SignedDuration::from_secs(30);
 const PRODUCED_WAIT: Duration = Duration::from_secs(30);
@@ -45,12 +47,32 @@ struct Prepared {
     start_us: i64,
     known_start: Option<i64>,
     subtitles: bool,
+    subtitle_file: Option<PathBuf>,
     burn: Option<Burn>,
 }
 
 struct Generation {
     registration: StreamRegistration,
     run: Option<Run>,
+}
+
+#[derive(Clone, Copy)]
+struct StreamOf<'a> {
+    session: &'a SessionId,
+    generation: StreamGeneration,
+}
+
+#[derive(Clone, Copy)]
+struct SourceOf<'a> {
+    version: &'a VersionId,
+    input_path: &'a str,
+}
+
+fn source_shift_ms(source: &SoftSubtitleSource, start_us: i64) -> i64 {
+    match source {
+        SoftSubtitleSource::Embedded(_) => start_us.div_euclid(1_000),
+        SoftSubtitleSource::File(_) => 0,
+    }
 }
 
 struct Run {
@@ -446,47 +468,92 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
         Ok(())
     }
 
-    async fn write_subtitle_rendition(
+    async fn write_soft_subtitle(
         &self,
         output_dir: &Path,
         spec: &TranscodeSpec,
         length_ms: u64,
         start_us: i64,
-    ) -> bool {
+        origin_ms: u64,
+    ) -> (bool, Option<PathBuf>) {
         let Some(soft) = spec.soft_subtitle.as_ref() else {
-            return false;
+            return (false, None);
         };
-        let shift_ms = match soft.source {
-            SoftSubtitleSource::Embedded(_) => start_us.div_euclid(1_000),
-            SoftSubtitleSource::File(_) => 0,
+        let shift_ms = source_shift_ms(&soft.source, start_us);
+        let stream = StreamOf { session: &spec.session, generation: spec.generation };
+        let source = SourceOf { version: &spec.version, input_path: &spec.input_path };
+        let written = match soft.delivery {
+            SubtitleDelivery::External => {
+                let origin = i64::try_from(origin_ms).unwrap_or(i64::MAX);
+                let offset = soft.offset_ms.saturating_sub(shift_ms).saturating_sub(origin);
+                self.write_subtitle_file(stream, source, soft, output_dir, offset).await.map(Some)
+            }
+            _ => {
+                let offset =
+                    soft.offset_ms.saturating_add(OUTPUT_OFFSET_MS as i64).saturating_sub(shift_ms);
+                self.write_rendition(output_dir, stream, source, soft, length_ms, offset)
+                    .await
+                    .map(|()| None)
+            }
         };
-        let offset_ms =
-            soft.offset_ms.saturating_add(OUTPUT_OFFSET_MS as i64).saturating_sub(shift_ms);
-        match self.try_write_subtitle_rendition(output_dir, spec, soft, length_ms, offset_ms).await
-        {
-            Ok(()) => true,
+        match written {
+            Ok(file) => (true, file),
             Err(err) => {
                 #[rustfmt::skip]
                 tracing::warn!("stream [{}/{}] has no subtitles: {err}", spec.session.0, spec.generation.0);
-                false
+                (false, None)
             }
         }
     }
 
-    async fn try_write_subtitle_rendition(
+    async fn subtitle_source(
+        &self,
+        stream: StreamOf<'_>,
+        source: SourceOf<'_>,
+        soft: &SoftSubtitle,
+    ) -> Result<PathBuf, TranscodeError> {
+        let entry =
+            self.inner.prep_store.entry(source.version, source.input_path, &soft.source).await?;
+        match &soft.source {
+            SoftSubtitleSource::Embedded(index) => prepared(&entry, *index).await,
+            SoftSubtitleSource::File(path) => {
+                self.extracted(stream, source.version, path, &entry).await
+            }
+        }
+    }
+
+    async fn write_subtitle_file(
+        &self,
+        stream: StreamOf<'_>,
+        source: SourceOf<'_>,
+        soft: &SoftSubtitle,
+        dir: &Path,
+        offset: i64,
+    ) -> Result<PathBuf, TranscodeError> {
+        let cached = self.subtitle_source(stream, source, soft).await?;
+        let dir = dir.to_path_buf();
+        spawn_blocking(move || -> std::io::Result<PathBuf> {
+            std::fs::create_dir_all(&dir)?;
+            let content = std::fs::read_to_string(&cached)?;
+            let path = dir.join(SUBTITLE_FILE);
+            std::fs::write(&path, shift(&content, offset))?;
+            Ok(path)
+        })
+        .await
+        .expect("subtitle file task panicked")
+        .map_err(|e| TranscodeError::Spawn(e.to_string()))
+    }
+
+    async fn write_rendition(
         &self,
         output_dir: &Path,
-        spec: &TranscodeSpec,
+        stream: StreamOf<'_>,
+        source: SourceOf<'_>,
         soft: &SoftSubtitle,
         length_ms: u64,
         offset: i64,
     ) -> Result<(), TranscodeError> {
-        let entry =
-            self.inner.prep_store.entry(&spec.version, &spec.input_path, &soft.source).await?;
-        let cached = match &soft.source {
-            SoftSubtitleSource::Embedded(index) => prepared(&entry, *index).await?,
-            SoftSubtitleSource::File(path) => self.extracted(spec, path, &entry).await?,
-        };
+        let cached = self.subtitle_source(stream, source, soft).await?;
         let subs_dir = output_dir.join(SUBTITLE_VARIANT);
         spawn_blocking(move || -> std::io::Result<()> {
             std::fs::create_dir_all(&subs_dir)?;
@@ -538,7 +605,10 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
 
     async fn start_of(&self, spec: &TranscodeSpec) -> Option<i64> {
         match self.known_start(&spec.session) {
-            None => self.read_start(spec).await,
+            None => {
+                let stream = StreamOf { session: &spec.session, generation: spec.generation };
+                self.read_start(stream, &spec.input_path).await
+            }
             known => known,
         }
     }
@@ -547,15 +617,35 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
         self.inner.sessions.read().unwrap().get(session).and_then(|s| s.start_us)
     }
 
-    async fn read_start(&self, spec: &TranscodeSpec) -> Option<i64> {
-        match film_start(&self.inner.spawner, &spec.input_path).await {
+    async fn read_start(&self, stream: StreamOf<'_>, input_path: &str) -> Option<i64> {
+        match film_start(&self.inner.spawner, input_path).await {
             Ok(start_us) => Some(start_us),
             Err(err) => {
                 #[rustfmt::skip]
-                tracing::warn!("stream [{}/{}] is timed as if its file started at zero: {err}", spec.session.0, spec.generation.0);
+                tracing::warn!("stream [{}/{}] is timed as if its file started at zero: {err}", stream.session.0, stream.generation.0);
                 None
             }
         }
+    }
+
+    async fn direct_subtitle_file(
+        &self,
+        spec: SubtitleFileSpec,
+    ) -> Result<PathBuf, TranscodeError> {
+        let stream = StreamOf { session: &spec.session, generation: spec.generation };
+        let source = SourceOf { version: &spec.version, input_path: &spec.input_path };
+        let start_us = match spec.subtitle.source {
+            SoftSubtitleSource::Embedded(_) => {
+                self.read_start(stream, &spec.input_path).await.unwrap_or(0)
+            }
+            SoftSubtitleSource::File(_) => 0,
+        };
+        let offset = spec
+            .subtitle
+            .offset_ms
+            .saturating_sub(source_shift_ms(&spec.subtitle.source, start_us));
+        let dir = self.session_dir(&spec.session).join(spec.generation.dir_name());
+        self.write_subtitle_file(stream, source, &spec.subtitle, &dir, offset).await
     }
 
     fn extraction_lock(&self, path: &Path) -> Arc<AsyncMutex<()>> {
@@ -564,7 +654,8 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
 
     async fn extracted(
         &self,
-        spec: &TranscodeSpec,
+        stream: StreamOf<'_>,
+        version: &VersionId,
         path: &str,
         entry: &PrepEntry,
     ) -> Result<PathBuf, TranscodeError> {
@@ -573,7 +664,7 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
         }
         let lock = self.extraction_lock(&entry.path);
         let guard = lock.lock().await;
-        let extracted = self.extract_once(spec, path, entry).await;
+        let extracted = self.extract_once(stream, version, path, entry).await;
         drop(guard);
         self.inner.extractions.lock().unwrap().remove(&entry.path);
         extracted
@@ -581,7 +672,8 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
 
     async fn extract_once(
         &self,
-        spec: &TranscodeSpec,
+        stream: StreamOf<'_>,
+        version: &VersionId,
         path: &str,
         entry: &PrepEntry,
     ) -> Result<PathBuf, TranscodeError> {
@@ -596,8 +688,8 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
         let part = entry.dir.join(format!(
             "{}.{}-{}.part",
             entry.path.file_name().unwrap_or_default().to_string_lossy(),
-            spec.session.0,
-            spec.generation.0
+            stream.session.0,
+            stream.generation.0
         ));
         let mut args = vec!["-v".to_owned(), "error".to_owned()];
         args.extend(build_subtitle_extract_args(path, &part.to_string_lossy()));
@@ -620,7 +712,7 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
         }
         self.inner.prep_store.prune_siblings(entry).await;
         #[rustfmt::skip]
-        tracing::info!("extracted subtitles for version [{}] in [{:.1}s]", spec.version.0, started.elapsed().as_secs_f64());
+        tracing::info!("extracted subtitles for version [{}] in [{:.1}s]", version.0, started.elapsed().as_secs_f64());
         Ok(entry.path.clone())
     }
 
@@ -744,6 +836,18 @@ impl<S: ProcessSpawner + 'static> StreamSource for HlsStreamSource<S> {
             .clone()
             .ok_or(StreamError::Invalid)
     }
+
+    fn subtitle_file(&self, claims: &StreamClaims) -> Result<PathBuf, StreamError> {
+        let sessions = self.inner.sessions.read().unwrap();
+        sessions
+            .get(&claims.session)
+            .and_then(|s| s.generations.get(&claims.generation))
+            .ok_or(StreamError::NotLive)?
+            .registration
+            .subtitle_file
+            .clone()
+            .ok_or(StreamError::Invalid)
+    }
 }
 
 impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
@@ -756,9 +860,9 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
         let variant_dir = output_dir.join(VARIANT);
         let (origin_us, plan) = plan_run(&spec);
         let limit = self.inner.prepare_limit;
-        let preparing = self.prepare(&spec, &output_dir, &variant_dir, &plan);
+        let preparing = self.prepare(&spec, &output_dir, &variant_dir, &plan, origin_us);
         let prepared = prepared_in_time(tokio::time::timeout(limit, preparing).await, &spec, limit);
-        let Prepared { start_us, known_start, subtitles, burn } =
+        let Prepared { start_us, known_start, subtitles, subtitle_file, burn } =
             discard_on_failure(prepared, &session_dir, &output_dir)?;
         let producer =
             self.spawn_producer(&spec, &variant_dir, origin_us, start_us, &plan, burn.as_ref());
@@ -788,6 +892,7 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
                     direct_path: None,
                     bandwidth: 0,
                     subtitle: None,
+                    subtitle_file: None,
                 });
             entry.generations.insert(
                 generation,
@@ -815,6 +920,7 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
             origin_ms: origin_us / 1_000,
             sequential: true,
             subtitles,
+            subtitle_file,
         })
     }
 
@@ -824,6 +930,7 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
         output_dir: &Path,
         variant_dir: &Path,
         plan: &SegmentPlan,
+        origin_us: u64,
     ) -> Result<Prepared, TranscodeError> {
         let make = variant_dir.to_path_buf();
         spawn_blocking(move || std::fs::create_dir_all(make))
@@ -839,9 +946,11 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
         let known_start = self.start_of(spec).await;
         let start_us = known_start.unwrap_or(0);
         let length_ms = plan.segments.iter().map(|segment| segment.duration_ms).sum();
-        let subtitles = self.write_subtitle_rendition(output_dir, spec, length_ms, start_us).await;
+        let (subtitles, subtitle_file) = self
+            .write_soft_subtitle(output_dir, spec, length_ms, start_us, origin_us / 1_000)
+            .await;
         let burn = self.burn_for(spec).await;
-        Ok(Prepared { start_us, known_start, subtitles, burn })
+        Ok(Prepared { start_us, known_start, subtitles, subtitle_file, burn })
     }
 }
 
@@ -851,6 +960,17 @@ impl<S: ProcessSpawner + 'static> TranscodeManager for HlsStreamSource<S> {
         let started = self.start_stream(spec).await;
         stream_metrics::stream_started(copy, started.is_ok());
         started
+    }
+
+    async fn prepare_subtitle_file(
+        &self,
+        spec: SubtitleFileSpec,
+    ) -> Result<PathBuf, TranscodeError> {
+        let limit = self.inner.prepare_limit;
+        match tokio::time::timeout(limit, self.direct_subtitle_file(spec)).await {
+            Ok(made) => made,
+            Err(_) => Err(not_ready_within(limit)),
+        }
     }
 
     async fn touch(&self, session: &SessionId) -> Result<(), TranscodeError> {
@@ -928,9 +1048,13 @@ fn prepared_in_time(
             let seconds = limit.as_secs_f64();
             #[rustfmt::skip]
             tracing::warn!("stream [{}/{}] gave up after [{seconds}s]: its file or the cache did not answer in time", spec.session.0, spec.generation.0);
-            Err(TranscodeError::Spawn(format!("not ready within [{seconds}s]")))
+            Err(not_ready_within(limit))
         }
     }
+}
+
+fn not_ready_within(limit: Duration) -> TranscodeError {
+    TranscodeError::Spawn(format!("not ready within [{}s]", limit.as_secs_f64()))
 }
 
 fn discard_on_failure(
@@ -1231,6 +1355,7 @@ mod tests {
             direct_path: None,
             bandwidth: 4_000_000,
             subtitle: None,
+            subtitle_file: None,
         }
     }
 
@@ -1493,7 +1618,10 @@ mod tests {
         let runs = started_runs(&fake, 1).await;
         assert_eq!(pair_after(&runs[0], "-ss").as_deref(), Some("0.342222"));
         assert_eq!(pair_after(&runs[0], "-vf").as_deref(), Some("trim=start=0.343222"));
-        assert_eq!(pair_after(&runs[0], "-af").as_deref(), Some("atrim=start=0.343222"));
+        assert_eq!(
+            pair_after(&runs[0], "-af").as_deref(),
+            Some("atrim=start=0.343222,aformat=channel_layouts=mono|stereo|3.0|4.0|5.0|5.1|7.1")
+        );
     }
 
     #[tokio::test]
@@ -1690,11 +1818,30 @@ mod tests {
         SoftSubtitle {
             source: SoftSubtitleSource::File("/media/movie.en.srt".to_owned()),
             offset_ms,
+            delivery: SubtitleDelivery::HlsVtt,
         }
     }
 
     fn embedded(offset_ms: i64) -> SoftSubtitle {
-        SoftSubtitle { source: SoftSubtitleSource::Embedded(3), offset_ms }
+        SoftSubtitle {
+            source: SoftSubtitleSource::Embedded(3),
+            offset_ms,
+            delivery: SubtitleDelivery::HlsVtt,
+        }
+    }
+
+    fn as_file(subtitle: SoftSubtitle) -> SoftSubtitle {
+        SoftSubtitle { delivery: SubtitleDelivery::External, ..subtitle }
+    }
+
+    fn direct_file_spec(session: &str, subtitle: SoftSubtitle) -> SubtitleFileSpec {
+        SubtitleFileSpec {
+            session: sid(session),
+            generation: GEN,
+            version: VersionId("ver-1".to_owned()),
+            input_path: "/media/movie.mkv".to_owned(),
+            subtitle,
+        }
     }
 
     fn with_subtitle(spec: TranscodeSpec, subtitle: SoftSubtitle) -> TranscodeSpec {
@@ -1826,6 +1973,110 @@ mod tests {
         assert_eq!(fake.extracts(), 1, "both generations extracted");
         assert_eq!(extracted_files(&dir).len(), 1);
         assert!(src.inner.extractions.lock().unwrap().is_empty(), "the lock outlived the work");
+    }
+
+    #[tokio::test]
+    async fn a_stream_for_a_player_writes_a_plain_subtitle_file_and_no_rendition() {
+        let (_dir, src) = engine(Fake::default());
+        let started =
+            src.start(with_subtitle(spec("s1", 10_000), as_file(soft(0)))).await.expect("start");
+        let file = PathBuf::from(&started.output_dir).join(SUBTITLE_FILE);
+        assert!(started.subtitles);
+        assert_eq!(started.subtitle_file.as_deref(), Some(file.as_path()));
+        assert_eq!(
+            std::fs::read_to_string(&file).expect("subtitle file"),
+            "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n",
+            "a player times a separate file on its own clock, which starts where the stream does"
+        );
+        assert!(!PathBuf::from(&started.output_dir).join("subs").exists());
+    }
+
+    #[tokio::test]
+    async fn a_resumed_stream_moves_its_subtitle_file_back_by_the_stream_start() {
+        let (_dir, src) = engine(Fake::default());
+        let resumed = TranscodeSpec { seek_ms: Some(4_000), ..spec("s1", 10_000) };
+        let started = src.start(with_subtitle(resumed, as_file(soft(6_000)))).await.expect("start");
+        assert_eq!(started.origin_ms, 4_000);
+        let file = started.subtitle_file.expect("a subtitle file");
+        assert!(
+            std::fs::read_to_string(file).expect("file").contains("00:00:03.000 --> 00:00:04.000")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_subtitle_file_leaves_the_stream_without_one() {
+        let (_dir, src) = engine(Fake { extract_fails: true, ..Fake::default() });
+        let started =
+            src.start(with_subtitle(spec("s1", 10_000), as_file(soft(0)))).await.expect("start");
+        assert!(!started.subtitles);
+        assert_eq!(started.subtitle_file, None);
+    }
+
+    #[tokio::test]
+    async fn direct_play_gets_its_subtitle_file_in_its_generation_on_the_film_clock() {
+        let fake = Fake { film_start: Some("1.400000"), ..Fake::default() };
+        let (dir, src) = engine(fake.clone());
+        prepare_track(&dir).await;
+
+        let sidecar = src.prepare_subtitle_file(direct_file_spec("s1", as_file(soft(500)))).await;
+        let sidecar = sidecar.expect("sidecar file");
+        assert_eq!(sidecar, src.session_dir(&sid("s1")).join(GEN.dir_name()).join(SUBTITLE_FILE));
+        assert!(
+            std::fs::read_to_string(&sidecar).unwrap().contains("00:00:01.500 --> 00:00:02.500")
+        );
+
+        let copied =
+            src.prepare_subtitle_file(direct_file_spec("s2", as_file(embedded(2_000)))).await;
+        let copied = std::fs::read_to_string(copied.expect("embedded file")).unwrap();
+        assert!(copied.contains("00:00:01.600 --> 00:00:02.600"), "{copied}");
+        assert!(!copied.contains("X-TIMESTAMP-MAP"));
+    }
+
+    #[tokio::test]
+    async fn a_direct_subtitle_file_that_cannot_be_made_is_an_error() {
+        let (_dir, src) = engine(Fake { extract_fails: true, ..Fake::default() });
+        let file = src.prepare_subtitle_file(direct_file_spec("s1", as_file(soft(0)))).await;
+        assert!(file.is_err());
+        let (_dir, src) = engine(Fake::default());
+        let unprepared =
+            src.prepare_subtitle_file(direct_file_spec("s1", as_file(embedded(0)))).await;
+        assert!(unprepared.is_err(), "an embedded track that was never prepared has no file");
+    }
+
+    #[tokio::test]
+    async fn a_direct_subtitle_file_whose_source_never_answers_gives_up_within_the_limit() {
+        let fake = Fake { extract_hang: true, ..Fake::default() };
+        let (_dir, src) = engine(fake.clone());
+        let src = src.with_prepare_limit(SHORT_LIMIT);
+        let sidecar = src.prepare_subtitle_file(direct_file_spec("s1", as_file(soft(0)))).await;
+        assert!(
+            matches!(&sidecar, Err(TranscodeError::Spawn(detail)) if detail == "not ready within [1s]")
+        );
+        assert_eq!(fake.dropped(), 1, "the extraction was left running");
+
+        let fake = Fake { probe_hang: true, ..Fake::default() };
+        let (dir, src) = engine(fake.clone());
+        prepare_track(&dir).await;
+        let src = src.with_prepare_limit(SHORT_LIMIT);
+        let embedded =
+            src.prepare_subtitle_file(direct_file_spec("s2", as_file(embedded(0)))).await;
+        assert!(matches!(embedded, Err(TranscodeError::Spawn(_))));
+        assert_eq!(fake.dropped(), 1, "the probe was left running");
+    }
+
+    #[test]
+    fn the_subtitle_file_is_served_only_for_a_registration_that_has_one() {
+        let (_dir, src) = engine(Fake::default());
+        assert!(matches!(src.subtitle_file(&claims("s1")), Err(StreamError::NotLive)));
+        src.register(sid("s1"), GEN, direct_registration());
+        assert!(matches!(src.subtitle_file(&claims("s1")), Err(StreamError::Invalid)));
+        let file = PathBuf::from("/cache/s1/1/subtitles.vtt");
+        src.register(
+            sid("s1"),
+            GEN,
+            StreamRegistration { subtitle_file: Some(file.clone()), ..direct_registration() },
+        );
+        assert_eq!(src.subtitle_file(&claims("s1")).unwrap(), file);
     }
 
     #[tokio::test]

@@ -9,8 +9,10 @@ part 'selected_tracks.g.dart';
 abstract class SelectedTracks with _$SelectedTracks {
   const factory SelectedTracks({
     int? audioTrack,
+    String? audioDelivery,
     SubtitleSelection? subtitleTrack,
     String? subtitleDelivery,
+    String? subtitleUrl,
   }) = _SelectedTracks;
 
   factory SelectedTracks.fromJson(Map<String, dynamic> json) =>

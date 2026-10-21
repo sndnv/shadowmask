@@ -4,23 +4,37 @@ pub enum SegmentContainer {
     Fmp4,
 }
 
-const TS_VIDEO: [&str; 5] = ["h264", "hevc", "mpeg2video", "mpeg1video", "mpeg4"];
-const TS_AUDIO: [&str; 5] = ["aac", "ac3", "eac3", "mp3", "mp2"];
+const TS_VIDEO: [&str; 4] = ["h264", "hevc", "mpeg2video", "mpeg1video"];
+const TS_AUDIO: [&str; 6] = ["aac", "ac3", "eac3", "mp3", "mp2", "truehd"];
+const FMP4_VIDEO: [&str; 7] = ["h264", "hevc", "mpeg1video", "mpeg2video", "mjpeg", "vp9", "av1"];
+const FMP4_AUDIO: [&str; 8] = ["aac", "ac3", "eac3", "mp3", "dts", "opus", "vorbis", "alac"];
 
 pub fn segment_container_for(
     copy: bool,
     video: Option<&str>,
     audio: Option<&str>,
 ) -> SegmentContainer {
-    if !copy {
-        return SegmentContainer::MpegTs;
+    if !copy || SegmentContainer::MpegTs.carries(video, audio) {
+        SegmentContainer::MpegTs
+    } else {
+        SegmentContainer::Fmp4
     }
-    let video_ok = video.is_none_or(|codec| TS_VIDEO.contains(&codec));
-    let audio_ok = audio.is_none_or(|codec| TS_AUDIO.contains(&codec));
-    if video_ok && audio_ok { SegmentContainer::MpegTs } else { SegmentContainer::Fmp4 }
+}
+
+pub fn segments_carry(video: Option<&str>, audio: Option<&str>) -> bool {
+    SegmentContainer::MpegTs.carries(video, audio) || SegmentContainer::Fmp4.carries(video, audio)
 }
 
 impl SegmentContainer {
+    fn carries(self, video: Option<&str>, audio: Option<&str>) -> bool {
+        let (videos, audios): (&[&str], &[&str]) = match self {
+            SegmentContainer::MpegTs => (&TS_VIDEO, &TS_AUDIO),
+            SegmentContainer::Fmp4 => (&FMP4_VIDEO, &FMP4_AUDIO),
+        };
+        video.is_none_or(|codec| videos.contains(&codec))
+            && audio.is_none_or(|codec| audios.contains(&codec))
+    }
+
     pub fn segment_extension(self) -> &'static str {
         match self {
             SegmentContainer::MpegTs => "ts",
@@ -110,6 +124,60 @@ mod tests {
             SegmentContainer::Fmp4,
             "an unrecognised codec routes to the container that carries anything"
         );
+    }
+
+    #[test]
+    fn truehd_rides_in_mpegts_beside_a_video_mpegts_carries() {
+        assert_eq!(
+            segment_container_for(true, Some("h264"), Some("truehd")),
+            SegmentContainer::MpegTs
+        );
+        assert!(segments_carry(Some("hevc"), Some("truehd")));
+    }
+
+    #[test]
+    fn a_copy_is_carried_when_one_container_takes_both_streams() {
+        for (video, audio) in [
+            (Some("h264"), Some("aac")),
+            (Some("mpeg1video"), Some("mp3")),
+            (Some("vp9"), Some("opus")),
+            (Some("av1"), Some("vorbis")),
+            (Some("mjpeg"), Some("alac")),
+            (Some("hevc"), Some("dts")),
+            (Some("mpeg2video"), Some("mp2")),
+            (Some("h264"), None),
+            (None, None),
+        ] {
+            assert!(segments_carry(video, audio), "[{video:?}] with [{audio:?}]");
+        }
+    }
+
+    #[test]
+    fn a_codec_neither_container_takes_cannot_be_copied() {
+        for video in [
+            "mpeg4",
+            "msmpeg4v2",
+            "msmpeg4v3",
+            "wmv1",
+            "wmv2",
+            "h263",
+            "flv1",
+            "theora",
+            "vp8",
+            "dvvideo",
+        ] {
+            assert!(!segments_carry(Some(video), None), "{video}");
+        }
+        for audio in ["pcm_s16le", "wmav1", "wmav2", "flac"] {
+            assert!(!segments_carry(Some("h264"), Some(audio)), "{audio}");
+        }
+    }
+
+    #[test]
+    fn a_pair_split_across_the_containers_cannot_be_copied() {
+        assert!(!segments_carry(Some("vp9"), Some("truehd")));
+        assert!(!segments_carry(Some("av1"), Some("truehd")));
+        assert!(segments_carry(Some("vp9"), Some("aac")));
     }
 
     #[test]

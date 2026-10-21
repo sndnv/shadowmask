@@ -11,7 +11,8 @@ expression: value
         "channels": 2,
         "codec": "aac",
         "index": 1,
-        "language": "en"
+        "language": "en",
+        "title": null
       }
     ],
     "available": true,
@@ -42,7 +43,8 @@ expression: value
         "forced": false,
         "format": "srt",
         "index": 1,
-        "language": "en"
+        "language": "en",
+        "title": null
       }
     ],
     "title": {

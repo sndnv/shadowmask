@@ -13,19 +13,46 @@ function VideoProbeSpecs() as object
     ]
 end function
 
+function VideoProbeNames() as object
+    return {
+        h264: ["mpeg4 avc", "h264"],
+        hevc: ["hevc", "h265"]
+    }
+end function
+
 function AudioProbeSpecs() as object
     return ["aac", "ac3", "eac3"]
 end function
 
-function UnplayableCodecs() as object
-    return ["av1"]
+function UnaskedCandidates() as object
+    return {
+        video: {
+            vp9: "no MPEG-TS stream carries it",
+            av1: "DASH only, and no MPEG-TS stream carries it",
+            mpeg4: "not in Roku's spec, and never copied into a stream",
+            msmpeg4v3: "not in Roku's spec, and never copied into a stream"
+        },
+        audio: {
+            mp3: "not in Roku's HLS",
+            dts: "MKV only, and no MPEG-TS stream carries it",
+            truehd: "MKV only",
+            flac: "MKV only, and no MPEG-TS stream carries it",
+            opus: "MKV only, and no MPEG-TS stream carries it",
+            vorbis: "MKV only, and no MPEG-TS stream carries it",
+            mp2: "not in Roku's spec"
+        },
+        containers: {
+            avi: "not in Roku's spec",
+            mpg: "not in Roku's spec",
+            m2ts: "not in Roku's spec",
+            wmv: "not in Roku's spec",
+            flv: "not in Roku's spec"
+        }
+    }
 end function
 
 function ReportableCodec(codec as string) as boolean
-    for each name in UnplayableCodecs()
-        if name = codec then return false
-    end for
-    return true
+    return not UnaskedCandidates().video.DoesExist(codec)
 end function
 
 function LevelRank(level as dynamic) as float
@@ -143,8 +170,8 @@ function HdrNames(properties as dynamic) as object
 end function
 
 function ReportContainers(mkv as boolean) as object
-    if mkv then return ["mp4", "mkv", "ts", "hls"]
-    return ["mp4", "ts", "hls"]
+    if mkv then return ["mp4", "mov", "m4v", "mkv", "ts", "hls"]
+    return ["mp4", "mov", "m4v", "ts", "hls"]
 end function
 
 function DecodingReport(measurements as dynamic) as object
@@ -176,7 +203,7 @@ function DecodingReport(measurements as dynamic) as object
 end function
 
 function KnownVideoCodecs() as object
-    return ["h264", "hevc", "vp9", "av1"]
+    return ["h264", "hevc", "vp9", "av1", "mpeg4", "msmpeg4v3"]
 end function
 
 function HdrFormats() as object
@@ -342,7 +369,10 @@ function ApplyOverrides(measured as dynamic, overrides as dynamic) as object
     end if
 
     height = Int(ValueAt(overrides, "maxHeight", 0))
-    if height > 0 then report.max_height = height
+    if height > 0
+        report.max_height = height
+        report.max_width = (height * 16) \ 9
+    end if
 
     rate = Int(ValueAt(overrides, "maxFrameRate", 0))
     if rate > 0 then report.max_frame_rate = rate
@@ -354,9 +384,13 @@ function CapabilitiesBody(decoding as dynamic, profileVersion as integer) as obj
     version = profileVersion
     if version <= 0 then version = ExpectedProfileVersion()
 
-    body = { platform: ClientPlatform(), profile_version: version }
+    body = { platform: ClientPlatform(), profile_version: version, subtitle_deliveries: SubtitleDeliveries() }
     if type(decoding) = "roAssociativeArray" and decoding.Count() > 0 then body.decoding = decoding
     return body
+end function
+
+function SubtitleDeliveries() as object
+    return ["hls_vtt"]
 end function
 
 function PictureValues(decoding as dynamic) as object
@@ -459,10 +493,16 @@ function ProbeVideo(device as object) as object
     if device.CanDecodeVideo = invalid then return answers
 
     for each spec in VideoProbeSpecs()
-        reply = device.CanDecodeVideo({ Codec: spec.codec, Profile: spec.profile, Level: spec.level })
-        answers.Push({ codec: spec.codec, level: spec.level, bitDepth: spec.bitDepth, ok: ProbeAnswered(reply) })
+        answers.Push({ codec: spec.codec, level: spec.level, bitDepth: spec.bitDepth, ok: AnyNameDecodes(device, spec) })
     end for
     return answers
+end function
+
+function AnyNameDecodes(device as object, spec as object) as boolean
+    for each name in VideoProbeNames()[spec.codec]
+        if ProbeAnswered(device.CanDecodeVideo({ Codec: name, Profile: spec.profile, Level: spec.level })) then return true
+    end for
+    return false
 end function
 
 function ProbeAudio(device as object) as object

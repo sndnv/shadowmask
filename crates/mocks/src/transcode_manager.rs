@@ -1,15 +1,20 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use domain::error::TranscodeError;
-use domain::session::{SessionId, TranscodeManager, TranscodeSpec, TranscodeStarted};
+use domain::session::{
+    SessionId, SubtitleDelivery, SubtitleFileSpec, TranscodeManager, TranscodeSpec,
+    TranscodeStarted,
+};
 
 use crate::hold::{Hold, NextHold};
 
 #[derive(Default)]
 struct State {
     started: Vec<TranscodeSpec>,
+    subtitle_files: Vec<SubtitleFileSpec>,
     active: HashMap<SessionId, String>,
     touched: Vec<SessionId>,
     stopped: Vec<SessionId>,
@@ -50,6 +55,10 @@ impl MockTranscodeManager {
         self.state.lock().unwrap().started.clone()
     }
 
+    pub fn subtitle_files(&self) -> Vec<SubtitleFileSpec> {
+        self.state.lock().unwrap().subtitle_files.clone()
+    }
+
     pub fn stopped(&self) -> Vec<SessionId> {
         self.state.lock().unwrap().stopped.clone()
     }
@@ -74,10 +83,37 @@ impl TranscodeManager for MockTranscodeManager {
         let origin_ms = spec.seek_ms.unwrap_or(0);
         let subtitles =
             spec.soft_subtitle.is_some() && !self.subtitles_missing.load(Ordering::Relaxed);
+        let subtitle_file = spec
+            .soft_subtitle
+            .as_ref()
+            .filter(|soft| subtitles && soft.delivery == SubtitleDelivery::External)
+            .map(|_| PathBuf::from(&output_dir).join("subtitles.vtt"));
         let mut state = self.state.lock().unwrap();
         state.active.insert(session.clone(), output_dir.clone());
         state.started.push(spec);
-        Ok(TranscodeStarted { session, output_dir, origin_ms, sequential: true, subtitles })
+        Ok(TranscodeStarted {
+            session,
+            output_dir,
+            origin_ms,
+            sequential: true,
+            subtitles,
+            subtitle_file,
+        })
+    }
+
+    async fn prepare_subtitle_file(
+        &self,
+        spec: SubtitleFileSpec,
+    ) -> Result<PathBuf, TranscodeError> {
+        let path = PathBuf::from(format!(
+            "/mock/cache/{}/{}/subtitles.vtt",
+            spec.session.0, spec.generation.0
+        ));
+        self.state.lock().unwrap().subtitle_files.push(spec);
+        if self.subtitles_missing.load(Ordering::Relaxed) {
+            return Err(TranscodeError::Spawn("mock subtitle failure".to_owned()));
+        }
+        Ok(path)
     }
 
     async fn touch(&self, session: &SessionId) -> Result<(), TranscodeError> {
@@ -175,20 +211,42 @@ mod tests {
         assert_eq!(manager.started().len(), 2);
     }
 
+    fn soft(delivery: SubtitleDelivery) -> SoftSubtitle {
+        SoftSubtitle { source: SoftSubtitleSource::Embedded(3), offset_ms: 0, delivery }
+    }
+
     #[tokio::test]
     async fn a_soft_subtitle_is_written_unless_it_is_set_missing() {
         let manager = MockTranscodeManager::new();
-        let with_subtitle = || TranscodeSpec {
-            soft_subtitle: Some(SoftSubtitle {
-                source: SoftSubtitleSource::Embedded(3),
-                offset_ms: 0,
-            }),
-            ..spec("s1")
-        };
+        let with_subtitle =
+            |delivery| TranscodeSpec { soft_subtitle: Some(soft(delivery)), ..spec("s1") };
         assert!(!manager.start(spec("s1")).await.unwrap().subtitles);
-        assert!(manager.start(with_subtitle()).await.unwrap().subtitles);
+        let rendition = manager.start(with_subtitle(SubtitleDelivery::HlsVtt)).await.unwrap();
+        assert!(rendition.subtitles);
+        assert_eq!(rendition.subtitle_file, None);
+        let file = manager.start(with_subtitle(SubtitleDelivery::External)).await.unwrap();
+        assert_eq!(file.subtitle_file, Some(PathBuf::from("/mock/cache/s1/1/subtitles.vtt")));
         manager.set_subtitles_missing();
-        assert!(!manager.start(with_subtitle()).await.unwrap().subtitles);
+        let missing = manager.start(with_subtitle(SubtitleDelivery::External)).await.unwrap();
+        assert!(!missing.subtitles);
+        assert_eq!(missing.subtitle_file, None);
+    }
+
+    #[tokio::test]
+    async fn a_subtitle_file_is_recorded_and_fails_when_set_missing() {
+        let manager = MockTranscodeManager::new();
+        let request = SubtitleFileSpec {
+            session: SessionId("s1".to_owned()),
+            generation: StreamGeneration(2),
+            version: VersionId("ver-1".to_owned()),
+            input_path: "/media/m1.mkv".to_owned(),
+            subtitle: soft(SubtitleDelivery::External),
+        };
+        let path = manager.prepare_subtitle_file(request.clone()).await.unwrap();
+        assert_eq!(path, PathBuf::from("/mock/cache/s1/2/subtitles.vtt"));
+        assert_eq!(manager.subtitle_files(), vec![request.clone()]);
+        manager.set_subtitles_missing();
+        assert!(manager.prepare_subtitle_file(request).await.is_err());
     }
 
     #[tokio::test]

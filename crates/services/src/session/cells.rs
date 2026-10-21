@@ -193,6 +193,7 @@ mod tests {
                     profile_version: 1,
                     max_bitrate: None,
                     decoding: None,
+                    tracks: domain::session::TrackHandling::default(),
                 },
                 requested_audio: None,
                 requested_subtitle: None,

@@ -14,12 +14,14 @@ expression: value
     "mode": "remux",
     "origin_ms": 0,
     "selected": {
+      "audio_delivery": "stream",
       "audio_track": 1,
       "subtitle_delivery": "hls_vtt",
       "subtitle_track": {
         "index": 1,
         "type": "embedded"
-      }
+      },
+      "subtitle_url": null
     },
     "sequential": true,
     "session_id": "[session_id]",

@@ -63,6 +63,7 @@ mod tests {
             direct_path: None,
             bandwidth: 1_000_000,
             subtitle: None,
+            subtitle_file: None,
         }
     }
 

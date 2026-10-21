@@ -71,6 +71,7 @@ mod tests {
             channels: 2,
             language: language.map(|code| LanguageCode(code.into())),
             bitrate: None,
+            title: None,
         }
     }
 

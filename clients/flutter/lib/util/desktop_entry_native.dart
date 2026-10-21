@@ -8,6 +8,7 @@ import 'package:shadowmask/l10n/strings.dart';
 const String kDesktopEntryId = 'io.github.sndnv.shadowmask';
 const String kBundledIconName = 'shadowmask';
 const List<int> kDesktopIconSizes = <int>[64, 128, 256, 512];
+const int kEntryIconSize = 512;
 
 class DesktopEntry {
   const DesktopEntry({
@@ -59,6 +60,9 @@ class DesktopEntry {
 
   Future<bool> installed() => entryFile.exists();
 
+  String get entryText =>
+      desktopEntryText(appImage, iconFile(kEntryIconSize).path);
+
   Future<void> add() async {
     for (final int size in kDesktopIconSizes) {
       final File icon = iconFile(size);
@@ -66,7 +70,7 @@ class DesktopEntry {
       await _bundledIcon(size).copy(icon.path);
     }
     await entryFile.parent.create(recursive: true);
-    await entryFile.writeAsString(desktopEntryText(appImage), flush: true);
+    await entryFile.writeAsString(entryText, flush: true);
   }
 
   Future<void> remove() async {
@@ -81,8 +85,7 @@ class DesktopEntry {
   }
 
   Future<void> refresh() async {
-    if (await installed() &&
-        await entryFile.readAsString() != desktopEntryText(appImage)) {
+    if (await installed() && await entryFile.readAsString() != entryText) {
       await add();
     }
   }
@@ -90,13 +93,13 @@ class DesktopEntry {
 
 String _hicolor(int size) => p.join('hicolor', '${size}x$size');
 
-String desktopEntryText(String appImage) => <String>[
+String desktopEntryText(String appImage, String iconPath) => <String>[
   '[Desktop Entry]',
   'Type=Application',
   'Name=${Strings.appTitle}',
   'Exec=${_escapeValue(_quoteArgument(appImage))}',
   'TryExec=${_escapeValue(appImage)}',
-  'Icon=$kDesktopEntryId',
+  'Icon=${_escapeValue(iconPath)}',
   'Categories=AudioVideo;Video;',
   'StartupWMClass=$kDesktopEntryId',
   'Terminal=false',

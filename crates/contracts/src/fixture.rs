@@ -278,6 +278,7 @@ pub fn version_detail(id: &str) -> VersionDetail {
                 channels: 6,
                 language: Some(LanguageCode("en".into())),
                 bitrate: Some(768_000),
+                title: Some("Surround".into()),
             },
             AudioTrack {
                 index: 2,
@@ -285,6 +286,7 @@ pub fn version_detail(id: &str) -> VersionDetail {
                 channels: 2,
                 language: Some(LanguageCode("fr".into())),
                 bitrate: None,
+                title: None,
             },
         ],
         subtitles: vec![
@@ -294,6 +296,7 @@ pub fn version_detail(id: &str) -> VersionDetail {
                 format: SubtitleFormat::Srt,
                 forced: false,
                 default: true,
+                title: Some("SDH".into()),
             },
             EmbeddedSubtitleTrack {
                 index: 4,
@@ -301,6 +304,7 @@ pub fn version_detail(id: &str) -> VersionDetail {
                 format: SubtitleFormat::Pgs,
                 forced: true,
                 default: false,
+                title: None,
             },
         ],
         subtitle_files: Vec::new(),

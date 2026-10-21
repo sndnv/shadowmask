@@ -76,6 +76,16 @@ void main() {
     });
   });
 
+  test('the containers the player opens go out in the body', () {
+    const ClientDecoding decoding = ClientDecoding(
+      containers: <String>['mkv', 'avi'],
+    );
+
+    expect(decoding.toJson(), <String, dynamic>{
+      'containers': <String>['mkv', 'avi'],
+    });
+  });
+
   test('a size without a frame rate still reads as a ceiling', () {
     const ClientDecoding decoding = ClientDecoding(
       maxWidth: 1920,

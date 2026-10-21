@@ -14,7 +14,6 @@ import 'package:shadowmask/theme/radii.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
-import 'package:shadowmask/util/languages.dart';
 import 'package:shadowmask/util/subtitle_labels.dart';
 
 const List<int?> _qualityRungs = <int?>[null, 1080, 720, 480, 320];
@@ -40,33 +39,25 @@ String _originalLabel(VersionDetail version) {
 String _qualityLabel(VersionDetail version, int? rung) =>
     rung == null ? _originalLabel(version) : Strings.qualityRung(rung);
 
-String _audioLabel(AudioTrack a) => <String>[
-  '${Strings.playerAudio} ${a.index}',
-  a.codec,
-  if (a.language != null) languageLabel(a.language!),
-].join(' ');
+List<(int?, String)> _audioItems(VersionDetail version) {
+  final List<String> labels = playerAudioLabels(version);
+  return <(int?, String)>[
+    for (int i = 0; i < version.audio.length; i++)
+      (version.audio[i].index, labels[i]),
+  ];
+}
 
-String _embeddedLabel(SubtitleTrack s) => <String>[
-  Strings.subtitleTrackLabel(s.index),
-  s.format.name,
-  if (s.language != null) languageLabel(s.language!),
-].join(' ');
-
-String _fileLabel(SubtitleFile f) => <String>[
-  f.language == null ? '?' : languageLabel(f.language!),
-  f.format.name,
-  '(${subtitleSourceLabel(f.source)})',
-  if (f.label != null) f.label!,
-].join(' ');
-
-List<(String, String)> _subtitleItems(VersionDetail version) =>
-    <(String, String)>[
-      ('', Strings.playerNoSubtitles),
-      for (final SubtitleTrack s in version.subtitles)
-        ('embedded:${s.index}', _embeddedLabel(s)),
-      for (final SubtitleFile f in version.subtitleFiles)
-        ('file:${f.id}', _fileLabel(f)),
-    ];
+List<(String, String)> _subtitleItems(VersionDetail version) {
+  final List<String> wires = <String>[
+    for (final SubtitleTrack s in version.subtitles) 'embedded:${s.index}',
+    for (final SubtitleFile f in version.subtitleFiles) 'file:${f.id}',
+  ];
+  final List<String> labels = playerSubtitleLabels(version);
+  return <(String, String)>[
+    ('', Strings.playerNoSubtitles),
+    for (int i = 0; i < wires.length; i++) (wires[i], labels[i]),
+  ];
+}
 
 String? panelSummary(
   PlayerPanel panel,
@@ -77,9 +68,9 @@ String? panelSummary(
     case PlayerPanel.video:
       return _qualityLabel(version, controls.height);
     case PlayerPanel.audio:
-      for (final AudioTrack a in version.audio) {
-        if (a.index == controls.audioTrack) {
-          return _audioLabel(a);
+      for (final (int?, String) item in _audioItems(version)) {
+        if (item.$1 == controls.audioTrack) {
+          return item.$2;
         }
       }
       return null;
@@ -330,10 +321,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
               _audio,
               v.audio.isEmpty
                   ? <(int?, String)>[(null, Strings.playerNoAudio)]
-                  : <(int?, String)>[
-                      for (final AudioTrack a in v.audio)
-                        (a.index, _audioLabel(a)),
-                    ],
+                  : _audioItems(v),
               (int? value) {
                 setState(() => _audio = value);
                 _apply();

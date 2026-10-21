@@ -8,4 +8,5 @@ pub struct EmbeddedSubtitleTrack {
     pub format: SubtitleFormat,
     pub forced: bool,
     pub default: bool,
+    pub title: Option<String>,
 }

@@ -4,7 +4,14 @@ enum CodecSupport { auto, hardware, software, unsupported }
 
 enum HdrChoice { auto, allow, deny }
 
-const List<String> kKnownVideoCodecs = <String>['h264', 'hevc', 'vp9', 'av1'];
+const List<String> kKnownVideoCodecs = <String>[
+  'h264',
+  'hevc',
+  'vp9',
+  'av1',
+  'mpeg4',
+  'msmpeg4v3',
+];
 const List<int> kPictureHeights = <int>[2160, 1440, 1080, 720];
 const List<int> kFrameRateCaps = <int>[60, 30];
 const List<String> kHdrFormats = <String>['hdr10', 'hdr10plus', 'hlg'];
@@ -93,10 +100,11 @@ class CapabilityOverrides {
       return measured;
     }
     return ClientDecoding(
+      containers: measured?.containers,
       video: _video(measured),
       audio: measured?.audio ?? const <AudioCodecCap>[],
       hdr: _hdr(measured),
-      maxWidth: measured?.maxWidth,
+      maxWidth: maxHeight == null ? measured?.maxWidth : maxHeight! * 16 ~/ 9,
       maxHeight: maxHeight ?? measured?.maxHeight,
       maxFrameRate: maxFrameRate ?? measured?.maxFrameRate,
     );

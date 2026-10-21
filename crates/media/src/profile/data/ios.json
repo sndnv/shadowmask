@@ -15,7 +15,7 @@
     { "codec": "vorbis", "max_channels": 8 },
     { "codec": "mp3", "max_channels": 2 }
   ],
-  "hdr": ["hdr10", "dolby_vision", "hlg"],
+  "hdr": ["hdr10", "hlg"],
   "max_width": 3840,
   "max_height": 2160,
   "max_bitrate": 60000000

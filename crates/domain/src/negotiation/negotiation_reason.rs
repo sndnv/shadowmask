@@ -9,12 +9,15 @@ pub enum NegotiationReason {
     VideoSoftwareOnly,
     AudioCodec,
     AudioChannels,
+    AudioTrack,
     Container,
     SubtitleBurn,
     SubtitleSoft,
     Downmix,
     Forced,
     Preparing,
+    VideoNotCopyable,
+    AudioNotCopyable,
 }
 
 impl NegotiationReason {
@@ -29,12 +32,15 @@ impl NegotiationReason {
             Self::VideoSoftwareOnly => "video_software_only",
             Self::AudioCodec => "audio_codec",
             Self::AudioChannels => "audio_channels",
+            Self::AudioTrack => "audio_track",
             Self::Container => "container",
             Self::SubtitleBurn => "subtitle_burn",
             Self::SubtitleSoft => "subtitle_soft",
             Self::Downmix => "downmix",
             Self::Forced => "forced",
             Self::Preparing => "preparing",
+            Self::VideoNotCopyable => "video_not_copyable",
+            Self::AudioNotCopyable => "audio_not_copyable",
         }
     }
 }
@@ -63,12 +69,15 @@ mod tests {
             NegotiationReason::VideoSoftwareOnly,
             NegotiationReason::AudioCodec,
             NegotiationReason::AudioChannels,
+            NegotiationReason::AudioTrack,
             NegotiationReason::Container,
             NegotiationReason::SubtitleBurn,
             NegotiationReason::SubtitleSoft,
             NegotiationReason::Downmix,
             NegotiationReason::Forced,
             NegotiationReason::Preparing,
+            NegotiationReason::VideoNotCopyable,
+            NegotiationReason::AudioNotCopyable,
         ];
         let mut names: Vec<&str> = all.iter().map(|reason| reason.as_str()).collect();
         names.sort_unstable();

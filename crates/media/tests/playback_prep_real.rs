@@ -69,7 +69,14 @@ fn fixture(name: &str) -> String {
 }
 
 fn track(index: u32, format: SubtitleFormat) -> EmbeddedSubtitleTrack {
-    EmbeddedSubtitleTrack { index, language: None, format, forced: false, default: false }
+    EmbeddedSubtitleTrack {
+        index,
+        language: None,
+        format,
+        forced: false,
+        default: false,
+        title: None,
+    }
 }
 
 fn version() -> VersionId {
@@ -587,6 +594,28 @@ async fn a_track_that_cannot_become_text_is_left_out_of_the_read() {
     assert_eq!(spawner.reads().len(), 1);
     assert!(!spawner.read().iter().any(|arg| arg == "0:1"));
     assert!(stored(root.path(), "embedded-1", "mks").is_empty());
+    assert_eq!(stored(root.path(), "embedded-2", "vtt").len(), 1);
+}
+
+#[tokio::test]
+async fn a_dvb_track_is_kept_as_an_image_track() {
+    let source = tempfile::tempdir().expect("tempdir");
+    let input = dvb_beside_srt(source.path());
+    let root = tempfile::tempdir().expect("tempdir");
+    let spawner = Scripted::default();
+
+    let prep = preparer(root.path(), spawner.clone())
+        .prepare(
+            &version(),
+            &input,
+            &[track(1, SubtitleFormat::Dvb), track(2, SubtitleFormat::Srt)],
+        )
+        .await
+        .expect("prepare");
+
+    assert_eq!(prep.extracted_subtitles, vec![1, 2]);
+    assert_eq!(stored(root.path(), "embedded-1", "mks").len(), 1);
+    assert!(stored(root.path(), "embedded-1", "vtt").is_empty());
     assert_eq!(stored(root.path(), "embedded-2", "vtt").len(), 1);
 }
 

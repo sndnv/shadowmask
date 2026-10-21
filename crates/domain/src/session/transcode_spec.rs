@@ -1,6 +1,6 @@
 use crate::catalog::VersionId;
 use crate::media::HdrFormat;
-use crate::session::{SegmentContainer, SessionId, StreamGeneration};
+use crate::session::{SegmentContainer, SessionId, StreamGeneration, SubtitleDelivery};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TranscodeSpec {
@@ -34,6 +34,16 @@ pub enum BurnSubtitle {
 pub struct SoftSubtitle {
     pub source: SoftSubtitleSource,
     pub offset_ms: i64,
+    pub delivery: SubtitleDelivery,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubtitleFileSpec {
+    pub session: SessionId,
+    pub generation: StreamGeneration,
+    pub version: VersionId,
+    pub input_path: String,
+    pub subtitle: SoftSubtitle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

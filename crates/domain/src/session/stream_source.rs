@@ -13,4 +13,5 @@ pub trait StreamSource {
         file: &str,
     ) -> impl Future<Output = Result<PathBuf, StreamError>> + Send;
     fn direct_file(&self, claims: &StreamClaims) -> Result<PathBuf, StreamError>;
+    fn subtitle_file(&self, claims: &StreamClaims) -> Result<PathBuf, StreamError>;
 }

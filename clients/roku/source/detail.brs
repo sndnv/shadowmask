@@ -927,22 +927,6 @@ function VideoTrackLine(track as dynamic) as string
     return JoinParts(parts)
 end function
 
-function AudioTrackLine(track as dynamic) as string
-    parts = [UCase(TextOrBlank(ValueAt(track, "codec", "")))]
-    parts.Push(ChannelLabel(Int(ValueAt(track, "channels", 0))))
-    parts.Push(UCase(TextOrBlank(ValueAt(track, "language", ""))))
-    return JoinParts(parts)
-end function
-
-function SubtitleTrackLine(track as dynamic) as string
-    parts = [UCase(TextOrBlank(ValueAt(track, "language", "")))]
-    parts.Push(UCase(TextOrBlank(ValueAt(track, "format", ""))))
-
-    if ValueAt(track, "forced", false) = true then parts.Push(Phrase("track.forced"))
-    if ValueAt(track, "default", false) = true then parts.Push(Phrase("track.default"))
-    return JoinParts(parts)
-end function
-
 function SubtitleFileLine(file as dynamic) as string
     label = TextOrBlank(ValueAt(file, "label", ""))
     if IsBlank(label) then label = UCase(TextOrBlank(ValueAt(file, "language", "")))

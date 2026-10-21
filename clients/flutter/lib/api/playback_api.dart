@@ -43,6 +43,8 @@ class PlaybackApi {
     int profileVersion = kExpectedProfileVersion,
     String platform = 'generic',
     ClientDecoding? decoding,
+    List<String> subtitleDeliveries = const <String>[],
+    bool selectsAudioTracks = false,
     PlaybackControls controls = const PlaybackControls(),
   }) => _api.postJson('/api/v1/sessions', <String, dynamic>{
     'version_id': versionId,
@@ -51,6 +53,9 @@ class PlaybackApi {
       'platform': platform,
       'profile_version': profileVersion,
       if (decoding != null) 'decoding': decoding.toJson(),
+      if (subtitleDeliveries.isNotEmpty)
+        'subtitle_deliveries': subtitleDeliveries,
+      if (selectsAudioTracks) 'audio_tracks': true,
     },
     ...controls.toStartBody(),
   }, PlaybackSession.fromJson);

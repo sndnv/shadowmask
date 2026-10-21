@@ -11,9 +11,11 @@ expression: value
         "mode": "direct",
         "position_ms": 0,
         "selected": {
+          "audio_delivery": null,
           "audio_track": 0,
           "subtitle_delivery": null,
-          "subtitle_track": null
+          "subtitle_track": null,
+          "subtitle_url": null
         },
         "session_id": "[session_id]",
         "started_at": "[started_at]",

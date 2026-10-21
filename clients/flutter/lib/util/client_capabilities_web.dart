@@ -3,71 +3,110 @@ import 'dart:js_interop';
 import 'package:web/web.dart' as web;
 
 import 'package:shadowmask/model/session/client_decoding.dart';
+import 'package:shadowmask/util/browser_report.dart';
 
-typedef _Probe = ({String codec, String contentType, int maxBitDepth});
-
-const List<_Probe> _probes = <_Probe>[
-  (
-    codec: 'h264',
-    contentType: 'video/mp4; codecs="avc1.640028"',
-    maxBitDepth: 8,
-  ),
-  (
-    codec: 'hevc',
-    contentType: 'video/mp4; codecs="hvc1.2.4.L120.B0"',
-    maxBitDepth: 10,
-  ),
-  (
-    codec: 'vp9',
-    contentType: 'video/webm; codecs="vp09.02.10.10"',
-    maxBitDepth: 10,
-  ),
-  (
-    codec: 'av1',
-    contentType: 'video/mp4; codecs="av01.0.08M.10"',
-    maxBitDepth: 10,
-  ),
-];
+const Verdict _refused = (
+  supported: false,
+  smooth: false,
+  powerEfficient: false,
+);
 
 Future<ClientDecoding?> measureDecoding() async {
-  final List<VideoCodecCap> video = <VideoCodecCap>[];
-  for (final _Probe probe in _probes) {
-    final VideoCodecCap? cap = await _measure(probe);
-    if (cap != null) {
-      video.add(cap);
+  final List<Answer<VideoQuestion>> video = <Answer<VideoQuestion>>[
+    for (final VideoQuestion q in kVideoQuestions)
+      (
+        question: q,
+        file: await _ask('file', video: _video(q)),
+        stream: await _ask('media-source', video: _video(q)),
+      ),
+  ];
+  final List<AudioAnswer> audio = await () async {
+    final List<AudioAnswer> list = [];
+    for (final AudioQuestion q in kAudioQuestions) {
+      for (final int channels in kAudioChannels) {
+        list.add((
+          question: q,
+          channels: channels,
+          file: await _ask('file', audio: _audio(q, channels)),
+          stream: await _ask('media-source', audio: _audio(q, channels)),
+        ));
+      }
     }
-  }
-  return video.isEmpty ? null : ClientDecoding(video: video);
+    return list;
+  }();
+  final List<Answer<HdrQuestion>> hdr = <Answer<HdrQuestion>>[
+    for (final HdrQuestion q in kHdrQuestions)
+      (
+        question: q,
+        file: await _ask('file', video: _hdr(q)),
+        stream: await _ask('media-source', video: _hdr(q)),
+      ),
+  ];
+  return browserReport(video: video, audio: audio, hdr: hdr);
 }
 
-Future<VideoCodecCap?> _measure(_Probe probe) async {
+web.VideoConfiguration _video(VideoQuestion q) => web.VideoConfiguration(
+  contentType: q.contentType,
+  width: kProbeSizes[q.height]!.width,
+  height: q.height,
+  bitrate: kProbeSizes[q.height]!.bitrate,
+  framerate: kProbeFrameRate,
+);
+
+web.AudioConfiguration _audio(AudioQuestion q, int channels) =>
+    web.AudioConfiguration(
+      contentType: q.contentType,
+      channels: '$channels',
+      bitrate: 256000,
+      samplerate: 48000,
+    );
+
+web.VideoConfiguration _hdr(HdrQuestion q) {
+  final ({int width, int bitrate}) size = kProbeSizes[kUltraHd]!;
+  final String? metadata = q.metadata;
+  return metadata == null
+      ? web.VideoConfiguration(
+          contentType: q.contentType,
+          width: size.width,
+          height: kUltraHd,
+          bitrate: size.bitrate,
+          framerate: kProbeFrameRate,
+          colorGamut: kHdrColorGamut,
+          transferFunction: q.transfer,
+        )
+      : web.VideoConfiguration(
+          contentType: q.contentType,
+          width: size.width,
+          height: kUltraHd,
+          bitrate: size.bitrate,
+          framerate: kProbeFrameRate,
+          hdrMetadataType: metadata,
+          colorGamut: kHdrColorGamut,
+          transferFunction: q.transfer,
+        );
+}
+
+Future<Verdict> _ask(
+  String type, {
+  web.VideoConfiguration? video,
+  web.AudioConfiguration? audio,
+}) async {
   try {
+    final web.MediaDecodingConfiguration config = video != null
+        ? web.MediaDecodingConfiguration(type: type, video: video)
+        : web.MediaDecodingConfiguration(type: type, audio: audio!);
     final web.MediaCapabilitiesDecodingInfo info = await web
         .window
         .navigator
         .mediaCapabilities
-        .decodingInfo(
-          web.MediaDecodingConfiguration(
-            type: 'file',
-            video: web.VideoConfiguration(
-              contentType: probe.contentType,
-              width: 1920,
-              height: 1080,
-              bitrate: 8000000,
-              framerate: 30,
-            ),
-          ),
-        )
+        .decodingInfo(config)
         .toDart;
-    if (!info.supported) {
-      return null;
-    }
-    return VideoCodecCap(
-      codec: probe.codec,
-      maxBitDepth: probe.maxBitDepth,
+    return (
+      supported: info.supported,
       smooth: info.smooth,
+      powerEfficient: info.powerEfficient,
     );
   } catch (_) {
-    return null;
+    return _refused;
   }
 }

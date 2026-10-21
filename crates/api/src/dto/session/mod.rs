@@ -29,7 +29,7 @@ pub use selected_tracks::SelectedTracksResponse;
 pub use session_started::SessionStartedResponse;
 pub use start_session_request::StartSessionRequest;
 pub use subtitle_change::SubtitleChangeDto;
-pub use subtitle_delivery::SubtitleDeliveryDto;
+pub use subtitle_delivery::{AudioDeliveryDto, SubtitleDeliveryDto};
 pub use subtitle_selection::SubtitleSelectionDto;
 pub use subtitle_track_ref::SubtitleTrackRefDto;
 pub use update_session_request::UpdateSessionRequest;

@@ -107,6 +107,7 @@ fn direct_v1_detail() -> VersionDetail {
             channels: 2,
             language: Some(LanguageCode("en".into())),
             bitrate: Some(128_000),
+            title: None,
         }],
         subtitles: vec![EmbeddedSubtitleTrack {
             index: 1,
@@ -114,6 +115,7 @@ fn direct_v1_detail() -> VersionDetail {
             format: SubtitleFormat::Srt,
             forced: false,
             default: true,
+            title: None,
         }],
         subtitle_files: vec![SubtitleFile {
             id: SubtitleFileId("v1-en".into()),

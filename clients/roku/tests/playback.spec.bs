@@ -678,6 +678,65 @@ namespace tests
             m.assertEqual(IndexOfSubtitle(options, DefaultControls()), 0)
         end sub
 
+        @it("names each subtitle by its language and its own name, never by format or source")
+        sub namesSubtitlesByLanguage()
+            options = SubtitleOptions({
+                subtitles: [
+                    { index: 2, language: "en", format: "srt" },
+                    { index: 3, language: "en", format: "pgs", title: "SDH" },
+                    { index: 4, language: "fr", format: "srt", forced: true }
+                ],
+                subtitle_files: [
+                    { id: "f1", language: "en", format: "srt", source: "open_subtitles", label: "Paper.Skies.BluRay" },
+                    { id: "f2", language: "es", format: "srt", source: "machine_translated" },
+                    { id: "f3", language: "de", format: "vtt", source: "generated" },
+                    { id: "f4", language: "en+fr", format: "srt", source: "combined" },
+                    { id: "f5", format: "srt", source: "external" }
+                ]
+            })
+
+            labels = []
+            for each option in options
+                labels.Push(option.label)
+            end for
+            m.assertEqual(labels, [
+                Phrase("state.off"),
+                "English",
+                "English · SDH",
+                "French · " + Phrase("track.forced"),
+                "English · Paper.Skies.BluRay",
+                "Spanish · " + Phrase("track.sourceTranslated"),
+                "German · " + Phrase("track.sourceGenerated"),
+                "English + French",
+                Phrase("language.unknown")
+            ])
+        end sub
+
+        @it("numbers entries that would read the same, from the second")
+        sub numbersSameLabels()
+            version = {
+                audio: [
+                    { index: 1, codec: "truehd", language: "en" },
+                    { index: 2, codec: "ac3", language: "en" },
+                    { index: 3, codec: "aac", language: "en", title: "Commentary" },
+                    { index: 4, codec: "ac3", language: "en" }
+                ],
+                subtitles: [{ index: 5, language: "en", format: "srt" }],
+                subtitle_files: [{ id: "f1", language: "en", format: "srt", source: "external" }]
+            }
+
+            audio = AudioOptions(version)
+            m.assertEqual(audio[0].label, "English")
+            m.assertEqual(audio[1].label, "English 2")
+            m.assertEqual(audio[2].label, "English · Commentary")
+            m.assertEqual(audio[3].label, "English 3")
+            m.assertEqual(audio[3].index, 4)
+
+            subtitles = SubtitleOptions(version)
+            m.assertEqual(subtitles[1].label, "English")
+            m.assertEqual(subtitles[2].label, "English 2")
+        end sub
+
         @describe("SteppedOffset")
 
         @it("steps in both directions and stops at the bound")

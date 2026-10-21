@@ -962,7 +962,7 @@ class _WatchBodyState extends State<WatchBody>
     diagnostics: s.local.diagnostics,
     mode: s.stream?.mode.name,
     container: s.stream?.container,
-    subtitleDelivery: s.stream?.subtitleDelivery,
+    subtitleDelivery: s.stream?.selected?.subtitleDelivery,
     pictureInPicture: _controller.supportsPictureInPicture
         ? s.local.pictureInPicture
         : null,
