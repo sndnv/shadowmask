@@ -731,7 +731,7 @@ async fn between_ticks(dir: &Path) -> Clip {
         .status()
         .expect("ffmpeg should build the clip; is ffmpeg installed and on PATH?");
     assert!(built.success());
-    let shift = 1.5 * 1_001.0 / 24_000.0 - video_times(&made).0[0];
+    let shift = 1.5 * 1_001.0 / 24_000.0 - (video_times(&made).0[0] - start_time(&made));
     let path = dir.join("between-ticks.mkv").to_string_lossy().into_owned();
     let shifted = Command::new("ffmpeg")
         .args(["-nostdin", "-v", "error", "-y", "-itsoffset", &format!("{shift:.4}")])

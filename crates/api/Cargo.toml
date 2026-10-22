@@ -11,6 +11,7 @@ repository.workspace = true
 domain.workspace = true
 services.workspace = true
 axum.workspace = true
+http-body-util.workspace = true
 jiff = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true

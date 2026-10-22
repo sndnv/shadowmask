@@ -1,10 +1,12 @@
 use std::time::Instant;
 
+use axum::body::Body;
 use axum::extract::{MatchedPath, Request, State};
 use axum::http::Method;
-use axum::http::header::{AUTHORIZATION, CONTENT_LENGTH};
+use axum::http::header::AUTHORIZATION;
 use axum::middleware::Next;
 use axum::response::Response;
+use http_body_util::BodyExt;
 use tracing::warn;
 
 use domain::service::AuthService;
@@ -78,10 +80,18 @@ pub(crate) async fn timed_out(
 pub async fn track_stream_bytes(request: Request, next: Next) -> Response {
     let kind = stream_kind(request.uri().path());
     let response = next.run(request).await;
-    if let Some(bytes) = content_length(&response) {
-        metrics::counter!("stream_bytes_sent_total", "kind" => kind).increment(bytes);
-    }
-    response
+    let (parts, body) = response.into_parts();
+    let mut sent: Option<metrics::Counter> = None;
+    let body = body.map_frame(move |frame| {
+        if let Some(data) = frame.data_ref() {
+            let counter = sent.get_or_insert_with(
+                || metrics::counter!("stream_bytes_sent_total", "kind" => kind),
+            );
+            counter.increment(data.len() as u64);
+        }
+        frame
+    });
+    Response::from_parts(parts, Body::new(body))
 }
 
 fn stream_kind(path: &str) -> &'static str {
@@ -92,10 +102,6 @@ fn stream_kind(path: &str) -> &'static str {
     } else {
         "segment"
     }
-}
-
-fn content_length(response: &Response) -> Option<u64> {
-    response.headers().get(CONTENT_LENGTH)?.to_str().ok()?.parse().ok()
 }
 
 #[cfg(test)]
@@ -188,29 +194,54 @@ mod tests {
         assert_eq!(stream_kind("/stream/t/file"), "file");
     }
 
-    #[test]
-    fn stream_bytes_recorded_from_content_length() {
-        let rendered = recorded(|| async {
-            let app = Router::new()
-                .route(
-                    "/stream/{token}/master.m3u8",
-                    get(|| async {
-                        Response::builder()
-                            .header(CONTENT_LENGTH, "2048")
-                            .body(Body::empty())
-                            .unwrap()
-                    }),
-                )
-                .layer(from_fn(track_stream_bytes));
-            app.oneshot(request("/stream/tok/master.m3u8")).await.unwrap();
-        });
-        assert!(rendered.contains("stream_bytes_sent_total"));
-        assert!(rendered.contains("kind=\"playlist\""));
-        assert!(rendered.contains("2048"));
+    fn body_of(chunks: Vec<usize>) -> Body {
+        Body::from_stream(futures::stream::iter(chunks.into_iter().map(|size| {
+            Ok::<_, std::convert::Infallible>(axum::body::Bytes::from(vec![0u8; size]))
+        })))
+    }
+
+    fn stream_app(chunks: Vec<usize>) -> Router {
+        Router::new()
+            .route("/stream/{token}/file", get(move || async move { body_of(chunks) }))
+            .layer(from_fn(track_stream_bytes))
     }
 
     #[test]
-    fn stream_bytes_skipped_without_content_length() {
+    fn stream_bytes_count_what_was_read() {
+        let rendered = recorded(|| async {
+            let response =
+                stream_app(vec![1024, 1024]).oneshot(request("/stream/tok/file")).await.unwrap();
+            let body = response.into_body().collect().await.unwrap();
+            assert_eq!(body.to_bytes().len(), 2048);
+        });
+        assert!(rendered.contains("stream_bytes_sent_total{kind=\"file\"} 2048"));
+    }
+
+    #[test]
+    fn stream_bytes_count_only_the_frames_that_were_polled() {
+        let rendered = recorded(|| async {
+            let response =
+                stream_app(vec![1024, 1024]).oneshot(request("/stream/tok/file")).await.unwrap();
+            let mut body = response.into_body();
+            let frame = body.frame().await.unwrap().unwrap();
+            assert_eq!(frame.data_ref().unwrap().len(), 1024);
+        });
+        assert!(rendered.contains("stream_bytes_sent_total{kind=\"file\"} 1024"));
+        assert!(!rendered.contains("2048"));
+    }
+
+    #[test]
+    fn stream_bytes_skipped_when_the_body_is_dropped() {
+        let rendered = recorded(|| async {
+            let response =
+                stream_app(vec![1024, 1024]).oneshot(request("/stream/tok/file")).await.unwrap();
+            drop(response);
+        });
+        assert!(!rendered.contains("stream_bytes_sent_total"));
+    }
+
+    #[test]
+    fn stream_bytes_skipped_with_an_empty_body() {
         let rendered = recorded(|| async {
             let app = Router::new()
                 .route("/stream/{token}/file", get(|| async { Response::new(Body::empty()) }))
