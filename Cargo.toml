@@ -28,6 +28,7 @@ futures = { version = "0.3", default-features = false, features = ["std", "async
 lru = "0.18"
 axum = "0.8"
 axum-server = { version = "0.8", default-features = false, features = ["tls-rustls"] }
+http-body-util = "0.1"
 tower = "0.5"
 tower-http = { version = "0.7", features = ["fs", "cors"] }
 sqlx = "0.9"
