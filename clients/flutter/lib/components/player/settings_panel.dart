@@ -376,6 +376,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
                   ),
                 ),
                 help: Strings.playerOffsetHelp,
+                fills: true,
               ),
             ),
           if (_sub.isNotEmpty && !burnedIn && widget.onSubtitleSize != null)
@@ -415,13 +416,10 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
             Divider(color: t.border, height: Space.s5),
             _row(
               Strings.moreSubtitles,
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: widget.onAddSubtitles,
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text(Strings.addSubtitles),
-                ),
+              TextButton.icon(
+                onPressed: widget.onAddSubtitles,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text(Strings.addSubtitles),
               ),
               help: Strings.moreSubtitlesHelp,
             ),
@@ -466,15 +464,12 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
           if (widget.onShortcuts != null)
             _row(
               Strings.shortcutsHeading,
-              Align(
-                alignment: Alignment.centerRight,
-                child: IconButton(
-                  onPressed: widget.onShortcuts,
-                  iconSize: 18,
-                  visualDensity: VisualDensity.compact,
-                  tooltip: Strings.shortcutsHeading,
-                  icon: Icon(Icons.keyboard, color: t.muted),
-                ),
+              IconButton(
+                onPressed: widget.onShortcuts,
+                iconSize: 18,
+                visualDensity: VisualDensity.compact,
+                tooltip: Strings.shortcutsHeading,
+                icon: Icon(Icons.keyboard, color: t.muted),
               ),
             ),
           if (widget.onBufferSeconds != null ||
@@ -557,12 +552,9 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
           if (widget.onShowLog != null)
             _row(
               Strings.playerLog,
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: widget.onShowLog,
-                  child: const Text(Strings.playerLogShow),
-                ),
+              TextButton(
+                onPressed: widget.onShowLog,
+                child: const Text(Strings.playerLogShow),
               ),
               help: Strings.playerLogHelp,
             ),
@@ -572,6 +564,8 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
               Text(
                 widget.mode!,
                 textAlign: TextAlign.right,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(color: t.text, fontSize: 13),
               ),
               help: Strings.playerModeHelp,
@@ -581,6 +575,8 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
             Text(
               widget.container ?? Strings.playerContainerNone,
               textAlign: TextAlign.right,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(color: t.text, fontSize: 13),
             ),
             help: Strings.playerContainerHelp,
@@ -671,9 +667,14 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
     Widget control, {
     bool nameControl = true,
     String? help,
+    bool fills = false,
   }) {
     final Tokens t = context.tokens;
     final bool dense = widget.dense && !_sheet;
+    final double column = dense ? _kDenseControlColumn : _kControlColumn;
+    final Widget named = nameControl
+        ? Semantics(label: label, child: control)
+        : control;
     return Padding(
       padding: EdgeInsets.symmetric(vertical: dense ? _kDenseRowPad : Space.s1),
       child: SizedBox(
@@ -702,12 +703,13 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
               ),
             ),
             SizedBox(width: dense ? Space.s2 : Space.s3),
-            SizedBox(
-              width: dense ? _kDenseControlColumn : _kControlColumn,
-              child: nameControl
-                  ? Semantics(label: label, child: control)
-                  : control,
-            ),
+            if (fills)
+              SizedBox(width: column, child: named)
+            else
+              ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: column),
+                child: named,
+              ),
           ],
         ),
       ),
@@ -723,11 +725,8 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
     onTap: () => onChanged(!value),
     child: _row(
       label,
-      Align(
-        alignment: Alignment.centerRight,
-        child: IgnorePointer(
-          child: Switch(value: value, onChanged: onChanged),
-        ),
+      IgnorePointer(
+        child: Switch(value: value, onChanged: onChanged),
       ),
       nameControl: help != null,
       help: help,
@@ -753,6 +752,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
           onChanged: onChanged,
         ),
         help: help,
+        fills: true,
       );
     }
     final int selected = items.indexWhere(

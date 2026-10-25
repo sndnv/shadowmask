@@ -14,6 +14,13 @@ class UserAdminApi {
         AccountProfile.fromJson,
       );
 
+  Future<Map<String, String>> names() async {
+    final Paged<AccountProfile> page = await users(limit: 200);
+    return <String, String>{
+      for (final AccountProfile u in page.items) u.id: u.username,
+    };
+  }
+
   Future<void> createUser(Map<String, dynamic> body) =>
       _api.sendVoid('POST', '/api/v1/users', body: body);
 

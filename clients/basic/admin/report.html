@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Report</title>
+  </head>
+  <body>
+    <h1 class="sm-visually-hidden">Report</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs">
+      <a href="index.html">Admin</a> / <a href="reports.html">Reports</a> /
+      <span id="crumb"></span>
+    </p>
+    <p><button type="button" id="delete" class="sm-danger" disabled>Delete</button></p>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      const id = sm.qs("id");
+      const path = "/api/v1/admin/diagnostics/reports/" + encodeURIComponent(id || "");
+
+      if (sm.requireAuth()) guard();
+
+      async function guard() {
+        const main = document.getElementById("main");
+        if (!id) {
+          main.textContent = "Unknown report.";
+          return;
+        }
+        try {
+          const me = await sm.self();
+          if (me.role !== "admin") {
+            main.textContent = "Not Authorized.";
+            return;
+          }
+          await load();
+        } catch (err) {
+          main.textContent = "Could not load.";
+        }
+      }
+
+      async function load() {
+        const main = document.getElementById("main");
+        try {
+          const report = await sm.json(path);
+          document.getElementById("crumb").textContent = sm.preciseTime(report.created_at);
+          main.textContent = "";
+          main.appendChild(
+            sm.el("pre", { class: "sm-log sm-log-full", text: JSON.stringify(report, null, 2) }),
+          );
+          wireDelete();
+        } catch (err) {
+          main.textContent = "Could not load the report.";
+        }
+      }
+
+      function wireDelete() {
+        const button = document.getElementById("delete");
+        button.disabled = false;
+        button.addEventListener("click", async () => {
+          if (!window.confirm("Delete this report?")) return;
+          button.disabled = true;
+          try {
+            await sm.json(path, { method: "DELETE" });
+            location.href = "reports.html";
+          } catch (err) {
+            button.disabled = false;
+            sm.toast("Could not delete the report.", "error");
+          }
+        });
+      }
+    </script>
+  </body>
+</html>

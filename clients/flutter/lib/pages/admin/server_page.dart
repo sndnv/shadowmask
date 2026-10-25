@@ -11,6 +11,7 @@ import 'package:shadowmask/components/admin/admin_table.dart';
 import 'package:shadowmask/components/admin/benchmark_version_dialog.dart';
 import 'package:shadowmask/components/admin/dialog_shell.dart';
 import 'package:shadowmask/components/admin/field_help.dart';
+import 'package:shadowmask/components/admin/log_view.dart';
 import 'package:shadowmask/components/breadcrumbs.dart';
 import 'package:shadowmask/components/crumb.dart';
 import 'package:shadowmask/components/hover_tap.dart';
@@ -35,6 +36,7 @@ import 'package:shadowmask/model/server/hardware_test.dart';
 import 'package:shadowmask/model/server/host_capabilities.dart';
 import 'package:shadowmask/model/server/library_prep.dart';
 import 'package:shadowmask/model/server/playback_prep_report.dart';
+import 'package:shadowmask/model/server/server_log_page.dart';
 import 'package:shadowmask/model/server/transcode_totals.dart';
 import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/nav/nav_section.dart';
@@ -50,6 +52,7 @@ import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/util/format.dart';
 
 const Duration kServerPoll = Duration(seconds: 2);
+const int kRecentLogEntries = 20;
 const double kCapabilityColumnsBreakpoint = 900;
 const double _kFactLabelWidth = 180;
 const double _kCapabilityLabelWidth = 120;
@@ -194,6 +197,26 @@ class _ServerBodyState extends State<_ServerBody> with Mutations<_ServerBody> {
             errorText: Strings.couldNotLoadTotals,
             builder: (BuildContext context, TranscodeTotals totals) =>
                 _TotalsView(totals: totals),
+          ),
+        ),
+        SectionBlock(
+          title: Strings.recentLogsHeading,
+          actionItems: <PageAction>[
+            PageAction(
+              icon: Icons.subject,
+              label: Strings.followLogs,
+              onPressed: () =>
+                  Navigator.of(context).pushNamed(adminServerLogsRoute()),
+            ),
+          ],
+          child: _Polled<ServerLogPage>(
+            fetch: () => widget.server.logs(limit: kRecentLogEntries),
+            busy: (ServerLogPage _) => false,
+            errorText: Strings.couldNotLoadLogs,
+            builder: (BuildContext context, ServerLogPage page) =>
+                page.entries.isEmpty
+                ? const StatusText(Strings.emptyLogs)
+                : LogView(entries: page.entries),
           ),
         ),
       ],

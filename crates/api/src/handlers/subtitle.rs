@@ -134,7 +134,8 @@ where
         Ok(candidates) => candidates,
         Err(SubtitleError::NotFound) => Vec::new(),
         Err(err) => {
-            debug!("subtitle search failed for version [{}]: {err}", version.0);
+            #[rustfmt::skip]
+            debug!("User [{actor}] failed to search subtitles for version [{}]: {err}", version.0);
             return Err(ApiError::bad_gateway("subtitle provider error"));
         }
     };
@@ -145,7 +146,8 @@ where
             .is_some_and(|release| same_release(&detail.version.path, release));
         (std::cmp::Reverse(matches), std::cmp::Reverse(candidate.download_count))
     });
-    debug!("user [{actor}] subtitle search for version [{}]: {} hits", version.0, candidates.len());
+    #[rustfmt::skip]
+    debug!("User [{actor}] searched subtitles for version [{}]: {} hits", version.0, candidates.len());
     Ok(Json(candidates.into_iter().map(SubtitleCandidateDto::from).collect()))
 }
 
@@ -205,7 +207,7 @@ where
             .map_err(|_| ApiError::internal())?;
         if let Some(file) = found {
             #[rustfmt::skip]
-            debug!("user [{actor}] pinned subtitle [{file_id}] already held by version [{}]", version.0);
+            debug!("User [{actor}] pinned subtitle [{file_id}] already held by version [{}]", version.0);
             return Ok((StatusCode::OK, Json(file.into())));
         }
     }
@@ -213,7 +215,8 @@ where
         Ok(fetched) => fetched,
         Err(SubtitleError::NotFound) => return Err(ApiError::not_found("subtitle not found")),
         Err(err) => {
-            debug!("subtitle download failed for version [{}]: {err}", version.0);
+            #[rustfmt::skip]
+            debug!("User [{actor}] failed to download subtitle [{file_id}] for version [{}]: {err}", version.0);
             return Err(ApiError::bad_gateway("subtitle provider error"));
         }
     };
@@ -234,7 +237,7 @@ where
         pinned: true,
     };
     state.catalog.add_subtitle_file(&version, &subtitle).await.map_err(|_| ApiError::internal())?;
-    debug!("user [{actor}] downloaded subtitle [{file_id}] for version [{}]", version.0);
+    debug!("User [{actor}] downloaded subtitle [{file_id}] for version [{}]", version.0);
     Ok((StatusCode::CREATED, Json(subtitle.into())))
 }
 
@@ -261,7 +264,7 @@ where
         .find(|file| file.id.0 == subtitle)
         .ok_or_else(|| ApiError::not_found("subtitle not found"))?;
     let content = state.subtitles.load(&file.path).await.map_err(|_| ApiError::internal())?;
-    debug!("user [{actor}] read subtitle [{subtitle}] of version [{}]", version.0);
+    debug!("User [{actor}] read subtitle [{subtitle}] of version [{}]", version.0);
     Ok(Json(SubtitleTextResponse { content }))
 }
 
@@ -312,7 +315,7 @@ where
     if !found {
         return Err(ApiError::not_found("subtitle not found"));
     }
-    debug!("user [{actor}] renamed subtitle [{subtitle}] of version [{}]", version.0);
+    debug!("User [{actor}] renamed subtitle [{subtitle}] of version [{}]", version.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -380,6 +383,6 @@ where
             debug!("could not remove subtitle file [{path}]: {err}");
         }
     }
-    debug!("user [{actor}] deleted subtitle [{subtitle}] of version [{}]", version.0);
+    debug!("User [{actor}] deleted subtitle [{subtitle}] of version [{}]", version.0);
     Ok(StatusCode::NO_CONTENT)
 }

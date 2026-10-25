@@ -45,6 +45,7 @@ Keys in `shadowmask.toml` are not checked: a misspelled or renamed key there is 
 | `SHADOWMASK_SUBTITLE_CACHE`            | Subtitles                                        | `data/subtitles` (`/data/subtitles`)                     |
 | `SHADOWMASK_PLAYBACK_PREP_DIR`         | Keyframes and subtitle tracks from playback prep | `data/playback-prep` (`/data/playback-prep`)             |
 | `SHADOWMASK_JOB_LOG_DIR`               | Per-job logs                                     | `data/job-logs` (`/data/job-logs`)                       |
+| `SHADOWMASK_SERVER_LOG_DIR`            | The server's own log, one file per hour          | `data/server-logs` (`/data/server-logs`)                 |
 | `SHADOWMASK_BOOTSTRAP_DIR`             | `libraries.toml`, `users.toml`                   | `bootstrap` (`/config/bootstrap`)                        |
 | `SHADOWMASK_BASIC_CLIENT_DIR`          | Basic client served at `/ui/basic/`              | `clients/basic` (`/usr/share/shadowmask/basic`)          |
 | `SHADOWMASK_PROFILE_OVERRIDES_DIR`     | JSON playback profiles, one file per device type | unset                                                    |
@@ -116,18 +117,20 @@ SHADOWMASK_JOB_POOLS_ARTWORK_CONCURRENCY: "6"
 
 ### Caches, limits and retention
 
-| Variable                               | Description                                            | Default       |
-|----------------------------------------|--------------------------------------------------------|---------------|
-| `SHADOWMASK_TRANSCODE_CACHE_CAP_BYTES` | Transcode cache size cap                               | `10737418240` |
-| `SHADOWMASK_REMUX_READ_RATE`           | Remux read-ahead multiplier                            | `10.0`        |
-| `SHADOWMASK_MAX_TRANSCODE_HEIGHT`      | Re-encode height cap; direct play and remux unaffected | unset         |
-| `SHADOWMASK_STREAM_START_TIMEOUT_SECS` | Read time of a stream or Direct subtitle; `0` = none   | `20`          |
-| `SHADOWMASK_REQUEST_TIMEOUT_SECS`      | Time a request may take to answer; `0` = none          | `90`          |
-| `SHADOWMASK_CACHE_EVICTION_EVERY_SECS` | Cache sweep interval                                   | `3600`        |
-| `SHADOWMASK_JOB_RETENTION_DAYS`        | Finished job and log retention                         | `30`          |
-| `SHADOWMASK_RETENTION_EVERY_SECS`      | Retention interval                                     | `86400`       |
-| `SHADOWMASK_ORPHAN_SWEEP_EVERY_SECS`   | Orphan sweep interval                                  | `86400`       |
-| `SHADOWMASK_ORPHAN_SWEEP_GRACE_SECS`   | Age before an orphan is removable                      | `86400`       |
+| Variable                                | Description                                            | Default       |
+|-----------------------------------------|--------------------------------------------------------|---------------|
+| `SHADOWMASK_TRANSCODE_CACHE_CAP_BYTES`  | Transcode cache size cap                               | `10737418240` |
+| `SHADOWMASK_REMUX_READ_RATE`            | Remux read-ahead multiplier                            | `10.0`        |
+| `SHADOWMASK_MAX_TRANSCODE_HEIGHT`       | Re-encode height cap; direct play and remux unaffected | unset         |
+| `SHADOWMASK_STREAM_START_TIMEOUT_SECS`  | Read time of a stream or Direct subtitle; `0` = none   | `20`          |
+| `SHADOWMASK_REQUEST_TIMEOUT_SECS`       | Time a request may take to answer; `0` = none          | `90`          |
+| `SHADOWMASK_CACHE_EVICTION_EVERY_SECS`  | Cache sweep interval                                   | `3600`        |
+| `SHADOWMASK_JOB_RETENTION_DAYS`         | Finished job and log retention                         | `30`          |
+| `SHADOWMASK_SERVER_LOG_RETENTION_HOURS` | Hourly files of the server's own log kept              | `24`          |
+| `SHADOWMASK_REPORT_RETENTION_HOURS`     | Hours a player's diagnostics report is kept            | `24`          |
+| `SHADOWMASK_RETENTION_EVERY_SECS`       | Retention interval                                     | `86400`       |
+| `SHADOWMASK_ORPHAN_SWEEP_EVERY_SECS`    | Orphan sweep interval                                  | `86400`       |
+| `SHADOWMASK_ORPHAN_SWEEP_GRACE_SECS`    | Age before an orphan is removable                      | `86400`       |
 
 A request that takes longer than `SHADOWMASK_REQUEST_TIMEOUT_SECS` gets a `504` with code `timeout`.
 The limit stops at the start of the answer, so streams and downloads are never cut. Keep it above

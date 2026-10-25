@@ -15,6 +15,7 @@
     <script>
       const POLL_MS = 2000;
       const SEARCH_LIMIT = 10;
+      const RECENT_LOGS = 20;
       const ENCODER_ORDER = ["vaapi", "software", "remux"];
       const DELIVERY_ORDER = ["direct", "remux", "transcode"];
 
@@ -82,9 +83,24 @@
         refresh.addEventListener("click", refreshTotals);
         main.appendChild(section("Metrics", [refresh], totalsBody));
 
+        const logsBody = sm.el("div", { text: "Loading logs…" });
+        const follow = sm.el("a", { href: "server-logs.html" }, "Follow");
+        main.appendChild(section("Recent logs", [follow], logsBody));
+
         refreshCaps();
         refreshBench();
         refreshTotals();
+        loadRecentLogs(logsBody);
+      }
+
+      async function loadRecentLogs(body) {
+        try {
+          const { logBox } = await import("./log-lines.js");
+          const page = await sm.json("/api/v1/admin/server/logs?limit=" + RECENT_LOGS);
+          body.replaceChildren(page.entries.length ? logBox(page.entries) : "No logs.");
+        } catch (err) {
+          body.textContent = "Could not load logs.";
+        }
       }
 
       async function loadPrep(body) {

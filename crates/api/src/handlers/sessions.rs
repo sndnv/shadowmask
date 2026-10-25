@@ -2,7 +2,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use tracing::debug;
 
-use domain::session::SessionId;
+use domain::session::{PlaybackState, SegmentContainer, SessionId, SessionUpdate};
 
 use crate::dto::session::{
     HeartbeatAckResponse, HeartbeatRequest, RenegotiatedResponse, SeekRequest,
@@ -21,12 +21,14 @@ pub async fn start<S: AppServices>(
     Json(req): Json<StartSessionRequest>,
 ) -> ApiResult<(StatusCode, Json<SessionStartedResponse>)> {
     let actor = &principal.user.0;
+    let (version, from_ms) = (req.version_id.clone(), req.start_position_ms);
     let started = state
         .session()
         .start(&principal, req.into())
         .await
         .map_err(log_fail(actor, "start a session"))?;
-    debug!("User [{actor}] started a session");
+    #[rustfmt::skip]
+    debug!("User [{actor}] started session [{}] for version [{version}] from [{from_ms}] ms: mode [{:?}] container [{}] origin [{}] ms", started.session_id.0, started.mode, started.container.map_or("none", SegmentContainer::as_str), started.origin_ms);
     Ok((StatusCode::CREATED, Json(started.into())))
 }
 
@@ -38,12 +40,14 @@ pub async fn heartbeat<S: AppServices>(
 ) -> ApiResult<Json<HeartbeatAckResponse>> {
     let actor = &principal.user.0;
     let id = SessionId(id);
+    let playback = PlaybackState::from(req.state);
     let ack = state
         .session()
-        .heartbeat(&principal, &id, req.position_ms, req.state.into())
+        .heartbeat(&principal, &id, req.position_ms, playback)
         .await
         .map_err(log_fail(actor, "send a heartbeat"))?;
-    debug!("User [{actor}] sent a heartbeat for session [{}]", id.0);
+    #[rustfmt::skip]
+    debug!("User [{actor}] sent a heartbeat for session [{}] at [{}] ms: [{playback:?}]", id.0, req.position_ms);
     Ok(Json(ack.into()))
 }
 
@@ -60,7 +64,8 @@ pub async fn seek<S: AppServices>(
         .seek(&principal, &id, req.position_ms)
         .await
         .map_err(log_fail(actor, "seek"))?;
-    debug!("User [{actor}] sought session [{}]", id.0);
+    #[rustfmt::skip]
+    debug!("User [{actor}] sought session [{}] to [{}] ms: mode [{:?}] container [{}] origin [{}] ms", id.0, req.position_ms, renegotiated.mode, renegotiated.container.map_or("none", SegmentContainer::as_str), renegotiated.origin_ms);
     Ok(Json(renegotiated.into()))
 }
 
@@ -72,12 +77,14 @@ pub async fn update<S: AppServices>(
 ) -> ApiResult<Json<RenegotiatedResponse>> {
     let actor = &principal.user.0;
     let id = SessionId(id);
+    let update = SessionUpdate::from(req);
     let renegotiated = state
         .session()
-        .update(&principal, &id, req.into())
+        .update(&principal, &id, update.clone())
         .await
         .map_err(log_fail(actor, "update a session"))?;
-    debug!("User [{actor}] updated session [{}]", id.0);
+    #[rustfmt::skip]
+    debug!("User [{actor}] updated session [{}] with [{update:?}]: mode [{:?}] container [{}] origin [{}] ms", id.0, renegotiated.mode, renegotiated.container.map_or("none", SegmentContainer::as_str), renegotiated.origin_ms);
     Ok(Json(renegotiated.into()))
 }
 

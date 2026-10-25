@@ -46,12 +46,14 @@ pub async fn link<S: AppServices>(
     State(state): State<S>,
     Json(req): Json<LinkRequest>,
 ) -> ApiResult<Json<IssuedTokenResponse>> {
+    let platform = req.device.platform.clone();
     let issued = state
         .auth()
         .redeem_link_code(&req.code, req.device.into())
         .await
         .map_err(log_fail("anonymous", "redeem link code"))?;
-    debug!("User [anonymous] redeemed link code");
+    #[rustfmt::skip]
+    debug!("User [anonymous] redeemed link code for device [{}] on platform [{platform}]", issued.device.0);
     Ok(Json(issued.into()))
 }
 
@@ -150,12 +152,13 @@ pub async fn revoke_device<S: AppServices>(
     let actor = &principal.user.0;
     let target = UserId(user_id);
     require_admin_or_self(&principal, &target)?;
+    let device = DeviceId(device_id);
     state
         .auth()
-        .revoke_device(&target, &DeviceId(device_id))
+        .revoke_device(&target, &device)
         .await
         .map_err(log_fail(actor, "revoke a device"))?;
-    debug!("User [{actor}] revoked a device for user [{}]", target.0);
+    debug!("User [{actor}] revoked device [{}] for user [{}]", device.0, target.0);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -181,11 +184,12 @@ pub async fn revoke_token<S: AppServices>(
     let actor = &principal.user.0;
     let target = UserId(user_id);
     require_admin_or_self(&principal, &target)?;
+    let token = ApiTokenId(token_id);
     state
         .auth()
-        .revoke_api_token(&target, &ApiTokenId(token_id))
+        .revoke_api_token(&target, &token)
         .await
         .map_err(log_fail(actor, "revoke an API token"))?;
-    debug!("User [{actor}] revoked an API token for user [{}]", target.0);
+    debug!("User [{actor}] revoked API token [{}] for user [{}]", token.0, target.0);
     Ok(StatusCode::NO_CONTENT)
 }

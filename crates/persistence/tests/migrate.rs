@@ -19,7 +19,7 @@ async fn migrates_server_and_all_users() {
     migrate_all(db_root).await.unwrap();
 
     let server = db_root.join("server");
-    for name in ["jobs.db", "libraries.db", "users.db", "catalog.db", "auth.db"] {
+    for name in ["jobs.db", "libraries.db", "users.db", "catalog.db", "auth.db", "reports.db"] {
         assert!(server.join(name).exists(), "{name} should exist after migrate");
     }
     for who in ["alice", "bob"] {

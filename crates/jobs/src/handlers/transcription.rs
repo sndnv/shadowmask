@@ -40,7 +40,7 @@ where
             .await
             .map_err(|e| JobError::Retryable(e.to_string()))?
         else {
-            tracing::debug!("version gone; skipping transcription");
+            tracing::debug!("version [{}] gone; skipping transcription", payload.version_id.0);
             return Ok(());
         };
         if !payload.force && !detail.subtitle_files.is_empty() {

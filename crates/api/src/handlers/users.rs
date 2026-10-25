@@ -235,6 +235,7 @@ pub async fn set_library_access<S: AppServices>(
         .set_library_access(&target, &libraries)
         .await
         .map_err(log_fail(actor, "set library access"))?;
-    debug!("User [{actor}] set library access for user [{}]", target.0);
+    #[rustfmt::skip]
+    debug!("User [{actor}] set library access for user [{}] to [{}] libraries", target.0, libraries.len());
     Ok(StatusCode::NO_CONTENT)
 }

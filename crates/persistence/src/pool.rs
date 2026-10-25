@@ -226,9 +226,22 @@ pub(crate) fn from_millis(millis: i64) -> Result<Timestamp, RepositoryError> {
     Timestamp::from_millisecond(millis).map_err(backend)
 }
 
+pub(crate) fn like_pattern(needle: &str) -> String {
+    let escaped = needle.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+    format!("%{escaped}%")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_needle_cannot_smuggle_in_a_wildcard() {
+        assert_eq!(like_pattern("100%"), "%100\\%%");
+        assert_eq!(like_pattern("a_b"), "%a\\_b%");
+        assert_eq!(like_pattern("a\\b"), "%a\\\\b%");
+        assert_eq!(like_pattern("plain"), "%plain%");
+    }
 
     static TEST_MIGRATOR: Migrator = sqlx::migrate!("./migrations/progress");
 

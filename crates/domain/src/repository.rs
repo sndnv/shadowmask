@@ -9,6 +9,7 @@ use crate::catalog::{
     SeriesId, TitleId, TitleKind, TitleListFilter, TitleRef, Version, VersionDetail, VersionId,
 };
 use crate::common::{Page, PageRequest};
+use crate::diagnostics::{Report, ReportId, ReportSummary};
 use crate::discovery::{SearchKind, SearchResult};
 use crate::error::RepositoryError;
 use crate::job::{Job, JobId, JobKind, JobNode, JobQuery, ReclaimOutcome};
@@ -712,4 +713,24 @@ pub trait AuthTokenRepository {
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     fn purge_user(&self, user: &UserId)
     -> impl Future<Output = Result<(), RepositoryError>> + Send;
+}
+
+pub trait ReportRepository {
+    fn insert(&self, report: Report) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn list(
+        &self,
+        since: Timestamp,
+        needle: Option<&str>,
+        page: PageRequest,
+    ) -> impl Future<Output = Result<Page<ReportSummary>, RepositoryError>> + Send;
+    fn get(
+        &self,
+        id: &ReportId,
+        since: Timestamp,
+    ) -> impl Future<Output = Result<Option<Report>, RepositoryError>> + Send;
+    fn delete(&self, id: &ReportId) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+    fn delete_before(
+        &self,
+        cutoff: Timestamp,
+    ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
 }

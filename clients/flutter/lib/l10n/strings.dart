@@ -747,7 +747,41 @@ abstract final class Strings {
   static const String adminJobsAbout = 'Background job queue.';
   static const String adminActivityAbout = 'Recent server activity.';
   static const String adminServer = 'Server';
-  static const String adminServerAbout = 'Transcoding diagnostics.';
+  static const String adminServerAbout = 'Debugging and diagnostics.';
+  static const String adminServerLogs = 'Server logs';
+  static const String serverLogsCrumb = 'Logs';
+  static const String recentLogsHeading = 'Recent logs';
+  static const String adminReports = 'Reports';
+  static const String adminReportsAbout = 'Client diagnostic reports.';
+  static const String loadingReports = 'Loading reports…';
+  static const String emptyReports = 'No reports.';
+  static const String couldNotLoadReports = 'Could not load reports.';
+  static const String loadingReport = 'Loading the report…';
+  static const String couldNotLoadReport = 'Could not load the report.';
+  static const String reportSent = 'Sent';
+  static const String reportUser = 'User';
+  static const String reportPlayer = 'Player';
+  static const String reportApp = 'App';
+  static const String reportPlatform = 'Platform';
+  static const String reportAppVersion = 'Version';
+  static const String copyReport = 'Copy';
+  static const String toastReportCopied = 'Report copied.';
+  static const String deleteReportTitle = 'Delete this report?';
+  static const String deleteReportMessage =
+      'This report will be permanently removed.';
+  static const String toastReportDeleted = 'Report deleted.';
+  static const String errorDeleteReport = 'Could not delete the report.';
+  static const String sendReport = 'Report';
+  static const String reportTitle = 'Send a report';
+  static const String reportNote = 'What went wrong (optional)';
+  static const String reportSend = 'Send';
+  static const String toastReportSent = 'Report sent.';
+  static const String errorSendReport = 'Could not send the report.';
+  static const String reportClient = 'Client';
+  static const String reportCapabilities = 'Capabilities';
+  static const String reportHistory = 'History';
+  static const String reportPanel = 'Diagnostics panel';
+  static const String reportNothing = 'Nothing.';
 
   static const String capabilitiesHeading = 'Capabilities';
   static const String recheck = 'Re-check';
@@ -1086,6 +1120,14 @@ abstract final class Strings {
   static const String couldNotLoadActivity = 'Could not load activity.';
   static const String couldNotLoadLogs = 'Could not load logs.';
   static const String loadingLogs = 'Loading logs…';
+  static const String loadingOlderLogs = 'Loading earlier lines…';
+  static const String couldNotRefreshLogs =
+      'Could not fetch new lines; trying again.';
+  static const String couldNotLoadOlderLogs = 'Could not load earlier lines.';
+  static const String startOfLogs = 'Nothing older is kept.';
+  static const String pauseLogs = 'Pause';
+  static const String resumeLogs = 'Resume';
+  static const String followLogs = 'Follow';
 
   static const String toastLibrarySaved = 'Library saved.';
   static const String toastMetadataSaved = 'Details saved.';
@@ -1185,6 +1227,9 @@ abstract final class Strings {
   static const String filterVersions =
       'Filter by path, title, library or quality';
   static const String noMatchingVersions = 'No versions match the filter.';
+  static const String filterReports =
+      'Filter by player, user, app, platform or version';
+  static const String noMatchingReports = 'No reports match the filter.';
 
   static const String columnName = 'Name';
   static const String columnKind = 'Kind';

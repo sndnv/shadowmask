@@ -77,7 +77,7 @@ where
             .await
             .map_err(|e| JobError::Retryable(e.to_string()))?
         else {
-            tracing::debug!("version gone; skipping subtitles");
+            tracing::debug!("version [{}] gone; skipping subtitles", payload.version_id.0);
             return Ok(());
         };
         let video = detail.version.path;
@@ -91,7 +91,7 @@ where
         let candidates = match self.provider.search(&query).await {
             Ok(candidates) => candidates,
             Err(SubtitleError::NotFound) => {
-                tracing::debug!("no subtitles found");
+                tracing::debug!("no subtitles found for version [{}]", payload.version_id.0);
                 return self.transcribe_on_miss(&payload, &job.id).await;
             }
             Err(e) => return Err(e.into()),
@@ -151,7 +151,7 @@ where
             .await
             .map_err(|e| JobError::Retryable(e.to_string()))?;
         if present.is_none() {
-            tracing::debug!("version gone; skipping subtitles");
+            tracing::debug!("version [{}] gone; skipping subtitles", payload.version_id.0);
             return Ok(());
         }
         self.catalog

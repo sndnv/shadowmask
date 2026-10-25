@@ -3,8 +3,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use domain::common::LogLevel;
 use domain::error::RepositoryError;
-use domain::job::{Job, JobKind, JobLogLevel, JobLogStore, JobStatus};
+use domain::job::{Job, JobKind, JobLogStore, JobStatus};
 use domain::repository::JobRepository;
 use jiff::Timestamp;
 use tokio::sync::{Semaphore, watch};
@@ -60,26 +61,25 @@ async fn finish_job<L: JobLogStore>(
         Outcome::Done(result) => {
             active.finish(result.is_ok());
             let (level, message) = match result {
-                Ok(()) => (
-                    JobLogLevel::Info,
-                    format!("finished {:?}: succeeded in {elapsed:.1}s", job.kind),
-                ),
+                Ok(()) => {
+                    (LogLevel::Info, format!("finished {:?}: succeeded in {elapsed:.1}s", job.kind))
+                }
                 Err(err @ JobError::Retryable(message)) if will_retry(attempt, err, policy) => (
-                    JobLogLevel::Warn,
+                    LogLevel::Warn,
                     format!(
                         "finished {:?}: failed in {elapsed:.1}s (attempt {attempt}), will retry: {message}",
                         job.kind
                     ),
                 ),
                 Err(JobError::Retryable(message)) => (
-                    JobLogLevel::Error,
+                    LogLevel::Error,
                     format!(
                         "finished {:?}: failed in {elapsed:.1}s (attempt {attempt} of {}), no retries left: {message}",
                         job.kind, policy.max_attempts
                     ),
                 ),
                 Err(JobError::Permanent(message)) => (
-                    JobLogLevel::Error,
+                    LogLevel::Error,
                     format!(
                         "finished {:?}: failed permanently in {elapsed:.1}s: {message}",
                         job.kind
@@ -94,7 +94,7 @@ async fn finish_job<L: JobLogStore>(
                 .append(
                     &job.id,
                     now,
-                    JobLogLevel::Warn,
+                    LogLevel::Warn,
                     &format!("cancelled {:?} after {elapsed:.1}s", job.kind),
                 )
                 .await;
@@ -184,7 +184,7 @@ where
                 let span =
                     tracing::info_span!("job", job_id = %job.id.0, kind = ?job.kind, pool = %pool);
                 let _ = log
-                    .append(&job.id, now, JobLogLevel::Info, &format!("started {:?}", job.kind))
+                    .append(&job.id, now, LogLevel::Info, &format!("started {:?}", job.kind))
                     .await;
                 let started = std::time::Instant::now();
                 let active = ActiveJob::start(job.kind, &pool);

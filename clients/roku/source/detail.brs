@@ -1145,6 +1145,30 @@ function DialogTextPlan(natural as integer, rowsNeeded as integer, room as integ
     return { text: shown, rows: rows, scrolls: shown < natural }
 end function
 
+function DialogInRow(request as dynamic) as boolean
+    return TextOrBlank(ValueAt(request, "layout", "")) = "row"
+end function
+
+function DialogButtonSpans(count as integer, width as integer, gap as integer) as object
+    lefts = []
+    widths = []
+    if count <= 0 or width <= 0 then return { lefts: lefts, widths: widths }
+
+    share = Int((width - gap * (count - 1)) / count)
+    if share < 0 then share = 0
+    for index = 0 to count - 1
+        lefts.Push(index * (share + gap))
+        widths.Push(share)
+    end for
+    widths[count - 1] = width - lefts[count - 1]
+    return { lefts: lefts, widths: widths }
+end function
+
+function DialogScrollsText(inRow as boolean, rowCount as integer, natural as integer, shown as integer) as boolean
+    if not inRow and rowCount <> 1 then return false
+    return natural > shown
+end function
+
 function ScrolledTextOffset(offset as integer, direction as integer, shown as integer, natural as integer, pitch as integer) as integer
     span = natural - shown
     if span <= 0 then return 0

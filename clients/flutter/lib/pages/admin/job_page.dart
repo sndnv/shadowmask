@@ -5,7 +5,8 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/admin/confirm_dialog.dart';
 import 'package:shadowmask/components/admin/job_children.dart';
 import 'package:shadowmask/components/admin/job_status_chip.dart';
-import 'package:shadowmask/components/app_dropdown.dart';
+import 'package:shadowmask/components/admin/log_level_dropdown.dart';
+import 'package:shadowmask/components/admin/log_view.dart';
 import 'package:shadowmask/components/page_actions.dart';
 import 'package:shadowmask/components/section_block.dart';
 import 'package:shadowmask/components/status_text.dart';
@@ -29,8 +30,6 @@ import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/util/job_labels.dart';
-
-const String kDefaultLogLevel = 'INFO';
 
 class JobPage extends StatelessWidget {
   const JobPage({super.key, required this.api, this.id});
@@ -186,18 +185,7 @@ class _JobBodyState extends State<_JobBody> with Mutations<_JobBody> {
           SectionBlock(
             title: Strings.jobLogsHeading,
             actions: <Widget>[
-              AppDropdown<String>(
-                value: _level,
-                width: 130,
-                label: Strings.jobLogsHeading,
-                items: const <(String, String)>[
-                  ('DEBUG', 'Debug'),
-                  ('INFO', 'Info'),
-                  ('WARN', 'Warn'),
-                  ('ERROR', 'Error'),
-                ],
-                onChanged: _setLevel,
-              ),
+              LogLevelDropdown(value: _level, onChanged: _setLevel),
             ],
             actionItems: <PageAction>[
               PageAction(
@@ -322,7 +310,6 @@ class _Logs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Tokens t = context.tokens;
     return FutureBuilder<List<String>>(
       future: future,
       builder: (BuildContext context, AsyncSnapshot<List<String>> snapshot) {
@@ -336,22 +323,7 @@ class _Logs extends StatelessWidget {
         if (lines.isEmpty) {
           return const StatusText(Strings.emptyLogs);
         }
-        return Container(
-          width: double.infinity,
-          constraints: const BoxConstraints(maxHeight: 360),
-          padding: const EdgeInsets.all(Space.s3),
-          decoration: BoxDecoration(
-            color: t.bg,
-            borderRadius: const BorderRadius.all(Radii.sm),
-            border: Border.all(color: t.border),
-          ),
-          child: SingleChildScrollView(
-            child: SelectableText(
-              lines.join('\n'),
-              style: monoStyle.copyWith(color: t.text, fontSize: 12),
-            ),
-          ),
-        );
+        return LogView(entries: lines);
       },
     );
   }

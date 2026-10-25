@@ -445,7 +445,7 @@ async fn auth_endpoints() {
     for line in [
         "User [admin] logged in",
         "User [anonymous] refreshed access token",
-        "User [anonymous] redeemed link code",
+        "User [anonymous] redeemed link code for device [device-1] on platform [roku]",
         "User [u1] listed 0 link codes for user [u1]",
         "User [u1] listed 0 devices for user [u1]",
         "User [u1] listed 0 API tokens for user [u1]",
@@ -1405,7 +1405,8 @@ async fn library_routes() {
         "User [admin] retrieved 1 duplicates for library [lib1]",
         "User [admin] retrieved 1 versions for library [lib1]",
         "User [admin] retrieved 1 versions",
-        "User [admin] retrieved 0 candidates for an unmatched file",
+        "User [admin] retrieved 0 candidates for unmatched file [uf1]",
+        "User [admin] queued a metadata refresh for person [p1]",
     ] {
         assert!(logs_contain(line), "missing log line: {line}");
     }
@@ -1625,6 +1626,17 @@ async fn session_routes() {
     assert_eq!(status, StatusCode::NO_CONTENT);
 
     assert!(logs_contain("User [admin] retrieved 1 active sessions"));
+    for line in [
+        format!("User [u1] started session [{sid}] for version [v1] from [0] ms: mode ["),
+        format!("User [u1] sent a heartbeat for session [{sid}] at [1000] ms: [Paused]"),
+        format!("User [u1] sought session [{sid}] to [2000] ms: mode ["),
+        format!(
+            "User [u1] updated session [{sid}] with [SessionUpdate {{ position_ms: 0, audio_track: Some(3)"
+        ),
+        format!("User [u1] ended session [{sid}]"),
+    ] {
+        assert!(logs_contain(&line), "missing log line: {line}");
+    }
 }
 
 async fn start_playback(ctx: &Ctx) -> String {

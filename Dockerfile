@@ -55,6 +55,7 @@ ENV SHADOWMASK_DB_ROOT=/data \
     SHADOWMASK_SUBTITLE_CACHE=/data/subtitles \
     SHADOWMASK_PLAYBACK_PREP_DIR=/data/playback-prep \
     SHADOWMASK_JOB_LOG_DIR=/data/job-logs \
+    SHADOWMASK_SERVER_LOG_DIR=/data/server-logs \
     SHADOWMASK_BOOTSTRAP_DIR=/config/bootstrap \
     SHADOWMASK_BASIC_CLIENT_DIR=/usr/share/shadowmask/basic
 WORKDIR /config

@@ -39,7 +39,8 @@ use metadata::{
 };
 use metrics_exporter_prometheus::PrometheusHandle;
 use persistence::job_log::FsJobLogStore;
-use persistence::server::{SqliteCatalogRepo, SqliteJobRepo, SqliteLibraryRepo};
+use persistence::server::{SqliteCatalogRepo, SqliteJobRepo, SqliteLibraryRepo, SqliteReportRepo};
+use persistence::server_log::FsServerLogStore;
 use services::library::{
     Enricher, LibraryServiceImpl, Scanner, TranscriptionEnqueuer, TranslationEnqueuer,
     next_daily_fire, settle_interrupted_scans,
@@ -103,7 +104,7 @@ type FetchHandler = FetchJobHandler<
 >;
 type EvictionHandler = CacheEvictionHandler<CacheEvictor>;
 type NightlyHandler = ScheduledScanHandler<SqliteLibraryRepo, SqliteJobRepo>;
-type RetentionJobHandler = RetentionHandler<SqliteJobRepo, FsJobLogStore>;
+type RetentionJobHandler = RetentionHandler<SqliteJobRepo, FsJobLogStore, SqliteReportRepo>;
 type SweepHandler = OrphanSweepHandler<
     SqliteCatalogRepo,
     FsArtworkStore,
@@ -493,6 +494,17 @@ impl Runtime {
                 ),
             ))
             .merge(::api::job_log_router(state.clone(), ::api::JobLogState::new(job_logs.clone())))
+            .merge(::api::server_log_router(
+                state.clone(),
+                ::api::ServerLogState::new(FsServerLogStore::new(&config.server_log_dir)),
+            ))
+            .merge(::api::report_router(
+                state.clone(),
+                ::api::ReportState::new(
+                    repos.reports.clone(),
+                    SignedDuration::from_hours(config.report_retention_hours),
+                ),
+            ))
             .merge(::api::diagnostics_router(
                 state.clone(),
                 ::api::DiagnosticsState::new(
@@ -696,7 +708,9 @@ impl Runtime {
         let retention = RetentionHandler::new(
             repos.jobs.clone(),
             job_logs.clone(),
+            repos.reports.clone(),
             SignedDuration::from_hours(config.job_retention_days.saturating_mul(24)),
+            SignedDuration::from_hours(config.report_retention_hours),
         );
         let sweep = OrphanSweepHandler::new(
             repos.catalog.clone(),

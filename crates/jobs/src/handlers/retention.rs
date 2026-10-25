@@ -1,54 +1,89 @@
+use domain::error::RepositoryError;
 use domain::job::{Job, JobLogStore};
-use domain::repository::JobRepository;
+use domain::repository::{JobRepository, ReportRepository};
 use jiff::{SignedDuration, Timestamp};
 
 use crate::error::JobError;
 use crate::job_handler::JobHandler;
 
-pub struct RetentionHandler<J, L> {
+pub struct RetentionHandler<J, L, R> {
     jobs: J,
     logs: L,
+    reports: R,
     retain_for: SignedDuration,
+    reports_for: SignedDuration,
 }
 
-impl<J, L> RetentionHandler<J, L> {
-    pub fn new(jobs: J, logs: L, retain_for: SignedDuration) -> Self {
-        Self { jobs, logs, retain_for }
+impl<J, L, R> RetentionHandler<J, L, R> {
+    pub fn new(
+        jobs: J,
+        logs: L,
+        reports: R,
+        retain_for: SignedDuration,
+        reports_for: SignedDuration,
+    ) -> Self {
+        Self { jobs, logs, reports, retain_for, reports_for }
     }
 }
 
-impl<J, L> JobHandler for RetentionHandler<J, L>
+fn cutoff(now: Timestamp, window: SignedDuration) -> Timestamp {
+    now.checked_sub(window).unwrap_or(Timestamp::MIN)
+}
+
+fn retryable(err: RepositoryError) -> JobError {
+    JobError::Retryable(err.to_string())
+}
+
+impl<J, L, R> JobHandler for RetentionHandler<J, L, R>
 where
     J: JobRepository + Send + Sync,
     L: JobLogStore,
+    R: ReportRepository + Send + Sync,
 {
     async fn handle(&self, _job: &Job) -> Result<(), JobError> {
         let now = Timestamp::now();
-        let Some(cutoff) = now.checked_sub(self.retain_for).ok() else {
-            return Err(JobError::Permanent("retention window is out of range".into()));
-        };
-        let removed = self
-            .jobs
-            .delete_finished_before(cutoff)
-            .await
-            .map_err(|err| JobError::Retryable(err.to_string()))?;
+        let jobs_before = cutoff(now, self.retain_for);
+        let reports_before = cutoff(now, self.reports_for);
+        let removed = self.jobs.delete_finished_before(jobs_before).await.map_err(retryable)?;
         for id in &removed {
             if let Err(err) = self.logs.wipe(id).await {
                 tracing::warn!(job = %id.0, "removing the log of an expired job failed: {err}");
             }
         }
-        tracing::info!(removed = removed.len(), "job retention complete");
+        let reports = self.reports.delete_before(reports_before).await.map_err(retryable)?;
+        tracing::info!(removed = removed.len(), reports, "job retention complete");
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use domain::common::{LogLevel, PageRequest};
+    use domain::diagnostics::{PlayerId, Report, ReportId, ReportSummary};
     use domain::error::JobLogError;
-    use domain::job::{JobId, JobKind, JobLogLevel, JobPriority, JobStatus};
-    use mocks::{MockJobLogStore, MockJobStore};
+    use domain::job::{JobId, JobKind, JobPriority, JobStatus};
+    use domain::user::UserId;
+    use mocks::{MockJobLogStore, MockJobStore, MockReportRepo};
 
     use super::*;
+
+    const DAY: SignedDuration = SignedDuration::from_hours(24);
+
+    fn report(id: &str, age: SignedDuration) -> Report {
+        Report {
+            summary: ReportSummary {
+                id: ReportId(id.into()),
+                created_at: Timestamp::now().checked_sub(age).unwrap(),
+                user: UserId("u1".into()),
+                player: PlayerId("p1".into()),
+                app: "flutter".into(),
+                platform: "Android 14".into(),
+                app_version: "0.0.7".into(),
+                note: None,
+            },
+            payload: "{}".into(),
+        }
+    }
 
     fn retention_job() -> Job {
         job("retention", JobStatus::Running, None)
@@ -85,17 +120,56 @@ mod tests {
         let jobs = MockJobStore::new();
         let logs = MockJobLogStore::new();
         seed(&jobs, "old", JobStatus::Succeeded, SignedDuration::from_hours(48)).await;
-        logs.append(&JobId("old".into()), Timestamp::UNIX_EPOCH, JobLogLevel::Info, "a line")
+        logs.append(&JobId("old".into()), Timestamp::UNIX_EPOCH, LogLevel::Info, "a line")
             .await
             .unwrap();
 
-        RetentionHandler::new(jobs.clone(), logs.clone(), SignedDuration::from_hours(24))
+        RetentionHandler::new(jobs.clone(), logs.clone(), MockReportRepo::new(), DAY, DAY)
             .handle(&retention_job())
             .await
             .unwrap();
 
         assert!(jobs.get(&JobId("old".into())).await.unwrap().is_none());
         assert!(logs.lines_for(&JobId("old".into())).is_empty());
+    }
+
+    #[tokio::test]
+    async fn reports_past_their_own_window_are_removed() {
+        let reports = MockReportRepo::new();
+        reports.seed(report("expired", SignedDuration::from_hours(25)));
+        reports.seed(report("kept", SignedDuration::from_hours(1)));
+        let jobs = MockJobStore::new();
+        seed(&jobs, "a-day-and-more", JobStatus::Succeeded, SignedDuration::from_hours(25)).await;
+
+        let month = SignedDuration::from_hours(24 * 30);
+        RetentionHandler::new(jobs.clone(), MockJobLogStore::new(), reports.clone(), month, DAY)
+            .handle(&retention_job())
+            .await
+            .unwrap();
+
+        let left = reports.list(Timestamp::UNIX_EPOCH, None, PageRequest::ALL).await.unwrap();
+        let ids: Vec<&str> = left.items.iter().map(|r| r.id.0.as_str()).collect();
+        assert_eq!(ids, ["kept"]);
+        assert!(
+            jobs.get(&JobId("a-day-and-more".into())).await.unwrap().is_some(),
+            "the jobs keep their own window"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_report_store_that_fails_makes_the_run_retryable_after_the_jobs_go() {
+        let reports = MockReportRepo::new();
+        reports.set_fail();
+        let jobs = MockJobStore::new();
+        seed(&jobs, "old", JobStatus::Succeeded, SignedDuration::from_hours(48)).await;
+
+        let error = RetentionHandler::new(jobs.clone(), MockJobLogStore::new(), reports, DAY, DAY)
+            .handle(&retention_job())
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, JobError::Retryable(_)));
+        assert!(jobs.get(&JobId("old".into())).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -106,7 +180,7 @@ mod tests {
         seed(&jobs, "queued", JobStatus::Queued, SignedDuration::from_hours(0)).await;
         seed(&jobs, "running", JobStatus::Running, SignedDuration::from_hours(0)).await;
 
-        RetentionHandler::new(jobs.clone(), logs, SignedDuration::from_hours(24))
+        RetentionHandler::new(jobs.clone(), logs, MockReportRepo::new(), DAY, DAY)
             .handle(&retention_job())
             .await
             .unwrap();
@@ -117,13 +191,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_retention_window_that_cannot_be_subtracted_is_permanent() {
-        let window = SignedDuration::MAX;
-        let error = RetentionHandler::new(MockJobStore::new(), MockJobLogStore::new(), window)
+    async fn a_window_too_long_to_subtract_keeps_everything_while_the_other_still_runs() {
+        let max = SignedDuration::MAX;
+        for (jobs_for, reports_for, jobs_left, reports_left) in [(DAY, max, 0, 1), (max, DAY, 1, 0)]
+        {
+            let jobs = MockJobStore::new();
+            seed(&jobs, "old", JobStatus::Succeeded, SignedDuration::from_hours(48)).await;
+            let reports = MockReportRepo::new();
+            reports.seed(report("old", SignedDuration::from_hours(48)));
+
+            RetentionHandler::new(
+                jobs.clone(),
+                MockJobLogStore::new(),
+                reports.clone(),
+                jobs_for,
+                reports_for,
+            )
             .handle(&retention_job())
             .await
-            .unwrap_err();
-        assert!(matches!(error, JobError::Permanent(_)));
+            .unwrap();
+
+            let kept = reports.list(Timestamp::UNIX_EPOCH, None, PageRequest::ALL).await.unwrap();
+            assert_eq!(jobs.list().await.unwrap().len(), jobs_left, "jobs for {jobs_for:?}");
+            assert_eq!(kept.total, reports_left, "reports for {reports_for:?}");
+        }
     }
 
     #[tokio::test]
@@ -131,11 +222,11 @@ mod tests {
         let jobs = MockJobStore::new();
         let logs = FailingWipe(MockJobLogStore::new());
         seed(&jobs, "old", JobStatus::Succeeded, SignedDuration::from_hours(48)).await;
-        logs.append(&JobId("old".into()), Timestamp::UNIX_EPOCH, JobLogLevel::Info, "a line")
+        logs.append(&JobId("old".into()), Timestamp::UNIX_EPOCH, LogLevel::Info, "a line")
             .await
             .unwrap();
 
-        RetentionHandler::new(jobs.clone(), logs.clone(), SignedDuration::from_hours(24))
+        RetentionHandler::new(jobs.clone(), logs.clone(), MockReportRepo::new(), DAY, DAY)
             .handle(&retention_job())
             .await
             .unwrap();
@@ -156,7 +247,7 @@ mod tests {
             &self,
             job: &JobId,
             at: Timestamp,
-            level: JobLogLevel,
+            level: LogLevel,
             message: &str,
         ) -> Result<(), JobLogError> {
             self.0.append(job, at, level, message).await

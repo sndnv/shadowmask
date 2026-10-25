@@ -88,6 +88,12 @@ class DashboardPage extends StatelessWidget {
               onTap: () => go(adminActivityRoute()),
             ),
             AdminLinkCard(
+              title: Strings.adminReports,
+              description: Strings.adminReportsAbout,
+              icon: Icons.bug_report_outlined,
+              onTap: () => go(adminReportsRoute()),
+            ),
+            AdminLinkCard(
               title: Strings.adminServer,
               description: Strings.adminServerAbout,
               icon: Icons.memory_outlined,

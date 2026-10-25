@@ -89,6 +89,20 @@ String? dateTimeText(String? iso) {
   return '${_ymd(d)} ${pad2(d.hour)}:${pad2(d.minute)}';
 }
 
+String? preciseDateTimeText(String? iso) {
+  if (iso == null || iso.isEmpty) {
+    return null;
+  }
+  final DateTime? parsed = DateTime.tryParse(iso);
+  if (parsed == null) {
+    return iso;
+  }
+  final DateTime d = parsed.toLocal();
+  final String millis = d.millisecond.toString().padLeft(3, '0');
+  return '${_ymd(d)} ${pad2(d.hour)}:${pad2(d.minute)}:${pad2(d.second)}'
+      '.$millis';
+}
+
 String? relativeText(String? iso, {DateTime? now}) {
   if (iso == null || iso.isEmpty) {
     return null;

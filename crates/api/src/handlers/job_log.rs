@@ -4,7 +4,8 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use tracing::debug;
 
-use domain::job::{JobId, JobLogLevel, JobLogStore};
+use domain::common::LogLevel;
+use domain::job::{JobId, JobLogStore};
 
 use crate::dto::job::JobLogResponse;
 use crate::error::{ApiError, ApiResult};
@@ -17,21 +18,21 @@ pub struct LogQuery {
     pub level: Option<String>,
 }
 
-fn line_level(line: &str) -> Option<JobLogLevel> {
-    line.split(' ').nth(1).and_then(JobLogLevel::parse)
+fn line_level(line: &str) -> Option<LogLevel> {
+    line.split(' ').nth(1).and_then(LogLevel::parse)
 }
 
 pub async fn read<J: JobLogStore>(
     State(state): State<JobLogState<J>>,
-    RequireAdmin(principal): RequireAdmin,
+    RequireAdmin(_): RequireAdmin,
     Path(id): Path<String>,
     Query(query): Query<LogQuery>,
 ) -> ApiResult<Json<JobLogResponse>> {
     let job = JobId(id);
     let min_level = match query.level.as_deref() {
-        Some(token) => Some(
-            JobLogLevel::parse(token).ok_or_else(|| ApiError::bad_request("unknown log level"))?,
-        ),
+        Some(token) => {
+            Some(LogLevel::parse(token).ok_or_else(|| ApiError::bad_request("unknown log level"))?)
+        }
         None => None,
     };
     let mut lines = state.store.read(&job, None).await?;
@@ -43,8 +44,6 @@ pub async fn read<J: JobLogStore>(
     {
         lines = lines.split_off(lines.len() - limit);
     }
-    let count = lines.len();
-    debug!("User [{}] read {count} job log lines for [{}]", principal.user.0, job.0);
     Ok(Json(JobLogResponse { lines }))
 }
 

@@ -1,0 +1,182 @@
+namespace tests
+
+    @suite("report")
+    class ReportTests extends rooibos.BaseTestSuite
+
+        function started() as object
+            return {
+                session_id: "s1",
+                manifest_url: "/stream/secret-token/master.m3u8",
+                mode: "transcode",
+                container: "mpegts",
+                origin_ms: 4000,
+                sequential: true,
+                selected: { audio_track: 1, audio_delivery: "muxed", subtitle_track: { type: "embedded", index: 2 }, subtitle_delivery: "hls_vtt", subtitle_url: "/stream/secret-token/subtitles.vtt" }
+            }
+        end function
+
+        function payload() as object
+            history = HistoryAdd([], "sent_seek", { session: "s1", position_ms: 5000 }, "2026-10-24T09:00:01.120Z")
+            capabilities = ReportDecoding({ max_height: 2160 }, { hdr: "auto" }, { max_height: 1080 })
+            return ReportPayload("Roku Ultra (4800X), Roku OS 13.0.4 build 4200", "0.0.7", capabilities, history, ["Mode: transcode"], ["09:00:01 playing at 5.0 s"])
+        end function
+
+        @describe("the history")
+
+        @it("stamps an entry with its time to the millisecond, its event and its facts")
+        sub stampsEntries()
+            history = HistoryAdd([], "opened", invalid, HistoryTime("2026-10-24T09:00:01Z", 7))
+            HistoryAdd(history, "sent_seek", { session: "s1", position_ms: 5000 }, "t2")
+
+            m.assertEqual(history[0].at, "2026-10-24T09:00:01.007Z")
+            m.assertEqual(history[0].event, "opened")
+            m.assertEqual(history[0].Count(), 2)
+            m.assertEqual(history[1].event, "sent_seek")
+            m.assertEqual(history[1].session, "s1")
+            m.assertEqual(history[1].position_ms, 5000)
+        end sub
+
+        @it("keeps the newest hundred entries")
+        sub keepsTheNewest()
+            m.assertEqual(ReportHistoryLimit(), 100)
+            history = []
+            for i = 0 to ReportHistoryLimit()
+                HistoryAdd(history, "e" + i.ToStr(), invalid, "t")
+            end for
+
+            m.assertEqual(history.Count(), ReportHistoryLimit())
+            m.assertEqual(history[0].event, "e1")
+            m.assertEqual(history[history.Count() - 1].event, "e" + ReportHistoryLimit().ToStr())
+        end sub
+
+        @describe("the facts")
+
+        @it("tells an answer by its technical facts, never its URLs")
+        sub answersWithoutUrls()
+            facts = AnsweredFacts("start", m.started())
+
+            m.assertEqual(facts.request, "start")
+            m.assertEqual(facts.session, "s1")
+            m.assertEqual(facts.mode, "transcode")
+            m.assertEqual(facts.container, "mpegts")
+            m.assertEqual(facts.origin_ms, 4000)
+            m.assertEqual(facts.sequential, true)
+            m.assertEqual(facts.selected.audio_track, 1)
+            m.assertEqual(facts.selected.subtitle_track.index, 2)
+            m.assertFalse(facts.selected.DoesExist("subtitle_url"))
+            m.assertEqual(Instr(1, FormatJson(facts), "secret-token"), 0)
+            m.assertInvalid(AnsweredFacts("update", { session_id: "s1" }).selected)
+        end sub
+
+        @it("keeps the status, code and message of a failure")
+        sub failures()
+            parsed = ParseResponse(502, "{" + Chr(34) + "error" + Chr(34) + ":{" + Chr(34) + "code" + Chr(34) + ":" + Chr(34) + "upstream_error" + Chr(34) + "," + Chr(34) + "message" + Chr(34) + ":" + Chr(34) + "boom" + Chr(34) + "}}")
+            facts = FailedFacts("update", parsed)
+
+            m.assertEqual(facts.request, "update")
+            m.assertEqual(facts.status, 502)
+            m.assertEqual(facts.code, "upstream_error")
+            m.assertEqual(facts.message, parsed.error)
+            m.assertInvalid(FailedFacts("seek", { ok: false, status: 0, json: invalid, error: "" }).code)
+        end sub
+
+        @describe("the client")
+
+        @it("names the Roku OS version with its build")
+        sub osVersion()
+            m.assertEqual(OsVersionText({ major: "13", minor: "0", revision: "4", build: "4200" }), "13.0.4 build 4200")
+            m.assertEqual(OsVersionText({ major: "12", minor: "5" }), "12.5")
+            m.assertEqual(OsVersionText(invalid), "")
+        end sub
+
+        @it("turns the diagnostics rows into the panel's lines")
+        sub panelLines()
+            lines = DiagnosticsLines([{ label: "Mode", values: ["transcode"] }, { label: "Tracks", values: ["a", "b"] }])
+
+            m.assertEqual(lines, ["Mode: transcode", "Tracks: a, b"])
+        end sub
+
+        @describe("the payload")
+
+        @it("holds the client, its capabilities, the history, the panel and the log")
+        sub payloadShape()
+            payload = m.payload()
+
+            m.assertEqual(payload.schema, 1)
+            m.assertEqual(payload.client.app, "roku")
+            m.assertEqual(payload.client.version, "0.0.7")
+            m.assertEqual(payload.capabilities.measured.max_height, 2160)
+            m.assertEqual(payload.capabilities.choices.hdr, "auto")
+            m.assertEqual(payload.capabilities.sent.max_height, 1080)
+            m.assertEqual(payload.history[0].event, "sent_seek")
+            m.assertEqual(payload.panel, ["Mode: transcode"])
+            m.assertEqual(payload.log, ["09:00:01 playing at 5.0 s"])
+        end sub
+
+        @it("keeps what was shown even when the history grows after")
+        sub payloadIsACopy()
+            history = []
+            payload = ReportPayload("p", "v", ReportDecoding(invalid, invalid, invalid), history, [], [])
+            HistoryAdd(history, "later", invalid, "t")
+
+            m.assertEqual(payload.history.Count(), 0)
+        end sub
+
+        @it("previews a short summary: the client, the counts, the last answer and failure")
+        sub previewSummary()
+            payload = m.payload()
+            HistoryAdd(payload.history, "answered", AnsweredFacts("seek", m.started()), "t2")
+            HistoryAdd(payload.history, "failed", FailedFacts("update", ParseResponse(502, "{" + Chr(34) + "error" + Chr(34) + ":{" + Chr(34) + "code" + Chr(34) + ":" + Chr(34) + "upstream_error" + Chr(34) + "}}")), "t3")
+
+            m.assertEqual(ReportSummaryText(payload).Split(Chr(10)), [
+                "App: roku 0.0.7",
+                "Platform: Roku Ultra (4800X), Roku OS 13.0.4 build 4200",
+                "History: 3 entries",
+                "Last answer: transcode, mpegts (seek)",
+                "Last failure: update, 502 upstream_error",
+                "Playback log: 1 line"
+            ])
+        end sub
+
+        @it("leaves out an answer or a failure that never happened")
+        sub previewWithoutAnswers()
+            lines = ReportSummaryText(m.payload()).Split(Chr(10))
+
+            m.assertEqual(lines.Count(), 4)
+            m.assertEqual(lines[2], "History: 1 entry")
+            m.assertEqual(CountLine("report.summaryLog", 0), "Playback log: 0 lines")
+        end sub
+
+        @it("names a direct answer's missing container and a failure the network ate")
+        sub previewEdges()
+            history = HistoryAdd([], "answered", { request: "start", mode: "direct" }, "t1")
+            HistoryAdd(history, "failed", { request: "seek", status: 0, message: "timed out" }, "t2")
+            HistoryAdd(history, "failed", { request: "start" }, "t3")
+            payload = ReportPayload("p", "v", ReportDecoding(invalid, invalid, invalid), history, [], [])
+
+            lines = ReportSummaryText(payload).Split(Chr(10))
+            m.assertEqual(lines[3], "Last answer: direct, " + Phrase("diagnostics.none") + " (start)")
+            m.assertEqual(lines[4], "Last failure: start", "the newest failure, with nothing to add")
+            m.assertEqual(FailureLine({ request: "seek", status: 0 }), "Last failure: seek, 0")
+            m.assertInvalid(LastHistoryEntry(invalid, "failed"))
+        end sub
+
+        @describe("the request")
+
+        @it("POSTs the payload with the player, the app, the platform and the version")
+        sub request()
+            request = SendReportRequest("http://server:8080", "player-token", "device-1", m.payload())
+            body = ParseJson(request.body)
+
+            m.assertEqual(request.method, "POST")
+            m.assertEqual(request.url, "http://server:8080/api/v1/diagnostics/reports")
+            m.assertEqual(request.headers["Authorization"], "Bearer player-token")
+            m.assertEqual(body.player_id, "device-1")
+            m.assertEqual(body.app, "roku")
+            m.assertEqual(body.platform, "Roku Ultra (4800X), Roku OS 13.0.4 build 4200")
+            m.assertEqual(body.app_version, "0.0.7")
+            m.assertFalse(body.DoesExist("note"))
+            m.assertEqual(body.payload.history[0].position_ms, 5000)
+        end sub
+    end class
+end namespace

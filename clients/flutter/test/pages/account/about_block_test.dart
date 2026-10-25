@@ -6,6 +6,7 @@ import 'package:shadowmask/pages/account/about_block.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
+import 'package:shadowmask/util/app_version.dart';
 
 Widget _host({VersionLoader? loadVersion}) {
   final Widget block = SingleChildScrollView(

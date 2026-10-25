@@ -5,7 +5,8 @@ use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
 use tracing_subscriber::registry::LookupSpan;
 
-use domain::job::{JobId, JobLogLevel};
+use domain::common::LogLevel;
+use domain::job::JobId;
 use persistence::job_log::FsJobLogStore;
 
 const JOB_SPAN: &str = "job";
@@ -69,10 +70,10 @@ where
 
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
         let level = match *event.metadata().level() {
-            Level::ERROR => JobLogLevel::Error,
-            Level::WARN => JobLogLevel::Warn,
-            Level::INFO => JobLogLevel::Info,
-            Level::DEBUG => JobLogLevel::Debug,
+            Level::ERROR => LogLevel::Error,
+            Level::WARN => LogLevel::Warn,
+            Level::INFO => LogLevel::Info,
+            Level::DEBUG => LogLevel::Debug,
             _ => return,
         };
         let Some(scope) = ctx.event_scope(event) else {

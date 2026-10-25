@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Server logs</title>
+  </head>
+  <body>
+    <h1 class="sm-visually-hidden">Server logs</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs">
+      <a href="index.html">Admin</a> / <a href="server.html">Server</a> / Logs
+    </p>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script type="module">
+      import { logLine } from "./log-lines.js";
+
+      const PAGE = 200;
+      const POLL_MS = 2000;
+      const READS_PER_POLL = 10;
+      const NEAR_TOP = 160;
+      const NEAR_BOTTOM = 24;
+      const LEVELS = [
+        ["DEBUG", "Debug"],
+        ["INFO", "Info"],
+        ["WARN", "Warn"],
+        ["ERROR", "Error"],
+      ];
+
+      sm.chrome();
+      if (sm.requireAuth()) guard();
+
+      async function guard() {
+        const main = document.getElementById("main");
+        try {
+          const me = await sm.self();
+          if (me.role !== "admin") {
+            main.textContent = "Not Authorized.";
+            return;
+          }
+          main.textContent = "";
+          render(main);
+        } catch (err) {
+          main.textContent = "Could not load.";
+        }
+      }
+
+      function logs(params) {
+        const query = new URLSearchParams({ limit: String(PAGE), ...params });
+        return sm.json("/api/v1/admin/server/logs?" + query.toString());
+      }
+
+      function render(main) {
+        const state = {
+          level: "INFO",
+          before: null,
+          after: null,
+          paused: false,
+          loading: true,
+          polling: false,
+          loadingOlder: false,
+          olderFailed: false,
+          generation: 0,
+          lastTop: 0,
+        };
+        const level = sm.el(
+          "select",
+          { "aria-label": "Level" },
+          LEVELS.map(([value, text]) => sm.el("option", { value, text })),
+        );
+        level.value = state.level;
+        const pause = sm.el("button", { type: "button" }, "Pause");
+        const head = sm.el("div", { class: "sm-log-debug" });
+        const box = sm.el("div", { class: "sm-log sm-log-tall" }, head);
+        const status = sm.el("p");
+        main.appendChild(
+          sm.el("section", null, [
+            sm.el("h2", { text: "Server logs" }),
+            sm.el("p", null, [level, " ", pause]),
+            status,
+            box,
+          ]),
+        );
+
+        function atBottom() {
+          return box.scrollTop + box.clientHeight >= box.scrollHeight - NEAR_BOTTOM;
+        }
+
+        function toBottom() {
+          box.scrollTop = box.scrollHeight;
+          state.lastTop = box.scrollTop;
+        }
+
+        function showHead() {
+          if (state.loadingOlder) head.textContent = "Loading earlier lines…";
+          else if (state.olderFailed) {
+            head.textContent = "Could not load earlier lines. Scroll up to try again.";
+          } else if (state.before === null) head.textContent = "Nothing older is kept.";
+          else head.textContent = "";
+        }
+
+        async function load() {
+          const mine = ++state.generation;
+          state.loading = true;
+          state.before = null;
+          state.after = null;
+          state.loadingOlder = false;
+          state.olderFailed = false;
+          box.replaceChildren(head);
+          status.textContent = "Loading logs…";
+          try {
+            const page = await logs({ level: state.level });
+            if (mine !== state.generation) return;
+            box.append(...page.entries.map(logLine));
+            state.before = page.before;
+            state.after = page.after;
+            status.textContent = page.entries.length ? "" : "No logs.";
+            showHead();
+            toBottom();
+          } catch (err) {
+            if (mine === state.generation) status.textContent = "Could not load logs.";
+          } finally {
+            if (mine === state.generation) state.loading = false;
+          }
+        }
+
+        async function poll() {
+          if (state.paused || state.loading || state.polling) return;
+          state.polling = true;
+          const mine = state.generation;
+          try {
+            for (let reads = 0; reads < READS_PER_POLL; reads++) {
+              const params = { level: state.level };
+              if (state.after) params.after = state.after;
+              const page = await logs(params);
+              if (mine !== state.generation) return;
+              const following = atBottom();
+              box.append(...page.entries.map(logLine));
+              if (page.after) state.after = page.after;
+              if (page.entries.length) status.textContent = "";
+              if (following && page.entries.length) toBottom();
+              if (!page.more) break;
+            }
+          } catch (err) {
+            if (mine === state.generation) {
+              status.textContent = "Could not fetch new lines; trying again.";
+            }
+          } finally {
+            state.polling = false;
+          }
+        }
+
+        async function loadOlder() {
+          if (state.before === null || state.loading || state.loadingOlder) return;
+          const mine = state.generation;
+          state.loadingOlder = true;
+          state.olderFailed = false;
+          showHead();
+          try {
+            const page = await logs({ level: state.level, before: state.before });
+            if (mine !== state.generation) return;
+            const keep = box.scrollHeight - box.scrollTop;
+            head.after(...page.entries.map(logLine));
+            box.scrollTop = box.scrollHeight - keep;
+            state.lastTop = box.scrollTop;
+            state.before = page.before;
+          } catch (err) {
+            if (mine === state.generation) state.olderFailed = true;
+          } finally {
+            if (mine === state.generation) {
+              state.loadingOlder = false;
+              showHead();
+            }
+          }
+        }
+
+        box.addEventListener("scroll", () => {
+          const scrollingUp = box.scrollTop < state.lastTop;
+          state.lastTop = box.scrollTop;
+          if (scrollingUp && box.scrollTop <= NEAR_TOP) loadOlder();
+        });
+        level.addEventListener("change", () => {
+          state.level = level.value;
+          load();
+        });
+        pause.addEventListener("click", () => {
+          state.paused = !state.paused;
+          pause.textContent = state.paused ? "Resume" : "Pause";
+        });
+
+        load();
+        setInterval(poll, POLL_MS);
+      }
+    </script>
+  </body>
+</html>

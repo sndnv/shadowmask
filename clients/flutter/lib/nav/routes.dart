@@ -15,10 +15,13 @@ String adminUsersRoute() => '/admin/users';
 String adminVersionsRoute() => '/admin/versions';
 String adminCollectionsRoute() => '/admin/collections';
 String adminActivityRoute() => '/admin/activity';
+String adminReportsRoute() => '/admin/reports';
 String adminFetchRoute() => '/admin/fetch';
 String adminServerRoute() => '/admin/server';
+String adminServerLogsRoute() => '/admin/server/logs';
 
 String jobRoute(String id) => '/admin/job?id=${_enc(id)}';
+String adminReportRoute(String id) => '/admin/report?id=${_enc(id)}';
 String adminUserRoute(String id) => '/admin/user?id=${_enc(id)}';
 String adminLibraryRoute(String id) => '/admin/library?id=${_enc(id)}';
 

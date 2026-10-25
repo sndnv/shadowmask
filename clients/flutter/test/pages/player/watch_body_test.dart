@@ -8,12 +8,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/api/token_store.dart';
 import 'package:shadowmask/components/app_dropdown.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/util/scoped_value.dart';
 import 'package:shadowmask/components/player/overlay_bar.dart';
 import 'package:shadowmask/components/player/player_frame.dart';
 import 'package:shadowmask/components/player/player_sheet.dart';
+import 'package:shadowmask/components/player/report_dialog.dart';
 import 'package:shadowmask/components/player/settings_panel.dart';
 import 'package:shadowmask/components/player/shortcuts_dialog.dart';
 import 'package:shadowmask/components/player/timeline.dart';
@@ -23,6 +25,7 @@ import 'package:shadowmask/view/player_shortcuts.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/model/auth/auth_tokens.dart';
 import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/nav/route_observer.dart';
 import 'package:shadowmask/nav/routes.dart';
@@ -414,6 +417,7 @@ Widget _app(
         wide: wide,
         touch: touch,
         onToggleWide: onToggleWide ?? () {},
+        appVersion: () async => '0.0.7',
       ),
     ),
   );
@@ -2784,6 +2788,73 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text(Strings.playerLogEmpty), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('the playback log sends a report only once the viewer has seen '
+      'it', (WidgetTester tester) async {
+    await TokenStore().save(
+      const AuthTokens(accessToken: 'a1', refreshToken: 'r1', playerId: 'p-9'),
+    );
+    final List<http.Request> seen = <http.Request>[];
+    final FakePlayerController fake = FakePlayerController()
+      ..logLines = <String>['09:49:50 waiting at 228.0/596.0 s, buffered none'];
+    bool isReport(http.Request r) =>
+        r.url.path == '/api/v1/diagnostics/reports';
+    await tester.pumpWidget(
+      _app(
+        fake,
+        seen: seen,
+        toasts: true,
+        intercept: (http.Request r) => isReport(r)
+            ? http.Response(jsonEncode(<String, String>{'id': 'r1'}), 201)
+            : null,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(OverlayBar),
+        matching: find.byIcon(PlayerPanel.settings.icon),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text(Strings.playerLogShow));
+    await tester.tap(find.text(Strings.playerLogShow));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(Strings.sendReport));
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.reportTitle), findsOneWidget);
+    expect(find.text(Strings.reportHistory), findsOneWidget);
+    expect(find.textContaining('09:49:50 waiting'), findsOneWidget);
+    expect(seen.where(isReport), isEmpty, reason: 'nothing goes before Send');
+
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(ReportDialog),
+        matching: find.byType(TextField),
+      ),
+      ' stutters ',
+    );
+    await tester.tap(find.text(Strings.reportSend));
+    await tester.pumpAndSettle();
+
+    final Map<String, dynamic> body =
+        jsonDecode(seen.singleWhere(isReport).body) as Map<String, dynamic>;
+    expect(body['player_id'], 'p-9');
+    expect(body['app'], 'flutter');
+    expect(body['app_version'], '0.0.7');
+    expect(body['note'], 'stutters');
+    final Map<String, dynamic> payload =
+        body['payload'] as Map<String, dynamic>;
+    expect(payload['log'], fake.logLines);
+    expect((payload['history'] as List<dynamic>).first['event'], 'opened');
+    expect(payload['panel'], isNotEmpty);
+    expect(find.text(Strings.toastReportSent), findsOneWidget);
+    expect(find.text(Strings.reportTitle), findsNothing);
 
     await tester.pumpWidget(const SizedBox());
   });

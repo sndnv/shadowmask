@@ -2,7 +2,9 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/model/server/benchmark_report.dart';
 import 'package:shadowmask/model/server/capabilities_report.dart';
 import 'package:shadowmask/model/server/playback_prep_report.dart';
+import 'package:shadowmask/model/server/server_log_page.dart';
 import 'package:shadowmask/model/server/transcode_totals.dart';
+import 'package:shadowmask/nav/routes.dart';
 import 'package:shadowmask/util/prometheus.dart';
 
 class ServerAdminApi {
@@ -34,5 +36,20 @@ class ServerAdminApi {
 
   Future<TranscodeTotals> totals() async => TranscodeTotals.fromSamples(
     parseMetrics(await _api.publicText('/metrics')),
+  );
+
+  Future<ServerLogPage> logs({
+    int? limit,
+    String? level,
+    String? before,
+    String? after,
+  }) => _api.getJson(
+    withQuery('/api/v1/admin/server/logs', <String, String?>{
+      'limit': limit?.toString(),
+      'level': level,
+      'before': before,
+      'after': after,
+    }),
+    ServerLogPage.fromJson,
   );
 }

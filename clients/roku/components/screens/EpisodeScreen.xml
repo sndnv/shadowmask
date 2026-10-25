@@ -24,6 +24,7 @@
     <script type="text/brightscript" uri="pkg:/source/playbackstate.brs" />
     <script type="text/brightscript" uri="pkg:/source/languages.brs" />
     <script type="text/brightscript" uri="pkg:/source/work.brs" />
+    <script type="text/brightscript" uri="pkg:/source/report.brs" />
 
     <interface>
         <field id="theme" type="assocarray" onChange="render" />

@@ -17,3 +17,5 @@ String clientPlatform() {
   }
   return 'generic';
 }
+
+String platformDescription() => web.window.navigator.userAgent;

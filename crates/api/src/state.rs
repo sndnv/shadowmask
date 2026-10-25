@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use jiff::{SignedDuration, Timestamp};
 use serde::{Deserialize, Serialize};
 
 use domain::service::{
@@ -117,6 +118,43 @@ impl<J> JobLogState<J> {
 impl<J> Clone for JobLogState<J> {
     fn clone(&self) -> Self {
         Self { store: Arc::clone(&self.store) }
+    }
+}
+
+pub struct ServerLogState<L> {
+    pub store: Arc<L>,
+}
+
+impl<L> ServerLogState<L> {
+    pub fn new(store: L) -> Self {
+        Self { store: Arc::new(store) }
+    }
+}
+
+impl<L> Clone for ServerLogState<L> {
+    fn clone(&self) -> Self {
+        Self { store: Arc::clone(&self.store) }
+    }
+}
+
+pub struct ReportState<R> {
+    pub reports: Arc<R>,
+    pub retention: SignedDuration,
+}
+
+impl<R> ReportState<R> {
+    pub fn new(reports: R, retention: SignedDuration) -> Self {
+        Self { reports: Arc::new(reports), retention }
+    }
+
+    pub fn kept_since(&self, now: Timestamp) -> Timestamp {
+        now.checked_sub(self.retention).unwrap_or(Timestamp::MIN)
+    }
+}
+
+impl<R> Clone for ReportState<R> {
+    fn clone(&self) -> Self {
+        Self { reports: Arc::clone(&self.reports), retention: self.retention }
     }
 }
 

@@ -6,7 +6,8 @@ use domain::user::UserId;
 
 use crate::pool::backend;
 use crate::server::{
-    SqliteAuthTokenRepo, SqliteCatalogRepo, SqliteJobRepo, SqliteLibraryRepo, SqliteUserRepo,
+    SqliteAuthTokenRepo, SqliteCatalogRepo, SqliteJobRepo, SqliteLibraryRepo, SqliteReportRepo,
+    SqliteUserRepo,
 };
 use crate::user::{SqlitePreferencesRepo, SqliteProgressRepo};
 
@@ -23,6 +24,7 @@ async fn migrate_server(dir: &Path) -> Result<(), RepositoryError> {
     SqliteUserRepo::connect(&dir.join("users.db")).await?;
     SqliteCatalogRepo::connect(&dir.join("catalog.db")).await?;
     SqliteAuthTokenRepo::connect(&dir.join("auth.db")).await?;
+    SqliteReportRepo::connect(&dir.join("reports.db")).await?;
     Ok(())
 }
 

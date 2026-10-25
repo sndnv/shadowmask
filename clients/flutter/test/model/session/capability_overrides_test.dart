@@ -90,6 +90,24 @@ void main() {
     expect(applied?.hdr, kHdrFormats);
   });
 
+  test('allowing high dynamic range adds every format to the measured', () {
+    const CapabilityOverrides overrides = CapabilityOverrides(
+      hdr: HdrChoice.allow,
+    );
+    final ClientDecoding? applied = overrides.applyTo(
+      const ClientDecoding(
+        video: <VideoCodecCap>[
+          VideoCodecCap(codec: 'vp9', maxBitDepth: 10, smooth: true),
+        ],
+        hdr: <String>['hlg', 'dolby_vision'],
+      ),
+    );
+    expect(
+      applied?.hdr,
+      unorderedEquals(<String>[...kHdrFormats, 'dolby_vision']),
+    );
+  });
+
   test('a ceiling can be set on a device that measured none', () {
     const CapabilityOverrides overrides = CapabilityOverrides(
       maxHeight: 1080,

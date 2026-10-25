@@ -27,6 +27,7 @@ sub init()
     m.textShown = 0
     m.textLines = 1
     m.titleLines = 1
+    m.inRow = false
 end sub
 
 sub MeasureRequest()
@@ -66,6 +67,7 @@ sub onRequest()
     selected = DialogStartIndex(request, m.top.visible, m.field, m.index, options.Count())
 
     m.field = TextOrBlank(ValueAt(request, "field", ""))
+    m.inRow = DialogInRow(request)
     m.count = options.Count()
     m.model = DialogRows(options, kind, selected)
     m.index = FocusableRowIndex(m.model, selected)
@@ -103,6 +105,7 @@ sub render()
     if m.textLines > 0 then natural = TextBlockHeight(size, m.textLines)
 
     plan = RowSpans(m.model, space)
+    if m.inRow then plan = ButtonRowSpans(m.model.Count())
     room = DialogMaxHeight() - cursor - pad
     if room < DialogRowHeight() then room = DialogRowHeight()
 
@@ -120,8 +123,15 @@ sub render()
     if m.busy then rows = DialogBusyRows(m.model, m.index, TextOrBlank(ValueAt(m.top.request, "busy", "")))
 
     RebuildRows(rows.Count())
+    buttons = DialogButtonSpans(rows.Count(), inner, space.s3)
     for index = 0 to rows.Count() - 1
-        PaintRow(m.built[index], rows[index], theme, inner, plan.tops[index], index = m.index)
+        rowLeft = 0
+        rowWidth = inner
+        if m.inRow
+            rowLeft = buttons.lefts[index]
+            rowWidth = buttons.widths[index]
+        end if
+        PaintRow(m.built[index], rows[index], theme, rowWidth, rowLeft, plan.tops[index], index = m.index)
     end for
 
     m.offset = RevealOffset(m.index, plan.tops, plan.heights, shown, m.offset, 0)
@@ -241,6 +251,16 @@ function PlaceHeading(node as object, text as dynamic, size as integer, bold as 
     return top + node.height + SpacingScale().s3
 end function
 
+function ButtonRowSpans(count as integer) as object
+    tops = []
+    heights = []
+    for index = 0 to count - 1
+        tops.Push(0)
+        heights.Push(DialogRowHeight())
+    end for
+    return { tops: tops, heights: heights, content: DialogRowHeight() }
+end function
+
 function RowSpans(rows as object, space as object) as object
     tops = []
     heights = []
@@ -264,16 +284,16 @@ function RowSpans(rows as object, space as object) as object
     return { tops: tops, heights: heights, content: cursor }
 end function
 
-sub PaintRow(slot as object, row as object, theme as object, width as integer, top as integer, focused as boolean)
+sub PaintRow(slot as object, row as object, theme as object, width as integer, rowLeft as integer, top as integer, focused as boolean)
     space = SpacingScale()
     height = DialogRowHeight()
     inset = space.s4
     icon = ControlIconSize()
     paint = DialogRowPaint(theme, row, focused)
 
-    slot.group.translation = [0, top]
+    slot.group.translation = [rowLeft, top]
 
-    slot.rule.visible = ValueAt(row, "cancel", false) = true or ValueAt(row, "heading", false) = true
+    slot.rule.visible = not m.inRow and (ValueAt(row, "cancel", false) = true or ValueAt(row, "heading", false) = true)
     if slot.rule.visible
         slot.rule.width = width
         slot.rule.height = BorderThickness()
@@ -357,9 +377,10 @@ sub PaintRow(slot as object, row as object, theme as object, width as integer, t
     slot.label.vertAlign = "center"
     slot.label.horizAlign = "left"
     if ValueAt(row, "alignRight", false) = true then slot.label.horizAlign = "right"
+    if m.inRow then slot.label.horizAlign = "center"
     slot.label.translation = [left, 0]
 
-    ticking = focused and ValueAt(row, "alignRight", false) <> true
+    ticking = focused and not m.inRow and ValueAt(row, "alignRight", false) <> true
     slot.label.visible = not ticking
     slot.ticker.visible = ticking
     if not ticking then return
@@ -453,9 +474,9 @@ sub RebuildRows(count as integer)
 end sub
 
 function ScrollsText() as boolean
-    if type(m.model) <> "roArray" or m.model.Count() <> 1 then return false
+    if type(m.model) <> "roArray" then return false
 
-    return m.textNatural > m.textShown
+    return DialogScrollsText(m.inRow, m.model.Count(), m.textNatural, m.textShown)
 end function
 
 sub ScrollText(direction as integer)
@@ -507,7 +528,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
     if key = "up"
         if ScrollsText()
             ScrollText(-1)
-        else
+        else if not m.inRow
             MoveSelection(-1)
         end if
         return true
@@ -516,9 +537,16 @@ function onKeyEvent(key as string, press as boolean) as boolean
     if key = "down"
         if ScrollsText()
             ScrollText(1)
-        else
+        else if not m.inRow
             MoveSelection(1)
         end if
+        return true
+    end if
+
+    if m.inRow and (key = "left" or key = "right")
+        direction = 1
+        if key = "left" then direction = -1
+        MoveSelection(direction)
         return true
     end if
 

@@ -289,7 +289,9 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
                 if position > 0 {
                     stream_metrics::fallback();
                     tally.restart(label);
-                    tracing::warn!("stream [{id}] is run again in software");
+                    let reason = failure.as_deref().unwrap_or_default();
+                    #[rustfmt::skip]
+                    tracing::warn!("stream [{id}] is run again in software after the hardware run failed: {reason}");
                 }
                 failure = match inner.spawner.run_captured(&inner.binary, args).await {
                     Ok(output) if output.success => None,

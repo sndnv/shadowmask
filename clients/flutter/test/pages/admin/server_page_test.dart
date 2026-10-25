@@ -131,11 +131,20 @@ class _Server {
       'libraries': <dynamic>[],
     },
     this.prepStatus = 200,
+    this.logs = const <String, dynamic>{
+      'entries': <String>[],
+      'before': null,
+      'after': null,
+      'more': false,
+    },
+    this.logsStatus = 200,
   }) : capabilities = capabilities ?? <Map<String, dynamic>>[_ready()],
        benchmarks = benchmarks ?? <Map<String, dynamic>>[_benchmark('idle')];
 
   final Map<String, dynamic> prep;
   final int prepStatus;
+  final Map<String, dynamic> logs;
+  final int logsStatus;
   final String role;
   final List<Map<String, dynamic>> capabilities;
   final List<Map<String, dynamic>> benchmarks;
@@ -189,6 +198,7 @@ class _Server {
       }, versionsStatus),
       ('GET', '/metrics') => http.Response(metrics, metricsStatus),
       ('GET', '/api/v1/admin/server/playback-prep') => _json(prep, prepStatus),
+      ('GET', '/api/v1/admin/server/logs') => _json(logs, logsStatus),
       _ => http.Response('{}', 200),
     };
   }
@@ -999,6 +1009,54 @@ void main() {
       expect(find.text(Strings.notAuthorized), findsNothing);
       expect(find.text('12th Gen Intel(R) Core(TM) i3-1220P'), findsOneWidget);
     }
+  });
+
+  testWidgets('the recent logs show the last entries and lead to the full '
+      'page', (WidgetTester tester) async {
+    final _Server server = await _pump(
+      tester,
+      server: _Server(
+        logs: <String, dynamic>{
+          'entries': <String>[
+            '2026-10-24T09:00:00Z  INFO server: started',
+            '2026-10-24T09:00:01Z  WARN media: slow disk',
+          ],
+          'before': '2026-10-24-08:3',
+          'after': '2026-10-24-09:2',
+          'more': false,
+        },
+      ),
+    );
+
+    expect(find.text(Strings.recentLogsHeading), findsOneWidget);
+    expect(find.textContaining('slow disk'), findsOneWidget);
+    final http.Request read = server.requests.singleWhere(
+      (http.Request r) => r.url.path == '/api/v1/admin/server/logs',
+    );
+    expect(read.url.queryParameters, <String, String>{
+      'limit': '$kRecentLogEntries',
+    });
+
+    await tester.ensureVisible(find.byIcon(Icons.subject));
+    await tester.tap(find.byIcon(Icons.subject));
+    await tester.pumpAndSettle();
+    expect(find.text('went to /admin/server/logs'), findsOneWidget);
+  });
+
+  testWidgets('recent logs that cannot be read say so', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, server: _Server(logsStatus: 500));
+
+    expect(find.text(Strings.couldNotLoadLogs), findsOneWidget);
+  });
+
+  testWidgets('a server that has logged nothing says so', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester);
+
+    expect(find.text(Strings.emptyLogs), findsOneWidget);
   });
 
   testWidgets('a non-admin is not authorized', (WidgetTester tester) async {
