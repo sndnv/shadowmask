@@ -11,21 +11,25 @@ use tower::ServiceBuilder;
 use tower::timeout::TimeoutLayer;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-use domain::diagnostics::{PlaybackPrepAudit, ServerDiagnostics, TranscodeBenchmark};
+use domain::diagnostics::{
+    PlaybackPrepAudit, ServerDiagnostics, ServerLogStore, TranscodeBenchmark,
+};
 use domain::job::JobLogStore;
 use domain::media::{SubtitleProvider, SubtitleReader, SubtitleStore};
-use domain::repository::CatalogRepository;
+use domain::repository::{CatalogRepository, ReportRepository};
 use domain::session::{DownloadTokens, PlayCommandTokens, StreamSource, StreamTokens};
 use tower_http::services::ServeDir;
 
 use crate::handlers::{
     admin, auth, catalog, diagnostics, discovery, download, image, job_log, library, play_on,
-    server, sessions, stream, subtitle, trickplay, user_library, users, version, webhook,
+    report, server, server_log, sessions, stream, subtitle, trickplay, user_library, users,
+    version, webhook,
 };
 use crate::middleware::{jwt, timed_out, track_stream_bytes};
 use crate::state::{
     AppServices, DiagnosticsState, DownloadState, ImageState, JobLogState, PlayOnState,
-    StreamState, SubtitleSearchState, SubtitleState, TrickplayState, WebhookClient, WebhookState,
+    ReportState, ServerLogState, StreamState, SubtitleSearchState, SubtitleState, TrickplayState,
+    WebhookClient, WebhookState,
 };
 
 pub fn router<S: AppServices>(state: S) -> Router {
@@ -216,6 +220,31 @@ pub fn job_log_router<S: AppServices, J: JobLogStore + 'static>(
 ) -> Router {
     Router::new()
         .route("/api/v1/admin/jobs/{id}/logs", get(job_log::read::<J>).delete(job_log::wipe::<J>))
+        .route_layer(from_fn_with_state(auth, jwt::<S>))
+        .with_state(state)
+}
+
+pub fn server_log_router<S: AppServices, L: ServerLogStore + 'static>(
+    auth: S,
+    state: ServerLogState<L>,
+) -> Router {
+    Router::new()
+        .route("/api/v1/admin/server/logs", get(server_log::read::<L>))
+        .route_layer(from_fn_with_state(auth, jwt::<S>))
+        .with_state(state)
+}
+
+pub fn report_router<S: AppServices, R: ReportRepository + Send + Sync + 'static>(
+    auth: S,
+    state: ReportState<R>,
+) -> Router {
+    Router::new()
+        .route("/api/v1/diagnostics/reports", post(report::submit::<R>))
+        .route("/api/v1/admin/diagnostics/reports", get(report::list::<R>))
+        .route(
+            "/api/v1/admin/diagnostics/reports/{id}",
+            get(report::read::<R>).delete(report::remove::<R>),
+        )
         .route_layer(from_fn_with_state(auth, jwt::<S>))
         .with_state(state)
 }

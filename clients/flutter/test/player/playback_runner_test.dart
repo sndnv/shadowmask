@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadowmask/api/api_exception.dart';
 import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
@@ -430,6 +432,122 @@ void main() {
     expect(rig.player.calls, <String>['pause', 'attach:transcode', 'play']);
     expect(rig.state.status.sent, isNull);
     await rig.leave(tester);
+  });
+
+  testWidgets('the history holds what was chosen, sent and answered, in '
+      'order', (WidgetTester tester) async {
+    final Rig rig = Rig();
+    await rig.watch(tester, atMs: 5000);
+    rig.runner.changeRemote(k720);
+    await tester.pump();
+    rig.api.answers.single.complete(kRenegotiated);
+    await tester.pump();
+    rig.runner.changeRemote(const PlaybackControls(height: 480));
+    await tester.pump();
+    rig.api.answers.last.completeError(
+      ApiException('boom', status: 502, code: 'upstream_error'),
+    );
+    await tester.pump();
+    await rig.leave(tester);
+
+    final List<Map<String, Object?>> entries = rig.runner.history.entries;
+    expect(entries.map((Map<String, Object?> e) => e['event']), <String>[
+      'opened',
+      'sent_start',
+      'answered',
+      'load',
+      'loaded',
+      'chose',
+      'sent_update',
+      'answered',
+      'load',
+      'loaded',
+      'chose',
+      'sent_update',
+      'failed',
+      'ended',
+    ]);
+    expect(entries[1]['capabilities'], <String, Object?>{
+      'platform': 'linux',
+      'profile_version': 7,
+      'decoding': null,
+      'subtitle_deliveries': rig.player.subtitleDeliveries,
+      'audio_tracks': rig.player.selectsAudioTracks,
+    });
+    expect(entries[5]['controls'], k720.toUpdateBody());
+    expect(entries[6]['position_ms'], 5000);
+    expect(entries[7]['mode'], 'transcode');
+    expect(entries[12], containsPair('status', 502));
+    expect(entries[12], containsPair('code', 'upstream_error'));
+    expect(entries[13]['session'], 's1');
+    expect(
+      entries.expand((Map<String, Object?> e) => e.keys),
+      isNot(contains('version_id')),
+      reason: 'the version is never named',
+    );
+  });
+
+  testWidgets('the history names no title, track title, token or version', (
+    WidgetTester tester,
+  ) async {
+    final Rig rig = Rig(gathered: false);
+    rig.runner.opened(
+      title: PlaybackTitle(
+        name: 'A Secret Film',
+        version: kVersion.copyWith(
+          audio: const <AudioTrack>[
+            AudioTrack(index: 1, codec: 'aac', title: 'Commentary.Release'),
+          ],
+          subtitles: const <SubtitleTrack>[
+            SubtitleTrack(
+              index: 2,
+              format: SubtitleFormat.srt,
+              title: 'Forced.Release',
+            ),
+          ],
+          subtitleFiles: const <SubtitleFile>[
+            SubtitleFile(
+              id: 'f1',
+              format: SubtitleFormat.srt,
+              source: SubtitleSource.external,
+              label: 'Sidecar.Release.srt',
+            ),
+          ],
+        ),
+      ),
+      local: const LocalSettings(),
+      resumeMs: 0,
+      profileVersion: 7,
+    );
+    await rig.answerStart(
+      tester,
+      kDirect.copyWith(
+        manifestUrl: '/stream/secret-token/file',
+        selected: const SelectedTracks(
+          audioTrack: 1,
+          subtitleTrack: SubtitleSelection.file('f1'),
+          subtitleUrl: '/stream/secret-token/subtitles.vtt',
+        ),
+      ),
+    );
+    rig.runner.changeRemote(const PlaybackControls(audioTrack: 1));
+    await tester.pump();
+    rig.api.answers.single.complete(
+      kRenegotiated.copyWith(manifestUrl: '/stream/secret-token/master.m3u8'),
+    );
+    await tester.pump();
+    await rig.leave(tester);
+
+    final String told = jsonEncode(rig.runner.history.entries);
+    for (final String secret in <String>[
+      'A Secret Film',
+      'Release',
+      'secret-token',
+      kVersion.id,
+    ]) {
+      expect(told, isNot(contains(secret)), reason: secret);
+    }
+    expect(told, contains('"audio_track":1'), reason: 'the tracks are told');
   });
 
   testWidgets('a failed stream setting is put back and playback goes on', (

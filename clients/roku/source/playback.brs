@@ -304,8 +304,13 @@ function PlaybackErrorLine(clock as string, code as integer, message as string, 
     return line
 end function
 
+function RedactStreamTokens(text as string) as string
+    pattern = CreateObject("roRegex", "/stream/[^/\s]+/", "")
+    return pattern.ReplaceAll(text, "/stream/" + Chr(8230) + "/")
+end function
+
 function AppendPlaybackLog(lines as object, line as string) as object
-    lines.Push(line)
+    lines.Push(RedactStreamTokens(line))
     while lines.Count() > PlaybackLogLimit()
         lines.Shift()
     end while

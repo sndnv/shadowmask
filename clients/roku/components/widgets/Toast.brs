@@ -17,7 +17,7 @@ sub show()
     size = m.top.fontSize
     padding = size
 
-    messageWidth = TextWidth(m.top.message, size)
+    messageWidth = ToastLabelWidth(TextWidth(m.top.message, size), SpaceWidth(size))
 
     m.message.font = SizedFont(size)
     m.message.color = theme.text

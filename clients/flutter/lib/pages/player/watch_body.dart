@@ -7,6 +7,7 @@ import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/capability_scope.dart';
 import 'package:shadowmask/api/catalog_api.dart';
+import 'package:shadowmask/api/diagnostics_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/player/add_subtitles_dialog.dart';
 import 'package:shadowmask/components/player/diagnostics_overlay.dart';
@@ -14,6 +15,7 @@ import 'package:shadowmask/components/player/overlay_bar.dart';
 import 'package:shadowmask/components/player/playback_log_dialog.dart';
 import 'package:shadowmask/components/player/player_frame.dart';
 import 'package:shadowmask/components/player/player_sheet.dart';
+import 'package:shadowmask/components/player/report_dialog.dart';
 import 'package:shadowmask/components/player/settings_panel.dart';
 import 'package:shadowmask/components/player/shortcuts_dialog.dart';
 import 'package:shadowmask/components/player/timeline.dart';
@@ -22,6 +24,7 @@ import 'package:shadowmask/components/breadcrumbs.dart';
 import 'package:shadowmask/components/crumb.dart';
 import 'package:shadowmask/components/player/trickplay_loader.dart';
 import 'package:shadowmask/components/player/trickplay_thumb.dart';
+import 'package:shadowmask/player/diagnostics_report.dart';
 import 'package:shadowmask/player/playback_runner.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
@@ -48,6 +51,7 @@ import 'package:shadowmask/model/catalog/version_detail.dart';
 import 'package:shadowmask/model/common/artwork.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/model/server/server_info.dart';
+import 'package:shadowmask/model/session/capability_overrides.dart';
 import 'package:shadowmask/model/session/client_decoding.dart';
 import 'package:shadowmask/model/session/resume_position.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
@@ -59,6 +63,7 @@ import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/pages/player/player_prefs_store.dart';
 import 'package:shadowmask/player/web_history.dart';
 import 'package:shadowmask/model/catalog/version.dart';
+import 'package:shadowmask/util/app_version.dart';
 import 'package:shadowmask/util/client_platform.dart';
 import 'package:shadowmask/util/scoped_value.dart';
 import 'package:shadowmask/view/page.dart';
@@ -80,6 +85,7 @@ class WatchBody extends StatefulWidget {
     required this.wide,
     required this.onToggleWide,
     this.touch = false,
+    this.appVersion = defaultVersion,
   });
 
   final ApiClient api;
@@ -90,6 +96,7 @@ class WatchBody extends StatefulWidget {
   final bool wide;
   final bool touch;
   final VoidCallback? onToggleWide;
+  final VersionLoader appVersion;
 
   @override
   State<WatchBody> createState() => _WatchBodyState();
@@ -761,8 +768,50 @@ class _WatchBodyState extends State<WatchBody>
 
   Future<void> _showPlaybackLog() async {
     _closePanel();
-    await showPlaybackLogDialog(context, _controller.log());
+    final bool report = await showPlaybackLogDialog(
+      context,
+      _controller.log(),
+      canReport: true,
+    );
+    if (report && mounted) {
+      await _showReport();
+    }
     _reclaimKeys();
+  }
+
+  Future<void> _showReport() async {
+    final CapabilityScope? scope = CapabilityScope.of(context);
+    final List<String> panel = diagnosticsPanelLines(
+      context,
+      _controller,
+      sourceLine: _sourceLine(_state.title.version),
+    );
+    final String platform = platformDescription();
+    final String appVersion = await widget.appVersion();
+    if (!mounted) {
+      return;
+    }
+    final Map<String, Object?> payload = diagnosticsPayload(
+      platform: platform,
+      appVersion: appVersion,
+      measured: scope?.measured,
+      choices: scope?.overrides ?? const CapabilityOverrides(),
+      sent: scope?.decoding,
+      history: _runner.history.entries,
+      panel: panel,
+      log: _controller.log(),
+    );
+    await showReportDialog(
+      context,
+      payload: payload,
+      send: (String? note) => DiagnosticsApi(widget.api).send(
+        app: kReportApp,
+        platform: platform,
+        appVersion: appVersion,
+        note: note,
+        payload: payload,
+      ),
+    );
   }
 
   void _stepEpisode(EpisodeLink? link) {

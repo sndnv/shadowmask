@@ -12,6 +12,9 @@ import 'package:shadowmask/pages/admin/job_page.dart';
 import 'package:shadowmask/pages/admin/jobs_page.dart';
 import 'package:shadowmask/pages/admin/libraries_page.dart';
 import 'package:shadowmask/pages/admin/library_page.dart';
+import 'package:shadowmask/pages/admin/report_page.dart';
+import 'package:shadowmask/pages/admin/reports_page.dart';
+import 'package:shadowmask/pages/admin/server_logs_page.dart';
 import 'package:shadowmask/pages/admin/server_page.dart';
 import 'package:shadowmask/pages/admin/user_page.dart';
 import 'package:shadowmask/pages/admin/users_page.dart';
@@ -132,7 +135,19 @@ class AppRouter {
       '/admin/activity',
       (Map<String, String> a) => ActivityPage(api: api, offset: offsetArg(a)),
     );
+    _define(
+      '/admin/reports',
+      (Map<String, String> a) => ReportsPage(api: api, offset: offsetArg(a)),
+    );
+    _define(
+      '/admin/report',
+      (Map<String, String> a) => ReportPage(api: api, id: a['id']),
+    );
     _define('/admin/server', (Map<String, String> a) => ServerPage(api: api));
+    _define(
+      '/admin/server/logs',
+      (Map<String, String> a) => ServerLogsPage(api: api),
+    );
     _define(
       '/admin/libraries',
       (Map<String, String> a) => LibrariesPage(api: api),

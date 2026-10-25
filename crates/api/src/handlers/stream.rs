@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use axum::extract::{Path, Request, State};
 use axum::http::HeaderValue;
-use axum::http::header::CONTENT_TYPE;
+use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE, RANGE};
 use axum::response::{IntoResponse, Response};
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
@@ -25,7 +25,8 @@ where
 {
     let claims = state.tokens.verify(&token)?;
     let body = state.source.master_playlist(&claims)?;
-    debug!("User [{}] fetched stream master playlist", claims.user.0);
+    #[rustfmt::skip]
+    debug!("User [{}] fetched the master playlist of stream [{}/{}] for version [{}]", claims.user.0, claims.session.0, claims.generation.0, claims.version.0);
     Ok(([(CONTENT_TYPE, M3U8_CONTENT_TYPE)], body).into_response())
 }
 
@@ -47,7 +48,8 @@ where
         err
     })?;
     let content_type = content_type_for(&file);
-    debug!("User [{}] fetched stream media [{variant}/{file}]", claims.user.0);
+    #[rustfmt::skip]
+    debug!("User [{}] fetched stream media [{variant}/{file}] of stream [{}/{}]", claims.user.0, claims.session.0, claims.generation.0);
     Ok(serve_file(path, request, content_type).await)
 }
 
@@ -62,8 +64,11 @@ where
 {
     let claims = state.tokens.verify(&token)?;
     let path = state.source.direct_file(&claims)?;
-    debug!("User [{}] fetched direct-play file", claims.user.0);
-    Ok(serve_file(path, request, None).await)
+    let range = header_text(request.headers().get(RANGE)).to_owned();
+    let response = serve_file(path, request, None).await;
+    #[rustfmt::skip]
+    debug!("User [{}] fetched the direct-play file of stream [{}/{}] for version [{}]: range [{range}] answered [{}] with [{}] bytes", claims.user.0, claims.session.0, claims.generation.0, claims.version.0, response.status().as_u16(), header_text(response.headers().get(CONTENT_LENGTH)));
+    Ok(response)
 }
 
 pub async fn subtitles<T, G>(
@@ -77,7 +82,8 @@ where
 {
     let claims = state.tokens.verify(&token)?;
     let path = state.source.subtitle_file(&claims)?;
-    debug!("User [{}] fetched the stream's subtitle file", claims.user.0);
+    #[rustfmt::skip]
+    debug!("User [{}] fetched the subtitle file of stream [{}/{}]", claims.user.0, claims.session.0, claims.generation.0);
     Ok(serve_file(path, request, Some("text/vtt")).await)
 }
 
@@ -94,6 +100,10 @@ async fn serve_file(
         _ => {}
     }
     response
+}
+
+fn header_text(value: Option<&HeaderValue>) -> &str {
+    value.and_then(|v| v.to_str().ok()).unwrap_or("none")
 }
 
 fn content_type_for(file: &str) -> Option<&'static str> {

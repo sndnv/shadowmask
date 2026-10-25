@@ -47,11 +47,11 @@ class _DiagnosticsOverlayState extends State<DiagnosticsOverlay> {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
-    final List<String> lines = <String>[
-      if (widget.sourceLine != null) widget.sourceLine!,
-      _insetsLine(context),
-      ...widget.controller.diagnostics().lines,
-    ].map(clipLine).toList();
+    final List<String> lines = diagnosticsPanelLines(
+      context,
+      widget.controller,
+      sourceLine: widget.sourceLine,
+    ).map(clipLine).toList();
     return Container(
       padding: const EdgeInsets.all(Space.s2),
       decoration: BoxDecoration(
@@ -65,19 +65,29 @@ class _DiagnosticsOverlayState extends State<DiagnosticsOverlay> {
       ),
     );
   }
-
-  String _insetsLine(BuildContext context) {
-    final int cutouts = MediaQuery.displayFeaturesOf(context)
-        .where(
-          (DisplayFeature feature) => feature.type == DisplayFeatureType.cutout,
-        )
-        .length;
-    return 'insets: padding ${_edges(MediaQuery.paddingOf(context))}'
-        '  view ${_edges(MediaQuery.viewPaddingOf(context))}'
-        '  cutouts $cutouts';
-  }
-
-  String _edges(EdgeInsets insets) =>
-      '${insets.left.round()},${insets.top.round()},'
-      '${insets.right.round()},${insets.bottom.round()}';
 }
+
+List<String> diagnosticsPanelLines(
+  BuildContext context,
+  PlayerController controller, {
+  String? sourceLine,
+}) => <String>[
+  ?sourceLine,
+  _insetsLine(context),
+  ...controller.diagnostics().lines,
+];
+
+String _insetsLine(BuildContext context) {
+  final int cutouts = MediaQuery.displayFeaturesOf(context)
+      .where(
+        (DisplayFeature feature) => feature.type == DisplayFeatureType.cutout,
+      )
+      .length;
+  return 'insets: padding ${_edges(MediaQuery.paddingOf(context))}'
+      '  view ${_edges(MediaQuery.viewPaddingOf(context))}'
+      '  cutouts $cutouts';
+}
+
+String _edges(EdgeInsets insets) =>
+    '${insets.left.round()},${insets.top.round()},'
+    '${insets.right.round()},${insets.bottom.round()}';

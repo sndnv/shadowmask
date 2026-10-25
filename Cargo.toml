@@ -43,6 +43,7 @@ jiff-cron = "0.3"
 jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_rs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 tracing-test = { version = "0.2", features = ["no-env-filter"] }
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
@@ -66,6 +67,7 @@ toml = "1"
 proptest = "1"
 insta = { version = "1", features = ["json", "redactions"] }
 clap = { version = "4", features = ["derive"] }
+anstream = "1"
 tar = { version = "0.4", default-features = false }
 
 [workspace.lints.rust]

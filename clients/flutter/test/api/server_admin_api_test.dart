@@ -7,6 +7,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/server_admin_api.dart';
 import 'package:shadowmask/model/server/benchmark_report.dart';
 import 'package:shadowmask/model/server/capabilities_report.dart';
+import 'package:shadowmask/model/server/server_log_page.dart';
 import 'package:shadowmask/model/server/transcode_totals.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -85,5 +86,39 @@ void main() {
     expect(seen.method, 'GET');
     expect(seen.url.path, '/metrics');
     expect(totals.fallbacks, 2);
+  });
+
+  test('logs GETs a page with only the parameters it was given', () async {
+    final List<http.Request> seen = <http.Request>[];
+    final ServerAdminApi server = _server(
+      seen.add,
+      body: jsonEncode(<String, dynamic>{
+        'entries': <String>['a'],
+        'before': null,
+        'after': '2026-10-24-09:1',
+        'more': false,
+      }),
+    );
+
+    final ServerLogPage page = await server.logs(limit: 200, level: 'INFO');
+    await server.logs(level: 'WARN', before: '2026-10-24-08:3');
+    await server.logs(after: '2026-10-24-09:1');
+
+    expect(page.entries, <String>['a']);
+    expect(page.after, '2026-10-24-09:1');
+    expect(seen.map((http.Request r) => r.url.path).toSet(), <String>{
+      '/api/v1/admin/server/logs',
+    });
+    expect(seen[0].url.queryParameters, <String, String>{
+      'limit': '200',
+      'level': 'INFO',
+    });
+    expect(seen[1].url.queryParameters, <String, String>{
+      'level': 'WARN',
+      'before': '2026-10-24-08:3',
+    });
+    expect(seen[2].url.queryParameters, <String, String>{
+      'after': '2026-10-24-09:1',
+    });
   });
 }

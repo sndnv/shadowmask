@@ -582,6 +582,14 @@ namespace tests
             m.assertEqual(lines[lines.Count() - 1], "line " + PlaybackLogLimit().ToStr())
         end sub
 
+        @it("hides a stream token in a line, as the Flutter log does")
+        sub hidesStreamTokens()
+            lines = AppendPlaybackLog([], "error [-3] failed (https://h/api/v1/stream/abc123/v0/seg-1.ts)")
+
+            m.assertEqual(lines[0], "error [-3] failed (https://h/api/v1/stream/" + Chr(8230) + "/v0/seg-1.ts)")
+            m.assertEqual(RedactStreamTokens("no url here"), "no url here")
+        end sub
+
         @it("joins the lines for the dialog and says when there are none")
         sub joinsTheLines()
             m.assertEqual(PlaybackLogText(["a", "b"]), "a" + Chr(10) + "b")

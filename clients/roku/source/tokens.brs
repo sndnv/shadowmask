@@ -436,6 +436,10 @@ function TextWidth(text as dynamic, size as integer, bold = false as boolean) as
     return EstimatedTextWidth(value, size)
 end function
 
+function ToastLabelWidth(measured as integer, slack as integer) as integer
+    return measured + slack
+end function
+
 function SpaceWidth(size as integer) as integer
     width = TextWidth("n n", size) - TextWidth("nn", size)
     if width > 0 then return width

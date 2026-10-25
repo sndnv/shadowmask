@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use domain::common::LogLevel;
 use domain::error::JobLogError;
-use domain::job::{JobId, JobLogLevel, JobLogStore};
+use domain::job::{JobId, JobLogStore};
 use jiff::Timestamp;
 
 #[derive(Clone, Default)]
@@ -25,7 +26,7 @@ impl JobLogStore for MockJobLogStore {
         &self,
         job: &JobId,
         at: Timestamp,
-        level: JobLogLevel,
+        level: LogLevel,
         message: &str,
     ) -> Result<(), JobLogError> {
         self.lines
@@ -63,7 +64,7 @@ mod tests {
         let job = JobId("job-1".into());
         for n in 0..3 {
             store
-                .append(&job, Timestamp::UNIX_EPOCH, JobLogLevel::Info, &format!("l{n}"))
+                .append(&job, Timestamp::UNIX_EPOCH, LogLevel::Info, &format!("l{n}"))
                 .await
                 .unwrap();
         }

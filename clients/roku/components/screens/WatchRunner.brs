@@ -18,6 +18,7 @@ sub RunnerInit()
     m.painted = false
     m.toldToPlay = false
     m.runnerReleased = false
+    m.reportHistory = []
 
     m.video.ObserveField("state", "onPlaybackVideoState")
     m.video.ObserveField("position", "onPlaybackPosition")
@@ -27,8 +28,13 @@ sub RunnerInit()
     m.global.ObserveFieldScoped("endsDone", "onEndsDone")
 end sub
 
+sub NoteHistory(event as string, facts = invalid as dynamic)
+    HistoryAdd(m.reportHistory, event, facts, HistoryNow())
+end sub
+
 sub RunnerOpen(versionId as string, controls as dynamic)
     if m.runnerReleased then return
+    NoteHistory("opened")
     if m.playback = invalid
         m.playback = PlaybackOpens(versionId, controls)
         return
@@ -130,9 +136,11 @@ sub RunPlaybackCommand(command as object)
     if kind = "sendStart"
         SendPlaybackStart(command)
     else if kind = "sendUpdate"
+        NoteHistory("sent_update", { session: command.sessionId, controls: ControlsUpdateBody(command.controls), position_ms: command.positionMs })
         session = SessionFor(m.global)
         PlaybackRequest(UpdateSessionRequest(session.serverUrl, session.token, command.sessionId, command.controls, command.positionMs), command.id, "onPlaybackUpdated")
     else if kind = "sendSeek"
+        NoteHistory("sent_seek", { session: command.sessionId, position_ms: command.positionMs })
         session = SessionFor(m.global)
         PlaybackRequest(SeekSessionRequest(session.serverUrl, session.token, command.sessionId, command.positionMs), command.id, "onPlaybackSeeked")
     else if kind = "sendProgress"
@@ -175,6 +183,7 @@ end sub
 sub StartPlaybackNow(command as object)
     session = SessionFor(m.global)
     capabilities = CapabilitiesBody(DeviceDecoding(), Int(m.global.profileVersion))
+    NoteHistory("sent_start", { position_ms: command.positionMs, controls: ControlsStartBody(command.controls), capabilities: capabilities })
     request = StartSessionRequest(session.serverUrl, session.token, m.playback.versionId, command.positionMs, capabilities, command.controls)
     PlaybackRequest(request, command.id, "onPlaybackStarted")
 end sub
@@ -200,6 +209,7 @@ end sub
 
 sub EndPlaybackSession(command as object)
     if IsBlank(command.sessionId) then return
+    NoteHistory("ended", { session: command.sessionId })
 
     if TextOrBlank(m.global.sessionId) = command.sessionId then m.global.sessionId = ""
     m.top.sessionEnd = { sessionId: command.sessionId, positionMs: command.positionMs, playing: command.playing }
@@ -220,10 +230,12 @@ sub onPlaybackStarted(event as object)
     id = PlaybackChangeId(event)
     parsed = PlaybackAnswer(event)
     if parsed.ok
+        NoteHistory("answered", AnsweredFacts("start", parsed.json))
         PostPlayback({ kind: "started", id: id, json: parsed.json })
         return
     end if
 
+    NoteHistory("failed", FailedFacts("start", parsed))
     PostPlayback({ kind: "refusedStart", id: id, message: PhraseWith("error.couldNotPlay", { detail: PlaybackDetail(parsed) }) })
 end sub
 
@@ -238,11 +250,15 @@ end sub
 sub PlaybackAnswered(event as object, kind as string)
     id = PlaybackChangeId(event)
     parsed = PlaybackAnswer(event)
+    request = "seek"
+    if kind = "updated" then request = "update"
     if parsed.ok
+        NoteHistory("answered", AnsweredFacts(request, parsed.json))
         PostPlayback({ kind: kind, id: id, json: parsed.json })
         return
     end if
 
+    NoteHistory("failed", FailedFacts(request, parsed))
     PostPlayback({ kind: "failed", id: id })
 end sub
 
@@ -284,6 +300,7 @@ sub AttachPlayback(command as object)
     if bounds.maxKbps > 0 then content.MaxBandwidth = bounds.maxKbps
     content.PlayStart = AttachSeconds(command.offsetMs, 0)
 
+    NoteHistory("load", { session: command.stream.sessionId, offset_ms: command.offsetMs })
     m.attachId = command.id
     m.global.negotiated = command.stream
     m.global.sessionId = command.stream.sessionId
@@ -369,6 +386,7 @@ sub PlaybackAttached(id as integer)
     m.attachLoaded = true
     StopTimer(m.giveUpTimer)
     m.giveUpTimer = invalid
+    NoteHistory("loaded")
     PostPlayback({ kind: "loaded", id: id })
 end sub
 

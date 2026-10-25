@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod catalog;
 pub mod common;
+pub mod diagnostics;
 pub mod discovery;
 pub mod job;
 pub mod library;

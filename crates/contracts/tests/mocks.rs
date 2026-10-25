@@ -1,17 +1,22 @@
 use contracts::repo::{
     auth_token_repository_contract, catalog_repository_contract, catalog_seed,
     job_repository_contract, library_repository_contract, preferences_repository_contract,
-    progress_repository_contract, user_repository_contract,
+    progress_repository_contract, report_repository_contract, user_repository_contract,
 };
 use domain::repository::CatalogRepository;
 use mocks::{
     MockAuthTokenRepo, MockCatalogRepo, MockJobStore, MockLibraryRepo, MockPreferencesRepo,
-    MockProgressRepo, MockUserRepo,
+    MockProgressRepo, MockReportRepo, MockUserRepo,
 };
 
 #[tokio::test]
 async fn job_repository_contract_holds_for_mock() {
     job_repository_contract(MockJobStore::new()).await;
+}
+
+#[tokio::test]
+async fn report_repository_contract_holds_for_mock() {
+    report_repository_contract(MockReportRepo::new()).await;
 }
 
 #[tokio::test]

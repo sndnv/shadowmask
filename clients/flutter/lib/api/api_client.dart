@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
 
 import 'package:shadowmask/model/auth/auth_tokens.dart';
 import 'package:shadowmask/model/auth/issued_token.dart';
@@ -14,10 +15,15 @@ import 'package:shadowmask/api/authorization_failure.dart';
 import 'package:shadowmask/api/token_store.dart';
 
 class ApiClient {
-  ApiClient({String? baseUrl, http.Client? httpClient, TokenStore? tokenStore})
-    : baseUrl = baseUrl ?? _defaultBaseUrl,
-      _http = httpClient ?? http.Client(),
-      _store = tokenStore ?? TokenStore();
+  ApiClient({
+    String? baseUrl,
+    http.Client? httpClient,
+    TokenStore? tokenStore,
+    String Function()? newPlayerId,
+  }) : baseUrl = baseUrl ?? _defaultBaseUrl,
+       _http = httpClient ?? http.Client(),
+       _store = tokenStore ?? TokenStore(),
+       _newPlayerId = newPlayerId ?? const Uuid().v4;
 
   static const String _defaultBaseUrl = String.fromEnvironment(
     'SHADOWMASK_API_BASE',
@@ -29,10 +35,12 @@ class ApiClient {
   final String baseUrl;
   final http.Client _http;
   final TokenStore _store;
+  final String Function() _newPlayerId;
   final StreamController<void> _sessionChanged =
       StreamController<void>.broadcast();
   Future<SelfUser>? _self;
   Future<String?>? _renewing;
+  String? _unsavedPlayerId;
 
   Stream<void> get sessionChanged => _sessionChanged.stream;
 
@@ -42,8 +50,24 @@ class ApiClient {
   }
 
   Future<void> _clearTokens() async {
+    _unsavedPlayerId = null;
     await _store.clear();
     _sessionChanged.add(null);
+  }
+
+  String _playerIdOf(AuthTokens? current) {
+    if (current != null && current.playerId.isNotEmpty) {
+      return current.playerId;
+    }
+    return _unsavedPlayerId ??= _newPlayerId();
+  }
+
+  Future<String> playerId() async {
+    final AuthTokens? stored = await _store.load();
+    if (stored == null) {
+      return '';
+    }
+    return stored.deviceId.isNotEmpty ? stored.deviceId : _playerIdOf(stored);
   }
 
   Uri _uri(String path) => Uri.parse('$baseUrl$path');
@@ -140,7 +164,7 @@ class ApiClient {
     }
     final AuthTokens next = AuthTokens.fromJson(
       jsonDecode(res.body) as Map<String, dynamic>,
-    );
+    ).copyWith(playerId: _playerIdOf(current));
     await _saveTokens(next);
     return next.accessToken;
   }
@@ -248,8 +272,11 @@ class ApiClient {
       throw _errorFrom(res);
     }
     forgetUser();
+    _unsavedPlayerId = null;
     await _saveTokens(
-      AuthTokens.fromJson(jsonDecode(res.body) as Map<String, dynamic>),
+      AuthTokens.fromJson(
+        jsonDecode(res.body) as Map<String, dynamic>,
+      ).copyWith(playerId: _playerIdOf(null)),
     );
   }
 

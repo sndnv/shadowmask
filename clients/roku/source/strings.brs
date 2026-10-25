@@ -31,6 +31,7 @@ function BuildStringTable() as object
 
         "action.ok": "OK",
         "action.cancel": "Cancel",
+        "action.close": "Close",
         "action.edit": "Edit",
         "action.play": "Play",
         "action.resume": "Resume",
@@ -151,9 +152,11 @@ function BuildStringTable() as object
         "toast.ok.markedUnwatched": "Marked {title} unwatched.",
         "toast.ok.resumeDismissed": "Removed from Continue watching.",
         "toast.ok.historyRemoved": "Removed from history.",
+        "toast.ok.reportSent": "Report sent.",
         "toast.ok.historyCleared": "History cleared.",
         "toast.ok.updated": "Updated {title}.",
         "toast.err.actionFailed": "That did not work. Try again.",
+        "toast.err.reportFailed": "Could not send the report.",
 
         "form.serverAddress": "Server address",
         "form.connecting": "Connecting…",
@@ -206,6 +209,18 @@ function BuildStringTable() as object
         "player.diagnostics": "Diagnostics",
         "player.playbackLog": "Playback log",
         "player.playbackLogEmpty": "Nothing logged yet.",
+        "player.sendReport": "Report",
+
+        "report.title": "Send a report",
+        "report.send": "Send",
+        "report.summaryApp": "App: {app} {version}",
+        "report.summaryPlatform": "Platform: {platform}",
+        "report.summaryHistory": "History: {count} entries",
+        "report.summaryHistoryOne": "History: 1 entry",
+        "report.summaryAnswer": "Last answer: {mode}, {container} ({request})",
+        "report.summaryFailure": "Last failure: {what}",
+        "report.summaryLog": "Playback log: {count} lines",
+        "report.summaryLogOne": "Playback log: 1 line",
 
         "work.more": "More subtitles",
         "work.add": "Add…",

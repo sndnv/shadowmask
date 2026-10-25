@@ -226,7 +226,8 @@ pub async fn set_watched<S: AppServices>(
         .set_watched(&target, &watch_target, watched)
         .await
         .map_err(log_fail(actor, "set watched state"))?;
-    debug!("User [{actor}] set watched={watched} for user [{}]", target.0);
+    #[rustfmt::skip]
+    debug!("User [{actor}] set watched={watched} on [{watch_target:?}] for user [{}]", target.0);
     Ok(StatusCode::NO_CONTENT)
 }
 

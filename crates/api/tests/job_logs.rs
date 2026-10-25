@@ -5,10 +5,12 @@ use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
 use serde_json::Value;
 use tower::ServiceExt;
+use tracing_test::traced_test;
 
 use api::{AppState, JobLogState, bounded, job_log_router};
 use contracts::Generator;
-use domain::job::{JobId, JobLogLevel, JobLogStore};
+use domain::common::LogLevel;
+use domain::job::{JobId, JobLogStore};
 use jiff::Timestamp;
 use mocks::MockJobLogStore;
 
@@ -20,8 +22,8 @@ async fn seeded_store() -> MockJobLogStore {
     let store = MockJobLogStore::new();
     let job = JobId(JOB.into());
     let at = Timestamp::UNIX_EPOCH;
-    store.append(&job, at, JobLogLevel::Info, "started LibraryScan").await.unwrap();
-    store.append(&job, at, JobLogLevel::Info, "succeeded").await.unwrap();
+    store.append(&job, at, LogLevel::Info, "started LibraryScan").await.unwrap();
+    store.append(&job, at, LogLevel::Info, "succeeded").await.unwrap();
     store
 }
 
@@ -30,10 +32,10 @@ async fn seeded_multi_level_store() -> MockJobLogStore {
     let job = JobId(JOB.into());
     let at = Timestamp::UNIX_EPOCH;
     for (level, message) in [
-        (JobLogLevel::Debug, "probing"),
-        (JobLogLevel::Info, "started"),
-        (JobLogLevel::Warn, "slow"),
-        (JobLogLevel::Error, "boom"),
+        (LogLevel::Debug, "probing"),
+        (LogLevel::Info, "started"),
+        (LogLevel::Warn, "slow"),
+        (LogLevel::Error, "boom"),
     ] {
         store.append(&job, at, level, message).await.unwrap();
     }
@@ -71,6 +73,7 @@ fn lines(body: &[u8]) -> Vec<String> {
     value["lines"].as_array().unwrap().iter().map(|l| l.as_str().unwrap().to_owned()).collect()
 }
 
+#[traced_test]
 #[tokio::test]
 async fn admin_reads_seeded_lines() {
     let store = seeded_store().await;
@@ -81,6 +84,7 @@ async fn admin_reads_seeded_lines() {
     assert_eq!(lines.len(), 2);
     assert!(lines[0].contains("started LibraryScan"));
     assert!(lines[1].contains("succeeded"));
+    assert!(!logs_contain("User [admin]"), "reading a log adds nothing to the server's");
 }
 
 #[tokio::test]
@@ -94,6 +98,7 @@ async fn tail_limits_returned_lines() {
     assert!(lines[0].contains("succeeded"));
 }
 
+#[traced_test]
 #[tokio::test]
 async fn wipe_clears_then_read_is_empty() {
     let store = seeded_store().await;
@@ -105,6 +110,7 @@ async fn wipe_clears_then_read_is_empty() {
         send(app(store), "GET", "/api/v1/admin/jobs/job-scan/logs", Some(ADMIN)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(lines(&body).is_empty());
+    assert!(logs_contain("User [admin] wiped job logs for [job-scan]"), "a wipe is still logged");
 }
 
 #[tokio::test]

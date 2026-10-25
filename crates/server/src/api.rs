@@ -23,7 +23,8 @@ use media::transcode::VideoEncoder;
 use metadata::TmdbClient;
 use persistence::migrate::migrate_all;
 use persistence::server::{
-    SqliteAuthTokenRepo, SqliteCatalogRepo, SqliteJobRepo, SqliteLibraryRepo, SqliteUserRepo,
+    SqliteAuthTokenRepo, SqliteCatalogRepo, SqliteJobRepo, SqliteLibraryRepo, SqliteReportRepo,
+    SqliteUserRepo,
 };
 use persistence::session::InMemorySessionRegistry;
 use persistence::user::{SqlitePreferencesRepo, SqliteProgressRepo, SqliteUserData};
@@ -122,6 +123,7 @@ pub struct Repos {
     pub users: SqliteUserRepo,
     pub jobs: SqliteJobRepo,
     pub auth_tokens: SqliteAuthTokenRepo,
+    pub reports: SqliteReportRepo,
     pub progress: SqliteProgressRepo,
     pub preferences: SqlitePreferencesRepo,
     pub user_data: SqliteUserData,
@@ -140,6 +142,7 @@ impl Repos {
             users: SqliteUserRepo::connect(&server.join("users.db")).await?,
             jobs: SqliteJobRepo::connect(&server.join("jobs.db")).await?,
             auth_tokens: SqliteAuthTokenRepo::connect(&server.join("auth.db")).await?,
+            reports: SqliteReportRepo::connect(&server.join("reports.db")).await?,
             user_data: SqliteUserData::new(progress.clone(), preferences.clone()),
             progress,
             preferences,
@@ -152,6 +155,7 @@ impl Repos {
             && self.users.ping().await.is_ok()
             && self.jobs.ping().await.is_ok()
             && self.auth_tokens.ping().await.is_ok()
+            && self.reports.ping().await.is_ok()
     }
 
     pub async fn close(&self) {
@@ -160,6 +164,7 @@ impl Repos {
         self.users.close().await;
         self.jobs.close().await;
         self.auth_tokens.close().await;
+        self.reports.close().await;
         self.progress.close().await;
         self.preferences.close().await;
     }

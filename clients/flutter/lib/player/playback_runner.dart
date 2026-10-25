@@ -12,7 +12,9 @@ import 'package:shadowmask/player/actors/lifecycle.dart';
 import 'package:shadowmask/player/actors/player.dart';
 import 'package:shadowmask/player/actors/server.dart';
 import 'package:shadowmask/player/actors/viewer.dart';
+import 'package:shadowmask/player/playback_history.dart';
 import 'package:shadowmask/player/player_controller.dart';
+import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
 import 'package:shadowmask/player/state/local_settings.dart';
 import 'package:shadowmask/player/state/playback_command.dart';
@@ -40,7 +42,9 @@ class PlaybackRunner {
     required String versionId,
     required PlaybackControls controls,
     required bool playing,
-  }) {
+    PlaybackHistory? history,
+  }) : history = history ?? PlaybackHistory() {
+    this.history.add('opened');
     final (
       PlaybackState opened,
       List<PlaybackCommand> commands,
@@ -66,6 +70,7 @@ class PlaybackRunner {
     _settle(PlaybackState(versionId: versionId), opened, commands);
   }
 
+  final PlaybackHistory history;
   final PlaybackApi _api;
   final PlayerController _player;
   final Future<void> Function(LocalSettings local) _saveLocal;
@@ -119,8 +124,12 @@ class PlaybackRunner {
   void seekToFraction(double fraction) =>
       _post((PlaybackState s) => viewerSeeksToFraction(s, fraction));
 
-  void changeRemote(PlaybackControls controls) =>
-      _post((PlaybackState s) => viewerChangesRemote(s, controls));
+  void changeRemote(PlaybackControls controls) {
+    history.add('chose', <String, Object?>{
+      'controls': controls.toUpdateBody(),
+    });
+    _post((PlaybackState s) => viewerChangesRemote(s, controls));
+  }
 
   void changeLocal(LocalSettings Function(LocalSettings local) change) =>
       _post((PlaybackState s) => viewerChangesLocal(s, change(s.local)));
@@ -309,20 +318,33 @@ class PlaybackRunner {
         :final PlaybackControls controls,
         :final int positionMs,
       ):
+        history.add('sent_update', <String, Object?>{
+          'session': sessionId,
+          'controls': controls.toUpdateBody(),
+          'position_ms': positionMs,
+        });
         unawaited(
           _api
               .update(sessionId, controls, positionMs)
               .then(
-                (Negotiation n) => _post(
-                  (PlaybackState s) => serverUpdated(
-                    s,
-                    id: id,
-                    negotiation: n,
-                    seeksInStream: _player.seeksWithin(n.container),
-                  ),
-                ),
-                onError: (Object _) =>
-                    _post((PlaybackState s) => serverFailed(s, id)),
+                (Negotiation n) {
+                  history.add(
+                    'answered',
+                    negotiatedFacts('update', sessionId, n),
+                  );
+                  _post(
+                    (PlaybackState s) => serverUpdated(
+                      s,
+                      id: id,
+                      negotiation: n,
+                      seeksInStream: _player.seeksWithin(n.container),
+                    ),
+                  );
+                },
+                onError: (Object error) {
+                  history.add('failed', failedFacts('update', error));
+                  _post((PlaybackState s) => serverFailed(s, id));
+                },
               ),
         );
       case SendSeek(
@@ -330,20 +352,32 @@ class PlaybackRunner {
         :final String sessionId,
         :final int positionMs,
       ):
+        history.add('sent_seek', <String, Object?>{
+          'session': sessionId,
+          'position_ms': positionMs,
+        });
         unawaited(
           _api
               .seek(sessionId, positionMs)
               .then(
-                (Negotiation n) => _post(
-                  (PlaybackState s) => serverSeeked(
-                    s,
-                    id: id,
-                    negotiation: n,
-                    seeksInStream: _player.seeksWithin(n.container),
-                  ),
-                ),
-                onError: (Object _) =>
-                    _post((PlaybackState s) => serverFailed(s, id)),
+                (Negotiation n) {
+                  history.add(
+                    'answered',
+                    negotiatedFacts('seek', sessionId, n),
+                  );
+                  _post(
+                    (PlaybackState s) => serverSeeked(
+                      s,
+                      id: id,
+                      negotiation: n,
+                      seeksInStream: _player.seeksWithin(n.container),
+                    ),
+                  );
+                },
+                onError: (Object error) {
+                  history.add('failed', failedFacts('seek', error));
+                  _post((PlaybackState s) => serverFailed(s, id));
+                },
               ),
         );
       case SendProgress(
@@ -357,6 +391,7 @@ class PlaybackRunner {
         :final int? positionMs,
         :final bool playing,
       ):
+        history.add('ended', <String, Object?>{'session': sessionId});
         _ending = _afterEnds().then(
           (_) => _end(sessionId, positionMs, playing),
         );
@@ -366,6 +401,10 @@ class PlaybackRunner {
         :final int offsetMs,
         :final PlayerTracks tracks,
       ):
+        history.add('load', <String, Object?>{
+          'session': stream.sessionId,
+          'offset_ms': offsetMs,
+        });
         unawaited(
           _player
               .attach(
@@ -376,11 +415,19 @@ class PlaybackRunner {
                 autoplay: false,
               )
               .then(
-                (_) => _post((PlaybackState s) => playerLoaded(s, id)),
-                onError: (Object _) => _post(
-                  (PlaybackState s) =>
-                      playerFailedToLoad(s, id, Strings.playerFailed),
-                ),
+                (_) {
+                  history.add('loaded');
+                  _post((PlaybackState s) => playerLoaded(s, id));
+                },
+                onError: (Object error) {
+                  history.add('load_failed', <String, Object?>{
+                    'message': redactStreamTokens(error.toString()),
+                  });
+                  _post(
+                    (PlaybackState s) =>
+                        playerFailedToLoad(s, id, Strings.playerFailed),
+                  );
+                },
               ),
         );
       case SeekPlayer(:final int offsetMs):
@@ -402,8 +449,19 @@ class PlaybackRunner {
     final PlaybackState s = _state.value;
     unawaited(
       _afterEnds()
-          .then(
-            (_) => _api.startSession(
+          .then((_) {
+            history.add('sent_start', <String, Object?>{
+              'position_ms': positionMs,
+              'controls': controls.toStartBody(),
+              'capabilities': <String, Object?>{
+                'platform': _platform,
+                'profile_version': _profileVersion,
+                'decoding': s.local.decoding?.toJson(),
+                'subtitle_deliveries': _player.subtitleDeliveries,
+                'audio_tracks': _player.selectsAudioTracks,
+              },
+            });
+            return _api.startSession(
               versionId: s.versionId,
               startPositionMs: positionMs,
               profileVersion: _profileVersion,
@@ -412,22 +470,28 @@ class PlaybackRunner {
               subtitleDeliveries: _player.subtitleDeliveries,
               selectsAudioTracks: _player.selectsAudioTracks,
               controls: controls,
-            ),
-          )
+            );
+          })
           .then(
-            (PlaybackSession session) => _post(
-              (PlaybackState s) => serverStarted(
-                s,
-                id: id,
-                session: session,
-                positionMs: positionMs,
-                seeksInStream: _player.seeksWithin(session.container),
-              ),
-            ),
-            onError: (Object _) => _post(
-              (PlaybackState s) =>
-                  serverRefusedStart(s, id, Strings.couldNotStartPlayback),
-            ),
+            (PlaybackSession session) {
+              history.add('answered', startedFacts(session));
+              _post(
+                (PlaybackState s) => serverStarted(
+                  s,
+                  id: id,
+                  session: session,
+                  positionMs: positionMs,
+                  seeksInStream: _player.seeksWithin(session.container),
+                ),
+              );
+            },
+            onError: (Object error) {
+              history.add('failed', failedFacts('start', error));
+              _post(
+                (PlaybackState s) =>
+                    serverRefusedStart(s, id, Strings.couldNotStartPlayback),
+              );
+            },
           ),
     );
   }

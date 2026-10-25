@@ -161,10 +161,10 @@ pub async fn refresh_movie<S: AppServices>(
     };
     state
         .library()
-        .reidentify(&principal, TitleRef::Movie(MovieId(id)), external_id, force)
+        .reidentify(&principal, TitleRef::Movie(MovieId(id.clone())), external_id, force)
         .await
         .map_err(log_fail(actor, "refresh movie"))?;
-    debug!("User [{actor}] queued a metadata refresh for a movie force [{force}]");
+    debug!("User [{actor}] queued a metadata refresh for movie [{id}] force [{force}]");
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -181,10 +181,10 @@ pub async fn refresh_series<S: AppServices>(
     };
     state
         .library()
-        .reidentify(&principal, TitleRef::Series(SeriesId(id)), external_id, force)
+        .reidentify(&principal, TitleRef::Series(SeriesId(id.clone())), external_id, force)
         .await
         .map_err(log_fail(actor, "refresh series"))?;
-    debug!("User [{actor}] queued a metadata refresh for a series force [{force}]");
+    debug!("User [{actor}] queued a metadata refresh for series [{id}] force [{force}]");
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -468,7 +468,7 @@ pub async fn refresh_person<S: AppServices>(
         .refresh_person(&principal, &id)
         .await
         .map_err(log_fail(actor, "refresh person"))?;
-    debug!("User [{actor}] queued a metadata refresh for a person");
+    debug!("User [{actor}] queued a metadata refresh for person [{}]", id.0);
     Ok(StatusCode::ACCEPTED)
 }
 

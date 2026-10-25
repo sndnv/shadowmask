@@ -44,7 +44,7 @@ where
             .await
             .map_err(|e| JobError::Retryable(e.to_string()))?
         else {
-            tracing::debug!("version gone; skipping upscale");
+            tracing::debug!("version [{}] gone; skipping upscale", payload.version_id.0);
             return Ok(());
         };
 

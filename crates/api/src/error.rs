@@ -6,8 +6,8 @@ use serde::Serialize;
 
 use domain::error::{
     AuthError, BenchmarkError, CatalogError, DeviceTargetError, DiscoveryError, DownloadTokenError,
-    JobLogError, JobServiceError, LibraryError, PlayCommandTokenError, SessionError, StreamError,
-    StreamTokenError, UserError,
+    JobLogError, JobServiceError, LibraryError, PlayCommandTokenError, ServerLogError,
+    SessionError, StreamError, StreamTokenError, UserError,
 };
 use domain::session::PlaybackSession;
 
@@ -257,6 +257,15 @@ impl From<JobLogError> for ApiError {
         match err {
             JobLogError::InvalidId => ApiError::bad_request("invalid job id"),
             JobLogError::Backend(_) => ApiError::internal(),
+        }
+    }
+}
+
+impl From<ServerLogError> for ApiError {
+    fn from(err: ServerLogError) -> Self {
+        match err {
+            ServerLogError::InvalidCursor => ApiError::bad_request("invalid server log cursor"),
+            ServerLogError::Backend(_) => ApiError::internal(),
         }
     }
 }
@@ -549,6 +558,16 @@ mod tests {
         assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
         assert_eq!(invalid.code, "bad_request");
         let backend = ApiError::from(JobLogError::Backend("disk".into()));
+        assert_eq!(backend.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(backend.code, "internal");
+    }
+
+    #[test]
+    fn server_log_error_mappings() {
+        let invalid = ApiError::from(ServerLogError::InvalidCursor);
+        assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
+        assert_eq!(invalid.code, "bad_request");
+        let backend = ApiError::from(ServerLogError::Backend("disk".into()));
         assert_eq!(backend.status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(backend.code, "internal");
     }

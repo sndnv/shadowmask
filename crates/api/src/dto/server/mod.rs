@@ -13,6 +13,7 @@ mod library_prep_status;
 mod playback_prep_response;
 mod rating_system;
 mod server_info;
+mod server_log_response;
 mod start_benchmark_request;
 
 pub use benchmark_progress::BenchmarkProgress;
@@ -30,4 +31,5 @@ pub use library_prep_status::LibraryPrepStatus;
 pub use playback_prep_response::PlaybackPrepResponse;
 pub use rating_system::RatingSystem;
 pub use server_info::ServerInfoResponse;
+pub use server_log_response::ServerLogResponse;
 pub use start_benchmark_request::StartBenchmarkRequest;

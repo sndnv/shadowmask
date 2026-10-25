@@ -11,6 +11,7 @@ abstract class AuthTokens with _$AuthTokens {
     @JsonKey(name: 'access_token') required String accessToken,
     @JsonKey(name: 'refresh_token') @Default('') String refreshToken,
     @JsonKey(name: 'device_id') @Default('') String deviceId,
+    @JsonKey(name: 'player_id') @Default('') String playerId,
   }) = _AuthTokens;
 
   factory AuthTokens.fromJson(Map<String, dynamic> json) =>

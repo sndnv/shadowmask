@@ -6,6 +6,7 @@ use axum::body::{Body, to_bytes};
 use axum::http::{HeaderMap, Request, StatusCode, header};
 use jiff::Timestamp;
 use tower::ServiceExt;
+use tracing_test::traced_test;
 
 use api::{StreamState, bounded, stream_router};
 use domain::catalog::VersionId;
@@ -210,6 +211,7 @@ async fn segment_range_returns_206_partial() {
     assert_eq!(body, b"SEGM");
 }
 
+#[traced_test]
 #[tokio::test]
 async fn direct_file_served_with_and_without_range() {
     let dir = tempfile::tempdir().unwrap();
@@ -221,6 +223,13 @@ async fn direct_file_served_with_and_without_range() {
         send(app(dir.path()), "/stream/good:live/file", Some("bytes=0-2")).await;
     assert_eq!(status, StatusCode::PARTIAL_CONTENT);
     assert!(headers.contains_key(header::CONTENT_RANGE));
+
+    for line in [
+        "User [u1] fetched the direct-play file of stream [live/1] for version [ver-1]: range [none] answered [200] with [19] bytes",
+        "User [u1] fetched the direct-play file of stream [live/1] for version [ver-1]: range [bytes=0-2] answered [206] with [3] bytes",
+    ] {
+        assert!(logs_contain(line), "missing log line: {line}");
+    }
 }
 
 #[tokio::test]

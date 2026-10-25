@@ -59,6 +59,8 @@ services:
       # Playback prep output. Not a cache.
       # SHADOWMASK_PLAYBACK_PREP_DIR: "/data/playback-prep"
       # SHADOWMASK_JOB_LOG_DIR: "/data/job-logs"
+      # The server's own log, one file per hour, read by the admin Server logs page.
+      # SHADOWMASK_SERVER_LOG_DIR: "/data/server-logs"
       # SHADOWMASK_BOOTSTRAP_DIR: "/config/bootstrap"
       # SHADOWMASK_BASIC_CLIENT_DIR: "/usr/share/shadowmask/basic"
       # JSON playback profiles overriding the built-ins, one file per device type:
@@ -118,6 +120,10 @@ services:
       # SHADOWMASK_REQUEST_TIMEOUT_SECS: "90"
       # SHADOWMASK_CACHE_EVICTION_EVERY_SECS: "3600"
       # SHADOWMASK_JOB_RETENTION_DAYS: "30"
+      # Hourly files of the server's own log kept; the console output is not affected.
+      # SHADOWMASK_SERVER_LOG_RETENTION_HOURS: "24"
+      # Hours a player's diagnostics report is kept.
+      # SHADOWMASK_REPORT_RETENTION_HOURS: "24"
       # SHADOWMASK_RETENTION_EVERY_SECS: "86400"
       # SHADOWMASK_ORPHAN_SWEEP_EVERY_SECS: "86400"
       # SHADOWMASK_ORPHAN_SWEEP_GRACE_SECS: "86400"

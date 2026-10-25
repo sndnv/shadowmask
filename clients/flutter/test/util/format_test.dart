@@ -8,6 +8,18 @@ void main() {
     expect(dateTimeText(local.toUtc().toIso8601String()), '2026-08-17 09:24');
   });
 
+  test('preciseDateTimeText keeps the seconds and milliseconds', () {
+    final DateTime local = DateTime(2026, 8, 17, 9, 24, 11, 7);
+
+    expect(
+      preciseDateTimeText(local.toUtc().toIso8601String()),
+      '2026-08-17 09:24:11.007',
+    );
+    expect(preciseDateTimeText('not a date'), 'not a date');
+    expect(preciseDateTimeText(''), isNull);
+    expect(preciseDateTimeText(null), isNull);
+  });
+
   test('scoreText restores the scale each source measures on', () {
     expect(scoreText('Internet Movie Database', 8.1), '8.1/10');
     expect(scoreText('Rotten Tomatoes', 87), '87%');

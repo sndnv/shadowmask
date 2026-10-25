@@ -257,6 +257,7 @@ pub struct Config {
     pub subtitle_cache: PathBuf,
     pub playback_prep_dir: PathBuf,
     pub job_log_dir: PathBuf,
+    pub server_log_dir: PathBuf,
     pub tmdb_api_key: Option<String>,
     pub omdb_api_key: Option<String>,
     pub opensubtitles_api_key: Option<String>,
@@ -286,6 +287,8 @@ pub struct Config {
     pub orphan_sweep_grace_secs: i64,
     pub log_level: String,
     pub sqlx_log_level: String,
+    pub server_log_retention_hours: usize,
+    pub report_retention_hours: i64,
     pub bootstrap_mode: BootstrapMode,
     pub bootstrap_dir: PathBuf,
     pub webhook_clients: Vec<::api::WebhookClient>,
@@ -316,6 +319,7 @@ impl Default for Config {
             subtitle_cache: PathBuf::from("data/subtitles"),
             playback_prep_dir: PathBuf::from("data/playback-prep"),
             job_log_dir: PathBuf::from("data/job-logs"),
+            server_log_dir: PathBuf::from("data/server-logs"),
             tmdb_api_key: None,
             omdb_api_key: None,
             opensubtitles_api_key: None,
@@ -345,6 +349,8 @@ impl Default for Config {
             orphan_sweep_grace_secs: 86_400,
             log_level: "info".to_owned(),
             sqlx_log_level: "warn".to_owned(),
+            server_log_retention_hours: 24,
+            report_retention_hours: 24,
             bootstrap_mode: BootstrapMode::Off,
             bootstrap_dir: PathBuf::from("bootstrap"),
             webhook_clients: Vec::new(),
@@ -489,6 +495,8 @@ impl Config {
         let _ = writeln!(out, "    cache_evict_every: {} s", self.cache_eviction_every_secs);
         let _ = writeln!(out, "    log_level:        {}", self.log_level);
         let _ = writeln!(out, "    sqlx_log_level:   {}", self.sqlx_log_level);
+        let _ = writeln!(out, "    log_retention:    {} h", self.server_log_retention_hours);
+        let _ = writeln!(out, "    report_retention: {} h", self.report_retention_hours);
         let _ = writeln!(out, "  caches:");
         for (key, value) in [
             ("transcode:", self.transcode_cache.display().to_string()),
@@ -500,6 +508,7 @@ impl Config {
             ("subtitles:", self.subtitle_cache.display().to_string()),
             ("playback_prep:", self.playback_prep_dir.display().to_string()),
             ("job_logs:", self.job_log_dir.display().to_string()),
+            ("server_logs:", self.server_log_dir.display().to_string()),
         ] {
             let _ = writeln!(out, "    {key:<CACHE_KEY_WIDTH$} {value}");
         }
@@ -701,6 +710,39 @@ mod tests {
             let config = Config::load().unwrap().config;
             assert_eq!(config.access_ttl_secs, 7);
             assert_eq!(config.trickplay_threads, 6);
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn server_logs_are_kept_a_day_in_their_own_folder_unless_configured() {
+        figment::Jail::expect_with(|jail| {
+            let config = Config::load().unwrap().config;
+            assert_eq!(config.server_log_dir, PathBuf::from("data/server-logs"));
+            assert_eq!(config.server_log_retention_hours, 24);
+            assert!(config.describe(None).contains("log_retention:    24 h"));
+            assert!(
+                config.describe(None).contains(&cache_line("server_logs:", "data/server-logs"))
+            );
+            jail.set_env("SHADOWMASK_SERVER_LOG_DIR", "/data/server-logs");
+            jail.set_env("SHADOWMASK_SERVER_LOG_RETENTION_HOURS", "72");
+            let config = Config::load().unwrap().config;
+            assert_eq!(config.server_log_dir, PathBuf::from("/data/server-logs"));
+            assert_eq!(config.server_log_retention_hours, 72);
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn diagnostics_reports_are_kept_a_day_unless_configured() {
+        figment::Jail::expect_with(|jail| {
+            let config = Config::load().unwrap().config;
+            assert_eq!(config.report_retention_hours, 24);
+            assert!(config.describe(None).contains("report_retention: 24 h"));
+            jail.set_env("SHADOWMASK_REPORT_RETENTION_HOURS", "48");
+            assert_eq!(Config::load().unwrap().config.report_retention_hours, 48);
             Ok(())
         });
     }
@@ -1412,7 +1454,7 @@ mod tests {
             .map(value_column)
             .collect();
 
-        assert_eq!(columns.len(), 9, "every cache line has to be measured");
+        assert_eq!(columns.len(), 10, "every cache line has to be measured");
         assert!(
             columns.iter().all(|column| *column == columns[0]),
             "cache values start at differing columns: {columns:?}"

@@ -625,4 +625,106 @@ void main() {
       expect(await api.linkedDeviceId(), isEmpty);
     },
   );
+
+  group('player id', () {
+    late int made;
+
+    String nextId() => 'p-${++made}';
+
+    setUp(() => made = 0);
+
+    ApiClient playerClient({bool refreshes = false}) => ApiClient(
+      baseUrl: 'http://test',
+      newPlayerId: nextId,
+      httpClient: MockClient((http.Request req) async {
+        switch (req.url.path) {
+          case '/api/v1/auth/login':
+            return _pair('a1', 'r1');
+          case '/api/v1/auth/refresh':
+            return _pair('a2', 'r2');
+          case '/api/v1/auth/link':
+            return http.Response(
+              jsonEncode(<String, dynamic>{
+                'token': 'smk_abc',
+                'device_id': 'dev-7',
+              }),
+              200,
+            );
+        }
+        final bool fresh = req.headers['Authorization'] == 'Bearer a2';
+        return refreshes && !fresh
+            ? http.Response('', 401)
+            : http.Response(
+                jsonEncode(<String, String>{
+                  'id': 'u1',
+                  'username': 'ada',
+                  'role': 'user',
+                }),
+                200,
+              );
+      }),
+    );
+
+    test('a password sign-in gets one, kept with its tokens', () async {
+      final ApiClient api = playerClient();
+
+      await api.login('ada', 'pw');
+
+      expect(await api.playerId(), 'p-1');
+      expect(await api.playerId(), 'p-1');
+      expect((await TokenStore().load())!.playerId, 'p-1');
+      expect(made, 1);
+    });
+
+    test('a refresh keeps it', () async {
+      final ApiClient api = playerClient(refreshes: true);
+      await api.login('ada', 'pw');
+
+      await api.currentUser();
+
+      final AuthTokens stored = (await TokenStore().load())!;
+      expect(stored.accessToken, 'a2', reason: 'the refresh did happen');
+      expect(stored.playerId, 'p-1');
+      expect(made, 1);
+    });
+
+    test('a sign-out ends it and the next sign-in gets a new one', () async {
+      final ApiClient api = playerClient();
+      await api.login('ada', 'pw');
+
+      await api.logout();
+      expect(await api.playerId(), isEmpty);
+
+      await api.login('bob', 'pw');
+      expect(await api.playerId(), 'p-2');
+    });
+
+    test('a linked app is its own player and makes none', () async {
+      final ApiClient api = playerClient();
+
+      await api.redeemLinkCode('C0DE', deviceName: 'd', platform: 'android');
+
+      expect(await api.playerId(), 'dev-7');
+      expect(made, 0);
+    });
+
+    test(
+      'a sign-in from before player ids gets one its next refresh stores',
+      () async {
+        await TokenStore().save(
+          const AuthTokens(accessToken: 'a1', refreshToken: 'r1'),
+        );
+        final ApiClient api = playerClient(refreshes: true);
+
+        expect(await api.playerId(), 'p-1');
+        expect((await TokenStore().load())!.playerId, isEmpty);
+
+        await api.currentUser();
+
+        expect((await TokenStore().load())!.playerId, 'p-1');
+        expect(await api.playerId(), 'p-1');
+        expect(made, 1);
+      },
+    );
+  });
 }

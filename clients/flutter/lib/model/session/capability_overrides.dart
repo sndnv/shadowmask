@@ -162,8 +162,7 @@ class CapabilityOverrides {
       case HdrChoice.auto:
         return measured?.hdr;
       case HdrChoice.allow:
-        final List<String>? found = measured?.hdr;
-        return found == null || found.isEmpty ? kHdrFormats : found;
+        return <String>{...?measured?.hdr, ...kHdrFormats}.toList();
       case HdrChoice.deny:
         return const <String>[];
     }

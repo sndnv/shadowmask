@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Admin reports</title>
+  </head>
+  <body>
+    <h1 class="sm-visually-hidden">Reports</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs"><a href="index.html">Admin</a> / <span id="reports-crumb">Reports</span></p>
+    <div class="sm-toolbar">
+      <button type="button" id="refresh">Refresh</button>
+      <span id="filter-slot"></span>
+    </div>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script>
+      sm.chrome();
+      if (sm.requireAuth()) guard();
+
+      async function guard() {
+        const main = document.getElementById("main");
+        try {
+          const me = await sm.self();
+          if (me.role !== "admin") {
+            main.textContent = "Not Authorized.";
+            return;
+          }
+          document.getElementById("refresh").addEventListener("click", load);
+          renderFilter();
+          await load();
+        } catch (err) {
+          main.textContent = "Could not load.";
+        }
+      }
+
+      function renderFilter() {
+        const filter = sm.el("input", {
+          type: "search",
+          name: "filter",
+          value: sm.qs("filter") || "",
+          placeholder: "player, user, app, platform, version...",
+          autocomplete: "off",
+          "aria-label": "Filter reports",
+        });
+        const slot = document.getElementById("filter-slot");
+        slot.textContent = "";
+        slot.appendChild(
+          sm.el("form", { method: "get", action: "reports.html" }, [
+            sm.el("label", null, ["Filter ", filter]),
+            " ",
+            sm.el("button", { type: "submit" }, "Apply"),
+          ]),
+        );
+      }
+
+      function query() {
+        const params = new URLSearchParams();
+        const offset = sm.qs("offset");
+        const filter = sm.qs("filter");
+        if (offset) params.set("offset", offset);
+        if (filter) params.set("filter", filter);
+        const qs = params.toString();
+        return qs ? "?" + qs : "";
+      }
+
+      async function load() {
+        const main = document.getElementById("main");
+        main.textContent = "Loading…";
+        try {
+          const page = await sm.json("/api/v1/admin/diagnostics/reports" + query());
+          document.getElementById("reports-crumb").textContent = "Reports (" + page.total + ")";
+          main.textContent = "";
+          if (!page.items.length) {
+            main.appendChild(
+              sm.el("p", { text: sm.qs("filter") ? "No reports match the filter." : "No reports." }),
+            );
+            return;
+          }
+          const rows = page.items.map((r) => [
+            sm.el(
+              "a",
+              { href: "report.html?id=" + encodeURIComponent(r.id) },
+              sm.preciseTime(r.created_at),
+            ),
+            r.player_id,
+            r.user_id,
+            r.app,
+            r.app_version,
+            r.platform,
+          ]);
+          main.appendChild(sm.table(["Sent", "Player", "User", "App", "Version", "Platform"], rows));
+          main.appendChild(sm.pager(page.total, page.offset, page.limit));
+        } catch (err) {
+          main.textContent = "Could not load reports.";
+        }
+      }
+    </script>
+  </body>
+</html>

@@ -474,6 +474,39 @@ namespace tests
             m.assertEqual(MenuOptions(invalid).Count(), 0)
         end sub
 
+        @describe("buttons in a row")
+
+        @it("is asked for by the request and is a list otherwise")
+        sub rowIsAskedFor()
+            m.assertTrue(DialogInRow({ layout: "row" }))
+            m.assertFalse(DialogInRow({ layout: "list" }))
+            m.assertFalse(DialogInRow({}))
+            m.assertFalse(DialogInRow(invalid))
+        end sub
+
+        @it("shares the width between the buttons, gaps between, the last taking the remainder")
+        sub sharesTheWidth()
+            two = DialogButtonSpans(2, 1001, 20)
+            m.assertEqual(two.lefts, [0, 510])
+            m.assertEqual(two.widths, [490, 491])
+
+            three = DialogButtonSpans(3, 900, 30)
+            m.assertEqual(three.lefts, [0, 310, 620])
+            m.assertEqual(three.widths, [280, 280, 280])
+            m.assertEqual(three.lefts[2] + three.widths[2], 900, "the row ends where the dialog does")
+
+            m.assertEqual(DialogButtonSpans(0, 900, 30).lefts.Count(), 0)
+            m.assertEqual(DialogButtonSpans(2, 0, 30).widths.Count(), 0)
+        end sub
+
+        @it("scrolls the text past two buttons in a row but not past a list of two")
+        sub scrollsInARow()
+            m.assertTrue(DialogScrollsText(true, 2, 900, 400))
+            m.assertFalse(DialogScrollsText(false, 2, 900, 400), "a list's up and down move between rows")
+            m.assertTrue(DialogScrollsText(false, 1, 900, 400))
+            m.assertFalse(DialogScrollsText(true, 2, 300, 400), "nothing to scroll when it all fits")
+        end sub
+
         @describe("DialogTextPlan")
 
         @it("gives the message whatever the rows do not need")

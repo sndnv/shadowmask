@@ -37,7 +37,7 @@ where
             .await
             .map_err(|e| JobError::Retryable(e.to_string()))?
         else {
-            tracing::debug!("version gone; skipping combine");
+            tracing::debug!("version [{}] gone; skipping combine", payload.version_id.0);
             return Ok(());
         };
         let existing = detail.subtitle_files;

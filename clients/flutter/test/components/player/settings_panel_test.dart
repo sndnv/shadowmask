@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/admin/field_help.dart';
 import 'package:shadowmask/components/app_dropdown.dart';
+import 'package:shadowmask/components/player/player_sheet.dart';
 import 'package:shadowmask/components/player/settings_panel.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
@@ -9,6 +12,8 @@ import 'package:shadowmask/model/session/subtitle_selection.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/space.dart';
+import 'package:shadowmask/util/bundled_fonts.dart';
+import 'package:shadowmask/util/bundled_licenses.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/view/subtitle_choice.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
@@ -793,7 +798,93 @@ void main() {
     expect(sent.single.downmix, isTrue);
     expect(sent.single.delivery, isNull);
   });
+
+  testWidgets('no label is cut on the narrowest sheet or panel', (
+    WidgetTester tester,
+  ) async {
+    await tester.runAsync(
+      () => loadBundledFonts(BundlePlatform.linux, rootBundle),
+    );
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final List<(double, bool, bool)> layouts = <(double, bool, bool)>[
+      (kSheetMinWidth, true, false),
+      (340, false, false),
+      (340, false, true),
+    ];
+    for (final (double width, bool sheet, bool dense) in layouts) {
+      for (final PlayerPanel panel in PlayerPanel.values) {
+        await tester.pumpWidget(
+          _everyRow(panel: panel, width: width, sheet: sheet, dense: dense),
+        );
+        await tester.pumpAndSettle();
+
+        final Iterable<RenderParagraph> cut = tester
+            .renderObjectList<RenderParagraph>(find.byType(RichText))
+            .where((RenderParagraph p) => p.didExceedMaxLines);
+        expect(
+          cut.map((RenderParagraph p) => p.text.toPlainText()),
+          isEmpty,
+          reason: '${panel.name} at $width, sheet $sheet, dense $dense',
+        );
+      }
+    }
+  });
 }
+
+Widget _everyRow({
+  required PlayerPanel panel,
+  required double width,
+  required bool sheet,
+  required bool dense,
+}) => MaterialApp(
+  theme: buildTheme(AppThemeVariant.dark),
+  home: Scaffold(
+    body: Align(
+      alignment: Alignment.topLeft,
+      child: SizedBox(
+        width: width,
+        height: 2000,
+        child: PlayerSettingsPanel(
+          panel: panel,
+          controls: const PlaybackControls(
+            subtitle: SubtitleChoice.on(SubtitleSelection.embedded(0)),
+          ),
+          version: _version(),
+          speed: 1,
+          diagnostics: false,
+          mode: 'transcode',
+          container: 'mpegts',
+          subtitleDelivery: 'hls_vtt',
+          pictureInPicture: false,
+          onPictureInPicture: () {},
+          autoplaySeconds: 10,
+          onAutoplaySeconds: (_) {},
+          subtitleSize: SubtitleSize.medium,
+          onSubtitleSize: (_) {},
+          networkTimeoutSeconds: 30,
+          onNetworkTimeoutSeconds: (_) {},
+          bufferSeconds: 30,
+          onBufferSeconds: (_) {},
+          bufferBytes: 150 * 1024 * 1024,
+          onBufferBytes: (_) {},
+          waitForBuffer: false,
+          onWaitForBuffer: (_) {},
+          onShortcuts: () {},
+          onShowLog: () {},
+          onAddSubtitles: () {},
+          openChoice: sheet ? (_) {} : null,
+          dense: dense,
+          onControls: (_) {},
+          onSpeed: (_) {},
+          onDiagnostics: (_) {},
+          onClose: () {},
+        ),
+      ),
+    ),
+  ),
+);
 
 Widget _panel({
   required PlayerPanel panel,

@@ -58,6 +58,14 @@ namespace tests
             m.assertEqual(tokens.rowDanger, Left(tokens.danger, 8) + RowTintAlpha())
         end sub
 
+        @describe("toast")
+
+        @it("gives the message a space more than it measures, so a rounded-down width cannot cut it")
+        sub toastKeepsTheWholeMessage()
+            m.assertEqual(ToastLabelWidth(120, 7), 127)
+            m.assertTrue(ToastLabelWidth(TextWidth("Report sent.", 28), SpaceWidth(28)) > TextWidth("Report sent.", 28))
+        end sub
+
         @describe("scales")
 
         @it("keeps body text at the readable floor and orders the scale")

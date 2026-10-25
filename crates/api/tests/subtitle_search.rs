@@ -458,7 +458,7 @@ async fn search_orders_by_download_count_descending() {
     let items = value.as_array().unwrap();
     assert_eq!(items[0]["file_id"].as_str().unwrap(), "high");
     assert_eq!(items[1]["file_id"].as_str().unwrap(), "low");
-    assert!(logs_contain("user [admin] subtitle search for version [v1]: 2 hits"));
+    assert!(logs_contain("User [admin] searched subtitles for version [v1]: 2 hits"));
 }
 
 #[tokio::test]

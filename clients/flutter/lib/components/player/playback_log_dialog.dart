@@ -6,16 +6,27 @@ import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 
-Future<void> showPlaybackLogDialog(BuildContext context, List<String> lines) =>
-    showDialog<void>(
+Future<bool> showPlaybackLogDialog(
+  BuildContext context,
+  List<String> lines, {
+  bool canReport = false,
+}) async =>
+    await showDialog<bool>(
       context: context,
-      builder: (BuildContext _) => PlaybackLogDialog(lines: lines),
-    );
+      builder: (BuildContext _) =>
+          PlaybackLogDialog(lines: lines, canReport: canReport),
+    ) ??
+    false;
 
 class PlaybackLogDialog extends StatelessWidget {
-  const PlaybackLogDialog({super.key, required this.lines});
+  const PlaybackLogDialog({
+    super.key,
+    required this.lines,
+    this.canReport = false,
+  });
 
   final List<String> lines;
+  final bool canReport;
 
   @override
   Widget build(BuildContext context) {
@@ -23,6 +34,15 @@ class PlaybackLogDialog extends StatelessWidget {
     return DialogShell(
       title: Strings.playerLog,
       width: 720,
+      footer: canReport
+          ? Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text(Strings.sendReport),
+              ),
+            )
+          : null,
       child: lines.isEmpty
           ? Text(Strings.playerLogEmpty, style: TextStyle(color: t.muted))
           : Text(

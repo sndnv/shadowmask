@@ -172,6 +172,22 @@ const sm = (() => {
     return isNaN(parsed.getTime()) ? String(iso) : parsed.toLocaleString();
   }
 
+  function preciseTime(iso) {
+    if (!iso) return "";
+    const parsed = new Date(iso);
+    return isNaN(parsed.getTime())
+      ? String(iso)
+      : parsed.toLocaleString(undefined, {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          fractionalSecondDigits: 3,
+        });
+  }
+
   function date(iso) {
     if (!iso) return "";
     const parsed = new Date(iso);
@@ -1202,6 +1218,7 @@ const sm = (() => {
     qs,
     lang,
     time,
+    preciseTime,
     date,
     versionPicker,
     onDeckEpisode,

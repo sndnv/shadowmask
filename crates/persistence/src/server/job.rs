@@ -15,7 +15,7 @@ use sqlx::sqlite::{SqliteArguments, SqliteRow};
 use sqlx::{AssertSqlSafe, Executor, Sqlite, SqlitePool};
 
 use crate::metrics::DbOpGuard;
-use crate::pool::{backend, checkpoint, column, from_millis, open, ping, to_millis};
+use crate::pool::{backend, checkpoint, column, from_millis, like_pattern, open, ping, to_millis};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations/jobs");
 
@@ -162,11 +162,6 @@ fn where_clause(query: &JobQuery) -> String {
         parts.push(SEARCH_PREDICATE);
     }
     if parts.is_empty() { String::new() } else { format!(" WHERE {}", parts.join(" AND ")) }
-}
-
-fn like_pattern(needle: &str) -> String {
-    let escaped = needle.replace('\\', "\\\\").replace('%', "\\%");
-    format!("%{escaped}%")
 }
 
 fn bind_search<'q>(
@@ -610,13 +605,6 @@ mod tests {
         assert!(repo.get(&id).await.is_err());
         assert!(repo.cancel(&id, Timestamp::UNIX_EPOCH).await.is_err());
         assert!(repo.retry(&id, Timestamp::UNIX_EPOCH).await.is_err());
-    }
-
-    #[test]
-    fn a_needle_cannot_smuggle_in_a_wildcard() {
-        assert_eq!(like_pattern("100%"), "%100\\%%");
-        assert_eq!(like_pattern("a\\b"), "%a\\\\b%");
-        assert_eq!(like_pattern("plain"), "%plain%");
     }
 
     #[test]

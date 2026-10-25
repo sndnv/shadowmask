@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use tracing::debug;
 
-use domain::library::{DuplicateCandidateId, LibraryId, ScanMode, UnmatchedFileId};
+use domain::library::{DuplicateCandidateId, LibraryId, ResolveTarget, ScanMode, UnmatchedFileId};
 use domain::user::Principal;
 
 use crate::dto::catalog::VersionResponse;
@@ -210,12 +210,14 @@ pub async fn unmatched_candidates<S: AppServices>(
     Query(params): Query<CandidateParams>,
 ) -> ApiResult<Json<Vec<ResolveCandidateResponse>>> {
     let actor = &principal.user.0;
+    let file = UnmatchedFileId(uid);
     let candidates = state
         .library()
-        .unmatched_candidates(&principal, &LibraryId(id), &UnmatchedFileId(uid), params.q)
+        .unmatched_candidates(&principal, &LibraryId(id), &file, params.q)
         .await
         .map_err(log_fail(actor, "retrieve unmatched candidates"))?;
-    debug!("User [{actor}] retrieved {} candidates for an unmatched file", candidates.len());
+    #[rustfmt::skip]
+    debug!("User [{actor}] retrieved {} candidates for unmatched file [{}]", candidates.len(), file.0);
     Ok(Json(candidates.into_iter().map(Into::into).collect()))
 }
 
@@ -226,12 +228,14 @@ pub async fn resolve_unmatched<S: AppServices>(
     Json(req): Json<ResolveUnmatchedRequest>,
 ) -> ApiResult<StatusCode> {
     let actor = &principal.user.0;
+    let file = UnmatchedFileId(uid);
+    let target = ResolveTarget::from(req.target);
     state
         .library()
-        .resolve_unmatched(&principal, &LibraryId(id), &UnmatchedFileId(uid), req.target.into())
+        .resolve_unmatched(&principal, &LibraryId(id), &file, target.clone())
         .await
         .map_err(log_fail(actor, "resolve unmatched file"))?;
-    debug!("User [{actor}] resolved an unmatched file");
+    debug!("User [{actor}] resolved unmatched file [{}] to [{target:?}]", file.0);
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -241,12 +245,13 @@ pub async fn dismiss_duplicate<S: AppServices>(
     Path((id, did)): Path<(String, String)>,
 ) -> ApiResult<StatusCode> {
     let actor = &principal.user.0;
+    let candidate = DuplicateCandidateId(did);
     state
         .library()
-        .dismiss_duplicate(&principal, &LibraryId(id), &DuplicateCandidateId(did))
+        .dismiss_duplicate(&principal, &LibraryId(id), &candidate)
         .await
         .map_err(log_fail(actor, "dismiss duplicate candidate"))?;
-    debug!("User [{actor}] dismissed a duplicate candidate");
+    debug!("User [{actor}] dismissed duplicate candidate [{}]", candidate.0);
     Ok(StatusCode::NO_CONTENT)
 }
 

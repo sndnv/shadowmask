@@ -549,6 +549,18 @@ sub onChoice()
     end if
 
     if TextOrBlank(ValueAt(result, "field", "")) = "playbackLog"
+        if result.cancelled <> true and Int(result.index) = 0
+            ShowReport()
+            return
+        end if
+
+        FocusBar()
+        RestartHide()
+        return
+    end if
+
+    if TextOrBlank(ValueAt(result, "field", "")) = "report"
+        if result.cancelled <> true and Int(result.index) = 0 then SendReport()
         FocusBar()
         RestartHide()
         return
@@ -1002,6 +1014,7 @@ end function
 
 sub ApplyControls(wanted as object)
     if IsWatching(m.playback) then MarkBarCommitted()
+    NoteHistory("chose", { controls: ControlsUpdateBody(wanted) })
     PostPlayback({ kind: "changeRemote", controls: ControlsCopy(wanted) })
 end sub
 
@@ -1046,11 +1059,15 @@ sub RefreshDiagnostics()
     m.diagnosticsPanel.visible = m.showDiagnostics
     if not m.showDiagnostics then return
 
-    lastEvent = ""
-    if m.playbackLog.Count() > 0 then lastEvent = m.playbackLog[m.playbackLog.Count() - 1]
-    m.diagnostics.rows = PlayerDiagnostics(m.playback.stream, VideoInfo(m.video.streamInfo, m.video.bufferingStatus, m.video.timeToStartStreaming, TextOrBlank(m.video.state)), lastEvent)
+    m.diagnostics.rows = CurrentDiagnosticsRows()
     m.diagnosticsScrim.height = m.diagnostics.listHeight + SpacingScale().s5 * 2
 end sub
+
+function CurrentDiagnosticsRows() as object
+    lastEvent = ""
+    if m.playbackLog.Count() > 0 then lastEvent = m.playbackLog[m.playbackLog.Count() - 1]
+    return PlayerDiagnostics(m.playback.stream, VideoInfo(m.video.streamInfo, m.video.bufferingStatus, m.video.timeToStartStreaming, TextOrBlank(m.video.state)), lastEvent)
+end function
 
 sub onStreamInfo()
     RefreshDiagnostics()
@@ -1556,9 +1573,39 @@ sub ShowPlaybackLog()
         field: "playbackLog",
         title: Phrase("player.playbackLog"),
         message: PlaybackLogText(m.playbackLog),
-        options: [{ label: Phrase("action.ok"), cancel: true }],
+        options: [{ label: Phrase("player.sendReport") }, { label: Phrase("action.close"), cancel: true }],
+        layout: "row",
+        selected: 1
+    }
+end sub
+
+sub ShowReport()
+    capabilities = ReportDecoding(MeasuredDecoding(), ReadCapabilityOverrides(), DeviceDecoding())
+    m.reportPayload = ReportPayload(PlatformDescription(), AppVersion(), capabilities, m.reportHistory, DiagnosticsLines(CurrentDiagnosticsRows()), m.playbackLog)
+    m.openChoice = "report"
+    m.top.choiceRequest = {
+        field: "report",
+        title: Phrase("report.title"),
+        message: ReportSummaryText(m.reportPayload),
+        options: [{ label: Phrase("report.send") }, { label: Phrase("action.cancel"), cancel: true }],
+        layout: "row",
         selected: 0
     }
+end sub
+
+sub SendReport()
+    session = SessionFor(m.global)
+    Ask(SendReportRequest(session.serverUrl, session.token, ReadDeviceId(), m.reportPayload), "onReportSent")
+end sub
+
+sub onReportSent(event as object)
+    if m.released then return
+    if Answered(event).ok
+        RaiseToast("ok", Phrase("toast.ok.reportSent"))
+        return
+    end if
+
+    RaiseToast("err", Phrase("toast.err.reportFailed"))
 end sub
 
 sub HandledStall(result as object)

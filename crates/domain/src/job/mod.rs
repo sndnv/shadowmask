@@ -14,7 +14,7 @@ pub use job::{Job, JobId, JobKind, JobPriority, JobStatus};
 pub use job_canceller::JobCanceller;
 pub use job_node::JobNode;
 pub use job_page::JobPage;
-pub use log::{JobLogLevel, JobLogStore};
+pub use log::JobLogStore;
 pub use query::JobQuery;
 pub use reclaim_outcome::{RECLAIM_DEAD_LETTER_ERROR, ReclaimOutcome};
 pub use transcription_trigger::TranscriptionTrigger;

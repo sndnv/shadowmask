@@ -950,3 +950,38 @@ a.sm-tab {
 .sm-controls-label {
   color: var(--muted);
 }
+
+.sm-log {
+  max-height: 360px;
+  overflow: auto;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sm-log-tall {
+  height: 70vh;
+  max-height: none;
+}
+
+.sm-log-full {
+  max-height: none;
+}
+
+.sm-log-debug {
+  color: var(--muted);
+}
+
+.sm-log-warn {
+  color: var(--warn);
+}
+
+.sm-log-error {
+  color: var(--danger);
+}

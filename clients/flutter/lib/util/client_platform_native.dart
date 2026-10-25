@@ -27,3 +27,6 @@ String clientPlatform() {
   }
   return 'desktop';
 }
+
+String platformDescription() =>
+    '${Platform.operatingSystem} ${Platform.operatingSystemVersion}';

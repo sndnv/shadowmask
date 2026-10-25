@@ -21,6 +21,14 @@ pub enum JobLogError {
 }
 
 #[derive(Debug, Error)]
+pub enum ServerLogError {
+    #[error("invalid server log cursor")]
+    InvalidCursor,
+    #[error("server log backend error: {0}")]
+    Backend(String),
+}
+
+#[derive(Debug, Error)]
 pub enum AuthError {
     #[error("invalid credentials")]
     InvalidCredentials,

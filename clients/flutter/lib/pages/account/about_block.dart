@@ -1,16 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 
 import 'package:shadowmask/components/section_block.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
-
-typedef VersionLoader = Future<String> Function();
-
-Future<String> defaultVersion() async =>
-    (await PackageInfo.fromPlatform()).version;
+import 'package:shadowmask/util/app_version.dart';
 
 class AboutBlock extends StatefulWidget {
   const AboutBlock({super.key, this.loadVersion = defaultVersion});
