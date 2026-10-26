@@ -20,6 +20,7 @@ import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/api/capability_overrides_store.dart';
 import 'package:shadowmask/model/session/capability_overrides.dart';
 import 'package:shadowmask/model/session/client_decoding.dart';
+import 'package:shadowmask/nav/browser_history.dart';
 import 'package:shadowmask/nav/route_observer.dart';
 import 'package:shadowmask/pages/entry/server_page.dart';
 import 'package:shadowmask/player/player_controller.dart';
@@ -121,6 +122,8 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
   late ApiClient _api = widget.clientFactory(_server);
   late AppRouter _router = AppRouter(_api);
   GlobalKey<NavigatorState> _navigator = GlobalKey<NavigatorState>();
+  late BrowserHistoryProvider _routeInformation = BrowserHistoryProvider();
+  late BrowserHistory _history = _historyFor(_navigator);
   late bool _systemHighContrast = WidgetsBinding
       .instance
       .platformDispatcher
@@ -192,8 +195,19 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
       _api = widget.clientFactory(address);
       _router = AppRouter(_api);
       _navigator = GlobalKey<NavigatorState>();
+      _routeInformation = BrowserHistoryProvider();
+      _history = _historyFor(_navigator);
     });
   }
+
+  BrowserHistory _historyFor(GlobalKey<NavigatorState> navigator) =>
+      BrowserHistory(
+        navigatorKey: navigator,
+        onGenerateRoute: (RouteSettings settings) =>
+            _router.router.generator(settings),
+        onGenerateInitialRoutes: _initialRoutes,
+        observers: <NavigatorObserver>[appRouteObserver],
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -233,18 +247,17 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
     home: const ServerPage(),
   );
 
-  Widget _app() => MaterialApp(
+  Widget _app() => MaterialApp.router(
     key: ValueKey<String?>(_server),
-    navigatorKey: _navigator,
     title: Strings.appTitle,
     debugShowCheckedModeBanner: false,
     theme: buildTheme(_variant, highContrast: _contrast),
     builder: (BuildContext context, Widget? child) => TooltipDismisser(
       child: ToastHost(child: _commands(child ?? const SizedBox.shrink())),
     ),
-    navigatorObservers: <NavigatorObserver>[appRouteObserver],
-    onGenerateRoute: _router.router.generator,
-    onGenerateInitialRoutes: _initialRoutes,
+    routerDelegate: _history,
+    routeInformationParser: const BrowserHistoryParser(),
+    routeInformationProvider: _routeInformation,
   );
 
   Widget _commands(Widget child) => widget.receivesCommands()
