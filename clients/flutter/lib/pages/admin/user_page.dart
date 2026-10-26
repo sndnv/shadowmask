@@ -13,15 +13,23 @@ import 'package:shadowmask/pages/account/profile_block.dart';
 import 'package:shadowmask/pages/admin/library_access_block.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
 
-class UserPage extends StatelessWidget {
+class UserPage extends StatefulWidget {
   const UserPage({super.key, required this.api, this.id});
 
   final ApiClient api;
   final String? id;
 
   @override
+  State<UserPage> createState() => _UserPageState();
+}
+
+class _UserPageState extends State<UserPage> {
+  int _generation = 0;
+
+  @override
   Widget build(BuildContext context) {
-    final String? id = this.id;
+    final ApiClient api = widget.api;
+    final String? id = widget.id;
     return SectionPage(
       api: api,
       section: NavSection.admin,
@@ -41,9 +49,18 @@ class UserPage extends StatelessWidget {
               Crumb(Strings.adminUsers, route: adminUsersRoute()),
               Crumb(id),
             ]),
-            ProfileBlock(api: api, userId: id),
+            ProfileBlock(
+              api: api,
+              userId: id,
+              showAdminActions: id != user.id,
+              onAccessRevoked: () => setState(() => _generation++),
+            ),
             LibraryAccessBlock(api: api, userId: id),
-            LinkCodesBlock(api: api, userId: id),
+            LinkCodesBlock(
+              key: ValueKey<String>('codes-$_generation'),
+              api: api,
+              userId: id,
+            ),
           ],
         );
       },

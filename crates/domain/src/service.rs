@@ -70,6 +70,10 @@ pub trait AuthService {
     ) -> impl Future<Output = Result<(), AuthError>> + Send;
     fn logout(&self, refresh_token: &str) -> impl Future<Output = Result<(), AuthError>> + Send;
     fn logout_all(&self, user: &UserId) -> impl Future<Output = Result<(), AuthError>> + Send;
+    fn logout_password_sessions(
+        &self,
+        user: &UserId,
+    ) -> impl Future<Output = Result<(), AuthError>> + Send;
     fn list_devices(
         &self,
         user: &UserId,

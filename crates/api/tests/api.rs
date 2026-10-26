@@ -1756,15 +1756,28 @@ async fn deactivating_a_user_finishes_even_when_the_request_times_out() {
 }
 
 #[tokio::test]
-async fn changing_a_password_signs_out_everywhere_even_when_the_request_times_out() {
+async fn changing_a_password_signs_out_password_sign_ins_even_when_the_request_times_out() {
     let ctx = Ctx::new();
-    let hold = ctx.auth.hold_next_logout_all();
+    let hold = ctx.auth.hold_next_password_logout();
     let fresh = Some(json!({"new_password": "fresh"}));
     let change = request(Method::PUT, "/api/v1/users/u1/password", Some(ADMIN), fresh);
 
     time_out_once_held(ctx.app_within(CUT), change, &hold).await;
 
-    assert_eq!(ctx.auth.logged_out(), vec![UserId("u1".into())], "the old sessions are revoked");
+    let revoked = ctx.auth.password_logged_out();
+    assert_eq!(revoked, vec![UserId("u1".into())], "the password sign-ins are revoked");
+    assert!(ctx.auth.logged_out().is_empty(), "the linked devices stay");
+}
+
+#[tokio::test]
+async fn an_admin_signs_another_user_out_everywhere_with_their_linked_devices() {
+    let ctx = Ctx::new();
+    let uri = "/api/v1/users/u1/sessions";
+    let (status, _) = call(ctx.app(), Method::DELETE, uri, Some(ADMIN), None).await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(ctx.auth.logged_out(), vec![UserId("u1".into())]);
+    assert!(ctx.auth.password_logged_out().is_empty());
 }
 
 #[tokio::test]

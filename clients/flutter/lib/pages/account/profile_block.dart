@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
+import 'package:shadowmask/api/account_api.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
+import 'package:shadowmask/components/admin/confirm_dialog.dart';
+import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/server/rating_system.dart';
 import 'package:shadowmask/model/server/server_info.dart';
@@ -11,10 +14,12 @@ import 'package:shadowmask/components/page_actions.dart';
 import 'package:shadowmask/components/section_block.dart';
 import 'package:shadowmask/pages/account/password_dialog.dart';
 import 'package:shadowmask/pages/account/profile_edit_dialog.dart';
+import 'package:shadowmask/pages/admin/set_password_dialog.dart';
 import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/util/languages.dart';
+import 'package:shadowmask/view/failure_reason.dart';
 
 class ProfileBlock extends StatefulWidget {
   const ProfileBlock({
@@ -23,12 +28,16 @@ class ProfileBlock extends StatefulWidget {
     required this.userId,
     this.editable = true,
     this.showPasswordAction = false,
+    this.showAdminActions = false,
+    this.onAccessRevoked,
   });
 
   final ApiClient api;
   final String userId;
   final bool editable;
   final bool showPasswordAction;
+  final bool showAdminActions;
+  final VoidCallback? onAccessRevoked;
 
   @override
   State<ProfileBlock> createState() => _ProfileBlockState();
@@ -38,6 +47,7 @@ class _ProfileBlockState extends State<ProfileBlock> {
   late final CatalogApi _catalog = CatalogApi(widget.api);
   late Future<AccountProfile> _future = _catalog.user(widget.userId);
   AccountProfile? _profile;
+  bool _signingOut = false;
 
   Future<void> _edit() async {
     final AccountProfile? profile = _profile;
@@ -65,6 +75,57 @@ class _ProfileBlockState extends State<ProfileBlock> {
     }
   }
 
+  Future<void> _setPassword() async {
+    final AccountProfile? profile = _profile;
+    if (profile == null) {
+      return;
+    }
+    final bool? set = await SetPasswordDialog.show(
+      context,
+      api: widget.api,
+      userId: widget.userId,
+      username: profile.username,
+    );
+    if (set ?? false) {
+      widget.onAccessRevoked?.call();
+    }
+  }
+
+  Future<void> _signOutEverywhere() async {
+    final AccountProfile? profile = _profile;
+    if (profile == null) {
+      return;
+    }
+    final String username = profile.username;
+    final bool confirmed = await confirmDialog(
+      context,
+      title: Strings.signOutEverywhere,
+      message: Strings.confirmSignOutUserEverywhere(username),
+      confirmLabel: Strings.signOutEverywhere,
+    );
+    if (!confirmed || !mounted) {
+      return;
+    }
+    setState(() => _signingOut = true);
+    try {
+      await AccountApi(widget.api).signOutEverywhere(widget.userId);
+      if (!mounted) {
+        return;
+      }
+      Toasts.of(
+        context,
+      ).success(Strings.toastSignedOutEverywhere(username), emphasis: username);
+      widget.onAccessRevoked?.call();
+    } catch (e) {
+      if (mounted) {
+        Toasts.of(context).error(failureText(Strings.errorAction, e));
+      }
+    }
+    if (mounted) {
+      setState(() => _signingOut = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SectionBlock(
@@ -86,6 +147,19 @@ class _ProfileBlockState extends State<ProfileBlock> {
               userId: widget.userId,
             ),
           ),
+        if (widget.showAdminActions) ...<PageAction>[
+          PageAction(
+            icon: Icons.lock_reset_outlined,
+            label: Strings.setPassword,
+            onPressed: _setPassword,
+          ),
+          PageAction(
+            icon: Icons.logout,
+            label: Strings.signOutEverywhere,
+            danger: true,
+            onPressed: _signingOut ? null : _signOutEverywhere,
+          ),
+        ],
       ],
       child: buildBlock<AccountProfile>(
         future: _future,

@@ -1,4 +1,6 @@
-use contracts::repo::{auth_token_repository_contract, device_share_contract};
+use contracts::repo::{
+    auth_token_repository_contract, device_share_contract, password_sign_out_contract,
+};
 use domain::repository::AuthTokenRepository;
 use domain::user::{AuthSession, AuthSessionId, PendingLink, Role, UserId};
 use jiff::Timestamp;
@@ -165,4 +167,10 @@ async fn device_and_api_token_contract_holds_for_sqlite() {
 async fn device_share_contract_holds_for_sqlite() {
     let (_dir, repo) = repo().await;
     device_share_contract(repo).await;
+}
+
+#[tokio::test]
+async fn password_sign_out_contract_holds_for_sqlite() {
+    let (_dir, repo) = repo().await;
+    password_sign_out_contract(repo).await;
 }
