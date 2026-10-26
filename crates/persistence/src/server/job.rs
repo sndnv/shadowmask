@@ -324,6 +324,26 @@ impl JobRepository for SqliteJobRepo {
         rows.iter().map(row_to_job).collect()
     }
 
+    async fn list_active(&self, kinds: &[JobKind]) -> Result<Vec<Job>, RepositoryError> {
+        let _op = DbOpGuard::new("jobs", "list_active");
+        if kinds.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sql = format!(
+            "SELECT * FROM jobs WHERE status IN (?, ?) AND kind IN ({}) \
+             ORDER BY created_at ASC, id ASC",
+            vec!["?"; kinds.len()].join(", ")
+        );
+        let mut query = sqlx::query(AssertSqlSafe(sql))
+            .bind(status_to_str(JobStatus::Queued))
+            .bind(status_to_str(JobStatus::Running));
+        for kind in kinds {
+            query = query.bind(kind_to_str(*kind));
+        }
+        let rows = query.fetch_all(&self.pool).await.map_err(backend)?;
+        rows.iter().map(row_to_job).collect()
+    }
+
     async fn list_page(
         &self,
         query: &JobQuery,
@@ -579,6 +599,7 @@ mod tests {
         let repo = SqliteJobRepo::connect(&dir.path().join("jobs.db")).await.unwrap();
         repo.pool.close().await;
         assert!(repo.list().await.is_err());
+        assert!(repo.list_active(&[JobKind::Ingest]).await.is_err());
         assert!(
             repo.count(&JobQuery::default()).await.is_err(),
             "a filtered count fails the same way"

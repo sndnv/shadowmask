@@ -95,18 +95,21 @@ const sm = (() => {
     if (!res.ok) {
       let message = "HTTP " + res.status;
       let code = null;
+      let jobs = [];
       try {
         const body = await res.json();
         if (body && body.error) {
           if (body.error.message) message = body.error.message;
           code = body.error.code || null;
         }
+        if (body && Array.isArray(body.jobs)) jobs = body.jobs;
       } catch (e) {
         void e;
       }
       const err = new Error(message);
       err.status = res.status;
       err.code = code;
+      err.jobs = jobs;
       throw err;
     }
     if (res.status === 204) return null;

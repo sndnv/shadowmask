@@ -90,6 +90,12 @@ impl MockLibraryRepo {
                 .try_update(Ordering::Relaxed, Ordering::Relaxed, |left| left.checked_sub(1))
                 .is_ok()
     }
+
+    fn drop_scan_rows(&self, library: &LibraryId) {
+        self.scan_states.lock().unwrap().remove(library);
+        self.unmatched.lock().unwrap().retain(|_, (file, _)| file.library != *library);
+        self.duplicates.lock().unwrap().retain(|_, (owner, _, _)| owner != library);
+    }
 }
 
 impl LibraryRepository for MockLibraryRepo {
@@ -141,9 +147,7 @@ impl LibraryRepository for MockLibraryRepo {
             return Err(RepositoryError::Backend("mock save failure".to_owned()));
         }
         self.libraries.lock().unwrap().remove(id);
-        self.scan_states.lock().unwrap().remove(id);
-        self.unmatched.lock().unwrap().retain(|_, (file, _)| file.library != *id);
-        self.duplicates.lock().unwrap().retain(|_, (library, _, _)| library != id);
+        self.drop_scan_rows(id);
         Ok(())
     }
 
@@ -278,6 +282,14 @@ impl LibraryRepository for MockLibraryRepo {
                 || present_paths.contains(&file.path)
                 || is_offline(&file.path, offline_paths)
         });
+        Ok(())
+    }
+
+    async fn clear_scan_data(&self, library: &LibraryId) -> Result<(), RepositoryError> {
+        if !self.save_allowed() {
+            return Err(RepositoryError::Backend("mock save failure".to_owned()));
+        }
+        self.drop_scan_rows(library);
         Ok(())
     }
 }

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::future::Future;
 
 use domain::catalog::{
@@ -39,34 +40,38 @@ fn resolve_quality(file: &DiscoveredFile) -> Quality {
 
 const ID_NAMESPACE: Uuid = Uuid::NAMESPACE_URL;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IngestMode {
-    Scan,
+#[derive(Debug, Clone, Copy)]
+enum IngestMode<'a> {
+    Scan(&'a HashSet<VersionId>),
     Explicit,
 }
 
-impl IngestMode {
+impl IngestMode<'_> {
     fn skips_unchanged(self) -> bool {
-        self == IngestMode::Scan
+        matches!(self, IngestMode::Scan(_))
     }
 
     fn skips_existing_titles(self) -> bool {
-        self == IngestMode::Scan
+        matches!(self, IngestMode::Scan(_))
+    }
+
+    fn relinks(self, version: &VersionId) -> bool {
+        matches!(self, IngestMode::Scan(untitled) if untitled.contains(version))
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-struct IngestPlan {
-    mode: IngestMode,
+struct IngestPlan<'a> {
+    mode: IngestMode<'a>,
     writes_title: bool,
 }
 
-impl IngestPlan {
+impl<'a> IngestPlan<'a> {
     fn explicit() -> Self {
         Self { mode: IngestMode::Explicit, writes_title: true }
     }
 
-    fn scanned(mode: IngestMode, title_is_known: bool) -> Self {
+    fn scanned(mode: IngestMode<'a>, title_is_known: bool) -> Self {
         Self { mode, writes_title: !title_is_known }
     }
 
@@ -85,7 +90,7 @@ struct FileIngest<'a> {
     library: &'a Library,
     subtitle: &'a SubtitleContext,
     parent: Option<&'a JobId>,
-    mode: IngestMode,
+    mode: IngestMode<'a>,
 }
 
 pub trait ScanEnricher {
@@ -225,8 +230,10 @@ where
             .collect();
         let offline = &report.offline;
         let report = self.matcher.match_files(library.kind, &report.discovered);
+        let untitled = self.untitled_versions(library).await;
         for group in &report.matched {
-            if let Err(err) = self.ingest_group(library, group, parent, IngestMode::Scan).await {
+            let mode = IngestMode::Scan(&untitled);
+            if let Err(err) = self.ingest_group(library, group, parent, mode).await {
                 warn!(library = %library.id.0, "scan enrichment failed: {err}");
             }
         }
@@ -273,7 +280,7 @@ where
         library: &Library,
         group: &MatchedGroup,
         parent: Option<&JobId>,
-        mode: IngestMode,
+        mode: IngestMode<'_>,
     ) -> Result<(), RepositoryError> {
         match library.kind {
             LibraryKind::Movie => self.ingest_movie(library, group, parent, mode).await,
@@ -286,7 +293,7 @@ where
         library: &Library,
         group: &MatchedGroup,
         parent: Option<&JobId>,
-        mode: IngestMode,
+        mode: IngestMode<'_>,
     ) -> Result<(), RepositoryError> {
         let known = mode.skips_existing_titles()
             && self.catalog.get_movie(&movie_id_of(&group.parsed)).await?.is_some();
@@ -318,7 +325,7 @@ where
         library: &Library,
         parsed: &ParsedMedia,
         identified: bool,
-    ) -> Result<IngestPlan, RepositoryError> {
+    ) -> Result<IngestPlan<'static>, RepositoryError> {
         if identified {
             return Ok(IngestPlan::explicit());
         }
@@ -346,7 +353,7 @@ where
         files: &[DiscoveredFile],
         metadata: Option<TitleMetadata>,
         parent: Option<&JobId>,
-        plan: IngestPlan,
+        plan: IngestPlan<'_>,
     ) -> Result<(), RepositoryError> {
         let movie_id = movie_id_of(parsed);
         let now = Timestamp::now();
@@ -449,7 +456,7 @@ where
         library: &Library,
         group: &MatchedGroup,
         parent: Option<&JobId>,
-        mode: IngestMode,
+        mode: IngestMode<'_>,
     ) -> Result<(), RepositoryError> {
         let lookup = episode_ids_of(&group.parsed)
             .filter(|_| mode.skips_existing_titles())
@@ -485,7 +492,7 @@ where
         files: &[DiscoveredFile],
         metadata: Option<TitleMetadata>,
         parent: Option<&JobId>,
-        plan: IngestPlan,
+        plan: IngestPlan<'_>,
     ) -> Result<(), RepositoryError> {
         let Some(ids) = episode_ids_of(parsed) else {
             debug!("skipping non-episodic file in tv library");
@@ -632,7 +639,16 @@ where
                 #[rustfmt::skip]
                 warn!(path = %file.path, "reconciling the sidecars of an unchanged file failed: [{err}]");
             }
-            return Ok(());
+            return match existing {
+                Some(existing) if existing.library != library.id && !existing.available => {
+                    let untitled = mode.relinks(&version_id);
+                    self.take_over(existing, title, library, subtitle, parent, untitled).await
+                }
+                Some(existing) if mode.relinks(&version_id) => {
+                    self.relink_unchanged(existing, title, subtitle, parent).await
+                }
+                _ => Ok(()),
+            };
         }
         let now = Timestamp::now();
         self.catalog
@@ -666,11 +682,61 @@ where
         self.enqueue.for_file(&version_id, file, subtitle, has_native_subtitle, parent).await
     }
 
+    async fn untitled_versions(&self, library: &Library) -> HashSet<VersionId> {
+        self.catalog.untitled_versions(&library.id).await.unwrap_or_else(|err| {
+            #[rustfmt::skip]
+            warn!(library = %library.id.0, "reading the versions left without a title failed, none is re-linked: [{err}]");
+            HashSet::new()
+        })
+    }
+
+    async fn relink_unchanged(
+        &self,
+        existing: Version,
+        title: TitleId,
+        subtitle: &SubtitleContext,
+        parent: Option<&JobId>,
+    ) -> Result<(), RepositoryError> {
+        let version_id = existing.id.clone();
+        self.catalog
+            .upsert_version(Version { title, updated_at: Timestamp::now(), ..existing })
+            .await?;
+        self.enqueue.enqueue_subtitles(&version_id, subtitle, false, parent).await
+    }
+
+    async fn take_over(
+        &self,
+        existing: Version,
+        title: TitleId,
+        library: &Library,
+        subtitle: &SubtitleContext,
+        parent: Option<&JobId>,
+        untitled: bool,
+    ) -> Result<(), RepositoryError> {
+        let version_id = existing.id.clone();
+        let retitled = untitled || existing.title != title;
+        #[rustfmt::skip]
+        debug!(version = %version_id.0, "library [{}] takes over a file left unavailable by library [{}]", library.id.0, existing.library.0);
+        let adopted = Version {
+            title,
+            library: library.id.clone(),
+            available: true,
+            updated_at: Timestamp::now(),
+            ..existing
+        };
+        self.catalog.upsert_version(adopted).await?;
+        if !retitled {
+            return Ok(());
+        }
+        self.enqueue.enqueue_subtitles(&version_id, subtitle, false, parent).await
+    }
+
     async fn reread_file(&self, file: &DiscoveredFile) -> Result<(), RepositoryError> {
         let version_id = VersionId(derive_id("version", &file.path));
-        let Some(existing) = self.catalog.get_version(&version_id).await? else {
+        let Some(detail) = self.catalog.version_detail(&version_id).await? else {
             return Ok(());
         };
+        let existing = detail.version;
         self.catalog
             .upsert_version(Version {
                 quality: resolve_quality(file),
@@ -690,6 +756,11 @@ where
                 &file.probe.chapters,
             )
             .await?;
+        if detail.trickplay.is_empty() {
+            self.enqueue
+                .enqueue_trickplay_unless_pending(&version_id, &file.path, file.probe.duration_ms)
+                .await?;
+        }
         self.enqueue.enqueue_playback_prep(&version_id, None).await
     }
 
@@ -2272,11 +2343,16 @@ mod tests {
         jobs.list().await.unwrap().into_iter().filter(|j| j.kind == JobKind::PlaybackPrep).collect()
     }
 
-    async fn settle_playback_prep(jobs: &MockJobStore, status: JobStatus) {
-        for mut job in playback_preps(jobs).await {
+    async fn settle(jobs: &MockJobStore, kind: JobKind, status: JobStatus) {
+        for mut job in jobs.list().await.unwrap().into_iter().filter(|job| job.kind == kind) {
             job.status = status;
             jobs.update(job).await.unwrap();
         }
+    }
+
+    async fn queued_kind(jobs: &MockJobStore, kind: JobKind) -> usize {
+        let all = jobs.list().await.unwrap();
+        all.iter().filter(|job| job.kind == kind && job.status == JobStatus::Queued).count()
     }
 
     #[tokio::test]
@@ -2303,7 +2379,7 @@ mod tests {
         let library = library(LibraryKind::Movie);
         let scan = report(&["/m/Drift (2020) 1080p.mkv"]);
         svc.enrich(&library, &scan, None).await;
-        settle_playback_prep(&jobs, JobStatus::Succeeded).await;
+        settle(&jobs, JobKind::PlaybackPrep, JobStatus::Succeeded).await;
 
         svc.reread(&library, &scan).await;
         svc.reread(&library, &scan).await;
@@ -2324,7 +2400,7 @@ mod tests {
         let library = library(LibraryKind::Movie);
         let scan = report(&["/m/Drift (2020) 1080p.mkv"]);
         svc.enrich(&library, &scan, None).await;
-        settle_playback_prep(&jobs, JobStatus::Running).await;
+        settle(&jobs, JobKind::PlaybackPrep, JobStatus::Running).await;
 
         svc.reread(&library, &scan).await;
 
@@ -2336,6 +2412,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_reread_queues_trickplay_once_for_a_known_file_whose_trickplay_never_finished() {
+        for status in [JobStatus::Failed, JobStatus::Cancelled] {
+            let jobs = MockJobStore::new();
+            let svc = enricher(MockCatalogRepo::new(), None, jobs.clone());
+            let library = library(LibraryKind::Movie);
+            let scan = report(&["/m/Drift (2020) 1080p.mkv"]);
+            svc.enrich(&library, &scan, None).await;
+            settle(&jobs, JobKind::Trickplay, status).await;
+
+            svc.reread(&library, &scan).await;
+            svc.reread(&library, &scan).await;
+
+            let queued = queued_kind(&jobs, JobKind::Trickplay).await;
+            assert_eq!(queued, 1, "{status:?}: a second re-read finds the first one's job waiting");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_reread_leaves_the_trickplay_a_known_file_has() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog.clone(), None, jobs.clone());
+        let library = library(LibraryKind::Movie);
+        let path = "/m/Drift (2020) 1080p.mkv";
+        svc.enrich(&library, &report(&[path]), None).await;
+        settle(&jobs, JobKind::Trickplay, JobStatus::Succeeded).await;
+        let version = stored_version(&catalog, path).await.id;
+        let sheet = domain::media::TrickplayAsset {
+            version: version.clone(),
+            interval_ms: 5_000,
+            columns: 8,
+            rows: 8,
+            tile_width: 320,
+            tile_height: 180,
+            sheet_paths: vec!["/tp/sheet-001.jpg".into()],
+        };
+        catalog.set_trickplay(&version, &[sheet]).await.unwrap();
+
+        svc.reread(&library, &report(&[path])).await;
+
+        assert_eq!(queued_kind(&jobs, JobKind::Trickplay).await, 0);
+    }
+
+    #[tokio::test]
     async fn a_reread_keeps_the_title_a_file_is_linked_to() {
         let catalog = MockCatalogRepo::new();
         let svc = enricher(catalog.clone(), None, MockJobStore::new());
@@ -2343,6 +2463,7 @@ mod tests {
         let path = "/m/Deep Field (2021) 2160p.mkv";
         let linked = TitleId::Movie(MovieId("lantern".into()));
         let target = ResolveTarget::Existing(linked.clone());
+        catalog.add_movie(stored_movie("lantern"));
         svc.ingest_resolved(&library, &discovered(path), &target, None).await.unwrap();
 
         let mut resized = discovered(path);
@@ -2843,6 +2964,238 @@ mod tests {
         let detail = catalog.version_detail(&version_id).await.unwrap().unwrap();
         assert!(detail.subtitle_files.is_empty(), "and dropped once it is gone");
         assert_eq!(jobs.list().await.unwrap().len(), queued, "an unchanged video queues nothing");
+    }
+
+    async fn queued_kinds(jobs: &MockJobStore) -> [usize; 5] {
+        let mut counts = [0; 5];
+        for (slot, kind) in [
+            JobKind::Trickplay,
+            JobKind::PlaybackPrep,
+            JobKind::Transcription,
+            JobKind::Translation,
+            JobKind::Subtitles,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            counts[slot] = count_kind(jobs, kind).await;
+        }
+        counts
+    }
+
+    #[tokio::test]
+    async fn an_unchanged_file_whose_title_went_is_linked_to_the_one_this_scan_matched() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog.clone(), None, jobs.clone())
+            .with_subtitle_languages(vec!["en".into()]);
+        let path = "/m/The Matrix (1999) 1080p.mkv";
+        let version = VersionId(derive_id("version", path));
+        let library = library(LibraryKind::Movie);
+        let scan = report(&[path]);
+        svc.enrich(&library, &scan, None).await;
+        let matched = catalog.get_version(&version).await.unwrap().unwrap();
+        catalog
+            .upsert_version(Version {
+                title: TitleId::Movie(MovieId("purged".into())),
+                ..matched.clone()
+            })
+            .await
+            .unwrap();
+        let [trickplay, prep, transcription, translation, searches] = queued_kinds(&jobs).await;
+
+        svc.enrich(&library, &scan, None).await;
+
+        let relinked = catalog.get_version(&version).await.unwrap().unwrap();
+        assert_eq!(relinked.title, matched.title);
+        assert_eq!((relinked.size_bytes, relinked.path), (matched.size_bytes, matched.path));
+        assert_eq!(
+            queued_kinds(&jobs).await,
+            [trickplay, prep, transcription, translation, searches + 1],
+            "only a subtitle search, as for a new file"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_purge_then_a_scan_with_the_same_settings_still_searches_subtitles_again() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog.clone(), None, jobs.clone())
+            .with_subtitle_languages(vec!["en".into()]);
+        let path = "/m/The Matrix (1999) 1080p.mkv";
+        let version = VersionId(derive_id("version", path));
+        let library = library(LibraryKind::Movie);
+        let scan = report(&[path]);
+        svc.enrich(&library, &scan, None).await;
+        let matched = catalog.get_version(&version).await.unwrap().unwrap().title;
+        catalog.purge_library(&library.id).await.unwrap();
+        let [trickplay, prep, transcription, translation, searches] = queued_kinds(&jobs).await;
+
+        svc.enrich(&library, &scan, None).await;
+
+        assert_eq!(catalog.get_version(&version).await.unwrap().unwrap().title, matched);
+        assert!(catalog.get_movie(&movie_id_of(&parse_filename(path))).await.unwrap().is_some());
+        assert_eq!(
+            queued_kinds(&jobs).await,
+            [trickplay, prep, transcription, translation, searches + 1]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unchanged_file_on_a_title_that_still_exists_keeps_it() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog.clone(), None, jobs.clone())
+            .with_subtitle_languages(vec!["en".into()]);
+        let path = "/m/The Matrix (1999) 1080p.mkv";
+        let version = VersionId(derive_id("version", path));
+        let library = library(LibraryKind::Movie);
+        let scan = report(&[path]);
+        svc.enrich(&library, &scan, None).await;
+        let manual = TitleId::Movie(MovieId("relinked-by-hand".into()));
+        catalog
+            .upsert_movie(Movie {
+                id: MovieId("relinked-by-hand".into()),
+                ..catalog.list_movies(page()).await.unwrap().items[0].clone()
+            })
+            .await
+            .unwrap();
+        let stored = catalog.get_version(&version).await.unwrap().unwrap();
+        catalog.upsert_version(Version { title: manual.clone(), ..stored }).await.unwrap();
+        let queued = jobs.list().await.unwrap().len();
+
+        svc.enrich(&library, &scan, None).await;
+
+        assert_eq!(catalog.get_version(&version).await.unwrap().unwrap().title, manual);
+        assert_eq!(jobs.list().await.unwrap().len(), queued, "a manual relink holds");
+    }
+
+    #[tokio::test]
+    async fn a_library_created_again_over_a_deleted_librarys_folder_takes_its_files_over() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog.clone(), None, jobs.clone())
+            .with_subtitle_languages(vec!["en".into()]);
+        let path = "/m/The Matrix (1999) 1080p.mkv";
+        let version = VersionId(derive_id("version", path));
+        let deleted = library(LibraryKind::Movie);
+        svc.enrich(&deleted, &report(&[path]), None).await;
+        let before = catalog.get_version(&version).await.unwrap().unwrap();
+        catalog.reconcile_library_versions(&deleted.id, &[], &[]).await.unwrap();
+        let again = Library { id: LibraryId("lib-again".into()), ..library(LibraryKind::Movie) };
+        let queued = queued_kinds(&jobs).await;
+
+        svc.enrich(&again, &report(&[path]), None).await;
+
+        let taken = catalog.get_version(&version).await.unwrap().unwrap();
+        assert_eq!((taken.library, taken.available), (again.id, true));
+        assert_eq!((taken.title, taken.added_at), (before.title, before.added_at));
+        assert_eq!(queued_kinds(&jobs).await, queued, "the same title needs nothing new");
+    }
+
+    #[tokio::test]
+    async fn a_file_taken_over_onto_another_title_searches_subtitles_again() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog.clone(), None, jobs.clone())
+            .with_subtitle_languages(vec!["en".into()]);
+        let path = "/m/The Matrix (1999) 1080p.mkv";
+        let version = VersionId(derive_id("version", path));
+        let library = library(LibraryKind::Movie);
+        svc.enrich(&library, &report(&[path]), None).await;
+        let matched = catalog.get_version(&version).await.unwrap().unwrap();
+        let elsewhere = TitleId::Movie(MovieId("elsewhere".into()));
+        catalog.add_movie(Movie {
+            id: MovieId("elsewhere".into()),
+            ..catalog.list_movies(page()).await.unwrap().items[0].clone()
+        });
+        catalog
+            .upsert_version(Version {
+                title: elsewhere,
+                library: LibraryId("gone".into()),
+                available: false,
+                ..matched.clone()
+            })
+            .await
+            .unwrap();
+        let [trickplay, prep, transcription, translation, searches] = queued_kinds(&jobs).await;
+
+        svc.enrich(&library, &report(&[path]), None).await;
+
+        let taken = catalog.get_version(&version).await.unwrap().unwrap();
+        assert_eq!(
+            (taken.title, taken.library, taken.available),
+            (matched.title, library.id, true)
+        );
+        assert_eq!(
+            queued_kinds(&jobs).await,
+            [trickplay, prep, transcription, translation, searches + 1],
+            "only a subtitle search, as after a purge"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_file_taken_over_after_a_purge_took_its_title_searches_subtitles_again() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog.clone(), None, jobs.clone())
+            .with_subtitle_languages(vec!["en".into()]);
+        let path = "/m/The Matrix (1999) 1080p.mkv";
+        let version = VersionId(derive_id("version", path));
+        let purged = library(LibraryKind::Movie);
+        svc.enrich(&purged, &report(&[path]), None).await;
+        let before = catalog.get_version(&version).await.unwrap().unwrap();
+        catalog.purge_library(&purged.id).await.unwrap();
+        catalog.reconcile_library_versions(&purged.id, &[], &[]).await.unwrap();
+        let again = Library { id: LibraryId("lib-again".into()), ..library(LibraryKind::Movie) };
+        let [trickplay, prep, transcription, translation, searches] = queued_kinds(&jobs).await;
+
+        svc.enrich(&again, &report(&[path]), None).await;
+
+        let taken = catalog.get_version(&version).await.unwrap().unwrap();
+        assert_eq!((taken.library, taken.available), (again.id, true));
+        assert_eq!(taken.title, before.title, "the scan derives the same title id");
+        assert_eq!(catalog.list_movies(page()).await.unwrap().total, 1, "the title is back");
+        assert_eq!(
+            queued_kinds(&jobs).await,
+            [trickplay, prep, transcription, translation, searches + 1],
+            "the purge took its downloaded subtitles"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_available_file_of_another_library_is_left_with_it() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog.clone(), None, jobs.clone());
+        let path = "/m/The Matrix (1999) 1080p.mkv";
+        let version = VersionId(derive_id("version", path));
+        let owner = library(LibraryKind::Movie);
+        svc.enrich(&owner, &report(&[path]), None).await;
+        let overlapping =
+            Library { id: LibraryId("overlap".into()), ..library(LibraryKind::Movie) };
+        let queued = jobs.list().await.unwrap().len();
+
+        svc.enrich(&overlapping, &report(&[path]), None).await;
+
+        let kept = catalog.get_version(&version).await.unwrap().unwrap();
+        assert_eq!((kept.library, kept.available), (owner.id, true));
+        assert_eq!(jobs.list().await.unwrap().len(), queued);
+    }
+
+    #[tracing_test::traced_test]
+    #[tokio::test]
+    async fn a_scan_that_cannot_read_the_untitled_versions_relinks_none() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        catalog.set_fail();
+
+        svc.enrich(&library(LibraryKind::Movie), &report(&["/m/The Matrix (1999).mkv"]), None)
+            .await;
+
+        assert!(logs_contain(
+            "reading the versions left without a title failed, none is re-linked"
+        ));
     }
 
     #[tokio::test]

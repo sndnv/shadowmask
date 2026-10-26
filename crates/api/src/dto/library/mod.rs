@@ -1,8 +1,15 @@
+mod cancel_blocking;
+mod cancel_jobs_request;
+mod cancelled_jobs_response;
+mod clean_request;
+mod clean_response;
 mod create_library_request;
 mod duplicate_candidate;
 mod fetch_request;
 #[allow(clippy::module_inception)]
 mod library;
+mod purge_request;
+mod purge_response;
 mod resolve_candidate;
 mod resolve_request;
 mod scan_request;
@@ -10,10 +17,17 @@ mod scan_state;
 mod unmatched_file;
 mod update_library_request;
 
+pub use cancel_blocking::CancelBlocking;
+pub use cancel_jobs_request::CancelJobsRequest;
+pub use cancelled_jobs_response::CancelledJobsResponse;
+pub use clean_request::CleanRequest;
+pub use clean_response::CleanResponse;
 pub use create_library_request::CreateLibraryRequest;
 pub use duplicate_candidate::DuplicateCandidateResponse;
 pub use fetch_request::FetchRequest;
 pub use library::{LibraryKindDto, LibraryOriginDto, LibraryResponse, WatcherStrategyDto};
+pub use purge_request::PurgeRequest;
+pub use purge_response::PurgeResponse;
 pub use resolve_candidate::ResolveCandidateResponse;
 pub use resolve_request::{ResolveTargetInput, ResolveUnmatchedRequest};
 pub use scan_request::ScanRequest;

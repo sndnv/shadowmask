@@ -4,7 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/api/api_exception.dart';
 import 'package:shadowmask/api/library_api.dart';
+import 'package:shadowmask/model/library/cancelled_jobs.dart';
+import 'package:shadowmask/model/library/clean_report.dart';
+import 'package:shadowmask/model/library/purge_report.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 LibraryApi _lib(MockClient mock) =>
@@ -108,5 +112,150 @@ void main() {
     await api.duplicates('l1');
 
     expect(seen.url.path, '/api/v1/libraries/l1/duplicates');
+  });
+
+  test('purge posts the wipe choice and reads the counts', () async {
+    late http.Request seen;
+    final LibraryApi api = _lib(
+      _capture(
+        (http.Request req) => seen = req,
+        body: jsonEncode(<String, dynamic>{
+          'movies': 1,
+          'series': 2,
+          'seasons': 3,
+          'episodes': 4,
+          'subtitles': 5,
+          'wiped_users': 6,
+        }),
+      ),
+    );
+
+    final PurgeReport report = await api.purge('l 1', wipeUserData: true);
+
+    expect(seen.method, 'POST');
+    expect(seen.url.path, '/api/v1/libraries/l%201/purge');
+    expect(jsonDecode(seen.body), <String, dynamic>{'wipe_user_data': true});
+    expect(
+      report,
+      const PurgeReport(
+        movies: 1,
+        series: 2,
+        seasons: 3,
+        episodes: 4,
+        subtitles: 5,
+        wipedUsers: 6,
+      ),
+    );
+  });
+
+  test('clean and cleanAll post the wipe choice and read the counts', () async {
+    final List<http.Request> seen = <http.Request>[];
+    final LibraryApi api = _lib(
+      _capture(
+        seen.add,
+        body: jsonEncode(<String, dynamic>{
+          'versions': 1,
+          'movies': 2,
+          'series': 3,
+          'seasons': 4,
+          'episodes': 5,
+          'wiped_users': 6,
+        }),
+      ),
+    );
+
+    final CleanReport one = await api.clean('l 1', wipeUserData: true);
+    final CleanReport every = await api.cleanAll(wipeUserData: false);
+
+    expect(seen.map((http.Request r) => '${r.method} ${r.url.path}'), <String>[
+      'POST /api/v1/libraries/l%201/clean',
+      'POST /api/v1/admin/clean',
+    ]);
+    expect(seen.map((http.Request r) => jsonDecode(r.body)), <dynamic>[
+      <String, dynamic>{'wipe_user_data': true},
+      <String, dynamic>{'wipe_user_data': false},
+    ]);
+    const CleanReport counts = CleanReport(
+      versions: 1,
+      movies: 2,
+      series: 3,
+      seasons: 4,
+      episodes: 5,
+      wipedUsers: 6,
+    );
+    expect(one, counts);
+    expect(every, counts);
+  });
+
+  test('a refused purge carries the jobs in the way', () async {
+    final LibraryApi api = _lib(
+      _capture(
+        (_) {},
+        status: 409,
+        body: jsonEncode(<String, dynamic>{
+          'error': <String, dynamic>{
+            'code': 'library_busy',
+            'message': 'the library is busy',
+          },
+          'jobs': <dynamic>[
+            <String, dynamic>{'id': 'scan-1'},
+            'not a job',
+          ],
+        }),
+      ),
+    );
+
+    await expectLater(
+      api.purge('l1', wipeUserData: false),
+      throwsA(
+        isA<ApiException>()
+            .having((ApiException e) => e.code, 'code', 'library_busy')
+            .having((ApiException e) => e.jobs, 'jobs', <Map<String, dynamic>>[
+              <String, dynamic>{'id': 'scan-1'},
+            ]),
+      ),
+    );
+  });
+
+  test('cancelJobs posts to the library and reads the counts', () async {
+    late http.Request seen;
+    final LibraryApi api = _lib(
+      _capture(
+        (http.Request req) => seen = req,
+        body: jsonEncode(<String, dynamic>{
+          'cancelled': 3,
+          'signalled': 1,
+          'running': 2,
+        }),
+      ),
+    );
+
+    final CancelledJobs outcome = await api.cancelJobs('l1');
+
+    expect(seen.method, 'POST');
+    expect(seen.url.path, '/api/v1/libraries/l1/jobs/cancel');
+    expect(seen.body, isEmpty);
+    expect(
+      outcome,
+      const CancelledJobs(cancelled: 3, signalled: 1, running: 2),
+    );
+  });
+
+  test('cancelJobs names the operation whose blockers it cancels', () async {
+    late http.Request seen;
+    final LibraryApi api = _lib(
+      _capture(
+        (http.Request req) => seen = req,
+        body: jsonEncode(<String, dynamic>{
+          'cancelled': 1,
+          'signalled': 0,
+          'running': 0,
+        }),
+      ),
+    );
+
+    await api.cancelJobs('l1', blocking: 'clean');
+
+    expect(jsonDecode(seen.body), <String, dynamic>{'blocking': 'clean'});
   });
 }

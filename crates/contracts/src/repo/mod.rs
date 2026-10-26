@@ -1,5 +1,7 @@
 mod auth;
 mod catalog;
+mod catalog_clean;
+mod catalog_purge;
 mod job;
 mod library;
 mod preferences;
@@ -10,6 +12,7 @@ mod user;
 
 pub use auth::auth_token_repository_contract;
 pub use catalog::{CatalogSeed, catalog_repository_contract, catalog_seed};
+pub use catalog_clean::catalog_clean_contract;
 pub use job::job_repository_contract;
 pub use library::library_repository_contract;
 pub use preferences::preferences_repository_contract;

@@ -2,10 +2,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use domain::catalog::{
-    ArtworkId, ArtworkOwner, ArtworkRef, ArtworkWidth, Collection, CollectionId, Episode,
-    EpisodeCard, EpisodeContext, EpisodeId, Movie, MovieDetail, MovieId, RandomScope, Season,
-    SeasonId, Series, SeriesDetail, SeriesId, SortOrder, TitleId, TitleKind, TitleListFilter,
-    TitleRef, TitleSort, Version, VersionDetail, VersionId,
+    ArtworkId, ArtworkOwner, ArtworkRef, ArtworkWidth, CatalogClean, CleanScope, Collection,
+    CollectionId, Episode, EpisodeCard, EpisodeContext, EpisodeId, LibraryFootprint, LibraryPurge,
+    Movie, MovieDetail, MovieId, RandomScope, Season, SeasonId, Series, SeriesDetail, SeriesId,
+    SortOrder, TitleId, TitleKind, TitleListFilter, TitleRef, TitleSort, Version, VersionDetail,
+    VersionId,
 };
 use domain::common::{LanguageCode, Page, PageRequest, Quality};
 use domain::discovery::{SearchKind, SearchResult};
@@ -33,6 +34,8 @@ use crate::codec::{
 };
 use crate::metrics::DbOpGuard;
 use crate::pool::{backend, checkpoint, column, from_millis, open, ping, to_millis};
+
+mod purge;
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations/catalog");
 
@@ -67,17 +70,6 @@ const DELETE_SEASON_SQL: &str = "DELETE FROM seasons WHERE id = ? AND NOT EXISTS
      (SELECT 1 FROM episodes WHERE season_id = ?)";
 const DELETE_EPISODE_SQL: &str = "DELETE FROM episodes WHERE id = ? AND NOT EXISTS \
      (SELECT 1 FROM versions WHERE title_kind = 'episode' AND title_id = ?)";
-
-const TITLE_ATTRIBUTE_CLEANUP: [&str; 8] = [
-    "DELETE FROM artwork WHERE title_kind = ? AND title_id = ?",
-    "DELETE FROM credits WHERE title_kind = ? AND title_id = ?",
-    "DELETE FROM title_genres WHERE title_kind = ? AND title_id = ?",
-    "DELETE FROM title_studios WHERE title_kind = ? AND title_id = ?",
-    "DELETE FROM title_ratings WHERE title_kind = ? AND title_id = ?",
-    "DELETE FROM title_external_ids WHERE title_kind = ? AND title_id = ?",
-    "DELETE FROM title_extras WHERE title_kind = ? AND title_id = ?",
-    "DELETE FROM search_index WHERE kind = ? AND id = ?",
-];
 
 const SERIES_EPISODE_COUNTS_SQL: &str = "SELECT COUNT(*) AS total, \
      COALESCE(SUM(CASE WHEN EXISTS \
@@ -1023,16 +1015,7 @@ impl SqliteCatalogRepo {
         if removed == 0 {
             return Ok(false);
         }
-        for sql in TITLE_ATTRIBUTE_CLEANUP {
-            sqlx::query(sql).bind(kind).bind(id).execute(&mut *tx).await.map_err(backend)?;
-        }
-        if kind == "movie" {
-            sqlx::query("DELETE FROM collection_movies WHERE movie_id = ?")
-                .bind(id)
-                .execute(&mut *tx)
-                .await
-                .map_err(backend)?;
-        }
+        purge::clean_title_rows(&mut tx, kind, &[id.to_owned()]).await?;
         tx.commit().await.map_err(backend)?;
         Ok(true)
     }
@@ -2510,6 +2493,38 @@ impl CatalogRepository for SqliteCatalogRepo {
         Ok(())
     }
 
+    async fn library_footprint(
+        &self,
+        library: &LibraryId,
+    ) -> Result<LibraryFootprint, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "library_footprint");
+        purge::library_footprint(&self.pool, library).await
+    }
+
+    async fn purge_library(&self, library: &LibraryId) -> Result<LibraryPurge, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "purge_library");
+        let mut tx = self.pool.begin().await.map_err(backend)?;
+        let purged = purge::purge_library(&mut tx, library).await?;
+        tx.commit().await.map_err(backend)?;
+        Ok(purged)
+    }
+
+    async fn untitled_versions(
+        &self,
+        library: &LibraryId,
+    ) -> Result<HashSet<VersionId>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "untitled_versions");
+        purge::untitled_versions(&self.pool, library).await
+    }
+
+    async fn clean_catalog(&self, scope: &CleanScope) -> Result<CatalogClean, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "clean_catalog");
+        let mut tx = self.pool.begin().await.map_err(backend)?;
+        let cleaned = purge::clean_catalog(&mut tx, scope).await?;
+        tx.commit().await.map_err(backend)?;
+        Ok(cleaned)
+    }
+
     async fn set_artwork(
         &self,
         owner: &ArtworkOwner,
@@ -3345,6 +3360,88 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_purge_reaches_more_titles_than_sqlite_allows_parameters() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
+        let rows = 1_200;
+        let series = format!(
+            "WITH RECURSIVE c(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM c WHERE i < {rows})"
+        );
+        for insert in [
+            "INSERT INTO movies (id, title, sort_title, added_at, updated_at) \
+             SELECT 'm-' || i, 'M ' || i, 'm ' || i, 0, 0 FROM c",
+            "INSERT INTO versions (id, title_kind, title_id, library_id, quality, container, \
+             path, size_bytes, duration_ms, added_at, updated_at) \
+             SELECT 'v-' || i, 'movie', 'm-' || i, 'lib-1', 'hd', 'mkv', '/m/' || i, 1, 1, 0, 0 \
+             FROM c",
+            "INSERT INTO search_index (kind, id, title, terms) \
+             SELECT 'movie', 'm-' || i, 'm ' || i, '' FROM c",
+        ] {
+            sqlx::query(AssertSqlSafe(format!("{series} {insert}")))
+                .execute(&repo.pool)
+                .await
+                .unwrap();
+        }
+        repo.upsert_movie(contracts::fixture::movie("kept")).await.unwrap();
+
+        let purged = repo.purge_library(&LibraryId("lib-1".into())).await.unwrap();
+
+        assert_eq!(purged.titles.movies.len(), rows);
+        assert_eq!(purged.versions.len(), rows);
+        for (sql, left) in [
+            ("SELECT COUNT(*) AS n FROM movies", 1),
+            ("SELECT COUNT(*) AS n FROM search_index", 1),
+            ("SELECT COUNT(*) AS n FROM versions", rows),
+        ] {
+            let row = sqlx::query(sql).fetch_one(&repo.pool).await.unwrap();
+            assert_eq!(column::<i64>(&row, "n").unwrap(), left as i64, "{sql}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_clean_reaches_more_titles_than_sqlite_allows_parameters() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
+        let rows = 1_200;
+        let series = format!(
+            "WITH RECURSIVE c(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM c WHERE i < {rows})"
+        );
+        for insert in [
+            "INSERT INTO movies (id, title, sort_title, added_at, updated_at) \
+             SELECT 'm-' || i, 'M ' || i, 'm ' || i, 0, 0 FROM c",
+            "INSERT INTO movies (id, title, sort_title, added_at, updated_at) \
+             SELECT 'empty-' || i, 'E ' || i, 'e ' || i, 0, 0 FROM c",
+            "INSERT INTO versions (id, title_kind, title_id, library_id, quality, container, \
+             path, size_bytes, duration_ms, available, added_at, updated_at) \
+             SELECT 'v-' || i, 'movie', 'm-' || i, 'lib-1', 'hd', 'mkv', '/m/' || i, 1, 1, 0, \
+             0, 0 FROM c",
+            "INSERT INTO search_index (kind, id, title, terms) \
+             SELECT 'movie', 'm-' || i, 'm ' || i, '' FROM c",
+        ] {
+            sqlx::query(AssertSqlSafe(format!("{series} {insert}")))
+                .execute(&repo.pool)
+                .await
+                .unwrap();
+        }
+
+        let library = repo.clean_catalog(&CleanScope::Library(LibraryId("lib-1".into()))).await;
+        let library = library.unwrap();
+        assert_eq!(library.versions.len(), rows);
+        assert_eq!(library.titles.movies.len(), rows);
+        let everything = repo.clean_catalog(&CleanScope::All).await.unwrap();
+        assert_eq!(everything.titles.movies.len(), rows, "the empty ones only go with all");
+
+        for sql in [
+            "SELECT COUNT(*) AS n FROM movies",
+            "SELECT COUNT(*) AS n FROM search_index",
+            "SELECT COUNT(*) AS n FROM versions",
+        ] {
+            let row = sqlx::query(sql).fetch_one(&repo.pool).await.unwrap();
+            assert_eq!(column::<i64>(&row, "n").unwrap(), 0, "{sql}");
+        }
+    }
+
+    #[tokio::test]
     async fn artwork_hydration_survives_more_ids_than_sqlite_allows_parameters() {
         let dir = tempfile::tempdir().unwrap();
         let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
@@ -4001,6 +4098,10 @@ mod tests {
             .is_err()
         );
         assert!(repo.reconcile_library_versions(&library_id, &ids, &ids).await.is_err());
+        assert!(repo.library_footprint(&library_id).await.is_err());
+        assert!(repo.purge_library(&library_id).await.is_err());
+        assert!(repo.untitled_versions(&library_id).await.is_err());
+        assert!(repo.clean_catalog(&CleanScope::All).await.is_err());
         let owner = ArtworkOwner::Movie(movie_id.clone());
         assert!(repo.set_artwork(&owner, &contracts::fixture::artwork_set("m1")).await.is_err());
         assert!(repo.list_artwork(&owner).await.is_err());

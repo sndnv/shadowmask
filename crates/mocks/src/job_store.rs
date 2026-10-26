@@ -144,6 +144,20 @@ impl JobRepository for MockJobStore {
         Ok(all)
     }
 
+    async fn list_active(&self, kinds: &[JobKind]) -> Result<Vec<Job>, RepositoryError> {
+        self.guard()?;
+        let mut active: Vec<Job> = self
+            .jobs
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|job| job.status.is_active() && kinds.contains(&job.kind))
+            .cloned()
+            .collect();
+        active.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
+        Ok(active)
+    }
+
     async fn list_page(
         &self,
         query: &JobQuery,

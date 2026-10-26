@@ -176,10 +176,64 @@ pub async fn library_repository_contract<R: LibraryRepository>(repo: R) {
     assert_eq!(loaded.last_scanned_at, Some(at(1_700_000_000)));
     assert_eq!(loaded.progress, 0.5);
 
+    clearing_scan_data_keeps_the_library_and_every_other_one(&repo, &id).await;
+
     repo.delete(&id).await.unwrap();
     assert!(repo.get(&id).await.unwrap().is_none());
     assert!(repo.list().await.unwrap().is_empty());
     assert!(repo.scan_state(&id).await.unwrap().is_none());
     assert!(repo.list_unmatched(&id, page()).await.unwrap().items.is_empty());
     assert!(repo.list_duplicates(&id, page()).await.unwrap().items.is_empty());
+}
+
+async fn clearing_scan_data_keeps_the_library_and_every_other_one<R: LibraryRepository>(
+    repo: &R,
+    id: &LibraryId,
+) {
+    let other = LibraryId("lib2".into());
+    repo.upsert(library("lib2")).await.unwrap();
+    for (library, suffix) in [(id, "a"), (&other, "b")] {
+        repo.insert_unmatched(UnmatchedFile {
+            id: UnmatchedFileId(format!("clear-{suffix}")),
+            library: library.clone(),
+            path: format!("/media/clear-{suffix}.mkv"),
+            candidates: Vec::new(),
+            created_at: at(100),
+            updated_at: at(100),
+        })
+        .await
+        .unwrap();
+        repo.insert_duplicate(
+            library,
+            DuplicateCandidate {
+                id: DuplicateCandidateId(format!("clear-{suffix}")),
+                title: TitleId::Movie(MovieId(format!("m-{suffix}"))),
+                paths: vec!["/a.mkv".into(), "/b.mkv".into()],
+            },
+        )
+        .await
+        .unwrap();
+        repo.save_scan_state(ScanState {
+            library: library.clone(),
+            status: ScanStatus::Purging,
+            progress: 0.0,
+            started_at: None,
+            last_scanned_at: Some(at(1_700_000_000)),
+            error: None,
+        })
+        .await
+        .unwrap();
+    }
+
+    repo.clear_scan_data(id).await.unwrap();
+
+    assert!(repo.get(id).await.unwrap().is_some());
+    assert!(repo.scan_state(id).await.unwrap().is_none());
+    assert!(repo.get_unmatched(&UnmatchedFileId("uf1".into())).await.unwrap().is_none());
+    assert!(repo.get_unmatched(&UnmatchedFileId("clear-a".into())).await.unwrap().is_none());
+    assert_eq!(repo.list_duplicates(id, page()).await.unwrap().total, 0);
+    assert!(repo.get_unmatched(&UnmatchedFileId("clear-b".into())).await.unwrap().is_some());
+    assert_eq!(repo.list_duplicates(&other, page()).await.unwrap().total, 1);
+    assert_eq!(repo.scan_state(&other).await.unwrap().unwrap().status, ScanStatus::Purging);
+    repo.delete(&other).await.unwrap();
 }

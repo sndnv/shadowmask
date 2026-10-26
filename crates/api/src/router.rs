@@ -17,19 +17,20 @@ use domain::diagnostics::{
 use domain::job::JobLogStore;
 use domain::media::{SubtitleProvider, SubtitleReader, SubtitleStore};
 use domain::repository::{CatalogRepository, ReportRepository};
+use domain::service::MaintenanceService;
 use domain::session::{DownloadTokens, PlayCommandTokens, StreamSource, StreamTokens};
 use tower_http::services::ServeDir;
 
 use crate::handlers::{
-    admin, auth, catalog, diagnostics, discovery, download, image, job_log, library, play_on,
-    report, server, server_log, sessions, stream, subtitle, trickplay, user_library, users,
-    version, webhook,
+    admin, auth, catalog, diagnostics, discovery, download, image, job_log, library, maintenance,
+    play_on, report, server, server_log, sessions, stream, subtitle, trickplay, user_library,
+    users, version, webhook,
 };
 use crate::middleware::{jwt, timed_out, track_stream_bytes};
 use crate::state::{
-    AppServices, DiagnosticsState, DownloadState, ImageState, JobLogState, PlayOnState,
-    ReportState, ServerLogState, StreamState, SubtitleSearchState, SubtitleState, TrickplayState,
-    WebhookClient, WebhookState,
+    AppServices, DiagnosticsState, DownloadState, ImageState, JobLogState, MaintenanceState,
+    PlayOnState, ReportState, ServerLogState, StreamState, SubtitleSearchState, SubtitleState,
+    TrickplayState, WebhookClient, WebhookState,
 };
 
 pub fn router<S: AppServices>(state: S) -> Router {
@@ -230,6 +231,19 @@ pub fn server_log_router<S: AppServices, L: ServerLogStore + 'static>(
 ) -> Router {
     Router::new()
         .route("/api/v1/admin/server/logs", get(server_log::read::<L>))
+        .route_layer(from_fn_with_state(auth, jwt::<S>))
+        .with_state(state)
+}
+
+pub fn maintenance_router<S: AppServices, M: MaintenanceService + Send + Sync + 'static>(
+    auth: S,
+    state: MaintenanceState<M>,
+) -> Router {
+    Router::new()
+        .route("/api/v1/libraries/{id}/purge", post(maintenance::purge::<M>))
+        .route("/api/v1/libraries/{id}/clean", post(maintenance::clean::<M>))
+        .route("/api/v1/admin/clean", post(maintenance::clean_all::<M>))
+        .route("/api/v1/libraries/{id}/jobs/cancel", post(maintenance::cancel_jobs::<M>))
         .route_layer(from_fn_with_state(auth, jwt::<S>))
         .with_state(state)
 }

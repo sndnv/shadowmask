@@ -1,4 +1,5 @@
 mod data;
+mod forget;
 mod preferences;
 mod progress;
 

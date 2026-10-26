@@ -20,10 +20,7 @@ async fn reserve_scan<L>(libraries: &L, id: &LibraryId) -> Result<bool, Reposito
 where
     L: LibraryRepository + Sync,
 {
-    if matches!(
-        libraries.scan_state(id).await?,
-        Some(state) if matches!(state.status, ScanStatus::Queued | ScanStatus::Running)
-    ) {
+    if libraries.scan_state(id).await?.is_some_and(|state| state.status.is_busy()) {
         return Ok(false);
     }
     libraries
@@ -39,7 +36,7 @@ where
     Ok(true)
 }
 
-async fn release_scan<L>(libraries: &L, id: &LibraryId) -> Result<(), RepositoryError>
+pub(crate) async fn release_scan<L>(libraries: &L, id: &LibraryId) -> Result<(), RepositoryError>
 where
     L: LibraryRepository + Sync,
 {
@@ -141,6 +138,11 @@ where
             ScanStatus::Queued if !pending_scan => {
                 release_scan(libraries, &library.id).await?;
             }
+            ScanStatus::Purging | ScanStatus::Cleaning => {
+                libraries
+                    .save_scan_state(ScanState { status: ScanStatus::Idle, progress: 0.0, ..state })
+                    .await?;
+            }
             _ => continue,
         }
         settled += 1;
@@ -185,7 +187,9 @@ mod tests {
     async fn a_restart_settles_every_scan_state_no_job_will_finish() {
         let libraries = MockLibraryRepo::new();
         let jobs = MockJobStore::new();
-        for id in ["running", "requeued", "idle", "queued", "orphaned", "never"] {
+        for id in
+            ["running", "requeued", "idle", "queued", "orphaned", "purging", "cleaning", "never"]
+        {
             libraries.insert_library(library(id));
         }
         libraries.save_scan_state(state("running", ScanStatus::Running)).await.unwrap();
@@ -193,10 +197,21 @@ mod tests {
         libraries.save_scan_state(state("idle", ScanStatus::Idle)).await.unwrap();
         libraries.save_scan_state(state("queued", ScanStatus::Queued)).await.unwrap();
         libraries.save_scan_state(state("orphaned", ScanStatus::Queued)).await.unwrap();
+        libraries.save_scan_state(state("purging", ScanStatus::Purging)).await.unwrap();
+        libraries.save_scan_state(state("cleaning", ScanStatus::Cleaning)).await.unwrap();
         enqueue_scan(&jobs, &LibraryId("queued".into()), ScanMode::Normal, None).await.unwrap();
         enqueue_scan(&jobs, &LibraryId("requeued".into()), ScanMode::Reread, None).await.unwrap();
 
-        assert_eq!(settle_interrupted_scans(&libraries, &jobs).await.unwrap(), 3);
+        assert_eq!(settle_interrupted_scans(&libraries, &jobs).await.unwrap(), 5);
+
+        for id in ["purging", "cleaning"] {
+            let held = LibraryId(id.into());
+            let released = libraries.scan_state(&held).await.unwrap().unwrap();
+            assert_eq!((released.status, released.progress), (ScanStatus::Idle, 0.0), "{id}");
+            assert_eq!(released.started_at, Some(Timestamp::UNIX_EPOCH), "the rest is kept");
+            let free = reserve_scan(&libraries, &held).await.unwrap();
+            assert!(free, "a purge or a clean cut short holds nothing: {id}");
+        }
 
         let requeued = LibraryId("requeued".into());
         let waiting = libraries.scan_state(&requeued).await.unwrap().unwrap();
@@ -250,6 +265,21 @@ mod tests {
         enqueue_scan(&jobs, &id, ScanMode::Normal, None).await.unwrap();
 
         assert_eq!(jobs.list().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_purge_or_a_clean_holds_the_slot_against_a_scan() {
+        for status in [ScanStatus::Purging, ScanStatus::Cleaning] {
+            let libraries = MockLibraryRepo::new();
+            let jobs = MockJobStore::new();
+            let id = LibraryId("lib".into());
+            libraries.save_scan_state(state("lib", status)).await.unwrap();
+
+            assert!(!queue_scan(&libraries, &jobs, &id, ScanMode::Normal, None).await.unwrap());
+
+            assert!(jobs.list().await.unwrap().is_empty());
+            assert_eq!(libraries.scan_state(&id).await.unwrap().unwrap().status, status);
+        }
     }
 
     #[tokio::test]

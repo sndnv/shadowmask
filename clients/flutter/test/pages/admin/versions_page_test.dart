@@ -58,9 +58,14 @@ bool _hit(Map<String, dynamic> v, String needle) =>
 
 http.Response _page(http.Request req, int pageSize) {
   final String needle = req.url.queryParameters['filter'] ?? '';
+  final String? available = req.url.queryParameters['available'];
   final int offset = int.tryParse(req.url.queryParameters['offset'] ?? '') ?? 0;
   final List<Map<String, dynamic>> matched = _versions
       .where((Map<String, dynamic> v) => needle.isEmpty || _hit(v, needle))
+      .where(
+        (Map<String, dynamic> v) =>
+            available == null || '${v['available'] ?? true}' == available,
+      )
       .toList();
   return http.Response(
     jsonEncode(<String, dynamic>{
@@ -316,6 +321,33 @@ void main() {
     );
   });
 
+  testWidgets('availability narrows the list, from the first page, with the '
+      'filter kept', (WidgetTester tester) async {
+    final List<Uri> reads = <Uri>[];
+    await _pump(tester, reads: reads, pageSize: 1);
+    await tester.tap(find.text(Strings.next));
+    await tester.pumpAndSettle();
+    await _type(tester, 'media');
+    expect(reads.last.queryParameters.containsKey('available'), isFalse);
+
+    await tester.tap(find.text(Strings.availabilityAll));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.availabilityUnavailable).last);
+    await tester.pumpAndSettle();
+
+    expect(reads.last.queryParameters['available'], 'false');
+    expect(reads.last.queryParameters['filter'], 'media');
+    expect(reads.last.queryParameters.containsKey('offset'), isFalse);
+    expect(find.text('/media/sintel.mp4'), findsOneWidget);
+    expect(find.text('/media/bbb.mkv'), findsNothing);
+
+    await tester.tap(find.text(Strings.availabilityUnavailable));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.availabilityAll).last);
+    await tester.pumpAndSettle();
+    expect(reads.last.queryParameters.containsKey('available'), isFalse);
+  });
+
   testWidgets('a library name finds its versions', (WidgetTester tester) async {
     await _pump(tester);
 
@@ -333,6 +365,41 @@ void main() {
     await _type(tester, 'nothing here');
 
     expect(find.text(Strings.noMatchingVersions), findsOneWidget);
+  });
+
+  testWidgets('an availability with no versions reports no match', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      httpClient: MockClient((http.Request r) async {
+        if (r.url.queryParameters['available'] == 'false') {
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'items': <dynamic>[],
+              'total': 0,
+              'offset': 0,
+              'limit': 50,
+            }),
+            200,
+          );
+        }
+        return _route(r);
+      }),
+    );
+    await tester.pumpWidget(_app(api));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(Strings.availabilityAll));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.availabilityUnavailable).last);
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.noMatchingVersions), findsOneWidget);
+    expect(find.text(Strings.emptyVersions), findsNothing);
   });
 
   testWidgets('paging keeps the filter and asks for the next offset', (

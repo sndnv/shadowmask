@@ -37,7 +37,7 @@
           const library = await sm.json("/api/v1/libraries/" + eu(libId));
           main.textContent = "";
           main.appendChild(sm.el("h2", { text: library.name + " (" + library.kind + ")" }));
-          await renderScan(main);
+          await renderScan(main, library);
           await renderUnmatched(main);
           await renderDuplicates(main);
           await renderVersions(main);
@@ -46,7 +46,7 @@
         }
       }
 
-      async function renderScan(main) {
+      async function renderScan(main, library) {
         main.appendChild(sm.el("h3", { text: "Scan" }));
         const container = sm.el("div", null);
         main.appendChild(container);
@@ -64,8 +64,156 @@
         refresh.addEventListener("click", confirmRefreshMetadata);
         const reread = sm.el("button", { type: "button", class: "sm-secondary" }, "Re-read files");
         reread.addEventListener("click", () => confirmReread(container));
-        main.appendChild(sm.el("p", null, [trigger, " ", reread, " ", refresh]));
+        const cancel = sm.el("button", { type: "button", class: "sm-secondary" }, "Cancel jobs");
+        cancel.addEventListener("click", confirmCancelJobs);
+        const purge = sm.el("button", { type: "button", class: "sm-danger" }, "Purge");
+        purge.addEventListener("click", () => confirmPurge(library.name));
+        const clean = sm.el("button", { type: "button", class: "sm-danger" }, "Clean");
+        clean.addEventListener("click", () => confirmClean(library.name));
+        main.appendChild(
+          sm.el("p", null, [trigger, " ", reread, " ", refresh, " ", cancel, " ", purge, " ", clean]),
+        );
         await reloadScan(container);
+      }
+
+      function counted(n, one, many) {
+        return n + " " + (n === 1 ? one : many);
+      }
+
+      function purgedText(done) {
+        const parts = [];
+        if (done.movies) parts.push(counted(done.movies, "movie", "movies"));
+        if (done.series) parts.push(done.series + " series");
+        if (done.seasons) parts.push(counted(done.seasons, "season", "seasons"));
+        if (done.episodes) parts.push(counted(done.episodes, "episode", "episodes"));
+        if (done.subtitles) parts.push(counted(done.subtitles, "subtitle", "subtitles"));
+        const what = parts.length ? "Purged: " + parts.join(", ") + "." : "Purged: nothing to remove.";
+        if (!done.wiped_users) return what;
+        return what + " User data wiped for " + counted(done.wiped_users, "user", "users") + ".";
+      }
+
+      function confirmPurge(name) {
+        sm.openDialog("Purge library", (box) => {
+          const wipe = sm.el("input", { type: "checkbox" });
+          const run = sm.el("button", { type: "button", class: "sm-danger" }, "Purge");
+          run.addEventListener("click", async () => {
+            run.disabled = true;
+            try {
+              const done = await sm.json("/api/v1/libraries/" + eu(libId) + "/purge", {
+                method: "POST",
+                body: JSON.stringify({ wipe_user_data: wipe.checked }),
+              });
+              box.close();
+              sm.toast(purgedText(done), "ok");
+              await guard();
+            } catch (err) {
+              run.disabled = false;
+              if (err.code === "library_busy") {
+                box.close();
+                showBusy(err.jobs, "These jobs block the purge.", "purge");
+              } else {
+                sm.toast("Purge failed. " + err.message, "danger");
+              }
+            }
+          });
+          return sm.el("div", null, [
+            sm.el("p", null, "Removes the titles of " + name + " with their metadata, artwork and downloaded subtitles, and its unmatched and duplicate lists. Titles another library holds stay."),
+            sm.el("p", { class: "sm-subtext" }, "Keeps the files, versions, trickplay, playback prep and other subtitles. Manual relinks and edits are lost."),
+            sm.el("p", null, sm.el("label", null, [wipe, " Also wipe user data for these titles: watched, watchlist, favorites, resume positions, subtitle offsets"])),
+            run,
+          ]);
+        });
+      }
+
+      function cleanedText(done) {
+        const parts = [];
+        if (done.versions) parts.push(counted(done.versions, "version", "versions"));
+        if (done.movies) parts.push(counted(done.movies, "movie", "movies"));
+        if (done.series) parts.push(done.series + " series");
+        if (done.seasons) parts.push(counted(done.seasons, "season", "seasons"));
+        if (done.episodes) parts.push(counted(done.episodes, "episode", "episodes"));
+        const what = parts.length ? "Cleaned: " + parts.join(", ") + "." : "Cleaned: nothing to remove.";
+        if (!done.wiped_users) return what;
+        return what + " User data wiped for " + counted(done.wiped_users, "user", "users") + ".";
+      }
+
+      function confirmClean(name) {
+        sm.openDialog("Clean library", (box) => {
+          const wipe = sm.el("input", { type: "checkbox" });
+          const run = sm.el("button", { type: "button", class: "sm-danger" }, "Clean");
+          run.addEventListener("click", async () => {
+            run.disabled = true;
+            try {
+              const done = await sm.json("/api/v1/libraries/" + eu(libId) + "/clean", {
+                method: "POST",
+                body: JSON.stringify({ wipe_user_data: wipe.checked }),
+              });
+              box.close();
+              sm.toast(cleanedText(done), "ok");
+              await guard();
+            } catch (err) {
+              run.disabled = false;
+              if (err.code === "library_busy") {
+                box.close();
+                showBusy(err.jobs, "These jobs block the clean.", "clean");
+              } else {
+                sm.toast("Clean failed. " + err.message, "danger");
+              }
+            }
+          });
+          return sm.el("div", null, [
+            sm.el("p", null, "Removes the versions of " + name + " whose file is gone and the titles left with no version. Files on disk are not touched."),
+            sm.el("p", null, sm.el("label", null, [wipe, " Also wipe user data for what is removed: watched, watchlist, favorites, resume positions, subtitle offsets"])),
+            run,
+          ]);
+        });
+      }
+
+      function showBusy(jobs, body, blocking) {
+        sm.openDialog("Library busy", (box) => {
+          const cancel = sm.el("button", { type: "button" }, "Cancel jobs");
+          cancel.addEventListener("click", async () => {
+            box.close();
+            await cancelJobs(blocking);
+          });
+          const rows = jobs.map((job) =>
+            sm.el("li", null, [
+              sm.el("a", { href: "job.html?id=" + eu(job.id) }, String(job.kind).replace(/_/g, " ")),
+              " " + job.status,
+            ]),
+          );
+          return sm.el("div", null, [sm.el("p", null, body), sm.el("ul", null, rows), cancel]);
+        });
+      }
+
+      function confirmCancelJobs() {
+        sm.openDialog("Cancel jobs", (box) => {
+          const run = sm.el("button", { type: "button" }, "Cancel jobs");
+          run.addEventListener("click", async () => {
+            box.close();
+            await cancelJobs();
+          });
+          return sm.el("div", null, [
+            sm.el("p", null, "Cancels this library's queued jobs and stops the running ones that can be stopped."),
+            run,
+          ]);
+        });
+      }
+
+      async function cancelJobs(blocking) {
+        try {
+          const done = await sm.json("/api/v1/libraries/" + eu(libId) + "/jobs/cancel", {
+            method: "POST",
+            body: blocking ? JSON.stringify({ blocking }) : undefined,
+          });
+          sm.toast(
+            "Cancelled " + done.cancelled + ", stopped " + done.signalled + ", " + done.running + " still running.",
+            "ok",
+          );
+          await guard();
+        } catch (err) {
+          sm.toast("Cancel failed. " + err.message, "danger");
+        }
       }
 
       function confirmReread(container) {

@@ -282,6 +282,8 @@ fn scan_status_to_str(status: ScanStatus) -> &'static str {
         ScanStatus::Queued => "queued",
         ScanStatus::Running => "running",
         ScanStatus::Failed => "failed",
+        ScanStatus::Purging => "purging",
+        ScanStatus::Cleaning => "cleaning",
     }
 }
 
@@ -291,6 +293,8 @@ fn scan_status_from_str(value: &str) -> Result<ScanStatus, RepositoryError> {
         "queued" => Ok(ScanStatus::Queued),
         "running" => Ok(ScanStatus::Running),
         "failed" => Ok(ScanStatus::Failed),
+        "purging" => Ok(ScanStatus::Purging),
+        "cleaning" => Ok(ScanStatus::Cleaning),
         other => Err(backend(format!("unknown scan status: {other}"))),
     }
 }
@@ -392,24 +396,9 @@ impl LibraryRepository for SqliteLibraryRepo {
     async fn delete(&self, id: &LibraryId) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("library", "delete");
         let mut tx = self.pool.begin().await.map_err(backend)?;
-        let key = id.0.as_str();
-        sqlx::query("DELETE FROM scan_state WHERE library_id = ?")
-            .bind(key)
-            .execute(&mut *tx)
-            .await
-            .map_err(backend)?;
-        sqlx::query("DELETE FROM unmatched_files WHERE library_id = ?")
-            .bind(key)
-            .execute(&mut *tx)
-            .await
-            .map_err(backend)?;
-        sqlx::query("DELETE FROM duplicate_candidates WHERE library_id = ?")
-            .bind(key)
-            .execute(&mut *tx)
-            .await
-            .map_err(backend)?;
+        delete_scan_rows(&mut tx, id).await?;
         sqlx::query("DELETE FROM libraries WHERE id = ?")
-            .bind(key)
+            .bind(id.0.as_str())
             .execute(&mut *tx)
             .await
             .map_err(backend)?;
@@ -681,6 +670,28 @@ impl LibraryRepository for SqliteLibraryRepo {
         tx.commit().await.map_err(backend)?;
         Ok(())
     }
+
+    async fn clear_scan_data(&self, library: &LibraryId) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("library", "clear_scan_data");
+        let mut tx = self.pool.begin().await.map_err(backend)?;
+        delete_scan_rows(&mut tx, library).await?;
+        tx.commit().await.map_err(backend)?;
+        Ok(())
+    }
+}
+
+async fn delete_scan_rows(
+    conn: &mut SqliteConnection,
+    library: &LibraryId,
+) -> Result<(), RepositoryError> {
+    for sql in [
+        "DELETE FROM scan_state WHERE library_id = ?",
+        "DELETE FROM unmatched_files WHERE library_id = ?",
+        "DELETE FROM duplicate_candidates WHERE library_id = ?",
+    ] {
+        sqlx::query(sql).bind(library.0.as_str()).execute(&mut *conn).await.map_err(backend)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -774,9 +785,14 @@ mod tests {
         ] {
             assert_eq!(watcher_from_str(watcher_to_str(watcher)).unwrap(), watcher);
         }
-        for status in
-            [ScanStatus::Idle, ScanStatus::Queued, ScanStatus::Running, ScanStatus::Failed]
-        {
+        for status in [
+            ScanStatus::Idle,
+            ScanStatus::Queued,
+            ScanStatus::Running,
+            ScanStatus::Failed,
+            ScanStatus::Purging,
+            ScanStatus::Cleaning,
+        ] {
             assert_eq!(scan_status_from_str(scan_status_to_str(status)).unwrap(), status);
         }
         assert!(kind_from_str("nope").is_err());
@@ -814,6 +830,7 @@ mod tests {
         );
         assert!(repo.upsert(contracts::fixture::library("lib1")).await.is_err());
         assert!(repo.delete(&library).await.is_err());
+        assert!(repo.clear_scan_data(&library).await.is_err());
         assert!(repo.list_unmatched(&library, page).await.is_err());
         assert!(repo.list_duplicates(&library, page).await.is_err());
         assert!(repo.get_unmatched(&unmatched).await.is_err());

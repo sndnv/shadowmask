@@ -39,6 +39,17 @@ void main() {
     }
   });
 
+  test('a held library says what holds it', () {
+    expect(
+      failureReason(_api('library_cleaning', 'raw')),
+      Strings.reasonLibraryCleaning,
+    );
+    expect(
+      failureReason(_api('library_purging', 'raw')),
+      Strings.reasonLibraryPurging,
+    );
+  });
+
   test('an unmapped code still says something rather than nothing', () {
     final String text = failureText(
       Strings.errorDelete,

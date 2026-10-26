@@ -1,6 +1,7 @@
+use std::collections::HashSet;
 use std::path::Path;
 
-use domain::catalog::VersionId;
+use domain::catalog::{TitleSet, VersionId};
 use domain::error::RepositoryError;
 use domain::playback::{Favorite, SubtitleTrackRef, UserSubtitleOffset, WatchlistItem};
 use domain::repository::PreferencesRepository;
@@ -11,6 +12,7 @@ use sqlx::sqlite::SqliteRow;
 use crate::codec::{subtitle_ref_parts, title_from_parts, title_kind};
 use crate::metrics::DbOpGuard;
 use crate::pool::{DEFAULT_USER_POOL_CAPACITY, UserPools, backend, column, from_millis, to_millis};
+use crate::user::forget::Forget;
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations/prefs");
 
@@ -31,6 +33,25 @@ impl SqlitePreferencesRepo {
 
     pub async fn purge(&self, user: &UserId) -> Result<(), RepositoryError> {
         self.pools.purge(user).await
+    }
+
+    pub async fn forget(
+        &self,
+        user: &UserId,
+        titles: &TitleSet,
+        versions: &HashSet<VersionId>,
+    ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("preferences", "forget");
+        let pool = self.pools.get(user).await?;
+        Forget {
+            by_title: &[
+                "DELETE FROM watchlist WHERE title_kind = ? AND title_id = ?",
+                "DELETE FROM favorites WHERE title_kind = ? AND title_id = ?",
+            ],
+            by_version: &["DELETE FROM subtitle_offsets WHERE version_id = ?"],
+        }
+        .run(&pool, titles, versions)
+        .await
     }
 
     pub async fn close(&self) {
@@ -231,7 +252,7 @@ mod tests {
         assert!(repo.get_subtitle_offset(&user, &version, &track).await.is_err());
         assert!(
             repo.set_subtitle_offset(UserSubtitleOffset {
-                user,
+                user: user.clone(),
                 version,
                 subtitle: track,
                 offset_ms: 250,
@@ -239,5 +260,6 @@ mod tests {
             .await
             .is_err()
         );
+        assert!(repo.forget(&user, &TitleSet::default(), &HashSet::new()).await.is_err());
     }
 }

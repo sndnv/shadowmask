@@ -69,10 +69,12 @@ class AdminApi {
     int offset = 0,
     int? limit,
     String? filter,
+    bool? available,
   }) => _api.getPage(
     withQuery('/api/v1/admin/versions', <String, String?>{
       ..._pageParams(offset, limit),
       if (filter != null && filter.isNotEmpty) 'filter': filter,
+      if (available != null) 'available': '$available',
     }),
     Version.fromJson,
   );

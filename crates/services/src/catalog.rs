@@ -368,7 +368,7 @@ where
     async fn all_versions(
         &self,
         caller: &Principal,
-        filter: Option<&VersionFilter>,
+        filter: &VersionFilter,
         page: PageRequest,
     ) -> Result<Page<Version>, CatalogError> {
         if !acl::is_admin(caller) {
@@ -383,10 +383,11 @@ where
             .into_iter()
             .filter(|version| viewer.sees_library(&version.library))
             .collect();
-        let Some(filter) = filter else {
-            return Ok(paginate(&visible, page));
+        let names = if filter.searches_titles() {
+            self.title_names(&visible).await?
+        } else {
+            HashMap::new()
         };
-        let names = self.title_names(&visible).await?;
         let matched: Vec<Version> = visible
             .into_iter()
             .filter(|version| {
@@ -1011,14 +1012,15 @@ mod tests {
         CatalogServiceImpl::new(catalog, users)
     }
 
+    fn library_names() -> HashMap<LibraryId, String> {
+        HashMap::from([
+            (LibraryId("lib1".into()), "Films".into()),
+            (LibraryId("lib2".into()), "Shows".into()),
+        ])
+    }
+
     fn version_filter(needle: &str) -> VersionFilter {
-        VersionFilter::new(
-            needle,
-            HashMap::from([
-                (LibraryId("lib1".into()), "Films".into()),
-                (LibraryId("lib2".into()), "Shows".into()),
-            ]),
-        )
+        VersionFilter::new(needle, None, library_names())
     }
 
     fn version_ids(found: &Page<Version>) -> Vec<&str> {
@@ -1039,8 +1041,7 @@ mod tests {
             ("films", vec!["a-drift", "b-paper"]),
             ("lantern", vec![]),
         ] {
-            let found =
-                svc.all_versions(&admin(), Some(&version_filter(needle)), page()).await.unwrap();
+            let found = svc.all_versions(&admin(), &version_filter(needle), page()).await.unwrap();
             assert_eq!(version_ids(&found), expected, "{needle}");
             assert_eq!(found.total, expected.len() as u64, "{needle}");
         }
@@ -1050,12 +1051,11 @@ mod tests {
     async fn the_versions_filter_runs_before_the_page_is_cut() {
         let svc = filterable();
         let first = PageRequest { offset: 0, limit: 1 };
-        let unfiltered = svc.all_versions(&admin(), None, first).await.unwrap();
+        let unfiltered = svc.all_versions(&admin(), &version_filter(""), first).await.unwrap();
         assert_eq!(version_ids(&unfiltered), ["a-drift"]);
         assert_eq!(unfiltered.total, 3);
 
-        let filtered =
-            svc.all_versions(&admin(), Some(&version_filter("static")), first).await.unwrap();
+        let filtered = svc.all_versions(&admin(), &version_filter("static"), first).await.unwrap();
         assert_eq!(version_ids(&filtered), ["c-pilot"], "a match from the last page comes first");
         assert_eq!(filtered.total, 1);
     }
@@ -1069,17 +1069,36 @@ mod tests {
             account_admin: true,
             device: None,
         };
-        let found = svc.all_versions(&half, Some(&version_filter("shows")), page()).await.unwrap();
+        let found = svc.all_versions(&half, &version_filter("shows"), page()).await.unwrap();
         assert_eq!(found.total, 0);
+    }
+
+    #[tokio::test]
+    async fn the_versions_list_narrows_to_available_or_unavailable_before_the_page_is_cut() {
+        let svc = filterable();
+        let drift = TitleId::Movie(MovieId("m-drift".into()));
+        let gone = filed("d-gone", drift, "lib1", Quality::Hd, "/media/Gone.mkv");
+        svc.catalog.add_version(Version { available: false, ..gone });
+        let first = PageRequest { offset: 0, limit: 1 };
+        for (available, needle, expected, total) in [
+            (Some(false), "", "d-gone", 1),
+            (Some(true), "", "a-drift", 3),
+            (Some(false), "films", "d-gone", 1),
+        ] {
+            let filter = VersionFilter::new(needle, available, library_names());
+            let found = svc.all_versions(&admin(), &filter, first).await.unwrap();
+            assert_eq!(version_ids(&found), [expected], "{available:?} {needle}");
+            assert_eq!(found.total, total, "{available:?} {needle}");
+        }
     }
 
     #[tokio::test]
     async fn all_versions_is_admin_only_and_still_scoped_to_the_grants() {
         let svc = seeded().await;
-        let all = svc.all_versions(&admin(), None, page()).await.unwrap();
+        let all = svc.all_versions(&admin(), &VersionFilter::default(), page()).await.unwrap();
         assert_eq!(all.total, 3);
         assert!(matches!(
-            svc.all_versions(&member(), None, page()).await.unwrap_err(),
+            svc.all_versions(&member(), &VersionFilter::default(), page()).await.unwrap_err(),
             CatalogError::Forbidden
         ));
 
@@ -1090,7 +1109,7 @@ mod tests {
             device: None,
         };
         assert_eq!(
-            svc.all_versions(&stranger, None, page()).await.unwrap().total,
+            svc.all_versions(&stranger, &VersionFilter::default(), page()).await.unwrap().total,
             0,
             "an admin listing must not show a version whose detail page would 404"
         );
@@ -1385,7 +1404,7 @@ mod tests {
         is_repository_error!(svc.episode(&admin(), &episode));
         is_repository_error!(svc.versions(&admin(), &title, page()));
         is_repository_error!(svc.library_versions(&admin(), &library, page()));
-        is_repository_error!(svc.all_versions(&admin(), None, page()));
+        is_repository_error!(svc.all_versions(&admin(), &VersionFilter::default(), page()));
         is_repository_error!(svc.version(&admin(), &version));
         is_repository_error!(svc.people_cards(&admin(), std::slice::from_ref(&person)));
         is_repository_error!(svc.person(&admin(), &person));
@@ -1421,7 +1440,7 @@ mod tests {
         is_repository_error!(svc.episodes(&admin(), &season));
         is_repository_error!(svc.versions(&admin(), &title, page()));
         is_repository_error!(svc.library_versions(&admin(), &library, page()));
-        is_repository_error!(svc.all_versions(&admin(), None, page()));
+        is_repository_error!(svc.all_versions(&admin(), &VersionFilter::default(), page()));
         is_repository_error!(svc.random(&admin(), &RandomScope::Movies, &query()));
 
         let users = MockUserRepo::new();

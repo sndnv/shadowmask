@@ -4,9 +4,10 @@ use std::future::Future;
 use jiff::Timestamp;
 
 use crate::catalog::{
-    ArtworkId, ArtworkOwner, ArtworkRef, Collection, CollectionId, Episode, EpisodeContext,
-    EpisodeId, Movie, MovieDetail, MovieId, RandomScope, Season, SeasonId, Series, SeriesDetail,
-    SeriesId, TitleId, TitleKind, TitleListFilter, TitleRef, Version, VersionDetail, VersionId,
+    ArtworkId, ArtworkOwner, ArtworkRef, CatalogClean, CleanScope, Collection, CollectionId,
+    Episode, EpisodeContext, EpisodeId, LibraryFootprint, LibraryPurge, Movie, MovieDetail,
+    MovieId, RandomScope, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId, TitleKind,
+    TitleListFilter, TitleRef, TitleSet, Version, VersionDetail, VersionId,
 };
 use crate::common::{Page, PageRequest};
 use crate::diagnostics::{Report, ReportId, ReportSummary};
@@ -198,6 +199,22 @@ pub trait CatalogRepository {
         present_paths: &[String],
         offline_paths: &[String],
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn library_footprint(
+        &self,
+        library: &LibraryId,
+    ) -> impl Future<Output = Result<LibraryFootprint, RepositoryError>> + Send;
+    fn purge_library(
+        &self,
+        library: &LibraryId,
+    ) -> impl Future<Output = Result<LibraryPurge, RepositoryError>> + Send;
+    fn untitled_versions(
+        &self,
+        library: &LibraryId,
+    ) -> impl Future<Output = Result<HashSet<VersionId>, RepositoryError>> + Send;
+    fn clean_catalog(
+        &self,
+        scope: &CleanScope,
+    ) -> impl Future<Output = Result<CatalogClean, RepositoryError>> + Send;
     fn set_artwork(
         &self,
         owner: &ArtworkOwner,
@@ -413,6 +430,10 @@ pub trait LibraryRepository {
         present_paths: &[String],
         offline_paths: &[String],
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn clear_scan_data(
+        &self,
+        library: &LibraryId,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }
 
 pub trait UserRepository {
@@ -448,6 +469,12 @@ pub trait UserRepository {
 
 pub trait UserDataStore {
     fn purge(&self, user: &UserId) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn forget(
+        &self,
+        user: &UserId,
+        titles: &TitleSet,
+        versions: &HashSet<VersionId>,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }
 
 pub trait ProgressRepository {
@@ -591,6 +618,10 @@ pub trait JobRepository {
     fn update(&self, job: Job) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     fn get(&self, id: &JobId) -> impl Future<Output = Result<Option<Job>, RepositoryError>> + Send;
     fn list(&self) -> impl Future<Output = Result<Vec<Job>, RepositoryError>> + Send;
+    fn list_active(
+        &self,
+        kinds: &[JobKind],
+    ) -> impl Future<Output = Result<Vec<Job>, RepositoryError>> + Send;
     fn list_page(
         &self,
         query: &JobQuery,

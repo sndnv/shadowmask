@@ -172,6 +172,7 @@ class ApiClient {
   ApiException _errorFrom(http.Response res) {
     String message = 'HTTP ${res.statusCode}';
     String? code;
+    List<Map<String, dynamic>> jobs = const <Map<String, dynamic>>[];
     try {
       final dynamic body = jsonDecode(res.body);
       if (body is Map && body['error'] is Map) {
@@ -184,8 +185,18 @@ class ApiClient {
           code = err['code'] as String;
         }
       }
+      if (body is Map && body['jobs'] is List) {
+        jobs = (body['jobs'] as List<dynamic>)
+            .whereType<Map<String, dynamic>>()
+            .toList();
+      }
     } catch (_) {}
-    return ApiException(message, status: res.statusCode, code: code);
+    return ApiException(
+      message,
+      status: res.statusCode,
+      code: code,
+      jobs: jobs,
+    );
   }
 
   Map<String, dynamic> _asJson(http.Response res) => res.body.isEmpty

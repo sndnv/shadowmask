@@ -32,4 +32,6 @@ String scanStatusLabel(ScanStatus status) => switch (status) {
   ScanStatus.queued => 'Queued',
   ScanStatus.running => 'Running',
   ScanStatus.failed => 'Failed',
+  ScanStatus.purging => 'Purging',
+  ScanStatus.cleaning => 'Cleaning',
 };

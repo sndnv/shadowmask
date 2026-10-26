@@ -159,6 +159,28 @@ where
         Ok(self.catalog.series_versions(series).await?)
     }
 
+    async fn refuse_while_held(&self, id: &LibraryId) -> Result<(), LibraryError> {
+        match self.libraries.scan_state(id).await?.map(|state| state.status) {
+            Some(ScanStatus::Purging) => Err(LibraryError::Purging),
+            Some(ScanStatus::Cleaning) => Err(LibraryError::Cleaning),
+            _ => Ok(()),
+        }
+    }
+
+    async fn refuse_versions_while_held(&self, versions: &[Version]) -> Result<(), LibraryError> {
+        let libraries: HashSet<&LibraryId> =
+            versions.iter().map(|version| &version.library).collect();
+        for library in libraries {
+            self.refuse_while_held(library).await?;
+        }
+        Ok(())
+    }
+
+    async fn refuse_title_while_held(&self, title: &TitleId) -> Result<(), LibraryError> {
+        let versions = self.catalog.list_versions(title, PageRequest::ALL).await?.items;
+        self.refuse_versions_while_held(&versions).await
+    }
+
     async fn enqueue_relink(
         &self,
         version: &Version,
@@ -394,6 +416,7 @@ where
         target: ResolveTarget,
     ) -> Result<(), LibraryError> {
         self.require_library(caller, id).await?;
+        self.refuse_while_held(id).await?;
         let file = self
             .libraries
             .get_unmatched(unmatched)
@@ -430,6 +453,7 @@ where
         if target.origin != LibraryOrigin::External {
             return Err(LibraryError::Forbidden);
         }
+        self.refuse_while_held(library).await?;
         let url = Url::parse(&input.source_url).map_err(|_| {
             LibraryError::InvalidRequest("source_url is not a valid URL".to_owned())
         })?;
@@ -485,6 +509,14 @@ where
         if !acl::is_admin(caller) {
             return Err(LibraryError::Forbidden);
         }
+        match &title {
+            TitleRef::Movie(id) => {
+                self.refuse_title_while_held(&TitleId::Movie(id.clone())).await?
+            }
+            TitleRef::Series(id) => {
+                self.refuse_versions_while_held(&self.series_versions(id).await?).await?;
+            }
+        }
         self.enqueue_metadata(MetadataJobPayload::Title { title, external_id, force }).await
     }
 
@@ -498,6 +530,7 @@ where
             return Err(LibraryError::Forbidden);
         }
         let existing = self.catalog.get_movie(id).await?.ok_or(LibraryError::NotFound)?;
+        self.refuse_title_while_held(&TitleId::Movie(id.clone())).await?;
         let library = super::version_library(&self.catalog, &TitleId::Movie(id.clone())).await;
         let articles = super::library_articles(&self.libraries, library).await;
         let movie = Movie {
@@ -525,6 +558,7 @@ where
             return Err(LibraryError::Forbidden);
         }
         let existing = self.catalog.get_series(id).await?.ok_or(LibraryError::NotFound)?;
+        self.refuse_versions_while_held(&self.series_versions(id).await?).await?;
         let library = super::series_library(&self.catalog, id).await;
         let articles = super::library_articles(&self.libraries, library).await;
         let series = Series {
@@ -552,6 +586,7 @@ where
             return Err(LibraryError::Forbidden);
         }
         let existing = self.catalog.get_episode(id).await?.ok_or(LibraryError::NotFound)?;
+        self.refuse_title_while_held(&TitleId::Episode(id.clone())).await?;
         let episode = Episode {
             title: edit.title,
             overview: edit.overview,
@@ -574,6 +609,7 @@ where
             return Err(LibraryError::Forbidden);
         }
         let library = self.require_library(caller, id).await?;
+        self.refuse_while_held(id).await?;
         let filter =
             TitleListFilter { libraries: Some(vec![id.clone()]), ..TitleListFilter::default() };
         let titles: Vec<TitleRef> = match library.kind {
@@ -637,6 +673,7 @@ where
                 return Err(LibraryError::NotFound);
             }
         }
+        self.refuse_while_held(&detail.version.library).await?;
         self.enqueue_relink(&detail.version, target).await
     }
 
@@ -676,6 +713,7 @@ where
         if versions.is_empty() {
             return Err(LibraryError::Unavailable("the series has nothing to relink".to_owned()));
         }
+        self.refuse_versions_while_held(&versions).await?;
         for version in versions {
             self.enqueue_relink(&version, target.clone()).await?;
         }
@@ -2076,6 +2114,181 @@ mod tests {
             svc.relink_series(&member(), &SeriesId("sh1".into()), target).await.unwrap_err(),
             LibraryError::Forbidden
         ));
+    }
+
+    fn held(id: &str, status: ScanStatus) -> ScanState {
+        ScanState {
+            library: LibraryId(id.into()),
+            status,
+            progress: 0.0,
+            started_at: None,
+            last_scanned_at: None,
+            error: None,
+        }
+    }
+
+    fn purging(id: &str) -> ScanState {
+        held(id, ScanStatus::Purging)
+    }
+
+    fn refused_while(status: ScanStatus, err: &LibraryError) -> bool {
+        matches!(
+            (status, err),
+            (ScanStatus::Purging, LibraryError::Purging)
+                | (ScanStatus::Cleaning, LibraryError::Cleaning)
+        )
+    }
+
+    #[tokio::test]
+    async fn ingest_relink_and_fetch_wait_for_a_purge_or_a_clean_of_their_library() {
+        use domain::catalog::{MovieId, TitleId, VersionId};
+        use domain::library::{UnmatchedFile, UnmatchedFileId};
+
+        for status in [ScanStatus::Purging, ScanStatus::Cleaning] {
+            let (svc, jobs) = relink_svc(seeded_version_catalog());
+            svc.libraries.insert_library(library("lib1"));
+            svc.libraries.save_scan_state(held("lib1", status)).await.unwrap();
+            let unmatched = UnmatchedFileId("uf1".into());
+            svc.libraries
+                .insert_unmatched(UnmatchedFile {
+                    id: unmatched.clone(),
+                    library: LibraryId("lib1".into()),
+                    path: "/m/x.mkv".into(),
+                    candidates: Vec::new(),
+                    created_at: Timestamp::UNIX_EPOCH,
+                    updated_at: Timestamp::UNIX_EPOCH,
+                })
+                .await
+                .unwrap();
+            let target = ResolveTarget::Existing(TitleId::Movie(MovieId("m-new".into())));
+            let fetch = fetch_svc(jobs.clone(), true);
+            fetch.libraries.save_scan_state(held("ext", status)).await.unwrap();
+            let (admin, v1) = (admin(), VersionId("v1".into()));
+            let (lib1, ext) = (LibraryId("lib1".into()), LibraryId("ext".into()));
+            let relink = svc.relink_version(&admin, &v1, target.clone()).await;
+            assert!(refused_while(status, &relink.unwrap_err()), "{status:?}");
+            let resolve = svc.resolve_unmatched(&admin, &lib1, &unmatched, target).await;
+            assert!(refused_while(status, &resolve.unwrap_err()), "{status:?}");
+            let fetched = fetch.create_fetch(&admin, &ext, fetch_input()).await;
+            assert!(refused_while(status, &fetched.unwrap_err()), "{status:?}");
+            assert!(jobs.list().await.unwrap().is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn edits_and_metadata_refreshes_wait_for_a_purge_or_a_clean_of_the_titles_library() {
+        use domain::catalog::{EpisodeEdit, EpisodeId, MovieEdit, MovieId, SeriesEdit, SeriesId};
+
+        let movie = |title: &str| MovieEdit {
+            title: title.into(),
+            year: None,
+            overview: None,
+            runtime_minutes: None,
+            content_rating: None,
+        };
+        for status in [ScanStatus::Purging, ScanStatus::Cleaning] {
+            let catalog = refresh_catalog();
+            let (svc, jobs) = refresh_svc(catalog.clone());
+            for library in ["films", "shows"] {
+                svc.libraries.save_scan_state(held(library, status)).await.unwrap();
+            }
+            let (admin, m1, s1) = (admin(), MovieId("m1".into()), SeriesId("s1".into()));
+            let series =
+                SeriesEdit { title: "S".into(), year: None, overview: None, content_rating: None };
+            let episode = EpisodeEdit {
+                title: "E".into(),
+                overview: None,
+                runtime_minutes: None,
+                air_date: None,
+            };
+
+            let refused = [
+                svc.edit_movie(&admin, &m1, movie("M")).await.map(|_| ()),
+                svc.edit_series(&admin, &s1, series).await.map(|_| ()),
+                svc.edit_episode(&admin, &EpisodeId("e1".into()), episode).await.map(|_| ()),
+                svc.reidentify(&admin, TitleRef::Movie(m1.clone()), None, false).await,
+                svc.reidentify(&admin, TitleRef::Series(s1), None, false).await,
+                svc.refresh_library_metadata(&admin, &LibraryId("films".into())).await,
+            ];
+
+            for (n, outcome) in refused.into_iter().enumerate() {
+                assert!(refused_while(status, &outcome.unwrap_err()), "{status:?} #{n}");
+            }
+            assert!(jobs.list().await.unwrap().is_empty());
+            assert!(!catalog.get_movie(&m1).await.unwrap().unwrap().manually_edited);
+            let elsewhere = MovieId("elsewhere".into());
+            assert!(svc.edit_movie(&admin, &elsewhere, movie("Kept")).await.is_ok(), "{status:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_series_relink_waits_for_a_purge_of_any_library_holding_its_files() {
+        use domain::catalog::{
+            Episode, EpisodeId, Season, SeasonId, Series, SeriesId, TitleId, Version, VersionId,
+        };
+        use domain::common::Quality;
+        use domain::metadata::ExternalId;
+
+        let catalog = MockCatalogRepo::new();
+        catalog.add_series(Series {
+            id: SeriesId("sh1".into()),
+            title: "Show".into(),
+            sort_title: "show".into(),
+            year: None,
+            overview: None,
+            content_rating: None,
+            manually_edited: false,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        });
+        catalog.add_season(Season {
+            id: SeasonId("se1".into()),
+            series: SeriesId("sh1".into()),
+            number: 1,
+            title: None,
+            overview: None,
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        });
+        for (episode, library) in [("e1", "lib"), ("e2", "elsewhere")] {
+            catalog.add_episode(Episode {
+                id: EpisodeId(episode.into()),
+                season: SeasonId("se1".into()),
+                number: 1,
+                title: episode.into(),
+                overview: None,
+                runtime_minutes: None,
+                air_date: None,
+                manually_edited: false,
+                added_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
+                artwork: Vec::new(),
+            });
+            catalog.add_version(Version {
+                id: VersionId(format!("v-{episode}")),
+                title: TitleId::Episode(EpisodeId(episode.into())),
+                library: LibraryId(library.into()),
+                quality: Quality::Hd,
+                container: "mkv".into(),
+                path: format!("/tv/{episode}.mkv"),
+                size_bytes: 1,
+                duration_ms: 1,
+                available: true,
+                added_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
+            });
+        }
+        let (svc, jobs) = relink_svc(catalog);
+        svc.libraries.save_scan_state(purging("elsewhere")).await.unwrap();
+        let target =
+            ResolveTarget::Provider(ExternalId { source: "tmdb".into(), value: "tv/1".into() });
+
+        let refused = svc.relink_series(&admin(), &SeriesId("sh1".into()), target).await;
+
+        assert!(matches!(refused, Err(LibraryError::Purging)));
+        assert!(jobs.list().await.unwrap().is_empty(), "nothing is queued for the other library");
     }
 
     fn tree_catalog() -> MockCatalogRepo {

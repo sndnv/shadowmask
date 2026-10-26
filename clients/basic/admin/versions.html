@@ -56,11 +56,19 @@
           autocomplete: "off",
           "aria-label": "Filter versions",
         });
+        const available = sm.el("select", { name: "available" }, [
+          sm.el("option", { value: "" }, "All"),
+          sm.el("option", { value: "true" }, "Available"),
+          sm.el("option", { value: "false" }, "Unavailable"),
+        ]);
+        available.value = sm.qs("available") || "";
         const slot = document.getElementById("filter-slot");
         slot.textContent = "";
         slot.appendChild(
           sm.el("form", { method: "get", action: "versions.html" }, [
             sm.el("label", null, ["Filter ", filter]),
+            " ",
+            sm.el("label", null, ["Availability ", available]),
             " ",
             sm.el("button", { type: "submit" }, "Apply"),
           ]),
@@ -72,9 +80,11 @@
         const offset = sm.qs("offset");
         const limit = sm.qs("limit");
         const filter = sm.qs("filter");
+        const available = sm.qs("available");
         if (offset) params.set("offset", offset);
         if (limit) params.set("limit", limit);
         if (filter) params.set("filter", filter);
+        if (available === "true" || available === "false") params.set("available", available);
         const qs = params.toString();
         return qs ? "?" + qs : "";
       }
@@ -111,7 +121,10 @@
           if (!page.items.length) {
             main.appendChild(
               sm.el("p", {
-                text: sm.qs("filter") ? "No versions match the filter." : "No versions found.",
+                text:
+                  sm.qs("filter") || sm.qs("available")
+                    ? "No versions match the filter."
+                    : "No versions found.",
               }),
             );
             return;

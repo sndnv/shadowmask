@@ -37,7 +37,7 @@ type CatalogSvc = CatalogServiceImpl<MockCatalogRepo, MockUserRepo>;
 type UserSvc = UserServiceImpl<MockUserRepo, MockAuthTokenRepo, MockUserDataStore>;
 type UserLibrarySvc =
     UserLibraryServiceImpl<MockProgressRepo, MockPreferencesRepo, MockCatalogRepo>;
-type JobSvc = JobServiceImpl<MockJobStore>;
+type JobSvc = JobServiceImpl<MockJobStore, MockLibraryRepo>;
 type DiscoverySvc = DiscoveryServiceImpl<
     MockCatalogRepo,
     MockSearchIndex,
@@ -111,7 +111,7 @@ impl Ctx {
                 Arc::new(preferences_repo.clone()),
                 Arc::new(catalog_repo.clone()),
             ),
-            job: JobServiceImpl::new(jobs_repo.clone()),
+            job: JobServiceImpl::new(jobs_repo.clone(), library_repo.clone()),
             discovery: DiscoveryServiceImpl::new(
                 catalog_repo.clone(),
                 search_index.clone(),
@@ -1276,6 +1276,9 @@ async fn library_routes() {
         ("/api/v1/admin/versions?filter=%20%20", unfiltered["total"].clone()),
         ("/api/v1/admin/versions?filter=lib%20LIB1", json!(1)),
         ("/api/v1/admin/versions?filter=lantern", json!(0)),
+        ("/api/v1/admin/versions?available=true", unfiltered["total"].clone()),
+        ("/api/v1/admin/versions?available=false", json!(0)),
+        ("/api/v1/admin/versions?filter=lib%20LIB1&available=false", json!(0)),
     ] {
         let (status, body) = call(ctx.app(), Method::GET, uri, Some(ADMIN), None).await;
         assert_eq!(status, StatusCode::OK, "GET {uri}");

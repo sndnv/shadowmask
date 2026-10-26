@@ -67,7 +67,7 @@ pub type DiscoverySvc = DiscoveryServiceImpl<
     SqlitePreferencesRepo,
     SqliteUserRepo,
 >;
-pub type JobSvc = JobServiceImpl<SqliteJobRepo>;
+pub type JobSvc = JobServiceImpl<SqliteJobRepo, SqliteLibraryRepo>;
 
 pub type DefaultState = AppState<
     AuthSvc,
@@ -233,7 +233,7 @@ pub fn build_state(
             .clone()
             .map(|path| Arc::new(CookieFileInspector::new(path)) as Arc<dyn CookieInspector>),
     );
-    let job = JobServiceImpl::new(repos.jobs.clone())
+    let job = JobServiceImpl::new(repos.jobs.clone(), repos.library.clone())
         .with_canceller(Arc::new(cancel.clone()))
         .with_parked(cfg.parked_kinds())
         .with_pools(cfg.job_pools.clone());

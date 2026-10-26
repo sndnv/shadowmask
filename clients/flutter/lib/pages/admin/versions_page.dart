@@ -13,6 +13,7 @@ import 'package:shadowmask/components/admin/admin_table.dart';
 import 'package:shadowmask/components/start_ellipsis_text.dart';
 import 'package:shadowmask/components/admin/confirm_dialog.dart';
 import 'package:shadowmask/components/admin/danger_icon_button.dart';
+import 'package:shadowmask/components/app_dropdown.dart';
 import 'package:shadowmask/components/breadcrumbs.dart';
 import 'package:shadowmask/components/page_actions.dart';
 import 'package:shadowmask/components/crumb.dart';
@@ -93,6 +94,7 @@ class _VersionsBodyState extends State<_VersionsBody>
   final TextEditingController _filter = TextEditingController();
   Timer? _debounce;
   String _needle = '';
+  bool? _available;
   int? _total;
 
   @override
@@ -127,6 +129,7 @@ class _VersionsBodyState extends State<_VersionsBody>
     final Paged<Version> page = await widget.admin.versions(
       offset: _offset,
       filter: _needle,
+      available: _available,
     );
     final Map<String, String> titles = <String, String>{};
     final List<TitleRef> refs = <TitleRef>[];
@@ -170,6 +173,14 @@ class _VersionsBodyState extends State<_VersionsBody>
         _offset = 0;
         _future = _load();
       });
+    });
+  }
+
+  void _onAvailabilityChanged(bool? available) {
+    setState(() {
+      _available = available;
+      _offset = 0;
+      _future = _load();
     });
   }
 
@@ -222,10 +233,27 @@ class _VersionsBodyState extends State<_VersionsBody>
           ),
         ]),
         const SizedBox(height: Space.s4),
-        AdminFilterField(
-          controller: _filter,
-          hintText: Strings.filterVersions,
-          onChanged: _onFilterChanged,
+        Wrap(
+          spacing: Space.s3,
+          runSpacing: Space.s2,
+          children: <Widget>[
+            AdminFilterField(
+              controller: _filter,
+              hintText: Strings.filterVersions,
+              onChanged: _onFilterChanged,
+            ),
+            AppDropdown<bool?>(
+              value: _available,
+              label: Strings.availability,
+              width: 160,
+              items: const <(bool?, String)>[
+                (null, Strings.availabilityAll),
+                (true, Strings.availabilityAvailable),
+                (false, Strings.availabilityUnavailable),
+              ],
+              onChanged: _onAvailabilityChanged,
+            ),
+          ],
         ),
         const SizedBox(height: Space.s3),
         buildBlock<_VersionsData>(
@@ -245,7 +273,7 @@ class _VersionsBodyState extends State<_VersionsBody>
       children: <Widget>[
         AdminTable<Version>(
           rows: page.items,
-          emptyText: _needle.isEmpty
+          emptyText: _needle.isEmpty && _available == null
               ? Strings.emptyVersions
               : Strings.noMatchingVersions,
           minWidth: 1080,

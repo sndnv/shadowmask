@@ -9,6 +9,7 @@ import 'package:shadowmask/components/admin/admin_table.dart';
 import 'package:shadowmask/components/start_ellipsis_text.dart';
 import 'package:shadowmask/components/admin/confirm_dialog.dart';
 import 'package:shadowmask/components/admin/library_form_dialog.dart';
+import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/page_actions.dart';
 import 'package:shadowmask/components/section_block.dart';
 import 'package:shadowmask/components/status_text.dart';
@@ -17,8 +18,11 @@ import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/model/common/quality.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
+import 'package:shadowmask/model/library/cancelled_jobs.dart';
+import 'package:shadowmask/model/library/clean_report.dart';
 import 'package:shadowmask/model/library/duplicate_candidate.dart';
 import 'package:shadowmask/model/library/library.dart';
+import 'package:shadowmask/model/library/purge_report.dart';
 import 'package:shadowmask/model/library/resolve_candidate.dart';
 import 'package:shadowmask/model/library/scan_state.dart';
 import 'package:shadowmask/model/library/unmatched_file.dart';
@@ -27,6 +31,7 @@ import 'package:shadowmask/nav/nav_section.dart';
 import 'package:shadowmask/nav/routes.dart';
 import 'package:shadowmask/components/breadcrumbs.dart';
 import 'package:shadowmask/components/crumb.dart';
+import 'package:shadowmask/pages/admin/library_maintenance.dart';
 import 'package:shadowmask/pages/default/mutations.dart';
 import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
@@ -76,10 +81,11 @@ class _LibraryBody extends StatefulWidget {
 }
 
 class _LibraryBodyState extends State<_LibraryBody>
-    with Mutations<_LibraryBody> {
+    with Mutations<_LibraryBody>, LibraryMaintenance<_LibraryBody> {
   late final LibraryApi _libraries = LibraryApi(widget.api);
   late final CatalogApi _catalog = CatalogApi(widget.api);
   late Future<Library> _future = _libraries.library(widget.id);
+  int _generation = 0;
 
   void _reload() {
     setState(() {
@@ -113,6 +119,89 @@ class _LibraryBodyState extends State<_LibraryBody>
       errorText: Strings.errorDelete,
       then: () =>
           Navigator.of(context).pushReplacementNamed(adminLibrariesRoute()),
+    );
+  }
+
+  void _reloadBlocks() {
+    setState(() => _generation++);
+  }
+
+  Future<void> _purge(Library library) => confirmMaintenance(
+    title: Strings.purgeLibrary,
+    message: Strings.confirmPurgeLibrary(library.name),
+    confirmLabel: Strings.purge,
+    errorText: Strings.errorPurge,
+    busyBody: Strings.libraryBusyBody,
+    run: (bool wipeUserData) async {
+      final PurgeReport r = await _libraries.purge(
+        library.id,
+        wipeUserData: wipeUserData,
+      );
+      return Strings.toastLibraryPurged(
+        movies: r.movies,
+        series: r.series,
+        seasons: r.seasons,
+        episodes: r.episodes,
+        subtitles: r.subtitles,
+        wipedUsers: r.wipedUsers,
+      );
+    },
+    then: _reloadBlocks,
+    cancelJobs: () => _cancelJobs(blocking: 'purge'),
+  );
+
+  Future<void> _clean(Library library) => confirmMaintenance(
+    title: Strings.cleanLibrary,
+    message: Strings.confirmCleanLibrary(library.name),
+    confirmLabel: Strings.clean,
+    errorText: Strings.errorClean,
+    busyBody: Strings.cleanBusyBody,
+    run: (bool wipeUserData) async {
+      final CleanReport r = await _libraries.clean(
+        library.id,
+        wipeUserData: wipeUserData,
+      );
+      return Strings.toastCleaned(
+        versions: r.versions,
+        movies: r.movies,
+        series: r.series,
+        seasons: r.seasons,
+        episodes: r.episodes,
+        wipedUsers: r.wipedUsers,
+      );
+    },
+    then: _reloadBlocks,
+    cancelJobs: () => _cancelJobs(blocking: 'clean'),
+  );
+
+  Future<void> _confirmCancelJobs() async {
+    final bool ok = await confirmDialog(
+      context,
+      title: Strings.cancelLibraryJobs,
+      message: Strings.confirmCancelLibraryJobs,
+      confirmLabel: Strings.cancelLibraryJobs,
+    );
+    if (ok) {
+      await _cancelJobs();
+    }
+  }
+
+  Future<void> _cancelJobs({String? blocking}) async {
+    late CancelledJobs outcome;
+    await mutate(
+      () async =>
+          outcome = await _libraries.cancelJobs(widget.id, blocking: blocking),
+      errorText: Strings.errorCancelJobs,
+      then: () {
+        Toasts.of(context).success(
+          Strings.toastLibraryJobsCancelled(
+            cancelled: outcome.cancelled,
+            signalled: outcome.signalled,
+            running: outcome.running,
+          ),
+        );
+        _reloadBlocks();
+      },
     );
   }
 
@@ -158,6 +247,23 @@ class _LibraryBodyState extends State<_LibraryBody>
                 onPressed: busy() ? null : () => _delete(library),
               ),
               PageAction(
+                icon: Icons.delete_sweep_outlined,
+                label: Strings.purge,
+                danger: true,
+                onPressed: busy() ? null : () => _purge(library),
+              ),
+              PageAction(
+                icon: Icons.cleaning_services_outlined,
+                label: Strings.clean,
+                danger: true,
+                onPressed: busy() ? null : () => _clean(library),
+              ),
+              PageAction(
+                icon: Icons.cancel_outlined,
+                label: Strings.cancelLibraryJobs,
+                onPressed: busy() ? null : _confirmCancelJobs,
+              ),
+              PageAction(
                 icon: Icons.refresh,
                 label: Strings.refreshMetadata,
                 onPressed: busy() ? null : _refreshMetadata,
@@ -170,10 +276,23 @@ class _LibraryBodyState extends State<_LibraryBody>
             ],
             child: _Facts(library: library),
           ),
-          _ScanBlock(libraries: _libraries, id: widget.id),
-          _DuplicatesBlock(libraries: _libraries, id: widget.id),
-          _UnmatchedBlock(libraries: _libraries, id: widget.id),
+          _ScanBlock(
+            key: ValueKey<String>('scan-$_generation'),
+            libraries: _libraries,
+            id: widget.id,
+          ),
+          _DuplicatesBlock(
+            key: ValueKey<String>('duplicates-$_generation'),
+            libraries: _libraries,
+            id: widget.id,
+          ),
+          _UnmatchedBlock(
+            key: ValueKey<String>('unmatched-$_generation'),
+            libraries: _libraries,
+            id: widget.id,
+          ),
           _VersionsBlock(
+            key: ValueKey<String>('versions-$_generation'),
             libraries: _libraries,
             catalog: _catalog,
             id: widget.id,
@@ -233,7 +352,7 @@ Widget _kv(BuildContext context, String label, String value) {
 }
 
 class _ScanBlock extends StatefulWidget {
-  const _ScanBlock({required this.libraries, required this.id});
+  const _ScanBlock({super.key, required this.libraries, required this.id});
 
   final LibraryApi libraries;
   final String id;
@@ -329,6 +448,7 @@ typedef _VersionsData = ({List<Version> versions, Map<String, String> titles});
 
 class _VersionsBlock extends StatefulWidget {
   const _VersionsBlock({
+    super.key,
     required this.libraries,
     required this.catalog,
     required this.id,
@@ -470,7 +590,11 @@ class _VersionsBlockState extends State<_VersionsBlock> {
 }
 
 class _DuplicatesBlock extends StatefulWidget {
-  const _DuplicatesBlock({required this.libraries, required this.id});
+  const _DuplicatesBlock({
+    super.key,
+    required this.libraries,
+    required this.id,
+  });
 
   final LibraryApi libraries;
   final String id;
@@ -582,7 +706,7 @@ class _DuplicatesBlockState extends State<_DuplicatesBlock>
 }
 
 class _UnmatchedBlock extends StatefulWidget {
-  const _UnmatchedBlock({required this.libraries, required this.id});
+  const _UnmatchedBlock({super.key, required this.libraries, required this.id});
 
   final LibraryApi libraries;
   final String id;

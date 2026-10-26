@@ -1,7 +1,10 @@
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/model/catalog/version.dart';
+import 'package:shadowmask/model/library/cancelled_jobs.dart';
 import 'package:shadowmask/model/library/duplicate_candidate.dart';
 import 'package:shadowmask/model/library/library.dart';
+import 'package:shadowmask/model/library/clean_report.dart';
+import 'package:shadowmask/model/library/purge_report.dart';
 import 'package:shadowmask/model/library/resolve_candidate.dart';
 import 'package:shadowmask/model/library/scan_state.dart';
 import 'package:shadowmask/model/library/unmatched_file.dart';
@@ -39,6 +42,29 @@ class LibraryApi {
 
   Future<void> refreshMetadata(String id) =>
       _api.sendVoid('POST', '/api/v1/libraries/${_enc(id)}/refresh-metadata');
+
+  Future<PurgeReport> purge(String id, {required bool wipeUserData}) =>
+      _api.postJson('/api/v1/libraries/${_enc(id)}/purge', <String, dynamic>{
+        'wipe_user_data': wipeUserData,
+      }, PurgeReport.fromJson);
+
+  Future<CleanReport> clean(String id, {required bool wipeUserData}) =>
+      _api.postJson('/api/v1/libraries/${_enc(id)}/clean', <String, dynamic>{
+        'wipe_user_data': wipeUserData,
+      }, CleanReport.fromJson);
+
+  Future<CleanReport> cleanAll({required bool wipeUserData}) => _api.postJson(
+    '/api/v1/admin/clean',
+    <String, dynamic>{'wipe_user_data': wipeUserData},
+    CleanReport.fromJson,
+  );
+
+  Future<CancelledJobs> cancelJobs(String id, {String? blocking}) =>
+      _api.postJson(
+        '/api/v1/libraries/${_enc(id)}/jobs/cancel',
+        blocking == null ? null : <String, dynamic>{'blocking': blocking},
+        CancelledJobs.fromJson,
+      );
 
   Future<Paged<DuplicateCandidate>> duplicates(
     String id, {
