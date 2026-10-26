@@ -4,8 +4,8 @@ use std::path::Path;
 use domain::error::RepositoryError;
 use domain::repository::AuthTokenRepository;
 use domain::user::{
-    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, DeviceTarget, PendingLink,
-    TargetKind, UserId,
+    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, DeviceShare, DeviceTarget,
+    PendingLink, TargetKind, UserId,
 };
 use jiff::Timestamp;
 use sqlx::migrate::Migrator;
@@ -24,6 +24,9 @@ const DEVICE_COLUMNS: &str = "SELECT d.*, t.kind AS target_kind, t.addresses AS 
 
 const DELETE_USER_TARGETS: &str =
     "DELETE FROM device_targets WHERE device_id IN (SELECT id FROM devices WHERE user_id = ?)";
+
+const DELETE_USER_SHARES: &str =
+    "DELETE FROM device_shares WHERE device_id IN (SELECT id FROM devices WHERE user_id = ?)";
 
 #[derive(Clone)]
 pub struct SqliteAuthTokenRepo {
@@ -97,6 +100,14 @@ fn row_to_target(row: &SqliteRow) -> Result<Option<DeviceTarget>, RepositoryErro
     }))
 }
 
+fn row_to_share(row: &SqliteRow) -> Result<DeviceShare, RepositoryError> {
+    Ok(DeviceShare {
+        device: DeviceId(column(row, "device_id")?),
+        user: UserId(column(row, "user_id")?),
+        created_at: from_millis(column(row, "created_at")?)?,
+    })
+}
+
 fn row_to_api_token(row: &SqliteRow) -> Result<ApiToken, RepositoryError> {
     Ok(ApiToken {
         id: ApiTokenId(column(row, "id")?),
@@ -156,6 +167,7 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
             "DELETE FROM refresh_tokens WHERE user_id = ?",
             "DELETE FROM api_tokens WHERE user_id = ?",
             DELETE_USER_TARGETS,
+            DELETE_USER_SHARES,
             "DELETE FROM devices WHERE user_id = ?",
         ] {
             sqlx::query(statement)
@@ -176,6 +188,8 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
             "DELETE FROM link_codes WHERE user_id = ?",
             "DELETE FROM api_tokens WHERE user_id = ?",
             DELETE_USER_TARGETS,
+            DELETE_USER_SHARES,
+            "DELETE FROM device_shares WHERE user_id = ?",
             "DELETE FROM devices WHERE user_id = ?",
         ] {
             sqlx::query(statement)
@@ -360,9 +374,11 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
     async fn delete_device(&self, id: &DeviceId) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("auth", "delete_device");
         let mut tx = self.pool.begin().await.map_err(backend)?;
-        for statement in
-            ["DELETE FROM device_targets WHERE device_id = ?", "DELETE FROM devices WHERE id = ?"]
-        {
+        for statement in [
+            "DELETE FROM device_targets WHERE device_id = ?",
+            "DELETE FROM device_shares WHERE device_id = ?",
+            "DELETE FROM devices WHERE id = ?",
+        ] {
             sqlx::query(statement).bind(id.0.as_str()).execute(&mut *tx).await.map_err(backend)?;
         }
         tx.commit().await.map_err(backend)?;
@@ -414,6 +430,64 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
         }
         tx.commit().await.map_err(backend)?;
         Ok(())
+    }
+
+    async fn share_device(&self, share: DeviceShare) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("auth", "share_device");
+        sqlx::query(
+            "INSERT OR IGNORE INTO device_shares (device_id, user_id, created_at) VALUES (?, ?, ?)",
+        )
+        .bind(share.device.0.as_str())
+        .bind(share.user.0.as_str())
+        .bind(to_millis(share.created_at))
+        .execute(&self.pool)
+        .await
+        .map_err(backend)?;
+        Ok(())
+    }
+
+    async fn unshare_device(
+        &self,
+        device: &DeviceId,
+        user: &UserId,
+    ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("auth", "unshare_device");
+        sqlx::query("DELETE FROM device_shares WHERE device_id = ? AND user_id = ?")
+            .bind(device.0.as_str())
+            .bind(user.0.as_str())
+            .execute(&self.pool)
+            .await
+            .map_err(backend)?;
+        Ok(())
+    }
+
+    async fn list_device_shares(
+        &self,
+        owner: &UserId,
+    ) -> Result<Vec<DeviceShare>, RepositoryError> {
+        let _op = DbOpGuard::new("auth", "list_device_shares");
+        let rows = sqlx::query(
+            "SELECT s.* FROM device_shares s JOIN devices d ON d.id = s.device_id \
+             WHERE d.user_id = ? ORDER BY s.device_id, s.user_id",
+        )
+        .bind(owner.0.as_str())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(backend)?;
+        rows.iter().map(row_to_share).collect()
+    }
+
+    async fn list_shared_devices(&self, user: &UserId) -> Result<Vec<Device>, RepositoryError> {
+        let _op = DbOpGuard::new("auth", "list_shared_devices");
+        let rows = sqlx::query(AssertSqlSafe(format!(
+            "{DEVICE_COLUMNS} JOIN device_shares s ON s.device_id = d.id \
+             WHERE s.user_id = ? ORDER BY d.id"
+        )))
+        .bind(user.0.as_str())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(backend)?;
+        rows.iter().map(row_to_device).collect()
     }
 }
 
@@ -479,6 +553,16 @@ mod tests {
         assert!(repo.delete_device_target(&DeviceId("d1".into())).await.is_err());
         assert!(repo.revoke_api_token(&ApiTokenId("t1".into())).await.is_err());
         assert!(repo.purge_user(&UserId("u1".into())).await.is_err());
+        let (device, user) = (DeviceId("d1".into()), UserId("u2".into()));
+        let share = DeviceShare {
+            device: device.clone(),
+            user: user.clone(),
+            created_at: Timestamp::UNIX_EPOCH,
+        };
+        assert!(repo.share_device(share).await.is_err());
+        assert!(repo.unshare_device(&device, &user).await.is_err());
+        assert!(repo.list_device_shares(&user).await.is_err());
+        assert!(repo.list_shared_devices(&user).await.is_err());
     }
 
     #[tokio::test]

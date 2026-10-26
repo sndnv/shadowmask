@@ -14,15 +14,18 @@ use domain::library::LibraryId;
 use domain::session::{PlayCommandClaims, PlayCommandTokens};
 use domain::user::{Device, DeviceId, DeviceTarget, UserId};
 use jiff::Timestamp;
-use mocks::MockPlayCommandTokens;
+use mocks::{MockPlayCommandTokens, MockUserRepo};
 
 const USER: &str = "Bearer access:u1";
+const ADMIN: &str = "Bearer access:admin";
 const ROKU: &str = "Bearer device:roku-1";
 const PHONE: &str = "Bearer device:phone-1";
+const OTHER: &str = "Bearer device:other-1";
 
 struct Harness {
     app: Router,
     tokens: MockPlayCommandTokens,
+    users: MockUserRepo,
 }
 
 fn version(id: &str, library: &str) -> Version {
@@ -71,6 +74,7 @@ fn harness(roku_reported: bool) -> Harness {
     generator.auth.add_device(device("roku-1", "u1", roku_reported.then(roku_target)));
     generator.auth.add_device(device("phone-1", "u1", None));
     generator.auth.add_device(device("other-1", "admin", Some(roku_target())));
+    generator.auth.add_device(device("den-1", "admin", None));
     let state = AppState::new(
         generator.auth.clone(),
         generator.catalog.clone(),
@@ -84,7 +88,7 @@ fn harness(roku_reported: bool) -> Harness {
     let tokens = MockPlayCommandTokens::new();
     let app = router(state.clone())
         .merge(play_on_router(state.clone(), PlayOnState::new(state, tokens.clone())));
-    Harness { app: bounded(app, Duration::from_secs(60)), tokens }
+    Harness { app: bounded(app, Duration::from_secs(60)), tokens, users: generator.users_repo }
 }
 
 async fn send(
@@ -133,6 +137,28 @@ async fn mint(app: &Router, device: &str, version: &str) -> (StatusCode, Value) 
 async fn redeem(app: &Router, auth: &str, token: &str) -> (StatusCode, Value) {
     let body = json!({ "token": token }).to_string();
     send(app, "POST", "/api/v1/devices/self/commands/redeem", Some(auth), Some(body)).await
+}
+
+async fn share(app: &Router, auth: &str, device: &str, username: &str) -> (StatusCode, Value) {
+    let body = json!({ "username": username }).to_string();
+    send(app, "PUT", &format!("/api/v1/devices/{device}/shares"), Some(auth), Some(body)).await
+}
+
+async fn unshare(app: &Router, auth: &str, device: &str, user: &str) -> (StatusCode, Value) {
+    send(app, "DELETE", &format!("/api/v1/devices/{device}/shares/{user}"), Some(auth), None).await
+}
+
+async fn shared_with(app: &Router, device: &str) -> Value {
+    let (status, devices) = send(app, "GET", "/api/v1/users/u1/devices", Some(USER), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let found = devices.as_array().unwrap().iter().find(|d| d["id"] == device).unwrap();
+    found["shared_with"].clone()
+}
+
+async fn shared_targets(app: &Router, auth: &str) -> Value {
+    let (status, targets) = send(app, "GET", "/api/v1/devices/shared", Some(auth), None).await;
+    assert_eq!(status, StatusCode::OK);
+    targets
 }
 
 #[tokio::test]
@@ -298,4 +324,160 @@ async fn an_expired_or_garbled_command_is_refused() {
     let (status, error) = redeem(&harness.app, ROKU, "garbage").await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(error["error"]["code"], "invalid_play_command");
+}
+
+#[tokio::test]
+async fn an_owner_shares_a_device_by_username_and_the_device_list_shows_it_until_unshared() {
+    let harness = harness(true);
+    for _ in 0..2 {
+        let (status, body) = share(&harness.app, USER, "roku-1", "admin").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, json!({ "user_id": "admin", "username": "admin" }));
+    }
+    assert_eq!(
+        shared_with(&harness.app, "roku-1").await,
+        json!([{ "user_id": "admin", "username": "admin" }])
+    );
+    assert_eq!(shared_with(&harness.app, "phone-1").await, json!([]));
+
+    let (status, _) = unshare(&harness.app, USER, "roku-1", "admin").await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(shared_with(&harness.app, "roku-1").await, json!([]));
+}
+
+#[tokio::test]
+async fn sharing_refuses_an_unknown_user_oneself_and_a_device_the_caller_does_not_own() {
+    let harness = harness(true);
+    let (status, error) = share(&harness.app, USER, "roku-1", "nobody").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(error["error"]["code"], "user_not_found");
+
+    let (status, error) = share(&harness.app, USER, "roku-1", "user").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(error["error"]["code"], "bad_request");
+
+    for device in ["other-1", "ghost"] {
+        let (status, error) = share(&harness.app, USER, device, "admin").await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{device}");
+        assert_eq!(error["error"]["code"], "not_found", "{device}");
+        let (status, error) = unshare(&harness.app, USER, device, "admin").await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{device}");
+        assert_eq!(error["error"]["code"], "not_found", "{device}");
+    }
+}
+
+#[tokio::test]
+async fn an_admin_cannot_share_or_unshare_another_users_device() {
+    let harness = harness(true);
+    let (status, error) = share(&harness.app, ADMIN, "roku-1", "user").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(error["error"]["code"], "not_found");
+
+    let (status, _) = share(&harness.app, USER, "roku-1", "admin").await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, error) = unshare(&harness.app, ADMIN, "roku-1", "admin").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(error["error"]["code"], "not_found");
+    assert_eq!(
+        shared_with(&harness.app, "roku-1").await,
+        json!([{ "user_id": "admin", "username": "admin" }])
+    );
+}
+
+#[tokio::test]
+async fn a_linked_device_cannot_share_or_unshare() {
+    let harness = harness(true);
+    let (status, error) = share(&harness.app, ROKU, "roku-1", "admin").await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(error["error"]["code"], "forbidden");
+
+    let (status, error) = unshare(&harness.app, ROKU, "roku-1", "admin").await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(error["error"]["code"], "forbidden");
+}
+
+#[tokio::test]
+async fn the_shared_list_holds_the_reported_devices_shared_with_the_caller() {
+    let harness = harness(true);
+    assert_eq!(shared_targets(&harness.app, USER).await, json!([]));
+    for device in ["other-1", "den-1"] {
+        let (status, _) = share(&harness.app, ADMIN, device, "user").await;
+        assert_eq!(status, StatusCode::OK, "{device}");
+    }
+
+    assert_eq!(
+        shared_targets(&harness.app, USER).await,
+        json!([{
+            "id": "other-1",
+            "name": "other-1",
+            "platform": "roku",
+            "owner": "admin",
+            "target": {
+                "kind": "roku",
+                "addresses": ["192.168.1.40"],
+                "port": 8060,
+                "app_id": "dev",
+                "reported_at": "1970-01-01T00:00:00Z"
+            }
+        }])
+    );
+    assert_eq!(shared_targets(&harness.app, ADMIN).await, json!([]));
+    let (status, _) = send(&harness.app, "GET", "/api/v1/devices/shared", None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn a_command_to_a_shared_device_plays_as_its_owner_and_that_device_redeems_it() {
+    let harness = harness(true);
+    let (status, _) = share(&harness.app, ADMIN, "other-1", "user").await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, body) = mint(&harness.app, "other-1", "v1").await;
+    assert_eq!(status, StatusCode::OK);
+    let claims = harness.tokens.verify(body["token"].as_str().unwrap()).unwrap();
+    assert_eq!(claims.user, UserId("admin".into()));
+    assert_eq!(claims.device, DeviceId("other-1".into()));
+
+    let (status, redeemed) = redeem(&harness.app, OTHER, body["token"].as_str().unwrap()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(redeemed, json!({ "version_id": "v1" }));
+
+    let (status, _) = unshare(&harness.app, ADMIN, "other-1", "u1").await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, error) = mint(&harness.app, "other-1", "v1").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(error["error"]["code"], "not_found");
+}
+
+#[tokio::test]
+async fn a_version_the_devices_account_cannot_see_is_target_no_access() {
+    let harness = harness(true);
+    let libraries = [LibraryId("lib1".into()), LibraryId("lib2".into())];
+    harness.users.grant(&UserId("u1".into()), &libraries);
+    let (status, _) = share(&harness.app, ADMIN, "other-1", "user").await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, _) = mint(&harness.app, "roku-1", "hidden").await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, error) = mint(&harness.app, "other-1", "hidden").await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(error["error"]["code"], "target_no_access");
+
+    let (status, error) = mint(&harness.app, "other-1", "gone").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(error["error"]["code"], "version_not_found");
+}
+
+#[tokio::test]
+async fn a_version_only_the_devices_account_can_see_is_version_not_found() {
+    let harness = harness(true);
+    let libraries = [LibraryId("lib1".into()), LibraryId("lib2".into())];
+    harness.users.grant(&UserId("admin".into()), &libraries);
+    let (status, _) = share(&harness.app, ADMIN, "other-1", "user").await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, error) = mint(&harness.app, "other-1", "hidden").await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(error["error"]["code"], "version_not_found");
 }

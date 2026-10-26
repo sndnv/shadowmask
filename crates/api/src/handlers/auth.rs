@@ -140,8 +140,10 @@ pub async fn devices<S: AppServices>(
     require_admin_or_self(&principal, &target)?;
     let devices =
         state.auth().list_devices(&target).await.map_err(log_fail(actor, "list devices"))?;
+    let shares =
+        state.auth().device_shares(&target).await.map_err(log_fail(actor, "list devices"))?;
     debug!("User [{actor}] listed {} devices for user [{}]", devices.len(), target.0);
-    Ok(Json(devices.into_iter().map(DeviceResponse::from).collect()))
+    Ok(Json(devices.into_iter().map(|device| DeviceResponse::new(device, &shares)).collect()))
 }
 
 pub async fn revoke_device<S: AppServices>(

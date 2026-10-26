@@ -1,4 +1,4 @@
-use contracts::repo::auth_token_repository_contract;
+use contracts::repo::{auth_token_repository_contract, device_share_contract};
 use domain::repository::AuthTokenRepository;
 use domain::user::{AuthSession, AuthSessionId, PendingLink, Role, UserId};
 use jiff::Timestamp;
@@ -159,4 +159,10 @@ async fn list_and_delete_link_codes_scoped_to_owner() {
 async fn device_and_api_token_contract_holds_for_sqlite() {
     let (_dir, repo) = repo().await;
     auth_token_repository_contract(repo).await;
+}
+
+#[tokio::test]
+async fn device_share_contract_holds_for_sqlite() {
+    let (_dir, repo) = repo().await;
+    device_share_contract(repo).await;
 }

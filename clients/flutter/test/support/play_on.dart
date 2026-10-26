@@ -7,6 +7,7 @@ import 'package:shadowmask/api/play_on_api.dart';
 import 'package:shadowmask/api/target_caller.dart';
 import 'package:shadowmask/model/auth/device.dart';
 import 'package:shadowmask/model/auth/device_target.dart';
+import 'package:shadowmask/model/auth/play_on_device.dart';
 
 const DeviceTarget kRokuTarget = DeviceTarget(
   kind: TargetKind.roku,
@@ -40,6 +41,18 @@ const List<Device> kPlayOnDevices = <Device>[
   ),
 ];
 
+const List<PlayOnDevice> kPlayOnTargets = <PlayOnDevice>[
+  PlayOnDevice(id: 'd1', name: 'Living room', target: kRokuTarget),
+  PlayOnDevice(id: 'd2', name: 'Pixel', target: kAndroidTarget),
+];
+
+const PlayOnDevice kSharedRoku = PlayOnDevice(
+  id: 's1',
+  name: 'Den',
+  owner: 'admin',
+  target: kRokuTarget,
+);
+
 const String kRokuHome = '<active-app><app>Roku</app></active-app>';
 
 typedef Mint = ({String device, String version});
@@ -47,19 +60,29 @@ typedef Mint = ({String device, String version});
 class PlayOnServer {
   PlayOnServer({
     this.devices = kPlayOnDevices,
+    this.shared = const <PlayOnDevice>[],
     this.devicesStatus = 200,
     this.mintStatus = 200,
+    this.mintCode = 'version_not_found',
   });
 
   final List<Device> devices;
+  final List<PlayOnDevice> shared;
   final int devicesStatus;
   final int mintStatus;
+  final String mintCode;
   final List<Mint> mints = <Mint>[];
   final List<http.Request> lan = <http.Request>[];
 
   static final RegExp _commands = RegExp(r'^/api/v1/devices/([^/]+)/commands$');
 
   http.Response? answer(http.Request req) {
+    if (req.url.path == '/api/v1/devices/shared') {
+      return http.Response(
+        jsonEncode(<dynamic>[for (final PlayOnDevice d in shared) d.toJson()]),
+        200,
+      );
+    }
     if (req.url.path.endsWith('/devices')) {
       return devicesStatus == 200
           ? http.Response(
@@ -79,20 +102,20 @@ class PlayOnServer {
     if (mintStatus != 200) {
       return http.Response(
         jsonEncode(<String, dynamic>{
-          'error': <String, dynamic>{
-            'code': 'version_not_found',
-            'message': 'version not found',
-          },
+          'error': <String, dynamic>{'code': mintCode, 'message': mintCode},
         }),
         mintStatus,
       );
     }
-    final Device target = devices.firstWhere((Device d) => d.id == device);
+    final DeviceTarget target = <PlayOnDevice>[
+      for (final Device d in devices) PlayOnDevice.own(d),
+      ...shared,
+    ].firstWhere((PlayOnDevice d) => d.id == device).target!;
     return http.Response(
       jsonEncode(<String, dynamic>{
         'token': 'tok-$version',
         'expires_at': '2026-10-14T18:03:11Z',
-        'target': target.target!.toJson(),
+        'target': target.toJson(),
       }),
       200,
     );

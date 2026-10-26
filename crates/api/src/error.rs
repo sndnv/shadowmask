@@ -50,6 +50,10 @@ impl ApiError {
         Self::new(StatusCode::NOT_FOUND, "version_not_found", message)
     }
 
+    pub fn target_no_access(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::CONFLICT, "target_no_access", message)
+    }
+
     pub fn bad_gateway(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_GATEWAY, "upstream_error", message)
     }
@@ -112,6 +116,8 @@ impl From<AuthError> for ApiError {
             }
             AuthError::NotFound => ApiError::new(StatusCode::NOT_FOUND, "not_found", msg),
             AuthError::NotATarget => ApiError::new(StatusCode::CONFLICT, "not_a_target", msg),
+            AuthError::UnknownUser => ApiError::new(StatusCode::NOT_FOUND, "user_not_found", msg),
+            AuthError::ShareWithSelf => ApiError::bad_request(msg),
             AuthError::Repository(_) => ApiError::internal(),
         }
     }
@@ -403,6 +409,10 @@ mod tests {
         let not_a_target = ApiError::from(AuthError::NotATarget);
         assert_eq!(not_a_target.status, StatusCode::CONFLICT);
         assert_eq!(not_a_target.code, "not_a_target");
+        let unknown = ApiError::from(AuthError::UnknownUser);
+        assert_eq!((unknown.status, unknown.code), (StatusCode::NOT_FOUND, "user_not_found"));
+        let own = ApiError::from(AuthError::ShareWithSelf);
+        assert_eq!((own.status, own.code), (StatusCode::BAD_REQUEST, "bad_request"));
         let bad_report = ApiError::from(DeviceTargetError::Port(0));
         assert_eq!(bad_report.status, StatusCode::BAD_REQUEST);
         assert_eq!(bad_report.code, "bad_request");

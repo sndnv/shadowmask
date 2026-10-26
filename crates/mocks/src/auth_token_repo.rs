@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use domain::error::RepositoryError;
 use domain::repository::AuthTokenRepository;
 use domain::user::{
-    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, DeviceTarget, PendingLink,
-    UserId,
+    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, DeviceShare, DeviceTarget,
+    PendingLink, UserId,
 };
 use jiff::Timestamp;
 
@@ -18,6 +18,7 @@ struct State {
     links: HashMap<String, PendingLink>,
     devices: HashMap<DeviceId, Device>,
     targets: HashMap<DeviceId, DeviceTarget>,
+    shares: Vec<DeviceShare>,
     api_tokens: HashMap<String, ApiToken>,
     purged: Vec<UserId>,
 }
@@ -30,6 +31,7 @@ impl State {
     fn remove_devices_of(&mut self, user: &UserId) {
         let devices = &self.devices;
         self.targets.retain(|id, _| devices.get(id).is_none_or(|d| &d.user != user));
+        self.shares.retain(|share| devices.get(&share.device).is_none_or(|d| &d.user != user));
         self.devices.retain(|_, d| &d.user != user);
     }
 }
@@ -76,6 +78,7 @@ impl AuthTokenRepository for MockAuthTokenRepo {
         state.links.retain(|_, l| &l.user != user);
         state.api_tokens.retain(|_, t| &t.user != user);
         state.remove_devices_of(user);
+        state.shares.retain(|share| &share.user != user);
         state.purged.push(user.clone());
         Ok(())
     }
@@ -240,6 +243,7 @@ impl AuthTokenRepository for MockAuthTokenRepo {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
         state.targets.remove(id);
+        state.shares.retain(|share| &share.device != id);
         state.devices.remove(id);
         Ok(())
     }
@@ -274,6 +278,57 @@ impl AuthTokenRepository for MockAuthTokenRepo {
         }
         state.api_tokens.retain(|_, token| &token.id != id);
         Ok(())
+    }
+
+    async fn share_device(&self, share: DeviceShare) -> Result<(), RepositoryError> {
+        self.guard()?;
+        let mut state = self.state.lock().unwrap();
+        let known = |held: &DeviceShare| held.device == share.device && held.user == share.user;
+        if !state.shares.iter().any(known) {
+            state.shares.push(share);
+        }
+        Ok(())
+    }
+
+    async fn unshare_device(
+        &self,
+        device: &DeviceId,
+        user: &UserId,
+    ) -> Result<(), RepositoryError> {
+        self.guard()?;
+        let mut state = self.state.lock().unwrap();
+        state.shares.retain(|share| &share.device != device || &share.user != user);
+        Ok(())
+    }
+
+    async fn list_device_shares(
+        &self,
+        owner: &UserId,
+    ) -> Result<Vec<DeviceShare>, RepositoryError> {
+        self.guard()?;
+        let state = self.state.lock().unwrap();
+        let mut shares: Vec<DeviceShare> = state
+            .shares
+            .iter()
+            .filter(|share| state.devices.get(&share.device).is_some_and(|d| &d.user == owner))
+            .cloned()
+            .collect();
+        shares.sort_by(|a, b| (&a.device.0, &a.user.0).cmp(&(&b.device.0, &b.user.0)));
+        Ok(shares)
+    }
+
+    async fn list_shared_devices(&self, user: &UserId) -> Result<Vec<Device>, RepositoryError> {
+        self.guard()?;
+        let state = self.state.lock().unwrap();
+        let mut devices: Vec<Device> = state
+            .shares
+            .iter()
+            .filter(|share| &share.user == user)
+            .filter_map(|share| state.devices.get(&share.device))
+            .map(|device| state.with_target(device))
+            .collect();
+        devices.sort_by(|a, b| a.id.0.cmp(&b.id.0));
+        Ok(devices)
     }
 }
 

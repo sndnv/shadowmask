@@ -1,7 +1,9 @@
 mod api_token;
 mod auth_session;
+mod command_target;
 mod device;
 mod device_registration;
+mod device_share;
 mod device_target;
 mod issued_token;
 mod library_access;
@@ -9,6 +11,8 @@ mod new_user;
 mod pending_link;
 mod principal;
 mod role;
+mod shared_target;
+mod shared_with;
 mod token_pair;
 #[allow(clippy::module_inception)]
 mod user;
@@ -16,8 +20,10 @@ mod user_profile_update;
 
 pub use api_token::{ApiToken, ApiTokenId};
 pub use auth_session::{AuthSession, AuthSessionId};
+pub use command_target::CommandTarget;
 pub use device::{Device, DeviceId};
 pub use device_registration::DeviceRegistration;
+pub use device_share::DeviceShare;
 pub use device_target::{DeviceTarget, TargetKind};
 pub use issued_token::IssuedToken;
 pub use library_access::LibraryAccess;
@@ -25,6 +31,8 @@ pub use new_user::NewUser;
 pub use pending_link::PendingLink;
 pub use principal::Principal;
 pub use role::Role;
+pub use shared_target::SharedTarget;
+pub use shared_with::SharedWith;
 pub use token_pair::TokenPair;
 pub use user::{User, UserId};
 pub use user_profile_update::UserProfileUpdate;

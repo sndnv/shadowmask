@@ -9,6 +9,7 @@ import 'package:shadowmask/api/play_on_api.dart';
 import 'package:shadowmask/api/target_caller.dart';
 import 'package:shadowmask/model/auth/device.dart';
 import 'package:shadowmask/model/auth/play_command.dart';
+import 'package:shadowmask/model/auth/play_on_device.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/model/common/quality.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
@@ -50,13 +51,26 @@ http.Response _error(int status, String code) => _json(<String, dynamic>{
 ApiClient _api(MockClient mock) =>
     ApiClient(baseUrl: 'http://test', httpClient: mock);
 
-MockClient _devices() => MockClient(
-  (http.Request req) async => _json(<dynamic>[
-    _device('d1', _android),
-    _device('d2', null),
-    _device('d3', _android),
-  ]),
+MockClient _targets(List<dynamic> own, {http.Response? shared}) => MockClient(
+  (http.Request req) async => req.url.path == '/api/v1/devices/shared'
+      ? shared ?? _json(<dynamic>[])
+      : _json(own),
 );
+
+MockClient _devices() => _targets(<dynamic>[
+  _device('d1', _android),
+  _device('d2', null),
+  _device('d3', _android),
+]);
+
+Map<String, dynamic> _shared(String id, Map<String, dynamic>? target) =>
+    <String, dynamic>{
+      'id': id,
+      'name': 'Shared $id',
+      'platform': 'roku',
+      'owner': 'admin',
+      'target': target,
+    };
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
@@ -75,48 +89,90 @@ void main() {
         }),
       });
 
-      final List<Device> found = await PlayOnApi(
+      final List<PlayOnDevice> found = await PlayOnApi(
         _api(_devices()),
       ).targets('u1');
 
-      expect(found.map((Device d) => d.id), <String>['d1']);
+      expect(found.map((PlayOnDevice d) => d.id), <String>['d1']);
     },
   );
 
   test('a password login sees every device that reported', () async {
-    final List<Device> found = await PlayOnApi(_api(_devices())).targets('u1');
+    final List<PlayOnDevice> found = await PlayOnApi(
+      _api(_devices()),
+    ).targets('u1');
 
-    expect(found.map((Device d) => d.id), <String>['d1', 'd3']);
+    expect(found.map((PlayOnDevice d) => d.id), <String>['d1', 'd3']);
+    expect(found.map((PlayOnDevice d) => d.owner), <String?>[null, null]);
   });
 
   test('a device of a kind this app does not know is left out', () async {
-    final List<Device> found = await PlayOnApi(
+    final Map<String, dynamic> television = <String, dynamic>{
+      ..._android,
+      'kind': 'television',
+    };
+    final List<PlayOnDevice> found = await PlayOnApi(
       _api(
-        MockClient(
-          (http.Request req) async => _json(<dynamic>[
-            _device('d1', <String, dynamic>{..._android, 'kind': 'television'}),
-            _device('d2', _android),
+        _targets(
+          <dynamic>[_device('d1', television), _device('d2', _android)],
+          shared: _json(<dynamic>[
+            _shared('s1', television),
+            _shared('s2', _android),
           ]),
         ),
       ),
     ).targets('u1');
 
-    expect(found.map((Device d) => d.id), <String>['d2']);
+    expect(found.map((PlayOnDevice d) => d.id), <String>['d2', 's2']);
   });
 
-  test('targets read the user devices', () async {
-    late http.Request seen;
+  test('shared devices follow the own ones, each with its owner', () async {
+    final List<PlayOnDevice> found = await PlayOnApi(
+      _api(
+        _targets(
+          <dynamic>[_device('d1', _android)],
+          shared: _json(<dynamic>[
+            _shared('s1', _android),
+            _shared('s2', null),
+          ]),
+        ),
+      ),
+    ).targets('u1');
+
+    expect(found.map((PlayOnDevice d) => d.id), <String>['d1', 's1']);
+    expect(found.last.owner, 'admin');
+    expect(found.last.name, 'Shared s1');
+    expect(found.last.target?.port, 7777);
+  });
+
+  test('a failed shared list leaves the own devices', () async {
+    final List<PlayOnDevice> found = await PlayOnApi(
+      _api(
+        _targets(<dynamic>[
+          _device('d1', _android),
+        ], shared: _error(404, 'not_found')),
+      ),
+    ).targets('u1');
+
+    expect(found.map((PlayOnDevice d) => d.id), <String>['d1']);
+  });
+
+  test('targets read the user devices and the shared ones', () async {
+    final List<http.Request> seen = <http.Request>[];
     await PlayOnApi(
       _api(
         MockClient((http.Request req) async {
-          seen = req;
+          seen.add(req);
           return _json(<dynamic>[]);
         }),
       ),
     ).targets('u 1');
 
-    expect(seen.method, 'GET');
-    expect(seen.url.path, '/api/v1/users/u%201/devices');
+    expect(seen.map((http.Request r) => r.method), <String>['GET', 'GET']);
+    expect(seen.map((http.Request r) => r.url.path), <String>[
+      '/api/v1/users/u%201/devices',
+      '/api/v1/devices/shared',
+    ]);
   });
 
   test('mint posts the version to the device and reads the command', () async {
@@ -183,7 +239,7 @@ void main() {
     );
 
     final PlayOnOutcome outcome = await playOn.send(
-      Device.fromJson(_device('d1', _android)),
+      PlayOnDevice.own(Device.fromJson(_device('d1', _android))),
       _version,
     );
 
@@ -204,7 +260,10 @@ void main() {
     );
 
     await expectLater(
-      playOn.send(Device.fromJson(_device('d1', _android)), _version),
+      playOn.send(
+        PlayOnDevice.own(Device.fromJson(_device('d1', _android))),
+        _version,
+      ),
       throwsA(isA<ApiException>()),
     );
     expect(lan, isEmpty);

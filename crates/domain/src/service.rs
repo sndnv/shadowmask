@@ -29,8 +29,9 @@ use crate::session::{
     SessionStartInput, SessionStarted, SessionUpdate,
 };
 use crate::user::{
-    ApiToken, ApiTokenId, Device, DeviceId, DeviceRegistration, DeviceTarget, IssuedToken,
-    LibraryAccess, NewUser, PendingLink, Principal, TokenPair, User, UserId, UserProfileUpdate,
+    ApiToken, ApiTokenId, CommandTarget, Device, DeviceId, DeviceRegistration, DeviceTarget,
+    IssuedToken, LibraryAccess, NewUser, PendingLink, Principal, SharedTarget, SharedWith,
+    TokenPair, User, UserId, UserProfileUpdate,
 };
 
 pub trait AuthService {
@@ -99,6 +100,31 @@ pub trait AuthService {
     ) -> impl Future<Output = Result<(), AuthError>> + Send;
     fn clear_target(&self, device: &DeviceId)
     -> impl Future<Output = Result<(), AuthError>> + Send;
+    fn share_device(
+        &self,
+        owner: &UserId,
+        device: &DeviceId,
+        username: &str,
+    ) -> impl Future<Output = Result<SharedWith, AuthError>> + Send;
+    fn unshare_device(
+        &self,
+        owner: &UserId,
+        device: &DeviceId,
+        user: &UserId,
+    ) -> impl Future<Output = Result<(), AuthError>> + Send;
+    fn device_shares(
+        &self,
+        owner: &UserId,
+    ) -> impl Future<Output = Result<Vec<SharedWith>, AuthError>> + Send;
+    fn shared_targets(
+        &self,
+        user: &UserId,
+    ) -> impl Future<Output = Result<Vec<SharedTarget>, AuthError>> + Send;
+    fn command_target(
+        &self,
+        sender: &UserId,
+        device: &DeviceId,
+    ) -> impl Future<Output = Result<CommandTarget, AuthError>> + Send;
 }
 
 pub trait CatalogService {

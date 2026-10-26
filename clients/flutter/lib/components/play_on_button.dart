@@ -7,8 +7,8 @@ import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/toggle_button.dart';
 import 'package:shadowmask/components/version_label.dart';
 import 'package:shadowmask/l10n/strings.dart';
-import 'package:shadowmask/model/auth/device.dart';
 import 'package:shadowmask/model/auth/device_target.dart';
+import 'package:shadowmask/model/auth/play_on_device.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/theme/app_menu.dart';
 import 'package:shadowmask/theme/app_theme.dart';
@@ -20,13 +20,13 @@ import 'package:shadowmask/view/play_target.dart';
 import 'package:shadowmask/view/version_order.dart';
 
 mixin PlayOnTargets<T extends StatefulWidget> on State<T> {
-  List<Device> playOnDevices = const <Device>[];
+  List<PlayOnDevice> playOnDevices = const <PlayOnDevice>[];
 
   void loadPlayOnTargets(PlayOnApi? playOn, String userId) {
     if (playOn == null) {
       return;
     }
-    playOn.targets(userId).then((List<Device> found) {
+    playOn.targets(userId).then((List<PlayOnDevice> found) {
       if (mounted) {
         setState(() => playOnDevices = found);
       }
@@ -37,10 +37,10 @@ mixin PlayOnTargets<T extends StatefulWidget> on State<T> {
 Future<void> sendPlayOn(
   Toasts toasts,
   PlayOnApi playOn,
-  Device device,
+  PlayOnDevice device,
   Version version,
 ) async {
-  final String name = device.name;
+  final String name = playOnName(device);
   try {
     switch (await playOn.send(device, version)) {
       case PlayOnOutcome.playing:
@@ -51,24 +51,33 @@ Future<void> sendPlayOn(
         toasts.error(Strings.playOnUnreachable(name), emphasis: name);
     }
   } catch (e) {
-    toasts.error(failureText(Strings.errorAction, e));
+    if (failureCode(e) == kTargetNoAccess) {
+      toasts.error(Strings.playOnNoAccess(name), emphasis: name);
+    } else {
+      toasts.error(failureText(Strings.errorAction, e));
+    }
   }
+}
+
+String playOnName(PlayOnDevice d) {
+  final String? owner = d.owner;
+  return owner == null ? d.name : Strings.sharedDeviceName(d.name, owner);
 }
 
 List<Widget> _deviceItems(
   Tokens t,
-  List<Device> devices,
-  ValueChanged<Device> onPick,
+  List<PlayOnDevice> devices,
+  ValueChanged<PlayOnDevice> onPick,
 ) => <Widget>[
-  for (final Device d in devices)
+  for (final PlayOnDevice d in devices)
     LongMenuItem(
-      label: d.name,
+      label: playOnName(d),
       onPressed: () => onPick(d),
       leadingIcon: Icon(_kindIcon(d), size: 18, color: t.accent),
     ),
 ];
 
-IconData _kindIcon(Device d) =>
+IconData _kindIcon(PlayOnDevice d) =>
     d.target?.kind == TargetKind.android ? Icons.phone_android : Icons.tv;
 
 class PlayOnSubmenu extends StatelessWidget {
@@ -80,7 +89,7 @@ class PlayOnSubmenu extends StatelessWidget {
   });
 
   final PlayOnApi playOn;
-  final List<Device> devices;
+  final List<PlayOnDevice> devices;
   final Version version;
 
   @override
@@ -93,7 +102,7 @@ class PlayOnSubmenu extends StatelessWidget {
       menuChildren: _deviceItems(
         t,
         devices,
-        (Device d) => sendPlayOn(toasts, playOn, d, version),
+        (PlayOnDevice d) => sendPlayOn(toasts, playOn, d, version),
       ),
       child: const Text(Strings.playOn),
     );
@@ -109,7 +118,7 @@ class PlayOnButton extends StatefulWidget {
   });
 
   final PlayOnApi playOn;
-  final List<Device> devices;
+  final List<PlayOnDevice> devices;
   final Future<PlayChoice?> Function() choose;
 
   @override
@@ -158,7 +167,7 @@ class _PlayOnButtonState extends State<PlayOnButton> {
     }
   }
 
-  Future<void> _send(Device device, Version version) async {
+  Future<void> _send(PlayOnDevice device, Version version) async {
     final Toasts toasts = Toasts.of(context);
     setState(() => _busy = true);
     try {
@@ -171,7 +180,7 @@ class _PlayOnButtonState extends State<PlayOnButton> {
   }
 
   List<Widget> _versionDevices(Tokens t, Version version) =>
-      _deviceItems(t, widget.devices, (Device d) => _send(d, version));
+      _deviceItems(t, widget.devices, (PlayOnDevice d) => _send(d, version));
 
   List<Widget> _items(Tokens t) {
     final Version? target = _target;
