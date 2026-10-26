@@ -7,13 +7,15 @@ use domain::job::{
     Job, JobCanceller, JobId, JobKind, JobNode, JobPage, JobQuery, JobStatus, VersionJob,
 };
 use domain::media::SubtitleFileId;
-use domain::repository::JobRepository;
+use domain::repository::{JobRepository, LibraryRepository};
 use domain::service::JobService;
 use domain::user::Principal;
 use jiff::{SignedDuration, Timestamp};
 
 use crate::acl;
-use crate::library::{CombineJobPayload, TranscriptionJobPayload, TranslationJobPayload};
+use crate::library::{
+    CombineJobPayload, ScanJobPayload, TranscriptionJobPayload, TranslationJobPayload, release_scan,
+};
 
 struct NoopCanceller;
 
@@ -54,17 +56,19 @@ fn produces(job: &Job) -> (Option<String>, Option<SubtitleFileId>) {
 }
 
 #[derive(Clone)]
-pub struct JobServiceImpl<J> {
+pub struct JobServiceImpl<J, L> {
     jobs: J,
+    libraries: L,
     canceller: Arc<dyn JobCanceller>,
     parked: Arc<[JobKind]>,
     pools: Arc<[Vec<JobKind>]>,
 }
 
-impl<J> JobServiceImpl<J> {
-    pub fn new(jobs: J) -> Self {
+impl<J, L> JobServiceImpl<J, L> {
+    pub fn new(jobs: J, libraries: L) -> Self {
         Self {
             jobs,
+            libraries,
             canceller: Arc::new(NoopCanceller),
             parked: Arc::from([]),
             pools: Arc::from([]),
@@ -87,9 +91,10 @@ impl<J> JobServiceImpl<J> {
     }
 }
 
-impl<J> JobService for JobServiceImpl<J>
+impl<J, L> JobService for JobServiceImpl<J, L>
 where
     J: JobRepository + Sync,
+    L: LibraryRepository + Sync,
 {
     async fn jobs(
         &self,
@@ -141,6 +146,11 @@ where
             return Err(JobServiceError::Forbidden);
         }
         if self.jobs.cancel(id, Timestamp::now()).await? {
+            let scan = self.jobs.get(id).await?.filter(|job| job.kind == JobKind::LibraryScan);
+            if let Some(scan) = scan {
+                release_scan(&self.libraries, &ScanJobPayload::decode(&scan.payload).library)
+                    .await?;
+            }
             return Ok(());
         }
         let job = self.jobs.get(id).await?.ok_or(JobServiceError::NotFound)?;
@@ -199,9 +209,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::library::queue_scan;
     use domain::job::JobPriority;
+    use domain::library::{LibraryId, ScanMode, ScanStatus};
+    use domain::repository::LibraryRepository;
     use domain::user::{Role, UserId};
-    use mocks::MockJobStore;
+    use mocks::{MockJobStore, MockLibraryRepo};
 
     const PAGE: PageRequest = PageRequest { offset: 0, limit: 50 };
 
@@ -255,8 +268,8 @@ mod tests {
         }
     }
 
-    fn svc() -> JobServiceImpl<MockJobStore> {
-        JobServiceImpl::new(MockJobStore::new())
+    fn svc() -> JobServiceImpl<MockJobStore, MockLibraryRepo> {
+        JobServiceImpl::new(MockJobStore::new(), MockLibraryRepo::new())
     }
 
     #[tokio::test]
@@ -358,6 +371,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancelling_a_queued_scan_lets_its_library_be_scanned_again() {
+        let libraries = MockLibraryRepo::new();
+        let jobs = MockJobStore::new();
+        let library = LibraryId("lib".into());
+        assert!(queue_scan(&libraries, &jobs, &library, ScanMode::Normal, None).await.unwrap());
+        let scan = jobs.list().await.unwrap().remove(0);
+        let svc = JobServiceImpl::new(jobs.clone(), libraries.clone());
+
+        svc.cancel_job(&admin(), &scan.id).await.unwrap();
+
+        let state = libraries.scan_state(&library).await.unwrap().unwrap();
+        assert_eq!(state.status, ScanStatus::Idle, "a scan that will never run holds no slot");
+        let queued = queue_scan(&libraries, &jobs, &library, ScanMode::Normal, None).await;
+        assert!(queued.unwrap(), "the next scan can be queued without a restart");
+    }
+
+    #[tokio::test]
     async fn cancel_job_missing_is_not_found() {
         let svc = svc();
         assert!(matches!(
@@ -371,7 +401,8 @@ mod tests {
         let jobs = MockJobStore::new();
         jobs.enqueue(job_with("f", JobKind::Fetch, JobStatus::Running)).await.unwrap();
         let canceller = RecordingCanceller::default();
-        let svc = JobServiceImpl::new(jobs).with_canceller(Arc::new(canceller.clone()));
+        let svc = JobServiceImpl::new(jobs, MockLibraryRepo::new())
+            .with_canceller(Arc::new(canceller.clone()));
         svc.cancel_job(&admin(), &JobId("f".into())).await.unwrap();
         let calls = canceller.calls.lock().unwrap();
         assert_eq!(calls.len(), 1);

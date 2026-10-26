@@ -613,6 +613,9 @@ abstract final class Strings {
   static const String reasonNotFound = 'It is no longer there.';
   static const String reasonScanInProgress =
       'A scan is already running for that library.';
+  static const String reasonLibraryBusy = 'Jobs are running on that library.';
+  static const String reasonLibraryPurging = 'That library is being purged.';
+  static const String reasonLibraryCleaning = 'That library is being cleaned.';
   static const String reasonNotCancellable =
       'That job has already finished or been cancelled.';
   static const String reasonNotRetryable =
@@ -1017,6 +1020,93 @@ abstract final class Strings {
   static String confirmDeleteLibrary(String name) =>
       'Delete the library $name, along with its scan results, unmatched files '
       'and duplicate candidates. The media files on disk are not touched.';
+  static const String purge = 'Purge';
+  static const String purgeLibrary = 'Purge library';
+  static String confirmPurgeLibrary(String name) =>
+      'Removes the titles of "$name" with their metadata, artwork and '
+      'downloaded subtitles, and its unmatched and duplicate lists. '
+      'Manual re-links and edits are lost. Titles from other libraries '
+      'are not affected.\n\nKeeps the files, versions, trickplay, '
+      'playback prep and other subtitles.';
+  static const String wipeUserData =
+      'Wipe user data: watched, watchlist, favorites, resume positions and subtitle offsets';
+  static const String clean = 'Clean';
+  static const String cleanLibrary = 'Clean library';
+  static const String cleanAll = 'Clean all';
+  static const String cleanAllLibraries = 'Clean all libraries';
+  static String confirmCleanLibrary(String name) =>
+      'Removes the versions of "$name" whose file is gone and the titles '
+      'left with no version. Files on disk are not touched.';
+  static const String confirmCleanAll =
+      "Removes every version whose file is gone, deleted libraries' included, "
+      'and every title left with no version. Files on disk are not touched.';
+  static const String cleanBusyBody = 'These jobs block the clean.';
+  static const String cancelLibraryJobs = 'Cancel jobs';
+  static const String cancelThisLibrarysJobs = 'Cancel jobs';
+  static const String confirmCancelLibraryJobs =
+      "Cancels this library's queued jobs and stops the running ones that "
+      'can be stopped.';
+  static const String libraryBusy = 'Library busy';
+  static const String libraryBusyBody = 'These jobs block the purge.';
+  static String subtitleCountLabel(int n) =>
+      n == 1 ? '1 subtitle' : '$n subtitles';
+  static String toastLibraryPurged({
+    required int movies,
+    required int series,
+    required int seasons,
+    required int episodes,
+    required int subtitles,
+    required int wipedUsers,
+  }) {
+    final List<String> removed = <String>[
+      if (movies > 0) movieCountLabel(movies),
+      if (series > 0) '$series series',
+      if (seasons > 0) seasonCountLabel(seasons),
+      if (episodes > 0) episodeCountLabel(episodes),
+      if (subtitles > 0) subtitleCountLabel(subtitles),
+    ];
+    return _removedToast('Purged', removed, wipedUsers);
+  }
+
+  static String versionCountLabel(int n) =>
+      n == 1 ? '1 version' : '$n versions';
+  static String toastCleaned({
+    required int versions,
+    required int movies,
+    required int series,
+    required int seasons,
+    required int episodes,
+    required int wipedUsers,
+  }) {
+    final List<String> removed = <String>[
+      if (versions > 0) versionCountLabel(versions),
+      if (movies > 0) movieCountLabel(movies),
+      if (series > 0) '$series series',
+      if (seasons > 0) seasonCountLabel(seasons),
+      if (episodes > 0) episodeCountLabel(episodes),
+    ];
+    return _removedToast('Cleaned', removed, wipedUsers);
+  }
+
+  static String _removedToast(
+    String done,
+    List<String> removed,
+    int wipedUsers,
+  ) {
+    final String what = removed.isEmpty
+        ? '$done: nothing to remove.'
+        : '$done: ${removed.join(', ')}.';
+    return wipedUsers == 0
+        ? what
+        : '$what User data wiped for $wipedUsers '
+              '${wipedUsers == 1 ? 'user' : 'users'}.';
+  }
+
+  static String toastLibraryJobsCancelled({
+    required int cancelled,
+    required int signalled,
+    required int running,
+  }) => 'Cancelled $cancelled, stopped $signalled, $running still running.';
   static const String scanLibrary = 'Scan library';
   static const String cancelJob = 'Cancel job';
   static const String retryJob = 'Retry job';
@@ -1160,6 +1250,9 @@ abstract final class Strings {
   static String toastScanQueuedFor(String name) => 'Scan queued for $name.';
 
   static const String errorDelete = 'Delete failed.';
+  static const String errorPurge = 'Purge failed.';
+  static const String errorClean = 'Clean failed.';
+  static const String errorCancelJobs = 'Cancel failed.';
   static const String errorScan = 'Scan failed.';
   static const String errorRelink = 'Relink failed.';
   static const String errorRefresh = 'Refresh failed.';
@@ -1227,6 +1320,10 @@ abstract final class Strings {
   static const String filterVersions =
       'Filter by path, title, library or quality';
   static const String noMatchingVersions = 'No versions match the filter.';
+  static const String availability = 'Availability';
+  static const String availabilityAll = 'All';
+  static const String availabilityAvailable = 'Available';
+  static const String availabilityUnavailable = 'Unavailable';
   static const String filterReports =
       'Filter by player, user, app, platform or version';
   static const String noMatchingReports = 'No reports match the filter.';

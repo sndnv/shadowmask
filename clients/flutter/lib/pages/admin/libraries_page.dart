@@ -11,12 +11,14 @@ import 'package:shadowmask/components/page_actions.dart';
 import 'package:shadowmask/components/status_text.dart';
 import 'package:shadowmask/components/skeleton.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/model/library/clean_report.dart';
 import 'package:shadowmask/model/library/library.dart';
 import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/nav/nav_section.dart';
 import 'package:shadowmask/nav/routes.dart';
 import 'package:shadowmask/components/breadcrumbs.dart';
 import 'package:shadowmask/components/crumb.dart';
+import 'package:shadowmask/pages/admin/library_maintenance.dart';
 import 'package:shadowmask/pages/default/mutations.dart';
 import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
@@ -52,7 +54,7 @@ class _LibrariesBody extends StatefulWidget {
 }
 
 class _LibrariesBodyState extends State<_LibrariesBody>
-    with Mutations<_LibrariesBody> {
+    with Mutations<_LibrariesBody>, LibraryMaintenance<_LibrariesBody> {
   late Future<List<Library>> _future = widget.libraries.libraries();
 
   void _reload() {
@@ -77,6 +79,28 @@ class _LibrariesBodyState extends State<_LibrariesBody>
     () => widget.libraries.triggerScan(library.id),
     successText: Strings.toastScanQueuedFor(library.name),
     errorText: Strings.errorScanFor(library.name),
+  );
+
+  Future<void> _cleanAll() => confirmMaintenance(
+    title: Strings.cleanAllLibraries,
+    message: Strings.confirmCleanAll,
+    confirmLabel: Strings.clean,
+    errorText: Strings.errorClean,
+    busyBody: Strings.cleanBusyBody,
+    run: (bool wipeUserData) async {
+      final CleanReport r = await widget.libraries.cleanAll(
+        wipeUserData: wipeUserData,
+      );
+      return Strings.toastCleaned(
+        versions: r.versions,
+        movies: r.movies,
+        series: r.series,
+        seasons: r.seasons,
+        episodes: r.episodes,
+        wipedUsers: r.wipedUsers,
+      );
+    },
+    then: _reload,
   );
 
   Future<void> _delete(Library library) async {
@@ -114,6 +138,12 @@ class _LibrariesBodyState extends State<_LibrariesBody>
               icon: Icons.refresh,
               label: Strings.refresh,
               onPressed: _reload,
+            ),
+            PageAction(
+              icon: Icons.cleaning_services_outlined,
+              label: Strings.cleanAll,
+              danger: true,
+              onPressed: busy() ? null : _cleanAll,
             ),
             PageAction(
               icon: Icons.add,

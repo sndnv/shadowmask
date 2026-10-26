@@ -33,7 +33,9 @@
           create.addEventListener("click", () =>
             sm.openDialog("Create library", (box) => libraryFormBody(box, null)),
           );
-          main.appendChild(sm.el("p", null, create));
+          const cleanAll = sm.el("button", { type: "button", class: "sm-danger" }, "Clean all");
+          cleanAll.addEventListener("click", confirmCleanAll);
+          main.appendChild(sm.el("p", null, [create, " ", cleanAll]));
           listHeading = sm.el("h2", { text: "Existing libraries" });
           main.appendChild(listHeading);
           listContainer = sm.el("div", null);
@@ -42,6 +44,66 @@
         } catch (err) {
           main.textContent = "Could not load.";
         }
+      }
+
+      function counted(n, one, many) {
+        return n + " " + (n === 1 ? one : many);
+      }
+
+      function cleanedText(done) {
+        const parts = [];
+        if (done.versions) parts.push(counted(done.versions, "version", "versions"));
+        if (done.movies) parts.push(counted(done.movies, "movie", "movies"));
+        if (done.series) parts.push(done.series + " series");
+        if (done.seasons) parts.push(counted(done.seasons, "season", "seasons"));
+        if (done.episodes) parts.push(counted(done.episodes, "episode", "episodes"));
+        const what = parts.length ? "Cleaned: " + parts.join(", ") + "." : "Cleaned: nothing to remove.";
+        if (!done.wiped_users) return what;
+        return what + " User data wiped for " + counted(done.wiped_users, "user", "users") + ".";
+      }
+
+      function confirmCleanAll() {
+        sm.openDialog("Clean all libraries", (box) => {
+          const wipe = sm.el("input", { type: "checkbox" });
+          const run = sm.el("button", { type: "button", class: "sm-danger" }, "Clean");
+          run.addEventListener("click", async () => {
+            run.disabled = true;
+            try {
+              const done = await sm.json("/api/v1/admin/clean", {
+                method: "POST",
+                body: JSON.stringify({ wipe_user_data: wipe.checked }),
+              });
+              box.close();
+              sm.toast(cleanedText(done), "ok");
+              await loadLibraries();
+            } catch (err) {
+              run.disabled = false;
+              if (err.code === "library_busy") {
+                box.close();
+                showBusy(err.jobs);
+              } else {
+                sm.toast("Clean failed. " + err.message, "danger");
+              }
+            }
+          });
+          return sm.el("div", null, [
+            sm.el("p", null, "Removes every version whose file is gone, deleted libraries' included, and every title left with no version. Files on disk are not touched."),
+            sm.el("p", null, sm.el("label", null, [wipe, " Also wipe user data for what is removed: watched, watchlist, favorites, resume positions, subtitle offsets"])),
+            run,
+          ]);
+        });
+      }
+
+      function showBusy(jobs) {
+        sm.openDialog("Library busy", () => {
+          const rows = jobs.map((job) =>
+            sm.el("li", null, [
+              sm.el("a", { href: "job.html?id=" + eu(job.id) }, String(job.kind).replace(/_/g, " ")),
+              " " + job.status,
+            ]),
+          );
+          return sm.el("div", null, [sm.el("p", null, "These jobs block the clean."), sm.el("ul", null, rows)]);
+        });
       }
 
       function libraryFormBody(box, library) {

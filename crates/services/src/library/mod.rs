@@ -8,7 +8,9 @@ mod enricher;
 mod external_subtitles;
 mod fetch_job;
 mod ingest_job;
+mod job_scope;
 mod library_lookup;
+mod maintenance;
 mod matcher;
 mod metadata_fetch;
 mod metadata_job;
@@ -41,6 +43,7 @@ pub use external_subtitles::discover_subtitles;
 pub use fetch_job::{FetchJobPayload, filename_tag};
 pub use ingest_job::IngestJobPayload;
 pub use library_lookup::{library_articles, series_library, version_library};
+pub use maintenance::MaintenanceServiceImpl;
 pub use matcher::Matcher;
 pub use metadata_job::MetadataJobPayload;
 pub use parse::{
@@ -49,6 +52,7 @@ pub use parse::{
 pub use playback_prep_job::PlaybackPrepJobPayload;
 pub use relink_job::RelinkJobPayload;
 pub use scan_job::ScanJobPayload;
+pub(crate) use scan_queue::release_scan;
 pub use scan_queue::{is_nightly_library, queue_scan, settle_interrupted_scans};
 pub use scanner::{DEFAULT_PROBE_CONCURRENCY, LibraryWalk, Scanner};
 pub use service::LibraryServiceImpl;

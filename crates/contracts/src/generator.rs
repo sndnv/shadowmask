@@ -54,7 +54,7 @@ pub struct Generator {
         MockPreferencesRepo,
         MockUserRepo,
     >,
-    pub job: JobServiceImpl<MockJobStore>,
+    pub job: JobServiceImpl<MockJobStore, MockLibraryRepo>,
 }
 
 impl Default for Generator {
@@ -96,7 +96,7 @@ impl Generator {
                 Arc::new(preferences_repo.clone()),
                 Arc::new(catalog_repo.clone()),
             ),
-            job: JobServiceImpl::new(jobs_repo.clone()),
+            job: JobServiceImpl::new(jobs_repo.clone(), library_repo.clone()),
             discovery: DiscoveryServiceImpl::new(
                 catalog_repo.clone(),
                 search_index.clone(),

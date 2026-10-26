@@ -121,6 +121,22 @@ impl<J> Clone for JobLogState<J> {
     }
 }
 
+pub struct MaintenanceState<M> {
+    pub service: Arc<M>,
+}
+
+impl<M> MaintenanceState<M> {
+    pub fn new(service: M) -> Self {
+        Self { service: Arc::new(service) }
+    }
+}
+
+impl<M> Clone for MaintenanceState<M> {
+    fn clone(&self) -> Self {
+        Self { service: Arc::clone(&self.service) }
+    }
+}
+
 pub struct ServerLogState<L> {
     pub store: Arc<L>,
 }

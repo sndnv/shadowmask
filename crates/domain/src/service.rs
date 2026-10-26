@@ -10,13 +10,14 @@ use crate::catalog::{
 use crate::common::{Page, PageRequest};
 use crate::discovery::{ContinueWatchingItem, Hub, SearchKind, SearchResult};
 use crate::error::{
-    AuthError, CatalogError, DiscoveryError, JobServiceError, LibraryError, SessionError, UserError,
+    AuthError, CatalogError, DiscoveryError, JobServiceError, LibraryError, MaintenanceError,
+    SessionError, UserError,
 };
 use crate::job::{Job, JobId, JobNode, JobPage, JobQuery, VersionJob};
 use crate::library::{
-    DuplicateCandidate, DuplicateCandidateId, FetchInput, Library, LibraryId, LibraryUpdate,
-    NewLibrary, ResolveCandidate, ResolveTarget, ScanMode, ScanState, UnmatchedFile,
-    UnmatchedFileId,
+    CancelScope, CancelledJobs, CleanReport, DuplicateCandidate, DuplicateCandidateId, FetchInput,
+    Library, LibraryId, LibraryUpdate, NewLibrary, PurgeReport, ResolveCandidate, ResolveTarget,
+    ScanMode, ScanState, UnmatchedFile, UnmatchedFileId,
 };
 use crate::media::SubtitleFileId;
 use crate::metadata::{ExternalId, Genre, Person, PersonId};
@@ -194,7 +195,7 @@ pub trait CatalogService {
     fn all_versions(
         &self,
         caller: &Principal,
-        filter: Option<&VersionFilter>,
+        filter: &VersionFilter,
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<Version>, CatalogError>> + Send;
     fn version(
@@ -476,6 +477,32 @@ pub trait JobService {
         caller: &Principal,
         version: &VersionId,
     ) -> impl Future<Output = Result<Vec<VersionJob>, JobServiceError>> + Send;
+}
+
+pub trait MaintenanceService {
+    fn purge_library(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+        wipe_user_data: bool,
+    ) -> impl Future<Output = Result<PurgeReport, MaintenanceError>> + Send;
+    fn clean_library(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+        wipe_user_data: bool,
+    ) -> impl Future<Output = Result<CleanReport, MaintenanceError>> + Send;
+    fn clean_all(
+        &self,
+        caller: &Principal,
+        wipe_user_data: bool,
+    ) -> impl Future<Output = Result<CleanReport, MaintenanceError>> + Send;
+    fn cancel_library_jobs(
+        &self,
+        caller: &Principal,
+        id: &LibraryId,
+        scope: CancelScope,
+    ) -> impl Future<Output = Result<CancelledJobs, MaintenanceError>> + Send;
 }
 
 pub trait UserService {

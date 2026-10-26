@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+use crate::job::Job;
 use crate::session::PlaybackSession;
 
 #[derive(Debug, Error)]
@@ -98,6 +99,10 @@ pub enum LibraryError {
     NotFound,
     #[error("scan already in progress")]
     ScanInProgress,
+    #[error("the library is being purged")]
+    Purging,
+    #[error("the library is being cleaned")]
+    Cleaning,
     #[error("access denied")]
     Forbidden,
     #[error("feature disabled")]
@@ -124,6 +129,24 @@ pub enum JobServiceError {
     NotCancellable,
     #[error("job cannot be retried")]
     NotRetryable,
+    #[error(transparent)]
+    Repository(#[from] RepositoryError),
+}
+
+#[derive(Debug, Error)]
+pub enum MaintenanceError {
+    #[error("library not found")]
+    NotFound,
+    #[error("access denied")]
+    Forbidden,
+    #[error("the library is busy")]
+    Busy(Vec<Job>),
+    #[error("scan already in progress")]
+    Scanning,
+    #[error("the library is being purged")]
+    Purging,
+    #[error("the library is being cleaned")]
+    Cleaning,
     #[error(transparent)]
     Repository(#[from] RepositoryError),
 }

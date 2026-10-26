@@ -9,6 +9,8 @@ pub enum ScanStatusDto {
     Queued,
     Running,
     Failed,
+    Purging,
+    Cleaning,
 }
 
 impl From<ScanStatus> for ScanStatusDto {
@@ -18,6 +20,8 @@ impl From<ScanStatus> for ScanStatusDto {
             ScanStatus::Queued => ScanStatusDto::Queued,
             ScanStatus::Running => ScanStatusDto::Running,
             ScanStatus::Failed => ScanStatusDto::Failed,
+            ScanStatus::Purging => ScanStatusDto::Purging,
+            ScanStatus::Cleaning => ScanStatusDto::Cleaning,
         }
     }
 }
@@ -55,6 +59,8 @@ mod tests {
         assert!(matches!(ScanStatusDto::from(ScanStatus::Queued), ScanStatusDto::Queued));
         assert!(matches!(ScanStatusDto::from(ScanStatus::Running), ScanStatusDto::Running));
         assert!(matches!(ScanStatusDto::from(ScanStatus::Failed), ScanStatusDto::Failed));
+        assert!(matches!(ScanStatusDto::from(ScanStatus::Purging), ScanStatusDto::Purging));
+        assert!(matches!(ScanStatusDto::from(ScanStatus::Cleaning), ScanStatusDto::Cleaning));
     }
 
     #[test]

@@ -230,6 +230,12 @@ void main() {
 
     await admin.versions(filter: '');
     expect(seen.url.queryParameters.containsKey('filter'), isFalse);
+    expect(seen.url.queryParameters.containsKey('available'), isFalse);
+
+    await admin.versions(available: false);
+    expect(seen.url.queryParameters['available'], 'false');
+    await admin.versions(available: true);
+    expect(seen.url.queryParameters['available'], 'true');
   });
 
   test('versionJobs GETs the version\'s work and parses each row', () async {

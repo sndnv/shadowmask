@@ -118,7 +118,7 @@ where
             .await
     }
 
-    async fn enqueue_subtitles(
+    pub(super) async fn enqueue_subtitles(
         &self,
         version_id: &VersionId,
         ctx: &SubtitleContext,
@@ -163,6 +163,24 @@ where
         self.jobs
             .enqueue(queued_job(JobKind::PlaybackPrep, JobPriority::High, raw, parent, now))
             .await
+    }
+
+    pub(super) async fn enqueue_trickplay_unless_pending(
+        &self,
+        version_id: &VersionId,
+        source_path: &str,
+        duration_ms: u64,
+    ) -> Result<(), RepositoryError> {
+        let pending = self
+            .jobs
+            .list_for_version(version_id, Timestamp::now())
+            .await?
+            .into_iter()
+            .any(|job| job.kind == JobKind::Trickplay && job.status.is_active());
+        if pending {
+            return Ok(());
+        }
+        self.enqueue_trickplay(version_id, source_path, duration_ms, None).await
     }
 
     async fn enqueue_trickplay(

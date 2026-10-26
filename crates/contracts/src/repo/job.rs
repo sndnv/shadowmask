@@ -145,6 +145,26 @@ pub async fn job_repository_contract<R: JobRepository>(repo: R) {
     retry_requeues_only_failed_or_cancelled_jobs(&repo).await;
     a_versions_jobs_are_read_from_their_payload(&repo).await;
     queued_work_ahead_follows_the_claim_order(&repo).await;
+    active_jobs_are_read_by_kind_oldest_first(&repo).await;
+}
+
+async fn active_jobs_are_read_by_kind_oldest_first<R: JobRepository>(repo: &R) {
+    for entry in [
+        work("r-queued", JobKind::Retention, JobStatus::Queued, "", at(1_960_000_002)),
+        work("r-running", JobKind::OrphanSweep, JobStatus::Running, "", at(1_960_000_001)),
+        work("r-tie", JobKind::Retention, JobStatus::Queued, "", at(1_960_000_002)),
+        work("r-done", JobKind::Retention, JobStatus::Succeeded, "", at(1_960_000_000)),
+        work("r-failed", JobKind::OrphanSweep, JobStatus::Failed, "", at(1_960_000_000)),
+        work("r-cancelled", JobKind::Retention, JobStatus::Cancelled, "", at(1_960_000_000)),
+        work("r-other", JobKind::Dedup, JobStatus::Queued, "", at(1_960_000_000)),
+    ] {
+        repo.enqueue(entry).await.unwrap();
+    }
+
+    let active = repo.list_active(&[JobKind::Retention, JobKind::OrphanSweep]).await.unwrap();
+
+    assert_eq!(ids(&active), ["r-running", "r-queued", "r-tie"]);
+    assert!(repo.list_active(&[]).await.unwrap().is_empty());
 }
 
 fn work(id: &str, kind: JobKind, status: JobStatus, payload: &str, created_at: Timestamp) -> Job {

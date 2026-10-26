@@ -3,16 +3,17 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use domain::catalog::{
-    ArtworkId, ArtworkOwner, ArtworkRef, Collection, CollectionId, Episode, EpisodeContext,
-    EpisodeId, Movie, MovieDetail, MovieId, RandomScope, Season, SeasonId, Series, SeriesDetail,
-    SeriesId, TitleId, TitleKind, TitleListFilter, TitleRef, Version, VersionDetail, VersionId,
+    ArtworkId, ArtworkOwner, ArtworkRef, CatalogClean, CleanScope, Collection, CollectionId,
+    Episode, EpisodeContext, EpisodeId, LibraryFootprint, LibraryPurge, Movie, MovieDetail,
+    MovieId, RandomScope, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId, TitleKind,
+    TitleListFilter, TitleRef, TitleSet, Version, VersionDetail, VersionId,
 };
 use domain::common::{Page, PageRequest};
 use domain::error::RepositoryError;
 use domain::library::{LibraryId, is_offline};
 use domain::media::{
     AudioTrack, Chapter, DetectedMarkers, EmbeddedSubtitleTrack, PlaybackPrep, SubtitleFile,
-    TrickplayAsset, VersionPrepState, VideoTrack,
+    SubtitleFileId, SubtitleSource, TrickplayAsset, VersionPrepState, VideoTrack,
 };
 use domain::metadata::{
     ContentRating, Credit, CreditedPerson, Genre, Person, PersonId, TitleEnrichment,
@@ -119,6 +120,222 @@ impl State {
 
     fn enrichment_for(&self, owner: &TitleRef) -> TitleEnrichment {
         self.enrichment.get(owner).cloned().unwrap_or_default()
+    }
+
+    fn has_title(&self, title: &TitleId) -> bool {
+        match title {
+            TitleId::Movie(id) => self.movies.iter().any(|movie| &movie.id == id),
+            TitleId::Episode(id) => self.episodes.iter().any(|episode| &episode.id == id),
+        }
+    }
+
+    fn footprint(&self, library: &LibraryId) -> LibraryFootprint {
+        let mut footprint = LibraryFootprint::default();
+        for version in self.versions.iter().filter(|version| version.library == *library) {
+            footprint.versions.insert(version.id.clone());
+            let id = match &version.title {
+                TitleId::Movie(id) => {
+                    footprint.titles.movies.insert(id.clone());
+                    continue;
+                }
+                TitleId::Episode(id) => id,
+            };
+            footprint.titles.episodes.insert(id.clone());
+            let Some(episode) = self.episodes.iter().find(|episode| &episode.id == id) else {
+                continue;
+            };
+            footprint.titles.seasons.insert(episode.season.clone());
+            if let Some(season) = self.seasons.iter().find(|season| season.id == episode.season) {
+                footprint.titles.series.insert(season.series.clone());
+            }
+        }
+        footprint
+    }
+
+    fn purge(&mut self, library: &LibraryId) -> LibraryPurge {
+        let shared = |title: &TitleId| {
+            self.versions
+                .iter()
+                .any(|version| version.title == *title && version.library != *library)
+        };
+        let gone: Vec<(VersionId, TitleId)> = self
+            .versions
+            .iter()
+            .filter(|version| version.library == *library && !shared(&version.title))
+            .map(|version| (version.id.clone(), version.title.clone()))
+            .collect();
+        let mut titles = TitleSet::default();
+        for (_, title) in &gone {
+            match title {
+                TitleId::Movie(id) if self.movies.iter().any(|movie| &movie.id == id) => {
+                    titles.movies.insert(id.clone());
+                }
+                TitleId::Episode(id) if self.episodes.iter().any(|episode| &episode.id == id) => {
+                    titles.episodes.insert(id.clone());
+                }
+                _ => {}
+            }
+        }
+        let (seasons, series) = self.parents_of(&titles.episodes);
+        let titles = self.remove_titles(titles, seasons, series);
+        let versions: HashSet<VersionId> = gone.into_iter().map(|(id, _)| id).collect();
+        let subtitles = self.drop_downloaded_subtitles(&versions);
+        LibraryPurge { titles, versions, subtitles }
+    }
+
+    fn clean(&mut self, scope: &CleanScope) -> CatalogClean {
+        let removed = |version: &Version| {
+            !version.available
+                && match scope {
+                    CleanScope::Library(library) => version.library == *library,
+                    CleanScope::All => true,
+                }
+        };
+        let gone: Vec<Version> = self.versions.iter().filter(|v| removed(v)).cloned().collect();
+        self.versions.retain(|version| !removed(version));
+        let versions: HashSet<VersionId> = gone.iter().map(|version| version.id.clone()).collect();
+        for id in &versions {
+            self.forget_version(id);
+        }
+        let (mut movies, mut episodes) = (HashSet::new(), HashSet::new());
+        match scope {
+            CleanScope::Library(_) => {
+                for version in &gone {
+                    match &version.title {
+                        TitleId::Movie(id) => movies.insert(id.clone()),
+                        TitleId::Episode(id) => episodes.insert(id.clone()),
+                    };
+                }
+            }
+            CleanScope::All => {
+                movies.extend(self.movies.iter().map(|movie| movie.id.clone()));
+                episodes.extend(self.episodes.iter().map(|episode| episode.id.clone()));
+            }
+        }
+        let titles = TitleSet {
+            movies: movies
+                .into_iter()
+                .filter(|id| {
+                    let title = TitleId::Movie(id.clone());
+                    self.has_title(&title) && !self.versions.iter().any(|v| v.title == title)
+                })
+                .collect(),
+            episodes: episodes
+                .into_iter()
+                .filter(|id| {
+                    let title = TitleId::Episode(id.clone());
+                    self.has_title(&title) && !self.versions.iter().any(|v| v.title == title)
+                })
+                .collect(),
+            ..TitleSet::default()
+        };
+        let (seasons, series) = match scope {
+            CleanScope::Library(_) => self.parents_of(&titles.episodes),
+            CleanScope::All => (
+                self.seasons.iter().map(|season| season.id.clone()).collect(),
+                self.series.iter().map(|series| series.id.clone()).collect(),
+            ),
+        };
+        CatalogClean { titles: self.remove_titles(titles, seasons, series), versions }
+    }
+
+    fn forget_version(&mut self, id: &VersionId) {
+        self.tracks.remove(id);
+        self.subtitle_files.remove(id);
+        self.markers.remove(id);
+        self.trickplay.remove(id);
+        self.playback_prep.remove(id);
+    }
+
+    fn parents_of(&self, episodes: &HashSet<EpisodeId>) -> (HashSet<SeasonId>, HashSet<SeriesId>) {
+        let seasons: HashSet<SeasonId> = self
+            .episodes
+            .iter()
+            .filter(|episode| episodes.contains(&episode.id))
+            .map(|episode| episode.season.clone())
+            .collect();
+        let series: HashSet<SeriesId> = self
+            .seasons
+            .iter()
+            .filter(|season| seasons.contains(&season.id))
+            .map(|season| season.series.clone())
+            .collect();
+        (seasons, series)
+    }
+
+    fn remove_titles(
+        &mut self,
+        mut titles: TitleSet,
+        seasons: HashSet<SeasonId>,
+        series: HashSet<SeriesId>,
+    ) -> TitleSet {
+        self.movies.retain(|movie| !titles.movies.contains(&movie.id));
+        self.episodes.retain(|episode| !titles.episodes.contains(&episode.id));
+        let filled: HashSet<SeasonId> =
+            self.episodes.iter().map(|episode| episode.season.clone()).collect();
+        titles.series = series
+            .into_iter()
+            .filter(|id| {
+                !self
+                    .seasons
+                    .iter()
+                    .any(|season| season.series == *id && filled.contains(&season.id))
+            })
+            .collect();
+        titles.seasons = self
+            .seasons
+            .iter()
+            .filter(|season| {
+                (seasons.contains(&season.id) && !filled.contains(&season.id))
+                    || titles.series.contains(&season.series)
+            })
+            .map(|season| season.id.clone())
+            .collect();
+        self.seasons.retain(|season| !titles.seasons.contains(&season.id));
+        self.series.retain(|series| !titles.series.contains(&series.id));
+        self.forget_attributes(&titles);
+        titles
+    }
+
+    fn forget_attributes(&mut self, titles: &TitleSet) {
+        for id in &titles.movies {
+            self.enrichment.remove(&TitleRef::Movie(id.clone()));
+            self.artwork.remove(&ArtworkOwner::Movie(id.clone()));
+        }
+        for collection in &mut self.collections {
+            collection.movies.retain(|movie| !titles.movies.contains(movie));
+        }
+        for id in &titles.series {
+            self.enrichment.remove(&TitleRef::Series(id.clone()));
+            self.artwork.remove(&ArtworkOwner::Series(id.clone()));
+        }
+        for id in &titles.seasons {
+            self.artwork.remove(&ArtworkOwner::Season(id.clone()));
+        }
+        for id in &titles.episodes {
+            self.artwork.remove(&ArtworkOwner::Episode(id.clone()));
+        }
+    }
+
+    fn drop_downloaded_subtitles(&mut self, versions: &HashSet<VersionId>) -> u64 {
+        let mut dropped = 0;
+        for (version, files) in self.subtitle_files.iter_mut() {
+            if !versions.contains(version) {
+                continue;
+            }
+            let downloaded: HashSet<SubtitleFileId> = files
+                .iter()
+                .filter(|file| file.source == SubtitleSource::OpenSubtitles)
+                .map(|file| file.id.clone())
+                .collect();
+            let before = files.len();
+            files.retain(|file| {
+                file.source != SubtitleSource::OpenSubtitles
+                    && !file.translated_from.as_ref().is_some_and(|from| downloaded.contains(from))
+            });
+            dropped += (before - files.len()) as u64;
+        }
+        dropped
     }
 }
 
@@ -669,10 +886,7 @@ impl CatalogRepository for MockCatalogRepo {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
         state.versions.retain(|v| &v.id != id);
-        state.tracks.remove(id);
-        state.subtitle_files.remove(id);
-        state.markers.remove(id);
-        state.trickplay.remove(id);
+        state.forget_version(id);
         Ok(())
     }
 
@@ -808,6 +1022,39 @@ impl CatalogRepository for MockCatalogRepo {
             }
         }
         Ok(())
+    }
+
+    async fn library_footprint(
+        &self,
+        library: &LibraryId,
+    ) -> Result<LibraryFootprint, RepositoryError> {
+        self.guard()?;
+        Ok(self.state.lock().unwrap().footprint(library))
+    }
+
+    async fn purge_library(&self, library: &LibraryId) -> Result<LibraryPurge, RepositoryError> {
+        self.guard()?;
+        Ok(self.state.lock().unwrap().purge(library))
+    }
+
+    async fn untitled_versions(
+        &self,
+        library: &LibraryId,
+    ) -> Result<HashSet<VersionId>, RepositoryError> {
+        self.guard()?;
+        let state = self.state.lock().unwrap();
+        Ok(state
+            .versions
+            .iter()
+            .filter(|version| version.library == *library || !version.available)
+            .filter(|version| !state.has_title(&version.title))
+            .map(|version| version.id.clone())
+            .collect())
+    }
+
+    async fn clean_catalog(&self, scope: &CleanScope) -> Result<CatalogClean, RepositoryError> {
+        self.guard()?;
+        Ok(self.state.lock().unwrap().clean(scope))
     }
 
     async fn set_artwork(

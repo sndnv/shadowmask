@@ -1733,6 +1733,7 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     version_rows_and_deletes(&repo).await;
     manually_edited_survives_a_round_trip(&repo).await;
     season_counts_leave_out_specials(&repo).await;
+    super::catalog_purge::library_purge_takes_what_the_scan_derived(&repo).await;
 }
 
 async fn season_counts_leave_out_specials<R: CatalogRepository>(repo: &R) {

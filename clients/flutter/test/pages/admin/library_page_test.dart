@@ -104,6 +104,9 @@ void main() {
     );
     for (final String label in <String>[
       Strings.delete,
+      Strings.purge,
+      Strings.clean,
+      Strings.cancelLibraryJobs,
       Strings.refreshMetadata,
       Strings.edit,
     ]) {
@@ -481,4 +484,488 @@ void main() {
     expect(find.text(Strings.versionsWithCount(12)), findsOneWidget);
     expect(find.text(Strings.versionsWithCount(1)), findsNothing);
   });
+
+  testWidgets('a purge keeps user data unless asked, toasts what went and '
+      'reloads the blocks', (WidgetTester tester) async {
+    final List<String> requested = <String>[];
+    final List<dynamic> bodies = <dynamic>[];
+    await _pump(
+      tester,
+      _api((http.Request req) {
+        requested.add('${req.method} ${req.url.path}');
+        if (req.url.path == _purgePath) {
+          bodies.add(jsonDecode(req.body));
+          return http.Response(jsonEncode(_purged(wipedUsers: 0)), 200);
+        }
+        return _detailRoute(req);
+      }),
+    );
+    final int scansBefore = requested.where(_isScanRead).length;
+
+    await tester.tap(find.widgetWithText(OutlinedButton, Strings.purge));
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.confirmPurgeLibrary('Films')), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, Strings.purge));
+    await tester.pumpAndSettle();
+
+    expect(bodies, <dynamic>[
+      <String, dynamic>{'wipe_user_data': false},
+    ]);
+    expect(
+      find.text('Purged: 1 series, 3 seasons, 32 episodes, 40 subtitles.'),
+      findsOneWidget,
+    );
+    expect(requested.where(_isScanRead).length, scansBefore + 1);
+
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('ticking the box asks for user data to be wiped', (
+    WidgetTester tester,
+  ) async {
+    final List<dynamic> bodies = <dynamic>[];
+    await _pump(
+      tester,
+      _api((http.Request req) {
+        if (req.url.path == _purgePath) {
+          bodies.add(jsonDecode(req.body));
+          return http.Response(jsonEncode(_purged(wipedUsers: 4)), 200);
+        }
+        return _detailRoute(req);
+      }),
+    );
+
+    await tester.tap(find.widgetWithText(OutlinedButton, Strings.purge));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, Strings.purge));
+    await tester.pumpAndSettle();
+
+    expect(bodies, <dynamic>[
+      <String, dynamic>{'wipe_user_data': true},
+    ]);
+    expect(find.textContaining('User data wiped for 4 users.'), findsOneWidget);
+
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('a purge cancelled in its dialog sends nothing', (
+    WidgetTester tester,
+  ) async {
+    final List<String> posted = <String>[];
+    await _pump(
+      tester,
+      _api((http.Request req) {
+        if (req.method == 'POST') {
+          posted.add(req.url.path);
+        }
+        return _detailRoute(req);
+      }),
+    );
+
+    await tester.tap(find.widgetWithText(OutlinedButton, Strings.purge));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(OutlinedButton, Strings.cancel));
+    await tester.pumpAndSettle();
+
+    expect(posted, isEmpty);
+  });
+
+  testWidgets('a busy library names the jobs and cancels them from there', (
+    WidgetTester tester,
+  ) async {
+    final List<String> posted = <String>[];
+    await _pump(tester, _api(_busyRoute(posted)));
+
+    await tester.tap(find.widgetWithText(OutlinedButton, Strings.purge));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, Strings.purge));
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.libraryBusy), findsOneWidget);
+    expect(find.text('Library scan'), findsOneWidget);
+    expect(
+      find.byType(ListTile),
+      findsOneWidget,
+      reason: 'a job this client cannot read is left out',
+    );
+    await tester.tap(
+      find.widgetWithText(FilledButton, Strings.cancelThisLibrarysJobs),
+    );
+    await tester.pumpAndSettle();
+
+    expect(posted, <String>[
+      _purgePath,
+      '$_cancelPath {"blocking":"purge"}',
+    ], reason: 'only what blocks the purge is cancelled');
+    expect(
+      find.text('Cancelled 2, stopped 0, 1 still running.'),
+      findsOneWidget,
+    );
+
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('a job in the busy list opens its page', (
+    WidgetTester tester,
+  ) async {
+    final List<String> posted = <String>[];
+    await _pump(tester, _api(_busyRoute(posted)));
+
+    await tester.tap(find.widgetWithText(OutlinedButton, Strings.purge));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, Strings.purge));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Library scan'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.libraryBusy), findsNothing);
+    expect(posted, <String>[_purgePath], reason: 'nothing is cancelled');
+  });
+
+  testWidgets('Cancel jobs confirms, then toasts what it stopped', (
+    WidgetTester tester,
+  ) async {
+    final List<String> posted = <String>[];
+    await _pump(
+      tester,
+      _api((http.Request req) {
+        if (req.url.path == _cancelPath) {
+          posted.add('${req.url.path} ${req.body}');
+          return http.Response(jsonEncode(_cancelled()), 200);
+        }
+        return _detailRoute(req);
+      }),
+    );
+
+    await tester.tap(
+      find.widgetWithText(OutlinedButton, Strings.cancelLibraryJobs),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.confirmCancelLibraryJobs), findsOneWidget);
+    await tester.tap(
+      find.widgetWithText(FilledButton, Strings.cancelLibraryJobs),
+    );
+    await tester.pumpAndSettle();
+
+    expect(posted, <String>[
+      '$_cancelPath ',
+    ], reason: 'no body: every job of the library');
+    expect(
+      find.text('Cancelled 2, stopped 0, 1 still running.'),
+      findsOneWidget,
+    );
+
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('a purge that fails for another reason says it failed', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api((http.Request req) {
+        if (req.url.path == _purgePath) {
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'error': <String, dynamic>{
+                'code': 'internal',
+                'message': 'internal server error',
+              },
+            }),
+            500,
+          );
+        }
+        return _detailRoute(req);
+      }),
+    );
+
+    await tester.tap(find.widgetWithText(OutlinedButton, Strings.purge));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, Strings.purge));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining(Strings.errorPurge), findsOneWidget);
+    expect(find.text(Strings.libraryBusy), findsNothing);
+
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('a purge refused by a clean says so, with no busy list', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api((http.Request req) {
+        if (req.url.path == _purgePath) {
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'error': <String, dynamic>{
+                'code': 'library_cleaning',
+                'message': 'the library is being cleaned',
+              },
+            }),
+            409,
+          );
+        }
+        return _detailRoute(req);
+      }),
+    );
+
+    await tester.tap(find.widgetWithText(OutlinedButton, Strings.purge));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, Strings.purge));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('${Strings.errorPurge} ${Strings.reasonLibraryCleaning}'),
+      findsOneWidget,
+    );
+    expect(find.text(Strings.libraryBusy), findsNothing);
+
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('a library being purged reads Purging', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api((http.Request req) {
+        if (req.url.path == '/api/v1/libraries/lib1/scan') {
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'library_id': 'lib1',
+              'status': 'purging',
+              'progress': 0,
+            }),
+            200,
+          );
+        }
+        return _detailRoute(req);
+      }),
+    );
+
+    expect(find.text('Purging'), findsOneWidget);
+  });
+
+  testWidgets('a clean keeps user data unless asked, toasts what went and '
+      'reloads the blocks', (WidgetTester tester) async {
+    final List<String> requested = <String>[];
+    final List<dynamic> bodies = <dynamic>[];
+    await _pump(
+      tester,
+      _api((http.Request req) {
+        requested.add('${req.method} ${req.url.path}');
+        if (req.url.path == _cleanPath) {
+          bodies.add(jsonDecode(req.body));
+          return http.Response(jsonEncode(_cleaned(versions: 12)), 200);
+        }
+        return _detailRoute(req);
+      }),
+    );
+    final int scansBefore = requested.where(_isScanRead).length;
+
+    await tester.tap(find.widgetWithText(OutlinedButton, Strings.clean));
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.confirmCleanLibrary('Films')), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, Strings.clean));
+    await tester.pumpAndSettle();
+
+    expect(bodies, <dynamic>[
+      <String, dynamic>{'wipe_user_data': false},
+    ]);
+    expect(find.text('Cleaned: 12 versions, 3 movies.'), findsOneWidget);
+    expect(requested.where(_isScanRead).length, scansBefore + 1);
+
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('a clean with the box ticked wipes user data', (
+    WidgetTester tester,
+  ) async {
+    final List<dynamic> bodies = <dynamic>[];
+    await _pump(
+      tester,
+      _api((http.Request req) {
+        if (req.url.path == _cleanPath) {
+          bodies.add(jsonDecode(req.body));
+          return http.Response(
+            jsonEncode(_cleaned(versions: 2, movies: 0, wipedUsers: 1)),
+            200,
+          );
+        }
+        return _detailRoute(req);
+      }),
+    );
+
+    await tester.tap(find.widgetWithText(OutlinedButton, Strings.clean));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, Strings.clean));
+    await tester.pumpAndSettle();
+
+    expect(bodies, <dynamic>[
+      <String, dynamic>{'wipe_user_data': true},
+    ]);
+    expect(
+      find.text('Cleaned: 2 versions. User data wiped for 1 user.'),
+      findsOneWidget,
+    );
+
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('a busy clean names the jobs and cancels them from there', (
+    WidgetTester tester,
+  ) async {
+    final List<String> posted = <String>[];
+    await _pump(tester, _api(_busyRoute(posted, path: _cleanPath)));
+
+    await tester.tap(find.widgetWithText(OutlinedButton, Strings.clean));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, Strings.clean));
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.cleanBusyBody), findsOneWidget);
+    expect(find.text('Library scan'), findsOneWidget);
+    await tester.tap(
+      find.widgetWithText(FilledButton, Strings.cancelThisLibrarysJobs),
+    );
+    await tester.pumpAndSettle();
+
+    expect(posted, <String>[
+      _cleanPath,
+      '$_cancelPath {"blocking":"clean"}',
+    ], reason: 'only what blocks the clean is cancelled');
+
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('a clean that fails for another reason says it failed', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api((http.Request req) {
+        if (req.url.path == _cleanPath) {
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'error': <String, dynamic>{
+                'code': 'internal',
+                'message': 'internal server error',
+              },
+            }),
+            500,
+          );
+        }
+        return _detailRoute(req);
+      }),
+    );
+
+    await tester.tap(find.widgetWithText(OutlinedButton, Strings.clean));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, Strings.clean));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining(Strings.errorClean), findsOneWidget);
+
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('a library being cleaned reads Cleaning', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api((http.Request req) {
+        if (req.url.path == '/api/v1/libraries/lib1/scan') {
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'library_id': 'lib1',
+              'status': 'cleaning',
+              'progress': 0,
+            }),
+            200,
+          );
+        }
+        return _detailRoute(req);
+      }),
+    );
+
+    expect(find.text('Cleaning'), findsOneWidget);
+  });
 }
+
+const String _purgePath = '/api/v1/libraries/lib1/purge';
+const String _cleanPath = '/api/v1/libraries/lib1/clean';
+
+Map<String, dynamic> _cleaned({
+  required int versions,
+  int movies = 3,
+  int wipedUsers = 0,
+}) => <String, dynamic>{
+  'versions': versions,
+  'movies': movies,
+  'series': 0,
+  'seasons': 0,
+  'episodes': 0,
+  'wiped_users': wipedUsers,
+};
+const String _cancelPath = '/api/v1/libraries/lib1/jobs/cancel';
+
+bool _isScanRead(String request) =>
+    request == 'GET /api/v1/libraries/lib1/scan';
+
+Map<String, dynamic> _purged({required int wipedUsers}) => <String, dynamic>{
+  'movies': 0,
+  'series': 1,
+  'seasons': 3,
+  'episodes': 32,
+  'subtitles': 40,
+  'wiped_users': wipedUsers,
+};
+
+Map<String, dynamic> _cancelled() => <String, dynamic>{
+  'cancelled': 2,
+  'signalled': 0,
+  'running': 1,
+};
+
+Map<String, dynamic> _job(String id, String kind) => <String, dynamic>{
+  'id': id,
+  'kind': kind,
+  'status': 'queued',
+  'priority': 'normal',
+  'created_at': '2026-10-25T09:00:00Z',
+  'updated_at': '2026-10-25T09:00:00Z',
+};
+
+http.Response Function(http.Request req) _busyRoute(
+  List<String> posted, {
+  String path = _purgePath,
+}) => (http.Request req) {
+  if (req.url.path == path) {
+    posted.add(req.url.path);
+    return http.Response(
+      jsonEncode(<String, dynamic>{
+        'error': <String, dynamic>{
+          'code': 'library_busy',
+          'message': 'the library is busy',
+        },
+        'jobs': <dynamic>[
+          _job('scan-1', 'library_scan'),
+          _job('later-1', 'from_a_newer_server'),
+        ],
+      }),
+      409,
+    );
+  }
+  if (req.url.path == _cancelPath) {
+    posted.add('${req.url.path} ${req.body}');
+    return http.Response(jsonEncode(_cancelled()), 200);
+  }
+  return _detailRoute(req);
+};

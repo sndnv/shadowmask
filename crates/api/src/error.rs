@@ -6,11 +6,13 @@ use serde::Serialize;
 
 use domain::error::{
     AuthError, BenchmarkError, CatalogError, DeviceTargetError, DiscoveryError, DownloadTokenError,
-    JobLogError, JobServiceError, LibraryError, PlayCommandTokenError, ServerLogError,
-    SessionError, StreamError, StreamTokenError, UserError,
+    JobLogError, JobServiceError, LibraryError, MaintenanceError, PlayCommandTokenError,
+    ServerLogError, SessionError, StreamError, StreamTokenError, UserError,
 };
+use domain::job::Job;
 use domain::session::PlaybackSession;
 
+use crate::dto::job::JobResponse;
 use crate::dto::session::PlaybackSessionResponse;
 
 pub type ApiResult<T> = Result<T, ApiError>;
@@ -20,11 +22,12 @@ pub struct ApiError {
     code: &'static str,
     message: String,
     active: Option<Vec<PlaybackSession>>,
+    jobs: Option<Vec<Job>>,
 }
 
 impl ApiError {
     fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
-        Self { status, code, message: message.into(), active: None }
+        Self { status, code, message: message.into(), active: None, jobs: None }
     }
 
     pub fn unauthorized(message: impl Into<String>) -> Self {
@@ -71,6 +74,8 @@ struct ErrorEnvelope {
     error: ErrorDetail,
     #[serde(skip_serializing_if = "Option::is_none")]
     active: Option<Vec<PlaybackSessionResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    jobs: Option<Vec<JobResponse>>,
 }
 
 impl IntoResponse for ApiError {
@@ -78,6 +83,9 @@ impl IntoResponse for ApiError {
         let body = ErrorEnvelope {
             error: ErrorDetail { code: self.code, message: self.message },
             active: self.active.map(|v| v.into_iter().map(PlaybackSessionResponse::from).collect()),
+            jobs: self
+                .jobs
+                .map(|v| v.into_iter().map(|job| JobResponse::new(job, false)).collect()),
         };
         (self.status, Json(body)).into_response()
     }
@@ -189,6 +197,8 @@ impl From<LibraryError> for ApiError {
             LibraryError::ScanInProgress => {
                 ApiError::new(StatusCode::CONFLICT, "scan_in_progress", msg)
             }
+            LibraryError::Purging => ApiError::new(StatusCode::CONFLICT, "library_purging", msg),
+            LibraryError::Cleaning => ApiError::new(StatusCode::CONFLICT, "library_cleaning", msg),
             LibraryError::Disabled => ApiError::new(StatusCode::CONFLICT, "feature_disabled", msg),
             LibraryError::NotEmpty(_) => ApiError::new(StatusCode::CONFLICT, "not_empty", msg),
             LibraryError::Unavailable(_) => ApiError::new(StatusCode::CONFLICT, "unavailable", msg),
@@ -197,6 +207,33 @@ impl From<LibraryError> for ApiError {
             }
             LibraryError::Forbidden => ApiError::new(StatusCode::FORBIDDEN, "access_denied", msg),
             LibraryError::Walk(_) | LibraryError::Repository(_) => ApiError::internal(),
+        }
+    }
+}
+
+impl From<MaintenanceError> for ApiError {
+    fn from(err: MaintenanceError) -> Self {
+        let msg = err.to_string();
+        match err {
+            MaintenanceError::NotFound => ApiError::new(StatusCode::NOT_FOUND, "not_found", msg),
+            MaintenanceError::Forbidden => {
+                ApiError::new(StatusCode::FORBIDDEN, "access_denied", msg)
+            }
+            MaintenanceError::Busy(jobs) => {
+                let mut e = ApiError::new(StatusCode::CONFLICT, "library_busy", msg);
+                e.jobs = Some(jobs);
+                e
+            }
+            MaintenanceError::Scanning => {
+                ApiError::new(StatusCode::CONFLICT, "scan_in_progress", msg)
+            }
+            MaintenanceError::Purging => {
+                ApiError::new(StatusCode::CONFLICT, "library_purging", msg)
+            }
+            MaintenanceError::Cleaning => {
+                ApiError::new(StatusCode::CONFLICT, "library_cleaning", msg)
+            }
+            MaintenanceError::Repository(_) => ApiError::internal(),
         }
     }
 }
@@ -450,6 +487,12 @@ mod tests {
         let conflict = ApiError::from(LibraryError::ScanInProgress);
         assert_eq!(conflict.status, StatusCode::CONFLICT);
         assert_eq!(conflict.code, "scan_in_progress");
+        let purging = ApiError::from(LibraryError::Purging);
+        assert_eq!(purging.status, StatusCode::CONFLICT);
+        assert_eq!(purging.code, "library_purging");
+        let cleaning = ApiError::from(LibraryError::Cleaning);
+        assert_eq!(cleaning.status, StatusCode::CONFLICT);
+        assert_eq!(cleaning.code, "library_cleaning");
         let bad_request = ApiError::from(LibraryError::InvalidRequest("bad url".into()));
         assert_eq!(bad_request.status, StatusCode::BAD_REQUEST);
         assert_eq!(bad_request.code, "bad_request");
@@ -560,6 +603,39 @@ mod tests {
         let backend = ApiError::from(JobLogError::Backend("disk".into()));
         assert_eq!(backend.status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(backend.code, "internal");
+    }
+
+    #[test]
+    fn maintenance_error_mappings() {
+        use domain::job::{JobId, JobKind, JobPriority};
+
+        let scan = Job::queued(
+            JobId("scan".into()),
+            JobKind::LibraryScan,
+            JobPriority::Normal,
+            "lib".into(),
+            None,
+            Timestamp::now(),
+        );
+        let busy = ApiError::from(MaintenanceError::Busy(vec![scan]));
+        assert_eq!(busy.status, StatusCode::CONFLICT);
+        assert_eq!(busy.code, "library_busy");
+        assert_eq!(busy.jobs.as_ref().map(Vec::len), Some(1));
+        for (held, code) in [
+            (MaintenanceError::Scanning, "scan_in_progress"),
+            (MaintenanceError::Purging, "library_purging"),
+            (MaintenanceError::Cleaning, "library_cleaning"),
+        ] {
+            let refused = ApiError::from(held);
+            assert_eq!((refused.status, refused.code), (StatusCode::CONFLICT, code));
+            assert!(refused.jobs.is_none());
+        }
+        let missing = ApiError::from(MaintenanceError::NotFound);
+        assert_eq!((missing.status, missing.code), (StatusCode::NOT_FOUND, "not_found"));
+        let forbidden = ApiError::from(MaintenanceError::Forbidden);
+        assert_eq!((forbidden.status, forbidden.code), (StatusCode::FORBIDDEN, "access_denied"));
+        let backend = ApiError::from(MaintenanceError::Repository(repo()));
+        assert_eq!(backend.status, StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     #[test]

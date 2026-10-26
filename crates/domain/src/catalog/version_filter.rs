@@ -6,15 +6,30 @@ use crate::library::LibraryId;
 #[derive(Debug, Clone, Default)]
 pub struct VersionFilter {
     needle: String,
+    available: Option<bool>,
     library_names: HashMap<LibraryId, String>,
 }
 
 impl VersionFilter {
-    pub fn new(needle: &str, library_names: HashMap<LibraryId, String>) -> Self {
-        Self { needle: needle.trim().to_lowercase(), library_names }
+    pub fn new(
+        needle: &str,
+        available: Option<bool>,
+        library_names: HashMap<LibraryId, String>,
+    ) -> Self {
+        Self { needle: needle.trim().to_lowercase(), available, library_names }
+    }
+
+    pub fn searches_titles(&self) -> bool {
+        !self.needle.is_empty()
     }
 
     pub fn matches(&self, version: &Version, title_names: &[String]) -> bool {
+        if self.available.is_some_and(|available| available != version.available) {
+            return false;
+        }
+        if self.needle.is_empty() {
+            return true;
+        }
         let library = self
             .library_names
             .get(&version.library)
@@ -49,8 +64,12 @@ mod tests {
         }
     }
 
+    fn libraries() -> HashMap<LibraryId, String> {
+        HashMap::from([(LibraryId("lib1".into()), "Films".into())])
+    }
+
     fn filter(needle: &str) -> VersionFilter {
-        VersionFilter::new(needle, HashMap::from([(LibraryId("lib1".into()), "Films".into())]))
+        VersionFilter::new(needle, None, libraries())
     }
 
     #[test]
@@ -69,7 +88,23 @@ mod tests {
 
     #[test]
     fn a_library_with_no_name_is_matched_by_its_id() {
-        let unnamed = VersionFilter::new("lib1", HashMap::new());
+        let unnamed = VersionFilter::new("lib1", None, HashMap::new());
         assert!(unnamed.matches(&version(), &[]));
+    }
+
+    #[test]
+    fn availability_narrows_with_or_without_a_needle() {
+        let gone = Version { available: false, ..version() };
+        for needle in ["", "films"] {
+            let unavailable = VersionFilter::new(needle, Some(false), libraries());
+            assert!(unavailable.matches(&gone, &[]), "{needle}");
+            assert!(!unavailable.matches(&version(), &[]), "{needle}");
+            let available = VersionFilter::new(needle, Some(true), libraries());
+            assert!(available.matches(&version(), &[]), "{needle}");
+            assert!(!available.matches(&gone, &[]), "{needle}");
+        }
+        assert!(filter("").matches(&gone, &[]));
+        assert!(!filter("").searches_titles());
+        assert!(filter("films").searches_titles());
     }
 }

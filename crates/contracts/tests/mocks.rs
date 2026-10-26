@@ -1,7 +1,8 @@
 use contracts::repo::{
-    auth_token_repository_contract, catalog_repository_contract, catalog_seed,
-    job_repository_contract, library_repository_contract, preferences_repository_contract,
-    progress_repository_contract, report_repository_contract, user_repository_contract,
+    auth_token_repository_contract, catalog_clean_contract, catalog_repository_contract,
+    catalog_seed, job_repository_contract, library_repository_contract,
+    preferences_repository_contract, progress_repository_contract, report_repository_contract,
+    user_repository_contract,
 };
 use domain::repository::CatalogRepository;
 use mocks::{
@@ -42,6 +43,11 @@ async fn preferences_repository_contract_holds_for_mock() {
 #[tokio::test]
 async fn library_repository_contract_holds_for_mock() {
     library_repository_contract(MockLibraryRepo::new()).await;
+}
+
+#[tokio::test]
+async fn catalog_clean_contract_holds_for_mock() {
+    catalog_clean_contract(MockCatalogRepo::new()).await;
 }
 
 // The whole point of the mock is that a test passes unchanged against SQLite, which only

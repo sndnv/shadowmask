@@ -42,8 +42,8 @@ use persistence::job_log::FsJobLogStore;
 use persistence::server::{SqliteCatalogRepo, SqliteJobRepo, SqliteLibraryRepo, SqliteReportRepo};
 use persistence::server_log::FsServerLogStore;
 use services::library::{
-    Enricher, LibraryServiceImpl, Scanner, TranscriptionEnqueuer, TranslationEnqueuer,
-    next_daily_fire, settle_interrupted_scans,
+    Enricher, LibraryServiceImpl, MaintenanceServiceImpl, Scanner, TranscriptionEnqueuer,
+    TranslationEnqueuer, next_daily_fire, settle_interrupted_scans,
 };
 use services::playback_prep_audit::PlaybackPrepAuditImpl;
 use services::user::UserServiceImpl;
@@ -536,6 +536,17 @@ impl Runtime {
                     state.clone(),
                     HmacPlayCommandTokens::new(&download_secret),
                 ),
+            ))
+            .merge(::api::maintenance_router(
+                state.clone(),
+                ::api::MaintenanceState::new(MaintenanceServiceImpl::new(
+                    repos.library.clone(),
+                    repos.users.clone(),
+                    repos.jobs.clone(),
+                    repos.catalog.clone(),
+                    repos.user_data.clone(),
+                    Arc::new(cancel.clone()),
+                )),
             ));
         if config.opensubtitles_api_key.is_some() {
             merged = merged.merge(::api::subtitle_search_router(

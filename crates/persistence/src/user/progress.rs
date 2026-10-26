@@ -1,6 +1,7 @@
+use std::collections::HashSet;
 use std::path::Path;
 
-use domain::catalog::{TitleId, VersionId};
+use domain::catalog::{TitleId, TitleSet, VersionId};
 use domain::common::{Page, PageRequest};
 use domain::error::RepositoryError;
 use domain::playback::{PlaybackProgress, WatchHistory};
@@ -15,6 +16,7 @@ use crate::codec::{
 };
 use crate::metrics::DbOpGuard;
 use crate::pool::{DEFAULT_USER_POOL_CAPACITY, UserPools, backend, column, from_millis, to_millis};
+use crate::user::forget::Forget;
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations/progress");
 
@@ -37,6 +39,22 @@ impl SqliteProgressRepo {
 
     pub async fn purge(&self, user: &UserId) -> Result<(), RepositoryError> {
         self.pools.purge(user).await
+    }
+
+    pub async fn forget(
+        &self,
+        user: &UserId,
+        titles: &TitleSet,
+        versions: &HashSet<VersionId>,
+    ) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("progress", "forget");
+        let pool = self.pools.get(user).await?;
+        Forget {
+            by_title: &["DELETE FROM watch_history WHERE title_kind = ? AND title_id = ?"],
+            by_version: &["DELETE FROM playback_progress WHERE version_id = ?"],
+        }
+        .run(&pool, titles, versions)
+        .await
     }
 
     pub async fn close(&self) {
@@ -386,5 +404,6 @@ mod tests {
         assert!(repo.clear_history(&user()).await.is_err());
         assert!(repo.watched_state(&user()).await.is_err());
         assert!(repo.history(&user(), page()).await.is_err());
+        assert!(repo.forget(&user(), &TitleSet::default(), &HashSet::new()).await.is_err());
     }
 }

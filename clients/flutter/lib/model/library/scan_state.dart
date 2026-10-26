@@ -12,6 +12,10 @@ enum ScanStatus {
   running,
   @JsonValue('failed')
   failed,
+  @JsonValue('purging')
+  purging,
+  @JsonValue('cleaning')
+  cleaning,
 }
 
 @freezed

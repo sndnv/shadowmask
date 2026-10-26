@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use serde::Deserialize;
@@ -123,6 +125,7 @@ pub async fn retry_job<S: AppServices>(
 #[derive(Debug, Deserialize)]
 pub struct VersionsParams {
     pub filter: Option<String>,
+    pub available: Option<bool>,
 }
 
 pub async fn versions<S: AppServices>(
@@ -132,21 +135,21 @@ pub async fn versions<S: AppServices>(
     Query(params): Query<VersionsParams>,
 ) -> ApiResult<Json<PageResponse<VersionResponse>>> {
     let actor = &principal.user.0;
-    let filter = match params.filter.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
-        Some(needle) => {
-            let libraries = state
-                .library()
-                .libraries(&principal)
-                .await
-                .map_err(log_fail(actor, "retrieve libraries"))?;
-            let names = libraries.into_iter().map(|library| (library.id, library.name)).collect();
-            Some(VersionFilter::new(needle, names))
-        }
-        None => None,
+    let needle = params.filter.as_deref().map(str::trim).unwrap_or_default();
+    let names = if needle.is_empty() {
+        HashMap::new()
+    } else {
+        let libraries = state
+            .library()
+            .libraries(&principal)
+            .await
+            .map_err(log_fail(actor, "retrieve libraries"))?;
+        libraries.into_iter().map(|library| (library.id, library.name)).collect()
     };
+    let filter = VersionFilter::new(needle, params.available, names);
     let versions = state
         .catalog()
-        .all_versions(&principal, filter.as_ref(), page.to_request())
+        .all_versions(&principal, &filter, page.to_request())
         .await
         .map_err(log_fail(actor, "retrieve versions"))?;
     debug!("User [{actor}] retrieved {} versions", versions.items.len());
