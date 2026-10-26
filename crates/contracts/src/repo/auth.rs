@@ -2,8 +2,8 @@ use std::net::Ipv4Addr;
 
 use domain::repository::AuthTokenRepository;
 use domain::user::{
-    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, DeviceTarget, TargetKind,
-    UserId,
+    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, DeviceTarget, PendingLink,
+    Role, TargetKind, UserId,
 };
 use jiff::Timestamp;
 
@@ -198,10 +198,20 @@ pub async fn auth_token_repository_contract<R: AuthTokenRepository>(repo: R) {
     })
     .await
     .unwrap();
+    for (code, user) in [("DOOMED", &u1), ("SPARED", &u2)] {
+        let link = PendingLink {
+            code: code.into(),
+            user: user.clone(),
+            role: Role::Player,
+            expires_at: at(4000),
+        };
+        repo.store_link_code(link, at(60)).await.unwrap();
+    }
 
     repo.revoke_all_for_user(&u1).await.unwrap();
 
     assert!(repo.find_refresh(&doomed).await.unwrap().is_none());
+    assert!(repo.list_link_codes(&u1, at(60)).await.unwrap().is_empty());
     assert!(repo.list_devices(&u1).await.unwrap().is_empty());
     assert!(repo.list_api_tokens(&u1).await.unwrap().is_empty());
     assert!(repo.find_api_token_by_hash("hash-3").await.unwrap().is_none());
@@ -213,6 +223,7 @@ pub async fn auth_token_repository_contract<R: AuthTokenRepository>(repo: R) {
 
     let survivor = "signing one account out must leave every other account signed in";
     assert!(repo.find_refresh(&spared).await.unwrap().is_some(), "{survivor}");
+    assert_eq!(repo.list_link_codes(&u2, at(60)).await.unwrap().len(), 1, "{survivor}");
     assert_eq!(repo.list_devices(&u2).await.unwrap().len(), 1, "{survivor}");
     assert_eq!(
         repo.list_devices(&u2).await.unwrap()[0].target,

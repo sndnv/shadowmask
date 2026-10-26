@@ -165,10 +165,28 @@ impl AuthTokenRepository for SqliteAuthTokenRepo {
         let mut tx = self.pool.begin().await.map_err(backend)?;
         for statement in [
             "DELETE FROM refresh_tokens WHERE user_id = ?",
+            "DELETE FROM link_codes WHERE user_id = ?",
             "DELETE FROM api_tokens WHERE user_id = ?",
             DELETE_USER_TARGETS,
             DELETE_USER_SHARES,
             "DELETE FROM devices WHERE user_id = ?",
+        ] {
+            sqlx::query(statement)
+                .bind(user.0.as_str())
+                .execute(&mut *tx)
+                .await
+                .map_err(backend)?;
+        }
+        tx.commit().await.map_err(backend)?;
+        Ok(())
+    }
+
+    async fn revoke_refresh_and_link_codes(&self, user: &UserId) -> Result<(), RepositoryError> {
+        let _op = DbOpGuard::new("auth", "revoke_refresh_and_link_codes");
+        let mut tx = self.pool.begin().await.map_err(backend)?;
+        for statement in [
+            "DELETE FROM refresh_tokens WHERE user_id = ?",
+            "DELETE FROM link_codes WHERE user_id = ?",
         ] {
             sqlx::query(statement)
                 .bind(user.0.as_str())

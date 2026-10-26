@@ -676,6 +676,10 @@ pub trait AuthTokenRepository {
         &self,
         user: &UserId,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn revoke_refresh_and_link_codes(
+        &self,
+        user: &UserId,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     fn store_link_code(
         &self,
         link: PendingLink,

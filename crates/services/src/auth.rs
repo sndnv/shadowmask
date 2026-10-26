@@ -353,6 +353,11 @@ where
         Ok(())
     }
 
+    async fn logout_password_sessions(&self, user: &UserId) -> Result<(), AuthError> {
+        self.tokens.revoke_refresh_and_link_codes(user).await?;
+        Ok(())
+    }
+
     async fn list_devices(&self, user: &UserId) -> Result<Vec<Device>, AuthError> {
         Ok(self.tokens.list_devices(user).await?)
     }
@@ -807,6 +812,13 @@ mod tests {
             .unwrap();
         let issued = svc.redeem_link_code("7G2K9QMP", device()).await.unwrap();
         assert!(svc.authenticate(&issued.token).await.is_ok());
+        let pending = PendingLink {
+            code: "4H8M2QXR".into(),
+            user: UserId("u1".into()),
+            role: Role::Player,
+            expires_at: future,
+        };
+        svc.tokens.store_link_code(pending, Timestamp::UNIX_EPOCH).await.unwrap();
 
         svc.logout_all(&UserId("u1".into())).await.unwrap();
 
@@ -815,6 +827,42 @@ mod tests {
             AuthError::InvalidToken
         ));
         assert!(svc.list_devices(&UserId("u1".into())).await.unwrap().is_empty());
+        assert!(matches!(
+            svc.redeem_link_code("4H8M2QXR", device()).await.unwrap_err(),
+            AuthError::UnknownLinkCode
+        ));
+    }
+
+    #[tokio::test]
+    async fn logout_password_sessions_keeps_linked_devices() {
+        let svc = seeded().await;
+        svc.users.insert(user("u2", "bob", Role::User));
+        let future = Timestamp::from_second(4_000_000_000).unwrap();
+        for code in ["7G2K9QMP", "4H8M2QXR"] {
+            let link = PendingLink {
+                code: code.into(),
+                user: UserId("u1".into()),
+                role: Role::Player,
+                expires_at: future,
+            };
+            svc.tokens.store_link_code(link, Timestamp::UNIX_EPOCH).await.unwrap();
+        }
+        let issued = svc.redeem_link_code("7G2K9QMP", device()).await.unwrap();
+        let first = svc.login("alice", "pw").await.unwrap();
+        let second = svc.login("alice", "pw").await.unwrap();
+        let other = svc.login("bob", "pw").await.unwrap();
+
+        svc.logout_password_sessions(&UserId("u1".into())).await.unwrap();
+
+        assert!(svc.refresh(&first.refresh_token).await.is_err());
+        assert!(svc.refresh(&second.refresh_token).await.is_err());
+        assert!(svc.authenticate(&issued.token).await.is_ok(), "the linked device stays");
+        assert_eq!(svc.list_devices(&UserId("u1".into())).await.unwrap().len(), 1);
+        assert!(svc.refresh(&other.refresh_token).await.is_ok(), "another user stays");
+        assert!(matches!(
+            svc.redeem_link_code("4H8M2QXR", device()).await.unwrap_err(),
+            AuthError::UnknownLinkCode
+        ));
     }
 
     #[tokio::test]
@@ -994,6 +1042,10 @@ mod tests {
         ));
         assert!(matches!(
             svc.logout_all(&UserId("u1".into())).await.unwrap_err(),
+            AuthError::Repository(_)
+        ));
+        assert!(matches!(
+            svc.logout_password_sessions(&UserId("u1".into())).await.unwrap_err(),
             AuthError::Repository(_)
         ));
     }

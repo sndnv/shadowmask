@@ -17,6 +17,7 @@
       const eu = encodeURIComponent;
       let usersHeading = null;
       let usersContainer = null;
+      let selfId = null;
 
       if (sm.requireAuth()) guard();
 
@@ -28,6 +29,7 @@
             main.textContent = "Not Authorized.";
             return;
           }
+          selfId = me.id;
           main.textContent = "";
           const create = sm.el("button", { type: "button" }, "Create user");
           create.addEventListener("click", () =>
@@ -104,9 +106,26 @@
             codes.addEventListener("click", () =>
               sm.openDialog("Device link codes: " + u.username, (box) => codesBody(box, u)),
             );
+            const password = sm.el("button", { type: "button" }, "Password");
+            password.addEventListener("click", () =>
+              sm.openDialog("Set password for " + u.username, (box) => passwordBody(box, u)),
+            );
+            const signOut = sm.el("button", { type: "button", class: "sm-danger" }, "Sign out");
+            signOut.addEventListener("click", async () => {
+              if (!confirm("Sign out " + u.username + " of every device and browser?")) return;
+              signOut.disabled = true;
+              try {
+                await sm.json("/api/v1/users/" + eu(u.id) + "/sessions", { method: "DELETE" });
+                sm.toast(u.username + " signed out everywhere.", "ok");
+              } catch (err) {
+                sm.toast("Action failed.", "danger");
+              }
+              signOut.disabled = false;
+            });
             const del = sm.el("button", { type: "button", class: "sm-danger" }, "Delete");
             del.addEventListener("click", async () => {
               if (!confirm("Delete user " + u.username + "?")) return;
+              del.disabled = true;
               try {
                 await sm.json("/api/v1/users/" + eu(u.id), { method: "DELETE" });
                 sm.toast("User deleted.", "ok");
@@ -120,7 +139,9 @@
               u.role,
               sm.time(u.created_at),
               sm.time(u.updated_at),
-              [access, " ", codes, " ", del],
+              u.id === selfId
+                ? [access, " ", codes, " ", del]
+                : [access, " ", codes, " ", password, " ", signOut, " ", del],
             ];
           });
           usersContainer.appendChild(sm.table(["Username", "Role", "Created", "Updated", ""], rows));
@@ -173,6 +194,44 @@
           }
         })();
         return container;
+      }
+
+      function passwordBody(box, user) {
+        const next = sm.el("input", { type: "password", autocomplete: "new-password" });
+        const confirmed = sm.el("input", { type: "password", autocomplete: "new-password" });
+        const status = sm.el("span", null);
+        const submit = sm.el("button", { type: "submit" }, "Set password");
+        const form = sm.el("form", null, [
+          sm.el("p", null, sm.el("label", null, ["New password ", next])),
+          sm.el("p", null, sm.el("label", null, ["Confirm new password ", confirmed])),
+          sm.el("p", null, [submit, " ", status]),
+        ]);
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          if (!next.value) {
+            status.textContent = "A new password is required.";
+            return;
+          }
+          if (next.value !== confirmed.value) {
+            status.textContent = "The passwords do not match.";
+            return;
+          }
+          status.textContent = "";
+          submit.disabled = true;
+          try {
+            await sm.json("/api/v1/users/" + eu(user.id) + "/password", {
+              method: "PUT",
+              body: JSON.stringify({ new_password: next.value }),
+            });
+            sm.toast("Password set for " + user.username + ". Password sign-ins signed out.", "ok");
+            box.close();
+            await loadUsers();
+          } catch (err) {
+            sm.toast("Set password failed.", "danger");
+            submit.disabled = false;
+          }
+        });
+        return form;
       }
 
       function codesBody(box, user) {

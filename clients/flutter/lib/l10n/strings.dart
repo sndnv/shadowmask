@@ -561,11 +561,16 @@ abstract final class Strings {
   static String sharedWith(String username) => 'Shared with $username';
   static const String editProfile = 'Edit profile';
   static const String changePassword = 'Change password';
+  static const String setPassword = 'Set password';
+  static String setPasswordTitle(String username) =>
+      'Set password for $username';
   static const String createLinkCode = 'Create link code';
   static const String signOutEverywhere = 'Sign out everywhere';
   static const String confirmSignOut = 'Sign out of this device?';
   static const String confirmSignOutEverywhere =
       'Sign out of every device and browser on this account, including this one?';
+  static String confirmSignOutUserEverywhere(String username) =>
+      'Sign out $username of every device and browser?';
 
   static String toastAddedWatchlist(String title) =>
       'Added $title to your watchlist.';
@@ -594,6 +599,8 @@ abstract final class Strings {
   static const String toastProfileSaved = 'Profile saved.';
   static const String toastSettingSaved = 'Setting saved.';
   static const String toastPasswordChanged = 'Password changed.';
+  static String toastPasswordSet(String username) =>
+      'Password set for $username. Password sign-ins signed out.';
   static const String toastCodeCreated = 'Code created.';
   static const String toastCodeRevoked = 'Code revoked.';
   static const String toastDeviceRevoked = 'Device revoked.';
@@ -601,6 +608,8 @@ abstract final class Strings {
   static const String toastShareRemoved = 'Share removed.';
   static const String toastTokenRevoked = 'Token revoked.';
   static const String toastAllSessionsRevoked = 'All sessions revoked.';
+  static String toastSignedOutEverywhere(String username) =>
+      '$username signed out everywhere.';
   static const String toastResumeDismissed = 'Removed from Continue watching.';
 
   static String errorProfileVersion(int reported, int expected) =>
@@ -614,6 +623,7 @@ abstract final class Strings {
   static const String errorRandom = 'Could not pick something to play.';
   static const String errorRevoke = 'Revoke failed.';
   static const String errorShare = 'Share failed.';
+  static const String errorSetPassword = 'Set password failed.';
   static const String errorCreate = 'Create failed.';
   static const String errorPasswordChange =
       'Change failed. Check that your current password is correct.';

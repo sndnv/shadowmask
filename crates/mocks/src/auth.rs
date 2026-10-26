@@ -28,6 +28,7 @@ struct State {
     devices: Vec<Device>,
     shares: Vec<(DeviceId, UserId)>,
     logged_out: Vec<UserId>,
+    password_logged_out: Vec<UserId>,
 }
 
 impl State {
@@ -40,7 +41,7 @@ impl State {
 #[derive(Clone, Default)]
 pub struct MockAuthService {
     state: Arc<Mutex<State>>,
-    logout_hold: NextHold,
+    password_logout_hold: NextHold,
 }
 
 impl MockAuthService {
@@ -52,8 +53,12 @@ impl MockAuthService {
         self.state.lock().unwrap().logged_out.clone()
     }
 
-    pub fn hold_next_logout_all(&self) -> Hold {
-        self.logout_hold.arm()
+    pub fn password_logged_out(&self) -> Vec<UserId> {
+        self.state.lock().unwrap().password_logged_out.clone()
+    }
+
+    pub fn hold_next_password_logout(&self) -> Hold {
+        self.password_logout_hold.arm()
     }
 
     pub fn add_account(&self, username: &str, password: &str, user: UserId, role: Role) {
@@ -204,8 +209,13 @@ impl AuthService for MockAuthService {
     }
 
     async fn logout_all(&self, user: &UserId) -> Result<(), AuthError> {
-        self.logout_hold.pass().await;
         self.state.lock().unwrap().logged_out.push(user.clone());
+        Ok(())
+    }
+
+    async fn logout_password_sessions(&self, user: &UserId) -> Result<(), AuthError> {
+        self.password_logout_hold.pass().await;
+        self.state.lock().unwrap().password_logged_out.push(user.clone());
         Ok(())
     }
 
@@ -447,6 +457,9 @@ mod tests {
         let svc = service();
         svc.logout("refresh:u1").await.unwrap();
         svc.logout_all(&UserId("u1".into())).await.unwrap();
+        svc.logout_password_sessions(&UserId("u2".into())).await.unwrap();
+        assert_eq!(svc.logged_out(), [UserId("u1".into())]);
+        assert_eq!(svc.password_logged_out(), [UserId("u2".into())]);
         assert!(matches!(svc.logout("garbage").await.unwrap_err(), AuthError::InvalidToken));
         assert!(matches!(svc.logout("refresh:ghost").await.unwrap_err(), AuthError::InvalidToken));
     }

@@ -214,9 +214,9 @@ async fn replace_password<S: AppServices>(
         .map_err(log_fail(actor, "change password"))?;
     state
         .auth()
-        .logout_all(&target)
+        .logout_password_sessions(&target)
         .await
-        .map_err(log_fail(actor, "revoke sessions after password change"))?;
+        .map_err(log_fail(actor, "revoke password sign-ins after password change"))?;
     debug!("User [{actor}] changed password for user [{}]", target.0);
     Ok(StatusCode::NO_CONTENT)
 }

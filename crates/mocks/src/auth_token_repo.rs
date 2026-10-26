@@ -107,8 +107,17 @@ impl AuthTokenRepository for MockAuthTokenRepo {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
         state.refresh.retain(|_, session| &session.user != user);
+        state.links.retain(|_, link| &link.user != user);
         state.api_tokens.retain(|_, token| &token.user != user);
         state.remove_devices_of(user);
+        Ok(())
+    }
+
+    async fn revoke_refresh_and_link_codes(&self, user: &UserId) -> Result<(), RepositoryError> {
+        self.guard()?;
+        let mut state = self.state.lock().unwrap();
+        state.refresh.retain(|_, session| &session.user != user);
+        state.links.retain(|_, link| &link.user != user);
         Ok(())
     }
 
@@ -515,6 +524,7 @@ mod tests {
         assert!(repo.find_refresh(&AuthSessionId("j1".into())).await.is_err());
         assert!(repo.revoke_refresh(&AuthSessionId("j1".into())).await.is_err());
         assert!(repo.revoke_all_for_user(&UserId("u1".into())).await.is_err());
+        assert!(repo.revoke_refresh_and_link_codes(&UserId("u1".into())).await.is_err());
         assert!(
             repo.store_link_code(link("X", Timestamp::UNIX_EPOCH), Timestamp::UNIX_EPOCH)
                 .await
