@@ -10,6 +10,7 @@ import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/play_button.dart';
 import 'package:shadowmask/components/play_on_button.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/model/auth/play_on_device.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/model/common/quality.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
@@ -404,6 +405,24 @@ void main() {
       ], server: PlayOnServer(devices: const []));
 
       expect(find.byType(PlayOnButton), findsNothing);
+    });
+
+    testWidgets('a device shared with the user alone puts Play on', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        <Version>[_version('v1')],
+        server: PlayOnServer(
+          devices: const [],
+          shared: const <PlayOnDevice>[kSharedRoku],
+        ),
+      );
+
+      await tester.tap(find.byIcon(Icons.devices));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Den (admin)'), findsOneWidget);
     });
 
     testWidgets('a device list that fails leaves Play alone', (

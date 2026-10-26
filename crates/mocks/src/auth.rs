@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 use domain::error::AuthError;
 use domain::service::AuthService;
 use domain::user::{
-    ApiToken, ApiTokenId, Device, DeviceId, DeviceRegistration, DeviceTarget, IssuedToken,
-    PendingLink, Principal, Role, TokenPair, UserId,
+    ApiToken, ApiTokenId, CommandTarget, Device, DeviceId, DeviceRegistration, DeviceTarget,
+    IssuedToken, PendingLink, Principal, Role, SharedTarget, SharedWith, TokenPair, UserId,
 };
 use jiff::Timestamp;
 
@@ -26,7 +26,15 @@ struct State {
     link_codes: HashMap<String, IssuedToken>,
     pending: HashMap<String, PendingLink>,
     devices: Vec<Device>,
+    shares: Vec<(DeviceId, UserId)>,
     logged_out: Vec<UserId>,
+}
+
+impl State {
+    fn username_of(&self, user: &UserId) -> String {
+        let account = self.accounts.iter().find(|account| &account.user == user);
+        account.map_or_else(|| user.0.clone(), |account| account.username.clone())
+    }
 }
 
 #[derive(Clone, Default)]
@@ -245,6 +253,97 @@ impl AuthService for MockAuthService {
             stored.target = None;
         }
         Ok(())
+    }
+
+    async fn share_device(
+        &self,
+        owner: &UserId,
+        device: &DeviceId,
+        username: &str,
+    ) -> Result<SharedWith, AuthError> {
+        self.owned_device(owner, device).await?;
+        let mut state = self.state.lock().unwrap();
+        let user = state
+            .accounts
+            .iter()
+            .find(|account| account.username == username)
+            .map(|account| account.user.clone())
+            .ok_or(AuthError::UnknownUser)?;
+        if &user == owner {
+            return Err(AuthError::ShareWithSelf);
+        }
+        let share = (device.clone(), user.clone());
+        if !state.shares.contains(&share) {
+            state.shares.push(share);
+        }
+        Ok(SharedWith { device: device.clone(), user, username: username.to_owned() })
+    }
+
+    async fn unshare_device(
+        &self,
+        owner: &UserId,
+        device: &DeviceId,
+        user: &UserId,
+    ) -> Result<(), AuthError> {
+        self.owned_device(owner, device).await?;
+        self.state.lock().unwrap().shares.retain(|(d, u)| d != device || u != user);
+        Ok(())
+    }
+
+    async fn device_shares(&self, owner: &UserId) -> Result<Vec<SharedWith>, AuthError> {
+        let state = self.state.lock().unwrap();
+        Ok(state
+            .shares
+            .iter()
+            .filter(|(device, _)| state.devices.iter().any(|d| &d.id == device && &d.user == owner))
+            .map(|(device, user)| SharedWith {
+                device: device.clone(),
+                user: user.clone(),
+                username: state.username_of(user),
+            })
+            .collect())
+    }
+
+    async fn shared_targets(&self, user: &UserId) -> Result<Vec<SharedTarget>, AuthError> {
+        let state = self.state.lock().unwrap();
+        Ok(state
+            .devices
+            .iter()
+            .filter(|device| device.target.is_some())
+            .filter(|device| state.shares.contains(&(device.id.clone(), user.clone())))
+            .map(|device| SharedTarget {
+                device: device.clone(),
+                owner: state.username_of(&device.user),
+            })
+            .collect())
+    }
+
+    async fn command_target(
+        &self,
+        sender: &UserId,
+        device: &DeviceId,
+    ) -> Result<CommandTarget, AuthError> {
+        let state = self.state.lock().unwrap();
+        let found = state
+            .devices
+            .iter()
+            .find(|d| {
+                &d.id == device
+                    && (&d.user == sender || state.shares.contains(&(d.id.clone(), sender.clone())))
+            })
+            .cloned()
+            .ok_or(AuthError::NotFound)?;
+        let account_admin = state
+            .accounts
+            .iter()
+            .any(|account| account.user == found.user && account.account_admin);
+        let plays_as = Principal {
+            user: found.user.clone(),
+            role: Role::Player,
+            account_admin,
+            device: Some(found.id.clone()),
+        };
+        Ok(CommandTarget { device: found, plays_as })
     }
 }
 

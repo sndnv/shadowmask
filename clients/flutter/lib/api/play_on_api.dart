@@ -4,6 +4,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/target_caller.dart';
 import 'package:shadowmask/model/auth/device.dart';
 import 'package:shadowmask/model/auth/play_command.dart';
+import 'package:shadowmask/model/auth/play_on_device.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 
 PlayOnApi? playOnApi(ApiClient api) => kIsWeb ? null : PlayOnApi(api);
@@ -16,15 +17,21 @@ class PlayOnApi {
   final ApiClient _api;
   final TargetCaller? _lan;
 
-  Future<List<Device>> targets(String userId) async {
+  Future<List<PlayOnDevice>> targets(String userId) async {
     final List<Device> devices = await _api.getJsonArray(
       '/api/v1/users/${_enc(userId)}/devices',
       Device.fromJson,
     );
+    final List<PlayOnDevice> shared = await _api
+        .getJsonArray('/api/v1/devices/shared', PlayOnDevice.fromJson)
+        .catchError((Object _) => <PlayOnDevice>[]);
     final String self = await _api.linkedDeviceId();
-    return devices
-        .where((Device d) => d.target?.kind != null && d.id != self)
-        .toList();
+    return <PlayOnDevice>[
+      for (final Device d in devices)
+        if (d.target?.kind != null && d.id != self) PlayOnDevice.own(d),
+      for (final PlayOnDevice d in shared)
+        if (d.target?.kind != null) d,
+    ];
   }
 
   Future<PlayCommand> mint(String deviceId, String versionId) => _api.postJson(
@@ -33,7 +40,7 @@ class PlayOnApi {
     PlayCommand.fromJson,
   );
 
-  Future<PlayOnOutcome> send(Device device, Version version) async =>
+  Future<PlayOnOutcome> send(PlayOnDevice device, Version version) async =>
       (_lan ?? _sharedCaller).send(await mint(device.id, version.id), version);
 
   Future<void> reportTarget(List<String> addresses, int port) => _api.sendVoid(

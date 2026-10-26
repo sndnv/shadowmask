@@ -276,6 +276,9 @@ abstract final class Strings {
   static String playOnPlaying(String name) => 'Playing on $name.';
   static String playOnUnreachable(String name) => 'Could not reach $name.';
   static String playOnRefused(String name) => '$name refused the request.';
+  static String playOnNoAccess(String name) =>
+      '$name has no access to this title.';
+  static String sharedDeviceName(String name, String owner) => '$name ($owner)';
   static const String playOnHeading = 'Play from other devices';
   static const String playOnAllow =
       'Allow other devices to start playback here';
@@ -553,6 +556,9 @@ abstract final class Strings {
   static const String delete = 'Delete';
   static const String edit = 'Edit';
   static const String revoke = 'Revoke';
+  static const String share = 'Share';
+  static String shareDeviceTitle(String name) => 'Share $name';
+  static String sharedWith(String username) => 'Shared with $username';
   static const String editProfile = 'Edit profile';
   static const String changePassword = 'Change password';
   static const String createLinkCode = 'Create link code';
@@ -591,6 +597,8 @@ abstract final class Strings {
   static const String toastCodeCreated = 'Code created.';
   static const String toastCodeRevoked = 'Code revoked.';
   static const String toastDeviceRevoked = 'Device revoked.';
+  static String toastDeviceShared(String username) => 'Shared with $username.';
+  static const String toastShareRemoved = 'Share removed.';
   static const String toastTokenRevoked = 'Token revoked.';
   static const String toastAllSessionsRevoked = 'All sessions revoked.';
   static const String toastResumeDismissed = 'Removed from Continue watching.';
@@ -605,6 +613,7 @@ abstract final class Strings {
   static const String errorAction = 'Action failed.';
   static const String errorRandom = 'Could not pick something to play.';
   static const String errorRevoke = 'Revoke failed.';
+  static const String errorShare = 'Share failed.';
   static const String errorCreate = 'Create failed.';
   static const String errorPasswordChange =
       'Change failed. Check that your current password is correct.';
@@ -633,6 +642,7 @@ abstract final class Strings {
   static const String reasonNegotiationFailed =
       'No playable stream could be prepared for that version.';
   static const String reasonUsernameTaken = 'That username is already taken.';
+  static const String reasonUserNotFound = 'No user has that username.';
   static const String reasonUnknownLinkCode =
       'That code is not valid, or it has already been used.';
   static const String reasonBenchmarkRunning =

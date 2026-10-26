@@ -2,6 +2,7 @@ import 'package:shadowmask/api/api_exception.dart';
 import 'package:shadowmask/l10n/strings.dart';
 
 const String kUsernameTaken = 'username_taken';
+const String kTargetNoAccess = 'target_no_access';
 
 const Map<String, String> _reasons = <String, String>{
   'access_denied': Strings.reasonAccessDenied,
@@ -22,6 +23,7 @@ const Map<String, String> _reasons = <String, String>{
   'upstream_error': Strings.reasonUpstream,
   'negotiation_failed': Strings.reasonNegotiationFailed,
   kUsernameTaken: Strings.reasonUsernameTaken,
+  'user_not_found': Strings.reasonUserNotFound,
   'unknown_link_code': Strings.reasonUnknownLinkCode,
   'benchmark_running': Strings.reasonBenchmarkRunning,
 };

@@ -1,6 +1,6 @@
 use contracts::repo::{
     auth_token_repository_contract, catalog_clean_contract, catalog_repository_contract,
-    catalog_seed, job_repository_contract, library_repository_contract,
+    catalog_seed, device_share_contract, job_repository_contract, library_repository_contract,
     preferences_repository_contract, progress_repository_contract, report_repository_contract,
     user_repository_contract,
 };
@@ -23,6 +23,11 @@ async fn report_repository_contract_holds_for_mock() {
 #[tokio::test]
 async fn auth_token_repository_contract_holds_for_mock() {
     auth_token_repository_contract(MockAuthTokenRepo::new()).await;
+}
+
+#[tokio::test]
+async fn device_share_contract_holds_for_mock() {
+    device_share_contract(MockAuthTokenRepo::new()).await;
 }
 
 #[tokio::test]

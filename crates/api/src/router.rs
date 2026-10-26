@@ -318,7 +318,10 @@ where
             put(play_on::report_target::<A, T>).delete(play_on::clear_target::<A, T>),
         )
         .route("/api/v1/devices/self/commands/redeem", post(play_on::redeem::<A, T>))
+        .route("/api/v1/devices/shared", get(play_on::shared::<A, T>))
         .route("/api/v1/devices/{did}/commands", post(play_on::mint::<A, T>))
+        .route("/api/v1/devices/{did}/shares", put(play_on::share::<A, T>))
+        .route("/api/v1/devices/{did}/shares/{user_id}", delete(play_on::unshare::<A, T>))
         .route_layer(from_fn_with_state(auth, jwt::<A>))
         .with_state(state)
 }

@@ -12,7 +12,7 @@ import 'package:shadowmask/components/play_on_button.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/toggle_button.dart';
 import 'package:shadowmask/l10n/strings.dart';
-import 'package:shadowmask/model/auth/device.dart';
+import 'package:shadowmask/model/auth/play_on_device.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/model/common/quality.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
@@ -64,7 +64,7 @@ Future<void> _pump(
             alignment: Alignment.topLeft,
             child: PlayOnButton(
               playOn: playOn,
-              devices: kPlayOnDevices,
+              devices: kPlayOnTargets,
               choose: choose,
             ),
           ),
@@ -77,7 +77,7 @@ Future<void> _pump(
 Future<void> _openSubmenu(
   WidgetTester tester,
   PlayOnApi playOn, {
-  List<Device> devices = kPlayOnDevices,
+  List<PlayOnDevice> devices = kPlayOnTargets,
 }) async {
   final MenuController menu = MenuController();
   await tester.pumpWidget(
@@ -376,6 +376,44 @@ void main() {
     expect(find.text(Strings.playOnPlaying('Pixel')), findsOneWidget);
   });
 
+  testWidgets('a shared device is named with its owner and sent to', (
+    WidgetTester tester,
+  ) async {
+    final PlayOnServer server = PlayOnServer(
+      shared: const <PlayOnDevice>[kSharedRoku],
+    );
+    await _openSubmenu(
+      tester,
+      _playOn(server),
+      devices: <PlayOnDevice>[...kPlayOnTargets, kSharedRoku],
+    );
+
+    await _pick(tester, 'Den (admin)');
+
+    expect(server.mints, <Mint>[(device: 's1', version: 'v1')]);
+    expect(find.text(Strings.playOnPlaying('Den (admin)')), findsOneWidget);
+  });
+
+  testWidgets('a device whose user cannot see the title says so', (
+    WidgetTester tester,
+  ) async {
+    final PlayOnServer server = PlayOnServer(
+      shared: const <PlayOnDevice>[kSharedRoku],
+      mintStatus: 409,
+      mintCode: kTargetNoAccess,
+    );
+    await _openSubmenu(
+      tester,
+      _playOn(server),
+      devices: const <PlayOnDevice>[kSharedRoku],
+    );
+
+    await _pick(tester, 'Den (admin)');
+
+    expect(server.lan, isEmpty);
+    expect(find.text(Strings.playOnNoAccess('Den (admin)')), findsOneWidget);
+  });
+
   testWidgets('a long device name is cut and read in full on a long press', (
     WidgetTester tester,
   ) async {
@@ -388,15 +426,8 @@ void main() {
     await _openSubmenu(
       tester,
       _playOn(server),
-      devices: const <Device>[
-        Device(
-          id: 'd3',
-          userId: 'u1',
-          name: name,
-          platform: 'roku',
-          createdAt: '2026-10-14T18:00:00Z',
-          target: kRokuTarget,
-        ),
+      devices: const <PlayOnDevice>[
+        PlayOnDevice(id: 'd3', name: name, target: kRokuTarget),
       ],
     );
 

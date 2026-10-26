@@ -46,6 +46,17 @@ class AccountApi {
     '/api/v1/users/${_enc(userId)}/devices/${_enc(deviceId)}',
   );
 
+  Future<void> shareDevice(String deviceId, String username) => _api.sendVoid(
+    'PUT',
+    '/api/v1/devices/${_enc(deviceId)}/shares',
+    body: <String, dynamic>{'username': username},
+  );
+
+  Future<void> unshareDevice(String deviceId, String userId) => _api.sendVoid(
+    'DELETE',
+    '/api/v1/devices/${_enc(deviceId)}/shares/${_enc(userId)}',
+  );
+
   Future<List<ApiToken>> tokens(String userId) => _api.getJsonArray(
     '/api/v1/users/${_enc(userId)}/tokens',
     ApiToken.fromJson,

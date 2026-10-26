@@ -80,6 +80,7 @@
       sm.chrome();
       const eu = encodeURIComponent;
       let uid = null;
+      let player = false;
 
       buildTabs();
       buildPlayback();
@@ -108,8 +109,9 @@
         try {
           const me = await sm.self();
           uid = me.id;
+          player = me.role === "player";
           fillProfile(me);
-          if (me.role === "player") {
+          if (player) {
             hideAccountManagement();
           } else {
             wireProfileForm();
@@ -425,12 +427,70 @@
               }
               await reloadDevices(container);
             });
-            return [d.name, d.platform, d.last_seen ? sm.time(d.last_seen) : "never", revoke];
+            const share = sm.el("button", { type: "button", class: "sm-secondary" }, "Share");
+            share.addEventListener("click", () =>
+              sm.openDialog("Share " + d.name, (box) => shareDeviceBody(box, d, container)),
+            );
+            const shared = (d.shared_with || []).map((s) => {
+              const remove = sm.el("button", { type: "button", class: "sm-secondary" }, "Remove");
+              remove.addEventListener("click", async () => {
+                try {
+                  await sm.json("/api/v1/devices/" + eu(d.id) + "/shares/" + eu(s.user_id), {
+                    method: "DELETE",
+                  });
+                  sm.toast("Share removed.", "ok");
+                } catch (err) {
+                  sm.toast("Remove failed.", "danger");
+                }
+                await reloadDevices(container);
+              });
+              return sm.el("div", null, player ? s.username : [s.username, " ", remove]);
+            });
+            const seen = d.last_seen ? sm.time(d.last_seen) : "never";
+            return [d.name, d.platform, seen, shared, player ? revoke : [share, " ", revoke]];
           });
-          container.appendChild(sm.table(["Name", "Platform", "Last seen", ""], rows));
+          container.appendChild(
+            sm.table(["Name", "Platform", "Last seen", "Shared with", ""], rows),
+          );
         } catch (err) {
           container.textContent = "Could not load devices.";
         }
+      }
+
+      function shareDeviceBody(box, device, container) {
+        const username = sm.el("input", { autocomplete: "off" });
+        const status = sm.el("span", null);
+        const submit = sm.el("button", { type: "submit" }, "Share");
+        const form = sm.el("form", null, [
+          sm.el("label", null, ["Username ", username]),
+          sm.el("br"),
+          submit,
+          " ",
+          status,
+        ]);
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const name = username.value.trim();
+          if (!name) {
+            status.textContent = "Username is required.";
+            return;
+          }
+          submit.disabled = true;
+          try {
+            await sm.json("/api/v1/devices/" + eu(device.id) + "/shares", {
+              method: "PUT",
+              body: JSON.stringify({ username: name }),
+            });
+            sm.toast("Shared with " + name + ".", "ok");
+            box.close();
+            await reloadDevices(container);
+          } catch (err) {
+            status.textContent =
+              err.code === "user_not_found" ? "No user has that username." : "Share failed.";
+            submit.disabled = false;
+          }
+        });
+        return form;
       }
 
       async function reloadTokens(container) {

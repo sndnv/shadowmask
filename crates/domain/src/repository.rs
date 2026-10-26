@@ -28,7 +28,7 @@ use crate::playback::{
 };
 use crate::session::{PlaybackSession, SessionId};
 use crate::user::{
-    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, DeviceTarget,
+    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, DeviceShare, DeviceTarget,
     LibraryAccess, PendingLink, User, UserId,
 };
 
@@ -742,6 +742,23 @@ pub trait AuthTokenRepository {
         &self,
         id: &ApiTokenId,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn share_device(
+        &self,
+        share: DeviceShare,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn unshare_device(
+        &self,
+        device: &DeviceId,
+        user: &UserId,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn list_device_shares(
+        &self,
+        owner: &UserId,
+    ) -> impl Future<Output = Result<Vec<DeviceShare>, RepositoryError>> + Send;
+    fn list_shared_devices(
+        &self,
+        user: &UserId,
+    ) -> impl Future<Output = Result<Vec<Device>, RepositoryError>> + Send;
     fn purge_user(&self, user: &UserId)
     -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }

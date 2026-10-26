@@ -45,6 +45,10 @@ pub enum AuthError {
     NotFound,
     #[error("this device has not reported itself as a play-on target")]
     NotATarget,
+    #[error("no user has that username")]
+    UnknownUser,
+    #[error("a device is not shared with its own user")]
+    ShareWithSelf,
     #[error(transparent)]
     Repository(#[from] RepositoryError),
 }

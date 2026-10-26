@@ -14,7 +14,7 @@ import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/version_job_lines.dart';
 import 'package:shadowmask/components/version_label.dart';
 import 'package:shadowmask/l10n/strings.dart';
-import 'package:shadowmask/model/auth/device.dart';
+import 'package:shadowmask/model/auth/play_on_device.dart';
 import 'package:shadowmask/model/catalog/download_link.dart';
 import 'package:shadowmask/model/job/version_job.dart';
 import 'package:shadowmask/model/session/resume_position.dart';
@@ -190,7 +190,7 @@ class _VersionRow extends StatefulWidget {
   final bool adminPages;
   final Future<List<VersionDetail?>> Function() onChanged;
   final PlayOnApi? playOn;
-  final List<Device> playOnDevices;
+  final List<PlayOnDevice> playOnDevices;
 
   @override
   State<_VersionRow> createState() => _VersionRowState();

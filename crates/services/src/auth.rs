@@ -4,8 +4,9 @@ use domain::error::{AuthError, RepositoryError};
 use domain::repository::{AuthTokenRepository, UserRepository};
 use domain::service::AuthService;
 use domain::user::{
-    ApiToken, ApiTokenId, AuthSession, AuthSessionId, Device, DeviceId, DeviceRegistration,
-    DeviceTarget, IssuedToken, PendingLink, Principal, Role, TokenPair, User, UserId,
+    ApiToken, ApiTokenId, AuthSession, AuthSessionId, CommandTarget, Device, DeviceId,
+    DeviceRegistration, DeviceShare, DeviceTarget, IssuedToken, PendingLink, Principal, Role,
+    SharedTarget, SharedWith, TokenPair, User, UserId,
 };
 use jiff::Timestamp;
 use jsonwebtoken::errors::ErrorKind;
@@ -185,6 +186,10 @@ where
     U: UserRepository + Sync,
     T: AuthTokenRepository + Sync,
 {
+    async fn active_user(&self, user: &UserId) -> Result<Option<User>, AuthError> {
+        Ok(self.users.get(user).await?.filter(|found| found.active))
+    }
+
     async fn require_active(&self, user: &UserId) -> Result<User, AuthError> {
         match self.users.get(user).await? {
             Some(found) if found.active => Ok(found),
@@ -401,6 +406,86 @@ where
     async fn clear_target(&self, device: &DeviceId) -> Result<(), AuthError> {
         self.tokens.delete_device_target(device).await?;
         Ok(())
+    }
+
+    async fn share_device(
+        &self,
+        owner: &UserId,
+        device: &DeviceId,
+        username: &str,
+    ) -> Result<SharedWith, AuthError> {
+        self.owned_device(owner, device).await?;
+        let found = self.users.find_by_username(username).await?;
+        let user = found.filter(|user| user.active).ok_or(AuthError::UnknownUser)?;
+        if &user.id == owner {
+            return Err(AuthError::ShareWithSelf);
+        }
+        let share = DeviceShare {
+            device: device.clone(),
+            user: user.id.clone(),
+            created_at: Timestamp::now(),
+        };
+        self.tokens.share_device(share).await?;
+        Ok(SharedWith { device: device.clone(), user: user.id, username: user.username })
+    }
+
+    async fn unshare_device(
+        &self,
+        owner: &UserId,
+        device: &DeviceId,
+        user: &UserId,
+    ) -> Result<(), AuthError> {
+        self.owned_device(owner, device).await?;
+        self.tokens.unshare_device(device, user).await?;
+        Ok(())
+    }
+
+    async fn device_shares(&self, owner: &UserId) -> Result<Vec<SharedWith>, AuthError> {
+        let mut shared = Vec::new();
+        for share in self.tokens.list_device_shares(owner).await? {
+            if let Some(user) = self.users.get(&share.user).await? {
+                shared.push(SharedWith {
+                    device: share.device,
+                    user: user.id,
+                    username: user.username,
+                });
+            }
+        }
+        Ok(shared)
+    }
+
+    async fn shared_targets(&self, user: &UserId) -> Result<Vec<SharedTarget>, AuthError> {
+        let mut targets = Vec::new();
+        for device in self.tokens.list_shared_devices(user).await? {
+            if device.target.is_none() {
+                continue;
+            }
+            if let Some(owner) = self.active_user(&device.user).await? {
+                targets.push(SharedTarget { device, owner: owner.username });
+            }
+        }
+        Ok(targets)
+    }
+
+    async fn command_target(
+        &self,
+        sender: &UserId,
+        device: &DeviceId,
+    ) -> Result<CommandTarget, AuthError> {
+        let found = self.tokens.get_device(device).await?.ok_or(AuthError::NotFound)?;
+        let reachable = &found.user == sender
+            || self.tokens.list_shared_devices(sender).await?.iter().any(|d| &d.id == device);
+        if !reachable {
+            return Err(AuthError::NotFound);
+        }
+        let account = self.active_user(&found.user).await?.ok_or(AuthError::NotFound)?;
+        let plays_as = Principal {
+            user: account.id,
+            role: Role::Player,
+            account_admin: account.role == Role::Admin,
+            device: Some(found.id.clone()),
+        };
+        Ok(CommandTarget { device: found, plays_as })
     }
 }
 
@@ -1273,5 +1358,107 @@ mod tests {
         let svc = service(3600, 300_000_000_000);
         svc.users.insert(user("u1", "alice", Role::Admin));
         assert!(matches!(svc.login("alice", "pw").await.unwrap_err(), AuthError::Repository(_)));
+    }
+
+    async fn sharing() -> DefaultAuthService<MockUserRepo, MockAuthTokenRepo> {
+        let svc = seeded().await;
+        svc.users.insert(user("u2", "bob", Role::User));
+        for (id, owner) in [("tv", "u1"), ("plain", "u1"), ("bobs", "u2")] {
+            svc.tokens.upsert_device(stored_device(id, owner)).await.unwrap();
+        }
+        for id in ["tv", "bobs"] {
+            svc.tokens.put_device_target(&DeviceId(id.into()), &target()).await.unwrap();
+        }
+        svc
+    }
+
+    #[tokio::test]
+    async fn a_device_is_shared_by_username_and_only_by_its_owner() {
+        let svc = sharing().await;
+        let (alice, bob, tv) = (UserId("u1".into()), UserId("u2".into()), DeviceId("tv".into()));
+
+        let shared = svc.share_device(&alice, &tv, "bob").await.unwrap();
+
+        let expected = SharedWith { device: tv.clone(), user: bob.clone(), username: "bob".into() };
+        assert_eq!(shared, expected);
+        assert_eq!(svc.device_shares(&alice).await.unwrap(), [expected]);
+        let refused = [
+            svc.share_device(&alice, &tv, "nobody").await.unwrap_err(),
+            svc.share_device(&alice, &tv, "alice").await.unwrap_err(),
+            svc.share_device(&bob, &tv, "alice").await.unwrap_err(),
+            svc.unshare_device(&bob, &tv, &bob).await.unwrap_err(),
+        ];
+        assert!(matches!(
+            refused,
+            [
+                AuthError::UnknownUser,
+                AuthError::ShareWithSelf,
+                AuthError::NotFound,
+                AuthError::NotFound
+            ]
+        ));
+        assert_eq!(svc.device_shares(&alice).await.unwrap().len(), 1);
+
+        svc.unshare_device(&alice, &tv, &bob).await.unwrap();
+
+        assert!(svc.device_shares(&alice).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn shared_targets_are_the_reported_devices_shared_with_a_user_named_by_owner() {
+        let svc = sharing().await;
+        let (alice, bob) = (UserId("u1".into()), UserId("u2".into()));
+        for device in ["tv", "plain"] {
+            svc.share_device(&alice, &DeviceId(device.into()), "bob").await.unwrap();
+        }
+
+        let targets = svc.shared_targets(&bob).await.unwrap();
+
+        let named: Vec<(&str, &str)> =
+            targets.iter().map(|t| (t.device.id.0.as_str(), t.owner.as_str())).collect();
+        assert_eq!(named, [("tv", "alice")], "a device with no target report is left out");
+        assert!(svc.shared_targets(&alice).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_command_goes_to_an_own_or_shared_device_and_plays_as_its_owner() {
+        let svc = sharing().await;
+        let (alice, bob) = (UserId("u1".into()), UserId("u2".into()));
+        let (tv, bobs) = (DeviceId("tv".into()), DeviceId("bobs".into()));
+        assert!(matches!(svc.command_target(&bob, &tv).await.unwrap_err(), AuthError::NotFound));
+        svc.share_device(&alice, &tv, "bob").await.unwrap();
+
+        for sender in [&alice, &bob] {
+            let target = svc.command_target(sender, &tv).await.unwrap();
+            assert_eq!(target.device.id, tv);
+            let plays_as = target.plays_as;
+            assert_eq!((plays_as.user, plays_as.role), (alice.clone(), Role::Player));
+            assert!(plays_as.account_admin);
+            assert_eq!(plays_as.device, Some(tv.clone()));
+        }
+        let own = svc.command_target(&bob, &bobs).await.unwrap().plays_as;
+        assert_eq!((own.user, own.account_admin), (bob.clone(), false));
+        let ghost = DeviceId("ghost".into());
+        for (sender, device) in [(&alice, &bobs), (&bob, &ghost)] {
+            let refused = svc.command_target(sender, device).await.unwrap_err();
+            assert!(matches!(refused, AuthError::NotFound));
+        }
+
+        svc.users.insert(User { active: false, ..user("u1", "alice", Role::Admin) });
+        let disabled = svc.command_target(&bob, &tv).await.unwrap_err();
+        assert!(matches!(disabled, AuthError::NotFound), "the owner's account is off");
+        assert!(svc.shared_targets(&bob).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_device_is_not_shared_with_a_deactivated_user() {
+        let svc = sharing().await;
+        let (alice, tv) = (UserId("u1".into()), DeviceId("tv".into()));
+        svc.users.insert(User { active: false, ..user("u2", "bob", Role::User) });
+
+        let refused = svc.share_device(&alice, &tv, "bob").await.unwrap_err();
+
+        assert!(matches!(refused, AuthError::UnknownUser));
+        assert!(svc.device_shares(&alice).await.unwrap().is_empty());
     }
 }
