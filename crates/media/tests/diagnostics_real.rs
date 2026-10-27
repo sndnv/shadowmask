@@ -26,6 +26,7 @@ async fn the_installed_ffmpeg_benchmarks_a_real_file() {
             height: Some(120),
             hdr: None,
             audio_track: Some(1),
+            keyframes_us: None,
         })
         .unwrap();
     let status = loop {

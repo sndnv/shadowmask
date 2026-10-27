@@ -163,10 +163,12 @@ Strings in the bootstrap TOML files expand `${NAME}` against the environment, so
 
 ### Hardware acceleration
 
-| Variable                           | Description            | Default               |
-|------------------------------------|------------------------|-----------------------|
-| `SHADOWMASK_HARDWARE_ACCELERATION` | `auto`, `off`, `vaapi` | `auto`                |
-| `SHADOWMASK_VAAPI_DEVICE`          | Render node            | `/dev/dri/renderD128` |
+| Variable                           | Description                                               | Default               |
+|------------------------------------|-----------------------------------------------------------|-----------------------|
+| `SHADOWMASK_HARDWARE_ACCELERATION` | `auto`, `off`, `vaapi`                                    | `auto`                |
+| `SHADOWMASK_VAAPI_DEVICE`          | Render node                                               | `/dev/dri/renderD128` |
+| `SHADOWMASK_HARDWARE_DECODING`     | With VAAPI, decode and scale on the GPU as well           | `true`                |
+| `SHADOWMASK_HARDWARE_TONE_MAPPING` | With decoding on the GPU, tone map HDR10 and HDR10+ there | `false`               |
 
 ### Local AI (enrichment)
 
@@ -253,16 +255,26 @@ queues one job per title, replaces descriptions, ratings and artwork, and leaves
 ## Hardware acceleration
 
 Video transcoding (live HLS streaming and the offline upscale job) uses the software H.264 encoder
-(`libx264`) by default. When a VAAPI render node is available it offloads H.264 encoding to the GPU.
-This applies to every image and is independent of the optional AI enrichment features. It is
-controlled by `SHADOWMASK_HARDWARE_ACCELERATION`:
+(`libx264`) by default. When a VAAPI render node is available, live streaming decodes, scales and
+encodes on the GPU, and the upscale job encodes there. This applies to every image and is
+independent of the optional AI enrichment features. It is controlled by
+`SHADOWMASK_HARDWARE_ACCELERATION`:
 
 - `auto` (default) - use VAAPI when the render node exists, otherwise software.
 - `off` - always software.
 - `vaapi` - force VAAPI; if the render node is missing it logs a warning and falls back to software.
 
 The render node defaults to `/dev/dri/renderD128` (override with `SHADOWMASK_VAAPI_DEVICE`). If a
-hardware encode fails at runtime it is retried once in software, so playback is not interrupted.
+stream's GPU run fails before its first segment, it is run again with only the encode on the GPU,
+then in software, so playback is not interrupted.
+
+`SHADOWMASK_HARDWARE_DECODING=false` keeps decoding and scaling on the CPU and only encodes on the
+GPU. Formats the GPU cannot decode (Xvid, H.264 High 10) are decoded on the CPU and uploaded either
+way. HDR sources are tone mapped on the CPU after the GPU scale, unless
+`SHADOWMASK_HARDWARE_TONE_MAPPING=true`, which tone maps HDR10 and HDR10+ on the GPU
+(`tonemap_vaapi`); HLG and Dolby Vision are always tone mapped on the CPU. Tone mapping on the GPU
+needs hardware decoding on; with `SHADOWMASK_HARDWARE_DECODING=false` the setting has no effect and
+the server logs a warning at start. Burned-in subtitles are drawn on the CPU.
 
 VAAPI is Linux-only and needs the GPU passed into the container. It is not enabled in the compose
 files by default (a required device would break hosts without a GPU, including macOS). On a host
@@ -281,8 +293,8 @@ does not resolve inside the container.
 
 Hardware H.264 encoding is VAAPI only; NVENC is not used, so an NVIDIA card encodes in software
 whatever you pass through. On an NVIDIA-only host, leave `/dev/dri` out or set `off`: `auto` enables
-VAAPI whenever the render node exists, without checking what is behind it, so every segment fails
-once before falling back.
+VAAPI whenever the render node exists, without checking what is behind it, so every stream fails on
+the GPU before falling back.
 
 The userspace VAAPI drivers ship in the image; only the render node comes from the host. The amd64
 image covers Intel through `intel-media-va-driver` (Broadwell and newer) and `i965-va-driver`

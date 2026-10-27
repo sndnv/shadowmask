@@ -257,10 +257,10 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
         burn: Option<&Burn>,
     ) -> Producer {
         let out_dir = variant_dir.to_string_lossy().into_owned();
-        let mut encoders = vec![self.inner.encoder.clone()];
-        if self.inner.encoder.is_hardware() && !spec.copy {
-            encoders.push(VideoEncoder::Software);
-        }
+        let encoders = match spec.copy {
+            true => vec![self.inner.encoder.clone()],
+            false => self.inner.encoder.attempts(),
+        };
         let read_rate = self.inner.read_rate;
         let segments = plan.segments.len();
         let window = RunWindow { origin_us, start_us, segments, length_ms: None };
@@ -290,8 +290,9 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
                     stream_metrics::fallback();
                     tally.restart(label);
                     let reason = failure.as_deref().unwrap_or_default();
+                    let failed = attempts[position - 1].0;
                     #[rustfmt::skip]
-                    tracing::warn!("stream [{id}] is run again in software after the hardware run failed: {reason}");
+                    tracing::warn!("stream [{id}] is run again with [{label}] after the [{failed}] run failed: {reason}");
                 }
                 failure = match inner.spawner.run_captured(&inner.binary, args).await {
                     Ok(output) if output.success => None,
@@ -1197,7 +1198,7 @@ mod tests {
     struct Fake {
         segments: usize,
         fail: bool,
-        fail_first: bool,
+        failing_runs: usize,
         unspawnable: bool,
         hang: bool,
         empty_init: bool,
@@ -1292,7 +1293,7 @@ mod tests {
             if self.unspawnable {
                 return Err(std::io::Error::other("no such binary"));
             }
-            if self.fail_first && attempt == 1 {
+            if attempt <= self.failing_runs {
                 return Ok(false);
             }
             let playlist = args.last().expect("a run is given a playlist path");
@@ -1324,7 +1325,12 @@ mod tests {
 
     fn vaapi_engine(fake: Fake) -> (tempfile::TempDir, HlsStreamSource<Fake>) {
         let (dir, src) = engine(fake);
-        (dir, src.with_encoder(VideoEncoder::Vaapi { device: VAAPI.to_owned() }))
+        (dir, src.with_encoder(VideoEncoder::VaapiEncode { device: VAAPI.to_owned() }))
+    }
+
+    fn gpu_engine(fake: Fake) -> (tempfile::TempDir, HlsStreamSource<Fake>) {
+        let (dir, src) = engine(fake);
+        (dir, src.with_encoder(VideoEncoder::Vaapi { device: VAAPI.to_owned(), tone_map: false }))
     }
 
     fn prep_root(dir: &tempfile::TempDir) -> PathBuf {
@@ -2156,13 +2162,25 @@ mod tests {
 
     #[tokio::test]
     async fn a_hardware_run_that_falls_back_keeps_its_burn() {
-        let fake = Fake { fail_first: true, ..Fake::default() };
+        let fake = Fake { failing_runs: 1, ..Fake::default() };
         let (dir, src) = vaapi_engine(fake.clone());
         prepare_copy(&dir, 3).await;
         src.start(burning(image_burn())).await.expect("start");
         let runs = started_runs(&fake, 2).await;
         assert_eq!(runs.len(), 2);
         assert!(runs.iter().all(|args| args.iter().any(|a| a == "-filter_complex")));
+    }
+
+    #[tokio::test]
+    async fn each_gpu_fallback_keeps_its_burn() {
+        let fake = Fake { failing_runs: 2, ..Fake::default() };
+        let (dir, src) = gpu_engine(fake.clone());
+        prepare_copy(&dir, 3).await;
+        src.start(burning(image_burn())).await.expect("start");
+        let runs = started_runs(&fake, 3).await;
+        assert_eq!(runs.len(), 3);
+        assert!(runs.iter().all(|args| args.iter().any(|a| a == "-filter_complex")));
+        assert_eq!(runs.iter().filter(|args| args.iter().any(|a| a == "-hwaccel")).count(), 1);
     }
 
     #[tokio::test]
@@ -2400,7 +2418,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_hardware_run_that_fails_before_its_first_segment_is_rerun_in_software() {
-        let fake = Fake { segments: 3, fail_first: true, ..Fake::default() };
+        let fake = Fake { segments: 3, failing_runs: 1, ..Fake::default() };
         let (_dir, src) = vaapi_engine(fake.clone());
         src.start(spec("s1", 12_000)).await.expect("start");
         assert!(src.media_path(&claims("s1"), VARIANT, "seg_00000.ts").await.is_ok());
@@ -2408,6 +2426,29 @@ mod tests {
         assert_eq!(runs.len(), 2);
         assert_eq!(pair_after(&runs[0], "-c:v").as_deref(), Some("h264_vaapi"));
         assert_eq!(pair_after(&runs[1], "-c:v").as_deref(), Some("libx264"));
+    }
+
+    #[tokio::test]
+    async fn a_gpu_run_that_fails_falls_back_to_the_gpu_encoder_then_to_software() {
+        let fake = Fake { segments: 3, failing_runs: 2, ..Fake::default() };
+        let (_dir, src) = gpu_engine(fake.clone());
+        src.start(spec("s1", 12_000)).await.expect("start");
+        assert!(src.media_path(&claims("s1"), VARIANT, "seg_00000.ts").await.is_ok());
+        let runs = fake.runs();
+        assert_eq!(runs.len(), 3);
+        assert!(runs[0].iter().any(|a| a == "-hwaccel"));
+        assert!(!runs[1].iter().any(|a| a == "-hwaccel"));
+        let codecs: Vec<String> = runs.iter().filter_map(|run| pair_after(run, "-c:v")).collect();
+        assert_eq!(codecs, ["h264_vaapi", "h264_vaapi", "libx264"]);
+    }
+
+    #[tokio::test]
+    async fn a_gpu_run_that_works_needs_no_other() {
+        let fake = Fake { segments: 3, ..Fake::default() };
+        let (_dir, src) = gpu_engine(fake.clone());
+        src.start(spec("s1", 12_000)).await.expect("start");
+        assert!(src.media_path(&claims("s1"), VARIANT, "seg_00000.ts").await.is_ok());
+        assert_eq!(fake.runs().len(), 1);
     }
 
     #[tokio::test]
@@ -2748,13 +2789,13 @@ mod tests {
     fn a_hardware_failure_rerun_in_software_is_a_fallback() {
         let rendered = recorded(|| async {
             let (_dir, src) =
-                vaapi_engine(Fake { segments: 3, fail_first: true, ..Fake::default() });
+                vaapi_engine(Fake { segments: 3, failing_runs: 1, ..Fake::default() });
             serve(&src, spec("s1", 12_000), &["seg_00000.ts"]).await;
         });
         assert_lines(
             &rendered,
             &[
-                "transcode_segments_total{encoder=\"vaapi\",outcome=\"failed\"} 1",
+                "transcode_segments_total{encoder=\"vaapi-encode\",outcome=\"failed\"} 1",
                 "transcode_segments_total{encoder=\"software\",outcome=\"ok\"} 3",
                 "transcode_fallbacks_total 1",
             ],
@@ -2762,11 +2803,28 @@ mod tests {
     }
 
     #[test]
+    fn each_gpu_fallback_counts_under_the_path_that_failed() {
+        let rendered = recorded(|| async {
+            let (_dir, src) = gpu_engine(Fake { segments: 3, failing_runs: 2, ..Fake::default() });
+            serve(&src, spec("s1", 12_000), &["seg_00000.ts"]).await;
+        });
+        assert_lines(
+            &rendered,
+            &[
+                "transcode_segments_total{encoder=\"vaapi\",outcome=\"failed\"} 1",
+                "transcode_segments_total{encoder=\"vaapi-encode\",outcome=\"failed\"} 1",
+                "transcode_segments_total{encoder=\"software\",outcome=\"ok\"} 3",
+                "transcode_fallbacks_total 2",
+            ],
+        );
+    }
+
+    #[test]
     fn a_failed_copy_on_a_hardware_host_is_not_rerun_in_software() {
-        let fake = Fake { fail_first: true, ..Fake::default() };
+        let fake = Fake { failing_runs: 1, ..Fake::default() };
         let ran = fake.clone();
         let rendered = recorded(|| async {
-            let (_dir, src) = vaapi_engine(fake);
+            let (_dir, src) = gpu_engine(fake);
             let copy = copy_spec("s1", SegmentContainer::MpegTs, 12_000, &[0, 4_000, 8_000]);
             serve(&src, copy, &["seg_00000.ts"]).await;
         });

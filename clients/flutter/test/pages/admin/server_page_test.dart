@@ -408,6 +408,31 @@ void main() {
     );
   });
 
+  testWidgets('vaapi-encode is green like vaapi', (WidgetTester tester) async {
+    await _pump(
+      tester,
+      server: _Server(
+        metrics:
+            'transcode_segments_total{encoder="vaapi-encode",outcome="ok"} 5\n',
+        benchmarks: <Map<String, dynamic>>[
+          _benchmark(
+            'done',
+            done: 6,
+            runs: <Map<String, dynamic>>[_run('vaapi-encode', 'ok')],
+          ),
+        ],
+      ),
+    );
+
+    expect(find.text('vaapi-encode'), findsNWidgets(2));
+    expect(
+      tester
+          .widgetList<Text>(find.text('vaapi-encode'))
+          .map((Text text) => text.style?.color),
+      everyElement(Tokens.dark.ok),
+    );
+  });
+
   testWidgets('remux keeps the normal colour', (WidgetTester tester) async {
     await _pump(
       tester,
@@ -917,7 +942,7 @@ void main() {
     final _Server server = await _pump(tester);
 
     expect(find.text('Metrics'), findsOneWidget);
-    expect(find.text('SOFTWARE FALLBACKS'), findsOneWidget);
+    expect(find.text('FALLBACKS'), findsOneWidget);
     expect(find.text('KEYFRAME READS'), findsNothing);
     expect(find.text('SESSIONS'), findsOneWidget);
     expect(find.text('STREAM STARTS'), findsOneWidget);

@@ -1,3 +1,4 @@
+use domain::media::HdrFormat;
 use domain::session::{SegmentContainer, SegmentPlan, TranscodeSpec};
 
 use crate::transcode::VideoEncoder;
@@ -13,6 +14,7 @@ const MPEG_TS_CLOCK: &str = "1/90000";
 const SEEK_LEAD_US: i64 = 1_000;
 const DECODE_LOOKBACK_US: u64 = 10_000_000;
 const BURN_LOOKBACK_US: u64 = 30_000_000;
+const GPU_DECODE: [&str; 4] = ["-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"];
 const AAC_LAYOUTS: [(&str, u8); 7] =
     [("mono", 1), ("stereo", 2), ("3.0", 3), ("4.0", 4), ("5.0", 5), ("5.1", 6), ("7.1", 8)];
 
@@ -68,10 +70,13 @@ pub(crate) fn build_run_args(
     let RunWindow { origin_us, start_us, length_ms, .. } = window;
     let burn = burn.filter(|_| !spec.copy);
     let mut args: Vec<String> = ["-y", "-v", "error"].map(str::to_owned).to_vec();
-    if let VideoEncoder::Vaapi { device } = encoder
+    if let Some(device) = encoder.device()
         && !spec.copy
     {
-        args.extend(["-vaapi_device".to_owned(), device.clone()]);
+        args.extend(["-vaapi_device".to_owned(), device.to_owned()]);
+        if matches!(encoder, VideoEncoder::Vaapi { .. }) {
+            args.extend(GPU_DECODE.map(str::to_owned));
+        }
     }
     if spec.copy && read_rate > 0.0 {
         args.extend(["-readrate".to_owned(), read_rate.to_string()]);
@@ -152,7 +157,9 @@ fn push_encode_args(
         }
     }
     match encoder {
-        VideoEncoder::Vaapi { .. } => args.extend(["-c:v", "h264_vaapi"].map(str::to_owned)),
+        VideoEncoder::Vaapi { .. } | VideoEncoder::VaapiEncode { .. } => {
+            args.extend(["-c:v", "h264_vaapi"].map(str::to_owned))
+        }
         VideoEncoder::Software => args.extend(
             ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-sc_threshold", "0"]
                 .map(str::to_owned),
@@ -242,6 +249,8 @@ pub(crate) fn subtitle_media_playlist(duration_ms: u64, vtt_name: &str) -> Strin
 
 const TONEMAP_TO_SDR: &str = "zscale=t=linear:npl=100,tonemap=tonemap=hable:desat=0,\
      zscale=t=bt709:m=bt709:p=bt709:r=tv,format=yuv420p";
+const GPU_UPLOAD: &str = "format=vaapi|nv12|p010le,hwupload";
+const GPU_TONEMAP_TO_SDR: &str = "tonemap_vaapi=format=nv12:t=bt709:m=bt709:p=bt709";
 
 fn base_filters(spec: &TranscodeSpec) -> Vec<String> {
     let mut filters = Vec::new();
@@ -254,10 +263,55 @@ fn base_filters(spec: &TranscodeSpec) -> Vec<String> {
     filters
 }
 
-fn upload_filters(encoder: &VideoEncoder) -> Vec<String> {
-    match encoder.is_hardware() {
-        true => vec!["format=nv12".to_owned(), "hwupload".to_owned()],
-        false => Vec::new(),
+fn gpu_filters(spec: &TranscodeSpec, tone_map: bool) -> (Vec<String>, bool) {
+    let mut filters = vec![GPU_UPLOAD.to_owned()];
+    let size = spec.max_height.map(|height| format!("w=-2:h={height}"));
+    let eight_bit = spec.source_hdr.is_none().then(|| "format=nv12".to_owned());
+    let scale: Vec<String> = size.into_iter().chain(eight_bit).collect();
+    if !scale.is_empty() {
+        filters.push(format!("scale_vaapi={}", scale.join(":")));
+    }
+    match spec.source_hdr {
+        None => (filters, true),
+        Some(HdrFormat::Hdr10 | HdrFormat::Hdr10Plus) if tone_map => {
+            filters.push(GPU_TONEMAP_TO_SDR.to_owned());
+            (filters, true)
+        }
+        Some(_) => {
+            filters.extend(["hwdownload", "format=p010le", TONEMAP_TO_SDR].map(str::to_owned));
+            (filters, false)
+        }
+    }
+}
+
+fn picture_filters(spec: &TranscodeSpec, encoder: &VideoEncoder) -> (Vec<String>, bool) {
+    match encoder {
+        VideoEncoder::Vaapi { tone_map, .. } => gpu_filters(spec, *tone_map),
+        VideoEncoder::VaapiEncode { .. } | VideoEncoder::Software => (base_filters(spec), false),
+    }
+}
+
+fn download_filters() -> Vec<String> {
+    vec!["hwdownload".to_owned(), "format=nv12".to_owned()]
+}
+
+fn upload_filters() -> Vec<String> {
+    vec!["format=nv12".to_owned(), "hwupload".to_owned()]
+}
+
+fn burn_filters(burn: Option<&Burn>, start_us: i64) -> Vec<String> {
+    match burn {
+        Some(Burn::Text(path)) => vec![subtitles(path)],
+        Some(Burn::Sidecar(path)) if start_us != 0 => {
+            let start = seconds(start_us);
+            vec![
+                format!("setpts=PTS-({start})/TB"),
+                subtitles(path),
+                format!("setpts=PTS+({start})/TB"),
+            ]
+        }
+        Some(Burn::Sidecar(path)) => vec![subtitles(path)],
+        _ => Vec::new(),
     }
 }
 
@@ -269,19 +323,17 @@ fn video_filter(
     start_us: i64,
 ) -> Option<String> {
     let mut filters: Vec<String> = trim.into_iter().collect();
-    filters.extend(base_filters(spec));
-    match burn {
-        Some(Burn::Text(path)) => filters.push(subtitles(path)),
-        Some(Burn::Sidecar(path)) if start_us != 0 => {
-            let start = seconds(start_us);
-            filters.push(format!("setpts=PTS-({start})/TB"));
-            filters.push(subtitles(path));
-            filters.push(format!("setpts=PTS+({start})/TB"));
-        }
-        Some(Burn::Sidecar(path)) => filters.push(subtitles(path)),
-        _ => {}
+    let (picture, mut on_gpu) = picture_filters(spec, encoder);
+    filters.extend(picture);
+    let drawn = burn_filters(burn, start_us);
+    if on_gpu && !drawn.is_empty() {
+        filters.extend(download_filters());
+        on_gpu = false;
     }
-    filters.extend(upload_filters(encoder));
+    filters.extend(drawn);
+    if encoder.is_hardware() && !on_gpu {
+        filters.extend(upload_filters());
+    }
     if filters.is_empty() { None } else { Some(filters.join(",")) }
 }
 
@@ -297,14 +349,20 @@ fn overlay_graph(
     encoder: &VideoEncoder,
 ) -> String {
     let mut base: Vec<String> = trim.into_iter().collect();
-    base.extend(base_filters(spec));
+    let (picture, on_gpu) = picture_filters(spec, encoder);
+    base.extend(picture);
+    if on_gpu {
+        base.extend(download_filters());
+    }
     let base = if base.is_empty() { "null".to_owned() } else { base.join(",") };
     let mut sub = vec![format!("scale={width}:{height}")];
     if let Some(height) = spec.max_height {
         sub.push(format!("scale=-2:{height}"));
     }
     let mut overlay = vec!["overlay=eof_action=pass".to_owned()];
-    overlay.extend(upload_filters(encoder));
+    if encoder.is_hardware() {
+        overlay.extend(upload_filters());
+    }
     format!("[0:v:0]{base}[base];[1:s:0]{}[sub];[base][sub]{}", sub.join(","), overlay.join(","))
 }
 
@@ -316,7 +374,6 @@ fn escape_subtitle_path(path: &str) -> String {
 mod tests {
     use super::*;
     use domain::catalog::VersionId;
-    use domain::media::HdrFormat;
     use domain::session::{SegmentContainer, SessionId, StreamGeneration, plan_cuts};
 
     const OUT: &str = "/cache/s1/1/v0";
@@ -353,7 +410,20 @@ mod tests {
     }
 
     fn vaapi() -> VideoEncoder {
-        VideoEncoder::Vaapi { device: "/dev/dri/renderD128".to_owned() }
+        VideoEncoder::VaapiEncode { device: "/dev/dri/renderD128".to_owned() }
+    }
+
+    fn gpu(tone_map: bool) -> VideoEncoder {
+        VideoEncoder::Vaapi { device: "/dev/dri/renderD128".to_owned(), tone_map }
+    }
+
+    fn gpu_vf(spec: &TranscodeSpec, encoder: &VideoEncoder) -> String {
+        let args = build_run_args(spec, encoder, from(0), DEFAULT_READ_RATE, OUT, None);
+        pair_after(&args, "-vf").expect("-vf")
+    }
+
+    fn hdr(format: HdrFormat, max_height: Option<u32>) -> TranscodeSpec {
+        TranscodeSpec { source_hdr: Some(format), max_height, ..base_spec() }
     }
 
     fn from(origin_ms: u64) -> RunWindow {
@@ -874,6 +944,130 @@ mod tests {
         assert_eq!(
             graph(&base_spec(), &vaapi()),
             "[0:v:0]null[base];[1:s:0]scale=1920:800[sub];[base][sub]overlay=eof_action=pass,format=nv12,hwupload"
+        );
+    }
+
+    #[test]
+    fn the_gpu_path_decodes_the_film_on_the_gpu_and_nothing_else() {
+        let args = burned(&base_spec(), &image(), &gpu(false), 60_000);
+        let inputs = inputs(&args);
+        let hwaccel = at(&args, "-hwaccel");
+        assert_eq!(args[hwaccel..hwaccel + 4], GPU_DECODE);
+        assert!(at(&args, "-vaapi_device") < hwaccel && hwaccel < inputs[0]);
+        assert_eq!(args.iter().filter(|a| *a == "-hwaccel").count(), 1);
+        assert_eq!(pair_after(&args, "-c:v").as_deref(), Some("h264_vaapi"));
+        for encoder in [vaapi(), VideoEncoder::Software] {
+            let args = burned(&base_spec(), &image(), &encoder, 60_000);
+            assert!(!args.iter().any(|a| a == "-hwaccel"), "{encoder:?}");
+        }
+        let copy = build_run_args(
+            &copy_spec(SegmentContainer::MpegTs),
+            &gpu(true),
+            from(0),
+            DEFAULT_READ_RATE,
+            OUT,
+            None,
+        );
+        assert!(!copy.iter().any(|a| a == "-hwaccel" || a == "-vaapi_device"));
+    }
+
+    #[test]
+    fn an_sdr_film_stays_on_the_gpu_from_decode_to_encode() {
+        assert_eq!(
+            gpu_vf(&base_spec(), &gpu(false)),
+            format!("{GPU_UPLOAD},scale_vaapi=format=nv12")
+        );
+        let scaled = TranscodeSpec { max_height: Some(1080), ..base_spec() };
+        assert_eq!(
+            gpu_vf(&scaled, &gpu(true)),
+            format!("{GPU_UPLOAD},scale_vaapi=w=-2:h=1080:format=nv12")
+        );
+        let resumed = build_run_args(&scaled, &gpu(false), from(8_000), 0.0, OUT, None);
+        assert_eq!(
+            pair_after(&resumed, "-vf"),
+            Some(format!("trim=start=8.000000,{GPU_UPLOAD},scale_vaapi=w=-2:h=1080:format=nv12"))
+        );
+    }
+
+    #[test]
+    fn an_hdr10_film_is_tone_mapped_on_the_gpu_only_when_the_setting_allows() {
+        for format in [HdrFormat::Hdr10, HdrFormat::Hdr10Plus] {
+            assert_eq!(
+                gpu_vf(&hdr(format, Some(1080)), &gpu(true)),
+                format!("{GPU_UPLOAD},scale_vaapi=w=-2:h=1080,{GPU_TONEMAP_TO_SDR}")
+            );
+        }
+        assert_eq!(
+            gpu_vf(&hdr(HdrFormat::Hdr10, None), &gpu(true)),
+            format!("{GPU_UPLOAD},{GPU_TONEMAP_TO_SDR}")
+        );
+        assert_eq!(
+            gpu_vf(&hdr(HdrFormat::Hdr10, Some(1080)), &gpu(false)),
+            format!(
+                "{GPU_UPLOAD},scale_vaapi=w=-2:h=1080,hwdownload,format=p010le,{TONEMAP_TO_SDR},format=nv12,hwupload"
+            )
+        );
+    }
+
+    #[test]
+    fn hlg_and_dolby_vision_are_tone_mapped_on_the_cpu_after_the_gpu_scale() {
+        for format in [HdrFormat::Hlg, HdrFormat::DolbyVision] {
+            assert_eq!(
+                gpu_vf(&hdr(format, Some(720)), &gpu(true)),
+                format!(
+                    "{GPU_UPLOAD},scale_vaapi=w=-2:h=720,hwdownload,format=p010le,{TONEMAP_TO_SDR},format=nv12,hwupload"
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn a_text_burn_on_the_gpu_path_is_drawn_in_memory_at_the_output_size() {
+        let spec = TranscodeSpec { max_height: Some(480), ..base_spec() };
+        assert_eq!(
+            text_vf(&spec, &gpu(false)),
+            format!(
+                "{GPU_UPLOAD},scale_vaapi=w=-2:h=480:format=nv12,hwdownload,format=nv12,subtitles=filename='/media/movie.srt',format=nv12,hwupload"
+            )
+        );
+        assert_eq!(
+            text_vf(&hdr(HdrFormat::Hdr10, None), &gpu(false)),
+            format!(
+                "{GPU_UPLOAD},hwdownload,format=p010le,{TONEMAP_TO_SDR},subtitles=filename='/media/movie.srt',format=nv12,hwupload"
+            ),
+            "frames the cpu tone map already brought down are not downloaded twice"
+        );
+        let burn = sidecar("/m/a.srt");
+        let late =
+            build_run_args(&base_spec(), &gpu(true), on_clock(0, 1_400_000), 0.0, OUT, Some(&burn));
+        assert_eq!(
+            pair_after(&late, "-vf"),
+            Some(format!(
+                "{GPU_UPLOAD},scale_vaapi=format=nv12,hwdownload,format=nv12,setpts=PTS-(1.400000)/TB,subtitles=filename='/m/a.srt',setpts=PTS+(1.400000)/TB,format=nv12,hwupload"
+            ))
+        );
+    }
+
+    #[test]
+    fn an_image_burn_on_the_gpu_path_overlays_in_memory_and_uploads_after() {
+        assert_eq!(
+            graph(&base_spec(), &gpu(false)),
+            format!(
+                "[0:v:0]{GPU_UPLOAD},scale_vaapi=format=nv12,hwdownload,format=nv12[base];[1:s:0]scale=1920:800[sub];[base][sub]overlay=eof_action=pass,format=nv12,hwupload"
+            )
+        );
+        assert_eq!(
+            graph(&hdr(HdrFormat::Hdr10, Some(480)), &gpu(true)),
+            format!(
+                "[0:v:0]{GPU_UPLOAD},scale_vaapi=w=-2:h=480,{GPU_TONEMAP_TO_SDR},hwdownload,format=nv12[base];[1:s:0]scale=1920:800,scale=-2:480[sub];[base][sub]overlay=eof_action=pass,format=nv12,hwupload"
+            )
+        );
+        assert_eq!(
+            graph(&hdr(HdrFormat::Hlg, Some(480)), &gpu(true)),
+            format!(
+                "[0:v:0]{GPU_UPLOAD},scale_vaapi=w=-2:h=480,hwdownload,format=p010le,{TONEMAP_TO_SDR}[base];[1:s:0]scale=1920:800,scale=-2:480[sub];[base][sub]overlay=eof_action=pass,format=nv12,hwupload"
+            ),
+            "frames the cpu tone map already brought down are not downloaded twice"
         );
     }
 

@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use domain::diagnostics::{
-    BenchmarkOutcome, BenchmarkRun, BenchmarkStatus, BenchmarkTarget, TranscodeBenchmark,
+    BenchmarkEncoder, BenchmarkOutcome, BenchmarkRun, BenchmarkStatus, BenchmarkTarget,
+    TranscodeBenchmark,
 };
 use domain::error::BenchmarkError;
 use domain::process::ProcessSpawner;
@@ -100,18 +101,10 @@ impl<S: ProcessSpawner> Inner<S> {
         change(&mut self.status.lock().unwrap());
     }
 
-    fn encoders(&self) -> Vec<VideoEncoder> {
-        if self.encoder.is_hardware() {
-            vec![self.encoder.clone(), VideoEncoder::Software]
-        } else {
-            vec![VideoEncoder::Software]
-        }
-    }
-
     async fn run(self: Arc<Self>, target: BenchmarkTarget) {
         let _running = Running(&self.status);
         let picked = picked(&plan_fixed_segments(target.duration_ms, TARGET_MS), &target);
-        let encoders = self.encoders();
+        let encoders = self.encoder.attempts();
         self.update(|status| status.total = picked.len() * encoders.len());
         let spec = spec_for(&target, self.max_height);
         let start_us = film_start(&self.spawner, &target.path).await.unwrap_or_else(|err| {
@@ -140,8 +133,7 @@ impl<S: ProcessSpawner> Inner<S> {
         window: RunWindow,
         encoder: &VideoEncoder,
     ) -> BenchmarkRun {
-        let name = if encoder.is_hardware() { "vaapi" } else { "software" };
-        let out = self.scratch.join(format!("run_{index}_{name}"));
+        let out = self.scratch.join(format!("run_{index}_{}", encoder.label()));
         let _ = tokio::fs::create_dir_all(&out).await;
         let args = build_run_args(spec, encoder, window, 0.0, &out.to_string_lossy(), None);
         let started = Instant::now();
@@ -158,7 +150,7 @@ impl<S: ProcessSpawner> Inner<S> {
             segment: index,
             start_ms: window.origin_us / 1_000,
             duration_ms: window.length_ms.unwrap_or_default(),
-            hardware: encoder.is_hardware(),
+            encoder: benchmark_encoder(encoder),
             outcome,
             elapsed_ms,
         }
@@ -215,7 +207,7 @@ fn spec_for(target: &BenchmarkTarget, max_height: Option<u32>) -> TranscodeSpec 
         version: target.version.clone(),
         input_path: target.path.clone(),
         duration_ms: target.duration_ms,
-        keyframes_us: None,
+        keyframes_us: target.keyframes_us.clone(),
         copy: false,
         container: SegmentContainer::MpegTs,
         seek_ms: None,
@@ -227,6 +219,14 @@ fn spec_for(target: &BenchmarkTarget, max_height: Option<u32>) -> TranscodeSpec 
         convert_audio: false,
         audio_channels: None,
         source_hdr: target.hdr,
+    }
+}
+
+fn benchmark_encoder(encoder: &VideoEncoder) -> BenchmarkEncoder {
+    match encoder {
+        VideoEncoder::Vaapi { .. } => BenchmarkEncoder::Vaapi,
+        VideoEncoder::VaapiEncode { .. } => BenchmarkEncoder::VaapiEncode,
+        VideoEncoder::Software => BenchmarkEncoder::Software,
     }
 }
 
@@ -301,6 +301,7 @@ mod tests {
             height: Some(2160),
             hdr: Some(HdrFormat::Hdr10),
             audio_track: Some(1),
+            keyframes_us: None,
         }
     }
 
@@ -326,7 +327,7 @@ mod tests {
     }
 
     fn vaapi() -> VideoEncoder {
-        VideoEncoder::Vaapi { device: "/dev/dri/renderD128".to_owned() }
+        VideoEncoder::Vaapi { device: "/dev/dri/renderD128".to_owned(), tone_map: false }
     }
 
     #[tokio::test]
@@ -337,22 +338,16 @@ mod tests {
         benchmark.start(target()).unwrap();
         let status = finished(&benchmark).await;
 
-        let runs: Vec<(usize, u64, bool)> =
-            status.runs.iter().map(|run| (run.segment, run.start_ms, run.hardware)).collect();
-        assert_eq!(
-            runs,
-            [
-                (6, 24_000, true),
-                (6, 24_000, false),
-                (12, 48_000, true),
-                (12, 48_000, false),
-                (18, 72_000, true),
-                (18, 72_000, false)
-            ]
-        );
+        let runs: Vec<(usize, u64, BenchmarkEncoder)> =
+            status.runs.iter().map(|run| (run.segment, run.start_ms, run.encoder)).collect();
+        let at = |segment: usize, start_ms: u64| {
+            [BenchmarkEncoder::Vaapi, BenchmarkEncoder::VaapiEncode, BenchmarkEncoder::Software]
+                .map(|encoder| (segment, start_ms, encoder))
+        };
+        assert_eq!(runs, [at(6, 24_000), at(12, 48_000), at(18, 72_000)].concat());
         assert!(status.runs.iter().all(|run| run.outcome == BenchmarkOutcome::Ok));
         assert!(status.runs.iter().all(|run| run.duration_ms == 12_000));
-        assert_eq!(status.total, 6);
+        assert_eq!(status.total, 9);
         assert!(status.finished_at.is_some());
         assert!(!scratch.path().join("bench").exists(), "the scratch folder is removed");
     }
@@ -377,15 +372,36 @@ mod tests {
         };
         let expected = build_run_args(&spec, &vaapi(), window, 0.0, &out.to_string_lossy(), None);
         assert_eq!(calls[0], expected);
-        let filter = calls[1].iter().skip_while(|arg| *arg != "-vf").nth(1).unwrap();
+        let encode_only = VideoEncoder::VaapiEncode { device: "/dev/dri/renderD128".to_owned() };
+        let out = scratch.path().join("run_6_vaapi-encode");
+        let expected =
+            build_run_args(&spec, &encode_only, window, 0.0, &out.to_string_lossy(), None);
+        assert_eq!(calls[1], expected);
+        let filter = calls[2].iter().skip_while(|arg| *arg != "-vf").nth(1).unwrap();
         assert!(
             filter.starts_with("trim=start=25.400000:end=37.400000,scale=-2:1080,"),
             "{filter}"
         );
         assert!(filter.contains("tonemap"), "{filter}");
-        assert!(calls[1].contains(&"libx264".to_owned()));
-        assert!(calls[1].contains(&"0:1".to_owned()), "the first audio track is mapped");
-        assert!(!calls[1].contains(&"-readrate".to_owned()));
+        assert!(calls[2].contains(&"libx264".to_owned()));
+        assert!(calls[2].contains(&"0:1".to_owned()), "the first audio track is mapped");
+        assert!(!calls[2].contains(&"-readrate".to_owned()));
+    }
+
+    async fn first_seek(keyframes_us: Option<Vec<u64>>) -> Option<String> {
+        let scratch = tempfile::tempdir().unwrap();
+        let benchmark = bench(Recorder::default(), VideoEncoder::Software, RUN_CAP, scratch.path());
+        benchmark.start(BenchmarkTarget { keyframes_us, ..target() }).unwrap();
+        finished(&benchmark).await;
+        let calls = benchmark.inner.spawner.calls.lock().unwrap().clone();
+        calls[0].iter().skip_while(|arg| *arg != "-ss").nth(1).cloned()
+    }
+
+    #[tokio::test]
+    async fn a_run_decodes_from_the_stored_keyframe_before_its_start() {
+        let keyframes = vec![0, 20_000_000, 23_500_000, 30_000_000];
+        assert_eq!(first_seek(Some(keyframes)).await.as_deref(), Some("23.499000"));
+        assert_eq!(first_seek(None).await.as_deref(), Some("13.999000"));
     }
 
     #[tokio::test]
@@ -397,7 +413,7 @@ mod tests {
         let status = finished(&benchmark).await;
 
         assert_eq!(status.total, 3);
-        assert!(status.runs.iter().all(|run| !run.hardware));
+        assert!(status.runs.iter().all(|run| run.encoder == BenchmarkEncoder::Software));
     }
 
     #[tokio::test]
@@ -409,11 +425,11 @@ mod tests {
         benchmark.start(target()).unwrap();
         let status = finished(&benchmark).await;
 
-        assert_eq!(
-            status.runs[0].outcome,
-            BenchmarkOutcome::Failed { detail: "No usable encoding entrypoint".to_owned() }
-        );
-        assert_eq!(status.runs[1].outcome, BenchmarkOutcome::Ok);
+        let failed =
+            BenchmarkOutcome::Failed { detail: "No usable encoding entrypoint".to_owned() };
+        assert_eq!(status.runs[0].outcome, failed);
+        assert_eq!(status.runs[1].outcome, failed);
+        assert_eq!(status.runs[2].outcome, BenchmarkOutcome::Ok);
     }
 
     #[tokio::test]

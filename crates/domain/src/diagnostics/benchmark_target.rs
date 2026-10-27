@@ -11,10 +11,11 @@ pub struct BenchmarkTarget {
     pub height: Option<u32>,
     pub hdr: Option<HdrFormat>,
     pub audio_track: Option<u32>,
+    pub keyframes_us: Option<Vec<u64>>,
 }
 
 impl BenchmarkTarget {
-    pub fn of(detail: &VersionDetail) -> Self {
+    pub fn of(detail: &VersionDetail, keyframes_us: Option<Vec<u64>>) -> Self {
         let video = detail.video.first();
         Self {
             version: detail.version.id.clone(),
@@ -25,6 +26,7 @@ impl BenchmarkTarget {
             height: video.map(|track| track.height),
             hdr: video.and_then(|track| track.hdr),
             audio_track: detail.audio.first().map(|track| track.index),
+            keyframes_us: keyframes_us.filter(|keyframes| !keyframes.is_empty()),
         }
     }
 }

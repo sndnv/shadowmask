@@ -25,7 +25,7 @@ impl From<BenchmarkRun> for BenchmarkRunResult {
             segment: run.segment,
             start_ms: run.start_ms,
             duration_ms: run.duration_ms,
-            encoder: if run.hardware { "vaapi" } else { "software" },
+            encoder: run.encoder.as_str(),
             outcome,
             elapsed_ms: run.elapsed_ms,
             realtime: (realtime * 100.0).round() / 100.0,

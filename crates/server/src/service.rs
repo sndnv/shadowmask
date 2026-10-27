@@ -381,6 +381,7 @@ impl Runtime {
             &config.vaapi_device.to_string_lossy(),
             vaapi_present,
         );
+        let streaming = config.streaming_encoder(vaapi_device.clone());
         let download_secret = config.stream_secret.clone().into_bytes();
         let transcription_mode = config.enrichment.transcription.mode;
         let translation_mode = config.enrichment.translation.mode;
@@ -445,7 +446,7 @@ impl Runtime {
             upscaling_enabled: config.enrichment.upscaling.enabled,
             content_fetch_enabled: config.fetch_providers.enabled,
             fetch_cookies_file: config.fetch_providers.cookies_file.clone(),
-            vaapi_device: vaapi_device.clone(),
+            encoder: streaming.clone(),
             remux_read_rate: config.remux_read_rate,
             stream_start_timeout,
             max_transcode_height: config.max_transcode_height,
@@ -511,7 +512,7 @@ impl Runtime {
                     diagnostics,
                     SegmentBenchmark::new(
                         config.transcode_cache.join("benchmark"),
-                        VideoEncoder::from_device(vaapi_device.clone()),
+                        streaming,
                         config.max_transcode_height,
                     ),
                     repos.catalog.clone(),

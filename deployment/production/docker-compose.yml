@@ -133,6 +133,9 @@ services:
       # vaapi. Uncomment the devices block below to give the container the GPU.
       # SHADOWMASK_HARDWARE_ACCELERATION: "auto"
       # SHADOWMASK_VAAPI_DEVICE: "/dev/dri/renderD128"
+      # With VAAPI: decode and scale on the GPU too (false: encode only), and tone map HDR10 there.
+      # SHADOWMASK_HARDWARE_DECODING: "true"
+      # SHADOWMASK_HARDWARE_TONE_MAPPING: "false"
 
       # --- Optional local AI (enrichment) ---
       # Needs the -enrichment image above and CTranslate2 models mounted at /models (see

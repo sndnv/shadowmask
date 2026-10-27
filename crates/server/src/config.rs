@@ -8,6 +8,7 @@ use domain::common::LanguageCode;
 use domain::diagnostics::AccelerationMode;
 use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
+use media::transcode::VideoEncoder;
 use serde::{Deserialize, Serialize};
 
 use crate::bootstrap::BootstrapMode;
@@ -298,6 +299,8 @@ pub struct Config {
     pub cors_allowed_origins: Vec<String>,
     pub hardware_acceleration: HardwareAccelerationMode,
     pub vaapi_device: PathBuf,
+    pub hardware_decoding: bool,
+    pub hardware_tone_mapping: bool,
     pub profile_overrides_dir: Option<PathBuf>,
     pub enrichment: EnrichmentConfig,
     pub fetch_providers: FetchProvidersConfig,
@@ -360,6 +363,8 @@ impl Default for Config {
             cors_allowed_origins: Vec::new(),
             hardware_acceleration: HardwareAccelerationMode::default(),
             vaapi_device: PathBuf::from("/dev/dri/renderD128"),
+            hardware_decoding: true,
+            hardware_tone_mapping: false,
             profile_overrides_dir: None,
             enrichment: EnrichmentConfig::default(),
             fetch_providers: FetchProvidersConfig::default(),
@@ -463,6 +468,14 @@ impl Config {
         limit(self.request_timeout_secs)
     }
 
+    pub fn streaming_encoder(&self, device: Option<String>) -> VideoEncoder {
+        if self.hardware_tone_mapping && !self.hardware_decoding {
+            #[rustfmt::skip]
+            tracing::warn!("hardware_tone_mapping has no effect while hardware_decoding is off; HDR is tone mapped on the CPU");
+        }
+        VideoEncoder::for_streaming(device, self.hardware_decoding, self.hardware_tone_mapping)
+    }
+
     pub fn describe(&self, yt_dlp_version: Option<&str>) -> String {
         use std::fmt::Write as _;
         let provided = |value: &str| {
@@ -528,6 +541,8 @@ impl Config {
         let _ = writeln!(out, "  transcoding:");
         let _ = writeln!(out, "    hardware_acceleration: {:?}", self.hardware_acceleration);
         let _ = writeln!(out, "    vaapi_device:          {}", self.vaapi_device.display());
+        let _ = writeln!(out, "    hardware_decoding:     {}", self.hardware_decoding);
+        let _ = writeln!(out, "    hardware_tone_mapping: {}", self.hardware_tone_mapping);
         let start_timeout = limit_text(self.stream_start_timeout_secs);
         let _ = writeln!(out, "    stream_start_timeout:  {start_timeout}");
         let _ = writeln!(out, "  metadata:");
@@ -659,6 +674,7 @@ fn trim_key(key: Option<String>) -> Option<String> {
 mod tests {
     use super::*;
     use crate::enrichment::FeatureMode;
+    use tracing_test::traced_test;
 
     #[test]
     #[allow(clippy::result_large_err)]
@@ -673,6 +689,25 @@ mod tests {
             );
             assert_eq!(config.trickplay_threads, 2);
             assert!(config.trickplay_keyframes_only);
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn the_gpu_decodes_and_the_cpu_tone_maps_unless_configured() {
+        figment::Jail::expect_with(|jail| {
+            let config = Config::load().unwrap().config;
+            assert!(config.hardware_decoding);
+            assert!(!config.hardware_tone_mapping);
+            let described = config.describe(None);
+            assert!(described.contains("hardware_decoding:     true"), "{described}");
+            assert!(described.contains("hardware_tone_mapping: false"), "{described}");
+            jail.set_env("SHADOWMASK_HARDWARE_DECODING", "false");
+            jail.set_env("SHADOWMASK_HARDWARE_TONE_MAPPING", "true");
+            let config = Config::load().unwrap().config;
+            assert!(!config.hardware_decoding);
+            assert!(config.hardware_tone_mapping);
             Ok(())
         });
     }
@@ -1085,6 +1120,8 @@ mod tests {
             "SHADOWMASK_JOB_POOLS_TRICKPLAY_CONCURRENCY",
             "SHADOWMASK_JOB_POOLS_MY_POOL_KINDS",
             "SHADOWMASK_HARDWARE_ACCELERATION",
+            "SHADOWMASK_HARDWARE_DECODING",
+            "SHADOWMASK_HARDWARE_TONE_MAPPING",
         ];
         let vars = named.iter().map(|name| (OsString::from(*name), OsString::from("x")));
 
@@ -1497,6 +1534,28 @@ mod tests {
             resolve_vaapi_device(HardwareAccelerationMode::Off, "/dev/dri/renderD128", true),
             None
         );
+    }
+
+    #[traced_test]
+    #[test]
+    fn streaming_uses_both_gpu_settings_and_says_when_one_cannot_apply() {
+        let device = || Some("/dev/dri/renderD128".to_owned());
+        let with = |hardware_decoding, hardware_tone_mapping| Config {
+            hardware_decoding,
+            hardware_tone_mapping,
+            ..Config::default()
+        };
+        let gpu = |tone_map| VideoEncoder::Vaapi { device: device().unwrap(), tone_map };
+        let encode_only = VideoEncoder::VaapiEncode { device: device().unwrap() };
+
+        assert_eq!(with(true, false).streaming_encoder(device()), gpu(false));
+        assert_eq!(with(true, true).streaming_encoder(device()), gpu(true));
+        assert_eq!(with(false, false).streaming_encoder(device()), encode_only);
+        assert!(!logs_contain("hardware_tone_mapping has no effect"));
+        assert_eq!(with(true, true).streaming_encoder(None), VideoEncoder::Software);
+
+        assert_eq!(with(false, true).streaming_encoder(device()), encode_only);
+        assert!(logs_contain("hardware_tone_mapping has no effect while hardware_decoding is off"));
     }
 
     #[test]

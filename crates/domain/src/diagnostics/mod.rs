@@ -1,4 +1,5 @@
 mod acceleration_mode;
+mod benchmark_encoder;
 mod benchmark_outcome;
 mod benchmark_run;
 mod benchmark_status;
@@ -25,6 +26,7 @@ mod server_log_store;
 mod transcode_benchmark;
 
 pub use acceleration_mode::AccelerationMode;
+pub use benchmark_encoder::BenchmarkEncoder;
 pub use benchmark_outcome::BenchmarkOutcome;
 pub use benchmark_run::BenchmarkRun;
 pub use benchmark_status::BenchmarkStatus;
