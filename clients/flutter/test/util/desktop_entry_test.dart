@@ -36,6 +36,20 @@ void main() {
   DesktopEntry entryFor(String appImage) =>
       DesktopEntry(appImage: appImage, appDir: appDir, dataHome: dataHome);
 
+  Future<String> download(String version) async {
+    final File file = File(
+      p.join(
+        root.path,
+        'downloads',
+        'shadowmask-client-linux-$version.AppImage',
+      ),
+    );
+    await file.parent.create(recursive: true);
+    await file.writeAsString('AppImage $version');
+    await Process.run('chmod', <String>['755', file.path]);
+    return file.path;
+  }
+
   group('fromEnvironment', () {
     test('needs both the AppImage path and its mount', () {
       int reads = 0;
@@ -132,19 +146,31 @@ void main() {
     });
   });
 
-  test('adding writes the launcher entry and every icon size', () async {
-    final DesktopEntry entry = entryFor('/opt/apps/shadowmask.AppImage');
+  test('adding copies the AppImage, then writes the launcher entry for the '
+      'copy and every icon size', () async {
+    final String downloaded = await download('v0.0.7');
+    final DesktopEntry entry = entryFor(downloaded);
 
     expect(await entry.installed(), isFalse);
 
     await entry.add();
 
     expect(await entry.installed(), isTrue);
+    final File copy = entry.installedAppImage;
+    expect(copy.path, p.join(dataHome, 'shadowmask', 'shadowmask.AppImage'));
+    expect(await copy.readAsString(), 'AppImage v0.0.7');
+    expect((await copy.stat()).modeString(), 'rwxr-xr-x');
+    expect(await File('${copy.path}.part').exists(), isFalse);
     expect(
       entry.entryFile.path,
       p.join(dataHome, 'applications', 'io.github.sndnv.shadowmask.desktop'),
     );
     expect(await entry.entryFile.readAsString(), entry.entryText);
+    expect(
+      (await entry.entryFile.readAsString()).split('\n'),
+      containsAll(<String>['Exec="${copy.path}"', 'TryExec=${copy.path}']),
+      reason: 'the download can be deleted or replaced by the next release',
+    );
     expect(
       (await entry.entryFile.readAsString()).split('\n'),
       contains('Icon=${entry.iconFile(512).path}'),
@@ -167,44 +193,86 @@ void main() {
     }
   });
 
-  test('removing deletes the entry and the icons', () async {
-    final DesktopEntry entry = entryFor('/opt/apps/shadowmask.AppImage');
+  test('removing deletes the entry, the copy and the icons', () async {
+    final DesktopEntry entry = entryFor(await download('v0.0.7'));
     await entry.add();
 
     await entry.remove();
 
     expect(await entry.installed(), isFalse);
+    expect(await entry.installedAppImage.exists(), isFalse);
     for (final int size in kDesktopIconSizes) {
       expect(await entry.iconFile(size).exists(), isFalse);
     }
   });
 
   test('removing what was never added succeeds', () async {
-    await entryFor('/opt/apps/shadowmask.AppImage').remove();
+    await entryFor(await download('v0.0.7')).remove();
   });
 
   test('adding fails when the mount has no icons', () async {
     await Directory(appDir).delete(recursive: true);
 
     await expectLater(
-      entryFor('/opt/apps/shadowmask.AppImage').add(),
+      entryFor(await download('v0.0.7')).add(),
       throwsA(isA<FileSystemException>()),
     );
   });
 
   group('refresh', () {
-    test('points an added entry at a moved AppImage', () async {
-      await entryFor('/old/shadowmask.AppImage').add();
-      final DesktopEntry moved = entryFor('/new/shadowmask.AppImage');
+    Future<DesktopEntry> fromTheMenu() async {
+      final DesktopEntry added = entryFor(await download('v0.0.7'));
+      await added.add();
+      await File(added.appImage).delete();
+      return entryFor(added.installedAppImage.path);
+    }
 
-      await moved.refresh();
+    test('a downloaded AppImage started by hand replaces the copy', () async {
+      await entryFor(await download('v0.0.7')).add();
+      final DesktopEntry newer = entryFor(await download('v0.0.8'));
 
-      expect(await moved.entryFile.readAsString(), moved.entryText);
+      await newer.refresh();
+
+      expect(await newer.installedAppImage.readAsString(), 'AppImage v0.0.8');
+      expect(await newer.entryFile.readAsString(), newer.entryText);
+    });
+
+    test('an entry from before the copy is moved over to it', () async {
+      final DesktopEntry entry = entryFor(await download('v0.0.6'));
+      await entry.entryFile.parent.create(recursive: true);
+      await entry.entryFile.writeAsString(
+        desktopEntryText(entry.appImage, entry.iconFile(512).path),
+      );
+
+      await entry.refresh();
+
+      expect(await entry.installedAppImage.readAsString(), 'AppImage v0.0.6');
+      expect(await entry.entryFile.readAsString(), entry.entryText);
+    });
+
+    test('starting from the menu copies nothing', () async {
+      final DesktopEntry entry = await fromTheMenu();
+      await entry.iconFile(64).delete();
+
+      await entry.refresh();
+
+      expect(await entry.iconFile(64).exists(), isFalse);
+      expect(await entry.installedAppImage.readAsString(), 'AppImage v0.0.7');
+    });
+
+    test('a link to the copy counts as the copy', () async {
+      final DesktopEntry copy = await fromTheMenu();
+      final Link link = Link(p.join(root.path, 'shadowmask.AppImage'));
+      await link.create(copy.installedAppImage.path);
+      await copy.iconFile(64).delete();
+
+      await entryFor(link.path).refresh();
+
+      expect(await copy.iconFile(64).exists(), isFalse);
     });
 
     test('points an entry that names its icon at the icon file', () async {
-      final DesktopEntry entry = entryFor('/opt/apps/shadowmask.AppImage');
-      await entry.add();
+      final DesktopEntry entry = await fromTheMenu();
       await entry.entryFile.writeAsString(
         entry.entryText.replaceFirst(
           RegExp(r'^Icon=.*$', multiLine: true),
@@ -217,22 +285,13 @@ void main() {
       expect(await entry.entryFile.readAsString(), entry.entryText);
     });
 
-    test('leaves an entry that already points here alone', () async {
-      final DesktopEntry entry = entryFor('/opt/apps/shadowmask.AppImage');
-      await entry.add();
-      await entry.iconFile(64).delete();
-
-      await entry.refresh();
-
-      expect(await entry.iconFile(64).exists(), isFalse);
-    });
-
     test('adds nothing when the entry was never added', () async {
-      final DesktopEntry entry = entryFor('/opt/apps/shadowmask.AppImage');
+      final DesktopEntry entry = entryFor(await download('v0.0.7'));
 
       await entry.refresh();
 
       expect(await entry.installed(), isFalse);
+      expect(await entry.installedAppImage.exists(), isFalse);
       expect(await entry.iconFile(64).exists(), isFalse);
     });
   });

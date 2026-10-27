@@ -9,6 +9,8 @@ const String kDesktopEntryId = 'io.github.sndnv.shadowmask';
 const String kBundledIconName = 'shadowmask';
 const List<int> kDesktopIconSizes = <int>[64, 128, 256, 512];
 const int kEntryIconSize = 512;
+const String kInstallDirectory = 'shadowmask';
+const String kInstalledAppImage = 'shadowmask.AppImage';
 
 class DesktopEntry {
   const DesktopEntry({
@@ -42,6 +44,11 @@ class DesktopEntry {
   File get entryFile =>
       File(p.join(dataHome, 'applications', '$kDesktopEntryId.desktop'));
 
+  File get installedAppImage =>
+      File(p.join(dataHome, kInstallDirectory, kInstalledAppImage));
+
+  File get _partialAppImage => File('${installedAppImage.path}.part');
+
   File iconFile(int size) => File(
     p.join(dataHome, 'icons', _hicolor(size), 'apps', '$kDesktopEntryId.png'),
   );
@@ -61,9 +68,23 @@ class DesktopEntry {
   Future<bool> installed() => entryFile.exists();
 
   String get entryText =>
-      desktopEntryText(appImage, iconFile(kEntryIconSize).path);
+      desktopEntryText(installedAppImage.path, iconFile(kEntryIconSize).path);
+
+  Future<bool> _runsFromCopy() async {
+    final File copy = installedAppImage;
+    if (!await copy.exists()) {
+      return false;
+    }
+    return await File(appImage).resolveSymbolicLinks() ==
+        await copy.resolveSymbolicLinks();
+  }
 
   Future<void> add() async {
+    if (!await _runsFromCopy()) {
+      await installedAppImage.parent.create(recursive: true);
+      await File(appImage).copy(_partialAppImage.path);
+      await _partialAppImage.rename(installedAppImage.path);
+    }
     for (final int size in kDesktopIconSizes) {
       final File icon = iconFile(size);
       await icon.parent.create(recursive: true);
@@ -76,6 +97,8 @@ class DesktopEntry {
   Future<void> remove() async {
     for (final File file in <File>[
       entryFile,
+      installedAppImage,
+      _partialAppImage,
       for (final int size in kDesktopIconSizes) iconFile(size),
     ]) {
       if (await file.exists()) {
@@ -85,7 +108,10 @@ class DesktopEntry {
   }
 
   Future<void> refresh() async {
-    if (await installed() && await entryFile.readAsString() != entryText) {
+    if (!await installed()) {
+      return;
+    }
+    if (!await _runsFromCopy() || await entryFile.readAsString() != entryText) {
       await add();
     }
   }
@@ -129,7 +155,7 @@ DesktopEntry? currentDesktopEntry() => Platform.isLinux
 Future<void> refreshDesktopEntry() async {
   try {
     await currentDesktopEntry()?.refresh();
-  } on Exception {
-    return;
+  } on Exception catch (error) {
+    stderr.writeln('Could not update the applications menu entry: $error');
   }
 }
