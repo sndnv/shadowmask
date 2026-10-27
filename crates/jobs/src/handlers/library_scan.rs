@@ -493,6 +493,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         };
         let id = LibraryId("lib".into());
 

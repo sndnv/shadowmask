@@ -88,6 +88,14 @@ function BuildStringTable() as object
         "help.diagnostics": "Show technical detail about what is playing, on top of the video. Useful when reporting a problem with playback.",
         "help.highContrast": "Stronger borders and full-strength secondary text.",
         "help.overscanSafeMenu": "Moves the menu in from the screen edges, for TVs that crop the picture.",
+        "help.childModeOff": "Off. Every title this account may see is shown.",
+        "help.childModeYoungest": "Shows only titles rated for all ages. Unrated titles still show.",
+        "help.childModeOn": "Shows what {article} {age}-year-old may watch: titles rated {age}+ or lower. Unrated titles still show.",
+        "childMode.viewerAge": "Viewer's age",
+        "childMode.off": "Off",
+        "childMode.under": "Under {age}",
+        "childMode.range": "{from} to {to}",
+        "childMode.andOver": "{age} and over",
         "confirm.watchSeries": "Mark every episode in this series as watched?",
         "confirm.unwatchSeries": "Mark every episode in this series as unwatched?",
         "confirm.watchSeason": "Mark every episode in this season as watched?",
@@ -155,6 +163,8 @@ function BuildStringTable() as object
         "toast.ok.reportSent": "Report sent.",
         "toast.ok.historyCleared": "History cleared.",
         "toast.ok.updated": "Updated {title}.",
+        "toast.ok.childModeOn": "Child mode: {level}.",
+        "toast.ok.childModeOff": "Child mode off.",
         "toast.err.actionFailed": "That did not work. Try again.",
         "toast.err.reportFailed": "Could not send the report.",
 
@@ -339,6 +349,7 @@ function BuildStringTable() as object
         "heading.library": "Library",
         "heading.profile": "Profile",
         "heading.playback": "Playback",
+        "heading.childMode": "Child mode",
         "heading.playbackSupport": "Playback support",
         "heading.appearance": "Appearance",
         "heading.server": "Server",
@@ -461,6 +472,42 @@ function ThemeOptions() as object
         options.Push({ value: name, label: ThemeLabel(name) })
     end for
     return options
+end function
+
+function ChildModeLabel(age as integer) as string
+    if age < 0 then return Phrase("childMode.off")
+
+    ages = ChildModeAges()
+    nextAge = -1
+    for index = 0 to ages.Count() - 2
+        if ages[index] = age then nextAge = ages[index + 1]
+    end for
+
+    if age = 0 then return PhraseWith("childMode.under", { age: nextAge })
+    if nextAge < 0 then return PhraseWith("childMode.andOver", { age: age })
+    return PhraseWith("childMode.range", { from: age, to: nextAge - 1 })
+end function
+
+function ChildModeOptions() as object
+    options = [{ value: -1, label: ChildModeLabel(-1) }]
+    for each age in ChildModeAges()
+        options.Push({ value: age, label: ChildModeLabel(age) })
+    end for
+    return options
+end function
+
+function ChildModeHint(age as integer) as string
+    if age < 0 then return Phrase("help.childModeOff")
+    if age = 0 then return Phrase("help.childModeYoungest")
+
+    article = "a"
+    if age = 8 or age = 11 or age = 18 then article = "an"
+    return PhraseWith("help.childModeOn", { article: article, age: age })
+end function
+
+function ChildModeToast(age as integer) as string
+    if age < 0 then return Phrase("toast.ok.childModeOff")
+    return PhraseWith("toast.ok.childModeOn", { level: LCase(ChildModeLabel(age)) })
 end function
 
 function PhraseWith(key as string, values as object) as string

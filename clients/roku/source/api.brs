@@ -121,6 +121,34 @@ function BuildRequest(base as string, path as string, method = "GET" as string, 
     return request
 end function
 
+function ChildModeAges() as object
+    return [0, 8, 13, 17]
+end function
+
+function ValidChildAge(value as dynamic) as integer
+    text = NumberText(value)
+    wanted = Int(Val(text))
+    if wanted.ToStr() <> text or wanted < 0 then return -1
+
+    found = -1
+    for each age in ChildModeAges()
+        if age <= wanted then found = age
+    end for
+    return found
+end function
+
+function ChildAgeOf(shared as dynamic) as integer
+    if shared = invalid then return -1
+    if not shared.HasField("childAge") then return -1
+    return ValidChildAge(shared.childAge)
+end function
+
+function WithChildMode(request as object, age as integer) as object
+    if age < 0 then return request
+    request.headers["Prefer"] = "safe; age=" + age.ToStr()
+    return request
+end function
+
 function ProbeRequest(base as string) as object
     request = BuildRequest(base, "/server/info")
     request.timeout = ProbeTimeoutSeconds()

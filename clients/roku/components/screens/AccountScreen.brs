@@ -7,6 +7,7 @@ sub init()
         { id: "emptyLibrary", focus: "libraryNote" },
         { id: "profileSection", focus: "supportActions" },
         { id: "playbackSection", focus: "deliveryActions" },
+        { id: "childModeSection", focus: "childModeActions" },
         { id: "appearanceSection", focus: "themeCards" },
         { id: "serverSection", focus: "serverActions" },
         { id: "sessionSection", focus: "sessionActions" },
@@ -48,6 +49,11 @@ sub init()
     m.diagnosticsName = m.top.FindNode("diagnosticsName")
     m.diagnosticsActions = m.top.FindNode("diagnosticsActions")
     m.diagnosticsHelp = m.top.FindNode("diagnosticsHelp")
+    m.childModePanel = m.top.FindNode("childModePanel")
+    m.childModeHeading = m.top.FindNode("childModeHeading")
+    m.childModeName = m.top.FindNode("childModeName")
+    m.childModeActions = m.top.FindNode("childModeActions")
+    m.childModeHelp = m.top.FindNode("childModeHelp")
     m.appearanceHeading = m.top.FindNode("appearanceHeading")
     m.themeCards = m.top.FindNode("themeCards")
     m.contrastName = m.top.FindNode("contrastName")
@@ -88,6 +94,7 @@ sub init()
     m.autoplayActions.ObserveField("activated", "onPlaybackAction")
     m.timeDisplayActions.ObserveField("activated", "onPlaybackAction")
     m.diagnosticsActions.ObserveField("activated", "onPlaybackAction")
+    m.childModeActions.ObserveField("activated", "onChildModeAction")
     m.themeCards.ObserveField("activated", "onThemePick")
     m.contrastBar.ObserveField("activated", "onContrastToggle")
     m.navInsetBar.ObserveField("activated", "onNavInsetToggle")
@@ -199,7 +206,7 @@ sub Layout()
     theme = m.top.theme
     if theme = invalid or theme.Count() = 0 then return
 
-    for each id in ["watchlistRail", "favoritesRail", "historyRail", "emptyLibrary", "profileSection", "playbackSection", "appearanceSection", "serverSection", "sessionSection", "aboutSection"]
+    for each id in ["watchlistRail", "favoritesRail", "historyRail", "emptyLibrary", "profileSection", "playbackSection", "childModeSection", "appearanceSection", "serverSection", "sessionSection", "aboutSection"]
         HideSection(id)
     end for
 
@@ -273,6 +280,7 @@ sub LayoutProfile(theme as object)
     ShowSection("profileSection", content + pad * 2)
 
     ShowSection("playbackSection", DrawPanelBlock(theme, m.playbackPanel, "playback"))
+    ShowSection("childModeSection", DrawPanelBlock(theme, m.childModePanel, "childMode"))
     ShowSection("appearanceSection", DrawPanelBlock(theme, m.appearancePanel, "appearance"))
     ShowSection("serverSection", DrawPanelBlock(theme, m.serverPanel, "server"))
     ShowSection("sessionSection", DrawPanelBlock(theme, m.sessionPanel, "session"))
@@ -285,6 +293,8 @@ function DrawPanelBlock(theme as object, panel as object, which as string) as in
 
     if which = "playback"
         height = DrawPlayback(theme, inner, pad, pad)
+    else if which = "childMode"
+        height = DrawChildMode(theme, inner, pad, pad)
     else if which = "appearance"
         height = DrawAppearance(theme, inner, pad, pad)
     else if which = "server"
@@ -497,6 +507,28 @@ function PlaybackRows() as object
             value: OnOrOff(ReadDiagnostics()),
             on: ReadDiagnostics(),
             hint: Phrase("help.diagnostics")
+        }
+    ]
+end function
+
+function DrawChildMode(theme as object, width as integer, at as integer, top as integer) as integer
+    offset = top + DrawBlockHeading(m.childModeHeading, theme, Phrase("heading.childMode"), width, at, top)
+
+    return offset - top + DrawSettingRows(theme, ChildModeRows(), width, at, offset)
+end function
+
+function ChildModeRows() as object
+    age = ReadChildAge()
+    return [
+        {
+            name: m.childModeName,
+            bar: m.childModeActions,
+            help: m.childModeHelp,
+            rule: invalid,
+            id: "childMode",
+            label: Phrase("childMode.viewerAge"),
+            value: ChildModeLabel(age),
+            hint: ChildModeHint(age)
         }
     ]
 end function
@@ -824,6 +856,19 @@ sub onPlaybackAction(event as object)
     Layout()
 end sub
 
+sub onChildModeAction()
+    RequestPlaybackChoice("childMode", Phrase("heading.childMode"), ChildModeOptions(), ReadChildAge())
+end sub
+
+sub StoreChildAge(age as integer)
+    if age = ReadChildAge() then return
+
+    WriteChildAge(age)
+    m.global.childAge = age
+    RaiseToast("ok", ChildModeToast(age))
+    m.top.advance = "reset:HomeScreen"
+end sub
+
 sub RequestPlaybackChoice(field as string, title as string, options as object, current as dynamic)
     m.playbackChoices = options
 
@@ -1052,6 +1097,13 @@ sub onChoice()
 
         WriteRemainingTime(ChosenPlaybackValue(result) = 1)
         Layout()
+        return
+    end if
+
+    if field = "childMode"
+        if type(m.playbackChoices) <> "roArray" then return
+
+        StoreChildAge(ChosenPlaybackValue(result))
         return
     end if
 

@@ -69,11 +69,12 @@ end sub
 sub PublishSession()
     shared = m.global
     if not shared.HasField("serverUrl")
-        shared.AddFields({ serverUrl: "", token: "", userId: "", username: "", role: "", accountRole: "", theme: {}, backdropUrl: "", decoding: {}, profileVersion: 0, negotiated: {}, lowMemory: 0, captionMode: "", sessionId: "", endsQueued: 0, endsDone: 0, deepLink: {} })
+        shared.AddFields({ serverUrl: "", token: "", userId: "", username: "", role: "", accountRole: "", theme: {}, backdropUrl: "", decoding: {}, profileVersion: 0, negotiated: {}, lowMemory: 0, captionMode: "", sessionId: "", endsQueued: 0, endsDone: 0, deepLink: {}, childAge: -1 })
     end if
 
     shared.serverUrl = ReadServerUrl()
     shared.token = ReadToken()
+    shared.childAge = ReadChildAge()
 
     device = DeviceInfo()
     if device <> invalid then shared.captionMode = device.GetCaptionsMode()

@@ -1,9 +1,11 @@
+mod audience;
 mod continue_watching_item;
 mod hub;
 mod search;
 mod search_kind;
 mod search_result;
 
+pub use audience::Audience;
 pub use continue_watching_item::ContinueWatchingItem;
 pub use hub::{Hub, HubItem};
 pub use search::search;

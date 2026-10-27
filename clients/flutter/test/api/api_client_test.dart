@@ -727,4 +727,31 @@ void main() {
       },
     );
   });
+
+  test('child mode sends its age with every request until it is off', () async {
+    final List<String?> seen = <String?>[];
+    final ApiClient api = _client(
+      MockClient((http.Request req) async {
+        seen.add(req.headers['Prefer']);
+        return http.Response('{}', 200);
+      }),
+    );
+
+    await api.getJson('/api/v1/movies', (Map<String, dynamic> json) => json);
+    api.childAge = 12;
+    await api.getJson('/api/v1/movies', (Map<String, dynamic> json) => json);
+    await api.sendVoid('PUT', '/api/v1/progress', body: <String, int>{});
+    api.childAge = 0;
+    await api.getJson('/api/v1/movies', (Map<String, dynamic> json) => json);
+    api.childAge = null;
+    await api.getJson('/api/v1/movies', (Map<String, dynamic> json) => json);
+
+    expect(seen, <String?>[
+      null,
+      'safe; age=12',
+      'safe; age=12',
+      'safe; age=0',
+      null,
+    ]);
+  });
 }

@@ -24,6 +24,7 @@ const HEARTBEAT_INTERVAL_S: u32 = 10;
 struct State {
     sessions: HashMap<SessionId, PlaybackSession>,
     concurrent_limit: Option<usize>,
+    start_age_limits: Vec<Option<u8>>,
 }
 
 #[derive(Clone, Default)]
@@ -40,6 +41,10 @@ impl MockSessionService {
 
     pub fn set_concurrent_limit(&self, limit: usize) {
         self.state.lock().unwrap().concurrent_limit = Some(limit);
+    }
+
+    pub fn start_age_limits(&self) -> Vec<Option<u8>> {
+        self.state.lock().unwrap().start_age_limits.clone()
     }
 
     pub fn hold_next_end(&self) -> Hold {
@@ -79,6 +84,7 @@ impl SessionService for MockSessionService {
     ) -> Result<SessionStarted, SessionError> {
         let user = &caller.user;
         let mut state = self.state.lock().unwrap();
+        state.start_age_limits.push(caller.age_limit);
         if let Some(limit) = state.concurrent_limit {
             let active: Vec<PlaybackSession> =
                 state.sessions.values().filter(|s| &s.user == user).cloned().collect();
@@ -252,6 +258,7 @@ mod tests {
             role: Role::User,
             account_admin: false,
             device: None,
+            age_limit: None,
         }
     }
 
@@ -292,6 +299,14 @@ mod tests {
         let active = svc.active_sessions(&principal("u1"), page()).await.unwrap();
         assert_eq!(active.total, 1);
         assert_eq!(active.items[0].mode, DeliveryMode::Direct);
+    }
+
+    #[tokio::test]
+    async fn start_records_each_callers_age_limit() {
+        let (svc, _) = started_session().await;
+        let child = Principal { age_limit: Some(12), ..principal("u2") };
+        svc.start(&child, start_request()).await.unwrap();
+        assert_eq!(svc.start_age_limits(), [None, Some(12)]);
     }
 
     #[tokio::test]

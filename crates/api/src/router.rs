@@ -26,7 +26,7 @@ use crate::handlers::{
     play_on, report, server, server_log, sessions, stream, subtitle, trickplay, user_library,
     users, version, webhook,
 };
-use crate::middleware::{jwt, timed_out, track_stream_bytes};
+use crate::middleware::{PREFER, jwt, timed_out, track_stream_bytes};
 use crate::state::{
     AppServices, DiagnosticsState, DownloadState, ImageState, JobLogState, MaintenanceState,
     PlayOnState, ReportState, ServerLogState, StreamState, SubtitleSearchState, SubtitleState,
@@ -376,7 +376,13 @@ pub fn cors_layer(origins: &[String]) -> CorsLayer {
     CorsLayer::new()
         .allow_origin(AllowOrigin::list(allowed))
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT, header::RANGE])
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::ACCEPT,
+            header::RANGE,
+            PREFER,
+        ])
         .expose_headers([
             header::CONTENT_LENGTH,
             header::CONTENT_RANGE,
@@ -549,6 +555,26 @@ mod cors_tests {
             response.headers().get("access-control-allow-methods").unwrap().to_str().unwrap();
         assert!(methods.contains("POST"));
         assert!(methods.contains("DELETE"));
+    }
+
+    #[tokio::test]
+    async fn a_preflight_allows_the_prefer_header() {
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/api/v1/ping")
+                    .header("origin", "http://localhost:8080")
+                    .header("access-control-request-method", "GET")
+                    .header("access-control-request-headers", "authorization, prefer")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let allowed =
+            response.headers().get("access-control-allow-headers").unwrap().to_str().unwrap();
+        assert!(allowed.contains("prefer"));
     }
 
     #[tokio::test]

@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use domain::catalog::{Version, VersionDetail, VersionId};
+use domain::catalog::{TitleId, Version, VersionDetail, VersionId};
 use domain::error::RepositoryError;
+use domain::metadata::ContentRating;
 use domain::repository::VersionCatalog;
 
 use crate::hold::{Hold, NextHold};
@@ -14,6 +15,7 @@ pub const PREPARED_KEYFRAMES: [u64; 3] = [0, 4_000_000, 8_000_000];
 pub struct MockVersionCatalog {
     versions: Arc<Mutex<HashMap<VersionId, VersionDetail>>>,
     keyframes: Arc<Mutex<HashMap<VersionId, Vec<u64>>>>,
+    ratings: Arc<Mutex<HashMap<TitleId, ContentRating>>>,
     fail: Arc<AtomicBool>,
     detail_lookups: Arc<AtomicUsize>,
     version_hold: NextHold,
@@ -35,6 +37,10 @@ impl MockVersionCatalog {
             Some(keyframes) => stored.insert(id.clone(), keyframes),
             None => stored.remove(id),
         };
+    }
+
+    pub fn set_rating(&self, title: TitleId, rating: ContentRating) {
+        self.ratings.lock().unwrap().insert(title, rating);
     }
 
     pub fn remove(&self, id: &VersionId) {
@@ -82,6 +88,14 @@ impl VersionCatalog for MockVersionCatalog {
     async fn keyframes_us(&self, id: &VersionId) -> Result<Option<Vec<u64>>, RepositoryError> {
         self.guard()?;
         Ok(self.keyframes.lock().unwrap().get(id).cloned())
+    }
+
+    async fn title_rating(
+        &self,
+        title: &TitleId,
+    ) -> Result<Option<ContentRating>, RepositoryError> {
+        self.guard()?;
+        Ok(self.ratings.lock().unwrap().get(title).cloned())
     }
 }
 
@@ -136,6 +150,21 @@ mod tests {
         catalog.set_fail();
         assert!(catalog.version_detail(&VersionId("v1".into())).await.is_err());
         assert!(catalog.keyframes_us(&VersionId("v1".into())).await.is_err());
+        assert!(catalog.title_rating(&TitleId::Movie(MovieId("m1".into()))).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_set_rating_is_reported_for_its_title_only() {
+        let catalog = MockVersionCatalog::new();
+        let rated = TitleId::Movie(MovieId("m1".into()));
+        let rating = ContentRating { system: "mpaa".into(), code: "r".into() };
+        catalog.set_rating(rated.clone(), rating.clone());
+
+        assert_eq!(catalog.title_rating(&rated).await.unwrap(), Some(rating));
+        assert_eq!(
+            catalog.title_rating(&TitleId::Movie(MovieId("m2".into()))).await.unwrap(),
+            None
+        );
     }
 
     #[tokio::test]

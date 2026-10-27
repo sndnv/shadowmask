@@ -2,7 +2,7 @@ function SendRequest(request as object, callback as string) as object
     task = CreateObject("roSGNode", "HttpTask")
     task.ObserveField("response", "onRequestFinished")
     task.ObserveField("response", callback)
-    task.request = request
+    task.request = WithChildMode(request, ChildAgeOf(m.global))
 
     m.httpQueue = QueuedRequests(m.httpQueue, task)
     DrainRequests()

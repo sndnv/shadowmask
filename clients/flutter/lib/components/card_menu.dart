@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/components/admin/confirm_dialog.dart';
-import 'package:shadowmask/components/browser_menu.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
@@ -207,19 +206,13 @@ Future<void> showCardMenu(
     }
   }
 
-  final CardAction? chosen;
-  BrowserMenu.suppress();
-  try {
-    chosen = await showMenu<CardAction>(
-      context: context,
-      position: menuPositionAt(at, MediaQuery.sizeOf(context)),
-      items: cardMenuEntries(state, dismissible: dismissible),
-      constraints: const BoxConstraints.tightFor(width: kCardMenuWidth),
-      popUpAnimationStyle: AnimationStyle.noAnimation,
-    );
-  } finally {
-    BrowserMenu.restore();
-  }
+  final CardAction? chosen = await showMenu<CardAction>(
+    context: context,
+    position: menuPositionAt(at, MediaQuery.sizeOf(context)),
+    items: cardMenuEntries(state, dismissible: dismissible),
+    constraints: const BoxConstraints.tightFor(width: kCardMenuWidth),
+    popUpAnimationStyle: AnimationStyle.noAnimation,
+  );
   if (chosen == null || !context.mounted) {
     return;
   }

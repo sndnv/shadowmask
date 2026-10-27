@@ -11,7 +11,7 @@ use domain::common::{Page, PageRequest};
 use domain::error::CatalogError;
 use domain::library::LibraryId;
 use domain::metadata::{ArtworkKind, Genre, Person, PersonId};
-use domain::repository::{CatalogRepository, UserRepository};
+use domain::repository::{CatalogRepository, UserRepository, VersionCatalog};
 use domain::service::CatalogService;
 use domain::user::Principal;
 use jiff::Timestamp;
@@ -40,7 +40,7 @@ impl<C, U> CatalogServiceImpl<C, U> {
 
 impl<C, U> CatalogServiceImpl<C, U>
 where
-    C: CatalogRepository + Sync,
+    C: CatalogRepository + Send + Sync,
     U: UserRepository + Sync,
 {
     async fn sorted_members(&self, members: &[MovieId]) -> Result<Vec<MovieId>, CatalogError> {
@@ -49,7 +49,37 @@ where
     }
 
     async fn viewer(&self, caller: &Principal) -> Result<acl::Viewer, CatalogError> {
-        Ok(acl::viewer(&self.users, &caller.user).await?)
+        Ok(acl::viewer(&self.users, &caller.user).await?.limited_to(caller.age_limit))
+    }
+
+    async fn visible_members(
+        &self,
+        viewer: &acl::Viewer,
+        members: &[MovieId],
+    ) -> Result<HashMap<MovieId, Movie>, CatalogError> {
+        let movies = self.catalog.visible_movies(members, &viewer.filter(None)).await?;
+        Ok(movies.into_iter().map(|movie| (movie.id.clone(), movie)).collect())
+    }
+
+    async fn visible_collection(
+        &self,
+        viewer: &acl::Viewer,
+        id: &CollectionId,
+    ) -> Result<CollectionDetail, CatalogError> {
+        let mut collection =
+            self.catalog.get_collection(id).await?.ok_or(CatalogError::NotFound)?;
+        let mut visible = self.visible_members(viewer, &collection.movies).await?;
+        if !collection.movies.is_empty() && visible.is_empty() {
+            return Err(CatalogError::NotFound);
+        }
+        collection.movies.retain(|movie| visible.contains_key(movie));
+        let movies: Vec<Movie> =
+            collection.movies.iter().filter_map(|movie| visible.remove(movie)).collect();
+        if collection.artwork.is_empty() {
+            collection.artwork =
+                movies.iter().take(MOSAIC_TILES).filter_map(collection_poster).collect();
+        }
+        Ok(CollectionDetail { collection, movies })
     }
 
     async fn title_names(
@@ -122,15 +152,27 @@ where
 
 impl<C, U> CatalogService for CatalogServiceImpl<C, U>
 where
-    C: CatalogRepository + Sync,
+    C: CatalogRepository + Send + Sync,
     U: UserRepository + Sync,
 {
     async fn collections(
         &self,
-        _caller: &Principal,
+        caller: &Principal,
         page: PageRequest,
     ) -> Result<Page<Collection>, CatalogError> {
-        let mut page = self.catalog.list_collections(page).await?;
+        let viewer = self.viewer(caller).await?;
+        let all = self.catalog.list_collections(PageRequest::ALL).await?.items;
+        let members: Vec<MovieId> = all.iter().flat_map(|c| c.movies.iter().cloned()).collect();
+        let visible = self.visible_members(&viewer, &members).await?;
+        let shown: Vec<Collection> = all
+            .into_iter()
+            .filter_map(|mut collection| {
+                let had_members = !collection.movies.is_empty();
+                collection.movies.retain(|movie| visible.contains_key(movie));
+                (!had_members || !collection.movies.is_empty()).then_some(collection)
+            })
+            .collect();
+        let mut page = paginate(&shown, page);
         for collection in page.items.iter_mut() {
             if collection.artwork.is_empty() {
                 collection.artwork = self.collection_mosaic_art(&collection.movies).await?;
@@ -141,17 +183,10 @@ where
 
     async fn collection(
         &self,
-        _caller: &Principal,
+        caller: &Principal,
         id: &CollectionId,
     ) -> Result<CollectionDetail, CatalogError> {
-        let mut collection =
-            self.catalog.get_collection(id).await?.ok_or(CatalogError::NotFound)?;
-        let movies = self.catalog.movies_by_ids(&collection.movies).await?;
-        if collection.artwork.is_empty() {
-            collection.artwork =
-                movies.iter().take(MOSAIC_TILES).filter_map(collection_poster).collect();
-        }
-        Ok(CollectionDetail { collection, movies })
+        self.visible_collection(&self.viewer(caller).await?, id).await
     }
 
     async fn movie_collections(
@@ -159,10 +194,14 @@ where
         caller: &Principal,
         movie: &MovieId,
     ) -> Result<Vec<CollectionDetail>, CatalogError> {
+        let viewer = self.viewer(caller).await?;
+        if self.visible_members(&viewer, std::slice::from_ref(movie)).await?.is_empty() {
+            return Ok(Vec::new());
+        }
         let ids = self.catalog.collections_of_movie(movie).await?;
         let mut found = Vec::with_capacity(ids.len());
         for id in &ids {
-            found.push(self.collection(caller, id).await?);
+            found.push(self.visible_collection(&viewer, id).await?);
         }
         found.sort_by(|a, b| {
             a.collection
@@ -195,17 +234,24 @@ where
 
     async fn update_collection(
         &self,
-        _caller: &Principal,
+        caller: &Principal,
         id: &CollectionId,
         update: CollectionUpdate,
     ) -> Result<Collection, CatalogError> {
-        self.catalog.get_collection(id).await?.ok_or(CatalogError::NotFound)?;
+        let existing = self.catalog.get_collection(id).await?.ok_or(CatalogError::NotFound)?;
+        let visible = self.visible_members(&self.viewer(caller).await?, &existing.movies).await?;
+        let hidden: Vec<MovieId> = existing
+            .movies
+            .into_iter()
+            .filter(|movie| !visible.contains_key(movie) && !update.movies.contains(movie))
+            .collect();
+        let members: Vec<MovieId> = update.movies.into_iter().chain(hidden).collect();
         let now = Timestamp::now();
         let collection = Collection {
             id: id.clone(),
             name: update.name,
             overview: update.overview,
-            movies: self.sorted_members(&update.movies).await?,
+            movies: self.sorted_members(&members).await?,
             added_at: now,
             updated_at: now,
             artwork: Vec::new(),
@@ -342,6 +388,9 @@ where
         page: PageRequest,
     ) -> Result<Page<Version>, CatalogError> {
         let viewer = self.viewer(caller).await?;
+        if !viewer.permits(self.catalog.title_rating(title).await?.as_ref()) {
+            return Err(CatalogError::NotFound);
+        }
         let filtered: Vec<Version> = self
             .catalog
             .list_versions(title, PageRequest::ALL)
@@ -404,6 +453,20 @@ where
     ) -> Result<VersionDetail, CatalogError> {
         let detail = self.catalog.version_detail(id).await?.ok_or(CatalogError::NotFound)?;
         if !self.viewer(caller).await?.sees_library(&detail.version.library) {
+            return Err(CatalogError::NotFound);
+        }
+        Ok(detail)
+    }
+
+    async fn watchable_version(
+        &self,
+        caller: &Principal,
+        id: &VersionId,
+    ) -> Result<VersionDetail, CatalogError> {
+        let detail = self.catalog.version_detail(id).await?.ok_or(CatalogError::NotFound)?;
+        let viewer = self.viewer(caller).await?;
+        let rating = self.catalog.title_rating(&detail.version.title).await?;
+        if !viewer.sees_library(&detail.version.library) || !viewer.permits(rating.as_ref()) {
             return Err(CatalogError::NotFound);
         }
         Ok(detail)
@@ -612,6 +675,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         }
     }
 
@@ -621,6 +685,7 @@ mod tests {
             role: Role::User,
             account_admin: false,
             device: None,
+            age_limit: None,
         }
     }
 
@@ -922,6 +987,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         };
 
         assert_eq!(svc.movies(&stranger, &query(), page()).await.unwrap().total, 0);
@@ -1068,6 +1134,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         };
         let found = svc.all_versions(&half, &version_filter("shows"), page()).await.unwrap();
         assert_eq!(found.total, 0);
@@ -1107,6 +1174,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         };
         assert_eq!(
             svc.all_versions(&stranger, &VersionFilter::default(), page()).await.unwrap().total,
@@ -1406,6 +1474,7 @@ mod tests {
         is_repository_error!(svc.library_versions(&admin(), &library, page()));
         is_repository_error!(svc.all_versions(&admin(), &VersionFilter::default(), page()));
         is_repository_error!(svc.version(&admin(), &version));
+        is_repository_error!(svc.watchable_version(&admin(), &version));
         is_repository_error!(svc.people_cards(&admin(), std::slice::from_ref(&person)));
         is_repository_error!(svc.person(&admin(), &person));
         is_repository_error!(svc.genres(&admin(), None));
@@ -1554,6 +1623,189 @@ mod tests {
         assert!(episode.series_title.is_none());
         assert!(episode.season_number.is_none());
         assert!(episode.season_title.is_none());
+
+        for unrated in ["e9", "nobody"] {
+            let title = TitleId::Episode(EpisodeId(unrated.into()));
+            assert_eq!(svc.versions(&member(), &title, page()).await.unwrap().total, 0);
+        }
+    }
+
+    fn titled(id: &str, title: TitleId, lib: &str) -> Version {
+        Version { title, ..version(id, lib) }
+    }
+
+    fn granted_admin() -> MockUserRepo {
+        let users = MockUserRepo::new();
+        users.grant(&UserId("admin".into()), &[LibraryId("lib1".into())]);
+        users
+    }
+
+    async fn collected() -> CatalogServiceImpl<MockCatalogRepo, MockUserRepo> {
+        let svc = seeded().await;
+        svc.catalog.add_movie(movie("m3", Some("R")));
+        svc.catalog.add_version(titled("v3", TitleId::Movie(MovieId("m3".into())), "lib1"));
+        svc.catalog.add_movie(movie("m4", Some("G")));
+        svc.catalog.add_version(titled("v4", TitleId::Movie(MovieId("m4".into())), "lib2"));
+        let sets: [(&str, &[&str]); 4] = [
+            ("c-mixed", &["m1", "m3"]),
+            ("c-rated", &["m3"]),
+            ("c-elsewhere", &["m4"]),
+            ("c-empty", &[]),
+        ];
+        for (id, members) in sets {
+            svc.catalog.add_collection(Collection {
+                id: CollectionId(id.into()),
+                name: id.into(),
+                overview: None,
+                movies: members.iter().map(|movie| MovieId((*movie).into())).collect(),
+                added_at: Timestamp::UNIX_EPOCH,
+                updated_at: Timestamp::UNIX_EPOCH,
+                artwork: Vec::new(),
+            });
+        }
+        svc
+    }
+
+    fn collection_ids(page: &Page<Collection>) -> Vec<&str> {
+        let mut ids: Vec<&str> = page.items.iter().map(|c| c.id.0.as_str()).collect();
+        ids.sort();
+        ids
+    }
+
+    fn member_ids(collection: &Collection) -> Vec<&str> {
+        let mut ids: Vec<&str> = collection.movies.iter().map(|movie| movie.0.as_str()).collect();
+        ids.sort();
+        ids
+    }
+
+    fn limited(principal: Principal, age: u8) -> Principal {
+        Principal { age_limit: Some(age), ..principal }
+    }
+
+    #[tokio::test]
+    async fn collections_keep_to_the_cap_and_the_grants() {
+        let svc = collected().await;
+
+        let listed = svc.collections(&member(), page()).await.unwrap();
+        assert_eq!(collection_ids(&listed), ["c-empty", "c-mixed"]);
+        assert_eq!(listed.total, 2);
+        let mixed = listed.items.iter().find(|c| c.id.0 == "c-mixed").unwrap();
+        assert_eq!(member_ids(mixed), ["m1"]);
+
+        assert_eq!(svc.collections(&admin(), page()).await.unwrap().total, 4);
+        let child = svc.collections(&limited(admin(), 12), page()).await.unwrap();
+        assert_eq!(collection_ids(&child), ["c-elsewhere", "c-empty"]);
+
+        let first = svc.collections(&member(), PageRequest { offset: 0, limit: 1 }).await.unwrap();
+        assert_eq!((first.items.len(), first.total), (1, 2));
+    }
+
+    #[tokio::test]
+    async fn a_collection_and_a_movies_collections_show_only_what_the_viewer_may_see() {
+        let svc = collected().await;
+
+        let detail = svc.collection(&member(), &CollectionId("c-mixed".into())).await.unwrap();
+        assert_eq!(member_ids(&detail.collection), ["m1"]);
+        assert_eq!(detail.movies.iter().map(|m| m.id.0.as_str()).collect::<Vec<_>>(), ["m1"]);
+        for hidden in ["c-rated", "c-elsewhere"] {
+            assert!(matches!(
+                svc.collection(&member(), &CollectionId(hidden.into())).await.unwrap_err(),
+                CatalogError::NotFound
+            ));
+        }
+        assert!(svc.collection(&member(), &CollectionId("c-empty".into())).await.is_ok());
+        let full = svc.collection(&admin(), &CollectionId("c-mixed".into())).await.unwrap();
+        assert_eq!(member_ids(&full.collection), ["m1", "m3"]);
+
+        let of_m1 = svc.movie_collections(&member(), &MovieId("m1".into())).await.unwrap();
+        assert_eq!(of_m1.len(), 1);
+        assert_eq!(member_ids(&of_m1[0].collection), ["m1"]);
+        assert!(svc.movie_collections(&member(), &MovieId("m3".into())).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn saving_a_collection_keeps_the_members_the_editor_cannot_see() {
+        let svc = collected().await;
+        let id = CollectionId("c-mixed".into());
+        let update = |movies: Vec<MovieId>| CollectionUpdate {
+            name: "Mixed".into(),
+            overview: None,
+            movies,
+        };
+
+        let saved = svc
+            .update_collection(&limited(admin(), 16), &id, update(vec![MovieId("m1".into())]))
+            .await
+            .unwrap();
+        assert_eq!(member_ids(&saved), ["m1", "m3"]);
+
+        let cleared = svc.update_collection(&admin(), &id, update(Vec::new())).await.unwrap();
+        assert!(cleared.movies.is_empty());
+    }
+
+    #[tokio::test]
+    async fn versions_of_a_title_above_the_cap_are_not_found() {
+        let svc = seeded().await;
+        let m1 = TitleId::Movie(MovieId("m1".into()));
+        let m3 = TitleId::Movie(MovieId("m3".into()));
+        let e1 = TitleId::Episode(EpisodeId("e1".into()));
+        svc.catalog.add_movie(movie("m3", Some("R")));
+        svc.catalog.add_version(titled("v3", m3.clone(), "lib1"));
+        svc.catalog.add_version(titled("ev1", e1.clone(), "lib1"));
+        let child = limited(admin(), 12);
+
+        for title in [&m3, &e1] {
+            for refused in [member(), child.clone()] {
+                assert!(matches!(
+                    svc.versions(&refused, title, page()).await.unwrap_err(),
+                    CatalogError::NotFound
+                ));
+            }
+            assert_eq!(svc.versions(&admin(), title, page()).await.unwrap().total, 1);
+        }
+        assert!(svc.versions(&child, &m1, page()).await.is_err());
+        assert_eq!(svc.versions(&member(), &m1, page()).await.unwrap().total, 1);
+    }
+
+    #[tokio::test]
+    async fn a_watchable_version_keeps_to_the_grants_the_cap_and_the_age() {
+        let svc = seeded().await;
+        svc.catalog.add_movie(movie("m3", Some("R")));
+        svc.catalog.add_version(titled("v3", TitleId::Movie(MovieId("m3".into())), "lib1"));
+        svc.catalog.add_version(titled("ev1", TitleId::Episode(EpisodeId("e1".into())), "lib1"));
+
+        for (caller, id) in [(member(), "v1"), (admin(), "v3"), (limited(admin(), 13), "v1")] {
+            let detail = svc.watchable_version(&caller, &VersionId(id.into())).await.unwrap();
+            assert_eq!(detail.version.id.0, id);
+        }
+        for (caller, id) in [
+            (member(), "v2"),
+            (member(), "v3"),
+            (member(), "ev1"),
+            (limited(admin(), 12), "v1"),
+            (limited(admin(), 16), "v3"),
+            (admin(), "x"),
+        ] {
+            assert!(
+                matches!(
+                    svc.watchable_version(&caller, &VersionId(id.into())).await.unwrap_err(),
+                    CatalogError::NotFound
+                ),
+                "{id}"
+            );
+        }
+        assert!(svc.version(&member(), &VersionId("v3".into())).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_device_limit_narrows_every_account_and_never_lifts_a_cap() {
+        let svc = seeded().await;
+        let child = limited(admin(), 12);
+
+        assert_eq!(svc.movies(&admin(), &query(), page()).await.unwrap().total, 1);
+        assert_eq!(svc.movies(&child, &query(), page()).await.unwrap().total, 0);
+        assert!(svc.movie(&child, &MovieId("m1".into())).await.is_err());
+        assert!(svc.movie(&limited(member(), 18), &MovieId("m2".into())).await.is_err());
     }
 
     #[tokio::test]
@@ -1561,6 +1813,8 @@ mod tests {
         let catalog = MockCatalogRepo::new();
         catalog.add_movie(movie("m1", None));
         catalog.add_movie(movie("m2", None));
+        catalog.add_version(version("v1", "lib1"));
+        catalog.add_version(titled("v2", TitleId::Movie(MovieId("m2".into())), "lib1"));
         for id in ["m1", "m2"] {
             catalog
                 .set_artwork(
@@ -1586,7 +1840,7 @@ mod tests {
             })
             .await
             .unwrap();
-        let svc = CatalogServiceImpl::new(catalog, MockUserRepo::new());
+        let svc = CatalogServiceImpl::new(catalog, granted_admin());
 
         let listed = svc.collections(&admin(), page()).await.unwrap();
         assert_eq!(listed.items[0].artwork.len(), 2);
@@ -1613,7 +1867,9 @@ mod tests {
                 .await
                 .unwrap();
         }
-        let svc = CatalogServiceImpl::new(catalog, MockUserRepo::new());
+        catalog.add_movie(movie("m1", None));
+        catalog.add_version(version("v1", "lib1"));
+        let svc = CatalogServiceImpl::new(catalog, granted_admin());
 
         let found = svc.movie_collections(&admin(), &MovieId("m1".into())).await.unwrap();
         assert_eq!(

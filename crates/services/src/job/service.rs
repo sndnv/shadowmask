@@ -224,6 +224,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         }
     }
 
@@ -233,6 +234,7 @@ mod tests {
             role: Role::User,
             account_admin: false,
             device: None,
+            age_limit: None,
         }
     }
 
@@ -675,6 +677,7 @@ mod tests {
             role: Role::Player,
             account_admin,
             device: None,
+            age_limit: None,
         };
 
         assert!(svc().version_jobs(&device(true), &v1).await.unwrap().is_empty());

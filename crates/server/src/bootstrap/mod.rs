@@ -22,6 +22,7 @@ pub(crate) fn bootstrap_admin() -> Principal {
         role: Role::Admin,
         account_admin: true,
         device: None,
+        age_limit: None,
     }
 }
 

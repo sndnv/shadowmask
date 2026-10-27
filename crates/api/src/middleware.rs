@@ -2,17 +2,21 @@ use std::time::Instant;
 
 use axum::body::Body;
 use axum::extract::{MatchedPath, Request, State};
-use axum::http::Method;
-use axum::http::header::AUTHORIZATION;
+use axum::http::header::{AUTHORIZATION, VARY};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, Method};
 use axum::middleware::Next;
 use axum::response::Response;
 use http_body_util::BodyExt;
 use tracing::warn;
 
+use domain::metadata::ContentRating;
 use domain::service::AuthService;
 
 use crate::error::ApiError;
 use crate::state::AppServices;
+
+pub const PREFER: HeaderName = HeaderName::from_static("prefer");
+pub const PREFERENCE_APPLIED: HeaderName = HeaderName::from_static("preference-applied");
 
 pub async fn jwt<S>(
     State(state): State<S>,
@@ -23,9 +27,43 @@ where
     S: AppServices,
 {
     let token = bearer(&request).ok_or_else(|| ApiError::unauthorized("missing bearer token"))?;
-    let principal = state.auth().authenticate(&token).await?;
+    let mut principal = state.auth().authenticate(&token).await?;
+    principal.age_limit = age_limit(request.headers())?;
+    let limited = principal.age_limit.is_some();
     request.extensions_mut().insert(principal);
-    Ok(next.run(request).await)
+    let mut response = next.run(request).await;
+    response.headers_mut().append(VARY, HeaderValue::from_static("Prefer"));
+    if limited {
+        response.headers_mut().insert(PREFERENCE_APPLIED, HeaderValue::from_static("safe"));
+    }
+    Ok(response)
+}
+
+fn age_limit(headers: &HeaderMap) -> Result<Option<u8>, ApiError> {
+    let lines: Vec<_> = headers
+        .get_all(PREFER)
+        .iter()
+        .map(|value| String::from_utf8_lossy(value.as_bytes()))
+        .collect();
+    let mut preferences = lines.iter().flat_map(|line| line.split(','));
+    let Some(safe) = preferences.find(|preference| {
+        preference
+            .split([';', '='])
+            .next()
+            .is_some_and(|name| name.trim().eq_ignore_ascii_case("safe"))
+    }) else {
+        return Ok(None);
+    };
+    let age = safe.split(';').skip(1).find_map(|parameter| {
+        let (name, value) = parameter.split_once('=')?;
+        name.trim().eq_ignore_ascii_case("age").then(|| value.trim().trim_matches('"'))
+    });
+    let Some(age) = age else {
+        return Ok(Some(0));
+    };
+    age.parse::<u8>().ok().filter(|age| *age <= ContentRating::OLDEST_AGE).map(Some).ok_or_else(
+        || ApiError::bad_request("Prefer: safe takes an age from 0 to 18, such as age=12"),
+    )
 }
 
 fn bearer(request: &Request) -> Option<String> {
@@ -238,6 +276,56 @@ mod tests {
             drop(response);
         });
         assert!(!rendered.contains("stream_bytes_sent_total"));
+    }
+
+    fn prefer(values: &[&str]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for value in values {
+            headers.append(PREFER, HeaderValue::from_str(value).unwrap());
+        }
+        headers
+    }
+
+    #[test]
+    fn no_safe_preference_sets_no_limit() {
+        assert_eq!(age_limit(&prefer(&[])).ok(), Some(None));
+        assert_eq!(age_limit(&prefer(&["return=minimal"])).ok(), Some(None));
+        assert_eq!(age_limit(&prefer(&["age=12"])).ok(), Some(None));
+    }
+
+    #[test]
+    fn a_safe_preference_carries_its_age() {
+        let cases = [
+            (vec!["safe; age=12"], 12),
+            (vec!["SAFE ; Age = 0"], 0),
+            (vec!["return=minimal, safe; age=\"16\""], 16),
+            (vec!["return=minimal", "safe;age=6"], 6),
+            (vec!["safe; age=6, safe; age=16"], 6),
+            (vec!["safe; age=18"], 18),
+            (vec!["safe=1; age=12"], 12),
+            (vec!["safe=\"\"; age=12"], 12),
+            (vec!["safe = yes ;age=8"], 8),
+            (vec!["note=\"café\", safe; age=12"], 12),
+        ];
+        for (values, expected) in cases {
+            assert_eq!(age_limit(&prefer(&values)).ok(), Some(Some(expected)), "{values:?}");
+        }
+    }
+
+    #[test]
+    fn a_safe_preference_without_an_age_limits_to_the_youngest() {
+        for value in ["safe", "Safe", "safe; level=1", "safe; age", "safe=1", "safe=\"\""] {
+            assert_eq!(age_limit(&prefer(&[value])).ok(), Some(Some(0)), "{value}");
+        }
+    }
+
+    #[test]
+    fn a_safe_preference_with_an_age_outside_0_to_18_is_refused() {
+        for value in
+            ["safe; age=19", "safe; age=-1", "safe; age=twelve", "safe; age=", "safe=1; age=256"]
+        {
+            assert!(age_limit(&prefer(&[value])).is_err(), "{value}");
+        }
     }
 
     #[test]

@@ -786,6 +786,172 @@ async fn the_catalog_routes_enforce_library_access_and_the_rating_cap() {
     assert_eq!(status, StatusCode::NOT_FOUND, "the detail route must gate on the cap too");
 }
 
+struct Preferred {
+    status: StatusCode,
+    applied: Option<String>,
+    vary: Vec<String>,
+    body: Value,
+}
+
+async fn send_preferring(ctx: &Ctx, mut request: Request<Body>, prefer: Option<&str>) -> Preferred {
+    if let Some(prefer) = prefer {
+        request.headers_mut().insert("prefer", prefer.parse().unwrap());
+    }
+    let response = ctx.app().oneshot(request).await.unwrap();
+    let status = response.status();
+    let applied = response
+        .headers()
+        .get("preference-applied")
+        .map(|value| value.to_str().unwrap().to_owned());
+    let vary = response
+        .headers()
+        .get_all(header::VARY)
+        .iter()
+        .map(|value| value.to_str().unwrap().to_owned())
+        .collect();
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    Preferred { status, applied, vary, body }
+}
+
+async fn call_preferring(ctx: &Ctx, uri: &str, token: &str, prefer: Option<&str>) -> Preferred {
+    send_preferring(ctx, request(Method::GET, uri, Some(token), None), prefer).await
+}
+
+fn item_ids(body: &Value) -> Vec<&str> {
+    body["items"].as_array().unwrap().iter().map(|item| item["id"].as_str().unwrap()).collect()
+}
+
+fn hub_ids(body: &Value) -> Vec<&str> {
+    body.as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|hub| hub["items"].as_array().unwrap())
+        .map(|item| item["id"].as_str().unwrap())
+        .collect()
+}
+
+fn in_progress_versions(body: &Value) -> Vec<&str> {
+    body["in_progress"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["progress"]["version_id"].as_str().unwrap())
+        .collect()
+}
+
+#[tokio::test]
+async fn a_safe_preference_limits_what_the_request_reaches_and_says_so() {
+    let ctx = Ctx::new();
+    ctx.grant("u1", &["lib1"]);
+    ctx.catalog_repo.add_movie(movie("m1"));
+    ctx.catalog_repo.add_movie(Movie {
+        content_rating: Some(ContentRating { system: "MPAA".into(), code: "R".into() }),
+        ..movie("m2")
+    });
+    for (id, title) in [("v1", "m1"), ("v2", "m2")] {
+        let title = TitleId::Movie(MovieId(title.into()));
+        ctx.catalog_repo.add_version(version(id, title, "lib1", Quality::Hd));
+    }
+    let child = Some("safe; age=16");
+
+    let open = call_preferring(&ctx, "/api/v1/movies", USER, None).await;
+    assert_eq!((open.status, open.applied), (StatusCode::OK, None));
+    assert_eq!(open.vary, ["Prefer"]);
+    assert_eq!(item_ids(&open.body), ["m1", "m2"]);
+
+    let limited = call_preferring(&ctx, "/api/v1/movies", USER, child).await;
+    assert_eq!((limited.status, limited.applied.as_deref()), (StatusCode::OK, Some("safe")));
+    assert_eq!(limited.vary, ["Prefer"]);
+    assert_eq!(item_ids(&limited.body), ["m1"]);
+
+    let admin = call_preferring(&ctx, "/api/v1/movies", ADMIN, child).await;
+    assert_eq!(item_ids(&admin.body), ["m1"], "the limit holds for an admin's device too");
+
+    let versions = call_preferring(&ctx, "/api/v1/movies/m2/versions", USER, child).await;
+    assert_eq!(versions.status, StatusCode::NOT_FOUND);
+
+    let youngest = call_preferring(&ctx, "/api/v1/movies", USER, Some("safe")).await;
+    assert_eq!((youngest.status, youngest.applied.as_deref()), (StatusCode::OK, Some("safe")));
+    assert!(item_ids(&youngest.body).is_empty());
+
+    let refused = call_preferring(&ctx, "/api/v1/movies", USER, Some("safe; age=19")).await;
+    assert_eq!((refused.status, refused.applied), (StatusCode::BAD_REQUEST, None));
+}
+
+#[tokio::test]
+async fn a_safe_preference_reaches_search_home_continue_collections_and_sessions() {
+    let ctx = Ctx::new();
+    ctx.grant("u1", &["lib1"]);
+    ctx.catalog_repo.add_movie(movie("m1"));
+    ctx.catalog_repo.add_movie(Movie {
+        content_rating: Some(ContentRating { system: "MPAA".into(), code: "R".into() }),
+        ..movie("m2")
+    });
+    for (id, title) in [("v1", "m1"), ("v2", "m2")] {
+        let title = TitleId::Movie(MovieId(title.into()));
+        ctx.catalog_repo.add_version(version(id, title, "lib1", Quality::Hd));
+    }
+    ctx.catalog_repo.add_collection(Collection {
+        id: CollectionId("c2".into()),
+        name: "Rated".into(),
+        overview: None,
+        movies: vec![MovieId("m2".into())],
+        artwork: Vec::new(),
+        added_at: Timestamp::UNIX_EPOCH,
+        updated_at: Timestamp::UNIX_EPOCH,
+    });
+    ctx.progress_repo.seed_progress(PlaybackProgress {
+        user: UserId("u1".into()),
+        version: VersionId("v2".into()),
+        position_ms: 200,
+        audio_track: None,
+        subtitle: None,
+        updated_at: Timestamp::now(),
+    });
+    let child = Some("safe; age=16");
+    let r = ContentRating { system: "mpaa".into(), code: "r".into() };
+
+    call_preferring(&ctx, "/api/v1/search?q=alpha", USER, None).await;
+    assert!(ctx.search_index.last_filter().unwrap().blocked_ratings.is_empty());
+    let search = call_preferring(&ctx, "/api/v1/search?q=alpha", USER, child).await;
+    assert_eq!(search.status, StatusCode::OK);
+    assert!(ctx.search_index.last_filter().unwrap().blocked_ratings.contains(&r));
+
+    let hub = call_preferring(&ctx, "/api/v1/users/u1/hub", USER, None).await;
+    assert!(hub_ids(&hub.body).contains(&"m2"));
+    let hub = call_preferring(&ctx, "/api/v1/users/u1/hub", USER, child).await;
+    assert_eq!(hub.status, StatusCode::OK);
+    assert!(!hub_ids(&hub.body).contains(&"m2"));
+
+    let open = call_preferring(&ctx, "/api/v1/users/u1/continue", USER, None).await;
+    assert_eq!(in_progress_versions(&open.body), ["v2"]);
+    let limited = call_preferring(&ctx, "/api/v1/users/u1/continue", USER, child).await;
+    assert_eq!(limited.status, StatusCode::OK);
+    assert!(in_progress_versions(&limited.body).is_empty());
+
+    let open = call_preferring(&ctx, "/api/v1/movies/collections", USER, None).await;
+    assert_eq!(item_ids(&open.body), ["c2"]);
+    let limited = call_preferring(&ctx, "/api/v1/movies/collections", USER, child).await;
+    assert_eq!(limited.status, StatusCode::OK);
+    assert!(item_ids(&limited.body).is_empty());
+
+    let start = json!({
+        "version_id": "v1",
+        "capabilities": {"platform": "web", "profile_version": 1, "max_bitrate": null},
+        "audio_track": null,
+        "subtitle": null
+    });
+    let started = send_preferring(
+        &ctx,
+        request(Method::POST, "/api/v1/sessions", Some(USER), Some(start)),
+        child,
+    )
+    .await;
+    assert_eq!(started.status, StatusCode::CREATED);
+    assert_eq!(ctx.session.start_age_limits(), [Some(16)]);
+}
+
 #[tokio::test]
 async fn remote_content_cannot_be_fetched_into_a_local_library() {
     let ctx = Ctx::new();

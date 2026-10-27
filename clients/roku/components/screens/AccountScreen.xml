@@ -84,6 +84,13 @@
                     <ActionBar id="diagnosticsActions" />
                     <Label id="diagnosticsHelp" />
                 </Group>
+                <Group id="childModeSection" visible="false">
+                    <RoundedBox id="childModePanel" />
+                    <Label id="childModeHeading" />
+                    <Label id="childModeName" />
+                    <ActionBar id="childModeActions" />
+                    <Label id="childModeHelp" />
+                </Group>
                 <Group id="appearanceSection" visible="false">
                     <RoundedBox id="appearancePanel" />
                     <Label id="appearanceHeading" />

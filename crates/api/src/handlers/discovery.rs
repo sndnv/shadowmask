@@ -4,9 +4,9 @@ use serde::Deserialize;
 use tracing::debug;
 
 use domain::common::PageRequest;
-use domain::discovery::SearchKind;
+use domain::discovery::{Audience, SearchKind};
 use domain::session::PlaybackSession;
-use domain::user::UserId;
+use domain::user::{Principal, UserId};
 use services::discovery::{drop_resumable, drop_unstarted};
 
 use crate::dto::discovery::{ContinueResponse, HubResponse, SearchResultResponse};
@@ -20,6 +20,10 @@ use crate::state::AppServices;
 
 const DEFAULT_LIMIT: u32 = 50;
 const MAX_LIMIT: u32 = 200;
+
+fn audience(principal: &Principal, user: &UserId) -> Audience {
+    Audience { user: user.clone(), age_limit: principal.age_limit }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct SearchParams {
@@ -50,7 +54,7 @@ pub async fn search<S: AppServices>(
     };
     let results = state
         .discovery()
-        .search(&principal.user, &params.q, &types, page)
+        .search(&audience(&principal, &principal.user), &params.q, &types, page)
         .await
         .map_err(log_fail(actor, "search"))?;
     debug!("User [{actor}] retrieved {} search results", results.items.len());
@@ -65,6 +69,7 @@ pub async fn continue_watching<S: AppServices>(
     let actor = &principal.user.0;
     let target = UserId(user_id);
     require_admin_or_self(&principal, &target)?;
+    let viewing = audience(&principal, &target);
 
     let sessions = state
         .session()
@@ -75,23 +80,23 @@ pub async fn continue_watching<S: AppServices>(
         sessions.items.into_iter().filter(|s| s.user == target).collect();
     let now_playing = state
         .discovery()
-        .now_playing(mine)
+        .now_playing(mine, Some(&viewing))
         .await
         .map_err(log_fail(actor, "retrieve continue data"))?;
     let in_progress = state
         .discovery()
-        .continue_watching(&target)
+        .continue_watching(&viewing)
         .await
         .map_err(log_fail(actor, "retrieve continue data"))?;
     let now_playing = drop_unstarted(drop_resumable(now_playing, &in_progress));
     let next_episodes = state
         .discovery()
-        .next_episodes(&target)
+        .next_episodes(&viewing)
         .await
         .map_err(log_fail(actor, "retrieve continue data"))?;
     let next_movies = state
         .discovery()
-        .next_movies(&target)
+        .next_movies(&viewing)
         .await
         .map_err(log_fail(actor, "retrieve continue data"))?;
 
@@ -114,7 +119,7 @@ pub async fn hub<S: AppServices>(
     require_admin_or_self(&principal, &target)?;
     let hubs = state
         .discovery()
-        .home_hubs(&target)
+        .home_hubs(&audience(&principal, &target))
         .await
         .map_err(log_fail(actor, "retrieve home hubs"))?;
     debug!("User [{actor}] retrieved {} home hubs for user [{}]", hubs.len(), target.0);

@@ -30,6 +30,8 @@ static AGE_TABLE: &[(&str, &str, u8)] = &[
 ];
 
 impl ContentRating {
+    pub const OLDEST_AGE: u8 = 18;
+
     pub fn age_floor(&self) -> Option<u8> {
         let system = self.system.to_ascii_lowercase();
         let code = self.code.to_ascii_lowercase();
@@ -51,12 +53,16 @@ impl ContentRating {
     }
 
     pub fn blocked_by(cap: Option<&ContentRating>) -> Vec<ContentRating> {
-        let Some(cap_floor) = cap.and_then(ContentRating::age_floor) else {
+        Self::blocked_above(cap.and_then(ContentRating::age_floor))
+    }
+
+    pub fn blocked_above(age: Option<u8>) -> Vec<ContentRating> {
+        let Some(age) = age else {
             return Vec::new();
         };
         AGE_TABLE
             .iter()
-            .filter(|entry| entry.2 > cap_floor)
+            .filter(|entry| entry.2 > age)
             .map(|entry| ContentRating { system: entry.0.to_owned(), code: entry.1.to_owned() })
             .collect()
     }
@@ -110,5 +116,16 @@ mod tests {
     fn blocked_by_is_empty_for_absent_or_unknown_cap() {
         assert!(ContentRating::blocked_by(None).is_empty());
         assert!(ContentRating::blocked_by(Some(&rating("XYZ", "42"))).is_empty());
+    }
+
+    #[test]
+    fn blocked_above_lists_every_rating_older_than_the_age() {
+        let blocked = ContentRating::blocked_above(Some(12));
+        assert!(blocked.contains(&rating("mpaa", "pg-13")));
+        assert!(blocked.contains(&rating("de-fsk", "16")));
+        assert!(!blocked.contains(&rating("bbfc", "12a")));
+        assert!(!blocked.contains(&rating("mpaa", "pg")));
+        assert!(ContentRating::blocked_above(Some(ContentRating::OLDEST_AGE)).is_empty());
+        assert!(ContentRating::blocked_above(None).is_empty());
     }
 }

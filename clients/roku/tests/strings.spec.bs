@@ -64,6 +64,36 @@ namespace tests
             m.assertEqual(PhraseWith("status.resumeAt", invalid), "Resume at {percent}%")
         end sub
 
+        @describe("child mode")
+
+        @it("offers off and every age, in order")
+        sub offersEveryAge()
+            labels = []
+            values = []
+            for each option in ChildModeOptions()
+                labels.Push(option.label)
+                values.Push(option.value)
+            end for
+            m.assertEqual(labels, ["Off", "Under 8", "8 to 12", "13 to 16", "17 and over"])
+            m.assertEqual(values, [-1, 0, 8, 13, 17])
+        end sub
+
+        @it("states what each choice shows")
+        sub statesEachChoice()
+            m.assertEqual(ChildModeHint(-1), "Off. Every title this account may see is shown.")
+            m.assertEqual(ChildModeHint(0), "Shows only titles rated for all ages. Unrated titles still show.")
+            m.assertEqual(ChildModeHint(8), "Shows what an 8-year-old may watch: titles rated 8+ or lower. Unrated titles still show.")
+            m.assertEqual(ChildModeHint(13), "Shows what a 13-year-old may watch: titles rated 13+ or lower. Unrated titles still show.")
+        end sub
+
+        @it("confirms the choice in a toast")
+        sub confirmsTheChoice()
+            m.assertEqual(ChildModeToast(13), "Child mode: 13 to 16.")
+            m.assertEqual(ChildModeToast(17), "Child mode: 17 and over.")
+            m.assertEqual(ChildModeToast(0), "Child mode: under 8.")
+            m.assertEqual(ChildModeToast(-1), "Child mode off.")
+        end sub
+
     end class
 
 end namespace

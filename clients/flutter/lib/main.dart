@@ -6,6 +6,8 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/capability_scope.dart';
+import 'package:shadowmask/api/child_mode_scope.dart';
+import 'package:shadowmask/api/child_mode_store.dart';
 import 'package:shadowmask/api/server_probe.dart';
 import 'package:shadowmask/api/server_scope.dart';
 import 'package:shadowmask/api/server_store.dart';
@@ -40,6 +42,9 @@ import 'package:shadowmask/util/window.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (kIsWeb) {
+    await BrowserContextMenu.disableContextMenu();
+  }
   LicenseRegistry.addLicense(
     () => bundledLicenseEntries(bundlePlatform(), rootBundle),
   );
@@ -58,6 +63,8 @@ Future<void> main() async {
   final ClientDecoding? decoding = await measureDecoding();
   const CapabilityOverridesStore capabilityStore = CapabilityOverridesStore();
   final CapabilityOverrides overrides = await capabilityStore.load();
+  const ChildModeStore childModeStore = ChildModeStore();
+  final int? childAge = await childModeStore.load();
   runApp(
     ShadowmaskApp(
       initialServer: stored ?? _resolveApiBase(),
@@ -68,6 +75,8 @@ Future<void> main() async {
       capabilityStore: capabilityStore,
       decoding: decoding,
       initialOverrides: overrides,
+      initialChildAge: childAge,
+      childModeStore: childModeStore,
     ),
   );
 }
@@ -95,6 +104,8 @@ class ShadowmaskApp extends StatefulWidget {
     this.decoding,
     this.initialOverrides = const CapabilityOverrides(),
     this.receivesCommands = _androidApp,
+    this.initialChildAge,
+    this.childModeStore = const ChildModeStore(),
   });
 
   final String? initialServer;
@@ -108,6 +119,8 @@ class ShadowmaskApp extends StatefulWidget {
   final ClientDecoding? decoding;
   final CapabilityOverrides initialOverrides;
   final bool Function() receivesCommands;
+  final int? initialChildAge;
+  final ChildModeStore childModeStore;
 
   @override
   State<ShadowmaskApp> createState() => _ShadowmaskAppState();
@@ -119,7 +132,9 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
   late bool? _highContrast = widget.initialHighContrast;
   late String? _server = widget.initialServer;
   late CapabilityOverrides _overrides = widget.initialOverrides;
-  late ApiClient _api = widget.clientFactory(_server);
+  late int? _childAge = widget.initialChildAge;
+  int _reloads = 0;
+  late ApiClient _api = _clientFor(_server);
   late AppRouter _router = AppRouter(_api);
   GlobalKey<NavigatorState> _navigator = GlobalKey<NavigatorState>();
   late BrowserHistoryProvider _routeInformation = BrowserHistoryProvider();
@@ -182,6 +197,34 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
     widget.capabilityStore.save(overrides);
   }
 
+  ApiClient _clientFor(String? server) =>
+      widget.clientFactory(server)..childAge = _childAge;
+
+  Future<void> _setChildAge(int? age) async {
+    if (age == _childAge) {
+      return;
+    }
+    await widget.childModeStore.save(age);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _childAge = age;
+      _api.childAge = age;
+      _reloads += 1;
+      _navigator = GlobalKey<NavigatorState>();
+      _routeInformation = BrowserHistoryProvider(initialRoute: '/');
+      _history = _historyFor(_navigator);
+    });
+    final GlobalKey<NavigatorState> reloaded = _navigator;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final BuildContext? context = reloaded.currentContext;
+      if (context != null) {
+        Toasts.of(context).success(childModeToast(age));
+      }
+    });
+  }
+
   bool get _needsServer => !kIsWeb && _server == null;
 
   Future<void> _setServer(String address) async {
@@ -192,7 +235,7 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
     }
     setState(() {
       _server = address;
-      _api = widget.clientFactory(address);
+      _api = _clientFor(address);
       _router = AppRouter(_api);
       _navigator = GlobalKey<NavigatorState>();
       _routeInformation = BrowserHistoryProvider();
@@ -224,14 +267,18 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
         setOverrides: _setOverrides,
         child: BackdropScope(
           url: _backdrop,
-          child: kIsWeb
-              ? app
-              : ServerScope(
-                  address: _server,
-                  setAddress: _setServer,
-                  probe: widget.probe,
-                  child: app,
-                ),
+          child: ChildModeScope(
+            age: _childAge,
+            setAge: _setChildAge,
+            child: kIsWeb
+                ? app
+                : ServerScope(
+                    address: _server,
+                    setAddress: _setServer,
+                    probe: widget.probe,
+                    child: app,
+                  ),
+          ),
         ),
       ),
     );
@@ -248,7 +295,7 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
   );
 
   Widget _app() => MaterialApp.router(
-    key: ValueKey<String?>(_server),
+    key: ValueKey<(String?, int)>((_server, _reloads)),
     title: Strings.appTitle,
     debugShowCheckedModeBanner: false,
     theme: buildTheme(_variant, highContrast: _contrast),

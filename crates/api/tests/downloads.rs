@@ -7,14 +7,18 @@ use axum::http::{HeaderMap, Request, StatusCode, header};
 use serde_json::Value;
 use tower::ServiceExt;
 
+use api::middleware::PREFER;
 use api::{AppState, DownloadState, bounded, download_router};
 use contracts::Generator;
 use domain::catalog::{MovieId, TitleId, Version, VersionId};
 use domain::common::Quality;
 use domain::library::LibraryId;
+use domain::metadata::ContentRating;
+use domain::repository::UserRepository;
 use domain::session::{DownloadClaims, DownloadTokens};
+use domain::user::UserId;
 use jiff::Timestamp;
-use mocks::{MockCatalogRepo, MockDownloadTokens};
+use mocks::{MockCatalogRepo, MockDownloadTokens, MockUserRepo};
 
 const USER: &str = "Bearer access:u1";
 const PAYLOAD: &[u8] = b"NOT-REALLY-A-MOVIE-BUT-CLOSE-ENOUGH";
@@ -38,6 +42,7 @@ fn version_at(id: &str, path: &str, available: bool) -> Version {
 struct Harness {
     app: Router,
     tokens: MockDownloadTokens,
+    users: MockUserRepo,
 }
 
 fn harness(extra: &[Version], repo_versions: &[Version]) -> Harness {
@@ -61,7 +66,11 @@ fn harness(extra: &[Version], repo_versions: &[Version]) -> Harness {
     }
     let tokens = MockDownloadTokens::new();
     let app = download_router(state.clone(), DownloadState::new(state, repo, tokens.clone()));
-    Harness { app: bounded(app, Duration::from_secs(60)), tokens }
+    Harness {
+        app: bounded(app, Duration::from_secs(60)),
+        tokens,
+        users: generator.users_repo.clone(),
+    }
 }
 
 fn seeded_file(dir: &Path, name: &str) -> String {
@@ -142,6 +151,36 @@ async fn a_link_for_an_unknown_version_is_not_found() {
         &[(header::AUTHORIZATION, USER)],
     )
     .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_link_keeps_to_the_device_age() {
+    for (prefer, expected) in
+        [("safe; age=12", StatusCode::NOT_FOUND), ("safe; age=13", StatusCode::OK)]
+    {
+        let harness = harness(&[], &[]);
+        let (status, _, _) = send(
+            harness.app,
+            "POST",
+            "/api/v1/versions/v1/download",
+            &[(header::AUTHORIZATION, USER), (PREFER, prefer)],
+        )
+        .await;
+        assert_eq!(status, expected, "{prefer}");
+    }
+}
+
+#[tokio::test]
+async fn a_link_keeps_to_the_account_cap() {
+    let harness = harness(&[], &[]);
+    let mut account = harness.users.get(&UserId("u1".into())).await.unwrap().unwrap();
+    account.max_content_rating = Some(ContentRating { system: "MPAA".into(), code: "PG".into() });
+    harness.users.insert(account);
+
+    let (status, _, _) =
+        send(harness.app, "POST", "/api/v1/versions/v1/download", &[(header::AUTHORIZATION, USER)])
+            .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 

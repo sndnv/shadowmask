@@ -6,4 +6,5 @@ pub struct Principal {
     pub role: Role,
     pub account_admin: bool,
     pub device: Option<DeviceId>,
+    pub age_limit: Option<u8>,
 }

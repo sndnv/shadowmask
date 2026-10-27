@@ -279,6 +279,23 @@ abstract final class Strings {
   static String playOnNoAccess(String name) =>
       '$name has no access to this title.';
   static String sharedDeviceName(String name, String owner) => '$name ($owner)';
+  static const String childModeHeading = 'Child mode';
+  static const String childModeViewerAge = "Viewer's age";
+  static const String childModeOff = 'Off';
+  static String childModeRange(int age, int? next) => switch ((age, next)) {
+    (0, final int next) => 'Under $next',
+    (_, null) => '$age and over',
+    (_, final int next) => '$age to ${next - 1}',
+  };
+  static String childModeStatus(int? age) => switch (age) {
+    null => 'Off. Every title this account may see is shown.',
+    0 => 'Shows only titles rated for all ages. Unrated titles still show.',
+    _ =>
+      'Shows what ${<int>{8, 11, 18}.contains(age) ? 'an' : 'a'} $age-year-old '
+          'may watch: titles rated $age+ or lower. Unrated titles still show.',
+  };
+  static String toastChildMode(String? label) =>
+      label == null ? 'Child mode off.' : 'Child mode: ${label.toLowerCase()}.';
   static const String playOnHeading = 'Play from other devices';
   static const String playOnAllow =
       'Allow other devices to start playback here';
