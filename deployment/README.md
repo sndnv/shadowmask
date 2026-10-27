@@ -268,13 +268,10 @@ The render node defaults to `/dev/dri/renderD128` (override with `SHADOWMASK_VAA
 stream's GPU run fails before its first segment, it is run again with only the encode on the GPU,
 then in software, so playback is not interrupted.
 
-`SHADOWMASK_HARDWARE_DECODING=false` keeps decoding and scaling on the CPU and only encodes on the
-GPU. Formats the GPU cannot decode (Xvid, H.264 High 10) are decoded on the CPU and uploaded either
-way. HDR sources are tone mapped on the CPU after the GPU scale, unless
-`SHADOWMASK_HARDWARE_TONE_MAPPING=true`, which tone maps HDR10 and HDR10+ on the GPU
-(`tonemap_vaapi`); HLG and Dolby Vision are always tone mapped on the CPU. Tone mapping on the GPU
-needs hardware decoding on; with `SHADOWMASK_HARDWARE_DECODING=false` the setting has no effect and
-the server logs a warning at start. Burned-in subtitles are drawn on the CPU.
+`SHADOWMASK_HARDWARE_DECODING=false` decodes and scales on the CPU and encodes on the GPU. Formats
+the GPU cannot decode (Xvid, H.264 High 10) are decoded on the CPU either way.
+`SHADOWMASK_HARDWARE_TONE_MAPPING=true` tone maps HDR10 and HDR10+ on the GPU and needs hardware
+decoding on; otherwise, and always for HLG and Dolby Vision, tone mapping runs on the CPU.
 
 VAAPI is Linux-only and needs the GPU passed into the container. It is not enabled in the compose
 files by default (a required device would break hosts without a GPU, including macOS). On a host

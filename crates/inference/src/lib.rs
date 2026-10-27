@@ -13,6 +13,8 @@ mod whisper_engine;
 #[cfg(any(feature = "enrichment", test))]
 mod whisper_parse;
 mod whisper_provider;
+#[cfg(any(feature = "enrichment", test))]
+mod whisper_window;
 
 #[cfg(feature = "enrichment")]
 mod ct2_translation_engine;

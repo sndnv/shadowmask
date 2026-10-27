@@ -33,8 +33,17 @@ const DURATION_BUCKETS: &[f64] = &[
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-const OWN_CRATES: [&str; 8] =
-    ["server", "api", "jobs", "services", "persistence", "domain", "media", "metadata"];
+const OWN_CRATES: [&str; 9] = [
+    "server",
+    "api",
+    "jobs",
+    "services",
+    "persistence",
+    "domain",
+    "media",
+    "metadata",
+    "inference",
+];
 
 fn log_directives(level: &str, sqlx_level: &str) -> String {
     let mut directives = vec!["warn".to_owned()];
@@ -276,6 +285,7 @@ mod tests {
         assert!(directives.starts_with("warn,"));
         assert!(directives.contains("services=debug"));
         assert!(directives.contains("persistence=debug"));
+        assert!(directives.contains("inference=debug"));
         assert!(directives.contains("sqlx=warn"));
         assert!(!directives.contains("sqlx=debug"));
     }
