@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -53,7 +55,7 @@ Future<void> main() async {
   usePathUrlStrategy();
   remoteImage = kIsWeb ? NetworkImage.new : CachedNetworkImageProvider.new;
   await configureWindow();
-  await refreshDesktopEntry();
+  unawaited(refreshDesktopEntry());
   await initializePlayer();
   const ThemeStore themeStore = ThemeStore();
   const ServerStore serverStore = ServerStore();

@@ -74,7 +74,9 @@ abstract final class Strings {
 
   static const String applicationsMenuHeading = 'Applications menu';
   static const String applicationsMenuHelp =
-      "Adds this app to your desktop's applications menu and app search.";
+      "Adds this app to your desktop's applications menu and app search. The "
+      'menu keeps its own copy of the app, replaced when you start a '
+      'downloaded version, so the download can be deleted.';
   static const String addToApplicationsMenu = 'Add to applications menu';
   static const String removeFromApplicationsMenu =
       'Remove from applications menu';
