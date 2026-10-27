@@ -37,7 +37,7 @@ SHADOWMASK_ENRICHMENT_TRANSLATION_MODE=on
 SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED=true
 ```
 
-| Mode | Model loaded | Admin can trigger it | Runs unattended |
+| Mode | Model needed | Admin can trigger it | Runs unattended |
 |------|--------------|----------------------|-----------------|
 | `off`  | no  | no  | no  |
 | `on`   | yes | yes | no  |
@@ -184,9 +184,8 @@ a model.
 ## Concurrency
 
 Enrichment jobs (transcription, translation, upscaling) run on their own **job pool**, capped at
-`SHADOWMASK_JOB_POOLS_ENRICHMENT_CONCURRENCY` (default `1`). That bounds how many models are
-resident at once, which is the main defence against out-of-memory kills. Raise it only if you have
-the RAM and CPU for concurrent model runs.
+`SHADOWMASK_JOB_POOLS_ENRICHMENT_CONCURRENCY` (default `1`). That is also the most models in memory
+at once. Raise it only if you have the RAM and CPU for concurrent model runs.
 
 Pools are independent, so a slow model job never blocks library scans, metadata or artwork, which
 run on the `default` pool. See "Job pools" in the deployment README.
@@ -205,8 +204,12 @@ the rest stays available for playback and the API.
 ## Memory
 
 The model is linked into the server process, so an oversized model kills the server rather than
-failing its job. Budget the model's on-disk size plus 1-2G for the server. It loads once, on first
-use, and stays resident.
+failing its job. Budget the model's on-disk size plus 1-2G for the server. A transcription job loads
+its model when it starts and releases it when it ends; a translation job does so for each target
+language.
+
+Transcription works on 4 minutes of audio at a time and translation on 32 cues at a time, so a job's
+memory does not grow with the film's length, apart from its decoded audio (about 0.5G for 2 hours).
 
 Set `mem_limit` on the container so a kill is contained to it; the production compose defaults to
 8G. At startup the server compares each selected model's on-disk size against the memory it may use
@@ -217,6 +220,8 @@ likely, including when it cannot read that limit.
 
 - Transcription and translation are CPU-bound and can be slow on large media; they run as background
   jobs and never block playback.
+- Transcription detects the spoken language for each 4-minute window, unless a language is chosen
+  when it is started by hand. Automatic transcription always detects it.
 - Model weights are downloaded by you and are not part of any Shadowmask image.
 
 ## Licensing and attribution
