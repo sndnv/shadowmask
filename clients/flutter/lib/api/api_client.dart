@@ -41,6 +41,7 @@ class ApiClient {
   Future<SelfUser>? _self;
   Future<String?>? _renewing;
   String? _unsavedPlayerId;
+  int? childAge;
 
   Stream<void> get sessionChanged => _sessionChanged.stream;
 
@@ -86,6 +87,10 @@ class ApiClient {
     }
     if (token != null) {
       headers['Authorization'] = 'Bearer $token';
+    }
+    final int? age = childAge;
+    if (age != null) {
+      headers['Prefer'] = 'safe; age=$age';
     }
     final String? encoded = body == null ? null : jsonEncode(body);
     final Uri uri = _uri(path);

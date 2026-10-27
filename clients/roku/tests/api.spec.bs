@@ -92,6 +92,59 @@ namespace tests
             m.assertEqual(ParseJson(request.body).code, "ABC")
         end sub
 
+        @describe("child mode")
+
+        @it("sends the age as a safe preference while child mode is on")
+        sub sendsSafeAge()
+            request = WithChildMode(BuildRequest("http://host", "/movies", "GET", invalid, "smk_abc"), 13)
+            m.assertEqual(request.headers["Prefer"], "safe; age=13")
+            m.assertEqual(request.headers["Authorization"], "Bearer smk_abc")
+
+            allAges = WithChildMode(BuildRequest("http://host", "/movies"), 0)
+            m.assertEqual(allAges.headers["Prefer"], "safe; age=0")
+        end sub
+
+        @it("sends no preference while child mode is off")
+        sub omitsPreferWhenOff()
+            request = WithChildMode(BuildRequest("http://host", "/movies"), -1)
+            m.assertFalse(request.headers.DoesExist("Prefer"))
+        end sub
+
+        @it("reads an offered age as itself")
+        sub readsOfferedAges()
+            m.assertEqual(ValidChildAge("13"), 13)
+            m.assertEqual(ValidChildAge("0"), 0)
+            m.assertEqual(ValidChildAge(17), 17)
+        end sub
+
+        @it("reads an age no longer offered as the offered one below it")
+        sub roundsDownToOfferedAge()
+            m.assertEqual(ValidChildAge("12"), 8)
+            m.assertEqual(ValidChildAge("6"), 0)
+            m.assertEqual(ValidChildAge("40"), 17)
+        end sub
+
+        @it("reads nothing usable as off")
+        sub readsNothingAsOff()
+            for each stored in ["", "-1", "twelve", "012", invalid]
+                m.assertEqual(ValidChildAge(stored), -1)
+            end for
+        end sub
+
+        @it("takes the age from the shared node, and none without one")
+        sub readsSharedAge()
+            m.assertEqual(ChildAgeOf(invalid), -1)
+
+            bare = CreateObject("roSGNode", "Node")
+            m.assertEqual(ChildAgeOf(bare), -1)
+
+            shared = CreateObject("roSGNode", "Node")
+            shared.AddFields({ childAge: 8 })
+            m.assertEqual(ChildAgeOf(shared), 8)
+            shared.childAge = -1
+            m.assertEqual(ChildAgeOf(shared), -1)
+        end sub
+
         @describe("LinkRequest")
 
         @it("posts the code and identifies the platform as roku")

@@ -148,6 +148,24 @@ sub WriteHighContrast(value as boolean)
     WriteFlag(HighContrastKey(), value)
 end sub
 
+function ChildAgeKey() as string
+    return "childAge"
+end function
+
+function ReadChildAge() as integer
+    return ValidChildAge(ReadPref(ChildAgeKey(), ""))
+end function
+
+sub WriteChildAge(age as integer)
+    if age >= 0
+        WritePref(ChildAgeKey(), age.ToStr())
+        return
+    end if
+    section = PrefSection()
+    if section.Exists(ChildAgeKey()) then section.Delete(ChildAgeKey())
+    section.Flush()
+end sub
+
 function NavInsetKey() as string
     return "navInset"
 end function

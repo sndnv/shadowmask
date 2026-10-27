@@ -145,6 +145,7 @@ impl AuthService for MockAuthService {
                     .iter()
                     .any(|a| a.user == linked.user && a.role == Role::Admin),
                 device: Some(linked.id.clone()),
+                age_limit: None,
             });
         }
         let account = state
@@ -157,6 +158,7 @@ impl AuthService for MockAuthService {
             role: account.role,
             account_admin: account.account_admin,
             device: device.then(|| DeviceId(id.to_owned())),
+            age_limit: None,
         })
     }
 
@@ -352,6 +354,7 @@ impl AuthService for MockAuthService {
             role: Role::Player,
             account_admin,
             device: Some(found.id.clone()),
+            age_limit: None,
         };
         Ok(CommandTarget { device: found, plays_as })
     }
@@ -526,6 +529,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         };
         let link = svc.create_link_code(&caller, None, None).await.unwrap();
         assert_eq!(link.code, "link-code");
@@ -540,6 +544,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         };
         svc.create_link_code(&caller, None, None).await.unwrap();
         let user = UserId("u1".into());

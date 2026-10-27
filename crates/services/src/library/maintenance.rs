@@ -530,6 +530,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         }
     }
 
@@ -539,6 +540,7 @@ mod tests {
             role: Role::User,
             account_admin: false,
             device: None,
+            age_limit: None,
         }
     }
 

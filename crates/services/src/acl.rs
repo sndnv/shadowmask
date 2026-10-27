@@ -22,14 +22,18 @@ pub fn can_access_library(access: &[LibraryId], library: &LibraryId) -> bool {
 }
 
 pub fn rating_permits(cap: Option<&ContentRating>, item: Option<&ContentRating>) -> bool {
-    match (cap.and_then(ContentRating::age_floor), item.and_then(ContentRating::age_floor)) {
-        (Some(cap), Some(item)) => item <= cap,
+    age_permits(cap.and_then(ContentRating::age_floor), item)
+}
+
+fn age_permits(ceiling: Option<u8>, item: Option<&ContentRating>) -> bool {
+    match (ceiling, item.and_then(ContentRating::age_floor)) {
+        (Some(ceiling), Some(age)) => age <= ceiling,
         _ => true,
     }
 }
 
 pub struct Viewer {
-    cap: Option<ContentRating>,
+    ceiling: Option<u8>,
     access: Vec<LibraryId>,
 }
 
@@ -40,12 +44,18 @@ where
     let account = users.get(user).await?;
     let access =
         users.list_library_access(user).await?.into_iter().map(|entry| entry.library).collect();
-    Ok(Viewer { cap: account.and_then(|account| account.max_content_rating), access })
+    let cap = account.and_then(|account| account.max_content_rating);
+    Ok(Viewer { ceiling: cap.and_then(|cap| cap.age_floor()), access })
 }
 
 impl Viewer {
+    pub fn limited_to(mut self, age_limit: Option<u8>) -> Self {
+        self.ceiling = self.ceiling.into_iter().chain(age_limit).min();
+        self
+    }
+
     pub fn permits(&self, rating: Option<&ContentRating>) -> bool {
-        rating_permits(self.cap.as_ref(), rating)
+        age_permits(self.ceiling, rating)
     }
 
     pub fn sees_library(&self, library: &LibraryId) -> bool {
@@ -60,7 +70,7 @@ impl Viewer {
         };
         TitleListFilter {
             libraries: Some(libraries),
-            blocked_ratings: ContentRating::blocked_by(self.cap.as_ref()),
+            blocked_ratings: ContentRating::blocked_above(self.ceiling),
             ..TitleListFilter::default()
         }
     }
@@ -106,6 +116,7 @@ mod tests {
             role,
             account_admin: role == Role::Admin,
             device: None,
+            age_limit: None,
         }
     }
 
@@ -273,6 +284,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_device_limit_tightens_the_cap_and_never_loosens_it() {
+        let pg = rating("MPAA", "PG");
+        let pg13 = rating("MPAA", "PG-13");
+        let r = rating("MPAA", "R");
+        let seen = |cap: Option<ContentRating>| async move {
+            let users = repo_with(account("u1", Role::User, cap), &["lib1"]).await;
+            viewer(&users, &UserId("u1".into())).await.unwrap()
+        };
+
+        let tighter = seen(Some(pg13.clone())).await.limited_to(Some(12));
+        assert!(tighter.permits(Some(&pg)));
+        assert!(!tighter.permits(Some(&pg13)));
+
+        let looser = seen(Some(pg13.clone())).await.limited_to(Some(16));
+        assert!(looser.permits(Some(&pg13)));
+        assert!(!looser.permits(Some(&r)));
+
+        let uncapped = seen(None).await.limited_to(Some(12));
+        assert!(!uncapped.permits(Some(&pg13)));
+        assert!(uncapped.filter(None).blocked_ratings.contains(&rating("mpaa", "pg-13")));
+
+        let unknown_cap = seen(Some(rating("XYZ", "42"))).await.limited_to(Some(12));
+        assert!(!unknown_cap.permits(Some(&pg13)));
+        assert!(unknown_cap.permits(Some(&rating("XYZ", "42"))));
+
+        assert!(seen(None).await.limited_to(None).permits(Some(&r)));
+        let capped = seen(Some(pg13)).await.limited_to(None);
+        assert!(capped.filter(None).blocked_ratings.contains(&rating("mpaa", "r")));
+    }
+
+    #[tokio::test]
     async fn a_view_is_the_same_whoever_asks_for_it() {
         let users = repo_with(account("u1", Role::User, None), &["lib1"]).await;
         let elevated = Principal {
@@ -280,6 +322,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         };
 
         let as_caller = viewer(&users, &elevated.user).await.unwrap();

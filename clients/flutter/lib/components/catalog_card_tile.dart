@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import 'package:shadowmask/components/browser_menu.dart';
 import 'package:shadowmask/components/card_menu.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/view/card_aspect.dart';
@@ -62,26 +61,7 @@ class CatalogCardTile extends StatefulWidget {
 class _CatalogCardTileState extends State<CatalogCardTile> {
   bool _hovered = false;
   bool _focused = false;
-  bool _heldBrowserMenu = false;
   Offset? _pressedAt;
-
-  @override
-  void dispose() {
-    _holdBrowserMenu(false);
-    super.dispose();
-  }
-
-  void _holdBrowserMenu(bool held) {
-    if (held == _heldBrowserMenu) {
-      return;
-    }
-    _heldBrowserMenu = held;
-    if (held) {
-      BrowserMenu.suppress();
-    } else {
-      BrowserMenu.restore();
-    }
-  }
 
   bool get _dropsResume =>
       widget.onDismiss != null && widget.card.dismissVersionId != null;
@@ -147,10 +127,7 @@ class _CatalogCardTileState extends State<CatalogCardTile> {
             onLongPress: menued
                 ? () => _openMenu(context, _pressedAt ?? Offset.zero)
                 : null,
-            onHover: (bool hovered) {
-              _holdBrowserMenu(menued && hovered);
-              setState(() => _hovered = hovered);
-            },
+            onHover: (bool hovered) => setState(() => _hovered = hovered),
             onFocusChange: (bool focused) => setState(() => _focused = focused),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

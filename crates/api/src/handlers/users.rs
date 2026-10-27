@@ -60,7 +60,7 @@ pub async fn activity<S: AppServices>(
     let limit = sessions.limit;
     let now_playing = state
         .discovery()
-        .now_playing(sessions.items)
+        .now_playing(sessions.items, None)
         .await
         .map_err(log_fail(actor, "retrieve active sessions"))?;
     debug!("User [{actor}] retrieved {} active sessions", now_playing.len());

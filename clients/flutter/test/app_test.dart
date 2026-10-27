@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/api/child_mode_scope.dart';
+import 'package:shadowmask/api/child_mode_store.dart';
 import 'package:shadowmask/api/server_scope.dart';
 import 'package:shadowmask/api/server_store.dart';
 import 'package:shadowmask/api/token_store.dart';
@@ -28,6 +30,41 @@ ApiClient Function(String?) _factory() =>
 
 ThemeScope _theme(WidgetTester tester) =>
     tester.widget<ThemeScope>(find.byType(ThemeScope));
+
+ChildModeScope _childMode(WidgetTester tester) =>
+    tester.widget<ChildModeScope>(find.byType(ChildModeScope));
+
+ApiClient Function(String?) _making(List<ApiClient> made) => (String? baseUrl) {
+  final ApiClient client = _factory()(baseUrl);
+  made.add(client);
+  return client;
+};
+
+Future<List<ApiClient>> _pumpChildMode(WidgetTester tester, int? age) async {
+  final List<ApiClient> made = <ApiClient>[];
+  await tester.pumpWidget(
+    ShadowmaskApp(
+      initialServer: 'http://test',
+      clientFactory: _making(made),
+      initialChildAge: age,
+      probe: (_) async => true,
+    ),
+  );
+  await tester.pump();
+  return made;
+}
+
+NavigatorState _navigator(WidgetTester tester) =>
+    tester.state<NavigatorState>(find.byType(Navigator).first);
+
+String? _topRoute(WidgetTester tester) {
+  String? name;
+  _navigator(tester).popUntil((Route<dynamic> route) {
+    name = route.settings.name;
+    return true;
+  });
+  return name;
+}
 
 Future<void> _pumpConfigured(
   WidgetTester tester, {
@@ -316,6 +353,90 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.byType(ToastHost), findsOneWidget);
+  });
+
+  testWidgets('a stored child mode age reaches the client and the app', (
+    WidgetTester tester,
+  ) async {
+    final List<ApiClient> made = await _pumpChildMode(tester, 8);
+
+    expect(_childMode(tester).age, 8);
+    expect(made.single.childAge, 8);
+  });
+
+  testWidgets('choosing a child mode age stores it and reloads to home', (
+    WidgetTester tester,
+  ) async {
+    final List<ApiClient> made = await _pumpChildMode(tester, null);
+    final NavigatorState before = _navigator(tester);
+
+    _childMode(tester).setAge(13);
+    await tester.pumpAndSettle();
+
+    expect(_childMode(tester).age, 13);
+    expect(made.single.childAge, 13);
+    expect(await const ChildModeStore().load(), 13);
+    expect(_navigator(tester), isNot(same(before)));
+    expect(find.text('Child mode: 13 to 16.'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 10));
+  });
+
+  testWidgets('choosing a child mode age leaves the current page for home', (
+    WidgetTester tester,
+  ) async {
+    addTearDown(tester.platformDispatcher.clearDefaultRouteNameTestValue);
+    tester.platformDispatcher.defaultRouteNameTestValue = '/account';
+    await _pumpChildMode(tester, null);
+    expect(_topRoute(tester), '/account');
+
+    _childMode(tester).setAge(13);
+    await tester.pumpAndSettle();
+
+    expect(_topRoute(tester), '/');
+    await tester.pump(const Duration(seconds: 10));
+  });
+
+  testWidgets('turning child mode off clears it everywhere', (
+    WidgetTester tester,
+  ) async {
+    await const ChildModeStore().save(13);
+    final List<ApiClient> made = await _pumpChildMode(tester, 13);
+
+    _childMode(tester).setAge(null);
+    await tester.pumpAndSettle();
+
+    expect(made.single.childAge, isNull);
+    expect(await const ChildModeStore().load(), isNull);
+    expect(find.text('Child mode off.'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 10));
+  });
+
+  testWidgets('choosing the age already in use changes nothing', (
+    WidgetTester tester,
+  ) async {
+    await const ChildModeStore().save(17);
+    await _pumpChildMode(tester, 8);
+    final NavigatorState before = _navigator(tester);
+
+    _childMode(tester).setAge(8);
+    await tester.pumpAndSettle();
+
+    expect(await const ChildModeStore().load(), 17);
+    expect(_navigator(tester), same(before));
+  });
+
+  testWidgets('a new server keeps the device in child mode', (
+    WidgetTester tester,
+  ) async {
+    final List<ApiClient> made = await _pumpChildMode(tester, 13);
+
+    await tester
+        .widget<ServerScope>(find.byType(ServerScope))
+        .setAddress('http://other');
+    await tester.pumpAndSettle();
+
+    expect(made.length, 2);
+    expect(made.last.childAge, 13);
   });
 
   testWidgets('without a factory the app builds its own client', (

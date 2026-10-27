@@ -8,7 +8,7 @@ use crate::catalog::{
     VersionId,
 };
 use crate::common::{Page, PageRequest};
-use crate::discovery::{ContinueWatchingItem, Hub, SearchKind, SearchResult};
+use crate::discovery::{Audience, ContinueWatchingItem, Hub, SearchKind, SearchResult};
 use crate::error::{
     AuthError, CatalogError, DiscoveryError, JobServiceError, LibraryError, MaintenanceError,
     SessionError, UserError,
@@ -229,6 +229,11 @@ pub trait CatalogService {
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<Version>, CatalogError>> + Send;
     fn version(
+        &self,
+        caller: &Principal,
+        id: &VersionId,
+    ) -> impl Future<Output = Result<VersionDetail, CatalogError>> + Send;
+    fn watchable_version(
         &self,
         caller: &Principal,
         id: &VersionId,
@@ -645,29 +650,30 @@ pub trait UserLibraryService {
 pub trait DiscoveryService {
     fn search(
         &self,
-        user: &UserId,
+        audience: &Audience,
         query: &str,
         types: &[SearchKind],
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<SearchResult<SeriesCard>>, DiscoveryError>> + Send;
     fn continue_watching(
         &self,
-        user: &UserId,
+        audience: &Audience,
     ) -> impl Future<Output = Result<Vec<ContinueWatchingItem>, DiscoveryError>> + Send;
     fn now_playing(
         &self,
         sessions: Vec<PlaybackSession>,
+        audience: Option<&Audience>,
     ) -> impl Future<Output = Result<Vec<NowPlaying>, DiscoveryError>> + Send;
     fn next_episodes(
         &self,
-        user: &UserId,
+        audience: &Audience,
     ) -> impl Future<Output = Result<Vec<EpisodeCard>, DiscoveryError>> + Send;
     fn next_movies(
         &self,
-        user: &UserId,
+        audience: &Audience,
     ) -> impl Future<Output = Result<Vec<Movie>, DiscoveryError>> + Send;
     fn home_hubs(
         &self,
-        user: &UserId,
+        audience: &Audience,
     ) -> impl Future<Output = Result<Vec<Hub>, DiscoveryError>> + Send;
 }

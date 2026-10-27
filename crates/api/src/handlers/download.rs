@@ -35,7 +35,7 @@ where
     D: DownloadTokens + Send + Sync + 'static,
 {
     let version = VersionId(id);
-    let detail = state.services.catalog().version(&principal, &version).await?;
+    let detail = state.services.catalog().watchable_version(&principal, &version).await?;
     let path = downloadable_path(&principal.user.0, &detail)?;
     let expires_at = Timestamp::from_second(Timestamp::now().as_second() + LINK_TTL_SECS)
         .unwrap_or(Timestamp::MAX);

@@ -15,6 +15,7 @@ import 'package:shadowmask/nav/nav_section.dart';
 import 'package:shadowmask/pages/account/about_block.dart';
 import 'package:shadowmask/pages/account/appearance_block.dart';
 import 'package:shadowmask/pages/account/applications_block.dart';
+import 'package:shadowmask/pages/account/child_mode_block.dart';
 import 'package:shadowmask/pages/account/devices_block.dart';
 import 'package:shadowmask/pages/account/history_block.dart';
 import 'package:shadowmask/pages/account/library_list_block.dart';
@@ -144,6 +145,7 @@ class _AccountBodyState extends State<_AccountBody> {
           ),
           const PlaybackBlock(),
           const PlayOnBlock(),
+          const ChildModeBlock(),
           const AppearanceBlock(),
           const ServerBlock(),
           const ApplicationsBlock(),

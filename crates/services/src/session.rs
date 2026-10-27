@@ -659,10 +659,10 @@ where
         if !detail.version.available {
             return Err(SessionError::VersionNotFound);
         }
-        if !acl::viewer(&self.inner.users, &caller.user)
-            .await?
-            .sees_library(&detail.version.library)
-        {
+        let viewer =
+            acl::viewer(&self.inner.users, &caller.user).await?.limited_to(caller.age_limit);
+        let rating = self.inner.catalog.title_rating(&detail.version.title).await?;
+        if !viewer.sees_library(&detail.version.library) || !viewer.permits(rating.as_ref()) {
             return Err(SessionError::VersionNotFound);
         }
         let user = self.inner.users.get(&caller.user).await?;
@@ -1015,6 +1015,7 @@ mod tests {
         AudioTrack, DetectedMarkers, EmbeddedSubtitleTrack, SubtitleFile, SubtitleFileId,
         SubtitleFormat, SubtitleSource, VideoTrack,
     };
+    use domain::metadata::ContentRating;
     use domain::playback::WatchlistItem;
     use domain::profile::{AudioCodecCap, CapabilityProfile, ClientDecoding, VideoCodecCap};
     use domain::session::{AudioRequest, SubtitleRequest, TrackHandling};
@@ -1217,6 +1218,7 @@ mod tests {
             role: Role::User,
             account_admin: false,
             device: None,
+            age_limit: None,
         }
     }
 
@@ -1496,6 +1498,46 @@ mod tests {
         );
     }
 
+    fn mpaa(code: &str) -> ContentRating {
+        ContentRating { system: "mpaa".to_owned(), code: code.to_owned() }
+    }
+
+    fn movie_m1() -> TitleId {
+        TitleId::Movie(MovieId("m1".to_owned()))
+    }
+
+    #[tokio::test]
+    async fn a_title_above_the_account_cap_cannot_be_played() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        harness.catalog.set_rating(movie_m1(), mpaa("r"));
+        harness
+            .users
+            .insert(User { max_content_rating: Some(mpaa("pg-13")), ..make_user(None, None) });
+
+        let refused = harness.service.start(&principal(), start_request(0)).await.unwrap_err();
+
+        assert!(matches!(refused, SessionError::VersionNotFound));
+        assert!(harness.transcode.started().is_empty());
+        assert!(harness.sessions.list_for_user(&UserId("u1".to_owned())).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_device_limit_refuses_a_title_above_it_and_plays_one_within_it() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        harness.catalog.set_rating(movie_m1(), mpaa("r"));
+        let child = Principal { age_limit: Some(12), ..principal() };
+
+        assert!(matches!(
+            harness.service.start(&child, start_request(0)).await,
+            Err(SessionError::VersionNotFound)
+        ));
+
+        harness.catalog.set_rating(movie_m1(), mpaa("g"));
+        assert!(harness.service.start(&child, start_request(0)).await.is_ok());
+    }
+
     #[tokio::test]
     async fn an_admin_cannot_play_out_of_an_ungranted_library_either() {
         let harness = Harness::new();
@@ -1506,6 +1548,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         };
 
         assert!(matches!(
@@ -3367,6 +3410,7 @@ mod tests {
             role: Role::User,
             account_admin: false,
             device: None,
+            age_limit: None,
         }
     }
 
@@ -3376,6 +3420,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         }
     }
 

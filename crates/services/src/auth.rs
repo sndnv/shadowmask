@@ -301,6 +301,7 @@ where
                 role: Role::Player,
                 account_admin: account.role == Role::Admin,
                 device: Some(token.device),
+                age_limit: None,
             });
         }
         let claims = self.decode(access_token, TYP_ACCESS)?;
@@ -311,6 +312,7 @@ where
             role: role_from_claim(&claims.rol)?,
             account_admin: account.role == Role::Admin,
             device: None,
+            age_limit: None,
         })
     }
 
@@ -489,6 +491,7 @@ where
             role: Role::Player,
             account_admin: account.role == Role::Admin,
             device: Some(found.id.clone()),
+            age_limit: None,
         };
         Ok(CommandTarget { device: found, plays_as })
     }
@@ -583,6 +586,7 @@ mod tests {
                     role: Role::Admin,
                     account_admin: true,
                     device: None,
+                    age_limit: None,
                 },
                 None,
                 None,
@@ -617,6 +621,7 @@ mod tests {
                     role: Role::Admin,
                     account_admin: true,
                     device: None,
+                    age_limit: None,
                 },
                 None,
                 None,
@@ -660,6 +665,7 @@ mod tests {
                     role: Role::Admin,
                     account_admin: true,
                     device: None,
+                    age_limit: None,
                 },
                 None,
                 None,
@@ -882,6 +888,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         };
         let link = svc.create_link_code(&caller, None, None).await.unwrap();
         assert_eq!(link.user, UserId("u1".into()));
@@ -901,6 +908,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         };
         let before = Timestamp::now().as_second();
         let link =
@@ -917,6 +925,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         };
         assert!(matches!(
             svc.create_link_code(&caller, None, Some(300_000_000_000)).await.unwrap_err(),
@@ -949,6 +958,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         };
         let link = svc.create_link_code(&caller, None, None).await.unwrap();
         let typed = format!("{}-{}", &link.code[..4], link.code[4..].to_lowercase());
@@ -964,6 +974,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         };
         let a = svc.create_link_code(&caller, None, None).await.unwrap();
         let b = svc.create_link_code(&caller, None, None).await.unwrap();
@@ -1071,6 +1082,7 @@ mod tests {
                 role: Role::Admin,
                 account_admin: true,
                 device: None,
+                age_limit: None,
             };
             let link = svc.create_link_code(&boss, None, None).await.unwrap();
             svc.redeem_link_code(&link.code, device()).await.unwrap()
@@ -1078,8 +1090,13 @@ mod tests {
         svc.tokens.set_fail();
 
         let user = UserId("u1".into());
-        let boss =
-            Principal { user: user.clone(), role: Role::Admin, account_admin: true, device: None };
+        let boss = Principal {
+            user: user.clone(),
+            role: Role::Admin,
+            account_admin: true,
+            device: None,
+            age_limit: None,
+        };
 
         macro_rules! is_repository_error {
             ($call:expr) => {
@@ -1118,6 +1135,7 @@ mod tests {
                     role: Role::Admin,
                     account_admin: true,
                     device: None,
+                    age_limit: None,
                 },
                 None,
                 None,
@@ -1239,6 +1257,7 @@ mod tests {
             role: Role::Admin,
             account_admin: true,
             device: None,
+            age_limit: None,
         };
         let link = svc.create_link_code(&boss, None, None).await.unwrap();
         let issued = svc.redeem_link_code(&link.code, device()).await.unwrap();

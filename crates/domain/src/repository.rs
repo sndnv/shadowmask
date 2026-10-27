@@ -22,7 +22,7 @@ use crate::media::{
     AudioTrack, Chapter, EmbeddedSubtitleTrack, PlaybackPrep, SubtitleFile, TrickplayAsset,
     VersionPrepState, VideoTrack,
 };
-use crate::metadata::{Credit, Genre, Person, PersonId, TitleEnrichment};
+use crate::metadata::{ContentRating, Credit, Genre, Person, PersonId, TitleEnrichment};
 use crate::playback::{
     Favorite, PlaybackProgress, SubtitleTrackRef, UserSubtitleOffset, WatchHistory, WatchlistItem,
 };
@@ -351,6 +351,10 @@ pub trait VersionCatalog {
         &self,
         id: &VersionId,
     ) -> impl Future<Output = Result<Option<Vec<u64>>, RepositoryError>> + Send;
+    fn title_rating(
+        &self,
+        title: &TitleId,
+    ) -> impl Future<Output = Result<Option<ContentRating>, RepositoryError>> + Send;
 }
 
 impl<T: CatalogRepository + Send + Sync> VersionCatalog for T {
@@ -367,6 +371,25 @@ impl<T: CatalogRepository + Send + Sync> VersionCatalog for T {
 
     async fn keyframes_us(&self, id: &VersionId) -> Result<Option<Vec<u64>>, RepositoryError> {
         CatalogRepository::keyframes_us(self, id).await
+    }
+
+    async fn title_rating(
+        &self,
+        title: &TitleId,
+    ) -> Result<Option<ContentRating>, RepositoryError> {
+        let id = match title {
+            TitleId::Movie(id) => {
+                return Ok(self.get_movie(id).await?.and_then(|movie| movie.content_rating));
+            }
+            TitleId::Episode(id) => id,
+        };
+        let Some(episode) = self.get_episode(id).await? else {
+            return Ok(None);
+        };
+        let Some(season) = self.get_season(&episode.season).await? else {
+            return Ok(None);
+        };
+        Ok(self.get_series(&season.series).await?.and_then(|series| series.content_rating))
     }
 }
 

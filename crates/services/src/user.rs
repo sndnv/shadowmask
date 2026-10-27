@@ -371,6 +371,7 @@ mod tests {
             role,
             account_admin: role == Role::Admin,
             device: None,
+            age_limit: None,
         }
     }
 

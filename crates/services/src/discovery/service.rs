@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use domain::catalog::{
     EpisodeCard, EpisodeContext, EpisodeId, Movie, MovieId, Series, SeriesCard, SeriesId,
     SortOrder, TitleId, TitleListFilter, TitleSort,
 };
 use domain::common::{Page, PageRequest};
-use domain::discovery::{ContinueWatchingItem, Hub, HubItem, SearchKind, SearchResult};
+use domain::discovery::{Audience, ContinueWatchingItem, Hub, HubItem, SearchKind, SearchResult};
 use domain::error::{DiscoveryError, RepositoryError};
 use domain::playback::{WatchlistItem, is_started};
 use domain::repository::{
@@ -45,8 +45,30 @@ where
     Pf: PreferencesRepository + Sync,
     U: UserRepository + Sync,
 {
-    async fn viewer_filter(&self, user: &UserId) -> Result<TitleListFilter, RepositoryError> {
-        Ok(acl::viewer(&self.users, user).await?.filter(None))
+    async fn viewer_filter(&self, audience: &Audience) -> Result<TitleListFilter, RepositoryError> {
+        let viewer = acl::viewer(&self.users, &audience.user).await?;
+        Ok(viewer.limited_to(audience.age_limit).filter(None))
+    }
+
+    async fn visible_titles(
+        &self,
+        titles: &[TitleId],
+        filter: &TitleListFilter,
+    ) -> Result<HashSet<TitleId>, RepositoryError> {
+        let mut movies = Vec::new();
+        let mut episodes = Vec::new();
+        for title in titles {
+            match title {
+                TitleId::Movie(id) => movies.push(id.clone()),
+                TitleId::Episode(id) => episodes.push(id.clone()),
+            }
+        }
+        let shown = self.catalog.visible_movies(&movies, filter).await?;
+        let mut visible: HashSet<TitleId> =
+            shown.into_iter().map(|movie| TitleId::Movie(movie.id)).collect();
+        let shown = self.catalog.visible_episodes(&episodes, filter).await?;
+        visible.extend(shown.into_iter().map(|context| TitleId::Episode(context.episode.id)));
+        Ok(visible)
     }
 
     async fn recent_movies(&self, filter: &TitleListFilter) -> Result<Vec<Movie>, RepositoryError> {
@@ -154,6 +176,7 @@ where
     async fn continue_items(
         &self,
         user: &UserId,
+        filter: &TitleListFilter,
     ) -> Result<Vec<ContinueWatchingItem>, RepositoryError> {
         let progress = self.progress.list_in_progress(user).await?;
         let mut items = Vec::new();
@@ -167,6 +190,9 @@ where
             let card = resume_card_from(&self.catalog, played, entry.position_ms).await?;
             items.push(ContinueWatchingItem { progress: entry, card });
         }
+        let titles: Vec<TitleId> = items.iter().map(|item| item.card.title.clone()).collect();
+        let visible = self.visible_titles(&titles, filter).await?;
+        items.retain(|item| visible.contains(&item.card.title));
         Ok(items)
     }
 }
@@ -181,12 +207,12 @@ where
 {
     async fn search(
         &self,
-        user: &UserId,
+        audience: &Audience,
         query: &str,
         types: &[SearchKind],
         page: PageRequest,
     ) -> Result<Page<SearchResult<SeriesCard>>, DiscoveryError> {
-        let filter = self.viewer_filter(user).await?;
+        let filter = self.viewer_filter(audience).await?;
         let Page { items, total, offset, limit } =
             self.search_index.search(query, types, &filter, page).await?;
         let ids: Vec<SeriesId> = items
@@ -206,14 +232,16 @@ where
 
     async fn continue_watching(
         &self,
-        user: &UserId,
+        audience: &Audience,
     ) -> Result<Vec<ContinueWatchingItem>, DiscoveryError> {
-        Ok(self.continue_items(user).await?)
+        let filter = self.viewer_filter(audience).await?;
+        Ok(self.continue_items(&audience.user, &filter).await?)
     }
 
     async fn now_playing(
         &self,
         sessions: Vec<PlaybackSession>,
+        audience: Option<&Audience>,
     ) -> Result<Vec<NowPlaying>, DiscoveryError> {
         let mut items = Vec::with_capacity(sessions.len());
         for session in sessions {
@@ -226,21 +254,28 @@ where
                 items.push(NowPlaying { session, card });
             }
         }
+        if let Some(audience) = audience {
+            let filter = self.viewer_filter(audience).await?;
+            let titles: Vec<TitleId> = items.iter().map(|item| item.card.title.clone()).collect();
+            let visible = self.visible_titles(&titles, &filter).await?;
+            items.retain(|item| visible.contains(&item.card.title));
+        }
         Ok(items)
     }
 
-    async fn next_episodes(&self, user: &UserId) -> Result<Vec<EpisodeCard>, DiscoveryError> {
-        let filter = self.viewer_filter(user).await?;
-        Ok(self.up_next(user, &filter).await?)
+    async fn next_episodes(&self, audience: &Audience) -> Result<Vec<EpisodeCard>, DiscoveryError> {
+        let filter = self.viewer_filter(audience).await?;
+        Ok(self.up_next(&audience.user, &filter).await?)
     }
 
-    async fn next_movies(&self, user: &UserId) -> Result<Vec<Movie>, DiscoveryError> {
-        let filter = self.viewer_filter(user).await?;
-        Ok(self.on_deck(user, &filter).await?)
+    async fn next_movies(&self, audience: &Audience) -> Result<Vec<Movie>, DiscoveryError> {
+        let filter = self.viewer_filter(audience).await?;
+        Ok(self.on_deck(&audience.user, &filter).await?)
     }
 
-    async fn home_hubs(&self, user: &UserId) -> Result<Vec<Hub>, DiscoveryError> {
-        let filter = self.viewer_filter(user).await?;
+    async fn home_hubs(&self, audience: &Audience) -> Result<Vec<Hub>, DiscoveryError> {
+        let user = &audience.user;
+        let filter = self.viewer_filter(audience).await?;
         let saved = self.preferences.list_watchlist(user).await?;
 
         let watchlist = self.watchlist(&saved, &filter).await?;
@@ -250,7 +285,7 @@ where
             self.on_deck(user, &filter).await?.into_iter().map(HubItem::Movie).collect();
 
         let started: Vec<MovieId> = self
-            .continue_items(user)
+            .continue_items(user, &filter)
             .await?
             .into_iter()
             .filter_map(|item| match item.card.title {
@@ -299,6 +334,10 @@ mod tests {
 
     fn user() -> UserId {
         UserId("u1".into())
+    }
+
+    fn audience() -> Audience {
+        Audience { user: user(), age_limit: None }
     }
 
     fn account(role: Role, cap: Option<ContentRating>) -> User {
@@ -476,7 +515,7 @@ mod tests {
     #[tokio::test]
     async fn search_delegates_to_index() {
         let svc = seeded().await;
-        let hits = svc.search(&user(), "m1", &[], page()).await.unwrap();
+        let hits = svc.search(&audience(), "m1", &[], page()).await.unwrap();
         assert_eq!(hits.total, 1);
     }
 
@@ -495,7 +534,7 @@ mod tests {
         svc.search_index
             .add(SearchResult::Series(Series { title: "Drift Away".into(), ..series("s2") }));
 
-        let hits = svc.search(&user(), "drift", &[], page()).await.unwrap();
+        let hits = svc.search(&audience(), "drift", &[], page()).await.unwrap();
 
         let mut counts: Vec<Option<u16>> = hits
             .items
@@ -556,7 +595,7 @@ mod tests {
             admins(),
         );
 
-        let items = svc.continue_watching(&user()).await.unwrap();
+        let items = svc.continue_watching(&audience()).await.unwrap();
 
         assert_eq!(items.len(), 1);
         assert_eq!(
@@ -569,7 +608,7 @@ mod tests {
     #[tokio::test]
     async fn continue_watching_enriches_with_card() {
         let svc = seeded().await;
-        let items = svc.continue_watching(&user()).await.unwrap();
+        let items = svc.continue_watching(&audience()).await.unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].progress.version, VersionId("v1".into()));
         assert_eq!(items[0].card.display_title, "m1");
@@ -581,7 +620,7 @@ mod tests {
     async fn now_playing_enriches_and_skips_dangling_versions() {
         let svc = seeded().await;
         let now = svc
-            .now_playing(vec![session("s1", "v1", 500), session("s2", "ghost", 10)])
+            .now_playing(vec![session("s1", "v1", 500), session("s2", "ghost", 10)], None)
             .await
             .unwrap();
         assert_eq!(now.len(), 1);
@@ -596,7 +635,7 @@ mod tests {
         let svc = seeded().await;
         let finished = PlaybackSession { completed: true, ..session("s1", "v1", 1000) };
 
-        let now = svc.now_playing(vec![finished, session("s2", "v1", 500)]).await.unwrap();
+        let now = svc.now_playing(vec![finished, session("s2", "v1", 500)], None).await.unwrap();
 
         assert_eq!(
             now.len(),
@@ -632,7 +671,7 @@ mod tests {
             admins(),
         );
 
-        let items = svc.continue_watching(&user()).await.unwrap();
+        let items = svc.continue_watching(&audience()).await.unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].progress.version, VersionId("v1".into()));
     }
@@ -665,7 +704,7 @@ mod tests {
         );
 
         assert!(
-            svc.continue_watching(&user()).await.unwrap().is_empty(),
+            svc.continue_watching(&audience()).await.unwrap().is_empty(),
             "rows stored before the floor existed must not surface either"
         );
     }
@@ -685,19 +724,19 @@ mod tests {
             admins(),
         );
 
-        assert!(svc.continue_watching(&user()).await.unwrap().is_empty());
+        assert!(svc.continue_watching(&audience()).await.unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn next_episodes_and_movies() {
         let svc = seeded().await;
-        let next_eps = svc.next_episodes(&user()).await.unwrap();
+        let next_eps = svc.next_episodes(&audience()).await.unwrap();
         assert_eq!(next_eps.len(), 1);
         assert_eq!(next_eps[0].episode.id, EpisodeId("e2".into()));
         assert_eq!(next_eps[0].series, Some(SeriesId("s1".into())));
         assert_eq!(next_eps[0].season_number, Some(1));
 
-        let next_films = svc.next_movies(&user()).await.unwrap();
+        let next_films = svc.next_movies(&audience()).await.unwrap();
         assert_eq!(next_films.len(), 1);
         assert_eq!(next_films[0].id, MovieId("m2".into()));
     }
@@ -731,7 +770,7 @@ mod tests {
             preferences,
             admins(),
         );
-        let hubs = svc.home_hubs(&user()).await.unwrap();
+        let hubs = svc.home_hubs(&audience()).await.unwrap();
 
         match &hubs[0].items[..] {
             [HubItem::Episode(first), HubItem::Episode(second)] => {
@@ -769,7 +808,7 @@ mod tests {
         );
 
         assert!(
-            svc.next_episodes(&user()).await.unwrap().is_empty(),
+            svc.next_episodes(&audience()).await.unwrap().is_empty(),
             "e2 has no version, so the card would be a dead end; up next is gated the \
              same way the on deck movie rail already was"
         );
@@ -817,15 +856,15 @@ mod tests {
             admins(),
         );
 
-        let next_eps = svc.next_episodes(&user()).await.unwrap();
+        let next_eps = svc.next_episodes(&audience()).await.unwrap();
         assert_eq!(next_eps.len(), 1);
         assert_eq!(next_eps[0].episode.id, EpisodeId("e2".into()));
 
-        let next_films = svc.next_movies(&user()).await.unwrap();
+        let next_films = svc.next_movies(&audience()).await.unwrap();
         assert_eq!(next_films.len(), 1);
         assert_eq!(next_films[0].id, MovieId("m2".into()));
 
-        let hubs = svc.home_hubs(&user()).await.unwrap();
+        let hubs = svc.home_hubs(&audience()).await.unwrap();
         let on_deck = hubs.iter().find(|h| h.id == "on_deck").unwrap();
         match &on_deck.items[..] {
             [HubItem::Movie(m)] => assert_eq!(m.id, MovieId("m2".into())),
@@ -836,7 +875,7 @@ mod tests {
     #[tokio::test]
     async fn home_hubs_composes_rows() {
         let svc = seeded().await;
-        let hubs = svc.home_hubs(&user()).await.unwrap();
+        let hubs = svc.home_hubs(&audience()).await.unwrap();
         let ids: Vec<&str> = hubs.iter().map(|h| h.id.as_str()).collect();
         assert!(ids.contains(&"recently_added_movies"));
         assert!(ids.contains(&"recently_added_shows"));
@@ -855,7 +894,7 @@ mod tests {
     #[tokio::test]
     async fn an_empty_watchlist_leaves_no_rail_behind() {
         let svc = seeded().await;
-        let hubs = svc.home_hubs(&user()).await.unwrap();
+        let hubs = svc.home_hubs(&audience()).await.unwrap();
         assert!(hubs.iter().all(|h| h.id != "watchlist"));
     }
 
@@ -891,7 +930,7 @@ mod tests {
             preferences,
             admins(),
         );
-        let hubs = svc.home_hubs(&user()).await.unwrap();
+        let hubs = svc.home_hubs(&audience()).await.unwrap();
 
         assert_eq!(hubs[0].id, "watchlist", "the rail sits above recently added");
         match &hubs[0].items[..] {
@@ -938,7 +977,7 @@ mod tests {
             MockPreferencesRepo::new(),
             admins(),
         );
-        let hubs = svc.home_hubs(&user()).await.unwrap();
+        let hubs = svc.home_hubs(&audience()).await.unwrap();
         let continue_row = hubs
             .iter()
             .find(|hub| hub.id == "continue_watching")
@@ -991,7 +1030,7 @@ mod tests {
             viewer(Some("pg"), &["lib1"]).await,
         );
 
-        let hubs = svc.home_hubs(&user()).await.unwrap();
+        let hubs = svc.home_hubs(&audience()).await.unwrap();
 
         assert_eq!(
             hub_movie_ids(&hubs, "recently_added_movies"),
@@ -1010,7 +1049,7 @@ mod tests {
             admins(),
         );
 
-        let hubs = svc.home_hubs(&user()).await.unwrap();
+        let hubs = svc.home_hubs(&audience()).await.unwrap();
 
         assert_eq!(hub_movie_ids(&hubs, "recently_added_movies").len(), 2);
     }
@@ -1028,7 +1067,7 @@ mod tests {
         );
 
         assert!(
-            svc.home_hubs(&user()).await.unwrap().is_empty(),
+            svc.home_hubs(&audience()).await.unwrap().is_empty(),
             "home and the catalog must agree, and the catalog shows grants"
         );
     }
@@ -1044,7 +1083,7 @@ mod tests {
         );
 
         assert!(
-            svc.home_hubs(&user()).await.unwrap().is_empty(),
+            svc.home_hubs(&audience()).await.unwrap().is_empty(),
             "no library access means nothing to discover, not everything"
         );
     }
@@ -1080,14 +1119,14 @@ mod tests {
             viewer(Some("pg"), &["lib1"]).await,
         );
 
-        let hubs = svc.home_hubs(&user()).await.unwrap();
+        let hubs = svc.home_hubs(&audience()).await.unwrap();
 
         assert!(
             hubs.is_empty(),
             "an episode inherits its rating from the series, so a blocked show takes its episodes with it"
         );
         assert!(
-            svc.next_episodes(&user()).await.unwrap().is_empty(),
+            svc.next_episodes(&audience()).await.unwrap().is_empty(),
             "up next must not route around the cap either"
         );
     }
@@ -1103,7 +1142,7 @@ mod tests {
             viewer(Some("pg"), &["lib1"]).await,
         );
 
-        svc.search(&user(), "anything", &[], page()).await.unwrap();
+        svc.search(&audience(), "anything", &[], page()).await.unwrap();
 
         let filter = index.last_filter().expect("the index was asked to search");
         assert_eq!(
@@ -1117,6 +1156,99 @@ mod tests {
         );
     }
 
+    fn mpaa(code: &str) -> ContentRating {
+        ContentRating { system: "mpaa".into(), code: code.into() }
+    }
+
+    fn child() -> Audience {
+        Audience { age_limit: Some(12), ..audience() }
+    }
+
+    async fn rated_in_progress(users: MockUserRepo) -> Svc {
+        let catalog = MockCatalogRepo::new();
+        catalog.add_movie(Movie { content_rating: Some(mpaa("r")), ..movie("m1", 10) });
+        catalog.add_movie(movie("m2", 20));
+        catalog.add_series(series("s1"));
+        catalog.add_season(season("se1", "s1"));
+        catalog.add_episode(episode("e1", "se1", 1));
+        catalog.add_version(version("v1", TitleId::Movie(MovieId("m1".into()))));
+        catalog.add_version(version("v2", TitleId::Movie(MovieId("m2".into()))));
+        catalog.add_version(version("ev1", TitleId::Episode(EpisodeId("e1".into()))));
+        let progress = MockProgressRepo::new();
+        for played in ["v1", "v2", "ev1"] {
+            progress
+                .upsert(PlaybackProgress {
+                    user: user(),
+                    version: VersionId(played.into()),
+                    position_ms: 500,
+                    audio_track: None,
+                    subtitle: None,
+                    updated_at: Timestamp::UNIX_EPOCH,
+                })
+                .await
+                .unwrap();
+        }
+        DiscoveryServiceImpl::new(
+            catalog,
+            MockSearchIndex::new(),
+            progress,
+            MockPreferencesRepo::new(),
+            users,
+        )
+    }
+
+    fn resumed(items: &[ContinueWatchingItem]) -> Vec<&str> {
+        let mut versions: Vec<&str> =
+            items.iter().map(|item| item.progress.version.0.as_str()).collect();
+        versions.sort();
+        versions
+    }
+
+    #[tokio::test]
+    async fn continue_watching_keeps_to_the_account_cap_and_the_grants() {
+        let capped = rated_in_progress(viewer(Some("pg-13"), &["lib1"]).await).await;
+        let ungranted = rated_in_progress(viewer(None, &["lib2"]).await).await;
+
+        let shown = capped.continue_watching(&audience()).await.unwrap();
+
+        assert_eq!(resumed(&shown), vec!["ev1", "v2"]);
+        assert!(ungranted.continue_watching(&audience()).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_device_limit_narrows_continue_watching_and_now_playing() {
+        let svc = rated_in_progress(viewer(None, &["lib1"]).await).await;
+        let sessions = || vec![session("s1", "v1", 500), session("s2", "v2", 500)];
+
+        let shown = svc.continue_watching(&child()).await.unwrap();
+        let limited = svc.now_playing(sessions(), Some(&child())).await.unwrap();
+        let unlimited = svc.now_playing(sessions(), None).await.unwrap();
+
+        assert_eq!(resumed(&shown), vec!["ev1", "v2"]);
+        assert_eq!(resumed(&svc.continue_watching(&audience()).await.unwrap()).len(), 3);
+        let playing: Vec<&str> = limited.iter().map(|now| now.session.id.0.as_str()).collect();
+        assert_eq!(playing, vec!["s2"]);
+        assert_eq!(unlimited.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_device_limit_reaches_the_index_for_an_uncapped_account() {
+        let index = MockSearchIndex::new();
+        let svc = DiscoveryServiceImpl::new(
+            MockCatalogRepo::new(),
+            index.clone(),
+            MockProgressRepo::new(),
+            MockPreferencesRepo::new(),
+            viewer(None, &["lib1"]).await,
+        );
+
+        svc.search(&child(), "anything", &[], page()).await.unwrap();
+
+        let filter = index.last_filter().expect("the index was asked to search");
+        assert!(filter.blocked_ratings.contains(&mpaa("pg-13")));
+        assert!(!filter.blocked_ratings.contains(&mpaa("pg")));
+    }
+
     #[tokio::test]
     async fn an_admin_search_carries_the_same_gates_as_anyone() {
         let index = MockSearchIndex::new();
@@ -1128,7 +1260,7 @@ mod tests {
             admins(),
         );
 
-        svc.search(&user(), "anything", &[], page()).await.unwrap();
+        svc.search(&audience(), "anything", &[], page()).await.unwrap();
 
         let filter = index.last_filter().expect("the index was asked to search");
         assert_eq!(
@@ -1149,7 +1281,7 @@ mod tests {
         );
 
         assert!(
-            svc.home_hubs(&user()).await.unwrap().is_empty(),
+            svc.home_hubs(&audience()).await.unwrap().is_empty(),
             "a missing account must fail closed, never open"
         );
     }
@@ -1167,12 +1299,12 @@ mod tests {
         let users = MockUserRepo::new();
         users.set_fail();
         let svc = DiscoveryServiceImpl::new(catalog, search, progress, preferences, users);
-        assert!(svc.search(&user(), "x", &[], page()).await.is_err());
-        assert!(svc.continue_watching(&user()).await.is_err());
-        assert!(svc.now_playing(vec![session("s1", "v1", 1)]).await.is_err());
-        assert!(svc.next_episodes(&user()).await.is_err());
-        assert!(svc.next_movies(&user()).await.is_err());
-        assert!(svc.home_hubs(&user()).await.is_err());
+        assert!(svc.search(&audience(), "x", &[], page()).await.is_err());
+        assert!(svc.continue_watching(&audience()).await.is_err());
+        assert!(svc.now_playing(vec![session("s1", "v1", 1)], None).await.is_err());
+        assert!(svc.next_episodes(&audience()).await.is_err());
+        assert!(svc.next_movies(&audience()).await.is_err());
+        assert!(svc.home_hubs(&audience()).await.is_err());
     }
 
     // The test above fails the account lookup, which is the first `?` in every
@@ -1211,11 +1343,11 @@ mod tests {
             MockPreferencesRepo::new(),
             viewer(None, &["lib1"]).await,
         );
-        assert!(svc.now_playing(vec![session("s1", "v1", 1)]).await.is_err());
-        assert!(svc.continue_watching(&user()).await.is_err());
-        assert!(svc.next_episodes(&user()).await.is_err());
-        assert!(svc.next_movies(&user()).await.is_err());
-        assert!(svc.home_hubs(&user()).await.is_err());
+        assert!(svc.now_playing(vec![session("s1", "v1", 1)], None).await.is_err());
+        assert!(svc.continue_watching(&audience()).await.is_err());
+        assert!(svc.next_episodes(&audience()).await.is_err());
+        assert!(svc.next_movies(&audience()).await.is_err());
+        assert!(svc.home_hubs(&audience()).await.is_err());
 
         let progress = MockProgressRepo::new();
         progress.set_fail();
@@ -1226,10 +1358,10 @@ mod tests {
             MockPreferencesRepo::new(),
             viewer(None, &["lib1"]).await,
         );
-        assert!(svc.continue_watching(&user()).await.is_err());
-        assert!(svc.next_episodes(&user()).await.is_err());
-        assert!(svc.next_movies(&user()).await.is_err());
-        assert!(svc.home_hubs(&user()).await.is_err());
+        assert!(svc.continue_watching(&audience()).await.is_err());
+        assert!(svc.next_episodes(&audience()).await.is_err());
+        assert!(svc.next_movies(&audience()).await.is_err());
+        assert!(svc.home_hubs(&audience()).await.is_err());
 
         let preferences = MockPreferencesRepo::new();
         preferences.set_fail();
@@ -1240,7 +1372,7 @@ mod tests {
             preferences,
             viewer(None, &["lib1"]).await,
         );
-        assert!(svc.home_hubs(&user()).await.is_err());
+        assert!(svc.home_hubs(&audience()).await.is_err());
 
         let search = MockSearchIndex::new();
         search.set_fail();
@@ -1251,6 +1383,6 @@ mod tests {
             MockPreferencesRepo::new(),
             viewer(None, &["lib1"]).await,
         );
-        assert!(svc.search(&user(), "x", &[], page()).await.is_err());
+        assert!(svc.search(&audience(), "x", &[], page()).await.is_err());
     }
 }

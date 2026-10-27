@@ -76,6 +76,7 @@ pub async fn scan<S: AppServices>(
         role: Role::Automation,
         account_admin: false,
         device: None,
+        age_limit: None,
     };
     to_completion(trigger(state.services, principal, LibraryId(id))).await
 }
