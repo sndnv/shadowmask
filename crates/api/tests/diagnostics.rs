@@ -13,13 +13,14 @@ use contracts::Generator;
 use domain::catalog::{MovieId, TitleId, Version, VersionId};
 use domain::common::{LanguageCode, Quality};
 use domain::diagnostics::{
-    AccelerationMode, BenchmarkOutcome, BenchmarkRun, BenchmarkStatus, BenchmarkTarget,
-    CapabilityReport, DiagnosticsStatus, FfmpegReport, HardwareReport, HardwareTest, HostReport,
-    LibraryPrep, PlaybackPrepAudit, Presence, ServerDiagnostics, TranscodeBenchmark,
+    AccelerationMode, BenchmarkEncoder, BenchmarkOutcome, BenchmarkRun, BenchmarkStatus,
+    BenchmarkTarget, CapabilityReport, DiagnosticsStatus, FfmpegReport, HardwareReport,
+    HardwareTest, HostReport, LibraryPrep, PlaybackPrepAudit, Presence, ServerDiagnostics,
+    TranscodeBenchmark,
 };
 use domain::error::{BenchmarkError, RepositoryError};
 use domain::library::LibraryId;
-use domain::media::{AudioTrack, HdrFormat, VideoTrack};
+use domain::media::{AudioTrack, HdrFormat, PlaybackPrep, VideoTrack};
 use domain::repository::CatalogRepository;
 use jiff::Timestamp;
 use mocks::MockCatalogRepo;
@@ -383,6 +384,17 @@ async fn film() -> MockCatalogRepo {
     catalog
 }
 
+async fn prepared(keyframes_us: Vec<u64>) -> MockCatalogRepo {
+    let catalog = film().await;
+    let prep = PlaybackPrep {
+        keyframes_us,
+        extracted_subtitles: Vec::new(),
+        prepared_with: "5.1.9".to_owned(),
+    };
+    catalog.set_playback_prep(&VersionId("v1".to_owned()), &prep).await.unwrap();
+    catalog
+}
+
 fn target() -> BenchmarkTarget {
     BenchmarkTarget {
         version: VersionId("v1".to_owned()),
@@ -393,19 +405,47 @@ fn target() -> BenchmarkTarget {
         height: Some(2160),
         hdr: Some(HdrFormat::Hdr10),
         audio_track: Some(1),
+        keyframes_us: None,
     }
+}
+
+async fn started_with(catalog: MockCatalogRepo) -> (StatusCode, Vec<BenchmarkTarget>) {
+    let benchmark = FakeBenchmark::default();
+    let app = app_with(FakeDiagnostics::default(), benchmark.clone(), catalog);
+    let (status, _) =
+        send_body(app, "POST", BENCHMARK, ADMIN, Some(json!({ "version_id": "v1" }))).await;
+    let started = benchmark.started.lock().unwrap().clone();
+    (status, started)
 }
 
 #[tokio::test]
 async fn an_admin_benchmarks_a_version_as_the_catalog_holds_it() {
-    let benchmark = FakeBenchmark::default();
-    let app = app_with(FakeDiagnostics::default(), benchmark.clone(), film().await);
-
-    let (status, _) =
-        send_body(app, "POST", BENCHMARK, ADMIN, Some(json!({ "version_id": "v1" }))).await;
+    let keyframes = vec![0, 4_000_000, 8_000_000];
+    let (status, started) = started_with(prepared(keyframes.clone()).await).await;
 
     assert_eq!(status, StatusCode::ACCEPTED);
-    assert_eq!(*benchmark.started.lock().unwrap(), [target()]);
+    assert_eq!(started, [BenchmarkTarget { keyframes_us: Some(keyframes), ..target() }]);
+}
+
+#[tokio::test]
+async fn a_version_without_keyframes_is_benchmarked_from_its_lookback() {
+    for catalog in [film().await, prepared(Vec::new()).await] {
+        let (status, started) = started_with(catalog).await;
+
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert_eq!(started, [target()]);
+    }
+}
+
+#[tokio::test]
+async fn a_keyframe_read_that_fails_answers_a_server_error() {
+    let catalog = prepared(vec![0]).await;
+    catalog.set_fail_keyframes();
+
+    let (status, started) = started_with(catalog).await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(started.is_empty());
 }
 
 #[tokio::test]
@@ -448,11 +488,11 @@ async fn a_benchmark_already_running_refuses_another() {
 #[tokio::test]
 async fn the_benchmark_reads_as_its_runs() {
     let benchmark = FakeBenchmark::default();
-    let run = |hardware, outcome, elapsed_ms| BenchmarkRun {
+    let run = |encoder, outcome, elapsed_ms| BenchmarkRun {
         segment: 450,
         start_ms: 1_800_000,
         duration_ms: 4_000,
-        hardware,
+        encoder,
         outcome,
         elapsed_ms,
     };
@@ -464,12 +504,12 @@ async fn the_benchmark_reads_as_its_runs() {
         total: 6,
         runs: vec![
             run(
-                true,
+                BenchmarkEncoder::Vaapi,
                 BenchmarkOutcome::Failed { detail: "No usable encoding entrypoint".to_owned() },
                 300,
             ),
-            run(false, BenchmarkOutcome::Ok, 8_000),
-            run(false, BenchmarkOutcome::TooSlow, 60_000),
+            run(BenchmarkEncoder::VaapiEncode, BenchmarkOutcome::Ok, 8_000),
+            run(BenchmarkEncoder::Software, BenchmarkOutcome::TooSlow, 60_000),
         ],
     };
     let app = app_with(FakeDiagnostics::default(), benchmark, MockCatalogRepo::new());
@@ -497,7 +537,7 @@ async fn the_benchmark_reads_as_its_runs() {
                 },
                 {
                     "segment": 450, "start_ms": 1_800_000, "duration_ms": 4_000,
-                    "encoder": "software", "outcome": "ok", "elapsed_ms": 8_000,
+                    "encoder": "vaapi-encode", "outcome": "ok", "elapsed_ms": 8_000,
                     "realtime": 0.5, "detail": null
                 },
                 {

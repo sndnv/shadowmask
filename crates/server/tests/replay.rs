@@ -25,6 +25,7 @@ use domain::repository::{
     SearchIndex, UserRepository,
 };
 use domain::user::{PendingLink, Role, User, UserId};
+use media::transcode::VideoEncoder;
 use server::{
     Built, CancelRegistry, CapabilityInputs, Repos, WireConfig, app, build_state,
     server_capabilities,
@@ -50,7 +51,7 @@ fn config(root: &Path) -> WireConfig {
         upscaling_enabled: true,
         content_fetch_enabled: false,
         fetch_cookies_file: None,
-        vaapi_device: None,
+        encoder: VideoEncoder::Software,
         remux_read_rate: 10.0,
         stream_start_timeout: Duration::from_secs(20),
         max_transcode_height: None,

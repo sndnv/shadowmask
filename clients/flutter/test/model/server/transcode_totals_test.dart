@@ -14,6 +14,7 @@ transcode_segments_total{encoder="vaapi",outcome="ok"} 20
 transcode_segments_total{encoder="vaapi",outcome="failed"} 2
 transcode_segments_total{encoder="remux",outcome="ok"} 5
 transcode_segments_total{encoder="qsv",outcome="ok"} 1
+transcode_segments_total{encoder="vaapi-encode",outcome="ok"} 3
 # TYPE transcode_segment_duration_milliseconds histogram
 transcode_segment_duration_milliseconds_bucket{encoder="vaapi",le="1000"} 15
 transcode_segment_duration_milliseconds_bucket{encoder="vaapi",le="+Inf"} 20
@@ -45,6 +46,7 @@ void main() {
 
     expect(totals.encoders.map((EncoderTotals e) => e.encoder), <String>[
       'vaapi',
+      'vaapi-encode',
       'software',
       'remux',
       'qsv',
@@ -55,10 +57,11 @@ void main() {
     expect(vaapi.timed, 20);
     expect(vaapi.averageMs, 1000);
     expect(vaapi.realtime, 4);
-    final EncoderTotals software = totals.encoders[1];
+    expect(totals.encoders[1].produced, 3);
+    final EncoderTotals software = totals.encoders[2];
     expect(software.averageMs, 8000);
     expect(software.realtime, 0.5);
-    final EncoderTotals remux = totals.encoders[2];
+    final EncoderTotals remux = totals.encoders[3];
     expect(remux.produced, 5);
     expect(remux.averageMs, isNull);
     expect(remux.realtime, isNull);

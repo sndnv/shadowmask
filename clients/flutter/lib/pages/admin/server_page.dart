@@ -806,7 +806,7 @@ String _outcomeText(BenchmarkOutcome outcome) => switch (outcome) {
 String _average(double? ms) => ms == null ? Strings.noValue : secondsText(ms);
 
 Color? _encoderColor(Tokens t, String encoder) => switch (encoder) {
-  'vaapi' => t.ok,
+  'vaapi' || 'vaapi-encode' => t.ok,
   'software' => t.danger,
   _ => null,
 };

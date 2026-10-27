@@ -16,7 +16,7 @@
       const POLL_MS = 2000;
       const SEARCH_LIMIT = 10;
       const RECENT_LOGS = 20;
-      const ENCODER_ORDER = ["vaapi", "software", "remux"];
+      const ENCODER_ORDER = ["vaapi", "vaapi-encode", "software", "remux"];
       const DELIVERY_ORDER = ["direct", "remux", "transcode"];
 
       sm.chrome();
@@ -547,7 +547,7 @@
         out.appendChild(
           sm.table(
             [
-              "Software fallbacks",
+              "Fallbacks",
               "Abandoned segments",
               "Direct bytes",
               "Segment bytes",

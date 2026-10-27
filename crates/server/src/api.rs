@@ -97,7 +97,7 @@ pub struct WireConfig {
     pub upscaling_enabled: bool,
     pub content_fetch_enabled: bool,
     pub fetch_cookies_file: Option<PathBuf>,
-    pub vaapi_device: Option<String>,
+    pub encoder: VideoEncoder,
     pub remux_read_rate: f64,
     pub stream_start_timeout: Duration,
     pub max_transcode_height: Option<u32>,
@@ -186,7 +186,7 @@ pub fn build_state(
 ) -> Result<Built, ProfileError> {
     let profiles = BuiltinProfiles::load_from_dir(cfg.profile_overrides_dir.as_deref())?;
     let hls = HlsStreamSource::new(&cfg.transcode_cache, &cfg.playback_prep_dir)
-        .with_encoder(VideoEncoder::from_device(cfg.vaapi_device.clone()))
+        .with_encoder(cfg.encoder.clone())
         .with_read_rate(cfg.remux_read_rate)
         .with_prepare_limit(cfg.stream_start_timeout);
     let artwork_store = FsArtworkStore::new(&cfg.artwork_cache);

@@ -56,9 +56,15 @@ pub async fn start_benchmark<D, B: TranscodeBenchmark, C: CatalogRepository + Se
         .map_err(log_fail(actor, "look up the version to benchmark"))
         .map_err(|_| ApiError::internal())?
         .ok_or_else(|| ApiError::not_found("version not found"))?;
+    let keyframes_us = state
+        .catalog
+        .keyframes_us(&version)
+        .await
+        .map_err(log_fail(actor, "read the keyframes of the version to benchmark"))
+        .map_err(|_| ApiError::internal())?;
     state
         .benchmark
-        .start(BenchmarkTarget::of(&detail))
+        .start(BenchmarkTarget::of(&detail, keyframes_us))
         .map_err(log_fail(actor, "start a transcode benchmark"))?;
     debug!("User [{actor}] started a transcode benchmark of version [{}]", version.0);
     Ok(StatusCode::ACCEPTED)

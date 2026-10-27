@@ -53,9 +53,9 @@ pub(crate) fn build_upscale_args(
     encoder: &VideoEncoder,
 ) -> Vec<String> {
     let mut args = vec!["-nostdin".to_owned(), "-y".to_owned()];
-    if let VideoEncoder::Vaapi { device } = encoder {
+    if let Some(device) = encoder.device() {
         args.push("-vaapi_device".to_owned());
-        args.push(device.clone());
+        args.push(device.to_owned());
     }
     args.push("-i".to_owned());
     args.push(source.to_owned());
@@ -64,7 +64,7 @@ pub(crate) fn build_upscale_args(
     args.push("-map".to_owned());
     args.push("0:a?".to_owned());
     match encoder {
-        VideoEncoder::Vaapi { .. } => {
+        VideoEncoder::VaapiEncode { .. } | VideoEncoder::Vaapi { .. } => {
             args.push("-c:v".to_owned());
             args.push("h264_vaapi".to_owned());
             args.push("-vf".to_owned());
@@ -276,7 +276,7 @@ mod tests {
             "out.mp4",
             960,
             720,
-            &VideoEncoder::Vaapi { device: "/dev/dri/renderD128".to_owned() },
+            &VideoEncoder::VaapiEncode { device: "/dev/dri/renderD128".to_owned() },
         );
         assert!(args.contains(&"-vaapi_device".to_owned()));
         assert!(args.contains(&"/dev/dri/renderD128".to_owned()));
@@ -295,7 +295,7 @@ mod tests {
             spawner.clone(),
             MockProbe { result: Ok(probe_of(vec![video(640, 480)])) },
         )
-        .with_encoder(VideoEncoder::Vaapi { device: "/dev/dri/renderD128".to_owned() });
+        .with_encoder(VideoEncoder::VaapiEncode { device: "/dev/dri/renderD128".to_owned() });
         let out = up
             .upscale(&UpscaleSpec {
                 source_path: "src.mkv".to_owned(),

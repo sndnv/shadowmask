@@ -344,6 +344,7 @@ pub struct MockCatalogRepo {
     state: Arc<Mutex<State>>,
     fail: Arc<AtomicBool>,
     fail_writes: Arc<AtomicBool>,
+    fail_keyframes: Arc<AtomicBool>,
     clear_subtitles_after_read: Arc<AtomicBool>,
     episode_lookups: Arc<AtomicUsize>,
     detail_lookups: Arc<AtomicUsize>,
@@ -476,6 +477,10 @@ impl MockCatalogRepo {
 
     pub fn set_fail_writes(&self) {
         self.fail_writes.store(true, Ordering::Relaxed);
+    }
+
+    pub fn set_fail_keyframes(&self) {
+        self.fail_keyframes.store(true, Ordering::Relaxed);
     }
 
     pub fn clear_subtitles_after_next_read(&self) {
@@ -1175,6 +1180,9 @@ impl CatalogRepository for MockCatalogRepo {
 
     async fn keyframes_us(&self, version: &VersionId) -> Result<Option<Vec<u64>>, RepositoryError> {
         self.guard()?;
+        if self.fail_keyframes.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend("mock keyframe read failure".to_owned()));
+        }
         let state = self.state.lock().unwrap();
         Ok(state.playback_prep.get(version).map(|prep| prep.keyframes_us.clone()))
     }
@@ -2360,6 +2368,18 @@ mod tests {
         repo.set_fail_writes();
         assert!(repo.add_subtitle_file(&v1, &file("sf3", "/subs/three.srt")).await.is_err());
         assert!(repo.set_subtitle_files(&v1, &[]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_failing_keyframe_read_leaves_the_version_readable() {
+        let repo = MockCatalogRepo::new();
+        let v1 = VersionId("v1".into());
+        repo.add_version(version("v1"));
+
+        repo.set_fail_keyframes();
+
+        assert!(repo.keyframes_us(&v1).await.is_err());
+        assert!(repo.version_detail(&v1).await.unwrap().is_some());
     }
 
     #[tokio::test]

@@ -3,13 +3,7 @@ use std::time::Duration;
 use crate::transcode::VideoEncoder;
 
 pub(crate) fn encoder_label(copy: bool, encoder: &VideoEncoder) -> &'static str {
-    if copy {
-        "remux"
-    } else if encoder.is_hardware() {
-        "vaapi"
-    } else {
-        "software"
-    }
+    if copy { "remux" } else { encoder.label() }
 }
 
 pub(crate) fn run_ended(encoder: &'static str, elapsed: Duration, segments: u32, media_ms: u64) {
@@ -66,10 +60,12 @@ mod tests {
 
     #[test]
     fn each_kind_of_segment_has_its_label() {
-        let vaapi = VideoEncoder::Vaapi { device: "/dev/dri/renderD128".to_owned() };
+        let device = "/dev/dri/renderD128".to_owned();
+        let vaapi = VideoEncoder::Vaapi { device: device.clone(), tone_map: false };
 
         assert_eq!(encoder_label(true, &vaapi), "remux");
         assert_eq!(encoder_label(false, &vaapi), "vaapi");
+        assert_eq!(encoder_label(false, &VideoEncoder::VaapiEncode { device }), "vaapi-encode");
         assert_eq!(encoder_label(false, &VideoEncoder::Software), "software");
     }
 }

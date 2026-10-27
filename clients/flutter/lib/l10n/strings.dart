@@ -908,7 +908,7 @@ abstract final class Strings {
   static const String columnSessions = 'Sessions';
   static const String columnStreamStarts = 'Stream starts';
   static const String columnFirstSegment = 'First segment';
-  static const String columnFallbacks = 'Software fallbacks';
+  static const String columnFallbacks = 'Fallbacks';
   static const String columnAbandoned = 'Abandoned segments';
   static const String columnDirectBytes = 'Direct bytes';
   static const String columnSegmentBytes = 'Segment bytes';
@@ -934,7 +934,8 @@ abstract final class Strings {
       'Which piece of the film was transcoded, and where it starts. Playback '
       'transcodes in pieces of about 4 seconds.';
   static const String helpEncoder =
-      'vaapi encodes on the GPU, software on the CPU. remux copies the video '
+      'vaapi decodes, scales and encodes on the GPU. vaapi-encode only '
+      'encodes on the GPU. software runs on the CPU. remux copies the video '
       'without re-encoding it.';
   static const String helpOutcome =
       'OK: the segment was produced. Failed: ffmpeg stopped with an error, '
@@ -961,7 +962,8 @@ abstract final class Strings {
   static const String helpFirstSegment =
       'Average wait from a stream starting to its first segment being ready.';
   static const String helpFallbacks =
-      'GPU segments that failed and were redone on the CPU.';
+      'Runs that failed on the GPU and were redone one step down: '
+      'vaapi-encode, then software.';
   static const String helpAbandoned =
       'Segments the player stopped waiting for before they were ready.';
   static const String helpDirectBytes =

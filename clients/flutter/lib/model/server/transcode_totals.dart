@@ -2,7 +2,12 @@ import 'package:shadowmask/model/server/delivery_totals.dart';
 import 'package:shadowmask/model/server/encoder_totals.dart';
 import 'package:shadowmask/util/prometheus.dart';
 
-const List<String> _kEncoderOrder = <String>['vaapi', 'software', 'remux'];
+const List<String> _kEncoderOrder = <String>[
+  'vaapi',
+  'vaapi-encode',
+  'software',
+  'remux',
+];
 const List<String> _kDeliveryOrder = <String>['direct', 'remux', 'transcode'];
 
 class TranscodeTotals {
