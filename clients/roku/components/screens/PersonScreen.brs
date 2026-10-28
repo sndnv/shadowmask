@@ -193,7 +193,6 @@ sub onPerson(event as object)
     m.person = parsed.json
     m.cards = PersonFilmographyCards(ValueAt(m.person, "filmography", invalid))
 
-    PublishBackdropUrl("")
     LoadStates()
     Refresh()
 end sub

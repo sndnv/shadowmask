@@ -1,0 +1,155 @@
+namespace tests
+
+    @suite("screen")
+    class ScreenTests extends rooibos.BaseTestSuite
+
+        @describe("BackdropAfterPush")
+
+        @it("keeps what is shown for a screen that asks for its own backdrop")
+        sub pushKeepsForAnOwner()
+            m.assertEqual(BackdropAfterPush("http://host/b1", true, false), "http://host/b1")
+        end sub
+
+        @it("keeps what is shown for an immersive screen")
+        sub pushKeepsForImmersive()
+            m.assertEqual(BackdropAfterPush("http://host/b1", false, true), "http://host/b1")
+        end sub
+
+        @it("shows none for a screen without a backdrop")
+        sub pushClearsForTheRest()
+            m.assertEqual(BackdropAfterPush("http://host/b1", false, false), "")
+        end sub
+
+        @describe("BackdropAfterPop")
+
+        @it("shows the revealed screen's backdrop")
+        sub popShowsTheRevealed()
+            m.assertEqual(BackdropAfterPop(true, "http://host/b1"), "http://host/b1")
+        end sub
+
+        @it("shows none when the revealed screen has not asked yet")
+        sub popShowsNoneBeforeAnAsk()
+            m.assertEqual(BackdropAfterPop(true, ""), "")
+            m.assertEqual(BackdropAfterPop(true, invalid), "")
+        end sub
+
+        @it("shows none when the revealed screen has no backdrop")
+        sub popShowsNoneWithoutABackdrop()
+            m.assertEqual(BackdropAfterPop(false, "http://host/b1"), "")
+        end sub
+
+        @describe("BackdropAfterAsk")
+
+        @it("shows what the screen on top asks for")
+        sub askFromTheTopIsShown()
+            m.assertEqual(BackdropAfterAsk("http://host/b1", true, "http://host/b2"), "http://host/b2")
+        end sub
+
+        @it("shows none when the screen on top asks for none after a failed load")
+        sub askForNoneFromTheTopIsShown()
+            m.assertEqual(BackdropAfterAsk("http://host/b1", true, ""), "")
+        end sub
+
+        @it("keeps what is shown when a covered screen asks")
+        sub askFromACoveredScreenIsKept()
+            m.assertEqual(BackdropAfterAsk("http://host/b1", false, "http://host/b2"), "http://host/b1")
+            m.assertEqual(BackdropAfterAsk("http://host/b1", false, ""), "http://host/b1")
+        end sub
+
+        @describe("BackdropMove")
+
+        @it("keeps the backdrop when the same one is asked for again")
+        sub moveKeepsTheSame()
+            m.assertEqual(BackdropMove("http://host/b1", "http://host/b1", 0.12, "http://host/b1"), "keep")
+            m.assertEqual(BackdropMove("", "", 0.0, ""), "keep")
+        end sub
+
+        @it("fades out when none is asked for")
+        sub moveFadesOutForNone()
+            m.assertEqual(BackdropMove("http://host/b1", "http://host/b1", 0.12, ""), "fadeOut")
+        end sub
+
+        @it("fades the old one out before loading a different one while it shows")
+        sub moveSwapsWhileShowing()
+            m.assertEqual(BackdropMove("http://host/b1", "http://host/b1", 0.12, "http://host/b2"), "swap")
+            m.assertEqual(BackdropMove("http://host/b1", "http://host/b1", 0.05, "http://host/b2"), "swap")
+        end sub
+
+        @it("loads a different one at once when nothing shows")
+        sub moveLoadsWhenHidden()
+            m.assertEqual(BackdropMove("", "http://host/b1", 0.0, "http://host/b2"), "load")
+            m.assertEqual(BackdropMove("", "", 0.0, "http://host/b2"), "load")
+        end sub
+
+        @it("fades the loaded image in again when it is asked for back")
+        sub moveFadesInTheLoadedImage()
+            m.assertEqual(BackdropMove("", "http://host/b1", 0.05, "http://host/b1"), "fadeIn")
+            m.assertEqual(BackdropMove("", "http://host/b1", 0.0, "http://host/b1"), "fadeIn")
+        end sub
+
+        @describe("BackdropFadesIn")
+
+        @it("fades in the image that is asked for")
+        sub fadesInWhatIsAsked()
+            m.assertTrue(BackdropFadesIn("http://host/b1", "http://host/b1"))
+        end sub
+
+        @it("does not fade in an image that loaded after none was asked for")
+        sub skipsAfterNone()
+            m.assertFalse(BackdropFadesIn("", "http://host/b1"))
+            m.assertFalse(BackdropFadesIn("", ""))
+        end sub
+
+        @it("does not fade in an image that loaded after another was asked for")
+        sub skipsAfterAnother()
+            m.assertFalse(BackdropFadesIn("http://host/b2", "http://host/b1"))
+        end sub
+
+        @describe("BackdropLoadsNext")
+
+        @it("loads the waiting image once the old one has faded out")
+        sub loadsOnceFaded()
+            m.assertTrue(BackdropLoadsNext(0.0, "http://host/b2"))
+        end sub
+
+        @it("waits while the old one still shows")
+        sub waitsWhileShowing()
+            m.assertFalse(BackdropLoadsNext(0.01, "http://host/b2"))
+        end sub
+
+        @it("loads nothing when no image is waiting")
+        sub loadsNothingWithoutAWait()
+            m.assertFalse(BackdropLoadsNext(0.0, ""))
+        end sub
+
+        @describe("AdvanceFollowed")
+
+        @it("follows every advance of the screen on top")
+        sub followsTheTop()
+            for each target in ["SeasonScreen", "WatchScreen", "back", "bootstrap", "reset:HomeScreen", "reset:SetupScreen"]
+                m.assertTrue(AdvanceFollowed(target, true), target + " was not followed")
+            end for
+        end sub
+
+        @it("ignores a covered screen's push, back, bootstrap and reset to Home")
+        sub ignoresACoveredScreen()
+            for each target in ["SeasonScreen", "WatchScreen", "back", "bootstrap", "reset:HomeScreen"]
+                m.assertFalse(AdvanceFollowed(target, false), target + " was followed")
+            end for
+        end sub
+
+        @it("follows a covered screen's reset to Setup, since the sign-in is gone")
+        sub followsACoveredSignOut()
+            m.assertTrue(AdvanceFollowed("reset:SetupScreen", false))
+        end sub
+
+        @it("never follows a blank advance")
+        sub ignoresBlank()
+            m.assertFalse(AdvanceFollowed("", true))
+            m.assertFalse(AdvanceFollowed("", false))
+            m.assertFalse(AdvanceFollowed(invalid, true))
+        end sub
+
+    end class
+
+end namespace

@@ -244,6 +244,7 @@ sub onSeason(event as object)
 
     if not parsed.ok
         ShowNote(Phrase("error.couldNotLoadSeason"), "error")
+        PublishBackdropUrl("")
         return
     end if
 
