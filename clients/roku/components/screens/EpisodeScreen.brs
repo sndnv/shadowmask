@@ -223,6 +223,7 @@ sub onEpisode(event as object)
 
     if not parsed.ok
         ShowNote(Phrase("error.couldNotLoadEpisode"), "error")
+        PublishBackdropUrl("")
         return
     end if
 

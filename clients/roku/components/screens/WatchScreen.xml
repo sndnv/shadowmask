@@ -32,7 +32,7 @@
         <field id="advance" type="string" alwaysNotify="true" />
         <field id="section" type="string" />
         <field id="immersive" type="boolean" value="true" />
-        <field id="backdropUrl" type="string" />
+        <field id="backdropUrl" type="string" alwaysNotify="true" />
         <field id="choiceRequest" type="assocarray" />
         <field id="choiceResult" type="assocarray" onChange="onChoice" />
         <field id="toastRequest" type="assocarray" alwaysNotify="true" />

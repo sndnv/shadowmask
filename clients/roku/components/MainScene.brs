@@ -44,6 +44,9 @@ sub init()
     m.backdropOut.duration = BackdropFadeSeconds()
     m.backdropFalloff.key = [0.0, 1.0]
     m.backdropFalloff.keyValue = [BackdropOpacity(), 0.0]
+    m.backdropShown = ""
+    m.backdropNext = ""
+    m.backdrop.ObserveField("opacity", "onBackdropOpacity")
 
     m.backdrop.muteAudioGuide = true
     m.texture.muteAudioGuide = true
@@ -58,7 +61,6 @@ sub init()
     m.choice.ObserveField("result", "onChoiceResult")
 
     PublishSession()
-    m.global.ObserveField("backdropUrl", "onBackdrop")
     m.global.ObserveField("lowMemory", "onLowMemory")
     m.global.ObserveField("deepLink", "onDeepLink")
     ApplyTheme()
@@ -69,7 +71,7 @@ end sub
 sub PublishSession()
     shared = m.global
     if not shared.HasField("serverUrl")
-        shared.AddFields({ serverUrl: "", token: "", userId: "", username: "", role: "", accountRole: "", theme: {}, backdropUrl: "", decoding: {}, profileVersion: 0, negotiated: {}, lowMemory: 0, captionMode: "", sessionId: "", endsQueued: 0, endsDone: 0, deepLink: {}, childAge: -1 })
+        shared.AddFields({ serverUrl: "", token: "", userId: "", username: "", role: "", accountRole: "", theme: {}, decoding: {}, profileVersion: 0, negotiated: {}, lowMemory: 0, captionMode: "", sessionId: "", endsQueued: 0, endsDone: 0, deepLink: {}, childAge: -1 })
     end if
 
     shared.serverUrl = ReadServerUrl()
@@ -107,27 +109,50 @@ sub onServerInfo()
     end if
 end sub
 
-sub onBackdrop()
-    url = m.global.backdropUrl
+sub onScreenBackdrop(event as object)
+    screen = m.stack.Peek()
+    onTop = screen <> invalid and screen.IsSameNode(event.GetRoSGNode())
+    ShowBackdrop(BackdropAfterAsk(m.backdropShown, onTop, event.GetData()))
+end sub
+
+sub ShowBackdrop(url as string)
+    move = BackdropMove(m.backdropShown, m.backdrop.uri, m.backdrop.opacity, url)
+    if move = "keep" then return
+    m.backdropShown = url
+    m.backdropNext = ""
 
     m.backdropFade.control = "stop"
     m.backdropOut.control = "stop"
 
-    if IsBlank(url)
-        if m.backdrop.opacity > 0
-            m.backdropOut.duration = BackdropFadeOutSeconds(ScreenIsImmersive(m.stack.Peek()))
-            m.backdropOut.control = "start"
-        end if
+    if move = "swap" then m.backdropNext = url
+    if move = "fadeOut" or move = "swap"
+        FadeBackdropOut()
         return
     end if
 
     m.backdrop.opacity = 0
 
-    if m.backdrop.uri = url
+    if move = "fadeIn"
         FadeBackdropIn()
         return
     end if
 
+    m.backdrop.uri = url
+end sub
+
+sub FadeBackdropOut()
+    if m.backdrop.opacity <= 0 then return
+
+    m.backdropFalloff.keyValue = [m.backdrop.opacity, 0.0]
+    m.backdropOut.duration = BackdropFadeOutSeconds(ScreenIsImmersive(m.stack.Peek()))
+    m.backdropOut.control = "start"
+end sub
+
+sub onBackdropOpacity()
+    if not BackdropLoadsNext(m.backdrop.opacity, m.backdropNext) then return
+
+    url = m.backdropNext
+    m.backdropNext = ""
     m.backdrop.uri = url
 end sub
 
@@ -137,7 +162,7 @@ end sub
 
 sub FadeBackdropIn()
     if m.backdrop.loadStatus <> "ready" then return
-    if IsBlank(m.backdrop.uri) then return
+    if not BackdropFadesIn(m.backdropShown, m.backdrop.uri) then return
 
     m.backdrop.opacity = 0
     m.backdropFade.control = "start"
@@ -211,10 +236,13 @@ sub PushScreen(nodeType as string, target = invalid as dynamic)
     if screen.HasField("sessionEnd")
         screen.ObserveField("sessionEnd", "onSessionEnd")
     end if
+    if screen.HasField("backdropUrl")
+        screen.ObserveField("backdropUrl", "onScreenBackdrop")
+    end if
 
     if m.stack.Count() > 0 then m.stack.Peek().visible = false
 
-    if not ScreenIsImmersive(screen) then m.global.backdropUrl = ""
+    ShowBackdrop(BackdropAfterPush(m.backdropShown, screen.HasField("backdropUrl"), ScreenIsImmersive(screen)))
     m.screens.AppendChild(screen)
     m.stack.Push(screen)
     RestDeepScreens()
@@ -240,8 +268,10 @@ function PopScreen() as boolean
     revealed.visible = true
     revealed.SetFocus(true)
 
-    m.global.backdropUrl = ""
-    if revealed.HasField("backdropUrl") then m.global.backdropUrl = revealed.backdropUrl
+    owns = revealed.HasField("backdropUrl")
+    asked = invalid
+    if owns then asked = revealed.backdropUrl
+    ShowBackdrop(BackdropAfterPop(owns, asked))
     m.rail.section = SectionFor(revealed)
     return true
 end function
@@ -278,7 +308,7 @@ sub onLowMemory()
 end sub
 
 sub RetireScreen(leaving as object)
-    for each name in ["advance", "keyboardRequest", "choiceRequest", "toastRequest", "themeRequest"]
+    for each name in ["advance", "keyboardRequest", "choiceRequest", "toastRequest", "themeRequest", "backdropUrl"]
         if leaving.HasField(name) then leaving.UnobserveField(name)
     end for
     leaving.SetFocus(false)
@@ -288,6 +318,7 @@ end sub
 
 sub ResetTo(nodeType as string)
     ClearStack()
+    ShowBackdrop("")
     PushScreen(nodeType)
 end sub
 
@@ -304,12 +335,12 @@ function SectionFor(screen as dynamic) as string
     return screen.subtype()
 end function
 
-sub onAdvance()
-    screen = m.stack.Peek()
-    if screen = invalid then return
-
-    target = screen.advance
-    if IsBlank(target) then return
+sub onAdvance(event as object)
+    screen = event.GetRoSGNode()
+    target = TextOrBlank(event.GetData())
+    current = m.stack.Peek()
+    onTop = current <> invalid and current.IsSameNode(screen)
+    if not AdvanceFollowed(target, onTop) then return
 
     if target = "bootstrap"
         ClearStack()
@@ -324,6 +355,8 @@ sub onAdvance()
     end if
 
     if Left(target, 6) = "reset:"
+        CloseChoice()
+        if m.railVisible = true then HideRail(false)
         destination = Mid(target, 7)
         if destination = "SetupScreen"
             m.signedIn = false
@@ -646,11 +679,11 @@ sub FocusTopScreen()
     if screen <> invalid then screen.SetFocus(true)
 end sub
 
-sub onChoiceRequest()
+sub onChoiceRequest(event as object)
     screen = m.stack.Peek()
-    if screen = invalid then return
+    if screen = invalid or not screen.IsSameNode(event.GetRoSGNode()) then return
 
-    request = screen.choiceRequest
+    request = event.GetData()
     if request = invalid then return
 
     if IsDialogClose(request)

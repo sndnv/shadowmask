@@ -99,6 +99,7 @@ sub onDetail(event as object)
 
     if not parsed.ok
         ShowNote(Phrase("error.couldNotLoadCollection"), "error")
+        PublishBackdropUrl("")
         return
     end if
 

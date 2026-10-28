@@ -369,6 +369,7 @@ sub onDetail(event as object)
 
     if not parsed.ok
         ShowNote(Phrase("error.couldNotLoadTitle"), "error")
+        PublishBackdropUrl("")
         return
     end if
 

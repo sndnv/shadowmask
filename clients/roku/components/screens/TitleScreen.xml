@@ -38,7 +38,7 @@
         <field id="choiceResult" type="assocarray" onChange="onChoice" />
         <field id="release" type="boolean" onChange="onRelease" />
         <field id="section" type="string" />
-        <field id="backdropUrl" type="string" />
+        <field id="backdropUrl" type="string" alwaysNotify="true" />
         <field id="focusedChild" type="node" onChange="onFocus" />
     </interface>
 

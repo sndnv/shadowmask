@@ -29,7 +29,6 @@ end function
 
 sub PublishBackdropUrl(url as string)
     m.top.backdropUrl = url
-    m.global.backdropUrl = url
 end sub
 
 sub PublishBackdrop(artwork as dynamic)
@@ -39,6 +38,44 @@ end sub
 sub PublishBackdropFrom(candidates as dynamic)
     PublishBackdropUrl(BackdropUrlFrom(m.global.serverUrl, candidates))
 end sub
+
+function BackdropAfterPush(shown as string, owns as boolean, immersive as boolean) as string
+    if owns or immersive then return shown
+    return ""
+end function
+
+function BackdropAfterPop(owns as boolean, asked as dynamic) as string
+    if not owns then return ""
+    return TextOrBlank(asked)
+end function
+
+function BackdropAfterAsk(shown as string, onTop as boolean, asked as dynamic) as string
+    if not onTop then return shown
+    return TextOrBlank(asked)
+end function
+
+function BackdropMove(shown as string, uri as string, opacity as float, url as string) as string
+    if url = shown then return "keep"
+    if IsBlank(url) then return "fadeOut"
+    if opacity > 0 and uri <> url then return "swap"
+    if uri = url then return "fadeIn"
+    return "load"
+end function
+
+function BackdropFadesIn(shown as string, uri as string) as boolean
+    return not IsBlank(shown) and uri = shown
+end function
+
+function BackdropLoadsNext(opacity as float, upcoming as string) as boolean
+    return opacity <= 0 and not IsBlank(upcoming)
+end function
+
+function AdvanceFollowed(target as dynamic, onTop as boolean) as boolean
+    value = TextOrBlank(target)
+    if IsBlank(value) then return false
+    if onTop then return true
+    return value = "reset:SetupScreen"
+end function
 
 sub ShowOverviewDialog(title as string, text as string)
     if IsBlank(text) then return
