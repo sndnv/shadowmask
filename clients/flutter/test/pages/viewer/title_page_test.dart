@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/components/play_on_button.dart';
 import 'package:shadowmask/components/poster_play.dart';
 import 'package:shadowmask/components/progress_bar.dart';
@@ -15,8 +16,10 @@ import 'package:shadowmask/pages/viewer/title_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
+import 'package:shadowmask/util/page_director.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../support/backdrops.dart';
 import '../../support/play_on.dart';
 
 Map<String, dynamic> _version(String id, String label) => <String, dynamic>{
@@ -96,6 +99,7 @@ ApiClient _api({
   List<Map<String, dynamic>> collections = const <Map<String, dynamic>>[],
   List<String>? seen,
   PlayOnServer? server,
+  bool detailFails = false,
 }) {
   bool cleared = false;
   return ApiClient(
@@ -158,6 +162,9 @@ ApiClient _api({
         );
       }
       if (req.url.path.contains('/movies')) {
+        if (detailFails) {
+          return http.Response('', 500);
+        }
         return http.Response(
           jsonEncode(<String, dynamic>{
             'id': 'm1',
@@ -738,6 +745,41 @@ void main() {
       reason:
           'it measured 527 when the actions sat after the overview, against '
           'roughly 530 of usable height once the shell chrome is counted',
+    );
+  });
+
+  testWidgets('a title that cannot load clears the backdrop', (
+    WidgetTester tester,
+  ) async {
+    final PageDirector<String?> backdrop = backdropsAfter(
+      'http://test/artwork/before/$kBackdropWidth',
+    );
+    final ApiClient api = _api(
+      versions: <Map<String, dynamic>>[_version('v1', 'fhd')],
+      detailFails: true,
+    );
+
+    await tester.pumpWidget(
+      BackdropScope(
+        backdrops: backdrop,
+        child: ThemeScope(
+          variant: AppThemeVariant.dark,
+          setVariant: (_) {},
+          child: MaterialApp(
+            theme: buildTheme(AppThemeVariant.dark),
+            navigatorObservers: <NavigatorObserver>[backdrop.observer],
+            home: TitlePage(api: api, kind: 'movie', id: 'm1'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.couldNotLoadTitle), findsOneWidget);
+    expect(
+      backdrop.shown,
+      isNull,
+      reason: 'the page before had a backdrop, and an error has none',
     );
   });
 }

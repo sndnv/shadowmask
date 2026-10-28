@@ -16,6 +16,7 @@ import 'package:shadowmask/api/server_store.dart';
 import 'package:shadowmask/api/token_store.dart';
 import 'package:shadowmask/app_router.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
+import 'package:shadowmask/components/page_title.dart';
 import 'package:shadowmask/components/play_on_host.dart';
 import 'package:shadowmask/components/remote_image.dart';
 import 'package:shadowmask/components/toast_host.dart';
@@ -35,7 +36,7 @@ import 'package:shadowmask/theme/theme_store.dart';
 import 'package:shadowmask/util/api_base.dart';
 import 'package:shadowmask/util/bundled_fonts.dart';
 import 'package:shadowmask/util/bundled_licenses.dart';
-import 'package:shadowmask/util/scoped_value.dart';
+import 'package:shadowmask/util/page_director.dart';
 import 'package:shadowmask/util/client_capabilities.dart';
 import 'package:shadowmask/util/client_platform.dart';
 import 'package:shadowmask/util/desktop_entry.dart';
@@ -146,7 +147,8 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
       .platformDispatcher
       .accessibilityFeatures
       .highContrast;
-  final ScopedValue<String?> _backdrop = ScopedValue<String?>(null);
+  late PageDirector<String?> _backdrops = _backdropDirector();
+  PageDirector<String?> _titles = PageDirector<String?>(null);
 
   bool get _contrast => _highContrast ?? _systemHighContrast;
 
@@ -159,7 +161,8 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _backdrop.dispose();
+    _backdrops.dispose();
+    _titles.dispose();
     super.dispose();
   }
 
@@ -216,6 +219,7 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
       _reloads += 1;
       _navigator = GlobalKey<NavigatorState>();
       _routeInformation = BrowserHistoryProvider(initialRoute: '/');
+      _renewPages();
       _history = _historyFor(_navigator);
     });
     final GlobalKey<NavigatorState> reloaded = _navigator;
@@ -241,8 +245,25 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
       _router = AppRouter(_api);
       _navigator = GlobalKey<NavigatorState>();
       _routeInformation = BrowserHistoryProvider();
+      _renewPages();
       _history = _historyFor(_navigator);
     });
+  }
+
+  PageDirector<String?> _backdropDirector() => PageDirector<String?>(
+    null,
+    prepare: (String? url) => precacheBackdrop(url, context),
+  );
+
+  void _renewPages() {
+    final PageDirector<String?> backdrops = _backdrops;
+    final PageDirector<String?> titles = _titles;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      backdrops.dispose();
+      titles.dispose();
+    });
+    _backdrops = _backdropDirector();
+    _titles = PageDirector<String?>(null);
   }
 
   BrowserHistory _historyFor(GlobalKey<NavigatorState> navigator) =>
@@ -251,7 +272,11 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
         onGenerateRoute: (RouteSettings settings) =>
             _router.router.generator(settings),
         onGenerateInitialRoutes: _initialRoutes,
-        observers: <NavigatorObserver>[appRouteObserver],
+        observers: <NavigatorObserver>[
+          appRouteObserver,
+          _backdrops.observer,
+          _titles.observer,
+        ],
       );
 
   @override
@@ -268,18 +293,21 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
         overrides: _overrides,
         setOverrides: _setOverrides,
         child: BackdropScope(
-          url: _backdrop,
-          child: ChildModeScope(
-            age: _childAge,
-            setAge: _setChildAge,
-            child: kIsWeb
-                ? app
-                : ServerScope(
-                    address: _server,
-                    setAddress: _setServer,
-                    probe: widget.probe,
-                    child: app,
-                  ),
+          backdrops: _backdrops,
+          child: PageTitleScope(
+            titles: _titles,
+            child: ChildModeScope(
+              age: _childAge,
+              setAge: _setChildAge,
+              child: kIsWeb
+                  ? app
+                  : ServerScope(
+                      address: _server,
+                      setAddress: _setServer,
+                      probe: widget.probe,
+                      child: app,
+                    ),
+            ),
           ),
         ),
       ),
@@ -301,8 +329,11 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
     title: Strings.appTitle,
     debugShowCheckedModeBanner: false,
     theme: buildTheme(_variant, highContrast: _contrast),
-    builder: (BuildContext context, Widget? child) => TooltipDismisser(
-      child: ToastHost(child: _commands(child ?? const SizedBox.shrink())),
+    builder: (BuildContext context, Widget? child) => TabTitle(
+      titles: _titles,
+      child: TooltipDismisser(
+        child: ToastHost(child: _commands(child ?? const SizedBox.shrink())),
+      ),
     ),
     routerDelegate: _history,
     routeInformationParser: const BrowserHistoryParser(),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/server_scope.dart';
+import 'package:shadowmask/components/page_title.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/default/bare_page.dart';
 import 'package:shadowmask/pages/entry/server_page.dart';
@@ -19,49 +20,52 @@ class ServerUnreachablePage extends StatelessWidget {
     final Tokens t = context.tokens;
     final TextTheme text = Theme.of(context).textTheme;
     final ServerScope? scope = ServerScope.of(context);
-    return Title(
-      color: t.accent,
-      title: Strings.documentTitle(Strings.serverUnreachableHeading),
-      child: BarePage(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: Breakpoints.sm),
-            child: Padding(
-              padding: const EdgeInsets.all(Space.s5),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    Strings.serverUnreachableHeading,
-                    textAlign: TextAlign.center,
-                    style: text.headlineMedium?.copyWith(color: t.text),
-                  ),
-                  const SizedBox(height: Space.s3),
-                  Text(
-                    Strings.serverUnreachableBody,
-                    textAlign: TextAlign.center,
-                    style: text.bodyMedium?.copyWith(color: t.muted),
-                  ),
-                  const SizedBox(height: Space.s5),
-                  OutlinedButton.icon(
-                    onPressed: onRetry,
-                    icon: const Icon(Icons.refresh, size: 18),
-                    label: const Text(Strings.retry),
-                  ),
-                  if (scope != null) ...<Widget>[
-                    const SizedBox(height: Space.s2),
-                    TextButton(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (BuildContext context) =>
-                              ServerPage(initialAddress: scope.address),
-                        ),
+    final Route<dynamic>? page = ModalRoute.of(context);
+    if (page != null) {
+      PageTitleScope.maybeOf(context)?.fallback(
+        page,
+        Strings.documentTitle(Strings.serverUnreachableHeading),
+      );
+    }
+    return BarePage(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: Breakpoints.sm),
+          child: Padding(
+            padding: const EdgeInsets.all(Space.s5),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  Strings.serverUnreachableHeading,
+                  textAlign: TextAlign.center,
+                  style: text.headlineMedium?.copyWith(color: t.text),
+                ),
+                const SizedBox(height: Space.s3),
+                Text(
+                  Strings.serverUnreachableBody,
+                  textAlign: TextAlign.center,
+                  style: text.bodyMedium?.copyWith(color: t.muted),
+                ),
+                const SizedBox(height: Space.s5),
+                OutlinedButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text(Strings.retry),
+                ),
+                if (scope != null) ...<Widget>[
+                  const SizedBox(height: Space.s2),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (BuildContext context) =>
+                            ServerPage(initialAddress: scope.address),
                       ),
-                      child: const Text(Strings.changeServer),
                     ),
-                  ],
+                    child: const Text(Strings.changeServer),
+                  ),
                 ],
-              ),
+              ],
             ),
           ),
         ),

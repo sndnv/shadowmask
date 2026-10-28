@@ -203,6 +203,7 @@ class _SeasonBodyState extends State<_SeasonBody> with Mutations<_SeasonBody> {
     return buildBlock<_SeasonData>(
       future: _future,
       errorText: Strings.couldNotLoadSeason,
+      failureClearsBackdrop: true,
       builder: (BuildContext context, _SeasonData data) {
         final Season s = data.season;
         final WatchedRollup rollup = data.rollup;

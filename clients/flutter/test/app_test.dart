@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -8,6 +9,8 @@ import 'package:shadowmask/api/child_mode_store.dart';
 import 'package:shadowmask/api/server_scope.dart';
 import 'package:shadowmask/api/server_store.dart';
 import 'package:shadowmask/api/token_store.dart';
+import 'package:shadowmask/components/backdrop_scope.dart';
+import 'package:shadowmask/components/page_title.dart';
 import 'package:shadowmask/components/play_on_host.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/tooltip_dismisser.dart';
@@ -18,6 +21,7 @@ import 'package:shadowmask/pages/entry/server_page.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/theme/theme_store.dart';
+import 'package:shadowmask/util/page_director.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 ApiClient Function(String?) _factory() =>
@@ -56,6 +60,35 @@ Future<List<ApiClient>> _pumpChildMode(WidgetTester tester, int? age) async {
 
 NavigatorState _navigator(WidgetTester tester) =>
     tester.state<NavigatorState>(find.byType(Navigator).first);
+
+Route<dynamic> _topPage(WidgetTester tester) {
+  late Route<dynamic> top;
+  _navigator(tester).popUntil((Route<dynamic> route) {
+    top = route;
+    return true;
+  });
+  return top;
+}
+
+List<String> _tabNames(WidgetTester tester) {
+  final List<String> names = <String>[];
+  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+    SystemChannels.platform,
+    (MethodCall call) async {
+      if (call.method == 'SystemChrome.setApplicationSwitcherDescription') {
+        names.add((call.arguments as Map<dynamic, dynamic>)['label'] as String);
+      }
+      return null;
+    },
+  );
+  addTearDown(
+    () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      null,
+    ),
+  );
+  return names;
+}
 
 String? _topRoute(WidgetTester tester) {
   String? name;
@@ -362,6 +395,53 @@ void main() {
 
     expect(_childMode(tester).age, 8);
     expect(made.single.childAge, 8);
+  });
+
+  testWidgets('both page managers follow the navigator, also after a reload', (
+    WidgetTester tester,
+  ) async {
+    await _pumpChildMode(tester, null);
+    PageDirector<String?> backdrops() =>
+        tester.widget<BackdropScope>(find.byType(BackdropScope)).backdrops;
+    PageDirector<String?> titles() =>
+        tester.widget<PageTitleScope>(find.byType(PageTitleScope)).titles;
+
+    expect(backdrops().observer.navigator, same(_navigator(tester)));
+    expect(titles().observer.navigator, same(_navigator(tester)));
+    expect(find.byType(TabTitle), findsOneWidget);
+
+    final PageDirector<String?> before = backdrops();
+    _childMode(tester).setAge(13);
+    await tester.pumpAndSettle();
+
+    expect(backdrops(), isNot(same(before)));
+    expect(backdrops().observer.navigator, same(_navigator(tester)));
+    expect(titles().observer.navigator, same(_navigator(tester)));
+
+    final List<String> names = _tabNames(tester);
+    titles().request(_topPage(tester), 'Renamed');
+    await tester.pump();
+    expect(names, contains('Renamed'));
+  });
+
+  testWidgets('a server change hands the tab to the new title manager', (
+    WidgetTester tester,
+  ) async {
+    await _pumpConfigured(tester);
+    PageDirector<String?> titles() =>
+        tester.widget<PageTitleScope>(find.byType(PageTitleScope)).titles;
+    final PageDirector<String?> before = titles();
+
+    await tester
+        .widget<ServerScope>(find.byType(ServerScope))
+        .setAddress('http://test');
+    await tester.pumpAndSettle();
+    expect(titles(), isNot(same(before)));
+
+    final List<String> names = _tabNames(tester);
+    titles().request(_topPage(tester), 'Renamed');
+    await tester.pump();
+    expect(names, contains('Renamed'));
   });
 
   testWidgets('choosing a child mode age stores it and reloads to home', (

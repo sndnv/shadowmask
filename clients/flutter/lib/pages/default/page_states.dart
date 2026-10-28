@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/authentication_failure.dart';
 import 'package:shadowmask/api/authorization_failure.dart';
+import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/components/skeleton.dart';
 import 'package:shadowmask/components/status_text.dart';
 import 'package:shadowmask/l10n/strings.dart';
@@ -69,6 +70,7 @@ Widget buildBlock<T>({
   String? errorText,
   VoidCallback? onRetry,
   Widget? loading,
+  bool failureClearsBackdrop = false,
 }) {
   return FutureBuilder<T>(
     future: future,
@@ -80,6 +82,7 @@ Widget buildBlock<T>({
           errorText: errorText,
           onRetry: onRetry,
           loading: loading,
+          failureClearsBackdrop: failureClearsBackdrop,
         ),
   );
 }
@@ -91,6 +94,7 @@ Widget buildSnapshot<T>(
   String? errorText,
   VoidCallback? onRetry,
   Widget? loading,
+  bool failureClearsBackdrop = false,
 }) {
   if (snapshot.connectionState != ConnectionState.done) {
     return DelayedReveal(
@@ -98,6 +102,19 @@ Widget buildSnapshot<T>(
     );
   }
   final Object? error = snapshot.error;
+  if (error == null) {
+    return builder(context, snapshot.data as T);
+  }
+  final Widget failure = _failed(context, error, errorText, onRetry);
+  return failureClearsBackdrop ? PageBackdrop.none(child: failure) : failure;
+}
+
+Widget _failed(
+  BuildContext context,
+  Object error,
+  String? errorText,
+  VoidCallback? onRetry,
+) {
   if (error is AuthenticationFailure) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (context.mounted) {
@@ -111,10 +128,7 @@ Widget buildSnapshot<T>(
   if (error is AuthorizationFailure) {
     return const StatusText(Strings.notAuthorized, live: true);
   }
-  if (error != null) {
-    return _Failure(text: errorText ?? Strings.couldNotLoad, onRetry: onRetry);
-  }
-  return builder(context, snapshot.data as T);
+  return _Failure(text: errorText ?? Strings.couldNotLoad, onRetry: onRetry);
 }
 
 class _Failure extends StatelessWidget {

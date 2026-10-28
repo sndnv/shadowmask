@@ -11,6 +11,8 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/token_store.dart';
 import 'package:shadowmask/components/app_dropdown.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
+import 'package:shadowmask/model/common/artwork.dart';
+import 'package:shadowmask/util/page_director.dart';
 import 'package:shadowmask/util/scoped_value.dart';
 import 'package:shadowmask/components/player/overlay_bar.dart';
 import 'package:shadowmask/components/player/player_frame.dart';
@@ -42,6 +44,7 @@ import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/view/version_jobs_watch.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../support/backdrops.dart';
 import '../../support/fake_player_controller.dart';
 
 http.Response? _resumeAt40s(http.Request r) =>
@@ -166,27 +169,31 @@ http.Response _seekRestart(int originMs, String? container) => http.Response(
   200,
 );
 
-Map<String, dynamic> _ep(String id, int number, String title) =>
-    <String, dynamic>{
-      'id': id,
-      'season_id': 'se1',
-      'series_id': 's1',
-      'series_title': 'The Show',
-      'season_number': 1,
-      'number': number,
-      'title': title,
-      'added_at': '2026-08-17T09:00:00Z',
-      'updated_at': '2026-08-17T09:00:00Z',
-      'artwork': <String, dynamic>{},
-      'series_artwork': <String, dynamic>{
-        'backdrops': <dynamic>[
-          <String, dynamic>{
-            'base': '/artwork/show',
-            'widths': <int>[kBackdropWidth],
-          },
-        ],
+Map<String, dynamic> _ep(
+  String id,
+  int number,
+  String title, {
+  String art = 'show',
+}) => <String, dynamic>{
+  'id': id,
+  'season_id': 'se1',
+  'series_id': 's1',
+  'series_title': 'The Show',
+  'season_number': 1,
+  'number': number,
+  'title': title,
+  'added_at': '2026-08-17T09:00:00Z',
+  'updated_at': '2026-08-17T09:00:00Z',
+  'artwork': <String, dynamic>{},
+  'series_artwork': <String, dynamic>{
+    'backdrops': <dynamic>[
+      <String, dynamic>{
+        'base': '/artwork/$art',
+        'widths': <int>[kBackdropWidth],
       },
-    };
+    ],
+  },
+};
 
 http.Response _episodeVersion() => http.Response(
   jsonEncode(<String, dynamic>{
@@ -211,7 +218,7 @@ http.Response _episodeVersion() => http.Response(
   200,
 );
 
-http.Response? _episodic(String path) {
+http.Response? _episodic(String path, {String art = 'show'}) {
   if (path.endsWith('/versions')) {
     return http.Response(
       jsonEncode(<String, dynamic>{
@@ -238,7 +245,7 @@ http.Response? _episodic(String path) {
     );
   }
   if (path.contains('/episodes/')) {
-    return http.Response(jsonEncode(_ep('e1', 1, 'Pilot')), 200);
+    return http.Response(jsonEncode(_ep('e1', 1, 'Pilot', art: art)), 200);
   }
   if (path.endsWith('/seasons')) {
     return http.Response(
@@ -334,6 +341,87 @@ Widget _shellShaped(ApiClient api, FakePlayerController fake, bool bounded) =>
       ),
     );
 
+String _backdropOf(String id) => 'http://test/artwork/$id/$kBackdropWidth';
+
+Widget _backdropFor(String id) => PageBackdrop(
+  artwork: Artwork(
+    backdrops: <ImageSet>[
+      ImageSet(base: '/artwork/$id', widths: const <int>[kBackdropWidth]),
+    ],
+  ),
+  imageBase: 'http://test',
+);
+
+Route<void> _backdropPage(String id) =>
+    MaterialPageRoute<void>(builder: (BuildContext _) => _backdropFor(id));
+
+Route<void> _instant(Widget page) => PageRouteBuilder<void>(
+  transitionDuration: Duration.zero,
+  reverseTransitionDuration: Duration.zero,
+  pageBuilder: (BuildContext _, Animation<double> _, Animation<double> _) =>
+      page,
+);
+
+Route<void> _backdropAfter(String id, Duration delay) {
+  final Future<void> loaded = Future<void>.delayed(delay);
+  return _instant(
+    FutureBuilder<void>(
+      future: loaded,
+      builder: (BuildContext _, AsyncSnapshot<void> snapshot) =>
+          snapshot.connectionState == ConnectionState.done
+          ? _backdropFor(id)
+          : const SizedBox.shrink(),
+    ),
+  );
+}
+
+Route<void> _dialog() => RawDialogRoute<void>(
+  pageBuilder: (BuildContext _, Animation<double> _, Animation<double> _) =>
+      const SizedBox.shrink(),
+);
+
+ApiClient _episodicApi({Duration? lag, String art = 'show'}) => ApiClient(
+  baseUrl: 'http://test',
+  httpClient: MockClient((http.Request r) {
+    final http.Response answer = r.url.path == '/api/v1/versions/v1'
+        ? _episodeVersion()
+        : _episodic(r.url.path, art: art) ?? _route(r);
+    return lag != null && r.url.path.endsWith('/episodes/e1')
+        ? Future<http.Response>.delayed(lag, () => answer)
+        : Future<http.Response>.value(answer);
+  }),
+);
+
+Widget _player(ApiClient api) => Scaffold(
+  body: WatchBody(
+    api: api,
+    user: _user,
+    versionId: 'v1',
+    initialControls: const PlaybackControls(),
+    controllerFactory: (_) => FakePlayerController(),
+    wide: false,
+    onToggleWide: () {},
+    appVersion: () async => '0.0.7',
+  ),
+);
+
+Widget _stack(
+  PageDirector<String?> backdrops,
+  GlobalKey<NavigatorState> navigator,
+  Widget home,
+) => BackdropScope(
+  backdrops: backdrops,
+  child: MaterialApp(
+    navigatorKey: navigator,
+    theme: buildTheme(AppThemeVariant.dark),
+    navigatorObservers: <NavigatorObserver>[
+      appRouteObserver,
+      backdrops.observer,
+    ],
+    home: home,
+  ),
+);
+
 Widget _app(
   FakePlayerController fake, {
   List<http.Request>? seen,
@@ -352,6 +440,7 @@ Widget _app(
   http.Response? Function(http.Request r)? intercept,
   Duration? Function(http.Request r)? lag,
   bool toasts = false,
+  PageDirector<String?>? backdrops,
 }) {
   int updates = 0;
   final ApiClient api = ApiClient(
@@ -392,9 +481,12 @@ Widget _app(
       return Future<http.Response>.value(_route(r));
     }),
   );
-  return MaterialApp(
+  final Widget app = MaterialApp(
     theme: buildTheme(AppThemeVariant.dark),
-    navigatorObservers: <NavigatorObserver>[appRouteObserver],
+    navigatorObservers: <NavigatorObserver>[
+      appRouteObserver,
+      ?backdrops?.observer,
+    ],
     builder: toasts
         ? (BuildContext context, Widget? child) => ToastHost(child: child!)
         : null,
@@ -421,6 +513,9 @@ Widget _app(
       ),
     ),
   );
+  return backdrops == null
+      ? app
+      : BackdropScope(backdrops: backdrops, child: app);
 }
 
 Widget _gathering(
@@ -443,51 +538,298 @@ bool _started(List<http.Request> seen) => seen.any(
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
-  testWidgets('a backdrop carried in from the details page is never dropped', (
-    WidgetTester tester,
-  ) async {
-    final FakePlayerController fake = FakePlayerController();
-    const String carried = 'http://test/artwork/1/1920';
-    final ScopedValue<String?> backdrop = ScopedValue<String?>(carried);
-    addTearDown(backdrop.dispose);
-    final List<String?> seen = <String?>[];
-    backdrop.addListener(() => seen.add(backdrop.value));
+  testWidgets(
+    'the page before keeps its backdrop until the player has its own',
+    (WidgetTester tester) async {
+      final FakePlayerController fake = FakePlayerController();
+      final PageDirector<String?> backdrop = backdropsAfter(_backdropOf('1'));
+      final List<String?> seen = <String?>[];
+      backdrop.addListener(() => seen.add(backdrop.shown));
 
-    await tester.pumpWidget(
-      BackdropScope(url: backdrop, child: _app(fake, episodic: true)),
-    );
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(_app(fake, episodic: true, backdrops: backdrop));
+      await tester.pumpAndSettle();
 
-    expect(
-      seen,
-      isEmpty,
-      reason:
-          'any write at all, even the same url, re-owns it and flickers '
-          'the wash on the way back out',
-    );
-    expect(backdrop.value, carried);
+      expect(seen, <String?>[
+        _backdropOf('show'),
+      ], reason: 'one change, with no blank between the two');
 
-    await tester.pumpWidget(const SizedBox());
-  });
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets('a player landed on cold publishes a backdrop of its own', (
     WidgetTester tester,
   ) async {
     final FakePlayerController fake = FakePlayerController();
-    final ScopedValue<String?> backdrop = ScopedValue<String?>(null);
-    addTearDown(backdrop.dispose);
+    final PageDirector<String?> backdrop = backdropsAfter(null);
 
-    await tester.pumpWidget(
-      BackdropScope(url: backdrop, child: _app(fake, episodic: true)),
-    );
+    await tester.pumpWidget(_app(fake, episodic: true, backdrops: backdrop));
     await tester.pumpAndSettle();
 
     expect(
-      backdrop.value,
+      backdrop.shown,
       'http://test/artwork/show/$kBackdropWidth',
       reason: 'nothing was carried in, so the player supplies the artwork',
     );
 
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a player that replaces every page publishes its own', (
+    WidgetTester tester,
+  ) async {
+    final PageDirector<String?> backdrop = backdropsAfter(null);
+    final GlobalKey<NavigatorState> navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      _stack(backdrop, navigator, Scaffold(body: _backdropFor('left'))),
+    );
+    await tester.pumpAndSettle();
+    expect(backdrop.shown, _backdropOf('left'));
+
+    navigator.currentState!.pushAndRemoveUntil(
+      _instant(_player(_episodicApi())),
+      (Route<dynamic> _) => false,
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      backdrop.shown,
+      _backdropOf('show'),
+      reason: 'playing on this device from another one replaces every page',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('back from a page opened over the player, its backdrop returns', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final PageDirector<String?> backdrop = backdropsAfter(null);
+    await tester.pumpWidget(_app(fake, episodic: true, backdrops: backdrop));
+    await tester.pumpAndSettle();
+    final NavigatorState navigator = tester.state<NavigatorState>(
+      find.byType(Navigator).first,
+    );
+
+    navigator.push(_backdropPage('1'));
+    await tester.pumpAndSettle();
+    expect(backdrop.shown, _backdropOf('1'));
+    navigator.pop();
+    await tester.pumpAndSettle();
+
+    expect(
+      backdrop.shown,
+      _backdropOf('show'),
+      reason: 'the title crumb opens its page over the player, then back',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a player that loads under another page publishes its own', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final PageDirector<String?> backdrop = backdropsAfter(null);
+    await tester.pumpWidget(
+      _app(
+        fake,
+        episodic: true,
+        intercept: (http.Request r) =>
+            r.url.path.endsWith('/episodes/e1') ? _episodic(r.url.path) : null,
+        lag: (http.Request r) => const Duration(seconds: 5),
+        backdrops: backdrop,
+      ),
+    );
+    await tester.pump();
+    final NavigatorState navigator = tester.state<NavigatorState>(
+      find.byType(Navigator).first,
+    );
+
+    navigator.push(_backdropPage('9'));
+    await tester.pumpAndSettle();
+    expect(backdrop.shown, _backdropOf('9'));
+    await tester.pump(const Duration(seconds: 6));
+    navigator.pop();
+    await tester.pumpAndSettle();
+
+    expect(
+      backdrop.shown,
+      'http://test/artwork/show/$kBackdropWidth',
+      reason: 'browser forward opens a page over a player still loading',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a player replaced by the next one never blanks the backdrop', (
+    WidgetTester tester,
+  ) async {
+    final PageDirector<String?> backdrop = backdropsAfter(_backdropOf('show'));
+    final GlobalKey<NavigatorState> navigator = GlobalKey<NavigatorState>();
+    final ApiClient api = _episodicApi(lag: const Duration(seconds: 5));
+    await tester.pumpWidget(_stack(backdrop, navigator, _player(api)));
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pumpAndSettle();
+    final List<String?> seen = <String?>[];
+    backdrop.addListener(() => seen.add(backdrop.shown));
+
+    navigator.currentState!.pushReplacement(
+      _instant(
+        _player(_episodicApi(lag: const Duration(seconds: 5), art: 'next')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pumpAndSettle();
+
+    expect(seen, <String?>[
+      _backdropOf('next'),
+    ], reason: 'next, autoplay and the Watch crumb replace the player');
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a page opened over the player and back never blanks it', (
+    WidgetTester tester,
+  ) async {
+    final PageDirector<String?> backdrop = backdropsAfter(_backdropOf('show'));
+    final GlobalKey<NavigatorState> navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      _stack(backdrop, navigator, _player(_episodicApi())),
+    );
+    await tester.pumpAndSettle();
+    final List<String?> seen = <String?>[];
+    backdrop.addListener(() => seen.add(backdrop.shown));
+
+    navigator.currentState!.push(
+      _backdropAfter('9', const Duration(seconds: 1)),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+
+    expect(seen, <String?>[
+      _backdropOf('9'),
+      _backdropOf('show'),
+    ], reason: 'the title crumb opens its page over the player, then back');
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a player whose session cannot start shows its own backdrop', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final PageDirector<String?> backdrop = backdropsAfter(_backdropOf('1'));
+
+    await tester.pumpWidget(
+      _app(
+        fake,
+        episodic: true,
+        backdrops: backdrop,
+        intercept: (http.Request r) =>
+            r.method == 'POST' && r.url.path == '/api/v1/sessions'
+            ? http.Response('', 500)
+            : null,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.couldNotStartPlayback), findsOneWidget);
+    expect(
+      backdrop.shown,
+      _backdropOf('show'),
+      reason: 'its title loaded, so its backdrop is known without a stream',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a player that cannot open clears the backdrop', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final PageDirector<String?> backdrop = backdropsAfter(_backdropOf('1'));
+
+    await tester.pumpWidget(
+      _app(
+        fake,
+        backdrops: backdrop,
+        intercept: (http.Request r) =>
+            r.url.path == '/api/v1/versions/v1' ? http.Response('', 500) : null,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.couldNotStartPlayback), findsOneWidget);
+    expect(
+      backdrop.shown,
+      isNull,
+      reason: 'the page before had one, and the player never got its title',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('back from a player opened over a dialog shows the page under', (
+    WidgetTester tester,
+  ) async {
+    final PageDirector<String?> backdrop = backdropsAfter(null);
+    final GlobalKey<NavigatorState> navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      _stack(backdrop, navigator, Scaffold(body: _backdropFor('1'))),
+    );
+    await tester.pumpAndSettle();
+    navigator.currentState!.push(_dialog());
+    await tester.pumpAndSettle();
+
+    navigator.currentState!.push(_instant(_player(_episodicApi())));
+    await tester.pumpAndSettle();
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+
+    expect(
+      backdrop.shown,
+      _backdropOf('1'),
+      reason: 'All versions plays over its dialog, and Back leaves it open',
+    );
+
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a dialog open while the player loads leaves its backdrop', (
+    WidgetTester tester,
+  ) async {
+    final PageDirector<String?> backdrop = backdropsAfter(null);
+    final GlobalKey<NavigatorState> navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      _stack(
+        backdrop,
+        navigator,
+        _player(_episodicApi(lag: const Duration(seconds: 5))),
+      ),
+    );
+    await tester.pump();
+    navigator.currentState!.push(_dialog());
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pumpAndSettle();
+
+    expect(
+      backdrop.shown,
+      _backdropOf('show'),
+      reason: 'the shortcuts dialog or the More sheet opens while it loads',
+    );
+
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
     await tester.pumpWidget(const SizedBox());
   });
 

@@ -236,6 +236,7 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
     return buildBlock<_MovieData>(
       future: _future,
       errorText: Strings.couldNotLoadTitle,
+      failureClearsBackdrop: true,
       builder: (BuildContext context, _MovieData data) {
         final MovieDetail d = data.detail;
         final List<Version> versions = data.versions;
@@ -759,6 +760,7 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
     return buildBlock<_SeriesData>(
       future: _future,
       errorText: Strings.couldNotLoadTitle,
+      failureClearsBackdrop: true,
       builder: (BuildContext context, _SeriesData data) {
         final SeriesDetail d = data.detail;
         final WatchedRollup rollup = data.rollup;

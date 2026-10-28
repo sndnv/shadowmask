@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:shadowmask/components/remote_image.dart';
 import 'package:shadowmask/model/common/artwork.dart';
-import 'package:shadowmask/util/scoped_value.dart';
+import 'package:shadowmask/util/page_director.dart';
 
 const double kBackdropOpacity = 0.12;
 const int kBackdropWidth = 1920;
@@ -11,69 +11,54 @@ const Duration kBackdropFade = Duration(milliseconds: 320);
 class BackdropScope extends InheritedWidget {
   const BackdropScope({
     super.key,
-    required this.url,
+    required this.backdrops,
     required super.child,
-    this.onKeep,
   });
 
-  final ScopedValue<String?> url;
-  final VoidCallback? onKeep;
+  final PageDirector<String?> backdrops;
 
-  static ScopedValue<String?>? maybeOf(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<BackdropScope>()?.url;
-
-  static void keep(BuildContext context) =>
-      context.getInheritedWidgetOfExactType<BackdropScope>()?.onKeep?.call();
+  static PageDirector<String?>? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<BackdropScope>()?.backdrops;
 
   @override
-  bool updateShouldNotify(BackdropScope oldWidget) => url != oldWidget.url;
+  bool updateShouldNotify(BackdropScope oldWidget) =>
+      backdrops != oldWidget.backdrops;
 }
 
-class PageBackdrop extends StatefulWidget {
+Future<bool> precacheBackdrop(String? url, BuildContext context) async {
+  bool ready = true;
+  await precacheImage(
+    remoteImage(url!),
+    context,
+    onError: (Object _, StackTrace? _) => ready = false,
+  );
+  return ready;
+}
+
+class PageBackdrop extends StatelessWidget {
   const PageBackdrop({
     super.key,
     required this.artwork,
     required this.imageBase,
-  });
+  }) : child = null;
+
+  const PageBackdrop.none({super.key, this.child})
+    : artwork = null,
+      imageBase = '';
 
   final Artwork? artwork;
   final String imageBase;
-
-  @override
-  State<PageBackdrop> createState() => _PageBackdropState();
-}
-
-class _PageBackdropState extends State<PageBackdrop> {
-  ScopedValue<String?>? _sink;
-  String? _published;
-
-  @override
-  void dispose() {
-    final String? published = _published;
-    if (published != null) {
-      _sink?.releaseAfterFrame(published, null, owner: this);
-    }
-    super.dispose();
-  }
+  final Widget? child;
 
   @override
   Widget build(BuildContext context) {
-    final String? url = widget.artwork?.backdropUrl(
-      widget.imageBase,
-      kBackdropWidth,
-    );
-    BackdropScope.keep(context);
-    _sink = BackdropScope.maybeOf(context);
-    final ScopedValue<String?>? sink = _sink;
-    if (sink != null && sink.value != url) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          sink.publish(url, owner: this);
-          _published = url;
-        }
-      });
+    final Route<dynamic>? page = ModalRoute.of(context);
+    if (page != null) {
+      BackdropScope.maybeOf(
+        context,
+      )?.request(page, artwork?.backdropUrl(imageBase, kBackdropWidth));
     }
-    return const SizedBox.shrink();
+    return child ?? const SizedBox.shrink();
   }
 }
 
