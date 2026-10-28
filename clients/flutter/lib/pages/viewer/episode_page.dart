@@ -201,6 +201,7 @@ class _EpisodeBodyState extends State<_EpisodeBody>
     return buildBlock<_EpisodeData>(
       future: _future,
       errorText: Strings.couldNotLoadEpisode,
+      failureClearsBackdrop: true,
       builder: (BuildContext context, _EpisodeData data) {
         final Episode e = data.episode;
         final List<Version> versions = data.versions;

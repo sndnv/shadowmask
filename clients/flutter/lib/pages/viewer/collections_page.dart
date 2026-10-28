@@ -212,6 +212,7 @@ class _CollectionDetailBodyState extends State<_CollectionDetailBody> {
     return buildBlock<(Collection, List<CatalogCard>)>(
       future: _future,
       errorText: Strings.couldNotLoadCollection,
+      failureClearsBackdrop: true,
       builder: (BuildContext context, (Collection, List<CatalogCard>) data) {
         final Collection c = data.$1;
         return Column(

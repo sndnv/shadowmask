@@ -29,7 +29,9 @@ import 'package:shadowmask/theme/breakpoints.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/theme/tokens.dart';
-import 'package:shadowmask/util/scoped_value.dart';
+import 'package:shadowmask/util/page_director.dart';
+
+import '../../support/backdrops.dart';
 
 ApiClient _api() => ApiClient(
   baseUrl: 'http://test',
@@ -67,16 +69,17 @@ Future<double> _bodyWidth(WidgetTester tester, {bool fullWidth = false}) async {
 }
 
 Widget _shared(
-  ScopedValue<String?> backdrop,
+  PageDirector<String?> backdrops,
   Widget body, {
   bool keepsBackdrop = false,
 }) => BackdropScope(
-  url: backdrop,
+  backdrops: backdrops,
   child: ThemeScope(
     variant: AppThemeVariant.dark,
     setVariant: (_) {},
     child: MaterialApp(
       theme: buildTheme(AppThemeVariant.dark),
+      navigatorObservers: <NavigatorObserver>[backdrops.observer],
       home: ShellScaffold(
         api: _api(),
         current: NavSection.movies,
@@ -87,20 +90,64 @@ Widget _shared(
   ),
 );
 
+Widget _stacked(
+  PageDirector<String?> backdrops,
+  GlobalKey<NavigatorState> navigator,
+) => BackdropScope(
+  backdrops: backdrops,
+  child: ThemeScope(
+    variant: AppThemeVariant.dark,
+    setVariant: (_) {},
+    child: MaterialApp(
+      navigatorKey: navigator,
+      theme: buildTheme(AppThemeVariant.dark),
+      navigatorObservers: <NavigatorObserver>[backdrops.observer],
+      home: ShellScaffold(
+        api: _api(),
+        current: NavSection.home,
+        body: const Text('home'),
+      ),
+    ),
+  ),
+);
+
+Route<void> _page(Widget body, {bool keepsBackdrop = false}) =>
+    PageRouteBuilder<void>(
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+      pageBuilder: (BuildContext _, Animation<double> _, Animation<double> _) =>
+          ShellScaffold(
+            api: _api(),
+            current: NavSection.movies,
+            keepsBackdrop: keepsBackdrop,
+            body: body,
+          ),
+    );
+
+Route<void> _title(
+  int id, {
+  Future<void>? loaded,
+  GlobalKey<_TitleBodyState>? key,
+}) => _page(
+  _TitleBody(id, loaded ?? Future<void>.value(), key: key),
+  keepsBackdrop: true,
+);
+
+String _backdropOf(int id) => 'http://test/artwork/$id/$kBackdropWidth';
+
 void main() {
   testWidgets('a page with no artwork of its own clears the backdrop', (
     WidgetTester tester,
   ) async {
-    final ScopedValue<String?> backdrop = ScopedValue<String?>(
+    final PageDirector<String?> backdrop = backdropsAfter(
       'http://test/artwork/1/$kBackdropWidth',
     );
-    addTearDown(backdrop.dispose);
 
     await tester.pumpWidget(_shared(backdrop, const Text('nothing here')));
     await tester.pumpAndSettle();
 
     expect(
-      backdrop.value,
+      backdrop.shown,
       isNull,
       reason: 'one title had it; this page has nothing to do with that title',
     );
@@ -110,8 +157,7 @@ void main() {
     WidgetTester tester,
   ) async {
     const String url = 'http://test/artwork/1/$kBackdropWidth';
-    final ScopedValue<String?> backdrop = ScopedValue<String?>(url);
-    addTearDown(backdrop.dispose);
+    final PageDirector<String?> backdrop = backdropsAfter(url);
     final Completer<Widget> late = Completer<Widget>();
 
     await tester.pumpWidget(
@@ -128,7 +174,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      backdrop.value,
+      backdrop.shown,
       url,
       reason: 'the player declares this before its user request comes back',
     );
@@ -136,31 +182,174 @@ void main() {
     late.complete(const Text('body'));
     await tester.pumpAndSettle();
 
-    expect(backdrop.value, url);
+    expect(backdrop.shown, url);
   });
 
-  testWidgets('a page that asks to keep the backdrop keeps it', (
+  testWidgets('a title that loads under another page leaves its backdrop', (
     WidgetTester tester,
   ) async {
-    final ScopedValue<String?> backdrop = ScopedValue<String?>(
-      'http://test/artwork/1/$kBackdropWidth',
-    );
-    addTearDown(backdrop.dispose);
+    final PageDirector<String?> backdrop = backdropsAfter(null);
+    final GlobalKey<NavigatorState> navigator = GlobalKey<NavigatorState>();
+    final Completer<void> loaded = Completer<void>();
+    await tester.pumpWidget(_stacked(backdrop, navigator));
 
-    await tester.pumpWidget(
-      _shared(
-        backdrop,
-        Builder(
-          builder: (BuildContext context) {
-            BackdropScope.keep(context);
-            return const Text('mine');
-          },
-        ),
+    navigator.currentState!.push(_title(1, loaded: loaded.future));
+    await tester.pumpAndSettle();
+    navigator.currentState!.push(_page(const Text('admin')));
+    await tester.pumpAndSettle();
+    loaded.complete();
+    await tester.pumpAndSettle();
+
+    expect(
+      backdrop.shown,
+      isNull,
+      reason: 'the title is under the admin page, out of sight',
+    );
+  });
+
+  testWidgets('a title under another title does not take the backdrop back', (
+    WidgetTester tester,
+  ) async {
+    final PageDirector<String?> backdrop = backdropsAfter(null);
+    final GlobalKey<NavigatorState> navigator = GlobalKey<NavigatorState>();
+    final GlobalKey<_TitleBodyState> under = GlobalKey<_TitleBodyState>();
+    await tester.pumpWidget(_stacked(backdrop, navigator));
+
+    navigator.currentState!.push(_title(1, key: under));
+    await tester.pumpAndSettle();
+    navigator.currentState!.push(_title(2));
+    await tester.pumpAndSettle();
+    expect(backdrop.shown, _backdropOf(2));
+
+    under.currentState!.rebuild();
+    await tester.pumpAndSettle();
+
+    expect(backdrop.shown, _backdropOf(2));
+  });
+
+  testWidgets('back on a title, its backdrop comes back', (
+    WidgetTester tester,
+  ) async {
+    final PageDirector<String?> backdrop = backdropsAfter(null);
+    final GlobalKey<NavigatorState> navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(_stacked(backdrop, navigator));
+
+    navigator.currentState!.push(_title(1));
+    await tester.pumpAndSettle();
+    navigator.currentState!.push(_title(2));
+    await tester.pumpAndSettle();
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+
+    expect(backdrop.shown, _backdropOf(1));
+  });
+
+  testWidgets('back through pages that share a backdrop, the first keeps it', (
+    WidgetTester tester,
+  ) async {
+    final PageDirector<String?> backdrop = backdropsAfter(null);
+    final GlobalKey<NavigatorState> navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(_stacked(backdrop, navigator));
+
+    navigator.currentState!.push(_title(1));
+    await tester.pumpAndSettle();
+    navigator.currentState!.push(_title(1));
+    await tester.pumpAndSettle();
+    navigator.currentState!.push(_title(2));
+    await tester.pumpAndSettle();
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+
+    expect(
+      backdrop.shown,
+      _backdropOf(1),
+      reason: 'a season shows its series backdrop, an episode its own',
+    );
+  });
+
+  testWidgets('a page pushed under the current one leaves its backdrop', (
+    WidgetTester tester,
+  ) async {
+    final PageDirector<String?> backdrop = backdropsAfter(null);
+    final GlobalKey<NavigatorState> navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(_stacked(backdrop, navigator));
+    navigator.currentState!.push(_title(1));
+    await tester.pumpAndSettle();
+
+    navigator.currentState!
+      ..pushAndRemoveUntil(
+        _page(const Text('home')),
+        (Route<dynamic> _) => false,
+      )
+      ..push(_title(1, loaded: Completer<void>().future));
+    await tester.pumpAndSettle();
+
+    expect(
+      backdrop.shown,
+      _backdropOf(1),
+      reason: 'the title on top keeps the backdrop while it loads',
+    );
+  });
+
+  testWidgets('a page replaced by one with the same backdrop never blanks it', (
+    WidgetTester tester,
+  ) async {
+    final PageDirector<String?> backdrop = backdropsAfter(null);
+    final GlobalKey<NavigatorState> navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(_stacked(backdrop, navigator));
+    navigator.currentState!.push(_title(1));
+    await tester.pumpAndSettle();
+    final List<String?> seen = <String?>[];
+    backdrop.addListener(() => seen.add(backdrop.shown));
+
+    final Completer<void> loaded = Completer<void>();
+    navigator.currentState!.pushReplacement(_title(1, loaded: loaded.future));
+    await tester.pumpAndSettle();
+    loaded.complete();
+    await tester.pumpAndSettle();
+
+    expect(
+      seen,
+      everyElement(isNotNull),
+      reason: 'the season arrows and the last crumb replace the page',
+    );
+    expect(backdrop.shown, _backdropOf(1));
+  });
+
+  testWidgets('a page reloaded under its dialog keeps its backdrop', (
+    WidgetTester tester,
+  ) async {
+    final PageDirector<String?> backdrop = backdropsAfter(null);
+    final GlobalKey<NavigatorState> navigator = GlobalKey<NavigatorState>();
+    final GlobalKey<_TitleBodyState> page = GlobalKey<_TitleBodyState>();
+    await tester.pumpWidget(_stacked(backdrop, navigator));
+    navigator.currentState!.push(_title(1, key: page));
+    await tester.pumpAndSettle();
+    navigator.currentState!.push(
+      RawDialogRoute<void>(
+        pageBuilder:
+            (BuildContext _, Animation<double> _, Animation<double> _) =>
+                const SizedBox.shrink(),
       ),
     );
     await tester.pumpAndSettle();
+    final List<String?> seen = <String?>[];
+    backdrop.addListener(() => seen.add(backdrop.shown));
 
-    expect(backdrop.value, 'http://test/artwork/1/$kBackdropWidth');
+    final Completer<void> again = Completer<void>();
+    page.currentState!.reload(again.future);
+    await tester.pumpAndSettle();
+    again.complete();
+    await tester.pumpAndSettle();
+
+    expect(
+      seen,
+      everyElement(isNotNull),
+      reason: 'an action in a dialog reloads the page under it',
+    );
+    expect(backdrop.shown, _backdropOf(1));
   });
 
   testWidgets('the username is the account link and the bar drops Account', (
@@ -363,12 +552,14 @@ void main() {
   testWidgets('a page backdrop is painted behind the shell', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(_host(_body));
+    final PageDirector<String?> backdrops = backdropsAfter(null);
+    await tester.pumpWidget(_shared(backdrops, _body));
     await tester.pump();
     expect(find.byType(Image), findsNothing);
 
     await tester.pumpWidget(
-      _host(
+      _shared(
+        backdrops,
         const PageBackdrop(
           artwork: Artwork(
             backdrops: <ImageSet>[
@@ -1053,4 +1244,43 @@ class _CounterState extends State<_Counter> {
 
   @override
   Widget build(BuildContext context) => const SizedBox(height: 200);
+}
+
+class _TitleBody extends StatefulWidget {
+  const _TitleBody(this.id, this.loaded, {super.key});
+
+  final int id;
+  final Future<void> loaded;
+
+  @override
+  State<_TitleBody> createState() => _TitleBodyState();
+}
+
+class _TitleBodyState extends State<_TitleBody> {
+  late Future<void> _loaded = widget.loaded;
+
+  void rebuild() => setState(() {});
+
+  void reload(Future<void> next) => setState(() {
+    _loaded = next;
+  });
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<void>(
+    future: _loaded,
+    builder: (BuildContext _, AsyncSnapshot<void> snapshot) =>
+        snapshot.connectionState == ConnectionState.done
+        ? PageBackdrop(
+            artwork: Artwork(
+              backdrops: <ImageSet>[
+                ImageSet(
+                  base: '/artwork/${widget.id}',
+                  widths: const <int>[kBackdropWidth],
+                ),
+              ],
+            ),
+            imageBase: 'http://test',
+          )
+        : const SizedBox.shrink(),
+  );
 }

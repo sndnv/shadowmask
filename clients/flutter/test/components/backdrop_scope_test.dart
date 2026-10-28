@@ -4,7 +4,9 @@ import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/model/common/artwork.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
-import 'package:shadowmask/util/scoped_value.dart';
+import 'package:shadowmask/util/page_director.dart';
+
+import '../support/backdrops.dart';
 
 const Widget _pixel = SizedBox(key: Key('pixel'));
 
@@ -24,6 +26,26 @@ Future<Image> _pumpWash(WidgetTester tester, String? url) async {
   await tester.pump();
   return tester.widget<Image>(find.byType(Image));
 }
+
+Widget _host(PageDirector<String?> backdrops, Widget page) => BackdropScope(
+  backdrops: backdrops,
+  child: MaterialApp(
+    theme: buildTheme(AppThemeVariant.dark),
+    navigatorObservers: <NavigatorObserver>[backdrops.observer],
+    home: Scaffold(
+      body: Stack(
+        children: <Widget>[
+          ListenableBuilder(
+            listenable: backdrops,
+            builder: (BuildContext _, Widget? _) =>
+                BackdropWash(url: backdrops.shown),
+          ),
+          page,
+        ],
+      ),
+    ),
+  ),
+);
 
 void main() {
   testWidgets('the wash ramps up from transparent once a frame decodes', (
@@ -71,108 +93,58 @@ void main() {
     expect(find.byType(Image), findsNothing);
   });
 
-  testWidgets('leaving a page clears the backdrop without a locked tree', (
+  testWidgets('a page backdrop asks for its artwork', (
     WidgetTester tester,
   ) async {
-    final ScopedValue<String?> backdrop = ScopedValue<String?>(null);
-    addTearDown(backdrop.dispose);
+    final PageDirector<String?> backdrops = backdropsAfter(null);
 
-    Widget host({required bool onPage}) => MaterialApp(
-      theme: buildTheme(AppThemeVariant.dark),
-      home: Scaffold(
-        body: Stack(
-          children: <Widget>[
-            ValueListenableBuilder<String?>(
-              valueListenable: backdrop,
-              builder: (BuildContext context, String? url, Widget? _) =>
-                  BackdropWash(url: url),
-            ),
-            BackdropScope(
-              url: backdrop,
-              child: onPage
-                  ? const PageBackdrop(
-                      artwork: _artwork,
-                      imageBase: 'http://test',
-                    )
-                  : const SizedBox.shrink(),
-            ),
-          ],
-        ),
+    await tester.pumpWidget(
+      _host(
+        backdrops,
+        const PageBackdrop(artwork: _artwork, imageBase: 'http://test'),
       ),
     );
-
-    await tester.pumpWidget(host(onPage: true));
     await tester.pump();
-    expect(backdrop.value, 'http://test/artwork/1/$kBackdropWidth');
 
-    await tester.pumpWidget(host(onPage: false));
+    expect(backdrops.shown, 'http://test/artwork/1/$kBackdropWidth');
+  });
+
+  testWidgets('a page backdrop that leaves its page withdraws nothing', (
+    WidgetTester tester,
+  ) async {
+    final PageDirector<String?> backdrops = backdropsAfter(null);
+    await tester.pumpWidget(
+      _host(
+        backdrops,
+        const PageBackdrop(artwork: _artwork, imageBase: 'http://test'),
+      ),
+    );
+    await tester.pump();
+
+    await tester.pumpWidget(_host(backdrops, const SizedBox.shrink()));
+    await tester.pump();
+
     expect(tester.takeException(), isNull);
-
-    await tester.pump();
-    expect(backdrop.value, isNull);
-  });
-
-  testWidgets('a page that already handed the backdrop on does not clear it', (
-    WidgetTester tester,
-  ) async {
-    final ScopedValue<String?> backdrop = ScopedValue<String?>(null);
-    addTearDown(backdrop.dispose);
-
-    Widget host({required bool onPage}) => MaterialApp(
-      theme: buildTheme(AppThemeVariant.dark),
-      home: Scaffold(
-        body: BackdropScope(
-          url: backdrop,
-          child: onPage
-              ? const PageBackdrop(artwork: _artwork, imageBase: 'http://test')
-              : const SizedBox.shrink(),
-        ),
-      ),
-    );
-
-    await tester.pumpWidget(host(onPage: true));
-    await tester.pump();
-
-    const String taken = 'http://test/artwork/9/$kBackdropWidth';
-    backdrop.value = taken;
-    await tester.pumpWidget(host(onPage: false));
-    await tester.pump();
-
-    expect(backdrop.value, taken);
-  });
-
-  testWidgets('a page handing the same backdrop on does not clear it either', (
-    WidgetTester tester,
-  ) async {
-    final ScopedValue<String?> backdrop = ScopedValue<String?>(null);
-    addTearDown(backdrop.dispose);
-    final Object player = Object();
-
-    Widget host({required bool onPage}) => MaterialApp(
-      theme: buildTheme(AppThemeVariant.dark),
-      home: Scaffold(
-        body: BackdropScope(
-          url: backdrop,
-          child: onPage
-              ? const PageBackdrop(artwork: _artwork, imageBase: 'http://test')
-              : const SizedBox.shrink(),
-        ),
-      ),
-    );
-
-    await tester.pumpWidget(host(onPage: true));
-    await tester.pump();
-    const String url = 'http://test/artwork/1/$kBackdropWidth';
-    expect(backdrop.value, url);
-
-    backdrop.publish(url, owner: player);
-    await tester.pumpWidget(host(onPage: false));
-    await tester.pump();
-
     expect(
-      backdrop.value,
-      url,
-      reason: 'the player took the same artwork on, so it must survive',
+      backdrops.shown,
+      'http://test/artwork/1/$kBackdropWidth',
+      reason: 'the player drops its page while its stream restarts',
     );
+  });
+
+  testWidgets('a page with nothing to show asks for none and shows its child', (
+    WidgetTester tester,
+  ) async {
+    final PageDirector<String?> backdrops = backdropsAfter(
+      'http://test/artwork/before/$kBackdropWidth',
+    );
+
+    await tester.pumpWidget(
+      _host(backdrops, const PageBackdrop.none(child: Text('failed'))),
+    );
+    await tester.pump();
+
+    expect(find.text('failed'), findsOneWidget);
+    expect(backdrops.shown, isNull);
   });
 }

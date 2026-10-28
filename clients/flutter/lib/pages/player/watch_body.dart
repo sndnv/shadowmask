@@ -41,6 +41,7 @@ import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
+import 'package:shadowmask/view/artwork_fallback.dart';
 import 'package:shadowmask/view/profile_version.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 import 'package:shadowmask/view/video_aspect.dart';
@@ -119,9 +120,6 @@ class _WatchBodyState extends State<WatchBody>
   final GlobalKey<ScaffoldState> _sheetHost = GlobalKey<ScaffoldState>();
   TrickplayLoader? _trickplay;
   String? _trickplayFor;
-  Artwork? _backdropArt;
-  bool _claimedBackdrop = false;
-  bool _ownsBackdrop = false;
   String? _detailRoute;
   List<Crumb> _crumbs = const <Crumb>[];
   String? _seriesId;
@@ -215,10 +213,6 @@ class _WatchBodyState extends State<WatchBody>
     super.didChangeDependencies();
     _immersive = ImmersiveScope.of(context);
     _decoding = CapabilityScope.of(context)?.decoding;
-    if (!_claimedBackdrop) {
-      _claimedBackdrop = true;
-      _ownsBackdrop = BackdropScope.maybeOf(context)?.value == null;
-    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _publishImmersive();
@@ -427,6 +421,16 @@ class _WatchBodyState extends State<WatchBody>
     _armAutoplay(s);
   }
 
+  void _askBackdrop(Artwork? artwork) {
+    final Route<dynamic>? page = mounted ? ModalRoute.of(context) : null;
+    if (page != null) {
+      BackdropScope.maybeOf(context)?.request(
+        page,
+        artwork?.backdropUrl(CatalogApi(widget.api).imageBase, kBackdropWidth),
+      );
+    }
+  }
+
   Future<void> _loadTitle(TitleRef ref) async {
     final CatalogApi catalog = CatalogApi(widget.api);
     if (ref.type == TitleKind.movie) {
@@ -435,8 +439,8 @@ class _WatchBodyState extends State<WatchBody>
         if (!mounted) {
           return;
         }
+        _askBackdrop(movie.artwork);
         setState(() {
-          _backdropArt = movie.artwork;
           _detailRoute = movieRoute(movie.id);
           _crumbs = <Crumb>[
             Crumb(Strings.navigationMovies, route: moviesRoute()),
@@ -451,7 +455,9 @@ class _WatchBodyState extends State<WatchBody>
           previous: null,
           next: null,
         );
-      } catch (_) {}
+      } catch (_) {
+        _askBackdrop(null);
+      }
       return;
     }
     try {
@@ -476,8 +482,8 @@ class _WatchBodyState extends State<WatchBody>
         return;
       }
       final String detail = episodeRoute(episode.id, series: seriesId);
+      _askBackdrop(backdropOrParent(episode.artwork, episode.seriesArtwork));
       setState(() {
-        _backdropArt = episode.seriesArtwork ?? episode.artwork;
         _seriesId = seriesId;
         _detailRoute = detail;
         _crumbs = <Crumb>[
@@ -508,7 +514,9 @@ class _WatchBodyState extends State<WatchBody>
         previous: neighbours.previous,
         next: neighbours.next,
       );
-    } catch (_) {}
+    } catch (_) {
+      _askBackdrop(null);
+    }
   }
 
   void _togglePlay() => _runner.toggle();
@@ -976,6 +984,7 @@ class _WatchBodyState extends State<WatchBody>
     future: _opening,
     errorText: Strings.couldNotStartPlayback,
     onRetry: _reopen,
+    failureClearsBackdrop: true,
     builder: (BuildContext context, void _) =>
         ValueListenableBuilder<PlaybackState>(
           valueListenable: _runner.state,
@@ -1183,7 +1192,6 @@ class _WatchBodyState extends State<WatchBody>
         ),
       ),
     );
-    BackdropScope.keep(context);
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints c) => Column(
         mainAxisSize: MainAxisSize.min,
@@ -1195,11 +1203,6 @@ class _WatchBodyState extends State<WatchBody>
             fit: fullscreen ? FlexFit.tight : FlexFit.loose,
             child: frame,
           ),
-          if (_ownsBackdrop && _backdropArt != null)
-            PageBackdrop(
-              artwork: _backdropArt,
-              imageBase: CatalogApi(widget.api).imageBase,
-            ),
         ],
       ),
     );

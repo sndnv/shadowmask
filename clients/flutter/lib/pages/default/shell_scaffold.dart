@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -26,6 +25,7 @@ import 'package:shadowmask/theme/radii.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
+import 'package:shadowmask/util/page_director.dart';
 import 'package:shadowmask/util/scoped_value.dart';
 import 'package:shadowmask/view/shell_shortcuts.dart';
 
@@ -107,19 +107,10 @@ const EdgeInsets _kGutter = EdgeInsets.symmetric(horizontal: Space.s3);
 const double _kOffscreen = 200;
 
 class _ShellScaffoldState extends State<ShellScaffold> {
-  final ScopedValue<String?> _ownBackdrop = ScopedValue<String?>(null);
   final ScopedValue<bool> _immersive = ScopedValue<bool>(false);
-  final ScopedValue<String?> _title = ScopedValue<String?>(null);
   final FocusNode _main = FocusNode(debugLabel: 'main', skipTraversal: true);
   final ScrollController _scroll = ScrollController();
-  ScopedValue<String?>? _sharedBackdrop;
   bool _skipShown = false;
-  bool _keepsBackdrop = false;
-  bool _sweptBackdrop = false;
-
-  ScopedValue<String?> get _backdrop => _sharedBackdrop ?? _ownBackdrop;
-
-  void _keepBackdrop() => _keepsBackdrop = true;
 
   @override
   void initState() {
@@ -128,26 +119,9 @@ class _ShellScaffoldState extends State<ShellScaffold> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _sharedBackdrop = BackdropScope.maybeOf(context);
-    if (_sweptBackdrop) {
-      return;
-    }
-    _sweptBackdrop = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && !_keepsBackdrop && !widget.keepsBackdrop) {
-        _sharedBackdrop?.publish(null, owner: this);
-      }
-    });
-  }
-
-  @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_onScrollKey);
-    _ownBackdrop.dispose();
     _immersive.dispose();
-    _title.dispose();
     _main.dispose();
     _scroll.dispose();
     super.dispose();
@@ -209,32 +183,24 @@ class _ShellScaffoldState extends State<ShellScaffold> {
     final double pageWidth = widget.fullWidth
         ? double.infinity
         : Breakpoints.lg;
-    return PageTitleScope(
-      title: _title,
-      child: ValueListenableBuilder<String?>(
-        valueListenable: _title,
-        builder: (BuildContext context, String? page, Widget? shell) {
-          final String? label = page ?? _sectionLabel;
-          return Title(
-            color: t.accent,
-            title: label == null
-                ? Strings.appTitle
-                : Strings.documentTitle(label),
-            child: shell!,
-          );
-        },
-        child: _shell(
-          t,
-          pageWidth,
-          MediaQuery.sizeOf(context).width < Breakpoints.sm,
-          MediaQuery.paddingOf(context),
-        ),
+    final String? section = _sectionLabel;
+    return _PageDefaults(
+      title: section == null
+          ? Strings.appTitle
+          : Strings.documentTitle(section),
+      keepsBackdrop: widget.keepsBackdrop,
+      child: _shell(
+        t,
+        pageWidth,
+        MediaQuery.sizeOf(context).width < Breakpoints.sm,
+        MediaQuery.paddingOf(context),
       ),
     );
   }
 
   Widget _shell(Tokens t, double pageWidth, bool compact, EdgeInsets safe) {
     final double headerExtent = _kHeaderHeight + safe.top;
+    final PageDirector<String?>? backdrops = BackdropScope.maybeOf(context);
     return FocusTraversalGroup(
       policy: OrderedTraversalPolicy(),
       child: Scaffold(
@@ -256,13 +222,7 @@ class _ShellScaffoldState extends State<ShellScaffold> {
               ),
         body: Stack(
           children: <Widget>[
-            Positioned.fill(
-              child: ValueListenableBuilder<String?>(
-                valueListenable: _backdrop,
-                builder: (BuildContext context, String? url, Widget? _) =>
-                    BackdropWash(url: url),
-              ),
-            ),
+            Positioned.fill(child: _wash(backdrops)),
             const Positioned.fill(child: HexTexture()),
             Positioned.fill(
               child: LayoutBuilder(
@@ -324,7 +284,7 @@ class _ShellScaffoldState extends State<ShellScaffold> {
                                     current: widget.current,
                                     user: widget.user,
                                     maxWidth: maxWidth,
-                                    backdrop: _backdrop,
+                                    backdrops: backdrops,
                                     viewportHeight: constraints.maxHeight,
                                     collapsed: bare,
                                     insets: safe,
@@ -339,15 +299,11 @@ class _ShellScaffoldState extends State<ShellScaffold> {
                                       padding: gutter,
                                       child: Padding(
                                         padding: bodyPadding,
-                                        child: BackdropScope(
-                                          url: _backdrop,
-                                          onKeep: _keepBackdrop,
-                                          child: ImmersiveScope(
-                                            immersive: _immersive,
-                                            child: Focus(
-                                              focusNode: _main,
-                                              child: widget.body,
-                                            ),
+                                        child: ImmersiveScope(
+                                          immersive: _immersive,
+                                          child: Focus(
+                                            focusNode: _main,
+                                            child: widget.body,
                                           ),
                                         ),
                                       ),
@@ -367,6 +323,38 @@ class _ShellScaffoldState extends State<ShellScaffold> {
     );
   }
 }
+
+class _PageDefaults extends StatelessWidget {
+  const _PageDefaults({
+    required this.title,
+    required this.keepsBackdrop,
+    required this.child,
+  });
+
+  final String title;
+  final bool keepsBackdrop;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final Route<dynamic>? page = ModalRoute.of(context);
+    if (page != null) {
+      PageTitleScope.maybeOf(context)?.fallback(page, title);
+      if (!keepsBackdrop) {
+        BackdropScope.maybeOf(context)?.fallback(page, null);
+      }
+    }
+    return child;
+  }
+}
+
+Widget _wash(PageDirector<String?>? backdrops) => backdrops == null
+    ? const BackdropWash(url: null)
+    : ListenableBuilder(
+        listenable: backdrops,
+        builder: (BuildContext _, Widget? _) =>
+            BackdropWash(url: backdrops.shown),
+      );
 
 class _Centered extends StatelessWidget {
   const _Centered({
@@ -400,7 +388,7 @@ class _ShellHeader extends SliverPersistentHeaderDelegate {
     required this.current,
     required this.user,
     required this.maxWidth,
-    required this.backdrop,
+    required this.backdrops,
     required this.viewportHeight,
     required this.collapsed,
     required this.insets,
@@ -411,7 +399,7 @@ class _ShellHeader extends SliverPersistentHeaderDelegate {
   final NavSection current;
   final SelfUser? user;
   final double maxWidth;
-  final ValueListenable<String?> backdrop;
+  final PageDirector<String?>? backdrops;
   final double viewportHeight;
   final bool collapsed;
   final EdgeInsets insets;
@@ -438,11 +426,7 @@ class _ShellHeader extends SliverPersistentHeaderDelegate {
             alignment: Alignment.topCenter,
             minHeight: viewportHeight,
             maxHeight: viewportHeight,
-            child: ValueListenableBuilder<String?>(
-              valueListenable: backdrop,
-              builder: (BuildContext context, String? url, Widget? _) =>
-                  BackdropWash(url: url),
-            ),
+            child: _wash(backdrops),
           ),
         ),
         const ClipRect(child: HexTexture()),
@@ -478,7 +462,7 @@ class _ShellHeader extends SliverPersistentHeaderDelegate {
       old.current != current ||
       old.user != user ||
       old.maxWidth != maxWidth ||
-      old.backdrop != backdrop ||
+      old.backdrops != backdrops ||
       old.viewportHeight != viewportHeight ||
       old.collapsed != collapsed ||
       old.insets != insets ||
