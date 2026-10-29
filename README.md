@@ -120,6 +120,16 @@ The desktop, mobile and Roku clients are attached to every
   open the device's address in a browser, sign in as `rokudev` with the developer password, then
   upload `shadowmask-client-roku-<version>.zip` and install it
 
+GitHub releases are immutable: no file can be replaced once a release is published. To check a download
+against that record, with the [GitHub CLI](https://cli.github.com/) signed in:
+
+```bash
+gh release verify-asset <version> shadowmask-client-linux-<version>.AppImage --repo sndnv/shadowmask
+```
+
+Without the GitHub CLI, compare the file's digest (`sha256sum <file>` on Linux,
+`shasum -a 256 <file>` on macOS) with the one shown next to it on the release page.
+
 The desktop, mobile and Roku clients ask for the server's address first, for example
 `http://192.168.1.10:8080`. Sign in with a username and password, or with a link code: create one
 under `Account` > `Devices & Access` in a client that is signed in, then enter it on the new device.

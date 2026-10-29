@@ -16,6 +16,7 @@ import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
 import 'package:shadowmask/player/state/player_tracks.dart';
+import 'package:shadowmask/player/watches/segment_watch.dart';
 import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 
@@ -65,6 +66,7 @@ class NativePlayerController implements PlayerController {
   late final StreamSubscription<AudioParams> _audio;
   int? _outputChannels;
   final StreamController<String> _errors = StreamController<String>.broadcast();
+  final StreamController<void> _lost = StreamController<void>.broadcast();
   final PlaybackLog _log = PlaybackLog();
   late final _FullscreenListener _window = _FullscreenListener(
     (bool value) => _fullscreen.value = value,
@@ -85,6 +87,7 @@ class NativePlayerController implements PlayerController {
   int _bufferSeconds = kDefaultBufferSeconds;
   int _bufferBytes = kDefaultBufferBytes;
   String? _outputFailure;
+  SegmentWatch _segments = kSegmentWatchStart;
 
   final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
     const PlayerSnapshot(),
@@ -108,6 +111,9 @@ class NativePlayerController implements PlayerController {
 
   @override
   Stream<String> get errors => _errors.stream;
+
+  @override
+  Stream<void> get lost => _lost.stream;
 
   @override
   ValueListenable<bool> get mutedByPolicy => _mutedByPolicy;
@@ -216,6 +222,7 @@ class NativePlayerController implements PlayerController {
     }
     await Future.any(<Future<void>>[_lengthKnown(), replaced]);
     _current(generation);
+    _segments = kSegmentWatchArmed;
     await _select(tracks);
     _current(generation);
     if (positionMs > 0) {
@@ -286,6 +293,7 @@ class NativePlayerController implements PlayerController {
 
   void _replace() {
     _generation++;
+    _segments = kSegmentWatchStart;
     if (!_replaced.isCompleted) {
       _replaced.complete();
     }
@@ -484,6 +492,7 @@ class NativePlayerController implements PlayerController {
     await _audio.cancel();
     await _player.dispose();
     await _errors.close();
+    await _lost.close();
     _snapshot.dispose();
     _fullscreen.dispose();
     _mutedByPolicy.dispose();
@@ -506,11 +515,25 @@ class NativePlayerController implements PlayerController {
   }
 
   void _onLog(PlayerLog log) {
-    _log.add(
-      redactStreamTokens('${log.level[0]} ${log.prefix}: ${log.text.trim()}'),
-    );
+    final String text = log.text.trim();
+    _log.add(redactStreamTokens('${log.level[0]} ${log.prefix}: $text'));
     if (log.level == 'fatal') {
-      _onError(log.text.trim());
+      _onError(text);
+    }
+    if (failedSegment(text) case final int segment) {
+      _onFailedSegment(segment);
+    }
+  }
+
+  void _onFailedSegment(int segment) {
+    _segments = segmentFailed(_segments, segment);
+    if (!segmentsLost(_segments)) {
+      return;
+    }
+    _segments = kSegmentWatchArmed;
+    _log.add(segmentsLostLine(segment));
+    if (!_lost.isClosed) {
+      _lost.add(null);
     }
   }
 

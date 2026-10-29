@@ -19,6 +19,8 @@ abstract class PlayerController {
 
   Stream<String> get errors;
 
+  Stream<void> get lost;
+
   ValueListenable<bool> get mutedByPolicy;
 
   ValueListenable<bool> get muted;
