@@ -237,6 +237,49 @@ void main() {
     expect(run.apply(viewerRetries).single, isA<SendStart>());
   });
 
+  test('a lost stream ends its session, unloads and shows the error while '
+      'watching or loading', () {
+    for (final PlaybackRun run in <PlaybackRun>[
+      PlaybackRun.watching(atMs: 5000),
+      _loading(resumeMs: 5000),
+    ]) {
+      expect(
+        run.apply((PlaybackState s) => playerLostStream(s, 'lost')),
+        const <PlaybackCommand>[
+          EndSession(sessionId: 's1', positionMs: 5000),
+          UnloadPlayer(),
+        ],
+      );
+      expect(run.state.stream, isNull);
+      expect(run.state.status.error, 'lost');
+      expect(run.state.status.sent, isNull);
+      expect(run.apply(viewerRetries).single, isA<SendStart>());
+    }
+  });
+
+  test('a lost stream is ignored during a change and once it has ended', () {
+    final PlaybackRun changing = PlaybackRun.watching()
+      ..apply(
+        (PlaybackState s) =>
+            viewerChangesRemote(s, const PlaybackControls(height: 720)),
+      );
+    final PlaybackState before = changing.state;
+    expect(
+      changing.apply((PlaybackState s) => playerLostStream(s, 'lost')),
+      isEmpty,
+    );
+    expect(changing.state, before);
+
+    final PlaybackRun ended = PlaybackRun.watching()
+      ..apply((PlaybackState s) => playerLostStream(s, 'lost'));
+    final PlaybackState failed = ended.state;
+    expect(
+      ended.apply((PlaybackState s) => playerLostStream(s, 'again')),
+      isEmpty,
+    );
+    expect(ended.state, failed);
+  });
+
   test('the buffer being ready ends the wait and plays', () {
     final PlaybackRun run = PlaybackRun.watching(
       local: const LocalSettings(waitForBuffer: true),

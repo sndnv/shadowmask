@@ -8,6 +8,7 @@ use tower::ServiceExt;
 use tower_http::services::ServeFile;
 use tracing::{debug, warn};
 
+use domain::error::StreamError;
 use domain::session::{StreamSource, StreamTokens};
 
 use crate::error::ApiResult;
@@ -41,10 +42,13 @@ where
 {
     let claims = state.tokens.verify(&token)?;
     let path = state.source.media_path(&claims, &variant, &file).await.map_err(|err| {
-        warn!(
-            "User [{}] could not be served stream media [{variant}/{file}]: {err}",
-            claims.user.0
-        );
+        let user = &claims.user.0;
+        match err {
+            StreamError::Gone => {
+                debug!("User [{user}] could not be served stream media [{variant}/{file}]: {err}")
+            }
+            _ => warn!("User [{user}] could not be served stream media [{variant}/{file}]: {err}"),
+        }
         err
     })?;
     let content_type = content_type_for(&file);

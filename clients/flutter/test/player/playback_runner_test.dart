@@ -895,6 +895,23 @@ void main() {
     await rig.leave(tester);
   });
 
+  testWidgets('a lost stream ends its session and shows the failure', (
+    WidgetTester tester,
+  ) async {
+    final Rig rig = Rig();
+    await rig.watch(tester, atMs: 5000);
+    rig.player.calls.clear();
+
+    rig.player.lose();
+    await tester.pump();
+
+    expect(rig.state.status.error, Strings.playerFailed);
+    expect(rig.state.stream, isNull);
+    expect(rig.api.named('end'), <String>['end:s1']);
+    expect(rig.player.calls, <String>['detach']);
+    await rig.leave(tester);
+  });
+
   testWidgets('waiting for the buffer holds the first play until it is '
       'ready', (WidgetTester tester) async {
     final Rig rig = Rig(local: const LocalSettings(waitForBuffer: true));
@@ -1098,6 +1115,7 @@ void main() {
 
     rig.player.at(positionMs: 9000);
     rig.player.fail('boom');
+    rig.player.lose();
     rig.player.toggleFullscreen();
     rig.runner.seek(20000);
     rig.runner.play();

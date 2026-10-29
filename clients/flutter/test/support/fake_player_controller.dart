@@ -30,6 +30,7 @@ class FakePlayerController implements PlayerController {
   final WatchedNotifier<double> _volume = WatchedNotifier<double>(1);
   final WatchedNotifier<bool> _pip = WatchedNotifier<bool>(false);
   final StreamController<String> _errors = StreamController<String>.broadcast();
+  final StreamController<void> _lost = StreamController<void>.broadcast();
   final List<String> calls = <String>[];
   int? seekedMs;
   double? rate;
@@ -64,6 +65,11 @@ class FakePlayerController implements PlayerController {
 
   void fail(String message) => _errors.add(message);
 
+  @override
+  Stream<void> get lost => _lost.stream;
+
+  void lose() => _lost.add(null);
+
   Map<String, bool> get listened => <String, bool>{
     'snapshot': _snapshot.watched,
     'fullscreen': _fullscreen.watched,
@@ -72,6 +78,7 @@ class FakePlayerController implements PlayerController {
     'volume': _volume.watched,
     'pictureInPicture': _pip.watched,
     'errors': _errors.hasListener,
+    'lost': _lost.hasListener,
   };
 
   @override

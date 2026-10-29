@@ -69,6 +69,7 @@ class PlaybackRunner {
     _player.muted.addListener(_onSound);
     _player.mutedByPolicy.addListener(_onSound);
     _errors = _player.errors.listen(_onError);
+    _lost = _player.lost.listen((_) => _onLost());
     _settle(PlaybackState(versionId: versionId), opened, commands);
   }
 
@@ -83,6 +84,7 @@ class PlaybackRunner {
   final Completer<void> _left = Completer<void>();
   late final ValueNotifier<PlaybackState> _state;
   late final StreamSubscription<String> _errors;
+  late final StreamSubscription<void> _lost;
   LocalSettings _applied = const LocalSettings();
   Future<void> _ending = Future<void>.value();
   StallWatch _stall = kStallWatchStart;
@@ -558,6 +560,9 @@ class PlaybackRunner {
     _post((PlaybackState s) => playerErrs(s, message));
   }
 
+  void _onLost() =>
+      _post((PlaybackState s) => playerLostStream(s, Strings.playerFailed));
+
   void _onFullscreen() => _report(
     (LocalSettings l) => l.copyWith(fullscreen: _player.fullscreen.value),
   );
@@ -589,6 +594,7 @@ class PlaybackRunner {
     _player.muted.removeListener(_onSound);
     _player.mutedByPolicy.removeListener(_onSound);
     unawaited(_errors.cancel());
+    unawaited(_lost.cancel());
     _left.complete();
   }
 }

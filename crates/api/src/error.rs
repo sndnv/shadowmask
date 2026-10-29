@@ -351,6 +351,7 @@ impl From<StreamError> for ApiError {
             StreamError::Invalid => {
                 ApiError::new(StatusCode::BAD_REQUEST, "bad_stream_request", msg)
             }
+            StreamError::Gone => ApiError::new(StatusCode::GONE, "stream_failed", msg),
         }
     }
 }
@@ -603,6 +604,9 @@ mod tests {
         let invalid = ApiError::from(StreamError::Invalid);
         assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
         assert_eq!(invalid.code, "bad_stream_request");
+        let gone = ApiError::from(StreamError::Gone);
+        assert_eq!(gone.status, StatusCode::GONE);
+        assert_eq!(gone.code, "stream_failed");
     }
 
     #[test]

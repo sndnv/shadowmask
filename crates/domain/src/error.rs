@@ -355,4 +355,6 @@ pub enum StreamError {
     NotLive,
     #[error("invalid stream request")]
     Invalid,
+    #[error("stream failed")]
+    Gone,
 }

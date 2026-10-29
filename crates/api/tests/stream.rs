@@ -72,6 +72,9 @@ impl StreamSource for FakeSource {
         if variant == "bad" {
             return Err(StreamError::Invalid);
         }
+        if variant == "gone" {
+            return Err(StreamError::Gone);
+        }
         Ok(self.output_dir.join(file))
     }
 
@@ -258,6 +261,28 @@ async fn bad_path_is_bad_request() {
     let dir = tempfile::tempdir().unwrap();
     let (status, _, _) = send(app(dir.path()), "/stream/good:live/bad/index.m3u8", None).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[traced_test]
+#[tokio::test]
+async fn a_segment_of_a_failed_stream_is_gone_and_logged_at_debug() {
+    let dir = tempfile::tempdir().unwrap();
+    let (status, _, body) =
+        send(app(dir.path()), "/stream/good:live/gone/seg_00001.ts", None).await;
+    assert_eq!(status, StatusCode::GONE);
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["error"]["code"], "stream_failed");
+    logs_assert(|lines| {
+        let levels: Vec<bool> = lines
+            .iter()
+            .filter(|line| line.contains("could not be served stream media [gone/seg_00001.ts]"))
+            .map(|line| line.contains(" DEBUG "))
+            .collect();
+        match levels[..] {
+            [true] => Ok(()),
+            _ => Err(format!("expected one debug line, got {levels:?}")),
+        }
+    });
 }
 
 #[tokio::test]

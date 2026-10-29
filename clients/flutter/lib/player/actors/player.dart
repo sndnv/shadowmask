@@ -78,6 +78,14 @@ PlaybackStep playerFailedToLoad(PlaybackState s, int id, String message) {
   return streamFails(s, stream, message);
 }
 
+PlaybackStep playerLostStream(PlaybackState s, String message) {
+  final PlaybackStream? stream = s.stream;
+  if (!(s.watching || _loading(s)) || stream == null) {
+    return _same(s);
+  }
+  return streamFails(s, stream, message);
+}
+
 PlaybackStep playerErrs(PlaybackState s, String message) =>
     s.watching || _loading(s)
     ? _same(s.copyWith.status(error: message))

@@ -194,6 +194,9 @@ class WebPlayerController implements PlayerController {
   Stream<String> get errors => _errors.stream;
 
   @override
+  Stream<void> get lost => const Stream<void>.empty();
+
+  @override
   ValueListenable<bool> get mutedByPolicy => _mutedByPolicy;
 
   @override

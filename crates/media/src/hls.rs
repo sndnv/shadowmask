@@ -88,6 +88,7 @@ struct Run {
 struct ProducerState {
     failure: Option<String>,
     finished: bool,
+    reported: bool,
 }
 
 struct Producer {
@@ -380,6 +381,17 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
         Some((state.finished, state.failure.clone()))
     }
 
+    fn first_refusal(&self, session: &SessionId, generation: StreamGeneration) -> bool {
+        let sessions = self.inner.sessions.read().unwrap();
+        sessions
+            .get(session)
+            .and_then(|s| s.generations.get(&generation))
+            .and_then(|entry| entry.run.as_ref())
+            .is_some_and(|run| {
+                !std::mem::replace(&mut run.producer.state.lock().unwrap().reported, true)
+            })
+    }
+
     async fn await_produced(
         &self,
         session: &SessionId,
@@ -396,28 +408,24 @@ impl<S: ProcessSpawner + 'static> HlsStreamSource<S> {
             match self.producer_verdict(session, generation) {
                 None => return Err(StreamError::NotLive),
                 Some((_, Some(detail))) => {
-                    let file = path.display().to_string();
-                    tracing::warn!(
-                        "stream [{}/{}] cannot serve [{file}] because the producer failed: \
-                         {detail}",
-                        session.0,
-                        generation.0
-                    );
-                    return Err(StreamError::Invalid);
+                    if self.first_refusal(session, generation) {
+                        let file = path.display().to_string();
+                        #[rustfmt::skip]
+                        tracing::warn!("stream [{}/{}] cannot serve [{file}] because the producer failed: {detail}", session.0, generation.0);
+                    }
+                    return Err(StreamError::Gone);
                 }
                 Some((true, None)) => {
                     if has_content(path).await {
                         self.touch_now(session);
                         return Ok(());
                     }
-                    let file = path.display().to_string();
-                    tracing::warn!(
-                        "stream [{}/{}] was asked for [{file}], which the producer finished \
-                         without writing",
-                        session.0,
-                        generation.0
-                    );
-                    return Err(StreamError::Invalid);
+                    if self.first_refusal(session, generation) {
+                        let file = path.display().to_string();
+                        #[rustfmt::skip]
+                        tracing::warn!("stream [{}/{}] was asked for [{file}], which the producer finished without writing", session.0, generation.0);
+                    }
+                    return Err(StreamError::Gone);
                 }
                 Some((false, None)) => {}
             }
@@ -1180,6 +1188,7 @@ mod tests {
     use domain::process::CommandOutput;
     use domain::session::{SoftSubtitleSource, SoundSettings, SubtitleRendition};
     use domain::user::UserId;
+    use tracing_test::traced_test;
 
     const CUE: &[u8] = b"WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n";
     const GEN: StreamGeneration = StreamGeneration(1);
@@ -2298,7 +2307,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_segment_is_invalid_when_the_run_fails_or_cannot_start() {
+    async fn a_segment_is_gone_when_the_run_fails_or_cannot_start() {
         for fake in
             [Fake { fail: true, ..Fake::default() }, Fake { unspawnable: true, ..Fake::default() }]
         {
@@ -2307,7 +2316,7 @@ mod tests {
             assert!(
                 matches!(
                     src.media_path(&claims("s1"), VARIANT, "seg_00000.ts").await,
-                    Err(StreamError::Invalid)
+                    Err(StreamError::Gone)
                 ),
                 "a failed run must fail the request at once, not wait out the clock"
             );
@@ -2315,13 +2324,41 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_segment_the_run_finished_without_writing_is_invalid() {
+    async fn a_segment_the_run_finished_without_writing_is_gone() {
         let (_dir, src) = engine(Fake { segments: 1, ..Fake::default() });
         src.start(spec("s1", 12_000)).await.expect("start");
         assert!(matches!(
             src.media_path(&claims("s1"), VARIANT, "seg_00002.ts").await,
-            Err(StreamError::Invalid)
+            Err(StreamError::Gone)
         ));
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn a_stream_that_cannot_serve_its_segments_warns_once() {
+        let (_failed, failed) = engine(Fake { fail: true, ..Fake::default() });
+        failed.start(spec("s1", 12_000)).await.expect("start");
+        let (_short, short) = engine(Fake { segments: 1, ..Fake::default() });
+        short.start(spec("s2", 16_000)).await.expect("start");
+        for (src, session, files) in [
+            (&failed, "s1", ["seg_00000.ts", "seg_00001.ts", "seg_00000.ts"]),
+            (&short, "s2", ["seg_00001.ts", "seg_00002.ts", "seg_00003.ts"]),
+        ] {
+            for file in files {
+                assert!(matches!(
+                    src.media_path(&claims(session), VARIANT, file).await,
+                    Err(StreamError::Gone)
+                ));
+            }
+        }
+        logs_assert(|lines| {
+            let failed = lines.iter().filter(|l| l.contains("because the producer failed")).count();
+            let short = lines.iter().filter(|l| l.contains("finished without writing")).count();
+            match (failed, short) {
+                (1, 1) => Ok(()),
+                counts => Err(format!("expected one warning per stream, got {counts:?}")),
+            }
+        });
     }
 
     #[tokio::test]
@@ -2331,7 +2368,7 @@ mod tests {
         src.start(fmp4_spec("s1", 12_000)).await.expect("start");
         assert!(matches!(
             src.media_path(&claims("s1"), VARIANT, INIT_SEGMENT).await,
-            Err(StreamError::Invalid)
+            Err(StreamError::Gone)
         ));
     }
 
@@ -2461,7 +2498,7 @@ mod tests {
         assert!(src.media_path(&claims("s1"), VARIANT, "seg_00000.ts").await.is_ok());
         assert!(matches!(
             src.media_path(&claims("s1"), VARIANT, "seg_00001.ts").await,
-            Err(StreamError::Invalid)
+            Err(StreamError::Gone)
         ));
         assert_eq!(fake.runs().len(), 1, "a software rerun would restart what was already played");
     }

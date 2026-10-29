@@ -16,6 +16,14 @@ namespace tests
             return PlaybackStep(m.watchingState(), { kind: "reads", reading: { positionMs: 0, durationMs: 600000, bufferedAheadMs: 0, playing: true, ended: false } }).state
         end function
 
+        function failedSegments(sequences as object) as object
+            watch = SegmentWatchStart()
+            for each sequence in sequences
+                watch = SegmentWatched(watch, { Status: -1, SegSequence: sequence })
+            end for
+            return watch
+        end function
+
         @describe("the nodes the player is built from")
 
         @it("can create every custom node WatchScreen expects to find")
@@ -716,6 +724,11 @@ namespace tests
             m.assertEqual(PlaybackErrorLine("09:49:52", -5, "Unsupported", ""), "09:49:52 error [-5] Unsupported")
         end sub
 
+        @it("names the last of the segments that failed in a row")
+        sub describesALostStream()
+            m.assertEqual(PlaybackLostLine("09:49:52", 42), "09:49:52 stream lost: 5 segments failed in a row, the last 42")
+        end sub
+
         @it("keeps the newest hundred lines")
         sub keepsTheNewestLines()
             m.assertEqual(PlaybackLogLimit(), 100)
@@ -747,6 +760,49 @@ namespace tests
         sub clipsLines()
             m.assertEqual(ClipText("short", 10), "short")
             m.assertEqual(ClipText("abcdefghij", 4), "abcd…")
+        end sub
+
+        @describe("the segment watch")
+
+        @it("loses the stream after five segments fail in a row")
+        sub losesAfterFive()
+            m.assertEqual(FailedSegmentsInARow(), 5)
+            m.assertFalse(SegmentsLost(m.failedSegments([10, 11, 12, 13])))
+            m.assertTrue(SegmentsLost(m.failedSegments([10, 11, 12, 13, 14])))
+            m.assertTrue(SegmentsLost(m.failedSegments([0, 1, 2, 3, 4])))
+        end sub
+
+        @it("counts a segment reported twice once")
+        sub countsARepeatOnce()
+            m.assertFalse(SegmentsLost(m.failedSegments([10, 10, 11, 11, 12, 12, 13, 13])))
+            m.assertTrue(SegmentsLost(m.failedSegments([10, 10, 11, 11, 12, 12, 13, 13, 14, 14])))
+        end sub
+
+        @it("starts the count again after a gap")
+        sub restartsAfterAGap()
+            m.assertFalse(SegmentsLost(m.failedSegments([10, 11, 12, 14, 15, 16, 17])))
+            m.assertTrue(SegmentsLost(m.failedSegments([10, 11, 12, 14, 15, 16, 17, 18])))
+            m.assertFalse(SegmentsLost(m.failedSegments([10, 11, 12, 13, 3, 4, 5, 6])))
+        end sub
+
+        @it("ignores a segment that downloaded and a report it cannot read")
+        sub ignoresOtherReports()
+            watch = m.failedSegments([10, 11, 12, 13])
+            m.assertEqual(SegmentWatched(watch, { Status: 0, SegSequence: 14 }), watch)
+            m.assertEqual(SegmentWatched(watch, { Status: -1 }), watch)
+            m.assertEqual(SegmentWatched(watch, invalid), watch)
+            m.assertTrue(SegmentsLost(SegmentWatched(watch, { Status: -1, SegSequence: 14 })))
+        end sub
+
+        @it("logs a failed segment once, when a streak starts")
+        sub logsTheStartOfAStreak()
+            first = SegmentWatched(SegmentWatchStart(), { Status: -3, SegSequence: 12 })
+            m.assertTrue(SegmentStreakStarts(SegmentWatchStart(), first))
+            m.assertFalse(SegmentStreakStarts(first, SegmentWatched(first, { Status: -3, SegSequence: 12 })))
+            m.assertFalse(SegmentStreakStarts(first, SegmentWatched(first, { Status: -3, SegSequence: 13 })))
+            m.assertTrue(SegmentStreakStarts(first, SegmentWatched(first, { Status: -3, SegSequence: 20 })))
+            m.assertFalse(SegmentStreakStarts(first, SegmentWatched(first, { Status: 0, SegSequence: 13 })))
+            m.assertEqual(PlaybackSegmentFailedLine("09:49:52", { Status: -3, SegSequence: 12 }), "09:49:52 segment 12 failed [-3]")
         end sub
 
         @describe("FormatKbps")

@@ -14,6 +14,7 @@ sub RunnerInit()
     m.giveUpTimer = invalid
     m.attachId = -1
     m.attachLoaded = false
+    m.segments = SegmentWatchStart()
     m.started = false
     m.painted = false
     m.toldToPlay = false
@@ -24,6 +25,7 @@ sub RunnerInit()
     m.video.ObserveField("position", "onPlaybackPosition")
     m.video.ObserveField("streamingSegment", "onPlaybackPosition")
     m.video.ObserveField("bufferingStatus", "onPlaybackBuffering")
+    m.video.ObserveField("downloadedSegment", "onPlaybackSegment")
     m.beat.ObserveField("fire", "onPlaybackBeat")
     m.global.ObserveFieldScoped("endsDone", "onEndsDone")
 end sub
@@ -313,6 +315,7 @@ end sub
 sub DetachPlayback()
     m.attachId = -1
     m.attachLoaded = false
+    m.segments = SegmentWatchStart()
     m.started = false
     m.painted = false
     m.toldToPlay = false
@@ -401,7 +404,28 @@ sub onPlaybackVideoState()
         return
     end if
 
-    message = PhraseWith("error.playbackFailed", { detail: VideoDetail() })
+    PlaybackFails(PhraseWith("error.playbackFailed", { detail: VideoDetail() }))
+end sub
+
+sub onPlaybackSegment(event as object)
+    if m.attachId < 0 then return
+
+    report = event.GetData()
+    before = m.segments
+    m.segments = SegmentWatched(before, report)
+    if SegmentStreakStarts(before, m.segments)
+        AppendPlaybackLog(m.playbackLog, PlaybackSegmentFailedLine(NowClock(), report))
+        RefreshDiagnostics()
+    end if
+    if not SegmentsLost(m.segments) then return
+
+    AppendPlaybackLog(m.playbackLog, PlaybackLostLine(NowClock(), m.segments.last))
+    m.segments = SegmentWatchStart()
+    RefreshDiagnostics()
+    PlaybackFails(PhraseWith("error.playbackFailed", { detail: Phrase("error.couldNotLoad") }))
+end sub
+
+sub PlaybackFails(message as string)
     if m.attachLoaded
         PostPlayback({ kind: "errs", message: message })
         return

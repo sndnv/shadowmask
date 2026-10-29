@@ -304,6 +304,40 @@ function PlaybackErrorLine(clock as string, code as integer, message as string, 
     return line
 end function
 
+function PlaybackLostLine(clock as string, last as integer) as string
+    return clock + " stream lost: " + FailedSegmentsInARow().ToStr() + " segments failed in a row, the last " + last.ToStr()
+end function
+
+function FailedSegmentsInARow() as integer
+    return 5
+end function
+
+function SegmentWatchStart() as object
+    return { last: -1, inARow: 0 }
+end function
+
+function SegmentWatched(watch as object, segment as dynamic) as object
+    if type(segment) <> "roAssociativeArray" then return watch
+    if Int(ValueAt(segment, "Status", 0)) = 0 then return watch
+
+    sequence = Int(ValueAt(segment, "SegSequence", -1))
+    if sequence < 0 or sequence = watch.last then return watch
+    if watch.last >= 0 and sequence = watch.last + 1 then return { last: sequence, inARow: watch.inARow + 1 }
+    return { last: sequence, inARow: 1 }
+end function
+
+function SegmentStreakStarts(before as object, after as object) as boolean
+    return after.inARow = 1 and before.last <> after.last
+end function
+
+function PlaybackSegmentFailedLine(clock as string, report as object) as string
+    return clock + " segment " + Int(ValueAt(report, "SegSequence", -1)).ToStr() + " failed [" + Int(ValueAt(report, "Status", 0)).ToStr() + "]"
+end function
+
+function SegmentsLost(watch as object) as boolean
+    return watch.inARow >= FailedSegmentsInARow()
+end function
+
 function RedactStreamTokens(text as string) as string
     pattern = CreateObject("roRegex", "/stream/[^/\s]+/", "")
     return pattern.ReplaceAll(text, "/stream/" + Chr(8230) + "/")
