@@ -3,6 +3,7 @@ import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/player/player_prefs_store.dart';
 import 'package:shadowmask/player/state/local_settings.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -57,6 +58,41 @@ void main() {
     });
 
     expect((await store.load()).defaultDelivery, DeliveryPreference.auto);
+  });
+
+  test(
+    'the sound settings start on their defaults and chosen ones survive',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+
+      final LocalSettings fresh = await store.load();
+      expect(fresh.defaultDownmix, isFalse);
+      expect(fresh.defaultNormalize, isTrue);
+      expect(fresh.defaultDialogue, DialogueLift.none);
+      expect(fresh.defaultNight, NightMode.off);
+
+      await store.saveDownmix(true);
+      await store.saveNormalize(false);
+      await store.saveDialogue(DialogueLift.db9);
+      await store.saveNight(NightMode.strong);
+
+      final LocalSettings saved = await store.load();
+      expect(saved.defaultDownmix, isTrue);
+      expect(saved.defaultNormalize, isFalse);
+      expect(saved.defaultDialogue, DialogueLift.db9);
+      expect(saved.defaultNight, NightMode.strong);
+    },
+  );
+
+  test('a sound value no longer offered reads as its default', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'shadowmask.player.dialogue': 5,
+      'shadowmask.player.night': 'loud',
+    });
+
+    final LocalSettings read = await store.load();
+    expect(read.defaultDialogue, DialogueLift.none);
+    expect(read.defaultNight, NightMode.off);
   });
 
   test('a chosen delay survives a reload', () async {

@@ -7,6 +7,8 @@ import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/theme/tokens.dart';
 
+import '../../support/setting_rows.dart';
+
 Widget _host({
   required AppThemeVariant variant,
   required ValueChanged<AppThemeVariant> onSet,
@@ -40,6 +42,16 @@ double _optionWidth(WidgetTester tester, String label) => tester
     .width;
 
 void main() {
+  testWidgets('the setting row is laid out like every other', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(variant: AppThemeVariant.dark, onSet: (_) {}),
+    );
+
+    expectSettingRow(tester, Strings.highContrast, Strings.highContrastHelp);
+  });
+
   testWidgets('shows all three themes as choices', (WidgetTester tester) async {
     await tester.pumpWidget(
       _host(variant: AppThemeVariant.dark, onSet: (_) {}),

@@ -2,6 +2,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'package:shadowmask/model/session/selected_tracks.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_choice.dart';
 
 part 'playback_controls.freezed.dart';
@@ -28,7 +29,10 @@ abstract class PlaybackControls with _$PlaybackControls {
   const factory PlaybackControls({
     int? height,
     @Default(false) bool burn,
-    @Default(false) bool downmix,
+    bool? downmix,
+    bool? normalize,
+    DialogueLift? dialogue,
+    NightMode? night,
     int? audioTrack,
     String? audioLanguage,
     @Default(SubtitleChoice.auto()) SubtitleChoice subtitle,
@@ -41,11 +45,17 @@ abstract class PlaybackControls with _$PlaybackControls {
     int? asInt(String? v) =>
         (v != null && v.isNotEmpty) ? int.tryParse(v) : null;
     String? asText(String? v) => (v != null && v.isNotEmpty) ? v : null;
+    bool? asSwitch(String? v) => v == null ? null : v == '1';
     final SubtitleSelection? track = SubtitleSelection.fromWire(q['sub']);
     return PlaybackControls(
       height: asInt(q['height']),
       burn: q['burn'] == '1',
-      downmix: q['downmix'] == '1',
+      downmix: asSwitch(q['downmix']),
+      normalize: asSwitch(q['normalize']),
+      dialogue: q.containsKey('dialogue')
+          ? DialogueLift.fromDb(asInt(q['dialogue']))
+          : null,
+      night: q.containsKey('night') ? NightMode.fromWire(q['night']) : null,
       audioTrack: asInt(q['audio']),
       audioLanguage: asText(q['alang']),
       subtitle: track != null
@@ -78,10 +88,33 @@ abstract class PlaybackControls with _$PlaybackControls {
   PlaybackControls withDefaultDelivery(DeliveryPreference fallback) =>
       delivery != null ? this : copyWith(delivery: fallback);
 
+  PlaybackControls withDefaultSound({
+    required bool downmix,
+    required bool normalize,
+    required DialogueLift dialogue,
+    required NightMode night,
+  }) => copyWith(
+    downmix: this.downmix ?? downmix,
+    normalize: this.normalize ?? normalize,
+    dialogue: this.dialogue ?? dialogue,
+    night: this.night ?? night,
+  );
+
+  bool sameTuningAs(PlaybackControls other) =>
+      (normalize ?? true) == (other.normalize ?? true) &&
+      (dialogue ?? DialogueLift.none) == (other.dialogue ?? DialogueLift.none);
+
+  PlaybackControls get withoutTuning =>
+      copyWith(normalize: null, dialogue: null);
+
   Map<String, dynamic> toStartBody() => <String, dynamic>{
     if (height != null) 'target_height': height,
     if (burn) 'force_burn': true,
-    if (downmix) 'downmix_stereo': true,
+    if (downmix ?? false) 'downmix_stereo': true,
+    if (normalize == false) 'normalize_downmix': false,
+    if (dialogue != null && dialogue != DialogueLift.none)
+      'dialogue_db': dialogue!.db,
+    if (night != null && night != NightMode.off) 'night': night!.wire,
     if (audioTrack != null) 'audio_track': audioTrack,
     if (audioLanguage != null) 'audio_language': audioLanguage,
     if (subtitle.selection case final SubtitleSelection track)
@@ -99,7 +132,10 @@ abstract class PlaybackControls with _$PlaybackControls {
     final Map<String, dynamic> body = <String, dynamic>{
       'target_height': height,
       'force_burn': burn,
-      'downmix_stereo': downmix,
+      'downmix_stereo': downmix ?? false,
+      'normalize_downmix': normalize ?? true,
+      'dialogue_db': (dialogue ?? DialogueLift.none).db,
+      'night': (night ?? NightMode.off).wire,
       'delivery': ?delivery?.wire,
     };
     if (audioTrack != null) {
@@ -124,7 +160,10 @@ abstract class PlaybackControls with _$PlaybackControls {
   Map<String, String?> toQuery() => <String, String?>{
     if (height != null) 'height': height.toString(),
     if (burn) 'burn': '1',
-    if (downmix) 'downmix': '1',
+    if (downmix != null) 'downmix': downmix! ? '1' : '0',
+    if (normalize != null) 'normalize': normalize! ? '1' : '0',
+    if (dialogue != null) 'dialogue': '${dialogue!.db}',
+    if (night != null) 'night': night!.wire,
     if (audioTrack != null) 'audio': audioTrack.toString(),
     if (audioLanguage != null) 'alang': audioLanguage,
     if (subtitle.selection case final SubtitleSelection track)

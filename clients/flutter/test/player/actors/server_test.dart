@@ -17,6 +17,7 @@ import 'package:shadowmask/player/state/playback_stream.dart';
 import 'package:shadowmask/player/state/playback_title.dart';
 import 'package:shadowmask/player/state/player_tracks.dart';
 import 'package:shadowmask/player/state/sent_change.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/episode_neighbours.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/view/subtitle_choice.dart';
@@ -26,6 +27,10 @@ import '../../support/playback_run.dart';
 const PlaybackControls k720 = PlaybackControls(
   height: 720,
   delivery: DeliveryPreference.auto,
+  downmix: false,
+  normalize: true,
+  dialogue: DialogueLift.none,
+  night: NightMode.off,
 );
 
 const TrickplayRef kSheets = TrickplayRef(
@@ -306,6 +311,44 @@ void main() {
     expect(run.state.remote, before);
     expect(run.state.status.notice, PlaybackNotice.changeFailed);
     expect(run.state.status.sent, isNull);
+  });
+
+  test('a failed update that also tuned the player tunes it back', () {
+    final PlaybackRun run = PlaybackRun.watching(mixesSound: true);
+    final PlaybackControls night = run.state.remote.copyWith(
+      normalize: false,
+      dialogue: DialogueLift.db6,
+      night: NightMode.light,
+    );
+    run.apply((PlaybackState s) => viewerChangesRemote(s, night));
+
+    final List<PlaybackCommand> back = run.apply(
+      (PlaybackState s) => serverFailed(s, run.sentId),
+    );
+
+    expect(
+      back.whereType<TuneSound>().single,
+      const TuneSound(normalize: true, dialogue: DialogueLift.none),
+    );
+    expect(run.state.remote.night, NightMode.off);
+  });
+
+  test('a start and an update answer carry the channels the stream sends', () {
+    final PlaybackRun run = PlaybackRun.watching(
+      session: kTranscode.copyWith(audioChannels: 6),
+    );
+    expect(run.state.stream?.audioChannels, 6);
+
+    run.apply((PlaybackState s) => viewerChangesRemote(s, k720));
+    run.apply(
+      (PlaybackState s) => serverUpdated(
+        s,
+        id: run.sentId,
+        negotiation: kRenegotiated.copyWith(audioChannels: 2),
+        seeksInStream: true,
+      ),
+    );
+    expect(run.state.stream?.audioChannels, 2);
   });
 
   test('a failed update leaves a paused video paused', () {

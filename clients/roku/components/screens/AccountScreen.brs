@@ -6,7 +6,10 @@ sub init()
         { id: "historyRail" },
         { id: "emptyLibrary", focus: "libraryNote" },
         { id: "profileSection", focus: "supportActions" },
-        { id: "playbackSection", focus: "deliveryActions" },
+        { id: "playbackSection", focus: "autoplayActions" },
+        { id: "videoSection", focus: "deliveryActions" },
+        { id: "subtitlesSection", focus: "subtitleSizeActions" },
+        { id: "soundSection", focus: "downmixActions" },
         { id: "childModeSection", focus: "childModeActions" },
         { id: "appearanceSection", focus: "themeCards" },
         { id: "serverSection", focus: "serverActions" },
@@ -30,14 +33,18 @@ sub init()
     m.supportFacts = m.top.FindNode("supportFacts")
     m.supportActions = m.top.FindNode("supportActions")
     m.playbackHeading = m.top.FindNode("playbackHeading")
+    m.videoPanel = m.top.FindNode("videoPanel")
+    m.videoHeading = m.top.FindNode("videoHeading")
+    m.subtitlesPanel = m.top.FindNode("subtitlesPanel")
+    m.subtitlesHeading = m.top.FindNode("subtitlesHeading")
+    m.soundPanel = m.top.FindNode("soundPanel")
+    m.soundHeading = m.top.FindNode("soundHeading")
     m.deliveryName = m.top.FindNode("deliveryName")
     m.deliveryActions = m.top.FindNode("deliveryActions")
     m.deliveryHelp = m.top.FindNode("deliveryHelp")
-    m.deliveryRule = m.top.FindNode("deliveryRule")
     m.subtitleSizeName = m.top.FindNode("subtitleSizeName")
     m.subtitleSizeActions = m.top.FindNode("subtitleSizeActions")
     m.subtitleSizeHelp = m.top.FindNode("subtitleSizeHelp")
-    m.subtitleSizeRule = m.top.FindNode("subtitleSizeRule")
     m.autoplayName = m.top.FindNode("autoplayName")
     m.autoplayActions = m.top.FindNode("autoplayActions")
     m.autoplayHelp = m.top.FindNode("autoplayHelp")
@@ -46,6 +53,21 @@ sub init()
     m.timeDisplayActions = m.top.FindNode("timeDisplayActions")
     m.timeDisplayHelp = m.top.FindNode("timeDisplayHelp")
     m.timeDisplayRule = m.top.FindNode("timeDisplayRule")
+    m.downmixName = m.top.FindNode("downmixName")
+    m.downmixActions = m.top.FindNode("downmixActions")
+    m.downmixHelp = m.top.FindNode("downmixHelp")
+    m.downmixRule = m.top.FindNode("downmixRule")
+    m.normalizeName = m.top.FindNode("normalizeName")
+    m.normalizeActions = m.top.FindNode("normalizeActions")
+    m.normalizeHelp = m.top.FindNode("normalizeHelp")
+    m.normalizeRule = m.top.FindNode("normalizeRule")
+    m.dialogueName = m.top.FindNode("dialogueName")
+    m.dialogueActions = m.top.FindNode("dialogueActions")
+    m.dialogueHelp = m.top.FindNode("dialogueHelp")
+    m.dialogueRule = m.top.FindNode("dialogueRule")
+    m.nightName = m.top.FindNode("nightName")
+    m.nightActions = m.top.FindNode("nightActions")
+    m.nightHelp = m.top.FindNode("nightHelp")
     m.diagnosticsName = m.top.FindNode("diagnosticsName")
     m.diagnosticsActions = m.top.FindNode("diagnosticsActions")
     m.diagnosticsHelp = m.top.FindNode("diagnosticsHelp")
@@ -93,6 +115,10 @@ sub init()
     m.subtitleSizeActions.ObserveField("activated", "onPlaybackAction")
     m.autoplayActions.ObserveField("activated", "onPlaybackAction")
     m.timeDisplayActions.ObserveField("activated", "onPlaybackAction")
+    m.downmixActions.ObserveField("activated", "onPlaybackAction")
+    m.normalizeActions.ObserveField("activated", "onPlaybackAction")
+    m.dialogueActions.ObserveField("activated", "onPlaybackAction")
+    m.nightActions.ObserveField("activated", "onPlaybackAction")
     m.diagnosticsActions.ObserveField("activated", "onPlaybackAction")
     m.childModeActions.ObserveField("activated", "onChildModeAction")
     m.themeCards.ObserveField("activated", "onThemePick")
@@ -206,7 +232,7 @@ sub Layout()
     theme = m.top.theme
     if theme = invalid or theme.Count() = 0 then return
 
-    for each id in ["watchlistRail", "favoritesRail", "historyRail", "emptyLibrary", "profileSection", "playbackSection", "childModeSection", "appearanceSection", "serverSection", "sessionSection", "aboutSection"]
+    for each id in ["watchlistRail", "favoritesRail", "historyRail", "emptyLibrary", "profileSection", "playbackSection", "videoSection", "subtitlesSection", "soundSection", "childModeSection", "appearanceSection", "serverSection", "sessionSection", "aboutSection"]
         HideSection(id)
     end for
 
@@ -280,6 +306,9 @@ sub LayoutProfile(theme as object)
     ShowSection("profileSection", content + pad * 2)
 
     ShowSection("playbackSection", DrawPanelBlock(theme, m.playbackPanel, "playback"))
+    ShowSection("videoSection", DrawPanelBlock(theme, m.videoPanel, "video"))
+    ShowSection("subtitlesSection", DrawPanelBlock(theme, m.subtitlesPanel, "subtitles"))
+    ShowSection("soundSection", DrawPanelBlock(theme, m.soundPanel, "sound"))
     ShowSection("childModeSection", DrawPanelBlock(theme, m.childModePanel, "childMode"))
     ShowSection("appearanceSection", DrawPanelBlock(theme, m.appearancePanel, "appearance"))
     ShowSection("serverSection", DrawPanelBlock(theme, m.serverPanel, "server"))
@@ -292,7 +321,13 @@ function DrawPanelBlock(theme as object, panel as object, which as string) as in
     inner = ContentWidth() - pad * 2
 
     if which = "playback"
-        height = DrawPlayback(theme, inner, pad, pad)
+        height = DrawSettingsBlock(theme, m.playbackHeading, Phrase("heading.playback"), PlaybackRows(), inner, pad, pad)
+    else if which = "video"
+        height = DrawSettingsBlock(theme, m.videoHeading, Phrase("heading.video"), VideoSettingRows(), inner, pad, pad)
+    else if which = "subtitles"
+        height = DrawSettingsBlock(theme, m.subtitlesHeading, Phrase("heading.subtitles"), SubtitleSettingRows(), inner, pad, pad)
+    else if which = "sound"
+        height = DrawSettingsBlock(theme, m.soundHeading, Phrase("heading.sound"), SoundSettingRows(), inner, pad, pad)
     else if which = "childMode"
         height = DrawChildMode(theme, inner, pad, pad)
     else if which = "appearance"
@@ -376,10 +411,10 @@ function DrawSupportColumn(theme as object, width as integer, at as integer, top
     return offset - top + BarHeight(m.supportActions)
 end function
 
-function DrawPlayback(theme as object, width as integer, at as integer, top as integer) as integer
-    offset = top + DrawBlockHeading(m.playbackHeading, theme, Phrase("heading.playback"), width, at, top)
+function DrawSettingsBlock(theme as object, heading as object, title as string, rows as object, width as integer, at as integer, top as integer) as integer
+    offset = top + DrawBlockHeading(heading, theme, title, width, at, top)
 
-    return offset - top + DrawSettingRows(theme, PlaybackRows(), width, at, offset)
+    return offset - top + DrawSettingRows(theme, rows, width, at, offset)
 end function
 
 function DrawSettingRows(theme as object, rows as object, width as integer, at as integer, top as integer) as integer
@@ -419,14 +454,15 @@ function DrawSettingRows(theme as object, rows as object, width as integer, at a
         offset = offset + headHeight + space.s1
 
         helpWidth = width - control - space.s5
+        lines = TextLineCount(row.hint, helpWidth, sizes.textSm)
         row.help.text = row.hint
         row.help.color = theme.muted
         row.help.font = SizedFont(sizes.textSm)
         row.help.width = helpWidth
-        row.help.maxLines = 2
+        row.help.maxLines = lines
         row.help.wrap = true
         row.help.translation = [at, offset]
-        offset = offset + TextBlockHeight(sizes.textSm, TextLineCount(row.hint, helpWidth, sizes.textSm))
+        offset = offset + TextBlockHeight(sizes.textSm, lines)
 
         if index >= rows.Count() - 1 then exit for
 
@@ -452,31 +488,15 @@ sub RevealSettingRow(rows as object)
 end sub
 
 function PlaybackBars() as object
-    return [m.deliveryActions, m.subtitleSizeActions, m.autoplayActions, m.timeDisplayActions, m.diagnosticsActions]
+    return [m.autoplayActions, m.timeDisplayActions, m.diagnosticsActions]
+end function
+
+function SoundBars() as object
+    return [m.downmixActions, m.normalizeActions, m.dialogueActions, m.nightActions]
 end function
 
 function PlaybackRows() as object
     return [
-        {
-            name: m.deliveryName,
-            bar: m.deliveryActions,
-            help: m.deliveryHelp,
-            rule: m.deliveryRule,
-            id: "delivery",
-            label: Phrase("player.converting"),
-            value: DeliveryLabel(ReadDelivery()),
-            hint: Phrase("help.delivery")
-        },
-        {
-            name: m.subtitleSizeName,
-            bar: m.subtitleSizeActions,
-            help: m.subtitleSizeHelp,
-            rule: m.subtitleSizeRule,
-            id: "subtitleSize",
-            label: Phrase("player.subtitleSize"),
-            value: SubtitleSizeLabel(ReadSubtitleSize()),
-            hint: Phrase("help.subtitleSize")
-        },
         {
             name: m.autoplayName,
             bar: m.autoplayActions,
@@ -507,6 +527,83 @@ function PlaybackRows() as object
             value: OnOrOff(ReadDiagnostics()),
             on: ReadDiagnostics(),
             hint: Phrase("help.diagnostics")
+        }
+    ]
+end function
+
+function VideoSettingRows() as object
+    return [
+        {
+            name: m.deliveryName,
+            bar: m.deliveryActions,
+            help: m.deliveryHelp,
+            rule: invalid,
+            id: "delivery",
+            label: Phrase("player.converting"),
+            value: DeliveryLabel(ReadDelivery()),
+            hint: Phrase("help.delivery")
+        }
+    ]
+end function
+
+function SubtitleSettingRows() as object
+    return [
+        {
+            name: m.subtitleSizeName,
+            bar: m.subtitleSizeActions,
+            help: m.subtitleSizeHelp,
+            rule: invalid,
+            id: "subtitleSize",
+            label: Phrase("player.subtitleSize"),
+            value: SubtitleSizeLabel(ReadSubtitleSize()),
+            hint: Phrase("help.subtitleSize")
+        }
+    ]
+end function
+
+function SoundSettingRows() as object
+    return [
+        {
+            name: m.downmixName,
+            bar: m.downmixActions,
+            help: m.downmixHelp,
+            rule: m.downmixRule,
+            id: "downmix",
+            label: Phrase("player.downmix"),
+            value: OnOrOff(ReadDownmix()),
+            on: ReadDownmix(),
+            hint: Phrase("help.downmix")
+        },
+        {
+            name: m.normalizeName,
+            bar: m.normalizeActions,
+            help: m.normalizeHelp,
+            rule: m.normalizeRule,
+            id: "normalize",
+            label: Phrase("player.normalize"),
+            value: OnOrOff(ReadNormalize()),
+            on: ReadNormalize(),
+            hint: Phrase("help.normalize")
+        },
+        {
+            name: m.dialogueName,
+            bar: m.dialogueActions,
+            help: m.dialogueHelp,
+            rule: m.dialogueRule,
+            id: "dialogue",
+            label: Phrase("player.dialogue"),
+            value: DialogueLabel(ReadDialogue()),
+            hint: Phrase("help.dialogue")
+        },
+        {
+            name: m.nightName,
+            bar: m.nightActions,
+            help: m.nightHelp,
+            rule: invalid,
+            id: "night",
+            label: Phrase("player.night"),
+            value: NightLabel(ReadNight()),
+            hint: Phrase("help.night")
         }
     ]
 end function
@@ -852,6 +949,18 @@ sub onPlaybackAction(event as object)
         return
     end if
 
+    if id = "dialogue"
+        RequestPlaybackChoice("dialogue", Phrase("player.dialogue"), DialogueOptions(), ReadDialogue())
+        return
+    end if
+
+    if id = "night"
+        RequestPlaybackChoice("night", Phrase("player.night"), NightOptions(), ReadNight())
+        return
+    end if
+
+    if id = "downmix" then WriteDownmix(not ReadDownmix())
+    if id = "normalize" then WriteNormalize(not ReadNormalize())
     if id = "diagnostics" then WriteDiagnostics(not ReadDiagnostics())
     Layout()
 end sub
@@ -1100,6 +1209,22 @@ sub onChoice()
         return
     end if
 
+    if field = "dialogue"
+        if type(m.playbackChoices) <> "roArray" then return
+
+        WriteDialogue(ChosenPlaybackValue(result))
+        Layout()
+        return
+    end if
+
+    if field = "night"
+        if type(m.playbackChoices) <> "roArray" then return
+
+        WriteNight(TextOrBlank(ChosenPlaybackOption(result)))
+        Layout()
+        return
+    end if
+
     if field = "childMode"
         if type(m.playbackChoices) <> "roArray" then return
 
@@ -1205,6 +1330,10 @@ function onKeyEvent(key as string, press as boolean) as boolean
 
     if HandledNodeStep(key, PlaybackBars())
         RevealSettingRow(PlaybackRows())
+        return true
+    end if
+    if HandledNodeStep(key, SoundBars())
+        RevealSettingRow(SoundSettingRows())
         return true
     end if
     if HandledNodeStep(key, [m.themeCards, m.contrastBar, m.navInsetBar])

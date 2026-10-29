@@ -5960,7 +5960,7 @@ limitations under the License.
 
 Used by:
 
-- [notify-types 2.1.0](https://github.com/notify-rs/notify.git)
+- [notify-types 2.2.0](https://github.com/notify-rs/notify.git)
 
 ````text
                               Apache License
@@ -6901,7 +6901,7 @@ Used by:
 - [unicode-normalization 0.1.26](https://github.com/unicode-rs/unicode-normalization)
 - [unicode-segmentation 1.13.3](https://github.com/unicode-rs/unicode-segmentation)
 - [unicode-width 0.1.14](https://github.com/unicode-rs/unicode-width)
-- [unicode-width 0.2.2](https://github.com/unicode-rs/unicode-width)
+- [unicode-width 0.2.3](https://github.com/unicode-rs/unicode-width)
 - [url 2.5.8](https://github.com/servo/rust-url)
 - [uuid 1.29.0](https://github.com/uuid-rs/uuid)
 - [version_check 0.9.5](https://github.com/SergioBenitez/version_check)

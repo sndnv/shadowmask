@@ -4,6 +4,7 @@ import 'package:shadowmask/player/state/local_settings.dart';
 import 'package:shadowmask/player/state/playback_stream.dart';
 import 'package:shadowmask/player/state/player_tracks.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 
 part 'playback_command.freezed.dart';
 
@@ -57,6 +58,11 @@ sealed class PlaybackCommand with _$PlaybackCommand {
   const factory PlaybackCommand.unloadPlayer() = UnloadPlayer;
 
   const factory PlaybackCommand.applyLocal(LocalSettings local) = ApplyLocal;
+
+  const factory PlaybackCommand.tuneSound({
+    required bool normalize,
+    required DialogueLift dialogue,
+  }) = TuneSound;
 
   const factory PlaybackCommand.saveLocal(LocalSettings local) = SaveLocal;
 }

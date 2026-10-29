@@ -527,6 +527,9 @@ function DefaultControls() as object
         height: 0,
         burn: false,
         downmix: false,
+        normalize: true,
+        dialogue: 0,
+        night: "off",
         audioTrack: -1,
         subtitle: invalid,
         subtitleOff: false,
@@ -649,6 +652,13 @@ function ControlsStartBody(controls as dynamic) as object
     if height > 0 then body.target_height = height
     if ValueAt(controls, "burn", false) = true then body.force_burn = true
     if ValueAt(controls, "downmix", false) = true then body.downmix_stereo = true
+    if ValueAt(controls, "normalize", true) = false then body.normalize_downmix = false
+
+    dialogue = Int(ValueAt(controls, "dialogue", 0))
+    if dialogue > 0 then body.dialogue_db = dialogue
+
+    night = TextOrBlank(ValueAt(controls, "night", "off"))
+    if not IsBlank(night) and night <> "off" then body.night = night
 
     track = Int(ValueAt(controls, "audioTrack", -1))
     if track >= 0 then body.audio_track = track
@@ -681,9 +691,13 @@ function ControlsUpdateBody(controls as dynamic) as object
         target_height: height,
         force_burn: kept.burn = true,
         downmix_stereo: kept.downmix = true,
+        normalize_downmix: kept.normalize <> false,
+        dialogue_db: Int(kept.dialogue),
+        night: TextOrBlank(kept.night),
         delivery: TextOrBlank(kept.delivery)
     }
     if IsBlank(body.delivery) then body.delivery = "auto"
+    if IsBlank(body.night) then body.night = "off"
 
     track = Int(kept.audioTrack)
     if track >= 0 then body.audio_track = track
@@ -895,6 +909,75 @@ function ValidDelivery(value as dynamic) as string
     return "auto"
 end function
 
+function DialogueOptions() as object
+    return [
+        { value: 0, label: Phrase("player.dialogueNormal") },
+        { value: 3, label: Phrase("player.dialogueDb3") },
+        { value: 6, label: Phrase("player.dialogueDb6") },
+        { value: 9, label: Phrase("player.dialogueDb9") }
+    ]
+end function
+
+function ValidDialogue(db as integer) as integer
+    for each option in DialogueOptions()
+        if option.value = db then return db
+    end for
+    return 0
+end function
+
+function DialogueLabel(db as integer) as string
+    wanted = ValidDialogue(db)
+    for each option in DialogueOptions()
+        if option.value = wanted then return option.label
+    end for
+    return Phrase("player.dialogueNormal")
+end function
+
+function NightOptions() as object
+    return [
+        { value: "off", label: Phrase("player.nightOff") },
+        { value: "light", label: Phrase("player.nightLight") },
+        { value: "strong", label: Phrase("player.nightStrong") }
+    ]
+end function
+
+function ValidNight(value as dynamic) as string
+    wanted = LCase(TextOrBlank(value))
+    for each option in NightOptions()
+        if option.value = wanted then return wanted
+    end for
+    return "off"
+end function
+
+function NightLabel(value as dynamic) as string
+    wanted = ValidNight(value)
+    for each option in NightOptions()
+        if option.value = wanted then return option.label
+    end for
+    return Phrase("player.nightOff")
+end function
+
+function SourceChannels(version as dynamic, audioTrack as integer) as integer
+    tracks = ListItems(ValueAt(version, "audio", invalid))
+    if tracks.Count() = 0 then return 0
+
+    chosen = tracks[0]
+    for each track in tracks
+        if Int(ValueAt(track, "index", -1)) = audioTrack then chosen = track
+    end for
+    return Int(ValueAt(chosen, "channels", 0))
+end function
+
+function SoundRows(source as integer, sent as integer, dialogue as integer) as object
+    if source < 1 then return { downmix: false, normalize: false, dialogue: false, night: false }
+
+    received = sent
+    if received < 1 then received = source
+
+    folded = received < source or (source = 2 and dialogue > 0)
+    return { downmix: source > 2, normalize: folded, dialogue: source >= 2, night: true }
+end function
+
 function SubtitleSizeOptions() as object
     return [
         { value: "default", style: "Default", label: Phrase("player.subtitleSizeDefault") },
@@ -930,6 +1013,14 @@ function WithDefaultDelivery(controls as object, delivery as dynamic) as object
     return controls
 end function
 
+function WithDefaultSound(controls as object, downmix as boolean, normalize as boolean, dialogue as integer, night as dynamic) as object
+    controls.downmix = downmix
+    controls.normalize = normalize
+    controls.dialogue = ValidDialogue(dialogue)
+    controls.night = ValidNight(night)
+    return controls
+end function
+
 function OnOrOff(value as dynamic) as string
     if value = true then return Phrase("state.on")
     return Phrase("state.off")
@@ -953,13 +1044,16 @@ function SubtitleRows(controls as dynamic, version as dynamic, size as dynamic, 
     return rows
 end function
 
-function AudioRows(controls as dynamic, version as dynamic) as object
+function AudioRows(controls as dynamic, version as dynamic, sent as integer) as object
     kept = ControlsCopy(controls)
 
-    return [
-        { id: "audio", label: Phrase("heading.audio"), detail: AudioLabelFor(version, Int(kept.audioTrack)) },
-        { id: "downmix", label: Phrase("player.downmix"), detail: OnOrOff(kept.downmix) }
-    ]
+    rows = [{ id: "audio", label: Phrase("heading.audio"), detail: AudioLabelFor(version, Int(kept.audioTrack)) }]
+    shown = SoundRows(SourceChannels(version, Int(kept.audioTrack)), sent, Int(kept.dialogue))
+    if shown.downmix then rows.Push({ id: "downmix", label: Phrase("player.downmix"), detail: OnOrOff(kept.downmix) })
+    if shown.normalize then rows.Push({ id: "normalize", label: Phrase("player.normalize"), detail: OnOrOff(kept.normalize <> false) })
+    if shown.dialogue then rows.Push({ id: "dialogue", label: Phrase("player.dialogue"), detail: DialogueLabel(Int(kept.dialogue)) })
+    if shown.night then rows.Push({ id: "night", label: Phrase("player.night"), detail: NightLabel(kept.night) })
+    return rows
 end function
 
 function SettingsRows(controls as dynamic, flags as dynamic) as object

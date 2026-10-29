@@ -1,5 +1,7 @@
 use crate::catalog::VersionId;
-use crate::session::{AudioRequest, ClientCapabilities, DeliveryPreference, SubtitleRequest};
+use crate::session::{
+    AudioRequest, ClientCapabilities, DeliveryPreference, SoundSettings, SubtitleRequest,
+};
 
 #[derive(Debug, Clone)]
 pub struct SessionStartInput {
@@ -11,5 +13,6 @@ pub struct SessionStartInput {
     pub target_height: Option<u32>,
     pub force_burn: bool,
     pub downmix_stereo: bool,
+    pub sound: SoundSettings,
     pub delivery: DeliveryPreference,
 }

@@ -203,6 +203,7 @@ mod tests {
                 target_height: None,
                 force_burn: false,
                 downmix_stereo: false,
+                sound: domain::session::SoundSettings::default(),
                 delivery: DeliveryPreference::Auto,
             },
             generation: 1,

@@ -15,6 +15,7 @@ import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/util/bundled_fonts.dart';
 import 'package:shadowmask/util/bundled_licenses.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_choice.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 
@@ -799,6 +800,103 @@ void main() {
     expect(sent.single.delivery, isNull);
   });
 
+  testWidgets('the audio panel shows the sound rows that apply', (
+    WidgetTester tester,
+  ) async {
+    const List<String> labels = <String>[
+      Strings.playerStereoDownmix,
+      Strings.playerPreventDistortion,
+      Strings.playerDialogue,
+      Strings.playerNightMode,
+    ];
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.audio,
+        sound: (downmix: true, normalize: true, dialogue: true, night: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    for (final String label in labels) {
+      expect(find.text(label), findsOneWidget, reason: label);
+    }
+
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.audio,
+        sound: (
+          downmix: false,
+          normalize: false,
+          dialogue: false,
+          night: false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    for (final String label in labels) {
+      expect(find.text(label), findsNothing, reason: label);
+    }
+  });
+
+  test('Converting and every sound row say what they do in one sentence', () {
+    for (final String help in <String>[
+      Strings.playerDeliveryHelp,
+      Strings.playerStereoDownmixHelp,
+      Strings.playerPreventDistortionHelp,
+      Strings.playerDialogueHelp,
+      Strings.playerNightModeHelp,
+    ]) {
+      expect(help, endsWith('.'), reason: help);
+      expect(help.indexOf('.'), help.length - 1, reason: help);
+    }
+  });
+
+  testWidgets('prevent distortion starts on and turning it off is sent', (
+    WidgetTester tester,
+  ) async {
+    final List<PlaybackControls> sent = <PlaybackControls>[];
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.audio,
+        onControls: sent.add,
+        sound: (downmix: false, normalize: true, dialogue: false, night: false),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+
+    await tester.tap(find.text(Strings.playerPreventDistortion));
+    await tester.pumpAndSettle();
+
+    expect(sent.single.normalize, isFalse);
+  });
+
+  testWidgets('the dialogue lift and night mode are chosen in the panel', (
+    WidgetTester tester,
+  ) async {
+    final List<PlaybackControls> sent = <PlaybackControls>[];
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.audio,
+        onControls: sent.add,
+        sound: (downmix: false, normalize: false, dialogue: true, night: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(AppDropdown<DialogueLift>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(DialogueLift.db9.label).last);
+    await tester.pumpAndSettle();
+    expect(sent.last.dialogue, DialogueLift.db9);
+
+    await tester.tap(find.byType(AppDropdown<NightMode>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(NightMode.light.label).last);
+    await tester.pumpAndSettle();
+    expect(sent.last.night, NightMode.light);
+    expect(sent.last.dialogue, DialogueLift.db9);
+  });
+
   testWidgets('no label is cut on the narrowest sheet or panel', (
     WidgetTester tester,
   ) async {
@@ -896,6 +994,12 @@ Widget _panel({
   ValueChanged<double>? onSpeed,
   ValueChanged<bool>? onDiagnostics,
   ValueChanged<SubtitleSize>? onSubtitleSize,
+  SoundRows sound = (
+    downmix: true,
+    normalize: false,
+    dialogue: false,
+    night: false,
+  ),
 }) => MaterialApp(
   theme: buildTheme(AppThemeVariant.dark),
   home: Scaffold(
@@ -910,6 +1014,7 @@ Widget _panel({
         subtitleDelivery: 'hls_vtt',
         subtitleSize: SubtitleSize.medium,
         onSubtitleSize: onSubtitleSize ?? (_) {},
+        sound: sound,
         busy: busy,
         onControls: onControls ?? (_) {},
         onSpeed: onSpeed ?? (_) {},

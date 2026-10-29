@@ -1,6 +1,8 @@
 use crate::catalog::VersionId;
 use crate::media::HdrFormat;
-use crate::session::{SegmentContainer, SessionId, StreamGeneration, SubtitleDelivery};
+use crate::session::{
+    SegmentContainer, SessionId, SoundSettings, StreamGeneration, SubtitleDelivery,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TranscodeSpec {
@@ -20,7 +22,15 @@ pub struct TranscodeSpec {
     pub soft_subtitle: Option<SoftSubtitle>,
     pub convert_audio: bool,
     pub audio_channels: Option<u8>,
+    pub source_audio: Option<SourceAudio>,
+    pub sound: SoundSettings,
     pub source_hdr: Option<HdrFormat>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceAudio {
+    pub codec: String,
+    pub channels: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

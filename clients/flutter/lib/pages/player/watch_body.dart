@@ -43,6 +43,7 @@ import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/view/artwork_fallback.dart';
 import 'package:shadowmask/view/profile_version.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 import 'package:shadowmask/view/video_aspect.dart';
 import 'package:shadowmask/model/catalog/episode.dart';
@@ -1026,6 +1027,13 @@ class _WatchBodyState extends State<WatchBody>
         : null,
     onPictureInPicture: _controller.togglePictureInPicture,
     busy: s.status.sent != null,
+    sound: soundRows(
+      source: s.sourceChannels,
+      sent: s.stream?.audioChannels,
+      output: _controller.outputChannels,
+      mixesItself: s.mixesSound,
+      dialogue: s.remote.dialogue ?? DialogueLift.none,
+    ),
     onControls: _changeRemote,
     onSpeed: (double rate) =>
         _changeLocal((LocalSettings l) => l.copyWith(speed: rate)),

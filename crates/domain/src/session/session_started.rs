@@ -10,6 +10,7 @@ pub struct SessionStarted {
     pub origin_ms: u64,
     pub sequential: bool,
     pub selected: SelectedTracks,
+    pub audio_channels: Option<u8>,
     pub heartbeat_interval_s: u32,
     pub markers: DetectedMarkers,
     pub trickplay: Vec<TrickplayAsset>,

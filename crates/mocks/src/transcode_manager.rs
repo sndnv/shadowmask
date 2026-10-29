@@ -146,7 +146,9 @@ impl TranscodeManager for MockTranscodeManager {
 mod tests {
     use super::*;
     use domain::catalog::VersionId;
-    use domain::session::{SegmentContainer, SoftSubtitle, SoftSubtitleSource, StreamGeneration};
+    use domain::session::{
+        SegmentContainer, SoftSubtitle, SoftSubtitleSource, SoundSettings, StreamGeneration,
+    };
 
     fn spec(id: &str) -> TranscodeSpec {
         TranscodeSpec {
@@ -166,6 +168,8 @@ mod tests {
             soft_subtitle: None,
             convert_audio: false,
             audio_channels: None,
+            source_audio: None,
+            sound: SoundSettings::default(),
             source_hdr: None,
         }
     }

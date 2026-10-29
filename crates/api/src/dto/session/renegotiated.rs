@@ -13,6 +13,7 @@ pub struct RenegotiatedResponse {
     pub origin_ms: u64,
     pub sequential: bool,
     pub selected: SelectedTracksResponse,
+    pub audio_channels: Option<u8>,
 }
 
 impl From<Renegotiated> for RenegotiatedResponse {
@@ -25,6 +26,7 @@ impl From<Renegotiated> for RenegotiatedResponse {
             origin_ms: r.origin_ms,
             sequential: r.sequential,
             selected: r.selected.into(),
+            audio_channels: r.audio_channels,
         }
     }
 }

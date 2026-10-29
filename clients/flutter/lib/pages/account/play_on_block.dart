@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'package:shadowmask/components/play_on_host.dart';
 import 'package:shadowmask/components/section_block.dart';
+import 'package:shadowmask/components/setting_help.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/space.dart';
@@ -28,7 +29,9 @@ class PlayOnBlock extends StatelessWidget {
           Material(
             color: Colors.transparent,
             child: SwitchListTile(
-              contentPadding: EdgeInsets.zero,
+              contentPadding: kSettingRowPadding,
+              minVerticalPadding: kSettingRowVerticalPadding,
+              minTileHeight: kSettingRowMinHeight,
               value: receiver.enabled,
               onChanged: receiver.loaded
                   ? (bool on) => _setEnabled(context, receiver, on)
@@ -37,12 +40,7 @@ class PlayOnBlock extends StatelessWidget {
                 Strings.playOnAllow,
                 style: TextStyle(fontWeight: FontWeight.w600),
               ),
-              subtitle: Text(
-                _status(receiver),
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: t.muted),
-              ),
+              subtitle: SettingHelp(_status(receiver)),
             ),
           ),
           if (receiver.enabled) ...<Widget>[
@@ -110,16 +108,16 @@ class _PortRowState extends State<_PortRow> {
     return Material(
       color: Colors.transparent,
       child: ListTile(
-        contentPadding: EdgeInsets.zero,
+        contentPadding: kSettingRowPadding,
+        minVerticalPadding: kSettingRowVerticalPadding,
+        minTileHeight: kSettingRowMinHeight,
         title: const Text(
           Strings.playOnPort,
           style: TextStyle(fontWeight: FontWeight.w600),
         ),
-        subtitle: Text(
+        subtitle: SettingHelp(
           _invalid ? Strings.playOnPortInvalid : Strings.playOnPortHelp,
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: _invalid ? t.danger : t.muted),
+          color: _invalid ? t.danger : t.muted,
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,

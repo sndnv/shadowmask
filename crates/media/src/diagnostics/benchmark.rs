@@ -9,8 +9,8 @@ use domain::diagnostics::{
 use domain::error::BenchmarkError;
 use domain::process::ProcessSpawner;
 use domain::session::{
-    Segment, SegmentContainer, SegmentPlan, SessionId, StreamGeneration, TranscodeSpec,
-    plan_fixed_segments,
+    Segment, SegmentContainer, SegmentPlan, SessionId, SoundSettings, StreamGeneration,
+    TranscodeSpec, plan_fixed_segments,
 };
 use jiff::Timestamp;
 
@@ -218,6 +218,8 @@ fn spec_for(target: &BenchmarkTarget, max_height: Option<u32>) -> TranscodeSpec 
         soft_subtitle: None,
         convert_audio: false,
         audio_channels: None,
+        source_audio: None,
+        sound: SoundSettings::default(),
         source_hdr: target.hdr,
     }
 }

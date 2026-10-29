@@ -14,6 +14,8 @@ pub enum NegotiationReason {
     SubtitleBurn,
     SubtitleSoft,
     Downmix,
+    Dialogue,
+    Night,
     Forced,
     Preparing,
     VideoNotCopyable,
@@ -37,6 +39,8 @@ impl NegotiationReason {
             Self::SubtitleBurn => "subtitle_burn",
             Self::SubtitleSoft => "subtitle_soft",
             Self::Downmix => "downmix",
+            Self::Dialogue => "dialogue",
+            Self::Night => "night",
             Self::Forced => "forced",
             Self::Preparing => "preparing",
             Self::VideoNotCopyable => "video_not_copyable",
@@ -74,6 +78,8 @@ mod tests {
             NegotiationReason::SubtitleBurn,
             NegotiationReason::SubtitleSoft,
             NegotiationReason::Downmix,
+            NegotiationReason::Dialogue,
+            NegotiationReason::Night,
             NegotiationReason::Forced,
             NegotiationReason::Preparing,
             NegotiationReason::VideoNotCopyable,
@@ -84,5 +90,7 @@ mod tests {
         names.dedup();
         assert_eq!(names.len(), all.len());
         assert_eq!(NegotiationReason::VideoSoftwareOnly.to_string(), "video_software_only");
+        assert_eq!(NegotiationReason::Dialogue.as_str(), "dialogue");
+        assert_eq!(NegotiationReason::Night.as_str(), "night");
     }
 }

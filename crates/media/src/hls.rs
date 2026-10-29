@@ -1178,7 +1178,7 @@ mod tests {
 
     use domain::catalog::VersionId;
     use domain::process::CommandOutput;
-    use domain::session::{SoftSubtitleSource, SubtitleRendition};
+    use domain::session::{SoftSubtitleSource, SoundSettings, SubtitleRendition};
     use domain::user::UserId;
 
     const CUE: &[u8] = b"WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n";
@@ -1397,6 +1397,8 @@ mod tests {
             soft_subtitle: None,
             convert_audio: false,
             audio_channels: None,
+            source_audio: None,
+            sound: SoundSettings::default(),
             source_hdr: None,
         }
     }

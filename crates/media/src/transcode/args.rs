@@ -1,5 +1,5 @@
 use domain::media::HdrFormat;
-use domain::session::{SegmentContainer, SegmentPlan, TranscodeSpec};
+use domain::session::{DialogueLift, NightMode, SegmentContainer, SegmentPlan, TranscodeSpec};
 
 use crate::transcode::VideoEncoder;
 
@@ -17,6 +17,12 @@ const BURN_LOOKBACK_US: u64 = 30_000_000;
 const GPU_DECODE: [&str; 4] = ["-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"];
 const AAC_LAYOUTS: [(&str, u8); 7] =
     [("mono", 1), ("stereo", 2), ("3.0", 3), ("4.0", 4), ("5.0", 5), ("5.1", 6), ("7.1", 8)];
+const STEREO: u8 = 2;
+const ENHANCED: u8 = 3;
+const WITH_CENTRE: u8 = 3;
+const CENTRE: u8 = 2;
+const NIGHT_LIMITER: &str = "alimiter=limit=0.891251:level=0:latency=1";
+const DOLBY_COMPRESSED: [&str; 2] = ["ac3", "eac3"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RunWindow {
@@ -93,6 +99,9 @@ pub(crate) fn build_run_args(
     }
     if let Some(length_ms) = length_ms.filter(|_| spec.copy) {
         args.extend(["-t".to_owned(), seconds(film_us(length_ms.saturating_mul(1_000)))]);
+    }
+    if decodes_dolby(spec) {
+        args.extend(["-drc_scale", "0"].map(str::to_owned));
     }
     args.extend(["-i".to_owned(), spec.input_path.clone()]);
     if let Some(Burn::Image { path, .. }) = burn {
@@ -183,9 +192,90 @@ fn push_encode_args(
 
 fn push_audio_args(args: &mut Vec<String>, spec: &TranscodeSpec, bounds: Option<String>) {
     let trim = bounds.map(|bounds| format!("atrim={bounds}"));
-    let filters: Vec<String> = trim.into_iter().chain([aac_layouts(spec.audio_channels)]).collect();
+    let filters: Vec<String> = trim.into_iter().chain(sound_filters(spec)).collect();
     args.extend(["-af".to_owned(), filters.join(",")]);
     args.extend(["-c:a", "aac"].map(str::to_owned));
+}
+
+fn sound_filters(spec: &TranscodeSpec) -> Vec<String> {
+    let sound = spec.sound;
+    let lift = sound.dialogue != DialogueLift::None;
+    let source = spec.source_audio.as_ref().map(|audio| audio.channels);
+    let enhance = lift && source == Some(STEREO);
+    let limit = if enhance { Some(STEREO) } else { spec.audio_channels };
+    let incoming = if enhance { Some(ENHANCED) } else { source };
+    let outgoing = match (incoming, limit) {
+        (Some(incoming), Some(limit)) => Some(incoming.min(limit)),
+        (incoming, None) => incoming,
+        (None, limit) => limit,
+    };
+    let known = outgoing.filter(|_| incoming.is_some());
+    let kept = known.filter(|_| lift && !enhance).and_then(centre_layout);
+    let night = known.filter(|_| sound.night != NightMode::Off).and_then(aac_layout);
+    let named = kept.or(night);
+    let outgoing = named.map_or(outgoing, |(_, count)| Some(count));
+    let folds =
+        matches!((incoming, outgoing), (Some(incoming), Some(outgoing)) if outgoing < incoming);
+    let mut filters = Vec::new();
+    if enhance {
+        filters.push("dialoguenhance".to_owned());
+    }
+    let mut fold = Vec::new();
+    if folds && sound.normalize {
+        fold.push("rematrix_maxval=1".to_owned());
+    }
+    if folds && lift && outgoing.is_some_and(|channels| channels <= STEREO) {
+        let gain = sound.dialogue.others_gain();
+        fold.push(format!("center_mix_level={:.6}", std::f64::consts::FRAC_1_SQRT_2 / gain));
+    }
+    if !fold.is_empty() {
+        filters.push(format!("aresample={}", fold.join(":")));
+    }
+    match named {
+        Some((layout, _)) => filters.push(format!("aformat=channel_layouts={layout}")),
+        None => filters.push(aac_layouts(limit)),
+    }
+    if let Some((layout, count)) = kept {
+        filters.push(centre_lift(layout, count, sound.dialogue));
+    }
+    filters.extend(night_filters(sound.night));
+    filters
+}
+
+fn centre_layout(channels: u8) -> Option<(&'static str, u8)> {
+    AAC_LAYOUTS.iter().copied().rfind(|(_, count)| (WITH_CENTRE..=channels).contains(count))
+}
+
+fn aac_layout(channels: u8) -> Option<(&'static str, u8)> {
+    AAC_LAYOUTS.iter().copied().rfind(|(_, count)| *count <= channels)
+}
+
+fn centre_lift(layout: &str, count: u8, dialogue: DialogueLift) -> String {
+    let gain = dialogue.others_gain();
+    let channels: Vec<String> = (0..count)
+        .map(|c| match c {
+            CENTRE => format!("c{c}=c{c}"),
+            _ => format!("c{c}={gain:.6}*c{c}"),
+        })
+        .collect();
+    format!("pan={layout}|{}", channels.join("|"))
+}
+
+fn night_filters(night: NightMode) -> Vec<String> {
+    let compressor = match night {
+        NightMode::Off => return Vec::new(),
+        NightMode::Light => "acompressor=threshold=0.125:ratio=3:attack=20:release=250:makeup=2",
+        NightMode::Strong => "acompressor=threshold=0.0625:ratio=8:attack=10:release=200:makeup=4",
+    };
+    vec![compressor.to_owned(), NIGHT_LIMITER.to_owned()]
+}
+
+fn decodes_dolby(spec: &TranscodeSpec) -> bool {
+    (!spec.copy || spec.convert_audio)
+        && spec
+            .source_audio
+            .as_ref()
+            .is_some_and(|audio| DOLBY_COMPRESSED.contains(&audio.codec.as_str()))
 }
 
 fn aac_layouts(channels: Option<u8>) -> String {
@@ -374,7 +464,10 @@ fn escape_subtitle_path(path: &str) -> String {
 mod tests {
     use super::*;
     use domain::catalog::VersionId;
-    use domain::session::{SegmentContainer, SessionId, StreamGeneration, plan_cuts};
+    use domain::session::{
+        DialogueLift, NightMode, SegmentContainer, SessionId, SoundSettings, SourceAudio,
+        StreamGeneration, plan_cuts,
+    };
 
     const OUT: &str = "/cache/s1/1/v0";
     const EVERY_AAC_LAYOUT: &str = "aformat=channel_layouts=mono|stereo|3.0|4.0|5.0|5.1|7.1";
@@ -401,8 +494,29 @@ mod tests {
             soft_subtitle: None,
             convert_audio: false,
             audio_channels: None,
+            source_audio: None,
+            sound: SoundSettings::default(),
             source_hdr: None,
         }
+    }
+
+    fn sounding(codec: &str, channels: u8, audio_channels: Option<u8>) -> TranscodeSpec {
+        TranscodeSpec {
+            source_audio: Some(SourceAudio { codec: codec.to_owned(), channels }),
+            audio_channels,
+            ..base_spec()
+        }
+    }
+
+    fn with_sound(spec: TranscodeSpec, normalize: bool, dialogue: DialogueLift) -> TranscodeSpec {
+        TranscodeSpec {
+            sound: SoundSettings { normalize, dialogue, night: NightMode::Off },
+            ..spec
+        }
+    }
+
+    fn audio_filter(spec: &TranscodeSpec) -> String {
+        pair_after(&args_for(spec), "-af").expect("-af")
     }
 
     fn copy_spec(container: SegmentContainer) -> TranscodeSpec {
@@ -1125,6 +1239,239 @@ mod tests {
                 Some(format!("aformat=channel_layouts={layouts}")),
                 "{channels} channels"
             );
+        }
+    }
+
+    #[test]
+    fn a_server_fold_is_normalized_unless_the_viewer_turned_it_off() {
+        assert_eq!(
+            audio_filter(&sounding("eac3", 6, Some(2))),
+            "aresample=rematrix_maxval=1,aformat=channel_layouts=mono|stereo"
+        );
+        assert_eq!(
+            audio_filter(&sounding("truehd", 8, Some(6))),
+            "aresample=rematrix_maxval=1,aformat=channel_layouts=mono|stereo|3.0|4.0|5.0|5.1"
+        );
+        assert_eq!(
+            audio_filter(&with_sound(sounding("eac3", 6, Some(2)), false, DialogueLift::None)),
+            "aformat=channel_layouts=mono|stereo"
+        );
+    }
+
+    #[test]
+    fn a_sound_the_server_does_not_fold_is_left_as_it_is() {
+        assert_eq!(audio_filter(&sounding("eac3", 6, None)), EVERY_AAC_LAYOUT);
+        assert_eq!(
+            audio_filter(&sounding("aac", 2, Some(2))),
+            "aformat=channel_layouts=mono|stereo"
+        );
+    }
+
+    #[test]
+    fn a_dialogue_lift_on_a_fold_to_stereo_raises_the_centre_in_the_mix() {
+        for (lift, centre) in [
+            (DialogueLift::Db3, "0.998815"),
+            (DialogueLift::Db6, "1.410864"),
+            (DialogueLift::Db9, "1.992898"),
+        ] {
+            let folded = sounding("ac3", 6, Some(2));
+            assert_eq!(
+                audio_filter(&with_sound(folded.clone(), true, lift)),
+                format!(
+                    "aresample=rematrix_maxval=1:center_mix_level={centre},\
+                     aformat=channel_layouts=mono|stereo"
+                ),
+                "{lift:?} normalized"
+            );
+            assert_eq!(
+                audio_filter(&with_sound(folded, false, lift)),
+                format!("aresample=center_mix_level={centre},aformat=channel_layouts=mono|stereo"),
+                "{lift:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_dialogue_lift_on_surround_the_server_sends_lowers_every_channel_but_the_centre() {
+        let surround = "aformat=channel_layouts=5.1,pan=5.1|c0=0.501187*c0|c1=0.501187*c1|c2=c2|\
+                        c3=0.501187*c3|c4=0.501187*c4|c5=0.501187*c5";
+        assert_eq!(
+            audio_filter(&with_sound(sounding("eac3", 6, None), true, DialogueLift::Db6)),
+            surround
+        );
+        assert_eq!(
+            audio_filter(&with_sound(sounding("truehd", 8, Some(6)), true, DialogueLift::Db6)),
+            format!("aresample=rematrix_maxval=1,{surround}")
+        );
+        assert_eq!(
+            audio_filter(&with_sound(sounding("dts", 7, None), true, DialogueLift::Db6)),
+            format!("aresample=rematrix_maxval=1,{surround}")
+        );
+        assert_eq!(
+            audio_filter(&with_sound(sounding("truehd", 8, None), true, DialogueLift::Db3)),
+            "aformat=channel_layouts=7.1,pan=7.1|c0=0.707946*c0|c1=0.707946*c1|c2=c2|\
+             c3=0.707946*c3|c4=0.707946*c4|c5=0.707946*c5|c6=0.707946*c6|c7=0.707946*c7"
+        );
+        assert_eq!(
+            audio_filter(&with_sound(sounding("flac", 3, None), true, DialogueLift::Db6)),
+            "aformat=channel_layouts=3.0,pan=3.0|c0=0.501187*c0|c1=0.501187*c1|c2=c2"
+        );
+    }
+
+    #[test]
+    fn a_dialogue_lift_on_stereo_extracts_the_dialogue_and_folds_it_back() {
+        assert_eq!(
+            audio_filter(&with_sound(sounding("aac", 2, None), true, DialogueLift::Db6)),
+            "dialoguenhance,aresample=rematrix_maxval=1:center_mix_level=1.410864,\
+             aformat=channel_layouts=mono|stereo"
+        );
+        assert_eq!(
+            audio_filter(&with_sound(sounding("aac", 2, None), false, DialogueLift::Db3)),
+            "dialoguenhance,aresample=center_mix_level=0.998815,\
+             aformat=channel_layouts=mono|stereo"
+        );
+    }
+
+    #[test]
+    fn a_dialogue_lift_on_mono_or_an_unknown_sound_changes_nothing() {
+        assert_eq!(
+            audio_filter(&with_sound(sounding("aac", 1, None), true, DialogueLift::Db9)),
+            EVERY_AAC_LAYOUT
+        );
+        assert_eq!(
+            audio_filter(&with_sound(base_spec(), true, DialogueLift::Db9)),
+            EVERY_AAC_LAYOUT
+        );
+    }
+
+    #[test]
+    fn night_mode_compresses_and_limits_last() {
+        let light = "acompressor=threshold=0.125:ratio=3:attack=20:release=250:makeup=2,\
+                     alimiter=limit=0.891251:level=0:latency=1";
+        let strong = "acompressor=threshold=0.0625:ratio=8:attack=10:release=200:makeup=4,\
+                      alimiter=limit=0.891251:level=0:latency=1";
+        for (night, chain) in [(NightMode::Light, light), (NightMode::Strong, strong)] {
+            let folded = TranscodeSpec {
+                sound: SoundSettings { night, ..SoundSettings::default() },
+                ..sounding("eac3", 6, Some(2))
+            };
+            assert_eq!(
+                audio_filter(&folded),
+                format!("aresample=rematrix_maxval=1,aformat=channel_layouts=stereo,{chain}"),
+                "{night:?}"
+            );
+            let resumed = TranscodeSpec { convert_audio: true, copy: true, ..folded };
+            assert_eq!(
+                pair_after(&run(&resumed, on_clock(8_000_000, 0), None), "-af"),
+                Some(format!(
+                    "atrim=start=8.000000,aresample=rematrix_maxval=1,\
+                     aformat=channel_layouts=stereo,{chain}"
+                )),
+                "{night:?} resumed"
+            );
+        }
+    }
+
+    #[test]
+    fn night_mode_names_the_one_layout_it_sends() {
+        let chain = "acompressor=threshold=0.125:ratio=3:attack=20:release=250:makeup=2,\
+                     alimiter=limit=0.891251:level=0:latency=1";
+        let night = |spec: TranscodeSpec, dialogue: DialogueLift| TranscodeSpec {
+            sound: SoundSettings { dialogue, night: NightMode::Light, ..SoundSettings::default() },
+            ..spec
+        };
+        for (spec, filters) in [
+            (sounding("aac", 1, None), "aformat=channel_layouts=mono".to_owned()),
+            (sounding("aac", 2, None), "aformat=channel_layouts=stereo".to_owned()),
+            (sounding("flac", 4, None), "aformat=channel_layouts=4.0".to_owned()),
+            (sounding("eac3", 6, None), "aformat=channel_layouts=5.1".to_owned()),
+            (sounding("eac3", 6, Some(6)), "aformat=channel_layouts=5.1".to_owned()),
+            (
+                sounding("dts", 7, None),
+                "aresample=rematrix_maxval=1,aformat=channel_layouts=5.1".to_owned(),
+            ),
+            (sounding("truehd", 8, None), "aformat=channel_layouts=7.1".to_owned()),
+            (
+                sounding("truehd", 8, Some(6)),
+                "aresample=rematrix_maxval=1,aformat=channel_layouts=5.1".to_owned(),
+            ),
+            (base_spec(), EVERY_AAC_LAYOUT.to_owned()),
+            (
+                TranscodeSpec { audio_channels: Some(2), ..base_spec() },
+                "aformat=channel_layouts=mono|stereo".to_owned(),
+            ),
+        ] {
+            let source = spec.source_audio.clone();
+            assert_eq!(
+                audio_filter(&night(spec, DialogueLift::None)),
+                format!("{filters},{chain}"),
+                "{source:?}"
+            );
+        }
+        assert_eq!(
+            audio_filter(&night(sounding("aac", 2, None), DialogueLift::Db6)),
+            format!(
+                "dialoguenhance,aresample=rematrix_maxval=1:center_mix_level=1.410864,\
+                 aformat=channel_layouts=stereo,{chain}"
+            )
+        );
+        assert_eq!(
+            audio_filter(&night(sounding("eac3", 6, Some(2)), DialogueLift::Db6)),
+            format!(
+                "aresample=rematrix_maxval=1:center_mix_level=1.410864,\
+                 aformat=channel_layouts=stereo,{chain}"
+            )
+        );
+    }
+
+    #[test]
+    fn the_one_layout_a_run_names_has_the_channels_the_session_answers() {
+        let mut named = 0;
+        for source in 1..=10 {
+            for limit in [None, Some(1), Some(2), Some(6), Some(8)] {
+                for dialogue in [DialogueLift::None, DialogueLift::Db6] {
+                    for night in [NightMode::Off, NightMode::Light] {
+                        let sound = SoundSettings { dialogue, night, ..SoundSettings::default() };
+                        let spec = TranscodeSpec { sound, ..sounding("flac", source, limit) };
+                        let layout = sound_filters(&spec).into_iter().find_map(|filter| {
+                            filter
+                                .strip_prefix("aformat=channel_layouts=")
+                                .filter(|layouts| !layouts.contains('|'))
+                                .map(str::to_owned)
+                        });
+                        let Some(layout) = layout else { continue };
+                        let count = AAC_LAYOUTS.iter().find(|(name, _)| *name == layout);
+                        assert_eq!(
+                            count.map(|(_, count)| *count),
+                            Some(sound.channels_sent(source, limit)),
+                            "{source} {limit:?} {sound:?}"
+                        );
+                        named += 1;
+                    }
+                }
+            }
+        }
+        assert!(named > 100, "{named}");
+    }
+
+    #[test]
+    fn a_decoded_dolby_sound_is_decoded_without_its_own_compression() {
+        let before_input = |spec: &TranscodeSpec| {
+            let args = args_for(spec);
+            let input = at(&args, "-i");
+            args[input - 2..input].to_vec()
+        };
+        let converting = |codec: &str| TranscodeSpec {
+            copy: true,
+            convert_audio: true,
+            ..sounding(codec, 6, None)
+        };
+        for spec in [sounding("ac3", 6, None), sounding("eac3", 6, Some(2)), converting("eac3")] {
+            assert_eq!(before_input(&spec), ["-drc_scale", "0"], "{:?}", spec.source_audio);
+        }
+        let copied = TranscodeSpec { copy: true, ..sounding("ac3", 6, None) };
+        for spec in [copied, sounding("aac", 6, None), sounding("dts", 6, None), base_spec()] {
+            assert!(!args_for(&spec).iter().any(|a| a == "-drc_scale"), "{:?}", spec.source_audio);
         }
     }
 

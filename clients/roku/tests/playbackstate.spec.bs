@@ -687,6 +687,58 @@ namespace tests
             m.assertEqual(cleared.state.stream.subtitleDelivery, "")
         end sub
 
+        @it("keeps the channels the server sends, start, update and seek alike")
+        sub keepsAudioChannels()
+            m.assertEqual(PlaybackStreamOf({ session_id: "s1", manifest_url: "/stream/t1/file", audio_channels: 2 }).audioChannels, 2)
+            m.assertEqual(PlaybackStreamOf({ session_id: "s1", manifest_url: "/stream/t1/file" }).audioChannels, 0)
+
+            s = m.changed(m.watching()).state
+            json = { manifest_url: "/hls/s1/c.m3u8", origin_ms: 60000, sequential: true, mode: "transcode", container: "mpegts", audio_channels: 6 }
+            m.assertEqual(m.stepped(s, { kind: "updated", id: 2, json: json }).state.stream.audioChannels, 6)
+
+            s = m.stepped(m.watching(m.answer({ audio_channels: 6 })), { kind: "seek", positionMs: 300000 }).state
+            json = { manifest_url: "/hls/s1/b.m3u8", origin_ms: 300000, sequential: true, mode: "transcode", container: "mpegts", audio_channels: 2 }
+            m.assertEqual(m.stepped(s, { kind: "seeked", id: 2, json: json }).state.stream.audioChannels, 2)
+        end sub
+
+        @it("reads the channels the stream sends, none before a stream")
+        sub streamAudioChannels()
+            m.assertEqual(StreamAudioChannels({ stream: invalid }), 0)
+            m.assertEqual(StreamAudioChannels(m.watching(m.answer({ audio_channels: 6 }))), 6)
+            m.assertEqual(StreamAudioChannels(m.watching()), 0)
+        end sub
+
+        @it("has the audio menu rebuilt when the channels sent or the settings change")
+        sub audioMenuStale()
+            watching = m.watching(m.answer({ audio_channels: 6 }))
+            m.assertFalse(AudioMenuStale(watching, watching))
+            m.assertFalse(AudioMenuStale(watching, m.stepped(watching, m.reading(40000)).state))
+
+            sent = m.changed(watching).state
+            json = { manifest_url: "/hls/s1/c.m3u8", origin_ms: 60000, sequential: true, mode: "transcode", container: "mpegts", audio_channels: 2 }
+            m.assertTrue(AudioMenuStale(sent, m.stepped(sent, { kind: "updated", id: 2, json: json }).state))
+            m.assertTrue(AudioMenuStale(sent, m.stepped(sent, { kind: "failed", id: 2 }).state))
+        end sub
+
+        @it("sends an update for a change of sound")
+        sub soundChangeSendsUpdate()
+            s = m.watching()
+            controls = ControlsCopy(s.remote)
+            controls.dialogue = 6
+            taken = m.stepped(s, { kind: "changeRemote", controls: controls })
+
+            m.assertEqual(m.kinds(taken.commands), "stopPlayer,sendUpdate")
+            m.assertEqual(taken.commands[1].controls.dialogue, 6)
+
+            controls = ControlsCopy(s.remote)
+            controls.night = "light"
+            m.assertEqual(m.kinds(m.stepped(s, { kind: "changeRemote", controls: controls }).commands), "stopPlayer,sendUpdate")
+
+            controls = ControlsCopy(s.remote)
+            controls.normalize = false
+            m.assertEqual(m.kinds(m.stepped(s, { kind: "changeRemote", controls: controls }).commands), "stopPlayer,sendUpdate")
+        end sub
+
         @it("sends nothing with no stream or for the same update")
         sub changeWithoutRequest()
             refused = m.stepped(m.opened(), { kind: "refusedStart", id: 1, message: "x" }).state

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/components/section_block.dart';
+import 'package:shadowmask/components/setting_help.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
@@ -67,19 +68,16 @@ class AppearanceBlock extends StatelessWidget {
           Material(
             color: Colors.transparent,
             child: SwitchListTile(
-              contentPadding: EdgeInsets.zero,
+              contentPadding: kSettingRowPadding,
+              minVerticalPadding: kSettingRowVerticalPadding,
+              minTileHeight: kSettingRowMinHeight,
               value: scope.highContrast,
               onChanged: (bool on) => _setHighContrast(context, scope, on),
               title: const Text(
                 Strings.highContrast,
                 style: TextStyle(fontWeight: FontWeight.w600),
               ),
-              subtitle: Text(
-                Strings.highContrastHelp,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: t.muted),
-              ),
+              subtitle: const SettingHelp(Strings.highContrastHelp),
             ),
           ),
         ],

@@ -8,4 +8,5 @@ pub struct NegotiationOutcome {
     pub reasons: Vec<NegotiationReason>,
     pub convert_audio: bool,
     pub audio_channels: Option<u8>,
+    pub lift_dialogue: bool,
 }

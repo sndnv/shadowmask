@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/model/session/selected_tracks.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_choice.dart';
 
 void main() {
@@ -133,7 +134,7 @@ void main() {
       });
       expect(c.height, 480);
       expect(c.burn, isTrue);
-      expect(c.downmix, isFalse);
+      expect(c.downmix, isNull);
       expect(c.audioTrack, 3);
       expect(c.subtitle.selection?.toWire(), 'file:z');
       expect(c.offsetMs, 100);
@@ -309,6 +310,9 @@ void main() {
         const PlaybackControls(subtitle: SubtitleChoice.off()),
         const PlaybackControls(offsetMs: 5),
         const PlaybackControls(delivery: DeliveryPreference.auto),
+        const PlaybackControls(normalize: true),
+        const PlaybackControls(dialogue: DialogueLift.none),
+        const PlaybackControls(night: NightMode.off),
       ]) {
         expect(base, isNot(other));
       }
@@ -325,9 +329,21 @@ void main() {
         subtitleLanguage: 'fr',
         offsetMs: 5,
         delivery: DeliveryPreference.never,
+        normalize: false,
+        dialogue: DialogueLift.db6,
+        night: NightMode.light,
       );
 
       expect(full.withSelection(null), full);
+      expect(
+        full.withDefaultSound(
+          downmix: false,
+          normalize: true,
+          dialogue: DialogueLift.none,
+          night: NightMode.strong,
+        ),
+        full,
+      );
       expect(
         full.withSelection(
           const SelectedTracks(
@@ -381,6 +397,128 @@ void main() {
         ),
         isFalse,
       );
+    });
+  });
+
+  group('sound settings', () {
+    test('an update states every one, the server defaults when unset', () {
+      expect(
+        const PlaybackControls(
+          normalize: false,
+          dialogue: DialogueLift.db6,
+          night: NightMode.strong,
+        ).toUpdateBody(),
+        containsPair('normalize_downmix', false),
+      );
+      final Map<String, dynamic> stated = const PlaybackControls(
+        downmix: true,
+        normalize: false,
+        dialogue: DialogueLift.db6,
+        night: NightMode.strong,
+      ).toUpdateBody();
+      expect(stated['downmix_stereo'], true);
+      expect(stated['dialogue_db'], 6);
+      expect(stated['night'], 'strong');
+      final Map<String, dynamic> unset = const PlaybackControls()
+          .toUpdateBody();
+      expect(unset['downmix_stereo'], false);
+      expect(unset['normalize_downmix'], true);
+      expect(unset['dialogue_db'], 0);
+      expect(unset['night'], 'off');
+    });
+
+    test('a start states only what differs from the server default', () {
+      expect(
+        const PlaybackControls(
+          downmix: false,
+          normalize: true,
+          dialogue: DialogueLift.none,
+          night: NightMode.off,
+        ).toStartBody(),
+        isEmpty,
+      );
+      expect(
+        const PlaybackControls(
+          downmix: true,
+          normalize: false,
+          dialogue: DialogueLift.db3,
+          night: NightMode.light,
+        ).toStartBody(),
+        <String, dynamic>{
+          'downmix_stereo': true,
+          'normalize_downmix': false,
+          'dialogue_db': 3,
+          'night': 'light',
+        },
+      );
+    });
+
+    test('they round trip through the query, a switch turned off included', () {
+      final PlaybackControls c = PlaybackControls.fromQuery(<String, String>{
+        'downmix': '0',
+        'normalize': '0',
+        'dialogue': '9',
+        'night': 'strong',
+      });
+      expect(c.downmix, isFalse);
+      expect(c.normalize, isFalse);
+      expect(c.dialogue, DialogueLift.db9);
+      expect(c.night, NightMode.strong);
+      expect(c.toQuery(), <String, String?>{
+        'downmix': '0',
+        'normalize': '0',
+        'dialogue': '9',
+        'night': 'strong',
+      });
+    });
+
+    test('a link without them leaves them to the device', () {
+      final PlaybackControls c = PlaybackControls.fromQuery(<String, String>{});
+      expect(c.downmix, isNull);
+      expect(c.normalize, isNull);
+      expect(c.dialogue, isNull);
+      expect(c.night, isNull);
+      final PlaybackControls odd = PlaybackControls.fromQuery(<String, String>{
+        'dialogue': '5',
+        'night': 'loud',
+      });
+      expect(odd.dialogue, DialogueLift.none);
+      expect(odd.night, NightMode.off);
+    });
+
+    test('the device defaults fill only what the session has not chosen', () {
+      expect(
+        const PlaybackControls(night: NightMode.off).withDefaultSound(
+          downmix: true,
+          normalize: false,
+          dialogue: DialogueLift.db6,
+          night: NightMode.strong,
+        ),
+        const PlaybackControls(
+          downmix: true,
+          normalize: false,
+          dialogue: DialogueLift.db6,
+          night: NightMode.off,
+        ),
+      );
+    });
+
+    test('normalize and the lift are the tuning; the rest is not', () {
+      const PlaybackControls plain = PlaybackControls(
+        normalize: true,
+        dialogue: DialogueLift.none,
+        night: NightMode.off,
+      );
+      final PlaybackControls tuned = plain.copyWith(
+        normalize: false,
+        dialogue: DialogueLift.db6,
+      );
+      expect(tuned.sameTuningAs(plain), isFalse);
+      expect(tuned.withoutTuning.sameUpdateAs(plain.withoutTuning), isTrue);
+      expect(const PlaybackControls().sameTuningAs(plain), isTrue);
+      final PlaybackControls night = plain.copyWith(night: NightMode.light);
+      expect(night.sameTuningAs(plain), isTrue);
+      expect(night.withoutTuning.sameUpdateAs(plain.withoutTuning), isFalse);
     });
   });
 }

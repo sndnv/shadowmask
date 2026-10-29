@@ -4,6 +4,7 @@ expression: value
 ---
 {
   "body": {
+    "audio_channels": 2,
     "container": null,
     "heartbeat_interval_s": 10,
     "manifest_url": "[manifest_url]",

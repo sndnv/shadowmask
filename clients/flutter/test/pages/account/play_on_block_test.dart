@@ -14,6 +14,7 @@ import 'package:shadowmask/view/play_on_receiver.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../support/play_on_target.dart';
+import '../../support/setting_rows.dart';
 
 class _Block {
   _Block({List<InterfaceAddress> addresses = kWifi}) {
@@ -97,6 +98,23 @@ void main() {
     expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
     expect(find.text(Strings.playOnAllowHelp), findsOneWidget);
     expect(find.text(Strings.playOnPort), findsNothing);
+  });
+
+  testWidgets('every setting row is laid out alike, however long its help', (
+    WidgetTester tester,
+  ) async {
+    linkedDevice(enabled: true);
+    await _Block().pump(tester);
+
+    final String listening = Strings.playOnListening(<String>[
+      '192.168.1.20',
+    ], 41000);
+    for (final (String title, String help) in <(String, String)>[
+      (Strings.playOnAllow, listening),
+      (Strings.playOnPort, Strings.playOnPortHelp),
+    ]) {
+      expectSettingRow(tester, title, help);
+    }
   });
 
   testWidgets('turning it on shows where it listens and the port field', (

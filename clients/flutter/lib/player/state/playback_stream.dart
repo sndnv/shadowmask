@@ -16,6 +16,7 @@ abstract class PlaybackStream with _$PlaybackStream {
     @Default(PlaybackMode.direct) PlaybackMode mode,
     String? container,
     SelectedTracks? selected,
+    int? audioChannels,
     required int heartbeatIntervalS,
     required bool seeksInStream,
     required List<TrickplayRef> trickplay,

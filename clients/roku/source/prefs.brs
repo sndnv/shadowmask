@@ -93,6 +93,58 @@ sub WriteDelivery(value as string)
     WritePref(DeliveryKey(), ValidDelivery(value))
 end sub
 
+function DownmixKey() as string
+    return "downmix"
+end function
+
+function ReadDownmix() as boolean
+    return ReadFlag(DownmixKey(), false)
+end function
+
+sub WriteDownmix(value as boolean)
+    WriteFlag(DownmixKey(), value)
+end sub
+
+function NormalizeKey() as string
+    return "normalize"
+end function
+
+function ReadNormalize() as boolean
+    return ReadFlag(NormalizeKey(), true)
+end function
+
+sub WriteNormalize(value as boolean)
+    WriteFlag(NormalizeKey(), value)
+end sub
+
+function DialogueKey() as string
+    return "dialogue"
+end function
+
+function ReadDialogue() as integer
+    return ValidDialogue(Int(Val(ReadPref(DialogueKey(), "0"))))
+end function
+
+sub WriteDialogue(db as integer)
+    WritePref(DialogueKey(), NumberText(ValidDialogue(db)))
+end sub
+
+function NightKey() as string
+    return "night"
+end function
+
+function ReadNight() as string
+    return ValidNight(ReadPref(NightKey(), "off"))
+end function
+
+sub WriteNight(value as string)
+    WritePref(NightKey(), ValidNight(value))
+end sub
+
+function ReadSound(controls as object) as object
+    return WithDefaultSound(controls, ReadDownmix(), ReadNormalize(), ReadDialogue(), ReadNight())
+end function
+
 function SubtitleSizeKey() as string
     return "subtitleSize"
 end function

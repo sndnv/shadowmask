@@ -9,4 +9,5 @@ pub struct Renegotiated {
     pub origin_ms: u64,
     pub sequential: bool,
     pub selected: SelectedTracks,
+    pub audio_channels: Option<u8>,
 }

@@ -8,6 +8,7 @@ import 'package:shadowmask/player/player_controller_stub.dart'
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
 import 'package:shadowmask/player/state/player_tracks.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 
 const String kFmp4Segments = 'fmp4';
@@ -31,6 +32,15 @@ abstract class PlayerController {
   List<String> get subtitleDeliveries;
 
   bool get selectsAudioTracks;
+
+  bool get mixesSound;
+
+  int? get outputChannels;
+
+  Future<void> tuneSound({
+    required bool normalize,
+    required DialogueLift dialogue,
+  });
 
   Widget get view;
 

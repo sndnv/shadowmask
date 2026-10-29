@@ -18,6 +18,7 @@ mod selected_tracks;
 mod session_start_input;
 mod session_started;
 mod session_update;
+mod sound_settings;
 mod stream_claims;
 mod stream_generation;
 mod stream_registration;
@@ -53,6 +54,7 @@ pub use selected_tracks::SelectedTracks;
 pub use session_start_input::SessionStartInput;
 pub use session_started::SessionStarted;
 pub use session_update::SessionUpdate;
+pub use sound_settings::{DialogueLift, NightMode, SoundSettings};
 pub use stream_claims::StreamClaims;
 pub use stream_generation::StreamGeneration;
 pub use stream_registration::{StreamRegistration, SubtitleRendition};
@@ -66,7 +68,7 @@ pub use subtitle_selection::SubtitleSelection;
 pub use track_request::{AudioRequest, SubtitleRequest};
 pub use transcode_manager::TranscodeManager;
 pub use transcode_spec::{
-    BurnSubtitle, SoftSubtitle, SoftSubtitleSource, SubtitleFileSpec, TranscodeSpec,
+    BurnSubtitle, SoftSubtitle, SoftSubtitleSource, SourceAudio, SubtitleFileSpec, TranscodeSpec,
 };
 pub use transcode_started::TranscodeStarted;
 

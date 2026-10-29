@@ -14,6 +14,8 @@ pub struct ClientCapabilitiesDto {
     pub subtitle_deliveries: Vec<String>,
     #[serde(default)]
     pub audio_tracks: bool,
+    #[serde(default)]
+    pub audio_downmix: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,6 +58,7 @@ impl From<ClientCapabilitiesDto> for ClientCapabilities {
             external: declares("external"),
             rendition: declares("hls_vtt"),
             audio: c.audio_tracks,
+            downmix: c.audio_downmix,
         };
         ClientCapabilities {
             platform: c.platform,
@@ -120,7 +123,7 @@ mod tests {
         let caps = parse(
             r#"{"platform":"desktop","profile_version":1,
                 "subtitle_deliveries":["embedded","image","external","hls_vtt","teletext"],
-                "audio_tracks":true}"#,
+                "audio_tracks":true,"audio_downmix":true}"#,
         );
         assert_eq!(
             caps.tracks,
@@ -129,7 +132,8 @@ mod tests {
                 image: true,
                 external: true,
                 rendition: true,
-                audio: true
+                audio: true,
+                downmix: true
             }
         );
         let browser = parse(

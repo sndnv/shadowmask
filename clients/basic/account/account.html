@@ -33,8 +33,11 @@
           <p><button type="submit">Save profile</button> <span id="profile-status"></span></p>
         </form>
 
-        <h2>Playback</h2>
-        <p id="playback"></p>
+        <h2>Subtitles</h2>
+        <p id="subtitles"></p>
+
+        <h2>Sound</h2>
+        <div id="sound"></div>
 
         <h2>Change password</h2>
         <form id="password-form">
@@ -87,12 +90,15 @@
       if (sm.requireAuth()) init();
 
       function buildPlayback() {
-        const select = sm.subtitleSizeSelect((_, saved) =>
-          saved ? sm.toast("Setting saved.", "ok") : sm.toast("Save failed.", "danger"),
-        );
+        const saved = (ok) => ok ? sm.toast("Setting saved.", "ok") : sm.toast("Save failed.", "danger");
+        const select = sm.subtitleSizeSelect((_, ok) => saved(ok));
         document
-          .getElementById("playback")
+          .getElementById("subtitles")
           .appendChild(sm.el("label", null, ["Subtitle size ", select]));
+        const sound = sm.soundControls((change) => saved(sm.storeSound(change)));
+        sound.show(sm.soundDefaults());
+        const host = document.getElementById("sound");
+        for (const label of sound.labels) host.appendChild(sm.el("p", null, [label]));
       }
 
       function buildTabs() {

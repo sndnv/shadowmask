@@ -16,6 +16,7 @@ import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
 import 'package:shadowmask/player/state/player_tracks.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 
 const Duration kOrientationTimeout = Duration(milliseconds: 1200);
@@ -42,6 +43,9 @@ class NativePlayerController implements PlayerController {
     );
     _mpvErrors = _player.stream.error.listen(_onError);
     _logs = _player.stream.log.listen(_onLog);
+    _audio = _player.stream.audioParams.listen(
+      (_) => unawaited(_readOutputChannels()),
+    );
     if (_handheld) {
       _fullscreen.value = true;
       unawaited(_enterStage());
@@ -58,6 +62,8 @@ class NativePlayerController implements PlayerController {
   late final VideoController _video;
   late final StreamSubscription<String> _mpvErrors;
   late final StreamSubscription<PlayerLog> _logs;
+  late final StreamSubscription<AudioParams> _audio;
+  int? _outputChannels;
   final StreamController<String> _errors = StreamController<String>.broadcast();
   final PlaybackLog _log = PlaybackLog();
   late final _FullscreenListener _window = _FullscreenListener(
@@ -130,6 +136,37 @@ class NativePlayerController implements PlayerController {
 
   @override
   bool get selectsAudioTracks => true;
+
+  @override
+  bool get mixesSound => true;
+
+  @override
+  int? get outputChannels => _outputChannels;
+
+  @override
+  Future<void> tuneSound({
+    required bool normalize,
+    required DialogueLift dialogue,
+  }) async {
+    for (final MapEntry<String, String> option in mpvSound(
+      normalize: normalize,
+      dialogue: dialogue,
+    ).entries) {
+      await _setProperty(option.key, option.value);
+    }
+  }
+
+  Future<void> _readOutputChannels() async {
+    final PlatformPlayer? platform = _player.platform;
+    if (platform is! NativePlayer) {
+      return;
+    }
+    try {
+      _outputChannels = int.tryParse(
+        await platform.getProperty('audio-out-params/channel-count'),
+      );
+    } catch (_) {}
+  }
 
   @override
   Widget get view => ValueListenableBuilder<SubtitleSize>(
@@ -444,6 +481,7 @@ class NativePlayerController implements PlayerController {
     }
     await _mpvErrors.cancel();
     await _logs.cancel();
+    await _audio.cancel();
     await _player.dispose();
     await _errors.close();
     _snapshot.dispose();

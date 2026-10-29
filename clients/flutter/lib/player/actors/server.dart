@@ -12,6 +12,7 @@ import 'package:shadowmask/player/state/player_tracks.dart';
 import 'package:shadowmask/player/state/sent_change.dart';
 import 'package:shadowmask/view/episode_neighbours.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 
 PlaybackStep _same(PlaybackState s) => (s, const <PlaybackCommand>[]);
 
@@ -58,8 +59,26 @@ PlaybackStream _replaced(
   mode: negotiation.mode,
   container: negotiation.container,
   selected: negotiation.selected ?? stream.selected,
+  audioChannels: negotiation.audioChannels ?? stream.audioChannels,
   seeksInStream: seeksInStream,
 );
+
+PlaybackStep _retuned(
+  PlaybackControls was,
+  PlaybackControls back,
+  PlaybackStep step,
+) => was.sameTuningAs(back)
+    ? step
+    : (
+        step.$1,
+        <PlaybackCommand>[
+          TuneSound(
+            normalize: back.normalize ?? true,
+            dialogue: back.dialogue ?? DialogueLift.none,
+          ),
+          ...step.$2,
+        ],
+      );
 
 PlaybackStep _resume(PlaybackState before, PlaybackState s) =>
     withProgress(before, (
@@ -87,6 +106,7 @@ PlaybackStep serverStarted(
     mode: session.mode,
     container: session.container,
     selected: session.selected,
+    audioChannels: session.audioChannels,
     heartbeatIntervalS: session.heartbeatIntervalS,
     seeksInStream: seeksInStream,
     trickplay: session.trickplay,
@@ -154,14 +174,18 @@ PlaybackStep serverFailed(PlaybackState s, int id) {
     return _same(s);
   }
   return switch (s.status.sent) {
-    SentControls(:final PlaybackControls previous) => _resume(
-      s,
-      s.copyWith(
-        remote: previous,
-        status: s.status.copyWith(
-          sent: null,
-          slow: false,
-          notice: PlaybackNotice.changeFailed,
+    SentControls(:final PlaybackControls previous) => _retuned(
+      s.remote,
+      previous,
+      _resume(
+        s,
+        s.copyWith(
+          remote: previous,
+          status: s.status.copyWith(
+            sent: null,
+            slow: false,
+            notice: PlaybackNotice.changeFailed,
+          ),
         ),
       ),
     ),

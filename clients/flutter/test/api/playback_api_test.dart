@@ -16,6 +16,7 @@ Future<Map<String, dynamic>> _startBody({
   ClientDecoding? decoding,
   List<String> subtitleDeliveries = const <String>[],
   bool selectsAudioTracks = false,
+  bool mixesSound = false,
 }) async {
   late http.Request seen;
   final PlaybackApi playback = PlaybackApi(
@@ -34,6 +35,7 @@ Future<Map<String, dynamic>> _startBody({
     decoding: decoding,
     subtitleDeliveries: subtitleDeliveries,
     selectsAudioTracks: selectsAudioTracks,
+    mixesSound: mixesSound,
   );
 
   return jsonDecode(seen.body) as Map<String, dynamic>;
@@ -63,6 +65,16 @@ void main() {
       'profile_version': 1,
       'subtitle_deliveries': <dynamic>['embedded', 'image', 'external'],
       'audio_tracks': true,
+    });
+  });
+
+  test('a player that mixes its own sound says so', () async {
+    final Map<String, dynamic> body = await _startBody(mixesSound: true);
+
+    expect(body['capabilities'], <String, dynamic>{
+      'platform': 'android',
+      'profile_version': 1,
+      'audio_downmix': true,
     });
   });
 

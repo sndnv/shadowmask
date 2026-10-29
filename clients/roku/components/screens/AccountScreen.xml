@@ -64,14 +64,6 @@
                 <Group id="playbackSection" visible="false">
                     <RoundedBox id="playbackPanel" />
                     <Label id="playbackHeading" />
-                    <Label id="deliveryName" />
-                    <ActionBar id="deliveryActions" />
-                    <Label id="deliveryHelp" />
-                    <Rectangle id="deliveryRule" />
-                    <Label id="subtitleSizeName" />
-                    <ActionBar id="subtitleSizeActions" />
-                    <Label id="subtitleSizeHelp" />
-                    <Rectangle id="subtitleSizeRule" />
                     <Label id="autoplayName" />
                     <ActionBar id="autoplayActions" />
                     <Label id="autoplayHelp" />
@@ -83,6 +75,39 @@
                     <Label id="diagnosticsName" />
                     <ActionBar id="diagnosticsActions" />
                     <Label id="diagnosticsHelp" />
+                </Group>
+                <Group id="videoSection" visible="false">
+                    <RoundedBox id="videoPanel" />
+                    <Label id="videoHeading" />
+                    <Label id="deliveryName" />
+                    <ActionBar id="deliveryActions" />
+                    <Label id="deliveryHelp" />
+                </Group>
+                <Group id="subtitlesSection" visible="false">
+                    <RoundedBox id="subtitlesPanel" />
+                    <Label id="subtitlesHeading" />
+                    <Label id="subtitleSizeName" />
+                    <ActionBar id="subtitleSizeActions" />
+                    <Label id="subtitleSizeHelp" />
+                </Group>
+                <Group id="soundSection" visible="false">
+                    <RoundedBox id="soundPanel" />
+                    <Label id="soundHeading" />
+                    <Label id="downmixName" />
+                    <ActionBar id="downmixActions" />
+                    <Label id="downmixHelp" />
+                    <Rectangle id="downmixRule" />
+                    <Label id="normalizeName" />
+                    <ActionBar id="normalizeActions" />
+                    <Label id="normalizeHelp" />
+                    <Rectangle id="normalizeRule" />
+                    <Label id="dialogueName" />
+                    <ActionBar id="dialogueActions" />
+                    <Label id="dialogueHelp" />
+                    <Rectangle id="dialogueRule" />
+                    <Label id="nightName" />
+                    <ActionBar id="nightActions" />
+                    <Label id="nightHelp" />
                 </Group>
                 <Group id="childModeSection" visible="false">
                     <RoundedBox id="childModePanel" />

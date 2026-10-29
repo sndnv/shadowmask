@@ -1,4 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadowmask/model/catalog/version_detail.dart';
+import 'package:shadowmask/model/common/quality.dart';
+import 'package:shadowmask/model/common/title_ref.dart';
+import 'package:shadowmask/model/session/playback_session.dart';
+import 'package:shadowmask/model/session/selected_tracks.dart';
 import 'package:shadowmask/player/actors/lifecycle.dart';
 import 'package:shadowmask/player/actors/player.dart';
 import 'package:shadowmask/player/actors/server.dart';
@@ -11,6 +16,7 @@ import 'package:shadowmask/player/state/playback_state.dart';
 import 'package:shadowmask/player/state/playback_step.dart';
 import 'package:shadowmask/player/state/sent_change.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 
 import '../../support/playback_run.dart';
@@ -18,6 +24,35 @@ import '../../support/playback_run.dart';
 const PlaybackControls k720 = PlaybackControls(
   height: 720,
   delivery: DeliveryPreference.auto,
+  downmix: false,
+  normalize: true,
+  dialogue: DialogueLift.none,
+  night: NightMode.off,
+);
+
+const VersionDetail kSurround = VersionDetail(
+  id: 'v1',
+  title: TitleRef(type: TitleKind.movie, id: 't1'),
+  libraryId: 'lib',
+  quality: Quality.hd,
+  container: 'mkv',
+  durationMs: kTitleMs,
+  audio: <AudioTrack>[AudioTrack(index: 1, codec: 'eac3', channels: 6)],
+);
+
+const VersionDetail kStereo = VersionDetail(
+  id: 'v1',
+  title: TitleRef(type: TitleKind.movie, id: 't1'),
+  libraryId: 'lib',
+  quality: Quality.hd,
+  container: 'mkv',
+  durationMs: kTitleMs,
+  audio: <AudioTrack>[AudioTrack(index: 1, codec: 'aac', channels: 2)],
+);
+
+PlaybackSession _sending(int channels) => kDirect.copyWith(
+  selected: const SelectedTracks(audioTrack: 1),
+  audioChannels: channels,
 );
 
 Map<String, PlaybackRun Function()> _inFlight() =>
@@ -517,6 +552,143 @@ void main() {
       expect(run.state.status.sent, isNull);
     },
   );
+
+  group('sound', () {
+    test('a player that mixes surround itself is tuned without the server', () {
+      final PlaybackRun run = PlaybackRun.watching(
+        session: _sending(6),
+        version: kSurround,
+        mixesSound: true,
+      );
+      final PlaybackControls tuned = run.state.remote.copyWith(
+        normalize: false,
+        dialogue: DialogueLift.db6,
+      );
+
+      expect(
+        run.apply((PlaybackState s) => viewerChangesRemote(s, tuned)),
+        const <PlaybackCommand>[
+          TuneSound(normalize: false, dialogue: DialogueLift.db6),
+        ],
+      );
+      expect(run.state.remote, tuned);
+      expect(run.state.status.sent, isNull);
+    });
+
+    test('a lift on surround a player sends on unmixed goes to the server', () {
+      final PlaybackRun run = PlaybackRun.watching(
+        session: _sending(6),
+        version: kSurround,
+      );
+      final PlaybackControls lifted = run.state.remote.copyWith(
+        dialogue: DialogueLift.db3,
+      );
+
+      final List<PlaybackCommand> sent = run.apply(
+        (PlaybackState s) => viewerChangesRemote(s, lifted),
+      );
+
+      expect(sent.first, const PausePlayer());
+      expect(sent.whereType<SendUpdate>().single.controls, lifted);
+    });
+
+    test('a lift on what the server sends as stereo goes to the server', () {
+      final PlaybackRun run = PlaybackRun.watching(
+        session: _sending(2),
+        version: kSurround,
+        mixesSound: true,
+      );
+      final PlaybackControls lifted = run.state.remote.copyWith(
+        dialogue: DialogueLift.db9,
+      );
+
+      expect(
+        run
+            .apply((PlaybackState s) => viewerChangesRemote(s, lifted))
+            .whereType<SendUpdate>(),
+        hasLength(1),
+      );
+    });
+
+    test('normalize goes to the server when the server folds', () {
+      final PlaybackRun run = PlaybackRun.watching(
+        session: _sending(2),
+        version: kSurround,
+        mixesSound: true,
+      );
+      final PlaybackControls loud = run.state.remote.copyWith(normalize: false);
+
+      expect(
+        run
+            .apply((PlaybackState s) => viewerChangesRemote(s, loud))
+            .whereType<SendUpdate>(),
+        hasLength(1),
+      );
+    });
+
+    test('normalize goes to the server when it folds a lift on stereo', () {
+      for (final bool mixesSound in <bool>[true, false]) {
+        final PlaybackRun run = PlaybackRun.watching(
+          session: _sending(2),
+          version: kStereo,
+          controls: k720.copyWith(dialogue: DialogueLift.db6),
+          mixesSound: mixesSound,
+        );
+        final PlaybackControls loud = run.state.remote.copyWith(
+          normalize: false,
+        );
+
+        expect(
+          run
+              .apply((PlaybackState s) => viewerChangesRemote(s, loud))
+              .whereType<SendUpdate>(),
+          hasLength(1),
+          reason: 'mixes sound: $mixesSound',
+        );
+      }
+    });
+
+    test('normalize on stereo with no lift stays with the player', () {
+      final PlaybackRun run = PlaybackRun.watching(
+        session: _sending(2),
+        version: kStereo,
+        controls: k720,
+        mixesSound: true,
+      );
+      final PlaybackControls loud = run.state.remote.copyWith(normalize: false);
+
+      expect(
+        run.apply((PlaybackState s) => viewerChangesRemote(s, loud)),
+        const <PlaybackCommand>[
+          TuneSound(normalize: false, dialogue: DialogueLift.none),
+        ],
+      );
+    });
+
+    test('night mode and a stereo downmix always go to the server', () {
+      for (final PlaybackControls Function(PlaybackControls) change
+          in <PlaybackControls Function(PlaybackControls)>[
+            (PlaybackControls c) => c.copyWith(night: NightMode.light),
+            (PlaybackControls c) => c.copyWith(downmix: true),
+          ]) {
+        final PlaybackRun run = PlaybackRun.watching(
+          session: _sending(6),
+          version: kSurround,
+          mixesSound: true,
+        );
+
+        expect(
+          run
+              .apply(
+                (PlaybackState s) =>
+                    viewerChangesRemote(s, change(run.state.remote)),
+              )
+              .whereType<SendUpdate>(),
+          hasLength(1),
+        );
+      }
+    });
+  });
 
   test('a stream setting with no stream is kept for the next start', () {
     final PlaybackRun failed = PlaybackRun.opened();

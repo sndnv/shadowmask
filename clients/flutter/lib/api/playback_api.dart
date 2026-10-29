@@ -45,6 +45,7 @@ class PlaybackApi {
     ClientDecoding? decoding,
     List<String> subtitleDeliveries = const <String>[],
     bool selectsAudioTracks = false,
+    bool mixesSound = false,
     PlaybackControls controls = const PlaybackControls(),
   }) => _api.postJson('/api/v1/sessions', <String, dynamic>{
     'version_id': versionId,
@@ -56,6 +57,7 @@ class PlaybackApi {
       if (subtitleDeliveries.isNotEmpty)
         'subtitle_deliveries': subtitleDeliveries,
       if (selectsAudioTracks) 'audio_tracks': true,
+      if (mixesSound) 'audio_downmix': true,
     },
     ...controls.toStartBody(),
   }, PlaybackSession.fromJson);

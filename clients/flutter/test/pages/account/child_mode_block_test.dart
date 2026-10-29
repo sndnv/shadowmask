@@ -7,6 +7,8 @@ import 'package:shadowmask/pages/account/child_mode_block.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 
+import '../../support/setting_rows.dart';
+
 Widget _host(Widget child) => MaterialApp(
   theme: buildTheme(AppThemeVariant.dark),
   home: Scaffold(body: SingleChildScrollView(child: child)),
@@ -17,6 +19,18 @@ Widget _scoped(int? age, ValueChanged<int?> setAge) => _host(
 );
 
 void main() {
+  testWidgets('the setting row is laid out like every other', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(_scoped(null, (_) {}));
+
+    expectSettingRow(
+      tester,
+      Strings.childModeViewerAge,
+      Strings.childModeStatus(null),
+    );
+  });
+
   testWidgets('off says so and offers every age range', (
     WidgetTester tester,
   ) async {
