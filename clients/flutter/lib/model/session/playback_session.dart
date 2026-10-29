@@ -18,6 +18,7 @@ abstract class PlaybackSession with _$PlaybackSession {
     @Default(false) bool sequential,
     @Default(10) int heartbeatIntervalS,
     SelectedTracks? selected,
+    int? audioChannels,
     Markers? markers,
     @Default(<TrickplayRef>[]) List<TrickplayRef> trickplay,
   }) = _PlaybackSession;

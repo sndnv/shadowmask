@@ -64,7 +64,13 @@ sub onRequest()
     end if
 
     kind = TextOrBlank(ValueAt(request, "kind", "confirm"))
-    selected = DialogStartIndex(request, m.top.visible, m.field, m.index, options.Count())
+    focused = ""
+    onCancel = false
+    if m.index >= 0 and m.index < m.model.Count()
+        focused = TextOrBlank(ValueAt(m.model[m.index], "label", ""))
+        onCancel = ValueAt(m.model[m.index], "cancel", false) = true
+    end if
+    selected = DialogStartIndex(request, m.top.visible, m.field, m.index, options.Count(), focused, onCancel)
 
     m.field = TextOrBlank(ValueAt(request, "field", ""))
     m.inRow = DialogInRow(request)

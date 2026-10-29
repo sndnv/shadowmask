@@ -54,6 +54,153 @@ namespace tests
             m.assertFalse(ControlsStartBody(controls).DoesExist("delivery"))
         end sub
 
+        @describe("the sound settings")
+
+        @it("keeps only a dialogue step the player offers")
+        sub keepsOfferedDialogue()
+            m.assertEqual(ValidDialogue(0), 0)
+            m.assertEqual(ValidDialogue(3), 3)
+            m.assertEqual(ValidDialogue(6), 6)
+            m.assertEqual(ValidDialogue(9), 9)
+            m.assertEqual(ValidDialogue(5), 0)
+            m.assertEqual(ValidDialogue(-3), 0)
+        end sub
+
+        @it("keeps only a night strength the player offers")
+        sub keepsOfferedNight()
+            m.assertEqual(ValidNight("light"), "light")
+            m.assertEqual(ValidNight("STRONG"), "strong")
+            m.assertEqual(ValidNight("max"), "off")
+            m.assertEqual(ValidNight(invalid), "off")
+        end sub
+
+        @it("labels every dialogue step and night strength")
+        sub labelsEverySoundChoice()
+            m.assertEqual(DialogueOptions().Count(), 4)
+            for each option in DialogueOptions()
+                m.assertEqual(DialogueLabel(option.value), option.label)
+                m.assertFalse(IsBlank(option.label))
+            end for
+            m.assertEqual(DialogueLabel(5), DialogueLabel(0))
+
+            m.assertEqual(NightOptions().Count(), 3)
+            for each option in NightOptions()
+                m.assertEqual(NightLabel(option.value), option.label)
+                m.assertFalse(IsBlank(option.label))
+            end for
+            m.assertEqual(NightLabel("max"), NightLabel("off"))
+        end sub
+
+        @it("starts a video's sound from the saved defaults")
+        sub startsFromSavedSound()
+            controls = WithDefaultSound(DefaultControls(), true, false, 6, "strong")
+
+            m.assertTrue(controls.downmix)
+            m.assertFalse(controls.normalize)
+            m.assertEqual(controls.dialogue, 6)
+            m.assertEqual(controls.night, "strong")
+
+            body = ControlsStartBody(controls)
+            m.assertTrue(body.downmix_stereo)
+            m.assertFalse(body.normalize_downmix)
+            m.assertEqual(body.dialogue_db, 6)
+            m.assertEqual(body.night, "strong")
+        end sub
+
+        @it("keeps a saved value the player does not offer at its default")
+        sub unknownSavedSoundFallsBack()
+            controls = WithDefaultSound(DefaultControls(), false, true, 5, "max")
+
+            m.assertEqual(controls.dialogue, 0)
+            m.assertEqual(controls.night, "off")
+        end sub
+
+        @it("leaves the server's sound defaults off the start body")
+        sub defaultSoundStaysImplicit()
+            m.assertEqual(ControlsStartBody(WithDefaultSound(DefaultControls(), false, true, 0, "off")).Count(), 0)
+        end sub
+
+        @describe("SourceChannels")
+
+        @it("counts the channels of the track playing, else of the first track")
+        sub countsTheTrackPlaying()
+            version = { audio: [{ index: 1, channels: 2 }, { index: 2, channels: 6 }] }
+
+            m.assertEqual(SourceChannels(version, 2), 6)
+            m.assertEqual(SourceChannels(version, 1), 2)
+            m.assertEqual(SourceChannels(version, -1), 2)
+            m.assertEqual(SourceChannels(version, 9), 2)
+        end sub
+
+        @it("counts nothing with no track or no channels")
+        sub countsNothingUnknown()
+            m.assertEqual(SourceChannels(invalid, -1), 0)
+            m.assertEqual(SourceChannels({ audio: [] }, -1), 0)
+            m.assertEqual(SourceChannels({ audio: [{ index: 1 }] }, 1), 0)
+        end sub
+
+        @describe("SoundRows")
+
+        @it("shows nothing for a source with no known channels")
+        sub noSoundRowsUnknown()
+            rows = SoundRows(0, 0, 6)
+
+            m.assertFalse(rows.downmix)
+            m.assertFalse(rows.normalize)
+            m.assertFalse(rows.dialogue)
+            m.assertFalse(rows.night)
+        end sub
+
+        @it("offers night mode only for mono")
+        sub monoGetsNightOnly()
+            rows = SoundRows(1, 1, 6)
+
+            m.assertFalse(rows.downmix)
+            m.assertFalse(rows.normalize)
+            m.assertFalse(rows.dialogue)
+            m.assertTrue(rows.night)
+        end sub
+
+        @it("offers dialogue and night mode for stereo")
+        sub stereoGetsDialogueAndNight()
+            rows = SoundRows(2, 2, 0)
+
+            m.assertFalse(rows.downmix)
+            m.assertFalse(rows.normalize)
+            m.assertTrue(rows.dialogue)
+            m.assertTrue(rows.night)
+        end sub
+
+        @it("offers Prevent distortion for stereo with a lift, since the server mixes the lifted centre back down")
+        sub liftedStereoGetsNormalize()
+            rows = SoundRows(2, 2, 3)
+
+            m.assertFalse(rows.downmix)
+            m.assertTrue(rows.normalize)
+            m.assertTrue(rows.dialogue)
+            m.assertTrue(rows.night)
+            m.assertFalse(SoundRows(1, 1, 9).normalize)
+        end sub
+
+        @it("offers the downmix for surround, and Prevent distortion once the server mixes it down")
+        sub surroundGetsDownmix()
+            kept = SoundRows(6, 6, 0)
+            m.assertTrue(kept.downmix)
+            m.assertFalse(kept.normalize)
+            m.assertTrue(kept.dialogue)
+            m.assertTrue(kept.night)
+
+            m.assertFalse(SoundRows(6, 6, 6).normalize)
+            m.assertTrue(SoundRows(6, 2, 0).normalize)
+            m.assertTrue(SoundRows(8, 6, 0).normalize)
+        end sub
+
+        @it("takes the source's channels when the server has not said")
+        sub unsentIsTheSource()
+            m.assertFalse(SoundRows(6, 0, 0).normalize)
+            m.assertTrue(SoundRows(6, 0, 0).downmix)
+        end sub
+
         @describe("StreamUrl")
 
         @it("keeps the stream path outside the api prefix")
@@ -1028,7 +1175,7 @@ namespace tests
         @it("gives every row an id the screen can act on")
         sub everySettingHasAnId()
             rows = SettingsRows(DefaultControls(), {})
-            rows.Append(AudioRows(DefaultControls(), invalid))
+            rows.Append(AudioRows(DefaultControls(), { audio: [{ index: 1, channels: 6 }] }, 2))
             rows.Append(SubtitleRows(DefaultControls(), invalid, "default", false))
 
             for each row in rows
@@ -1111,13 +1258,44 @@ namespace tests
 
         @describe("AudioRows")
 
-        @it("carries the track and the downmix together")
-        sub audioRowsPairTrackAndDownmix()
-            rows = AudioRows(DefaultControls(), invalid)
+        @it("carries only the track when the source's channels are unknown")
+        sub audioRowsTrackOnly()
+            rows = AudioRows(DefaultControls(), invalid, 0)
 
-            m.assertEqual(rows.Count(), 2)
+            m.assertEqual(rows.Count(), 1)
             m.assertEqual(rows[0].id, "audio")
-            m.assertEqual(rows[1].id, "downmix")
+        end sub
+
+        @it("follows the track with the sound rows that apply")
+        sub audioRowsFollowTheSound()
+            version = { audio: [{ index: 1, channels: 2 }, { index: 2, channels: 6 }] }
+            controls = WithDefaultSound(DefaultControls(), true, false, 6, "light")
+            controls.audioTrack = 2
+
+            rows = AudioRows(controls, version, 2)
+            ids = []
+            for each row in rows
+                ids.Push(row.id)
+            end for
+            m.assertEqual(ids.Join(","), "audio,downmix,normalize,dialogue,night")
+            m.assertEqual(rows[1].detail, OnOrOff(true))
+            m.assertEqual(rows[2].detail, OnOrOff(false))
+            m.assertEqual(rows[3].detail, DialogueLabel(6))
+            m.assertEqual(rows[4].detail, NightLabel("light"))
+
+            controls.audioTrack = 1
+            ids = []
+            for each row in AudioRows(controls, version, 2)
+                ids.Push(row.id)
+            end for
+            m.assertEqual(ids.Join(","), "audio,normalize,dialogue,night")
+
+            controls.dialogue = 0
+            ids = []
+            for each row in AudioRows(controls, version, 2)
+                ids.Push(row.id)
+            end for
+            m.assertEqual(ids.Join(","), "audio,dialogue,night")
         end sub
 
         @describe("ControlsStartBody")
@@ -1179,8 +1357,21 @@ namespace tests
             m.assertInvalid(body.target_height)
             m.assertFalse(body.force_burn)
             m.assertFalse(body.downmix_stereo)
+            m.assertTrue(body.normalize_downmix)
+            m.assertEqual(body.dialogue_db, 0)
+            m.assertEqual(body.night, "off")
             m.assertEqual(body.delivery, "auto")
             m.assertEqual(body.subtitle.action, "disable")
+        end sub
+
+        @it("states the sound chosen")
+        sub updateBodyStatesTheSound()
+            body = ControlsUpdateBody(WithDefaultSound(DefaultControls(), true, false, 9, "strong"))
+
+            m.assertTrue(body.downmix_stereo)
+            m.assertFalse(body.normalize_downmix)
+            m.assertEqual(body.dialogue_db, 9)
+            m.assertEqual(body.night, "strong")
         end sub
 
         @it("sets a subtitle with its offset")

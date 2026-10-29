@@ -16,4 +16,5 @@ pub struct TrackHandling {
     pub external: bool,
     pub rendition: bool,
     pub audio: bool,
+    pub downmix: bool,
 }

@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/player/state/local_settings.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 
 const int kAutoplayOff = 0;
@@ -48,6 +49,10 @@ class PlayerPrefsStore {
   static const String _waitKey = 'shadowmask.player.wait_for_buffer';
   static const String _deliveryKey = 'shadowmask.player.delivery';
   static const String _subtitleSizeKey = 'shadowmask.player.subtitle_size';
+  static const String _downmixKey = 'shadowmask.player.downmix';
+  static const String _normalizeKey = 'shadowmask.player.normalize';
+  static const String _dialogueKey = 'shadowmask.player.dialogue';
+  static const String _nightKey = 'shadowmask.player.night';
 
   Future<LocalSettings> load() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -80,6 +85,11 @@ class PlayerPrefsStore {
       subtitleSize: subtitleSize == null
           ? _defaults.subtitleSize
           : SubtitleSize.fromWire(subtitleSize),
+      defaultDownmix: prefs.getBool(_downmixKey) ?? _defaults.defaultDownmix,
+      defaultNormalize:
+          prefs.getBool(_normalizeKey) ?? _defaults.defaultNormalize,
+      defaultDialogue: DialogueLift.fromDb(prefs.getInt(_dialogueKey)),
+      defaultNight: NightMode.fromWire(prefs.getString(_nightKey)),
     );
   }
 
@@ -160,5 +170,25 @@ class PlayerPrefsStore {
   Future<void> saveSubtitleSize(SubtitleSize size) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setString(_subtitleSizeKey, size.wire);
+  }
+
+  Future<void> saveDownmix(bool on) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_downmixKey, on);
+  }
+
+  Future<void> saveNormalize(bool on) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_normalizeKey, on);
+  }
+
+  Future<void> saveDialogue(DialogueLift lift) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_dialogueKey, lift.db);
+  }
+
+  Future<void> saveNight(NightMode night) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_nightKey, night.wire);
   }
 }

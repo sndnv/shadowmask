@@ -470,10 +470,10 @@ sub OpenWorkMenu(keep = false as boolean)
     if not keep then PollJobs()
 end sub
 
-sub OpenAudioMenu()
+sub OpenAudioMenu(keep = false as boolean)
     m.settingMenu = "audioMenu"
-    m.settingRows = AudioRows(PlaybackControls(), m.version)
-    AskChoice("audioMenu", Phrase("heading.audio"), m.settingRows, 0, "menu")
+    m.settingRows = AudioRows(PlaybackControls(), m.version, SentChannels())
+    AskChoice("audioMenu", Phrase("heading.audio"), m.settingRows, 0, "menu", keep)
 end sub
 
 sub ReopenMenu()
@@ -515,6 +515,16 @@ end sub
 sub OpenDelivery()
     options = DeliveryOptions()
     AskChoice("delivery", Phrase("player.converting"), options, IndexOfValue(options, "value", TextOrBlank(PlaybackControls().delivery)))
+end sub
+
+sub OpenDialogue()
+    options = DialogueOptions()
+    AskChoice("dialogue", Phrase("player.dialogue"), options, IndexOfValue(options, "value", ValidDialogue(Int(PlaybackControls().dialogue))))
+end sub
+
+sub OpenNight()
+    options = NightOptions()
+    AskChoice("night", Phrase("player.night"), options, IndexOfValue(options, "value", ValidNight(PlaybackControls().night)))
 end sub
 
 sub OpenSubtitleSize()
@@ -587,7 +597,7 @@ function ReopenedSettingMenu(field as string) as boolean
         return true
     end if
 
-    leaves = ["quality", "audio", "subtitle", "delivery", "offset", "subtitleSize", "autoplay"]
+    leaves = ["quality", "audio", "subtitle", "delivery", "dialogue", "night", "offset", "subtitleSize", "autoplay"]
     leaves.Append(WorkChoiceFields())
 
     isLeaf = false
@@ -657,6 +667,20 @@ sub RunChoice(field as string, chosen as object)
     if field = "delivery"
         wanted = ControlsCopy(PlaybackControls())
         wanted.delivery = TextOrBlank(ValueAt(chosen, "value", "auto"))
+        ApplyControls(wanted)
+        return
+    end if
+
+    if field = "dialogue"
+        wanted = ControlsCopy(PlaybackControls())
+        wanted.dialogue = ValidDialogue(Int(ValueAt(chosen, "value", 0)))
+        ApplyControls(wanted)
+        return
+    end if
+
+    if field = "night"
+        wanted = ControlsCopy(PlaybackControls())
+        wanted.night = ValidNight(ValueAt(chosen, "value", "off"))
         ApplyControls(wanted)
         return
     end if
@@ -963,6 +987,21 @@ sub RunSetting(id as string)
         ReopenMenu()
         return
     end if
+    if id = "normalize"
+        wanted = ControlsCopy(PlaybackControls())
+        wanted.normalize = PlaybackControls().normalize = false
+        ApplyControls(wanted)
+        ReopenMenu()
+        return
+    end if
+    if id = "dialogue"
+        OpenDialogue()
+        return
+    end if
+    if id = "night"
+        OpenNight()
+        return
+    end if
 
     MarkBarCommitted()
 
@@ -997,6 +1036,10 @@ end sub
 
 function PlaybackControls() as object
     return m.playback.remote
+end function
+
+function SentChannels() as integer
+    return StreamAudioChannels(m.playback)
 end function
 
 function PlaybackBurned() as boolean
@@ -1037,7 +1080,7 @@ sub RetryPlayback()
 end sub
 
 function StartingControls() as object
-    return WithDefaultDelivery(DefaultControls(), ReadDelivery())
+    return ReadSound(WithDefaultDelivery(DefaultControls(), ReadDelivery()))
 end function
 
 sub DrawDiagnostics(theme as object)
@@ -1357,6 +1400,7 @@ sub PlaybackChanged(before as object, after as object)
     end if
     RefreshDiagnostics()
     FollowEnd(before, after)
+    if m.openChoice = "audioMenu" and AudioMenuStale(before, after) then OpenAudioMenu(true)
 end sub
 
 sub DrawNote(before as object, after as object)
@@ -1513,7 +1557,7 @@ sub onResume(event as object)
     if resumeMs < 0 then resumeMs = 0
 
     remote = PlaybackControls()
-    if m.carried <> invalid then remote = WithDefaultDelivery(ControlsForCarried(m.carried, m.version), ReadDelivery())
+    if m.carried <> invalid then remote = ReadSound(WithDefaultDelivery(ControlsForCarried(m.carried, m.version), ReadDelivery()))
     m.carried = invalid
 
     PostPlayback({ kind: "opened", durationMs: Int(ValueAt(m.version, "duration_ms", 0)), resumeMs: resumeMs, remote: ControlsCopy(remote) })

@@ -1543,6 +1543,19 @@ namespace tests
             m.assertEqual(SlotSpeech("Next episode", 5, 6), "Next episode, 6 of 6")
         end sub
 
+        @it("borders an on button like an off one until it has focus")
+        sub onButtonBorderedLikeOff()
+            theme = ThemeTokens("dark")
+            bar = CreateObject("roSGNode", "ActionBar")
+            bar.theme = theme
+            bar.buttons = [{ id: "on", label: "On", icon: "", iconOn: "icon-check", pressed: true }, { id: "off", label: "Off" }]
+
+            slots = bar.FindNode("slots")
+            m.assertEqual(slots.GetChildCount(), 2)
+            m.assertEqual(slots.GetChild(0).GetChild(1).lineColor, theme.border)
+            m.assertEqual(slots.GetChild(1).GetChild(1).lineColor, theme.border)
+        end sub
+
         @it("says when a control cannot be pressed, which focus alone does not convey")
         sub saysUnavailable()
             m.assertEqual(SlotSpeech("Previous episode", 0, 3, true), "Previous episode, 1 of 3, Unavailable")

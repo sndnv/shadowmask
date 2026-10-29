@@ -1241,12 +1241,29 @@ function IsDialogClose(request as dynamic) as boolean
     return request.Count() = 0
 end function
 
-function DialogStartIndex(request as dynamic, open as boolean, field as string, current as integer, count as integer) as integer
+function DialogStartIndex(request as dynamic, open as boolean, field as string, current as integer, count as integer, focused = "" as string, onCancel = false as boolean) as integer
     if count <= 0 then return 0
 
     asked = Int(ValueAt(request, "selected", 0))
-    if open and ValueAt(request, "keep", false) = true and TextOrBlank(ValueAt(request, "field", "")) = field then asked = current
+    if open and ValueAt(request, "keep", false) = true and TextOrBlank(ValueAt(request, "field", "")) = field
+        if onCancel then return count
+        asked = current
+        found = OptionIndex(ValueAt(request, "options", []), focused, current)
+        if found >= 0 then asked = found
+    end if
     return ClampInt(asked, 0, count - 1)
+end function
+
+function OptionIndex(options as dynamic, label as string, near as integer) as integer
+    if IsBlank(label) or type(options) <> "roArray" then return -1
+
+    found = -1
+    for index = 0 to options.Count() - 1
+        if TextOrBlank(ValueAt(options[index], "label", "")) = label
+            if found < 0 or Abs(index - near) < Abs(found - near) then found = index
+        end if
+    end for
+    return found
 end function
 
 function DialogRows(options as dynamic, kind as dynamic, selected as integer) as object

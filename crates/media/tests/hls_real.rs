@@ -5,9 +5,10 @@ use std::time::Duration;
 use domain::catalog::VersionId;
 use domain::media::{EmbeddedSubtitleTrack, MediaProbe, PlaybackPreparer, SubtitleFormat};
 use domain::session::{
-    BurnSubtitle, SegmentContainer, SessionId, SoftSubtitle, SoftSubtitleSource, StreamClaims,
-    StreamGeneration, StreamSource, SubtitleDelivery, SubtitleFileSpec, TranscodeManager,
-    TranscodeSpec, TranscodeStarted, segment_container_for,
+    BurnSubtitle, DialogueLift, NightMode, SegmentContainer, SessionId, SoftSubtitle,
+    SoftSubtitleSource, SoundSettings, SourceAudio, StreamClaims, StreamGeneration, StreamSource,
+    SubtitleDelivery, SubtitleFileSpec, TranscodeManager, TranscodeSpec, TranscodeStarted,
+    segment_container_for,
 };
 use domain::user::UserId;
 use jiff::Timestamp;
@@ -82,6 +83,8 @@ fn spec(clip: &Clip, copy: bool, container: SegmentContainer, seek_ms: u64) -> T
         soft_subtitle: None,
         convert_audio: false,
         audio_channels: None,
+        source_audio: None,
+        sound: SoundSettings::default(),
         source_hdr: None,
     }
 }
@@ -438,6 +441,7 @@ async fn converted_side_surround_carries_a_layout_every_segment_declares_on_its_
     let spec = TranscodeSpec {
         audio_track: Some(1),
         convert_audio: true,
+        source_audio: Some(SourceAudio { codec: "ac3".to_owned(), channels: 6 }),
         ..spec(&clip, true, SegmentContainer::MpegTs, 0)
     };
 
@@ -449,6 +453,195 @@ async fn converted_side_surround_carries_a_layout_every_segment_declares_on_its_
         "aac,6,5.1",
         "a segment without a standard AAC configuration cannot be appended by Chrome"
     );
+}
+
+const SIDE_SURROUND: &str = "5.1(side)";
+const TONE: &str = "sin(2*PI*440*t)";
+
+async fn sounded(dir: &Path, name: &str, layout: &str, channels: &[String]) -> Clip {
+    let path = dir.join(name).to_string_lossy().into_owned();
+    let sound = format!("aevalsrc={}:c={layout}:s=48000:d=6", channels.join("|"));
+    let built = Command::new("ffmpeg")
+        .args(["-nostdin", "-v", "error", "-y", "-f", "lavfi"])
+        .args(["-i", "testsrc2=s=160x120:r=24000/1001:d=6", "-f", "lavfi", "-i", &sound])
+        .args(["-map", "0", "-map", "1", "-c:v", "libx264", "-preset", "veryfast"])
+        .args(["-pix_fmt", "yuv420p", "-g", "48", "-c:a", "flac", &path])
+        .status()
+        .expect("ffmpeg should build the clip; is ffmpeg installed and on PATH?");
+    assert!(built.success(), "building [{name}]");
+    described(path, name).await
+}
+
+fn tones(levels: &[f64]) -> Vec<String> {
+    levels
+        .iter()
+        .map(|level| if *level == 0.0 { "0".to_owned() } else { format!("{level}*{TONE}") })
+        .collect()
+}
+
+fn converting(
+    clip: &Clip,
+    channels: u8,
+    audio_channels: Option<u8>,
+    sound: SoundSettings,
+) -> TranscodeSpec {
+    TranscodeSpec {
+        audio_track: Some(1),
+        convert_audio: true,
+        audio_channels,
+        source_audio: Some(SourceAudio { codec: "flac".to_owned(), channels }),
+        sound,
+        ..spec(clip, true, SegmentContainer::MpegTs, 0)
+    }
+}
+
+fn astats(input: &str, key: &str) -> Vec<f64> {
+    let measured = Command::new("ffmpeg")
+        .args(["-nostdin", "-v", "info", "-i", input, "-map", "0:a:0"])
+        .args(["-af", "astats", "-f", "null", "-"])
+        .output()
+        .expect("ffmpeg should run");
+    let prefix = format!("{key}: ");
+    String::from_utf8_lossy(&measured.stderr)
+        .lines()
+        .filter_map(|line| line.split("] ").nth(1))
+        .filter_map(|rest| rest.strip_prefix(prefix.as_str()))
+        .filter_map(|value| value.trim().parse().ok())
+        .collect()
+}
+
+async fn measured(spec: TranscodeSpec, key: &str) -> Vec<f64> {
+    let cache = tempfile::tempdir().expect("tempdir");
+    let (_engine, _started, variant) = run_to_the_end(cache.path(), spec).await;
+    astats(&variant.join("index.m3u8").to_string_lossy(), key)
+}
+
+fn overall(levels: &[f64]) -> f64 {
+    *levels.last().expect("astats reports an overall level")
+}
+
+#[tokio::test]
+async fn a_server_fold_to_stereo_stays_below_full_scale_only_when_normalized() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let clip = sounded(dir.path(), "loud.mkv", SIDE_SURROUND, &tones(&[0.7; 6])).await;
+    let quiet = SoundSettings { normalize: false, ..SoundSettings::default() };
+
+    let normalized =
+        measured(converting(&clip, 6, Some(2), SoundSettings::default()), "Peak level dB").await;
+    let clipped = measured(converting(&clip, 6, Some(2), quiet), "Peak level dB").await;
+
+    assert!(overall(&normalized) < 0.0, "{normalized:?}");
+    assert!(overall(&clipped) > 3.0, "{clipped:?}");
+}
+
+#[tokio::test]
+async fn a_dialogue_lift_on_a_server_fold_raises_the_centre_by_its_decibels() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let centre =
+        sounded(dir.path(), "centre.mkv", SIDE_SURROUND, &tones(&[0.0, 0.0, 0.5, 0.0, 0.0, 0.0]))
+            .await;
+    let left =
+        sounded(dir.path(), "left.mkv", SIDE_SURROUND, &tones(&[0.5, 0.0, 0.0, 0.0, 0.0, 0.0]))
+            .await;
+    let mut gaps = Vec::new();
+    for dialogue in [DialogueLift::None, DialogueLift::Db6] {
+        let sound = SoundSettings { dialogue, ..SoundSettings::default() };
+        let speech = measured(converting(&centre, 6, Some(2), sound), "RMS level dB").await;
+        let rest = measured(converting(&left, 6, Some(2), sound), "RMS level dB").await;
+        gaps.push(speech[0] - rest[0]);
+    }
+
+    assert!((gaps[1] - gaps[0] - 6.0).abs() < 0.2, "{gaps:?}");
+}
+
+#[tokio::test]
+async fn a_dialogue_lift_on_surround_the_server_sends_lowers_every_channel_but_the_centre() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let clip = sounded(dir.path(), "even.mkv", SIDE_SURROUND, &tones(&[0.5; 6])).await;
+    let sound = SoundSettings { dialogue: DialogueLift::Db6, ..SoundSettings::default() };
+
+    let levels = measured(converting(&clip, 6, None, sound), "RMS level dB").await;
+
+    assert_eq!(levels.len(), 7, "{levels:?}");
+    for channel in [0, 1, 4, 5] {
+        assert!((levels[2] - levels[channel] - 6.0).abs() < 0.2, "channel {channel}: {levels:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_dialogue_lift_on_stereo_is_still_sent_as_stereo() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let clip = sounded(dir.path(), "stereo.mkv", "stereo", &tones(&[0.5, 0.5])).await;
+    let cache = tempfile::tempdir().expect("tempdir");
+    let sound = SoundSettings { dialogue: DialogueLift::Db6, ..SoundSettings::default() };
+
+    let (_engine, _started, variant) =
+        run_to_the_end(cache.path(), converting(&clip, 2, None, sound)).await;
+
+    let served = variant.join("index.m3u8").to_string_lossy().into_owned();
+    assert_eq!(sound_format(&served), "aac,2");
+    let peaks = astats(&served, "Peak level dB");
+    assert!(overall(&peaks) > -30.0, "{peaks:?}");
+}
+
+#[tokio::test]
+async fn night_mode_and_a_lift_play_in_every_layout_they_send() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let surround = sounded(dir.path(), "surround.mkv", SIDE_SURROUND, &tones(&[0.5; 6])).await;
+    let stereo = sounded(dir.path(), "stereo.mkv", "stereo", &tones(&[0.5, 0.5])).await;
+    let back = sounded(dir.path(), "back.mkv", "6.1", &tones(&[0.5; 7])).await;
+    let lfe = sounded(dir.path(), "lfe.mkv", "3.1", &tones(&[0.5; 4])).await;
+    assert_eq!(sound(&back.path, "stream=channel_layout"), "6.1");
+    assert_eq!(sound(&lfe.path, "stream=channel_layout"), "3.1");
+    let night = SoundSettings { night: NightMode::Light, ..SoundSettings::default() };
+    let lifted = SoundSettings { dialogue: DialogueLift::Db6, ..night };
+    let lift = SoundSettings { dialogue: DialogueLift::Db6, ..SoundSettings::default() };
+    let cases = [
+        ("surround kept", converting(&surround, 6, None, night), "aac,6"),
+        ("surround folded", converting(&surround, 6, Some(2), night), "aac,2"),
+        ("surround kept and lifted", converting(&surround, 6, None, lifted), "aac,6"),
+        ("surround folded and lifted", converting(&surround, 6, Some(2), lifted), "aac,2"),
+        ("stereo lifted", converting(&stereo, 2, None, lifted), "aac,2"),
+        ("6.1 at night", converting(&back, 7, None, night), "aac,6"),
+        ("6.1 lifted", converting(&back, 7, None, lift), "aac,6"),
+        ("3.1 at night", converting(&lfe, 4, None, night), "aac,4"),
+        (
+            "surround transcoded at night",
+            TranscodeSpec { copy: false, ..converting(&surround, 6, None, night) },
+            "aac,6",
+        ),
+        (
+            "surround resumed at night",
+            TranscodeSpec { seek_ms: Some(3_000), ..converting(&surround, 6, None, night) },
+            "aac,6",
+        ),
+    ];
+
+    for (case, spec, format) in cases {
+        let resumed = spec.seek_ms.is_some();
+        let cache = tempfile::tempdir().expect("tempdir");
+        let (_engine, started, variant) = run_to_the_end(cache.path(), spec).await;
+        let served = variant.join("index.m3u8").to_string_lossy().into_owned();
+        assert_eq!(sound_format(&served), format, "{case}");
+        assert_eq!(started.origin_ms > 0, resumed, "{case}");
+    }
+}
+
+#[tokio::test]
+async fn night_mode_narrows_the_gap_between_loud_and_quiet_scenes() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let loud = sounded(dir.path(), "loud.mkv", "stereo", &tones(&[0.8, 0.8])).await;
+    let quiet = sounded(dir.path(), "quiet.mkv", "stereo", &tones(&[0.05, 0.05])).await;
+    let mut gaps = Vec::new();
+    for night in [NightMode::Off, NightMode::Light, NightMode::Strong] {
+        let sound = SoundSettings { night, ..SoundSettings::default() };
+        let high = measured(converting(&loud, 2, None, sound), "RMS level dB").await;
+        let low = measured(converting(&quiet, 2, None, sound), "RMS level dB").await;
+        gaps.push(overall(&high) - overall(&low));
+    }
+
+    assert!(gaps[1] < gaps[0] - 6.0, "{gaps:?}");
+    assert!(gaps[2] < gaps[1] - 4.0, "{gaps:?}");
 }
 
 fn packets(input: &Path, stream: &str) -> Vec<(f64, bool)> {

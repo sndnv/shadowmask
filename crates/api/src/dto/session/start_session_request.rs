@@ -4,7 +4,7 @@ use domain::catalog::VersionId;
 use domain::common::LanguageCode;
 use domain::session::{AudioRequest, DeliveryPreference, SessionStartInput, SubtitleRequest};
 
-use super::{ClientCapabilitiesDto, SubtitleSelectionDto};
+use super::{ClientCapabilitiesDto, SoundSettingsDto, SubtitleSelectionDto};
 
 #[derive(Debug, Deserialize)]
 pub struct StartSessionRequest {
@@ -23,6 +23,8 @@ pub struct StartSessionRequest {
     pub force_burn: bool,
     #[serde(default)]
     pub downmix_stereo: bool,
+    #[serde(flatten)]
+    pub sound: SoundSettingsDto,
     pub delivery: Option<String>,
 }
 
@@ -50,6 +52,7 @@ impl From<StartSessionRequest> for SessionStartInput {
             target_height: r.target_height,
             force_burn: r.force_burn,
             downmix_stereo: r.downmix_stereo,
+            sound: r.sound.into(),
             delivery: r
                 .delivery
                 .as_deref()
@@ -61,6 +64,7 @@ impl From<StartSessionRequest> for SessionStartInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::session::{DialogueLift, NightMode, SoundSettings};
 
     fn parse(delivery: &str) -> SessionStartInput {
         let json = format!(
@@ -94,6 +98,29 @@ mod tests {
         let input = parse(r#","audio_language":"ENG","subtitle_language":"pt_br""#);
         assert!(matches!(input.audio, AudioRequest::Language(ref l) if l.0 == "en"));
         assert!(matches!(input.subtitle, SubtitleRequest::Language(ref l) if l.0 == "pt-BR"));
+    }
+
+    #[test]
+    fn a_start_without_sound_settings_normalizes_and_leaves_the_rest_alone() {
+        assert_eq!(parse("").sound, SoundSettings::default());
+    }
+
+    #[test]
+    fn the_sound_settings_carry_through() {
+        let input = parse(r#","normalize_downmix":false,"dialogue_db":6,"night":"strong""#);
+        assert_eq!(
+            input.sound,
+            SoundSettings {
+                normalize: false,
+                dialogue: DialogueLift::Db6,
+                night: NightMode::Strong
+            }
+        );
+    }
+
+    #[test]
+    fn an_unknown_dialogue_lift_or_night_mode_reads_as_none() {
+        assert_eq!(parse(r#","dialogue_db":5,"night":"loud""#).sound, SoundSettings::default());
     }
 
     #[test]

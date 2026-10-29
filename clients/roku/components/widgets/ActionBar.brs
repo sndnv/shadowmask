@@ -304,7 +304,7 @@ function ButtonBorder(theme as object, tone as object) as string
     if tone.link then return ""
     if tone.disabled then return theme.border
     if tone.primary or tone.joined then return ""
-    if tone.focused or tone.pressed then return theme.accent
+    if tone.focused then return theme.accent
     return theme.border
 end function
 

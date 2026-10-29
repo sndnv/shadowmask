@@ -3,9 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:shadowmask/api/child_mode_scope.dart';
 import 'package:shadowmask/components/app_dropdown.dart';
 import 'package:shadowmask/components/section_block.dart';
+import 'package:shadowmask/components/setting_help.dart';
 import 'package:shadowmask/l10n/strings.dart';
-import 'package:shadowmask/theme/tokens.dart';
-import 'package:shadowmask/theme/tokens_context.dart';
 
 class ChildModeBlock extends StatelessWidget {
   const ChildModeBlock({super.key});
@@ -16,23 +15,19 @@ class ChildModeBlock extends StatelessWidget {
     if (scope == null) {
       return const SizedBox.shrink();
     }
-    final Tokens t = context.tokens;
     return SectionBlock(
       title: Strings.childModeHeading,
       child: Material(
         color: Colors.transparent,
         child: ListTile(
-          contentPadding: EdgeInsets.zero,
+          contentPadding: kSettingRowPadding,
+          minVerticalPadding: kSettingRowVerticalPadding,
+          minTileHeight: kSettingRowMinHeight,
           title: const Text(
             Strings.childModeViewerAge,
             style: TextStyle(fontWeight: FontWeight.w600),
           ),
-          subtitle: Text(
-            Strings.childModeStatus(scope.age),
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: t.muted),
-          ),
+          subtitle: SettingHelp(Strings.childModeStatus(scope.age)),
           trailing: AppDropdown<int?>(
             value: scope.age,
             label: Strings.childModeViewerAge,

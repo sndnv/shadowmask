@@ -19,12 +19,14 @@ PlaybackStep lifecycleOpens({
   required LocalSettings local,
   required PlaybackControls controls,
   required bool playing,
+  bool mixesSound = false,
 }) => _same(
   PlaybackState(
     versionId: versionId,
     local: local,
     remote: controls,
     timeline: PlaybackTimeline(playing: playing),
+    mixesSound: mixesSound,
   ),
 );
 
@@ -45,7 +47,14 @@ PlaybackStep lifecycleGathered(
   final PlaybackState gathered = s.copyWith(
     title: title,
     local: kept,
-    remote: s.remote.withDefaultDelivery(kept.defaultDelivery),
+    remote: s.remote
+        .withDefaultDelivery(kept.defaultDelivery)
+        .withDefaultSound(
+          downmix: kept.defaultDownmix,
+          normalize: kept.defaultNormalize,
+          dialogue: kept.defaultDialogue,
+          night: kept.defaultNight,
+        ),
     timeline: s.timeline.copyWith(positionMs: resumeMs),
     status: s.status.copyWith(gathered: true),
   );

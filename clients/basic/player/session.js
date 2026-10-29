@@ -7,6 +7,9 @@ export const SLOW_S = 20;
 export const NETWORK_TIMEOUTS = [10, 30, 60, 90];
 export const DELIVERY_MODES = ["auto", "never", "always"];
 export const SUBTITLE_DELIVERIES = ["external", "hls_vtt"];
+export const DIALOGUE_STEPS = [0, 3, 6, 9];
+export const NIGHT_MODES = ["off", "light", "strong"];
+export const SOUND_DEFAULTS = { downmix: false, normalize: true, dialogue: 0, night: "off" };
 
 const AUTO = { kind: "auto" };
 const OFF = { kind: "off" };
@@ -38,18 +41,35 @@ export function trackToWire(track) {
   return track.type === "embedded" ? "embedded:" + track.index : "file:" + track.id;
 }
 
-export function controlsFromQuery(params) {
+function flagOf(value, fallback) {
+  if (value === "1") return true;
+  if (value === "0") return false;
+  return fallback;
+}
+
+export function soundFrom(get, fallback) {
+  const dialogue = asInt(get("dialogue"));
+  const night = (get("night") || "").toLowerCase();
+  return {
+    downmix: flagOf(get("downmix"), fallback.downmix),
+    normalize: flagOf(get("normalize"), fallback.normalize),
+    dialogue: DIALOGUE_STEPS.includes(dialogue) ? dialogue : fallback.dialogue,
+    night: NIGHT_MODES.includes(night) ? night : fallback.night,
+  };
+}
+
+export function controlsFromQuery(params, defaults = SOUND_DEFAULTS) {
   const track = trackFromWire(params.get("sub"));
   const delivery = params.get("delivery");
-  return {
+  return Object.assign({
     height: asInt(params.get("height")),
     burn: params.get("burn") === "1",
-    downmix: params.get("downmix") === "1",
+  }, soundFrom((key) => params.get(key), defaults), {
     delivery: DELIVERY_MODES.indexOf(delivery) > 0 ? delivery : "auto",
     audioTrack: asInt(params.get("audio")),
     subtitle: track ? { kind: "on", track } : params.get("soff") === "1" ? OFF : AUTO,
     offsetMs: asInt(params.get("offset")) || 0,
-  };
+  });
 }
 
 export function controlsToQuery(versionId, remote) {
@@ -57,7 +77,10 @@ export function controlsToQuery(versionId, remote) {
   p.set("version", versionId);
   if (remote.height != null) p.set("height", String(remote.height));
   if (remote.burn) p.set("burn", "1");
-  if (remote.downmix) p.set("downmix", "1");
+  p.set("downmix", remote.downmix ? "1" : "0");
+  p.set("normalize", remote.normalize ? "1" : "0");
+  p.set("dialogue", String(remote.dialogue));
+  p.set("night", remote.night);
   if (remote.delivery !== "auto") p.set("delivery", remote.delivery);
   if (remote.audioTrack != null) p.set("audio", String(remote.audioTrack));
   if (remote.subtitle.kind === "on") p.set("sub", trackToWire(remote.subtitle.track));
@@ -78,6 +101,9 @@ export function startBody(remote) {
   if (remote.height != null) body.target_height = remote.height;
   if (remote.burn) body.force_burn = true;
   if (remote.downmix) body.downmix_stereo = true;
+  if (!remote.normalize) body.normalize_downmix = false;
+  if (remote.dialogue > 0) body.dialogue_db = remote.dialogue;
+  if (remote.night !== "off") body.night = remote.night;
   if (remote.audioTrack != null) body.audio_track = remote.audioTrack;
   if (remote.subtitle.kind === "on") body.subtitle = subtitleSet(remote);
   if (remote.subtitle.kind === "off") body.subtitle_off = true;
@@ -90,6 +116,9 @@ export function updateBody(remote) {
     target_height: remote.height,
     force_burn: remote.burn,
     downmix_stereo: remote.downmix,
+    normalize_downmix: remote.normalize,
+    dialogue_db: remote.dialogue,
+    night: remote.night,
     delivery: remote.delivery,
   };
   if (remote.audioTrack != null) body.audio_track = remote.audioTrack;

@@ -25,6 +25,7 @@ import 'package:shadowmask/player/watches/stall_watch.dart';
 import 'package:shadowmask/view/episode_neighbours.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/view/profile_version.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 
 import '../support/fake_player_controller.dart';
@@ -43,6 +44,7 @@ class FakePlaybackApi extends Fake implements PlaybackApi {
   ClientDecoding? decoding;
   List<String>? subtitleDeliveries;
   bool? selectsAudioTracks;
+  bool? mixesSound;
 
   @override
   Future<PlaybackSession> startSession({
@@ -53,6 +55,7 @@ class FakePlaybackApi extends Fake implements PlaybackApi {
     ClientDecoding? decoding,
     List<String> subtitleDeliveries = const <String>[],
     bool selectsAudioTracks = false,
+    bool mixesSound = false,
     PlaybackControls controls = const PlaybackControls(),
   }) {
     calls.add('start:$versionId@$startPositionMs:$profileVersion:$platform');
@@ -60,6 +63,7 @@ class FakePlaybackApi extends Fake implements PlaybackApi {
     this.decoding = decoding;
     this.subtitleDeliveries = subtitleDeliveries;
     this.selectsAudioTracks = selectsAudioTracks;
+    this.mixesSound = mixesSound;
     final Completer<PlaybackSession> answer = Completer<PlaybackSession>();
     starts.add(answer);
     return answer.future;
@@ -214,7 +218,16 @@ void main() {
       'buffer:120',
     ]);
     expect(rig.api.calls, <String>['start:v1@40000:7:linux']);
-    expect(rig.api.controls, k720.copyWith(delivery: DeliveryPreference.never));
+    expect(
+      rig.api.controls,
+      k720.copyWith(
+        delivery: DeliveryPreference.never,
+        downmix: false,
+        normalize: true,
+        dialogue: DialogueLift.none,
+        night: NightMode.off,
+      ),
+    );
     expect(rig.api.decoding, decoding);
     await rig.leave(tester);
   });
@@ -271,6 +284,21 @@ void main() {
 
     expect(rig.api.subtitleDeliveries, rig.player.subtitleDeliveries);
     expect(rig.api.selectsAudioTracks, isTrue);
+    expect(rig.api.mixesSound, isTrue);
+    expect(rig.runner.state.value.mixesSound, isTrue);
+    await rig.leave(tester);
+  });
+
+  testWidgets('a loaded stream tunes the player to the session\'s sound', (
+    WidgetTester tester,
+  ) async {
+    final Rig rig = Rig();
+
+    await rig.answerStart(tester, kDirect);
+
+    expect(rig.player.tunings, const <(bool, DialogueLift)>[
+      (true, DialogueLift.none),
+    ]);
     await rig.leave(tester);
   });
 
@@ -473,6 +501,7 @@ void main() {
       'decoding': null,
       'subtitle_deliveries': rig.player.subtitleDeliveries,
       'audio_tracks': rig.player.selectsAudioTracks,
+      'audio_downmix': rig.player.mixesSound,
     });
     expect(entries[5]['controls'], k720.toUpdateBody());
     expect(entries[6]['position_ms'], 5000);

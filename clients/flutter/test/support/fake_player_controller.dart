@@ -7,6 +7,7 @@ import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
 import 'package:shadowmask/player/state/player_tracks.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 
 class WatchedNotifier<T> extends ValueNotifier<T> {
@@ -195,6 +196,22 @@ class FakePlayerController implements PlayerController {
 
   @override
   bool get selectsAudioTracks => true;
+
+  @override
+  bool get mixesSound => true;
+
+  int? output;
+
+  @override
+  int? get outputChannels => output;
+
+  final List<(bool, DialogueLift)> tunings = <(bool, DialogueLift)>[];
+
+  @override
+  Future<void> tuneSound({
+    required bool normalize,
+    required DialogueLift dialogue,
+  }) async => tunings.add((normalize, dialogue));
 
   @override
   Widget get view => const SizedBox.shrink();

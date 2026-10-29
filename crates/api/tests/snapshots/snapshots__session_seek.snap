@@ -4,6 +4,7 @@ expression: value
 ---
 {
   "body": {
+    "audio_channels": 2,
     "container": null,
     "manifest_url": "[manifest_url]",
     "mode": "direct",

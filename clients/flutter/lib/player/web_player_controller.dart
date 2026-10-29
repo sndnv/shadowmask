@@ -13,6 +13,7 @@ import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/player/player_diagnostics.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
 import 'package:shadowmask/player/state/player_tracks.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 
 @JS('Hls')
@@ -170,6 +171,7 @@ class WebPlayerController implements PlayerController {
   final StreamController<String> _errors = StreamController<String>.broadcast();
   final PlaybackLog _log = PlaybackLog();
   web.HTMLStyleElement? _cueStyle;
+  bool _disposed = false;
 
   final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
     const PlayerSnapshot(),
@@ -217,6 +219,18 @@ class WebPlayerController implements PlayerController {
 
   @override
   bool get selectsAudioTracks => false;
+
+  @override
+  bool get mixesSound => false;
+
+  @override
+  int? get outputChannels => null;
+
+  @override
+  Future<void> tuneSound({
+    required bool normalize,
+    required DialogueLift dialogue,
+  }) async {}
 
   @override
   Widget get view => HtmlElementView(viewType: _viewType);
@@ -397,7 +411,10 @@ class WebPlayerController implements PlayerController {
     }
     try {
       await _video.play().toDart;
-    } catch (_) {
+    } catch (error) {
+      if (_disposed || !_refusedAutoplay(error)) {
+        return;
+      }
       setMuted(true);
       _mutedByPolicy.value = true;
       try {
@@ -405,6 +422,10 @@ class WebPlayerController implements PlayerController {
       } catch (_) {}
     }
   }
+
+  static bool _refusedAutoplay(Object error) =>
+      error.isA<web.DOMException>() &&
+      (error as web.DOMException).name == 'NotAllowedError';
 
   @override
   void unmute() {
@@ -671,6 +692,7 @@ class WebPlayerController implements PlayerController {
 
   @override
   Future<void> dispose() async {
+    _disposed = true;
     _dropReady();
     _settle('disposed');
     _timer?.cancel();

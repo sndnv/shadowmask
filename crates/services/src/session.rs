@@ -25,12 +25,12 @@ use domain::repository::{
 };
 use domain::service::SessionService;
 use domain::session::{
-    BurnSubtitle, ClientCapabilities, DeliveryMode, DeliveryPreference, HeartbeatAck,
+    BurnSubtitle, ClientCapabilities, DeliveryMode, DeliveryPreference, DialogueLift, HeartbeatAck,
     PlaybackSession, PlaybackState, Renegotiated, SegmentContainer, SelectedTracks, SessionId,
     SessionStartInput, SessionStarted, SessionUpdate, SoftSubtitle, SoftSubtitleSource,
-    StreamClaims, StreamGeneration, StreamRegistration, StreamRegistry, StreamTokens,
-    SubtitleChange, SubtitleDelivery, SubtitleFileSpec, SubtitleRendition, SubtitleRequest,
-    SubtitleSelection, TranscodeManager, TranscodeSpec, segment_container_for,
+    SoundSettings, SourceAudio, StreamClaims, StreamGeneration, StreamRegistration, StreamRegistry,
+    StreamTokens, SubtitleChange, SubtitleDelivery, SubtitleFileSpec, SubtitleRendition,
+    SubtitleRequest, SubtitleSelection, TranscodeManager, TranscodeSpec, segment_container_for,
 };
 use domain::user::{Principal, UserId};
 
@@ -61,6 +61,7 @@ struct LaunchContext {
     target_height: Option<u32>,
     force_burn: bool,
     downmix_stereo: bool,
+    sound: SoundSettings,
     delivery: DeliveryPreference,
 }
 
@@ -68,6 +69,7 @@ struct Launched {
     mode: DeliveryMode,
     container: Option<SegmentContainer>,
     selected: SelectedTracks,
+    audio_channels: Option<u8>,
     timeline: Timeline,
     subtitle_file: bool,
 }
@@ -517,11 +519,28 @@ where
             target_height: ctx.target_height,
             force_burn: ctx.force_burn,
             downmix_stereo: ctx.downmix_stereo,
+            sound: ctx.sound,
             delivery: ctx.delivery,
             prepared: keyframes_us.is_some(),
             tracks: ctx.capabilities.tracks,
         };
         let outcome = negotiate(&input, &profile);
+        let selected_audio = outcome
+            .selected
+            .audio_track
+            .and_then(|idx| detail.audio.iter().find(|a| a.index == idx));
+        let encodes_sound = outcome.mode == DeliveryMode::Transcode || outcome.convert_audio;
+        let sound = SoundSettings {
+            dialogue: match outcome.lift_dialogue {
+                true => ctx.sound.dialogue,
+                false => DialogueLift::None,
+            },
+            ..ctx.sound
+        };
+        let audio_channels = selected_audio.map(|a| match encodes_sound {
+            true => sound.channels_sent(a.channels, outcome.audio_channels),
+            false => a.channels,
+        });
         let ceiling = match profile.max_frame_rate {
             Some(rate) => format!("{}x{}@{rate}", profile.max_width, profile.max_height),
             None => format!("{}x{}", profile.max_width, profile.max_height),
@@ -538,11 +557,7 @@ where
         let remux = outcome.mode == DeliveryMode::Remux;
         let audio_codec = match outcome.convert_audio {
             true => Some(CONVERTED_AUDIO_CODEC),
-            false => outcome
-                .selected
-                .audio_track
-                .and_then(|idx| detail.audio.iter().find(|a| a.index == idx))
-                .map(|a| a.codec.as_str()),
+            false => selected_audio.map(|a| a.codec.as_str()),
         };
         let segments = (outcome.mode != DeliveryMode::Direct).then(|| {
             segment_container_for(
@@ -600,6 +615,9 @@ where
                     soft_subtitle,
                     convert_audio: outcome.convert_audio,
                     audio_channels: outcome.audio_channels,
+                    source_audio: selected_audio
+                        .map(|a| SourceAudio { codec: a.codec.clone(), channels: a.channels }),
+                    sound,
                     source_hdr: detail.video.first().and_then(|v| v.hdr),
                 })
                 .await
@@ -625,6 +643,7 @@ where
             mode: outcome.mode,
             container: segments,
             selected: outcome.selected,
+            audio_channels,
             timeline: Timeline { origin_ms, sequential },
             subtitle_file: subtitle_file.is_some(),
         })
@@ -719,6 +738,7 @@ where
             target_height: request.target_height,
             force_burn: request.force_burn,
             downmix_stereo: request.downmix_stereo,
+            sound: request.sound,
             delivery: request.delivery,
         };
         let live = Live { ctx, generation: generation.0, ended: false };
@@ -768,6 +788,7 @@ where
             origin_ms: launched.timeline.origin_ms,
             sequential: launched.timeline.sequential,
             selected: launched.answered(&token),
+            audio_channels: launched.audio_channels,
             heartbeat_interval_s: HEARTBEAT_INTERVAL_S,
             markers: detail.markers,
             trickplay: detail.trickplay,
@@ -876,6 +897,7 @@ where
                     origin_ms: launched.timeline.origin_ms,
                     sequential: launched.timeline.sequential,
                     selected: launched.answered(&token),
+                    audio_channels: launched.audio_channels,
                 })
             })
             .await
@@ -915,6 +937,7 @@ where
                 ctx.target_height = update.target_height;
                 ctx.force_burn = update.force_burn;
                 ctx.downmix_stereo = update.downmix_stereo;
+                ctx.sound = update.sound;
                 ctx.delivery = update.delivery;
                 match update.subtitle {
                     SubtitleChange::Keep => {}
@@ -968,6 +991,7 @@ where
                     origin_ms: launched.timeline.origin_ms,
                     sequential: launched.timeline.sequential,
                     selected: launched.answered(&token),
+                    audio_channels: launched.audio_channels,
                 })
             })
             .await
@@ -1018,7 +1042,7 @@ mod tests {
     use domain::metadata::ContentRating;
     use domain::playback::WatchlistItem;
     use domain::profile::{AudioCodecCap, CapabilityProfile, ClientDecoding, VideoCodecCap};
-    use domain::session::{AudioRequest, SubtitleRequest, TrackHandling};
+    use domain::session::{AudioRequest, NightMode, SubtitleRequest, TrackHandling};
     use domain::user::{Role, User};
 
     use futures::FutureExt;
@@ -1242,6 +1266,7 @@ mod tests {
             target_height: None,
             force_burn: false,
             downmix_stereo: false,
+            sound: SoundSettings::default(),
             delivery: DeliveryPreference::Auto,
         }
     }
@@ -1604,6 +1629,7 @@ mod tests {
             target_height: None,
             force_burn: false,
             downmix_stereo: false,
+            sound: SoundSettings::default(),
             delivery: DeliveryPreference::Auto,
         };
         harness.service.start(&principal(), request).await.unwrap();
@@ -1780,6 +1806,171 @@ mod tests {
         assert!(spec.convert_audio);
         assert_eq!(spec.audio_channels, Some(2));
         assert_eq!(spec.container, SegmentContainer::MpegTs);
+        assert_eq!(
+            spec.source_audio,
+            Some(SourceAudio { codec: "truehd".to_owned(), channels: 8 })
+        );
+        assert_eq!(spec.sound, SoundSettings::default());
+        assert_eq!(started.audio_channels, Some(2));
+    }
+
+    #[tokio::test]
+    async fn the_sound_settings_reach_the_run_and_the_answer_names_the_channels_sent() {
+        let harness = Harness::new();
+        harness.catalog.insert(detail_with(
+            "mp4",
+            100_000,
+            vec![video("h264", Some(5_000_000))],
+            vec![AudioTrack { channels: 6, ..audio(1) }],
+            vec![],
+        ));
+        let sound = SoundSettings {
+            normalize: false,
+            dialogue: DialogueLift::Db6,
+            night: NightMode::Light,
+        };
+        let started = harness
+            .service
+            .start(
+                &principal(),
+                SessionStartInput {
+                    sound,
+                    ..reporting(ClientDecoding {
+                        audio: Some(vec![AudioCodecCap {
+                            codec: "aac".to_owned(),
+                            max_channels: 8,
+                        }]),
+                        ..ClientDecoding::default()
+                    })
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(started.mode, DeliveryMode::Remux);
+        assert_eq!(started.audio_channels, Some(6));
+        let spec = harness.transcode.started().remove(0);
+        assert!(spec.convert_audio);
+        assert_eq!(spec.sound, sound);
+        assert_eq!(spec.source_audio, Some(SourceAudio { codec: "aac".to_owned(), channels: 6 }));
+    }
+
+    #[tokio::test]
+    async fn the_answer_names_the_layout_night_mode_narrows_the_sound_to() {
+        let harness = Harness::new();
+        harness.catalog.insert(detail_with(
+            "mp4",
+            100_000,
+            vec![video("h264", Some(5_000_000))],
+            vec![AudioTrack { channels: 7, ..audio(1) }],
+            vec![],
+        ));
+        let sound = SoundSettings { night: NightMode::Light, ..SoundSettings::default() };
+        let started = harness
+            .service
+            .start(
+                &principal(),
+                SessionStartInput {
+                    sound,
+                    ..reporting(ClientDecoding {
+                        audio: Some(vec![AudioCodecCap {
+                            codec: "aac".to_owned(),
+                            max_channels: 8,
+                        }]),
+                        ..ClientDecoding::default()
+                    })
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(started.mode, DeliveryMode::Remux);
+        assert_eq!(started.audio_channels, Some(6));
+    }
+
+    #[tokio::test]
+    async fn a_seek_runs_with_the_sound_of_the_session() {
+        let harness = Harness::new();
+        harness.catalog.insert(detail_with(
+            "mp4",
+            100_000,
+            vec![video("h264", Some(5_000_000))],
+            vec![AudioTrack { channels: 6, ..audio(1) }],
+            vec![],
+        ));
+        let sound = SoundSettings {
+            normalize: false,
+            dialogue: DialogueLift::Db3,
+            night: NightMode::Strong,
+        };
+        let started = harness
+            .service
+            .start(
+                &principal(),
+                SessionStartInput {
+                    sound,
+                    ..reporting(ClientDecoding {
+                        audio: Some(vec![AudioCodecCap {
+                            codec: "aac".to_owned(),
+                            max_channels: 8,
+                        }]),
+                        ..ClientDecoding::default()
+                    })
+                },
+            )
+            .await
+            .unwrap();
+
+        let sought = harness.service.seek(&principal(), &started.session_id, 30_000).await.unwrap();
+
+        let mut runs = harness.transcode.started();
+        assert_eq!(runs.len(), 2);
+        let spec = runs.pop().unwrap();
+        assert!(spec.convert_audio);
+        assert_eq!(spec.sound, sound);
+        assert_eq!(sought.audio_channels, Some(6));
+    }
+
+    #[tokio::test]
+    async fn a_run_leaves_out_the_lift_a_client_that_mixes_its_own_sound_applies_itself() {
+        let harness = Harness::new();
+        harness.catalog.insert(detail_with(
+            "mp4",
+            100_000,
+            vec![video("h264", Some(5_000_000))],
+            vec![AudioTrack { channels: 6, ..audio(1) }],
+            vec![],
+        ));
+        let sound = SoundSettings {
+            normalize: true,
+            dialogue: DialogueLift::Db6,
+            night: NightMode::Strong,
+        };
+        let mut request = SessionStartInput {
+            sound,
+            ..reporting(ClientDecoding {
+                audio: Some(vec![AudioCodecCap { codec: "aac".to_owned(), max_channels: 8 }]),
+                ..ClientDecoding::default()
+            })
+        };
+        request.capabilities.tracks.downmix = true;
+        harness.service.start(&principal(), request).await.unwrap();
+        let spec = harness.transcode.started().remove(0);
+        assert!(spec.convert_audio);
+        assert_eq!(spec.sound, SoundSettings { dialogue: DialogueLift::None, ..sound });
+    }
+
+    #[tokio::test]
+    async fn a_direct_session_names_the_channels_of_the_file() {
+        let harness = Harness::new();
+        harness.catalog.insert(detail_with(
+            "mp4",
+            100_000,
+            vec![video("h264", Some(5_000_000))],
+            vec![audio(1)],
+            vec![],
+        ));
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
+        assert_eq!(started.mode, DeliveryMode::Direct);
+        assert_eq!(started.audio_channels, Some(audio(1).channels));
     }
 
     #[tokio::test]
@@ -1894,6 +2085,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: false,
+                    sound: SoundSettings::default(),
                     delivery: DeliveryPreference::Auto,
                 },
             )
@@ -2153,6 +2345,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: false,
+                    sound: SoundSettings::default(),
                     delivery: DeliveryPreference::Auto,
                 },
             )
@@ -2473,6 +2666,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: false,
+                    sound: SoundSettings::default(),
                     delivery: DeliveryPreference::AlwaysConvert,
                 },
             )
@@ -2545,6 +2739,7 @@ mod tests {
                     target_height: None,
                     force_burn: true,
                     downmix_stereo: false,
+                    sound: SoundSettings::default(),
                     delivery: DeliveryPreference::Auto,
                 },
             )
@@ -2580,7 +2775,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(harness.transcode.started().last().unwrap().audio_channels, None);
-        harness
+        let sound = SoundSettings { dialogue: DialogueLift::Db3, ..SoundSettings::default() };
+        let renegotiated = harness
             .service
             .update(
                 &principal(),
@@ -2592,12 +2788,16 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: true,
+                    sound,
                     delivery: DeliveryPreference::Auto,
                 },
             )
             .await
             .unwrap();
-        assert_eq!(harness.transcode.started().last().unwrap().audio_channels, Some(2));
+        let spec = harness.transcode.started().last().cloned().unwrap();
+        assert_eq!(spec.audio_channels, Some(2));
+        assert_eq!(spec.sound, sound);
+        assert_eq!(renegotiated.audio_channels, Some(2));
     }
 
     #[tokio::test]
@@ -2863,6 +3063,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: false,
+                    sound: SoundSettings::default(),
                     delivery: DeliveryPreference::Auto,
                 },
             )
@@ -2966,6 +3167,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: false,
+                    sound: SoundSettings::default(),
                     delivery: DeliveryPreference::Auto,
                 },
             )
@@ -3200,6 +3402,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: false,
+                    sound: SoundSettings::default(),
                     delivery: DeliveryPreference::Auto,
                 },
             )
@@ -3234,6 +3437,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: false,
+                    sound: SoundSettings::default(),
                     delivery: DeliveryPreference::Auto,
                 },
             )
@@ -3252,6 +3456,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: false,
+                    sound: SoundSettings::default(),
                     delivery: DeliveryPreference::Auto,
                 },
             )
@@ -3276,6 +3481,7 @@ mod tests {
                         target_height: None,
                         force_burn: false,
                         downmix_stereo: false,
+                        sound: SoundSettings::default(),
                         delivery: DeliveryPreference::Auto,
                     },
                 )
@@ -3302,6 +3508,7 @@ mod tests {
                         target_height: None,
                         force_burn: false,
                         downmix_stereo: false,
+                        sound: SoundSettings::default(),
                         delivery: DeliveryPreference::Auto,
                     },
                 )
@@ -3329,6 +3536,7 @@ mod tests {
                         target_height: None,
                         force_burn: false,
                         downmix_stereo: false,
+                        sound: SoundSettings::default(),
                         delivery: DeliveryPreference::Auto,
                     },
                 )
@@ -3482,6 +3690,7 @@ mod tests {
                         target_height: None,
                         force_burn: false,
                         downmix_stereo: false,
+                        sound: SoundSettings::default(),
                         delivery: DeliveryPreference::Auto,
                     },
                 )
@@ -3569,6 +3778,7 @@ mod tests {
             target_height: None,
             force_burn: false,
             downmix_stereo: false,
+            sound: SoundSettings::default(),
             delivery: DeliveryPreference::Auto,
         }
     }

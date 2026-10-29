@@ -3,6 +3,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:shadowmask/model/session/client_decoding.dart';
 import 'package:shadowmask/player/player_controller.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 
 part 'local_settings.freezed.dart';
@@ -26,6 +27,10 @@ abstract class LocalSettings with _$LocalSettings {
     @Default(false) bool waitForBuffer,
     @Default(10) int autoplayNextS,
     @Default(DeliveryPreference.auto) DeliveryPreference defaultDelivery,
+    @Default(false) bool defaultDownmix,
+    @Default(true) bool defaultNormalize,
+    @Default(DialogueLift.none) DialogueLift defaultDialogue,
+    @Default(NightMode.off) NightMode defaultNight,
     ClientDecoding? decoding,
   }) = _LocalSettings;
 }

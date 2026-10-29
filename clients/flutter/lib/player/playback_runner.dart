@@ -29,6 +29,7 @@ import 'package:shadowmask/player/watches/buffer_watch.dart';
 import 'package:shadowmask/player/watches/stall_watch.dart';
 import 'package:shadowmask/view/episode_neighbours.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 
 const int kRequestTimeoutS = 120;
 const int kLoadTimeoutMarginS = 5;
@@ -57,6 +58,7 @@ class PlaybackRunner {
       ),
       controls: controls,
       playing: playing,
+      mixesSound: _player.mixesSound,
     );
     _state = ValueNotifier<PlaybackState>(opened);
     _inbox.stream.listen(_handle);
@@ -405,6 +407,7 @@ class PlaybackRunner {
           'session': stream.sessionId,
           'offset_ms': offsetMs,
         });
+        _tune(_state.value.remote);
         unawaited(
           _player
               .attach(
@@ -442,8 +445,17 @@ class PlaybackRunner {
         _apply(local);
       case SaveLocal(:final LocalSettings local):
         unawaited(_saveLocal(local));
+      case TuneSound(:final bool normalize, :final DialogueLift dialogue):
+        unawaited(_player.tuneSound(normalize: normalize, dialogue: dialogue));
     }
   }
+
+  void _tune(PlaybackControls controls) => unawaited(
+    _player.tuneSound(
+      normalize: controls.normalize ?? true,
+      dialogue: controls.dialogue ?? DialogueLift.none,
+    ),
+  );
 
   void _start(int id, PlaybackControls controls, int positionMs) {
     final PlaybackState s = _state.value;
@@ -459,6 +471,7 @@ class PlaybackRunner {
                 'decoding': s.local.decoding?.toJson(),
                 'subtitle_deliveries': _player.subtitleDeliveries,
                 'audio_tracks': _player.selectsAudioTracks,
+                'audio_downmix': _player.mixesSound,
               },
             });
             return _api.startSession(
@@ -469,6 +482,7 @@ class PlaybackRunner {
               decoding: s.local.decoding,
               subtitleDeliveries: _player.subtitleDeliveries,
               selectsAudioTracks: _player.selectsAudioTracks,
+              mixesSound: _player.mixesSound,
               controls: controls,
             );
           })

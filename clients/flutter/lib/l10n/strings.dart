@@ -412,10 +412,23 @@ abstract final class Strings {
       'This subtitle track is an image, so it is always drawn into the picture.';
   static const String playerStereoDownmix = 'Stereo downmix';
   static const String playerStereoDownmixHelp =
-      'Fold surround sound down to two channels. Turn it on for headphones or '
-      'stereo speakers, where surround audio can otherwise sound thin or leave '
-      'speech too quiet, because the channel carrying the dialogue is never '
-      'played.';
+      'Mixes surround sound down to two channels on the server.';
+  static const String playerPreventDistortion = 'Prevent distortion';
+  static const String playerPreventDistortionHelp =
+      'Lowers the volume of a mixdown so loud parts do not crackle.';
+  static const String playerDialogue = 'Dialogue';
+  static const String playerDialogueHelp =
+      'Raises speech above everything else by the amount chosen.';
+  static const String dialogueNormal = 'Normal';
+  static const String dialogueDb3 = '+3 dB';
+  static const String dialogueDb6 = '+6 dB';
+  static const String dialogueDb9 = '+9 dB';
+  static const String playerNightMode = 'Night mode';
+  static const String playerNightModeHelp =
+      'Makes loud scenes quieter and quiet scenes louder.';
+  static const String nightOff = 'Off';
+  static const String nightLight = 'Light';
+  static const String nightStrong = 'Strong';
   static const String playerSpeed = 'Speed';
   static const String playerDiagnostics = 'Diagnostics';
   static const String playerDiagnosticsHelp =
@@ -509,16 +522,8 @@ abstract final class Strings {
       'follows from the Converting setting and what this device can play.';
   static const String playerAdvanced = 'Advanced';
   static const String playerDelivery = 'Converting';
-  static const String _deliveryChoices =
-      '"Auto" rebuilds video only when this device cannot play the original; '
-      '"Never" sends the original, fastest but it may not play; "Always" '
-      'rebuilds every time, most reliable but heaviest on the server.';
   static const String playerDeliveryHelp =
-      '$_deliveryChoices This applies to the current video only; the default '
-      "is in your account's playback settings.";
-  static const String accountDeliveryHelp =
-      '$_deliveryChoices Each video starts with this; the player can change '
-      'it.';
+      'Whether video is rebuilt before it is sent.';
   static const String playerDeliveryAuto = 'Auto';
   static const String playerDeliveryNever = 'Never';
   static const String playerDeliveryAlways = 'Always';
@@ -554,6 +559,7 @@ abstract final class Strings {
   static const String videoHeading = 'Video';
   static const String audioHeading = 'Audio';
   static const String subtitlesHeading = 'Subtitles';
+  static const String soundHeading = 'Sound';
   static const String subtitleForced = 'forced';
   static const String subtitleDefault = 'default';
   static const String sdr = 'SDR';

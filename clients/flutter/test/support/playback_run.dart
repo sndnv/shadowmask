@@ -16,6 +16,7 @@ import 'package:shadowmask/player/state/playback_step.dart';
 import 'package:shadowmask/player/state/playback_title.dart';
 import 'package:shadowmask/player/state/sent_change.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 
 const int kTitleMs = 6313000;
 
@@ -55,12 +56,14 @@ class PlaybackRun {
     PlaybackControls controls = const PlaybackControls(),
     bool playing = true,
     VersionDetail version = kVersion,
+    bool mixesSound = false,
   }) => PlaybackRun(
     lifecycleOpens(
       versionId: version.id,
       local: local,
       controls: controls,
       playing: playing,
+      mixesSound: mixesSound,
     ),
   );
 
@@ -70,10 +73,12 @@ class PlaybackRun {
     int resumeMs = 0,
     bool playing = true,
     VersionDetail version = kVersion,
+    bool mixesSound = false,
   }) => PlaybackRun.created(
     controls: controls,
     playing: playing,
     version: version,
+    mixesSound: mixesSound,
   )..gather(local: local, resumeMs: resumeMs, version: version);
 
   List<PlaybackCommand> gather({
@@ -97,6 +102,7 @@ class PlaybackRun {
     LocalSettings local = const LocalSettings(),
     PlaybackControls controls = const PlaybackControls(),
     VersionDetail version = kVersion,
+    bool mixesSound = false,
   }) {
     final PlaybackRun run = PlaybackRun.opened(
       local: local,
@@ -104,6 +110,7 @@ class PlaybackRun {
       resumeMs: atMs,
       playing: playing,
       version: version,
+      mixesSound: mixesSound,
     );
     final int id = run.state.status.sent!.id;
     run
@@ -175,6 +182,16 @@ void expectInvariants(
         after.status.gathered,
         isTrue,
         reason: 'a start needs what the page gathered',
+      );
+    }
+    if (command is TuneSound) {
+      expect(
+        (command.normalize, command.dialogue),
+        (
+          after.remote.normalize ?? true,
+          after.remote.dialogue ?? DialogueLift.none,
+        ),
+        reason: 'the player is tuned to the settings in the state',
       );
     }
   }

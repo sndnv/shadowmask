@@ -609,6 +609,88 @@ const sm = (() => {
     }
   }
 
+  const SOUND_KEY = "shadowmask.player.";
+  const DIALOGUE_STEPS = [
+    [0, "Normal"],
+    [3, "+3 dB"],
+    [6, "+6 dB"],
+    [9, "+9 dB"],
+  ];
+  const NIGHT_MODES = [
+    ["off", "Off"],
+    ["light", "Light"],
+    ["strong", "Strong"],
+  ];
+
+  function storedSound(key) {
+    try {
+      return localStorage.getItem(SOUND_KEY + key);
+    } catch {
+      return null;
+    }
+  }
+
+  function soundDefaults() {
+    const flag = (key, fallback) => {
+      const stored = storedSound(key);
+      return stored === "1" ? true : stored === "0" ? false : fallback;
+    };
+    const dialogue = parseInt(storedSound("dialogue"), 10);
+    const night = storedSound("night");
+    return {
+      downmix: flag("downmix", false),
+      normalize: flag("normalize", true),
+      dialogue: DIALOGUE_STEPS.some(([value]) => value === dialogue) ? dialogue : 0,
+      night: NIGHT_MODES.some(([value]) => value === night) ? night : "off",
+    };
+  }
+
+  function storeSound(change) {
+    try {
+      for (const [key, value] of Object.entries(change)) {
+        const stored = value === true ? "1" : value === false ? "0" : String(value);
+        localStorage.setItem(SOUND_KEY + key, stored);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function soundControls(onChange) {
+    const downmix = el("input", { type: "checkbox" });
+    const normalize = el("input", { type: "checkbox" });
+    const dialogue = el(
+      "select",
+      null,
+      DIALOGUE_STEPS.map(([value, label]) => el("option", { value: String(value) }, label)),
+    );
+    const night = el(
+      "select",
+      null,
+      NIGHT_MODES.map(([value, label]) => el("option", { value }, label)),
+    );
+    downmix.addEventListener("change", () => onChange({ downmix: downmix.checked }));
+    normalize.addEventListener("change", () => onChange({ normalize: normalize.checked }));
+    dialogue.addEventListener("change", () => onChange({ dialogue: parseInt(dialogue.value, 10) }));
+    night.addEventListener("change", () => onChange({ night: night.value }));
+    return {
+      inputs: [downmix, normalize, dialogue, night],
+      labels: [
+        el("label", null, ["Stereo downmix ", downmix]),
+        el("label", null, ["Prevent distortion ", normalize]),
+        el("label", null, ["Dialogue ", dialogue]),
+        el("label", null, ["Night mode ", night]),
+      ],
+      show(sound) {
+        downmix.checked = sound.downmix;
+        normalize.checked = sound.normalize;
+        dialogue.value = String(sound.dialogue);
+        night.value = sound.night;
+      },
+    };
+  }
+
   function toast(message, kind) {
     let host = document.querySelector(".sm-toast-host");
     if (!host) {
@@ -1239,6 +1321,9 @@ const sm = (() => {
     tabs,
     subtitleSize,
     subtitleSizeSelect,
+    soundDefaults,
+    storeSound,
+    soundControls,
     toast,
     href,
     url,

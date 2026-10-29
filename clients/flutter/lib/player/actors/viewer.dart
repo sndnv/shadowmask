@@ -10,6 +10,7 @@ import 'package:shadowmask/player/state/playback_step.dart';
 import 'package:shadowmask/player/state/playback_stream.dart';
 import 'package:shadowmask/player/state/sent_change.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 
 PlaybackStep _same(PlaybackState s) => (s, const <PlaybackCommand>[]);
 
@@ -146,8 +147,17 @@ PlaybackStep viewerChangesRemote(PlaybackState s, PlaybackControls controls) {
   final PlaybackStream? stream = s.stream;
   if (stream == null ||
       s.status.life != PlaybackLife.open ||
-      controls.sameUpdateAs(s.remote)) {
-    return (s.copyWith(remote: controls), const <PlaybackCommand>[]);
+      !_reachesServer(s, stream, controls)) {
+    return (
+      s.copyWith(remote: controls),
+      <PlaybackCommand>[
+        if (stream != null && !controls.sameTuningAs(s.remote))
+          TuneSound(
+            normalize: controls.normalize ?? true,
+            dialogue: controls.dialogue ?? DialogueLift.none,
+          ),
+      ],
+    );
   }
   final SentChange sent = SentChange.controls(
     id: s.status.lastChangeId + 1,
@@ -167,6 +177,36 @@ PlaybackStep viewerChangesRemote(PlaybackState s, PlaybackControls controls) {
       ),
     ],
   );
+}
+
+bool _reachesServer(
+  PlaybackState s,
+  PlaybackStream stream,
+  PlaybackControls controls,
+) {
+  if (!controls.withoutTuning.sameUpdateAs(s.remote.withoutTuning)) {
+    return true;
+  }
+  final int? source = s.sourceChannels;
+  if (source == null) {
+    return false;
+  }
+  final bool normalize =
+      (controls.normalize ?? true) != (s.remote.normalize ?? true) &&
+      normalizeReachesServer(
+        source: source,
+        sent: stream.audioChannels,
+        dialogue: controls.dialogue ?? DialogueLift.none,
+      );
+  final bool lift =
+      (controls.dialogue ?? DialogueLift.none) !=
+          (s.remote.dialogue ?? DialogueLift.none) &&
+      liftReachesServer(
+        source: source,
+        sent: stream.audioChannels,
+        mixesItself: s.mixesSound,
+      );
+  return normalize || lift;
 }
 
 PlaybackStep viewerRetries(PlaybackState s) {

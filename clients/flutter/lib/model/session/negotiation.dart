@@ -15,6 +15,7 @@ abstract class Negotiation with _$Negotiation {
     @Default(PlaybackMode.direct) PlaybackMode mode,
     String? container,
     SelectedTracks? selected,
+    int? audioChannels,
   }) = _Negotiation;
 
   factory Negotiation.fromJson(Map<String, dynamic> json) =>

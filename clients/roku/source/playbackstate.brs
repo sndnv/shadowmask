@@ -140,13 +140,24 @@ function SubtitleDeliveryOf(json as dynamic) as string
     return LCase(TextOrBlank(ValueAt(json, "selected.subtitle_delivery", "")))
 end function
 
+function StreamAudioChannels(s as object) as integer
+    if s.stream = invalid then return 0
+    return Int(ValueAt(s.stream, "audioChannels", 0))
+end function
+
+function AudioMenuStale(before as object, after as object) as boolean
+    if StreamAudioChannels(before) <> StreamAudioChannels(after) then return true
+    return not SameUpdate(before.remote, after.remote)
+end function
+
 function PlaybackStreamReplaced(stream as object, json as dynamic) as object
     return PlaybackCopy(stream, {
         manifestUrl: TextOrBlank(ValueAt(json, "manifest_url", "")),
         originMs: Int(ValueAt(json, "origin_ms", 0)),
         sequential: ValueAt(json, "sequential", false) = true,
         mode: TextOrBlank(ValueAt(json, "mode", "")),
-        container: TextOrBlank(ValueAt(json, "container", ""))
+        container: TextOrBlank(ValueAt(json, "container", "")),
+        audioChannels: Int(ValueAt(json, "audio_channels", 0))
     })
 end function
 

@@ -6,6 +6,7 @@ import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/player/player_prefs_store.dart';
 import 'package:shadowmask/player/state/local_settings.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_choice.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
@@ -161,10 +162,12 @@ class PlayerSettingsPanel extends StatefulWidget {
     this.onShowLog,
     this.onAddSubtitles,
     this.openChoice,
+    this.sound = kNoSoundRows,
     this.dense = false,
     this.busy = false,
   });
 
+  final SoundRows sound;
   final PlayerPanel panel;
   final PlaybackControls controls;
   final VersionDetail version;
@@ -210,6 +213,9 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
   final TextEditingController _offset = TextEditingController();
   late bool _burn;
   late bool _downmix;
+  late bool _normalize;
+  late DialogueLift _dialogue;
+  late NightMode _night;
   late DeliveryPreference? _delivery;
   PlaybackControls? _asked;
   late double _speed = widget.speed;
@@ -255,7 +261,10 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
     _sub = controls.subtitle.selection?.toWire() ?? '';
     _offset.text = controls.offsetMs == 0 ? '' : controls.offsetMs.toString();
     _burn = controls.burn;
-    _downmix = controls.downmix;
+    _downmix = controls.downmix ?? false;
+    _normalize = controls.normalize ?? true;
+    _dialogue = controls.dialogue ?? DialogueLift.none;
+    _night = controls.night ?? NightMode.off;
     _delivery = controls.delivery;
   }
 
@@ -269,6 +278,9 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
       height: _height,
       burn: _burn,
       downmix: _downmix,
+      normalize: _normalize,
+      dialogue: _dialogue,
+      night: _night,
       audioTrack: _audio,
       subtitle: _subtitle,
       offsetMs: int.tryParse(_offset.text) ?? 0,
@@ -328,12 +340,54 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
               },
             ),
           ),
-          _stream(
-            _switch(Strings.playerStereoDownmix, _downmix, (bool value) {
-              setState(() => _downmix = value);
-              _apply();
-            }, help: Strings.playerStereoDownmixHelp),
-          ),
+          if (widget.sound.downmix)
+            _stream(
+              _switch(Strings.playerStereoDownmix, _downmix, (bool value) {
+                setState(() => _downmix = value);
+                _apply();
+              }, help: Strings.playerStereoDownmixHelp),
+            ),
+          if (widget.sound.normalize)
+            _stream(
+              _switch(Strings.playerPreventDistortion, _normalize, (
+                bool value,
+              ) {
+                setState(() => _normalize = value);
+                _apply();
+              }, help: Strings.playerPreventDistortionHelp),
+            ),
+          if (widget.sound.dialogue)
+            _stream(
+              _choice<DialogueLift>(
+                Strings.playerDialogue,
+                _dialogue,
+                <(DialogueLift, String)>[
+                  for (final DialogueLift lift in DialogueLift.values)
+                    (lift, lift.label),
+                ],
+                (DialogueLift value) {
+                  setState(() => _dialogue = value);
+                  _apply();
+                },
+                help: Strings.playerDialogueHelp,
+              ),
+            ),
+          if (widget.sound.night)
+            _stream(
+              _choice<NightMode>(
+                Strings.playerNightMode,
+                _night,
+                <(NightMode, String)>[
+                  for (final NightMode mode in NightMode.values)
+                    (mode, mode.label),
+                ],
+                (NightMode value) {
+                  setState(() => _night = value);
+                  _apply();
+                },
+                help: Strings.playerNightModeHelp,
+              ),
+            ),
         ];
       case PlayerPanel.subtitles:
         return <Widget>[

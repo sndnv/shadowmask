@@ -12,12 +12,17 @@ import 'package:shadowmask/player/state/playback_step.dart';
 import 'package:shadowmask/player/state/playback_title.dart';
 import 'package:shadowmask/player/state/sent_change.dart';
 import 'package:shadowmask/view/playback_controls.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 
 import '../../support/playback_run.dart';
 
 const PlaybackControls k720 = PlaybackControls(
   height: 720,
   delivery: DeliveryPreference.auto,
+  downmix: false,
+  normalize: true,
+  dialogue: DialogueLift.none,
+  night: NightMode.off,
 );
 
 void main() {
@@ -29,6 +34,10 @@ void main() {
     const PlaybackControls asked = PlaybackControls(
       height: 720,
       delivery: DeliveryPreference.always,
+      downmix: false,
+      normalize: true,
+      dialogue: DialogueLift.none,
+      night: NightMode.off,
     );
 
     final PlaybackRun run = PlaybackRun.created(
@@ -48,6 +57,31 @@ void main() {
     expect(state.title, const PlaybackTitle(version: kVersion));
     expect(state.status.gathered, isTrue);
     expect(state.status.sent, const SentChange.start(id: 1, positionMs: 42000));
+  });
+
+  test('the device sound settings fill what the session has not chosen', () {
+    const LocalSettings local = LocalSettings(
+      defaultDownmix: true,
+      defaultNormalize: false,
+      defaultDialogue: DialogueLift.db6,
+      defaultNight: NightMode.strong,
+    );
+    final PlaybackRun run = PlaybackRun.created(
+      controls: const PlaybackControls(night: NightMode.off),
+    );
+
+    final List<PlaybackCommand> sent = run.gather(local: local);
+
+    expect(run.state.remote.downmix, isTrue);
+    expect(run.state.remote.normalize, isFalse);
+    expect(run.state.remote.dialogue, DialogueLift.db6);
+    expect(run.state.remote.night, NightMode.off);
+    expect(sent.whereType<SendStart>().single.controls, run.state.remote);
+  });
+
+  test('opening takes whether the player mixes its own sound', () {
+    expect(PlaybackRun.created().state.mixesSound, isFalse);
+    expect(PlaybackRun.created(mixesSound: true).state.mixesSound, isTrue);
   });
 
   test('what the player showed before the gather is kept over the '

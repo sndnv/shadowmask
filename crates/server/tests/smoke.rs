@@ -10,8 +10,8 @@ use api::{StreamState, stream_router};
 use domain::catalog::VersionId;
 use domain::media::{MediaProbe, PlaybackPreparer};
 use domain::session::{
-    DeliveryMode, SegmentContainer, SessionId, StreamClaims, StreamGeneration, StreamRegistration,
-    StreamRegistry, StreamTokens, TranscodeManager, TranscodeSpec,
+    DeliveryMode, SegmentContainer, SessionId, SoundSettings, StreamClaims, StreamGeneration,
+    StreamRegistration, StreamRegistry, StreamTokens, TranscodeManager, TranscodeSpec,
 };
 use domain::user::UserId;
 use media::hls::HlsStreamSource;
@@ -82,6 +82,8 @@ async fn serves_a_produced_segment_end_to_end() {
             soft_subtitle: None,
             convert_audio: false,
             audio_channels: None,
+            source_audio: None,
+            sound: SoundSettings::default(),
             source_hdr: None,
         })
         .await

@@ -73,6 +73,7 @@ fn renegotiated(session: &PlaybackSession) -> Renegotiated {
         origin_ms: 0,
         sequential: false,
         selected: session.selected.clone(),
+        audio_channels: session.selected.audio_track.map(|_| 2),
     }
 }
 
@@ -136,6 +137,7 @@ impl SessionService for MockSessionService {
             manifest_url: manifest_url(&id),
             origin_ms: 0,
             sequential: false,
+            audio_channels: selected.audio_track.map(|_| 2),
             selected,
             heartbeat_interval_s: HEARTBEAT_INTERVAL_S,
             markers: DetectedMarkers {
@@ -249,7 +251,7 @@ mod tests {
     use super::*;
     use domain::catalog::VersionId;
     use domain::playback::SubtitleTrackRef;
-    use domain::session::{ClientCapabilities, SubtitleSelection};
+    use domain::session::{ClientCapabilities, SoundSettings, SubtitleSelection};
     use domain::user::{Role, UserId};
 
     fn principal(user: &str) -> Principal {
@@ -282,6 +284,7 @@ mod tests {
             target_height: None,
             force_burn: false,
             downmix_stereo: false,
+            sound: SoundSettings::default(),
             delivery: DeliveryPreference::Auto,
         }
     }
@@ -371,6 +374,7 @@ mod tests {
                 target_height: None,
                 force_burn: false,
                 downmix_stereo: false,
+                sound: SoundSettings::default(),
                 delivery: DeliveryPreference::Auto,
             },
         )
@@ -393,6 +397,7 @@ mod tests {
                 target_height: None,
                 force_burn: false,
                 downmix_stereo: false,
+                sound: SoundSettings::default(),
                 delivery: DeliveryPreference::Auto,
             },
         )
@@ -414,6 +419,7 @@ mod tests {
                 target_height: None,
                 force_burn: false,
                 downmix_stereo: false,
+                sound: SoundSettings::default(),
                 delivery: DeliveryPreference::Auto,
             },
         )
@@ -435,6 +441,7 @@ mod tests {
                     target_height: None,
                     force_burn: false,
                     downmix_stereo: false,
+                    sound: SoundSettings::default(),
                     delivery: DeliveryPreference::Auto,
                 },
             )

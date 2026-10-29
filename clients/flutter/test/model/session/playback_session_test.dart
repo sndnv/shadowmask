@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadowmask/model/session/negotiation.dart';
 import 'package:shadowmask/model/session/playback_mode.dart';
 import 'package:shadowmask/model/session/playback_session.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
@@ -34,5 +35,23 @@ void main() {
     expect(s.selected!.subtitleTrack!.kind, SubtitleKind.embedded);
     expect(s.selected!.subtitleTrack!.index, 5);
     expect(s.trickplay.single.columns, 5);
+    expect(s.audioChannels, isNull);
+  });
+
+  test('a session and a negotiation read the channels the stream sends', () {
+    expect(
+      PlaybackSession.fromJson(<String, dynamic>{
+        'session_id': 's1',
+        'audio_channels': 6,
+      }).audioChannels,
+      6,
+    );
+    expect(
+      Negotiation.fromJson(<String, dynamic>{
+        'manifest_url': '/next.m3u8',
+        'audio_channels': 2,
+      }).audioChannels,
+      2,
+    );
   });
 }

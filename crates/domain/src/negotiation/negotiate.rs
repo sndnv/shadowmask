@@ -3,8 +3,8 @@ use crate::negotiation::{NegotiationInput, NegotiationOutcome, NegotiationReason
 use crate::playback::SubtitleTrackRef;
 use crate::profile::CapabilityProfile;
 use crate::session::{
-    AudioDelivery, DeliveryMode, DeliveryPreference, SelectedTracks, SubtitleDelivery,
-    SubtitleSelection, TrackHandling, segments_carry,
+    AudioDelivery, DeliveryMode, DeliveryPreference, DialogueLift, NightMode, SelectedTracks,
+    SubtitleDelivery, SubtitleSelection, TrackHandling, segments_carry,
 };
 
 pub const CONVERTED_AUDIO_CODEC: &str = "aac";
@@ -19,10 +19,23 @@ pub fn negotiate(input: &NegotiationInput, profile: &CapabilityProfile) -> Negot
     let reencode_video = !reasons.is_empty();
     let sound = audio.map(|a| audio_reasons(a, profile)).unwrap_or_default();
     let downmix = input.downmix_stereo && audio.is_some_and(|a| a.channels > 2);
-    let convert_audio = !sound.is_empty() || downmix;
+    let lift = input.sound.dialogue != DialogueLift::None
+        && audio.is_some_and(|a| {
+            let stereo_out = a.channels <= 2
+                || converted_channels(a, downmix, profile).is_some_and(|channels| channels <= 2);
+            a.channels >= 2 && (!input.tracks.downmix || stereo_out)
+        });
+    let night = input.sound.night != NightMode::Off && audio.is_some();
+    let convert_audio = !sound.is_empty() || downmix || lift || night;
     reasons.extend(sound);
     if downmix {
         reasons.push(NegotiationReason::Downmix);
+    }
+    if lift {
+        reasons.push(NegotiationReason::Dialogue);
+    }
+    if night {
+        reasons.push(NegotiationReason::Night);
     }
     let container_ok = profile.containers.contains(&input.container);
     if !container_ok {
@@ -91,6 +104,7 @@ pub fn negotiate(input: &NegotiationInput, profile: &CapabilityProfile) -> Negot
         reasons,
         convert_audio: mode == DeliveryMode::Remux && (converting || audio_not_copyable),
         audio_channels: audio.and_then(|a| converted_channels(a, downmix, profile)),
+        lift_dialogue: lift,
     }
 }
 
@@ -240,6 +254,7 @@ mod tests {
     use super::*;
     use crate::media::{HdrFormat, SubtitleFileId, SubtitleFormat};
     use crate::profile::{AudioCodecCap, Container, VideoCodecCap};
+    use crate::session::SoundSettings;
 
     fn video_track(
         codec: &str,
@@ -313,9 +328,17 @@ mod tests {
             target_height: None,
             force_burn: false,
             downmix_stereo: false,
+            sound: SoundSettings::default(),
             delivery: DeliveryPreference::Auto,
             prepared: true,
             tracks: TrackHandling::default(),
+        }
+    }
+
+    fn eight_channels() -> CapabilityProfile {
+        CapabilityProfile {
+            audio: vec![AudioCodecCap { codec: "aac".to_owned(), max_channels: 8 }],
+            ..profile()
         }
     }
 
@@ -892,6 +915,156 @@ mod tests {
     }
 
     #[test]
+    fn night_mode_converts_the_sound_and_says_why() {
+        for night in [NightMode::Light, NightMode::Strong] {
+            let quiet = NegotiationInput {
+                audio: vec![audio_track("aac", 6, 1)],
+                sound: SoundSettings { night, ..SoundSettings::default() },
+                ..input()
+            };
+            let out = negotiate(&quiet, &eight_channels());
+            assert_eq!(out.mode, DeliveryMode::Remux, "{night:?}");
+            assert!(out.convert_audio, "{night:?}");
+            assert_eq!(out.reasons, vec![NegotiationReason::Night], "{night:?}");
+            assert_eq!(out.audio_channels, None, "{night:?}");
+        }
+    }
+
+    #[test]
+    fn night_mode_without_a_sound_changes_nothing() {
+        let silent = NegotiationInput {
+            audio: vec![],
+            sound: SoundSettings { night: NightMode::Strong, ..SoundSettings::default() },
+            ..input()
+        };
+        let out = negotiate(&silent, &profile());
+        assert_eq!(out.mode, DeliveryMode::Direct);
+        assert!(out.reasons.is_empty());
+    }
+
+    #[test]
+    fn a_dialogue_lift_converts_stereo_and_surround_but_not_mono() {
+        let lifted = SoundSettings { dialogue: DialogueLift::Db6, ..SoundSettings::default() };
+        for channels in [2, 3, 6, 8] {
+            let speech = NegotiationInput {
+                audio: vec![audio_track("aac", channels, 1)],
+                sound: lifted,
+                ..input()
+            };
+            let out = negotiate(&speech, &eight_channels());
+            assert_eq!(out.mode, DeliveryMode::Remux, "{channels} channels");
+            assert!(out.convert_audio, "{channels} channels");
+            assert_eq!(out.reasons, vec![NegotiationReason::Dialogue], "{channels} channels");
+            assert_eq!(out.audio_channels, None, "{channels} channels");
+        }
+        let mono =
+            NegotiationInput { audio: vec![audio_track("aac", 1, 1)], sound: lifted, ..input() };
+        let out = negotiate(&mono, &eight_channels());
+        assert_eq!(out.mode, DeliveryMode::Direct);
+        assert!(out.reasons.is_empty());
+    }
+
+    #[test]
+    fn a_dialogue_lift_rides_on_a_downmix_the_server_does_anyway() {
+        let speech = NegotiationInput {
+            audio: vec![audio_track("aac", 6, 1)],
+            downmix_stereo: true,
+            sound: SoundSettings { dialogue: DialogueLift::Db3, ..SoundSettings::default() },
+            ..input()
+        };
+        let out = negotiate(&speech, &eight_channels());
+        assert_eq!(out.mode, DeliveryMode::Remux);
+        assert_eq!(out.reasons, vec![NegotiationReason::Downmix, NegotiationReason::Dialogue]);
+        assert_eq!(out.audio_channels, Some(2));
+    }
+
+    #[test]
+    fn a_client_that_mixes_its_own_sound_lifts_the_dialogue_of_surround_itself() {
+        let mixing = TrackHandling { downmix: true, ..TrackHandling::default() };
+        let lifted = SoundSettings { dialogue: DialogueLift::Db6, ..SoundSettings::default() };
+        let surround = NegotiationInput {
+            audio: vec![audio_track("aac", 6, 1)],
+            sound: lifted,
+            tracks: mixing,
+            ..input()
+        };
+        let out = negotiate(&surround, &eight_channels());
+        assert_eq!(out.mode, DeliveryMode::Direct);
+        assert!(out.reasons.is_empty());
+        assert!(!out.lift_dialogue);
+
+        let quiet = NegotiationInput {
+            sound: SoundSettings { night: NightMode::Light, ..lifted },
+            ..surround.clone()
+        };
+        let out = negotiate(&quiet, &eight_channels());
+        assert_eq!(out.reasons, vec![NegotiationReason::Night]);
+        assert!(out.convert_audio);
+        assert!(!out.lift_dialogue);
+    }
+
+    #[test]
+    fn a_client_that_mixes_its_own_sound_is_sent_the_lift_when_the_sound_is_stereo() {
+        let mixing = TrackHandling { downmix: true, ..TrackHandling::default() };
+        let lifted = SoundSettings { dialogue: DialogueLift::Db6, ..SoundSettings::default() };
+        let stereo = NegotiationInput { sound: lifted, tracks: mixing, ..input() };
+        let out = negotiate(&stereo, &eight_channels());
+        assert_eq!(out.reasons, vec![NegotiationReason::Dialogue]);
+        assert!(out.lift_dialogue);
+
+        let folded = NegotiationInput {
+            audio: vec![audio_track("aac", 6, 1)],
+            downmix_stereo: true,
+            ..stereo
+        };
+        let out = negotiate(&folded, &eight_channels());
+        assert_eq!(out.reasons, vec![NegotiationReason::Downmix, NegotiationReason::Dialogue]);
+        assert_eq!(out.audio_channels, Some(2));
+        assert!(out.lift_dialogue);
+    }
+
+    #[test]
+    fn a_client_that_leaves_the_mix_to_others_is_sent_the_lift_on_surround() {
+        let lifted = SoundSettings { dialogue: DialogueLift::Db3, ..SoundSettings::default() };
+        let surround =
+            NegotiationInput { audio: vec![audio_track("aac", 6, 1)], sound: lifted, ..input() };
+        let out = negotiate(&surround, &eight_channels());
+        assert_eq!(out.reasons, vec![NegotiationReason::Dialogue]);
+        assert!(out.lift_dialogue);
+    }
+
+    #[test]
+    fn normalizing_alone_converts_nothing() {
+        for normalize in [true, false] {
+            let surround = NegotiationInput {
+                audio: vec![audio_track("aac", 6, 1)],
+                sound: SoundSettings { normalize, ..SoundSettings::default() },
+                ..input()
+            };
+            let out = negotiate(&surround, &eight_channels());
+            assert_eq!(out.mode, DeliveryMode::Direct, "normalize {normalize}");
+            assert!(out.reasons.is_empty(), "normalize {normalize}");
+        }
+    }
+
+    #[test]
+    fn never_converting_keeps_the_sound_and_the_reasons_it_would_have_converted_for() {
+        let asked = NegotiationInput {
+            delivery: DeliveryPreference::NeverConvert,
+            sound: SoundSettings {
+                normalize: true,
+                dialogue: DialogueLift::Db9,
+                night: NightMode::Strong,
+            },
+            ..input()
+        };
+        let out = negotiate(&asked, &profile());
+        assert_eq!(out.mode, DeliveryMode::Direct);
+        assert!(!out.convert_audio);
+        assert_eq!(out.reasons, vec![NegotiationReason::Dialogue, NegotiationReason::Night]);
+    }
+
+    #[test]
     fn a_codec_the_client_can_only_software_decode_is_transcoded() {
         // A phone that software decodes 4K HEVC at single digit fps still
         // reports it as supported, so the client says so and the server, not
@@ -1052,7 +1225,14 @@ mod tests {
     }
 
     fn player() -> TrackHandling {
-        TrackHandling { embedded: true, image: true, external: true, rendition: false, audio: true }
+        TrackHandling {
+            embedded: true,
+            image: true,
+            external: true,
+            rendition: false,
+            audio: true,
+            downmix: false,
+        }
     }
 
     fn browser() -> TrackHandling {
@@ -1207,6 +1387,7 @@ mod prop_tests {
     use super::*;
     use crate::media::SubtitleFormat;
     use crate::profile::{AudioCodecCap, Container, VideoCodecCap};
+    use crate::session::SoundSettings;
     use proptest::prelude::*;
 
     fn profile() -> CapabilityProfile {
@@ -1230,6 +1411,14 @@ mod prop_tests {
         }
     }
 
+    fn eight_channel_aac() -> CapabilityProfile {
+        let mut profile = profile();
+        for cap in profile.audio.iter_mut().filter(|cap| cap.codec == CONVERTED_AUDIO_CODEC) {
+            cap.max_channels = 8;
+        }
+        profile
+    }
+
     prop_compose! {
         fn inputs()(
             container in prop_oneof![Just(Container::Mp4), Just(Container::Hls), Just(Container::Mkv)],
@@ -1244,6 +1433,11 @@ mod prop_tests {
             target_height in prop::option::of(prop_oneof![Just(480u32), Just(720u32), Just(1080u32)]),
             force_burn in any::<bool>(),
             downmix_stereo in any::<bool>(),
+            sound in (
+                any::<bool>(),
+                prop_oneof![Just(DialogueLift::None), Just(DialogueLift::Db6)],
+                prop_oneof![Just(NightMode::Off), Just(NightMode::Light)],
+            ),
             delivery in prop_oneof![
                 Just(DeliveryPreference::Auto),
                 Just(DeliveryPreference::NeverConvert),
@@ -1251,7 +1445,7 @@ mod prop_tests {
             ],
             prepared in any::<bool>(),
             second_audio in any::<bool>(),
-            declared in prop::array::uniform5(any::<bool>()),
+            declared in prop::array::uniform6(any::<bool>()),
         ) -> NegotiationInput {
             let height = if width >= 3840 { 2160 } else { 1080 };
             let subtitles = subtitle
@@ -1301,6 +1495,7 @@ mod prop_tests {
                 target_height,
                 force_burn,
                 downmix_stereo,
+                sound: SoundSettings { normalize: sound.0, dialogue: sound.1, night: sound.2 },
                 delivery,
                 prepared,
                 tracks: TrackHandling {
@@ -1309,6 +1504,7 @@ mod prop_tests {
                     external: declared[2],
                     rendition: declared[3],
                     audio: declared[4],
+                    downmix: declared[5],
                 },
             }
         }
@@ -1419,6 +1615,8 @@ mod prop_tests {
                     NegotiationReason::AudioCodec
                         | NegotiationReason::AudioChannels
                         | NegotiationReason::Downmix
+                        | NegotiationReason::Dialogue
+                        | NegotiationReason::Night
                         | NegotiationReason::AudioNotCopyable
                 )));
                 let copies_regardless = input.delivery == DeliveryPreference::NeverConvert;
@@ -1441,6 +1639,33 @@ mod prop_tests {
                     .map(|a| if out.convert_audio { CONVERTED_AUDIO_CODEC } else { a.codec.as_str() });
                 prop_assert!(segments_carry(video, audio), "[{:?}] with [{:?}]", video, audio);
             }
+        }
+
+        #[test]
+        fn night_mode_or_a_lift_the_player_cannot_mix_never_plays_a_sound_as_it_is(
+            input in inputs()
+        ) {
+            let asked = input.sound.night != NightMode::Off
+                || (input.sound.dialogue != DialogueLift::None && !input.tracks.downmix);
+            if asked
+                && input.delivery != DeliveryPreference::NeverConvert
+                && selected_audio(&input).is_some()
+            {
+                for profile in [profile(), eight_channel_aac()] {
+                    let out = negotiate(&input, &profile);
+                    prop_assert_ne!(out.mode, DeliveryMode::Direct);
+                    prop_assert!(out.mode == DeliveryMode::Transcode || out.convert_audio);
+                }
+            }
+        }
+
+        #[test]
+        fn the_server_lifts_the_dialogue_exactly_when_it_says_so(input in inputs()) {
+            let out = negotiate(&input, &profile());
+            prop_assert_eq!(
+                out.lift_dialogue,
+                out.reasons.contains(&NegotiationReason::Dialogue)
+            );
         }
 
         #[test]

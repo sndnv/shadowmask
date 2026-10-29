@@ -318,7 +318,7 @@
           platform: clientPlatform(),
           saveLocal,
           versionId,
-          remote: controlsFromQuery(new URLSearchParams(location.search)),
+          remote: controlsFromQuery(new URLSearchParams(location.search), sm.soundDefaults()),
           local: { networkTimeoutS: loadChoice(timeoutKey, NETWORK_TIMEOUTS, NETWORK_TIMEOUTS[0]) },
           playing: true,
         });
@@ -437,7 +437,7 @@
           ui.subtitles.value = r.subtitle.kind === "on" ? trackToWire(r.subtitle.track) : "";
           ui.offset.value = String(r.offsetMs);
           ui.burn.checked = r.burn;
-          ui.downmix.checked = r.downmix;
+          ui.sound.show(r);
           ui.delivery.value = r.delivery;
         }
         if (ui.shownLocal !== s.local) {
@@ -784,13 +784,10 @@
           rowBottom.appendChild(sm.el("label", null, ["Burn in ", burn]));
         }
         {
-          const downmix = sm.el("input", { type: "checkbox" });
-          downmix.addEventListener("change", () => {
-            changeRemote({ downmix: downmix.checked });
-          });
-          ui.downmix = downmix;
-          ui.stream.push(downmix);
-          rowMid.appendChild(sm.el("label", null, ["Downmix to stereo ", downmix]));
+          const sound = sm.soundControls(changeRemote);
+          ui.sound = sound;
+          ui.stream.push(...sound.inputs);
+          for (const label of sound.labels) rowMid.appendChild(label);
           const diag = sm.el("input", { type: "checkbox" });
           diag.addEventListener("change", () => {
             const panel = document.getElementById("diag");

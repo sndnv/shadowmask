@@ -48,6 +48,35 @@ namespace tests
             m.assertEqual(DialogStartIndex({ field: "subsMenu", selected: 1 }, true, "subsMenu", 3, 5), 1)
         end sub
 
+        @it("keeps focus on the same row when a refresh adds or removes rows above it")
+        sub keepsTheRowWhenRowsMove()
+            added = { field: "audioMenu", selected: 0, keep: true, options: [{ label: "Audio" }, { label: "Stereo downmix" }, { label: "Prevent distortion" }, { label: "Dialogue" }, { label: "Night mode" }] }
+            removed = { field: "audioMenu", selected: 0, keep: true, options: [{ label: "Audio" }, { label: "Stereo downmix" }, { label: "Dialogue" }, { label: "Night mode" }] }
+
+            m.assertEqual(DialogStartIndex(added, true, "audioMenu", 2, 5, "Dialogue"), 3)
+            m.assertEqual(DialogStartIndex(removed, true, "audioMenu", 3, 4, "Dialogue"), 2)
+            m.assertEqual(DialogStartIndex(removed, true, "audioMenu", 2, 4, "Prevent distortion"), 2)
+            m.assertEqual(DialogStartIndex(added, false, "audioMenu", 2, 5, "Dialogue"), 0)
+        end sub
+
+        @it("keeps focus on the nearest of two rows that share a label")
+        sub keepsTheNearestOfTwinRows()
+            jobs = { field: "workMenu", selected: 0, keep: true, options: [{ label: "Find" }, { label: "Jobs", heading: true }, { label: "Transcription" }, { label: "Transcription" }] }
+
+            m.assertEqual(DialogStartIndex(jobs, true, "workMenu", 3, 4, "Transcription"), 3)
+            m.assertEqual(DialogStartIndex(jobs, true, "workMenu", 2, 4, "Transcription"), 2)
+        end sub
+
+        @it("keeps focus on Cancel when the open menu is refreshed")
+        sub keepsFocusOnCancel()
+            added = { field: "audioMenu", selected: 0, keep: true, options: [{ label: "Audio" }, { label: "Stereo downmix" }, { label: "Prevent distortion" }, { label: "Dialogue" }, { label: "Night mode" }] }
+            removed = { field: "audioMenu", selected: 0, keep: true, options: [{ label: "Audio" }, { label: "Stereo downmix" }, { label: "Dialogue" }, { label: "Night mode" }] }
+
+            m.assertEqual(DialogStartIndex(removed, true, "audioMenu", 5, 4, "Cancel", true), 4)
+            m.assertEqual(DialogStartIndex(added, true, "audioMenu", 4, 5, "Cancel", true), 5)
+            m.assertEqual(DialogStartIndex(added, false, "audioMenu", 4, 5, "Cancel", true), 0)
+        end sub
+
         @describe("DialogRows")
 
         @it("accepts a plain string as an option that carries no flags")

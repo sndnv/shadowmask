@@ -24,6 +24,7 @@ import 'package:shadowmask/components/player/timeline.dart';
 import 'package:shadowmask/components/player/up_next_card.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/view/player_shortcuts.dart';
+import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/view/playback_controls.dart';
@@ -1056,7 +1057,8 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.audiotrack).first);
     await tester.pumpAndSettle();
-    expect(find.text(Strings.playerStereoDownmix), findsOneWidget);
+    expect(find.text(Strings.playerNightMode), findsOneWidget);
+    expect(find.text(Strings.playerStereoDownmix), findsNothing);
     expect(find.text(Strings.playerQuality), findsNothing);
 
     await tester.tap(find.byIcon(Icons.subtitles).first);
@@ -1409,12 +1411,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text(Strings.playerQuality), findsNothing);
-    expect(find.text(Strings.playerStereoDownmix), findsOneWidget);
+    expect(find.text(Strings.playerNightMode), findsOneWidget);
 
     await tester.tap(audio);
     await tester.pumpAndSettle();
 
-    expect(find.text(Strings.playerStereoDownmix), findsNothing);
+    expect(find.text(Strings.playerNightMode), findsNothing);
 
     await tester.pumpWidget(const SizedBox());
   });
@@ -5547,7 +5549,9 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.audiotrack).first);
     await tester.pumpAndSettle();
-    await tester.tap(find.text(Strings.playerStereoDownmix));
+    await tester.tap(find.byType(AppDropdown<NightMode>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(NightMode.light.label).hitTestable().last);
     await _settleAroundSpinner(tester);
     fake.emit(ended: true);
     await _shown(tester);
