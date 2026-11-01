@@ -346,7 +346,7 @@ impl Default for Config {
             max_transcode_height: None,
             stream_start_timeout_secs: 20,
             cache_eviction_every_secs: 3600,
-            job_retention_days: 30,
+            job_retention_days: 7,
             retention_every_secs: 86_400,
             orphan_sweep_every_secs: 86_400,
             orphan_sweep_grace_secs: 86_400,
@@ -765,6 +765,17 @@ mod tests {
             let config = Config::load().unwrap().config;
             assert_eq!(config.server_log_dir, PathBuf::from("/data/server-logs"));
             assert_eq!(config.server_log_retention_hours, 72);
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn finished_jobs_are_kept_a_week_unless_configured() {
+        figment::Jail::expect_with(|jail| {
+            assert_eq!(Config::load().unwrap().config.job_retention_days, 7);
+            jail.set_env("SHADOWMASK_JOB_RETENTION_DAYS", "30");
+            assert_eq!(Config::load().unwrap().config.job_retention_days, 30);
             Ok(())
         });
     }

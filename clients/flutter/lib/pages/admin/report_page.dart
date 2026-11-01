@@ -70,7 +70,14 @@ class _ReportBodyState extends State<_ReportBody> with Mutations<_ReportBody> {
   late final Future<ReportDetail> _future = widget.reports.report(widget.id);
 
   Future<void> _copy(ReportDetail report) async {
-    await Clipboard.setData(ClipboardData(text: reportJson(report)));
+    try {
+      await Clipboard.setData(ClipboardData(text: reportJson(report)));
+    } on PlatformException {
+      if (mounted) {
+        Toasts.of(context).error(Strings.errorCopyReport);
+      }
+      return;
+    }
     if (mounted) {
       Toasts.of(context).success(Strings.toastReportCopied);
     }

@@ -34,6 +34,7 @@ import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/theme/theme_store.dart';
 import 'package:shadowmask/util/api_base.dart';
+import 'package:shadowmask/util/app_binding.dart';
 import 'package:shadowmask/util/bundled_fonts.dart';
 import 'package:shadowmask/util/bundled_licenses.dart';
 import 'package:shadowmask/util/page_director.dart';
@@ -44,7 +45,7 @@ import 'package:shadowmask/util/url_strategy.dart';
 import 'package:shadowmask/util/window.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  AppBinding();
   if (kIsWeb) {
     await BrowserContextMenu.disableContextMenu();
   }

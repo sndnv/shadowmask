@@ -814,6 +814,7 @@ abstract final class Strings {
   static const String reportAppVersion = 'Version';
   static const String copyReport = 'Copy';
   static const String toastReportCopied = 'Report copied.';
+  static const String errorCopyReport = 'Could not copy the report.';
   static const String deleteReportTitle = 'Delete this report?';
   static const String deleteReportMessage =
       'This report will be permanently removed.';

@@ -267,6 +267,37 @@ void main() {
     expect(find.text(Strings.toastReportCopied), findsOneWidget);
   });
 
+  testWidgets('a copy the browser refuses says so', (
+    WidgetTester tester,
+  ) async {
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (MethodCall call) async {
+        if (call.method == 'Clipboard.setData') {
+          throw PlatformException(code: 'copy_fail');
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await _pump(
+      tester,
+      _Server(),
+      (ApiClient api) => ReportPage(api: api, id: 'r1'),
+    );
+
+    await tester.tap(find.text(Strings.copyReport));
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.errorCopyReport), findsOneWidget);
+    expect(find.text(Strings.toastReportCopied), findsNothing);
+  });
+
   testWidgets('delete asks first, then goes back to the list', (
     WidgetTester tester,
   ) async {
