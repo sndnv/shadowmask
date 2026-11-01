@@ -22,6 +22,7 @@ import 'package:shadowmask/view/subtitle_size.dart';
 
 const Duration kOrientationTimeout = Duration(milliseconds: 1200);
 const Duration kOrientationPoll = Duration(milliseconds: 32);
+const int kOpenSlesFramesPerEnqueue = 1024;
 
 Future<void> preparePlayer() async {
   MediaKit.ensureInitialized();
@@ -215,6 +216,12 @@ class NativePlayerController implements PlayerController {
     await _setProperty('sub-visibility', tracks.subtitleImage ? 'yes' : 'no');
     await _setProperty('network-timeout', '$_networkTimeout');
     await _applyBuffer();
+    if (Platform.isAndroid) {
+      await _setProperty(
+        'opensles-frames-per-enqueue',
+        '$kOpenSlesFramesPerEnqueue',
+      );
+    }
     _current(generation);
     await _player.open(Media(_absolute(manifestUrl)), play: false);
     if (_outputFailure case final String failure) {
