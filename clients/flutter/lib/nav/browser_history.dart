@@ -6,12 +6,14 @@ import 'package:flutter/widgets.dart';
 
 const Set<String> _entryPaths = <String>{'/', '/link'};
 
+bool samePage(Uri a, Uri b) =>
+    a.path == b.path && a.queryParameters['id'] == b.queryParameters['id'];
+
 bool _opensEntry(Uri from, Uri to) {
   if (_entryPaths.contains(from.path) || _entryPaths.contains(to.path)) {
     return false;
   }
-  return from.path != to.path ||
-      from.queryParameters['id'] != to.queryParameters['id'];
+  return !samePage(from, to);
 }
 
 int? _stampOf(Object? state) {
@@ -87,6 +89,8 @@ class BrowserHistory extends RouterDelegate<RouteInformation>
   int? _stamp;
   bool _ordered = true;
   bool _following = false;
+
+  List<Uri> get pages => _stack.pages;
 
   int _next() =>
       math.max(DateTime.now().microsecondsSinceEpoch, (_stamp ?? 0) + 1);

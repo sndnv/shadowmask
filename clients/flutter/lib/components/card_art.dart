@@ -36,11 +36,15 @@ class CardArt extends StatelessWidget {
     final int pixels = logical == null
         ? kFallbackArtWidth
         : (logical * MediaQuery.devicePixelRatioOf(context)).round();
+    final bool shown = TickerMode.valuesOf(context).enabled;
     return AspectRatio(
       aspectRatio: _ratio,
       child: ClipRRect(
         borderRadius: borderRadius,
-        child: ColoredBox(color: t.artBg, child: _content(t, pixels)),
+        child: ColoredBox(
+          color: t.artBg,
+          child: shown ? _content(t, pixels) : _loading(t),
+        ),
       ),
     );
   }

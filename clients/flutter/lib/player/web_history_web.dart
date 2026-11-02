@@ -6,19 +6,20 @@ void replaceUrl(String relative) {
   web.window.history.replaceState(null, '', relative);
 }
 
-void addUnloadListener(void Function() onUnload) {
-  web.window.addEventListener('pagehide', ((web.Event _) => onUnload()).toJS);
+void Function() addUnloadListener(void Function() onUnload) {
+  final JSFunction listener = ((web.Event _) => onUnload()).toJS;
+  web.window.addEventListener('pagehide', listener);
+  return () => web.window.removeEventListener('pagehide', listener);
 }
 
-void addRestoreListener(void Function() onRestore) {
-  web.window.addEventListener(
-    'pageshow',
-    ((web.PageTransitionEvent event) {
-      if (event.persisted) {
-        onRestore();
-      }
-    }).toJS,
-  );
+void Function() addRestoreListener(void Function() onRestore) {
+  final JSFunction listener = ((web.PageTransitionEvent event) {
+    if (event.persisted) {
+      onRestore();
+    }
+  }).toJS;
+  web.window.addEventListener('pageshow', listener);
+  return () => web.window.removeEventListener('pageshow', listener);
 }
 
 void reloadPage() {

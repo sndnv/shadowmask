@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shadowmask/components/crumb.dart';
 import 'package:shadowmask/components/menu_option.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/nav/open_section.dart';
 import 'package:shadowmask/theme/app_menu.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
 import 'package:shadowmask/theme/tokens.dart';
@@ -90,10 +91,7 @@ class CrumbStrip extends StatelessWidget {
       ),
     );
     if (isLink) {
-      return InkWell(
-        onTap: () => Navigator.of(context).pushNamed(c.route!),
-        child: label,
-      );
+      return InkWell(onTap: () => openCrumb(context, c.route!), child: label);
     }
     return Flexible(
       child: Tooltip(
@@ -137,7 +135,7 @@ class _HiddenCrumbsState extends State<_HiddenCrumbs> {
               _controller.close();
               final String? route = c.route;
               if (route != null) {
-                Navigator.of(context).pushNamed(route);
+                openCrumb(context, route);
               }
             },
           ),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/card_art.dart';
@@ -136,6 +138,44 @@ void main() {
         reason: 'the layout size must not change with the rung',
       );
     }
+  });
+
+  testWidgets('a covered page keeps no card images until it is revealed', (
+    WidgetTester tester,
+  ) async {
+    const Artwork art = Artwork(
+      posters: <ImageSet>[
+        ImageSet(base: 'p1', widths: <int>[180, 480, 960]),
+      ],
+    );
+    final GlobalKey<NavigatorState> navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(AppThemeVariant.dark),
+        navigatorKey: navigator,
+        home: Scaffold(
+          body: Row(
+            children: <Widget>[
+              for (int i = 0; i < 3; i++)
+                SizedBox(width: 120, child: _art(art)),
+            ],
+          ),
+        ),
+      ),
+    );
+    expect(find.byType(Image), findsNWidgets(3));
+
+    unawaited(
+      navigator.currentState!.push(
+        MaterialPageRoute<void>(builder: (BuildContext _) => const Scaffold()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(Image, skipOffstage: false), findsNothing);
+
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(Image), findsNWidgets(3));
   });
 
   testWidgets('art with no declared width keeps the old fixed rung', (
