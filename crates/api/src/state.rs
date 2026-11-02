@@ -273,6 +273,9 @@ pub struct WebhookState<S> {
 #[derive(Debug, Clone, Default)]
 pub struct ServerCapabilities(pub Vec<crate::dto::server::Capability>);
 
+#[derive(Debug, Clone, Default)]
+pub struct ServerFonts(pub Option<crate::dto::server::FontSet>);
+
 pub trait AppServices: Clone + Send + Sync + 'static {
     type Auth: AuthService + Send + Sync;
     type Catalog: CatalogService + Send + Sync;

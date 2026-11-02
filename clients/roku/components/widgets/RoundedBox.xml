@@ -28,6 +28,7 @@
         <field id="fillColor" type="string" onChange="render" />
         <field id="lineColor" type="string" onChange="render" />
         <field id="rounded" type="string" value="all" onChange="render" />
+        <field id="focusRing" type="boolean" value="false" onChange="render" />
     </interface>
 
     <children>

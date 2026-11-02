@@ -252,8 +252,8 @@ function LastEpisodeOf(items as dynamic) as dynamic
     return episodes[episodes.Count() - 1]
 end function
 
-function FormatKbps(kbps as dynamic) as string
-    rate = Int(kbps)
+function FormatBps(bps as dynamic) as string
+    rate = Int(Int(bps) / 1000)
     if rate <= 0 then return ""
     if rate < 1000 then return rate.ToStr() + " kbps"
 
@@ -374,8 +374,11 @@ function PlayerDiagnostics(session as dynamic, info as dynamic, lastEvent = "" a
     container = TextOrBlank(ValueAt(session, "container", ""))
     if IsBlank(container) then container = Phrase("diagnostics.none")
 
-    bitrate = FormatKbps(ValueAt(info, "measuredBitrate", 0))
+    bitrate = FormatBps(ValueAt(info, "streamBitrate", 0))
     if IsBlank(bitrate) then bitrate = Phrase("status.unavailable")
+
+    bandwidth = FormatBps(ValueAt(info, "measuredBitrate", 0))
+    if IsBlank(bandwidth) then bandwidth = Phrase("status.unavailable")
 
     started = ValueAt(info, "timeToStartStreaming", 0)
     start = Phrase("status.unavailable")
@@ -393,6 +396,7 @@ function PlayerDiagnostics(session as dynamic, info as dynamic, lastEvent = "" a
         { label: Phrase("diagnostics.state"), values: [state] },
         { label: Phrase("diagnostics.timeline"), values: [origin] },
         { label: Phrase("diagnostics.bitrate"), values: [bitrate] },
+        { label: Phrase("diagnostics.bandwidth"), values: [bandwidth] },
         { label: Phrase("diagnostics.buffer"), values: [Int(ValueAt(info, "percentage", 0)).ToStr() + "%"] },
         { label: Phrase("diagnostics.underrun"), values: [YesOrNo(ValueAt(info, "isUnderrun", false))] },
         { label: Phrase("diagnostics.startTime"), values: [start] }
@@ -404,6 +408,7 @@ end function
 function VideoInfo(streamInfo as dynamic, buffering as dynamic, startSeconds as dynamic, state = "" as string) as object
     return {
         measuredBitrate: Int(ValueAt(streamInfo, "measuredBitrate", 0)),
+        streamBitrate: Int(ValueAt(streamInfo, "streamBitrate", 0)),
         isUnderrun: ValueAt(streamInfo, "isUnderrun", false) = true,
         percentage: Int(ValueAt(buffering, "percentage", 0)),
         timeToStartStreaming: startSeconds,
@@ -414,6 +419,24 @@ end function
 function IsReplayKey(key as dynamic) as boolean
     name = LCase(TextOrBlank(key))
     return name = "replay" or name = "instantreplay"
+end function
+
+function MenuAfterBack(field as string, settingMenu as string) as string
+    if field = "workMenu" then return "subsMenu"
+
+    leaves = ["audio", "subtitle", "delivery", "dialogue", "night", "offset", "subtitleSize", "autoplay"]
+    leaves.Append(WorkChoiceFields())
+
+    isLeaf = false
+    for each name in leaves
+        if name = field then isLeaf = true
+    end for
+    if not isLeaf then return ""
+
+    for each menu in ["subsMenu", "audioMenu", "settings", "workMenu"]
+        if menu = settingMenu then return menu
+    end for
+    return ""
 end function
 
 function SeekStepMs(large as boolean) as integer
@@ -457,10 +480,6 @@ end function
 
 function HoldTickStepMs(ticks as integer) as integer
     return Int(HoldStepMs(HoldHeldSeconds(ticks)) * HoldTickMs() / 1000)
-end function
-
-function HoldTickMultiplied(ticks as integer) as boolean
-    return HoldSpeedAt(HoldHeldSeconds(ticks)) > HoldSpeeds()[0]
 end function
 
 function PlayerButtons(playing as boolean, finished as boolean, episode as boolean, hasPrevious as boolean, hasNext as boolean, busy = false as boolean) as object

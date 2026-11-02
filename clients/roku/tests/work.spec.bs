@@ -291,7 +291,16 @@ namespace tests
             m.assertEqual(options[1].detail, "ASS")
             m.assertEqual(options[2].meta, "")
             m.assertEqual(options[2].metaIcon, "")
+            m.assertTrue(options[0].middle, "a release name keeps its end when shortened")
             m.assertEqual(CandidateOptions(invalid).Count(), 0)
+        end sub
+
+        @it("names the version's file above the results, and nothing when the server sends no path")
+        sub namesTheVersionsFile()
+            m.assertEqual(VersionFileLine({ id: "v1", path: "/media/films/Some.Film.2020.mkv" }), "Some.Film.2020")
+            m.assertEqual(VersionFileLine({ id: "v1" }), "")
+            m.assertEqual(VersionFileLine({ id: "v1", path: invalid }), "")
+            m.assertEqual(VersionFileLine(invalid), "")
         end sub
 
         @it("marks a result the version already holds as downloaded and read-only")

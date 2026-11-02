@@ -29,7 +29,6 @@
         <field id="barHeight" type="float" value="0" />
         <field id="focusIndex" type="integer" value="0" onChange="render" />
         <field id="activated" type="integer" alwaysNotify="true" />
-        <field id="focusedChild" type="node" onChange="onFocusChanged" />
     </interface>
 
     <children>

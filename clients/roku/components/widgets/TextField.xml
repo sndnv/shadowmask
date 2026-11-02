@@ -30,7 +30,6 @@
         <field id="disabled" type="boolean" value="false" onChange="render" />
         <field id="barHeight" type="float" value="0" />
         <field id="activated" type="string" alwaysNotify="true" />
-        <field id="focusedChild" type="node" onChange="onFieldFocusChanged" />
     </interface>
 
     <children>

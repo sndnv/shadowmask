@@ -38,7 +38,6 @@
         <field id="toastRequest" type="assocarray" alwaysNotify="true" />
         <field id="release" type="boolean" onChange="onRelease" />
         <field id="sessionEnd" type="assocarray" alwaysNotify="true" />
-        <field id="focusedChild" type="node" onChange="onFocus" />
     </interface>
 
     <children>

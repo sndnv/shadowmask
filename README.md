@@ -190,9 +190,12 @@ We use [SemVer](http://semver.org/) for versioning.
   (MIT); all three notices are in
   [`assets/vendor/hls.js.LICENSE.txt`](./assets/vendor/hls.js.LICENSE.txt), distributed alongside
   the script.
-* [Roboto](https://github.com/googlefonts/roboto-classic) (Regular and Medium) is bundled by the Roku
-  client, under the SIL Open Font License 1.1, with its licence distributed alongside the fonts at
+* [Roboto](https://github.com/googlefonts/roboto-classic) is bundled by the Flutter clients, under
+  the SIL Open Font License 1.1, with its licence distributed alongside the fonts at
   [`assets/fonts/Roboto-OFL.txt`](./assets/fonts/Roboto-OFL.txt).
+* [Noto Sans CJK SC](https://github.com/notofonts/noto-cjk) (Regular and Medium) is downloaded into
+  the server image and served to the Roku client, under the SIL Open Font License 1.1, with its
+  licence beside the fonts.
 * The macOS and iOS applications bundle mpv (LGPL-2.1-or-later), FFmpeg (LGPL-3.0-or-later) and nine
   supporting libraries, each as a separately replaceable dynamically linked framework. Android
   bundles a different build of most of the same libraries, linked statically into one replaceable

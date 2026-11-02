@@ -21,6 +21,8 @@ sub init()
     m.nextOffset = 0
     m.loadingMore = false
     m.generation = 0
+
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 function ResultColumns(width as integer) as integer
@@ -322,6 +324,10 @@ end sub
 sub ReloadCardStates()
     if Len(m.term) < MinSearchLength() then return
     Search()
+end sub
+
+sub onRevealed()
+    if m.cards.Count() > 0 then LoadStates(m.cards)
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean

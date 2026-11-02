@@ -99,6 +99,38 @@ function CardMetrics(cardWidth as float, aspect as string, captionRows = 3 as in
     }
 end function
 
+function FocusScale() as float
+    return 1 + FocusGrowPercent() / 100.0
+end function
+
+function FocusRoom(cardWidth as integer, cardHeight as integer, gapX as integer, gapY = -1 as integer) as object
+    if cardWidth <= 0 or cardHeight <= 0 or gapX <= 0 then return { x: 0, y: 0, scale: 1.0 }
+
+    scale = FocusScale()
+    if FocusSide(cardWidth, scale) > gapX \ 2 then scale = 1 + (gapX \ 2) * 2.0 / cardWidth
+    if gapY >= 0 and FocusSide(cardHeight, scale) > gapY \ 2 then scale = 1 + (gapY \ 2) * 2.0 / cardHeight
+
+    return { x: FocusSide(cardWidth, scale), y: FocusSide(cardHeight, scale), scale: scale }
+end function
+
+function SameRoom(first as dynamic, second as dynamic) as boolean
+    if type(first) <> "roAssociativeArray" or type(second) <> "roAssociativeArray" then return false
+    return first.x = second.x and first.y = second.y and first.scale = second.scale
+end function
+
+function FocusSide(length as integer, scale as float) as integer
+    return - Int(- (length * (scale - 1) / 2 - 0.001))
+end function
+
+function GrownOffset(anchor as object, centre as object, scale as float) as object
+    return [Int((anchor[0] - centre[0]) * (scale - 1) + 0.5), Int((anchor[1] - centre[1]) * (scale - 1) + 0.5)]
+end function
+
+function FocusClipRect(width as float, height as float) as object
+    margin = SpacingScale().s4 \ 2
+    return [- margin, 0, Int(width) + margin * 2, Int(height)]
+end function
+
 function VisibleSlots(available as float, slotHeight as integer, spacing as integer) as integer
     if slotHeight <= 0 then return 1
 

@@ -10,21 +10,19 @@ function SessionFor(shared as object) as object
 end function
 
 function ContentLeft() as integer
-    space = SpacingScale()
-    return space.s6 + space.s5
+    return ScreenEdgeGap()
 end function
 
 function ContentTop() as integer
-    space = SpacingScale()
-    return space.s6 + space.s5
+    return ScreenEdgeGap()
 end function
 
 function ContentWidth() as integer
-    return CanvasWidth() - ContentLeft() - SpacingScale().s6
+    return CanvasWidth() - ContentLeft() - ScreenEndGap()
 end function
 
 function ContentBottomPad() as integer
-    return SpacingScale().s6
+    return ScreenEndGap()
 end function
 
 sub PublishBackdropUrl(url as string)
@@ -68,6 +66,24 @@ end function
 
 function BackdropLoadsNext(opacity as float, upcoming as string) as boolean
     return opacity <= 0 and not IsBlank(upcoming)
+end function
+
+function LayoutSlotOf(lines as object, index as integer) as dynamic
+    for row = 0 to lines.Count() - 1
+        for col = 0 to lines[row].Count() - 1
+            if lines[row][col].index = index then return { row: row, col: col }
+        end for
+    end for
+    return invalid
+end function
+
+function RevealWaits(done as dynamic, queued as dynamic) as boolean
+    if done = invalid or queued = invalid then return false
+    return Int(done) < Int(queued)
+end function
+
+function KeepsShownOnReload(quiet as boolean, failed as boolean) as boolean
+    return quiet and failed
 end function
 
 function AdvanceFollowed(target as dynamic, onTop as boolean) as boolean
@@ -283,7 +299,7 @@ sub LayoutSections(viewportWidth as integer, viewportHeight as integer)
         end if
     end for
 
-    m.viewport.clippingRect = [0, 0, viewportWidth, viewportHeight]
+    m.viewport.clippingRect = FocusClipRect(viewportWidth, viewportHeight)
 
     if m.sectionOrder.Count() = 0
         m.sectionOffset = 0
@@ -531,11 +547,11 @@ function ScreenForKind(kind as dynamic) as string
 end function
 
 function HeroPosterWidth() as integer
-    return 300
+    return Px(300)
 end function
 
 function HeroLandscapeWidth() as integer
-    return 480
+    return Px(480)
 end function
 
 function RetainedScreens() as integer
@@ -586,15 +602,15 @@ function HeroArtHeight(aspect as string) as integer
 end function
 
 function RailCardWidth() as integer
-    return 260
+    return Px(260)
 end function
 
 function LandscapeCardWidth() as integer
-    return 400
+    return Px(400)
 end function
 
 function CastCardWidth() as integer
-    return 170
+    return Px(170)
 end function
 
 function CardWidthFor(aspect as dynamic) as integer

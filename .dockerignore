@@ -11,6 +11,7 @@ assets/
 clients/flutter/
 deployment/
 !deployment/SERVER-IMAGE-CREDITS.md
+!deployment/fonts/fonts.json
 *.md
 !THIRD-PARTY-LICENSES.md
 .DS_Store

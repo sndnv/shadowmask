@@ -37,7 +37,6 @@
         <field id="scrollOffset" type="float" value="0" />
         <field id="focusedCard" type="assocarray" alwaysNotify="true" />
         <field id="selected" type="assocarray" alwaysNotify="true" />
-        <field id="focusedChild" type="node" onChange="onFocus" />
     </interface>
 
     <children>

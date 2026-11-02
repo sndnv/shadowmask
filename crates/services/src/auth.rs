@@ -1,5 +1,3 @@
-use std::fmt::Write;
-
 use domain::error::{AuthError, RepositoryError};
 use domain::repository::{AuthTokenRepository, UserRepository};
 use domain::service::AuthService;
@@ -139,12 +137,7 @@ fn signature_of(token: &str) -> String {
 }
 
 fn hash_api_token(token: &str) -> String {
-    let digest = Sha256::digest(token.as_bytes());
-    let mut hex = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        let _ = write!(hex, "{byte:02x}");
-    }
-    hex
+    hex::encode(Sha256::digest(token.as_bytes()))
 }
 
 impl<U, T> DefaultAuthService<U, T> {

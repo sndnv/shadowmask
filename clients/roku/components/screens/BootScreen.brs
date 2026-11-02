@@ -4,10 +4,14 @@ sub init()
     m.actions = m.top.FindNode("actions")
 
     m.failed = false
+    m.failure = ""
     m.detail = ""
     m.started = false
+    m.fontStep = 0
+    m.fontCount = 0
 
     m.actions.ObserveField("activated", "onAction")
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 sub render()
@@ -20,7 +24,7 @@ sub render()
     top = ContentTop()
 
     m.title.visible = m.failed
-    m.title.text = Phrase("error.serverUnreachable")
+    m.title.text = FailureTitle()
     m.title.color = theme.text
     m.title.font = SizedBoldFont(sizes.text2xl)
     m.title.width = ContentWidth()
@@ -55,10 +59,19 @@ function NoteKind() as string
     return "loading"
 end function
 
+function FailureTitle() as string
+    if m.failure = "fonts" then return Phrase("error.fontsFailed")
+    return Phrase("error.serverUnreachable")
+end function
+
 function NoteMessage() as string
-    if not m.failed then return Phrase("state.loading")
+    if not m.failed
+        if m.fontCount > 0 then return PhraseWith("state.downloadingFonts", { step: m.fontStep, count: m.fontCount })
+        return Phrase("state.loading")
+    end if
 
     body = Phrase("error.serverUnreachableBody")
+    if m.failure = "fonts" then body = Phrase("error.fontsFailedBody")
     if IsBlank(m.detail) then return body
     if m.detail = Phrase("error.serverUnreachable") then return body
     return body + " " + m.detail
@@ -66,6 +79,13 @@ end function
 
 function FailureButtons() as object
     if not m.failed then return []
+
+    if m.failure = "fonts"
+        return [
+            { id: "retryFonts", label: Phrase("action.retry"), style: "primary" },
+            { id: "continueFonts", label: Phrase("action.continueAnyway") }
+        ]
+    end if
 
     return [
         { id: "retry", label: Phrase("action.retry"), style: "primary" },
@@ -75,6 +95,7 @@ end function
 
 sub Load()
     m.failed = false
+    m.failure = ""
     m.detail = ""
     render()
 
@@ -104,7 +125,80 @@ sub onSelf()
     shared.role = TextOrBlank(ValueAt(parsed.json, "role", ""))
     shared.accountRole = TextOrBlank(ValueAt(parsed.json, "account_role", ""))
 
+    LoadFonts()
+end sub
+
+sub LoadFonts()
+    m.failed = false
+    m.failure = ""
+    m.detail = ""
+    m.fontStep = 0
+    m.fontCount = 0
+    render()
+
+    m.infoTask = SendRequest(ServerInfoRequest(ReadServerUrl(), ReadToken()), "onFontsInfo")
+end sub
+
+sub onFontsInfo()
+    if m.infoTask = invalid then return
+
+    response = m.infoTask.response
+    parsed = ParseResponse(response.status, response.body)
+    m.infoTask = invalid
+    if IsUnauthorised(parsed.status)
+        ClearToken()
+        m.top.advance = "reset:SetupScreen"
+        return
+    end if
+
+    if not parsed.ok
+        FailFonts(parsed.error)
+        return
+    end if
+
+    plan = FontDownloads(ValueAt(parsed.json, "fonts", invalid), ReadServerUrl())
+    if plan = invalid
+        UseFonts({})
+        return
+    end if
+
+    m.fontPlan = plan
+    m.fontTask = CreateObject("roSGNode", "FontTask")
+    m.fontTask.ObserveField("step", "onFontStep")
+    m.fontTask.ObserveField("result", "onFontsSaved")
+    m.fontTask.job = FontJob(plan)
+    m.fontTask.control = "run"
+end sub
+
+sub onFontStep()
+    if m.fontTask = invalid then return
+
+    m.fontStep = m.fontTask.step
+    m.fontCount = m.fontTask.count
+    render()
+end sub
+
+sub onFontsSaved()
+    if m.fontTask = invalid then return
+
+    result = m.fontTask.result
+    m.fontTask = invalid
+    if ValueAt(result, "ok", false) = true
+        UseFonts(ActiveFontsFrom(m.fontPlan))
+        return
+    end if
+
+    FailFonts(ValueAt(result, "error", ""))
+end sub
+
+sub UseFonts(fonts as object)
+    m.global.fonts = fonts
     m.top.advance = "reset:HomeScreen"
+end sub
+
+sub FailFonts(detail as dynamic)
+    m.failure = "fonts"
+    Fail(detail)
 end sub
 
 sub Fail(detail as dynamic)
@@ -118,6 +212,16 @@ sub onAction(event as object)
 
     if id = "retry"
         Load()
+        return
+    end if
+
+    if id = "retryFonts"
+        LoadFonts()
+        return
+    end if
+
+    if id = "continueFonts"
+        UseFonts({})
         return
     end if
 

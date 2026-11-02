@@ -76,7 +76,7 @@ def xml(engine, root):
 COMPONENT_NAME = re.compile(r'<component\s[^>]*\bname="([^"]+)"')
 COMPONENT_EXTENDS = re.compile(r'<component\s[^>]*\bextends="([^"]+)"')
 
-SCOPE_EXEMPT = {"components/api/HttpTask.xml"}
+SCOPE_EXEMPT = {"components/api/HttpTask.xml", "components/api/FontTask.xml"}
 
 
 def scope(engine, root):

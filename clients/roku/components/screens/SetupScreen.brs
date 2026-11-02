@@ -17,6 +17,7 @@ sub init()
     m.codeField.ObserveField("activated", "onFieldActivated")
     m.deviceField.ObserveField("activated", "onFieldActivated")
     m.actions.ObserveField("activated", "onAction")
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 sub render()

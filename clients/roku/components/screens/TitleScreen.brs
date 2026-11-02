@@ -69,6 +69,8 @@ sub init()
     m.released = false
     m.started = false
     m.published = false
+
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 sub render()
@@ -689,6 +691,19 @@ sub ReloadCardStates()
         LoadRollups()
         return
     end if
+    LoadCollectionStates()
+end sub
+
+sub onRevealed()
+    if m.released then return
+    if m.kind = "series"
+        LoadRollups()
+        return
+    end if
+
+    session = SessionFor(m.global)
+    Ask(ContinueRequest(session.serverUrl, session.token, session.userId), "onContinue")
+    Ask(StateBatchRequest(session.serverUrl, session.token, session.userId, [{ "type": "movie", "id": m.id }]), "onState")
     LoadCollectionStates()
 end sub
 

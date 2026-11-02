@@ -9,7 +9,8 @@ use domain::catalog::{
 };
 use domain::library::LibraryId;
 use domain::metadata::PersonId;
-use domain::user::{Principal, Role};
+use domain::user::Principal;
+use services::acl;
 
 use crate::dto::catalog::{
     CollectionResponse, CreateCollectionRequest, EditEpisodeRequest, EditMovieRequest,
@@ -144,7 +145,7 @@ pub async fn movie_versions<S: AppServices>(
         .await
         .map_err(log_fail(actor, "retrieve movie versions"))?;
     debug!("User [{actor}] retrieved {} versions for movie [{}]", versions.items.len(), title.id());
-    let include_path = principal.role == Role::Admin;
+    let include_path = acl::works_on_versions(&principal);
     Ok(Json(PageResponse::from_page(versions, |v| VersionResponse::with_path(v, include_path))))
 }
 
@@ -252,7 +253,7 @@ pub async fn version_detail<S: AppServices>(
         .await
         .map_err(log_fail(actor, "retrieve version"))?;
     debug!("User [{actor}] retrieved version [{}]", id.0);
-    let include_path = principal.role == Role::Admin;
+    let include_path = acl::works_on_versions(&principal);
     Ok(Json(VersionDetailResponse::with_path(detail, include_path)))
 }
 
@@ -567,7 +568,7 @@ pub async fn episode_versions<S: AppServices>(
         .map_err(log_fail(actor, "retrieve episode versions"))?;
     let id = title.id();
     debug!("User [{actor}] retrieved {} versions for episode [{id}]", versions.items.len());
-    let include_path = principal.role == Role::Admin;
+    let include_path = acl::works_on_versions(&principal);
     Ok(Json(PageResponse::from_page(versions, |v| VersionResponse::with_path(v, include_path))))
 }
 

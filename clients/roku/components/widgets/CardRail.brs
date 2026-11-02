@@ -22,6 +22,8 @@ sub init()
     m.builtWith = ""
     m.builtShape = ""
     m.builtViewport = 0
+
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 sub render()
@@ -36,6 +38,9 @@ sub render()
     UnifyAspect(cards)
     metrics = CardMetrics(m.top.cardWidth, AspectForSet(cards), m.top.captionRows)
     labelHeight = Int(sizes.textXl * 1.4) + space.s2
+    room = FocusRoom(metrics.width, metrics.height, space.s4)
+    rowTop = labelHeight + room.y
+    m.room = room
 
     m.heading.text = m.top.heading
     m.heading.color = theme.text
@@ -51,23 +56,23 @@ sub render()
 
     m.row.itemComponentName = "PosterCard"
     m.row.numRows = 1
-    m.row.itemSize = [viewport, metrics.height]
-    m.row.rowItemSize = [[metrics.width, metrics.height]]
-    m.row.rowItemSpacing = [[space.s4, 0]]
-    m.row.rowHeights = [metrics.height]
+    m.row.itemSize = [viewport + room.x * 2, metrics.height + room.y * 2]
+    m.row.rowItemSize = [[metrics.width + room.x * 2, metrics.height + room.y * 2]]
+    m.row.rowItemSpacing = [[space.s4 - room.x * 2, 0]]
+    m.row.rowHeights = [metrics.height + room.y * 2]
     m.row.showRowLabel = [false]
     m.row.showRowCounter = [false]
     m.row.focusXOffset = RailFocusRange(viewport, metrics.width)
     m.row.vertFocusAnimationStyle = "fixedFocus"
     m.row.rowFocusAnimationStyle = "floatingFocus"
     m.row.drawFocusFeedback = false
-    m.row.translation = [0, labelHeight]
+    m.row.translation = [- room.x, labelHeight]
 
     RefreshContent(cards, viewport)
 
-    m.top.railHeight = labelHeight + metrics.height
+    m.top.railHeight = rowTop + metrics.height
     m.artHeight = metrics.artHeight
-    m.labelHeight = labelHeight
+    m.rowTop = rowTop
     RenderArrows(theme)
 end sub
 
@@ -88,8 +93,9 @@ sub RefreshContent(cards as object, viewport as integer)
     if cards.Count() = 0 and m.row.content = invalid then return
 
     imageWidth = CardImageWidthFor(m.top.cardWidth)
-    shape = CardSetShape(cards, m.top.captionRows) + "@" + viewport.ToStr()
-    signature = CardSetSignature(cards, m.top.serverUrl, imageWidth, m.top.captionRows) + "@" + viewport.ToStr()
+    layout = "@" + viewport.ToStr() + "@" + m.room.x.ToStr() + "x" + m.room.y.ToStr()
+    shape = CardSetShape(cards, m.top.captionRows) + layout
+    signature = CardSetSignature(cards, m.top.serverUrl, imageWidth, m.top.captionRows) + layout
     if m.builtWith <> invalid and m.builtWith = signature then return
 
     if m.builtShape <> invalid and m.builtShape = shape and PaintedArtwork(cards, imageWidth)
@@ -105,7 +111,7 @@ sub RefreshContent(cards as object, viewport as integer)
     root = CreateObject("roSGNode", "ContentNode")
     row = root.CreateChild("ContentNode")
     for each card in cards
-        row.AppendChild(CardContentNode(card, m.top.serverUrl, imageWidth, m.top.captionRows))
+        row.AppendChild(CardContentNode(card, m.top.serverUrl, imageWidth, m.top.captionRows, m.room))
     end for
 
     m.row.content = root
@@ -142,7 +148,7 @@ sub RenderArrows(theme as object)
     space = SpacingScale()
     disc = ChevronSize() + space.s3
     chevron = ChevronSize()
-    top = m.labelHeight + Int((m.artHeight - disc) / 2)
+    top = m.rowTop + Int((m.artHeight - disc) / 2)
 
     viewport = Int(m.railViewport)
     if viewport <= 0 then viewport = Int(m.top.railWidth)

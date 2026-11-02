@@ -12,6 +12,11 @@ sub render()
     if not m.top.visible then return
 
     radius = CornerRadius()
+    lineUri = RoundedLineUri()
+    if m.top.focusRing
+        radius = FocusRingRadius()
+        lineUri = FocusRingUri()
+    end if
     side = LCase(TextOrBlank(m.top.rounded))
 
     drawn = width
@@ -22,7 +27,7 @@ sub render()
     m.clip.clippingRect = [0, 0, width, height]
 
     Paint(m.fill, RoundedFillUri(), m.top.fillColor, drawn, height, bleed)
-    Paint(m.line, RoundedLineUri(), m.top.lineColor, drawn, height, bleed)
+    Paint(m.line, lineUri, m.top.lineColor, drawn, height, bleed)
 end sub
 
 sub Paint(node as object, uri as string, color as string, width as integer, height as integer, bleed as integer)

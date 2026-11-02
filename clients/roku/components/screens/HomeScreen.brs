@@ -10,6 +10,8 @@ sub init()
     m.rails = []
     m.resumeCard = {}
     m.started = false
+
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 sub render()
@@ -49,20 +51,22 @@ sub render()
     end if
 end sub
 
-sub Load()
+sub Load(quiet = false as boolean)
     session = SessionFor(m.global)
 
     m.hubJson = invalid
     m.continueJson = invalid
     m.pendingFeeds = 2
     m.failed = false
+    m.quiet = quiet
 
-    ShowNote(Phrase("state.loading"), "loading")
+    if not quiet then ShowNote(Phrase("state.loading"), "loading")
     m.hubTask = SendRequest(HubRequest(session.serverUrl, session.token, session.userId), "onHub")
     m.continueTask = SendRequest(ContinueRequest(session.serverUrl, session.token, session.userId), "onContinue")
 end sub
 
 sub onHub(event as object)
+    if m.hubTask = invalid or not m.hubTask.IsSameNode(event.GetRoSGNode()) then return
     parsed = ParseResponse(event.GetData().status, event.GetData().body)
     if HandledUnauthorised(m.top, parsed.status) then return
 
@@ -72,6 +76,7 @@ sub onHub(event as object)
 end sub
 
 sub onContinue(event as object)
+    if m.continueTask = invalid or not m.continueTask.IsSameNode(event.GetRoSGNode()) then return
     parsed = ParseResponse(event.GetData().status, event.GetData().body)
     if HandledUnauthorised(m.top, parsed.status) then return
 
@@ -83,6 +88,7 @@ end sub
 sub FeedArrived()
     m.pendingFeeds = m.pendingFeeds - 1
     if m.pendingFeeds > 0 then return
+    if KeepsShownOnReload(m.quiet and m.rows.visible, m.failed) then return
 
     if m.failed and m.hubJson = invalid and m.continueJson = invalid
         ShowNote(Phrase("error.couldNotLoadHome"), "error")
@@ -229,4 +235,8 @@ end sub
 
 sub ReloadCardStates()
     Load()
+end sub
+
+sub onRevealed()
+    Load(true)
 end sub

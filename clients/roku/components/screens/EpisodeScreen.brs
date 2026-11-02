@@ -34,6 +34,8 @@ sub init()
     m.released = false
     m.started = false
     m.published = false
+
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 sub render()
@@ -415,6 +417,14 @@ sub onChoice()
 end sub
 
 sub ReloadCardStates()
+    LoadState()
+end sub
+
+sub onRevealed()
+    if m.released then return
+
+    session = SessionFor(m.global)
+    Ask(ContinueRequest(session.serverUrl, session.token, session.userId), "onContinue")
     LoadState()
 end sub
 

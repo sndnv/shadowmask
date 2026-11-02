@@ -30,7 +30,6 @@
         <field id="keyboardResult" type="assocarray" onChange="onKeyboard" />
         <field id="advance" type="string" alwaysNotify="true" />
         <field id="immersive" type="boolean" value="true" />
-        <field id="focusedChild" type="node" onChange="onFocus" />
     </interface>
 
     <children>

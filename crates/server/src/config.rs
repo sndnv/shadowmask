@@ -294,6 +294,7 @@ pub struct Config {
     pub bootstrap_dir: PathBuf,
     pub webhook_clients: Vec<::api::WebhookClient>,
     pub basic_client_dir: PathBuf,
+    pub fonts_dir: PathBuf,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
     pub cors_allowed_origins: Vec<String>,
@@ -358,6 +359,7 @@ impl Default for Config {
             bootstrap_dir: PathBuf::from("bootstrap"),
             webhook_clients: Vec::new(),
             basic_client_dir: PathBuf::from("clients/basic"),
+            fonts_dir: PathBuf::from("fonts"),
             tls_cert: None,
             tls_key: None,
             cors_allowed_origins: Vec::new(),
@@ -813,6 +815,20 @@ mod tests {
             assert_eq!(
                 Config::load().unwrap().config.profile_overrides_dir,
                 Some(PathBuf::from("/etc/shadowmask/profiles"))
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn the_fonts_folder_defaults_to_fonts_and_can_be_named() {
+        figment::Jail::expect_with(|jail| {
+            assert_eq!(Config::load().unwrap().config.fonts_dir, PathBuf::from("fonts"));
+            jail.set_env("SHADOWMASK_FONTS_DIR", "/usr/share/shadowmask/fonts");
+            assert_eq!(
+                Config::load().unwrap().config.fonts_dir,
+                PathBuf::from("/usr/share/shadowmask/fonts")
             );
             Ok(())
         });

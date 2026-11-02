@@ -5,6 +5,7 @@ sub init()
     m.identity = m.top.FindNode("identity")
 
     m.list.ObserveField("itemSelected", "onSelected")
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 function NavDestinations() as object

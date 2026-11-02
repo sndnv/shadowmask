@@ -330,6 +330,15 @@ namespace tests
             m.assertTrue(DialogSpeech("Pick", "", rows, 0).Instr("12K") >= 0)
         end sub
 
+        @it("carries a row's middle shortening through to the dialog, off unless asked")
+        sub rowsCarryMiddleShortening()
+            rows = DialogRows(MenuOptions([{ label: "Release.Name", middle: true }, { label: "Plain" }]), "menu", 0)
+
+            m.assertTrue(rows[0].middle)
+            m.assertFalse(rows[1].middle)
+            m.assertFalse(DialogRow("Text").middle)
+        end sub
+
         @describe("a pick that waits for the server")
 
         @it("turns the picked row into the wait and dims the rest")

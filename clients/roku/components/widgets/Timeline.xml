@@ -29,7 +29,6 @@
         <field id="scrubMs" type="float" value="-1" onChange="render" />
         <field id="barWidth" type="float" value="900" onChange="render" />
         <field id="barHeight" type="float" value="0" />
-        <field id="focusedChild" type="node" onChange="onTimelineFocusChanged" />
     </interface>
 
     <children>

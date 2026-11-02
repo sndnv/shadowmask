@@ -14,6 +14,7 @@ credited from the *Third-party content* section of the
 | Every Debian package, with its version | `/usr/share/doc/<package>/copyright` |
 | Licence texts those files reference | `/usr/share/common-licenses/` |
 | hls.js, bundled by the basic web client | `/usr/share/shadowmask/basic/vendor/hls.js.LICENSE.txt` |
+| Noto Sans CJK SC, served to the Roku | `/usr/share/shadowmask/fonts/LICENSE` |
 | C++ source vendored into the binary, `-enrichment` image only | `/usr/share/doc/shadowmask/third-party-licenses/` |
 
 Nothing has to be fetched from the network. The Debian copyright files are present because
@@ -60,6 +61,13 @@ as a subprocess. Released into the public domain under the
 
 It is **not pinned**, so extractor fixes arrive on each image rebuild and the version varies between
 builds of the same Shadowmask version. Run `yt-dlp --version` to see which one is installed.
+
+## Noto Sans CJK SC
+
+Regular and Medium, downloaded from [noto-cjk](https://github.com/notofonts/noto-cjk) at a pinned
+commit and checked against their SHA-256 at build time. Served unmodified at `/fonts/` for the Roku
+client to download. Licensed under the SIL Open Font License 1.1; the licence travels with the
+fonts as `LICENSE`.
 
 ## The enrichment image
 

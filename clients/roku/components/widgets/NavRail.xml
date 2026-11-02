@@ -30,7 +30,6 @@
         <field id="identity" type="string" onChange="RefreshContent" />
         <field id="selected" type="string" alwaysNotify="true" />
         <field id="dismissed" type="boolean" alwaysNotify="true" />
-        <field id="focusedChild" type="node" onChange="onFocus" />
     </interface>
 
     <children>

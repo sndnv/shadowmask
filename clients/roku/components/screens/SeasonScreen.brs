@@ -37,6 +37,8 @@ sub init()
     m.released = false
     m.started = false
     m.published = false
+
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 sub render()
@@ -505,6 +507,10 @@ sub onChoice()
 end sub
 
 sub ReloadCardStates()
+    ReloadStates()
+end sub
+
+sub onRevealed()
     ReloadStates()
 end sub
 

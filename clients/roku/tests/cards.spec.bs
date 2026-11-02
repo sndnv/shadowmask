@@ -310,6 +310,68 @@ namespace tests
             m.assertEqual(CardMetrics(240, PosterAspect(), 9).textHeight, three, "the row count is clamped, never trusted raw")
         end sub
 
+        @describe("SameRoom")
+
+        @it("matches two rooms with the same sides and scale")
+        sub matchesEqualRooms()
+            m.assertTrue(SameRoom(FocusRoom(186, 369, 20), FocusRoom(186, 369, 20)))
+        end sub
+
+        @it("tells apart a room for another card size, and a missing one")
+        sub tellsRoomsApart()
+            m.assertFalse(SameRoom(FocusRoom(186, 369, 20), FocusRoom(240, 400, 20)))
+            m.assertFalse(SameRoom(FocusRoom(186, 369, 20), invalid))
+            m.assertFalse(SameRoom(invalid, invalid))
+        end sub
+
+        @describe("FocusRoom")
+
+        @it("scales a focused card by the grow percent")
+        sub scalesByThePercent()
+            m.assertEqual(FocusScale(), 1 + FocusGrowPercent() / 100.0)
+        end sub
+
+        @it("gives a card room for the whole growth when half the gap holds it")
+        sub roomForTheWholeGrowth()
+            room = FocusRoom(186, 369, 20)
+            m.assertEqual(room.x, 10)
+            m.assertEqual(room.y, 19)
+            m.assertEqual(room.scale, FocusScale())
+        end sub
+
+        @it("caps the growth at half the gap, so slots never overlap")
+        sub capsAtHalfTheGap()
+            room = FocusRoom(286, 250, 20)
+            m.assertEqual(room.x, 10)
+            m.assertTrue(room.scale < FocusScale())
+            m.assertTrue(room.y * 2 >= 250 * (room.scale - 1), "the room holds the card's growth in height too")
+
+            tall = FocusRoom(186, 369, 20, 30)
+            m.assertTrue(tall.y <= 15)
+            m.assertTrue(tall.x <= 10)
+        end sub
+
+        @it("gives no room and no growth to a card with no size or no gap")
+        sub noRoomWithoutSize()
+            m.assertEqual(FocusRoom(0, 369, 20), { x: 0, y: 0, scale: 1.0 })
+            m.assertEqual(FocusRoom(186, 369, 0).scale, 1.0)
+        end sub
+
+        @it("moves a point by as much as scaling about the centre moves it")
+        sub offsetFollowsTheScale()
+            m.assertEqual(GrownOffset([0, 0], [100, 200], 1.1), [-10, -20])
+            m.assertEqual(GrownOffset([150, 250], [100, 200], 1.1), [5, 5])
+            m.assertEqual(GrownOffset([0, 0], [100, 200], 1.0), [0, 0])
+        end sub
+
+        @it("widens the clip on both sides by the most any card's room can be, and leaves the height")
+        sub widensTheClip()
+            margin = SpacingScale().s4 \ 2
+            m.assertEqual(FocusClipRect(1766, 845), [- margin, 0, 1766 + margin * 2, 845])
+            m.assertTrue(FocusRoom(LandscapeCardWidth(), 400, SpacingScale().s4).x <= margin)
+            m.assertTrue(FocusRoom(RailCardWidth(), 600, SpacingScale().s4, SpacingScale().s5).x <= margin)
+        end sub
+
         @describe("ColumnsThatFit")
 
         @it("fills the row exactly, leaving no dead space at the end")
@@ -514,13 +576,14 @@ namespace tests
 
         @describe("grid geometry")
 
-        @it("lays out six poster cards per row, the same size the rails use")
+        @it("lays out poster cards per row at the size the rails use")
         sub gridMatchesRailCards()
-            columns = ColumnsThatFit(ContentWidth(), GridCardWidth(), SpacingScale().s4)
+            columns = GridColumns()
             width = FittedColumnWidth(ContentWidth(), columns, SpacingScale().s4)
 
-            m.assertEqual(columns, 6)
+            m.assertEqual(columns, ColumnsThatFit(ContentWidth(), RailCardWidth(), SpacingScale().s4))
             m.assertTrue(width >= RailCardWidth(), "a grid card is never smaller than a rail card")
+            m.assertTrue(width < RailCardWidth() * (columns + 1) / columns + SpacingScale().s4, "a grid card is not stretched past one more column")
         end sub
 
         @it("draws a partial second row, so a grid never looks like it ends at the fold")
@@ -529,8 +592,7 @@ namespace tests
             width = FittedColumnWidth(ContentWidth(), GridColumns(), SpacingScale().s4)
             rowHeight = CardMetrics(width, PosterAspect(), GridCaptionRows()).height
 
-            m.assertEqual(VisibleSlots(737, rowHeight, gap), 2, "one whole row of " + rowHeight.ToStr() + "px plus the top of the next")
-            m.assertEqual(WholeSlots(737, rowHeight, gap), 1, "only one row of this height fits entirely")
+            m.assertEqual(VisibleSlots(737, rowHeight, gap), WholeSlots(737, rowHeight, gap) + 1, "whole rows of " + rowHeight.ToStr() + "px plus the top of the next")
         end sub
 
         @it("returns one when a single row is taller than the viewport")

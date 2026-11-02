@@ -44,6 +44,45 @@ namespace tests
             m.assertEqual(FormatDuration(3725000), "1:02:05")
         end sub
 
+        @describe("FileStem")
+
+        @it("keeps the file name without its folders or extension")
+        sub keepsTheFileName()
+            m.assertEqual(FileStem("/media/films/Some.Film.2020.mkv"), "Some.Film.2020")
+            m.assertEqual(FileStem("D:\films\Other Film.mp4"), "Other Film")
+            m.assertEqual(FileStem("plain"), "plain")
+            m.assertEqual(FileStem(".hidden"), ".hidden")
+            m.assertEqual(FileStem(invalid), "")
+        end sub
+
+        @describe("MiddleEllipsis")
+
+        @it("leaves text that fits as it is")
+        sub leavesTextThatFits()
+            m.assertEqual(MiddleEllipsis("Short", 24, 1000), "Short")
+            m.assertEqual(MiddleEllipsis("", 24, 100), "")
+            m.assertEqual(MiddleEllipsis("Anything", 24, 0), "Anything")
+        end sub
+
+        @it("keeps the start and the last dotted part, and fits the width")
+        sub keepsBothEnds()
+            name = "Some.Long.Film.Title.2020.Extended.Edition.With.Extras.tagged"
+            width = TextWidth("Some.Long.Film.Title.2020", 24)
+            shown = MiddleEllipsis(name, 24, width)
+
+            m.assertTrue(shown.Instr("…") > 0, shown)
+            m.assertTrue(TextWidth(shown, 24) <= width, shown)
+            m.assertEqual(Left(shown, 4), "Some")
+            m.assertEqual(Right(shown, 7), ".tagged")
+        end sub
+
+        @it("keeps a third of what fits for the end when the last part is short")
+        sub keepsAThirdAtTheEnd()
+            m.assertEqual(KeepEnds("abcdefghijklmnopqrstuvwxyz", 9), "abcdef…xyz")
+            m.assertEqual(KeepEnds("abcdefghij.kl", 6), "abc….kl")
+            m.assertEqual(KeepEnds("abc.defghijklmnop", 4), "…mnop")
+        end sub
+
         @describe("FormatPercent")
 
         @it("rounds a fraction to whole percent")

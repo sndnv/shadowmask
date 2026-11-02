@@ -63,6 +63,7 @@ services:
       # SHADOWMASK_SERVER_LOG_DIR: "/data/server-logs"
       # SHADOWMASK_BOOTSTRAP_DIR: "/config/bootstrap"
       # SHADOWMASK_BASIC_CLIENT_DIR: "/usr/share/shadowmask/basic"
+      # SHADOWMASK_FONTS_DIR: "/usr/share/shadowmask/fonts"
       # JSON playback profiles overriding the built-ins, one file per device type:
       # SHADOWMASK_PROFILE_OVERRIDES_DIR: "/config/profiles"
 

@@ -72,7 +72,7 @@ function DrawHero(theme as object, content as object, width as integer) as integ
 
     textLeft = artWidth + space.s6
     column = width - textLeft
-    if column < 400 then column = 400
+    if column < Px(400) then column = Px(400)
 
     offset = HeroLine(m.hero.heading, ValueAt(content, "heading", ""), sizes.text2xl, theme.text, true, textLeft, column, 0, 1)
     offset = HeroLine(m.hero.facts, ValueAt(content, "facts", ""), sizes.textBase, theme.muted, false, textLeft, column, offset, 1)

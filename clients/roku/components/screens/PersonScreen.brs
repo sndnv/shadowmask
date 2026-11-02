@@ -22,6 +22,8 @@ sub init()
     m.released = false
     m.started = false
     m.published = false
+
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 sub render()
@@ -303,6 +305,10 @@ end sub
 
 sub ReloadCardStates()
     LoadStates()
+end sub
+
+sub onRevealed()
+    if m.published then ReloadCardStates()
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean

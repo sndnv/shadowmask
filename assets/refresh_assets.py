@@ -143,9 +143,6 @@ def main():
             {'root': 'licenses', 'asset': 'zlib.LICENSE.txt', 'target': '{}/zlib.LICENSE.txt'.format(FLUTTER_LICENSES)},
         ],
         'clients/roku': [
-            {'asset': 'fonts/Roboto-Regular.ttf', 'target': 'fonts/Roboto-Regular.ttf'},
-            {'asset': 'fonts/Roboto-Medium.ttf', 'target': 'fonts/Roboto-Medium.ttf'},
-            {'asset': 'fonts/Roboto-OFL.txt', 'target': 'fonts/Roboto-OFL.txt'},
             {'asset': 'icons/roku/channel-poster-hd.png', 'target': 'images/channel-poster-hd.png'},
             {'asset': 'icons/roku/channel-poster-fhd.png', 'target': 'images/channel-poster-fhd.png'},
             {'asset': 'icons/roku/splash-sd.png', 'target': 'images/splash-sd.png'},
@@ -193,6 +190,7 @@ def main():
             {'asset': 'icons/roku/chip-cap-right-line.png', 'target': 'images/chip-cap-right-line.png'},
             {'asset': 'icons/roku/button-fill.9.png', 'target': 'images/button-fill.9.png'},
             {'asset': 'icons/roku/button-line.9.png', 'target': 'images/button-line.9.png'},
+            {'asset': 'icons/roku/focus-ring.9.png', 'target': 'images/focus-ring.9.png'},
             {'asset': 'icons/roku/disc.png', 'target': 'images/disc.png'},
             {'asset': 'icons/roku/ring.png', 'target': 'images/ring.png'},
             {'asset': 'capabilities/candidates.json', 'target': 'capabilities/candidates.json'},

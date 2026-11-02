@@ -6,6 +6,8 @@ sub init()
     m.built = []
     m.index = 0
     m.offset = 0
+
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 sub onCards()

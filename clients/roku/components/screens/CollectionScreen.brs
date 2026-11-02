@@ -11,6 +11,8 @@ sub init()
     m.cards = []
     m.loaded = false
     m.started = false
+
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 sub render()
@@ -184,6 +186,10 @@ end sub
 
 sub ReloadCardStates()
     LoadStates()
+end sub
+
+sub onRevealed()
+    if m.loaded then ReloadCardStates()
 end sub
 
 sub onFocus()

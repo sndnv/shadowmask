@@ -8,6 +8,8 @@ sub init()
     m.heights = []
     m.row = 0
     m.col = 0
+
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 sub render()
@@ -51,8 +53,16 @@ sub render()
         offset = offset + tallest + gap
     end for
 
-    m.viewport.clippingRect = [0, 0, m.top.rowsWidth, m.top.rowsHeight]
+    m.viewport.clippingRect = FocusClipRect(m.top.rowsWidth, m.top.rowsHeight)
     m.top.contentHeight = offset - gap + ContentBottomPad()
+
+    focused = LayoutSlotOf(m.layout, FocusedRailIndex())
+    if focused <> invalid
+        m.row = focused.row
+        m.col = focused.col
+        m.top.focusedRail = m.layout[m.row][m.col].index
+        m.top.focusedCard = FocusedRail().focusedCard
+    end if
 
     m.row = ClampInt(m.row, 0, m.layout.Count() - 1)
     if m.layout.Count() > 0 then m.col = ClampInt(m.col, 0, m.layout[m.row].Count() - 1)
@@ -92,20 +102,27 @@ function PackedLayout(rows as object, widths as object, space as object) as obje
 end function
 
 sub Rebuild(count as integer)
-    if m.rails.Count() = count then return
-
-    while m.stack.GetChildCount() > 0
-        m.stack.RemoveChildIndex(0)
-    end while
-    m.rails = []
-
-    for index = 0 to count - 1
+    while m.rails.Count() < count
         rail = m.stack.CreateChild("CardRail")
         rail.ObserveField("selected", "onRailSelected")
         rail.ObserveField("focusedCard", "onRailCardFocused")
         m.rails.Push(rail)
-    end for
+    end while
+
+    if m.rails.Count() = count then return
+
+    if count > 0 and FocusedRailIndex() >= count then m.rails[count - 1].SetFocus(true)
+    while m.rails.Count() > count
+        m.stack.RemoveChild(m.rails.Pop())
+    end while
 end sub
+
+function FocusedRailIndex() as integer
+    for index = 0 to m.rails.Count() - 1
+        if m.rails[index].isInFocusChain() then return index
+    end for
+    return -1
+end function
 
 sub ScrollToFocused()
     if m.layout.Count() = 0 then return

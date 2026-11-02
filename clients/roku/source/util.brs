@@ -10,6 +10,11 @@ function TextOrBlank(value as dynamic) as string
     return ""
 end function
 
+function IsNumber(value as dynamic) as boolean
+    kind = type(value)
+    return kind = "Integer" or kind = "roInteger" or kind = "LongInteger" or kind = "roLongInteger" or kind = "Float" or kind = "roFloat" or kind = "Double" or kind = "roDouble"
+end function
+
 function NumberText(value as dynamic) as string
     if value = invalid then return ""
     if type(value) = "String" or type(value) = "roString" then return value

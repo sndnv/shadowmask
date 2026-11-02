@@ -38,7 +38,7 @@
         <field id="release" type="boolean" onChange="onRelease" />
         <field id="section" type="string" />
         <field id="backdropUrl" type="string" alwaysNotify="true" />
-        <field id="focusedChild" type="node" onChange="onFocus" />
+        <field id="revealed" type="boolean" alwaysNotify="true" onChange="onRevealed" />
     </interface>
 
     <children>

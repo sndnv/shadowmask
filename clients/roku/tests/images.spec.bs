@@ -157,18 +157,23 @@ namespace tests
 
         @describe("width tiers")
 
-        @it("asks for the width the card is actually drawn at")
+        @it("asks for the width the card's art is drawn at, less a small tolerance")
         sub asksForTheDrawnWidth()
-            m.assertEqual(CardImageWidthFor(264), 264)
-            m.assertEqual(CardImageWidthFor(RailCardWidth()), RailCardWidth())
-            m.assertEqual(CardImageWidthFor(LandscapeCardWidth()), LandscapeCardWidth())
+            m.assertEqual(CardImageWidthFor(264), Int((264 - BorderThickness() * 2) * ArtSizeTolerance()))
+            m.assertTrue(CardImageWidthFor(264) < 264 - BorderThickness() * 2)
+        end sub
+
+        @it("takes a server size just under the drawn art rather than shrinking a much larger one")
+        sub takesTheSizeJustUnder()
+            m.assertEqual(NearestWidth([180, 480, 960], CardImageWidthFor(186)), 180)
+            m.assertEqual(NearestWidth([180, 480, 960], CardImageWidthFor(260)), 480)
         end sub
 
         @it("falls back to a rail card rather than asking for the smallest art there is")
         sub fallsBackOnAnUnsetWidth()
-            m.assertEqual(CardImageWidthFor(0), RailCardWidth())
-            m.assertEqual(CardImageWidthFor(-1), RailCardWidth())
-            m.assertEqual(CardImageWidthFor(invalid), RailCardWidth())
+            m.assertEqual(CardImageWidthFor(0), CardImageWidthFor(RailCardWidth()))
+            m.assertEqual(CardImageWidthFor(-1), CardImageWidthFor(RailCardWidth()))
+            m.assertEqual(CardImageWidthFor(invalid), CardImageWidthFor(RailCardWidth()))
         end sub
 
         @it("keeps a backdrop at full width and a hero at the width the hero draws")

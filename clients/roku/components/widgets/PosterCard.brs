@@ -1,6 +1,16 @@
 sub init()
     m.global.ObserveField("theme", "render")
 
+    m.slot = m.top.FindNode("slot")
+    m.pivot = m.top.FindNode("pivot")
+    m.frame = m.top.FindNode("frame")
+    m.badgeLayer = m.top.FindNode("badgeLayer")
+    m.captionLayer = m.top.FindNode("captionLayer")
+    m.grow = m.top.FindNode("grow")
+    m.growScale = m.top.FindNode("growScale")
+    m.growBadge = m.top.FindNode("growBadge")
+    m.growCaption = m.top.FindNode("growCaption")
+    m.grow.duration = FocusGrowSeconds()
     m.plate = m.top.FindNode("plate")
     m.art = m.top.FindNode("art")
     m.poster = m.top.FindNode("poster")
@@ -24,13 +34,34 @@ sub init()
     m.tracked = invalid
     m.rendered = false
     m.focused = false
+    m.grown = false
 end sub
 
 sub onFocusChanged()
-    wanted = m.top.focusPercent > 0.5 and m.top.rowListHasFocus
+    wanted = CardFocused()
     if m.rendered and m.focused = wanted then return
 
     render()
+end sub
+
+function CardFocused() as boolean
+    if m.top.focusPercent <= 0.5 or not m.top.rowListHasFocus then return false
+
+    content = m.top.itemContent
+    if content <> invalid and content.gridItem = true then return m.top.gridHasFocus
+    return true
+end function
+
+sub Grow(focused as boolean)
+    m.grown = focused
+    scale = 1.0
+    if focused then scale = m.growTo
+
+    m.grow.control = "stop"
+    m.growScale.keyValue = [m.pivot.scale, [scale, scale]]
+    m.growBadge.keyValue = [m.badgeLayer.translation, GrownOffset(m.badgeAnchor, m.centre, scale)]
+    m.growCaption.keyValue = [m.captionLayer.translation, GrownOffset(m.captionAnchor, m.centre, scale)]
+    m.grow.control = "start"
 end sub
 
 sub showContent()
@@ -62,14 +93,23 @@ sub render()
 
     sizes = TypeScale()
     space = SpacingScale()
-    metrics = CardMetrics(m.top.width, content.aspect, content.captionRows)
+    metrics = CardMetrics(m.top.width - content.slotX * 2, content.aspect, content.captionRows)
 
-    edge = Int(m.top.thickness)
+    edge = BorderThickness()
     inner = metrics.width - edge * 2
     artHeight = metrics.artHeight - edge
-    focused = m.top.focusPercent > 0.5 and m.top.rowListHasFocus
+    focused = CardFocused()
     m.focused = focused
     m.rendered = true
+
+    m.slot.translation = [content.slotX, content.slotY]
+    m.centre = [Int(metrics.width / 2), Int(metrics.height / 2)]
+    m.captionAnchor = [edge + space.s3, metrics.artHeight + space.s2]
+    m.badgeAnchor = [edge + inner - space.s2, edge + space.s2]
+    m.growTo = content.growTo
+    m.pivot.translation = m.centre
+    m.frame.translation = [- m.centre[0], - m.centre[1]]
+    if focused <> m.grown then Grow(focused)
 
     m.plate.width = metrics.width
     m.plate.height = metrics.height

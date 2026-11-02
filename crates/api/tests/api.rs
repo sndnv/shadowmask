@@ -1176,6 +1176,67 @@ async fn an_admins_linked_device_works_on_versions_and_nothing_else() {
 }
 
 #[tokio::test]
+async fn an_admins_linked_device_sees_a_versions_path_and_a_plain_one_does_not() {
+    let ctx = Ctx::new();
+    ctx.auth.add_linked_device(UserId("admin".into()), true);
+    ctx.auth.add_linked_device(UserId("u1".into()), false);
+    ctx.library_repo.insert_library(library("lib1"));
+    ctx.grant("u1", &["lib1"]);
+    ctx.catalog_repo.add_version(version(
+        "v1",
+        TitleId::Movie(MovieId("m1".into())),
+        "lib1",
+        Quality::Hd,
+    ));
+
+    let (status, detail) =
+        call(ctx.app(), Method::GET, "/api/v1/versions/v1", Some("device:admin"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(detail["path"], "/media/v1.mkv");
+    let (status, page) =
+        call(ctx.app(), Method::GET, "/api/v1/movies/m1/versions", Some("device:admin"), None)
+            .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(page["items"][0]["path"], "/media/v1.mkv");
+
+    let (status, detail) =
+        call(ctx.app(), Method::GET, "/api/v1/versions/v1", Some("device:u1"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(detail.get("path").is_none(), "{detail}");
+    let (status, page) =
+        call(ctx.app(), Method::GET, "/api/v1/movies/m1/versions", Some("device:u1"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page["items"][0].get("path").is_none(), "{page}");
+}
+
+#[tokio::test]
+async fn the_server_info_names_the_fonts_it_serves_and_null_without_them() {
+    use api::{FontFile, FontSet, ServerFonts};
+    use axum::Extension;
+
+    let ctx = Ctx::new();
+    let file =
+        |name: &str| FontFile { url: format!("/fonts/{name}"), size: 1, sha256: "f00d".to_owned() };
+    let fonts = FontSet {
+        name: "Noto Sans CJK SC".to_owned(),
+        regular: file("Regular.otf"),
+        medium: file("Medium.otf"),
+        license: file("LICENSE"),
+    };
+
+    let served = ctx.app().layer(Extension(ServerFonts(Some(fonts))));
+    let (status, info) = call(served, Method::GET, "/api/v1/server/info", Some(USER), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(info["fonts"]["name"], "Noto Sans CJK SC");
+    assert_eq!(info["fonts"]["medium"]["url"], "/fonts/Medium.otf");
+
+    let (status, info) =
+        call(ctx.app(), Method::GET, "/api/v1/server/info", Some(USER), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(info["fonts"].is_null(), "{info}");
+}
+
+#[tokio::test]
 async fn only_a_scan_asked_to_reread_queues_a_reread() {
     use domain::library::ScanMode;
     use domain::repository::JobRepository;

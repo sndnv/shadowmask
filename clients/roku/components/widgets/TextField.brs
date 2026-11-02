@@ -2,6 +2,8 @@ sub init()
     m.box = m.top.FindNode("box")
     m.caption = m.top.FindNode("caption")
     m.value = m.top.FindNode("value")
+
+    m.top.ObserveField("focusedChild", "onFieldFocusChanged")
 end sub
 
 sub render()

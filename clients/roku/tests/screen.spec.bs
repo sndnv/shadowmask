@@ -122,6 +122,56 @@ namespace tests
             m.assertFalse(BackdropLoadsNext(0.0, ""))
         end sub
 
+        @describe("LayoutSlotOf")
+
+        @it("finds a rail on its own line")
+        sub findsALoneRail()
+            slot = LayoutSlotOf([[{ index: 0 }], [{ index: 1 }], [{ index: 2 }]], 2)
+            m.assertEqual(slot.row, 2)
+            m.assertEqual(slot.col, 0)
+        end sub
+
+        @it("finds a rail packed beside another")
+        sub findsAPackedRail()
+            slot = LayoutSlotOf([[{ index: 0 }], [{ index: 1 }, { index: 2 }]], 2)
+            m.assertEqual(slot.row, 1)
+            m.assertEqual(slot.col, 1)
+        end sub
+
+        @it("finds nothing for a rail the layout does not hold")
+        sub findsNothing()
+            m.assertInvalid(LayoutSlotOf([[{ index: 0 }]], 3))
+            m.assertInvalid(LayoutSlotOf([], 0))
+        end sub
+
+        @describe("RevealWaits")
+
+        @it("waits while a session end is still being sent")
+        sub waitsForSessionEnds()
+            m.assertTrue(RevealWaits(0, 1))
+            m.assertTrue(RevealWaits(2, 3))
+        end sub
+
+        @it("reveals once every session end has been answered")
+        sub revealsWhenCaughtUp()
+            m.assertFalse(RevealWaits(0, 0))
+            m.assertFalse(RevealWaits(3, 3))
+            m.assertFalse(RevealWaits(invalid, invalid))
+        end sub
+
+        @describe("KeepsShownOnReload")
+
+        @it("keeps what a screen shows when a quiet reload fails")
+        sub keepsOnAFailedQuietReload()
+            m.assertTrue(KeepsShownOnReload(true, true))
+        end sub
+
+        @it("replaces it after a quiet reload that worked, and after any loud one")
+        sub replacesOtherwise()
+            m.assertFalse(KeepsShownOnReload(true, false))
+            m.assertFalse(KeepsShownOnReload(false, true))
+        end sub
+
         @describe("AdvanceFollowed")
 
         @it("follows every advance of the screen on top")
