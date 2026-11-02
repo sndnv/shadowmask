@@ -17,6 +17,7 @@ import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/nav/nav_destination.dart';
 import 'package:shadowmask/nav/nav_destinations.dart';
 import 'package:shadowmask/nav/nav_section.dart';
+import 'package:shadowmask/nav/open_section.dart';
 import 'package:shadowmask/pages/default/immersive_scope.dart';
 import 'package:shadowmask/theme/app_menu.dart';
 import 'package:shadowmask/theme/app_theme.dart';
@@ -488,8 +489,7 @@ class _TopNav extends StatelessWidget {
     }
   }
 
-  void _go(BuildContext context, String route) =>
-      Navigator.of(context).pushReplacementNamed(route);
+  void _go(BuildContext context, String route) => openSection(context, route);
 
   Widget _brand(BuildContext context) => _Brand(
     onTap: () => Navigator.of(

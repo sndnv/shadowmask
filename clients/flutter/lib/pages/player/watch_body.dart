@@ -111,6 +111,8 @@ class _WatchBodyState extends State<WatchBody>
   static const PlayerPrefsStore _prefs = PlayerPrefsStore();
   late Future<void> _opening = _open();
   late final PlaybackRunner _runner;
+  late final void Function() _removeUnload;
+  late final void Function() _removeRestore;
   late PlaybackState _shown;
   bool _gatherFailed = false;
   bool _covered = false;
@@ -153,8 +155,8 @@ class _WatchBodyState extends State<WatchBody>
     );
     _shown = _runner.state.value;
     _runner.state.addListener(_onState);
-    addUnloadListener(_onUnload);
-    addRestoreListener(_onRestore);
+    _removeUnload = addUnloadListener(_onUnload);
+    _removeRestore = addRestoreListener(_onRestore);
     _carrySelection = widget.initialControls.hasTrackRequest;
     WidgetsBinding.instance.addObserver(this);
     if (widget.user.worksOnVersions) {
@@ -274,6 +276,8 @@ class _WatchBodyState extends State<WatchBody>
 
   @override
   void dispose() {
+    _removeUnload();
+    _removeRestore();
     WidgetsBinding.instance.removeObserver(this);
     appRouteObserver.unsubscribe(this);
     _immersive?.releaseAfterFrame(true, false, owner: this);

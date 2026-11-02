@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
@@ -91,6 +93,50 @@ void main() {
 
     await tester.pump(kBackdropFade);
     expect(find.byType(Image), findsNothing);
+  });
+
+  testWidgets('a covered page keeps no backdrop while the backdrop changes', (
+    WidgetTester tester,
+  ) async {
+    final ValueNotifier<String?> url = ValueNotifier<String?>(
+      'http://test/a.jpg',
+    );
+    addTearDown(url.dispose);
+    final GlobalKey<NavigatorState> navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(AppThemeVariant.dark),
+        navigatorKey: navigator,
+        home: Scaffold(
+          body: ValueListenableBuilder<String?>(
+            valueListenable: url,
+            builder: (BuildContext _, String? shown, Widget? _) =>
+                BackdropWash(url: shown),
+          ),
+        ),
+      ),
+    );
+    unawaited(
+      navigator.currentState!.push(
+        MaterialPageRoute<void>(builder: (BuildContext _) => const Scaffold()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    for (final String next in <String>[
+      'http://test/b.jpg',
+      'http://test/c.jpg',
+      'http://test/d.jpg',
+    ]) {
+      url.value = next;
+      await tester.pump();
+    }
+    expect(find.byType(Image, skipOffstage: false), findsNothing);
+
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    final Image shown = tester.widget<Image>(find.byType(Image));
+    expect((shown.image as NetworkImage).url, 'http://test/d.jpg');
   });
 
   testWidgets('a page backdrop asks for its artwork', (

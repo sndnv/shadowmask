@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/nav/browser_history.dart';
+import 'package:shadowmask/nav/open_section.dart';
 
 class _Browser {
   _Browser(this.entries, this.index);
@@ -155,6 +156,32 @@ void main() {
     await _go(tester, () => h.nav.pushReplacementNamed('/series'));
 
     expect(h.browser.urls, <String>['/home', '/movies', '/series']);
+  });
+
+  testWidgets('Back walks a trail that a section cleared from the stack', (
+    WidgetTester tester,
+  ) async {
+    final _Harness h = await _pump(tester);
+    await _go(tester, () => h.nav.pushNamed('/title?id=7'));
+    await _go(tester, () => h.nav.pushNamed('/season?id=3'));
+
+    openSection(tester.element(find.text('/season?id=3')), '/series');
+    await tester.pumpAndSettle();
+
+    expect(_depth(tester), 2);
+    expect(h.browser.urls, <String>[
+      '/home',
+      '/title?id=7',
+      '/season?id=3',
+      '/series',
+    ]);
+    await _back(tester, h);
+    expect(find.text('/season?id=3'), findsOneWidget);
+    await _back(tester, h);
+    expect(find.text('/title?id=7'), findsOneWidget);
+    await _back(tester, h);
+    expect(find.text('/home'), findsOneWidget);
+    expect(h.nav.canPop(), isFalse);
   });
 
   testWidgets('another id on the same page opens an entry', (

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/components/link_chip.dart';
+import 'package:shadowmask/nav/open_section.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/view/empty_state.dart';
@@ -27,7 +28,7 @@ class EmptyNote extends StatelessWidget {
             const SizedBox(height: Space.s3),
             LinkChip(
               label: state.actionLabel!,
-              onTap: () => Navigator.of(context).pushNamed(state.actionRoute!),
+              onTap: () => openCrumb(context, state.actionRoute!),
             ),
           ],
         ],

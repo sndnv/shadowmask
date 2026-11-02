@@ -125,6 +125,47 @@ void main() {
     );
   });
 
+  testWidgets('the Home crumb clears the pages under it', (
+    WidgetTester tester,
+  ) async {
+    final GlobalKey<NavigatorState> navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      ThemeScope(
+        variant: AppThemeVariant.dark,
+        setVariant: (_) {},
+        child: MaterialApp(
+          theme: buildTheme(AppThemeVariant.dark),
+          navigatorKey: navigator,
+          initialRoute: '/home',
+          onGenerateInitialRoutes: (String route) => <Route<dynamic>>[
+            MaterialPageRoute<void>(
+              settings: RouteSettings(name: route),
+              builder: (_) => const Scaffold(),
+            ),
+          ],
+          onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
+            settings: settings,
+            builder: (_) => Scaffold(
+              body: Breadcrumbs(<Crumb>[
+                Crumb(Strings.navigationMovies, route: '/movies'),
+                Crumb(settings.name!),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+    for (final String page in <String>['/movies', '/title?id=1']) {
+      navigator.currentState!.pushNamed(page);
+      await tester.pumpAndSettle();
+    }
+
+    await tester.tap(find.text(Strings.navigationHome));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(Scaffold, skipOffstage: false), findsOneWidget);
+  });
+
   testWidgets('the refreshable crumb keeps the plain last-crumb formatting', (
     WidgetTester tester,
   ) async {

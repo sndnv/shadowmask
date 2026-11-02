@@ -69,6 +69,9 @@ class BackdropWash extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!TickerMode.valuesOf(context).enabled) {
+      return const SizedBox.shrink();
+    }
     final String? source = url;
     final Widget wash = source == null
         ? const SizedBox.shrink(key: ValueKey<String>(''))

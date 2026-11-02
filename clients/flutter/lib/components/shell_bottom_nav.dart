@@ -8,6 +8,7 @@ import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/nav/nav_destination.dart';
 import 'package:shadowmask/nav/nav_destinations.dart';
 import 'package:shadowmask/nav/nav_section.dart';
+import 'package:shadowmask/nav/open_section.dart';
 import 'package:shadowmask/theme/radii.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
@@ -27,8 +28,7 @@ class ShellBottomNav extends StatelessWidget {
   final NavSection current;
   final SelfUser? user;
 
-  void _go(BuildContext context, String route) =>
-      Navigator.of(context).pushReplacementNamed(route);
+  void _go(BuildContext context, String route) => openSection(context, route);
 
   Future<void> _signOut(BuildContext context) async {
     if (!await confirmSignOut(context) || !context.mounted) {

@@ -47,6 +47,7 @@ Future<({List<String> routes, List<String> calls})> _pump(
       onGenerateRoute: (RouteSettings settings) {
         routes.add(settings.name ?? '');
         return MaterialPageRoute<void>(
+          settings: settings,
           builder: (_) => Scaffold(
             bottomNavigationBar: ShellBottomNav(
               api: api,
@@ -85,16 +86,34 @@ void main() {
     }
   });
 
-  testWidgets('tapping a tab replaces the route', (WidgetTester tester) async {
+  testWidgets('tapping a tab opens its section over Home alone', (
+    WidgetTester tester,
+  ) async {
     final ({List<String> routes, List<String> calls}) run = await _pump(
       tester,
       user: _admin,
     );
+    final NavigatorState nav = tester.state<NavigatorState>(
+      find.byType(Navigator),
+    );
+    for (final String page in <String>[
+      '/home',
+      '/title?id=7',
+      '/season?id=3',
+    ]) {
+      nav.pushNamed(page);
+      await tester.pumpAndSettle();
+    }
 
     await tester.tap(find.text(Strings.navigationSeries));
     await tester.pumpAndSettle();
 
     expect(run.routes.last, '/series');
+    expect(
+      find.byType(ShellBottomNav, skipOffstage: false),
+      findsNWidgets(3),
+      reason: 'the root, Home and the section; the trail is gone',
+    );
   });
 
   testWidgets('More carries the leftovers, the account and sign out', (
