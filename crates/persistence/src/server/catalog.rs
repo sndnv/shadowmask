@@ -1681,19 +1681,16 @@ fn order_by_sql(alias: &str, sort: TitleSort, order: SortOrder) -> String {
 
 fn rating_clause(
     alias: &str,
-    blocked: &[ContentRating],
+    allowed: Option<&Vec<ContentRating>>,
     binds: &mut Vec<String>,
 ) -> Option<String> {
-    if blocked.is_empty() {
-        return None;
-    }
-    let placeholders = vec!["?"; blocked.len()].join(", ");
-    for rating in blocked {
+    let allowed = allowed?;
+    let placeholders = vec!["?"; allowed.len()].join(", ");
+    for rating in allowed {
         binds.push(format!("{}::{}", rating.system.to_lowercase(), rating.code.to_lowercase()));
     }
     Some(format!(
-        "({alias}.rating_system IS NULL OR \
-         (LOWER({alias}.rating_system) || '::' || LOWER({alias}.rating_code)) NOT IN ({placeholders}))"
+        "(LOWER({alias}.rating_system) || '::' || LOWER({alias}.rating_code)) IN ({placeholders})"
     ))
 }
 
@@ -1735,7 +1732,7 @@ fn movie_filter_where(filter: &TitleListFilter) -> (String, Vec<String>) {
     let mut binds = Vec::new();
     let mut clauses = Vec::new();
     clauses.extend(genre_clauses("movie", "m", &filter.genres, &mut binds));
-    if let Some(clause) = rating_clause("m", &filter.blocked_ratings, &mut binds) {
+    if let Some(clause) = rating_clause("m", filter.allowed_ratings.as_ref(), &mut binds) {
         clauses.push(clause);
     }
     if let Some(libraries) = &filter.libraries {
@@ -1752,7 +1749,7 @@ fn series_filter_where(filter: &TitleListFilter) -> (String, Vec<String>) {
     let mut binds = Vec::new();
     let mut clauses = Vec::new();
     clauses.extend(genre_clauses("series", "s", &filter.genres, &mut binds));
-    if let Some(clause) = rating_clause("s", &filter.blocked_ratings, &mut binds) {
+    if let Some(clause) = rating_clause("s", filter.allowed_ratings.as_ref(), &mut binds) {
         clauses.push(clause);
     }
     if let Some(libraries) = &filter.libraries {
@@ -1770,7 +1767,7 @@ fn series_filter_where(filter: &TitleListFilter) -> (String, Vec<String>) {
 
 fn movie_gate(filter: &TitleListFilter, binds: &mut Vec<String>) -> String {
     let mut clauses = Vec::new();
-    if let Some(clause) = rating_clause("m", &filter.blocked_ratings, binds) {
+    if let Some(clause) = rating_clause("m", filter.allowed_ratings.as_ref(), binds) {
         clauses.push(clause);
     }
     if let Some(libraries) = &filter.libraries {
@@ -1785,7 +1782,7 @@ fn movie_gate(filter: &TitleListFilter, binds: &mut Vec<String>) -> String {
 
 fn series_gate(filter: &TitleListFilter, binds: &mut Vec<String>) -> String {
     let mut clauses = Vec::new();
-    if let Some(clause) = rating_clause("e", &filter.blocked_ratings, binds) {
+    if let Some(clause) = rating_clause("e", filter.allowed_ratings.as_ref(), binds) {
         clauses.push(clause);
     }
     if let Some(libraries) = &filter.libraries {
@@ -1803,7 +1800,7 @@ fn series_gate(filter: &TitleListFilter, binds: &mut Vec<String>) -> String {
 
 fn episode_gate(filter: &TitleListFilter, binds: &mut Vec<String>) -> String {
     let mut clauses = Vec::new();
-    if let Some(clause) = rating_clause("sr", &filter.blocked_ratings, binds) {
+    if let Some(clause) = rating_clause("sr", filter.allowed_ratings.as_ref(), binds) {
         clauses.push(clause);
     }
     if let Some(libraries) = &filter.libraries {
@@ -1846,7 +1843,7 @@ fn random_movie_sql(
         None => "movies m",
     };
     clauses.extend(genre_clauses("movie", "m", &filter.genres, &mut binds));
-    if let Some(clause) = rating_clause("m", &filter.blocked_ratings, &mut binds) {
+    if let Some(clause) = rating_clause("m", filter.allowed_ratings.as_ref(), &mut binds) {
         clauses.push(clause);
     }
     clauses.push(playable_clause(
@@ -1877,7 +1874,7 @@ fn random_episode_sql(
         clauses.push("s.id = ?".to_owned());
     }
     clauses.extend(genre_clauses("series", "s", &filter.genres, &mut binds));
-    if let Some(clause) = rating_clause("s", &filter.blocked_ratings, &mut binds) {
+    if let Some(clause) = rating_clause("s", filter.allowed_ratings.as_ref(), &mut binds) {
         clauses.push(clause);
     }
     clauses.push(playable_clause(
@@ -3286,7 +3283,7 @@ mod tests {
         TitleListFilter {
             genres: Vec::new(),
             libraries: Some(vec![LibraryId("lib-1".into())]),
-            blocked_ratings: Vec::new(),
+            allowed_ratings: None,
             sort,
             order: SortOrder::Asc,
         }
@@ -3502,7 +3499,7 @@ mod tests {
         TitleListFilter {
             genres: Vec::new(),
             libraries: None,
-            blocked_ratings: Vec::new(),
+            allowed_ratings: None,
             sort: TitleSort::Title,
             order: SortOrder::Asc,
         }

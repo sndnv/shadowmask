@@ -1150,8 +1150,9 @@ mod tests {
             Some(vec![LibraryId("lib1".into())]),
             "search has to carry the same library scope the catalog lists use"
         );
-        assert!(
-            filter.blocked_ratings.iter().any(|rating| rating.code.eq_ignore_ascii_case("r")),
+        assert_eq!(
+            filter.allowed_ratings,
+            Some(ContentRating::allowed_up_to(8)),
             "the cap must reach the index, not be applied after paging"
         );
     }
@@ -1167,15 +1168,20 @@ mod tests {
     async fn rated_in_progress(users: MockUserRepo) -> Svc {
         let catalog = MockCatalogRepo::new();
         catalog.add_movie(Movie { content_rating: Some(mpaa("r")), ..movie("m1", 10) });
-        catalog.add_movie(movie("m2", 20));
-        catalog.add_series(series("s1"));
+        catalog.add_movie(Movie { content_rating: Some(mpaa("pg")), ..movie("m2", 20) });
+        catalog.add_movie(movie("m3", 30));
+        catalog.add_series(Series {
+            content_rating: Some(ContentRating { system: "us-tv".into(), code: "tv-pg".into() }),
+            ..series("s1")
+        });
         catalog.add_season(season("se1", "s1"));
         catalog.add_episode(episode("e1", "se1", 1));
         catalog.add_version(version("v1", TitleId::Movie(MovieId("m1".into()))));
         catalog.add_version(version("v2", TitleId::Movie(MovieId("m2".into()))));
+        catalog.add_version(version("v3", TitleId::Movie(MovieId("m3".into()))));
         catalog.add_version(version("ev1", TitleId::Episode(EpisodeId("e1".into()))));
         let progress = MockProgressRepo::new();
-        for played in ["v1", "v2", "ev1"] {
+        for played in ["v1", "v2", "v3", "ev1"] {
             progress
                 .upsert(PlaybackProgress {
                     user: user(),
@@ -1218,17 +1224,18 @@ mod tests {
     #[tokio::test]
     async fn a_device_limit_narrows_continue_watching_and_now_playing() {
         let svc = rated_in_progress(viewer(None, &["lib1"]).await).await;
-        let sessions = || vec![session("s1", "v1", 500), session("s2", "v2", 500)];
+        let sessions =
+            || vec![session("s1", "v1", 500), session("s2", "v2", 500), session("s3", "v3", 500)];
 
         let shown = svc.continue_watching(&child()).await.unwrap();
         let limited = svc.now_playing(sessions(), Some(&child())).await.unwrap();
         let unlimited = svc.now_playing(sessions(), None).await.unwrap();
 
         assert_eq!(resumed(&shown), vec!["ev1", "v2"]);
-        assert_eq!(resumed(&svc.continue_watching(&audience()).await.unwrap()).len(), 3);
+        assert_eq!(resumed(&svc.continue_watching(&audience()).await.unwrap()).len(), 4);
         let playing: Vec<&str> = limited.iter().map(|now| now.session.id.0.as_str()).collect();
         assert_eq!(playing, vec!["s2"]);
-        assert_eq!(unlimited.len(), 2);
+        assert_eq!(unlimited.len(), 3);
     }
 
     #[tokio::test]
@@ -1245,8 +1252,7 @@ mod tests {
         svc.search(&child(), "anything", &[], page()).await.unwrap();
 
         let filter = index.last_filter().expect("the index was asked to search");
-        assert!(filter.blocked_ratings.contains(&mpaa("pg-13")));
-        assert!(!filter.blocked_ratings.contains(&mpaa("pg")));
+        assert_eq!(filter.allowed_ratings, Some(ContentRating::allowed_up_to(12)));
     }
 
     #[tokio::test]

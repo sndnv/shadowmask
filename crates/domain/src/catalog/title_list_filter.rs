@@ -6,7 +6,7 @@ use crate::metadata::ContentRating;
 pub struct TitleListFilter {
     pub genres: Vec<String>,
     pub libraries: Option<Vec<LibraryId>>,
-    pub blocked_ratings: Vec<ContentRating>,
+    pub allowed_ratings: Option<Vec<ContentRating>>,
     pub sort: TitleSort,
     pub order: SortOrder,
 }

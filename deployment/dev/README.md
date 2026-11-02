@@ -114,9 +114,10 @@ and artwork, so the full artwork pipeline is visible end to end. Without a key t
 works but shows placeholder posters and empty metadata. One series is intentionally unmatchable so
 the mismatch / manual-resolution behavior is also visible.
 
-TMDB does not return content ratings, so parental controls stay inert on TMDB alone. Also set
-`SHADOWMASK_OMDB_API_KEY` and the scan will look up each title's certification via OMDB and populate
-`content_rating`, which is what the per-user rating cap enforces. TMDB stays the primary provider;
+TMDB does not return content ratings, so on TMDB alone every title is unrated, and an account's
+rating cap or a device's child mode hides every title. Also set `SHADOWMASK_OMDB_API_KEY` and the
+scan will look up each title's certification via OMDB and populate `content_rating`, which is what
+the cap and child mode compare. TMDB stays the primary provider;
 OMDB is an optional rating supplement, so an OMDB key without a TMDB key does not enable enrichment.
 
 OMDb data is [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/); the NonCommercial term

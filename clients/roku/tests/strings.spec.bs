@@ -81,9 +81,9 @@ namespace tests
         @it("states what each choice shows")
         sub statesEachChoice()
             m.assertEqual(ChildModeHint(-1), "Off. Every title this account may see is shown.")
-            m.assertEqual(ChildModeHint(0), "Shows only titles rated for all ages. Unrated titles still show.")
-            m.assertEqual(ChildModeHint(8), "Shows what an 8-year-old may watch: titles rated 8+ or lower. Unrated titles still show.")
-            m.assertEqual(ChildModeHint(13), "Shows what a 13-year-old may watch: titles rated 13+ or lower. Unrated titles still show.")
+            m.assertEqual(ChildModeHint(0), "Shows only titles rated for all ages. Unrated titles are hidden.")
+            m.assertEqual(ChildModeHint(8), "Shows what an 8-year-old may watch: titles rated 8+ or lower. Unrated titles are hidden.")
+            m.assertEqual(ChildModeHint(13), "Shows what a 13-year-old may watch: titles rated 13+ or lower. Unrated titles are hidden.")
         end sub
 
         @it("confirms the choice in a toast")

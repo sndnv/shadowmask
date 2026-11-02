@@ -14,7 +14,7 @@ use domain::catalog::{MovieId, TitleId, Version, VersionId};
 use domain::common::Quality;
 use domain::library::LibraryId;
 use domain::metadata::ContentRating;
-use domain::repository::UserRepository;
+use domain::repository::{CatalogRepository, UserRepository};
 use domain::session::{DownloadClaims, DownloadTokens};
 use domain::user::UserId;
 use jiff::Timestamp;
@@ -43,6 +43,7 @@ struct Harness {
     app: Router,
     tokens: MockDownloadTokens,
     users: MockUserRepo,
+    catalog: MockCatalogRepo,
 }
 
 fn harness(extra: &[Version], repo_versions: &[Version]) -> Harness {
@@ -70,6 +71,7 @@ fn harness(extra: &[Version], repo_versions: &[Version]) -> Harness {
         app: bounded(app, Duration::from_secs(60)),
         tokens,
         users: generator.users_repo.clone(),
+        catalog: generator.catalog_repo.clone(),
     }
 }
 
@@ -182,6 +184,28 @@ async fn a_link_keeps_to_the_account_cap() {
         send(harness.app, "POST", "/api/v1/versions/v1/download", &[(header::AUTHORIZATION, USER)])
             .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_link_for_an_unrated_title_needs_no_limit() {
+    let harness = harness(&[], &[]);
+    let mut movie = harness.catalog.get_movie(&MovieId("m1".into())).await.unwrap().unwrap();
+    movie.content_rating = None;
+    harness.catalog.upsert_movie(movie).await.unwrap();
+
+    let (limited, _, _) = send(
+        harness.app.clone(),
+        "POST",
+        "/api/v1/versions/v1/download",
+        &[(header::AUTHORIZATION, USER), (PREFER, "safe; age=17")],
+    )
+    .await;
+    assert_eq!(limited, StatusCode::NOT_FOUND);
+
+    let (open, _, _) =
+        send(harness.app, "POST", "/api/v1/versions/v1/download", &[(header::AUTHORIZATION, USER)])
+            .await;
+    assert_eq!(open, StatusCode::OK);
 }
 
 #[tokio::test]

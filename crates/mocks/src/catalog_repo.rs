@@ -682,7 +682,10 @@ impl CatalogRepository for MockCatalogRepo {
             .iter()
             .filter(|movie| {
                 ids.contains(&movie.id)
-                    && !rating_blocked(movie.content_rating.as_ref(), &filter.blocked_ratings)
+                    && rating_allowed(
+                        movie.content_rating.as_ref(),
+                        filter.allowed_ratings.as_ref(),
+                    )
                     && movie_in_libraries(&state, &movie.id, filter.libraries.as_ref())
             })
             .cloned()
@@ -1440,7 +1443,10 @@ impl CatalogRepository for MockCatalogRepo {
             .iter()
             .filter(|movie| {
                 genre_matches(&state, &TitleRef::Movie(movie.id.clone()), &filter.genres)
-                    && !rating_blocked(movie.content_rating.as_ref(), &filter.blocked_ratings)
+                    && rating_allowed(
+                        movie.content_rating.as_ref(),
+                        filter.allowed_ratings.as_ref(),
+                    )
                     && movie_in_libraries(&state, &movie.id, filter.libraries.as_ref())
             })
             .cloned()
@@ -1462,7 +1468,10 @@ impl CatalogRepository for MockCatalogRepo {
             .iter()
             .filter(|series| {
                 genre_matches(&state, &TitleRef::Series(series.id.clone()), &filter.genres)
-                    && !rating_blocked(series.content_rating.as_ref(), &filter.blocked_ratings)
+                    && rating_allowed(
+                        series.content_rating.as_ref(),
+                        filter.allowed_ratings.as_ref(),
+                    )
                     && series_in_libraries(&state, &series.id, filter.libraries.as_ref())
             })
             .cloned()
@@ -1518,7 +1527,7 @@ fn playable(state: &State, title: &TitleId, libraries: Option<&Vec<LibraryId>>) 
 
 fn movie_playable(state: &State, movie: &Movie, filter: &TitleListFilter) -> bool {
     genre_matches(state, &TitleRef::Movie(movie.id.clone()), &filter.genres)
-        && !rating_blocked(movie.content_rating.as_ref(), &filter.blocked_ratings)
+        && rating_allowed(movie.content_rating.as_ref(), filter.allowed_ratings.as_ref())
         && playable(state, &TitleId::Movie(movie.id.clone()), filter.libraries.as_ref())
 }
 
@@ -1545,7 +1554,7 @@ fn episode_playable(state: &State, episode: &Episode, filter: &TitleListFilter) 
         return false;
     };
     genre_matches(state, &TitleRef::Series(series.id.clone()), &filter.genres)
-        && !rating_blocked(series.content_rating.as_ref(), &filter.blocked_ratings)
+        && rating_allowed(series.content_rating.as_ref(), filter.allowed_ratings.as_ref())
         && playable(state, &TitleId::Episode(episode.id.clone()), filter.libraries.as_ref())
 }
 
@@ -1588,13 +1597,15 @@ fn split_credits(
         .collect()
 }
 
-fn rating_blocked(rating: Option<&ContentRating>, blocked: &[ContentRating]) -> bool {
-    let Some(rating) = rating else {
-        return false;
+fn rating_allowed(rating: Option<&ContentRating>, allowed: Option<&Vec<ContentRating>>) -> bool {
+    let Some(allowed) = allowed else {
+        return true;
     };
-    blocked.iter().any(|entry| {
-        entry.system.eq_ignore_ascii_case(&rating.system)
-            && entry.code.eq_ignore_ascii_case(&rating.code)
+    rating.is_some_and(|rating| {
+        allowed.iter().any(|entry| {
+            entry.system.eq_ignore_ascii_case(&rating.system)
+                && entry.code.eq_ignore_ascii_case(&rating.code)
+        })
     })
 }
 
@@ -1605,7 +1616,7 @@ fn visible_contexts(state: &State, filter: &TitleListFilter) -> Vec<EpisodeConte
         .filter_map(|episode| {
             let season = state.seasons.iter().find(|s| s.id == episode.season)?;
             let series = state.series.iter().find(|s| s.id == season.series)?;
-            if rating_blocked(series.content_rating.as_ref(), &filter.blocked_ratings) {
+            if !rating_allowed(series.content_rating.as_ref(), filter.allowed_ratings.as_ref()) {
                 return None;
             }
             if !episode_in_libraries(state, &episode.id, filter.libraries.as_ref()) {

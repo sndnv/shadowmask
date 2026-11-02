@@ -291,10 +291,10 @@ abstract final class Strings {
   };
   static String childModeStatus(int? age) => switch (age) {
     null => 'Off. Every title this account may see is shown.',
-    0 => 'Shows only titles rated for all ages. Unrated titles still show.',
+    0 => 'Shows only titles rated for all ages. Unrated titles are hidden.',
     _ =>
       'Shows what ${<int>{8, 11, 18}.contains(age) ? 'an' : 'a'} $age-year-old '
-          'may watch: titles rated $age+ or lower. Unrated titles still show.',
+          'may watch: titles rated $age+ or lower. Unrated titles are hidden.',
   };
   static String toastChildMode(String? label) =>
       label == null ? 'Child mode off.' : 'Child mode: ${label.toLowerCase()}.';
@@ -743,7 +743,7 @@ abstract final class Strings {
       'language. Leave it empty to start with subtitles off.';
   static const String maximumRatingHelp =
       'The highest content rating this account may play. Pick the rating '
-      'system first, then the rating within it.';
+      'system first, then the rating within it. Unrated titles are hidden.';
   static const String concurrentStreamsHelp =
       'How many things this account may play at once, across every device.';
   static const String bitrateCapHelp =

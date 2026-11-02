@@ -1564,6 +1564,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_unrated_title_plays_only_without_a_limit_or_a_cap() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let child = Principal { age_limit: Some(17), ..principal() };
+
+        assert!(matches!(
+            harness.service.start(&child, start_request(0)).await,
+            Err(SessionError::VersionNotFound)
+        ));
+        harness
+            .users
+            .insert(User { max_content_rating: Some(mpaa("nc-17")), ..make_user(None, None) });
+        assert!(matches!(
+            harness.service.start(&principal(), start_request(0)).await,
+            Err(SessionError::VersionNotFound)
+        ));
+        harness.users.insert(make_user(None, None));
+        assert!(harness.service.start(&principal(), start_request(0)).await.is_ok());
+    }
+
+    #[tokio::test]
     async fn an_admin_cannot_play_out_of_an_ungranted_library_either() {
         let harness = Harness::new();
         harness.catalog.insert(direct_detail());

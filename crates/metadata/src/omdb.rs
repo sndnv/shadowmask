@@ -49,8 +49,12 @@ fn omdb_type(kind: MediaKind) -> &'static str {
     }
 }
 
-fn rating_system(kind: &str) -> &'static str {
-    if kind.eq_ignore_ascii_case("series") { "US-TV" } else { "MPAA" }
+fn rating_system(code: &str) -> &'static str {
+    if code.get(..3).is_some_and(|prefix| prefix.eq_ignore_ascii_case("tv-")) {
+        "US-TV"
+    } else {
+        "MPAA"
+    }
 }
 
 impl MetadataProvider for OmdbClient {
@@ -91,7 +95,7 @@ impl MetadataProvider for OmdbClient {
             return Err(MetadataError::NotFound);
         }
         let content_rating = non_na(&detail.rated)
-            .map(|code| ContentRating { system: rating_system(&detail.kind).to_owned(), code });
+            .map(|code| ContentRating { system: rating_system(&code).to_owned(), code });
         let ratings = detail
             .ratings
             .into_iter()
@@ -167,8 +171,6 @@ struct RawDetail {
     plot: String,
     #[serde(rename = "Poster", default)]
     poster: String,
-    #[serde(rename = "Type", default)]
-    kind: String,
     #[serde(rename = "imdbID", default)]
     imdb_id: String,
     #[serde(rename = "Ratings", default)]
@@ -302,6 +304,46 @@ mod tests {
         assert_eq!(
             meta.content_rating,
             Some(ContentRating { system: "US-TV".to_owned(), code: "TV-MA".to_owned() })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_movie_rated_on_the_tv_scale_files_under_us_tv() {
+        let server = mock_server(ResponseTemplate::new(200).set_body_json(json!({
+            "Response": "True",
+            "Type": "movie",
+            "Title": "El Camino",
+            "Year": "2019",
+            "Rated": "TV-MA",
+            "imdbID": "tt9243946"
+        })))
+        .await;
+        let client = OmdbClient::with_base_url("k", server.uri());
+        let id = ExternalId { source: "imdb".to_owned(), value: "tt9243946".to_owned() };
+        let meta = client.fetch(&id).await.unwrap();
+        assert_eq!(
+            meta.content_rating,
+            Some(ContentRating { system: "US-TV".to_owned(), code: "TV-MA".to_owned() })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_series_rated_on_the_film_scale_files_under_mpaa() {
+        let server = mock_server(ResponseTemplate::new(200).set_body_json(json!({
+            "Response": "True",
+            "Type": "series",
+            "Title": "Mini",
+            "Year": "2020",
+            "Rated": "R",
+            "imdbID": "tt0000001"
+        })))
+        .await;
+        let client = OmdbClient::with_base_url("k", server.uri());
+        let id = ExternalId { source: "imdb".to_owned(), value: "tt0000001".to_owned() };
+        let meta = client.fetch(&id).await.unwrap();
+        assert_eq!(
+            meta.content_rating,
+            Some(ContentRating { system: "MPAA".to_owned(), code: "R".to_owned() })
         );
     }
 

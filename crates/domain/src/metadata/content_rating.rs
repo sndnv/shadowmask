@@ -12,6 +12,7 @@ static AGE_TABLE: &[(&str, &str, u8)] = &[
     ("mpaa", "nc-17", 18),
     ("us-tv", "tv-y", 0),
     ("us-tv", "tv-y7", 7),
+    ("us-tv", "tv-y7-fv", 7),
     ("us-tv", "tv-g", 0),
     ("us-tv", "tv-pg", 8),
     ("us-tv", "tv-14", 14),
@@ -52,17 +53,10 @@ impl ContentRating {
         systems
     }
 
-    pub fn blocked_by(cap: Option<&ContentRating>) -> Vec<ContentRating> {
-        Self::blocked_above(cap.and_then(ContentRating::age_floor))
-    }
-
-    pub fn blocked_above(age: Option<u8>) -> Vec<ContentRating> {
-        let Some(age) = age else {
-            return Vec::new();
-        };
+    pub fn allowed_up_to(age: u8) -> Vec<ContentRating> {
         AGE_TABLE
             .iter()
-            .filter(|entry| entry.2 > age)
+            .filter(|entry| entry.2 <= age)
             .map(|entry| ContentRating { system: entry.0.to_owned(), code: entry.1.to_owned() })
             .collect()
     }
@@ -80,6 +74,7 @@ mod tests {
     fn known_ratings_map_to_an_age_floor() {
         assert_eq!(rating("MPAA", "PG-13").age_floor(), Some(13));
         assert_eq!(rating("US-TV", "TV-MA").age_floor(), Some(17));
+        assert_eq!(rating("US-TV", "TV-Y7-FV").age_floor(), Some(7));
         assert_eq!(rating("BBFC", "18").age_floor(), Some(18));
         assert_eq!(rating("de-fsk", "6").age_floor(), Some(6));
     }
@@ -102,30 +97,35 @@ mod tests {
     }
 
     #[test]
-    fn blocked_by_lists_ratings_above_the_cap() {
-        let cap = rating("MPAA", "PG-13");
-        let blocked = ContentRating::blocked_by(Some(&cap));
-        assert!(blocked.iter().all(|r| r.age_floor().unwrap() > 13));
-        assert!(blocked.contains(&rating("mpaa", "r")));
-        assert!(blocked.contains(&rating("us-tv", "tv-ma")));
-        assert!(!blocked.contains(&rating("mpaa", "pg-13")));
-        assert!(!blocked.contains(&rating("mpaa", "pg")));
+    fn allowed_up_to_lists_every_rating_at_or_below_the_age() {
+        let allowed = ContentRating::allowed_up_to(12);
+        assert!(allowed.iter().all(|r| r.age_floor().unwrap() <= 12));
+        assert!(allowed.contains(&rating("mpaa", "pg")));
+        assert!(allowed.contains(&rating("bbfc", "12a")));
+        assert!(allowed.contains(&rating("us-tv", "tv-y7")));
+        assert!(!allowed.contains(&rating("mpaa", "pg-13")));
+        assert!(!allowed.contains(&rating("de-fsk", "16")));
     }
 
     #[test]
-    fn blocked_by_is_empty_for_absent_or_unknown_cap() {
-        assert!(ContentRating::blocked_by(None).is_empty());
-        assert!(ContentRating::blocked_by(Some(&rating("XYZ", "42"))).is_empty());
+    fn allowed_up_to_the_youngest_age_keeps_the_all_ages_ratings() {
+        assert_eq!(
+            ContentRating::allowed_up_to(0),
+            vec![
+                rating("mpaa", "g"),
+                rating("us-tv", "tv-y"),
+                rating("us-tv", "tv-g"),
+                rating("bbfc", "u"),
+                rating("de-fsk", "0"),
+            ]
+        );
     }
 
     #[test]
-    fn blocked_above_lists_every_rating_older_than_the_age() {
-        let blocked = ContentRating::blocked_above(Some(12));
-        assert!(blocked.contains(&rating("mpaa", "pg-13")));
-        assert!(blocked.contains(&rating("de-fsk", "16")));
-        assert!(!blocked.contains(&rating("bbfc", "12a")));
-        assert!(!blocked.contains(&rating("mpaa", "pg")));
-        assert!(ContentRating::blocked_above(Some(ContentRating::OLDEST_AGE)).is_empty());
-        assert!(ContentRating::blocked_above(None).is_empty());
+    fn allowed_up_to_the_oldest_age_lists_the_whole_table() {
+        assert_eq!(
+            ContentRating::allowed_up_to(ContentRating::OLDEST_AGE).len(),
+            ContentRating::known_systems().iter().map(|(_, codes)| codes.len()).sum::<usize>()
+        );
     }
 }

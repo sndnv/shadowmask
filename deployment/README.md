@@ -66,6 +66,10 @@ embedded subtitles until "Re-read files" runs on it.
 | `SHADOWMASK_OPENSUBTITLES_MIN_INTERVAL_MS` | Minimum gap between OpenSubtitles requests              | `1000`  |
 | `SHADOWMASK_TARGET_LANGUAGES`              | Subtitle fetch and translation targets, e.g. `en,bg,de` | `en`    |
 
+TMDB gives no content ratings, so they come from OMDb, which runs only alongside TMDB, or from an
+admin editing a title. A title with neither is unrated, and an account's rating cap or a device's
+child mode hides it; without an OMDb key that is every title not edited by hand.
+
 ### Workers and scheduling
 
 | Variable                              | Description                                                                | Default |

@@ -849,7 +849,8 @@ async fn a_safe_preference_limits_what_the_request_reaches_and_says_so() {
         content_rating: Some(ContentRating { system: "MPAA".into(), code: "R".into() }),
         ..movie("m2")
     });
-    for (id, title) in [("v1", "m1"), ("v2", "m2")] {
+    ctx.catalog_repo.add_movie(Movie { content_rating: None, ..movie("m3") });
+    for (id, title) in [("v1", "m1"), ("v2", "m2"), ("v3", "m3")] {
         let title = TitleId::Movie(MovieId(title.into()));
         ctx.catalog_repo.add_version(version(id, title, "lib1", Quality::Hd));
     }
@@ -858,7 +859,7 @@ async fn a_safe_preference_limits_what_the_request_reaches_and_says_so() {
     let open = call_preferring(&ctx, "/api/v1/movies", USER, None).await;
     assert_eq!((open.status, open.applied), (StatusCode::OK, None));
     assert_eq!(open.vary, ["Prefer"]);
-    assert_eq!(item_ids(&open.body), ["m1", "m2"]);
+    assert_eq!(item_ids(&open.body), ["m1", "m2", "m3"]);
 
     let limited = call_preferring(&ctx, "/api/v1/movies", USER, child).await;
     assert_eq!((limited.status, limited.applied.as_deref()), (StatusCode::OK, Some("safe")));
@@ -870,6 +871,10 @@ async fn a_safe_preference_limits_what_the_request_reaches_and_says_so() {
 
     let versions = call_preferring(&ctx, "/api/v1/movies/m2/versions", USER, child).await;
     assert_eq!(versions.status, StatusCode::NOT_FOUND);
+    let unrated = call_preferring(&ctx, "/api/v1/movies/m3/versions", USER, child).await;
+    assert_eq!(unrated.status, StatusCode::NOT_FOUND);
+    let unrated = call_preferring(&ctx, "/api/v1/movies/m3/versions", USER, None).await;
+    assert_eq!(unrated.status, StatusCode::OK);
 
     let youngest = call_preferring(&ctx, "/api/v1/movies", USER, Some("safe")).await;
     assert_eq!((youngest.status, youngest.applied.as_deref()), (StatusCode::OK, Some("safe")));
@@ -913,10 +918,12 @@ async fn a_safe_preference_reaches_search_home_continue_collections_and_sessions
     let r = ContentRating { system: "mpaa".into(), code: "r".into() };
 
     call_preferring(&ctx, "/api/v1/search?q=alpha", USER, None).await;
-    assert!(ctx.search_index.last_filter().unwrap().blocked_ratings.is_empty());
+    assert_eq!(ctx.search_index.last_filter().unwrap().allowed_ratings, None);
     let search = call_preferring(&ctx, "/api/v1/search?q=alpha", USER, child).await;
     assert_eq!(search.status, StatusCode::OK);
-    assert!(ctx.search_index.last_filter().unwrap().blocked_ratings.contains(&r));
+    let allowed = ctx.search_index.last_filter().unwrap().allowed_ratings.unwrap();
+    assert!(!allowed.contains(&r));
+    assert!(allowed.contains(&ContentRating { system: "us-tv".into(), code: "tv-14".into() }));
 
     let hub = call_preferring(&ctx, "/api/v1/users/u1/hub", USER, None).await;
     assert!(hub_ids(&hub.body).contains(&"m2"));

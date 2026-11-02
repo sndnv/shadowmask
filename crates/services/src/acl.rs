@@ -21,15 +21,11 @@ pub fn can_access_library(access: &[LibraryId], library: &LibraryId) -> bool {
     access.iter().any(|granted| granted == library)
 }
 
-pub fn rating_permits(cap: Option<&ContentRating>, item: Option<&ContentRating>) -> bool {
-    age_permits(cap.and_then(ContentRating::age_floor), item)
-}
-
 fn age_permits(ceiling: Option<u8>, item: Option<&ContentRating>) -> bool {
-    match (ceiling, item.and_then(ContentRating::age_floor)) {
-        (Some(ceiling), Some(age)) => age <= ceiling,
-        _ => true,
-    }
+    let Some(ceiling) = ceiling else {
+        return true;
+    };
+    item.and_then(ContentRating::age_floor).is_some_and(|age| age <= ceiling)
 }
 
 pub struct Viewer {
@@ -45,7 +41,7 @@ where
     let access =
         users.list_library_access(user).await?.into_iter().map(|entry| entry.library).collect();
     let cap = account.and_then(|account| account.max_content_rating);
-    Ok(Viewer { ceiling: cap.and_then(|cap| cap.age_floor()), access })
+    Ok(Viewer { ceiling: cap.map(|cap| cap.age_floor().unwrap_or(0)), access })
 }
 
 impl Viewer {
@@ -70,7 +66,7 @@ impl Viewer {
         };
         TitleListFilter {
             libraries: Some(libraries),
-            blocked_ratings: ContentRating::blocked_above(self.ceiling),
+            allowed_ratings: self.ceiling.map(ContentRating::allowed_up_to),
             ..TitleListFilter::default()
         }
     }
@@ -162,27 +158,35 @@ mod tests {
         assert!(!can_access_library(&[], &LibraryId("lib1".into())));
     }
 
-    #[test]
-    fn rating_gate_allows_within_cap_and_unknowns() {
+    #[tokio::test]
+    async fn a_viewer_allows_within_its_cap_and_hides_unrated_and_unknown_titles() {
         let pg13 = rating("MPAA", "PG-13");
         let r = rating("MPAA", "R");
-        let unknown = rating("XYZ", "42");
+        let seen = |cap: Option<ContentRating>| async move {
+            let users = repo_with(account("u1", Role::User, cap), &["lib1"]).await;
+            viewer(&users, &UserId("u1".into())).await.unwrap()
+        };
 
-        assert!(rating_permits(Some(&r), Some(&pg13)));
-        assert!(rating_permits(Some(&pg13), Some(&pg13)));
-        assert!(!rating_permits(Some(&pg13), Some(&r)));
+        let capped_at_r = seen(Some(r.clone())).await;
+        assert!(capped_at_r.permits(Some(&pg13)));
+        assert!(!capped_at_r.permits(Some(&rating("MPAA", "TV-MA"))));
 
-        assert!(rating_permits(None, Some(&r)));
-        assert!(rating_permits(Some(&pg13), None));
-        assert!(rating_permits(Some(&unknown), Some(&r)));
-        assert!(rating_permits(Some(&pg13), Some(&unknown)));
+        let capped = seen(Some(pg13.clone())).await;
+        assert!(capped.permits(Some(&pg13)));
+        assert!(!capped.permits(Some(&r)));
+        assert!(!capped.permits(None));
+        assert!(!capped.permits(Some(&rating("XYZ", "42"))));
+
+        let uncapped = seen(None).await;
+        assert!(uncapped.permits(Some(&r)));
+        assert!(uncapped.permits(None));
     }
 
     #[tokio::test]
-    async fn a_capped_viewer_is_scoped_to_granted_libraries_and_blocked_ratings() {
-        let pg13 = rating("MPAA", "PG-13");
+    async fn a_capped_viewer_is_scoped_to_granted_libraries_and_allowed_ratings() {
         let users =
-            repo_with(account("u1", Role::User, Some(pg13.clone())), &["lib1", "lib2"]).await;
+            repo_with(account("u1", Role::User, Some(rating("MPAA", "PG-13"))), &["lib1", "lib2"])
+                .await;
 
         let filter = viewer(&users, &UserId("u1".into())).await.unwrap().filter(None);
 
@@ -190,8 +194,29 @@ mod tests {
             filter.libraries,
             Some(vec![LibraryId("lib1".into()), LibraryId("lib2".into())])
         );
-        assert!(filter.blocked_ratings.contains(&rating("mpaa", "r")));
-        assert!(!filter.blocked_ratings.contains(&pg13));
+        assert_eq!(filter.allowed_ratings, Some(ContentRating::allowed_up_to(13)));
+    }
+
+    #[tokio::test]
+    async fn an_unknown_cap_limits_to_the_youngest_age() {
+        let users =
+            repo_with(account("u1", Role::User, Some(rating("TV", "TV-14"))), &["lib1"]).await;
+
+        let seen = viewer(&users, &UserId("u1".into())).await.unwrap();
+
+        assert!(seen.permits(Some(&rating("MPAA", "G"))));
+        assert!(!seen.permits(Some(&rating("MPAA", "PG"))));
+        assert!(!seen.permits(None));
+        assert_eq!(seen.filter(None).allowed_ratings, Some(ContentRating::allowed_up_to(0)));
+    }
+
+    #[tokio::test]
+    async fn an_uncapped_viewer_lists_no_allowed_ratings() {
+        let users = repo_with(account("u1", Role::User, None), &["lib1"]).await;
+
+        let filter = viewer(&users, &UserId("u1".into())).await.unwrap().filter(None);
+
+        assert_eq!(filter.allowed_ratings, None);
     }
 
     #[tokio::test]
@@ -267,6 +292,7 @@ mod tests {
 
         assert!(seen.permits(Some(&rating("MPAA", "PG"))));
         assert!(!seen.permits(Some(&rating("MPAA", "R"))));
+        assert!(!seen.permits(None));
         assert!(seen.sees_library(&LibraryId("lib1".into())));
         assert!(!seen.sees_library(&LibraryId("lib2".into())));
     }
@@ -303,15 +329,17 @@ mod tests {
 
         let uncapped = seen(None).await.limited_to(Some(12));
         assert!(!uncapped.permits(Some(&pg13)));
-        assert!(uncapped.filter(None).blocked_ratings.contains(&rating("mpaa", "pg-13")));
+        assert!(!uncapped.permits(None));
+        assert_eq!(uncapped.filter(None).allowed_ratings, Some(ContentRating::allowed_up_to(12)));
 
         let unknown_cap = seen(Some(rating("XYZ", "42"))).await.limited_to(Some(12));
         assert!(!unknown_cap.permits(Some(&pg13)));
-        assert!(unknown_cap.permits(Some(&rating("XYZ", "42"))));
+        assert!(!unknown_cap.permits(Some(&rating("XYZ", "42"))));
 
         assert!(seen(None).await.limited_to(None).permits(Some(&r)));
+        assert!(seen(None).await.limited_to(None).permits(None));
         let capped = seen(Some(pg13)).await.limited_to(None);
-        assert!(capped.filter(None).blocked_ratings.contains(&rating("mpaa", "r")));
+        assert_eq!(capped.filter(None).allowed_ratings, Some(ContentRating::allowed_up_to(13)));
     }
 
     #[tokio::test]

@@ -48,7 +48,7 @@ where
             }
             Err(err) => warn!(
                 imdb_id = %imdb.value,
-                "rating provider lookup failed; content rating unset, parental controls will not gate this title: {err}"
+                "rating provider lookup failed; content rating unset, so a rating cap or child mode hides this title: {err}"
             ),
         }
         Ok(metadata)
