@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30" role="img" aria-label="Focus ring">
+    <rect x="2.5" y="2.5" width="25" height="25" rx="11.5" fill="none" stroke="#ffffff" stroke-width="3"/>
+    <rect x="14" y="0" width="2" height="1" fill="#000000"/>
+    <rect x="0" y="14" width="1" height="2" fill="#000000"/>
+</svg>

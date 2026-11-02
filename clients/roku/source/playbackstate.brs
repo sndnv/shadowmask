@@ -41,11 +41,6 @@ function ReportsPlaying(s as object) as boolean
     return s.timeline.playing and s.status.sent = invalid
 end function
 
-function SeeksLocally(s as object, positionMs as integer) as boolean
-    if not IsWatching(s) or not s.timeline.placed then return false
-    return PlaybackReachable(s, PlaybackWithinTitle(s, positionMs))
-end function
-
 function SameUpdate(left as dynamic, right as dynamic) as boolean
     return FormatJson(ControlsUpdateBody(left)) = FormatJson(ControlsUpdateBody(right))
 end function
@@ -240,6 +235,23 @@ function ViewerToggles(s as object) as object
     return ViewerPlays(s, not s.timeline.playing)
 end function
 
+function ViewerSetsPlaying(s as object, playing as boolean) as object
+    if s.timeline.playing = playing then return PlaybackSame(s)
+    return ViewerPlays(s, playing)
+end function
+
+function ViewerSeeksAndResumes(s as object, positionMs as integer) as object
+    if not IsWatching(s) or s.timeline.playing then return ViewerSeeks(s, positionMs)
+
+    sought = ViewerSeeks(PlaybackWithTimeline(s, { playing: true }), positionMs)
+    if sought.commands.Count() = 0 then return ViewerPlays(s, true)
+
+    commands = []
+    commands.Append(sought.commands)
+    if commands[0].kind = "seekPlayer" then commands.Push({ kind: "playPlayer" })
+    return PlaybackWithProgress(s, PlaybackStepOf(sought.state, commands))
+end function
+
 function ViewerChangesRemote(s as object, controls as dynamic) as object
     if s.status.life = "closed" or s.status.sent <> invalid then return PlaybackSame(s)
 
@@ -405,6 +417,8 @@ function PlaybackStep(s as object, event as object) as object
     if kind = "seek" then return ViewerSeeks(s, event.positionMs)
     if kind = "seekBy" then return ViewerSeeksBy(s, event.deltaMs)
     if kind = "toggle" then return ViewerToggles(s)
+    if kind = "plays" then return ViewerSetsPlaying(s, event.playing = true)
+    if kind = "seekResumes" then return ViewerSeeksAndResumes(s, event.positionMs)
     if kind = "changeRemote" then return ViewerChangesRemote(s, event.controls)
     if kind = "retry" then return ViewerRetries(s)
     if kind = "leave" then return LifecycleLeaves(s)

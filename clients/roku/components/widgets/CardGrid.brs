@@ -4,6 +4,9 @@ sub init()
     m.grid.ObserveField("itemFocused", "onFocused")
 
     m.cards = []
+    m.room = invalid
+    m.contentRoom = invalid
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 sub render()
@@ -12,14 +15,24 @@ sub render()
 
     space = SpacingScale()
     metrics = CardMetrics(m.top.cardWidth, m.top.aspect, m.top.captionRows)
+    room = FocusRoom(metrics.width, metrics.height, space.s4, space.s5)
+    m.room = room
 
     m.grid.itemComponentName = "PosterCard"
-    m.grid.itemSize = [metrics.width, metrics.height]
-    m.grid.itemSpacing = [space.s4, space.s5]
+    m.grid.itemSize = [metrics.width + room.x * 2, metrics.height + room.y * 2]
+    m.grid.itemSpacing = [space.s4 - room.x * 2, space.s5 - room.y * 2]
     m.grid.numColumns = m.top.columns
     m.grid.numRows = VisibleSlots(m.top.gridHeight, metrics.height, space.s5)
     m.grid.vertFocusAnimationStyle = "fixedFocus"
     m.grid.drawFocusFeedback = false
+    m.grid.translation = [- room.x, - room.y]
+
+    if m.cards.Count() > 0 and not m.top.dormant and not SameRoom(room, m.contentRoom) then FillGrid()
+end sub
+
+sub FillGrid()
+    m.grid.content = CardContentList(m.cards, m.top.serverUrl, CardImageWidthFor(m.top.cardWidth), m.top.captionRows, m.room, true)
+    m.contentRoom = m.room
 end sub
 
 sub replaceCards()
@@ -28,14 +41,15 @@ sub replaceCards()
 
     UnifyAspect(cards)
     m.top.aspect = AspectForSet(cards)
-    render()
 
     m.cards = []
     for each card in cards
         m.cards.Push(card)
     end for
 
-    m.grid.content = CardContentList(m.cards, m.top.serverUrl, CardImageWidthFor(m.top.cardWidth), m.top.captionRows)
+    m.contentRoom = invalid
+    render()
+    if m.contentRoom = invalid then FillGrid()
     m.top.loaded = m.cards.Count()
 end sub
 
@@ -47,8 +61,9 @@ sub onDormant()
 
     if m.cards.Count() = 0 then return
 
+    m.contentRoom = invalid
     render()
-    m.grid.content = CardContentList(m.cards, m.top.serverUrl, CardImageWidthFor(m.top.cardWidth), m.top.captionRows)
+    if m.contentRoom = invalid then FillGrid()
 end sub
 
 sub appendMore()
@@ -59,7 +74,7 @@ sub appendMore()
     for each card in cards
         card.aspect = m.top.aspect
         m.cards.Push(card)
-        root.AppendChild(CardContentNode(card, m.top.serverUrl, CardImageWidthFor(m.top.cardWidth), m.top.captionRows))
+        root.AppendChild(CardContentNode(card, m.top.serverUrl, CardImageWidthFor(m.top.cardWidth), m.top.captionRows, m.room, true))
     end for
     m.top.loaded = m.cards.Count()
 end sub

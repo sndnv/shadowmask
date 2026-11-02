@@ -233,9 +233,13 @@ function CandidateOptions(candidates as dynamic, version = invalid as dynamic) a
         count = CompactCount(ValueAt(candidate, "download_count", invalid))
         icon = ""
         if not IsBlank(count) then icon = "icon-download"
-        options.Push({ candidate: candidate, label: label, meta: count, metaIcon: icon, detail: JoinParts(parts), info: owned })
+        options.Push({ candidate: candidate, label: label, meta: count, metaIcon: icon, detail: JoinParts(parts), info: owned, middle: true })
     end for
     return options
+end function
+
+function VersionFileLine(version as dynamic) as string
+    return MiddleEllipsis(FileStem(ValueAt(version, "path", "")), TypeScale().textBase, DialogInnerWidth())
 end function
 
 function FirstPickable(options as dynamic) as integer

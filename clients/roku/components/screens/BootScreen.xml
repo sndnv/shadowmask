@@ -29,7 +29,6 @@
         <field id="advance" type="string" alwaysNotify="true" />
         <field id="rootScreen" type="boolean" value="true" />
         <field id="immersive" type="boolean" value="true" />
-        <field id="focusedChild" type="node" onChange="onFocus" />
     </interface>
 
     <children>

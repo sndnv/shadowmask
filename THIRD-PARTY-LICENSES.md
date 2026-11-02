@@ -15,7 +15,7 @@ server image are credited from the *Third-party content* section of the
 
 | License | Crates |
 | --- | ---: |
-| Apache License 2.0 | 298 |
+| Apache License 2.0 | 299 |
 | MIT License | 100 |
 | Unicode License v3 | 20 |
 | ISC License | 7 |
@@ -447,14 +447,15 @@ Used by:
 Used by:
 
 - [cmov 0.5.4](https://github.com/RustCrypto/utils)
-- [ctutils 0.4.6](https://github.com/RustCrypto/utils)
+- [ctutils 0.4.7](https://github.com/RustCrypto/utils)
 - [ndarray-npy 0.9.1](https://github.com/jturner314/ndarray-npy)
 - [py_literal 0.4.0](https://github.com/jturner314/py_literal)
 - [sentencepiece-sys 0.13.2](https://github.com/danieldk/sentencepiece.git)
 - [siphasher 1.0.4](https://github.com/jedisct1/rust-siphash)
 - [static_assertions 1.1.0](https://github.com/nvzqz/static-assertions-rs)
 - [tinyvec 1.13.3](https://github.com/Lokathor/tinyvec)
-- [utf8_iter 1.0.4](https://github.com/hsivonen/utf8_iter)
+- [utf8_iter 1.1.0](https://github.com/hsivonen/utf8_iter)
+- [utf_types 1.0.0](https://github.com/hsivonen/utf_types)
 - [zeroize 1.9.1](https://github.com/RustCrypto/utils)
 - [zeroize_derive 1.5.0](https://github.com/RustCrypto/utils)
 
@@ -3430,7 +3431,7 @@ Used by:
 - [anstyle-query 1.1.5](https://github.com/rust-cli/anstyle.git)
 - [anstyle 1.0.14](https://github.com/rust-cli/anstyle.git)
 - [colorchoice 1.0.5](https://github.com/rust-cli/anstyle.git)
-- [crc32fast 1.5.3](https://github.com/srijs/rust-crc32fast)
+- [crc32fast 1.5.4](https://github.com/srijs/rust-crc32fast)
 - [derive_builder 0.20.2](https://github.com/colin-kiegel/rust-derive-builder)
 - [derive_builder_core 0.20.2](https://github.com/colin-kiegel/rust-derive-builder)
 - [derive_builder_macro 0.20.2](https://github.com/colin-kiegel/rust-derive-builder)
@@ -6806,7 +6807,7 @@ Used by:
 - [bitflags 1.3.2](https://github.com/bitflags/bitflags)
 - [bitflags 2.13.2](https://github.com/bitflags/bitflags)
 - [bumpalo 3.20.3](https://github.com/fitzgen/bumpalo)
-- [cc 1.10.0](https://github.com/rust-lang/cc-rs)
+- [cc 1.11.0](https://github.com/rust-lang/cc-rs)
 - [cfg-if 1.0.5](https://github.com/rust-lang/cfg-if)
 - [cmake 0.1.58](https://github.com/rust-lang/cmake-rs)
 - [core-foundation-sys 0.8.7](https://github.com/servo/core-foundation-rs)
@@ -6844,7 +6845,7 @@ Used by:
 - [left-right 0.11.8](https://github.com/jonhoo/left-right.git)
 - [linux-raw-sys 0.12.1](https://github.com/sunfishcode/linux-raw-sys)
 - [lock_api 0.4.14](https://github.com/Amanieu/parking_lot)
-- [log 0.4.34](https://github.com/rust-lang/log)
+- [log 0.4.35](https://github.com/rust-lang/log)
 - [matrixmultiply 0.3.11](https://github.com/bluss/matrixmultiply/)
 - [mime 0.3.17](https://github.com/hyperium/mime)
 - [ndarray 0.16.1](https://github.com/rust-ndarray/ndarray)
@@ -9906,7 +9907,7 @@ Used by:
 
 - [allocator-api2 0.2.21](https://github.com/zakarumych/allocator-api2)
 - [anyhow 1.0.104](https://github.com/dtolnay/anyhow)
-- [aws-lc-sys 0.46.0](https://github.com/aws/aws-lc-rs)
+- [aws-lc-sys 0.47.0](https://github.com/aws/aws-lc-rs)
 - [cxx-build 1.0.205](https://github.com/dtolnay/cxx)
 - [cxx 1.0.205](https://github.com/dtolnay/cxx)
 - [cxxbridge-flags 1.0.205](https://github.com/dtolnay/cxx)
@@ -10162,7 +10163,7 @@ USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 Used by:
 
-- [aws-lc-sys 0.46.0](https://github.com/aws/aws-lc-rs)
+- [aws-lc-sys 0.47.0](https://github.com/aws/aws-lc-rs)
 - [exr 1.74.2](https://github.com/johannesvollmer/exrs)
 - [sha1_smol 1.0.1](https://github.com/mitsuhiko/sha1-smol)
 
@@ -10323,8 +10324,8 @@ third-party/chromium/LICENSE.
 
 Used by:
 
-- [aws-lc-rs 1.18.2](https://github.com/aws/aws-lc-rs)
-- [aws-lc-sys 0.46.0](https://github.com/aws/aws-lc-rs)
+- [aws-lc-rs 1.19.0](https://github.com/aws/aws-lc-rs)
+- [aws-lc-sys 0.47.0](https://github.com/aws/aws-lc-rs)
 
 ````text
 ISC License:
@@ -10341,7 +10342,7 @@ THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES WITH REGARD TO
 ## MIT License
 Used by:
 
-- [ct2rs 0.10.2](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs 0.10.3](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 # Copyright (c) 2014 Jarryd Beck
@@ -10375,7 +10376,7 @@ target_compile_options(example PRIVATE
 
 Used by:
 
-- [ct2rs 0.10.2](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs 0.10.3](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 # Copyright (c) 2014 Jarryd Beck
@@ -10571,7 +10572,7 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- [ct2rs 0.10.2](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs 0.10.3](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 Copyright (c) 2012 - present, Victor Zverovich
@@ -10633,7 +10634,7 @@ THE SOFTWARE.
 
 Used by:
 
-- [ct2rs 0.10.2](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs 0.10.3](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 Copyright (c) 2014 Jarryd Beck
@@ -11385,7 +11386,7 @@ SOFTWARE.
 
 Used by:
 
-- [ct2rs 0.10.2](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs 0.10.3](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 MIT License
@@ -12103,7 +12104,7 @@ SOFTWARE.
 
 Used by:
 
-- [aws-lc-sys 0.46.0](https://github.com/aws/aws-lc-rs)
+- [aws-lc-sys 0.47.0](https://github.com/aws/aws-lc-rs)
 
 ````text
 The MIT License (MIT)
@@ -12310,7 +12311,7 @@ SOFTWARE.
 
 Used by:
 
-- [ct2rs 0.10.2](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs 0.10.3](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 The MIT License (MIT)

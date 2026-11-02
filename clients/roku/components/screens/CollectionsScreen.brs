@@ -14,6 +14,7 @@ sub init()
     m.started = false
 
     ShowMore("", "loading")
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 sub ShowMore(message as string, kind as string)

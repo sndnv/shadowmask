@@ -24,6 +24,7 @@ sub init()
     m.endSerial = 0
     m.endTasks = []
     m.endTimer = invalid
+    m.revealWaiting = false
 
     m.background.muteAudioGuide = true
     m.navHint.muteAudioGuide = true
@@ -64,16 +65,17 @@ sub init()
     m.global.ObserveField("lowMemory", "onLowMemory")
     m.global.ObserveField("deepLink", "onDeepLink")
     ApplyTheme()
-    Bootstrap()
     m.top.SetFocus(true)
+    Bootstrap()
 end sub
 
 sub PublishSession()
     shared = m.global
     if not shared.HasField("serverUrl")
-        shared.AddFields({ serverUrl: "", token: "", userId: "", username: "", role: "", accountRole: "", theme: {}, decoding: {}, profileVersion: 0, negotiated: {}, lowMemory: 0, captionMode: "", sessionId: "", endsQueued: 0, endsDone: 0, deepLink: {}, childAge: -1 })
+        shared.AddFields({ serverUrl: "", token: "", userId: "", username: "", role: "", accountRole: "", theme: {}, decoding: {}, profileVersion: 0, negotiated: {}, lowMemory: 0, captionMode: "", sessionId: "", endsQueued: 0, endsDone: 0, deepLink: {}, childAge: -1, fonts: {} })
     end if
 
+    if ActiveFonts().Count() > 0 then shared.fonts = {}
     shared.serverUrl = ReadServerUrl()
     shared.token = ReadToken()
     shared.childAge = ReadChildAge()
@@ -218,6 +220,8 @@ sub PushScreen(nodeType as string, target = invalid as dynamic)
         return
     end if
 
+    m.revealWaiting = false
+
     if screen.HasField("keyboardRequest")
         screen.ObserveField("keyboardRequest", "onKeyboardRequest")
     end if
@@ -273,10 +277,20 @@ function PopScreen() as boolean
     if owns then asked = revealed.backdropUrl
     ShowBackdrop(BackdropAfterPop(owns, asked))
     m.rail.section = SectionFor(revealed)
+    RevealTop()
     return true
 end function
 
+sub RevealTop()
+    m.revealWaiting = RevealWaits(m.global.endsDone, m.global.endsQueued)
+    if m.revealWaiting then return
+
+    screen = m.stack.Peek()
+    if screen <> invalid and screen.HasField("revealed") then screen.revealed = true
+end sub
+
 sub ClearStack()
+    m.revealWaiting = false
     while m.stack.Count() > 0
         leaving = m.stack.Pop()
         if leaving.HasField("release") then leaving.release = true
@@ -364,6 +378,7 @@ sub onAdvance(event as object)
             PublishSession()
         end if
         signingIn = screen.subtype() = "BootScreen" and destination = "HomeScreen"
+        if signingIn then ApplyTheme()
         ResetTo(destination)
         if signingIn then SignedIn()
         return
@@ -602,6 +617,7 @@ sub NextEnd()
     m.ends.Shift()
     m.global.endsDone = Int(m.global.endsDone) + 1
     if m.ends.Count() > 0 then SendEnd()
+    if m.revealWaiting then RevealTop()
 end sub
 
 sub onThemeRequest(event as object)

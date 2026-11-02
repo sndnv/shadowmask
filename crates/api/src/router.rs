@@ -206,6 +206,13 @@ pub fn basic_ui_router(dir: &std::path::Path) -> Router {
         .nest_service("/ui/basic", ServeDir::new(dir))
 }
 
+pub fn fonts_router(dir: &std::path::Path) -> Router {
+    if !dir.is_dir() {
+        return Router::new();
+    }
+    Router::new().nest_service("/fonts", ServeDir::new(dir))
+}
+
 pub fn webhook_router<S: AppServices>(services: S, clients: Vec<WebhookClient>) -> Router {
     if clients.is_empty() {
         return Router::new();
@@ -499,6 +506,37 @@ mod basic_ui_tests {
         let router = basic_ui_router(std::path::Path::new("does-not-exist-shadowmask-basic"));
         let response =
             router.oneshot(Request::get("/").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+}
+
+#[cfg(test)]
+mod fonts_tests {
+    use super::*;
+    use axum::body::{Body, to_bytes};
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn serves_the_folder_without_sign_in() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Regular.otf"), b"font").unwrap();
+
+        let response = fonts_router(dir.path())
+            .oneshot(Request::get("/fonts/Regular.otf").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(to_bytes(response.into_body(), usize::MAX).await.unwrap().as_ref(), b"font");
+    }
+
+    #[tokio::test]
+    async fn without_a_directory_it_serves_nothing() {
+        let router = fonts_router(std::path::Path::new("does-not-exist-shadowmask-fonts"));
+        let response = router
+            .oneshot(Request::get("/fonts/Regular.otf").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 }

@@ -29,7 +29,6 @@
         <field id="rowHeight" type="float" value="0" />
         <field id="focusIndex" type="integer" value="0" onChange="render" />
         <field id="activated" type="string" alwaysNotify="true" />
-        <field id="focusedChild" type="node" onChange="render" />
     </interface>
 
     <children>

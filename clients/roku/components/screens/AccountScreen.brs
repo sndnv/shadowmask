@@ -142,6 +142,8 @@ sub init()
     m.leavingServer = false
     m.visited = false
     m.started = false
+
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 function LibraryRails() as object
@@ -197,14 +199,14 @@ function BarHeight(bar as object) as integer
 end function
 
 function TabRuleHeight() as integer
-    return 4
+    return Px(4)
 end function
 
 sub DrawTabRule(theme as object, left as integer, top as integer)
     m.tabRule.width = ContentWidth()
-    m.tabRule.height = 2
+    m.tabRule.height = Px(2)
     m.tabRule.color = theme.border
-    m.tabRule.translation = [left, top + TabRuleHeight() - 2]
+    m.tabRule.translation = [left, top + TabRuleHeight() - m.tabRule.height]
 
     spans = m.tabs.slotSpans
     if type(spans) <> "roArray" or m.tab >= spans.Count()
@@ -468,10 +470,10 @@ function DrawSettingRows(theme as object, rows as object, width as integer, at a
 
         offset = offset + space.s4
         row.rule.width = width
-        row.rule.height = 2
+        row.rule.height = Px(2)
         row.rule.color = theme.border
         row.rule.translation = [at, offset]
-        offset = offset + 2 + space.s4
+        offset = offset + row.rule.height + space.s4
     end for
 
     return offset - top
@@ -702,7 +704,7 @@ function DrawAbout(theme as object, width as integer, at as integer, top as inte
 
     offset = offset + DrawAboutLine(m.aboutApp, theme.text, AboutTitle(), sizes.textSm, width, at, offset)
     offset = offset + DrawAboutLine(m.aboutLegal, theme.muted, Phrase("about.legal"), sizes.textSm, width, at, offset)
-    offset = offset + DrawAboutLine(m.aboutBundled, theme.muted, Phrase("about.bundled"), sizes.textSm, width, at, offset) + space.s3
+    offset = offset + DrawAboutLine(m.aboutBundled, theme.muted, FontLine(), sizes.textSm, width, at, offset) + space.s3
 
     m.aboutFacts.theme = theme
     m.aboutFacts.listWidth = width
@@ -718,10 +720,10 @@ function DrawAbout(theme as object, width as integer, at as integer, top as inte
     offset = offset + BarHeight(m.aboutActions) + space.s3
 
     m.aboutTmdbLogo.uri = "pkg:/images/tmdb-logo.png"
-    m.aboutTmdbLogo.width = 224
-    m.aboutTmdbLogo.height = 30
+    m.aboutTmdbLogo.width = Px(224)
+    m.aboutTmdbLogo.height = Px(30)
     m.aboutTmdbLogo.translation = [at, offset]
-    offset = offset + 30 + space.s2
+    offset = offset + m.aboutTmdbLogo.height + space.s2
 
     offset = offset + DrawAboutLine(m.aboutTmdb, theme.muted, Phrase("about.tmdb"), sizes.textSm, width, at, offset, 3)
     offset = offset + DrawAboutLine(m.aboutOmdb, theme.muted, Phrase("about.omdb"), sizes.textSm, width, at, offset, 3)
@@ -1031,12 +1033,16 @@ end sub
 sub onAboutAction(event as object)
     if TextOrBlank(event.GetData()) <> "viewLicenses" then return
 
-    text = BundledLicenseText()
-    if IsBlank(text) then return
+    title = FontSetName()
+    text = FontLicenseText()
+    if IsBlank(title) or IsBlank(text)
+        title = Phrase("about.systemFont")
+        text = Phrase("about.systemFontBody")
+    end if
 
     m.top.choiceRequest = {
         field: "licenses",
-        title: BundledFontName() + " · " + BundledFontLicense(),
+        title: title,
         message: text,
         options: [{ label: Phrase("action.ok"), cancel: true }],
         selected: 0
@@ -1137,6 +1143,12 @@ sub StoreOverride(id as string, value as string)
 
     WriteCapabilityOverrides(m.overrides)
     Layout()
+end sub
+
+sub onRevealed()
+    LoadRail("watchlist")
+    LoadRail("favorites")
+    LoadRail("history")
 end sub
 
 sub ReloadCardStates()

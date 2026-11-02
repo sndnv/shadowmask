@@ -1,6 +1,8 @@
 sub init()
     m.chips = m.top.FindNode("chips")
     m.built = []
+
+    m.top.ObserveField("focusedChild", "onFocusChanged")
 end sub
 
 sub render()

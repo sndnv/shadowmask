@@ -1,9 +1,14 @@
-function CardContentNode(card as object, serverUrl as string, imageWidth as integer, captionRows = 3 as integer) as object
+function CardContentNode(card as object, serverUrl as string, imageWidth as integer, captionRows = 3 as integer, room = invalid as dynamic, gridItem = false as boolean) as object
     node = CreateObject("roSGNode", "ContentNode")
+    if room = invalid then room = { x: 0, y: 0, scale: FocusScale() }
 
     node.AddFields({
         audioGuideText: "",
         captionRows: captionRows,
+        gridItem: gridItem,
+        slotX: room.x,
+        slotY: room.y,
+        growTo: room.scale,
         cardTitle: TextOrBlank(ValueAt(card, "title", "")),
         cardSubtitle: TextOrBlank(ValueAt(card, "subtitle", "")),
         cardCaption: TextOrBlank(ValueAt(card, "caption", "")),
@@ -31,12 +36,12 @@ function CardContentNode(card as object, serverUrl as string, imageWidth as inte
     return node
 end function
 
-function CardContentList(cards as object, serverUrl as string, imageWidth as integer, captionRows = 3 as integer) as object
+function CardContentList(cards as object, serverUrl as string, imageWidth as integer, captionRows = 3 as integer, room = invalid as dynamic, gridItem = false as boolean) as object
     root = CreateObject("roSGNode", "ContentNode")
     if type(cards) <> "roArray" then return root
 
     for each card in cards
-        root.AppendChild(CardContentNode(card, serverUrl, imageWidth, captionRows))
+        root.AppendChild(CardContentNode(card, serverUrl, imageWidth, captionRows, room, gridItem))
     end for
     return root
 end function

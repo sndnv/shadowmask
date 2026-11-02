@@ -1,15 +1,3 @@
-function BundledFontName() as string
-    return "Roboto"
-end function
-
-function BundledFontLicense() as string
-    return "SIL Open Font License 1.1"
-end function
-
-function BundledLicensePath() as string
-    return "pkg:/fonts/Roboto-OFL.txt"
-end function
-
 function AppVersion() as string
     info = CreateObject("roAppInfo")
     if info = invalid then return ""
@@ -38,15 +26,28 @@ function ChannelId() as string
     return TextOrBlank(info.GetID())
 end function
 
-function AttributionRows() as object
-    return [
-        { label: BundledFontName(), values: [BundledFontLicense()] }
-    ]
+function AttributionRows(fonts = invalid as dynamic) as object
+    name = FontSetName(fonts)
+    if IsBlank(name) then return [{ label: Phrase("about.systemFont"), values: [Phrase("about.systemFontSource")] }]
+
+    return [{ label: name, values: [Phrase("about.fontSource")] }]
 end function
 
-function BundledLicenseText(path = "" as string) as string
+function FontLine(fonts = invalid as dynamic) as string
+    if IsBlank(FontSetName(fonts)) then return Phrase("about.systemFontLine")
+    return Phrase("about.font")
+end function
+
+function FontSetName(fonts = invalid as dynamic) as string
+    source = fonts
+    if source = invalid then source = ActiveFonts()
+    return TextOrBlank(ValueAt(source, "name", ""))
+end function
+
+function FontLicenseText(path = "" as string) as string
     source = path
-    if IsBlank(source) then source = BundledLicensePath()
+    if IsBlank(source) then source = FontPathIn(ActiveFonts(), "license")
+    if IsBlank(source) then return ""
 
     return TextOrBlank(ReadAsciiFile(source))
 end function

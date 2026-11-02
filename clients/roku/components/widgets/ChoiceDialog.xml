@@ -47,7 +47,7 @@
             <ScrollBar id="bar" />
         </Group>
         <Animation id="spin" repeat="true" duration="1" easeFunction="linear">
-            <FloatFieldInterpolator key="[0.0, 1.0]" keyValue="[0.0, -6.2832]" fieldToInterp="spinnerTurn.rotation" />
+            <FloatFieldInterpolator key="[0.0, 1.0]" keyValue="[0.0, 6.2832]" fieldToInterp="spinnerTurn.rotation" />
         </Animation>
     </children>
 </component>

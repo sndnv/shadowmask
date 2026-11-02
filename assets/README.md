@@ -99,9 +99,11 @@ because each platform masks differently.
   `rsvg-convert` maps 1:1 to pixels, with a 22×22 interior at radius 10 (the design system's `sm`
   radius of 6 at the Roku canvas's 1.75× scale) and a 1px border carrying **pure opaque black**
   stretch markers, 2px wide, dead centre on the top and left edges. The marker rects are integer
-  aligned so they cannot antialias: a grey marker pixel silently disables stretching. These are the
-  only `.9.png` files we ship; a *half*-rounded segment needs no extra asset, because `RoundedBox`
-  oversizes the same image inside a clipping rect.
+  aligned so they cannot antialias: a grey marker pixel silently disables stretching. A *half*-rounded
+  segment needs no extra asset, because `RoundedBox` oversizes the same image inside a clipping rect.
+- `glyphs/focus-ring.9.svg` - the focus ring drawn around a filled control, as a nine-patch: a 3px
+  band whose inner edge is exactly the button's outline (radius 10) and whose outer radius is 13, so
+  it hugs the button with no gap at the corners. 30×30 with a 28×28 interior, markers as above.
 - `glyphs/chip-cap-{left,right}-line.svg` - the outline halves of a chip, a 3px stroked arc with no
   fill, sitting over the solid caps below. The straight top and bottom of the stroke are `Rectangle`
   nodes in the client, so only the curved ends need artwork.
@@ -191,8 +193,6 @@ brand SVG changes, then refresh.
 | `clients/flutter` | `vendor/hls.min.js`                                         | `web/hls.min.js`                                               |
 | `clients/flutter` | `fonts/Roboto-{Regular,Medium,Bold}.ttf`                    | `assets/fonts/`                                                |
 | `clients/flutter` | `fonts/Roboto-OFL.txt`                                      | `assets/licenses/Roboto-OFL.txt`                               |
-| `clients/roku`    | `fonts/Roboto-{Regular,Medium}.ttf`                         | `fonts/`                                                       |
-| `clients/roku`    | `fonts/Roboto-OFL.txt`                                      | `fonts/Roboto-OFL.txt`                                         |
 | `clients/roku`    | `icons/roku/channel-poster-{hd,fhd}.png`                    | `images/`                                                      |
 | `clients/roku`    | `icons/roku/splash-{sd,hd,fhd}.png`                         | `images/`                                                      |
 | `clients/roku`    | `icons/roku/brand-mark.png`                                 | `images/brand-mark.png`                                        |
@@ -206,6 +206,7 @@ brand SVG changes, then refresh.
 | `clients/roku`    | `icons/roku/chip-cap-{left,right}.png`                      | `images/`                                                      |
 | `clients/roku`    | `icons/roku/chip-cap-{left,right}-line.png`                 | `images/`                                                      |
 | `clients/roku`    | `icons/roku/button-{fill,line}.9.png`                       | `images/`                                                      |
+| `clients/roku`    | `icons/roku/focus-ring.9.png`                               | `images/focus-ring.9.png`                                      |
 | `clients/roku`    | `icons/roku/disc.png`                                       | `images/disc.png`                                              |
 
 Roku takes PNG only - there is no SVG support on the platform, so every Roku target is a render

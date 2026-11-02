@@ -32,7 +32,7 @@ end sub
 
 sub MeasureRequest()
     sizes = TypeScale()
-    inner = DialogWidth() - SpacingScale().s5 * 2
+    inner = DialogInnerWidth()
 
     body = TextOrBlank(ValueAt(m.top.request, "message", ""))
     m.textLines = 0
@@ -96,7 +96,7 @@ sub render()
     sizes = TypeScale()
     width = DialogWidth()
     pad = space.s5
-    inner = width - pad * 2
+    inner = DialogInnerWidth()
 
     m.scrim.width = CanvasWidth()
     m.scrim.height = CanvasHeight()
@@ -171,14 +171,13 @@ sub PlaceSpinner(theme as object, width as integer, left as integer, top as inte
     end if
 
     size = ChevronSize()
+    half = size / 2
     m.spinner.uri = GlyphUri("icon-replay")
     m.spinner.width = size
     m.spinner.height = size
-    m.spinner.scaleRotateCenter = [size / 2, size / 2]
-    m.spinner.scale = [-1, 1]
+    m.spinner.translation = [- half, - half]
     m.spinner.blendColor = theme.accentContrast
-    m.spinnerTurn.scaleRotateCenter = [size / 2, size / 2]
-    m.spinnerTurn.translation = [left + width - SpacingScale().s4 - size, top + Int((DialogRowHeight() - size) / 2)]
+    m.spinnerTurn.translation = [left + width - SpacingScale().s4 - size + half, top + Int((DialogRowHeight() - size) / 2) + half]
     m.spinnerTurn.visible = true
     if m.spin.state <> "running" then m.spin.control = "start"
 end sub
@@ -372,7 +371,9 @@ sub PaintRow(slot as object, row as object, theme as object, width as integer, r
 
     span = PlaceMeta(slot, row, paint, size, height, left, span)
 
-    slot.label.text = label
+    shown = label
+    if ValueAt(row, "middle", false) = true then shown = MiddleEllipsis(label, size, span)
+    slot.label.text = shown
     slot.label.font = SizedFont(size)
     if ValueAt(row, "heading", false) = true then slot.label.font = SizedBoldFont(size)
     slot.label.color = paint.label
@@ -391,7 +392,7 @@ sub PaintRow(slot as object, row as object, theme as object, width as integer, r
     slot.ticker.visible = ticking
     if not ticking then return
 
-    if slot.ticker.text <> slot.label.text then slot.ticker.text = slot.label.text
+    if slot.ticker.text <> label then slot.ticker.text = label
     slot.ticker.font = slot.label.font
     slot.ticker.color = paint.label
     slot.ticker.maxWidth = span

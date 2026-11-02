@@ -19,6 +19,7 @@ sanitize-filename.workspace = true
 url.workspace = true
 uuid = { workspace = true, features = ["v5"] }
 sha2.workspace = true
+hex.workspace = true
 jsonwebtoken.workspace = true
 serde = { workspace = true }
 serde_json.workspace = true

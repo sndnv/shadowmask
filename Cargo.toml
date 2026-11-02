@@ -62,6 +62,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 wiremock = "0.6"
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.11"
+hex = "0.4"
 subst = "0.3"
 toml = "1"
 proptest = "1"

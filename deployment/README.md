@@ -48,6 +48,7 @@ Keys in `shadowmask.toml` are not checked: a misspelled or renamed key there is 
 | `SHADOWMASK_SERVER_LOG_DIR`            | The server's own log, one file per hour          | `data/server-logs` (`/data/server-logs`)                 |
 | `SHADOWMASK_BOOTSTRAP_DIR`             | `libraries.toml`, `users.toml`                   | `bootstrap` (`/config/bootstrap`)                        |
 | `SHADOWMASK_BASIC_CLIENT_DIR`          | Basic client served at `/ui/basic/`              | `clients/basic` (`/usr/share/shadowmask/basic`)          |
+| `SHADOWMASK_FONTS_DIR`                 | Fonts the Roku downloads, listed in `fonts.json` | `fonts` (`/usr/share/shadowmask/fonts`)                  |
 | `SHADOWMASK_PROFILE_OVERRIDES_DIR`     | JSON playback profiles, one file per device type | unset                                                    |
 
 `SHADOWMASK_PLAYBACK_PREP_DIR` is not a cache. If its files are deleted, a title streams without its

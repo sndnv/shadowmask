@@ -1,6 +1,8 @@
 sub init()
     m.slots = m.top.FindNode("slots")
     m.built = []
+
+    m.top.ObserveField("focusedChild", "onFocusChanged")
 end sub
 
 sub render()
@@ -173,6 +175,7 @@ sub PlaceSlot(slot as object, spec as object, tallest as integer, offset as inte
     slot.ring.boxWidth = spec.width + inset * 2
     slot.ring.boxHeight = spec.height + inset * 2
     slot.ring.rounded = spec.rounded
+    slot.ring.focusRing = true
     slot.ring.fillColor = ""
     slot.ring.lineColor = spec.ring
     slot.ring.translation = [- inset, - inset]

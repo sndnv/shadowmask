@@ -18,6 +18,19 @@ namespace tests
             m.assertFalse(IsBlank(0))
         end sub
 
+        @describe("IsNumber")
+
+        @it("takes every number a JSON body parses to and nothing else")
+        sub numbersOnly()
+            parsed = ParseJson("{""small"": 3, ""large"": 16437364000, ""fraction"": 1.5}")
+            m.assertTrue(IsNumber(parsed.small))
+            m.assertTrue(IsNumber(parsed.large))
+            m.assertTrue(IsNumber(parsed.fraction))
+            m.assertFalse(IsNumber("3"))
+            m.assertFalse(IsNumber(invalid))
+            m.assertFalse(IsNumber(true))
+        end sub
+
         @describe("ValueAt")
 
         @it("walks a dotted path")

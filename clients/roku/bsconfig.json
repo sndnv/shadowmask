@@ -4,8 +4,7 @@
         "manifest",
         "source/**/*",
         "components/**/*",
-        "images/**/*",
-        "fonts/**/*"
+        "images/**/*"
     ],
     "plugins": [
         "@rokucommunity/bslint"

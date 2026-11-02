@@ -1066,6 +1066,7 @@ function MenuOptions(actions as dynamic) as object
             heading: ValueAt(action, "heading", false) = true,
             info: ValueAt(action, "info", false) = true,
             column: ValueAt(action, "column", false) = true,
+            middle: ValueAt(action, "middle", false) = true,
             meta: TextOrBlank(ValueAt(action, "meta", "")),
             metaIcon: TextOrBlank(ValueAt(action, "metaIcon", ""))
         })
@@ -1084,12 +1085,13 @@ function DialogRow(option as dynamic) as object
             heading: ValueAt(option, "heading", false) = true,
             info: ValueAt(option, "info", false) = true,
             column: ValueAt(option, "column", false) = true,
+            middle: ValueAt(option, "middle", false) = true,
             meta: TextOrBlank(ValueAt(option, "meta", "")),
             metaIcon: TextOrBlank(ValueAt(option, "metaIcon", ""))
         }
     end if
 
-    return { label: TextOrBlank(option), detail: "", icon: "", danger: false, cancel: false, heading: false, info: false, column: false, meta: "", metaIcon: "" }
+    return { label: TextOrBlank(option), detail: "", icon: "", danger: false, cancel: false, heading: false, info: false, column: false, middle: false, meta: "", metaIcon: "" }
 end function
 
 function DialogRowFocusable(row as dynamic) as boolean

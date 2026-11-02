@@ -6,7 +6,6 @@
         "!source/main.brs",
         "components/**/*",
         "images/**/*",
-        "fonts/**/*",
         "capabilities/**/*",
         {
             "src": "tests/**/*.spec.bs",

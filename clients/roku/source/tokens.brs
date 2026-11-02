@@ -116,7 +116,7 @@ function ThemedTokens(name as string, contrast as boolean) as object
 end function
 
 function TickerSpeed() as float
-    return 40.0
+    return 40.0 * DensityScale() / AuthoredScale()
 end function
 
 function TextureOpacity() as float
@@ -140,6 +140,14 @@ function BackdropFadeOutSeconds(immersive as boolean) as float
     return BackdropFadeSeconds()
 end function
 
+function FocusGrowPercent() as integer
+    return 10
+end function
+
+function FocusGrowSeconds() as float
+    return 0.2
+end function
+
 function LayoutSettleSeconds() as float
     return 0.1
 end function
@@ -160,16 +168,28 @@ function CanvasHeight() as integer
     return 1080
 end function
 
+function DensityScale() as float
+    return 1.25
+end function
+
+function AuthoredScale() as float
+    return 1.75
+end function
+
+function Px(value as float) as integer
+    return Int(value * DensityScale() / AuthoredScale() + 0.5)
+end function
+
 function TypeScale() as object
     if m.DoesExist("smTypeScale") then return m.smTypeScale
 
     m.smTypeScale = {
-        text2xl: 48,
-        textXl: 36,
-        textLg: 32,
-        textBase: 28,
-        textSm: 24,
-        textXs: 20
+        text2xl: Px(48),
+        textXl: Px(36),
+        textLg: Px(32),
+        textBase: Px(28),
+        textSm: Px(24),
+        textXs: Px(20)
     }
     return m.smTypeScale
 end function
@@ -178,28 +198,28 @@ function SpacingScale() as object
     if m.DoesExist("smSpacingScale") then return m.smSpacingScale
 
     m.smSpacingScale = {
-        s1: 7,
-        s2: 14,
-        s3: 21,
-        s4: 28,
-        s5: 42,
-        s6: 56,
-        s8: 84,
-        s10: 112
+        s1: Px(7),
+        s2: Px(14),
+        s3: Px(21),
+        s4: Px(28),
+        s5: Px(42),
+        s6: Px(56),
+        s8: Px(84),
+        s10: Px(112)
     }
     return m.smSpacingScale
 end function
 
 function FontUri() as string
-    return "pkg:/fonts/Roboto-Regular.ttf"
+    return FontPathIn(ActiveFonts(), "regular")
 end function
 
 function BoldFontUri() as string
-    return "pkg:/fonts/Roboto-Medium.ttf"
+    return FontPathIn(ActiveFonts(), "medium")
 end function
 
 function BorderThickness() as integer
-    return 3
+    return Px(3)
 end function
 
 function CornerRadius() as integer
@@ -207,23 +227,27 @@ function CornerRadius() as integer
 end function
 
 function ActionControlHeight() as integer
-    return 73
+    return Px(73)
 end function
 
 function ToggleControlHeight() as integer
-    return 70
+    return Px(70)
 end function
 
 function GlyphControlHeight() as integer
-    return 80
+    return Px(80)
 end function
 
 function GlyphIconSize() as integer
-    return 40
+    return Px(40)
 end function
 
 function DialogWidth() as integer
-    return Int(CanvasWidth() * 0.52)
+    return Px(CanvasWidth() * 0.52)
+end function
+
+function DialogInnerWidth() as integer
+    return DialogWidth() - SpacingScale().s5 * 2
 end function
 
 function DialogMaxHeight() as integer
@@ -231,11 +255,19 @@ function DialogMaxHeight() as integer
 end function
 
 function DialogRowHeight() as integer
-    return 76
+    return Px(76)
 end function
 
 function DialogMessageLines() as integer
     return 6
+end function
+
+function ScreenEdgeGap() as integer
+    return 98
+end function
+
+function ScreenEndGap() as integer
+    return 56
 end function
 
 function NavEdgeGap() as integer
@@ -244,7 +276,7 @@ end function
 
 function NavLeft(inset as boolean) as integer
     if not inset then return NavEdgeGap()
-    return SpacingScale().s10
+    return 112
 end function
 
 function NavTop(inset as boolean) as integer
@@ -303,11 +335,11 @@ function ScrimColor(theme as object) as string
 end function
 
 function PausedMarkSize() as integer
-    return 160
+    return Px(160)
 end function
 
 function PausedGlyphSize() as integer
-    return 88
+    return Px(88)
 end function
 
 function LinkControlHeight() as integer
@@ -324,15 +356,19 @@ function BorderColorFor(theme as object, focused as boolean) as string
 end function
 
 function FocusRingInset() as integer
-    return 4
+    return 3
+end function
+
+function FocusRingRadius() as integer
+    return CornerRadius() + FocusRingInset()
 end function
 
 function ScrollBarWidth() as integer
-    return 8
+    return Px(8)
 end function
 
 function ScrollThumbMinimum() as integer
-    return 56
+    return Px(56)
 end function
 
 function ProgressTrackColor() as string
@@ -340,7 +376,7 @@ function ProgressTrackColor() as string
 end function
 
 function ProgressBarHeight() as integer
-    return 8
+    return Px(8)
 end function
 
 function AccentTint(theme as object) as string
@@ -366,11 +402,18 @@ function MeasureLimit() as integer
 end function
 
 function FontFamilyNames() as object
-    return { regular: "Roboto", bold: "Roboto Medium" }
+    return FamilyNamesFor(ActiveFonts())
+end function
+
+function FamilyNamesFor(fonts as dynamic) as object
+    name = TextOrBlank(ValueAt(fonts, "name", ""))
+    if IsBlank(name) then return { regular: "", bold: "" }
+    return { regular: name, bold: name + " Medium" }
 end function
 
 sub LoadFontRegistry()
     if m.DoesExist("smFontFamilies") then return
+    WatchFonts()
 
     m.smFontFamilies = {}
     m.smFonts = {}
@@ -378,8 +421,9 @@ sub LoadFontRegistry()
     registry = CreateObject("roFontRegistry")
     if registry = invalid then return
 
-    registry.Register(FontUri())
-    registry.Register(BoldFontUri())
+    for each uri in [FontUri(), BoldFontUri()]
+        if not IsBlank(uri) then registry.Register(uri)
+    end for
 
     families = registry.GetFamilies()
     if families <> invalid
@@ -394,6 +438,7 @@ end sub
 
 function FontFamilyFor(bold as boolean) as string
     names = FontFamilyNames()
+    if IsBlank(names.regular) then return ""
 
     wanted = names.regular
     if bold then wanted = names.bold
@@ -412,7 +457,9 @@ function MeasuredFont(size as integer, bold as boolean) as dynamic
 
     font = invalid
     family = FontFamilyFor(bold)
-    if not IsBlank(family)
+    if IsBlank(FontUri())
+        font = m.smFontRegistry.GetDefaultFont(size, bold, false)
+    else if not IsBlank(family)
         synthetic = bold and family = FontFamilyNames().regular
         font = m.smFontRegistry.GetFont(family, size, synthetic, false)
     end if
@@ -433,7 +480,26 @@ function TextWidth(text as dynamic, size as integer, bold = false as boolean) as
         if measured > 0 then return Int(measured)
     end if
 
+    measured = LabelTextWidth(value, size, bold)
+    if measured > 0 then return measured
+
     return EstimatedTextWidth(value, size)
+end function
+
+function LabelTextWidth(value as string, size as integer, bold as boolean) as integer
+    if not m.DoesExist("smMeasureLabels") then m.smMeasureLabels = {}
+
+    key = size.ToStr() + ":" + bold.ToStr()
+    label = m.smMeasureLabels[key]
+    if label = invalid
+        label = CreateObject("roSGNode", "Label")
+        if label = invalid then return 0
+        if bold then label.font = SizedBoldFont(size) else label.font = SizedFont(size)
+        m.smMeasureLabels[key] = label
+    end if
+
+    label.text = value
+    return Int(label.boundingRect().width)
 end function
 
 function ToastLabelWidth(measured as integer, slack as integer) as integer
@@ -447,7 +513,7 @@ function SpaceWidth(size as integer) as integer
 end function
 
 function TextLineSpacing() as integer
-    return 8
+    return Px(8)
 end function
 
 function TextLinePitch(size as integer) as integer
@@ -466,29 +532,161 @@ function FontLineHeight(size as integer) as integer
         if height > 0 then return Int(height)
     end if
 
+    height = LabelLineHeight(size)
+    if height > 0 then return height
+
     return Int(size * 1.35)
 end function
 
+function LabelLineHeight(size as integer) as integer
+    if not m.DoesExist("smLineHeights") then m.smLineHeights = {}
+
+    key = size.ToStr()
+    if m.smLineHeights.DoesExist(key) then return m.smLineHeights[key]
+
+    label = CreateObject("roSGNode", "Label")
+    if label = invalid then return 0
+    label.font = SizedFont(size)
+    label.text = "Ag"
+    height = Int(label.boundingRect().height)
+
+    if height > 0 then m.smLineHeights[key] = height
+    return height
+end function
+
 function SizedFont(size as float) as object
-    return CachedFont(FontUri(), size)
+    return CachedFont("regular", size)
 end function
 
 function SizedBoldFont(size as float) as object
-    return CachedFont(BoldFontUri(), size)
+    return CachedFont("medium", size)
 end function
 
-function CachedFont(uri as string, size as float) as object
+function CachedFont(role as string, size as float) as object
     if not m.DoesExist("smFontNodes") then m.smFontNodes = {}
+    WatchFonts()
 
-    key = uri + ":" + Str(size).Trim()
+    key = role + ":" + Str(size).Trim()
     if m.smFontNodes.DoesExist(key) then return m.smFontNodes[key]
 
-    font = CreateObject("roSGNode", "Font")
-    font.uri = uri
-    font.size = size
-
+    font = FontNode(FontPathIn(ActiveFonts(), role), SystemFontName(role), size)
     m.smFontNodes[key] = font
     return font
+end function
+
+function FontNode(uri as string, systemName as string, size as float) as object
+    if IsBlank(uri)
+        holder = CreateObject("roSGNode", "Label")
+        holder.font = systemName
+        font = holder.font
+    else
+        font = CreateObject("roSGNode", "Font")
+        font.uri = uri
+    end if
+
+    font.size = size
+    return font
+end function
+
+function SystemFontName(role as string) as string
+    if role = "medium" then return "font:MediumBoldSystemFont"
+    return "font:MediumSystemFont"
+end function
+
+function ActiveFonts() as object
+    shared = m.global
+    if shared = invalid or not shared.HasField("fonts") then return {}
+    if type(shared.fonts) <> "roAssociativeArray" then return {}
+    return shared.fonts
+end function
+
+function FontPathIn(fonts as dynamic, role as string) as string
+    return TextOrBlank(ValueAt(fonts, role, ""))
+end function
+
+sub WatchFonts()
+    if m.DoesExist("smFontsWatched") then return
+    m.smFontsWatched = true
+
+    shared = m.global
+    if shared <> invalid and shared.HasField("fonts") then shared.ObserveField("fonts", "onFontsChanged")
+end sub
+
+sub onFontsChanged()
+    if m.DoesExist("smFontNodes")
+        fonts = ActiveFonts()
+        for each key in m.smFontNodes.Keys()
+            uri = CachedFontUri(key, fonts)
+            if IsBlank(uri) then m.smFontNodes.Delete(key) else m.smFontNodes[key].uri = uri
+        end for
+    end if
+
+    ForgetTextMeasures()
+end sub
+
+function CachedFontUri(key as string, fonts as dynamic) as string
+    return FontPathIn(fonts, Left(key, Instr(1, key, ":") - 1))
+end function
+
+sub ForgetTextMeasures()
+    for each key in ["smFontFamilies", "smFonts", "smFontRegistry", "smMeasureLabels", "smLineHeights", "smMiddleEllipsis", "smWordMeasure", "smLineCount"]
+        m.Delete(key)
+    end for
+end sub
+
+function FontsDirectory() as string
+    return "cachefs:/fonts"
+end function
+
+function FontRoles() as object
+    return ["regular", "medium", "license"]
+end function
+
+function FontTimeoutSeconds() as integer
+    return 300
+end function
+
+function FontJob(plan as object) as object
+    return { directory: FontsDirectory(), files: plan.files, certificates: CertificatesFile(), timeout: FontTimeoutSeconds() }
+end function
+
+function FontCachePath(file as dynamic) as string
+    hash = LCase(TextOrBlank(ValueAt(file, "sha256", "")))
+    if not CreateObject("roRegex", "^[0-9a-f]{64}$", "").IsMatch(hash) then return ""
+
+    url = TextOrBlank(ValueAt(file, "url", ""))
+    extension = CreateObject("roRegex", "(\.[A-Za-z0-9]{1,5})$", "").Match(url)
+    suffix = ""
+    if extension.Count() > 1 then suffix = LCase(extension[1])
+
+    return FontsDirectory() + "/" + hash + suffix
+end function
+
+function FontDownloads(fonts as dynamic, base as string) as dynamic
+    if type(fonts) <> "roAssociativeArray" then return invalid
+
+    name = TextOrBlank(ValueAt(fonts, "name", ""))
+    if IsBlank(name) then return invalid
+
+    files = []
+    for each role in FontRoles()
+        file = ValueAt(fonts, role, invalid)
+        path = FontCachePath(file)
+        url = TextOrBlank(ValueAt(file, "url", ""))
+        size = ValueAt(file, "size", invalid)
+        if IsBlank(path) or Left(url, 1) <> "/" or not IsNumber(size) then return invalid
+        files.Push({ role: role, url: JoinUrl(base, url), path: path, size: size })
+    end for
+
+    return { name: name, files: files }
+end function
+
+function ActiveFontsFrom(plan as object) as object
+    fonts = { name: plan.name }
+    for each file in plan.files
+        fonts[file.role] = file.path
+    end for
+    return fonts
 end function
 
 function DeviceResolutionName() as string

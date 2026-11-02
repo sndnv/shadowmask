@@ -1,9 +1,12 @@
 function CardImageWidthFor(cardWidth as dynamic) as integer
-    if cardWidth = invalid then return RailCardWidth()
+    width = RailCardWidth()
+    if cardWidth <> invalid and Int(cardWidth) > 0 then width = Int(cardWidth)
 
-    width = Int(cardWidth)
-    if width <= 0 then return RailCardWidth()
-    return width
+    return Int((width - BorderThickness() * 2) * ArtSizeTolerance())
+end function
+
+function ArtSizeTolerance() as float
+    return 0.95
 end function
 
 function BackdropImageWidth() as integer
@@ -23,7 +26,7 @@ function PersonPlaceholder() as string
 end function
 
 function PlaceholderGlyphSize() as integer
-    return 96
+    return Px(96)
 end function
 
 function GlyphUri(name as string) as string
@@ -36,7 +39,7 @@ function ChevronUri(direction as string) as string
 end function
 
 function ChevronSize() as integer
-    return 44
+    return Px(44)
 end function
 
 function RoundedFillUri() as string
@@ -45,6 +48,10 @@ end function
 
 function RoundedLineUri() as string
     return "pkg:/images/button-line.9.png"
+end function
+
+function FocusRingUri() as string
+    return "pkg:/images/focus-ring.9.png"
 end function
 
 function ChipCapUri(side as string) as string
@@ -60,15 +67,15 @@ function ControlIconUri(name as string) as string
 end function
 
 function ControlIconSize() as integer
-    return 40
+    return Px(40)
 end function
 
 function InlineIconSize() as integer
-    return 30
+    return Px(30)
 end function
 
 function LinkIconSize() as integer
-    return 28
+    return Px(28)
 end function
 
 function PlaceholderFor(kind as string, aspect as string) as string

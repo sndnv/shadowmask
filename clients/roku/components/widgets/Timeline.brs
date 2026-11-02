@@ -4,11 +4,13 @@ sub init()
     m.preview = m.top.FindNode("preview")
     m.thumb = m.top.FindNode("thumb")
     m.scrub = m.top.FindNode("scrub")
+
+    m.top.ObserveField("focusedChild", "onTimelineFocusChanged")
 end sub
 
 function TimelineThumbSize(focused as boolean) as integer
-    if focused then return 28
-    return 16
+    if focused then return Px(28)
+    return Px(16)
 end function
 
 sub render()

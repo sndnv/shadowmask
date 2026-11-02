@@ -6,6 +6,7 @@ pub mod cli;
 pub mod config;
 pub mod enrichment;
 pub mod fetch_providers;
+pub mod fonts;
 mod job_log_layer;
 pub mod lockfile;
 #[cfg(any(feature = "enrichment", test))]

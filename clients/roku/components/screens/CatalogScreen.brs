@@ -22,6 +22,7 @@ sub init()
     m.started = false
 
     ShowMore("", "loading")
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 sub ShowMore(message as string, kind as string)
@@ -433,6 +434,10 @@ end sub
 
 sub ReloadCardStates()
     LoadStates(m.cards, 0)
+end sub
+
+sub onRevealed()
+    if m.cards.Count() > 0 then ReloadCardStates()
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean

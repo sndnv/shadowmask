@@ -26,30 +26,45 @@
         <field id="itemContent" type="node" onChange="showContent" />
         <field id="width" type="float" value="240" onChange="render" />
         <field id="height" type="float" value="440" />
-        <field id="thickness" type="float" value="3" onChange="render" />
         <field id="aspect" type="string" value="poster" />
         <field id="focusPercent" type="float" value="0" onChange="onFocusChanged" />
         <field id="rowListHasFocus" type="boolean" value="true" onChange="onFocusChanged" />
+        <field id="gridHasFocus" type="boolean" value="true" onChange="onFocusChanged" />
     </interface>
 
     <children>
-        <Rectangle id="plate" />
-        <Rectangle id="art" />
-        <Poster id="poster" />
-        <Poster id="glyph" visible="false" />
-        <Rectangle id="progressTrack" visible="false" />
-        <Rectangle id="progressFill" visible="false" />
-        <Poster id="watchedRing" visible="false" />
-        <Poster id="watchedDisc" visible="false" />
-        <Poster id="dismiss" visible="false" />
-        <RoundedBox id="badgePlate" visible="false" />
-        <Label id="badge" visible="false" />
-        <FocusRing id="ring" />
-        <Label id="title" />
-        <ScrollingLabel id="titleTicker" visible="false" />
-        <Label id="subtitle" />
-        <ScrollingLabel id="subtitleTicker" visible="false" />
-        <Label id="caption" />
-        <ScrollingLabel id="captionTicker" visible="false" />
+        <Group id="slot">
+            <Group id="pivot">
+                <Group id="frame">
+                    <Rectangle id="plate" />
+                    <Rectangle id="art" />
+                    <Poster id="poster" />
+                    <Poster id="glyph" visible="false" />
+                    <Rectangle id="progressTrack" visible="false" />
+                    <Rectangle id="progressFill" visible="false" />
+                    <Poster id="watchedRing" visible="false" />
+                    <Poster id="watchedDisc" visible="false" />
+                    <Poster id="dismiss" visible="false" />
+                    <FocusRing id="ring" />
+                </Group>
+            </Group>
+            <Group id="badgeLayer">
+                <RoundedBox id="badgePlate" visible="false" />
+                <Label id="badge" visible="false" />
+            </Group>
+            <Group id="captionLayer">
+                <Label id="title" />
+                <ScrollingLabel id="titleTicker" visible="false" />
+                <Label id="subtitle" />
+                <ScrollingLabel id="subtitleTicker" visible="false" />
+                <Label id="caption" />
+                <ScrollingLabel id="captionTicker" visible="false" />
+            </Group>
+        </Group>
+        <Animation id="grow" easeFunction="outCubic">
+            <Vector2DFieldInterpolator id="growScale" key="[0.0, 1.0]" fieldToInterp="pivot.scale" />
+            <Vector2DFieldInterpolator id="growBadge" key="[0.0, 1.0]" fieldToInterp="badgeLayer.translation" />
+            <Vector2DFieldInterpolator id="growCaption" key="[0.0, 1.0]" fieldToInterp="captionLayer.translation" />
+        </Animation>
     </children>
 </component>

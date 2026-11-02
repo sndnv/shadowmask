@@ -490,8 +490,6 @@ end function
 
 function ProbeVideo(device as object) as object
     answers = []
-    if device.CanDecodeVideo = invalid then return answers
-
     for each spec in VideoProbeSpecs()
         answers.Push({ codec: spec.codec, level: spec.level, bitDepth: spec.bitDepth, ok: AnyNameDecodes(device, spec) })
     end for
@@ -507,8 +505,6 @@ end function
 
 function ProbeAudio(device as object) as object
     answers = []
-    if device.CanDecodeAudio = invalid then return answers
-
     for each codec in AudioProbeSpecs()
         answers.Push({ codec: codec, ok: ProbeAnswered(device.CanDecodeAudio({ Codec: codec })) })
     end for
@@ -516,25 +512,20 @@ function ProbeAudio(device as object) as object
 end function
 
 function ProbeDisplay(device as object) as dynamic
-    if device.GetDisplayProperties = invalid then return invalid
-
     properties = device.GetDisplayProperties()
     if type(properties) <> "roAssociativeArray" then return invalid
     return properties
 end function
 
 function ProbeVideoMode(device as object) as string
-    if device.GetVideoMode = invalid then return ""
     return TextOrBlank(device.GetVideoMode())
 end function
 
 function ProbeDisplaySize(device as object) as dynamic
-    if device.GetDisplaySize = invalid then return invalid
     return device.GetDisplaySize()
 end function
 
 function ProbeAudioChannels(device as object) as integer
-    if device.GetAudioOutputChannel = invalid then return 0
     return OutputChannels(device.GetAudioOutputChannel())
 end function
 

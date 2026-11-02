@@ -326,19 +326,6 @@ namespace tests
             m.assertEqual(HoldTickStepMs(12), 7500)
         end sub
 
-        @describe("HoldTickMultiplied")
-
-        ' The screen stops seeking the video and moves only the ghost pointer
-        ' once this turns true, so the boundary is the moment the picture stops
-        ' chasing the key and the jump waits for the release.
-        @it("turns on with the first multiplier rung, not before")
-        sub holdTickMultipliedGate()
-            m.assertFalse(HoldTickMultiplied(0))
-            m.assertFalse(HoldTickMultiplied(11))
-            m.assertTrue(HoldTickMultiplied(12))
-            m.assertTrue(HoldTickMultiplied(600))
-        end sub
-
         @describe("PlayerButtons")
 
         @it("centres the transport between two clusters of the same width")
@@ -660,16 +647,19 @@ namespace tests
 
         @it("reports what the session became and how it is running")
         sub reportsSessionDiagnostics()
-            info = VideoInfo({ measuredBitrate: 4500, isUnderrun: true }, { percentage: 80 }, 1.25, "playing")
+            info = VideoInfo({ measuredBitrate: 250000000, streamBitrate: 15600000, isUnderrun: true }, { percentage: 80 }, 1.25, "playing")
             rows = PlayerDiagnostics({ mode: "transcode", container: "mpegts" }, info)
 
             m.assertEqual(rows[0].values[0], "transcode")
             m.assertEqual(rows[1].values[0], "mpegts")
             m.assertEqual(rows[2].values[0], "playing")
-            m.assertEqual(rows[4].values[0], "4.5 Mbps")
-            m.assertEqual(rows[5].values[0], "80%")
-            m.assertEqual(rows[6].values[0], Phrase("state.yes"))
-            m.assertEqual(rows[7].values[0], "1.3 s")
+            m.assertEqual(rows[4].label, Phrase("diagnostics.bitrate"))
+            m.assertEqual(rows[4].values[0], "15.6 Mbps")
+            m.assertEqual(rows[5].label, Phrase("diagnostics.bandwidth"))
+            m.assertEqual(rows[5].values[0], "250.0 Mbps")
+            m.assertEqual(rows[6].values[0], "80%")
+            m.assertEqual(rows[7].values[0], Phrase("state.yes"))
+            m.assertEqual(rows[8].values[0], "1.3 s")
         end sub
 
         @it("names the timeline origin only when the manifest actually starts there")
@@ -690,8 +680,9 @@ namespace tests
             m.assertEqual(rows[0].values[0], Phrase("status.unavailable"))
             m.assertEqual(rows[2].values[0], Phrase("status.unavailable"))
             m.assertEqual(rows[4].values[0], Phrase("status.unavailable"))
-            m.assertEqual(rows[7].values[0], Phrase("status.unavailable"))
-            m.assertEqual(rows.Count(), 8)
+            m.assertEqual(rows[5].values[0], Phrase("status.unavailable"))
+            m.assertEqual(rows[8].values[0], Phrase("status.unavailable"))
+            m.assertEqual(rows.Count(), 9)
         end sub
 
         @it("shows the newest log line, cut short, as the last event")
@@ -699,9 +690,9 @@ namespace tests
             line = "09:49:52 finished at 231.4/596.0 s, buffer 100%, and then some more text"
             rows = PlayerDiagnostics({ mode: "transcode" }, VideoInfo(invalid, invalid, 0), line)
 
-            m.assertEqual(rows.Count(), 9)
-            m.assertEqual(rows[8].label, Phrase("diagnostics.lastEvent"))
-            m.assertEqual(rows[8].values[0], Left(line, LastEventLength()) + "…")
+            m.assertEqual(rows.Count(), 10)
+            m.assertEqual(rows[9].label, Phrase("diagnostics.lastEvent"))
+            m.assertEqual(rows[9].values[0], Left(line, LastEventLength()) + "…")
         end sub
 
         @describe("the playback log")
@@ -805,13 +796,42 @@ namespace tests
             m.assertEqual(PlaybackSegmentFailedLine("09:49:52", { Status: -3, SegSequence: 12 }), "09:49:52 segment 12 failed [-3]")
         end sub
 
-        @describe("FormatKbps")
+        @describe("FormatBps")
 
-        @it("reads as kbps below a megabit and Mbps above it")
+        @it("reads bits per second as kbps below a megabit and Mbps above it")
         sub formatsBitrate()
-            m.assertEqual(FormatKbps(850), "850 kbps")
-            m.assertEqual(FormatKbps(8000), "8.0 Mbps")
-            m.assertEqual(FormatKbps(0), "")
+            m.assertEqual(FormatBps(850000), "850 kbps")
+            m.assertEqual(FormatBps(8000000), "8.0 Mbps")
+            m.assertEqual(FormatBps(250000000), "250.0 Mbps")
+            m.assertEqual(FormatBps(0), "")
+        end sub
+
+        @describe("MenuAfterBack")
+
+        @it("closes Quality, which only the player bar opens")
+        sub closesQuality()
+            m.assertEqual(MenuAfterBack("quality", "subsMenu"), "")
+            m.assertEqual(MenuAfterBack("quality", "settings"), "")
+        end sub
+
+        @it("takes a choice back to the menu it was picked from")
+        sub returnsToItsMenu()
+            m.assertEqual(MenuAfterBack("audio", "audioMenu"), "audioMenu")
+            m.assertEqual(MenuAfterBack("subtitle", "subsMenu"), "subsMenu")
+            m.assertEqual(MenuAfterBack("delivery", "settings"), "settings")
+            m.assertEqual(MenuAfterBack(WorkChoiceFields()[0], "workMenu"), "workMenu")
+        end sub
+
+        @it("takes the work menu back to the subtitles menu")
+        sub workMenuReturnsToSubtitles()
+            m.assertEqual(MenuAfterBack("workMenu", "workMenu"), "subsMenu")
+        end sub
+
+        @it("closes a menu itself, and a choice from no known menu")
+        sub closesMenus()
+            m.assertEqual(MenuAfterBack("settings", "settings"), "")
+            m.assertEqual(MenuAfterBack("subsMenu", "subsMenu"), "")
+            m.assertEqual(MenuAfterBack("audio", ""), "")
         end sub
 
         @describe("AbrBounds")

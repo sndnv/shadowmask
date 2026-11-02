@@ -76,5 +76,6 @@ rsvg-convert -w 84 -h 84 "$glyphs/ring.svg"                -o "$roku/ring.png"
 
 rsvg-convert -w 24 -h 24 "$glyphs/button-fill.9.svg" -o "$roku/button-fill.9.png"
 rsvg-convert -w 24 -h 24 "$glyphs/button-line.9.svg" -o "$roku/button-line.9.png"
+rsvg-convert -w 30 -h 30 "$glyphs/focus-ring.9.svg"  -o "$roku/focus-ring.9.png"
 
 echo "Rendered brand icons into $out and $roku. Run refresh_assets.py to distribute."

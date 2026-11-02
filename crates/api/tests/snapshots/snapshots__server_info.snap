@@ -12,6 +12,7 @@ expression: value
       "link_codes",
       "api_tokens"
     ],
+    "fonts": null,
     "profile_version": 1,
     "rating_systems": [
       {

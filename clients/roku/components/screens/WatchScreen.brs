@@ -48,7 +48,7 @@ sub init()
     m.holdKey = ""
     m.holdTicks = 0
     m.holdTargetMs = -1
-    m.holdDeferred = false
+    m.holdPaused = false
     m.choiceOptions = []
     m.settingRows = []
     m.remaining = 0
@@ -96,6 +96,7 @@ sub init()
 
     RunnerInit()
     RunnerOpen("", StartingControls())
+    m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
 sub render()
@@ -135,8 +136,8 @@ sub DrawBar(theme as object)
     space = SpacingScale()
     left = ContentLeft()
     width = ContentWidth()
-    times = 200
-    row = 28
+    times = Px(200)
+    row = Px(28)
 
     DrawHeader(theme)
 
@@ -192,7 +193,7 @@ end sub
 sub DrawHeader(theme as object)
     sizes = TypeScale()
     space = SpacingScale()
-    clockWidth = 220
+    clockWidth = Px(220)
 
     m.barTitle.text = TextOrBlank(ValueAt(m.top.target, "title", ""))
     m.barTitle.color = theme.text
@@ -426,13 +427,14 @@ sub onAction(event as object)
     RestartHide()
 end sub
 
-sub AskChoice(field as string, title as string, options as object, selected as integer, kind = "choice" as string, keep = false as boolean, busy = "" as string)
+sub AskChoice(field as string, title as string, options as object, selected as integer, kind = "choice" as string, keep = false as boolean, busy = "" as string, message = "" as string)
     m.hide.control = "stop"
     m.choiceOptions = options
     m.openChoice = field
     m.top.choiceRequest = {
         field: field,
         title: title,
+        message: message,
         kind: kind,
         options: MenuOptions(options),
         selected: selected,
@@ -592,21 +594,7 @@ sub onChoice()
 end sub
 
 function ReopenedSettingMenu(field as string) as boolean
-    if field = "workMenu"
-        OpenSubtitleMenu()
-        return true
-    end if
-
-    leaves = ["quality", "audio", "subtitle", "delivery", "dialogue", "night", "offset", "subtitleSize", "autoplay"]
-    leaves.Append(WorkChoiceFields())
-
-    isLeaf = false
-    for each name in leaves
-        if name = field then isLeaf = true
-    end for
-    if not isLeaf then return false
-
-    menu = TextOrBlank(m.settingMenu)
+    menu = MenuAfterBack(field, TextOrBlank(m.settingMenu))
     if menu = "subsMenu"
         OpenSubtitleMenu()
         return true
@@ -816,7 +804,7 @@ sub onSubtitlesFound(event as object)
         return
     end if
 
-    AskChoice("findPick", Phrase("work.pickResult"), options, FirstPickable(options), "menu", false, Phrase("work.downloading"))
+    AskChoice("findPick", Phrase("work.pickResult"), options, FirstPickable(options), "menu", false, Phrase("work.downloading"), VersionFileLine(m.version))
 end sub
 
 sub DownloadSubtitle(candidate as dynamic)
@@ -1740,9 +1728,9 @@ sub StartHold(key as string)
     m.holdKey = key
     m.holdTicks = 0
     m.holdTargetMs = -1
-    m.holdDeferred = false
+    m.holdPaused = false
 
-    JumpBy(HoldStepMs(0), false)
+    MoveGhost(HoldStepMs(0))
 
     m.hold.control = "stop"
     m.hold.duration = HoldTickMs() / 1000.0
@@ -1752,32 +1740,53 @@ end sub
 sub onHoldFired()
     if IsBlank(m.holdKey) then return
 
-    JumpBy(HoldTickStepMs(m.holdTicks), HoldTickMultiplied(m.holdTicks))
+    if m.holdTicks = 0 then PauseForHold()
+    MoveGhost(HoldTickStepMs(m.holdTicks))
     m.holdTicks = m.holdTicks + 1
+end sub
+
+sub PauseForHold()
+    if not IsWatching(m.playback) or not m.playback.timeline.playing then return
+
+    m.holdPaused = true
+    PostPlayback({ kind: "plays", playing: false })
 end sub
 
 function EndHold() as boolean
     if IsBlank(m.holdKey) then return false
 
     at = m.holdTargetMs
-    deferred = m.holdDeferred
+    resume = m.holdPaused
     ClearHold()
 
-    if deferred and at >= 0 then SeekTo(at)
+    if at >= 0 and resume
+        SeekResumes(at)
+    else if at >= 0
+        SeekTo(at)
+    else if resume
+        PostPlayback({ kind: "plays", playing: true })
+    end if
     RestartHide()
     return true
 end function
+
+sub SeekResumes(atMs as integer)
+    if not IsWatching(m.playback) then return
+
+    MarkBarCommitted()
+    PostPlayback({ kind: "seekResumes", positionMs: atMs })
+end sub
 
 sub ClearHold()
     m.holdKey = ""
     m.holdTicks = 0
     m.holdTargetMs = -1
-    m.holdDeferred = false
+    m.holdPaused = false
     m.hold.control = "stop"
     m.timeline.scrubMs = -1
 end sub
 
-sub JumpBy(stepMs as integer, ghostOnly as boolean)
+sub MoveGhost(stepMs as integer)
     if not IsWatching(m.playback) then return
 
     delta = stepMs
@@ -1794,14 +1803,6 @@ sub JumpBy(stepMs as integer, ghostOnly as boolean)
 
     m.timeline.scrubMs = at
     RefreshProgress()
-
-    if ghostOnly or not SeeksLocally(m.playback, at)
-        m.holdDeferred = true
-        return
-    end if
-
-    m.holdDeferred = false
-    PostPlayback({ kind: "seek", positionMs: at })
 end sub
 
 sub TogglePlay()

@@ -41,7 +41,6 @@
         <field id="jumpTo" type="integer" value="-1" alwaysNotify="true" onChange="jumpToCard" />
         <field id="focusedCard" type="assocarray" alwaysNotify="true" />
         <field id="selected" type="assocarray" alwaysNotify="true" />
-        <field id="focusedChild" type="node" onChange="onFocus" />
     </interface>
 
     <children>

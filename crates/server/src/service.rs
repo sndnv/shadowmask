@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::Router;
+use axum::{Extension, Router};
 use axum_server::Handle;
 use axum_server::tls_rustls::RustlsConfig;
 use domain::diagnostics::ServerDiagnostics;
@@ -484,9 +484,11 @@ impl Runtime {
             config.webhook_clients.clone(),
             capabilities,
             request_timeout,
-        );
+        )
+        .layer(Extension(::api::ServerFonts(crate::fonts::load(&config.fonts_dir))));
         let mut merged = observability_router(metrics, repos.clone())
             .merge(::api::basic_ui_router(&config.basic_client_dir))
+            .merge(::api::fonts_router(&config.fonts_dir))
             .merge(::api::subtitle_router(
                 state.clone(),
                 ::api::SubtitleState::new(

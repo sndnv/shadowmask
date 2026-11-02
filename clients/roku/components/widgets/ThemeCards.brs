@@ -1,18 +1,24 @@
 sub init()
     m.slots = m.top.FindNode("slots")
     m.built = []
+
+    m.top.ObserveField("focusedChild", "render")
 end sub
 
 function CardPadding() as integer
-    return SpacingScale().s3
+    return SpacingScale().s2
 end function
 
 function SwatchSize() as integer
-    return Int(TypeScale().textSm * 0.8)
+    return Px(35)
+end function
+
+function TickSize() as integer
+    return Px(32)
 end function
 
 function PreviewHeight() as integer
-    return SwatchSize() + CardPadding() * 2
+    return Px(77)
 end function
 
 sub render()
@@ -27,7 +33,7 @@ sub render()
 
     gap = space.s3
     width = Int((m.top.rowWidth - gap * (names.Count() - 1)) / names.Count())
-    height = PreviewHeight() + CardPadding() * 2 + TextLinePitch(sizes.textSm)
+    height = PreviewHeight() + CardPadding() * 3 + TextLinePitch(sizes.textSm)
 
     for index = 0 to names.Count() - 1
         PaintCard(m.built[index], names[index], theme, index, width, height, index * (width + gap))
@@ -74,13 +80,24 @@ sub PaintCard(parts as object, name as string, theme as object, index as integer
 
     swatches = [preview.surface, preview.accent, preview.text]
     size = SwatchSize()
+    edge = BorderThickness()
+    gap = SpacingScale().s2
+    top = CardPadding() + Int((PreviewHeight() - size) / 2)
     for at2 = 0 to swatches.Count() - 1
+        left = CardPadding() + gap + at2 * (size + gap)
         swatch = parts.swatches[at2]
-        swatch.boxWidth = size
-        swatch.boxHeight = size
-        swatch.fillColor = swatches[at2]
-        swatch.lineColor = preview.border
-        swatch.translation = [CardPadding() * 2 + at2 * (size + CardPadding()), CardPadding() * 2]
+
+        swatch.ring.uri = GlyphUri("disc")
+        swatch.ring.width = size
+        swatch.ring.height = size
+        swatch.ring.blendColor = preview.border
+        swatch.ring.translation = [left, top]
+
+        swatch.disc.uri = GlyphUri("disc")
+        swatch.disc.width = size - edge * 2
+        swatch.disc.height = size - edge * 2
+        swatch.disc.blendColor = swatches[at2]
+        swatch.disc.translation = [left + edge, top + edge]
     end for
 
     parts.label.text = ThemeLabel(name)
@@ -90,12 +107,13 @@ sub PaintCard(parts as object, name as string, theme as object, index as integer
     parts.label.maxLines = 1
     parts.label.translation = [CardPadding(), CardPadding() * 2 + PreviewHeight()]
 
+    tick = TickSize()
     parts.tick.uri = GlyphUri("icon-check")
     parts.tick.blendColor = theme.accent
-    parts.tick.width = size
-    parts.tick.height = size
+    parts.tick.width = tick
+    parts.tick.height = tick
     parts.tick.visible = chosen
-    parts.tick.translation = [width - CardPadding() - size, CardPadding() * 2 + PreviewHeight()]
+    parts.tick.translation = [width - CardPadding() - tick, CardPadding() * 2 + PreviewHeight()]
 end sub
 
 sub Rebuild(count as integer)
@@ -118,7 +136,7 @@ sub Rebuild(count as integer)
             tick: group.CreateChild("Poster")
         }
         for swatch = 0 to 2
-            parts.swatches.Push(group.CreateChild("RoundedBox"))
+            parts.swatches.Push({ ring: group.CreateChild("Poster"), disc: group.CreateChild("Poster") })
         end for
         m.built.Push(parts)
     end for

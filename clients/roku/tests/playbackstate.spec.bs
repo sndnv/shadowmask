@@ -592,6 +592,44 @@ namespace tests
             m.assertEqual(m.kinds(m.stepped(paused.state, { kind: "toggle" }).commands), "playPlayer,sendProgress")
         end sub
 
+        @it("pauses and plays when asked, and does nothing when it already is")
+        sub playsWhenAsked()
+            paused = m.stepped(m.watching(), { kind: "plays", playing: false })
+            m.assertEqual(m.kinds(paused.commands), "pausePlayer,sendProgress")
+            m.assertFalse(paused.state.timeline.playing)
+
+            m.assertEqual(m.kinds(m.stepped(paused.state, { kind: "plays", playing: false }).commands), "")
+            m.assertEqual(m.kinds(m.stepped(paused.state, { kind: "plays", playing: true }).commands), "playPlayer,sendProgress")
+            m.assertEqual(m.kinds(m.stepped(m.changed(m.watching()).state, { kind: "plays", playing: false }).commands), "")
+        end sub
+
+        @it("resumes after a seek within reach, seeking first")
+        sub seekResumesWithinReach()
+            within = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
+            paused = m.stepped(within, { kind: "plays", playing: false }).state
+            taken = m.stepped(paused, { kind: "seekResumes", positionMs: 130000 })
+
+            m.assertEqual(m.kinds(taken.commands), "seekPlayer,playPlayer,sendProgress")
+            m.assertEqual(taken.commands[0].offsetMs, 70000)
+            m.assertTrue(taken.state.timeline.playing)
+        end sub
+
+        @it("resumes after a seek past reach once the new stream loads")
+        sub seekResumesPastReach()
+            within = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
+            paused = m.stepped(within, { kind: "plays", playing: false }).state
+            taken = m.stepped(paused, { kind: "seekResumes", positionMs: 130001 })
+
+            m.assertEqual(m.kinds(taken.commands), "stopPlayer,sendSeek")
+            m.assertTrue(taken.state.timeline.playing)
+        end sub
+
+        @it("only seeks when it is already playing")
+        sub seekResumesWhilePlaying()
+            within = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
+            m.assertEqual(m.kinds(m.stepped(within, { kind: "seekResumes", positionMs: 130000 }).commands), "seekPlayer")
+        end sub
+
         @it("replays from the start at the end, reloading the stream")
         sub toggleReplays()
             ended = m.stepped(m.flat(), m.reading(600000, false, 0, true)).state
@@ -1120,19 +1158,6 @@ namespace tests
             left = m.stepped(updated, { kind: "leave" })
             m.assertFalse(PlaybackReadsNow(updated, left.state, left.commands))
             m.assertFalse(PlaybackReadsNow(paused, paused, []))
-        end sub
-
-        @describe("SeeksLocally")
-
-        @it("holds only targets the stream reaches on a placed node")
-        sub seeksLocally()
-            s = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
-
-            m.assertTrue(SeeksLocally(s, 130000))
-            m.assertFalse(SeeksLocally(s, 130001))
-            m.assertFalse(SeeksLocally(s, 59999))
-            m.assertFalse(SeeksLocally(m.changed(s).state, 100000))
-            m.assertFalse(SeeksLocally(m.justLoaded(), 100000))
         end sub
 
     end class

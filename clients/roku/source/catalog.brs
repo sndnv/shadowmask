@@ -69,7 +69,7 @@ end function
 function EscapeValue(value as dynamic) as string
     text = AsText(value)
     if Len(text) = 0 then return ""
-    return CreateObject("roUrlTransfer").Escape(text)
+    return text.EncodeUriComponent()
 end function
 
 function QueryString(pairs as object) as string

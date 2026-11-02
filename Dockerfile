@@ -37,6 +37,19 @@ RUN apt-get update \
 RUN useradd --system --create-home --home-dir /home/shadowmask --uid 1001 --gid 0 shadowmask \
     && mkdir -p /data /config \
     && chown -R 1001:0 /data /config
+ARG NOTO_CJK_COMMIT=f8d157532fbfaeda587e826d4cd5b21a49186f7c
+RUN mkdir -p /usr/share/shadowmask/fonts \
+    && cd /usr/share/shadowmask/fonts \
+    && base="https://raw.githubusercontent.com/notofonts/noto-cjk/${NOTO_CJK_COMMIT}/Sans" \
+    && curl -fsSL -o NotoSansCJKsc-Regular.otf "$base/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf" \
+    && curl -fsSL -o NotoSansCJKsc-Medium.otf "$base/OTF/SimplifiedChinese/NotoSansCJKsc-Medium.otf" \
+    && curl -fsSL -o LICENSE "$base/LICENSE" \
+    && printf '%s\n' \
+        "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b  NotoSansCJKsc-Regular.otf" \
+        "ca094f6b0001fb048ca39ddd797a0cdb0179e1e55c6561e111c49c3e6a61d7b7  NotoSansCJKsc-Medium.otf" \
+        "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2  LICENSE" \
+        | sha256sum -c -
+COPY deployment/fonts/fonts.json /usr/share/shadowmask/fonts/fonts.json
 COPY --from=builder /usr/local/bin/shadowmask /usr/local/bin/shadowmask
 COPY clients/basic /usr/share/shadowmask/basic
 COPY LICENSE /usr/share/doc/shadowmask/LICENSE
@@ -57,7 +70,8 @@ ENV SHADOWMASK_DB_ROOT=/data \
     SHADOWMASK_JOB_LOG_DIR=/data/job-logs \
     SHADOWMASK_SERVER_LOG_DIR=/data/server-logs \
     SHADOWMASK_BOOTSTRAP_DIR=/config/bootstrap \
-    SHADOWMASK_BASIC_CLIENT_DIR=/usr/share/shadowmask/basic
+    SHADOWMASK_BASIC_CLIENT_DIR=/usr/share/shadowmask/basic \
+    SHADOWMASK_FONTS_DIR=/usr/share/shadowmask/fonts
 WORKDIR /config
 USER 1001:0
 EXPOSE 8080

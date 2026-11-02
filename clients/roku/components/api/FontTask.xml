@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="FontTask" extends="Task">
+    <script type="text/brightscript" uri="pkg:/components/api/FontTask.brs" />
+
+    <interface>
+        <field id="job" type="assocarray" />
+        <field id="step" type="integer" />
+        <field id="count" type="integer" />
+        <field id="result" type="assocarray" />
+    </interface>
+</component>

@@ -32,7 +32,7 @@
         <field id="toastRequest" type="assocarray" alwaysNotify="true" />
         <field id="advance" type="string" alwaysNotify="true" />
         <field id="advanceTarget" type="assocarray" />
-        <field id="focusedChild" type="node" onChange="onFocus" />
+        <field id="revealed" type="boolean" alwaysNotify="true" onChange="onRevealed" />
     </interface>
 
     <children>

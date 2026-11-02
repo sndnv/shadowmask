@@ -20,27 +20,42 @@ namespace tests
 
         @describe("AttributionRows")
 
-        @it("credits the bundled font in the shape FactList expects")
-        sub creditsTheBundledFont()
-            rows = AttributionRows()
+        @it("credits the server's font in the shape FactList expects")
+        sub creditsTheServedFont()
+            rows = AttributionRows({ name: "Noto Sans CJK SC", regular: "cachefs:/fonts/a.otf" })
 
             m.assertEqual(rows.Count(), 1)
-            m.assertEqual(rows[0].label, "Roboto")
-            m.assertEqual(rows[0].values, ["SIL Open Font License 1.1"])
+            m.assertEqual(rows[0].label, "Noto Sans CJK SC")
+            m.assertEqual(rows[0].values, [Phrase("about.fontSource")])
         end sub
 
-        @describe("BundledLicenseText")
+        @it("names the system font when no font came from the server")
+        sub namesTheSystemFont()
+            rows = AttributionRows({})
 
-        @it("reads the licence text that ships beside the fonts")
+            m.assertEqual(rows.Count(), 1)
+            m.assertEqual(rows[0].label, Phrase("about.systemFont"))
+            m.assertEqual(rows[0].values, [Phrase("about.systemFontSource")])
+        end sub
+
+        @it("speaks of a licence only for a font from the server")
+        sub fontLineFollowsTheFont()
+            m.assertEqual(FontLine({ name: "Noto Sans CJK SC" }), Phrase("about.font"))
+            m.assertEqual(FontLine({}), Phrase("about.systemFontLine"))
+        end sub
+
+        @describe("FontLicenseText")
+
+        @it("reads a licence text from the path it is given")
         sub readsTheLicenceText()
-            text = BundledLicenseText(BundledLicensePath())
+            text = FontLicenseText("pkg:/manifest")
 
-            m.assertTrue(Instr(1, text, "SIL OPEN FONT LICENSE") > 0, "unexpected licence text")
+            m.assertTrue(Instr(1, text, "title=") > 0, "unexpected text")
         end sub
 
         @it("returns nothing when the file is missing, instead of failing")
         sub survivesAMissingFile()
-            m.assertEqual(BundledLicenseText("pkg:/fonts/does-not-exist.txt"), "")
+            m.assertEqual(FontLicenseText("cachefs:/fonts/does-not-exist.txt"), "")
         end sub
     end class
 end namespace

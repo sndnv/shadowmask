@@ -68,10 +68,17 @@ namespace tests
 
         @describe("scales")
 
+        @it("turns a size authored at 1.75 into Flutter's size times the density scale")
+        sub pxFollowsTheDensityScale()
+            m.assertEqual(Px(28), Int(16 * DensityScale() + 0.5))
+            m.assertEqual(Px(AuthoredScale() * 64), Int(64 * DensityScale() + 0.5))
+            m.assertEqual(Px(0), 0)
+        end sub
+
         @it("keeps body text at the readable floor and orders the scale")
         sub typeScaleIsOrdered()
             sizes = TypeScale()
-            m.assertEqual(sizes.textBase, 28)
+            m.assertEqual(sizes.textBase, Px(28))
             m.assertTrue(sizes.text2xl > sizes.textXl)
             m.assertTrue(sizes.textXl > sizes.textLg)
             m.assertTrue(sizes.textLg > sizes.textBase)
@@ -79,12 +86,26 @@ namespace tests
             m.assertTrue(sizes.textSm > sizes.textXs)
         end sub
 
-        @it("keeps spacing on the design system scale times 1.75")
+        @it("keeps spacing on the design system scale times the density scale")
         sub spacingMatchesTheDesignSystem()
             space = SpacingScale()
-            m.assertEqual(space.s4, 28)
-            m.assertEqual(space.s1, 7)
-            m.assertEqual(space.s10, 112)
+            m.assertEqual(space.s4, Int(16 * DensityScale() + 0.5))
+            m.assertEqual(space.s1, Int(4 * DensityScale() + 0.5))
+            m.assertEqual(space.s10, Int(64 * DensityScale() + 0.5))
+        end sub
+
+        @it("keeps the sizes baked into the button images whatever the density, and the ring hugging the button")
+        sub imageSizesIgnoreDensity()
+            m.assertEqual(CornerRadius(), 10)
+            m.assertEqual(FocusRingInset(), 3)
+            m.assertEqual(FocusRingRadius(), CornerRadius() + FocusRingInset())
+        end sub
+
+        @it("keeps the screen's edge gaps whatever the density, so content stays inside the action-safe area")
+        sub edgeGapsIgnoreDensity()
+            m.assertEqual(ContentLeft(), 98)
+            m.assertEqual(ContentTop(), 98)
+            m.assertTrue(ContentLeft() > Int(CanvasWidth() * 0.05), "content is not past the action-safe line")
         end sub
 
         @it("authors against a fixed 1920x1080 canvas")
@@ -105,6 +126,145 @@ namespace tests
             m.assertEqual(SpacingScale().probe, 2)
             SpacingScale().Delete("probe")
         end sub
+
+        @describe("fonts")
+
+        @it("names the medium family after the regular one, and nothing without fonts")
+        sub familyNamesFollowTheFontSet()
+            names = FamilyNamesFor({ name: "Noto Sans CJK SC" })
+            m.assertEqual(names.regular, "Noto Sans CJK SC")
+            m.assertEqual(names.bold, "Noto Sans CJK SC Medium")
+
+            m.assertEqual(FamilyNamesFor({}).regular, "")
+            m.assertEqual(FamilyNamesFor(invalid).bold, "")
+        end sub
+
+        @it("finds a role's file in the font set, or nothing")
+        sub findsARolesFile()
+            fonts = { name: "Noto Sans CJK SC", regular: "cachefs:/fonts/a.otf" }
+            m.assertEqual(FontPathIn(fonts, "regular"), "cachefs:/fonts/a.otf")
+            m.assertEqual(FontPathIn(fonts, "medium"), "")
+            m.assertEqual(FontPathIn({}, "regular"), "")
+        end sub
+
+        @it("falls back to the bold system font for medium and the plain one otherwise")
+        sub systemFontPerRole()
+            m.assertEqual(SystemFontName("medium"), "font:MediumBoldSystemFont")
+            m.assertEqual(SystemFontName("regular"), "font:MediumSystemFont")
+        end sub
+
+        @it("points a font node at a downloaded file, at the size asked")
+        sub fontNodeUsesTheFile()
+            font = FontNode("cachefs:/fonts/a.otf", "font:MediumSystemFont", 30)
+            m.assertEqual(font.uri, "cachefs:/fonts/a.otf")
+            m.assertEqual(font.size, 30)
+        end sub
+
+        @it("takes the system font, at the size asked, when there is no file")
+        sub fontNodeFallsBackToTheSystemFont()
+            font = FontNode("", "font:MediumSystemFont", 30)
+            m.assertNotInvalid(font)
+            m.assertEqual(font.size, 30)
+        end sub
+
+        @it("re-points a cached font at its role's new file, and drops it when the role has none")
+        sub cachedFontsFollowTheirRole()
+            fonts = { name: "Noto Sans CJK SC", regular: "cachefs:/fonts/r.otf", medium: "cachefs:/fonts/m.otf" }
+            m.assertEqual(CachedFontUri("regular:30", fonts), "cachefs:/fonts/r.otf")
+            m.assertEqual(CachedFontUri("medium:24.5", fonts), "cachefs:/fonts/m.otf")
+            m.assertEqual(CachedFontUri("regular:30", {}), "")
+        end sub
+
+        @it("forgets every measure taken in the old font")
+        sub forgetsTheOldMeasures()
+            keys = ["smFontFamilies", "smFonts", "smFontRegistry", "smMeasureLabels", "smLineHeights", "smMiddleEllipsis", "smWordMeasure", "smLineCount"]
+            shared = GetGlobalAA()
+            for each key in keys
+                shared[key] = { probe: true }
+            end for
+
+            ForgetTextMeasures()
+
+            for each key in keys
+                m.assertFalse(shared.DoesExist(key), key)
+            end for
+        end sub
+
+        @it("keeps each file under its hash, with the extension its url has")
+        sub cachePathFollowsTheHash()
+            hash = "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b"
+            m.assertEqual(FontCachePath({ url: "/fonts/NotoSansCJKsc-Regular.otf", sha256: hash }), "cachefs:/fonts/" + hash + ".otf")
+            m.assertEqual(FontCachePath({ url: "/fonts/LICENSE", sha256: UCase(hash) }), "cachefs:/fonts/" + hash)
+        end sub
+
+        @it("keeps nothing for a hash that is not 64 hex digits")
+        sub cachePathRefusesABadHash()
+            m.assertEqual(FontCachePath({ url: "/fonts/a.otf", sha256: "../../registry" }), "")
+            m.assertEqual(FontCachePath({ url: "/fonts/a.otf", sha256: "abc" }), "")
+            m.assertEqual(FontCachePath(invalid), "")
+        end sub
+
+        @it("plans one download per role, against the server's address")
+        sub plansTheDownloads()
+            plan = FontDownloads(m.ServedFonts(), "http://10.0.0.2:8080/")
+
+            m.assertEqual(plan.name, "Noto Sans CJK SC")
+            m.assertEqual(plan.files.Count(), 3)
+            m.assertEqual(plan.files[0].role, "regular")
+            m.assertEqual(plan.files[0].url, "http://10.0.0.2:8080/fonts/Regular.otf")
+            m.assertEqual(plan.files[0].path, "cachefs:/fonts/" + String(64, "a") + ".otf")
+            m.assertEqual(plan.files[0].size, 16437364)
+            m.assertEqual(plan.files[1].role, "medium")
+            m.assertEqual(plan.files[2].role, "license")
+        end sub
+
+        @it("plans nothing when the server has no usable font set")
+        sub plansNothingWithoutFonts()
+            m.assertInvalid(FontDownloads(invalid, "http://h"))
+            m.assertInvalid(FontDownloads({}, "http://h"))
+
+            missing = m.ServedFonts()
+            missing.Delete("medium")
+            m.assertInvalid(FontDownloads(missing, "http://h"))
+
+            unsized = m.ServedFonts()
+            unsized.regular.size = "16437364"
+            m.assertInvalid(FontDownloads(unsized, "http://h"))
+
+            elsewhere = m.ServedFonts()
+            elsewhere.license.url = "http://elsewhere/LICENSE"
+            m.assertInvalid(FontDownloads(elsewhere, "http://h"))
+        end sub
+
+        @it("publishes each role's saved path under the set's name")
+        sub publishesTheSavedPaths()
+            fonts = ActiveFontsFrom(FontDownloads(m.ServedFonts(), "http://h"))
+
+            m.assertEqual(fonts.name, "Noto Sans CJK SC")
+            m.assertEqual(fonts.regular, "cachefs:/fonts/" + String(64, "a") + ".otf")
+            m.assertEqual(fonts.medium, "cachefs:/fonts/" + String(64, "b") + ".otf")
+            m.assertEqual(fonts.license, "cachefs:/fonts/" + String(64, "c"))
+        end sub
+
+        @it("hands the task the folder, the files, the certificates and a timeout")
+        sub buildsTheJob()
+            plan = FontDownloads(m.ServedFonts(), "http://h")
+            job = FontJob(plan)
+
+            m.assertEqual(job.directory, FontsDirectory())
+            m.assertEqual(job.files.Count(), 3)
+            m.assertEqual(job.certificates, CertificatesFile())
+            m.assertTrue(job.timeout > 0)
+        end sub
+
+        function ServedFonts() as object
+            return {
+                name: "Noto Sans CJK SC",
+                regular: { url: "/fonts/Regular.otf", size: 16437364, sha256: String(64, "a") },
+                medium: { url: "/fonts/Medium.otf", size: 16523632, sha256: String(64, "b") },
+                license: { url: "/fonts/LICENSE", size: 4301, sha256: String(64, "c") }
+            }
+        end function
 
         @describe("high contrast")
 

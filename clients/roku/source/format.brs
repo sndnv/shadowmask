@@ -69,6 +69,59 @@ function FormatDurationText(milliseconds as dynamic) as string
     return minutes.ToStr() + "m"
 end function
 
+function FileStem(path as dynamic) as string
+    value = TextOrBlank(path)
+    slash = LastIndexOf(value, "/")
+    back = LastIndexOf(value, "\")
+    if back > slash then slash = back
+
+    name = Mid(value, slash + 1)
+    dot = LastIndexOf(name, ".")
+    if dot > 1 then return Left(name, dot - 1)
+    return name
+end function
+
+function MiddleEllipsis(text as dynamic, size as integer, width as integer) as string
+    value = TextOrBlank(text)
+    if width <= 0 or Len(value) = 0 then return value
+
+    if not m.DoesExist("smMiddleEllipsis")
+        m.smMiddleEllipsis = {}
+        m.smMiddleEllipsis.SetModeCaseSensitive()
+    end if
+    key = size.ToStr() + ":" + width.ToStr() + ":" + value
+    if m.smMiddleEllipsis.DoesExist(key) then return m.smMiddleEllipsis[key]
+
+    shown = value
+    if TextWidth(value, size) > width
+        low = 0
+        high = Len(value) - 1
+        while low < high
+            middle = high - (high - low) \ 2
+            if TextWidth(KeepEnds(value, middle), size) <= width
+                low = middle
+            else
+                high = middle - 1
+            end if
+        end while
+        shown = KeepEnds(value, low)
+    end if
+
+    m.smMiddleEllipsis[key] = shown
+    return shown
+end function
+
+function KeepEnds(value as string, kept as integer) as string
+    dot = LastIndexOf(value, ".")
+    extension = 0
+    if dot > 1 then extension = Len(value) - dot + 1
+
+    tail = kept \ 3
+    if tail < extension then tail = extension
+    tail = ClampInt(tail, 0, kept)
+    return Left(value, kept - tail) + "…" + Right(value, tail)
+end function
+
 function CompactCount(count as dynamic) as string
     if count = invalid then return ""
 
