@@ -111,22 +111,26 @@ fn version(id: &str, title: TitleId, library: &str) -> Version {
     }
 }
 
-fn rated(mut movie: Movie) -> Movie {
-    movie.content_rating = Some(adult());
+fn rated(mut movie: Movie, rating: ContentRating) -> Movie {
+    movie.content_rating = Some(rating);
     movie
 }
 
 pub fn search_seed() -> SearchSeed {
     SearchSeed {
         movies: vec![
-            movie("m1", "Matrix"),
-            rated(movie("m2", "Matrix Reloaded")),
+            rated(movie("m1", "Matrix"), family()),
+            rated(movie("m2", "Matrix Reloaded"), adult()),
             movie("m3", "Rematrix"),
             movie("m4", "Inception"),
             movie("m5", "Spider-Man: Far From Home"),
             movie("m6", "Amélie"),
         ],
-        series: vec![Series { artwork: vec![poster("sr1-poster")], ..series("sr1", "The Matrix") }],
+        series: vec![Series {
+            artwork: vec![poster("sr1-poster")],
+            content_rating: Some(ContentRating { system: "us-tv".into(), code: "tv-pg".into() }),
+            ..series("sr1", "The Matrix")
+        }],
         seasons: vec![season("se1", "sr1")],
         episodes: vec![episode("e1", "se1", "Matrix Origins")],
         people: vec![person("p1", "Neo Anderson")],
@@ -164,8 +168,15 @@ fn adult() -> ContentRating {
     ContentRating { system: "mpaa".into(), code: "r".into() }
 }
 
+fn family() -> ContentRating {
+    ContentRating { system: "mpaa".into(), code: "pg".into() }
+}
+
 fn capped() -> TitleListFilter {
-    TitleListFilter { blocked_ratings: vec![adult()], ..TitleListFilter::default() }
+    TitleListFilter {
+        allowed_ratings: Some(ContentRating::allowed_up_to(13)),
+        ..TitleListFilter::default()
+    }
 }
 
 fn without_library_access() -> TitleListFilter {
@@ -301,21 +312,30 @@ pub async fn search_index_contract<R: SearchIndex>(index: R, seed: impl AsyncFn(
     assert_eq!(
         titles(&under_cap),
         ["Matrix", "Matrix Origins", "The Matrix"],
-        "a blocked rating must leave the search, not just the detail route"
+        "a rating above the limit must leave the search, not just the detail route"
     );
     assert_eq!(
         under_cap.total, 3,
         "the total has to count the filtered set, or paging reports rows the caller cannot see"
     );
 
-    let capped_series = TitleListFilter {
-        blocked_ratings: vec![ContentRating { system: "mpaa".into(), code: "nc-17".into() }],
+    assert_eq!(
+        titles(&index.search("inception", &[], &open(), page(0, 10)).await.unwrap()),
+        ["Inception"]
+    );
+    assert!(
+        index.search("inception", &[], &capped(), page(0, 10)).await.unwrap().items.is_empty(),
+        "an unrated title leaves the search under a limit"
+    );
+
+    let movie_ratings_only = TitleListFilter {
+        allowed_ratings: Some(vec![family(), adult()]),
         ..TitleListFilter::default()
     };
     assert_eq!(
-        titles(&index.search("matrix", &[], &capped_series, page(0, 10)).await.unwrap()),
-        ["Matrix", "Matrix Origins", "Matrix Reloaded", "The Matrix"],
-        "blocking a rating nothing carries must not drop anything"
+        titles(&index.search("matrix", &[], &movie_ratings_only, page(0, 10)).await.unwrap()),
+        ["Matrix", "Matrix Reloaded"],
+        "a series whose rating is not allowed leaves with its episodes"
     );
 
     let no_access =

@@ -150,7 +150,7 @@ pub fn catalog_seed() -> CatalogSeed {
             sort_title: "gamma".into(),
             year: Some(2019),
             overview: None,
-            content_rating: None,
+            content_rating: Some(ContentRating { system: "US-TV".into(), code: "TV-PG".into() }),
             manually_edited: false,
             added_at: ts(3),
             updated_at: ts(3),
@@ -416,26 +416,31 @@ async fn random_picks_stay_inside_their_scope<R: CatalogRepository>(repo: &R) {
         Some(episode.clone())
     );
 
-    let blocked = |code: &str| TitleListFilter {
-        blocked_ratings: vec![ContentRating { system: "MPAA".into(), code: code.into() }],
+    let allowing = |code: &str| TitleListFilter {
+        allowed_ratings: Some(vec![ContentRating { system: "MPAA".into(), code: code.into() }]),
         ..TitleListFilter::default()
     };
     assert_eq!(
-        repo.random_playable_title(&RandomScope::Movies, &blocked("R")).await.unwrap(),
+        repo.random_playable_title(&RandomScope::Movies, &allowing("PG-13")).await.unwrap(),
         Some(movie),
-        "blocking a rating m1 does not carry must not filter it out"
+        "m1 is PG-13, so allowing PG-13 keeps it playable"
     );
     assert!(
-        repo.random_playable_title(&RandomScope::Movies, &blocked("PG-13"))
-            .await
-            .unwrap()
-            .is_none(),
-        "m1 is PG-13, so a PG-13 block leaves nothing playable"
+        repo.random_playable_title(&RandomScope::Movies, &allowing("R")).await.unwrap().is_none(),
+        "an allow list without m1's rating leaves nothing playable"
     );
+    let up_to = |age: u8| TitleListFilter {
+        allowed_ratings: Some(ContentRating::allowed_up_to(age)),
+        ..TitleListFilter::default()
+    };
     assert_eq!(
-        repo.random_playable_title(&RandomScope::Episodes, &blocked("NC-17")).await.unwrap(),
+        repo.random_playable_title(&RandomScope::Episodes, &up_to(8)).await.unwrap(),
         Some(episode),
-        "an unrated series is not caught by a rating block"
+        "s1 is TV-PG, so its episode is playable at 8"
+    );
+    assert!(
+        repo.random_playable_title(&RandomScope::Episodes, &up_to(7)).await.unwrap().is_none(),
+        "an episode takes the rating of its series"
     );
 }
 
@@ -712,31 +717,31 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
             .is_empty()
     );
 
-    let blocked_by = |code: &str| TitleListFilter {
-        blocked_ratings: ContentRating::blocked_by(Some(&ContentRating {
-            system: "MPAA".into(),
-            code: code.into(),
-        })),
+    let up_to = |age: u8| TitleListFilter {
+        allowed_ratings: Some(ContentRating::allowed_up_to(age)),
         ..TitleListFilter::default()
     };
-    assert_eq!(
-        movie_ids(&repo.list_movies_filtered(&blocked_by("G"), page(0, 10)).await.unwrap()),
-        vec!["m2".to_owned()]
+    assert!(
+        repo.list_movies_filtered(&up_to(0), page(0, 10)).await.unwrap().items.is_empty(),
+        "m1 is PG-13 and m2 is unrated, so neither is for every age"
     );
     assert_eq!(
-        movie_ids(&repo.list_movies_filtered(&blocked_by("PG-13"), page(0, 10)).await.unwrap()),
-        vec!["m1".to_owned(), "m2".to_owned()]
-    );
-    // A cap is applied to shows and episodes through the series rating, and an unrated series
-    // is not something a cap can block.
-    assert_eq!(
-        series_ids(&repo.list_series_filtered(&blocked_by("G"), page(0, 10)).await.unwrap()),
-        vec!["s1".to_owned()]
+        movie_ids(&repo.list_movies_filtered(&up_to(13), page(0, 10)).await.unwrap()),
+        vec!["m1".to_owned()],
+        "an unrated movie is hidden under any limit"
     );
     assert_eq!(
-        repo.visible_episodes(&[EpisodeId("e1".into())], &blocked_by("G")).await.unwrap().len(),
-        1
+        series_ids(&repo.list_series_filtered(&up_to(8), page(0, 10)).await.unwrap()),
+        vec!["s1".to_owned()],
+        "s1 is TV-PG, so it shows at 8"
     );
+    assert!(repo.list_series_filtered(&up_to(7), page(0, 10)).await.unwrap().items.is_empty());
+    assert_eq!(
+        repo.visible_episodes(&[EpisodeId("e1".into())], &up_to(8)).await.unwrap().len(),
+        1,
+        "an episode takes the rating of its series"
+    );
+    assert!(repo.visible_episodes(&[EpisodeId("e1".into())], &up_to(7)).await.unwrap().is_empty());
 
     let sorted = |sort: TitleSort, order: SortOrder| TitleListFilter {
         sort,
@@ -1124,6 +1129,40 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
             .unwrap()
             .total,
         1
+    );
+
+    let oldest = up_to(ContentRating::OLDEST_AGE);
+    let open = TitleListFilter::default();
+    let unrated_show = SeriesId("us1".into());
+    let unrated_episode = EpisodeId("ue1".into());
+    assert!(
+        !series_ids(&repo.list_series_filtered(&oldest, page(0, 10)).await.unwrap())
+            .contains(&"us1".to_owned()),
+        "an unrated series is hidden under any limit"
+    );
+    assert!(
+        series_ids(&repo.list_series_filtered(&open, page(0, 10)).await.unwrap())
+            .contains(&"us1".to_owned())
+    );
+    assert!(
+        repo.visible_episodes(std::slice::from_ref(&unrated_episode), &oldest)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        repo.visible_episodes(std::slice::from_ref(&unrated_episode), &open).await.unwrap().len(),
+        1
+    );
+    assert!(
+        repo.random_playable_title(&RandomScope::Series(unrated_show.clone()), &oldest)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        repo.random_playable_title(&RandomScope::Series(unrated_show), &open).await.unwrap(),
+        Some(TitleId::Episode(unrated_episode))
     );
 
     repo.upsert_version(Version {

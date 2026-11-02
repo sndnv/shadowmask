@@ -77,7 +77,7 @@ void main() {
     expect(
       find.text(
         'Shows what a 13-year-old may watch: titles rated 13+ or lower. '
-        'Unrated titles still show.',
+        'Unrated titles are hidden.',
       ),
       findsOneWidget,
     );
@@ -98,7 +98,7 @@ void main() {
     expect(find.text('Under 8'), findsOneWidget);
     expect(
       find.text(
-        'Shows only titles rated for all ages. Unrated titles still show.',
+        'Shows only titles rated for all ages. Unrated titles are hidden.',
       ),
       findsOneWidget,
     );
@@ -111,7 +111,7 @@ void main() {
     expect(
       find.text(
         'Shows what an 8-year-old may watch: titles rated 8+ or lower. '
-        'Unrated titles still show.',
+        'Unrated titles are hidden.',
       ),
       findsOneWidget,
     );

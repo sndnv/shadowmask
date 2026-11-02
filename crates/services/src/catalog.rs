@@ -769,6 +769,11 @@ mod tests {
     }
 
     async fn seeded_catalog() -> MockCatalogRepo {
+        seeded_catalog_with(Some(ContentRating { system: "US-TV".into(), code: "TV-PG".into() }))
+            .await
+    }
+
+    async fn seeded_catalog_with(s2_rating: Option<ContentRating>) -> MockCatalogRepo {
         let catalog = MockCatalogRepo::new();
         catalog.add_movie(movie("m1", Some("PG-13")));
         catalog.add_movie(movie("m2", Some("R")));
@@ -790,7 +795,7 @@ mod tests {
             sort_title: "s2".into(),
             year: None,
             overview: None,
-            content_rating: None,
+            content_rating: s2_rating,
             manually_edited: false,
             added_at: Timestamp::UNIX_EPOCH,
             updated_at: Timestamp::UNIX_EPOCH,
@@ -940,7 +945,12 @@ mod tests {
     }
 
     async fn seeded() -> CatalogServiceImpl<MockCatalogRepo, MockUserRepo> {
-        let catalog = seeded_catalog().await;
+        serving(seeded_catalog().await).await
+    }
+
+    async fn serving(
+        catalog: MockCatalogRepo,
+    ) -> CatalogServiceImpl<MockCatalogRepo, MockUserRepo> {
         let users = MockUserRepo::new();
         users.insert(capped_user());
         users.set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())]).await.unwrap();
@@ -1322,9 +1332,13 @@ mod tests {
         ));
         assert_eq!(svc.episodes(&member(), &SeasonId("se2".into())).await.unwrap().len(), 1);
         assert!(
-            svc.episodes(&member(), &SeasonId("x".into())).await.unwrap().is_empty(),
-            "a season that is not there has no show to rate, so the cap has nothing to block"
+            matches!(
+                svc.episodes(&member(), &SeasonId("x".into())).await.unwrap_err(),
+                CatalogError::NotFound
+            ),
+            "a season that is not there has no show to rate, so a cap hides it"
         );
+        assert!(svc.episodes(&admin(), &SeasonId("x".into())).await.unwrap().is_empty());
         assert!(svc.episode(&member(), &EpisodeId("e2".into())).await.is_ok());
         assert!(matches!(
             svc.episode(&member(), &EpisodeId("x".into())).await.unwrap_err(),
@@ -1937,17 +1951,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_unrated_series_stays_reachable_under_a_cap() {
-        let svc = seeded().await;
+    async fn an_unrated_series_is_hidden_under_a_cap() {
+        let svc = serving(seeded_catalog_with(None).await).await;
 
-        assert_eq!(svc.seasons(&member(), &SeriesId("s2".into())).await.unwrap().len(), 1);
-        assert_eq!(svc.season(&member(), &SeasonId("se2".into())).await.unwrap().season.number, 1);
-        assert_eq!(svc.episodes(&member(), &SeasonId("se2".into())).await.unwrap().len(), 1);
-        assert_eq!(
-            svc.episode(&member(), &EpisodeId("e2".into())).await.unwrap().episode.id,
-            EpisodeId("e2".into()),
-            "a show with no rating is not a show above the cap"
+        assert!(matches!(
+            svc.series_detail(&member(), &SeriesId("s2".into())).await.unwrap_err(),
+            CatalogError::NotFound
+        ));
+        assert!(matches!(
+            svc.seasons(&member(), &SeriesId("s2".into())).await.unwrap_err(),
+            CatalogError::NotFound
+        ));
+        assert!(matches!(
+            svc.season(&member(), &SeasonId("se2".into())).await.unwrap_err(),
+            CatalogError::NotFound
+        ));
+        assert!(matches!(
+            svc.episodes(&member(), &SeasonId("se2".into())).await.unwrap_err(),
+            CatalogError::NotFound
+        ));
+        assert!(
+            matches!(
+                svc.episode(&member(), &EpisodeId("e2".into())).await.unwrap_err(),
+                CatalogError::NotFound
+            ),
+            "a show with no rating is hidden under a cap"
         );
+        assert!(svc.episode(&admin(), &EpisodeId("e2".into())).await.is_ok());
     }
 
     #[tokio::test]
