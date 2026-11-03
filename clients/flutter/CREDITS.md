@@ -1,7 +1,7 @@
 # Credits and third-party attribution
 
 The macOS and iOS applications bundle the libraries listed below. They are built and published by
-[libmpv-darwin-build](https://github.com/media-kit/libmpv-darwin-build) `v0.6.0`, flavour
+[libmpv-darwin-build](https://github.com/media-kit/libmpv-darwin-build) `v0.7.2`, flavour
 `macos-universal-video-default` on macOS and `ios-universal-video-default` on iOS, and reach this
 project through the `media_kit_libs_macos_video` and `media_kit_libs_ios_video` packages. Both
 flavours carry the same set of frameworks.
