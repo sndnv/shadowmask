@@ -372,6 +372,12 @@ namespace tests
             m.assertTrue(FocusRoom(RailCardWidth(), 600, SpacingScale().s4, SpacingScale().s5).x <= margin)
         end sub
 
+        @it("cuts a peeking rail exactly at its right edge, so the next card shows cut at the margin")
+        sub cutsAPeekAtTheEdge()
+            margin = SpacingScale().s4 \ 2
+            m.assertEqual(FocusClipRect(1724, 845, true), [- margin, 0, 1724 + margin, 845])
+        end sub
+
         @describe("ColumnsThatFit")
 
         @it("fills the row exactly, leaving no dead space at the end")
@@ -403,6 +409,21 @@ namespace tests
 
             m.assertEqual(width, GroupNaturalWidth(4, cardWidth, gap))
             m.assertTrue(width <= 1270, "the viewport grew past the rail")
+        end sub
+
+        @it("draws a peeking rail to its edge but keeps a plain one to its whole cards")
+        sub drawsThePeek()
+            viewport = RailViewportWidth(1724, 186, 20)
+
+            m.assertEqual(viewport, GroupNaturalWidth(8, 186, 20))
+            m.assertEqual(RailRenderWidth(1724, viewport, true), 1724)
+            m.assertEqual(RailRenderWidth(1724, viewport, false), viewport)
+        end sub
+
+        @it("mirrors the arrows, each the same gap in from its edge of the drawn row")
+        sub mirrorsTheArrows()
+            m.assertEqual(RailArrowLefts(1724, 40, 10), [10, 1674])
+            m.assertEqual(RailArrowLefts(1628, 40, 10), [10, 1578])
         end sub
 
         @it("hands back what it was given when there is nothing to fit")
@@ -683,6 +704,19 @@ namespace tests
         sub survivesBadIndex()
             m.assertEqual(ScrollOffsetFor(9, [0, 600], [560, 560], 845), 0)
             m.assertEqual(ScrollOffsetFor(1, invalid, invalid, 845), 0)
+        end sub
+
+        @describe("PinnedScrollOffset")
+
+        @it("pins the focused rail to the top, the last one included")
+        sub pinsTheFocusedRail()
+            tops = [0, 470, 940]
+
+            m.assertEqual(PinnedScrollOffset(0, tops), 0)
+            m.assertEqual(PinnedScrollOffset(1, tops), 470)
+            m.assertEqual(PinnedScrollOffset(2, tops), 940)
+            m.assertEqual(PinnedScrollOffset(5, tops), 0)
+            m.assertEqual(PinnedScrollOffset(1, invalid), 0)
         end sub
 
         @describe("VisibleRailCount")

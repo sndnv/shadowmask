@@ -2,14 +2,20 @@ sub init()
     m.heading = m.top.FindNode("heading")
     m.rows = m.top.FindNode("rows")
     m.note = m.top.FindNode("note")
+    m.summary = m.top.FindNode("summary")
 
     m.rows.ObserveField("selected", "onCardSelected")
     m.rows.ObserveField("scrollOffset", "onRowsScrolled")
     m.rows.ObserveField("contentHeight", "onRowsScrolled")
+    m.rows.ObserveField("focusedCard", "onCardFocused")
 
     m.rails = []
     m.resumeCard = {}
     m.started = false
+    m.summaries = {}
+    m.summaryAsked = {}
+    m.summarySerial = 0
+    m.restTimer = invalid
 
     m.top.ObserveField("focusedChild", "onFocus")
 end sub
@@ -28,11 +34,19 @@ sub render()
     m.heading.font = SizedBoldFont(sizes.text2xl)
     m.heading.translation = [left, top]
 
-    rowsTop = top + Int(sizes.text2xl * 1.4) + space.s4
+    summaryTop = top + Int(sizes.text2xl * 1.4) + space.s4
+    rowsTop = summaryTop + SummaryPanelHeight() + space.s5
 
+    m.summary.theme = theme
+    m.summary.summaryWidth = SummaryColumnWidth()
+    m.summary.summaryHeight = SummaryPanelHeight()
+    m.summary.translation = [left, summaryTop]
+
+    m.rows.pinned = true
+    m.rows.peek = true
     m.rows.theme = theme
     m.rows.serverUrl = SessionFor(m.global).serverUrl
-    m.rows.rowsWidth = CanvasWidth() - left
+    m.rows.rowsWidth = CanvasWidth() - left * 2
     m.rows.rowsHeight = CanvasHeight() - rowsTop
     m.rows.cardWidth = RailCardWidth()
     m.rows.translation = [left, rowsTop]
@@ -43,7 +57,7 @@ sub render()
     m.note.theme = theme
     m.note.fontSize = sizes.textBase
     m.note.noteWidth = ContentWidth()
-    m.note.translation = [left, rowsTop]
+    m.note.translation = [left, summaryTop]
 
     if not m.started
         m.started = true
@@ -174,8 +188,84 @@ end sub
 sub Publish()
     ShowNote("", "loading")
     m.rows.visible = true
+    m.summary.visible = true
     m.rows.rows = m.rails
     TakeFocus(m.rows)
+    if m.rows.isInFocusChain() then return
+
+    card = PublishedSummaryCard(m.rows.focusedCard, m.rails)
+    if card <> invalid then ShowSummary(card)
+end sub
+
+sub onCardFocused()
+    card = m.rows.focusedCard
+    ShowSummary(card)
+
+    m.summarySerial = m.summarySerial + 1
+    StopTimer(m.restTimer)
+    m.restTimer = ArmTimer(SummaryRestSeconds(), "onSummaryRest", { serial: m.summarySerial })
+end sub
+
+function CachedSummary(card as dynamic) as dynamic
+    key = SummaryKey(card)
+    if IsBlank(key) or not m.summaries.DoesExist(key) then return invalid
+    return m.summaries[key]
+end function
+
+sub ShowSummary(card as dynamic)
+    cached = CachedSummary(card)
+    if cached <> invalid
+        m.summary.summary = cached.content
+        return
+    end if
+    m.summary.summary = SummaryContent(card, invalid)
+end sub
+
+function SummaryBackdropOf(card as dynamic) as string
+    cached = CachedSummary(card)
+    if cached <> invalid then return cached.backdrop
+    return SummaryBackdrop(SessionFor(m.global).serverUrl, card, invalid)
+end function
+
+sub onSummaryRest(event as object)
+    if Int(TimerData(event).serial) <> m.summarySerial then return
+    if not m.rows.visible then return
+
+    card = m.rows.focusedCard
+    PublishBackdropUrl(SummaryBackdropOf(card))
+    AskSummary(card)
+end sub
+
+sub AskSummary(card as dynamic)
+    key = SummaryKey(card)
+    if IsBlank(key) or m.summaries.DoesExist(key) or m.summaryAsked.DoesExist(key) then return
+
+    session = SessionFor(m.global)
+    task = SendRequest(SummaryRequest(session.serverUrl, session.token, card), "onSummary")
+    task.AddFields({ summaryKey: key, summaryCard: card })
+    m.summaryAsked[key] = true
+end sub
+
+sub onSummary(event as object)
+    task = event.GetRoSGNode()
+    key = TextOrBlank(task.summaryKey)
+    m.summaryAsked.Delete(key)
+
+    parsed = ParseResponse(event.GetData().status, event.GetData().body)
+    if HandledUnauthorised(m.top, parsed.status) then return
+    if not parsed.ok then return
+
+    asked = task.summaryCard
+    m.summaries[key] = {
+        content: SummaryContent(asked, parsed.json),
+        backdrop: SummaryBackdrop(SessionFor(m.global).serverUrl, asked, parsed.json)
+    }
+
+    card = m.rows.focusedCard
+    if SummaryKey(card) <> key or not m.rows.visible then return
+
+    ShowSummary(card)
+    PublishBackdropUrl(SummaryBackdropOf(card))
 end sub
 
 sub CheckLibraryAccess()
@@ -198,7 +288,11 @@ sub ShowNote(message as string, kind as string)
     m.note.kind = kind
     m.note.message = message
     m.note.visible = not IsBlank(message)
-    if not IsBlank(message) then m.rows.visible = false
+    if IsBlank(message) then return
+
+    m.rows.visible = false
+    m.summary.visible = false
+    if kind <> "loading" then PublishBackdropUrl("")
 end sub
 
 sub onCardSelected()

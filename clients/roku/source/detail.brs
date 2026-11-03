@@ -894,6 +894,100 @@ function RatingChipList(ratings as dynamic) as object
     return chips
 end function
 
+function SummaryKey(card as dynamic) as string
+    kind = TextOrBlank(ValueAt(card, "kind", ""))
+    id = TextOrBlank(ValueAt(card, "id", ""))
+    if IsBlank(id) then return ""
+    if kind <> "movie" and kind <> "series" and kind <> "episode" then return ""
+    return kind + ":" + id
+end function
+
+function CrewText(groups as dynamic) as string
+    parts = []
+    if type(groups) <> "roArray" then return ""
+
+    for each group in groups
+        names = []
+        for each person in group.people
+            names.Push(person.name)
+        end for
+        parts.Push(group.label + " " + names.Join(", "))
+    end for
+    return JoinParts(parts)
+end function
+
+function SummaryContent(card as dynamic, detail as dynamic) as object
+    content = {
+        heading: TextOrBlank(ValueAt(card, "title", "")),
+        facts: TextOrBlank(ValueAt(card, "subtitle", "")),
+        crew: "",
+        chips: [],
+        overview: ""
+    }
+    if detail = invalid then return content
+
+    title = TextOrBlank(ValueAt(detail, "title", ""))
+    if not IsBlank(title) then content.heading = title
+    content.overview = TextOrBlank(ValueAt(detail, "overview", ""))
+
+    kind = TextOrBlank(ValueAt(card, "kind", ""))
+    if kind = "episode"
+        content.facts = FactsText(EpisodeFacts(detail, invalid))
+        content.crew = TextOrBlank(ValueAt(detail, "series_title", ""))
+        return content
+    end if
+
+    if kind = "series"
+        content.facts = FactsText(SeriesFacts(detail, invalid))
+    else
+        content.facts = FactsText(MovieFacts(detail, invalid))
+    end if
+    content.crew = CrewText(CrewGroups(ValueAt(detail, "credits", invalid), CrewNameLimit()))
+    content.chips = SummaryChips(detail)
+    return content
+end function
+
+function PublishedSummaryCard(focused as dynamic, rails as dynamic) as dynamic
+    if type(focused) = "roAssociativeArray" and focused.Count() > 0 then return focused
+    if type(rails) <> "roArray" or rails.Count() = 0 then return invalid
+
+    cards = ValueAt(rails[0], "cards", invalid)
+    if type(cards) <> "roArray" or cards.Count() = 0 then return invalid
+    return cards[0]
+end function
+
+function SummaryChips(detail as dynamic) as object
+    chips = GenreChipList(ValueAt(detail, "genres", invalid))
+    chips.Append(RatingChipList(ValueAt(detail, "ratings", invalid)))
+    return chips
+end function
+
+function SummaryOverviewMaxLines() as integer
+    return 3
+end function
+
+function SummaryPanelHeight() as integer
+    sizes = TypeScale()
+    rows = TextBlockHeight(sizes.text2xl, 1) + TextBlockHeight(sizes.textBase, 1) + TextBlockHeight(sizes.textSm, 1) + ChipHeight()
+    return rows + SpacingScale().s2 * 4 + TextBlockHeight(sizes.textSm, SummaryOverviewMaxLines())
+end function
+
+function SummaryOverviewLines(room as integer, size as integer, most as integer) as integer
+    lines = 0
+    while lines < most and TextBlockHeight(size, lines + 1) <= room
+        lines = lines + 1
+    end while
+    return lines
+end function
+
+function SummaryBackdrop(serverBase as string, card as dynamic, detail as dynamic) as string
+    url = TextOrBlank(ValueAt(card, "backdropUri", ""))
+    if not IsBlank(url) or detail = invalid then return url
+
+    if TextOrBlank(ValueAt(card, "kind", "")) = "episode" then return BackdropUrlFrom(serverBase, EpisodeBackdropCandidates(detail))
+    return BackdropUrlFrom(serverBase, [ValueAt(detail, "artwork", invalid)])
+end function
+
 function HdrLabel(hdr as dynamic) as string
     labels = {
         "hdr10": "HDR10",

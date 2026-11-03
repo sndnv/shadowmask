@@ -210,6 +210,26 @@ namespace tests
             m.assertEqual(RandomInSeasonRequest("http://host", "smk_a", "sr1", "se1").url, "http://host/api/v1/series/sr1/seasons/se1/random")
         end sub
 
+        @it("asks for the focused card's own details")
+        sub asksForTheSummary()
+            m.assertEqual(SummaryRequest("http://host", "smk_a", { kind: "movie", id: "m1" }).url, "http://host/api/v1/movies/m1")
+            m.assertEqual(SummaryRequest("http://host", "smk_a", { kind: "series", id: "sr1" }).url, "http://host/api/v1/series/sr1")
+            m.assertEqual(SummaryRequest("http://host", "smk_a", { kind: "episode", id: "e1", seriesId: "sr1", seasonId: "se1" }).url, "http://host/api/v1/series/sr1/seasons/se1/episodes/e1")
+        end sub
+
+        @it("asks for an episode by its id alone when the card lacks its series and season")
+        sub asksForAnEpisodeById()
+            request = SummaryRequest("http://host", "smk_a", { kind: "episode", id: "e1", seriesId: "", seasonId: "" })
+            m.assertEqual(request.url, EpisodeByIdRequest("http://host", "smk_a", "e1").url)
+        end sub
+
+        @it("asks for nothing on a card that has no summary")
+        sub asksForNoSummary()
+            m.assertInvalid(SummaryRequest("http://host", "smk_a", { kind: "person", id: "p1" }))
+            m.assertInvalid(SummaryRequest("http://host", "smk_a", { kind: "movie", id: "" }))
+            m.assertInvalid(SummaryRequest("http://host", "smk_a", invalid))
+        end sub
+
         @it("escapes an id, because a path segment is no safer than a query value")
         sub escapesIds()
             m.assertEqual(MovieDetailRequest("http://host", "smk_a", "a b/c").url, "http://host/api/v1/movies/a%20b%2Fc")

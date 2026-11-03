@@ -1528,6 +1528,141 @@ namespace tests
             m.assertEqual(RevealOffset(2, tops, heights, 900, 0, 0), 300)
         end sub
 
+        @describe("home summary")
+
+        @it("keys a summary by kind and id, and only the kinds it can show")
+        sub keysTheSummary()
+            m.assertEqual(SummaryKey({ kind: "movie", id: "m1" }), "movie:m1")
+            m.assertEqual(SummaryKey({ kind: "series", id: "sr1" }), "series:sr1")
+            m.assertEqual(SummaryKey({ kind: "episode", id: "e1" }), "episode:e1")
+            m.assertEqual(SummaryKey({ kind: "person", id: "p1" }), "")
+            m.assertEqual(SummaryKey({ kind: "movie", id: "" }), "")
+            m.assertEqual(SummaryKey(invalid), "")
+        end sub
+
+        @it("shows the card's own words until the details arrive")
+        sub summarisesTheCard()
+            content = SummaryContent({ kind: "movie", id: "m1", title: "Inception", subtitle: "2010" }, invalid)
+
+            m.assertEqual(content.heading, "Inception")
+            m.assertEqual(content.facts, "2010")
+            m.assertEqual(content.crew, "")
+            m.assertEqual(content.chips.Count(), 0)
+            m.assertEqual(content.overview, "")
+        end sub
+
+        @it("summarises a movie as its title page does, without quality or buttons")
+        sub summarisesAMovie()
+            detail = {
+                title: "Inception",
+                year: 2010,
+                runtime_minutes: 148,
+                content_rating: { system: "mpaa", code: "pg-13" },
+                overview: "A thief.",
+                genres: [{ name: "Sci-Fi" }],
+                ratings: [{ source: "Metacritic", value: 74.0 }],
+                credits: [m.credit("d1", "Dee", "director", 0), m.credit("w1", "Wren", "writer", 0), m.credit("w2", "Wynn", "writer", 1)]
+            }
+            content = SummaryContent({ kind: "movie", id: "m1", title: "Card", subtitle: "2010" }, detail)
+
+            m.assertEqual(content.heading, "Inception")
+            m.assertEqual(content.facts, "2010 · 148 min · MPAA PG-13")
+            m.assertEqual(content.crew, Phrase("heading.directedBy") + " Dee · " + Phrase("heading.writtenBy") + " Wren, Wynn")
+            m.assertEqual(content.chips.Count(), 2)
+            m.assertEqual(content.chips[0].label, "Sci-Fi")
+            m.assertEqual(content.overview, "A thief.")
+        end sub
+
+        @it("summarises a series without a watched count it does not have")
+        sub summarisesASeries()
+            content = SummaryContent({ kind: "series", id: "sr1", title: "Lost" }, { year: 2004, genres: [{ name: "Drama" }] })
+
+            m.assertEqual(content.heading, "Lost")
+            m.assertEqual(content.facts, "2004")
+            m.assertEqual(content.chips[0].label, "Drama")
+        end sub
+
+        @it("summarises an episode as its page does, under its series' title")
+        sub summarisesAnEpisode()
+            detail = {
+                title: "Pilot",
+                season_number: 1,
+                number: 1,
+                air_date: "2004-09-22",
+                runtime_minutes: 42,
+                series_title: "Lost",
+                overview: "Crash.",
+                genres: [{ name: "Drama" }]
+            }
+            content = SummaryContent({ kind: "episode", id: "e1", title: "Lost" }, detail)
+
+            m.assertEqual(content.heading, "Pilot")
+            m.assertEqual(content.facts, "S01E01 · Sep 22, 2004 · 42 min")
+            m.assertEqual(content.crew, "Lost")
+            m.assertEqual(content.chips.Count(), 0)
+            m.assertEqual(content.overview, "Crash.")
+        end sub
+
+        @it("puts the genres first and the ratings after them on one row")
+        sub ordersSummaryChips()
+            chips = SummaryChips({ genres: [{ name: "Drama" }], ratings: [{ source: "Metacritic", value: 74.0 }] })
+
+            m.assertEqual(chips.Count(), 2)
+            m.assertEqual(chips[0].label, "Drama")
+            m.assertEqual(chips[1].tone, "ok")
+            m.assertEqual(SummaryChips(invalid).Count(), 0)
+        end sub
+
+        @it("publishes the summary of the card the rails remember, else the first card")
+        sub picksThePublishedCard()
+            rails = [{ cards: [{ kind: "movie", id: "m1" }, { kind: "movie", id: "m2" }] }]
+
+            m.assertEqual(PublishedSummaryCard({ kind: "movie", id: "m2" }, rails).id, "m2")
+            m.assertEqual(PublishedSummaryCard({}, rails).id, "m1")
+            m.assertEqual(PublishedSummaryCard(invalid, rails).id, "m1")
+            m.assertInvalid(PublishedSummaryCard({}, []))
+            m.assertInvalid(PublishedSummaryCard(invalid, [{ cards: [] }]))
+        end sub
+
+        @it("joins nobody into no crew line")
+        sub joinsNoCrew()
+            m.assertEqual(CrewText(invalid), "")
+            m.assertEqual(CrewText([]), "")
+        end sub
+
+        @it("fits as many overview lines as the room holds, up to the cap")
+        sub fitsOverviewLines()
+            size = TypeScale().textSm
+            three = TextBlockHeight(size, 3)
+
+            m.assertEqual(SummaryOverviewLines(three, size, 3), 3)
+            m.assertEqual(SummaryOverviewLines(three - 1, size, 3), 2)
+            m.assertEqual(SummaryOverviewLines(three * 2, size, 3), 3)
+            m.assertEqual(SummaryOverviewLines(0, size, 3), 0)
+        end sub
+
+        @it("holds every line and the whole overview, and gives up overview lines to a second chip row")
+        sub sizesTheSummaryPanel()
+            sizes = TypeScale()
+            gap = SpacingScale().s2
+            above = TextBlockHeight(sizes.text2xl, 1) + TextBlockHeight(sizes.textBase, 1) + TextBlockHeight(sizes.textSm, 1) + ChipHeight() + gap * 4
+            room = SummaryPanelHeight() - above
+
+            m.assertEqual(SummaryOverviewLines(room, sizes.textSm, SummaryOverviewMaxLines()), 3)
+            m.assertTrue(SummaryOverviewLines(room - ChipHeight() - gap, sizes.textSm, SummaryOverviewMaxLines()) < 3)
+        end sub
+
+        @it("washes in the card's backdrop, else the one its details carry")
+        sub picksTheSummaryBackdrop()
+            backdrop = { backdrops: [{ base: "/images/b1", widths: [960] }] }
+            series = { backdrops: [{ base: "/images/s1", widths: [960] }] }
+
+            m.assertEqual(SummaryBackdrop("http://host", { kind: "movie", backdropUri: "http://host/images/c1/960" }, invalid), "http://host/images/c1/960")
+            m.assertEqual(SummaryBackdrop("http://host", { kind: "movie", backdropUri: "" }, invalid), "")
+            m.assertEqual(SummaryBackdrop("http://host", { kind: "movie", backdropUri: "" }, { artwork: backdrop }), "http://host/images/b1/960")
+            m.assertEqual(SummaryBackdrop("http://host", { kind: "episode", backdropUri: "" }, { series_artwork: series }), "http://host/images/s1/960")
+        end sub
+
         @describe("spoken text")
 
         @it("joins with commas, because a screen reader reads a middot as nothing")

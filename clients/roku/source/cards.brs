@@ -126,8 +126,9 @@ function GrownOffset(anchor as object, centre as object, scale as float) as obje
     return [Int((anchor[0] - centre[0]) * (scale - 1) + 0.5), Int((anchor[1] - centre[1]) * (scale - 1) + 0.5)]
 end function
 
-function FocusClipRect(width as float, height as float) as object
+function FocusClipRect(width as float, height as float, peek = false as boolean) as object
     margin = SpacingScale().s4 \ 2
+    if peek then return [- margin, 0, Int(width) + margin, Int(height)]
     return [- margin, 0, Int(width) + margin * 2, Int(height)]
 end function
 
@@ -161,6 +162,11 @@ function ScrollOffsetFor(index as integer, tops as object, heights as object, vi
     offset = tops[index] - centred
     if offset < 0 then return 0
     return Int(offset)
+end function
+
+function PinnedScrollOffset(index as integer, tops as dynamic) as integer
+    if type(tops) <> "roArray" or index < 0 or index >= tops.Count() then return 0
+    return Int(tops[index])
 end function
 
 function NewCard() as object

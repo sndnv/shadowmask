@@ -38,6 +38,7 @@ sub render()
             rail.theme = theme
             rail.serverUrl = m.top.serverUrl
             rail.railWidth = slot.width
+            rail.peek = PeekingRails()
             rail.cardWidth = widths[slot.index]
             rail.captionRows = m.top.captionRows
             rail.heading = TextOrBlank(ValueAt(rows[slot.index], "heading", ""))
@@ -53,7 +54,7 @@ sub render()
         offset = offset + tallest + gap
     end for
 
-    m.viewport.clippingRect = FocusClipRect(m.top.rowsWidth, m.top.rowsHeight)
+    m.viewport.clippingRect = FocusClipRect(m.top.rowsWidth, m.top.rowsHeight, PeekingRails())
     m.top.contentHeight = offset - gap + ContentBottomPad()
 
     focused = LayoutSlotOf(m.layout, FocusedRailIndex())
@@ -68,6 +69,10 @@ sub render()
     if m.layout.Count() > 0 then m.col = ClampInt(m.col, 0, m.layout[m.row].Count() - 1)
     ScrollToFocused()
 end sub
+
+function PeekingRails() as boolean
+    return m.top.peek and not m.top.packed
+end function
 
 function RailCardWidths(rows as object) as object
     widths = []
@@ -128,6 +133,7 @@ sub ScrollToFocused()
     if m.layout.Count() = 0 then return
 
     offset = ScrollOffsetFor(m.row, m.tops, m.heights, m.top.rowsHeight)
+    if m.top.pinned then offset = PinnedScrollOffset(m.row, m.tops)
     m.stack.translation = [0, - offset]
     m.top.scrollOffset = offset
 end sub

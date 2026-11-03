@@ -223,6 +223,20 @@ function EpisodeRequest(base as string, token as string, seriesId as dynamic, se
     return BuildRequest(base, EpisodePath(seriesId, seasonId, episodeId), "GET", invalid, token)
 end function
 
+function SummaryRequest(base as string, token as string, card as dynamic) as dynamic
+    if IsBlank(SummaryKey(card)) then return invalid
+
+    kind = TextOrBlank(ValueAt(card, "kind", ""))
+    id = TextOrBlank(ValueAt(card, "id", ""))
+    if kind = "movie" then return MovieDetailRequest(base, token, id)
+    if kind = "series" then return SeriesDetailRequest(base, token, id)
+
+    seriesId = TextOrBlank(ValueAt(card, "seriesId", ""))
+    seasonId = TextOrBlank(ValueAt(card, "seasonId", ""))
+    if IsBlank(seriesId) or IsBlank(seasonId) then return EpisodeByIdRequest(base, token, id)
+    return EpisodeRequest(base, token, seriesId, seasonId, id)
+end function
+
 function AnyIdMark() as string
     return "-"
 end function
