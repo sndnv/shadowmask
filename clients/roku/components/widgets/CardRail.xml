@@ -31,6 +31,7 @@
         <field id="railWidth" type="float" value="1766" onChange="render" />
         <field id="cardWidth" type="float" value="260" onChange="render" />
         <field id="captionRows" type="integer" value="3" onChange="render" />
+        <field id="peek" type="boolean" value="false" onChange="render" />
         <field id="railHeight" type="float" value="0" />
         <field id="dormant" type="boolean" value="false" onChange="onDormant" />
         <field id="itemFocused" type="integer" value="0" alwaysNotify="true" />

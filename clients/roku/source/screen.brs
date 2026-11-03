@@ -605,6 +605,14 @@ function RailCardWidth() as integer
     return Px(260)
 end function
 
+function SummaryColumnWidth() as integer
+    return Px(1580)
+end function
+
+function SummaryRestSeconds() as float
+    return 0.3
+end function
+
 function LandscapeCardWidth() as integer
     return Px(400)
 end function
@@ -640,6 +648,15 @@ function RailOverflows(count as integer, viewport as integer, cardWidth as integ
     if count <= 0 or viewport <= 0 or cardWidth <= 0 then return false
 
     return count > ColumnsThatFit(viewport, cardWidth, gap)
+end function
+
+function RailRenderWidth(railWidth as integer, viewport as integer, peek as boolean) as integer
+    if peek then return railWidth
+    return viewport
+end function
+
+function RailArrowLefts(width as integer, disc as integer, gap as integer) as object
+    return [gap, width - disc - gap]
 end function
 
 function RailFocusRange(viewport as integer, cardWidth as integer) as object

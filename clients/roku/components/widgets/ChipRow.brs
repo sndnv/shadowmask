@@ -113,10 +113,6 @@ function ChipText(node as object, text as string, size as integer, color as stri
     return width
 end function
 
-function ChipHeight() as integer
-    return Int(TypeScale().textSm * 1.8)
-end function
-
 function ChipBorderColor(theme as object, border as dynamic) as string
     if TextOrBlank(border) = "accent" then return theme.accent
     return theme.border

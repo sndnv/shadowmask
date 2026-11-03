@@ -535,6 +535,10 @@ function TextLinePitch(size as integer) as integer
     return FontLineHeight(size) + TextLineSpacing()
 end function
 
+function ChipHeight() as integer
+    return Int(TypeScale().textSm * 1.8)
+end function
+
 function TextBlockHeight(size as integer, lines as integer) as integer
     if lines <= 0 then return 0
     return FontLineHeight(size) * lines + TextLineSpacing() * (lines - 1)

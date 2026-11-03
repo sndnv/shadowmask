@@ -56,7 +56,7 @@ sub render()
 
     m.row.itemComponentName = "PosterCard"
     m.row.numRows = 1
-    m.row.itemSize = [viewport + room.x * 2, metrics.height + room.y * 2]
+    m.row.itemSize = [RailRenderWidth(Int(m.top.railWidth), viewport, m.top.peek) + room.x * 2, metrics.height + room.y * 2]
     m.row.rowItemSize = [[metrics.width + room.x * 2, metrics.height + room.y * 2]]
     m.row.rowItemSpacing = [[space.s4 - room.x * 2, 0]]
     m.row.rowHeights = [metrics.height + room.y * 2]
@@ -158,7 +158,7 @@ sub RenderArrows(theme as object)
 
     focused = m.top.itemFocused
     shown = [overflows and focused > 0, overflows and focused < cards.Count() - 1]
-    lefts = [space.s2, viewport - disc - space.s2]
+    lefts = RailArrowLefts(RailRenderWidth(Int(m.top.railWidth), viewport, m.top.peek), disc, space.s2)
 
     for index = 0 to m.arrows.Count() - 1
         arrow = m.arrows[index]

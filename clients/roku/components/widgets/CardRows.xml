@@ -32,6 +32,8 @@
         <field id="cardWidth" type="float" value="260" onChange="render" />
         <field id="captionRows" type="integer" value="3" onChange="render" />
         <field id="packed" type="boolean" value="false" onChange="render" />
+        <field id="pinned" type="boolean" value="false" onChange="render" />
+        <field id="peek" type="boolean" value="false" onChange="render" />
         <field id="focusedRail" type="integer" value="0" />
         <field id="contentHeight" type="float" value="0" />
         <field id="scrollOffset" type="float" value="0" />
