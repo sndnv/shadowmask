@@ -173,19 +173,29 @@ namespace tests
 
         @describe("AudioCaps")
 
-        @it("gives every passing codec the device's output channel count")
-        sub reportsOutputChannels()
-            caps = AudioCaps([{ codec: "aac", ok: true }, { codec: "ac3", ok: false }, { codec: "eac3", ok: true }], 6)
+        @it("gives each codec the channel count the device accepted for it")
+        sub reportsEachCodecsChannels()
+            caps = AudioCaps([{ codec: "aac", channels: 2 }, { codec: "ac3", channels: 6 }, { codec: "eac3", channels: 0 }])
 
             m.assertEqual(caps.Count(), 2)
-            m.assertEqual(caps[0].codec, "aac")
-            m.assertEqual(caps[0].max_channels, 6)
-            m.assertEqual(caps[1].codec, "eac3")
+            m.assertEqual(caps[0], { codec: "aac", max_channels: 2 })
+            m.assertEqual(caps[1], { codec: "ac3", max_channels: 6 })
         end sub
 
-        @it("falls back to stereo when the device reported no channels")
-        sub fallsBackToStereo()
-            m.assertEqual(AudioCaps([{ codec: "aac", ok: true }], 0)[0].max_channels, 2)
+        @describe("ProbeAudio")
+
+        @it("asks each codec from the output's channel count down and keeps the first yes")
+        sub asksChannelsFromTheOutputDown()
+            device = {
+                limits: { aac: 2, ac3: 6 },
+                CanDecodeAudio: function(format as object) as object
+                    limit = m.limits[format.Codec]
+                    return { result: limit <> invalid and format.ChCnt <= limit }
+                end function
+            }
+
+            m.assertEqual(ProbeAudio(device, 8), [{ codec: "aac", channels: 2 }, { codec: "ac3", channels: 6 }, { codec: "eac3", channels: 0 }])
+            m.assertEqual(ProbeAudio(device, 2), [{ codec: "aac", channels: 2 }, { codec: "ac3", channels: 2 }, { codec: "eac3", channels: 0 }])
         end sub
 
         @describe("OutputChannels")
@@ -196,6 +206,15 @@ namespace tests
             m.assertEqual(OutputChannels("5.1 surround"), 6)
             m.assertEqual(OutputChannels("7.1 surround"), 8)
             m.assertEqual(OutputChannels(invalid), 2)
+        end sub
+
+        @describe("AudioChannelSteps")
+
+        @it("steps down from the output's channel count to stereo")
+        sub stepsDownToStereo()
+            m.assertEqual(AudioChannelSteps(8), [8, 6, 2])
+            m.assertEqual(AudioChannelSteps(6), [6, 2])
+            m.assertEqual(AudioChannelSteps(2), [2])
         end sub
 
         @describe("FrameRateFromMode")

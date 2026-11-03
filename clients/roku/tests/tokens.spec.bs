@@ -175,6 +175,41 @@ namespace tests
             m.assertEqual(CachedFontUri("regular:30", {}), "")
         end sub
 
+        @it("remembers on the shared node that the font registry was refused")
+        sub remembersRefusedRegistry()
+            m.assertFalse(FontRegistryRefused(invalid))
+
+            bare = CreateObject("roSGNode", "Node")
+            NoteFontRegistryRefused(bare)
+            m.assertFalse(FontRegistryRefused(bare))
+
+            shared = CreateObject("roSGNode", "Node")
+            shared.AddFields({ fontRegistryRefused: false })
+            m.assertFalse(FontRegistryRefused(shared))
+            NoteFontRegistryRefused(shared)
+            m.assertTrue(FontRegistryRefused(shared))
+            NoteFontRegistryRefused(invalid)
+        end sub
+
+        @it("does not ask for the font registry once it was refused")
+        sub skipsRefusedRegistry()
+            shared = GetGlobalAA()
+            had = shared.DoesExist("global")
+            kept = shared.global
+            watched = shared.DoesExist("smFontsWatched")
+            refused = CreateObject("roSGNode", "Node")
+            refused.AddFields({ fontRegistryRefused: true })
+            shared.global = refused
+            ForgetTextMeasures()
+
+            LoadFontRegistry()
+
+            m.assertFalse(shared.DoesExist("smFontRegistry"))
+            ForgetTextMeasures()
+            if had then shared.global = kept else shared.Delete("global")
+            if not watched then shared.Delete("smFontsWatched")
+        end sub
+
         @it("forgets every measure taken in the old font")
         sub forgetsTheOldMeasures()
             keys = ["smFontFamilies", "smFonts", "smFontRegistry", "smMeasureLabels", "smLineHeights", "smMiddleEllipsis", "smWordMeasure", "smLineCount"]

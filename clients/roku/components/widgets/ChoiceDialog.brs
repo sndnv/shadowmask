@@ -76,7 +76,7 @@ sub onRequest()
     m.inRow = DialogInRow(request)
     m.count = options.Count()
     m.model = DialogRows(options, kind, selected)
-    m.index = FocusableRowIndex(m.model, selected)
+    m.index = FocusableRowIndex(m.model, DialogFocusIndex(request, selected, options.Count()))
     m.offset = 0
     m.textOffset = 0
     StopSpinner()

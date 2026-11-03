@@ -59,6 +59,15 @@ namespace tests
             m.assertEqual(DialogStartIndex(added, false, "audioMenu", 2, 5, "Dialogue"), 0)
         end sub
 
+        @it("focuses the row the request asks for and leaves the check on the selected one")
+        sub focusesApartFromTheCheck()
+            m.assertEqual(DialogFocusIndex({ selected: 1, focus: 3 }, 1, 5), 3)
+            m.assertEqual(DialogFocusIndex({ selected: 1 }, 1, 5), 1)
+            m.assertEqual(DialogFocusIndex({ selected: 1, focus: -1 }, 1, 5), 1)
+            m.assertEqual(DialogFocusIndex({ selected: 1, focus: 5 }, 1, 5), 1)
+            m.assertEqual(DialogFocusIndex(invalid, 2, 5), 2)
+        end sub
+
         @it("keeps focus on the nearest of two rows that share a label")
         sub keepsTheNearestOfTwinRows()
             jobs = { field: "workMenu", selected: 0, keep: true, options: [{ label: "Find" }, { label: "Jobs", heading: true }, { label: "Transcription" }, { label: "Transcription" }] }

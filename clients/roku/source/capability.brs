@@ -92,22 +92,28 @@ function VideoCaps(answers as dynamic) as object
     return caps
 end function
 
-function AudioCaps(answers as dynamic, channels as integer) as object
+function AudioCaps(answers as dynamic) as object
     caps = []
     if type(answers) <> "roArray" then return caps
-
-    reported = channels
-    if reported <= 0 then reported = 2
 
     seen = {}
     for each reply in answers
         codec = LCase(TextOrBlank(ValueAt(reply, "codec", "")))
-        if ValueAt(reply, "ok", false) = true and not IsBlank(codec) and not seen.DoesExist(codec)
+        channels = Int(ValueAt(reply, "channels", 0))
+        if channels > 0 and not IsBlank(codec) and not seen.DoesExist(codec)
             seen[codec] = true
-            caps.Push({ codec: codec, max_channels: reported })
+            caps.Push({ codec: codec, max_channels: channels })
         end if
     end for
     return caps
+end function
+
+function AudioChannelSteps(output as integer) as object
+    steps = []
+    for each count in [8, 6, 2]
+        if count <= output then steps.Push(count)
+    end for
+    return steps
 end function
 
 function OutputChannels(name as dynamic) as integer
@@ -181,7 +187,7 @@ function DecodingReport(measurements as dynamic) as object
     video = VideoCaps(ValueAt(measurements, "video", invalid))
     if video.Count() > 0 then report.video = video
 
-    audio = AudioCaps(ValueAt(measurements, "audio", invalid), Int(ValueAt(measurements, "channels", 0)))
+    audio = AudioCaps(ValueAt(measurements, "audio", invalid))
     if audio.Count() > 0 then report.audio = audio
 
     properties = ValueAt(measurements, "hdr", invalid)
@@ -503,12 +509,19 @@ function AnyNameDecodes(device as object, spec as object) as boolean
     return false
 end function
 
-function ProbeAudio(device as object) as object
+function ProbeAudio(device as object, output as integer) as object
     answers = []
     for each codec in AudioProbeSpecs()
-        answers.Push({ codec: codec, ok: ProbeAnswered(device.CanDecodeAudio({ Codec: codec })) })
+        answers.Push({ codec: codec, channels: DecodedChannels(device, codec, output) })
     end for
     return answers
+end function
+
+function DecodedChannels(device as object, codec as string, output as integer) as integer
+    for each count in AudioChannelSteps(output)
+        if ProbeAnswered(device.CanDecodeAudio({ Codec: codec, ChCnt: count })) then return count
+    end for
+    return 0
 end function
 
 function ProbeDisplay(device as object) as dynamic
@@ -546,8 +559,7 @@ function MeasureDecoding() as object
 
     return DecodingReport({
         video: ProbeVideo(device),
-        audio: ProbeAudio(device),
-        channels: ProbeAudioChannels(device),
+        audio: ProbeAudio(device, ProbeAudioChannels(device)),
         hdr: ProbeDisplay(device),
         mode: ProbeVideoMode(device),
         display: ProbeDisplaySize(device),

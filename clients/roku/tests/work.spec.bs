@@ -334,6 +334,21 @@ namespace tests
             m.assertEqual(ProviderSubtitleId({ id: "v1" }, invalid), "")
         end sub
 
+        @it("finds a downloaded subtitle's row in the subtitle list")
+        sub findsTheDownloadedRow()
+            version = {
+                id: "v1",
+                subtitles: [{ index: 2, language: "en" }],
+                subtitle_files: [{ id: "opensubtitles:v1:7", language: "fr" }, { id: "opensubtitles:v1:9", language: "de" }]
+            }
+
+            options = SubtitleOptions(version)
+
+            m.assertEqual(DownloadedSubtitleIndex(options, "opensubtitles:v1:9", 1), 3)
+            m.assertEqual(DownloadedSubtitleIndex(options, "opensubtitles:v1:5", 1), 1)
+            m.assertEqual(DownloadedSubtitleIndex(options, "", 2), 2)
+        end sub
+
         @it("names every step of the work as a leaf that returns to the menu")
         sub workFieldsAreLeaves()
             m.assertEqual(WorkChoiceFields().Count(), 7)
