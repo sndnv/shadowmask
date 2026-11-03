@@ -78,11 +78,13 @@
         <div id="tokens"></div>
       </div>
     </main>
+    <script src="../vendor/hash-wasm-argon2.min.js"></script>
     <script src="../app.js"></script>
     <script>
       sm.chrome();
       const eu = encodeURIComponent;
       let uid = null;
+      let username = null;
       let player = false;
 
       buildTabs();
@@ -115,6 +117,7 @@
         try {
           const me = await sm.self();
           uid = me.id;
+          username = me.username;
           player = me.role === "player";
           fillProfile(me);
           if (player) {
@@ -233,11 +236,13 @@
             status.textContent = "A new password is required.";
             return;
           }
-          const body = {
-            current_password: f.elements.current.value,
-            new_password: f.elements.new.value,
-          };
+          const submit = f.querySelector('button[type="submit"]');
+          submit.disabled = true;
           try {
+            const body = {
+              current_password: await sm.passwordDigest(username, f.elements.current.value),
+              new_password: await sm.passwordDigest(username, f.elements.new.value),
+            };
             await sm.json("/api/v1/users/" + eu(uid) + "/password", {
               method: "PUT",
               body: JSON.stringify(body),
@@ -246,7 +251,13 @@
             sm.toast("Password changed.", "ok");
             setTimeout(() => sm.logout(), 1200);
           } catch (err) {
-            sm.toast("Change failed. Check that your current password is correct.", "danger");
+            sm.toast(
+              err.code === "invalid_password"
+                ? "Change failed. Check that your current password is correct."
+                : "Change failed.",
+              "danger",
+            );
+            submit.disabled = false;
           }
         });
       }

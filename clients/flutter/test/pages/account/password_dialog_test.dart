@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -12,19 +14,24 @@ import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../support/finders.dart';
+import '../../support/password_digest.dart';
 
 int _calls = 0;
+String? _sent;
 
 ApiClient _api() => ApiClient(
   baseUrl: 'http://test',
-  httpClient: MockClient((http.Request _) async {
+  httpClient: MockClient((http.Request req) async {
     _calls++;
+    _sent = req.body;
     return http.Response('{}', 200);
   }),
+  passwordDigest: fakeDigest,
 );
 
 Future<void> _pump(WidgetTester tester) async {
   _calls = 0;
+  _sent = null;
   await tester.pumpWidget(
     ThemeScope(
       variant: AppThemeVariant.dark,
@@ -33,7 +40,7 @@ Future<void> _pump(WidgetTester tester) async {
         theme: buildTheme(AppThemeVariant.dark),
         home: ToastHost(
           child: Scaffold(
-            body: PasswordDialog(api: _api(), userId: 'u1'),
+            body: PasswordDialog(api: _api(), userId: 'u1', username: 'ana'),
           ),
         ),
       ),
@@ -121,6 +128,10 @@ void main() {
 
     expect(find.text(Strings.passwordsDoNotMatch), findsNothing);
     expect(_calls, greaterThan(0));
+    expect(jsonDecode(_sent!), <String, dynamic>{
+      'current_password': 'digest:ana:old',
+      'new_password': 'digest:ana:hunter2',
+    });
 
     await tester.pump(const Duration(seconds: 4));
   });

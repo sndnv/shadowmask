@@ -21,8 +21,17 @@ class UserAdminApi {
     };
   }
 
-  Future<void> createUser(Map<String, dynamic> body) =>
-      _api.sendVoid('POST', '/api/v1/users', body: body);
+  Future<void> createUser(Map<String, dynamic> body) async => _api.sendVoid(
+    'POST',
+    '/api/v1/users',
+    body: <String, dynamic>{
+      ...body,
+      'password': await _api.passwordDigest(
+        body['username'] as String,
+        body['password'] as String,
+      ),
+    },
+  );
 
   Future<void> deleteUser(String id) =>
       _api.sendVoid('DELETE', '/api/v1/users/${_enc(id)}');

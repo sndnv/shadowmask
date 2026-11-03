@@ -117,10 +117,22 @@ const sm = (() => {
     return text ? JSON.parse(text) : null;
   }
 
+  function passwordDigest(username, password) {
+    return hashwasm.argon2id({
+      password,
+      salt: "shadowmask-" + username,
+      parallelism: 1,
+      iterations: 2,
+      memorySize: 19456,
+      hashLength: 32,
+      outputType: "hex",
+    });
+  }
+
   async function login(username, password) {
     const res = await raw("/api/v1/auth/login", {
       method: "POST",
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password: await passwordDigest(username, password) }),
     });
     if (!res.ok) {
       throw new Error("HTTP " + res.status);
@@ -1292,6 +1304,7 @@ const sm = (() => {
 
   return {
     login,
+    passwordDigest,
     logout,
     api,
     publicGet,

@@ -82,6 +82,8 @@ def main():
             {'asset': 'placeholders/person.svg', 'target': 'placeholder-person.svg'},
             {'asset': 'vendor/hls.min.js', 'target': 'vendor/hls.min.js'},
             {'asset': 'vendor/hls.js.LICENSE.txt', 'target': 'vendor/hls.js.LICENSE.txt'},
+            {'asset': 'vendor/hash-wasm-argon2.min.js', 'target': 'vendor/hash-wasm-argon2.min.js'},
+            {'asset': 'vendor/hash-wasm.LICENSE.txt', 'target': 'vendor/hash-wasm.LICENSE.txt'},
             {'asset': 'attribution/tmdb.svg', 'target': 'tmdb.svg'},
         ],
         'clients/flutter': [

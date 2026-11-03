@@ -12,6 +12,7 @@ import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/api/api_exception.dart';
 import 'package:shadowmask/api/authentication_failure.dart';
 import 'package:shadowmask/api/authorization_failure.dart';
+import 'package:shadowmask/api/password_digest.dart';
 import 'package:shadowmask/api/token_store.dart';
 
 class ApiClient {
@@ -20,10 +21,12 @@ class ApiClient {
     http.Client? httpClient,
     TokenStore? tokenStore,
     String Function()? newPlayerId,
+    PasswordDigest? passwordDigest,
   }) : baseUrl = baseUrl ?? _defaultBaseUrl,
        _http = httpClient ?? http.Client(),
        _store = tokenStore ?? TokenStore(),
-       _newPlayerId = newPlayerId ?? const Uuid().v4;
+       _newPlayerId = newPlayerId ?? const Uuid().v4,
+       _digest = passwordDigest ?? argon2PasswordDigest;
 
   static const String _defaultBaseUrl = String.fromEnvironment(
     'SHADOWMASK_API_BASE',
@@ -36,6 +39,7 @@ class ApiClient {
   final http.Client _http;
   final TokenStore _store;
   final String Function() _newPlayerId;
+  final PasswordDigest _digest;
   final StreamController<void> _sessionChanged =
       StreamController<void>.broadcast();
   Future<SelfUser>? _self;
@@ -278,11 +282,17 @@ class ApiClient {
 
   Future<AuthTokens?> currentTokens() => _store.load();
 
+  Future<String> passwordDigest(String username, String password) =>
+      _digest(username, password);
+
   Future<void> login(String username, String password) async {
     final http.Response res = await _raw(
       'POST',
       '/api/v1/auth/login',
-      body: <String, String>{'username': username, 'password': password},
+      body: <String, String>{
+        'username': username,
+        'password': await _digest(username, password),
+      },
     );
     if (res.statusCode >= 400) {
       throw _errorFrom(res);

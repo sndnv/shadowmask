@@ -12,18 +12,26 @@ import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/view/failure_reason.dart';
 
 class PasswordDialog extends StatefulWidget {
-  const PasswordDialog({super.key, required this.api, required this.userId});
+  const PasswordDialog({
+    super.key,
+    required this.api,
+    required this.userId,
+    required this.username,
+  });
 
   final ApiClient api;
   final String userId;
+  final String username;
 
   static Future<void> show(
     BuildContext context, {
     required ApiClient api,
     required String userId,
+    required String username,
   }) => showDialog<void>(
     context: context,
-    builder: (BuildContext context) => PasswordDialog(api: api, userId: userId),
+    builder: (BuildContext context) =>
+        PasswordDialog(api: api, userId: userId, username: username),
   );
 
   @override
@@ -76,6 +84,7 @@ class _PasswordDialogState extends State<PasswordDialog> {
     try {
       await _account.changePassword(
         widget.userId,
+        username: widget.username,
         current: _current.text,
         newPassword: _next.text,
       );

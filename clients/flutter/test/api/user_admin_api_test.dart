@@ -7,8 +7,15 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/user_admin_api.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-UserAdminApi _users(MockClient mock) =>
-    UserAdminApi(ApiClient(baseUrl: 'http://test', httpClient: mock));
+import '../support/password_digest.dart';
+
+UserAdminApi _users(MockClient mock) => UserAdminApi(
+  ApiClient(
+    baseUrl: 'http://test',
+    httpClient: mock,
+    passwordDigest: fakeDigest,
+  ),
+);
 
 MockClient _capture(
   void Function(http.Request req) sink, {
@@ -51,7 +58,7 @@ void main() {
     expect(page.items.single.username, 'pat');
   });
 
-  test('createUser posts the user body', () async {
+  test('createUser posts the user body with the password digest', () async {
     late http.Request seen;
     final UserAdminApi api = _users(
       _capture((http.Request req) => seen = req, status: 201),
@@ -67,7 +74,7 @@ void main() {
     expect(seen.url.path, '/api/v1/users');
     expect(jsonDecode(seen.body), <String, dynamic>{
       'username': 'sam',
-      'password': 'secret',
+      'password': 'digest:sam:secret',
       'role': 'user',
     });
   });

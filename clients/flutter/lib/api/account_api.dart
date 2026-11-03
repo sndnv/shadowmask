@@ -10,14 +10,16 @@ class AccountApi {
 
   Future<void> changePassword(
     String userId, {
+    required String username,
     String? current,
     required String newPassword,
-  }) => _api.sendVoid(
+  }) async => _api.sendVoid(
     'PUT',
     '/api/v1/users/${_enc(userId)}/password',
     body: <String, dynamic>{
-      if (current != null && current.isNotEmpty) 'current_password': current,
-      'new_password': newPassword,
+      if (current != null && current.isNotEmpty)
+        'current_password': await _api.passwordDigest(username, current),
+      'new_password': await _api.passwordDigest(username, newPassword),
     },
   );
 
