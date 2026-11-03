@@ -190,6 +190,11 @@ We use [SemVer](http://semver.org/) for versioning.
   (MIT); all three notices are in
   [`assets/vendor/hls.js.LICENSE.txt`](./assets/vendor/hls.js.LICENSE.txt), distributed alongside
   the script.
+* [hash-wasm](https://github.com/Daninet/hash-wasm) (its argon2 build) is bundled by the basic web
+  client to digest passwords, under the MIT License. Its WebAssembly is based on Go's argon2
+  (BSD-3-Clause); both notices are in
+  [`assets/vendor/hash-wasm.LICENSE.txt`](./assets/vendor/hash-wasm.LICENSE.txt), distributed
+  alongside the script.
 * [Roboto](https://github.com/googlefonts/roboto-classic) is bundled by the Flutter clients, under
   the SIL Open Font License 1.1, with its licence distributed alongside the fonts at
   [`assets/fonts/Roboto-OFL.txt`](./assets/fonts/Roboto-OFL.txt).

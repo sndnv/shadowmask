@@ -152,7 +152,8 @@ scan, catalog, playback, backup/recover, media-removal soft-delete, and a basic 
 check that `/ui/basic/` and `app.js` are served). It generates its own ffmpeg
 fixtures and is destructive to the dev databases and fixture media by design, so run it only against
 this disposable stack. Bring the stack up first, then run the script; see its `--help` for
-environment overrides.
+environment overrides. It needs the `argon2` command (`apt install argon2` or
+`brew install argon2`) to digest passwords the way the clients do.
 
 The transcribe -> translate section runs only on the enrichment image. On the base image it is
 skipped. On the enrichment image the enrichment features must be enabled with models present or the

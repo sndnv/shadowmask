@@ -12,6 +12,9 @@ Bring the stack up first, then run this script:
   podman compose -f deployment/dev/docker-compose.yml up -d --build
   deployment/dev/scripts/run_smoke_test.sh
 
+Needs jq, curl and argon2 (apt install argon2, or brew install argon2): passwords
+are sent as the clients send them, an argon2id digest.
+
 Environment overrides:
   The transcribe -> translate section runs against the enrichment image only. On the
   base image it is skipped; on the enrichment image the enrichment features MUST be
@@ -46,6 +49,10 @@ ADMIN_USER="admin"
 ADMIN_USER_PASS="passw0rd"
 TEST_USER="test-user"
 TEST_USER_PASS="test-pass-123"
+command -v argon2 >/dev/null 2>&1 || { printf 'Error: argon2 is required (apt install argon2, or brew install argon2).\n' >&2; exit 1; }
+password_digest() { printf '%s' "$2" | argon2 "shadowmask-$1" -id -t 2 -k 19456 -p 1 -l 32 -r; }
+ADMIN_USER_DIGEST=$(password_digest "$ADMIN_USER" "$ADMIN_USER_PASS")
+TEST_USER_DIGEST=$(password_digest "$TEST_USER" "$TEST_USER_PASS")
 SKIP_ENRICHMENT="${SHADOWMASK_SMOKE_TEST_SKIP_ENRICHMENT_TESTS:-false}"
 COMPOSE_FILE="$DEV_DIR/docker-compose.yml"
 SERVICE="shadowmask"
@@ -345,7 +352,7 @@ grep -q 'const sm' <<<"$ui_js" || die "/ui/basic/app.js is missing the sm client
 ok "basic web UI is served (entry shell + app.js present)"
 
 section "admin auth + users"
-adm=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$ADMIN_USER" --arg p "$ADMIN_USER_PASS" '{username:$u,password:$p}')" 200 "admin login")
+adm=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$ADMIN_USER" --arg p "$ADMIN_USER_DIGEST" '{username:$u,password:$p}')" 200 "admin login")
 ADMIN_TOKEN=$(jq -r '.access_token' <<<"$adm")
 [[ -n "$ADMIN_TOKEN" && "$ADMIN_TOKEN" != null ]] || die "no admin access token"
 self=$(call_ok GET "$API/users/self" "$ADMIN_TOKEN")
@@ -368,7 +375,7 @@ TV_LIB=$(jq -r '.[] | select(.kind=="tv") | .id' <<<"$libs" | head -1)
 note "movie library=[$MOVIE_LIB] tv library=[$TV_LIB]"
 
 note "creating [$TEST_USER]"
-raw=$(_call POST "$API/users" "$ADMIN_TOKEN" "$(jq -nc --arg u "$TEST_USER" --arg p "$TEST_USER_PASS" '{username:$u,password:$p,role:"user"}')")
+raw=$(_call POST "$API/users" "$ADMIN_TOKEN" "$(jq -nc --arg u "$TEST_USER" --arg p "$TEST_USER_DIGEST" '{username:$u,password:$p,role:"user"}')")
 code=${raw##*$'\n'}; out=${raw%$'\n'*}
 case "$code" in
     201) TEST_UID=$(jq -r '.id' <<<"$out"); ok "created [$TEST_USER] -> [$TEST_UID]" ;;
@@ -383,7 +390,7 @@ esac
 expect_code 204 PUT "$API/users/$TEST_UID/libraries" "$ADMIN_TOKEN" \
     "$(jq -nc --arg a "$MOVIE_LIB" --arg b "$TV_LIB" '{libraries:[$a,$b]}')"
 
-usr=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$TEST_USER" --arg p "$TEST_USER_PASS" '{username:$u,password:$p}')" 200 "[$TEST_USER] login")
+usr=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$TEST_USER" --arg p "$TEST_USER_DIGEST" '{username:$u,password:$p}')" 200 "[$TEST_USER] login")
 USER_TOKEN=$(jq -r '.access_token' <<<"$usr")
 USER_REFRESH=$(jq -r '.refresh_token' <<<"$usr")
 [[ -n "$USER_TOKEN" && "$USER_TOKEN" != null ]] || die "no user access token"
@@ -627,7 +634,7 @@ server_stop
 wipe_db
 server_start
 poll_until "server healthy after DB wipe" 120 health_ok
-adm2=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$ADMIN_USER" --arg p "$ADMIN_USER_PASS" '{username:$u,password:$p}')" 200 "admin login after wipe")
+adm2=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$ADMIN_USER" --arg p "$ADMIN_USER_DIGEST" '{username:$u,password:$p}')" 200 "admin login after wipe")
 ADMIN_TOKEN=$(jq -r '.access_token' <<<"$adm2")
 after_wipe=$(call_ok GET "$API/users?limit=200" "$ADMIN_TOKEN")
 if jq -e --arg u "$TEST_USER" 'any(.items[]?; .username==$u)' <<<"$after_wipe" >/dev/null; then
@@ -640,7 +647,7 @@ compose run --rm "$SERVICE" recover --from "$SNAPSHOT" >/dev/null 2>&1 || die "r
 ok "recovered from [$SNAPSHOT]"
 server_start
 poll_until "server healthy after recover" 120 health_ok
-adm3=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$ADMIN_USER" --arg p "$ADMIN_USER_PASS" '{username:$u,password:$p}')" 200 "admin login after recover")
+adm3=$(call_ok POST "$API/auth/login" "" "$(jq -nc --arg u "$ADMIN_USER" --arg p "$ADMIN_USER_DIGEST" '{username:$u,password:$p}')" 200 "admin login after recover")
 ADMIN_TOKEN=$(jq -r '.access_token' <<<"$adm3")
 restored=$(call_ok GET "$API/users?limit=200" "$ADMIN_TOKEN")
 jq -e --arg u "$TEST_USER" 'any(.items[]?; .username==$u)' <<<"$restored" >/dev/null || die "[$TEST_USER] missing after recover"

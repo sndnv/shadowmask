@@ -145,6 +145,10 @@ because each platform masks differently.
   bundle above. It is distributed alongside `hls.min.js` so the licence travels
   with the redistributed file into both container images. Update it whenever the
   bundle is replaced.
+- `vendor/hash-wasm-argon2.min.js` - hash-wasm's `dist/argon2.umd.min.js`, bundled by the basic
+  web client to digest passwords (MIT). Replace with a newer upstream build here, then refresh.
+- `vendor/hash-wasm.LICENSE.txt` - the MIT text for the bundle above and the BSD-3-Clause notice
+  of Go's argon2, which its WebAssembly is based on. Update it whenever the bundle is replaced.
 - `screenshots/*.jpg` - Flutter web client captures used by the root `README.md`.
   Not distributed to any client. JPEG rather than PNG on purpose: the same set as
   lossless PNG was 17 MB, which is a lot to carry in history for images GitHub
@@ -181,6 +185,8 @@ brand SVG changes, then refresh.
 | `clients/basic`   | `placeholders/landscape.svg`                                | `placeholder-landscape.svg`                                    |
 | `clients/basic`   | `placeholders/person.svg`                                   | `placeholder-person.svg`                                       |
 | `clients/basic`   | `vendor/hls.min.js`                                         | `vendor/hls.min.js`                                            |
+| `clients/basic`   | `vendor/hash-wasm-argon2.min.js`                            | `vendor/hash-wasm-argon2.min.js`                               |
+| `clients/basic`   | `vendor/hash-wasm.LICENSE.txt`                              | `vendor/hash-wasm.LICENSE.txt`                                 |
 | `clients/flutter` | `icons/flutter/favicon.png`                                 | `web/favicon.png`                                              |
 | `clients/flutter` | `icons/flutter/Icon-192.png`                                | `web/icons/Icon-192.png`                                       |
 | `clients/flutter` | `icons/flutter/Icon-512.png`                                | `web/icons/Icon-512.png`                                       |

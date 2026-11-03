@@ -14,6 +14,7 @@ import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../support/finders.dart';
+import '../../support/password_digest.dart';
 
 class _Server {
   _Server({this.failWith});
@@ -58,6 +59,7 @@ Future<_Server> _pump(WidgetTester tester, {String? failWith}) async {
   final ApiClient api = ApiClient(
     baseUrl: 'http://test',
     httpClient: MockClient((http.Request req) async => server.answer(req)),
+    passwordDigest: fakeDigest,
   );
   await tester.pumpWidget(
     ThemeScope(
@@ -128,7 +130,7 @@ void main() {
     expect(write.method, 'PUT');
     expect(write.url.path, '/api/v1/users/u2/password');
     expect(jsonDecode(write.body), <String, dynamic>{
-      'new_password': 'hunter2',
+      'new_password': 'digest:sam:hunter2',
     });
     expect(find.text(Strings.setPasswordTitle('sam')), findsNothing);
     expect(find.text(Strings.toastPasswordSet('sam')), findsOneWidget);

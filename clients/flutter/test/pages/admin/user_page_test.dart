@@ -14,6 +14,7 @@ import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../support/finders.dart';
+import '../../support/password_digest.dart';
 
 Map<String, dynamic> _profile(String id, String username, String role) =>
     <String, dynamic>{
@@ -60,6 +61,7 @@ Future<_Server> _pump(WidgetTester tester, String id) async {
   final ApiClient api = ApiClient(
     baseUrl: 'http://test',
     httpClient: MockClient((http.Request req) async => server.answer(req)),
+    passwordDigest: fakeDigest,
   );
   await tester.pumpWidget(
     ThemeScope(

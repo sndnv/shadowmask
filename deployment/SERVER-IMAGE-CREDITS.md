@@ -14,6 +14,7 @@ credited from the *Third-party content* section of the
 | Every Debian package, with its version | `/usr/share/doc/<package>/copyright` |
 | Licence texts those files reference | `/usr/share/common-licenses/` |
 | hls.js, bundled by the basic web client | `/usr/share/shadowmask/basic/vendor/hls.js.LICENSE.txt` |
+| hash-wasm, bundled by the basic web client | `/usr/share/shadowmask/basic/vendor/hash-wasm.LICENSE.txt` |
 | Noto Sans CJK SC, served to the Roku | `/usr/share/shadowmask/fonts/LICENSE` |
 | C++ source vendored into the binary, `-enrichment` image only | `/usr/share/doc/shadowmask/third-party-licenses/` |
 

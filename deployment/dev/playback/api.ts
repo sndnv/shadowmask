@@ -1,6 +1,7 @@
 export const SERVER = Deno.env.get("PLAYBACK_SERVER") ?? "http://server:8080";
 const API = `${SERVER}/api/v1`;
 const PAGE = 200;
+const ADMIN_PASSW0RD_DIGEST = "366882313c06c861ba50d9aa3cf4639c8839bc7234ae8354cb6a45c37456fc52";
 
 export type AudioTrack = { index: number; codec: string; channels: number; language: string | null };
 export type EmbeddedSubtitle = { index: number; language: string | null; format: string };
@@ -66,7 +67,7 @@ export class Api {
     const response = await fetch(`${API}/auth/login`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username: "admin", password: "passw0rd" }),
+      body: JSON.stringify({ username: "admin", password: ADMIN_PASSW0RD_DIGEST }),
     });
     if (!response.ok) {
       throw new Error(`login answered [${response.status}]`);

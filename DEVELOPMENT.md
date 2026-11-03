@@ -147,7 +147,8 @@ Log levels are set per target so the service can run at `debug` without the SQL 
 [`deployment/dev/scripts/run_smoke_test.sh`](deployment/dev/scripts/run_smoke_test.sh) exercises the
 full product surface (auth, scan, catalog, playback, backup/recover, media-removal soft-delete)
 against a running dev stack. It generates its own FFmpeg fixtures and is destructive to the dev
-databases and fixture media by design. Bring the dev stack up first, then run the script.
+databases and fixture media by design. Bring the dev stack up first, then run the script. It needs
+the `argon2` command (`apt install argon2` or `brew install argon2`).
 
 ### Backup and recovery
 

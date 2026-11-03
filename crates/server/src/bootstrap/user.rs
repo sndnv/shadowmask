@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use ::api::dto::user::RoleDto;
 use domain::common::LanguageCode;
 use domain::error::UserError;
@@ -6,6 +8,7 @@ use domain::metadata::ContentRating;
 use domain::service::{LibraryService, UserService};
 use domain::user::{NewUser, Principal, UserProfileUpdate};
 use serde::Deserialize;
+use services::password::client_digest;
 
 use super::executor::BootstrapEntityProvider;
 use super::{BootstrapError, Created, backend, bootstrap_admin, require_unique};
@@ -47,6 +50,10 @@ pub struct ParsedUser {
     new_user: NewUser,
     libraries: Vec<String>,
     profile: Option<UserProfileUpdate>,
+}
+
+fn invalid<E: Display>(error: E) -> BootstrapError {
+    BootstrapError::Invalid { entity: "user", reason: error.to_string() }
 }
 
 fn to_languages(codes: Vec<String>) -> Vec<LanguageCode> {
@@ -128,9 +135,7 @@ where
     }
 
     fn load(&self, value: &toml::Value) -> Result<ParsedUser, BootstrapError> {
-        let entry: UserEntry = value.clone().try_into().map_err(|error| {
-            BootstrapError::Invalid { entity: "user", reason: error.to_string() }
-        })?;
+        let entry: UserEntry = value.clone().try_into().map_err(invalid)?;
         Ok(entry.into())
     }
 
@@ -139,7 +144,11 @@ where
     }
 
     async fn create(&self, entity: ParsedUser) -> Result<Created, BootstrapError> {
-        let ParsedUser { new_user, libraries, profile } = entity;
+        let ParsedUser { mut new_user, libraries, profile } = entity;
+        if new_user.password.is_empty() {
+            return Err(invalid("password is empty"));
+        }
+        new_user.password = client_digest(&new_user.username, &new_user.password);
         let library_ids = self.resolve_libraries(&libraries).await?;
 
         let user = match self.users.create(new_user).await {
@@ -259,6 +268,47 @@ mod tests {
             vec![LanguageCode("en".to_owned()), LanguageCode("nl".to_owned())]
         );
         assert_eq!(pat.preferred_subtitle, vec![LanguageCode("en".to_owned())]);
+    }
+
+    #[tokio::test]
+    async fn the_configured_password_is_stored_as_the_clients_send_it() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            dir.path(),
+            "[[users]]\nusername = \"pat\"\npassword = \"secret\"\nrole = \"user\"\n",
+        );
+        let users = user_service();
+        let provider = UserBootstrapProvider::new(users.clone(), library_service().0);
+
+        let result = run_one(&provider, dir.path()).await;
+
+        assert_eq!(result.created, 1);
+        let listed =
+            users.list(domain::common::PageRequest { offset: 0, limit: 10 }).await.unwrap();
+        let stored = &listed.items[0].password_hash;
+        let digest = services::password::client_digest("pat", "secret");
+        assert!(services::password::verify(&digest, stored).unwrap());
+        assert!(!services::password::verify("secret", stored).unwrap());
+    }
+
+    #[tokio::test]
+    async fn an_empty_configured_password_fails_only_its_own_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            dir.path(),
+            "[[users]]\nusername = \"admin\"\npassword = \"secret\"\nrole = \"admin\"\n\n[[users]]\nusername = \"kid\"\npassword = \"\"\nrole = \"user\"\n",
+        );
+        let users = user_service();
+        let provider = UserBootstrapProvider::new(users.clone(), library_service().0);
+
+        let result = run_one(&provider, dir.path()).await;
+
+        assert_eq!(result.found, 2);
+        assert_eq!(result.created, 1);
+        let listed =
+            users.list(domain::common::PageRequest { offset: 0, limit: 10 }).await.unwrap();
+        assert_eq!(listed.total, 1);
+        assert_eq!(listed.items[0].username, "admin");
     }
 
     #[tokio::test]

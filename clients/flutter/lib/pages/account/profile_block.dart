@@ -75,6 +75,19 @@ class _ProfileBlockState extends State<ProfileBlock> {
     }
   }
 
+  Future<void> _changePassword() async {
+    final AccountProfile? profile = _profile;
+    if (profile == null) {
+      return;
+    }
+    await PasswordDialog.show(
+      context,
+      api: widget.api,
+      userId: widget.userId,
+      username: profile.username,
+    );
+  }
+
   Future<void> _setPassword() async {
     final AccountProfile? profile = _profile;
     if (profile == null) {
@@ -141,11 +154,7 @@ class _ProfileBlockState extends State<ProfileBlock> {
           PageAction(
             icon: Icons.lock_outline,
             label: Strings.changePassword,
-            onPressed: () => PasswordDialog.show(
-              context,
-              api: widget.api,
-              userId: widget.userId,
-            ),
+            onPressed: _changePassword,
           ),
         if (widget.showAdminActions) ...<PageAction>[
           PageAction(

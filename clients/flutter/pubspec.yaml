@@ -37,6 +37,8 @@ dependencies:
   path: ^1.9.1
   xdg_directories: ^1.1.0
   uuid: ^4.6.0
+  cryptography: ^2.9.0
+  convert: ^3.1.2
 
 dependency_overrides:
   # Linux renders in software on Flutter 3.38+ (media-kit#1404);

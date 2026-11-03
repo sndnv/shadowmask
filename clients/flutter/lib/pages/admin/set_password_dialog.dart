@@ -71,7 +71,11 @@ class _SetPasswordDialogState extends State<SetPasswordDialog> {
     }
     setState(() => _saving = true);
     try {
-      await _account.changePassword(widget.userId, newPassword: _next.text);
+      await _account.changePassword(
+        widget.userId,
+        username: widget.username,
+        newPassword: _next.text,
+      );
       if (!mounted) {
         return;
       }

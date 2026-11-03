@@ -26,6 +26,24 @@ http.Response _pair(String access, String refresh) => http.Response(
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
+  test('login sends the password digest, never the password', () async {
+    late Map<String, dynamic> sent;
+    final ApiClient api = _client(
+      MockClient((http.Request req) async {
+        sent = jsonDecode(req.body) as Map<String, dynamic>;
+        return _pair('a1', 'r1');
+      }),
+    );
+
+    await api.login('testUser', 'correct horse');
+
+    expect(sent, <String, dynamic>{
+      'username': 'testUser',
+      'password':
+          '760e3fe1125f79fc2dc3634c38f5b816953a2d76ebe52b8c2b4588f5b803d0e1',
+    });
+  });
+
   test('login stores the token pair and authorizes later calls', () async {
     String? seenAuth;
     final ApiClient api = _client(

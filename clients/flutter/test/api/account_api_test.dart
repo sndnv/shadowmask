@@ -7,13 +7,20 @@ import 'package:shadowmask/api/account_api.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-AccountApi _account(MockClient mock) =>
-    AccountApi(ApiClient(baseUrl: 'http://test', httpClient: mock));
+import '../support/password_digest.dart';
+
+AccountApi _account(MockClient mock) => AccountApi(
+  ApiClient(
+    baseUrl: 'http://test',
+    httpClient: mock,
+    passwordDigest: fakeDigest,
+  ),
+);
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
-  test('changePassword sends current and new passwords', () async {
+  test('changePassword sends digests of both passwords', () async {
     late http.Request seen;
     final AccountApi account = _account(
       MockClient((http.Request req) async {
@@ -22,13 +29,18 @@ void main() {
       }),
     );
 
-    await account.changePassword('u1', current: 'old', newPassword: 'new');
+    await account.changePassword(
+      'u1',
+      username: 'sam',
+      current: 'old',
+      newPassword: 'new',
+    );
 
     expect(seen.method, 'PUT');
     expect(seen.url.path, '/api/v1/users/u1/password');
     expect(jsonDecode(seen.body), <String, dynamic>{
-      'current_password': 'old',
-      'new_password': 'new',
+      'current_password': 'digest:sam:old',
+      'new_password': 'digest:sam:new',
     });
   });
 
@@ -41,9 +53,11 @@ void main() {
       }),
     );
 
-    await account.changePassword('u1', newPassword: 'new');
+    await account.changePassword('u1', username: 'sam', newPassword: 'new');
 
-    expect(jsonDecode(seen.body), <String, dynamic>{'new_password': 'new'});
+    expect(jsonDecode(seen.body), <String, dynamic>{
+      'new_password': 'digest:sam:new',
+    });
   });
 
   test('signOutEverywhere deletes the sessions collection', () async {

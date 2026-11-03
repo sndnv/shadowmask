@@ -19,6 +19,7 @@ import 'package:shadowmask/theme/tokens.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../support/finders.dart';
+import '../../support/password_digest.dart';
 
 Map<String, dynamic> _user(
   String id,
@@ -108,6 +109,7 @@ ApiClient _api({
     }
     return http.Response('{}', 200);
   }),
+  passwordDigest: fakeDigest,
 );
 
 Finder _deleteIn(String username) => find.descendant(
@@ -380,7 +382,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(created?['username'], 'sam');
-    expect(created?['password'], 'hunter2');
+    expect(created?['password'], 'digest:sam:hunter2');
 
     await tester.pump(kToastDuration + const Duration(milliseconds: 100));
   });
