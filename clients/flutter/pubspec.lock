@@ -536,11 +536,12 @@ packages:
   media_kit_libs_ios_video:
     dependency: "direct main"
     description:
-      name: media_kit_libs_ios_video
-      sha256: b5382994eb37a4564c368386c154ad70ba0cc78dacdd3fb0cd9f30db6d837991
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.1.4"
+      path: "libs/ios/media_kit_libs_ios_video"
+      ref: "5c533691f0f1d75747b5cdad2456cc09de91ec9b"
+      resolved-ref: "5c533691f0f1d75747b5cdad2456cc09de91ec9b"
+      url: "https://github.com/sndnv/media-kit.git"
+    source: git
+    version: "1.1.5"
   media_kit_libs_linux:
     dependency: "direct main"
     description:
@@ -552,18 +553,20 @@ packages:
   media_kit_libs_macos_video:
     dependency: "direct main"
     description:
-      name: media_kit_libs_macos_video
-      sha256: f26aa1452b665df288e360393758f84b911f70ffb3878032e1aabba23aa1032d
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.1.4"
+      path: "libs/macos/media_kit_libs_macos_video"
+      ref: "5c533691f0f1d75747b5cdad2456cc09de91ec9b"
+      resolved-ref: "5c533691f0f1d75747b5cdad2456cc09de91ec9b"
+      url: "https://github.com/sndnv/media-kit.git"
+    source: git
+    version: "1.1.5"
   media_kit_video:
     dependency: "direct main"
     description:
-      name: media_kit_video
-      sha256: afaa509e7b7e0bf247557a3a740cde903a52c34ace9810f94500e127bd7b043d
-      url: "https://pub.dev"
-    source: hosted
+      path: media_kit_video
+      ref: "5c533691f0f1d75747b5cdad2456cc09de91ec9b"
+      resolved-ref: "5c533691f0f1d75747b5cdad2456cc09de91ec9b"
+      url: "https://github.com/sndnv/media-kit.git"
+    source: git
     version: "2.0.1"
   meta:
     dependency: transitive

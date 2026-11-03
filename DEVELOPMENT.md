@@ -64,11 +64,11 @@ The same codebase runs on the desktop with `flutter run -d macos` or `flutter ru
 desktop asks for the server address on first run and stores it on the device, so there is no
 `--dart-define` and no CORS to configure.
 
-Desktop prerequisites: CocoaPods on macOS (`brew install cocoapods`), and libmpv on Linux
-(`sudo apt install libmpv-dev mpv` on Debian and Ubuntu). Windows is not supported.
+Desktop prerequisites: Xcode on macOS, and libmpv on Linux (`sudo apt install libmpv-dev mpv` on
+Debian and Ubuntu). Windows is not supported.
 
 The same codebase runs on mobile with `flutter run -d android` or `flutter run -d ios`. Mobile
-prerequisites are the Android SDK, and Xcode plus CocoaPods for iOS. Mobile asks for the server
+prerequisites are the Android SDK, and Xcode for iOS. Mobile asks for the server
 address on first run and stores it on the device, so there is no `--dart-define` and no CORS to
 configure. A device can also be provisioned with a link code.
 

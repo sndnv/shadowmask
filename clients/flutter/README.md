@@ -34,9 +34,9 @@ release build does not, notably `Tooltip` when the window is resized while a too
 
 ### Platform prerequisites
 
-* macOS: CocoaPods, `brew install cocoapods`.
+* macOS: Xcode. Every plugin resolves through Swift Package Manager; CocoaPods is not used.
 * Linux: libmpv, `sudo apt install libmpv-dev mpv` on Debian and Ubuntu.
-* iOS: Xcode and CocoaPods.
+* iOS: Xcode.
 * Android: the Android SDK. `flutter build apk --release` needs the signing keystore held in CI, so
   build `--debug` locally.
 

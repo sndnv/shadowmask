@@ -38,6 +38,25 @@ dependencies:
   xdg_directories: ^1.1.0
   uuid: ^4.6.0
 
+dependency_overrides:
+  # Linux renders in software on Flutter 3.38+ (media-kit#1404);
+  # the fork is upstream main + PR media-kit#1466; drop once a release includes #1466
+  media_kit_video:
+    git:
+      url: https://github.com/sndnv/media-kit.git
+      ref: 5c533691f0f1d75747b5cdad2456cc09de91ec9b
+      path: media_kit_video
+  media_kit_libs_macos_video:
+    git:
+      url: https://github.com/sndnv/media-kit.git
+      ref: 5c533691f0f1d75747b5cdad2456cc09de91ec9b
+      path: libs/macos/media_kit_libs_macos_video
+  media_kit_libs_ios_video:
+    git:
+      url: https://github.com/sndnv/media-kit.git
+      ref: 5c533691f0f1d75747b5cdad2456cc09de91ec9b
+      path: libs/ios/media_kit_libs_ios_video
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
