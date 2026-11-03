@@ -78,6 +78,7 @@ sub init()
     m.announce = []
     m.settling = invalid
     m.workSource = ""
+    m.showDownloaded = invalid
     m.openChoice = ""
 
     m.video.notificationInterval = 1
@@ -427,7 +428,7 @@ sub onAction(event as object)
     RestartHide()
 end sub
 
-sub AskChoice(field as string, title as string, options as object, selected as integer, kind = "choice" as string, keep = false as boolean, busy = "" as string, message = "" as string)
+sub AskChoice(field as string, title as string, options as object, selected as integer, kind = "choice" as string, keep = false as boolean, busy = "" as string, message = "" as string, focus = -1 as integer)
     m.hide.control = "stop"
     m.choiceOptions = options
     m.openChoice = field
@@ -438,6 +439,7 @@ sub AskChoice(field as string, title as string, options as object, selected as i
         kind: kind,
         options: MenuOptions(options),
         selected: selected,
+        focus: focus,
         keep: keep,
         busy: busy
     }
@@ -581,6 +583,7 @@ sub onChoice()
     if ValueAt(result, "waiting", false) <> true then FocusBar()
     if result.cancelled
         m.workTask = invalid
+        m.showDownloaded = invalid
         if ReopenedSettingMenu(TextOrBlank(result.field)) then return
 
         RestartHide()
@@ -818,11 +821,20 @@ sub onSubtitleDownloaded(event as object)
 
     if not parsed.ok
         RaiseToast("err", parsed.error)
-    else
-        RaiseToast("ok", DownloadedNote(parsed.status))
-        RefreshVersion()
+        OpenWorkMenu()
+        return
     end if
-    OpenWorkMenu()
+
+    RaiseToast("ok", DownloadedNote(parsed.status))
+    m.showDownloaded = TextOrBlank(ValueAt(parsed.json, "id", ""))
+    RefreshVersion()
+end sub
+
+sub OpenDownloaded(id as string)
+    m.settingMenu = "subsMenu"
+    options = SubtitleOptions(m.version)
+    playing = IndexOfSubtitle(options, PlaybackControls())
+    AskChoice("subtitle", Phrase("heading.subtitles"), options, playing, "choice", false, "", "", DownloadedSubtitleIndex(options, id, playing))
 end sub
 
 sub StartWork()
@@ -843,6 +855,7 @@ sub ForgetWork()
     m.jobsLoaded = false
     m.announce = []
     m.settling = invalid
+    m.showDownloaded = invalid
 end sub
 
 sub ScheduleJobs(wanted as boolean)
@@ -899,9 +912,12 @@ sub onVersionRefreshed(event as object)
 
     settling = m.settling
     m.settling = invalid
+    downloaded = m.showDownloaded
+    m.showDownloaded = invalid
     if not parsed.ok or m.version = invalid
         m.announce = []
         ScheduleJobs(settling <> invalid)
+        if downloaded <> invalid then OpenWorkMenu()
         return
     end if
 
@@ -913,6 +929,7 @@ sub onVersionRefreshed(event as object)
     end for
     m.announce = []
     RefreshOpenMenu()
+    if downloaded <> invalid then OpenDownloaded(downloaded)
     ScheduleJobs(settling <> invalid and AwaitedWork(m.jobs))
 end sub
 

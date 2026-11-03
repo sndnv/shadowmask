@@ -196,7 +196,11 @@ function SeasonBackdropCandidates(season as dynamic) as object
 end function
 
 function CastArtworkWindow() as integer
-    return 10
+    return CastArtworkWindowFor(ContentWidth(), CastCardWidth(), SpacingScale().s4)
+end function
+
+function CastArtworkWindowFor(width as integer, cardWidth as integer, gap as integer) as integer
+    return ColumnsThatFit(width, cardWidth, gap) + 1 + CastArtworkLookahead()
 end function
 
 function CastArtworkLookahead() as integer
@@ -1254,6 +1258,12 @@ function DialogStartIndex(request as dynamic, open as boolean, field as string, 
         if found >= 0 then asked = found
     end if
     return ClampInt(asked, 0, count - 1)
+end function
+
+function DialogFocusIndex(request as dynamic, selected as integer, count as integer) as integer
+    asked = Int(ValueAt(request, "focus", -1))
+    if asked < 0 or asked >= count then return selected
+    return asked
 end function
 
 function OptionIndex(options as dynamic, label as string, near as integer) as integer

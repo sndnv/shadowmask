@@ -1087,6 +1087,12 @@ namespace tests
 
         @describe("cast artwork windows")
 
+        @it("covers every cast card on screen, the one cut off too, and the lookahead")
+        sub coversTheCastOnScreen()
+            m.assertEqual(CastArtworkWindowFor(1766, 121, 20), 17)
+            m.assertEqual(CastArtworkWindowFor(1766, 97, 16), 20)
+        end sub
+
         @it("asks for the next window only once focus comes within the lookahead")
         sub pullsTheNextCastWindow()
             m.assertFalse(CastArtworkWanted(10, 0, 30))

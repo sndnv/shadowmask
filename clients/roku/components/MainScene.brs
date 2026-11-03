@@ -72,7 +72,7 @@ end sub
 sub PublishSession()
     shared = m.global
     if not shared.HasField("serverUrl")
-        shared.AddFields({ serverUrl: "", token: "", userId: "", username: "", role: "", accountRole: "", theme: {}, decoding: {}, profileVersion: 0, negotiated: {}, lowMemory: 0, captionMode: "", sessionId: "", endsQueued: 0, endsDone: 0, deepLink: {}, childAge: -1, fonts: {} })
+        shared.AddFields({ serverUrl: "", token: "", userId: "", username: "", role: "", accountRole: "", theme: {}, decoding: {}, profileVersion: 0, negotiated: {}, lowMemory: 0, captionMode: "", sessionId: "", endsQueued: 0, endsDone: 0, deepLink: {}, childAge: -1, fonts: {}, fontRegistryRefused: false })
     end if
 
     if ActiveFonts().Count() > 0 then shared.fonts = {}

@@ -206,6 +206,13 @@ function ProviderSubtitleId(version as dynamic, fileId as dynamic) as string
     return "opensubtitles:" + TextOrBlank(ValueAt(version, "id", "")) + ":" + file
 end function
 
+function DownloadedSubtitleIndex(options as dynamic, id as string, fallback as integer) as integer
+    if IsBlank(id) then return fallback
+    found = IndexOfSubtitle(options, { subtitle: { type: "file", id: id } })
+    if found > 0 then return found
+    return fallback
+end function
+
 function HeldSubtitleIds(version as dynamic) as object
     held = {}
     held.SetModeCaseSensitive()

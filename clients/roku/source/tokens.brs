@@ -418,8 +418,12 @@ sub LoadFontRegistry()
     m.smFontFamilies = {}
     m.smFonts = {}
 
+    if FontRegistryRefused(m.global) then return
     registry = CreateObject("roFontRegistry")
-    if registry = invalid then return
+    if registry = invalid
+        NoteFontRegistryRefused(m.global)
+        return
+    end if
 
     for each uri in [FontUri(), BoldFontUri()]
         if not IsBlank(uri) then registry.Register(uri)
@@ -434,6 +438,17 @@ sub LoadFontRegistry()
     end if
 
     m.smFontRegistry = registry
+end sub
+
+function FontRegistryRefused(shared as dynamic) as boolean
+    if shared = invalid then return false
+    if not shared.HasField("fontRegistryRefused") then return false
+    return shared.fontRegistryRefused = true
+end function
+
+sub NoteFontRegistryRefused(shared as dynamic)
+    if shared = invalid then return
+    if shared.HasField("fontRegistryRefused") then shared.fontRegistryRefused = true
 end sub
 
 function FontFamilyFor(bold as boolean) as string
