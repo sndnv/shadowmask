@@ -82,6 +82,7 @@ sub render()
     if IsBlank(m.id)
         m.kind = TextOrBlank(ValueAt(target, "kind", "movie"))
         m.id = TextOrBlank(ValueAt(target, "id", ""))
+        m.top.section = TitleSection(m.kind)
     end if
 
     Layout()
@@ -125,13 +126,9 @@ end sub
 
 function CrumbList() as object
     section = Phrase("nav.movies")
-    screen = "MoviesScreen"
-    if m.kind = "series"
-        section = Phrase("nav.series")
-        screen = "SeriesScreen"
-    end if
+    if m.kind = "series" then section = Phrase("nav.series")
 
-    return [{ label: section, screen: screen, target: invalid }, { label: TitleText() }]
+    return [{ label: section, screen: TitleSection(m.kind), target: invalid }, { label: TitleText() }]
 end function
 
 function HeroContent() as object

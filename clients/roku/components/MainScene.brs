@@ -493,7 +493,10 @@ sub onNavSelected()
         return
     end if
 
-    staying = SectionFor(m.stack.Peek()) = target
+    top = m.stack.Peek()
+    shown = ""
+    if top <> invalid then shown = top.subtype()
+    staying = NavStays(shown, target)
     HideRail(staying)
     if staying then return
 

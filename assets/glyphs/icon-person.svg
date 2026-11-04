@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Account">
+    <g fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="24" cy="15" r="7.5"/>
+        <path d="M9 41 C9 34 16 29 24 29 C32 29 39 34 39 41 Z"/>
+    </g>
+</svg>

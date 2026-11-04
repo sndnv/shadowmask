@@ -60,7 +60,7 @@ for chevron in left right up down; do
     rsvg-convert -w 44 -h 44 "$glyphs/chevron-$chevron.svg" -o "$roku/chevron-$chevron.png"
 done
 
-for icon in check close play pause previous next subtitles audio quality settings replay search bookmark bookmark-on heart heart-on shuffle trash sort filter library download; do
+for icon in check close play pause previous next subtitles audio quality settings replay search bookmark bookmark-on heart heart-on shuffle trash sort filter library download home home-on movie movie-on tv collections collections-on person person-on; do
     rsvg-convert -w 40 -h 40 "$glyphs/icon-$icon.svg" -o "$roku/icon-$icon.png"
 done
 

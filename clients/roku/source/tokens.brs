@@ -292,6 +292,15 @@ function NavPanelColor(theme as object) as string
     return WithAlpha(theme.surface, "E6")
 end function
 
+function NavRowLit(focusPercent as float, listHasFocus as boolean) as boolean
+    return listHasFocus and focusPercent > 0.5
+end function
+
+function NavRowLook(theme as object, lit as boolean) as object
+    if lit then return { color: theme.accentContrast, bold: true }
+    return { color: theme.muted, bold: false }
+end function
+
 function NavHintSize() as integer
     return SpacingScale().s8
 end function

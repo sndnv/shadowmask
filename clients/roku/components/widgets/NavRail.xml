@@ -26,7 +26,7 @@
         <field id="theme" type="assocarray" onChange="render" />
         <field id="railWidth" type="float" value="380" onChange="render" />
         <field id="inset" type="boolean" value="false" onChange="render" />
-        <field id="section" type="string" onChange="ApplySection" />
+        <field id="section" type="string" alwaysNotify="true" onChange="RefreshContent" />
         <field id="identity" type="string" onChange="RefreshContent" />
         <field id="selected" type="string" alwaysNotify="true" />
         <field id="dismissed" type="boolean" alwaysNotify="true" />
@@ -35,7 +35,7 @@
     <children>
         <RoundedBox id="panel" />
         <Poster id="brand" />
-        <LabelList id="list" />
+        <MarkupList id="list" itemComponentName="NavItem" />
         <Label id="identity" />
     </children>
 </component>

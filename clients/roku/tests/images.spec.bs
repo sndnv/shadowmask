@@ -3,6 +3,54 @@ namespace tests
     @suite("images")
     class ImageTests extends rooibos.BaseTestSuite
 
+        @describe("nav rows")
+
+        @it("outlines each nav destination's Flutter icon and fills it for the current section")
+        sub navIconsMatchFlutter()
+            wanted = {
+                HomeScreen: ["icon-home", "icon-home-on"],
+                MoviesScreen: ["icon-movie", "icon-movie-on"],
+                SeriesScreen: ["icon-tv", "icon-tv"],
+                CollectionsScreen: ["icon-collections", "icon-collections-on"],
+                SearchScreen: ["icon-search", "icon-search"],
+                AccountScreen: ["icon-person", "icon-person-on"]
+            }
+            destinations = NavDestinations()
+
+            m.assertEqual(destinations.Count(), wanted.Count())
+            for each destination in destinations
+                pair = wanted[destination.id]
+                m.assertEqual(NavIconUri(destination, false), "pkg:/images/" + pair[0] + ".png")
+                m.assertEqual(NavIconUri(destination, true), "pkg:/images/" + pair[1] + ".png")
+            end for
+        end sub
+
+        @it("counts a title page as Movies or Series, as Flutter does")
+        sub titlePageCountsAsItsSection()
+            m.assertEqual(TitleSection("movie"), "MoviesScreen")
+            m.assertEqual(TitleSection("series"), "SeriesScreen")
+            m.assertEqual(TitleSection(""), "MoviesScreen")
+            m.assertEqual(NavDestinations()[NavIndexFor(TitleSection("series"))].id, "SeriesScreen")
+        end sub
+
+        @it("stays put only on the picked section's own list, and opens that list from a page counted under it")
+        sub navStaysOnlyOnTheList()
+            m.assertTrue(NavStays("SeriesScreen", "SeriesScreen"), "picking Series on the Series list leaves it")
+            m.assertFalse(NavStays("SeasonScreen", "SeriesScreen"), "picking Series on a season page stays there")
+            m.assertFalse(NavStays("TitleScreen", "MoviesScreen"), "picking Movies on a movie's page stays there")
+            m.assertFalse(NavStays("CollectionScreen", "CollectionsScreen"), "picking Collections on a collection stays there")
+            m.assertFalse(NavStays("", "HomeScreen"), "an empty stack stays")
+        end sub
+
+        @it("finds a section's row, and the first row for a section the menu does not list")
+        sub navIndexFindsTheRow()
+            destinations = NavDestinations()
+            for index = 0 to destinations.Count() - 1
+                m.assertEqual(NavIndexFor(destinations[index].id), index)
+            end for
+            m.assertEqual(NavIndexFor("TitleScreen"), 0)
+        end sub
+
         @describe("NearestWidth")
 
         @it("takes the exact width when the server has it")
