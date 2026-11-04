@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Movies">
+    <g fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="6" y="9" width="36" height="30" rx="3"/>
+        <path d="M6 19 H42 M14 9 L18 19 M24 9 L28 19 M34 9 L38 19"/>
+    </g>
+</svg>

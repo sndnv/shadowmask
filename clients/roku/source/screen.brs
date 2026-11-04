@@ -158,6 +158,34 @@ function HandledUnauthorised(top as object, status as integer) as boolean
     return true
 end function
 
+function NavDestinations() as object
+    return [
+        { id: "HomeScreen", label: Phrase("nav.home"), icon: "home", iconOn: "home-on" },
+        { id: "MoviesScreen", label: Phrase("nav.movies"), icon: "movie", iconOn: "movie-on" },
+        { id: "SeriesScreen", label: Phrase("nav.series"), icon: "tv", iconOn: "tv" },
+        { id: "CollectionsScreen", label: Phrase("nav.collections"), icon: "collections", iconOn: "collections-on" },
+        { id: "SearchScreen", label: Phrase("nav.search"), icon: "search", iconOn: "search" },
+        { id: "AccountScreen", label: Phrase("nav.account"), icon: "person", iconOn: "person-on" }
+    ]
+end function
+
+function NavStays(shown as string, target as string) as boolean
+    return not IsBlank(shown) and shown = target
+end function
+
+function TitleSection(kind as string) as string
+    if kind = "series" then return "SeriesScreen"
+    return "MoviesScreen"
+end function
+
+function NavIndexFor(section as string) as integer
+    destinations = NavDestinations()
+    for index = 0 to destinations.Count() - 1
+        if destinations[index].id = section then return index
+    end for
+    return 0
+end function
+
 function CrumbHeight() as integer
     return LinkControlHeight() + SpacingScale().s2
 end function

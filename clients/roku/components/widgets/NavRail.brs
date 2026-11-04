@@ -8,25 +8,6 @@ sub init()
     m.top.ObserveField("focusedChild", "onFocus")
 end sub
 
-function NavDestinations() as object
-    return [
-        { id: "HomeScreen", label: Phrase("nav.home") },
-        { id: "MoviesScreen", label: Phrase("nav.movies") },
-        { id: "SeriesScreen", label: Phrase("nav.series") },
-        { id: "CollectionsScreen", label: Phrase("nav.collections") },
-        { id: "SearchScreen", label: Phrase("nav.search") },
-        { id: "AccountScreen", label: Phrase("nav.account") }
-    ]
-end function
-
-function NavIndexFor(section as string) as integer
-    destinations = NavDestinations()
-    for index = 0 to destinations.Count() - 1
-        if destinations[index].id = section then return index
-    end for
-    return 0
-end function
-
 sub render()
     theme = m.top.theme
     if theme = invalid or theme.Count() = 0 then return
@@ -51,10 +32,6 @@ sub render()
     m.list.itemSize = [width - space.s5 * 2, rowHeight]
     m.list.numRows = NavDestinations().Count()
     m.list.translation = [space.s5, space.s6 + space.s8 + space.s6]
-    m.list.font = SizedFont(sizes.textLg)
-    m.list.color = theme.muted
-    m.list.focusedColor = theme.accentContrast
-    m.list.focusedFont = SizedBoldFont(sizes.textLg)
     m.list.focusBitmapBlendColor = theme.accent
     m.list.vertFocusAnimationStyle = "fixedFocusWrap"
 
@@ -73,6 +50,7 @@ sub RefreshContent()
     for each destination in NavDestinations()
         row = root.CreateChild("ContentNode")
         row.title = destination.label
+        row.AddFields({ navIcon: NavIconUri(destination, destination.id = m.top.section) })
     end for
     m.list.content = root
 

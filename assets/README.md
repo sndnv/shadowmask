@@ -114,6 +114,11 @@ because each platform masks differently.
   The order chip takes `chevron-up` or `chevron-down` depending on which way it runs, and the random
   chip takes `icon-shuffle`, so those two need no artwork of their own. Authored here for the same
   licence reason as the rest.
+- `glyphs/icon-{home,movie,collections,person}{,-on}.svg` and `glyphs/icon-tv.svg` - the Roku nav
+  menu's icons, ported from Flutter's `nav_destinations.dart` (Account's from `shell_bottom_nav.dart`):
+  the outline on every row, the filled `-on` form on the current section's. Material's TV and search
+  are the same shape outlined and filled, so `icon-tv` and `icon-search` have no `-on` form. Authored
+  here for the same licence reason as the rest.
 - `glyphs/icon-{check,close,play,search,bookmark,bookmark-on,heart,heart-on}.svg` - the control
   icons behind the Roku action bar. The `-on` variants are the filled forms, matching the
   `icon` / `filledIcon` pair in `toggle_button.dart`: outline when the toggle is off, filled when it
@@ -209,6 +214,8 @@ brand SVG changes, then refresh.
 | `clients/roku`    | `icons/roku/icon-{check,close,play,search}.png`             | `images/`                                                      |
 | `clients/roku`    | `icons/roku/icon-{bookmark,bookmark-on,heart,heart-on}.png` | `images/`                                                      |
 | `clients/roku`    | `icons/roku/icon-shuffle.png`                               | `images/icon-shuffle.png`                                      |
+| `clients/roku`    | `icons/roku/icon-{home,movie,collections,person}{,-on}.png` | `images/`                                                      |
+| `clients/roku`    | `icons/roku/icon-tv.png`                                    | `images/icon-tv.png`                                           |
 | `clients/roku`    | `icons/roku/chip-cap-{left,right}.png`                      | `images/`                                                      |
 | `clients/roku`    | `icons/roku/chip-cap-{left,right}-line.png`                 | `images/`                                                      |
 | `clients/roku`    | `icons/roku/button-{fill,line}.9.png`                       | `images/`                                                      |

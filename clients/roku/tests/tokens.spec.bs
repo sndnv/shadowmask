@@ -423,6 +423,30 @@ namespace tests
             end for
         end sub
 
+        @it("lights a menu row only while it holds the focus and the menu has it")
+        sub rowLightsWithFocus()
+            m.assertTrue(NavRowLit(1.0, true), "the focused row of a focused menu is not lit")
+            m.assertFalse(NavRowLit(1.0, false), "a row is lit while the menu has no focus")
+            m.assertFalse(NavRowLit(0.5, true), "a row half way through the focus move is lit")
+            m.assertTrue(NavRowLit(0.51, true), "a row past half way through the focus move is not lit")
+            m.assertFalse(NavRowLit(0.0, true), "an unfocused row is lit")
+        end sub
+
+        @it("draws a lit menu row bold on the accent's contrast colour, the others regular and muted")
+        sub rowLook()
+            for each name in ThemeNames()
+                theme = ThemeTokens(name)
+
+                lit = NavRowLook(theme, true)
+                m.assertEqual(lit.color, theme.accentContrast)
+                m.assertTrue(lit.bold, "a lit row is not bold")
+
+                plain = NavRowLook(theme, false)
+                m.assertEqual(plain.color, theme.muted)
+                m.assertFalse(plain.bold, "a row that is not lit is bold")
+            end for
+        end sub
+
     end class
 
 end namespace

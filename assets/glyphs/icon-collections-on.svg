@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Collections, current">
+    <mask id="sm-collections-on">
+        <rect width="48" height="48" fill="#000000"/>
+        <rect x="11" y="4" width="33" height="33" rx="4" fill="#ffffff"/>
+        <path d="M27 4 V22 L32 18.5 L37 22 V4 Z" fill="#000000"/>
+        <path d="M6 14 V40 Q6 42 8 42 H34" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    </mask>
+
+    <rect width="48" height="48" fill="#ffffff" mask="url(#sm-collections-on)"/>
+</svg>

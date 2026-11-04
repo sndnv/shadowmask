@@ -70,6 +70,11 @@ function ControlIconSize() as integer
     return Px(40)
 end function
 
+function NavIconUri(destination as object, current as boolean) as string
+    if current then return ControlIconUri(destination.iconOn)
+    return ControlIconUri(destination.icon)
+end function
+
 function InlineIconSize() as integer
     return Px(30)
 end function
