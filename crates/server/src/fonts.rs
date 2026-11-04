@@ -13,6 +13,8 @@ struct Manifest {
     regular: String,
     medium: String,
     license: String,
+    italic: Option<String>,
+    italic_license: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -45,12 +47,22 @@ fn read(dir: &Path) -> Result<FontSet, FontsError> {
     let text = std::fs::read_to_string(dir.join(MANIFEST))
         .map_err(|error| FontsError::Io(MANIFEST.to_owned(), error))?;
     let manifest: Manifest = serde_json::from_str(&text)?;
-    Ok(FontSet {
-        name: manifest.name,
-        regular: file(dir, &manifest.regular)?,
-        medium: file(dir, &manifest.medium)?,
-        license: file(dir, &manifest.license)?,
-    })
+    let regular = file(dir, &manifest.regular)?;
+    let medium = file(dir, &manifest.medium)?;
+    let license = file(dir, &manifest.license)?;
+    let (italic, italic_license) = italic(dir, &manifest).unzip();
+    Ok(FontSet { name: manifest.name, regular, medium, license, italic, italic_license })
+}
+
+fn italic(dir: &Path, manifest: &Manifest) -> Option<(FontFile, FontFile)> {
+    let (font, license) = (manifest.italic.as_deref()?, manifest.italic_license.as_deref()?);
+    match file(dir, font).and_then(|font| file(dir, license).map(|license| (font, license))) {
+        Ok(pair) => Some(pair),
+        Err(error) => {
+            tracing::warn!("Not serving the italic font in [{}]: {error}", dir.display());
+            None
+        }
+    }
 }
 
 fn file(dir: &Path, name: &str) -> Result<FontFile, FontsError> {
@@ -117,6 +129,57 @@ mod tests {
 
         assert!(load(dir.path()).is_none());
         assert!(logs_contain("Medium.otf"));
+    }
+
+    const ITALIC: &str = r#"{"name":"Noto Sans CJK SC","regular":"Regular.otf","medium":"Medium.otf","license":"LICENSE","italic":"Italic.ttf","italic_license":"LICENSE-Italic"}"#;
+
+    fn italic_folder(manifest: &str) -> tempfile::TempDir {
+        let dir = folder(manifest);
+        for name in ["Italic.ttf", "LICENSE-Italic"] {
+            std::fs::write(dir.path().join(name), "abc").unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn names_the_italic_pair_when_the_manifest_lists_it() {
+        let fonts = load(italic_folder(ITALIC).path()).unwrap();
+
+        let italic = fonts.italic.unwrap();
+        assert_eq!(italic.url, "/fonts/Italic.ttf");
+        assert_eq!(italic.size, 3);
+        assert_eq!(fonts.italic_license.unwrap().sha256, SHA256_OF_ABC);
+    }
+
+    #[test]
+    fn serves_no_italic_when_the_manifest_lists_none_or_half_the_pair() {
+        let half = ITALIC.replace(r#","italic_license":"LICENSE-Italic""#, "");
+
+        for manifest in [VALID, half.as_str()] {
+            let fonts = load(italic_folder(manifest).path()).unwrap();
+
+            assert_eq!(fonts.italic, None, "{manifest}");
+            assert_eq!(fonts.italic_license, None, "{manifest}");
+        }
+    }
+
+    #[test]
+    #[traced_test]
+    fn serves_the_rest_without_italic_when_an_italic_file_is_missing() {
+        for missing in ["Italic.ttf", "LICENSE-Italic"] {
+            let dir = italic_folder(ITALIC);
+            std::fs::remove_file(dir.path().join(missing)).unwrap();
+
+            let fonts = load(dir.path()).unwrap();
+
+            assert_eq!(fonts.regular.url, "/fonts/Regular.otf");
+            assert_eq!(fonts.italic, None, "{missing}");
+            assert_eq!(fonts.italic_license, None, "{missing}");
+            assert!(logs_contain(&format!(
+                "Not serving the italic font in [{}]: {missing}",
+                dir.path().display()
+            )));
+        }
     }
 
     #[test]

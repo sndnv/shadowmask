@@ -1034,7 +1034,7 @@ sub onAboutAction(event as object)
     if TextOrBlank(event.GetData()) <> "viewLicenses" then return
 
     title = FontSetName()
-    text = FontLicenseText()
+    text = FontLicensesText()
     if IsBlank(title) or IsBlank(text)
         title = Phrase("about.systemFont")
         text = Phrase("about.systemFontBody")

@@ -590,6 +590,14 @@ function SizedBoldFont(size as float) as object
     return CachedFont("medium", size)
 end function
 
+function SizedItalicFont(size as float) as object
+    return CachedFont("italic", size)
+end function
+
+function ItalicFontReady() as boolean
+    return not IsBlank(FontPathIn(ActiveFonts(), "italic"))
+end function
+
 function CachedFont(role as string, size as float) as object
     if not m.DoesExist("smFontNodes") then m.smFontNodes = {}
     WatchFonts()
@@ -670,6 +678,10 @@ function FontRoles() as object
     return ["regular", "medium", "license"]
 end function
 
+function ItalicFontRoles() as object
+    return ["italic", "italic_license"]
+end function
+
 function FontTimeoutSeconds() as integer
     return 300
 end function
@@ -696,8 +708,17 @@ function FontDownloads(fonts as dynamic, base as string) as dynamic
     name = TextOrBlank(ValueAt(fonts, "name", ""))
     if IsBlank(name) then return invalid
 
+    files = FontRoleDownloads(fonts, FontRoles(), base)
+    if files = invalid then return invalid
+
+    italic = FontRoleDownloads(fonts, ItalicFontRoles(), base)
+    if italic <> invalid then files.Append(italic)
+    return { name: name, files: files }
+end function
+
+function FontRoleDownloads(fonts as object, roles as object, base as string) as dynamic
     files = []
-    for each role in FontRoles()
+    for each role in roles
         file = ValueAt(fonts, role, invalid)
         path = FontCachePath(file)
         url = TextOrBlank(ValueAt(file, "url", ""))
@@ -705,8 +726,7 @@ function FontDownloads(fonts as dynamic, base as string) as dynamic
         if IsBlank(path) or Left(url, 1) <> "/" or not IsNumber(size) then return invalid
         files.Push({ role: role, url: JoinUrl(base, url), path: path, size: size })
     end for
-
-    return { name: name, files: files }
+    return files
 end function
 
 function ActiveFontsFrom(plan as object) as object

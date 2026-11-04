@@ -2,5 +2,7 @@
   "name": "Noto Sans CJK SC",
   "regular": "NotoSansCJKsc-Regular.otf",
   "medium": "NotoSansCJKsc-Medium.otf",
-  "license": "LICENSE"
+  "license": "LICENSE",
+  "italic": "NotoSans-Italic.ttf",
+  "italic_license": "LICENSE-NotoSans"
 }

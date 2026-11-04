@@ -152,7 +152,8 @@ function PlaybackStreamReplaced(stream as object, json as dynamic) as object
         sequential: ValueAt(json, "sequential", false) = true,
         mode: TextOrBlank(ValueAt(json, "mode", "")),
         container: TextOrBlank(ValueAt(json, "container", "")),
-        audioChannels: Int(ValueAt(json, "audio_channels", 0))
+        audioChannels: Int(ValueAt(json, "audio_channels", 0)),
+        subtitleUrl: TextOrBlank(ValueAt(json, "selected.subtitle_url", ""))
     })
 end function
 

@@ -2,6 +2,7 @@
 <component name="WatchScreen" extends="Group">
     <script type="text/brightscript" uri="pkg:/components/screens/WatchScreen.brs" />
     <script type="text/brightscript" uri="pkg:/components/screens/WatchRunner.brs" />
+    <script type="text/brightscript" uri="pkg:/components/screens/WatchSubtitles.brs" />
     <script type="text/brightscript" uri="pkg:/components/Timers.brs" />
     <script type="text/brightscript" uri="pkg:/components/api/Http.brs" />
     <script type="text/brightscript" uri="pkg:/source/util.brs" />
@@ -24,6 +25,7 @@
     <script type="text/brightscript" uri="pkg:/source/languages.brs" />
     <script type="text/brightscript" uri="pkg:/source/work.brs" />
     <script type="text/brightscript" uri="pkg:/source/report.brs" />
+    <script type="text/brightscript" uri="pkg:/source/subtitles.brs" />
 
     <interface>
         <field id="theme" type="assocarray" onChange="render" />
@@ -48,6 +50,7 @@
             <Poster id="pausedDisc" />
             <Poster id="pausedGlyph" />
         </Group>
+        <SubtitleView id="subtitles" />
         <Group id="header" visible="false">
             <Rectangle id="headerScrim" />
             <Label id="barTitle" />
@@ -77,5 +80,6 @@
         <Timer id="hold" repeat="true" />
         <Timer id="watchdog" repeat="true" />
         <Timer id="jobs" repeat="false" />
+        <Timer id="subtitleTick" repeat="true" />
     </children>
 </component>

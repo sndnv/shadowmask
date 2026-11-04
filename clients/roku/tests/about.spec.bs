@@ -57,5 +57,17 @@ namespace tests
         sub survivesAMissingFile()
             m.assertEqual(FontLicenseText("cachefs:/fonts/does-not-exist.txt"), "")
         end sub
+
+        @describe("FontLicensesText")
+
+        @it("shows the set's licence, then the italic font's when it has one")
+        sub showsBothLicences()
+            one = FontLicenseText("pkg:/manifest")
+
+            m.assertEqual(FontLicensesText({ license: "pkg:/manifest" }), one)
+            m.assertEqual(FontLicensesText({ license: "pkg:/manifest", italic_license: "pkg:/manifest" }), one + Chr(10) + Chr(10) + one)
+            m.assertEqual(FontLicensesText({ license: "pkg:/manifest", italic_license: "cachefs:/fonts/does-not-exist.txt" }), one)
+            m.assertEqual(FontLicensesText({}), "")
+        end sub
     end class
 end namespace

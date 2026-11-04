@@ -271,6 +271,42 @@ namespace tests
             m.assertInvalid(FontDownloads(elsewhere, "http://h"))
         end sub
 
+        @it("plans the italic pair after the set when the server serves both")
+        sub plansTheItalicPair()
+            plan = FontDownloads(m.ItalicFonts(), "http://h")
+
+            m.assertEqual(plan.files.Count(), 5)
+            m.assertEqual(plan.files[3].role, "italic")
+            m.assertEqual(plan.files[3].url, "http://h/fonts/NotoSans-Italic.ttf")
+            m.assertEqual(plan.files[3].path, "cachefs:/fonts/" + String(64, "d") + ".ttf")
+            m.assertEqual(plan.files[4].role, "italic_license")
+
+            fonts = ActiveFontsFrom(plan)
+            m.assertEqual(fonts.italic, "cachefs:/fonts/" + String(64, "d") + ".ttf")
+            m.assertEqual(fonts.italic_license, "cachefs:/fonts/" + String(64, "e"))
+        end sub
+
+        @it("plans the set without italic when the pair is incomplete or unusable")
+        sub plansWithoutABrokenItalicPair()
+            half = m.ItalicFonts()
+            half.Delete("italic_license")
+
+            unhashed = m.ItalicFonts()
+            unhashed.italic.sha256 = "abc"
+
+            elsewhere = m.ItalicFonts()
+            elsewhere.italic_license.url = "http://elsewhere/LICENSE"
+
+            unsent = m.ItalicFonts()
+            unsent.italic = invalid
+
+            for each fonts in [half, unhashed, elsewhere, unsent]
+                plan = FontDownloads(fonts, "http://h")
+                m.assertEqual(plan.files.Count(), 3)
+                m.assertFalse(ActiveFontsFrom(plan).DoesExist("italic"))
+            end for
+        end sub
+
         @it("publishes each role's saved path under the set's name")
         sub publishesTheSavedPaths()
             fonts = ActiveFontsFrom(FontDownloads(m.ServedFonts(), "http://h"))
@@ -299,6 +335,13 @@ namespace tests
                 medium: { url: "/fonts/Medium.otf", size: 16523632, sha256: String(64, "b") },
                 license: { url: "/fonts/LICENSE", size: 4301, sha256: String(64, "c") }
             }
+        end function
+
+        function ItalicFonts() as object
+            fonts = m.ServedFonts()
+            fonts.italic = { url: "/fonts/NotoSans-Italic.ttf", size: 639124, sha256: String(64, "d") }
+            fonts.italic_license = { url: "/fonts/LICENSE-NotoSans", size: 4400, sha256: String(64, "e") }
+            return fonts
         end function
 
         @describe("high contrast")

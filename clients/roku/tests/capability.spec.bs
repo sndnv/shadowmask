@@ -356,11 +356,11 @@ namespace tests
             m.assertFalse(CapabilitiesBody(invalid, 1).DoesExist("decoding"))
         end sub
 
-        @it("takes its subtitles from the stream, and leaves the audio track to the server")
+        @it("takes its subtitles as a file it draws, and leaves the audio track to the server")
         sub declaresSubtitleDeliveries()
             body = CapabilitiesBody({}, 1)
 
-            m.assertEqual(body.subtitle_deliveries, ["hls_vtt"])
+            m.assertEqual(body.subtitle_deliveries, ["external"])
             m.assertFalse(body.DoesExist("audio_tracks"))
         end sub
 

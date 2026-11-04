@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 domain.workspace = true
+regex.workspace = true
 subtp = "0.2"
 tokio = { workspace = true, features = ["fs", "rt"] }
 tracing.workspace = true

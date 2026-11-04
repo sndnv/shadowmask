@@ -16,6 +16,7 @@ credited from the *Third-party content* section of the
 | hls.js, bundled by the basic web client | `/usr/share/shadowmask/basic/vendor/hls.js.LICENSE.txt` |
 | hash-wasm, bundled by the basic web client | `/usr/share/shadowmask/basic/vendor/hash-wasm.LICENSE.txt` |
 | Noto Sans CJK SC, served to the Roku | `/usr/share/shadowmask/fonts/LICENSE` |
+| Noto Sans Italic, served to the Roku | `/usr/share/shadowmask/fonts/LICENSE-NotoSans` |
 | C++ source vendored into the binary, `-enrichment` image only | `/usr/share/doc/shadowmask/third-party-licenses/` |
 
 Nothing has to be fetched from the network. The Debian copyright files are present because
@@ -69,6 +70,15 @@ Regular and Medium, downloaded from [noto-cjk](https://github.com/notofonts/noto
 commit and checked against their SHA-256 at build time. Served unmodified at `/fonts/` for the Roku
 client to download. Licensed under the SIL Open Font License 1.1; the licence travels with the
 fonts as `LICENSE`.
+
+## Noto Sans Italic
+
+The Roku's italic subtitle lines. Downloaded from
+[notofonts.github.io](https://github.com/notofonts/notofonts.github.io) (the hinted TTF) and its
+licence from [latin-greek-cyrillic](https://github.com/notofonts/latin-greek-cyrillic), each at a
+pinned commit and checked against its SHA-256 at build time. Served unmodified at `/fonts/`.
+Licensed under the SIL Open Font License 1.1; the licence travels with the font as
+`LICENSE-NotoSans`.
 
 ## The enrichment image
 

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="SubtitleTask" extends="Task">
+    <script type="text/brightscript" uri="pkg:/components/api/SubtitleTask.brs" />
+    <script type="text/brightscript" uri="pkg:/source/util.brs" />
+    <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
+    <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/about.brs" />
+    <script type="text/brightscript" uri="pkg:/source/format.brs" />
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/source/cards.brs" />
+    <script type="text/brightscript" uri="pkg:/source/images.brs" />
+    <script type="text/brightscript" uri="pkg:/source/catalog.brs" />
+    <script type="text/brightscript" uri="pkg:/source/state.brs" />
+    <script type="text/brightscript" uri="pkg:/source/detail.brs" />
+    <script type="text/brightscript" uri="pkg:/source/prefs.brs" />
+    <script type="text/brightscript" uri="pkg:/source/session.brs" />
+    <script type="text/brightscript" uri="pkg:/source/screen.brs" />
+    <script type="text/brightscript" uri="pkg:/source/capability.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playbackstate.brs" />
+    <script type="text/brightscript" uri="pkg:/source/languages.brs" />
+    <script type="text/brightscript" uri="pkg:/source/work.brs" />
+    <script type="text/brightscript" uri="pkg:/source/report.brs" />
+    <script type="text/brightscript" uri="pkg:/source/subtitles.brs" />
+
+    <interface>
+        <field id="job" type="assocarray" />
+        <field id="result" type="assocarray" />
+    </interface>
+</component>

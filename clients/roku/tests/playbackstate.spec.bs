@@ -725,6 +725,24 @@ namespace tests
             m.assertEqual(cleared.state.stream.subtitleDelivery, "")
         end sub
 
+        @it("keeps the subtitle file the server names, start, update and seek alike")
+        sub keepsSubtitleUrl()
+            started = PlaybackStreamOf({ session_id: "s1", manifest_url: "/stream/t1/file", selected: { subtitle_delivery: "external", subtitle_url: "/stream/t1/subtitles.vtt" } })
+            m.assertEqual(started.subtitleUrl, "/stream/t1/subtitles.vtt")
+            m.assertEqual(PlaybackStreamOf({ session_id: "s1", manifest_url: "/stream/t1/file" }).subtitleUrl, "")
+
+            s = m.changed(m.watching()).state
+            json = { manifest_url: "/stream/t2/file", mode: "direct", selected: { subtitle_delivery: "external", subtitle_url: "/stream/t2/subtitles.vtt" } }
+            m.assertEqual(m.stepped(s, { kind: "updated", id: 2, json: json }).state.stream.subtitleUrl, "/stream/t2/subtitles.vtt")
+
+            json = { manifest_url: "/stream/t3/file", mode: "direct", selected: {} }
+            m.assertEqual(m.stepped(m.changed(m.watching()).state, { kind: "updated", id: 2, json: json }).state.stream.subtitleUrl, "")
+
+            s = m.stepped(m.watching(), { kind: "seek", positionMs: 300000 }).state
+            json = { manifest_url: "/hls/s1/b.m3u8", origin_ms: 300000, sequential: true, mode: "transcode", container: "mpegts", selected: { subtitle_delivery: "external", subtitle_url: "/stream/t4/subtitles.vtt" } }
+            m.assertEqual(m.stepped(s, { kind: "seeked", id: 2, json: json }).state.stream.subtitleUrl, "/stream/t4/subtitles.vtt")
+        end sub
+
         @it("keeps the channels the server sends, start, update and seek alike")
         sub keepsAudioChannels()
             m.assertEqual(PlaybackStreamOf({ session_id: "s1", manifest_url: "/stream/t1/file", audio_channels: 2 }).audioChannels, 2)

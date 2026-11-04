@@ -396,7 +396,7 @@ function CapabilitiesBody(decoding as dynamic, profileVersion as integer) as obj
 end function
 
 function SubtitleDeliveries() as object
-    return ["hls_vtt"]
+    return ["external"]
 end function
 
 function PictureValues(decoding as dynamic) as object

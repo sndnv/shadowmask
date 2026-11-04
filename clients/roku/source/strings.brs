@@ -88,7 +88,7 @@ function BuildStringTable() as object
         "help.normalize": "Lowers the volume of a mixdown so loud parts do not crackle.",
         "help.dialogue": "Raises speech above everything else by the amount chosen.",
         "help.night": "Makes loud scenes quieter and quiet scenes louder.",
-        "help.subtitleSize": "Default follows this Roku's caption settings.",
+        "help.subtitleSize": "Default is the same as Medium.",
         "help.autoplayNext": "Start the next episode when one finishes, at once or after a countdown you can cancel.",
         "help.timeDisplay": "Count down how much is left instead of counting up how far in you are.",
         "help.diagnostics": "Show technical detail about what is playing, on top of the video. Useful when reporting a problem with playback.",

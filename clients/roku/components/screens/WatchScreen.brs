@@ -58,7 +58,6 @@ sub init()
     m.barCommitted = false
     m.barOpened = invalid
     m.busyFocus = -1
-    m.captionsForced = false
     m.stallTicks = 0
     m.stallMark = -1
     m.stallWarned = false
@@ -95,6 +94,7 @@ sub init()
     m.video.ObserveField("streamInfo", "onStreamInfo")
     m.jobsTimer.ObserveField("fire", "onJobsFired")
 
+    SubtitlesInit()
     RunnerInit()
     RunnerOpen("", StartingControls())
     m.top.ObserveField("focusedChild", "onFocus")
@@ -1575,20 +1575,6 @@ sub FailGather(message as string)
     ShowNote(message, "error")
 end sub
 
-sub ApplySubtitleSize()
-    m.video.captionStyle = CaptionStyleFor(ReadSubtitleSize())
-end sub
-
-sub RestoreCaptionMode()
-    if not m.captionsForced then return
-
-    m.captionsForced = false
-    mode = TextOrBlank(m.global.captionMode)
-    if IsBlank(mode) then mode = "Off"
-
-    m.video.globalCaptionMode = mode
-end sub
-
 sub RefreshStage()
     m.stage.visible = m.revealed or Errored()
 end sub
@@ -1867,7 +1853,7 @@ sub onRelease()
     m.hold.control = "stop"
     m.watchdog.control = "stop"
     m.jobsTimer.control = "stop"
-    RestoreCaptionMode()
+    SubtitlesClear()
     RunnerRelease()
 
     for each task in m.tasks
