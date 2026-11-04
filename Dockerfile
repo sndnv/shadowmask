@@ -38,16 +38,22 @@ RUN useradd --system --create-home --home-dir /home/shadowmask --uid 1001 --gid 
     && mkdir -p /data /config \
     && chown -R 1001:0 /data /config
 ARG NOTO_CJK_COMMIT=f8d157532fbfaeda587e826d4cd5b21a49186f7c
+ARG NOTO_FONTS_COMMIT=28b15b4b43b7bed62b5cf6e6b0b5ff5846270535
+ARG NOTO_LGC_COMMIT=4bc63d7ebca1faed49c6c685f380ba0abc2c1941
 RUN mkdir -p /usr/share/shadowmask/fonts \
     && cd /usr/share/shadowmask/fonts \
     && base="https://raw.githubusercontent.com/notofonts/noto-cjk/${NOTO_CJK_COMMIT}/Sans" \
     && curl -fsSL -o NotoSansCJKsc-Regular.otf "$base/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf" \
     && curl -fsSL -o NotoSansCJKsc-Medium.otf "$base/OTF/SimplifiedChinese/NotoSansCJKsc-Medium.otf" \
     && curl -fsSL -o LICENSE "$base/LICENSE" \
+    && curl -fsSL -o NotoSans-Italic.ttf "https://raw.githubusercontent.com/notofonts/notofonts.github.io/${NOTO_FONTS_COMMIT}/fonts/NotoSans/hinted/ttf/NotoSans-Italic.ttf" \
+    && curl -fsSL -o LICENSE-NotoSans "https://raw.githubusercontent.com/notofonts/latin-greek-cyrillic/${NOTO_LGC_COMMIT}/OFL.txt" \
     && printf '%s\n' \
         "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b  NotoSansCJKsc-Regular.otf" \
         "ca094f6b0001fb048ca39ddd797a0cdb0179e1e55c6561e111c49c3e6a61d7b7  NotoSansCJKsc-Medium.otf" \
         "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2  LICENSE" \
+        "467e3f89eeca4108bb8710a2b9e0cf2281ac56d5b0609211a83776d0505eecb5  NotoSans-Italic.ttf" \
+        "cee9892f9f0cc8fe882c9e9537ee6a89621d86ee7ceaf70b02e2b2b1c25c061a  LICENSE-NotoSans" \
         | sha256sum -c -
 COPY deployment/fonts/fonts.json /usr/share/shadowmask/fonts/fonts.json
 COPY --from=builder /usr/local/bin/shadowmask /usr/local/bin/shadowmask

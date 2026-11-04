@@ -796,6 +796,11 @@ namespace tests
             m.assertEqual(PlaybackSegmentFailedLine("09:49:52", { Status: -3, SegSequence: 12 }), "09:49:52 segment 12 failed [-3]")
         end sub
 
+        @it("logs a subtitle file that could not be read, with the reason")
+        sub logsSubtitleFailure()
+            m.assertEqual(PlaybackSubtitleFailedLine("09:49:52", "HTTP 404"), "09:49:52 subtitles failed [HTTP 404]")
+        end sub
+
         @describe("FormatBps")
 
         @it("reads bits per second as kbps below a megabit and Mbps above it")
@@ -1315,13 +1320,15 @@ namespace tests
             m.assertEqual(ValidSubtitleSize(invalid), "default")
         end sub
 
-        @it("asks the Roku for the same step by name")
-        sub captionStyleNamesTheStep()
-            m.assertEqual(CaptionStyleFor("default"), { "Text/Size": "Default" })
-            m.assertEqual(CaptionStyleFor("small"), { "Text/Size": "Small" })
-            m.assertEqual(CaptionStyleFor("medium"), { "Text/Size": "Medium" })
-            m.assertEqual(CaptionStyleFor("large"), { "Text/Size": "Large" })
-            m.assertEqual(CaptionStyleFor("huge"), { "Text/Size": "Default" })
+        @it("draws each step on the type scale, as Flutter scales them")
+        sub textSizeScalesTheStep()
+            base = TypeScale().text2xl
+
+            m.assertEqual(SubtitleTextSize("default"), base)
+            m.assertEqual(SubtitleTextSize("medium"), base)
+            m.assertEqual(SubtitleTextSize("small"), Int(base * 0.8 + 0.5))
+            m.assertEqual(SubtitleTextSize("large"), Int(base * 1.25 + 0.5))
+            m.assertEqual(SubtitleTextSize("huge"), base)
         end sub
 
         @it("labels every size")

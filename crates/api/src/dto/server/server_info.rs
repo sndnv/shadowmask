@@ -45,7 +45,10 @@ mod tests {
             regular: font("Regular.otf"),
             medium: font("Medium.otf"),
             license: font("LICENSE"),
+            italic: Some(font("Italic.ttf")),
+            italic_license: Some(font("LICENSE-Italic")),
         };
+        let upright = FontSet { italic: None, italic_license: None, ..fonts.clone() };
 
         let value =
             serde_json::to_value(ServerInfoResponse::current(Vec::new(), Some(fonts))).unwrap();
@@ -53,6 +56,13 @@ mod tests {
         assert_eq!(value["fonts"]["regular"]["url"], "/fonts/Regular.otf");
         assert_eq!(value["fonts"]["medium"]["size"], 3);
         assert_eq!(value["fonts"]["license"]["sha256"], "abc");
+        assert_eq!(value["fonts"]["italic"]["url"], "/fonts/Italic.ttf");
+        assert_eq!(value["fonts"]["italic_license"]["url"], "/fonts/LICENSE-Italic");
+
+        let value =
+            serde_json::to_value(ServerInfoResponse::current(Vec::new(), Some(upright))).unwrap();
+        assert!(value["fonts"]["italic"].is_null());
+        assert!(value["fonts"]["italic_license"].is_null());
 
         let none = serde_json::to_value(ServerInfoResponse::current(Vec::new(), None)).unwrap();
         assert!(none["fonts"].is_null());

@@ -26,6 +26,7 @@
     <script type="text/brightscript" uri="pkg:/source/languages.brs" />
     <script type="text/brightscript" uri="pkg:/source/work.brs" />
     <script type="text/brightscript" uri="pkg:/source/report.brs" />
+    <script type="text/brightscript" uri="pkg:/source/subtitles.brs" />
 
     <interface>
         <field id="theme" type="assocarray" onChange="render" />

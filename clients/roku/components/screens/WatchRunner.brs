@@ -306,7 +306,7 @@ sub AttachPlayback(command as object)
     m.attachId = command.id
     m.global.negotiated = command.stream
     m.global.sessionId = command.stream.sessionId
-    ApplyPlaybackCaptions(command.captions)
+    SubtitlesAttach(command)
     m.video.content = content
     m.video.control = "prebuffer"
     m.giveUpTimer = ArmTimer(PrebufferGiveUpSeconds(), "onPlaybackGiveUp", { id: command.id })
@@ -321,20 +321,8 @@ sub DetachPlayback()
     m.toldToPlay = false
     StopTimer(m.giveUpTimer)
     m.giveUpTimer = invalid
+    SubtitlesClear()
     m.video.control = "stop"
-end sub
-
-sub ApplyPlaybackCaptions(wanted as boolean)
-    ApplySubtitleSize()
-    m.video.suppressCaptions = not wanted
-    if not wanted
-        RestoreCaptionMode()
-        return
-    end if
-    if TextOrBlank(m.global.captionMode) = "On" then return
-
-    m.captionsForced = true
-    m.video.globalCaptionMode = "On"
 end sub
 
 sub PlaybackPlay()
@@ -352,6 +340,7 @@ sub PlaybackSeek(offsetMs as integer)
     seconds = 0.0
     if offsetMs > 0 then seconds = offsetMs / 1000.0
     m.video.seek = seconds
+    SubtitlesSought(Int(seconds * 1000.0))
 end sub
 
 function PlayerReading() as object

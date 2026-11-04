@@ -1229,6 +1229,8 @@ async fn the_server_info_names_the_fonts_it_serves_and_null_without_them() {
         regular: file("Regular.otf"),
         medium: file("Medium.otf"),
         license: file("LICENSE"),
+        italic: Some(file("NotoSans-Italic.ttf")),
+        italic_license: Some(file("LICENSE-NotoSans")),
     };
 
     let served = ctx.app().layer(Extension(ServerFonts(Some(fonts))));
@@ -1236,6 +1238,8 @@ async fn the_server_info_names_the_fonts_it_serves_and_null_without_them() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(info["fonts"]["name"], "Noto Sans CJK SC");
     assert_eq!(info["fonts"]["medium"]["url"], "/fonts/Medium.otf");
+    assert_eq!(info["fonts"]["italic"]["url"], "/fonts/NotoSans-Italic.ttf");
+    assert_eq!(info["fonts"]["italic_license"]["url"], "/fonts/LICENSE-NotoSans");
 
     let (status, info) =
         call(ctx.app(), Method::GET, "/api/v1/server/info", Some(USER), None).await;

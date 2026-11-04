@@ -8,4 +8,6 @@ pub struct FontSet {
     pub regular: FontFile,
     pub medium: FontFile,
     pub license: FontFile,
+    pub italic: Option<FontFile>,
+    pub italic_license: Option<FontFile>,
 }

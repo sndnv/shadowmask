@@ -334,6 +334,10 @@ function PlaybackSegmentFailedLine(clock as string, report as object) as string
     return clock + " segment " + Int(ValueAt(report, "SegSequence", -1)).ToStr() + " failed [" + Int(ValueAt(report, "Status", 0)).ToStr() + "]"
 end function
 
+function PlaybackSubtitleFailedLine(clock as string, failure as string) as string
+    return clock + " subtitles failed [" + failure + "]"
+end function
+
 function SegmentsLost(watch as object) as boolean
     return watch.inARow >= FailedSegmentsInARow()
 end function
@@ -1033,10 +1037,10 @@ end function
 
 function SubtitleSizeOptions() as object
     return [
-        { value: "default", style: "Default", label: Phrase("player.subtitleSizeDefault") },
-        { value: "small", style: "Small", label: Phrase("player.subtitleSizeSmall") },
-        { value: "medium", style: "Medium", label: Phrase("player.subtitleSizeMedium") },
-        { value: "large", style: "Large", label: Phrase("player.subtitleSizeLarge") }
+        { value: "default", factor: 1.0, label: Phrase("player.subtitleSizeDefault") },
+        { value: "small", factor: 0.8, label: Phrase("player.subtitleSizeSmall") },
+        { value: "medium", factor: 1.0, label: Phrase("player.subtitleSizeMedium") },
+        { value: "large", factor: 1.25, label: Phrase("player.subtitleSizeLarge") }
     ]
 end function
 
@@ -1057,8 +1061,8 @@ function SubtitleSizeLabel(size as dynamic) as string
     return SubtitleSizeOption(size).label
 end function
 
-function CaptionStyleFor(size as dynamic) as object
-    return { "Text/Size": SubtitleSizeOption(size).style }
+function SubtitleTextSize(size as dynamic) as integer
+    return Int(TypeScale().text2xl * SubtitleSizeOption(size).factor + 0.5)
 end function
 
 function WithDefaultDelivery(controls as object, delivery as dynamic) as object

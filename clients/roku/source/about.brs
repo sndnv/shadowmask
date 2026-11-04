@@ -44,10 +44,19 @@ function FontSetName(fonts = invalid as dynamic) as string
     return TextOrBlank(ValueAt(source, "name", ""))
 end function
 
-function FontLicenseText(path = "" as string) as string
-    source = path
-    if IsBlank(source) then source = FontPathIn(ActiveFonts(), "license")
-    if IsBlank(source) then return ""
+function FontLicenseText(path as string) as string
+    if IsBlank(path) then return ""
+    return TextOrBlank(ReadAsciiFile(path))
+end function
 
-    return TextOrBlank(ReadAsciiFile(source))
+function FontLicensesText(fonts = invalid as dynamic) as string
+    source = fonts
+    if source = invalid then source = ActiveFonts()
+
+    texts = []
+    for each role in ["license", "italic_license"]
+        text = FontLicenseText(FontPathIn(source, role))
+        if not IsBlank(text) then texts.Push(text)
+    end for
+    return texts.Join(Chr(10) + Chr(10))
 end function

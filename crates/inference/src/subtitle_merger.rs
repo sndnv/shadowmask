@@ -1,9 +1,14 @@
+use std::sync::LazyLock;
+
 use domain::error::SubtitleError;
 use domain::media::{FetchedSubtitle, SubtitleCombiner, SubtitleFormat};
+use regex::Regex;
 use subtp::srt::SubRip;
 use subtp::vtt::{VttBlock, WebVtt};
 
 use crate::{Segment, segments_to_vtt};
+
+static OVERRIDE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\{\\[^}]*\}").unwrap());
 
 pub struct SubtitleMerger;
 
@@ -86,12 +91,20 @@ fn parse(subtitle: &FetchedSubtitle) -> Result<Vec<Cue>, SubtitleError> {
                         sub.end.seconds,
                         sub.end.milliseconds,
                     ),
-                    lines: sub.text,
+                    lines: without_overrides(sub.text),
                 })
                 .collect())
         }
         other => Err(SubtitleError::Backend(format!("unsupported subtitle format: {other:?}"))),
     }
+}
+
+fn without_overrides(lines: Vec<String>) -> Vec<String> {
+    lines
+        .into_iter()
+        .map(|line| OVERRIDE.replace_all(&line, "").into_owned())
+        .filter(|line| !line.trim().is_empty())
+        .collect()
 }
 
 fn ms(hours: u8, minutes: u8, seconds: u8, milliseconds: u16) -> u64 {
@@ -165,6 +178,50 @@ mod tests {
         let combined = SubtitleMerger.combine(&top, &bottom).unwrap();
 
         assert!(combined.content.contains("Hello\n<i>Bonjour</i>"));
+    }
+
+    #[test]
+    fn srt_override_blocks_are_dropped_from_top_lines() {
+        let top = srt("1\n00:00:00,000 --> 00:00:02,000\n{\\an8}上面\n");
+        let bottom = srt("1\n00:00:00,000 --> 00:00:02,000\nBonjour\n");
+
+        let combined = SubtitleMerger.combine(&top, &bottom).unwrap();
+
+        assert!(combined.content.contains("00:00:00.000 --> 00:00:02.000\n上面\n<i>Bonjour</i>"));
+        assert!(!combined.content.contains("{\\"));
+    }
+
+    #[test]
+    fn srt_override_blocks_are_dropped_from_bottom_lines() {
+        let top = srt("1\n00:00:00,000 --> 00:00:02,000\nHello\n");
+        let bottom = srt("1\n00:00:00,000 --> 00:00:02,000\n{\\an8}Top {\\i1}line{\\i0}\n");
+
+        let combined = SubtitleMerger.combine(&top, &bottom).unwrap();
+
+        assert!(combined.content.contains("Hello\n<i>Top line</i>"));
+    }
+
+    #[test]
+    fn srt_line_holding_only_an_override_block_is_dropped() {
+        let top = srt("1\n00:00:00,000 --> 00:00:02,000\n{\\an8}\nHello\n");
+        let bottom = srt("1\n00:00:00,000 --> 00:00:02,000\n{\\an8}\nBonjour\n");
+
+        let combined = SubtitleMerger.combine(&top, &bottom).unwrap();
+
+        assert!(
+            combined.content.contains("00:00:00.000 --> 00:00:02.000\nHello\n<i>Bonjour</i>\n")
+        );
+        assert!(!combined.content.contains("<i></i>"));
+    }
+
+    #[test]
+    fn vtt_line_keeps_its_braces() {
+        let top = vtt("WEBVTT\n\n00:00:00.000 --> 00:00:02.000\n{\\an8} as text\n");
+        let bottom = vtt("WEBVTT\n\n");
+
+        let combined = SubtitleMerger.combine(&top, &bottom).unwrap();
+
+        assert!(combined.content.contains("{\\an8} as text"));
     }
 
     #[test]
