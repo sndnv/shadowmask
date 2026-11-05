@@ -22,7 +22,7 @@ import 'package:shadowmask/view/subtitle_size.dart';
 
 const Duration kOrientationTimeout = Duration(milliseconds: 1200);
 const Duration kOrientationPoll = Duration(milliseconds: 32);
-const int kOpenSlesFramesPerEnqueue = 1024;
+const String kAndroidAudioOutput = 'audiotrack,opensles';
 
 Future<void> preparePlayer() async {
   MediaKit.ensureInitialized();
@@ -46,7 +46,7 @@ class NativePlayerController implements PlayerController {
     _mpvErrors = _player.stream.error.listen(_onError);
     _logs = _player.stream.log.listen(_onLog);
     _audio = _player.stream.audioParams.listen(
-      (_) => unawaited(_readOutputChannels()),
+      (_) => unawaited(_readAudioOutput()),
     );
     if (_handheld) {
       _fullscreen.value = true;
@@ -66,6 +66,7 @@ class NativePlayerController implements PlayerController {
   late final StreamSubscription<PlayerLog> _logs;
   late final StreamSubscription<AudioParams> _audio;
   int? _outputChannels;
+  String? _audioOutput;
   final StreamController<String> _errors = StreamController<String>.broadcast();
   final StreamController<void> _lost = StreamController<void>.broadcast();
   final PlaybackLog _log = PlaybackLog();
@@ -163,15 +164,26 @@ class NativePlayerController implements PlayerController {
     }
   }
 
-  Future<void> _readOutputChannels() async {
+  Future<void> _readAudioOutput() async {
     final PlatformPlayer? platform = _player.platform;
     if (platform is! NativePlayer) {
       return;
     }
     try {
-      _outputChannels = int.tryParse(
-        await platform.getProperty('audio-out-params/channel-count'),
+      final String channels = await platform.getProperty(
+        'audio-out-params/channel-count',
       );
+      _outputChannels = int.tryParse(channels);
+      final String? line = audioOutputLine(
+        output: await platform.getProperty('current-ao'),
+        channels: channels,
+        sampleRate: await platform.getProperty('audio-out-params/samplerate'),
+        format: await platform.getProperty('audio-out-params/format'),
+      );
+      if (line != null && line != _audioOutput) {
+        _audioOutput = line;
+        _log.add(line);
+      }
     } catch (_) {}
   }
 
@@ -217,10 +229,7 @@ class NativePlayerController implements PlayerController {
     await _setProperty('network-timeout', '$_networkTimeout');
     await _applyBuffer();
     if (Platform.isAndroid) {
-      await _setProperty(
-        'opensles-frames-per-enqueue',
-        '$kOpenSlesFramesPerEnqueue',
-      );
+      await _setProperty('ao', kAndroidAudioOutput);
     }
     _current(generation);
     await _player.open(Media(_absolute(manifestUrl)), play: false);
@@ -301,6 +310,7 @@ class NativePlayerController implements PlayerController {
   void _replace() {
     _generation++;
     _segments = kSegmentWatchStart;
+    _audioOutput = null;
     if (!_replaced.isCompleted) {
       _replaced.complete();
     }

@@ -64,6 +64,25 @@ void main() {
     );
   });
 
+  test('the audio output names the output, channels, rate and format', () {
+    expect(
+      audioOutputLine(
+        output: 'audiotrack',
+        channels: '6',
+        sampleRate: '48000',
+        format: 'floatp',
+      ),
+      'audio out [audiotrack] [6] channels [48000] Hz [floatp]',
+    );
+  });
+
+  test('no audio output line before mpv opens one', () {
+    expect(
+      audioOutputLine(output: '', channels: '', sampleRate: '', format: ''),
+      isNull,
+    );
+  });
+
   test('a long line is cut for the overlay and a short one is kept', () {
     final String long = 'x' * (kOverlayLineLength + 50);
 
