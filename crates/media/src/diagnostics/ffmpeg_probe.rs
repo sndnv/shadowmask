@@ -142,11 +142,14 @@ impl<S: ProcessSpawner> CapabilityProbe for FfmpegCapabilityProbe<S> {
 fn host() -> HostReport {
     let system =
         System::new_with_specifics(RefreshKind::nothing().with_cpu(CpuRefreshKind::nothing()));
-    let (brand, vendor) =
-        system.cpus().first().map_or(("", ""), |cpu| (cpu.brand(), cpu.vendor_id()));
+    let (brand, vendor) = system
+        .as_ref()
+        .ok()
+        .and_then(|system| system.cpus().first())
+        .map_or(("", ""), |cpu| (cpu.brand(), cpu.vendor_id()));
     let cpu = cpu_name(brand, vendor, &System::cpu_arch());
     let threads = std::thread::available_parallelism().map_or(1, NonZero::get);
-    HostReport { cpu, cores: System::physical_core_count(), threads }
+    HostReport { cpu, cores: System::physical_core_count().ok(), threads }
 }
 
 fn cpu_name(brand: &str, vendor: &str, arch: &str) -> Option<String> {

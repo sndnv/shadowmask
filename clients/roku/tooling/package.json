@@ -5,9 +5,9 @@
   "description": "Container-only toolchain for the Shadowmask Roku client. Never installed on a host.",
   "license": "Apache-2.0",
   "devDependencies": {
-    "@rokucommunity/bslint": "0.8.46",
-    "brighterscript": "0.73.7",
-    "brs-node": "2.6.1",
+    "@rokucommunity/bslint": "0.8.47",
+    "brighterscript": "0.73.8",
+    "brs-node": "2.6.2",
     "rooibos-roku": "5.17.0"
   }
 }
