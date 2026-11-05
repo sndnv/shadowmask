@@ -13,7 +13,8 @@ sub PlayEpisode(episode as dynamic, seriesId as dynamic, seasonId as dynamic, se
         seasonNumber: seasonNumber,
         seriesTitle: TextOrBlank(seriesTitle),
         versions: invalid,
-        resumable: invalid
+        resumable: invalid,
+        feedOk: false
     }
     play.versionsTask = Ask(EpisodeVersionsRequest(session.serverUrl, session.token, play.seriesId, play.seasonId, TextOrBlank(ValueAt(episode, "id", ""))), "onEpisodePlayVersions")
     play.resumeTask = Ask(ContinueRequest(session.serverUrl, session.token, session.userId), "onEpisodePlayResume")
@@ -48,6 +49,7 @@ sub onEpisodePlayResume(event as object)
     if play = invalid then return
 
     play.resumable = {}
+    play.feedOk = parsed.ok
     if parsed.ok then play.resumable = ResumeProgressMap(ContinueCards(parsed.json))
     FinishEpisodePlay()
 end sub
@@ -62,31 +64,14 @@ sub FinishEpisodePlay()
         return
     end if
 
-    chosen = ResolvePlayTarget(play.versions, play.resumable)
-    if chosen <> invalid
-        PlayEpisodeVersion(chosen)
+    if not play.feedOk and play.versions.Count() > 1
+        m.episodePlay = invalid
+        RaiseActionFailed()
         return
     end if
 
-    labels = []
-    for each row in VersionRows(play.versions)
-        labels.Push(row.label)
-    end for
-    m.top.choiceRequest = { field: "episodeVersion", title: Phrase("detail.chooseVersion"), kind: "choice", options: labels, selected: 0 }
+    PlayEpisodeVersion(ResolvePlayTarget(play.versions, play.resumable))
 end sub
-
-function HandledEpisodeVersionChoice(result as dynamic) as boolean
-    if result = invalid or TextOrBlank(ValueAt(result, "field", "")) <> "episodeVersion" then return false
-
-    play = m.episodePlay
-    if result.cancelled or play = invalid or type(play.versions) <> "roArray" or play.versions.Count() = 0
-        m.episodePlay = invalid
-        return true
-    end if
-
-    PlayEpisodeVersion(play.versions[ClampInt(result.index, 0, play.versions.Count() - 1)])
-    return true
-end function
 
 sub PlayEpisodeVersion(version as object)
     play = m.episodePlay

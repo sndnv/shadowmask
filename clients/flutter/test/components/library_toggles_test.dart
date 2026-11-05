@@ -24,6 +24,8 @@ void main() {
     bool initialWatched = false,
     bool initialWatchlisted = false,
     double? width,
+    Widget? leading,
+    double textScale = 1,
   }) async {
     final ApiClient api = ApiClient(
       baseUrl: 'http://test',
@@ -35,6 +37,12 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildTheme(AppThemeVariant.dark),
+        builder: (BuildContext context, Widget? child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
         home: Scaffold(
           body: ToastHost(
             child: SizedBox(
@@ -48,6 +56,7 @@ void main() {
                 episodeCount: episodeCount,
                 initialWatched: initialWatched,
                 initialWatchlisted: initialWatchlisted,
+                leading: leading,
               ),
             ),
           ),
@@ -55,6 +64,69 @@ void main() {
       ),
     );
   }
+
+  List<Rect> toggleRects(WidgetTester tester) => <IconData>[
+    Icons.check,
+    Icons.bookmark_border,
+    Icons.favorite_border,
+  ].map((IconData icon) => tester.getRect(find.byIcon(icon))).toList();
+
+  testWidgets('a narrow row moves the three toggles down together', (
+    WidgetTester tester,
+  ) async {
+    await pumpToggles(
+      tester,
+      <http.Request>[],
+      width: 360,
+      leading: const SizedBox(key: Key('play'), width: 220, height: 42),
+    );
+
+    final Rect play = tester.getRect(find.byKey(const Key('play')));
+    final List<Rect> toggles = toggleRects(tester);
+    expect(
+      toggles.every((Rect r) => r.top >= play.bottom),
+      isTrue,
+      reason: 'none stays beside Play when the three do not fit there',
+    );
+    expect(
+      toggles.map((Rect r) => r.top).toSet(),
+      hasLength(1),
+      reason: 'the three keep one line',
+    );
+  });
+
+  testWidgets('large text wraps the toggles inside their block', (
+    WidgetTester tester,
+  ) async {
+    await pumpToggles(
+      tester,
+      <http.Request>[],
+      width: 600,
+      textScale: 2,
+      leading: const SizedBox(key: Key('play'), width: 220, height: 42),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(
+      toggleRects(tester).every((Rect r) => r.right <= 600),
+      isTrue,
+      reason: 'the labelled toggles together are wider than the line',
+    );
+  });
+
+  testWidgets('a wide row keeps the toggles beside Play', (
+    WidgetTester tester,
+  ) async {
+    await pumpToggles(
+      tester,
+      <http.Request>[],
+      width: 800,
+      leading: const SizedBox(key: Key('play'), width: 220, height: 42),
+    );
+
+    final Rect play = tester.getRect(find.byKey(const Key('play')));
+    expect(toggleRects(tester).every((Rect r) => r.top < play.bottom), isTrue);
+  });
 
   testWidgets('tapping the watched toggle sends the watched request', (
     WidgetTester tester,

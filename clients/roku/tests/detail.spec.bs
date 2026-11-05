@@ -96,22 +96,23 @@ namespace tests
             m.assertEqual(ResolvePlayTarget(available, {}).id, "only")
         end sub
 
-        @it("refuses to guess between two versions with nothing to resume")
-        sub refusesToGuess()
+        @it("plays the top version when nothing is part-watched")
+        sub resolvesTheTop()
             available = [m.version("a", "fhd", 100), m.version("b", "hd", 100)]
-            m.assertInvalid(ResolvePlayTarget(available, {}))
+            m.assertEqual(ResolvePlayTarget(available, {}).id, "a")
+            m.assertEqual(ResolvePlayTarget(available, invalid).id, "a")
         end sub
 
-        @it("resumes the one version that is part-watched")
+        @it("resumes the part-watched version over the top one")
         sub resolvesTheResumable()
             available = [m.version("a", "fhd", 100), m.version("b", "hd", 100)]
             m.assertEqual(ResolvePlayTarget(available, { "b": 34 }).id, "b")
         end sub
 
-        @it("refuses again when two versions are both part-watched")
-        sub refusesTwoResumable()
-            available = [m.version("a", "fhd", 100), m.version("b", "hd", 100)]
-            m.assertInvalid(ResolvePlayTarget(available, { "a": 10, "b": 34 }))
+        @it("resumes the top of several part-watched versions")
+        sub resolvesTheTopResumable()
+            available = [m.version("a", "uhd", 100), m.version("b", "fhd", 100), m.version("c", "hd", 100)]
+            m.assertEqual(ResolvePlayTarget(available, { "c": 10, "b": 34 }).id, "b")
         end sub
 
         @it("has nothing to resolve when nothing is playable")
@@ -330,6 +331,20 @@ namespace tests
 
             m.assertEqual(rows[0].label, "1 · mp4")
             m.assertFalse(rows[0].available)
+        end sub
+
+        @describe("VersionsButton")
+
+        @it("is an icon that names itself when focused, like the toggles beside it")
+        sub buildsVersionsButton()
+            button = VersionsButton()
+
+            m.assertEqual(button.id, "versions")
+            m.assertEqual(button.icon, "icon-versions")
+            m.assertEqual(button.label, Phrase("detail.chooseVersion"))
+            m.assertTrue(button.collapsible)
+            m.assertInvalid(button.style)
+            m.assertInvalid(button.joined)
         end sub
 
         @describe("season counts")

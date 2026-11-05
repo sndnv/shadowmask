@@ -75,6 +75,7 @@ import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/view/player_shortcuts.dart';
 import 'package:shadowmask/view/track_carry.dart';
 import 'package:shadowmask/view/version_jobs_watch.dart';
+import 'package:shadowmask/view/version_order.dart';
 
 class WatchBody extends StatefulWidget {
   const WatchBody({
@@ -602,19 +603,36 @@ class _WatchBodyState extends State<WatchBody>
   }
 
   Future<String> _episodeRoute(EpisodeLink link) async {
+    final CatalogApi catalog = CatalogApi(widget.api);
+    final Future<Set<String>?> inProgress = _inProgressIds(catalog);
     try {
-      final Paged<Version> versions = await CatalogApi(
-        widget.api,
-      ).episodeVersions(link.id, series: _seriesId, season: link.seasonId);
-      final Version? target = resolvePlayTarget(
-        versions.items.where((Version v) => v.available).toList(),
-        const <String>{},
+      final Paged<Version> versions = await catalog.episodeVersions(
+        link.id,
+        series: _seriesId,
+        season: link.seasonId,
       );
+      final List<Version> available = orderedVersions(
+        versions.items,
+      ).where((Version v) => v.available).toList();
+      final Set<String>? ids = await inProgress;
+      final Version? target = ids == null && available.length > 1
+          ? null
+          : resolvePlayTarget(available, ids ?? const <String>{});
       if (target != null) {
         return watchRoute(target.id, controls: _carried());
       }
     } catch (_) {}
     return episodeRoute(link.id, series: _seriesId);
+  }
+
+  Future<Set<String>?> _inProgressIds(CatalogApi catalog) async {
+    try {
+      return (await catalog.continueFeed(
+        widget.user.id,
+      )).resumeProgress.keys.toSet();
+    } catch (_) {
+      return null;
+    }
   }
 
   Map<String, String?> _carried() {

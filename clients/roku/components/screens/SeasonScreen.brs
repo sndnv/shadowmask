@@ -499,7 +499,6 @@ end sub
 sub onChoice()
     result = m.top.choiceResult
     if HandledCardMenuChoice(result) then return
-    if HandledEpisodeVersionChoice(result) then return
 
     if result <> invalid and TextOrBlank(ValueAt(result, "field", "")) = "watched"
         if WatchedConfirmAccepted(result) then ApplyWatched(m.pendingWatched)

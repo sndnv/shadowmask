@@ -31,7 +31,6 @@ import 'package:shadowmask/components/poster_play.dart';
 import 'package:shadowmask/components/random_button.dart';
 import 'package:shadowmask/components/rating_chips.dart';
 import 'package:shadowmask/components/section_heading.dart';
-import 'package:shadowmask/components/version_menu.dart';
 import 'package:shadowmask/components/skeleton.dart';
 import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/components/admin/confirm_dialog.dart';
@@ -126,7 +125,7 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
   late final CatalogApi _catalog = CatalogApi(widget.api);
   late final PlayOnApi? _playOn = playOnApi(widget.api);
   late final TitleRef _ref = TitleRef(type: TitleKind.movie, id: widget.id);
-  final MenuController _posterMenu = MenuController();
+  final GlobalKey<PlayButtonState> _play = GlobalKey<PlayButtonState>();
   late Future<_MovieData> _future = _load();
 
   void _reload() {
@@ -267,33 +266,18 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
             ]),
             PageBackdrop(artwork: d.artwork, imageBase: _catalog.imageBase),
             DetailSplit(
-              poster: VersionMenu(
-                controller: _posterMenu,
-                ordered: ordered,
-                onPlay: (Version v) =>
-                    Navigator.of(context).pushNamed(watchRoute(v.id)),
-                child: PosterPlay(
-                  progressPercent: resumeAt,
-                  tooltip: shortcut == null
-                      ? Strings.chooseVersion
-                      : (resumeAt != null
-                            ? Strings.resume(resumeAt)
-                            : Strings.play),
-                  icon: shortcut == null
-                      ? Icons.playlist_play
-                      : Icons.play_arrow,
-                  onTap: available.isEmpty
-                      ? null
-                      : (shortcut == null
-                            ? () => VersionMenu.toggle(_posterMenu)
-                            : () => Navigator.of(
-                                context,
-                              ).pushNamed(watchRoute(shortcut.id))),
-                  child: CardArt(
-                    artwork: d.artwork,
-                    aspect: CardAspect.poster,
-                    imageBase: _catalog.imageBase,
-                  ),
+              poster: PosterPlay(
+                progressPercent: resumeAt,
+                tooltip: resumeAt != null
+                    ? Strings.resume(resumeAt)
+                    : Strings.play,
+                onTap: shortcut == null
+                    ? null
+                    : () => _play.currentState?.press(),
+                child: CardArt(
+                  artwork: d.artwork,
+                  aspect: CardAspect.poster,
+                  imageBase: _catalog.imageBase,
                 ),
               ),
               headline: Column(
@@ -366,6 +350,7 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
                     initialFavorite: state.favorite,
                     onWatchedChanged: (bool _) => _reload(),
                     leading: PlayButton(
+                      key: _play,
                       catalog: _catalog,
                       userId: widget.user.id,
                       versions: versions,

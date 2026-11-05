@@ -21,6 +21,7 @@ sub init()
     m.ordered = []
     m.available = []
     m.resumable = {}
+    m.versionPlayTask = invalid
     m.watched = false
     m.watchlisted = false
     m.favorite = false
@@ -30,6 +31,7 @@ sub init()
     m.neighbours = { previous: invalid, following: invalid }
     m.versionChoices = []
     m.dismissedVersion = ""
+    m.dismissTask = invalid
     m.tasks = []
     m.released = false
     m.started = false
@@ -148,6 +150,7 @@ sub BuildActions()
         buttons.Push(PlayButton())
         if ResumeTargetId() <> "" then buttons.Push(DismissButton())
     end if
+    if m.available.Count() > 1 then buttons.Push(VersionsButton())
 
     buttons.Push({ id: "watched", label: Phrase("action.watchedLabel"), icon: "icon-check", iconOn: "icon-check", pressed: m.watched, collapsible: true })
 
@@ -174,12 +177,7 @@ function ResumeTargetId() as string
 end function
 
 function PlayButton() as object
-    target = ResolvePlayTarget(m.available, m.resumable)
-    if target = invalid
-        return { id: "play", label: Phrase("detail.chooseVersion"), icon: "icon-play", style: "primary" }
-    end if
-
-    if ResumePercentFor(m.resumable, ValueAt(target, "id", "")) > 0
+    if ResumeTargetId() <> ""
         return { id: "play", label: Phrase("action.resume"), icon: "icon-play", style: "primary" }
     end if
     return { id: "play", label: Phrase("action.play"), icon: "icon-play", style: "primary" }
@@ -369,6 +367,8 @@ sub onAction(event as object)
         PressPlay()
     else if id = "dismissResume"
         PressDismissResume()
+    else if id = "versions"
+        AskForVersion()
     else if id = "watched"
         ToggleWatched()
     else if id = "previous"
@@ -385,12 +385,7 @@ function OverviewText() as string
 end function
 
 sub PressPlay()
-    target = ResolvePlayTarget(m.available, m.resumable)
-    if target = invalid
-        AskForVersion()
-        return
-    end if
-    OpenWatch(ValueAt(target, "id", ""))
+    PlayChosenVersion()
 end sub
 
 sub AskForVersion()
@@ -429,6 +424,7 @@ sub onRevealed()
 end sub
 
 sub PressDismissResume()
+    if m.versionPlayTask <> invalid then return
     versionId = ResumeTargetId()
     if IsBlank(versionId) then return
 
@@ -437,10 +433,11 @@ sub PressDismissResume()
     BuildActions()
 
     session = SessionFor(m.global)
-    Ask(ClearProgressRequest(session.serverUrl, session.token, session.userId, versionId), "onResumeDismissed")
+    m.dismissTask = Ask(ClearProgressRequest(session.serverUrl, session.token, session.userId, versionId), "onResumeDismissed")
 end sub
 
 sub onResumeDismissed(event as object)
+    m.dismissTask = invalid
     parsed = Answered(event)
     if m.released then return
 

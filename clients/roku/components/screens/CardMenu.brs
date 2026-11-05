@@ -28,15 +28,6 @@ function HandledCardMenuChoice(result as dynamic) as boolean
         return true
     end if
 
-    if TextOrBlank(ValueAt(result, "field", "")) = "cardVersion"
-        if result.cancelled then return true
-        if type(m.menuVersions) <> "roArray" or m.menuVersions.Count() = 0 then return true
-
-        chosen = m.menuVersions[ClampInt(result.index, 0, m.menuVersions.Count() - 1)]
-        PlayCardVersion(TextOrBlank(ValueAt(chosen, "id", "")))
-        return true
-    end if
-
     if result.cancelled then return false
     if result.field <> "cardMenu" then return false
     if type(m.menuActions) <> "roArray" or m.menuActions.Count() = 0 then return false
@@ -70,7 +61,7 @@ sub RunCardMenuAction(id as string)
             return
         end if
 
-        PlayCardVersion(versionId)
+        PlayCardVersion(card, versionId)
         return
     end if
 
@@ -137,9 +128,7 @@ sub RunCardMenuAction(id as string)
     end if
 end sub
 
-sub PlayCardVersion(versionId as string)
-    card = m.menuCard
-
+sub PlayCardVersion(card as dynamic, versionId as string)
     m.top.advanceTarget = {
         versionId: versionId,
         title: TextOrBlank(ValueAt(card, "title", "")),
@@ -173,38 +162,58 @@ sub AskCardVersions(card as object, session as object)
     seriesId = TextOrBlank(ValueAt(card, "seriesId", ""))
     seasonId = TextOrBlank(ValueAt(card, "seasonId", ""))
 
+    m.menuPlayCard = card
+    m.menuVersions = invalid
+    m.menuResumable = invalid
+    m.menuResumeTask = SendRequest(ContinueRequest(session.serverUrl, session.token, session.userId), "onCardResume")
+
     if IsBlank(seriesId) or IsBlank(seasonId)
-        m.menuTask = SendRequest(MovieVersionsRequest(session.serverUrl, session.token, titleId), "onCardVersions")
+        m.menuVersionsTask = SendRequest(MovieVersionsRequest(session.serverUrl, session.token, titleId), "onCardVersions")
         return
     end if
 
-    m.menuTask = SendRequest(EpisodeVersionsRequest(session.serverUrl, session.token, seriesId, seasonId, titleId), "onCardVersions")
+    m.menuVersionsTask = SendRequest(EpisodeVersionsRequest(session.serverUrl, session.token, seriesId, seasonId, titleId), "onCardVersions")
 end sub
 
 sub onCardVersions(event as object)
-    m.menuTask = invalid
+    if m.menuVersionsTask = invalid or not m.menuVersionsTask.IsSameNode(event.GetRoSGNode()) then return
+    m.menuVersionsTask = invalid
     parsed = ParseResponse(event.GetData().status, event.GetData().body)
 
     m.menuVersions = []
     if parsed.ok then m.menuVersions = AvailableVersions(OrderedVersions(ListItems(parsed.json)))
+    FinishCardPlay()
+end sub
 
-    if m.menuVersions.Count() = 0
+sub onCardResume(event as object)
+    if m.menuResumeTask = invalid or not m.menuResumeTask.IsSameNode(event.GetRoSGNode()) then return
+    m.menuResumeTask = invalid
+    parsed = ParseResponse(event.GetData().status, event.GetData().body)
+
+    m.menuResumable = {}
+    m.menuFeedOk = parsed.ok
+    if parsed.ok then m.menuResumable = ResumeProgressMap(ContinueCards(parsed.json))
+    FinishCardPlay()
+end sub
+
+sub FinishCardPlay()
+    if m.menuVersions = invalid or m.menuResumable = invalid then return
+
+    card = m.menuPlayCard
+    versions = m.menuVersions
+    chosen = ResolvePlayTarget(versions, m.menuResumable)
+    m.menuPlayCard = invalid
+    m.menuVersions = invalid
+    m.menuResumable = invalid
+    if chosen = invalid
         RaiseToast("err", Phrase("empty.nothingToPlay"))
         return
     end if
-
-    if m.menuVersions.Count() = 1
-        PlayCardVersion(TextOrBlank(ValueAt(m.menuVersions[0], "id", "")))
+    if not m.menuFeedOk and versions.Count() > 1
+        RaiseActionFailed()
         return
     end if
-
-    rows = VersionRows(m.menuVersions)
-    options = []
-    for each row in rows
-        options.Push(row.label)
-    end for
-
-    m.top.choiceRequest = { field: "cardVersion", title: Phrase("detail.chooseVersion"), kind: "choice", options: options, selected: 0 }
+    PlayCardVersion(card, TextOrBlank(ValueAt(chosen, "id", "")))
 end sub
 
 sub CommitClearHistory()

@@ -19,7 +19,6 @@ import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/view/failure_reason.dart';
-import 'package:shadowmask/view/play_target.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/play_on.dart';
@@ -34,8 +33,8 @@ Version _version(String id, {bool available = true}) => Version(
   available: available,
 );
 
-Future<PlayChoice?> Function() _one(Version v) =>
-    () async => (ordered: <Version>[v], target: v);
+Future<Version?> Function() _one(Version v) =>
+    () async => v;
 
 PlayOnApi _playOn(
   PlayOnServer server, {
@@ -53,7 +52,7 @@ PlayOnApi _playOn(
 Future<void> _pump(
   WidgetTester tester,
   PlayOnApi playOn,
-  Future<PlayChoice?> Function() choose,
+  Future<Version?> Function() choose,
 ) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -155,37 +154,6 @@ void main() {
     expect(find.text(Strings.playOnPlaying('Living room')), findsOneWidget);
   });
 
-  testWidgets('several versions list each version with the devices under it', (
-    WidgetTester tester,
-  ) async {
-    final PlayOnServer server = PlayOnServer();
-    await _pump(
-      tester,
-      _playOn(server),
-      () async => (
-        ordered: <Version>[
-          _version('v1'),
-          _version('v2'),
-          _version('v3', available: false),
-        ],
-        target: null,
-      ),
-    );
-
-    await _open(tester);
-
-    expect(find.byType(SubmenuButton), findsNWidgets(2));
-    expect(find.text('Pixel'), findsNothing);
-
-    await tester.tap(find.byType(SubmenuButton).last);
-    await tester.pumpAndSettle();
-    await _pick(tester, 'Pixel');
-
-    expect(server.mints, <Mint>[(device: 'd2', version: 'v2')]);
-    expect(server.lanCalls, <String>['POST 10.0.0.5/play']);
-    expect(find.text(Strings.playOnPlaying('Pixel')), findsOneWidget);
-  });
-
   testWidgets('a device that cannot be reached says so', (
     WidgetTester tester,
   ) async {
@@ -255,21 +223,6 @@ void main() {
     expect(find.text('Living room'), findsNothing);
   });
 
-  testWidgets('versions without a file say there is nothing to play', (
-    WidgetTester tester,
-  ) async {
-    await _pump(
-      tester,
-      _playOn(PlayOnServer()),
-      () async =>
-          (ordered: <Version>[_version('v1', available: false)], target: null),
-    );
-
-    await _open(tester);
-
-    expect(find.text(Strings.nothingToPlay), findsOneWidget);
-  });
-
   testWidgets('a lookup that fails shows the action error', (
     WidgetTester tester,
   ) async {
@@ -327,13 +280,13 @@ void main() {
   testWidgets('a lookup that outlives the button does nothing', (
     WidgetTester tester,
   ) async {
-    final Completer<PlayChoice?> choice = Completer<PlayChoice?>();
+    final Completer<Version?> choice = Completer<Version?>();
     await _pump(tester, _playOn(PlayOnServer()), () => choice.future);
 
     await tester.tap(find.byIcon(Icons.devices));
     await tester.pump();
     await tester.pumpWidget(const SizedBox.shrink());
-    choice.complete((ordered: <Version>[_version('v1')], target: null));
+    choice.complete(_version('v1'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);

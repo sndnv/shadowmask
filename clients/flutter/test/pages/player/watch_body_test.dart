@@ -294,6 +294,86 @@ Future<void> _settleAroundSpinner(WidgetTester tester) async {
 Future<void> _settled(WidgetTester tester) =>
     tester.pump(const Duration(milliseconds: kSeekSettleWaitMs));
 
+Map<String, dynamic> _nextVersion(
+  String id,
+  String quality, {
+  bool available = true,
+}) => <String, dynamic>{
+  'id': id,
+  'title': <String, dynamic>{'type': 'episode', 'id': 'e2'},
+  'library_id': 'lib',
+  'quality': quality,
+  'container': 'mkv',
+  'duration_ms': 100000,
+  'available': available,
+};
+
+http.Response? _severalNext(http.Request r, List<String>? inProgress) {
+  if (r.url.path.endsWith('/versions')) {
+    return http.Response(
+      jsonEncode(<String, dynamic>{
+        'items': <dynamic>[
+          _nextVersion('v3', 'sd'),
+          _nextVersion('v4', 'uhd'),
+          _nextVersion('v5', 'uhd', available: false),
+        ],
+        'total': 3,
+      }),
+      200,
+    );
+  }
+  if (r.url.path.endsWith('/continue')) {
+    if (inProgress == null) {
+      return http.Response('', 500);
+    }
+    return http.Response(
+      jsonEncode(<String, dynamic>{
+        'now_playing': <dynamic>[],
+        'in_progress': <dynamic>[
+          for (final String id in inProgress)
+            <String, dynamic>{
+              'card': <String, dynamic>{
+                'title': <String, dynamic>{'type': 'episode', 'id': 'e2'},
+                'display_title': 'Second',
+                'duration_ms': 100000,
+                'progress_percent': 30,
+              },
+              'progress': <String, dynamic>{'version_id': id},
+            },
+        ],
+        'next_episodes': <dynamic>[],
+      }),
+      200,
+    );
+  }
+  return null;
+}
+
+Future<String> _autoplayIntoSeveral(
+  WidgetTester tester, {
+  List<String>? inProgress,
+}) async {
+  SharedPreferences.setMockInitialValues(<String, Object>{
+    'shadowmask.player.autoplay': kAutoplayImmediately,
+  });
+  final FakePlayerController fake = FakePlayerController();
+  final List<String> pushed = <String>[];
+  await tester.pumpWidget(
+    _app(
+      fake,
+      episodic: true,
+      pushed: pushed,
+      intercept: (http.Request r) => _severalNext(r, inProgress),
+    ),
+  );
+  await tester.pumpAndSettle();
+  await _settled(tester);
+
+  fake.emit(ended: true);
+  await tester.pumpAndSettle();
+  return pushed.single;
+}
+
 Future<void> _shown(WidgetTester tester) async {
   await tester.pump();
   await tester.pump();
@@ -3488,6 +3568,35 @@ void main() {
 
     expect(pushed.single, startsWith(watchRoute('v2')));
   });
+
+  testWidgets('autoplay plays the top of several versions', (
+    WidgetTester tester,
+  ) async {
+    expect(
+      await _autoplayIntoSeveral(tester, inProgress: const <String>[]),
+      startsWith(watchRoute('v4')),
+    );
+  });
+
+  testWidgets('autoplay resumes the next episode version in progress', (
+    WidgetTester tester,
+  ) async {
+    expect(
+      await _autoplayIntoSeveral(tester, inProgress: <String>['v3']),
+      startsWith(watchRoute('v3')),
+      reason: 'starting the top one would delete the progress of the other',
+    );
+  });
+
+  testWidgets(
+    'autoplay opens the episode page when several versions meet a failed feed',
+    (WidgetTester tester) async {
+      expect(
+        await _autoplayIntoSeveral(tester),
+        episodeRoute('e2', series: 's1'),
+      );
+    },
+  );
 
   testWidgets('autoplay with the playback log open replaces the watch page', (
     WidgetTester tester,
