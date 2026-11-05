@@ -107,6 +107,9 @@ because each platform masks differently.
 - `glyphs/chip-cap-{left,right}-line.svg` - the outline halves of a chip, a 3px stroked arc with no
   fill, sitting over the solid caps below. The straight top and bottom of the stroke are `Rectangle`
   nodes in the client, so only the curved ends need artwork.
+- `glyphs/icon-versions.svg` - the version button beside Play on a movie or episode, three lines
+  and a play mark like Flutter's `Icons.playlist_play`. Authored here for the same licence reason as
+  the rest.
 - `glyphs/icon-shuffle.svg` - the Random action on a series or season, two crossed arrows. Authored
   here rather than taken from Material Icons, for the same licence reason as the `art-*` glyphs.
 - `glyphs/icon-{sort,filter,library}.svg` - the marks on the Roku browse toolbar chips: three

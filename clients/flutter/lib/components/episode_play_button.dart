@@ -6,7 +6,6 @@ import 'package:shadowmask/components/action_segments.dart';
 import 'package:shadowmask/components/muted_note.dart';
 import 'package:shadowmask/components/play_on_button.dart';
 import 'package:shadowmask/components/toast_host.dart';
-import 'package:shadowmask/components/version_menu.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/model/discovery/continue_feed.dart';
@@ -80,10 +79,7 @@ class EpisodePlayButton extends StatefulWidget {
 
 class EpisodePlayButtonState extends State<EpisodePlayButton>
     with PlayOnTargets<EpisodePlayButton> {
-  final MenuController _menu = MenuController();
-
   NextEpisode? _next;
-  List<Version> _ordered = const <Version>[];
   bool _busy = false;
 
   @override
@@ -112,32 +108,30 @@ class EpisodePlayButtonState extends State<EpisodePlayButton>
     });
   }
 
-  Future<Map<String, int>> _resumable() async {
-    try {
-      final ContinueFeed feed = await widget.catalog.continueFeed(
-        widget.userId,
-      );
-      return feed.resumeProgress;
-    } catch (_) {
-      return const <String, int>{};
-    }
-  }
+  Future<Map<String, int>> _resumable() => widget.catalog
+      .continueFeed(widget.userId)
+      .then((ContinueFeed feed) => feed.resumeProgress);
 
   void _play(Version v) => Navigator.of(context).pushNamed(watchRoute(v.id));
 
-  Future<PlayChoice?> _choice() async {
+  Future<Version?> _choice() async {
     final NextEpisode? next = await widget.next;
     if (next == null) {
       return null;
     }
-    final Future<Map<String, int>> resumable = _resumable();
+    final Future<Map<String, int>> resumable = _resumable()..ignore();
     final List<Version> versions = (await widget.catalog.episodeVersions(
       next.episode.id,
       series: widget.seriesId,
       season: next.episode.seasonId,
     )).items;
-    final Map<String, int> inProgress = await resumable;
-    return playChoice(orderedVersions(versions), inProgress.keys.toSet());
+    final List<Version> available = orderedVersions(
+      versions,
+    ).where((Version v) => v.available).toList();
+    if (available.length < 2) {
+      return available.firstOrNull;
+    }
+    return resolvePlayTarget(available, (await resumable).keys.toSet());
   }
 
   Future<void> press() async {
@@ -146,11 +140,15 @@ class EpisodePlayButtonState extends State<EpisodePlayButton>
     }
     setState(() => _busy = true);
     try {
-      final PlayChoice? choice = await _choice();
+      final Version? target = await _choice();
       if (!mounted) {
         return;
       }
-      _choose(choice);
+      if (target == null) {
+        Toasts.of(context).error(Strings.nothingToPlay);
+      } else {
+        _play(target);
+      }
     } catch (e) {
       if (mounted) {
         Toasts.of(context).error(failureText(Strings.errorAction, e));
@@ -160,24 +158,6 @@ class EpisodePlayButtonState extends State<EpisodePlayButton>
         setState(() => _busy = false);
       }
     }
-  }
-
-  void _choose(PlayChoice? choice) {
-    if (choice == null || !choice.ordered.any((Version v) => v.available)) {
-      Toasts.of(context).error(Strings.nothingToPlay);
-      return;
-    }
-    final Version? target = choice.target;
-    if (target != null) {
-      _play(target);
-      return;
-    }
-    setState(() => _ordered = choice.ordered);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _menu.open();
-      }
-    });
   }
 
   @override
@@ -190,21 +170,13 @@ class EpisodePlayButtonState extends State<EpisodePlayButton>
       label: Text(nextEpisodeAction(next)),
     );
     final Widget play = SelectionContainer.disabled(
-      child: VersionMenu(
-        controller: _menu,
-        ordered: _ordered,
-        onPlay: _play,
-        child: next == null
-            ? button
-            : Tooltip(
-                message: nextEpisodeCaption(
-                  next,
-                  withSeason: widget.withSeason,
-                ),
-                excludeFromSemantics: true,
-                child: button,
-              ),
-      ),
+      child: next == null
+          ? button
+          : Tooltip(
+              message: nextEpisodeCaption(next, withSeason: widget.withSeason),
+              excludeFromSemantics: true,
+              child: button,
+            ),
     );
     final PlayOnApi? playOn = widget.playOn;
     if (playOn == null || playOnDevices.isEmpty) {

@@ -64,6 +64,7 @@ Future<_Pushes> _pump(
   List<Map<String, dynamic>> versions = const <Map<String, dynamic>>[],
   List<String> inProgress = const <String>[],
   List<String>? seen,
+  int feedStatus = 200,
   double width = 800,
   bool withSeason = true,
   PlayOnServer? server,
@@ -77,6 +78,9 @@ Future<_Pushes> _pump(
       }
       seen?.add(req.url.path);
       if (req.url.path.endsWith('/continue')) {
+        if (feedStatus != 200) {
+          return http.Response('', feedStatus);
+        }
         return http.Response(
           jsonEncode(<String, dynamic>{
             'now_playing': <dynamic>[],
@@ -300,7 +304,7 @@ void main() {
     expect(pushes.names.last, '/watch?version=v2');
   });
 
-  testWidgets('several versions with nothing in progress open the menu', (
+  testWidgets('several versions with nothing in progress play the top one', (
     WidgetTester tester,
   ) async {
     final _Pushes pushes = await _pump(
@@ -308,21 +312,60 @@ void main() {
       Future<NextEpisode?>.value(_next()),
       versions: <Map<String, dynamic>>[
         _version('v1'),
-        _version('v2'),
-        _version('v3', available: false),
+        <String, dynamic>{..._version('v2'), 'quality': 'uhd'},
+        <String, dynamic>{
+          ..._version('v3', available: false),
+          'quality': 'uhd',
+          'size_bytes': 9,
+        },
       ],
     );
     await tester.pump();
 
     await _press(tester, Strings.play);
 
-    expect(pushes.names, isEmpty);
-    expect(find.byType(MenuItemButton), findsNWidgets(2));
-
-    await tester.tap(find.byType(MenuItemButton).last);
-    await tester.pumpAndSettle();
-
     expect(pushes.names.last, '/watch?version=v2');
+    expect(find.byType(MenuItemButton), findsNothing);
+  });
+
+  testWidgets(
+    'several versions with a feed that fails say the action failed instead of playing',
+    (WidgetTester tester) async {
+      final _Pushes pushes = await _pump(
+        tester,
+        Future<NextEpisode?>.value(_next()),
+        versions: <Map<String, dynamic>>[_version('v1'), _version('v2')],
+        feedStatus: 500,
+      );
+      await tester.pump();
+
+      await _press(tester, Strings.play);
+
+      expect(
+        pushes.names,
+        isEmpty,
+        reason:
+            'starting the top version could delete the progress of the other',
+      );
+      expect(find.textContaining(Strings.errorAction), findsOneWidget);
+      await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+    },
+  );
+
+  testWidgets('one version plays even when the feed fails', (
+    WidgetTester tester,
+  ) async {
+    final _Pushes pushes = await _pump(
+      tester,
+      Future<NextEpisode?>.value(_next()),
+      versions: <Map<String, dynamic>>[_version('v1')],
+      feedStatus: 500,
+    );
+    await tester.pump();
+
+    await _press(tester, Strings.play);
+
+    expect(pushes.names.last, '/watch?version=v1');
   });
 
   testWidgets(

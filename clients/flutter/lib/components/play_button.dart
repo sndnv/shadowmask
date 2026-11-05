@@ -6,11 +6,13 @@ import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/action_segments.dart';
 import 'package:shadowmask/components/play_on_button.dart';
 import 'package:shadowmask/components/toast_host.dart';
+import 'package:shadowmask/components/toggle_button.dart';
 import 'package:shadowmask/components/version_menu.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/model/discovery/continue_feed.dart';
 import 'package:shadowmask/nav/routes.dart';
+import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/view/failure_reason.dart';
 import 'package:shadowmask/view/play_target.dart';
 import 'package:shadowmask/view/version_order.dart';
@@ -38,11 +40,10 @@ class PlayButton extends StatefulWidget {
   final PlayOnApi? playOn;
 
   @override
-  State<PlayButton> createState() => _PlayButtonState();
+  State<PlayButton> createState() => PlayButtonState();
 }
 
-class _PlayButtonState extends State<PlayButton>
-    with PlayOnTargets<PlayButton> {
+class PlayButtonState extends State<PlayButton> with PlayOnTargets<PlayButton> {
   static const ButtonStyle _style = kActionButtonStyle;
 
   final MenuController _menu = MenuController();
@@ -53,7 +54,7 @@ class _PlayButtonState extends State<PlayButton>
       .toList();
 
   late Map<String, int> _inProgress = widget.resumable ?? const <String, int>{};
-  Future<Map<String, int>>? _pending;
+  Future<Map<String, int>?>? _pending;
   bool _busy = false;
 
   @override
@@ -85,65 +86,64 @@ class _PlayButtonState extends State<PlayButton>
     if (_playable.isEmpty) {
       return;
     }
-    final Future<Map<String, int>> pending = _fetch();
+    final Future<Map<String, int>?> pending = _fetch();
     _pending = pending;
-    pending.then((Map<String, int> found) {
+    pending.then((Map<String, int>? found) {
       if (!mounted || !identical(_pending, pending)) {
         return;
       }
       setState(() {
-        _inProgress = found;
+        _inProgress = found ?? const <String, int>{};
         _pending = null;
       });
     });
   }
 
-  Future<Map<String, int>> _fetch() async {
+  Future<Map<String, int>?> _fetch() async {
     try {
       final ContinueFeed feed = await widget.catalog.continueFeed(
         widget.userId,
       );
       return feed.resumeProgress;
     } catch (_) {
-      return const <String, int>{};
+      return null;
     }
   }
 
   void _play(Version v) => Navigator.of(context).pushNamed(watchRoute(v.id));
 
-  Future<PlayChoice?> _choice() async {
-    final Future<Map<String, int>>? pending = _pending;
-    final Map<String, int> found = pending == null
-        ? _inProgress
-        : await pending;
-    return playChoice(_ordered, found.keys.toSet());
+  Future<Map<String, int>> _latest() async {
+    if (_playable.length < 2) {
+      return _inProgress;
+    }
+    final Map<String, int>? found = await (_pending ?? _fetch());
+    if (found == null || !mounted) {
+      return _inProgress;
+    }
+    setState(() => _inProgress = found);
+    return found;
   }
 
-  void _act(Map<String, int> inProgress) {
-    final Version? target = resolvePlayTarget(
-      _playable,
-      inProgress.keys.toSet(),
-    );
-    if (target != null) {
-      _play(target);
+  Future<Version?> _choice() async =>
+      resolvePlayTarget(_playable, (await _latest()).keys.toSet());
+
+  Future<void> press() async {
+    if (_busy || _playable.isEmpty) {
       return;
     }
-    VersionMenu.toggle(_menu);
-  }
-
-  Future<void> _press() async {
-    final Future<Map<String, int>>? pending = _pending;
-    if (pending == null) {
-      _act(_inProgress);
+    if (_playable.length == 1) {
+      _play(_playable.first);
       return;
     }
     setState(() => _busy = true);
-    final Map<String, int> found = await pending;
+    final Version? target = await _choice();
     if (!mounted) {
       return;
     }
     setState(() => _busy = false);
-    _act(found);
+    if (target != null) {
+      _play(target);
+    }
   }
 
   Future<void> _dismiss(Version target) async {
@@ -192,10 +192,11 @@ class _PlayButtonState extends State<PlayButton>
     final _Resume? resume = _resume;
     final bool paired = resume != null && widget.playback != null;
     final Widget play = _playControl(resume, paired);
+    final bool picks = _playable.length > 1;
     final PlayOnApi? playOn = widget.playOn;
     final bool sends =
         playOn != null && playOnDevices.isNotEmpty && _playable.isNotEmpty;
-    if (!paired && !sends) {
+    if (!paired && !picks && !sends) {
       return play;
     }
     return Row(
@@ -203,26 +204,34 @@ class _PlayButtonState extends State<PlayButton>
       children: <Widget>[
         play,
         if (paired) _dismissButton(resume.version),
+        if (picks) _versionButton(),
         if (sends)
           PlayOnButton(playOn: playOn, devices: playOnDevices, choose: _choice),
       ],
     );
   }
 
-  Widget _playControl(_Resume? resume, bool paired) {
-    if (_playable.isEmpty) {
-      return _button(resume, paired, null);
-    }
-    if (_playable.length == 1) {
-      return _button(resume, paired, () => _play(_playable.first));
-    }
-    return VersionMenu(
+  Widget _playControl(_Resume? resume, bool paired) =>
+      _button(resume, paired, _playable.isEmpty ? null : press);
+
+  Widget _versionButton() => Padding(
+    padding: const EdgeInsetsDirectional.only(start: Space.s2),
+    child: VersionMenu(
       controller: _menu,
       ordered: _ordered,
       onPlay: _play,
-      child: _button(resume, paired, _press),
-    );
-  }
+      child: ToggleButton(
+        icon: Icons.playlist_play,
+        filledIcon: Icons.playlist_play,
+        label: Strings.chooseVersion,
+        pressed: false,
+        highlight: false,
+        busy: _busy,
+        compact: true,
+        onToggle: () => VersionMenu.toggle(_menu),
+      ),
+    ),
+  );
 
   Widget _button(_Resume? resume, bool paired, VoidCallback? onPressed) {
     if (resume == null) {

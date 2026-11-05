@@ -100,21 +100,13 @@ end function
 
 function ResolvePlayTarget(available as dynamic, resumable as dynamic) as dynamic
     if type(available) <> "roArray" or available.Count() = 0 then return invalid
-    if available.Count() = 1 then return available[0]
-    if type(resumable) <> "roAssociativeArray" then return invalid
+    if type(resumable) <> "roAssociativeArray" then return available[0]
 
-    found = invalid
-    matches = 0
     for each version in available
         id = TextOrBlank(ValueAt(version, "id", ""))
-        if not IsBlank(id) and resumable.DoesExist(id)
-            matches = matches + 1
-            found = version
-        end if
+        if not IsBlank(id) and resumable.DoesExist(id) then return version
     end for
-
-    if matches = 1 then return found
-    return invalid
+    return available[0]
 end function
 
 function ResumeProgressMap(cards as dynamic) as object
@@ -159,6 +151,10 @@ function VersionRows(ordered as dynamic) as object
         index = index + 1
     end for
     return rows
+end function
+
+function VersionsButton() as object
+    return { id: "versions", label: Phrase("detail.chooseVersion"), icon: "icon-versions", collapsible: true }
 end function
 
 function CreditPrecedes(left as object, right as object) as boolean
@@ -601,10 +597,7 @@ function EpisodePlayTarget(episode as dynamic, seriesId as dynamic, seasonId as 
     available = AvailableVersions(OrderedVersions(ListItems(versions)))
     if available.Count() = 0 then return invalid
 
-    chosen = ResolvePlayTarget(available, {})
-    if chosen = invalid then chosen = available[0]
-
-    return EpisodeVersionTarget(episode, seriesId, seasonId, chosen, seriesTitle, seasonNumber, 0)
+    return EpisodeVersionTarget(episode, seriesId, seasonId, ResolvePlayTarget(available, {}), seriesTitle, seasonNumber, 0)
 end function
 
 function EpisodeVersionTarget(episode as dynamic, seriesId as dynamic, seasonId as dynamic, version as dynamic, seriesTitle as dynamic, seasonNumber as dynamic, percent as integer) as object

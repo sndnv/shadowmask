@@ -12,13 +12,11 @@ class PosterPlay extends StatefulWidget {
     required this.child,
     required this.tooltip,
     required this.onTap,
-    this.icon = Icons.play_arrow,
     this.progressPercent,
   });
 
   final Widget child;
   final String tooltip;
-  final IconData icon;
   final VoidCallback? onTap;
   final int? progressPercent;
 
@@ -86,7 +84,7 @@ class _PosterPlayState extends State<PosterPlay> {
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
-                          widget.icon,
+                          Icons.play_arrow,
                           size: 32,
                           color: t.accentContrast,
                         ),

@@ -46,6 +46,8 @@ Finder _resume() => find.widgetWithText(FilledButton, Strings.resumeAction);
 
 Finder _dismiss() => find.widgetWithIcon(FilledButton, Icons.close);
 
+Finder _versions() => find.byIcon(Icons.playlist_play);
+
 BorderRadius _corners(ButtonStyle? style) =>
     (style!.shape!.resolve(<WidgetState>{})! as RoundedRectangleBorder)
             .borderRadius
@@ -70,6 +72,7 @@ Future<_Pushes> _pump(
   bool dismissible = false,
   List<String>? cleared,
   PlayOnServer? server,
+  bool Function()? feedDown,
 }) async {
   final ApiClient api = ApiClient(
     baseUrl: 'http://test',
@@ -83,6 +86,9 @@ Future<_Pushes> _pump(
         return http.Response('', 204);
       }
       if (req.url.path.endsWith('/continue')) {
+        if (feedDown?.call() ?? false) {
+          return http.Response('', 500);
+        }
         return http.Response(
           jsonEncode(<String, dynamic>{
             'now_playing': <dynamic>[],
@@ -137,7 +143,7 @@ void main() {
     expect(resolvePlayTarget(<Version>[], const <String>{}), isNull);
   });
 
-  test('exactly one in progress out of several is the target', () {
+  test('the version in progress is the target over the top one', () {
     final List<Version> vs = <Version>[
       _version('v1'),
       _version('v2'),
@@ -146,14 +152,18 @@ void main() {
     expect(resolvePlayTarget(vs, <String>{'v2'})?.id, 'v2');
   });
 
-  test('several versions with none in progress has no target', () {
+  test('with nothing in progress the top version is the target', () {
     final List<Version> vs = <Version>[_version('v1'), _version('v2')];
-    expect(resolvePlayTarget(vs, const <String>{}), isNull);
+    expect(resolvePlayTarget(vs, const <String>{})?.id, 'v1');
   });
 
-  test('several versions with more than one in progress has no target', () {
-    final List<Version> vs = <Version>[_version('v1'), _version('v2')];
-    expect(resolvePlayTarget(vs, <String>{'v1', 'v2'}), isNull);
+  test('of several in progress the top one is the target', () {
+    final List<Version> vs = <Version>[
+      _version('v1'),
+      _version('v2'),
+      _version('v3'),
+    ];
+    expect(resolvePlayTarget(vs, <String>{'v3', 'v2'})?.id, 'v2');
   });
 
   testWidgets('a single version plays without a prompt', (
@@ -300,19 +310,6 @@ void main() {
     expect(_resume(), findsNothing);
   });
 
-  testWidgets('a prompt still reads Play, not Resume', (
-    WidgetTester tester,
-  ) async {
-    await _pump(
-      tester,
-      <Version>[_version('v1'), _version('v2')],
-      inProgress: <String>['v1', 'v2'],
-    );
-
-    expect(find.text(Strings.play), findsOneWidget);
-    expect(_resume(), findsNothing);
-  });
-
   testWidgets('the one in-progress version resumes without a prompt', (
     WidgetTester tester,
   ) async {
@@ -330,35 +327,107 @@ void main() {
     expect(pushes.names.last, '/watch?version=v2');
   });
 
-  testWidgets('several versions with nothing in progress open the menu', (
+  testWidgets('several versions with nothing in progress play the top one', (
     WidgetTester tester,
   ) async {
     final _Pushes pushes = await _pump(tester, <Version>[
-      _version('v1'),
       _version('v2'),
+      _version('v1').copyWith(quality: Quality.uhd),
     ]);
 
     await tester.tap(find.text(Strings.play));
     await tester.pumpAndSettle();
 
-    expect(pushes.names, isEmpty);
-    expect(find.byType(MenuItemButton), findsNWidgets(2));
+    expect(pushes.names.last, '/watch?version=v1');
+    expect(find.byType(MenuItemButton), findsNothing);
   });
 
-  testWidgets('two in-progress versions still open the menu', (
+  testWidgets('Play reads the continue feed again at the press', (
     WidgetTester tester,
   ) async {
-    final _Pushes pushes = await _pump(
-      tester,
-      <Version>[_version('v1'), _version('v2')],
-      inProgress: <String>['v1', 'v2'],
-    );
+    final List<String> progress = <String>[];
+    final _Pushes pushes = await _pump(tester, <Version>[
+      _version('v1'),
+      _version('v2'),
+    ], inProgress: progress);
+    progress.add('v2');
 
     await tester.tap(find.text(Strings.play));
     await tester.pumpAndSettle();
 
+    expect(
+      pushes.names.last,
+      '/watch?version=v2',
+      reason:
+          'starting v1 from what the page loaded would delete the v2 progress',
+    );
+  });
+
+  testWidgets('a feed that fails at the press keeps what the button knew', (
+    WidgetTester tester,
+  ) async {
+    bool down = false;
+    final _Pushes pushes = await _pump(
+      tester,
+      <Version>[_version('v1'), _version('v2')],
+      inProgress: <String>['v2'],
+      feedDown: () => down,
+    );
+    down = true;
+
+    await tester.tap(_resume());
+    await tester.pumpAndSettle();
+
+    expect(pushes.names.last, '/watch?version=v2');
+  });
+
+  testWidgets('a top version without a file is passed over', (
+    WidgetTester tester,
+  ) async {
+    final _Pushes pushes = await _pump(tester, <Version>[
+      _version('v1', available: false),
+      _version('v2'),
+      _version('v3'),
+    ]);
+
+    await tester.tap(find.text(Strings.play));
+    await tester.pumpAndSettle();
+
+    expect(pushes.names.last, '/watch?version=v2');
+  });
+
+  testWidgets('a single version has no version button', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, <Version>[
+      _version('v1'),
+      _version('v2', available: false),
+    ]);
+
+    expect(_versions(), findsNothing);
+  });
+
+  testWidgets('the version button plays the version picked', (
+    WidgetTester tester,
+  ) async {
+    final _Pushes pushes = await _pump(tester, <Version>[
+      _version('v1'),
+      _version('v2'),
+      _version('v3', available: false),
+    ]);
+
+    expect(find.byTooltip(Strings.chooseVersion), findsOneWidget);
+
+    await tester.tap(_versions());
+    await tester.pumpAndSettle();
+
     expect(pushes.names, isEmpty);
     expect(find.byType(MenuItemButton), findsNWidgets(2));
+
+    await tester.tap(find.byType(MenuItemButton).last);
+    await tester.pumpAndSettle();
+
+    expect(pushes.names.last, '/watch?version=v2');
   });
 
   testWidgets('the menu reads duration, quality, container and size', (
@@ -370,7 +439,7 @@ void main() {
       _version('v3').copyWith(durationMs: 0),
     ]);
 
-    await tester.tap(find.text(Strings.play));
+    await tester.tap(_versions());
     await tester.pumpAndSettle();
 
     expect(
@@ -467,18 +536,24 @@ void main() {
       expect(server.mints, <Mint>[(device: 'd2', version: 'v2')]);
     });
 
-    testWidgets('Play on asks for the version when Play would', (
+    testWidgets('Play on sends the top version when nothing is in progress', (
       WidgetTester tester,
     ) async {
+      final PlayOnServer server = PlayOnServer();
       await _pump(tester, <Version>[
         _version('v1'),
         _version('v2'),
-      ], server: PlayOnServer());
+      ], server: server);
 
       await tester.tap(find.byIcon(Icons.devices));
       await tester.pumpAndSettle();
 
-      expect(find.byType(SubmenuButton), findsNWidgets(2));
+      expect(find.byType(SubmenuButton), findsNothing);
+
+      await tester.tap(find.text('Pixel'));
+      await tester.pumpAndSettle();
+
+      expect(server.mints, <Mint>[(device: 'd2', version: 'v1')]);
     });
 
     testWidgets('Resume, its dismiss and Play on share one row', (
@@ -497,6 +572,34 @@ void main() {
       expect(
         tester.getRect(find.byType(PlayOnButton)).left,
         greaterThanOrEqualTo(tester.getRect(_dismiss()).right),
+      );
+    });
+
+    testWidgets('the version button sits between dismiss and Play on', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        <Version>[_version('v1'), _version('v2')],
+        inProgress: <String>['v2'],
+        dismissible: true,
+        server: PlayOnServer(),
+      );
+
+      final Rect versions = tester.getRect(_versions());
+      expect(
+        tester.getRect(_resume()).right,
+        moreOrLessEquals(tester.getRect(_dismiss()).left, epsilon: 0.01),
+        reason: 'Resume and its dismiss stay one shape',
+      );
+      expect(
+        versions.left,
+        greaterThan(tester.getRect(_dismiss()).right),
+        reason: 'a gap separates the version button from the dismiss half',
+      );
+      expect(
+        tester.getRect(find.byType(PlayOnButton)).left,
+        greaterThanOrEqualTo(versions.right),
       );
     });
   });

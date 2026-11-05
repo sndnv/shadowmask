@@ -195,6 +195,7 @@ def main():
             {'asset': 'icons/roku/icon-collections-on.png', 'target': 'images/icon-collections-on.png'},
             {'asset': 'icons/roku/icon-person.png', 'target': 'images/icon-person.png'},
             {'asset': 'icons/roku/icon-person-on.png', 'target': 'images/icon-person-on.png'},
+            {'asset': 'icons/roku/icon-versions.png', 'target': 'images/icon-versions.png'},
             {'asset': 'icons/roku/chip-cap-left.png', 'target': 'images/chip-cap-left.png'},
             {'asset': 'icons/roku/chip-cap-right.png', 'target': 'images/chip-cap-right.png'},
             {'asset': 'icons/roku/chip-cap-left-line.png', 'target': 'images/chip-cap-left-line.png'},

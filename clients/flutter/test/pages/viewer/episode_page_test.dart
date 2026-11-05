@@ -176,7 +176,28 @@ void main() {
     expect(find.text('went to /watch?version=v1'), findsOneWidget);
   });
 
-  testWidgets('the artwork opens the version menu when nothing resumes', (
+  testWidgets('the artwork plays the top version when nothing resumes', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api(
+        <String>[],
+        versions: <Map<String, dynamic>>[
+          _version('v1', 'sd'),
+          _version('v2', 'fhd'),
+        ],
+      ),
+    );
+
+    await tester.tap(find.byType(PosterPlay));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(VersionMenuItem), findsNothing);
+    expect(find.text('went to /watch?version=v2'), findsOneWidget);
+  });
+
+  testWidgets('the version button lists the versions with a file', (
     WidgetTester tester,
   ) async {
     await _pump(
@@ -190,9 +211,7 @@ void main() {
       ),
     );
 
-    expect(find.byType(VersionMenuItem), findsNothing);
-
-    await tester.tap(find.byType(PosterPlay));
+    await tester.tap(find.byTooltip(Strings.chooseVersion));
     await tester.pumpAndSettle();
 
     expect(find.byType(VersionMenuItem), findsNWidgets(2));

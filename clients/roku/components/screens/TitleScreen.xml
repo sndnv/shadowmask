@@ -5,6 +5,7 @@
     <script type="text/brightscript" uri="pkg:/components/screens/DetailHero.brs" />
     <script type="text/brightscript" uri="pkg:/components/screens/CardMenu.brs" />
     <script type="text/brightscript" uri="pkg:/components/screens/EpisodePlay.brs" />
+    <script type="text/brightscript" uri="pkg:/components/screens/VersionPlay.brs" />
     <script type="text/brightscript" uri="pkg:/components/api/Http.brs" />
     <script type="text/brightscript" uri="pkg:/source/util.brs" />
     <script type="text/brightscript" uri="pkg:/source/tokens.brs" />

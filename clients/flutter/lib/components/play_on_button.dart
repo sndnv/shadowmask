@@ -5,19 +5,15 @@ import 'package:shadowmask/api/target_caller.dart';
 import 'package:shadowmask/components/long_menu_item.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/toggle_button.dart';
-import 'package:shadowmask/components/version_label.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/auth/device_target.dart';
 import 'package:shadowmask/model/auth/play_on_device.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/theme/app_menu.dart';
-import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/view/failure_reason.dart';
-import 'package:shadowmask/view/play_target.dart';
-import 'package:shadowmask/view/version_order.dart';
 
 mixin PlayOnTargets<T extends StatefulWidget> on State<T> {
   List<PlayOnDevice> playOnDevices = const <PlayOnDevice>[];
@@ -119,7 +115,7 @@ class PlayOnButton extends StatefulWidget {
 
   final PlayOnApi playOn;
   final List<PlayOnDevice> devices;
-  final Future<PlayChoice?> Function() choose;
+  final Future<Version?> Function() choose;
 
   @override
   State<PlayOnButton> createState() => _PlayOnButtonState();
@@ -128,7 +124,6 @@ class PlayOnButton extends StatefulWidget {
 class _PlayOnButtonState extends State<PlayOnButton> {
   final MenuController _menu = MenuController();
 
-  List<Version> _ordered = const <Version>[];
   Version? _target;
   bool _busy = false;
 
@@ -139,18 +134,15 @@ class _PlayOnButtonState extends State<PlayOnButton> {
     }
     setState(() => _busy = true);
     try {
-      final PlayChoice? choice = await widget.choose();
+      final Version? target = await widget.choose();
       if (!mounted) {
         return;
       }
-      if (choice == null || !choice.ordered.any((Version v) => v.available)) {
+      if (target == null) {
         Toasts.of(context).error(Strings.nothingToPlay);
         return;
       }
-      setState(() {
-        _ordered = choice.ordered;
-        _target = choice.target;
-      });
+      setState(() => _target = target);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _menu.open();
@@ -179,32 +171,11 @@ class _PlayOnButtonState extends State<PlayOnButton> {
     }
   }
 
-  List<Widget> _versionDevices(Tokens t, Version version) =>
-      _deviceItems(t, widget.devices, (PlayOnDevice d) => _send(d, version));
-
   List<Widget> _items(Tokens t) {
     final Version? target = _target;
-    if (target != null) {
-      return _versionDevices(t, target);
-    }
-    return <Widget>[
-      for (int i = 0; i < _ordered.length; i++)
-        if (_ordered[i].available)
-          SubmenuButton(
-            menuStyle: appMenuStyle(t),
-            menuChildren: _versionDevices(t, _ordered[i]),
-            child: Text.rich(
-              TextSpan(
-                style: monoStyle.copyWith(color: t.text, fontSize: 13),
-                children: versionLabelSpans(
-                  t,
-                  _ordered[i],
-                  versionNumberLabel(i),
-                ),
-              ),
-            ),
-          ),
-    ];
+    return target == null
+        ? const <Widget>[]
+        : _deviceItems(t, widget.devices, (PlayOnDevice d) => _send(d, target));
   }
 
   @override

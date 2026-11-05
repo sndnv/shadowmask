@@ -195,42 +195,51 @@ class _LibraryTogglesState extends State<LibraryToggles> {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: <Widget>[
             if (widget.leading != null) widget.leading!,
-            ToggleButton(
-              icon: Icons.check,
-              filledIcon: Icons.check,
-              label: Strings.watchedLabel,
-              tooltip: _watched ? Strings.markUnwatched : Strings.markWatched,
-              pressed: _watched,
-              busy: _busyWatched,
-              compact: compact,
-              onToggle: _toggleWatched,
+            Wrap(
+              spacing: Space.s2,
+              runSpacing: Space.s2,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: <Widget>[
+                ToggleButton(
+                  icon: Icons.check,
+                  filledIcon: Icons.check,
+                  label: Strings.watchedLabel,
+                  tooltip: _watched
+                      ? Strings.markUnwatched
+                      : Strings.markWatched,
+                  pressed: _watched,
+                  busy: _busyWatched,
+                  compact: compact,
+                  onToggle: _toggleWatched,
+                ),
+                if (widget.showWatchlistFavorite) ...<Widget>[
+                  ToggleButton(
+                    icon: Icons.bookmark_border,
+                    filledIcon: Icons.bookmark,
+                    label: Strings.watchlistLabel,
+                    tooltip: _watchlisted
+                        ? Strings.removeWatchlist
+                        : Strings.addWatchlist,
+                    pressed: _watchlisted,
+                    busy: _busyWatchlist,
+                    compact: compact,
+                    onToggle: _toggleWatchlist,
+                  ),
+                  ToggleButton(
+                    icon: Icons.favorite_border,
+                    filledIcon: Icons.favorite,
+                    label: Strings.favoriteLabel,
+                    tooltip: _favorite
+                        ? Strings.removeFavorite
+                        : Strings.addFavorite,
+                    pressed: _favorite,
+                    busy: _busyFavorite,
+                    compact: compact,
+                    onToggle: _toggleFavorite,
+                  ),
+                ],
+              ],
             ),
-            if (widget.showWatchlistFavorite) ...<Widget>[
-              ToggleButton(
-                icon: Icons.bookmark_border,
-                filledIcon: Icons.bookmark,
-                label: Strings.watchlistLabel,
-                tooltip: _watchlisted
-                    ? Strings.removeWatchlist
-                    : Strings.addWatchlist,
-                pressed: _watchlisted,
-                busy: _busyWatchlist,
-                compact: compact,
-                onToggle: _toggleWatchlist,
-              ),
-              ToggleButton(
-                icon: Icons.favorite_border,
-                filledIcon: Icons.favorite,
-                label: Strings.favoriteLabel,
-                tooltip: _favorite
-                    ? Strings.removeFavorite
-                    : Strings.addFavorite,
-                pressed: _favorite,
-                busy: _busyFavorite,
-                compact: compact,
-                onToggle: _toggleFavorite,
-              ),
-            ],
           ],
         );
       },
