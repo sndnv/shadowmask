@@ -87,6 +87,7 @@ class WatchBody extends StatefulWidget {
     required this.controllerFactory,
     required this.wide,
     required this.onToggleWide,
+    this.startAtMs,
     this.touch = false,
     this.appVersion = defaultVersion,
   });
@@ -95,6 +96,7 @@ class WatchBody extends StatefulWidget {
   final SelfUser user;
   final String versionId;
   final PlaybackControls initialControls;
+  final int? startAtMs;
   final PlayerControllerFactory controllerFactory;
   final bool wide;
   final bool touch;
@@ -117,6 +119,7 @@ class _WatchBodyState extends State<WatchBody>
   late PlaybackState _shown;
   bool _gatherFailed = false;
   bool _covered = false;
+  bool _away = false;
   LocalSettings _saved = const LocalSettings();
 
   PlayerPanel? _panel;
@@ -134,6 +137,9 @@ class _WatchBodyState extends State<WatchBody>
   Timer? _countdown;
   bool _upNextOff = false;
   bool _carrySelection = false;
+  List<Version> _versions = const <Version>[];
+  bool _switching = false;
+  String? _switchTo;
   bool _warnedProfile = false;
   final FocusNode _keys = FocusNode(debugLabel: 'player-shortcuts');
   AdminApi? _admin;
@@ -246,6 +252,13 @@ class _WatchBodyState extends State<WatchBody>
   @override
   void didPopNext() {
     _covered = false;
+    final String? pending = _switchTo;
+    if (pending != null) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _replaceWith(pending),
+      );
+      return;
+    }
     _foreground(playing: true);
   }
 
@@ -255,10 +268,17 @@ class _WatchBodyState extends State<WatchBody>
       return;
     }
     if (state == AppLifecycleState.paused) {
+      _away = true;
       _background();
       return;
     }
     if (state == AppLifecycleState.resumed) {
+      _away = false;
+      final String? pending = _switchTo;
+      if (pending != null) {
+        _replaceWith(pending);
+        return;
+      }
       _foreground(playing: false);
     }
   }
@@ -319,9 +339,12 @@ class _WatchBodyState extends State<WatchBody>
       (_) => const ServerInfo(),
     );
     _warnProfileVersion(info.profileVersion);
-    final ResumePosition resume = await _pb
-        .resume(widget.user.id, widget.versionId)
-        .catchError((_) => const ResumePosition());
+    final int resumeMs =
+        widget.startAtMs ??
+        (await _pb
+                .resume(widget.user.id, widget.versionId)
+                .catchError((_) => const ResumePosition()))
+            .positionMs;
     final VersionDetail version = await CatalogApi(
       widget.api,
     ).version(widget.versionId);
@@ -335,9 +358,12 @@ class _WatchBodyState extends State<WatchBody>
     _runner.opened(
       title: PlaybackTitle(version: version),
       local: prefs.copyWith(decoding: _decoding),
-      resumeMs: resume.positionMs,
+      resumeMs: resumeMs,
       profileVersion: info.profileVersion,
     );
+    if (widget.startAtMs != null) {
+      _writeUrl(widget.initialControls);
+    }
     _versionFeed.value = version;
     unawaited(_loadTitle(version.title));
   }
@@ -437,8 +463,24 @@ class _WatchBodyState extends State<WatchBody>
     }
   }
 
+  Future<void> _loadVersions(Future<Paged<Version>> request) async {
+    try {
+      final List<Version> ordered = orderedVersions((await request).items);
+      if (mounted) {
+        setState(() => _versions = ordered);
+      }
+    } catch (_) {}
+  }
+
   Future<void> _loadTitle(TitleRef ref) async {
     final CatalogApi catalog = CatalogApi(widget.api);
+    unawaited(
+      _loadVersions(
+        ref.type == TitleKind.movie
+            ? catalog.movieVersions(ref.id)
+            : catalog.episodeVersions(ref.id),
+      ),
+    );
     if (ref.type == TitleKind.movie) {
       try {
         final MovieDetail movie = await catalog.movie(ref.id);
@@ -587,19 +629,56 @@ class _WatchBodyState extends State<WatchBody>
 
   Future<void> _goToEpisode(EpisodeLink link) async {
     _dismissUpNext();
-    final String route = await _episodeRoute(link);
-    if (!mounted) {
+    _replaceWith(await _episodeRoute(link));
+  }
+
+  Future<void> _switchVersion(String id) async {
+    final PlaybackState s = _state;
+    final VersionDetail? version = s.title.version;
+    if (_switching ||
+        version == null ||
+        id == widget.versionId ||
+        !_frontmost()) {
       return;
     }
-    final NavigatorState nav = Navigator.of(context);
-    final ModalRoute<dynamic>? page = ModalRoute.of(context);
-    if (page != null && !page.isCurrent) {
-      nav.popUntil((Route<dynamic> r) => r == page || r is! PopupRoute);
-      if (!page.isCurrent) {
-        return;
-      }
+    _switching = true;
+    _dismissUpNext();
+    _closePanel();
+    final String route = watchRoute(
+      id,
+      controls: carryTracks(s.remote, version).toQuery(),
+      atMs: switchStartMs(
+        _versions,
+        id,
+        s.timeline.positionMs,
+        ended: s.timeline.ended,
+      ),
+    );
+    _controller.pause();
+    await _runner.leave();
+    await _runner.ended;
+    if (!_replaceWith(route)) {
+      _switchTo = route;
     }
-    await nav.pushReplacementNamed(route);
+  }
+
+  bool _frontmost() {
+    final ModalRoute<dynamic>? page = ModalRoute.of(context);
+    if (page == null || page.isCurrent) {
+      return true;
+    }
+    Navigator.of(
+      context,
+    ).popUntil((Route<dynamic> r) => r == page || r is! PopupRoute);
+    return page.isCurrent;
+  }
+
+  bool _replaceWith(String route) {
+    if (!mounted || _covered || _away || !_frontmost()) {
+      return false;
+    }
+    unawaited(Navigator.of(context).pushReplacementNamed(route));
+    return true;
   }
 
   Future<String> _episodeRoute(EpisodeLink link) async {
@@ -1090,6 +1169,8 @@ class _WatchBodyState extends State<WatchBody>
     onShortcuts: widget.touch ? null : _showShortcuts,
     onShowLog: _showPlaybackLog,
     onAddSubtitles: _admin == null ? null : _addSubtitles,
+    versions: _versions,
+    onVersion: _switchVersion,
     openChoice: openChoice,
     onClose: _closePanel,
     dense: compactViewport(context),

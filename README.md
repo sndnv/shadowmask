@@ -47,9 +47,9 @@ streams to multiple players with per-user accounts and access control.
 |---------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
 | ![A movie page with ratings, cast and its collection](./assets/screenshots/shadowmask_screenshot_movie_details.jpg) | ![A series page with cast and seasons](./assets/screenshots/shadowmask_screenshot_series_details.jpg) |
 
-| Player                                                                                                                          | Version admin                                                                                                                              |
-|---------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
-| ![The player, with playback controls, audio, subtitle and quality menus](./assets/screenshots/shadowmask_screenshot_player.jpg) | ![Admin view of one version, with its tracks, subtitles and actions](./assets/screenshots/shadowmask_screenshot_admin_version_details.jpg) |
+| Player                                                                                                                                  | Version admin                                                                                                                              |
+|-----------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
+| ![The player, with playback controls, video, audio, subtitle and settings menus](./assets/screenshots/shadowmask_screenshot_player.jpg) | ![Admin view of one version, with its tracks, subtitles and actions](./assets/screenshots/shadowmask_screenshot_admin_version_details.jpg) |
 
 On a phone, in each of the three themes:
 

@@ -374,6 +374,45 @@ Future<String> _autoplayIntoSeveral(
   return pushed.single;
 }
 
+Map<String, dynamic> _movieVersion(String id, String quality) =>
+    <String, dynamic>{
+      'id': id,
+      'title': <String, dynamic>{'type': 'movie', 'id': 'm1'},
+      'library_id': 'lib',
+      'quality': quality,
+      'container': 'mkv',
+      'available': true,
+    };
+
+http.Response? _twoVersions(http.Request r) =>
+    r.url.path == '/api/v1/movies/m1/versions'
+    ? http.Response(
+        jsonEncode(<String, dynamic>{
+          'items': <dynamic>[
+            _movieVersion('v2', 'hd'),
+            _movieVersion('v1', 'fhd'),
+          ],
+          'total': 2,
+        }),
+        200,
+      )
+    : null;
+
+Finder _panel(PlayerPanel panel) =>
+    find.byWidgetPredicate((Widget w) => w is PanelIcon && w.panel == panel);
+
+bool _ends(http.Request r) =>
+    r.method == 'DELETE' && r.url.path == '/api/v1/sessions/s1';
+
+Future<void> _pickVersion(WidgetTester tester, String label) async {
+  await tester.tap(find.byIcon(Icons.video_settings));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('1 · FHD · mkv'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(label).last);
+  await tester.pump();
+}
+
 Future<void> _shown(WidgetTester tester) async {
   await tester.pump();
   await tester.pump();
@@ -522,6 +561,7 @@ Widget _app(
   Duration? Function(http.Request r)? lag,
   bool toasts = false,
   PageDirector<String?>? backdrops,
+  int? startAtMs,
 }) {
   int updates = 0;
   final ApiClient api = ApiClient(
@@ -586,6 +626,7 @@ Widget _app(
         user: user,
         versionId: 'v1',
         initialControls: controls,
+        startAtMs: startAtMs,
         controllerFactory: (_) => fake,
         wide: wide,
         touch: touch,
@@ -1135,7 +1176,7 @@ void main() {
     expect(find.text(Strings.playerSpeed), findsOneWidget);
     expect(find.text(Strings.playerDiagnostics), findsNothing);
 
-    await tester.tap(find.byIcon(Icons.audiotrack).first);
+    await tester.tap(_panel(PlayerPanel.audio).first);
     await tester.pumpAndSettle();
     expect(find.text(Strings.playerNightMode), findsOneWidget);
     expect(find.text(Strings.playerStereoDownmix), findsNothing);
@@ -1145,13 +1186,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text(Strings.playerSubtitles), findsWidgets);
 
-    await tester.tap(find.byIcon(Icons.settings).first);
+    await tester.tap(_panel(PlayerPanel.settings).first);
     await tester.pumpAndSettle();
     expect(find.text(Strings.playerDiagnostics), findsOneWidget);
     expect(find.text(Strings.playerPictureInPicture), findsOneWidget);
     expect(find.text(Strings.playerSpeed), findsNothing);
 
-    await tester.tap(find.byIcon(Icons.settings).first);
+    await tester.tap(_panel(PlayerPanel.settings).first);
     await tester.pumpAndSettle();
     expect(find.text(Strings.playerDiagnostics), findsNothing);
 
@@ -1483,7 +1524,7 @@ void main() {
 
     final Finder audio = find.descendant(
       of: find.byType(OverlayBar),
-      matching: find.byIcon(Icons.audiotrack),
+      matching: _panel(PlayerPanel.audio),
     );
     await tester.tap(find.byIcon(Icons.video_settings));
     await tester.pumpAndSettle();
@@ -1508,7 +1549,7 @@ void main() {
     await tester.pumpWidget(_app(fake, touch: true));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(find.byIcon(Icons.settings));
     await tester.pumpAndSettle();
 
     expect(find.byType(PlayerSheet), findsOneWidget);
@@ -1526,7 +1567,7 @@ void main() {
     final FakePlayerController fake = FakePlayerController();
     await tester.pumpWidget(_app(fake, touch: true));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(find.byIcon(Icons.settings));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text(Strings.playerSubtitles));
@@ -1553,7 +1594,7 @@ void main() {
       await tester.pumpAndSettle();
       fake.at(positionMs: 1000);
       await tester.pump();
-      await tester.tap(find.byIcon(Icons.tune));
+      await tester.tap(find.byIcon(Icons.settings));
       await tester.pumpAndSettle();
       await tester.tap(find.text(Strings.playerSubtitles));
       await tester.pumpAndSettle();
@@ -1582,7 +1623,7 @@ void main() {
     final FakePlayerController fake = FakePlayerController();
     await tester.pumpWidget(_app(fake, touch: true));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(find.byIcon(Icons.settings));
     await tester.pumpAndSettle();
 
     await tester.tapAt(
@@ -1615,7 +1656,7 @@ void main() {
     final FakePlayerController fake = FakePlayerController();
     await tester.pumpWidget(_app(fake, touch: true));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(find.byIcon(Icons.settings));
     await tester.pumpAndSettle();
     fake.calls.clear();
 
@@ -1634,7 +1675,7 @@ void main() {
     final FakePlayerController fake = FakePlayerController();
     await tester.pumpWidget(_app(fake, touch: true));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(find.byIcon(Icons.settings));
     await tester.pumpAndSettle();
     await tester.tap(find.text(PlayerPanel.video.title));
     await tester.pumpAndSettle();
@@ -1658,7 +1699,7 @@ void main() {
     final FakePlayerController fake = FakePlayerController();
     await tester.pumpWidget(_app(fake, touch: true));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(find.byIcon(Icons.settings));
     await tester.pumpAndSettle();
 
     await tester.binding.handlePopRoute();
@@ -1694,7 +1735,7 @@ void main() {
     await tester.pumpWidget(_app(fake));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.settings).first);
+    await tester.tap(_panel(PlayerPanel.settings).first);
     await tester.pumpAndSettle();
     await tester.tap(find.text(Strings.playerPictureInPicture));
     await tester.pumpAndSettle();
@@ -2113,7 +2154,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(find.byIcon(Icons.settings));
     await tester.pumpAndSettle();
     await tester.tap(find.text(Strings.playerSubtitles));
     await tester.pumpAndSettle();
@@ -2149,7 +2190,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(Icons.tune));
+      await tester.tap(find.byIcon(Icons.settings));
       await tester.pumpAndSettle();
       await tester.tap(find.text(Strings.playerSubtitles));
       await tester.pumpAndSettle();
@@ -2898,7 +2939,7 @@ void main() {
 
       expect(await startedWith(tester), 'always');
 
-      await tester.tap(find.byIcon(Icons.settings).first);
+      await tester.tap(_panel(PlayerPanel.settings).first);
       await tester.pumpAndSettle();
 
       expect(
@@ -3180,7 +3221,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(OverlayBar),
-        matching: find.byIcon(PlayerPanel.settings.icon),
+        matching: _panel(PlayerPanel.settings),
       ),
     );
     await tester.pumpAndSettle();
@@ -3202,7 +3243,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(OverlayBar),
-        matching: find.byIcon(PlayerPanel.settings.icon),
+        matching: _panel(PlayerPanel.settings),
       ),
     );
     await tester.pumpAndSettle();
@@ -3240,7 +3281,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(OverlayBar),
-        matching: find.byIcon(PlayerPanel.settings.icon),
+        matching: _panel(PlayerPanel.settings),
       ),
     );
     await tester.pumpAndSettle();
@@ -3395,7 +3436,7 @@ void main() {
 
     final Finder chrome = find
         .ancestor(
-          of: find.byIcon(Icons.settings).first,
+          of: _panel(PlayerPanel.settings).first,
           matching: find.byType(AnimatedOpacity),
         )
         .first;
@@ -3407,7 +3448,7 @@ void main() {
     expect(tester.widget<AnimatedOpacity>(chrome).opacity, 0);
 
     // Tabbing onto a control the user cannot see is what this prevents.
-    Focus.of(tester.element(find.byIcon(Icons.settings).first)).requestFocus();
+    Focus.of(tester.element(_panel(PlayerPanel.settings).first)).requestFocus();
     await tester.pumpAndSettle();
 
     expect(tester.widget<AnimatedOpacity>(chrome).opacity, 1);
@@ -3450,7 +3491,7 @@ void main() {
     await tester.pumpWidget(_app(fake));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.settings).first);
+    await tester.tap(_panel(PlayerPanel.settings).first);
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.keyboard));
     await tester.pumpAndSettle();
@@ -3611,7 +3652,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(OverlayBar),
-        matching: find.byIcon(PlayerPanel.settings.icon),
+        matching: _panel(PlayerPanel.settings),
       ),
     );
     await tester.pumpAndSettle();
@@ -3686,7 +3727,7 @@ void main() {
       await _shown(tester);
       expect(find.byType(UpNextCard), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.settings).first);
+      await tester.tap(_panel(PlayerPanel.settings).first);
       await tester.pumpAndSettle();
       await tester.tap(
         find.text(autoplayLabel(const LocalSettings().autoplayNextS)).first,
@@ -3717,7 +3758,7 @@ void main() {
       of: find.byType(PlayerSettingsPanel),
       matching: find.text(text),
     );
-    await tester.tap(find.byIcon(Icons.settings).first);
+    await tester.tap(_panel(PlayerPanel.settings).first);
     await tester.pumpAndSettle();
     await tester.tap(
       inPanel(autoplayLabel(const LocalSettings().autoplayNextS)).first,
@@ -4572,7 +4613,7 @@ void main() {
     expect(find.byIcon(Icons.fullscreen), findsNothing);
     expect(find.byIcon(Icons.width_wide), findsNothing);
 
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(find.byIcon(Icons.settings));
     await tester.pumpAndSettle();
     await tester.tap(find.text(PlayerPanel.settings.title));
     await tester.pumpAndSettle();
@@ -4636,7 +4677,7 @@ void main() {
           'attach leaves the first stream on the wrong value',
     );
 
-    await tester.tap(find.byIcon(Icons.settings).first);
+    await tester.tap(_panel(PlayerPanel.settings).first);
     await tester.pumpAndSettle();
 
     expect(
@@ -4680,7 +4721,7 @@ void main() {
           'set after attach would not apply until the next stream',
     );
 
-    await tester.tap(find.byIcon(Icons.settings).first);
+    await tester.tap(_panel(PlayerPanel.settings).first);
     await tester.pumpAndSettle();
     await tester.tap(find.text(Strings.playerBufferDuration(120)).last);
     await tester.pumpAndSettle();
@@ -4749,7 +4790,7 @@ void main() {
     expect(find.text(Strings.playerBuffering), findsNothing);
     expect(find.text(Strings.playerPlayNow), findsNothing);
 
-    await tester.tap(find.byIcon(Icons.settings).first);
+    await tester.tap(_panel(PlayerPanel.settings).first);
     await tester.pumpAndSettle();
 
     expect(
@@ -4774,7 +4815,7 @@ void main() {
     await tester.pumpWidget(_app(fake));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.settings).first);
+    await tester.tap(_panel(PlayerPanel.settings).first);
     await tester.pumpAndSettle();
 
     expect(
@@ -5524,7 +5565,7 @@ void main() {
   }
 
   Future<void> pickEnglishSubtitles(WidgetTester tester) async {
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(find.byIcon(Icons.settings));
     await tester.pumpAndSettle();
     await tester.tap(find.text(Strings.playerSubtitles));
     await tester.pumpAndSettle();
@@ -5656,7 +5697,7 @@ void main() {
     fake.pause();
     await _shown(tester);
 
-    await tester.tap(find.byIcon(Icons.audiotrack).first);
+    await tester.tap(_panel(PlayerPanel.audio).first);
     await tester.pumpAndSettle();
     await tester.tap(find.byType(AppDropdown<NightMode>));
     await tester.pumpAndSettle();
@@ -5671,6 +5712,216 @@ void main() {
     await _settleAroundSpinner(tester);
 
     expect(find.byType(UpNextCard), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('switching versions ends this session before the other version '
+      'opens at the same point with the same languages', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
+    final List<String> pushed = <String>[];
+    bool? pausedBeforeEnd;
+    await tester.pumpWidget(
+      _app(
+        fake,
+        seen: seen,
+        pushed: pushed,
+        intercept: (http.Request r) {
+          if (_ends(r)) {
+            pausedBeforeEnd ??= fake.calls.contains('pause');
+            return http.Response('', 204);
+          }
+          return _twoVersions(r);
+        },
+        lag: (http.Request r) => _ends(r) ? const Duration(seconds: 2) : null,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _settled(tester);
+    fake.at(positionMs: 61000);
+    await tester.pump();
+    fake.calls.clear();
+
+    await _pickVersion(tester, '2 · HD · mkv');
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(
+      pausedBeforeEnd,
+      isTrue,
+      reason: 'the old version must not play on behind the wait',
+    );
+    expect(seen.where(_ends), hasLength(1));
+    expect(_reported(seen).last, 61000);
+    expect(
+      pushed,
+      isEmpty,
+      reason:
+          'a progress write landing after the other version starts would '
+          'bring back the resume point that start deleted',
+    );
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+
+    final Uri next = Uri.parse(pushed.single);
+    expect(next.path, '/watch');
+    expect(next.queryParameters['version'], 'v2');
+    expect(next.queryParameters['at'], '61000');
+    expect(next.queryParameters['alang'], 'en');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a switch after the end opens the other version from the top', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<String> pushed = <String>[];
+    await tester.pumpWidget(
+      _app(
+        fake,
+        pushed: pushed,
+        intercept: (http.Request r) =>
+            _twoVersions(r) ?? (_ends(r) ? http.Response('', 204) : null),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _settled(tester);
+    fake.emit(ended: true);
+    await tester.pumpAndSettle();
+
+    await _pickVersion(tester, '2 · HD · mkv');
+    await tester.pumpAndSettle();
+
+    final Uri next = Uri.parse(pushed.single);
+    expect(next.queryParameters['version'], 'v2');
+    expect(next.queryParameters['at'], '0');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a switch held up by a page over the player finishes when the '
+      'player is back on top', (WidgetTester tester) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<String> pushed = <String>[];
+    await tester.pumpWidget(
+      _app(
+        fake,
+        pushed: pushed,
+        intercept: (http.Request r) =>
+            _twoVersions(r) ?? (_ends(r) ? http.Response('', 204) : null),
+        lag: (http.Request r) => _ends(r) ? const Duration(seconds: 2) : null,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _settled(tester);
+    fake.at(positionMs: 61000);
+    await tester.pump();
+
+    await _pickVersion(tester, '2 · HD · mkv');
+    final NavigatorState nav = Navigator.of(
+      tester.element(find.byType(WatchBody)),
+    );
+    unawaited(nav.pushNamed('/away'));
+    final Route<void> dialog = _dialog();
+    unawaited(nav.push(dialog));
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+
+    expect(pushed, <String>['/away']);
+    expect(
+      dialog.isActive,
+      isTrue,
+      reason: 'a switch held up behind a page leaves that page alone',
+    );
+
+    nav.pop();
+    await tester.pumpAndSettle();
+    nav.pop();
+    await tester.pumpAndSettle();
+
+    expect(pushed.last, startsWith(watchRoute('v2')));
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a switch that finishes while the app is away waits for it to '
+      'come back', (WidgetTester tester) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<String> pushed = <String>[];
+    await tester.pumpWidget(
+      _app(
+        fake,
+        pushed: pushed,
+        touch: true,
+        intercept: (http.Request r) =>
+            _twoVersions(r) ?? (_ends(r) ? http.Response('', 204) : null),
+        lag: (http.Request r) => _ends(r) ? const Duration(seconds: 2) : null,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _settled(tester);
+    fake.at(positionMs: 61000);
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.settings));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerVideo));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.playerVersion));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('2 · HD · mkv'));
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+
+    expect(
+      pushed,
+      isEmpty,
+      reason: 'the other version would start playing behind the home screen',
+    );
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(pushed.single, startsWith(watchRoute('v2')));
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a page opened at a position starts there without asking for '
+      'the resume point', (WidgetTester tester) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<http.Request> seen = <http.Request>[];
+    await tester.pumpWidget(
+      _app(fake, seen: seen, intercept: _resumeAt40s, startAtMs: 61000),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      seen.where(
+        (http.Request r) =>
+            r.method == 'GET' && r.url.path.contains('/progress/'),
+      ),
+      isEmpty,
+    );
+    final http.Request start = seen.firstWhere(
+      (http.Request r) =>
+          r.method == 'POST' && r.url.path == '/api/v1/sessions',
+    );
+    expect(
+      (jsonDecode(start.body) as Map<String, dynamic>)['start_position_ms'],
+      61000,
+    );
 
     await tester.pumpWidget(const SizedBox());
     await tester.pumpAndSettle();

@@ -428,7 +428,7 @@ end function
 function MenuAfterBack(field as string, settingMenu as string) as string
     if field = "workMenu" then return "subsMenu"
 
-    leaves = ["audio", "subtitle", "delivery", "dialogue", "night", "offset", "subtitleSize", "autoplay"]
+    leaves = ["audio", "subtitle", "delivery", "dialogue", "night", "offset", "subtitleSize", "autoplay", "quality", "version"]
     leaves.Append(WorkChoiceFields())
 
     isLeaf = false
@@ -437,7 +437,7 @@ function MenuAfterBack(field as string, settingMenu as string) as string
     end for
     if not isLeaf then return ""
 
-    for each menu in ["subsMenu", "audioMenu", "settings", "workMenu"]
+    for each menu in ["subsMenu", "audioMenu", "videoMenu", "settings", "workMenu"]
         if menu = settingMenu then return menu
     end for
     return ""
@@ -499,7 +499,7 @@ function PlayerButtons(playing as boolean, finished as boolean, episode as boole
     end if
 
     buttons = [
-        { id: "quality", icon: "icon-quality", label: Phrase("player.quality"), style: "glyph", disabled: busy },
+        { id: "video", icon: "icon-video", label: Phrase("player.video"), style: "glyph", disabled: busy },
         { id: "subtitle", icon: "icon-subtitles", label: Phrase("heading.subtitles"), style: "glyph", disabled: busy }
     ]
 
@@ -1110,6 +1110,19 @@ function AudioRows(controls as dynamic, version as dynamic, sent as integer) as 
     if shown.normalize then rows.Push({ id: "normalize", label: Phrase("player.normalize"), detail: OnOrOff(kept.normalize <> false) })
     if shown.dialogue then rows.Push({ id: "dialogue", label: Phrase("player.dialogue"), detail: DialogueLabel(Int(kept.dialogue)) })
     if shown.night then rows.Push({ id: "night", label: Phrase("player.night"), detail: NightLabel(kept.night) })
+    return rows
+end function
+
+function VideoRows(controls as dynamic, version as dynamic, versions as dynamic, watching as boolean) as object
+    kept = ControlsCopy(controls)
+    rungs = QualityRungs(SourceHeightOf(version))
+
+    rows = [{ id: "quality", label: Phrase("player.quality"), detail: rungs[IndexOfValue(rungs, "height", Int(kept.height))].label }]
+    if not watching then return rows
+
+    playing = TextOrBlank(ValueAt(version, "id", ""))
+    choices = VersionRows(SwitchableVersions(versions, playing))
+    if choices.Count() > 0 then rows.Push({ id: "version", label: Phrase("player.version"), detail: choices[IndexOfValue(choices, "id", playing)].label })
     return rows
 end function
 

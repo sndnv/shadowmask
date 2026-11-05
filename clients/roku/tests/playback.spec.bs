@@ -335,7 +335,20 @@ namespace tests
                 ids.Push(button.id)
             end for
 
-            m.assertEqual(ids, ["quality", "subtitle", "play", "audio", "settings"])
+            m.assertEqual(ids, ["video", "subtitle", "play", "audio", "settings"])
+        end sub
+
+        @it("marks each panel with the glyph Flutter shows for it")
+        sub playerButtonsGlyphs()
+            glyphs = {}
+            for each button in PlayerButtons(true, false, false, false, false)
+                glyphs[button.id] = button.icon
+            end for
+
+            m.assertEqual(glyphs.video, "icon-video")
+            m.assertEqual(glyphs.subtitle, "icon-subtitles")
+            m.assertEqual(glyphs.audio, "icon-audio")
+            m.assertEqual(glyphs.settings, "icon-settings")
         end sub
 
         @it("shows the pause icon only while playing")
@@ -507,7 +520,7 @@ namespace tests
         @it("falls back to the first button when there is no transport")
         sub transportIndexFallsBack()
             m.assertEqual(TransportIndex([{ id: "retry" }]), 0)
-            m.assertEqual(TransportIndex([{ id: "quality" }, { id: "settings" }]), 0)
+            m.assertEqual(TransportIndex([{ id: "video" }, { id: "settings" }]), 0)
             m.assertEqual(TransportIndex(invalid), 0)
         end sub
 
@@ -813,10 +826,11 @@ namespace tests
 
         @describe("MenuAfterBack")
 
-        @it("closes Quality, which only the player bar opens")
-        sub closesQuality()
-            m.assertEqual(MenuAfterBack("quality", "subsMenu"), "")
-            m.assertEqual(MenuAfterBack("quality", "settings"), "")
+        @it("takes Quality and Version back to the video menu")
+        sub returnsToVideoMenu()
+            m.assertEqual(MenuAfterBack("quality", "videoMenu"), "videoMenu")
+            m.assertEqual(MenuAfterBack("version", "videoMenu"), "videoMenu")
+            m.assertEqual(MenuAfterBack("videoMenu", "videoMenu"), "")
         end sub
 
         @it("takes a choice back to the menu it was picked from")
@@ -1337,6 +1351,44 @@ namespace tests
                 m.assertEqual(SubtitleSizeLabel(option.value), option.label)
                 m.assertFalse(IsBlank(option.label))
             end for
+        end sub
+
+        @describe("VideoRows")
+
+        @it("offers only the quality for a single version")
+        sub videoRowsQualityOnly()
+            controls = DefaultControls()
+            controls.height = 720
+            version = { id: "v1", video: [{ height: 2160 }] }
+
+            rows = VideoRows(controls, version, [{ id: "v1", available: true }], true)
+
+            m.assertEqual(rows.Count(), 1)
+            m.assertEqual(rows[0].id, "quality")
+            m.assertEqual(rows[0].detail, RungLabel(720))
+        end sub
+
+        @it("adds the version that is playing when there are others")
+        sub videoRowsWithVersions()
+            versions = [{ id: "v1", quality: "uhd", container: "mkv", available: true }, { id: "v2", quality: "fhd", container: "mkv", available: true }]
+
+            rows = VideoRows(DefaultControls(), { id: "v2", video: [{ height: 1080 }] }, versions, true)
+
+            m.assertEqual(rows.Count(), 2)
+            m.assertEqual(rows[0].detail, RungLabel(0))
+            m.assertEqual(rows[1].id, "version")
+            m.assertEqual(rows[1].label, Phrase("player.version"))
+            m.assertEqual(rows[1].detail, VersionRowContent(versions[1], 1).label)
+        end sub
+
+        @it("holds the version back until the title is playing")
+        sub videoRowsBeforePlaying()
+            versions = [{ id: "v1", quality: "uhd", container: "mkv", available: true }, { id: "v2", quality: "fhd", container: "mkv", available: true }]
+
+            rows = VideoRows(DefaultControls(), { id: "v2", video: [{ height: 1080 }] }, versions, false)
+
+            m.assertEqual(rows.Count(), 1)
+            m.assertEqual(rows[0].id, "quality")
         end sub
 
         @describe("AudioRows")

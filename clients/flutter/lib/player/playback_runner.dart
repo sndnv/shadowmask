@@ -167,6 +167,8 @@ class PlaybackRunner {
     return _left.future;
   }
 
+  Future<void> get ended => _afterEnds();
+
   void _post(PlaybackWrite write) => _inbox.add(write);
 
   void _handle(PlaybackWrite write) {

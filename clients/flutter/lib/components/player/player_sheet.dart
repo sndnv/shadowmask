@@ -145,7 +145,7 @@ class _PlayerSheetState extends State<PlayerSheet> {
               padding: const EdgeInsets.symmetric(horizontal: Space.s4),
               child: Row(
                 children: <Widget>[
-                  Icon(panel.icon, size: 22, color: t.muted),
+                  PanelIcon(panel, size: 22, color: t.muted),
                   const SizedBox(width: Space.s3),
                   Text(
                     panel.title,

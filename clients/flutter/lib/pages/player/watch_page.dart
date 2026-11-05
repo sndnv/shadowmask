@@ -21,12 +21,14 @@ class WatchPage extends StatefulWidget {
     required this.api,
     required this.versionId,
     this.controls = const PlaybackControls(),
+    this.startAtMs,
     this.controllerFactory = createPlayerController,
   });
 
   final ApiClient api;
   final String versionId;
   final PlaybackControls controls;
+  final int? startAtMs;
   final PlayerControllerFactory controllerFactory;
 
   @override
@@ -85,6 +87,7 @@ class _WatchPageState extends State<WatchPage> {
               user: user,
               versionId: versionId,
               initialControls: widget.controls,
+              startAtMs: widget.startAtMs,
               controllerFactory: widget.controllerFactory,
               wide: wide,
               touch: touch,

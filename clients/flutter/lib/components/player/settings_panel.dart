@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import 'package:shadowmask/components/admin/field_help.dart';
 import 'package:shadowmask/components/app_dropdown.dart';
+import 'package:shadowmask/components/version_label.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/player/player_prefs_store.dart';
 import 'package:shadowmask/player/state/local_settings.dart';
@@ -10,12 +12,14 @@ import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_choice.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
+import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
 import 'package:shadowmask/theme/radii.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/util/subtitle_labels.dart';
+import 'package:shadowmask/view/version_order.dart';
 
 const List<int?> _qualityRungs = <int?>[null, 1080, 720, 480, 320];
 
@@ -118,15 +122,49 @@ typedef ChoiceOpener = void Function(PlayerChoice choice);
 const Object kPlayerPanelGroup = Object();
 
 enum PlayerPanel {
-  video(Strings.playerVideo, Icons.video_settings),
-  audio(Strings.playerAudio, Icons.audiotrack),
-  subtitles(Strings.playerSubtitles, Icons.subtitles),
-  settings(Strings.playerSettings, Icons.settings);
+  video(Strings.playerVideo, icon: Icons.video_settings),
+  audio(Strings.playerAudio, glyph: 'assets/glyphs/icon-audio.svg'),
+  subtitles(Strings.playerSubtitles, icon: Icons.subtitles),
+  settings(Strings.playerSettings, icon: Icons.tune);
 
-  const PlayerPanel(this.title, this.icon);
+  const PlayerPanel(this.title, {this.icon, this.glyph});
 
   final String title;
-  final IconData icon;
+  final IconData? icon;
+  final String? glyph;
+}
+
+const double kPanelGlyphScale = 1.25;
+
+class PanelIcon extends StatelessWidget {
+  const PanelIcon(this.panel, {super.key, this.size, this.color});
+
+  final PlayerPanel panel;
+  final double? size;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final String? glyph = panel.glyph;
+    if (glyph == null) {
+      return Icon(panel.icon, size: size, color: color);
+    }
+    final IconThemeData theme = IconTheme.of(context);
+    final Color? tint = color ?? theme.color;
+    return SizedBox.square(
+      dimension: size ?? theme.size ?? 24,
+      child: Transform.scale(
+        scale: kPanelGlyphScale,
+        child: SvgPicture.asset(
+          glyph,
+          excludeFromSemantics: true,
+          colorFilter: tint == null
+              ? null
+              : ColorFilter.mode(tint, BlendMode.srcIn),
+        ),
+      ),
+    );
+  }
 }
 
 class PlayerSettingsPanel extends StatefulWidget {
@@ -162,6 +200,8 @@ class PlayerSettingsPanel extends StatefulWidget {
     this.onShowLog,
     this.onAddSubtitles,
     this.openChoice,
+    this.versions = const <Version>[],
+    this.onVersion,
     this.sound = kNoSoundRows,
     this.dense = false,
     this.busy = false,
@@ -171,6 +211,8 @@ class PlayerSettingsPanel extends StatefulWidget {
   final PlayerPanel panel;
   final PlaybackControls controls;
   final VersionDetail version;
+  final List<Version> versions;
+  final ValueChanged<String>? onVersion;
   final double speed;
   final bool diagnostics;
   final String? mode;
@@ -290,13 +332,43 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
     widget.onControls(asked);
   }
 
+  List<(String, String)> _versionItems() {
+    final List<Version> all = widget.versions;
+    final List<(String, String)> items = <(String, String)>[
+      if (widget.onVersion != null)
+        for (int i = 0; i < all.length; i++)
+          if (all[i].available)
+            (all[i].id, versionLabelText(all[i], versionNumberLabel(i))),
+    ];
+    return items.any(((String, String) item) => item.$1 == widget.version.id)
+        ? items
+        : const <(String, String)>[];
+  }
+
+  void _pickVersion(String id) {
+    if (id != widget.version.id) {
+      widget.onVersion?.call(id);
+    }
+  }
+
   List<Widget> _rows(BuildContext context, Tokens t) {
     final VersionDetail v = widget.version;
     final bool hasSubs = v.subtitles.isNotEmpty || v.subtitleFiles.isNotEmpty;
     final bool burnedIn = widget.subtitleDelivery == 'burned';
     switch (widget.panel) {
       case PlayerPanel.video:
+        final List<(String, String)> versions = _versionItems();
         return <Widget>[
+          if (versions.length > 1)
+            _stream(
+              _choice<String>(
+                Strings.playerVersion,
+                v.id,
+                versions,
+                _pickVersion,
+                help: Strings.playerVersionHelp,
+              ),
+            ),
           _stream(
             _choice<int?>(
               Strings.playerQuality,
@@ -689,7 +761,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
         ),
         child: Row(
           children: <Widget>[
-            Icon(widget.panel.icon, size: 18, color: t.muted),
+            PanelIcon(widget.panel, size: 18, color: t.muted),
             const SizedBox(width: Space.s2),
             Expanded(
               child: Text(

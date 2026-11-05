@@ -23,3 +23,11 @@ List<InlineSpan> versionLabelSpans(
   TextSpan(text: ' · ${v.container}'),
   if (v.sizeBytes > 0) TextSpan(text: ' · ${gigabytes(v.sizeBytes)}'),
 ];
+
+String versionLabelText(Version v, String number) => <String>[
+  number,
+  if (v.durationMs > 0) durationText(v.durationMs),
+  v.quality.label,
+  v.container,
+  if (v.sizeBytes > 0) gigabytes(v.sizeBytes),
+].join(' · ');
