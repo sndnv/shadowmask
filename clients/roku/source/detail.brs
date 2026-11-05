@@ -664,6 +664,37 @@ function PickedPlayTarget(target as dynamic, kind as dynamic, json as dynamic) a
     return picked
 end function
 
+function VersionSwitchTarget(target as dynamic, versionId as string, positionMs as integer) as object
+    switched = {}
+    if type(target) = "roAssociativeArray" then switched.Append(target)
+    switched.Delete("resolve")
+    switched.versionId = versionId
+    switched.positionMs = positionMs
+    return switched
+end function
+
+function SwitchStartMs(versions as dynamic, versionId as string, positionMs as integer, ended as boolean) as integer
+    if ended or positionMs < 0 then return 0
+    if type(versions) <> "roArray" then return positionMs
+
+    for each version in versions
+        if TextOrBlank(ValueAt(version, "id", "")) = versionId
+            durationMs = Int(ValueAt(version, "duration_ms", 0))
+            if durationMs > 0 and positionMs >= durationMs then return 0
+        end if
+    end for
+    return positionMs
+end function
+
+function SwitchableVersions(available as dynamic, playingId as string) as object
+    if type(available) <> "roArray" or available.Count() < 2 then return []
+
+    for each version in available
+        if TextOrBlank(ValueAt(version, "id", "")) = playingId then return available
+    end for
+    return []
+end function
+
 function EpisodeWithContext(episode as dynamic, seriesTitle as dynamic, seasonNumber as dynamic) as object
     merged = {}
     if type(episode) = "roAssociativeArray" then merged.Append(episode)

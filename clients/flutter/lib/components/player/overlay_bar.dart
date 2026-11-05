@@ -178,7 +178,7 @@ class OverlayBar extends StatelessWidget {
                   const Spacer(),
                   if (touch)
                     _IcBtn(
-                      icon: Icons.tune,
+                      icon: Icons.settings,
                       tooltip: Strings.playerOptions,
                       onPressed: onOpenSheet,
                       touch: true,
@@ -190,7 +190,7 @@ class OverlayBar extends StatelessWidget {
                       TapRegion(
                         groupId: kPlayerPanelGroup,
                         child: _IcBtn(
-                          icon: panel.icon,
+                          glyph: PanelIcon(panel),
                           tooltip: panel.title,
                           onPressed: () => onOpenPanel(panel),
                         ),
@@ -247,7 +247,7 @@ class _PanelMenuState extends State<_PanelMenu> {
             groupId: kPlayerPanelGroup,
             child: MenuOption(
               label: panel.title,
-              leading: Icon(panel.icon, size: 16, color: t.muted),
+              leading: PanelIcon(panel, size: 16, color: t.muted),
               onTap: () {
                 _controller.close();
                 widget.onOpenPanel(panel);
@@ -257,7 +257,7 @@ class _PanelMenuState extends State<_PanelMenu> {
       ],
       builder: (BuildContext context, MenuController controller, Widget? _) =>
           _IcBtn(
-            icon: Icons.tune,
+            icon: Icons.settings,
             tooltip: Strings.playerOptions,
             onPressed: () =>
                 controller.isOpen ? controller.close() : controller.open(),
@@ -268,13 +268,15 @@ class _PanelMenuState extends State<_PanelMenu> {
 
 class _IcBtn extends StatelessWidget {
   const _IcBtn({
-    required this.icon,
     required this.tooltip,
     required this.onPressed,
+    this.icon,
+    this.glyph,
     this.touch = false,
   });
 
-  final IconData icon;
+  final IconData? icon;
+  final Widget? glyph;
   final String tooltip;
   final VoidCallback? onPressed;
   final bool touch;
@@ -292,7 +294,7 @@ class _IcBtn extends StatelessWidget {
         minHeight: touch ? 44 : 32,
       ),
       tooltip: tooltip,
-      icon: Icon(icon),
+      icon: glyph ?? Icon(icon),
     );
   }
 }

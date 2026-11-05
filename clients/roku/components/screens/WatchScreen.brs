@@ -43,6 +43,7 @@ sub init()
     m.previousSeasonId = ""
     m.nextSeasonNumber = invalid
     m.previousSeasonNumber = invalid
+    m.versions = []
     m.settingMenu = "settings"
     m.pickedKind = ""
     m.holdKey = ""
@@ -404,8 +405,8 @@ sub onAction(event as object)
         return
     end if
 
-    if id = "quality"
-        OpenQuality()
+    if id = "video"
+        OpenVideoMenu()
         return
     end if
 
@@ -496,12 +497,32 @@ sub ReopenMenu()
         return
     end if
 
+    if m.settingMenu = "videoMenu"
+        OpenVideoMenu()
+        return
+    end if
+
     OpenSettings()
+end sub
+
+sub OpenVideoMenu(keep = false as boolean)
+    m.settingMenu = "videoMenu"
+    m.settingRows = VideoRows(PlaybackControls(), m.version, m.versions, IsWatching(m.playback))
+    AskChoice("videoMenu", Phrase("player.video"), m.settingRows, 0, "menu", keep)
 end sub
 
 sub OpenQuality()
     options = QualityRungs(SourceHeightOf(m.version))
     AskChoice("quality", Phrase("player.quality"), options, IndexOfValue(options, "height", Int(PlaybackControls().height)))
+end sub
+
+sub OpenVersions()
+    if not IsWatching(m.playback) then return
+
+    rows = VersionRows(SwitchableVersions(m.versions, PlayingVersionId()))
+    if rows.Count() = 0 then return
+
+    AskChoice("version", Phrase("player.version"), rows, IndexOfValue(rows, "id", PlayingVersionId()))
 end sub
 
 sub OpenAudio()
@@ -608,6 +629,11 @@ function ReopenedSettingMenu(field as string) as boolean
         return true
     end if
 
+    if menu = "videoMenu"
+        OpenVideoMenu()
+        return true
+    end if
+
     if menu = "settings"
         OpenSettings()
         return true
@@ -622,7 +648,7 @@ function ReopenedSettingMenu(field as string) as boolean
 end function
 
 sub RunChoice(field as string, chosen as object)
-    if field = "settings" or field = "subsMenu" or field = "audioMenu"
+    if field = "settings" or field = "subsMenu" or field = "audioMenu" or field = "videoMenu"
         RunSetting(TextOrBlank(ValueAt(chosen, "id", "")))
         return
     end if
@@ -636,6 +662,13 @@ sub RunChoice(field as string, chosen as object)
         wanted = ControlsCopy(PlaybackControls())
         wanted.height = Int(ValueAt(chosen, "height", 0))
         ApplyControls(wanted)
+        return
+    end if
+
+    if field = "version"
+        versionId = TextOrBlank(ValueAt(chosen, "id", ""))
+        if IsBlank(versionId) or versionId = PlayingVersionId() or not IsWatching(m.playback) then return
+        PlayNeighbour(VersionSwitchTarget(m.top.target, versionId, SwitchStartMs(m.versions, versionId, TimelineNow(), m.playback.timeline.ended = true)))
         return
     end if
 
@@ -963,6 +996,14 @@ sub RunSetting(id as string)
     end if
     if id = "subtitle"
         OpenSubtitle()
+        return
+    end if
+    if id = "quality"
+        OpenQuality()
+        return
+    end if
+    if id = "version"
+        OpenVersions()
         return
     end if
     if id = "delivery"
@@ -1374,6 +1415,7 @@ sub PlayNeighbour(target as dynamic)
     m.previousTarget = invalid
     m.previousEpisode = invalid
     m.version = invalid
+    m.versions = []
     m.gatherError = ""
     m.revealed = false
     m.loaded = false
@@ -1406,6 +1448,7 @@ sub PlaybackChanged(before as object, after as object)
     RefreshDiagnostics()
     FollowEnd(before, after)
     if m.openChoice = "audioMenu" and AudioMenuStale(before, after) then OpenAudioMenu(true)
+    if m.openChoice = "videoMenu" and IsWatching(before) <> IsWatching(after) then OpenVideoMenu(true)
 end sub
 
 sub DrawNote(before as object, after as object)
@@ -1512,9 +1555,38 @@ sub onVersion(event as object)
 
     m.version = parsed.json
     StartWork()
+    AskVersions()
 
     if AskedPickedTitle() then return
     AskResume()
+end sub
+
+sub AskVersions()
+    session = SessionFor(m.global)
+    context = EpisodeContext()
+    if context <> invalid
+        Ask(EpisodeVersionsRequest(session.serverUrl, session.token, context.seriesId, context.seasonId, context.id), "onTitleVersions")
+        return
+    end if
+
+    ref = ValueAt(m.version, "title", invalid)
+    id = TextOrBlank(ValueAt(ref, "id", ""))
+    if IsBlank(id) then return
+
+    if TextOrBlank(ValueAt(ref, "type", "")) = "episode"
+        Ask(EpisodeVersionsRequest(session.serverUrl, session.token, AnyIdMark(), AnyIdMark(), id), "onTitleVersions")
+        return
+    end if
+
+    Ask(MovieVersionsRequest(session.serverUrl, session.token, id), "onTitleVersions")
+end sub
+
+sub onTitleVersions(event as object)
+    parsed = Answered(event)
+    if m.released or not parsed.ok then return
+
+    m.versions = AvailableVersions(OrderedVersions(ListItems(parsed.json)))
+    if m.openChoice = "videoMenu" then OpenVideoMenu(true)
 end sub
 
 function AskedPickedTitle() as boolean
@@ -1550,6 +1622,12 @@ sub onPickedTitle(event as object)
 end sub
 
 sub AskResume()
+    startAt = ValueAt(m.top.target, "positionMs", invalid)
+    if startAt <> invalid
+        OpenAt(Int(startAt))
+        return
+    end if
+
     session = SessionFor(m.global)
     Ask(ResumeRequest(session.serverUrl, session.token, session.userId, PlayingVersionId()), "onResume")
 end sub
@@ -1558,7 +1636,10 @@ sub onResume(event as object)
     parsed = Answered(event)
     if m.released then return
 
-    resumeMs = Int(ValueAt(parsed.json, "position_ms", 0))
+    OpenAt(Int(ValueAt(parsed.json, "position_ms", 0)))
+end sub
+
+sub OpenAt(resumeMs as integer)
     if resumeMs < 0 then resumeMs = 0
 
     remote = PlaybackControls()

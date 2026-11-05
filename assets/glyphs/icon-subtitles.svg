@@ -1,4 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Subtitles">
-    <rect x="6" y="11" width="36" height="26" rx="5" fill="none" stroke="#ffffff" stroke-width="4"/>
-    <path d="M13 22 H35 M13 30 H27" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+    <mask id="lines">
+        <rect x="0" y="0" width="48" height="48" fill="#ffffff"/>
+        <path d="M11 25 H15 M21 25 H37 M11 32 H27 M33 32 H37" fill="none" stroke="#000000" stroke-width="4" stroke-linecap="round"/>
+    </mask>
+    <rect x="4" y="9" width="40" height="30" rx="5" fill="#ffffff" mask="url(#lines)"/>
 </svg>

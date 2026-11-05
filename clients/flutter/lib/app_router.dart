@@ -122,6 +122,7 @@ class AppRouter {
         api: api,
         versionId: a['version'] ?? '',
         controls: PlaybackControls.fromQuery(a),
+        startAtMs: startAtArg(a),
       ),
     );
     _define('/account', (Map<String, String> a) => AccountPage(api: api));

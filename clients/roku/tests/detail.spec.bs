@@ -768,6 +768,68 @@ namespace tests
             m.assertFalse(picked.DoesExist("resolve"))
         end sub
 
+        @describe("VersionSwitchTarget")
+
+        @it("plays the other version from the given point and keeps the episode context")
+        sub switchKeepsContext()
+            target = { versionId: "v1", title: "Severance · S02E03 · Pilot", seasonNumber: 2, episode: { id: "e3", seriesId: "sr1", seasonId: "se2" } }
+
+            switched = VersionSwitchTarget(target, "v2", 61000)
+
+            m.assertEqual(switched.versionId, "v2")
+            m.assertEqual(switched.positionMs, 61000)
+            m.assertEqual(switched.title, "Severance · S02E03 · Pilot")
+            m.assertEqual(switched.seasonNumber, 2)
+            m.assertEqual(switched.episode.id, "e3")
+            m.assertEqual(switched.episode.seriesId, "sr1")
+            m.assertEqual(switched.episode.seasonId, "se2")
+            m.assertEqual(target.versionId, "v1")
+            m.assertFalse(target.DoesExist("positionMs"))
+        end sub
+
+        @it("does not pick a random title again")
+        sub switchDropsResolve()
+            switched = VersionSwitchTarget({ versionId: "v1", resolve: true }, "v2", 0)
+
+            m.assertFalse(switched.DoesExist("resolve"))
+        end sub
+
+        @describe("SwitchStartMs")
+
+        @it("carries the position to the other version")
+        sub switchStartCarries()
+            versions = [{ id: "short", duration_ms: 6000000 }, { id: "unknown" }]
+
+            m.assertEqual(SwitchStartMs(versions, "short", 61000, false), 61000)
+            m.assertEqual(SwitchStartMs(versions, "unknown", 7000000, false), 7000000)
+        end sub
+
+        @it("starts from the top after the end or past the other version's length")
+        sub switchStartFromTop()
+            versions = [{ id: "long", duration_ms: 9000000 }, { id: "short", duration_ms: 6000000 }]
+
+            m.assertEqual(SwitchStartMs(versions, "long", 6000000, true), 0)
+            m.assertEqual(SwitchStartMs(versions, "short", 7000000, false), 0)
+            m.assertEqual(SwitchStartMs(versions, "short", 6000000, false), 0)
+            m.assertEqual(SwitchStartMs(versions, "long", 7000000, false), 7000000)
+        end sub
+
+        @describe("SwitchableVersions")
+
+        @it("offers the versions when there are two or more and one is playing")
+        sub switchableWhenPlaying()
+            available = [{ id: "v1" }, { id: "v2" }]
+
+            m.assertEqual(SwitchableVersions(available, "v2").Count(), 2)
+        end sub
+
+        @it("offers nothing for one version or a list the playing one is not in")
+        sub switchableOtherwiseEmpty()
+            m.assertEqual(SwitchableVersions([{ id: "v1" }], "v1").Count(), 0)
+            m.assertEqual(SwitchableVersions([{ id: "v3" }, { id: "v4" }], "v1").Count(), 0)
+            m.assertEqual(SwitchableVersions(invalid, "v1").Count(), 0)
+        end sub
+
         @describe("NeedsWatchedConfirm")
 
         @it("asks only when the mark reaches more than one title")

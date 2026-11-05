@@ -110,6 +110,12 @@ because each platform masks differently.
 - `glyphs/icon-versions.svg` - the version button beside Play on a movie or episode, three lines
   and a play mark like Flutter's `Icons.playlist_play`. Authored here for the same licence reason as
   the rest.
+- `glyphs/icon-{video,subtitles,audio,settings}.svg` - the player's four panel marks, the same on
+  both clients. Video and subtitles follow Flutter's `Icons.video_settings` and `Icons.subtitles`
+  (a screen with a play mark and a gear; a filled box with cut-out lines). Settings is three
+  sliders, which Flutter shows as `Icons.tune`. Audio is a beamed pair of notes, which Material has
+  no icon for, so Flutter draws this file itself (`assets/glyphs/icon-audio.svg`, through
+  `flutter_svg`). Authored here for the same licence reason as the rest.
 - `glyphs/icon-shuffle.svg` - the Random action on a series or season, two crossed arrows. Authored
   here rather than taken from Material Icons, for the same licence reason as the `art-*` glyphs.
 - `glyphs/icon-{sort,filter,library}.svg` - the marks on the Roku browse toolbar chips: three
@@ -205,6 +211,7 @@ brand SVG changes, then refresh.
 | `clients/flutter` | `icons/flutter/android_icon_{48,72,96,144,192}.png`         | `android/app/src/main/res/mipmap-*/ic_launcher.png`            |
 | `clients/flutter` | `icons/flutter/android_icon_fg_{108,162,216,324,432}.png`   | `android/app/src/main/res/mipmap-*/ic_launcher_foreground.png` |
 | `clients/flutter` | `vendor/hls.min.js`                                         | `web/hls.min.js`                                               |
+| `clients/flutter` | `glyphs/icon-audio.svg`                                     | `assets/glyphs/icon-audio.svg`                                 |
 | `clients/flutter` | `fonts/Roboto-{Regular,Medium,Bold}.ttf`                    | `assets/fonts/`                                                |
 | `clients/flutter` | `fonts/Roboto-OFL.txt`                                      | `assets/licenses/Roboto-OFL.txt`                               |
 | `clients/roku`    | `icons/roku/channel-poster-{hd,fhd}.png`                    | `images/`                                                      |

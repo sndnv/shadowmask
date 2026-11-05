@@ -375,6 +375,9 @@ abstract final class Strings {
       'The largest picture asked for. Anything bigger is shrunk before it is '
       'sent, so choosing a smaller size can steady a weak connection at the '
       'cost of detail.';
+  static const String playerVersion = 'Version';
+  static const String playerVersionHelp =
+      'Another file of this title, picked up from the same point.';
   static const String playerAudio = 'Audio';
   static const String playerSubtitles = 'Subtitles';
   static const String playerForced = 'Forced';

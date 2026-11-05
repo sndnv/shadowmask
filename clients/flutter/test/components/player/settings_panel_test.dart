@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/admin/field_help.dart';
 import 'package:shadowmask/components/app_dropdown.dart';
 import 'package:shadowmask/components/player/player_sheet.dart';
 import 'package:shadowmask/components/player/settings_panel.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
 import 'package:shadowmask/model/session/subtitle_selection.dart';
 import 'package:shadowmask/theme/app_theme.dart';
@@ -632,6 +634,168 @@ void main() {
     expect(find.text(Strings.playerLog), findsNothing);
   });
 
+  testWidgets('the video panel offers the available versions in order and '
+      'reports the one picked', (WidgetTester tester) async {
+    final List<String> picked = <String>[];
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.video,
+        versions: _threeVersions,
+        onVersion: picked.add,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final AppDropdown<String> row = tester.widget<AppDropdown<String>>(
+      find.byType(AppDropdown<String>),
+    );
+    expect(row.value, 'v1');
+    expect(row.items, <(String, String)>[
+      ('v1', '2 · FHD · mkv'),
+      ('v2', '3 · HD · mkv'),
+    ]);
+
+    await tester.tap(find.text('2 · FHD · mkv'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('2 · FHD · mkv').last);
+    await tester.pumpAndSettle();
+    expect(picked, isEmpty);
+
+    await tester.tap(find.text('2 · FHD · mkv'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('3 · HD · mkv').last);
+    await tester.pumpAndSettle();
+    expect(picked, <String>['v2']);
+  });
+
+  testWidgets('one available version offers no version choice', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.video,
+        versions: <Version>[
+          _listed('v1', 'fhd'),
+          _listed('v2', 'hd', available: false),
+        ],
+        onVersion: (_) {},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.playerVersion), findsNothing);
+    expect(find.text(Strings.playerQuality), findsOneWidget);
+  });
+
+  testWidgets('no version choice without a way to switch', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _panel(panel: PlayerPanel.video, versions: _threeVersions),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.playerVersion), findsNothing);
+  });
+
+  testWidgets('while a change is in flight the version is blocked', (
+    WidgetTester tester,
+  ) async {
+    final List<String> picked = <String>[];
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.video,
+        busy: true,
+        versions: _threeVersions,
+        onVersion: picked.add,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('2 · FHD · mkv'), warnIfMissed: false);
+    await tester.pumpAndSettle();
+
+    expect(find.text('3 · HD · mkv'), findsNothing);
+    expect(picked, isEmpty);
+  });
+
+  testWidgets('the audio glyph takes the colour it is given, or the icon '
+      'colour around it', (WidgetTester tester) async {
+    const Color given = Color(0xFF336699);
+    const Color around = Color(0xFF993366);
+    await tester.pumpWidget(
+      const Directionality(
+        textDirection: TextDirection.ltr,
+        child: IconTheme(
+          data: IconThemeData(color: around, size: 20),
+          child: Row(
+            children: <Widget>[
+              PanelIcon(PlayerPanel.audio, color: given),
+              PanelIcon(PlayerPanel.audio),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final List<SvgPicture> glyphs = tester
+        .widgetList<SvgPicture>(find.byType(SvgPicture))
+        .toList();
+    expect(
+      glyphs[0].colorFilter,
+      const ColorFilter.mode(given, BlendMode.srcIn),
+    );
+    expect(
+      glyphs[1].colorFilter,
+      const ColorFilter.mode(around, BlendMode.srcIn),
+    );
+  });
+
+  testWidgets('in the sheet the version is a row that opens its choices', (
+    WidgetTester tester,
+  ) async {
+    final List<PlayerChoice> opened = <PlayerChoice>[];
+    final List<String> picked = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(AppThemeVariant.dark),
+        home: Scaffold(
+          body: SizedBox(
+            width: 320,
+            height: 600,
+            child: PlayerSettingsPanel(
+              panel: PlayerPanel.video,
+              controls: const PlaybackControls(),
+              version: _version(),
+              speed: 1,
+              diagnostics: false,
+              versions: _threeVersions,
+              onVersion: picked.add,
+              onControls: (_) {},
+              onSpeed: (_) {},
+              onDiagnostics: (_) {},
+              onClose: () {},
+              openChoice: opened.add,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(Strings.playerVersion));
+    await tester.pump();
+
+    final PlayerChoice choice = opened.single;
+    expect(choice.labels, <String>['2 · FHD · mkv', '3 · HD · mkv']);
+    expect(choice.selected, 0);
+
+    choice.onPick(1);
+    await tester.pump();
+
+    expect(picked, <String>['v2']);
+  });
+
   testWidgets('while a change is in flight the quality is blocked and the '
       'speed is not', (WidgetTester tester) async {
     final List<PlaybackControls> sent = <PlaybackControls>[];
@@ -994,6 +1158,8 @@ Widget _panel({
   ValueChanged<double>? onSpeed,
   ValueChanged<bool>? onDiagnostics,
   ValueChanged<SubtitleSize>? onSubtitleSize,
+  List<Version> versions = const <Version>[],
+  ValueChanged<String>? onVersion,
   SoundRows sound = (
     downmix: true,
     normalize: false,
@@ -1016,6 +1182,8 @@ Widget _panel({
         onSubtitleSize: onSubtitleSize ?? (_) {},
         sound: sound,
         busy: busy,
+        versions: versions,
+        onVersion: onVersion,
         onControls: onControls ?? (_) {},
         onSpeed: onSpeed ?? (_) {},
         onDiagnostics: onDiagnostics ?? (_) {},
@@ -1024,6 +1192,22 @@ Widget _panel({
     ),
   ),
 );
+
+Version _listed(String id, String quality, {bool available = true}) =>
+    Version.fromJson(<String, dynamic>{
+      'id': id,
+      'title': <String, dynamic>{'type': 'movie', 'id': 'm1'},
+      'library_id': 'l',
+      'quality': quality,
+      'container': 'mkv',
+      'available': available,
+    });
+
+final List<Version> _threeVersions = <Version>[
+  _listed('v0', 'uhd', available: false),
+  _listed('v1', 'fhd'),
+  _listed('v2', 'hd'),
+];
 
 Widget _subtitles({VoidCallback? onAddSubtitles}) => MaterialApp(
   theme: buildTheme(AppThemeVariant.dark),

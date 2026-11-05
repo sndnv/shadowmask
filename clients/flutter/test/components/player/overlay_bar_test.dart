@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/player/overlay_bar.dart';
 import 'package:shadowmask/components/player/settings_panel.dart';
@@ -95,10 +98,48 @@ void main() {
     await _pump(tester, width: 1200);
 
     expect(find.byType(Slider), findsOneWidget);
-    expect(find.byIcon(Icons.tune), findsNothing);
+    expect(find.byIcon(Icons.settings), findsNothing);
     for (final PlayerPanel panel in PlayerPanel.values) {
-      expect(find.byIcon(panel.icon), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (Widget w) => w is PanelIcon && w.panel == panel,
+        ),
+        findsOneWidget,
+      );
     }
+  });
+
+  testWidgets('the audio button reads as its name, not as an image', (
+    WidgetTester tester,
+  ) async {
+    final SemanticsHandle semantics = tester.ensureSemantics();
+    await _pump(tester, width: 1200);
+
+    final SemanticsNode audio = tester.getSemantics(
+      find.byTooltip(Strings.playerAudio),
+    );
+    expect(audio.tooltip, Strings.playerAudio);
+    expect(audio.flagsCollection.isImage, isFalse);
+    semantics.dispose();
+  });
+
+  testWidgets('each panel button wears the mark the Roku bar uses', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, width: 1200);
+
+    expect(find.byIcon(Icons.video_settings), findsOneWidget);
+    expect(find.byIcon(Icons.subtitles), findsOneWidget);
+    expect(find.byIcon(Icons.tune), findsOneWidget);
+    final SvgPicture audio = tester.widget<SvgPicture>(
+      find.descendant(
+        of: find.byTooltip(Strings.playerAudio),
+        matching: find.byType(SvgPicture),
+      ),
+    );
+    final String glyph = (audio.bytesLoader as SvgAssetLoader).assetName;
+    expect(glyph, PlayerPanel.audio.glyph);
+    expect(await rootBundle.loadString(glyph), contains('<svg'));
   });
 
   testWidgets('an episode bar fits a phone without overflowing', (
@@ -112,7 +153,7 @@ void main() {
       reason: 'eleven rigid children needed 440 and a phone stage has 304',
     );
     expect(find.byType(Slider), findsNothing);
-    expect(find.byIcon(Icons.tune), findsOneWidget);
+    expect(find.byIcon(Icons.settings), findsOneWidget);
     expect(
       find.byIcon(Icons.volume_up),
       findsOneWidget,
@@ -137,7 +178,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await _pump(tester, width: 360);
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(find.byIcon(Icons.settings));
     await tester.pumpAndSettle();
 
     for (final PlayerPanel panel in PlayerPanel.values) {
@@ -156,7 +197,7 @@ void main() {
     int opened = 0;
     await _pump(tester, width: 1200, touch: true, onOpenSheet: () => opened++);
 
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(find.byIcon(Icons.settings));
     await tester.pumpAndSettle();
 
     expect(opened, 1);
@@ -169,7 +210,7 @@ void main() {
     await _pump(tester, width: 1200, touch: true);
 
     expect(
-      find.byIcon(Icons.tune),
+      find.byIcon(Icons.settings),
       findsOneWidget,
       reason: 'a wide phone in landscape still wants one big target, not five',
     );

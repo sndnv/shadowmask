@@ -33,7 +33,12 @@ String collectionRoute(String id) => '/collections?id=${_enc(id)}';
 String watchRoute(
   String versionId, {
   Map<String, String?> controls = const <String, String?>{},
-}) => withQuery('/watch', <String, String?>{'version': versionId, ...controls});
+  int? atMs,
+}) => withQuery('/watch', <String, String?>{
+  'version': versionId,
+  ...controls,
+  'at': atMs?.toString(),
+});
 
 String seasonRoute(String id, {String? series}) =>
     '/season?id=${_enc(id)}${series != null ? '&series=${_enc(series)}' : ''}';
