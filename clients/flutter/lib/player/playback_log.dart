@@ -50,6 +50,15 @@ String playbackEventLine(
       'buffered $ranges${hidden ? ', hidden' : ''}';
 }
 
+String? audioOutputLine({
+  required String output,
+  required String channels,
+  required String sampleRate,
+  required String format,
+}) => output.isEmpty
+    ? null
+    : 'audio out [$output] [$channels] channels [$sampleRate] Hz [$format]';
+
 String clipLine(String line, [int length = kOverlayLineLength]) {
   final Characters chars = line.characters;
   return chars.length <= length ? line : '${chars.take(length)}…';
