@@ -64,26 +64,16 @@ class ShellBottomNav extends StatelessWidget {
                 onTap: () =>
                     Navigator.of(sheet).pop(_MoreChoice.route(d.route)),
               ),
-            if (user != null) ...<Widget>[
-              _MoreTile(
-                icon: current == NavSection.account
-                    ? Icons.person
-                    : Icons.person_outline,
-                label: user!.username,
+            if (user != null)
+              _AccountCard(
+                username: user!.username,
                 selected: current == NavSection.account,
-                onTap: () => Navigator.of(
+                onOpen: () => Navigator.of(
                   sheet,
                 ).pop(const _MoreChoice.route('/account')),
-              ),
-              Divider(color: t.border, height: 1),
-              _MoreTile(
-                icon: Icons.logout,
-                label: Strings.signOut,
-                selected: false,
-                onTap: () =>
+                onSignOut: () =>
                     Navigator.of(sheet).pop(const _MoreChoice.signOut()),
               ),
-            ],
             const SizedBox(height: Space.s2),
           ],
         ),
@@ -161,6 +151,64 @@ class _MoreChoice {
   const _MoreChoice.signOut() : route = null;
 
   final String? route;
+}
+
+class _AccountCard extends StatelessWidget {
+  const _AccountCard({
+    required this.username,
+    required this.selected,
+    required this.onOpen,
+    required this.onSignOut,
+  });
+
+  final String username;
+  final bool selected;
+  final VoidCallback onOpen;
+  final VoidCallback onSignOut;
+
+  @override
+  Widget build(BuildContext context) {
+    final Tokens t = context.tokens;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Space.s4, Space.s3, Space.s4, 0),
+      child: Material(
+        color: t.surfaceAlt,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: const BorderRadius.all(Radii.md),
+          side: BorderSide(color: selected ? t.accent : t.border),
+        ),
+        child: ListTile(
+          onTap: onOpen,
+          selected: selected,
+          leading: CircleAvatar(
+            backgroundColor: t.accent,
+            foregroundColor: t.accentContrast,
+            child: Text(
+              username.characters.take(1).toUpperCase().toString(),
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+          title: Text(
+            username,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: t.text, fontWeight: FontWeight.w700),
+          ),
+          subtitle: Text(
+            Strings.navigationAccount,
+            style: TextStyle(color: t.muted),
+          ),
+          trailing: IconButton(
+            onPressed: onSignOut,
+            icon: const Icon(Icons.logout),
+            tooltip: Strings.signOut,
+            color: t.muted,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _MoreTile extends StatelessWidget {

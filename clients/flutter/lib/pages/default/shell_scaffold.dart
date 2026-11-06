@@ -35,6 +35,7 @@ const double _kHeaderHeight = kShellHeaderHeight;
 const double kNavItemHPad = 10;
 const double kNavItemGap = Space.s1;
 const double kNavOverflowWidth = 40;
+const double kNavSignOutSize = 32;
 const TextStyle kNavItemText = TextStyle(
   fontSize: 13.5,
   fontWeight: FontWeight.w600,
@@ -503,19 +504,16 @@ class _TopNav extends StatelessWidget {
     onTap: () => _go(context, '/account'),
   );
 
-  Widget _signOutButton(BuildContext context, Tokens t) => TextButton(
+  Widget _signOutButton(BuildContext context, Tokens t) => IconButton(
     onPressed: () => _signOut(context),
-    style: TextButton.styleFrom(
-      foregroundColor: t.muted,
-      padding: const EdgeInsets.symmetric(
-        horizontal: Space.s2,
-        vertical: Space.s1,
-      ),
-      minimumSize: Size.zero,
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      textStyle: kNavItemText,
+    icon: const Icon(Icons.logout, size: 18),
+    tooltip: Strings.signOut,
+    color: t.muted,
+    padding: EdgeInsets.zero,
+    constraints: const BoxConstraints.tightFor(
+      width: kNavSignOutSize,
+      height: kNavSignOutSize,
     ),
-    child: const Text(Strings.signOut),
   );
 
   @override
@@ -546,16 +544,7 @@ class _TopNav extends StatelessWidget {
             const SizedBox(width: Space.s3),
             if (user != null) ...<Widget>[
               _account(context),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: Space.s2),
-                child: Text(
-                  '/',
-                  style: kNavItemText.copyWith(
-                    color: t.muted,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-              ),
+              const SizedBox(width: Space.s1),
             ],
             _signOutButton(context, t),
           ],

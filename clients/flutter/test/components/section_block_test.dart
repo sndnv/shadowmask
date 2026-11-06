@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadowmask/components/page_actions.dart';
 import 'package:shadowmask/components/section_block.dart';
+import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
@@ -26,6 +28,36 @@ Future<void> _pump(WidgetTester tester, Size size) async {
             ],
             child: const Text('body'),
           ),
+        ),
+      ),
+    ),
+  );
+}
+
+Future<void> _pumpItems(
+  WidgetTester tester,
+  Size size, {
+  List<String> labels = const <String>['Purge', 'Clean', 'Edit'],
+}) async {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: buildTheme(AppThemeVariant.dark),
+      home: Scaffold(
+        body: SectionBlock(
+          title: 'Movies',
+          actionItems: <PageAction>[
+            for (final String label in labels)
+              PageAction(
+                icon: Icons.circle_outlined,
+                label: label,
+                onPressed: () {},
+              ),
+          ],
+          child: const Text('body'),
         ),
       ),
     ),
@@ -79,6 +111,63 @@ void main() {
       greaterThan(tester.getRect(find.text('Versions')).bottom),
       reason: 'three buttons beside a heading need more than 360px',
     );
+  });
+
+  testWidgets('action items turn to icons on a phone, either way up', (
+    WidgetTester tester,
+  ) async {
+    for (final (Size size, bool icons) in <(Size, bool)>[
+      (const Size(360, 800), true),
+      (const Size(800, 360), true),
+      (const Size(1200, 800), false),
+    ]) {
+      await _pumpItems(tester, size);
+
+      expect(tester.takeException(), isNull);
+      for (final String label in <String>['Purge', 'Clean', 'Edit']) {
+        expect(
+          find.text(label),
+          icons ? findsNothing : findsOneWidget,
+          reason: '$label at $size',
+        );
+        expect(
+          find.byTooltip(label),
+          icons ? findsOneWidget : findsNothing,
+          reason: '$label at $size',
+        );
+      }
+    }
+  });
+
+  testWidgets('six action items show as three buttons on one row', (
+    WidgetTester tester,
+  ) async {
+    const List<String> labels = <String>[
+      'Refresh',
+      'Edit',
+      'Cancel jobs',
+      'Clean',
+      'Purge',
+      'Delete',
+    ];
+    for (final Size size in <Size>[
+      const Size(360, 800),
+      const Size(1200, 800),
+    ]) {
+      await _pumpItems(tester, size, labels: labels);
+
+      expect(tester.takeException(), isNull);
+      final Finder buttons = find.descendant(
+        of: find.byType(SectionBlock),
+        matching: find.byType(OutlinedButton),
+      );
+      expect(buttons, findsNWidgets(3), reason: 'at $size');
+      final Set<double> tops = <double>{
+        for (int i = 0; i < 3; i++) tester.getTopLeft(buttons.at(i)).dy,
+      };
+      expect(tops, hasLength(1), reason: 'at $size');
+      expect(find.byTooltip(Strings.moreActions), findsOneWidget);
+    }
   });
 
   testWidgets('a title too long for the row is ellipsised, not overflowed', (

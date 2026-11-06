@@ -241,29 +241,6 @@ class _LibraryBodyState extends State<_LibraryBody>
             title: library.name,
             actionItems: <PageAction>[
               PageAction(
-                icon: Icons.delete_outline,
-                label: Strings.delete,
-                danger: true,
-                onPressed: busy() ? null : () => _delete(library),
-              ),
-              PageAction(
-                icon: Icons.delete_sweep_outlined,
-                label: Strings.purge,
-                danger: true,
-                onPressed: busy() ? null : () => _purge(library),
-              ),
-              PageAction(
-                icon: Icons.cleaning_services_outlined,
-                label: Strings.clean,
-                danger: true,
-                onPressed: busy() ? null : () => _clean(library),
-              ),
-              PageAction(
-                icon: Icons.cancel_outlined,
-                label: Strings.cancelLibraryJobs,
-                onPressed: busy() ? null : _confirmCancelJobs,
-              ),
-              PageAction(
                 icon: Icons.refresh,
                 label: Strings.refreshMetadata,
                 onPressed: busy() ? null : _refreshMetadata,
@@ -272,6 +249,29 @@ class _LibraryBodyState extends State<_LibraryBody>
                 icon: Icons.edit_outlined,
                 label: Strings.edit,
                 onPressed: () => _edit(library),
+              ),
+              PageAction(
+                icon: Icons.cancel_outlined,
+                label: Strings.cancelLibraryJobs,
+                onPressed: busy() ? null : _confirmCancelJobs,
+              ),
+              PageAction(
+                icon: Icons.cleaning_services_outlined,
+                label: Strings.clean,
+                danger: true,
+                onPressed: busy() ? null : () => _clean(library),
+              ),
+              PageAction(
+                icon: Icons.delete_sweep_outlined,
+                label: Strings.purge,
+                danger: true,
+                onPressed: busy() ? null : () => _purge(library),
+              ),
+              PageAction(
+                icon: Icons.delete_outline,
+                label: Strings.delete,
+                danger: true,
+                onPressed: busy() ? null : () => _delete(library),
               ),
             ],
             child: _Facts(library: library),

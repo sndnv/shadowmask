@@ -440,7 +440,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text(Strings.signOut));
+    await tester.tap(find.byTooltip(Strings.signOut));
     await tester.pumpAndSettle();
     expect(calls, isEmpty);
     await tester.tap(find.widgetWithText(FilledButton, Strings.signOut));
@@ -657,7 +657,7 @@ void main() {
     expect(find.byType(ShellBottomNav), findsOneWidget);
     expect(find.byType(BrandMark), findsNothing);
     expect(
-      find.text(Strings.signOut),
+      find.byTooltip(Strings.signOut),
       findsNothing,
       reason: 'sign out moved into the More sheet',
     );
@@ -1046,7 +1046,11 @@ void _responsiveNavTests() {
   ) async {
     for (final double width in <double>[Breakpoints.sm, 700, 1600]) {
       await _navAt(tester, width);
-      expect(find.text(Strings.signOut), findsOneWidget, reason: 'at $width');
+      expect(
+        find.byTooltip(Strings.signOut),
+        findsOneWidget,
+        reason: 'at $width',
+      );
       expect(find.text('pat'), findsOneWidget, reason: 'at $width');
     }
   });
@@ -1118,7 +1122,7 @@ void _responsiveNavTests() {
     expect(find.text(Strings.navigationAdmin), findsNothing);
   });
 
-  testWidgets('every label in the bar is set from one type style', (
+  testWidgets('the account and the sign out icon share one centre line', (
     WidgetTester tester,
   ) async {
     tester.view.physicalSize = const Size(1600, 900);
@@ -1145,21 +1149,19 @@ void _responsiveNavTests() {
     );
     await tester.pumpAndSettle();
 
-    final TextButton signOut = tester.widget<TextButton>(
-      find.widgetWithText(TextButton, Strings.signOut),
+    final Finder account = find.widgetWithText(TextButton, 'pat');
+    final Finder signOut = find.byTooltip(Strings.signOut);
+    expect(
+      tester.getCenter(signOut).dy,
+      tester.getCenter(account).dy,
+      reason: 'an icon centres on the row, where two labels need one baseline',
     );
     expect(
-      signOut.style?.textStyle?.resolve(<WidgetState>{}),
-      kNavItemText,
-      reason:
-          'a size of its own puts the sign out baseline off the row, because '
-          'boxes of different heights centre to different baselines',
+      find.text(Strings.signOut),
+      findsNothing,
+      reason: 'the sign out label lives in the tooltip',
     );
-    expect(
-      tester.widget<Text>(find.text('/')).style?.fontSize,
-      kNavItemText.fontSize,
-      reason: 'without a size the separator inherits the theme body size',
-    );
+    expect(find.text('/'), findsNothing);
   });
 
   testWidgets('the top bar clears the status bar and the side cutout', (

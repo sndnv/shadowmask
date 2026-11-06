@@ -68,8 +68,7 @@ class SectionBlock extends StatelessWidget {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: <Widget>[
             ...actions,
-            for (final PageAction action in actionItems)
-              pageActionButton(context, action, iconOnly: narrow),
+            ...pageActionButtons(context, actionItems, iconOnly: narrow),
           ],
         ),
     ],
@@ -92,7 +91,8 @@ class SectionBlock extends StatelessWidget {
                   child: _header(
                     context,
                     constraints.maxWidth,
-                    constraints.maxWidth < Breakpoints.sm,
+                    constraints.maxWidth < Breakpoints.sm ||
+                        compactViewport(context),
                   ),
                 ),
           ),

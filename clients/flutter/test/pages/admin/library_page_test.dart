@@ -90,6 +90,12 @@ ApiClient _api(http.Response Function(http.Request req) route) => ApiClient(
   }),
 );
 
+Future<void> _fromMenu(WidgetTester tester, String label) async {
+  await tester.tap(find.byTooltip(Strings.moreActions));
+  await tester.pumpAndSettle();
+  await tester.tap(find.widgetWithText(MenuItemButton, label));
+}
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
@@ -103,10 +109,6 @@ void main() {
       matching: find.byType(SectionBlock),
     );
     for (final String label in <String>[
-      Strings.delete,
-      Strings.purge,
-      Strings.clean,
-      Strings.cancelLibraryJobs,
       Strings.refreshMetadata,
       Strings.edit,
     ]) {
@@ -119,7 +121,29 @@ void main() {
         reason: 'missing the $label action',
       );
     }
+    expect(
+      find.descendant(of: card, matching: find.byTooltip(Strings.moreActions)),
+      findsOneWidget,
+    );
     expect(find.byType(PageActions), findsNothing);
+
+    await tester.tap(find.byTooltip(Strings.moreActions));
+    await tester.pumpAndSettle();
+
+    final List<double> tops = <double>[
+      for (final String label in <String>[
+        Strings.cancelLibraryJobs,
+        Strings.clean,
+        Strings.purge,
+        Strings.delete,
+      ])
+        tester.getRect(find.widgetWithText(MenuItemButton, label)).top,
+    ];
+    expect(
+      tops,
+      List<double>.of(tops)..sort(),
+      reason: 'the destructive actions sit last, under Cancel jobs',
+    );
   });
 
   testWidgets('an episode version is named by its series and code', (
@@ -173,7 +197,7 @@ void main() {
     expect(find.text('Skyline · S02E02'), findsOneWidget);
   });
 
-  testWidgets('the three card actions still fit a narrow window', (
+  testWidgets('the card actions still fit a narrow window', (
     WidgetTester tester,
   ) async {
     await _pump(tester, _api(_detailRoute), width: 900);
@@ -243,7 +267,7 @@ void main() {
       }),
     );
 
-    await tester.tap(find.widgetWithText(OutlinedButton, Strings.delete));
+    await _fromMenu(tester, Strings.delete);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, Strings.delete).last);
     await tester.pumpAndSettle();
@@ -502,7 +526,7 @@ void main() {
     );
     final int scansBefore = requested.where(_isScanRead).length;
 
-    await tester.tap(find.widgetWithText(OutlinedButton, Strings.purge));
+    await _fromMenu(tester, Strings.purge);
     await tester.pumpAndSettle();
     expect(find.text(Strings.confirmPurgeLibrary('Films')), findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, Strings.purge));
@@ -535,7 +559,7 @@ void main() {
       }),
     );
 
-    await tester.tap(find.widgetWithText(OutlinedButton, Strings.purge));
+    await _fromMenu(tester, Strings.purge);
     await tester.pumpAndSettle();
     await tester.tap(find.byType(CheckboxListTile));
     await tester.pump();
@@ -564,7 +588,7 @@ void main() {
       }),
     );
 
-    await tester.tap(find.widgetWithText(OutlinedButton, Strings.purge));
+    await _fromMenu(tester, Strings.purge);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(OutlinedButton, Strings.cancel));
     await tester.pumpAndSettle();
@@ -578,7 +602,7 @@ void main() {
     final List<String> posted = <String>[];
     await _pump(tester, _api(_busyRoute(posted)));
 
-    await tester.tap(find.widgetWithText(OutlinedButton, Strings.purge));
+    await _fromMenu(tester, Strings.purge);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, Strings.purge));
     await tester.pumpAndSettle();
@@ -613,7 +637,7 @@ void main() {
     final List<String> posted = <String>[];
     await _pump(tester, _api(_busyRoute(posted)));
 
-    await tester.tap(find.widgetWithText(OutlinedButton, Strings.purge));
+    await _fromMenu(tester, Strings.purge);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, Strings.purge));
     await tester.pumpAndSettle();
@@ -639,9 +663,7 @@ void main() {
       }),
     );
 
-    await tester.tap(
-      find.widgetWithText(OutlinedButton, Strings.cancelLibraryJobs),
-    );
+    await _fromMenu(tester, Strings.cancelLibraryJobs);
     await tester.pumpAndSettle();
     expect(find.text(Strings.confirmCancelLibraryJobs), findsOneWidget);
     await tester.tap(
@@ -681,7 +703,7 @@ void main() {
       }),
     );
 
-    await tester.tap(find.widgetWithText(OutlinedButton, Strings.purge));
+    await _fromMenu(tester, Strings.purge);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, Strings.purge));
     await tester.pumpAndSettle();
@@ -713,7 +735,7 @@ void main() {
       }),
     );
 
-    await tester.tap(find.widgetWithText(OutlinedButton, Strings.purge));
+    await _fromMenu(tester, Strings.purge);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, Strings.purge));
     await tester.pumpAndSettle();
@@ -767,7 +789,7 @@ void main() {
     );
     final int scansBefore = requested.where(_isScanRead).length;
 
-    await tester.tap(find.widgetWithText(OutlinedButton, Strings.clean));
+    await _fromMenu(tester, Strings.clean);
     await tester.pumpAndSettle();
     expect(find.text(Strings.confirmCleanLibrary('Films')), findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, Strings.clean));
@@ -800,7 +822,7 @@ void main() {
       }),
     );
 
-    await tester.tap(find.widgetWithText(OutlinedButton, Strings.clean));
+    await _fromMenu(tester, Strings.clean);
     await tester.pumpAndSettle();
     await tester.tap(find.byType(CheckboxListTile));
     await tester.pump();
@@ -824,7 +846,7 @@ void main() {
     final List<String> posted = <String>[];
     await _pump(tester, _api(_busyRoute(posted, path: _cleanPath)));
 
-    await tester.tap(find.widgetWithText(OutlinedButton, Strings.clean));
+    await _fromMenu(tester, Strings.clean);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, Strings.clean));
     await tester.pumpAndSettle();
@@ -865,7 +887,7 @@ void main() {
       }),
     );
 
-    await tester.tap(find.widgetWithText(OutlinedButton, Strings.clean));
+    await _fromMenu(tester, Strings.clean);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, Strings.clean));
     await tester.pumpAndSettle();
