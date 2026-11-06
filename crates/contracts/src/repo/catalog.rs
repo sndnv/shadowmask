@@ -1,7 +1,10 @@
+use std::collections::HashSet;
+
 use domain::catalog::{
     ArtworkId, ArtworkOwner, ArtworkRef, ArtworkWidth, Collection, CollectionId, Episode,
     EpisodeId, Movie, MovieId, RandomScope, Season, SeasonId, Series, SeriesId, SortOrder, TitleId,
     TitleKind, TitleListFilter, TitleRef, TitleSort, Version, VersionDetail, VersionId,
+    VersionReconcile,
 };
 use domain::common::{LanguageCode, PageRequest, Quality};
 use domain::library::LibraryId;
@@ -1682,13 +1685,23 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
         repo.version_detail(&VersionId(id.into())).await.unwrap().unwrap().version.available
     };
 
-    repo.reconcile_library_versions(
-        &LibraryId("lib1".into()),
-        &["/media/v1.mkv".to_owned(), "/media/uv1.mkv".to_owned()],
-        &[],
-    )
-    .await
-    .unwrap();
+    let first = repo
+        .reconcile_library_versions(
+            &LibraryId("lib1".into()),
+            &["/media/v1.mkv".to_owned(), "/media/uv1.mkv".to_owned(), "/media/new.mkv".to_owned()],
+            &[],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        first,
+        VersionReconcile {
+            known: HashSet::from(["/media/v1.mkv".to_owned(), "/media/uv1.mkv".to_owned()]),
+            gone: 1,
+            returned: 0,
+        },
+        "a path with no version is not known, and the version no walk listed is gone"
+    );
     assert_eq!(
         repo.list_library_versions(&LibraryId("lib1".into()), page(0, 10)).await.unwrap().total,
         3
@@ -1698,14 +1711,16 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     assert!(!available(&repo, "v2").await);
     assert!(available(&repo, "v3").await);
 
-    repo.reconcile_library_versions(
-        &LibraryId("lib1".into()),
-        &["/media/v1.mkv".to_owned(), "/media/v2.mp4".to_owned(), "/media/uv1.mkv".to_owned()],
-        &[],
-    )
-    .await
-    .unwrap();
+    let second = repo
+        .reconcile_library_versions(
+            &LibraryId("lib1".into()),
+            &["/media/v1.mkv".to_owned(), "/media/v2.mp4".to_owned(), "/media/uv1.mkv".to_owned()],
+            &[],
+        )
+        .await
+        .unwrap();
     assert!(available(&repo, "v2").await);
+    assert_eq!((second.known.len(), second.gone, second.returned), (3, 0, 1));
 
     for root in ["/media", "/media/", "/"] {
         repo.reconcile_library_versions(&LibraryId("lib1".into()), &[], &[root.to_owned()])

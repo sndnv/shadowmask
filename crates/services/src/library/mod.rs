@@ -4,6 +4,7 @@ mod cron;
 mod debouncer;
 mod dedup;
 mod enrich_jobs;
+mod enrich_summary;
 mod enricher;
 mod external_subtitles;
 mod fetch_job;
@@ -35,6 +36,7 @@ pub use cron::{next_daily_fire, next_fire_after};
 pub use debouncer::Debouncer;
 pub use dedup::find_duplicates;
 pub use domain::text::normalize_title;
+pub use enrich_summary::EnrichSummary;
 pub use enricher::{
     Enricher, MetadataRefresher, NoopEnricher, PersonRefresher, ResolveIngester, ResolveOutcome,
     ScanEnricher, container_of, derive_id,

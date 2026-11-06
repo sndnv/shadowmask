@@ -6,7 +6,7 @@ use domain::catalog::{
     CollectionId, Episode, EpisodeCard, EpisodeContext, EpisodeId, LibraryFootprint, LibraryPurge,
     Movie, MovieDetail, MovieId, RandomScope, Season, SeasonId, Series, SeriesDetail, SeriesId,
     SortOrder, TitleId, TitleKind, TitleListFilter, TitleRef, TitleSort, Version, VersionDetail,
-    VersionId,
+    VersionId, VersionReconcile,
 };
 use domain::common::{LanguageCode, Page, PageRequest, Quality};
 use domain::discovery::{SearchKind, SearchResult};
@@ -86,7 +86,26 @@ const MARK_ABSENT_SQL: &str = "WITH offline(prefix) AS \
 
 fn mark_present_sql(paths: usize) -> String {
     let placeholders = vec!["?"; paths].join(", ");
-    format!("UPDATE versions SET available = 1 WHERE library_id = ? AND path IN ({placeholders})")
+    format!(
+        "UPDATE versions SET available = 1 WHERE library_id = ? AND path IN ({placeholders}) \
+         RETURNING path"
+    )
+}
+
+async fn available_paths(
+    conn: &mut SqliteConnection,
+    library: &LibraryId,
+) -> Result<HashSet<String>, RepositoryError> {
+    let rows = sqlx::query("SELECT path FROM versions WHERE library_id = ? AND available = 1")
+        .bind(library.0.as_str())
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(backend)?;
+    paths_of(&rows)
+}
+
+fn paths_of(rows: &[SqliteRow]) -> Result<HashSet<String>, RepositoryError> {
+    rows.iter().map(|row| column::<String>(row, "path")).collect()
 }
 
 const EPISODE_CONTEXT_FROM: &str = "SELECT e.*, sn.number AS season_no, sn.title AS season_name, \
@@ -1278,16 +1297,16 @@ impl SearchIndex for SqliteCatalogRepo {
         Ok(results)
     }
 
-    async fn rebuild(&self) -> Result<(), RepositoryError> {
+    async fn rebuild(&self) -> Result<usize, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "rebuild");
         let mut tx = self.pool.begin().await.map_err(backend)?;
         sqlx::query("DELETE FROM search_index").execute(&mut *tx).await.map_err(backend)?;
-        reindex_kind(&mut tx, "movie", "SELECT id, title FROM movies").await?;
-        reindex_kind(&mut tx, "series", "SELECT id, title FROM series").await?;
-        reindex_kind(&mut tx, "episode", "SELECT id, title FROM episodes").await?;
-        reindex_kind(&mut tx, "person", "SELECT id, name AS title FROM people").await?;
+        let indexed = reindex_kind(&mut tx, "movie", "SELECT id, title FROM movies").await?
+            + reindex_kind(&mut tx, "series", "SELECT id, title FROM series").await?
+            + reindex_kind(&mut tx, "episode", "SELECT id, title FROM episodes").await?
+            + reindex_kind(&mut tx, "person", "SELECT id, name AS title FROM people").await?;
         tx.commit().await.map_err(backend)?;
-        Ok(())
+        Ok(indexed)
     }
 }
 
@@ -1323,7 +1342,7 @@ async fn reindex_kind(
     conn: &mut SqliteConnection,
     kind: &str,
     select: &'static str,
-) -> Result<(), RepositoryError> {
+) -> Result<usize, RepositoryError> {
     let rows = sqlx::query(select).fetch_all(&mut *conn).await.map_err(backend)?;
     let indexed = rows
         .iter()
@@ -1341,7 +1360,7 @@ async fn reindex_kind(
         }
         query.execute(&mut *conn).await.map_err(backend)?;
     }
-    Ok(())
+    Ok(indexed.len())
 }
 
 async fn replace_subtitle_files(
@@ -2468,26 +2487,33 @@ impl CatalogRepository for SqliteCatalogRepo {
         library: &LibraryId,
         present_paths: &[String],
         offline_paths: &[String],
-    ) -> Result<(), RepositoryError> {
+    ) -> Result<VersionReconcile, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "reconcile_library_versions");
         let offline = serde_json::to_string(offline_paths).map_err(backend)?;
-        let mut tx = self.pool.begin().await.map_err(backend)?;
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await.map_err(backend)?;
+        let before = available_paths(&mut tx, library).await?;
         sqlx::query(MARK_ABSENT_SQL)
             .bind(offline)
             .bind(library.0.as_str())
             .execute(&mut *tx)
             .await
             .map_err(backend)?;
+        let mut known = HashSet::new();
         for chunk in present_paths.chunks(BIND_CHUNK) {
             let mut query =
                 sqlx::query(AssertSqlSafe(mark_present_sql(chunk.len()))).bind(library.0.as_str());
             for path in chunk {
                 query = query.bind(path.as_str());
             }
-            query.execute(&mut *tx).await.map_err(backend)?;
+            known.extend(paths_of(&query.fetch_all(&mut *tx).await.map_err(backend)?)?);
         }
+        let after = available_paths(&mut tx, library).await?;
         tx.commit().await.map_err(backend)?;
-        Ok(())
+        Ok(VersionReconcile {
+            known,
+            gone: before.difference(&after).count(),
+            returned: after.difference(&before).count(),
+        })
     }
 
     async fn library_footprint(
@@ -2500,7 +2526,7 @@ impl CatalogRepository for SqliteCatalogRepo {
 
     async fn purge_library(&self, library: &LibraryId) -> Result<LibraryPurge, RepositoryError> {
         let _op = DbOpGuard::new("catalog", "purge_library");
-        let mut tx = self.pool.begin().await.map_err(backend)?;
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await.map_err(backend)?;
         let purged = purge::purge_library(&mut tx, library).await?;
         tx.commit().await.map_err(backend)?;
         Ok(purged)
@@ -3266,6 +3292,7 @@ impl CatalogRepository for SqliteCatalogRepo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pool::while_a_writer_holds;
 
     async fn plan(pool: &SqlitePool, sql: &str, binds: &[&str]) -> String {
         let mut query = sqlx::query(AssertSqlSafe(format!("EXPLAIN QUERY PLAN {sql}")));
@@ -3779,7 +3806,7 @@ mod tests {
             .await
             .unwrap();
 
-        repo.rebuild().await.unwrap();
+        assert_eq!(repo.rebuild().await.unwrap(), 1, "one movie, no series, episodes or people");
 
         let row = sqlx::query("SELECT title, terms FROM search_index WHERE id = 'm1'")
             .fetch_one(&repo.pool)
@@ -3856,6 +3883,73 @@ mod tests {
              cares about the first unwatched one can trust the order"
         );
         assert_eq!(by_season[&SeasonId("se-7".into())].len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_reconcile_waits_for_another_writer_rather_than_failing_on_its_own_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
+        sqlx::query(
+            "INSERT INTO versions \
+             (id, title_kind, title_id, library_id, quality, container, path, \
+              size_bytes, duration_ms, available, added_at, updated_at) \
+             VALUES ('v-1', 'movie', 'm-1', 'lib-1', 'hd', 'mkv', '/media/1.mkv', 0, 0, 1, 0, 0)",
+        )
+        .execute(&repo.pool)
+        .await
+        .unwrap();
+        let reconcile = {
+            let repo = repo.clone();
+            async move {
+                let present = ["/media/1.mkv".to_owned()];
+                repo.reconcile_library_versions(&LibraryId("lib-1".into()), &present, &[]).await
+            }
+        };
+
+        let reconciled = while_a_writer_holds(
+            &repo.pool,
+            "UPDATE versions SET size_bytes = 1 WHERE id = 'v-1'",
+            reconcile,
+        )
+        .await;
+
+        assert!(
+            reconciled.is_ok(),
+            "a transaction that reads first holds a snapshot the other commit makes stale, and \
+             SQLite refuses its write at once rather than waiting: {reconciled:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_purge_waits_for_another_writer_rather_than_failing_on_its_own_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
+        repo.upsert_movie(contracts::fixture::movie("m-1")).await.unwrap();
+        sqlx::query(
+            "INSERT INTO versions \
+             (id, title_kind, title_id, library_id, quality, container, path, \
+              size_bytes, duration_ms, available, added_at, updated_at) \
+             VALUES ('v-1', 'movie', 'm-1', 'lib-1', 'hd', 'mkv', '/media/1.mkv', 0, 0, 1, 0, 0)",
+        )
+        .execute(&repo.pool)
+        .await
+        .unwrap();
+        let purge = {
+            let repo = repo.clone();
+            async move { repo.purge_library(&LibraryId("lib-1".into())).await }
+        };
+
+        let purged = while_a_writer_holds(
+            &repo.pool,
+            "UPDATE movies SET title = 'Renamed' WHERE id = 'm-1'",
+            purge,
+        )
+        .await;
+
+        assert!(
+            purged.as_ref().is_ok_and(|purged| purged.versions.len() == 1),
+            "a purge reads the versions it removes before it writes: {purged:?}"
+        );
     }
 
     #[tokio::test]
@@ -3984,7 +4078,8 @@ mod tests {
         ] {
             let text = plan(pool, &sql, &args).await;
             assert!(
-                text.contains(&format!("USING INDEX {index}")),
+                text.contains(&format!("USING INDEX {index}"))
+                    || text.contains(&format!("USING COVERING INDEX {index}")),
                 "{sql} must seek {index}: {text}"
             );
         }

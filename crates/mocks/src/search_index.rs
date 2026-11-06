@@ -57,13 +57,13 @@ impl SearchIndex for MockSearchIndex {
         Ok(search(&state.entries, query, types, page))
     }
 
-    async fn rebuild(&self) -> Result<(), RepositoryError> {
+    async fn rebuild(&self) -> Result<usize, RepositoryError> {
         let mut state = self.state.lock().unwrap();
         if state.fail {
             return Err(RepositoryError::Backend("mock rebuild failure".to_owned()));
         }
         state.rebuilds += 1;
-        Ok(())
+        Ok(state.entries.len())
     }
 }
 
@@ -104,7 +104,7 @@ mod tests {
         assert_eq!(hits.total, 1);
 
         assert_eq!(index.rebuild_count(), 0);
-        index.rebuild().await.unwrap();
+        assert_eq!(index.rebuild().await.unwrap(), 2);
         assert_eq!(index.rebuild_count(), 1);
     }
 
