@@ -35,6 +35,7 @@ mod title_set;
 mod version;
 mod version_detail;
 mod version_filter;
+mod version_reconcile;
 
 pub use artwork_id::ArtworkId;
 pub use artwork_owner::ArtworkOwner;
@@ -73,3 +74,4 @@ pub use title_set::TitleSet;
 pub use version::{Version, VersionId, best_available};
 pub use version_detail::VersionDetail;
 pub use version_filter::VersionFilter;
+pub use version_reconcile::VersionReconcile;

@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use domain::job::Job;
 use domain::repository::SearchIndex;
 
@@ -20,16 +22,23 @@ where
 {
     async fn handle(&self, _job: &Job) -> Result<(), JobError> {
         tracing::info!("rebuilding search index");
-        self.index.rebuild().await.map_err(|err| JobError::Retryable(err.to_string()))?;
+        let started = Instant::now();
+        let entries =
+            self.index.rebuild().await.map_err(|err| JobError::Retryable(err.to_string()))?;
+        let seconds = started.elapsed().as_secs_f64();
+        tracing::info!("search index rebuilt: [{entries}] entries in [{seconds:.1} s]");
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use domain::discovery::SearchResult;
     use domain::job::{Job, JobId, JobKind, JobPriority, JobStatus};
+    use domain::metadata::{Person, PersonId};
     use jiff::Timestamp;
     use mocks::MockSearchIndex;
+    use tracing_test::traced_test;
 
     use super::*;
 
@@ -53,14 +62,21 @@ mod tests {
         }
     }
 
+    #[traced_test]
     #[tokio::test]
-    async fn rebuilds_the_index() {
+    async fn rebuilds_the_index_and_logs_its_size() {
         let index = MockSearchIndex::new();
+        index.add(SearchResult::Person(Person {
+            id: PersonId("p1".into()),
+            name: "Ada".into(),
+            ..Person::default()
+        }));
         let handler = SearchReindexHandler::new(index.clone());
 
         handler.handle(&reindex_job()).await.unwrap();
 
         assert_eq!(index.rebuild_count(), 1);
+        assert!(logs_contain("search index rebuilt: [1] entries in ["));
     }
 
     #[tokio::test]

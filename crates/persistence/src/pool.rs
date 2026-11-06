@@ -232,6 +232,23 @@ pub(crate) fn like_pattern(needle: &str) -> String {
 }
 
 #[cfg(test)]
+pub(crate) async fn while_a_writer_holds<T: Send + 'static>(
+    pool: &SqlitePool,
+    write: &'static str,
+    op: impl Future<Output = T> + Send + 'static,
+) -> T {
+    let mut writer = pool.acquire().await.unwrap();
+    sqlx::query("BEGIN IMMEDIATE").execute(&mut *writer).await.unwrap();
+    sqlx::query(write).execute(&mut *writer).await.unwrap();
+    let task = tokio::spawn(op);
+    tokio::task::spawn_blocking(|| std::thread::sleep(std::time::Duration::from_millis(200)))
+        .await
+        .unwrap();
+    sqlx::query("COMMIT").execute(&mut *writer).await.unwrap();
+    task.await.unwrap()
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

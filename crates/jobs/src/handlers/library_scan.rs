@@ -1,10 +1,13 @@
+use domain::catalog::VersionReconcile;
 use domain::error::{RepositoryError, WalkError};
 use domain::job::Job;
-use domain::library::{LibraryId, ScanMode, ScanState, ScanStatus, SourceWalker};
+use domain::library::{
+    LibraryId, ScanMode, ScanReport, ScanState, ScanStatus, SkipReason, SourceWalker,
+};
 use domain::media::MediaProbe;
 use domain::repository::LibraryRepository;
 use jiff::Timestamp;
-use services::library::{ScanEnricher, ScanJobPayload, Scanner};
+use services::library::{EnrichSummary, ScanEnricher, ScanJobPayload, Scanner};
 
 use crate::error::JobError;
 use crate::job_handler::JobHandler;
@@ -67,7 +70,8 @@ where
             tracing::warn!("library [{}] is offline at [{path}], its versions are left as they were", id.0);
         }
         let note = offline_note(&walk.offline);
-        self.enricher.reconcile(&library, &walk.present(), &walk.offline).await;
+        let present = walk.present();
+        let versions = self.enricher.reconcile(&library, &present, &walk.offline).await;
 
         let repo = &self.repo;
         let report = self
@@ -84,13 +88,51 @@ where
         if mode == ScanMode::Reread {
             self.enricher.reread(&library, &report).await;
         }
-        self.enricher.enrich(&library, &report, Some(&job.id)).await;
-        self.repo
-            .save_scan_state(idle(&id, started, Timestamp::now(), note))
-            .await
-            .map_err(retryable)?;
+        let enriched = self.enricher.enrich(&library, &report, Some(&job.id)).await;
+        let finished = Timestamp::now();
+        self.repo.save_scan_state(idle(&id, started, finished, note)).await.map_err(retryable)?;
+        let verb = if mode == ScanMode::Reread { "re-read" } else { "scanned" };
+        let seconds = finished.duration_since(started).as_secs_f64();
+        let summary = scan_summary(present.len(), &report, versions.as_ref(), enriched);
+        #[rustfmt::skip]
+        tracing::info!("library [{}] [{}] {verb} in [{seconds:.1} s]: {summary}", library.name, id.0);
         Ok(())
     }
+}
+
+fn scan_summary(
+    found: usize,
+    report: &ScanReport,
+    versions: Option<&VersionReconcile>,
+    enriched: EnrichSummary,
+) -> String {
+    let unreadable = report
+        .skipped
+        .iter()
+        .filter(|file| matches!(file.reason, SkipReason::ProbeFailed(_)))
+        .count();
+    let excluded = report.skipped.len() - unreadable;
+    let probed = report.discovered.len();
+    let versions = match versions {
+        Some(versions) => {
+            let known = versions.known.len();
+            let new = report
+                .discovered
+                .iter()
+                .filter(|file| {
+                    !versions.known.contains(&file.path) && !enriched.unmatched.contains(&file.path)
+                })
+                .count();
+            let VersionReconcile { gone, returned, .. } = versions;
+            format!("[{known}] known, [{new}] new, [{gone}] gone, [{returned}] back")
+        }
+        None => "versions not reconciled".to_owned(),
+    };
+    let EnrichSummary { matched, titles, unmatched, duplicates, failed } = enriched;
+    let unmatched = unmatched.len();
+    #[rustfmt::skip]
+    let summary = format!("files [{found}] found, [{probed}] probed, [{unreadable}] unreadable, [{excluded}] excluded; {versions}; [{matched}] matched to [{titles}] titles, [{unmatched}] unmatched, [{duplicates}] duplicates, [{failed}] failed");
+    summary
 }
 
 const NOTED_OFFLINE: usize = 5;
@@ -178,13 +220,25 @@ mod tests {
     }
 
     impl ScanEnricher for SpyEnricher {
-        async fn reconcile(&self, _library: &Library, present: &[String], offline: &[String]) {
+        async fn reconcile(
+            &self,
+            _library: &Library,
+            present: &[String],
+            offline: &[String],
+        ) -> Option<VersionReconcile> {
             self.calls.lock().unwrap().push("reconcile");
             self.reconciled.lock().unwrap().push((present.to_vec(), offline.to_vec()));
+            None
         }
 
-        async fn enrich(&self, _library: &Library, _report: &ScanReport, _parent: Option<&JobId>) {
+        async fn enrich(
+            &self,
+            _library: &Library,
+            _report: &ScanReport,
+            _parent: Option<&JobId>,
+        ) -> EnrichSummary {
             self.calls.lock().unwrap().push("enrich");
+            EnrichSummary::default()
         }
 
         async fn reread(&self, _library: &Library, _report: &ScanReport) {
@@ -206,12 +260,24 @@ mod tests {
     }
 
     impl ScanEnricher for StatusSpy {
-        async fn reconcile(&self, library: &Library, _present: &[String], _offline: &[String]) {
+        async fn reconcile(
+            &self,
+            library: &Library,
+            _present: &[String],
+            _offline: &[String],
+        ) -> Option<VersionReconcile> {
             self.record(library).await;
+            None
         }
 
-        async fn enrich(&self, library: &Library, _report: &ScanReport, _parent: Option<&JobId>) {
+        async fn enrich(
+            &self,
+            library: &Library,
+            _report: &ScanReport,
+            _parent: Option<&JobId>,
+        ) -> EnrichSummary {
             self.record(library).await;
+            EnrichSummary::default()
         }
 
         async fn reread(&self, library: &Library, _report: &ScanReport) {
@@ -313,6 +379,97 @@ mod tests {
             Some("Offline, versions left as they were: /m/1, /m/2, /m/3, /m/4, /m/5 and 2 more")
         );
         assert_eq!(offline_note(&[]), None);
+    }
+
+    struct CountingEnricher;
+
+    impl ScanEnricher for CountingEnricher {
+        async fn reconcile(
+            &self,
+            _library: &Library,
+            _present: &[String],
+            _offline: &[String],
+        ) -> Option<VersionReconcile> {
+            Some(VersionReconcile {
+                known: ["/m/good.mkv", "/m/bad.mkv", "/m/resolved.mkv"].map(str::to_owned).into(),
+                gone: 2,
+                returned: 1,
+            })
+        }
+
+        async fn enrich(
+            &self,
+            _library: &Library,
+            _report: &ScanReport,
+            _parent: Option<&JobId>,
+        ) -> EnrichSummary {
+            EnrichSummary {
+                matched: 2,
+                titles: 2,
+                unmatched: ["/m/recording.mkv", "/m/resolved.mkv"].map(str::to_owned).into(),
+                duplicates: 4,
+                failed: 5,
+            }
+        }
+
+        async fn reread(&self, _library: &Library, _report: &ScanReport) {}
+    }
+
+    fn counted() -> impl JobHandler {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(library(&["/m"]));
+        let walker = MockSourceWalker::new().with_entries(
+            "/m",
+            [
+                "/m/good.mkv",
+                "/m/new.mkv",
+                "/m/recording.mkv",
+                "/m/resolved.mkv",
+                "/m/bad.mkv",
+                "/m/extras/trailer.mkv",
+            ]
+            .into_iter()
+            .map(|path| WalkedEntry { path: path.into(), size_bytes: 1 })
+            .collect(),
+        );
+        let probe = MockMediaProbe::new().failing_on("/m/bad.mkv");
+        LibraryScanHandler::new(repo, Scanner::new(walker, probe), CountingEnricher)
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn a_finished_scan_logs_what_it_found_and_what_became_of_it() {
+        counted().handle(&scan_job("lib")).await.unwrap();
+
+        assert!(logs_contain("library [Lib] [lib] scanned in ["));
+        assert!(
+            logs_contain(
+                "files [6] found, [4] probed, [1] unreadable, [1] excluded; [3] known, [1] new, \
+                 [2] gone, [1] back; [2] matched to [2] titles, [2] unmatched, [4] duplicates, \
+                 [5] failed"
+            ),
+            "an unmatched file never gets a version, so it is not new on every scan, and a \
+             resolved one is known though its name still matches nothing"
+        );
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn a_finished_reread_says_it_re_read() {
+        counted().handle(&reread_job()).await.unwrap();
+
+        assert!(logs_contain("library [Lib] [lib] re-read in ["));
+    }
+
+    #[test]
+    fn a_failed_reconcile_leaves_the_version_counts_out() {
+        let summary = scan_summary(0, &ScanReport::default(), None, EnrichSummary::default());
+
+        assert_eq!(
+            summary,
+            "files [0] found, [0] probed, [0] unreadable, [0] excluded; versions not reconciled; \
+             [0] matched to [0] titles, [0] unmatched, [0] duplicates, [0] failed"
+        );
     }
 
     #[derive(Clone)]

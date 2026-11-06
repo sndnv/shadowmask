@@ -7,7 +7,7 @@ use crate::catalog::{
     ArtworkId, ArtworkOwner, ArtworkRef, CatalogClean, CleanScope, Collection, CollectionId,
     Episode, EpisodeContext, EpisodeId, LibraryFootprint, LibraryPurge, Movie, MovieDetail,
     MovieId, RandomScope, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId, TitleKind,
-    TitleListFilter, TitleRef, TitleSet, Version, VersionDetail, VersionId,
+    TitleListFilter, TitleRef, TitleSet, Version, VersionDetail, VersionId, VersionReconcile,
 };
 use crate::common::{Page, PageRequest};
 use crate::diagnostics::{Report, ReportId, ReportSummary};
@@ -198,7 +198,7 @@ pub trait CatalogRepository {
         library: &LibraryId,
         present_paths: &[String],
         offline_paths: &[String],
-    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    ) -> impl Future<Output = Result<VersionReconcile, RepositoryError>> + Send;
     fn library_footprint(
         &self,
         library: &LibraryId,
@@ -598,7 +598,7 @@ pub trait SearchIndex {
         filter: &TitleListFilter,
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<SearchResult>, RepositoryError>> + Send;
-    fn rebuild(&self) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn rebuild(&self) -> impl Future<Output = Result<usize, RepositoryError>> + Send;
 }
 
 pub trait SessionRegistry {

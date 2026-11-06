@@ -6,7 +6,7 @@ use domain::catalog::{
     ArtworkId, ArtworkOwner, ArtworkRef, CatalogClean, CleanScope, Collection, CollectionId,
     Episode, EpisodeContext, EpisodeId, LibraryFootprint, LibraryPurge, Movie, MovieDetail,
     MovieId, RandomScope, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId, TitleKind,
-    TitleListFilter, TitleRef, TitleSet, Version, VersionDetail, VersionId,
+    TitleListFilter, TitleRef, TitleSet, Version, VersionDetail, VersionId, VersionReconcile,
 };
 use domain::common::{Page, PageRequest};
 use domain::error::RepositoryError;
@@ -1019,17 +1019,25 @@ impl CatalogRepository for MockCatalogRepo {
         library: &LibraryId,
         present_paths: &[String],
         offline_paths: &[String],
-    ) -> Result<(), RepositoryError> {
+    ) -> Result<VersionReconcile, RepositoryError> {
         self.guard()?;
         let mut state = self.state.lock().unwrap();
+        let mut reconcile = VersionReconcile::default();
         for version in state.versions.iter_mut().filter(|version| version.library == *library) {
+            let was = version.available;
             if present_paths.contains(&version.path) {
                 version.available = true;
+                reconcile.known.insert(version.path.clone());
             } else if !is_offline(&version.path, offline_paths) {
                 version.available = false;
             }
+            match (was, version.available) {
+                (true, false) => reconcile.gone += 1,
+                (false, true) => reconcile.returned += 1,
+                _ => {}
+            }
         }
-        Ok(())
+        Ok(reconcile)
     }
 
     async fn library_footprint(

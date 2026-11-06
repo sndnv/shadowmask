@@ -3,7 +3,7 @@ use std::future::Future;
 
 use domain::catalog::{
     ArtworkOwner, Collection, CollectionId, Episode, EpisodeId, Movie, MovieId, Season, SeasonId,
-    Series, SeriesId, TitleId, TitleRef, Version, VersionId, in_year_order,
+    Series, SeriesId, TitleId, TitleRef, Version, VersionId, VersionReconcile, in_year_order,
 };
 use domain::common::Quality;
 use domain::error::RepositoryError;
@@ -27,7 +27,7 @@ use uuid::Uuid;
 use super::enrich_jobs::{EnrichmentJobs, SubtitleContext};
 use super::metadata_fetch::MetadataFetcher;
 use super::{
-    Matcher, discover_subtitles, find_duplicates, normalize_title, parse_filename,
+    EnrichSummary, Matcher, discover_subtitles, find_duplicates, normalize_title, parse_filename,
     quality_from_height,
 };
 
@@ -99,14 +99,14 @@ pub trait ScanEnricher {
         library: &Library,
         present: &[String],
         offline: &[String],
-    ) -> impl Future<Output = ()> + Send;
+    ) -> impl Future<Output = Option<VersionReconcile>> + Send;
 
     fn enrich(
         &self,
         library: &Library,
         report: &ScanReport,
         parent: Option<&JobId>,
-    ) -> impl Future<Output = ()> + Send;
+    ) -> impl Future<Output = EnrichSummary> + Send;
 
     fn reread(&self, library: &Library, report: &ScanReport) -> impl Future<Output = ()> + Send;
 }
@@ -158,9 +158,23 @@ pub trait PersonRefresher {
 pub struct NoopEnricher;
 
 impl ScanEnricher for NoopEnricher {
-    async fn reconcile(&self, _library: &Library, _present: &[String], _offline: &[String]) {}
+    async fn reconcile(
+        &self,
+        _library: &Library,
+        _present: &[String],
+        _offline: &[String],
+    ) -> Option<VersionReconcile> {
+        None
+    }
 
-    async fn enrich(&self, _library: &Library, _report: &ScanReport, _parent: Option<&JobId>) {}
+    async fn enrich(
+        &self,
+        _library: &Library,
+        _report: &ScanReport,
+        _parent: Option<&JobId>,
+    ) -> EnrichSummary {
+        EnrichSummary::default()
+    }
 
     async fn reread(&self, _library: &Library, _report: &ScanReport) {}
 }
@@ -207,15 +221,27 @@ where
     J: JobRepository + Send + Sync,
     L: LibraryRepository + Send + Sync,
 {
-    async fn reconcile(&self, library: &Library, present: &[String], offline: &[String]) {
-        if let Err(err) =
-            self.catalog.reconcile_library_versions(&library.id, present, offline).await
-        {
-            warn!(library = %library.id.0, "reconciling library versions failed: {err}");
-        }
+    async fn reconcile(
+        &self,
+        library: &Library,
+        present: &[String],
+        offline: &[String],
+    ) -> Option<VersionReconcile> {
+        self.catalog
+            .reconcile_library_versions(&library.id, present, offline)
+            .await
+            .inspect_err(|err| {
+                warn!(library = %library.id.0, "reconciling library versions failed: {err}");
+            })
+            .ok()
     }
 
-    async fn enrich(&self, library: &Library, report: &ScanReport, parent: Option<&JobId>) {
+    async fn enrich(
+        &self,
+        library: &Library,
+        report: &ScanReport,
+        parent: Option<&JobId>,
+    ) -> EnrichSummary {
         let candidates: Vec<String> = report
             .discovered
             .iter()
@@ -230,11 +256,18 @@ where
             .collect();
         let offline = &report.offline;
         let report = self.matcher.match_files(library.kind, &report.discovered);
+        let mut summary = EnrichSummary {
+            matched: report.matched.iter().map(|group| group.files.len()).sum(),
+            titles: report.matched.len(),
+            unmatched: report.unmatched.iter().map(|file| file.path.clone()).collect(),
+            ..EnrichSummary::default()
+        };
         let untitled = self.untitled_versions(library).await;
         for group in &report.matched {
             let mode = IngestMode::Scan(&untitled);
             if let Err(err) = self.ingest_group(library, group, parent, mode).await {
                 warn!(library = %library.id.0, "scan enrichment failed: {err}");
+                summary.failed += 1;
             }
         }
         let mut detected = Vec::new();
@@ -257,6 +290,8 @@ where
         {
             warn!(library = %library.id.0, "reconciling unmatched files failed: {err}");
         }
+        summary.duplicates = detected.len();
+        summary
     }
 
     async fn reread(&self, library: &Library, report: &ScanReport) {
@@ -3269,9 +3304,55 @@ mod tests {
         let svc = enricher(catalog.clone(), None, MockJobStore::new());
         catalog.set_fail();
 
-        svc.reconcile(&library(LibraryKind::Movie), &[], &[]).await;
+        let reconciled = svc.reconcile(&library(LibraryKind::Movie), &[], &[]).await;
 
         assert!(logs_contain("reconciling library versions failed"));
+        assert_eq!(reconciled, None, "a failed reconcile has no counts to report");
+    }
+
+    #[tokio::test]
+    async fn a_reconcile_reports_the_versions_it_knew() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        let lib = library(LibraryKind::Movie);
+        svc.enrich(&lib, &report(&["/m/Paper Skies (1999) 1080p.mkv"]), None).await;
+
+        let reconciled = svc
+            .reconcile(
+                &lib,
+                &["/m/Paper Skies (1999) 1080p.mkv".to_owned(), "/m/new.mkv".to_owned()],
+                &[],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(reconciled.known, HashSet::from(["/m/Paper Skies (1999) 1080p.mkv".to_owned()]));
+    }
+
+    #[tokio::test]
+    async fn enriching_counts_what_it_matched_and_what_it_could_not_save() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        catalog.set_fail();
+
+        let summary = svc
+            .enrich(
+                &library(LibraryKind::Movie),
+                &report(&["/m/The Matrix (1999) 1080p.mkv", "/m/recording.mkv"]),
+                None,
+            )
+            .await;
+
+        assert_eq!(
+            summary,
+            EnrichSummary {
+                matched: 1,
+                titles: 1,
+                unmatched: HashSet::from(["/m/recording.mkv".to_owned()]),
+                duplicates: 0,
+                failed: 1,
+            }
+        );
     }
 
     #[tokio::test]
@@ -3838,16 +3919,27 @@ mod tests {
             libraries.clone(),
         );
 
-        svc.enrich(
-            &library(LibraryKind::Movie),
-            &report(&["/m/The Matrix (1999) 1080p.mkv", "/m/The Matrix (1999) 2160p.mkv"]),
-            None,
-        )
-        .await;
+        let summary = svc
+            .enrich(
+                &library(LibraryKind::Movie),
+                &report(&["/m/The Matrix (1999) 1080p.mkv", "/m/The Matrix (1999) 2160p.mkv"]),
+                None,
+            )
+            .await;
 
         let duplicates = libraries.list_duplicates(&LibraryId("lib".into()), page()).await.unwrap();
         assert_eq!(duplicates.total, 1);
         assert_eq!(duplicates.items[0].paths.len(), 2);
+        assert_eq!(
+            summary,
+            EnrichSummary {
+                matched: 2,
+                titles: 1,
+                unmatched: HashSet::new(),
+                duplicates: 1,
+                failed: 0,
+            }
+        );
     }
 
     #[tokio::test]

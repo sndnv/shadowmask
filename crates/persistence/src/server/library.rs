@@ -627,7 +627,7 @@ impl LibraryRepository for SqliteLibraryRepo {
     ) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("library", "reconcile_duplicates");
         let keep: HashSet<&str> = detected.iter().map(|id| id.0.as_str()).collect();
-        let mut tx = self.pool.begin().await.map_err(backend)?;
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await.map_err(backend)?;
         let rows = sqlx::query("SELECT id FROM duplicate_candidates WHERE library_id = ?")
             .bind(library.0.as_str())
             .fetch_all(&mut *tx)
@@ -653,7 +653,7 @@ impl LibraryRepository for SqliteLibraryRepo {
     ) -> Result<(), RepositoryError> {
         let _op = DbOpGuard::new("library", "reconcile_unmatched");
         let keep: HashSet<&str> = present_paths.iter().map(String::as_str).collect();
-        let mut tx = self.pool.begin().await.map_err(backend)?;
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await.map_err(backend)?;
         let rows = sqlx::query("SELECT id, path FROM unmatched_files WHERE library_id = ?")
             .bind(library.0.as_str())
             .fetch_all(&mut *tx)
@@ -697,7 +697,67 @@ async fn delete_scan_rows(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pool::while_a_writer_holds;
     use domain::catalog::{MovieId, TitleId};
+
+    async fn with_stale_scan_rows() -> (tempfile::TempDir, SqliteLibraryRepo) {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = SqliteLibraryRepo::connect(&dir.path().join("libraries.db")).await.unwrap();
+        for insert in [
+            "INSERT INTO unmatched_files (id, library_id, path, status, created_at, updated_at) \
+             VALUES ('u-1', 'lib-1', '/media/gone.mkv', 'active', 0, 0)",
+            "INSERT INTO duplicate_candidates (id, library_id, title_kind, title_id, status) \
+             VALUES ('d-1', 'lib-1', 'movie', 'm-1', 'active')",
+            "INSERT INTO libraries (id, name, kind, origin, watcher, created_at, updated_at) \
+             VALUES ('lib-2', 'Other', 'movie', 'local', 'manual', 0, 0)",
+        ] {
+            sqlx::query(insert).execute(&repo.pool).await.unwrap();
+        }
+        (dir, repo)
+    }
+
+    #[tokio::test]
+    async fn reconciling_duplicates_waits_for_another_writer_rather_than_failing_on_its_read() {
+        let (_dir, repo) = with_stale_scan_rows().await;
+        let reconcile = {
+            let repo = repo.clone();
+            async move { repo.reconcile_duplicates(&LibraryId("lib-1".into()), &[]).await }
+        };
+
+        let reconciled = while_a_writer_holds(
+            &repo.pool,
+            "UPDATE libraries SET name = 'Renamed' WHERE id = 'lib-2'",
+            reconcile,
+        )
+        .await;
+
+        assert!(
+            reconciled.is_ok(),
+            "it reads the candidates before it deletes the stale ones: {reconciled:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn reconciling_unmatched_files_waits_for_another_writer_rather_than_failing_on_its_read()
+    {
+        let (_dir, repo) = with_stale_scan_rows().await;
+        let reconcile = {
+            let repo = repo.clone();
+            async move { repo.reconcile_unmatched(&LibraryId("lib-1".into()), &[], &[]).await }
+        };
+
+        let reconciled = while_a_writer_holds(
+            &repo.pool,
+            "UPDATE libraries SET name = 'Renamed' WHERE id = 'lib-2'",
+            reconcile,
+        )
+        .await;
+
+        assert!(
+            reconciled.is_ok(),
+            "it reads the unmatched files before it deletes the stale ones: {reconciled:?}"
+        );
+    }
 
     #[tokio::test]
     async fn reconciling_a_backlog_deletes_more_rows_than_sqlite_allows_parameters() {
