@@ -14,6 +14,7 @@ import 'package:shadowmask/nav/nav_destinations.dart';
 import 'package:shadowmask/nav/nav_section.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
+import 'package:shadowmask/theme/tokens.dart';
 
 const SelfUser _admin = SelfUser(
   id: 'u1',
@@ -62,6 +63,9 @@ Future<({List<String> routes, List<String> calls})> _pump(
   await tester.pumpAndSettle();
   return (routes: routes, calls: calls);
 }
+
+Finder _card() =>
+    find.ancestor(of: find.text('pat'), matching: find.byType(Material)).first;
 
 int _selected(WidgetTester tester) =>
     tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex;
@@ -127,8 +131,69 @@ void main() {
     expect(find.text(Strings.navigationCollections), findsOneWidget);
     expect(find.text(Strings.navigationAdmin), findsOneWidget);
     expect(find.text('pat'), findsOneWidget);
-    expect(find.text(Strings.signOut), findsOneWidget);
+    expect(find.byTooltip(Strings.signOut), findsOneWidget);
   });
+
+  testWidgets(
+    'the account and its sign out sit on one card, apart from Admin',
+    (WidgetTester tester) async {
+      await _pump(tester, user: _admin);
+
+      await tester.tap(find.text(Strings.navigationMore));
+      await tester.pumpAndSettle();
+
+      final Finder card = _card();
+      expect(
+        tester.widget<Material>(card).color,
+        Tokens.dark.surfaceAlt,
+        reason: 'its own surface sets the account apart from the rows above',
+      );
+      expect(
+        find.descendant(of: card, matching: find.byTooltip(Strings.signOut)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: card, matching: find.text('P')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: card, matching: find.text(Strings.navigationAdmin)),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
+    'the account card is outlined and read as selected on the account page',
+    (WidgetTester tester) async {
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      for (final (NavSection section, Color border, bool selected)
+          in <(NavSection, Color, bool)>[
+            (NavSection.account, Tokens.dark.accent, true),
+            (NavSection.movies, Tokens.dark.border, false),
+          ]) {
+        await tester.pumpWidget(const SizedBox());
+        await _pump(tester, user: _admin, current: section);
+
+        await tester.tap(find.text(Strings.navigationMore));
+        await tester.pumpAndSettle();
+
+        final Material card = tester.widget<Material>(_card());
+        expect(
+          (card.shape! as RoundedRectangleBorder).side.color,
+          border,
+          reason: 'on $section',
+        );
+        expect(
+          tester.getSemantics(find.text('pat')),
+          isSemantics(isSelected: selected),
+          reason:
+              'a screen reader hears the selection the outline shows, on $section',
+        );
+      }
+      semantics.dispose();
+    },
+  );
 
   testWidgets('a signed out shell offers no account and no sign out', (
     WidgetTester tester,
@@ -140,7 +205,7 @@ void main() {
 
     expect(find.text(Strings.navigationCollections), findsOneWidget);
     expect(find.text(Strings.navigationAdmin), findsNothing);
-    expect(find.text(Strings.signOut), findsNothing);
+    expect(find.byTooltip(Strings.signOut), findsNothing);
   });
 
   testWidgets('choosing the account from More navigates there', (
@@ -169,7 +234,7 @@ void main() {
 
     await tester.tap(find.text(Strings.navigationMore));
     await tester.pumpAndSettle();
-    await tester.tap(find.text(Strings.signOut));
+    await tester.tap(find.byTooltip(Strings.signOut));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, Strings.signOut));
     await tester.pumpAndSettle();
@@ -189,7 +254,7 @@ void main() {
 
     await tester.tap(find.text(Strings.navigationMore));
     await tester.pumpAndSettle();
-    await tester.tap(find.text(Strings.signOut));
+    await tester.tap(find.byTooltip(Strings.signOut));
     await tester.pumpAndSettle();
     expect(find.text(Strings.confirmSignOut), findsOneWidget);
     await tester.tap(find.text(Strings.cancel));
@@ -239,7 +304,7 @@ void main() {
 
     await tester.tap(find.text(Strings.navigationMore));
     await tester.pumpAndSettle();
-    await tester.tap(find.text(Strings.signOut));
+    await tester.tap(find.byTooltip(Strings.signOut));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, Strings.signOut));
     await tester.pumpAndSettle();

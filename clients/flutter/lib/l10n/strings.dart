@@ -583,6 +583,7 @@ abstract final class Strings {
   static const String close = 'Close';
   static const String delete = 'Delete';
   static const String edit = 'Edit';
+  static const String moreActions = 'More actions';
   static const String revoke = 'Revoke';
   static const String share = 'Share';
   static String shareDeviceTitle(String name) => 'Share $name';
