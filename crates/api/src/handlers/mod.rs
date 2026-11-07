@@ -9,6 +9,7 @@ pub mod job_log;
 pub mod library;
 pub mod maintenance;
 pub mod play_on;
+pub mod playlist;
 pub mod report;
 pub mod server;
 pub mod server_log;
@@ -25,9 +26,14 @@ use std::fmt::Display;
 
 use tracing::debug;
 
+use domain::discovery::Audience;
 use domain::user::{Principal, Role, UserId};
 
 use crate::error::{ApiError, ApiResult};
+
+pub(crate) fn audience(principal: &Principal, user: &UserId) -> Audience {
+    Audience { user: user.clone(), age_limit: principal.age_limit }
+}
 
 pub(crate) async fn to_completion<F>(work: F) -> F::Output
 where

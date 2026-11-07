@@ -38,7 +38,7 @@ function CardSetShape(cards as dynamic, captionRows as integer) as string
 
     parts = [captionRows.ToStr()]
     for each card in cards
-        parts.Push(TextOrBlank(ValueAt(card, "id", "")) + ":" + TextOrBlank(ValueAt(card, "aspect", "")) + ":" + TextOrBlank(ValueAt(card, "badge", "")) + ":" + Int(ValueAt(card, "progressPercent", 0)).ToStr() + ":" + CardFlagDigits(card))
+        parts.Push(TextOrBlank(ValueAt(card, "id", "")) + ":" + TextOrBlank(ValueAt(card, "aspect", "")) + ":" + TextOrBlank(ValueAt(card, "badge", "")) + ":" + Int(ValueAt(card, "progressPercent", 0)).ToStr() + ":" + CardFlagDigits(card) + ":" + TextOrBlank(ValueAt(card, "queueEntryId", "")) + ":" + Int(ValueAt(card, "position", 0)).ToStr() + ":" + Int(ValueAt(card, "itemCount", 0)).ToStr() + ":" + TextOrBlank(ValueAt(card, "title", "")) + ":" + TextOrBlank(ValueAt(card, "subtitle", "")) + ":" + TextOrBlank(ValueAt(card, "caption", "")))
     end for
     return parts.Join("|")
 end function
@@ -191,7 +191,8 @@ function NewCard() as object
         favorite: false,
         progressPercent: 0,
         seriesId: "",
-        seasonId: ""
+        seasonId: "",
+        queueEntryId: ""
     }
 end function
 
@@ -572,6 +573,9 @@ end function
 function UpNextCards(feed as dynamic) as object
     cards = []
 
+    queued = ValueAt(feed, "queue_next", invalid)
+    if ValueAt(queued, "card", invalid) <> invalid then cards.Push(QueueCard(queued))
+
     episodes = ValueAt(feed, "next_episodes", invalid)
     if type(episodes) = "roArray"
         for each episode in episodes
@@ -587,6 +591,61 @@ function UpNextCards(feed as dynamic) as object
     end if
 
     return cards
+end function
+
+function QueueCard(entry as dynamic) as object
+    card = CardFromJson(ValueAt(entry, "card", invalid), true)
+    card.queueEntryId = TextOrBlank(ValueAt(entry, "id", ""))
+    return card
+end function
+
+function QueueCards(entries as dynamic) as object
+    cards = []
+    for each entry in ListItems(entries)
+        if ValueAt(entry, "card", invalid) <> invalid then cards.Push(QueueCard(entry))
+    end for
+    return cards
+end function
+
+function QueueLabel(card as dynamic) as string
+    if TextOrBlank(ValueAt(card, "kind", "")) <> "episode" then return TextOrBlank(ValueAt(card, "title", ""))
+    return JoinParts([ValueAt(card, "title", ""), ValueAt(card, "subtitle", ""), ValueAt(card, "caption", "")])
+end function
+
+function PlaylistItemCards(detail as dynamic) as object
+    cards = []
+    for each item in ListItems(detail)
+        json = ValueAt(item, "card", invalid)
+        if json <> invalid
+            card = CardFromJson(json, true)
+            card.position = Int(ValueAt(item, "position", 0))
+            cards.Push(card)
+        end if
+    end for
+    return cards
+end function
+
+function PlaylistsRows(queued as dynamic, lists as dynamic) as object
+    rows = []
+    if type(queued) = "roArray" and queued.Count() > 0
+        rows.Push({ heading: CountedHeading(Phrase("heading.queue"), queued.Count()), cards: queued })
+    end if
+    if type(lists) = "roArray" and lists.Count() > 0
+        rows.Push({ heading: CountedHeading(Phrase("nav.playlists"), lists.Count()), cards: lists })
+    end if
+    return rows
+end function
+
+function PlaylistCard(json as dynamic) as object
+    card = NewCard()
+    if json = invalid then return card
+
+    card.kind = "playlist"
+    card.id = TextOrBlank(ValueAt(json, "id", ""))
+    card.title = TextOrBlank(ValueAt(json, "name", ""))
+    card.itemCount = Int(ValueAt(json, "item_count", 0))
+    card.subtitle = TitleCountText(card.itemCount)
+    return card
 end function
 
 function AspectForSet(cards as dynamic) as string

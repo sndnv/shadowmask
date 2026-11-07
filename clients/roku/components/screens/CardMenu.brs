@@ -28,6 +28,11 @@ function HandledCardMenuChoice(result as dynamic) as boolean
         return true
     end if
 
+    if TextOrBlank(ValueAt(result, "field", "")) = "pickPlaylist"
+        if ValueAt(result, "cancelled", false) <> true then PickedPlaylistAt(Int(ValueAt(result, "index", 0)))
+        return true
+    end if
+
     if result.cancelled then return false
     if result.field <> "cardMenu" then return false
     if type(m.menuActions) <> "roArray" or m.menuActions.Count() = 0 then return false
@@ -116,6 +121,17 @@ sub RunCardMenuAction(id as string)
         return
     end if
 
+    if id = "dequeue"
+        entryId = TextOrBlank(ValueAt(card, "queueEntryId", ""))
+        m.menuTask = SendRequest(QueueRemoveRequest(session.serverUrl, session.token, session.userId, entryId), "onCardMenuDone")
+        return
+    end if
+
+    if id = "playlist"
+        AskPlaylistFor(card)
+        return
+    end if
+
     if id = "clearHistory"
         m.top.choiceRequest = {
             field: "clearHistory",
@@ -133,6 +149,7 @@ sub PlayCardVersion(card as dynamic, versionId as string)
         versionId: versionId,
         title: TextOrBlank(ValueAt(card, "title", "")),
         percent: Int(ValueAt(card, "progressPercent", 0)),
+        queueEntryId: TextOrBlank(ValueAt(card, "queueEntryId", "")),
         episode: {
             id: TextOrBlank(ValueAt(card, "id", "")),
             seriesId: TextOrBlank(ValueAt(card, "seriesId", "")),
@@ -158,21 +175,11 @@ sub onCardRandom(event as object)
 end sub
 
 sub AskCardVersions(card as object, session as object)
-    titleId = TextOrBlank(ValueAt(card, "id", ""))
-    seriesId = TextOrBlank(ValueAt(card, "seriesId", ""))
-    seasonId = TextOrBlank(ValueAt(card, "seasonId", ""))
-
     m.menuPlayCard = card
     m.menuVersions = invalid
     m.menuResumable = invalid
     m.menuResumeTask = SendRequest(ContinueRequest(session.serverUrl, session.token, session.userId), "onCardResume")
-
-    if IsBlank(seriesId) or IsBlank(seasonId)
-        m.menuVersionsTask = SendRequest(MovieVersionsRequest(session.serverUrl, session.token, titleId), "onCardVersions")
-        return
-    end if
-
-    m.menuVersionsTask = SendRequest(EpisodeVersionsRequest(session.serverUrl, session.token, seriesId, seasonId, titleId), "onCardVersions")
+    m.menuVersionsTask = SendRequest(CardVersionsRequest(session.serverUrl, session.token, card), "onCardVersions")
 end sub
 
 sub onCardVersions(event as object)
@@ -216,6 +223,98 @@ sub FinishCardPlay()
     PlayCardVersion(card, TextOrBlank(ValueAt(chosen, "id", "")))
 end sub
 
+sub AskPlaylistFor(card as dynamic)
+    if m.pickTask <> invalid then return
+
+    m.pickCard = card
+    session = SessionFor(m.global)
+    m.pickTask = SendRequest(PlaylistsRequest(session.serverUrl, session.token, session.userId), "onPickPlaylists")
+end sub
+
+sub onPickPlaylists(event as object)
+    m.pickTask = invalid
+    parsed = ParseResponse(event.GetData().status, event.GetData().body)
+    if HandledUnauthorised(m.top, parsed.status) then return
+
+    if not parsed.ok
+        RaiseActionFailed()
+        return
+    end if
+
+    m.pickPlaylists = ListItems(parsed.json)
+    m.top.choiceRequest = {
+        field: "pickPlaylist",
+        title: Phrase("action.addToPlaylist"),
+        kind: "menu",
+        options: MenuOptions(PlaylistPickOptions(m.pickPlaylists)),
+        selected: 0
+    }
+end sub
+
+sub PickedPlaylistAt(index as integer)
+    picked = PickedPlaylist(m.pickPlaylists, index)
+    if picked <> invalid
+        AddToPickedPlaylist(picked)
+        return
+    end if
+
+    m.top.keyboardRequest = { field: "pickNewPlaylist", title: Phrase("action.newPlaylist"), text: "" }
+end sub
+
+function HandledCardMenuKeyboard(result as dynamic) as boolean
+    if TextOrBlank(ValueAt(result, "field", "")) <> "pickNewPlaylist" then return false
+    if ValueAt(result, "cancelled", true) = true or m.pickTask <> invalid then return true
+
+    name = TextOrBlank(ValueAt(result, "text", "")).Trim()
+    if IsBlank(name) then return true
+
+    session = SessionFor(m.global)
+    m.pickTask = SendRequest(PlaylistCreateRequest(session.serverUrl, session.token, session.userId, name), "onPickCreated")
+    return true
+end function
+
+sub onCardMenuKeyboard()
+    HandledCardMenuKeyboard(m.top.keyboardResult)
+end sub
+
+sub onPickCreated(event as object)
+    m.pickTask = invalid
+    parsed = ParseResponse(event.GetData().status, event.GetData().body)
+    if HandledUnauthorised(m.top, parsed.status) then return
+
+    if not parsed.ok
+        RaiseActionFailed()
+        return
+    end if
+
+    AddToPickedPlaylist(parsed.json)
+end sub
+
+sub AddToPickedPlaylist(playlist as dynamic)
+    if m.pickTask <> invalid then return
+
+    m.pickTarget = playlist
+    session = SessionFor(m.global)
+    playlistId = TextOrBlank(ValueAt(playlist, "id", ""))
+    kind = TextOrBlank(ValueAt(m.pickCard, "kind", ""))
+    titleId = TextOrBlank(ValueAt(m.pickCard, "id", ""))
+    m.pickTask = SendRequest(PlaylistAddRequest(session.serverUrl, session.token, session.userId, playlistId, kind, titleId), "onPlaylistAdded")
+end sub
+
+sub onPlaylistAdded(event as object)
+    m.pickTask = invalid
+    parsed = ParseResponse(event.GetData().status, event.GetData().body)
+    if HandledUnauthorised(m.top, parsed.status) then return
+
+    if m.DoesExist("reloadOnPlaylistAdd") then ReloadCardStates()
+    if not parsed.ok
+        RaiseActionFailed()
+        return
+    end if
+
+    RaiseToast("ok", AddedToPlaylistText(ValueAt(parsed.json, "added", 0), ValueAt(m.pickTarget, "name", "")))
+end sub
+
 sub CommitClearHistory()
     session = SessionFor(m.global)
     m.menuTask = SendRequest(HistoryClearRequest(session.serverUrl, session.token, session.userId), "onCardMenuDone")
@@ -234,6 +333,8 @@ sub onCardMenuDone(event as object)
         RaiseToast("ok", Phrase("toast.ok.historyRemoved"))
     else if m.menuAction = "clearHistory"
         RaiseToast("ok", Phrase("toast.ok.historyCleared"))
+    else if m.menuAction = "dequeue"
+        RaiseToast("ok", PhraseWith("toast.ok.removedFromQueue", { title: TextOrBlank(ValueAt(m.menuCard, "title", "")) }))
     else
         RaiseToast("ok", PhraseWith("toast.ok.updated", { title: TextOrBlank(ValueAt(m.menuCard, "title", "")) }))
     end if

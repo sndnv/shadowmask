@@ -3836,6 +3836,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_series_lists_its_episodes_in_season_then_episode_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
+        for sql in [
+            "INSERT INTO series (id, title, sort_title, added_at, updated_at) \
+             VALUES ('sr', 'Show', 'show', 1, 1)",
+            "INSERT INTO seasons (id, series_id, number, added_at, updated_at) \
+             VALUES ('b', 'sr', 2, 1, 1), ('z', 'sr', 0, 1, 1), ('a', 'sr', 1, 1, 1)",
+            "INSERT INTO episodes (id, season_id, number, title, added_at, updated_at) \
+             VALUES ('ba', 'b', 2, 'B2', 1, 1), ('bz', 'b', 1, 'B1', 1, 1), \
+             ('z1', 'z', 1, 'Z1', 1, 1), ('a1', 'a', 1, 'A1', 1, 1)",
+        ] {
+            sqlx::query(sql).execute(&repo.pool).await.unwrap();
+        }
+
+        let by_series = repo.episode_ids_for_series(&[SeriesId("sr".into())]).await.unwrap();
+        let by_season = repo.episode_ids_for_seasons(&[SeasonId("b".into())]).await.unwrap();
+
+        let order: Vec<&str> =
+            by_series[&SeriesId("sr".into())].iter().map(|id| id.0.as_str()).collect();
+        assert_eq!(order, ["z1", "a1", "bz", "ba"]);
+        let order: Vec<&str> =
+            by_season[&SeasonId("b".into())].iter().map(|id| id.0.as_str()).collect();
+        assert_eq!(order, ["bz", "ba"]);
+    }
+
+    #[tokio::test]
     async fn episode_ids_group_by_parent_past_the_bind_limit() {
         let dir = tempfile::tempdir().unwrap();
         let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();

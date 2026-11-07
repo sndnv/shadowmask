@@ -660,17 +660,37 @@ sub onKeyboardRequest()
 
     request = screen.keyboardRequest
     if request = invalid or request.Count() = 0 then return
+    if not screen.isInFocusChain() then FocusTopScreen()
 
     dialog = CreateObject("roSGNode", "KeyboardDialog")
     dialog.title = ValueAt(request, "title", "")
     dialog.text = ValueAt(request, "text", "")
     dialog.buttons = [Phrase("action.ok"), Phrase("action.cancel")]
     dialog.ObserveField("buttonSelected", "onKeyboardDone")
+    dialog.ObserveField("wasClosed", "onKeyboardClosed")
 
     m.keyboardDialog = dialog
     m.keyboardField = ValueAt(request, "field", "")
     m.top.dialog = dialog
 end sub
+
+sub onKeyboardClosed(event as object)
+    dialog = m.keyboardDialog
+    if dialog = invalid or not dialog.IsSameNode(event.GetRoSGNode()) then return
+
+    m.keyboardDialog = invalid
+    if FocusedShownChoice() then return
+
+    screen = m.stack.Peek()
+    if screen <> invalid and not screen.isInFocusChain() then FocusTopScreen()
+end sub
+
+function FocusedShownChoice() as boolean
+    if not m.choice.visible then return false
+
+    m.choice.SetFocus(true)
+    return true
+end function
 
 sub onKeyboardDone()
     dialog = m.keyboardDialog
@@ -687,6 +707,7 @@ sub onKeyboardDone()
 
     m.keyboardDialog = invalid
     m.top.dialog = invalid
+    if FocusedShownChoice() then return
     FocusTopScreen()
 end sub
 
@@ -730,7 +751,7 @@ sub DeliverChoice(result as object)
     if screen = invalid then return
 
     if screen.HasField("choiceResult") then screen.choiceResult = result
-    if not m.choice.visible then FocusTopScreen()
+    if not m.choice.visible and m.keyboardDialog = invalid then FocusTopScreen()
 end sub
 
 sub SetTheme(name as string)

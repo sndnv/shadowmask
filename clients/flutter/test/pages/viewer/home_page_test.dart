@@ -106,6 +106,7 @@ Future<void> _pump(
   bool sharedLibraries = false,
   bool resuming = false,
   bool upNext = false,
+  bool queued = false,
 }) async {
   tester.view.physicalSize = const Size(1400, 1600);
   tester.view.devicePixelRatio = 1;
@@ -173,11 +174,37 @@ Future<void> _pump(
         _cleared.add(path.split('/progress/').last);
         return http.Response('', 204);
       }
+      if (req.method == 'GET' && path == '/api/v1/users/u1/playlists') {
+        return http.Response(
+          jsonEncode(<dynamic>[
+            <String, dynamic>{
+              'id': 'pl1',
+              'name': 'Weekend',
+              'item_count': 1,
+              'created_at': '2026-11-06T10:00:00Z',
+              'updated_at': '2026-11-06T10:00:00Z',
+            },
+          ]),
+          200,
+        );
+      }
+      if (req.method == 'POST' && path.endsWith('/playlists/pl1/items')) {
+        return http.Response(jsonEncode(<String, dynamic>{'added': 1}), 200);
+      }
       if (path == '/api/v1/users/u1/continue') {
         return http.Response(
           jsonEncode(<String, dynamic>{
             if (resuming) ..._inProgress(),
             if (upNext && !_watched.contains('m9')) ..._upNext(),
+            if (queued)
+              'queue_next': <String, dynamic>{
+                'id': 'q3',
+                'card': <String, dynamic>{
+                  'type': 'movie',
+                  'id': 'm7',
+                  'title': 'Echo',
+                },
+              },
           }),
           200,
         );
@@ -214,6 +241,43 @@ void main() {
     _watched.clear();
     _hubCalls = 0;
     _pushedRoute = null;
+  });
+
+  testWidgets('the queue\'s next title leads Up next and plays in queue mode', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, watchlist: false, upNext: true, queued: true);
+
+    final List<String> upNext = tester
+        .widgetList<CatalogCardTile>(find.byType(CatalogCardTile))
+        .take(2)
+        .map((CatalogCardTile t) => t.card.ref.id)
+        .toList();
+    expect(upNext, <String>['m7', 'm9']);
+
+    await tester.tap(find.text('Echo'));
+    await tester.pumpAndSettle();
+
+    expect(_pushedRoute, queuePlayRoute('q3'));
+  });
+
+  testWidgets('adding a title to a playlist leaves home as it is', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, watchlist: false, upNext: true);
+    expect(_hubCalls, 1);
+
+    await tester.tap(
+      find.byType(CatalogCardTile).first,
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.addToPlaylistEllipsis));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Weekend'));
+    await tester.pumpAndSettle();
+
+    expect(_hubCalls, 1, reason: 'home shows no playlist, so nothing to read');
   });
 
   testWidgets('marking an Up next title watched takes it off the rail', (
@@ -332,7 +396,7 @@ void main() {
   ) async {
     await _pump(tester, watchlist: true);
 
-    final List<String> rails = tester
+    final List<String?> rails = tester
         .widgetList<CardRail>(find.byType(CardRail))
         .map((CardRail r) => r.title)
         .toList();
@@ -388,7 +452,7 @@ void main() {
   ) async {
     await _pump(tester, watchlist: false);
 
-    final List<String> rails = tester
+    final List<String?> rails = tester
         .widgetList<CardRail>(find.byType(CardRail))
         .map((CardRail r) => r.title)
         .toList();
@@ -500,7 +564,7 @@ void main() {
       2,
       reason: 'home survives underneath a pushed route, so it must refetch',
     );
-    final List<String> rails = tester
+    final List<String?> rails = tester
         .widgetList<CardRail>(find.byType(CardRail))
         .map((CardRail r) => r.title)
         .toList();

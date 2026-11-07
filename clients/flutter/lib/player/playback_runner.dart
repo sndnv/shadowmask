@@ -27,7 +27,7 @@ import 'package:shadowmask/player/state/player_tracks.dart';
 import 'package:shadowmask/player/state/sent_change.dart';
 import 'package:shadowmask/player/watches/buffer_watch.dart';
 import 'package:shadowmask/player/watches/stall_watch.dart';
-import 'package:shadowmask/view/episode_neighbours.dart';
+import 'package:shadowmask/view/title_link.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/view/sound_settings.dart';
 
@@ -147,8 +147,8 @@ class PlaybackRunner {
 
   void describe({
     required String? name,
-    required EpisodeLink? previous,
-    required EpisodeLink? next,
+    required TitleLink? previous,
+    required TitleLink? next,
   }) => _post(
     (PlaybackState s) =>
         serverDescribesTitle(s, name: name, previous: previous, next: next),

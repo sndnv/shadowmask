@@ -27,7 +27,10 @@ function CardContentNode(card as object, serverUrl as string, imageWidth as inte
         dismissible: ValueAt(card, "dismissible", false) = true,
         plain: ValueAt(card, "plain", false) = true,
         badge: TextOrBlank(ValueAt(card, "badge", "")),
-        progressPercent: Int(ValueAt(card, "progressPercent", 0))
+        progressPercent: Int(ValueAt(card, "progressPercent", 0)),
+        queueEntryId: TextOrBlank(ValueAt(card, "queueEntryId", "")),
+        position: Int(ValueAt(card, "position", 0)),
+        itemCount: Int(ValueAt(card, "itemCount", 0))
     })
 
     node.title = TextOrBlank(ValueAt(card, "title", ""))
@@ -65,6 +68,9 @@ function CardTarget(content as dynamic) as object
         watched: content.watched,
         watchlisted: content.watchlisted,
         favorite: content.favorite,
-        progressPercent: content.progressPercent
+        progressPercent: content.progressPercent,
+        queueEntryId: content.queueEntryId,
+        position: content.position,
+        itemCount: content.itemCount
     }
 end function

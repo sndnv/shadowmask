@@ -22,7 +22,7 @@ import 'package:shadowmask/player/state/player_tracks.dart';
 import 'package:shadowmask/player/state/sent_change.dart';
 import 'package:shadowmask/player/watches/buffer_watch.dart';
 import 'package:shadowmask/player/watches/stall_watch.dart';
-import 'package:shadowmask/view/episode_neighbours.dart';
+import 'package:shadowmask/view/title_link.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/view/profile_version.dart';
 import 'package:shadowmask/view/sound_settings.dart';
@@ -1049,11 +1049,7 @@ void main() {
     WidgetTester tester,
   ) async {
     final Rig rig = Rig();
-    const EpisodeLink next = EpisodeLink(
-      id: 'e2',
-      seasonId: 'se1',
-      label: 'E2',
-    );
+    const TitleLink next = TitleLink(id: 'e2', seasonId: 'se1', label: 'E2');
     final VersionDetail fresh = kVersion.copyWith(container: 'mp4');
 
     rig.runner.describe(name: 'Pilot', previous: null, next: next);

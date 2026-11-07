@@ -55,12 +55,13 @@ rsvg-convert -w 1920 -h 1080 "$glyphs/hex-texture.svg" -o "$roku/hex-texture.png
 rsvg-convert -w 96 -h 96 "$glyphs/art-movie.svg"     -o "$roku/art-movie.png"
 rsvg-convert -w 96 -h 96 "$glyphs/art-landscape.svg" -o "$roku/art-landscape.png"
 rsvg-convert -w 96 -h 96 "$glyphs/art-person.svg"    -o "$roku/art-person.png"
+rsvg-convert -w 96 -h 96 "$glyphs/icon-playlists.svg" -o "$roku/art-playlist.png"
 
 for chevron in left right up down; do
     rsvg-convert -w 44 -h 44 "$glyphs/chevron-$chevron.svg" -o "$roku/chevron-$chevron.png"
 done
 
-for icon in check close play pause previous next subtitles audio video settings replay search bookmark bookmark-on heart heart-on shuffle trash sort filter library download home home-on movie movie-on tv collections collections-on person person-on versions; do
+for icon in check close play pause previous next subtitles audio video settings replay search bookmark bookmark-on heart heart-on shuffle trash sort filter library download home home-on movie movie-on tv collections collections-on person person-on versions playlists playlists-on playlist-add queue; do
     rsvg-convert -w 40 -h 40 "$glyphs/icon-$icon.svg" -o "$roku/icon-$icon.png"
 done
 

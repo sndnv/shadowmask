@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/catalog_api.dart';
+import 'package:shadowmask/api/playlist_api.dart';
 import 'package:shadowmask/components/admin/confirm_dialog.dart';
+import 'package:shadowmask/components/card_menu.dart';
+import 'package:shadowmask/components/playlist_dialogs.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/toggle_button.dart';
 import 'package:shadowmask/l10n/strings.dart';
@@ -185,6 +188,7 @@ class _LibraryTogglesState extends State<LibraryToggles> {
 
   @override
   Widget build(BuildContext context) {
+    final PlaylistApi? playlists = CardMenuHost.maybeOf(context)?.playlists;
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final bool compact =
@@ -238,6 +242,22 @@ class _LibraryTogglesState extends State<LibraryToggles> {
                     onToggle: _toggleFavorite,
                   ),
                 ],
+                if (playlists != null)
+                  ToggleButton(
+                    icon: Icons.playlist_add,
+                    filledIcon: Icons.playlist_add,
+                    label: Strings.playlistLabel,
+                    tooltip: Strings.addToPlaylist,
+                    pressed: false,
+                    highlight: false,
+                    compact: compact,
+                    onToggle: () => addToPlaylist(
+                      context,
+                      playlists: playlists,
+                      userId: widget.userId,
+                      title: widget.ref,
+                    ),
+                  ),
               ],
             ),
           ],

@@ -2,24 +2,13 @@ import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/episode.dart';
 import 'package:shadowmask/model/catalog/season.dart';
-
-class EpisodeLink {
-  const EpisodeLink({
-    required this.id,
-    required this.seasonId,
-    required this.label,
-  });
-
-  final String id;
-  final String seasonId;
-  final String label;
-}
+import 'package:shadowmask/view/title_link.dart';
 
 class EpisodeNeighbours {
   const EpisodeNeighbours({this.previous, this.next});
 
-  final EpisodeLink? previous;
-  final EpisodeLink? next;
+  final TitleLink? previous;
+  final TitleLink? next;
 }
 
 class SeasonLink {
@@ -89,7 +78,7 @@ List<String> seasonsToLoad(
   ];
 }
 
-EpisodeLink? _link(Episode episode, Season season) => EpisodeLink(
+TitleLink? _link(Episode episode, Season season) => TitleLink(
   id: episode.id,
   seasonId: episode.seasonId,
   label: Strings.episodeLine(season.number, episode.number, episode.title),
@@ -113,7 +102,7 @@ EpisodeNeighbours neighboursOf(
     return const EpisodeNeighbours();
   }
 
-  EpisodeLink? edge(int seasonStep, bool takeLast) {
+  TitleLink? edge(int seasonStep, bool takeLast) {
     final int neighbour = at + seasonStep;
     if (neighbour < 0 || neighbour >= ordered.length) {
       return null;

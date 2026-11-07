@@ -341,6 +341,81 @@ function HistoryClearRequest(base as string, token as string, userId as dynamic)
     return BuildRequest(base, UserPath(userId, "/history"), "DELETE", invalid, token)
 end function
 
+function PlaylistsPath(userId as dynamic) as string
+    return UserPath(userId, "/playlists")
+end function
+
+function PlaylistPath(userId as dynamic, playlistId as dynamic) as string
+    return PlaylistsPath(userId) + "/" + EscapeValue(playlistId)
+end function
+
+function PlaylistItemPath(userId as dynamic, playlistId as dynamic, titleId as dynamic) as string
+    return PlaylistPath(userId, playlistId) + "/items/" + EscapeValue(titleId)
+end function
+
+function PlaylistsRequest(base as string, token as string, userId as dynamic) as object
+    return BuildRequest(base, PlaylistsPath(userId), "GET", invalid, token)
+end function
+
+function PlaylistCreateRequest(base as string, token as string, userId as dynamic, name as dynamic) as object
+    return BuildRequest(base, PlaylistsPath(userId), "POST", { name: TextOrBlank(name) }, token)
+end function
+
+function PlaylistRequest(base as string, token as string, userId as dynamic, playlistId as dynamic) as object
+    return BuildRequest(base, PlaylistPath(userId, playlistId), "GET", invalid, token)
+end function
+
+function PlaylistRenameRequest(base as string, token as string, userId as dynamic, playlistId as dynamic, name as dynamic) as object
+    return BuildRequest(base, PlaylistPath(userId, playlistId), "PUT", { name: TextOrBlank(name) }, token)
+end function
+
+function PlaylistDeleteRequest(base as string, token as string, userId as dynamic, playlistId as dynamic) as object
+    return BuildRequest(base, PlaylistPath(userId, playlistId), "DELETE", invalid, token)
+end function
+
+function PlaylistAddRequest(base as string, token as string, userId as dynamic, playlistId as dynamic, kind as dynamic, titleId as dynamic) as object
+    body = { "type": TextOrBlank(kind), id: TextOrBlank(titleId) }
+    return BuildRequest(base, PlaylistPath(userId, playlistId) + "/items", "POST", body, token)
+end function
+
+function PlaylistRemoveRequest(base as string, token as string, userId as dynamic, playlistId as dynamic, titleId as dynamic) as object
+    return BuildRequest(base, PlaylistItemPath(userId, playlistId, titleId), "DELETE", invalid, token)
+end function
+
+function PlaylistMoveRequest(base as string, token as string, userId as dynamic, playlistId as dynamic, titleId as dynamic, position as integer) as object
+    return BuildRequest(base, PlaylistItemPath(userId, playlistId, titleId) + "/position", "PUT", { position: position }, token)
+end function
+
+function QueueRequest(base as string, token as string, userId as dynamic) as object
+    return BuildRequest(base, UserPath(userId, "/queue"), "GET", invalid, token)
+end function
+
+function QueueAddRequest(base as string, token as string, userId as dynamic, playlistId as dynamic, shuffle as boolean) as object
+    body = { playlist_id: TextOrBlank(playlistId), shuffle: shuffle }
+    return BuildRequest(base, UserPath(userId, "/queue"), "POST", body, token)
+end function
+
+function QueueClearRequest(base as string, token as string, userId as dynamic) as object
+    return BuildRequest(base, UserPath(userId, "/queue"), "DELETE", invalid, token)
+end function
+
+function CardVersionsRequest(base as string, token as string, card as dynamic) as object
+    id = ValueAt(card, "id", "")
+    if TextOrBlank(ValueAt(card, "kind", "")) <> "episode" then return MovieVersionsRequest(base, token, id)
+
+    seriesId = TextOrBlank(ValueAt(card, "seriesId", ""))
+    seasonId = TextOrBlank(ValueAt(card, "seasonId", ""))
+    if IsBlank(seriesId) or IsBlank(seasonId)
+        seriesId = AnyIdMark()
+        seasonId = AnyIdMark()
+    end if
+    return EpisodeVersionsRequest(base, token, seriesId, seasonId, id)
+end function
+
+function QueueRemoveRequest(base as string, token as string, userId as dynamic, entryId as dynamic) as object
+    return BuildRequest(base, UserPath(userId, "/queue/items/" + EscapeValue(entryId)), "DELETE", invalid, token)
+end function
+
 function TitleCardsRequest(base as string, token as string, refs as object) as object
     return BuildRequest(base, "/titles/batch", "POST", { titles: refs }, token)
 end function

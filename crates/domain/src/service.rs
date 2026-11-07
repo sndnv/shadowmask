@@ -11,7 +11,7 @@ use crate::common::{Page, PageRequest};
 use crate::discovery::{Audience, ContinueWatchingItem, Hub, SearchKind, SearchResult};
 use crate::error::{
     AuthError, CatalogError, DiscoveryError, JobServiceError, LibraryError, MaintenanceError,
-    SessionError, UserError,
+    PlaylistError, SessionError, UserError,
 };
 use crate::job::{Job, JobId, JobNode, JobPage, JobQuery, VersionJob};
 use crate::library::{
@@ -22,7 +22,8 @@ use crate::library::{
 use crate::media::SubtitleFileId;
 use crate::metadata::{ExternalId, Genre, Person, PersonId};
 use crate::playback::{
-    Favorite, PlaybackProgress, TitleState, WatchHistory, WatchTarget, WatchedRollup, WatchlistItem,
+    Favorite, PlaybackProgress, Playlist, PlaylistDetail, PlaylistId, PlaylistSummary, QueueCard,
+    QueueEntryId, TitleState, WatchHistory, WatchTarget, WatchedRollup, WatchlistItem,
 };
 use crate::session::{
     HeartbeatAck, NowPlaying, PlaybackSession, PlaybackState, Renegotiated, SessionId,
@@ -676,4 +677,71 @@ pub trait DiscoveryService {
         &self,
         audience: &Audience,
     ) -> impl Future<Output = Result<Vec<Hub>, DiscoveryError>> + Send;
+    fn queue_next(
+        &self,
+        audience: &Audience,
+    ) -> impl Future<Output = Result<Option<QueueCard>, DiscoveryError>> + Send;
+}
+
+pub trait PlaylistService {
+    fn playlists(
+        &self,
+        audience: &Audience,
+    ) -> impl Future<Output = Result<Vec<PlaylistSummary>, PlaylistError>> + Send;
+    fn create_playlist(
+        &self,
+        user: &UserId,
+        name: &str,
+    ) -> impl Future<Output = Result<Playlist, PlaylistError>> + Send;
+    fn playlist(
+        &self,
+        audience: &Audience,
+        id: &PlaylistId,
+    ) -> impl Future<Output = Result<PlaylistDetail, PlaylistError>> + Send;
+    fn rename_playlist(
+        &self,
+        user: &UserId,
+        id: &PlaylistId,
+        name: &str,
+    ) -> impl Future<Output = Result<Playlist, PlaylistError>> + Send;
+    fn delete_playlist(
+        &self,
+        user: &UserId,
+        id: &PlaylistId,
+    ) -> impl Future<Output = Result<(), PlaylistError>> + Send;
+    fn add_to_playlist(
+        &self,
+        audience: &Audience,
+        id: &PlaylistId,
+        target: &WatchTarget,
+    ) -> impl Future<Output = Result<usize, PlaylistError>> + Send;
+    fn remove_from_playlist(
+        &self,
+        user: &UserId,
+        id: &PlaylistId,
+        title_id: &str,
+    ) -> impl Future<Output = Result<(), PlaylistError>> + Send;
+    fn move_in_playlist(
+        &self,
+        audience: &Audience,
+        id: &PlaylistId,
+        title_id: &str,
+        position: u32,
+    ) -> impl Future<Output = Result<(), PlaylistError>> + Send;
+    fn queue(
+        &self,
+        audience: &Audience,
+    ) -> impl Future<Output = Result<Vec<QueueCard>, PlaylistError>> + Send;
+    fn queue_playlist(
+        &self,
+        user: &UserId,
+        id: &PlaylistId,
+        shuffle: bool,
+    ) -> impl Future<Output = Result<usize, PlaylistError>> + Send;
+    fn clear_queue(&self, user: &UserId) -> impl Future<Output = Result<(), PlaylistError>> + Send;
+    fn remove_from_queue(
+        &self,
+        user: &UserId,
+        entry: &QueueEntryId,
+    ) -> impl Future<Output = Result<(), PlaylistError>> + Send;
 }

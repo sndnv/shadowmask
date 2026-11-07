@@ -128,6 +128,12 @@ because each platform masks differently.
   the outline on every row, the filled `-on` form on the current section's. Material's TV and search
   are the same shape outlined and filled, so `icon-tv` and `icon-search` have no `-on` form. Authored
   here for the same licence reason as the rest.
+- `glyphs/icon-playlists{,-on}.svg` - the Roku nav menu's Playlists row, after Flutter's
+  `playlist_play`: three lines and a play mark, outlined, filled for the current section.
+  `icons/roku/art-playlist.png` is the same outline at 96px, the placeholder on a playlist card.
+- `glyphs/icon-playlist-add.svg` and `glyphs/icon-queue.svg` - Add to playlist and New playlist
+  (three lines and a plus, after Flutter's `playlist_add`), and Add to queue (a stack of two frames
+  with a play mark). Authored here for the same licence reason as the rest.
 - `glyphs/icon-{check,close,play,search,bookmark,bookmark-on,heart,heart-on}.svg` - the control
   icons behind the Roku action bar. The `-on` variants are the filled forms, matching the
   `icon` / `filledIcon` pair in `toggle_button.dart`: outline when the toggle is off, filled when it

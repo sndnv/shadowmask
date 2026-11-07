@@ -16,6 +16,7 @@ use domain::metadata::{
     ArtworkKind, ContentRating, Credit, CreditRole, CreditedPerson, ExternalId, Extra, ExtraKind,
     Genre, GenreId, Person, PersonId, Rating, Studio, StudioId, TitleEnrichment,
 };
+use domain::playback::{Playlist, PlaylistId};
 use domain::user::{DeviceId, IssuedToken, Role, UserId};
 
 pub const EPOCH: i64 = 1_700_000_000;
@@ -24,6 +25,22 @@ pub const LINK_CODE: &str = "7G2K9QMP";
 
 pub fn ts(offset: i64) -> Timestamp {
     Timestamp::from_second(EPOCH + offset).expect("valid fixture timestamp")
+}
+
+pub fn playlists() -> Vec<(Playlist, Vec<TitleId>)> {
+    let playlist = |id: &str, name: &str, at: i64| Playlist {
+        id: PlaylistId(id.into()),
+        name: name.into(),
+        created_at: ts(at),
+        updated_at: ts(at),
+    };
+    vec![
+        (
+            playlist("pl1", "Weekend", 50),
+            vec![TitleId::Movie(MovieId("m1".into())), TitleId::Episode(EpisodeId("e1".into()))],
+        ),
+        (playlist("pl2", "Empty", 51), Vec::new()),
+    ]
 }
 
 pub fn admin_job() -> Job {

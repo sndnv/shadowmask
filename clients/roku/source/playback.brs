@@ -245,6 +245,19 @@ function PreviousEpisodeBefore(items as dynamic, episodeId as dynamic) as dynami
     return episodes[at - 1]
 end function
 
+function QueueNextEntry(entries as dynamic, entryId as dynamic) as dynamic
+    if type(entries) <> "roArray" or entries.Count() = 0 then return invalid
+
+    id = TextOrBlank(entryId)
+    for index = 0 to entries.Count() - 1
+        if TextOrBlank(ValueAt(entries[index], "id", "")) = id
+            if index + 1 < entries.Count() then return entries[index + 1]
+            return invalid
+        end if
+    end for
+    return entries[0]
+end function
+
 function LastEpisodeOf(items as dynamic) as dynamic
     episodes = OrderedEpisodes(items)
     if episodes.Count() = 0 then return invalid
@@ -486,7 +499,7 @@ function HoldTickStepMs(ticks as integer) as integer
     return Int(HoldStepMs(HoldHeldSeconds(ticks)) * HoldTickMs() / 1000)
 end function
 
-function PlayerButtons(playing as boolean, finished as boolean, episode as boolean, hasPrevious as boolean, hasNext as boolean, busy = false as boolean) as object
+function PlayerButtons(playing as boolean, finished as boolean, episode as boolean, hasPrevious as boolean, hasNext as boolean, busy = false as boolean, queued = false as boolean) as object
     transport = { id: "play", icon: "icon-play", label: Phrase("player.play"), style: "glyph", disabled: busy }
     if playing
         transport.icon = "icon-pause"
@@ -503,7 +516,11 @@ function PlayerButtons(playing as boolean, finished as boolean, episode as boole
         { id: "subtitle", icon: "icon-subtitles", label: Phrase("heading.subtitles"), style: "glyph", disabled: busy }
     ]
 
-    if episode
+    if queued
+        transport.spaceBefore = true
+        buttons.Push(transport)
+        buttons.Push({ id: "next", icon: "icon-next", label: Phrase("player.nextInQueue"), style: "glyph", disabled: busy or not hasNext })
+    else if episode
         buttons.Push({ id: "previous", icon: "icon-previous", label: Phrase("player.previousEpisode"), style: "glyph", spaceBefore: true, disabled: busy or not hasPrevious })
         buttons.Push(transport)
         buttons.Push({ id: "next", icon: "icon-next", label: Phrase("player.nextEpisode"), style: "glyph", disabled: busy or not hasNext })

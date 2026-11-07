@@ -18,7 +18,7 @@ import 'package:shadowmask/player/state/playback_title.dart';
 import 'package:shadowmask/player/state/player_tracks.dart';
 import 'package:shadowmask/player/state/sent_change.dart';
 import 'package:shadowmask/view/sound_settings.dart';
-import 'package:shadowmask/view/episode_neighbours.dart';
+import 'package:shadowmask/view/title_link.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/view/subtitle_choice.dart';
 
@@ -40,13 +40,9 @@ const TrickplayRef kSheets = TrickplayRef(
   sheets: 2,
 );
 
-const EpisodeLink kPrevious = EpisodeLink(
-  id: 'e1',
-  seasonId: 'se1',
-  label: 'E1',
-);
+const TitleLink kPrevious = TitleLink(id: 'e1', seasonId: 'se1', label: 'E1');
 
-const EpisodeLink kNext = EpisodeLink(id: 'e3', seasonId: 'se1', label: 'E3');
+const TitleLink kNext = TitleLink(id: 'e3', seasonId: 'se1', label: 'E3');
 
 PlaybackRun _failedUpdate() {
   final PlaybackRun run = PlaybackRun.watching(session: kTranscode)

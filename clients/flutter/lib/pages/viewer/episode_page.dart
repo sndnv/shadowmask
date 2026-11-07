@@ -29,6 +29,7 @@ import 'package:shadowmask/components/title_heading.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/episode.dart';
 import 'package:shadowmask/view/episode_neighbours.dart';
+import 'package:shadowmask/view/title_link.dart';
 import 'package:shadowmask/model/common/quality.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/model/discovery/continue_feed.dart';
@@ -189,7 +190,7 @@ class _EpisodeBodyState extends State<_EpisodeBody>
     );
   }
 
-  VoidCallback? _goTo(EpisodeLink? link, String? seriesId) => link == null
+  VoidCallback? _goTo(TitleLink? link, String? seriesId) => link == null
       ? null
       : () => Navigator.of(context).pushReplacementNamed(
           episodeRoute(link.id, series: seriesId, season: link.seasonId),

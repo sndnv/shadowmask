@@ -27,6 +27,7 @@ class CatalogCard {
     this.stateKnown = false,
     this.progressPercent,
     this.dismissVersionId,
+    this.queueEntryId,
   });
 
   final TitleRef ref;
@@ -43,9 +44,28 @@ class CatalogCard {
   bool stateKnown;
   int? progressPercent;
   final String? dismissVersionId;
+  final String? queueEntryId;
 
   String get listName =>
       ref.type == TitleKind.episode ? subtitle ?? title : title;
+
+  CatalogCard queued(String entryId) => CatalogCard(
+    ref: ref,
+    route: queuePlayRoute(entryId),
+    title: title,
+    subtitle: subtitle,
+    caption: caption,
+    artwork: artwork,
+    aspect: aspect,
+    mosaic: mosaic,
+    watched: watched,
+    watchlisted: watchlisted,
+    favorite: favorite,
+    stateKnown: stateKnown,
+    progressPercent: progressPercent,
+    dismissVersionId: dismissVersionId,
+    queueEntryId: entryId,
+  );
 
   static CatalogCard fromMovie(Movie m) => CatalogCard(
     ref: TitleRef(type: TitleKind.movie, id: m.id),

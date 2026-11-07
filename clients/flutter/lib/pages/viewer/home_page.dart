@@ -110,7 +110,11 @@ class _HomeBodyState extends State<_HomeBody>
     then: () => setState(() => _unsaved.add(card.ref.key)),
   );
 
-  void _refreshAfterMenu(CatalogCard _, CardAction _) => unawaited(_refresh());
+  void _refreshAfterMenu(CatalogCard _, CardAction action) {
+    if (action != CardAction.playlist) {
+      unawaited(_refresh());
+    }
+  }
 
   Future<void> _refresh() async {
     final _HomeData data;

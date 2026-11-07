@@ -181,8 +181,11 @@ class _HistoryBlockState extends State<HistoryBlock>
                               : null,
                           dismissTooltip: Strings.removeFromHistory,
                           onDismiss: _remove,
-                          onMenuAction: (CatalogCard _, CardAction _) =>
-                              widget.onChanged(),
+                          onMenuAction: (CatalogCard _, CardAction action) {
+                            if (action != CardAction.playlist) {
+                              widget.onChanged();
+                            }
+                          },
                           dismissBusy: busy(c.ref.id),
                         ),
                     ],

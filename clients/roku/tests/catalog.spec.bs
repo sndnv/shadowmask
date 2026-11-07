@@ -465,6 +465,107 @@ namespace tests
             m.assertEqual(ParseJson(request.body).token, "eyJ.cmd")
         end sub
 
+        @describe("playlists")
+
+        @it("lists, creates and reads playlists under the user")
+        sub addressesPlaylists()
+            listed = PlaylistsRequest("http://host", "smk_a", "u1")
+            created = PlaylistCreateRequest("http://host", "smk_a", "u1", "Weekend")
+            read = PlaylistRequest("http://host", "smk_a", "u1", "pl1")
+
+            m.assertEqual(listed.url, "http://host/api/v1/users/u1/playlists")
+            m.assertEqual(listed.method, "GET")
+            m.assertEqual(created.url, "http://host/api/v1/users/u1/playlists")
+            m.assertEqual(created.method, "POST")
+            m.assertEqual(ParseJson(created.body).name, "Weekend")
+            m.assertEqual(read.url, "http://host/api/v1/users/u1/playlists/pl1")
+            m.assertEqual(read.method, "GET")
+            m.assertEqual(read.headers["Authorization"], "Bearer smk_a")
+        end sub
+
+        @it("renames with a PUT of the name and deletes with no body")
+        sub renamesAndDeletes()
+            renamed = PlaylistRenameRequest("http://host", "smk_a", "u1", "pl1", "Late night")
+            deleted = PlaylistDeleteRequest("http://host", "smk_a", "u1", "pl1")
+
+            m.assertEqual(renamed.url, "http://host/api/v1/users/u1/playlists/pl1")
+            m.assertEqual(renamed.method, "PUT")
+            m.assertEqual(ParseJson(renamed.body).name, "Late night")
+            m.assertEqual(deleted.url, "http://host/api/v1/users/u1/playlists/pl1")
+            m.assertEqual(deleted.method, "DELETE")
+            m.assertEqual(deleted.body, "")
+        end sub
+
+        @it("adds a title by type and id, removes it by id and moves it to a stored position")
+        sub editsPlaylistItems()
+            added = PlaylistAddRequest("http://host", "smk_a", "u1", "pl1", "season", "se1")
+            removed = PlaylistRemoveRequest("http://host", "smk_a", "u1", "pl1", "m1")
+            moved = PlaylistMoveRequest("http://host", "smk_a", "u1", "pl1", "m1", 3)
+
+            m.assertEqual(added.url, "http://host/api/v1/users/u1/playlists/pl1/items")
+            m.assertEqual(added.method, "POST")
+            m.assertEqual(ParseJson(added.body)["type"], "season")
+            m.assertEqual(ParseJson(added.body).id, "se1")
+            m.assertEqual(removed.url, "http://host/api/v1/users/u1/playlists/pl1/items/m1")
+            m.assertEqual(removed.method, "DELETE")
+            m.assertEqual(moved.url, "http://host/api/v1/users/u1/playlists/pl1/items/m1/position")
+            m.assertEqual(moved.method, "PUT")
+            m.assertEqual(ParseJson(moved.body).position, 3)
+        end sub
+
+        @it("escapes the playlist and title ids into the path")
+        sub escapesPlaylistIds()
+            request = PlaylistMoveRequest("http://host", "smk_a", "u1", "a/b", "c d", 0)
+
+            m.assertEqual(request.url, "http://host/api/v1/users/u1/playlists/a%2Fb/items/c%20d/position")
+            m.assertEqual(ParseJson(request.body).position, 0)
+        end sub
+
+        @describe("the queue")
+
+        @it("reads the queue and clears it off one path")
+        sub readsAndClearsQueue()
+            read = QueueRequest("http://host", "smk_a", "u1")
+            cleared = QueueClearRequest("http://host", "smk_a", "u1")
+
+            m.assertEqual(read.url, "http://host/api/v1/users/u1/queue")
+            m.assertEqual(read.method, "GET")
+            m.assertEqual(cleared.url, "http://host/api/v1/users/u1/queue")
+            m.assertEqual(cleared.method, "DELETE")
+            m.assertEqual(cleared.body, "")
+        end sub
+
+        @it("appends a playlist in order or shuffled")
+        sub appendsPlaylist()
+            ordered = QueueAddRequest("http://host", "smk_a", "u1", "pl1", false)
+            shuffled = QueueAddRequest("http://host", "smk_a", "u1", "pl1", true)
+
+            m.assertEqual(ordered.url, "http://host/api/v1/users/u1/queue")
+            m.assertEqual(ordered.method, "POST")
+            m.assertEqual(ParseJson(ordered.body).playlist_id, "pl1")
+            m.assertFalse(ParseJson(ordered.body).shuffle)
+            m.assertTrue(ParseJson(shuffled.body).shuffle)
+        end sub
+
+        @it("asks a card's movie versions by its id and an episode's under its series and season, or any when the card lacks them")
+        sub asksCardVersions()
+            movie = CardVersionsRequest("http://host", "smk_a", { kind: "movie", id: "m1" })
+            episode = CardVersionsRequest("http://host", "smk_a", { kind: "episode", id: "e1", seriesId: "sr1", seasonId: "se1" })
+            bare = CardVersionsRequest("http://host", "smk_a", { kind: "episode", id: "e1" })
+
+            m.assertEqual(movie.url, MovieVersionsRequest("http://host", "smk_a", "m1").url)
+            m.assertEqual(episode.url, EpisodeVersionsRequest("http://host", "smk_a", "sr1", "se1", "e1").url)
+            m.assertEqual(bare.url, EpisodeVersionsRequest("http://host", "smk_a", AnyIdMark(), AnyIdMark(), "e1").url)
+        end sub
+
+        @it("removes one entry by its own id, not the title's")
+        sub removesQueueEntry()
+            request = QueueRemoveRequest("http://host", "smk_a", "u1", "17")
+
+            m.assertEqual(request.url, "http://host/api/v1/users/u1/queue/items/17")
+            m.assertEqual(request.method, "DELETE")
+        end sub
+
     end class
 
 end namespace

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -5,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
+import 'package:shadowmask/api/playlist_api.dart';
 import 'package:shadowmask/components/card_menu.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
@@ -436,7 +439,293 @@ void main() {
 
     expect(seen, hasLength(1));
   });
+
+  test('every title a playlist can hold is offered Add to playlist', () {
+    for (final TitleKind kind in TitleKind.values) {
+      final List<String> labels = _labels(
+        cardMenuActions(_state(kind), dismissible: false, playlists: true),
+      );
+      expect(
+        labels.contains(Strings.addToPlaylistEllipsis),
+        kind.isWatchTarget,
+        reason: kind.wire,
+      );
+    }
+    expect(
+      _labels(cardMenuActions(_state(TitleKind.movie), dismissible: false)),
+      isNot(contains(Strings.addToPlaylistEllipsis)),
+      reason: 'a page with no playlist service offers nothing to add to',
+    );
+  });
+
+  testWidgets('a picked playlist takes the title and says so', (
+    WidgetTester tester,
+  ) async {
+    final List<String> seen = <String>[];
+    await _open(
+      tester,
+      _card(stateKnown: true, kind: TitleKind.season),
+      seen,
+      playlists: _playlists(seen, added: 4),
+    );
+
+    await tester.tap(find.text(Strings.addToPlaylistEllipsis));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Weekend'));
+    await tester.pumpAndSettle();
+
+    expect(
+      seen.last,
+      'POST /api/v1/users/u1/playlists/pl1/items {"type":"season","id":"m1"}',
+    );
+    expect(
+      find.text(Strings.toastAddedToPlaylist(4, 'Weekend')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a title already in the playlist is reported, not added twice', (
+    WidgetTester tester,
+  ) async {
+    final List<String> seen = <String>[];
+    await _open(
+      tester,
+      _card(stateKnown: true),
+      seen,
+      playlists: _playlists(seen, added: 0),
+    );
+
+    await tester.tap(find.text(Strings.addToPlaylistEllipsis));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Weekend'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(Strings.toastAlreadyInPlaylist('Weekend')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a new playlist is made and takes the title', (
+    WidgetTester tester,
+  ) async {
+    final List<String> seen = <String>[];
+    await _open(
+      tester,
+      _card(stateKnown: true),
+      seen,
+      playlists: _playlists(seen, added: 1),
+    );
+
+    await tester.tap(find.text(Strings.addToPlaylistEllipsis));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.newPlaylistEllipsis));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Late');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, Strings.create));
+    await tester.pumpAndSettle();
+
+    expect(seen.skip(1), <String>[
+      'POST /api/v1/users/u1/playlists {"name":"Late"}',
+      'POST /api/v1/users/u1/playlists/pl9/items {"type":"movie","id":"m1"}',
+    ]);
+    expect(find.text(Strings.toastAddedToPlaylist(1, 'Late')), findsOneWidget);
+  });
+
+  test('only a queue card is offered its removal from the queue', () {
+    expect(
+      _labels(
+        cardMenuActions(
+          _state(TitleKind.movie),
+          dismissible: false,
+          playlists: true,
+          queued: true,
+        ),
+      ),
+      contains(Strings.removeFromQueue),
+    );
+    expect(
+      _labels(
+        cardMenuActions(
+          _state(TitleKind.movie),
+          dismissible: false,
+          playlists: true,
+        ),
+      ),
+      isNot(contains(Strings.removeFromQueue)),
+    );
+  });
+
+  testWidgets('a queue card drops its entry and leaves the watched state', (
+    WidgetTester tester,
+  ) async {
+    final List<String> seen = <String>[];
+    final List<CardAction> changed = <CardAction>[];
+    final CatalogCard card =
+        CatalogCard.fromJson(<String, dynamic>{
+            'type': 'movie',
+            'id': 'm1',
+            'title': 'Alpha',
+          }).queued('7')
+          ..stateKnown = true
+          ..watched = true;
+    await _open(
+      tester,
+      card,
+      seen,
+      playlists: _playlists(seen, added: 0),
+      onChanged: changed.add,
+    );
+
+    expect(find.text(Strings.markUnwatched), findsOneWidget);
+    await tester.tap(find.text(Strings.removeFromQueue));
+    await tester.pumpAndSettle();
+
+    expect(seen, <String>['DELETE /api/v1/users/u1/queue/items/7']);
+    expect(changed, <CardAction>[CardAction.dequeue]);
+    expect(find.text(Strings.toastRemovedFromQueue('Alpha')), findsOneWidget);
+  });
+
+  testWidgets('a refused removal from the queue says so', (
+    WidgetTester tester,
+  ) async {
+    final CatalogCard card = CatalogCard.fromJson(<String, dynamic>{
+      'type': 'movie',
+      'id': 'm1',
+      'title': 'Alpha',
+    }).queued('7')..stateKnown = true;
+    await _open(
+      tester,
+      card,
+      <String>[],
+      playlists: _playlists(<String>[], added: 0, writeFails: true),
+    );
+
+    await tester.tap(find.text(Strings.removeFromQueue));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining(Strings.errorRemove), findsOneWidget);
+  });
+
+  testWidgets('an add reports the change, and so does a playlist made in the '
+      'picker even when the add then fails', (WidgetTester tester) async {
+    for (final bool addFails in <bool>[false, true]) {
+      final List<CardAction> changed = <CardAction>[];
+      await _open(
+        tester,
+        _card(stateKnown: true),
+        <String>[],
+        playlists: _playlists(<String>[], added: 1, addFails: addFails),
+        onChanged: changed.add,
+      );
+
+      await tester.tap(find.text(Strings.addToPlaylistEllipsis));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(Strings.newPlaylistEllipsis));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Late');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, Strings.create));
+      await tester.pumpAndSettle();
+
+      expect(changed, <CardAction>[CardAction.playlist], reason: '$addFails');
+    }
+  });
+
+  testWidgets('a picker that cannot read the playlists says so', (
+    WidgetTester tester,
+  ) async {
+    await _open(
+      tester,
+      _card(stateKnown: true),
+      <String>[],
+      playlists: _playlists(<String>[], added: 0, readFails: true),
+    );
+
+    await tester.tap(find.text(Strings.addToPlaylistEllipsis));
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.couldNotLoadPlaylists), findsOneWidget);
+  });
+
+  testWidgets('a refused add or a refused new playlist says so', (
+    WidgetTester tester,
+  ) async {
+    await _open(
+      tester,
+      _card(stateKnown: true),
+      <String>[],
+      playlists: _playlists(<String>[], added: 0, writeFails: true),
+    );
+
+    await tester.tap(find.text(Strings.addToPlaylistEllipsis));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.newPlaylistEllipsis));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Late');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, Strings.create));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining(Strings.errorAction), findsOneWidget);
+    expect(find.text('Weekend'), findsOneWidget, reason: 'the picker stays');
+
+    await tester.tap(find.text('Weekend'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining(Strings.errorAction), findsWidgets);
+    expect(find.text('Weekend'), findsNothing);
+  });
 }
+
+PlaylistApi _playlists(
+  List<String> seen, {
+  required int added,
+  bool readFails = false,
+  bool writeFails = false,
+  bool addFails = false,
+}) => PlaylistApi(
+  ApiClient(
+    baseUrl: 'http://test',
+    httpClient: MockClient((http.Request req) async {
+      seen.add(
+        '${req.method} ${req.url.path}${req.body.isEmpty ? '' : ' ${req.body}'}',
+      );
+      if (req.method == 'GET' && readFails ||
+          req.method != 'GET' && writeFails ||
+          addFails && req.url.path.endsWith('/items')) {
+        return http.Response('{"message":"prefs.db is busy"}', 500);
+      }
+      if (req.method == 'GET') {
+        return http.Response(
+          jsonEncode(<dynamic>[
+            <String, dynamic>{
+              'id': 'pl1',
+              'name': 'Weekend',
+              'item_count': 2,
+              'created_at': '2026-11-06T10:00:00Z',
+              'updated_at': '2026-11-06T10:00:00Z',
+            },
+          ]),
+          200,
+        );
+      }
+      if (req.url.path.endsWith('/playlists')) {
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'id': 'pl9',
+            'name': 'Late',
+            'created_at': '2026-11-06T10:00:00Z',
+            'updated_at': '2026-11-06T10:00:00Z',
+          }),
+          201,
+        );
+      }
+      return http.Response(jsonEncode(<String, dynamic>{'added': added}), 200);
+    }),
+  ),
+);
 
 CatalogCard _card({
   bool watchlisted = false,
@@ -456,6 +745,8 @@ Future<void> _open(
   List<String> seen, {
   bool settle = true,
   VoidCallback? onDismiss,
+  PlaylistApi? playlists,
+  void Function(CardAction action)? onChanged,
 }) async {
   final CatalogApi catalog = CatalogApi(
     ApiClient(
@@ -469,20 +760,22 @@ Future<void> _open(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildTheme(AppThemeVariant.dark),
+      builder: (BuildContext context, Widget? child) =>
+          ToastHost(child: child!),
       home: Scaffold(
-        body: ToastHost(
-          child: Builder(
-            builder: (BuildContext context) => TextButton(
-              onPressed: () => showCardMenu(
-                context,
-                catalog: catalog,
-                userId: 'u1',
-                card: card,
-                at: Offset.zero,
-                onDismiss: onDismiss,
-              ),
-              child: const Text('open'),
+        body: Builder(
+          builder: (BuildContext context) => TextButton(
+            onPressed: () => showCardMenu(
+              context,
+              catalog: catalog,
+              userId: 'u1',
+              card: card,
+              at: Offset.zero,
+              onDismiss: onDismiss,
+              playlists: playlists,
+              onChanged: onChanged,
             ),
+            child: const Text('open'),
           ),
         ),
       ),

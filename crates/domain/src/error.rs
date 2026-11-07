@@ -198,6 +198,18 @@ pub enum DiscoveryError {
 }
 
 #[derive(Debug, Error)]
+pub enum PlaylistError {
+    #[error("playlist not found")]
+    NotFound,
+    #[error("title not found")]
+    TitleNotFound,
+    #[error("playlist name must not be empty")]
+    EmptyName,
+    #[error(transparent)]
+    Repository(#[from] RepositoryError),
+}
+
+#[derive(Debug, Error)]
 pub enum ProbeError {
     #[error("ffprobe failed: {0}")]
     Backend(String),

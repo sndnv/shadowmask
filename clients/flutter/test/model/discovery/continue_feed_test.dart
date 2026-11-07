@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/model/discovery/continue_feed.dart';
+import 'package:shadowmask/nav/routes.dart';
 import 'package:shadowmask/view/catalog_card.dart';
 
 Map<String, dynamic> _card(String title) => <String, dynamic>{
@@ -69,5 +70,43 @@ void main() {
 
     expect(feed.continueWatching, isEmpty);
     expect(feed.isEmpty, isTrue);
+  });
+
+  test('the queue\'s next title leads Up next and plays in queue mode', () {
+    final ContinueFeed feed = ContinueFeed.fromJson(<String, dynamic>{
+      'next_episodes': <dynamic>[
+        <String, dynamic>{
+          'id': 'e2',
+          'season_id': 'se1',
+          'number': 2,
+          'title': 'Second',
+        },
+      ],
+      'queue_next': <String, dynamic>{
+        'id': 'q7',
+        'card': <String, dynamic>{
+          'type': 'movie',
+          'id': 'm5',
+          'title': 'Fifth',
+        },
+      },
+    });
+
+    expect(feed.queueNext?.id, 'q7');
+    expect(feed.upNext.map((CatalogCard c) => c.ref.id), <String>['m5', 'e2']);
+    expect(feed.upNext.first.route, queuePlayRoute('q7'));
+    expect(feed.upNext.last.route, startsWith('/episode'));
+  });
+
+  test('without a queue Up next is the series and movies alone', () {
+    final ContinueFeed feed = ContinueFeed.fromJson(<String, dynamic>{
+      'queue_next': null,
+      'next_movies': <dynamic>[
+        <String, dynamic>{'id': 'm2', 'title': 'Two'},
+      ],
+    });
+
+    expect(feed.queueNext, isNull);
+    expect(feed.upNext.map((CatalogCard c) => c.ref.id), <String>['m2']);
   });
 }

@@ -4,15 +4,15 @@ use serde::Deserialize;
 use tracing::debug;
 
 use domain::common::PageRequest;
-use domain::discovery::{Audience, SearchKind};
+use domain::discovery::SearchKind;
 use domain::session::PlaybackSession;
-use domain::user::{Principal, UserId};
+use domain::user::UserId;
 use services::discovery::{drop_resumable, drop_unstarted};
 
 use crate::dto::discovery::{ContinueResponse, HubResponse, SearchResultResponse};
 use crate::error::{ApiError, ApiResult};
 use crate::extract::AuthUser;
-use crate::handlers::{log_fail, require_admin_or_self};
+use crate::handlers::{audience, log_fail, require_admin_or_self};
 use crate::pagination::PageResponse;
 use domain::service::{DiscoveryService, SessionService};
 
@@ -20,10 +20,6 @@ use crate::state::AppServices;
 
 const DEFAULT_LIMIT: u32 = 50;
 const MAX_LIMIT: u32 = 200;
-
-fn audience(principal: &Principal, user: &UserId) -> Audience {
-    Audience { user: user.clone(), age_limit: principal.age_limit }
-}
 
 #[derive(Debug, Deserialize)]
 pub struct SearchParams {
@@ -99,6 +95,11 @@ pub async fn continue_watching<S: AppServices>(
         .next_movies(&viewing)
         .await
         .map_err(log_fail(actor, "retrieve continue data"))?;
+    let queue_next = state
+        .discovery()
+        .queue_next(&viewing)
+        .await
+        .map_err(log_fail(actor, "retrieve continue data"))?;
 
     debug!("User [{actor}] retrieved continue data for user [{}]", target.0);
     Ok(Json(ContinueResponse {
@@ -106,6 +107,7 @@ pub async fn continue_watching<S: AppServices>(
         in_progress: in_progress.into_iter().map(Into::into).collect(),
         next_episodes: next_episodes.into_iter().map(Into::into).collect(),
         next_movies: next_movies.into_iter().map(Into::into).collect(),
+        queue_next: queue_next.map(Into::into),
     }))
 }
 

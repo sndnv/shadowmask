@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Playlists, current">
+    <path d="M6 11 H36 M6 20 H36 M6 29 H20" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+    <path d="M25 26 V44 L42 35 Z" fill="#ffffff" stroke="#ffffff" stroke-width="2" stroke-linejoin="round"/>
+</svg>

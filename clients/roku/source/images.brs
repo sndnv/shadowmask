@@ -25,6 +25,10 @@ function PersonPlaceholder() as string
     return "pkg:/images/art-person.png"
 end function
 
+function PlaylistPlaceholder() as string
+    return "pkg:/images/art-playlist.png"
+end function
+
 function PlaceholderGlyphSize() as integer
     return Px(96)
 end function
@@ -85,6 +89,7 @@ end function
 
 function PlaceholderFor(kind as string, aspect as string) as string
     if kind = "person" then return PersonPlaceholder()
+    if kind = "playlist" then return PlaylistPlaceholder()
     if aspect = LandscapeAspect() then return LandscapePlaceholder()
     return PosterPlaceholder()
 end function

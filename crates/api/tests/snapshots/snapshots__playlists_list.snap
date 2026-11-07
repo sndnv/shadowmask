@@ -1,0 +1,23 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": [
+    {
+      "created_at": "2023-11-14T22:14:11Z",
+      "id": "pl2",
+      "item_count": 0,
+      "name": "Empty",
+      "updated_at": "2023-11-14T22:14:11Z"
+    },
+    {
+      "created_at": "2023-11-14T22:14:10Z",
+      "id": "pl1",
+      "item_count": 2,
+      "name": "Weekend",
+      "updated_at": "2023-11-14T22:14:10Z"
+    }
+  ],
+  "status": 200
+}

@@ -12,6 +12,7 @@ namespace tests
                 MoviesScreen: ["icon-movie", "icon-movie-on"],
                 SeriesScreen: ["icon-tv", "icon-tv"],
                 CollectionsScreen: ["icon-collections", "icon-collections-on"],
+                PlaylistsScreen: ["icon-playlists", "icon-playlists-on"],
                 SearchScreen: ["icon-search", "icon-search"],
                 AccountScreen: ["icon-person", "icon-person-on"]
             }
@@ -39,6 +40,7 @@ namespace tests
             m.assertFalse(NavStays("SeasonScreen", "SeriesScreen"), "picking Series on a season page stays there")
             m.assertFalse(NavStays("TitleScreen", "MoviesScreen"), "picking Movies on a movie's page stays there")
             m.assertFalse(NavStays("CollectionScreen", "CollectionsScreen"), "picking Collections on a collection stays there")
+            m.assertFalse(NavStays("PlaylistScreen", "PlaylistsScreen"), "picking Playlists on a playlist stays there")
             m.assertFalse(NavStays("", "HomeScreen"), "an empty stack stays")
         end sub
 
@@ -135,12 +137,13 @@ namespace tests
             m.assertEqual(CardPlaceholderUri({ kind: "movie", aspect: PosterAspect() }), PosterPlaceholder())
             m.assertEqual(CardPlaceholderUri({ kind: "episode", aspect: LandscapeAspect() }), LandscapePlaceholder())
             m.assertEqual(CardPlaceholderUri({ kind: "person", aspect: PosterAspect() }), PersonPlaceholder())
+            m.assertEqual(CardPlaceholderUri({ kind: "playlist", aspect: PosterAspect() }), PlaylistPlaceholder())
             m.assertEqual(CardPlaceholderUri(invalid), PosterPlaceholder())
         end sub
 
         @it("keeps the glyphs on pkg:, which needs no server and no token")
         sub placeholdersAreLocal()
-            for each uri in [PosterPlaceholder(), LandscapePlaceholder(), PersonPlaceholder()]
+            for each uri in [PosterPlaceholder(), LandscapePlaceholder(), PersonPlaceholder(), PlaylistPlaceholder()]
                 m.assertEqual(Left(uri, 5), "pkg:/", uri)
             end for
         end sub

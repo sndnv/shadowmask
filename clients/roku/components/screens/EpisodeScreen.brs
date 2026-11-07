@@ -153,6 +153,7 @@ sub BuildActions()
     if m.available.Count() > 1 then buttons.Push(VersionsButton())
 
     buttons.Push({ id: "watched", label: Phrase("action.watchedLabel"), icon: "icon-check", iconOn: "icon-check", pressed: m.watched, collapsible: true })
+    buttons.Push(PlaylistButton())
 
     m.actions.theme = m.top.theme
     m.actions.barWidth = CanvasWidth() - ContentLeft() - SpacingScale().s6
@@ -371,6 +372,9 @@ sub onAction(event as object)
         AskForVersion()
     else if id = "watched"
         ToggleWatched()
+    else if id = "playlist"
+        card = EpisodeMenuCard()
+        if card <> invalid then AskPlaylistFor(card)
     else if id = "previous"
         OpenEpisode(m.neighbours.previous)
     else if id = "following"

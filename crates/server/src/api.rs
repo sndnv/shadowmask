@@ -7,8 +7,8 @@ use axum::Router;
 use axum::middleware::from_fn;
 
 use ::api::{
-    AppState, Capability, ImageState, ServerCapabilities, StreamState, TrickplayState,
-    WebhookClient,
+    AppState, Capability, ImageState, PlaylistState, ServerCapabilities, StreamState,
+    TrickplayState, WebhookClient,
 };
 use domain::error::{ProfileError, RepositoryError};
 use domain::job::JobKind;
@@ -33,6 +33,7 @@ use services::catalog::CatalogServiceImpl;
 use services::discovery::DiscoveryServiceImpl;
 use services::job::JobServiceImpl;
 use services::library::LibraryServiceImpl;
+use services::playlist::PlaylistServiceImpl;
 use services::session::DefaultSessionService;
 use services::user::UserServiceImpl;
 use services::user_library::UserLibraryServiceImpl;
@@ -68,6 +69,8 @@ pub type DiscoverySvc = DiscoveryServiceImpl<
     SqliteUserRepo,
 >;
 pub type JobSvc = JobServiceImpl<SqliteJobRepo, SqliteLibraryRepo>;
+pub type PlaylistSvc =
+    PlaylistServiceImpl<SqlitePreferencesRepo, SqliteCatalogRepo, SqliteUserRepo>;
 
 pub type DefaultState = AppState<
     AuthSvc,
@@ -80,6 +83,7 @@ pub type DefaultState = AppState<
     JobSvc,
 >;
 pub type DefaultStreamState = StreamState<HmacStreamTokens, HlsStreamSource>;
+pub type DefaultPlaylistState = PlaylistState<PlaylistSvc>;
 
 pub struct WireConfig {
     pub jwt_secret: Vec<u8>,
@@ -177,6 +181,7 @@ pub struct Built {
     pub artwork_store: FsArtworkStore,
     pub images: ImageState,
     pub trickplay: TrickplayState,
+    pub playlists: DefaultPlaylistState,
 }
 
 pub fn build_state(
@@ -255,17 +260,25 @@ pub fn build_state(
         repos.users.clone(),
     );
 
+    let playlists = PlaylistState::new(PlaylistServiceImpl::new(
+        repos.preferences.clone(),
+        repos.catalog.clone(),
+        repos.users.clone(),
+    ));
+
     let state =
         AppState::new(auth, catalog, session.clone(), library, user, user_library, discovery, job);
     let stream = StreamState::new(HmacStreamTokens::new(&cfg.stream_secret), hls);
-    Ok(Built { state, stream, session, artwork_store, images, trickplay })
+    Ok(Built { state, stream, session, artwork_store, images, trickplay, playlists })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn app(
     state: DefaultState,
     stream: DefaultStreamState,
     images: ImageState,
     trickplay: TrickplayState,
+    playlists: DefaultPlaylistState,
     webhook_clients: Vec<WebhookClient>,
     capabilities: Vec<Capability>,
     request_timeout: Duration,
@@ -274,6 +287,7 @@ pub fn app(
         .merge(::api::stream_router(stream))
         .merge(::api::image_router(images))
         .merge(::api::webhook_router(state.clone(), webhook_clients))
+        .merge(::api::playlist_router(state.clone(), playlists))
         .merge(::api::trickplay_router(state, trickplay));
     tracked(routes, request_timeout).layer(Extension(ServerCapabilities(capabilities)))
 }

@@ -6,7 +6,7 @@ use axum::http::{Method, Request, StatusCode, header};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use api::{AppState, bounded, router};
+use api::{AppState, PlaylistState, bounded, playlist_router, router};
 use contracts::{Generator, requests};
 use domain::user::{Role, UserId};
 
@@ -21,7 +21,8 @@ fn build_app(generator: &Generator) -> Router {
         generator.discovery.clone(),
         generator.job.clone(),
     );
-    bounded(router(state), Duration::from_secs(60))
+    let playlists = PlaylistState::new(generator.playlist.clone());
+    bounded(router(state.clone()).merge(playlist_router(state, playlists)), Duration::from_secs(60))
 }
 
 fn method(name: &str) -> Method {
@@ -110,6 +111,7 @@ fn snapshot(name: &str, status: StatusCode, body: Value) {
     if matches!(
         name,
         "movies_create_collection"
+            | "playlists_create"
             | "libraries_create"
             | "users_create"
             | "user_detail"
@@ -193,6 +195,36 @@ async fn endpoint_error_snapshots() {
         call(build_app(&generator), Method::GET, "/api/v1/versions/ghost", Some("access:u1"), None)
             .await;
     snapshot("err_version_not_found", status, body);
+
+    let (status, body) = call(
+        build_app(&generator),
+        Method::GET,
+        "/api/v1/users/u1/playlists/ghost",
+        Some("access:u1"),
+        None,
+    )
+    .await;
+    snapshot("err_playlist_not_found", status, body);
+
+    let (status, body) = call(
+        build_app(&generator),
+        Method::POST,
+        "/api/v1/users/u1/playlists",
+        Some("access:u1"),
+        Some(json!({"name": "   "})),
+    )
+    .await;
+    snapshot("err_playlist_empty_name", status, body);
+
+    let (status, body) = call(
+        build_app(&generator),
+        Method::POST,
+        "/api/v1/users/u1/playlists/pl1/items",
+        Some("access:u1"),
+        Some(json!({"type": "movie", "id": "ghost"})),
+    )
+    .await;
+    snapshot("err_playlist_title_not_found", status, body);
 
     let (status, body) = call(
         build_app(&generator),

@@ -3,6 +3,7 @@ enum NavSection {
   movies,
   series,
   collections,
+  playlists,
   search,
   account,
   admin,

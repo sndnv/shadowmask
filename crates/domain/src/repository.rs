@@ -24,7 +24,8 @@ use crate::media::{
 };
 use crate::metadata::{ContentRating, Credit, Genre, Person, PersonId, TitleEnrichment};
 use crate::playback::{
-    Favorite, PlaybackProgress, SubtitleTrackRef, UserSubtitleOffset, WatchHistory, WatchlistItem,
+    Favorite, PlaybackProgress, Playlist, PlaylistId, PlaylistItem, QueueEntry, QueueEntryId,
+    SubtitleTrackRef, UserSubtitleOffset, WatchHistory, WatchlistItem,
 };
 use crate::session::{PlaybackSession, SessionId};
 use crate::user::{
@@ -587,6 +588,76 @@ pub trait PreferencesRepository {
     fn set_subtitle_offset(
         &self,
         offset: UserSubtitleOffset,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn list_playlists(
+        &self,
+        user: &UserId,
+    ) -> impl Future<Output = Result<Vec<Playlist>, RepositoryError>> + Send;
+    fn get_playlist(
+        &self,
+        user: &UserId,
+        id: &PlaylistId,
+    ) -> impl Future<Output = Result<Option<Playlist>, RepositoryError>> + Send;
+    fn save_playlist(
+        &self,
+        user: &UserId,
+        playlist: Playlist,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn delete_playlist(
+        &self,
+        user: &UserId,
+        id: &PlaylistId,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+    fn list_playlist_items(
+        &self,
+        user: &UserId,
+        id: &PlaylistId,
+    ) -> impl Future<Output = Result<Vec<PlaylistItem>, RepositoryError>> + Send;
+    fn add_playlist_items(
+        &self,
+        user: &UserId,
+        id: &PlaylistId,
+        titles: &[TitleId],
+        at: Timestamp,
+    ) -> impl Future<Output = Result<Option<usize>, RepositoryError>> + Send;
+    fn remove_playlist_item(
+        &self,
+        user: &UserId,
+        id: &PlaylistId,
+        title_id: &str,
+        at: Timestamp,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn move_playlist_item(
+        &self,
+        user: &UserId,
+        id: &PlaylistId,
+        title_id: &str,
+        position: u32,
+        at: Timestamp,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+    fn list_queue(
+        &self,
+        user: &UserId,
+    ) -> impl Future<Output = Result<Vec<QueueEntry>, RepositoryError>> + Send;
+    fn queue_playlist(
+        &self,
+        user: &UserId,
+        id: &PlaylistId,
+        shuffle: bool,
+    ) -> impl Future<Output = Result<usize, RepositoryError>> + Send;
+    fn clear_queue(
+        &self,
+        user: &UserId,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn remove_queue_entry(
+        &self,
+        user: &UserId,
+        id: &QueueEntryId,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn remove_first_queued(
+        &self,
+        user: &UserId,
+        title: &TitleId,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }
 

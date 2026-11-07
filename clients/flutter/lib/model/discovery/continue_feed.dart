@@ -2,12 +2,18 @@ import 'package:shadowmask/view/catalog_card.dart';
 import 'package:shadowmask/model/catalog/episode.dart';
 import 'package:shadowmask/model/catalog/movie.dart';
 import 'package:shadowmask/model/common/resume_card.dart';
+import 'package:shadowmask/model/playlist/queue_entry.dart';
 
 class ContinueFeed {
-  const ContinueFeed({required this.continueWatching, required this.upNext});
+  const ContinueFeed({
+    required this.continueWatching,
+    required this.upNext,
+    this.queueNext,
+  });
 
   final List<CatalogCard> continueWatching;
   final List<CatalogCard> upNext;
+  final QueueEntry? queueNext;
 
   bool get isEmpty => continueWatching.isEmpty && upNext.isEmpty;
 
@@ -33,7 +39,12 @@ class ContinueFeed {
           in (json['next_episodes'] as List<dynamic>?) ?? <dynamic>[])
         Episode.fromJson(e as Map<String, dynamic>),
     ];
+    final Object? queued = json['queue_next'];
+    final QueueEntry? queueNext = queued is Map<String, dynamic>
+        ? QueueEntry.fromJson(queued)
+        : null;
     final List<CatalogCard> up = <CatalogCard>[
+      ?queueNext?.card,
       for (final Episode e in episodes)
         CatalogCard.fromEpisode(e, asSeriesPoster: true),
       for (final dynamic m
@@ -41,7 +52,11 @@ class ContinueFeed {
         CatalogCard.fromMovie(Movie.fromJson(m as Map<String, dynamic>)),
     ];
 
-    return ContinueFeed(continueWatching: cont, upNext: up);
+    return ContinueFeed(
+      continueWatching: cont,
+      upNext: up,
+      queueNext: queueNext,
+    );
   }
 
   static CatalogCard? _resumeCard(dynamic entry) {

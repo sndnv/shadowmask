@@ -1011,6 +1011,7 @@ namespace tests
             m.assertEqual(ScreenForKind("episode"), "EpisodeScreen")
             m.assertEqual(ScreenForKind("person"), "PersonScreen")
             m.assertEqual(ScreenForKind("collection"), "CollectionScreen")
+            m.assertEqual(ScreenForKind("playlist"), "PlaylistScreen")
         end sub
 
         @it("routes a version nowhere, because a version is chosen in a dialog rather than opened")
@@ -1026,12 +1027,12 @@ namespace tests
 
         @describe("CardMenuActions")
 
-        @it("offers play, watched, watchlist and favorite on a movie")
+        @it("offers play, watched, watchlist, favorite and a playlist on a movie")
         sub buildsMovieMenu()
             card = { kind: "movie", id: "m1", versionId: "v1", title: "Alpha" }
             ids = m.actionIds(CardMenuActions(card))
 
-            m.assertEqual(ids, ["play", "watched", "watchlist", "favorite"])
+            m.assertEqual(ids, ["play", "watched", "watchlist", "favorite", "playlist"])
         end sub
 
         @it("offers resume and its dismissal once a movie is part-watched")
@@ -1049,21 +1050,66 @@ namespace tests
         sub offersPlayWithoutVersion()
             ids = m.actionIds(CardMenuActions({ kind: "movie", id: "m1" }))
 
-            m.assertEqual(ids, ["play", "watched", "watchlist", "favorite"])
+            m.assertEqual(ids, ["play", "watched", "watchlist", "favorite", "playlist"])
         end sub
 
         @it("drops only the resume dismissal when there is no version to clear")
         sub dropsDismissWithoutVersion()
             ids = m.actionIds(CardMenuActions({ kind: "movie", id: "m1", progressPercent: 34 }))
 
-            m.assertEqual(ids, ["play", "watched", "watchlist", "favorite"])
+            m.assertEqual(ids, ["play", "watched", "watchlist", "favorite", "playlist"])
         end sub
 
-        @it("keeps a series to watched only, since a rollup has no watchlist of its own")
+        @it("keeps a series to watched and a playlist, since a rollup has no watchlist of its own")
         sub buildsSeriesMenu()
             ids = m.actionIds(CardMenuActions({ kind: "series", id: "s1" }))
 
-            m.assertEqual(ids, ["watched"])
+            m.assertEqual(ids, ["watched", "playlist"])
+        end sub
+
+        @it("offers a playlist on a season and an episode too")
+        sub offersPlaylistOnEveryWatchTarget()
+            m.assertEqual(m.actionIds(CardMenuActions({ kind: "season", id: "se1" })), ["watched", "playlist"])
+            m.assertEqual(m.actionIds(CardMenuActions({ kind: "episode", id: "e1" })), ["play", "watched", "watchlist", "favorite", "playlist"])
+
+            actions = CardMenuActions({ kind: "episode", id: "e1" })
+            m.assertEqual(actions[4].label, "Add to playlist")
+            m.assertEqual(actions[4].icon, "icon-playlist-add")
+        end sub
+
+        @it("offers Remove from queue last on a queue card, and only there")
+        sub offersDequeueOnQueueCards()
+            actions = CardMenuActions({ kind: "movie", id: "m1", queueEntryId: "17" })
+            last = actions[actions.Count() - 1]
+
+            m.assertEqual(m.actionIds(actions), ["play", "watched", "watchlist", "favorite", "playlist", "dequeue"])
+            m.assertEqual(last.label, "Remove from queue")
+            m.assertTrue(last.danger)
+            m.assertEqual(m.actionIds(CardMenuActions({ kind: "movie", id: "m1", queueEntryId: "" })), ["play", "watched", "watchlist", "favorite", "playlist"])
+        end sub
+
+        @it("keeps a library list's menu to its one removal")
+        sub libraryListsStayNarrow()
+            m.assertEqual(m.actionIds(CardMenuActions({ kind: "movie", id: "m1" }, "watchlist")), ["watchlist"])
+        end sub
+
+        @it("offers a playlist card the queue, shuffle, rename and delete")
+        sub buildsPlaylistMenu()
+            actions = CardMenuActions({ kind: "playlist", id: "pl1", itemCount: 2 })
+
+            m.assertEqual(m.actionIds(actions), ["queue", "shuffleQueue", "shuffle", "rename", "delete"])
+            m.assertEqual(actions[0].label, "Add to queue")
+            m.assertEqual(actions[1].label, "Shuffle into queue")
+            m.assertEqual(actions[2].label, "Shuffle")
+            m.assertEqual(actions[3].label, "Rename playlist")
+            m.assertEqual(actions[4].label, "Delete playlist")
+            m.assertTrue(actions[4].danger)
+        end sub
+
+        @it("offers an empty playlist only rename and delete")
+        sub buildsEmptyPlaylistMenu()
+            m.assertEqual(m.actionIds(CardMenuActions({ kind: "playlist", id: "pl1", itemCount: 0 })), ["rename", "delete"])
+            m.assertEqual(m.actionIds(PlaylistMenuActions(0)), ["rename", "delete"])
         end sub
 
         @it("flips each label to its undo when the state is already set")
@@ -1081,6 +1127,173 @@ namespace tests
         sub offersNoMenu()
             m.assertEqual(CardMenuActions({ kind: "person", id: "p1" }).Count(), 0)
             m.assertEqual(CardMenuActions(invalid).Count(), 0)
+        end sub
+
+        @describe("PlaylistButton")
+
+        @it("adds a title page's title to a playlist, collapsed like the toggles beside it")
+        sub buildsPlaylistButton()
+            button = PlaylistButton()
+
+            m.assertEqual(button.id, "playlist")
+            m.assertEqual(button.label, "Playlist")
+            m.assertEqual(button.icon, "icon-playlist-add")
+            m.assertTrue(button.collapsible)
+        end sub
+
+        @describe("PlaylistsBarButtons")
+
+        @it("plays and clears the queue and makes a playlist")
+        sub buildsPlaylistsBar()
+            buttons = PlaylistsBarButtons(2)
+
+            m.assertEqual(m.actionIds(buttons), ["playQueue", "clearQueue", "newPlaylist"])
+            m.assertEqual(buttons[0].label, "Play queue")
+            m.assertEqual(buttons[1].label, "Clear queue")
+            m.assertEqual(buttons[2].label, "New playlist")
+            m.assertFalse(ValueAt(buttons[0], "disabled", false) = true)
+            m.assertFalse(ValueAt(buttons[1], "disabled", false) = true)
+        end sub
+
+        @it("turns off play and clear while the queue is empty")
+        sub disablesEmptyQueue()
+            buttons = PlaylistsBarButtons(0)
+
+            m.assertTrue(buttons[0].disabled)
+            m.assertTrue(buttons[1].disabled)
+            m.assertFalse(ValueAt(buttons[2], "disabled", false) = true)
+        end sub
+
+        @describe("PlaylistItemMenuActions")
+
+        @it("moves an item up or down and removes it, with no move past either end")
+        sub buildsItemMenu()
+            m.assertEqual(m.actionIds(PlaylistItemMenuActions(3, 0)), ["moveDown", "removeItem"])
+            m.assertEqual(m.actionIds(PlaylistItemMenuActions(3, 1)), ["moveUp", "moveDown", "removeItem"])
+            m.assertEqual(m.actionIds(PlaylistItemMenuActions(3, 2)), ["moveUp", "removeItem"])
+            m.assertEqual(m.actionIds(PlaylistItemMenuActions(1, 0)), ["removeItem"])
+        end sub
+
+        @it("labels the moves and marks the removal as the danger")
+        sub labelsItemMenu()
+            actions = PlaylistItemMenuActions(3, 1)
+
+            m.assertEqual(actions[0].label, "Move up")
+            m.assertEqual(actions[1].label, "Move down")
+            m.assertEqual(actions[2].label, "Remove from playlist")
+            m.assertTrue(actions[2].danger)
+        end sub
+
+        @describe("MovePosition")
+
+        @it("sends the stored position of the neighbour the item takes the place of")
+        sub sendsNeighbourPosition()
+            cards = [{ id: "a", position: 0 }, { id: "b", position: 2 }, { id: "c", position: 5 }]
+
+            m.assertEqual(MovePosition(cards, 1, -1), 0)
+            m.assertEqual(MovePosition(cards, 1, 1), 5)
+            m.assertEqual(MovePosition(cards, 0, 1), 2)
+        end sub
+
+        @it("refuses a move past either end")
+        sub refusesMovePastEnds()
+            cards = [{ id: "a", position: 0 }, { id: "b", position: 2 }]
+
+            m.assertEqual(MovePosition(cards, 0, -1), -1)
+            m.assertEqual(MovePosition(cards, 1, 1), -1)
+            m.assertEqual(MovePosition(invalid, 0, 1), -1)
+        end sub
+
+        @it("refuses an item that is not in the list")
+        sub refusesUnknownItem()
+            cards = [{ id: "a", position: 0 }, { id: "b", position: 2 }]
+
+            m.assertEqual(MovePosition(cards, -1, 1), -1)
+            m.assertEqual(MovePosition(cards, 2, -1), -1)
+        end sub
+
+        @describe("playlist picker")
+
+        @it("lists the playlists with their counts and ends on New playlist")
+        sub listsPlaylistsThenNew()
+            options = PlaylistPickOptions([
+                { id: "pl1", name: "Weekend", item_count: 3 },
+                { id: "pl2", name: "Kids", item_count: 1 }
+            ])
+
+            m.assertEqual(options.Count(), 3)
+            m.assertEqual(options[0].label, "Weekend")
+            m.assertEqual(options[0].detail, "3 titles")
+            m.assertEqual(options[1].detail, "1 title")
+            m.assertEqual(options[2].label, "New playlist")
+            m.assertEqual(options[2].icon, "icon-playlist-add")
+        end sub
+
+        @it("offers only New playlist when there are none yet")
+        sub offersOnlyNew()
+            options = PlaylistPickOptions([])
+
+            m.assertEqual(options.Count(), 1)
+            m.assertEqual(options[0].label, "New playlist")
+            m.assertEqual(PlaylistPickOptions(invalid).Count(), 1)
+        end sub
+
+        @it("hands back the picked playlist, and nothing for New playlist")
+        sub picksPlaylist()
+            playlists = [{ id: "pl1", name: "Weekend", item_count: 3 }]
+
+            m.assertEqual(PickedPlaylist(playlists, 0).id, "pl1")
+            m.assertInvalid(PickedPlaylist(playlists, 1))
+            m.assertInvalid(PickedPlaylist(invalid, 0))
+        end sub
+
+        @describe("playlist toasts")
+
+        @it("counts what a playlist gained, and says so when it already held everything")
+        sub countsPlaylistAdds()
+            m.assertEqual(AddedToPlaylistText(0, "Weekend"), "Already in Weekend.")
+            m.assertEqual(AddedToPlaylistText(1, "Weekend"), "Added 1 title to Weekend.")
+            m.assertEqual(AddedToPlaylistText(4, "Weekend"), "Added 4 titles to Weekend.")
+        end sub
+
+        @it("counts what the queue gained")
+        sub countsQueueAdds()
+            m.assertEqual(AddedToQueueText(1), "Added 1 title to your queue.")
+            m.assertEqual(AddedToQueueText(3), "Added 3 titles to your queue.")
+        end sub
+
+        @describe("QueuePlayTarget")
+
+        @it("plays the first available version, resolved by the player, with the entry id")
+        sub queuePlayTargetCarriesEntry()
+            card = { kind: "movie", id: "m1", title: "Alpha", queueEntryId: "17" }
+            versions = { items: [{ id: "v1", available: false }, { id: "v2", available: true }] }
+
+            target = QueuePlayTarget(card, versions)
+
+            m.assertEqual(target.versionId, "v2")
+            m.assertTrue(target.resolve)
+            m.assertEqual(target.percent, 0)
+            m.assertEqual(target.queueEntryId, "17")
+            m.assertEqual(target.label, "Alpha")
+        end sub
+
+        @it("labels a queued episode as the up-next card shows it")
+        sub queuePlayTargetLabelsEpisode()
+            card = { kind: "episode", id: "e1", title: "Show ABC", subtitle: "S01E02", caption: "Pilot", queueEntryId: "4" }
+
+            target = QueuePlayTarget(card, { items: [{ id: "v9", available: true }] })
+
+            m.assertEqual(target.label, "Show ABC · S01E02 · Pilot")
+        end sub
+
+        @it("gives up when nothing is playable")
+        sub queuePlayTargetWithoutVersions()
+            card = { kind: "movie", id: "m1", queueEntryId: "17" }
+
+            m.assertInvalid(QueuePlayTarget(card, { items: [] }))
+            m.assertInvalid(QueuePlayTarget(card, invalid))
+            m.assertInvalid(QueuePlayTarget(invalid, { items: [{ id: "v9", available: true }] }))
         end sub
 
         @describe("actor rails")

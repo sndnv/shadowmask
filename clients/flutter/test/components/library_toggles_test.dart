@@ -4,6 +4,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
+import 'package:shadowmask/api/playlist_api.dart';
+import 'package:shadowmask/components/card_menu.dart';
 import 'package:shadowmask/components/library_toggles.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
@@ -26,6 +28,7 @@ void main() {
     double? width,
     Widget? leading,
     double textScale = 1,
+    bool playlists = false,
   }) async {
     final ApiClient api = ApiClient(
       baseUrl: 'http://test',
@@ -33,6 +36,17 @@ void main() {
         seen.add(req);
         return http.Response('', 204);
       }),
+    );
+    final Widget toggles = LibraryToggles(
+      catalog: CatalogApi(api),
+      userId: 'u1',
+      ref: ref,
+      title: 'Big Buck Bunny',
+      showWatchlistFavorite: showWatchlistFavorite,
+      episodeCount: episodeCount,
+      initialWatched: initialWatched,
+      initialWatchlisted: initialWatchlisted,
+      leading: leading,
     );
     await tester.pumpWidget(
       MaterialApp(
@@ -47,17 +61,14 @@ void main() {
           body: ToastHost(
             child: SizedBox(
               width: width,
-              child: LibraryToggles(
-                catalog: CatalogApi(api),
-                userId: 'u1',
-                ref: ref,
-                title: 'Big Buck Bunny',
-                showWatchlistFavorite: showWatchlistFavorite,
-                episodeCount: episodeCount,
-                initialWatched: initialWatched,
-                initialWatchlisted: initialWatchlisted,
-                leading: leading,
-              ),
+              child: playlists
+                  ? CardMenuHost(
+                      catalog: CatalogApi(api),
+                      userId: 'u1',
+                      playlists: PlaylistApi(api),
+                      child: toggles,
+                    )
+                  : toggles,
             ),
           ),
         ),
@@ -265,6 +276,34 @@ void main() {
     expect(find.byIcon(Icons.check), findsOneWidget);
     expect(find.byIcon(Icons.bookmark_border), findsNothing);
     expect(find.byIcon(Icons.favorite_border), findsNothing);
+  });
+
+  testWidgets('every title page offers Add to playlist, even a series', (
+    WidgetTester tester,
+  ) async {
+    final List<http.Request> seen = <http.Request>[];
+    await pumpToggles(
+      tester,
+      seen,
+      showWatchlistFavorite: false,
+      ref: const TitleRef(type: TitleKind.series, id: 's1'),
+      playlists: true,
+    );
+
+    await tester.tap(find.byTooltip(Strings.addToPlaylist));
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.playlistsEmpty), findsOneWidget);
+    expect(find.text(Strings.newPlaylistEllipsis), findsOneWidget);
+    expect(seen.single.url.path, '/api/v1/users/u1/playlists');
+  });
+
+  testWidgets('without a playlist service there is nothing to add to', (
+    WidgetTester tester,
+  ) async {
+    await pumpToggles(tester, <http.Request>[]);
+
+    expect(find.byTooltip(Strings.addToPlaylist), findsNothing);
   });
 
   testWidgets('a fan-out over several episodes asks before writing', (

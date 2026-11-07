@@ -454,7 +454,7 @@ impl Runtime {
             job_pools: pools.iter().map(|pool| pool.kinds.clone()).collect(),
         };
         let cancel = CancelRegistry::default();
-        let Built { state, stream, session, artwork_store, images, trickplay } =
+        let Built { state, stream, session, artwork_store, images, trickplay, playlists } =
             build_state(&repos, &wire, &cancel)?;
         let job_logs = FsJobLogStore::new(&config.job_log_dir);
         let diagnostics = CachedDiagnostics::new(FfmpegCapabilityProbe::new(
@@ -481,6 +481,7 @@ impl Runtime {
             stream,
             images,
             trickplay,
+            playlists,
             config.webhook_clients.clone(),
             capabilities,
             request_timeout,

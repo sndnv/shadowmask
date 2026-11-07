@@ -1,4 +1,5 @@
 use domain::catalog::TitleListFilter;
+use domain::discovery::Audience;
 use domain::error::RepositoryError;
 use domain::library::LibraryId;
 use domain::metadata::ContentRating;
@@ -42,6 +43,17 @@ where
         users.list_library_access(user).await?.into_iter().map(|entry| entry.library).collect();
     let cap = account.and_then(|account| account.max_content_rating);
     Ok(Viewer { ceiling: cap.map(|cap| cap.age_floor().unwrap_or(0)), access })
+}
+
+pub async fn audience_filter<U>(
+    users: &U,
+    audience: &Audience,
+) -> Result<TitleListFilter, RepositoryError>
+where
+    U: UserRepository + Sync,
+{
+    let viewer = viewer(users, &audience.user).await?;
+    Ok(viewer.limited_to(audience.age_limit).filter(None))
 }
 
 impl Viewer {

@@ -70,6 +70,11 @@ import 'package:shadowmask/util/client_platform.dart';
 import 'package:shadowmask/util/scoped_value.dart';
 import 'package:shadowmask/view/page.dart';
 import 'package:shadowmask/view/episode_neighbours.dart';
+import 'package:shadowmask/view/play_route.dart';
+import 'package:shadowmask/view/queue_next.dart';
+import 'package:shadowmask/view/title_link.dart';
+import 'package:shadowmask/api/playlist_api.dart';
+import 'package:shadowmask/model/playlist/queue_entry.dart';
 import 'package:shadowmask/view/play_target.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/view/player_shortcuts.dart';
@@ -88,6 +93,7 @@ class WatchBody extends StatefulWidget {
     required this.wide,
     required this.onToggleWide,
     this.startAtMs,
+    this.queueEntryId,
     this.touch = false,
     this.appVersion = defaultVersion,
   });
@@ -97,6 +103,7 @@ class WatchBody extends StatefulWidget {
   final String versionId;
   final PlaybackControls initialControls;
   final int? startAtMs;
+  final String? queueEntryId;
   final PlayerControllerFactory controllerFactory;
   final bool wide;
   final bool touch;
@@ -132,7 +139,7 @@ class _WatchBodyState extends State<WatchBody>
   String? _seriesId;
   ScopedValue<bool>? _immersive;
   ClientDecoding? _decoding;
-  EpisodeLink? _upNext;
+  TitleLink? _upNext;
   int _upNextLeft = 0;
   Timer? _countdown;
   bool _upNextOff = false;
@@ -496,12 +503,16 @@ class _WatchBodyState extends State<WatchBody>
             const Crumb(Strings.watchHeading),
           ];
         });
+        final TitleLink? queued = await _queuedNext();
+        if (!mounted) {
+          return;
+        }
         _runner.describe(
           name: movie.year != null
               ? Strings.titleWithYear(movie.title, movie.year!)
               : movie.title,
           previous: null,
-          next: null,
+          next: queued,
         );
       } catch (_) {
         _askBackdrop(null);
@@ -522,10 +533,10 @@ class _WatchBodyState extends State<WatchBody>
         } catch (_) {}
       }
       final int? seasonNumber = season?.number ?? episode.seasonNumber;
-      final EpisodeNeighbours neighbours = await loadNeighbours(
-        catalog,
-        episode,
-      );
+      final bool queued = widget.queueEntryId != null;
+      final EpisodeNeighbours neighbours = queued
+          ? EpisodeNeighbours(next: await _queuedNext())
+          : await loadNeighbours(catalog, episode);
       if (!mounted) {
         return;
       }
@@ -581,8 +592,24 @@ class _WatchBodyState extends State<WatchBody>
     }
   }
 
+  Future<TitleLink?> _queuedNext() async {
+    final String? entryId = widget.queueEntryId;
+    if (entryId == null) {
+      return null;
+    }
+    try {
+      final List<QueueEntry> queue = await PlaylistApi(
+        widget.api,
+      ).queue(widget.user.id);
+      final QueueEntry? next = queueNext(queue, entryId);
+      return next == null ? null : queueLink(next);
+    } catch (_) {
+      return null;
+    }
+  }
+
   void _armAutoplay(PlaybackState s) {
-    final EpisodeLink? next = s.title.next;
+    final TitleLink? next = s.title.next;
     final int seconds = s.local.autoplayNextS;
     if (_upNextOff ||
         _upNext != null ||
@@ -591,7 +618,7 @@ class _WatchBodyState extends State<WatchBody>
       return;
     }
     if (seconds == kAutoplayImmediately) {
-      _goToEpisode(next);
+      _goTo(next);
       return;
     }
     setState(() {
@@ -604,7 +631,7 @@ class _WatchBodyState extends State<WatchBody>
       }
       if (_upNextLeft <= 1) {
         _cancelCountdown();
-        _goToEpisode(next);
+        _goTo(next);
         return;
       }
       setState(() => _upNextLeft -= 1);
@@ -627,9 +654,17 @@ class _WatchBodyState extends State<WatchBody>
     _cancelCountdown();
   }
 
-  Future<void> _goToEpisode(EpisodeLink link) async {
+  Future<void> _goTo(TitleLink link) async {
     _dismissUpNext();
-    _replaceWith(await _episodeRoute(link));
+    _replaceWith(
+      await playRouteFor(
+        CatalogApi(widget.api),
+        widget.user.id,
+        link,
+        seriesId: link.queueEntryId == null ? _seriesId : null,
+        controls: _carried(),
+      ),
+    );
   }
 
   Future<void> _switchVersion(String id) async {
@@ -653,6 +688,7 @@ class _WatchBodyState extends State<WatchBody>
         s.timeline.positionMs,
         ended: s.timeline.ended,
       ),
+      queue: widget.queueEntryId,
     );
     _controller.pause();
     await _runner.leave();
@@ -681,39 +717,6 @@ class _WatchBodyState extends State<WatchBody>
     return true;
   }
 
-  Future<String> _episodeRoute(EpisodeLink link) async {
-    final CatalogApi catalog = CatalogApi(widget.api);
-    final Future<Set<String>?> inProgress = _inProgressIds(catalog);
-    try {
-      final Paged<Version> versions = await catalog.episodeVersions(
-        link.id,
-        series: _seriesId,
-        season: link.seasonId,
-      );
-      final List<Version> available = orderedVersions(
-        versions.items,
-      ).where((Version v) => v.available).toList();
-      final Set<String>? ids = await inProgress;
-      final Version? target = ids == null && available.length > 1
-          ? null
-          : resolvePlayTarget(available, ids ?? const <String>{});
-      if (target != null) {
-        return watchRoute(target.id, controls: _carried());
-      }
-    } catch (_) {}
-    return episodeRoute(link.id, series: _seriesId);
-  }
-
-  Future<Set<String>?> _inProgressIds(CatalogApi catalog) async {
-    try {
-      return (await catalog.continueFeed(
-        widget.user.id,
-      )).resumeProgress.keys.toSet();
-    } catch (_) {
-      return null;
-    }
-  }
-
   Map<String, String?> _carried() {
     final PlaybackState s = _state;
     final VersionDetail? version = s.title.version;
@@ -725,7 +728,7 @@ class _WatchBodyState extends State<WatchBody>
 
   TransportStep? _step(
     PlaybackTitle title,
-    EpisodeLink? link,
+    TitleLink? link,
     String none,
     String Function(String) named,
   ) {
@@ -734,7 +737,7 @@ class _WatchBodyState extends State<WatchBody>
     }
     return (
       tooltip: link == null ? none : named(link.label),
-      onPressed: link == null ? null : () => _goToEpisode(link),
+      onPressed: link == null ? null : () => _goTo(link),
     );
   }
 
@@ -744,6 +747,7 @@ class _WatchBodyState extends State<WatchBody>
     withQuery('/watch', <String, String?>{
       'version': widget.versionId,
       ...controls.toQuery(),
+      'queue': widget.queueEntryId,
     }),
   );
 
@@ -791,12 +795,12 @@ class _WatchBodyState extends State<WatchBody>
 
   void _changeAutoplay(int seconds) {
     _changeLocal((LocalSettings l) => l.copyWith(autoplayNextS: seconds));
-    final EpisodeLink? next = _upNext;
+    final TitleLink? next = _upNext;
     if (seconds == kAutoplayOff) {
       _cancelCountdown();
     } else if (seconds == kAutoplayImmediately && next != null) {
       _cancelCountdown();
-      _goToEpisode(next);
+      _goTo(next);
     }
   }
 
@@ -924,9 +928,9 @@ class _WatchBodyState extends State<WatchBody>
     );
   }
 
-  void _stepEpisode(EpisodeLink? link) {
+  void _stepEpisode(TitleLink? link) {
     if (link != null) {
-      _goToEpisode(link);
+      _goTo(link);
     }
   }
 
@@ -1264,7 +1268,7 @@ class _WatchBodyState extends State<WatchBody>
               : UpNextCard(
                   label: _upNext!.label,
                   remainingSeconds: _upNextLeft,
-                  onPlay: () => _goToEpisode(_upNext!),
+                  onPlay: () => _goTo(_upNext!),
                   onCancel: _dismissUpNext,
                 ),
           back: _titleRow(s.title.name),
@@ -1287,12 +1291,14 @@ class _WatchBodyState extends State<WatchBody>
             onToggleRemaining: () => _changeLocal(
               (LocalSettings l) => l.copyWith(remaining: !l.remaining),
             ),
-            previousEpisode: _step(
-              s.title,
-              s.title.previous,
-              Strings.noEarlierEpisode,
-              Strings.previousNamed,
-            ),
+            previousEpisode: widget.queueEntryId != null
+                ? null
+                : _step(
+                    s.title,
+                    s.title.previous,
+                    Strings.noEarlierEpisode,
+                    Strings.previousNamed,
+                  ),
             nextEpisode: _step(
               s.title,
               s.title.next,
