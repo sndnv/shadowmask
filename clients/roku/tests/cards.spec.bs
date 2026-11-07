@@ -251,6 +251,121 @@ namespace tests
             m.assertEqual(cards[1].kind, "movie")
         end sub
 
+        @it("puts the queue's next title first, carrying its entry id")
+        sub upNextLeadsWithTheQueue()
+            cards = UpNextCards({
+                queue_next: { id: "17", card: m.movieJson() },
+                next_episodes: [m.episodeJson()],
+                next_movies: []
+            })
+
+            m.assertEqual(cards.Count(), 2)
+            m.assertEqual(cards[0].kind, "movie")
+            m.assertEqual(cards[0].queueEntryId, "17")
+            m.assertEqual(cards[1].kind, "episode")
+            m.assertEqual(cards[1].queueEntryId, "")
+        end sub
+
+        @it("leaves the queue out when the feed has none")
+        sub upNextWithoutQueue()
+            cards = UpNextCards({ queue_next: invalid, next_episodes: [m.episodeJson()] })
+
+            m.assertEqual(cards.Count(), 1)
+            m.assertEqual(cards[0].queueEntryId, "")
+        end sub
+
+        @describe("queue and playlist cards")
+
+        @it("builds a queue card as a poster, with the entry id beside the title's own")
+        sub buildsQueueCard()
+            card = QueueCard({ id: "17", card: m.episodeJson() })
+
+            m.assertEqual(card.kind, "episode")
+            m.assertEqual(card.id, "e1")
+            m.assertEqual(card.queueEntryId, "17")
+            m.assertEqual(card.title, "Show ABC")
+            m.assertEqual(card.caption, "Pilot")
+            m.assertEqual(card.aspect, PosterAspect())
+        end sub
+
+        @it("keeps every entry, a repeated title included, and skips one without a card")
+        sub buildsQueueCards()
+            cards = QueueCards([
+                { id: "1", card: m.movieJson() },
+                { id: "2", card: m.episodeJson() },
+                { id: "3", card: m.movieJson() },
+                { id: "4" }
+            ])
+
+            m.assertEqual(cards.Count(), 3)
+            m.assertEqual(cards[0].queueEntryId, "1")
+            m.assertEqual(cards[2].queueEntryId, "3")
+            m.assertEqual(cards[2].id, "m1")
+            m.assertEqual(QueueCards(invalid).Count(), 0)
+        end sub
+
+        @it("builds playlist items with the stored position each move sends")
+        sub buildsPlaylistItems()
+            cards = PlaylistItemCards({
+                id: "pl1",
+                name: "Weekend",
+                items: [
+                    { position: 0, card: m.movieJson() },
+                    { position: 4, card: m.episodeJson() }
+                ]
+            })
+
+            m.assertEqual(cards.Count(), 2)
+            m.assertEqual(cards[0].id, "m1")
+            m.assertEqual(cards[0].position, 0)
+            m.assertEqual(cards[1].kind, "episode")
+            m.assertEqual(cards[1].position, 4)
+            m.assertEqual(PlaylistItemCards(invalid).Count(), 0)
+        end sub
+
+        @it("names a playlist card and counts the titles the viewer can see")
+        sub buildsPlaylistCard()
+            card = PlaylistCard({ id: "pl1", name: "Weekend", item_count: 3 })
+
+            m.assertEqual(card.kind, "playlist")
+            m.assertEqual(card.id, "pl1")
+            m.assertEqual(card.title, "Weekend")
+            m.assertEqual(card.subtitle, "3 titles")
+            m.assertEqual(card.itemCount, 3)
+            m.assertEqual(PlaylistCard({ id: "pl2", name: "One", item_count: 1 }).subtitle, "1 title")
+            m.assertEqual(PlaylistCard({ id: "pl3", name: "None", item_count: 0 }).subtitle, "0 titles")
+        end sub
+
+        @it("puts the queue's row above the playlists' and counts both")
+        sub buildsPlaylistsRows()
+            queue = QueueCards([{ id: "1", card: m.movieJson() }, { id: "2", card: m.episodeJson() }])
+            lists = [PlaylistCard({ id: "pl1", name: "Weekend", item_count: 3 })]
+
+            rows = PlaylistsRows(queue, lists)
+
+            m.assertEqual(rows.Count(), 2)
+            m.assertEqual(rows[0].heading, "Queue (2)")
+            m.assertEqual(rows[0].cards.Count(), 2)
+            m.assertEqual(rows[1].heading, "Playlists (1)")
+            m.assertEqual(rows[1].cards[0].kind, "playlist")
+        end sub
+
+        @it("leaves out a row with nothing in it")
+        sub dropsEmptyPlaylistsRows()
+            lists = [PlaylistCard({ id: "pl1", name: "Weekend", item_count: 3 })]
+
+            m.assertEqual(PlaylistsRows([], lists).Count(), 1)
+            m.assertEqual(PlaylistsRows([], lists)[0].heading, "Playlists (1)")
+            m.assertEqual(PlaylistsRows(QueueCards([{ id: "1", card: m.movieJson() }]), [])[0].heading, "Queue (1)")
+            m.assertEqual(PlaylistsRows([], []).Count(), 0)
+        end sub
+
+        @it("labels a queued episode with its series, code and name, and a movie with its title")
+        sub labelsQueuedTitles()
+            m.assertEqual(QueueLabel(QueueCard({ id: "1", card: m.episodeJson() })), "Show ABC · S01E02 · Pilot")
+            m.assertEqual(QueueLabel(QueueCard({ id: "2", card: m.movieJson() })), "Alpha")
+        end sub
+
         @describe("AspectForSet")
 
         @it("is landscape only when every card in the set is")
@@ -1056,6 +1171,23 @@ namespace tests
             m.assertNotEqual(CardSetShape([{ id: "m1", progressPercent: 40 }], 3), base)
             m.assertNotEqual(CardSetShape([{ id: "m1" }], 1), base)
             m.assertNotEqual(CardSetShape([{ id: "m1" }, { id: "m2" }], 3), base)
+        end sub
+
+        @it("changes when the same title comes back as another queue entry or moves to another slot")
+        sub shapeTracksQueueAndPosition()
+            base = CardSetShape([{ id: "m1", queueEntryId: "1", position: 0 }], 3)
+
+            m.assertNotEqual(CardSetShape([{ id: "m1", queueEntryId: "5", position: 0 }], 3), base)
+            m.assertNotEqual(CardSetShape([{ id: "m1", queueEntryId: "1", position: 2 }], 3), base)
+        end sub
+
+        @it("changes when a card's words or a playlist's count change under the same id")
+        sub shapeTracksWordsAndCount()
+            base = CardSetShape([PlaylistCard({ id: "pl1", name: "Weekend", item_count: 0 })], 3)
+
+            m.assertNotEqual(CardSetShape([PlaylistCard({ id: "pl1", name: "Late night", item_count: 0 })], 3), base)
+            m.assertNotEqual(CardSetShape([PlaylistCard({ id: "pl1", name: "Weekend", item_count: 1 })], 3), base)
+            m.assertNotEqual(CardSetShape([{ id: "e1", caption: "Pilot" }], 3), CardSetShape([{ id: "e1", caption: "Finale" }], 3))
         end sub
 
         @it("carries the art in the other half, so the two together still catch a photo arriving")

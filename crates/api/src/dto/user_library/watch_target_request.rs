@@ -12,6 +12,17 @@ pub enum WatchTargetKind {
     Series,
 }
 
+impl WatchTargetKind {
+    pub fn target(self, id: String) -> WatchTarget {
+        match self {
+            WatchTargetKind::Movie => WatchTarget::Movie(MovieId(id)),
+            WatchTargetKind::Episode => WatchTarget::Episode(EpisodeId(id)),
+            WatchTargetKind::Season => WatchTarget::Season(SeasonId(id)),
+            WatchTargetKind::Series => WatchTarget::Series(SeriesId(id)),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct WatchTargetRequest {
     #[serde(rename = "type")]
@@ -21,12 +32,7 @@ pub struct WatchTargetRequest {
 
 impl WatchTargetRequest {
     pub fn into_target(&self, id: String) -> WatchTarget {
-        match self.kind {
-            WatchTargetKind::Movie => WatchTarget::Movie(MovieId(id)),
-            WatchTargetKind::Episode => WatchTarget::Episode(EpisodeId(id)),
-            WatchTargetKind::Season => WatchTarget::Season(SeasonId(id)),
-            WatchTargetKind::Series => WatchTarget::Series(SeriesId(id)),
-        }
+        self.kind.target(id)
     }
 }
 

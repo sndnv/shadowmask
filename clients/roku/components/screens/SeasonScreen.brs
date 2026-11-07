@@ -194,6 +194,7 @@ sub BuildActions()
     end if
 
     buttons.Push({ id: "watched", label: Phrase("action.watchedLabel"), icon: "icon-check", iconOn: "icon-check", pressed: WatchedNow(), collapsible: true })
+    buttons.Push(PlaylistButton())
 
     if m.episodeCards.Count() > 0
         buttons.Push({ id: "random", label: Phrase("action.randomInSeason"), icon: "icon-shuffle" })
@@ -365,6 +366,8 @@ sub onAction(event as object)
         ToggleWatched()
     else if id = "random"
         PressRandom()
+    else if id = "playlist"
+        AskPlaylistFor({ kind: "season", id: m.id, title: TitleText() })
     else if id = "previous"
         OpenSeason(m.neighbours.previous)
     else if id = "following"

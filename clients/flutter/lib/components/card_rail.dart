@@ -15,7 +15,7 @@ import 'package:shadowmask/components/catalog_card_tile.dart';
 class CardRail extends StatefulWidget {
   const CardRail({
     super.key,
-    required this.title,
+    this.title,
     required this.cards,
     required this.imageBase,
     this.onDismiss,
@@ -28,7 +28,7 @@ class CardRail extends StatefulWidget {
     this.titleRoute,
   });
 
-  final String title;
+  final String? title;
   final List<CatalogCard> cards;
   final String imageBase;
   final void Function(CatalogCard card)? onDismiss;
@@ -158,15 +158,18 @@ class _CardRailState extends State<CardRail> {
     double railHeight,
     CardAspect aspect,
   ) {
+    final String? title = widget.title;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        LinkHeading(
-          title: widget.title,
-          linkLabel: widget.titleLink,
-          route: widget.titleRoute,
-        ),
-        const SizedBox(height: Space.s3),
+        if (title != null) ...<Widget>[
+          LinkHeading(
+            title: title,
+            linkLabel: widget.titleLink,
+            route: widget.titleRoute,
+          ),
+          const SizedBox(height: Space.s3),
+        ],
         SizedBox(
           height: railHeight,
           child: Listener(
@@ -227,7 +230,7 @@ class _CardRailState extends State<CardRail> {
             ),
           ),
         ),
-        const SizedBox(height: Space.s5),
+        if (title != null) const SizedBox(height: Space.s5),
       ],
     );
   }

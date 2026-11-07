@@ -3,6 +3,7 @@ mod home_hubs;
 mod next_up;
 mod resume_card;
 mod service;
+mod title_cards;
 
 pub use continue_watching::{continue_watching, drop_resumable, drop_unstarted};
 pub use domain::discovery::search;
@@ -15,3 +16,4 @@ pub use next_up::{
 };
 pub use resume_card::{resume_card, resume_card_from};
 pub use service::DiscoveryServiceImpl;
+pub use title_cards::{episode_cards, visible_cards, visible_titles};

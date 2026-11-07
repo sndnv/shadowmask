@@ -833,6 +833,7 @@ where
                     if !already_counted {
                         self.inner.progress.record_view(&owner, &title, now).await?;
                         self.inner.preferences.remove_watchlist(&owner, title.id()).await?;
+                        self.inner.preferences.remove_first_queued(&owner, &title).await?;
                     }
                     self.inner.progress.delete(&owner, &version).await?;
                 } else if is_started(position_ms, duration_ms)
@@ -2896,6 +2897,35 @@ mod tests {
             harness.preferences.list_watchlist(&principal().user).await.unwrap().is_empty(),
             "watching a title to the end is the clearest signal it can leave the queue"
         );
+    }
+
+    #[tokio::test]
+    async fn finishing_a_title_once_takes_only_its_earliest_queue_entry() {
+        let harness = Harness::new();
+        harness.catalog.insert(direct_detail());
+        let user = principal().user.clone();
+        let m1 = TitleId::Movie(MovieId("m1".to_owned()));
+        let other = TitleId::Movie(MovieId("m9".to_owned()));
+        harness.preferences.seed_queue(&user, &[other.clone(), m1.clone(), m1.clone()]);
+        let started = harness.service.start(&principal(), start_request(0)).await.unwrap();
+
+        for _ in 0..2 {
+            harness
+                .service
+                .heartbeat(&principal(), &started.session_id, 90_000, PlaybackState::Playing)
+                .await
+                .unwrap();
+        }
+
+        let left: Vec<(String, TitleId)> = harness
+            .preferences
+            .list_queue(&user)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|entry| (entry.id.0, entry.title))
+            .collect();
+        assert_eq!(left, [("1".to_owned(), other), ("3".to_owned(), m1)]);
     }
 
     #[tokio::test]

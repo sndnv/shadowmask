@@ -1,0 +1,13 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "error": {
+      "code": "empty_name",
+      "message": "playlist name must not be empty"
+    }
+  },
+  "status": 400
+}

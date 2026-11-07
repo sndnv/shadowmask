@@ -10,7 +10,7 @@ import 'package:shadowmask/player/state/playback_step.dart';
 import 'package:shadowmask/player/state/playback_stream.dart';
 import 'package:shadowmask/player/state/player_tracks.dart';
 import 'package:shadowmask/player/state/sent_change.dart';
-import 'package:shadowmask/view/episode_neighbours.dart';
+import 'package:shadowmask/view/title_link.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/view/sound_settings.dart';
 
@@ -210,8 +210,8 @@ PlaybackStep serverFailed(PlaybackState s, int id) {
 PlaybackStep serverDescribesTitle(
   PlaybackState s, {
   required String? name,
-  required EpisodeLink? previous,
-  required EpisodeLink? next,
+  required TitleLink? previous,
+  required TitleLink? next,
 }) => _same(s.copyWith.title(name: name, previous: previous, next: next));
 
 PlaybackStep serverRefreshesVersion(PlaybackState s, VersionDetail version) {

@@ -625,14 +625,16 @@ impl CatalogRepository for MockCatalogRepo {
     ) -> Result<HashMap<SeriesId, Vec<EpisodeId>>, RepositoryError> {
         self.counted()?;
         let state = self.state.lock().unwrap();
-        let mut out: HashMap<SeriesId, Vec<EpisodeId>> = HashMap::new();
-        for season in &state.seasons {
-            if !series.contains(&season.series) {
-                continue;
-            }
+        let mut found = Vec::new();
+        for season in state.seasons.iter().filter(|s| series.contains(&s.series)) {
             for episode in state.episodes.iter().filter(|e| e.season == season.id) {
-                out.entry(season.series.clone()).or_default().push(episode.id.clone());
+                found.push((season.number, episode.number, &episode.id, &season.series));
             }
+        }
+        found.sort_by(|a, b| (a.0, a.1, a.2.0.as_str()).cmp(&(b.0, b.1, b.2.0.as_str())));
+        let mut out: HashMap<SeriesId, Vec<EpisodeId>> = HashMap::new();
+        for (_, _, episode, parent) in found {
+            out.entry(parent.clone()).or_default().push(episode.clone());
         }
         Ok(out)
     }
@@ -643,11 +645,12 @@ impl CatalogRepository for MockCatalogRepo {
     ) -> Result<HashMap<SeasonId, Vec<EpisodeId>>, RepositoryError> {
         self.counted()?;
         let state = self.state.lock().unwrap();
+        let mut found: Vec<&Episode> =
+            state.episodes.iter().filter(|e| seasons.contains(&e.season)).collect();
+        found.sort_by(|a, b| (a.number, a.id.0.as_str()).cmp(&(b.number, b.id.0.as_str())));
         let mut out: HashMap<SeasonId, Vec<EpisodeId>> = HashMap::new();
-        for episode in &state.episodes {
-            if seasons.contains(&episode.season) {
-                out.entry(episode.season.clone()).or_default().push(episode.id.clone());
-            }
+        for episode in found {
+            out.entry(episode.season.clone()).or_default().push(episode.id.clone());
         }
         Ok(out)
     }
@@ -1748,6 +1751,26 @@ mod tests {
             updated_at: Timestamp::UNIX_EPOCH,
             artwork: Vec::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn episode_ids_come_in_season_then_episode_order_as_the_store_returns_them() {
+        let repo = MockCatalogRepo::new();
+        repo.add_series(series("sr"));
+        repo.add_season(Season { number: 2, ..season("b", "sr") });
+        repo.add_season(Season { number: 0, ..season("z", "sr") });
+        repo.add_season(season("a", "sr"));
+        repo.add_episode(Episode { number: 2, ..episode("ba", "b") });
+        repo.add_episode(episode("bz", "b"));
+        repo.add_episode(episode("z1", "z"));
+        repo.add_episode(episode("a1", "a"));
+        let ids = |found: &[EpisodeId]| found.iter().map(|id| id.0.clone()).collect::<Vec<_>>();
+
+        let by_series = repo.episode_ids_for_series(&[SeriesId("sr".into())]).await.unwrap();
+        let by_season = repo.episode_ids_for_seasons(&[SeasonId("b".into())]).await.unwrap();
+
+        assert_eq!(ids(&by_series[&SeriesId("sr".into())]), ["z1", "a1", "bz", "ba"]);
+        assert_eq!(ids(&by_season[&SeasonId("b".into())]), ["bz", "ba"]);
     }
 
     fn version(id: &str) -> Version {

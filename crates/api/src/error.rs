@@ -7,7 +7,7 @@ use serde::Serialize;
 use domain::error::{
     AuthError, BenchmarkError, CatalogError, DeviceTargetError, DiscoveryError, DownloadTokenError,
     JobLogError, JobServiceError, LibraryError, MaintenanceError, PlayCommandTokenError,
-    ServerLogError, SessionError, StreamError, StreamTokenError, UserError,
+    PlaylistError, ServerLogError, SessionError, StreamError, StreamTokenError, UserError,
 };
 use domain::job::Job;
 use domain::session::PlaybackSession;
@@ -295,6 +295,20 @@ impl From<DiscoveryError> for ApiError {
     }
 }
 
+impl From<PlaylistError> for ApiError {
+    fn from(err: PlaylistError) -> Self {
+        let msg = err.to_string();
+        match err {
+            PlaylistError::NotFound => ApiError::new(StatusCode::NOT_FOUND, "not_found", msg),
+            PlaylistError::TitleNotFound => {
+                ApiError::new(StatusCode::NOT_FOUND, "title_not_found", msg)
+            }
+            PlaylistError::EmptyName => ApiError::new(StatusCode::BAD_REQUEST, "empty_name", msg),
+            PlaylistError::Repository(_) => ApiError::internal(),
+        }
+    }
+}
+
 impl From<JobLogError> for ApiError {
     fn from(err: JobLogError) -> Self {
         match err {
@@ -566,6 +580,20 @@ mod tests {
     fn discovery_error_maps_to_internal() {
         assert_eq!(
             ApiError::from(DiscoveryError::Repository(repo())).status,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[test]
+    fn playlist_error_mappings() {
+        let missing = ApiError::from(PlaylistError::NotFound);
+        assert_eq!((missing.status, missing.code), (StatusCode::NOT_FOUND, "not_found"));
+        let title = ApiError::from(PlaylistError::TitleNotFound);
+        assert_eq!((title.status, title.code), (StatusCode::NOT_FOUND, "title_not_found"));
+        let empty = ApiError::from(PlaylistError::EmptyName);
+        assert_eq!((empty.status, empty.code), (StatusCode::BAD_REQUEST, "empty_name"));
+        assert_eq!(
+            ApiError::from(PlaylistError::Repository(repo())).status,
             StatusCode::INTERNAL_SERVER_ERROR
         );
     }

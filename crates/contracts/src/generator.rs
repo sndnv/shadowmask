@@ -19,6 +19,7 @@ use services::catalog::CatalogServiceImpl;
 use services::discovery::DiscoveryServiceImpl;
 use services::job::JobServiceImpl;
 use services::library::LibraryServiceImpl;
+use services::playlist::PlaylistServiceImpl;
 use services::user::UserServiceImpl;
 use services::user_library::UserLibraryServiceImpl;
 
@@ -55,6 +56,7 @@ pub struct Generator {
         MockUserRepo,
     >,
     pub job: JobServiceImpl<MockJobStore, MockLibraryRepo>,
+    pub playlist: PlaylistServiceImpl<MockPreferencesRepo, MockCatalogRepo, MockUserRepo>,
 }
 
 impl Default for Generator {
@@ -102,6 +104,11 @@ impl Generator {
                 search_index.clone(),
                 progress_repo.clone(),
                 preferences_repo.clone(),
+                users_repo.clone(),
+            ),
+            playlist: PlaylistServiceImpl::new(
+                preferences_repo.clone(),
+                catalog_repo.clone(),
                 users_repo.clone(),
             ),
             catalog_repo,
@@ -225,10 +232,15 @@ impl Generator {
             added_at: ts(40),
         });
         self.preferences_repo.seed_watchlist(WatchlistItem {
-            user: u1,
+            user: u1.clone(),
             title: TitleId::Episode(EpisodeId("e1".into())),
             added_at: ts(41),
         });
+        let playlists = fixture::playlists();
+        self.preferences_repo.seed_queue(&u1, &playlists[0].1);
+        for (playlist, titles) in playlists {
+            self.preferences_repo.seed_playlist(&u1, playlist, &titles);
+        }
     }
 }
 

@@ -1,0 +1,13 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "created_at": "[created_at]",
+    "id": "[id]",
+    "name": "Late night",
+    "updated_at": "[updated_at]"
+  },
+  "status": 201
+}

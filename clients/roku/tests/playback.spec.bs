@@ -396,6 +396,23 @@ namespace tests
             m.assertTrue(PlayerButtons(false, true, false, false, false, true)[2].disabled)
         end sub
 
+        @it("drops Previous in queue mode and offers the queue's next title, a movie's too")
+        sub playerButtonsQueued()
+            for each episode in [true, false]
+                ids = []
+                for each button in PlayerButtons(true, false, episode, true, true, false, true)
+                    ids.Push(button.id)
+                end for
+                m.assertEqual(ids, ["video", "subtitle", "play", "next", "audio", "settings"])
+            end for
+
+            buttons = PlayerButtons(true, false, false, false, true, false, true)
+            m.assertEqual(buttons[3].label, Phrase("player.nextInQueue"))
+            m.assertFalse(buttons[3].disabled)
+            m.assertTrue(PlayerButtons(true, false, false, false, false, false, true)[3].disabled)
+            m.assertEqual(TransportIndex(buttons), 2)
+        end sub
+
         @describe("PlaybackNote")
 
         @it("shows the loading note until the gather and the change in flight are done")
@@ -654,6 +671,32 @@ namespace tests
             m.assertInvalid(NextEpisodeAfter(items, "e1"))
             m.assertInvalid(NextEpisodeAfter(items, "unknown"))
             m.assertInvalid(NextEpisodeAfter(invalid, "e1"))
+        end sub
+
+        @describe("QueueNextEntry")
+
+        @it("takes the entry after the one playing, by entry id")
+        sub takesTheFollowingEntry()
+            entries = [{ id: "1", card: { id: "m1" } }, { id: "2", card: { id: "m1" } }, { id: "3", card: { id: "e1" } }]
+
+            m.assertEqual(QueueNextEntry(entries, "1").id, "2")
+            m.assertEqual(QueueNextEntry(entries, "2").id, "3")
+        end sub
+
+        @it("takes the first entry once the playing one has left the queue")
+        sub takesTheFirstWhenGone()
+            entries = [{ id: "4", card: { id: "m2" } }, { id: "5", card: { id: "m3" } }]
+
+            m.assertEqual(QueueNextEntry(entries, "3").id, "4")
+        end sub
+
+        @it("finds nothing after the last entry or in an empty queue")
+        sub stopsAtTheQueueEnd()
+            entries = [{ id: "1", card: { id: "m1" } }]
+
+            m.assertInvalid(QueueNextEntry(entries, "1"))
+            m.assertInvalid(QueueNextEntry([], "1"))
+            m.assertInvalid(QueueNextEntry(invalid, "1"))
         end sub
 
         @describe("PlayerDiagnostics")

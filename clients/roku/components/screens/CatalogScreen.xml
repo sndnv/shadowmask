@@ -30,6 +30,8 @@
         <field id="themeName" type="string" />
         <field id="choiceRequest" type="assocarray" />
         <field id="choiceResult" type="assocarray" onChange="onChoice" />
+        <field id="keyboardRequest" type="assocarray" />
+        <field id="keyboardResult" type="assocarray" onChange="onCardMenuKeyboard" />
         <field id="toastRequest" type="assocarray" alwaysNotify="true" />
         <field id="advance" type="string" alwaysNotify="true" />
         <field id="advanceTarget" type="assocarray" />

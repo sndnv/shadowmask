@@ -21,8 +21,8 @@ use domain::media::{
 };
 use domain::playback::PlaybackProgress;
 use domain::repository::{
-    AuthTokenRepository, CatalogRepository, JobRepository, LibraryRepository, ProgressRepository,
-    SearchIndex, UserRepository,
+    AuthTokenRepository, CatalogRepository, JobRepository, LibraryRepository,
+    PreferencesRepository, ProgressRepository, SearchIndex, UserRepository,
 };
 use domain::user::{PendingLink, Role, User, UserId};
 use media::transcode::VideoEncoder;
@@ -248,6 +248,18 @@ async fn seed(repos: &Repos, hash: &str) {
         .await
         .unwrap();
 
+    let u1 = UserId("u1".into());
+    let playlists = fixture::playlists();
+    for (playlist, titles) in &playlists {
+        repos.preferences.save_playlist(&u1, playlist.clone()).await.unwrap();
+        repos
+            .preferences
+            .add_playlist_items(&u1, &playlist.id, titles, playlist.created_at)
+            .await
+            .unwrap();
+    }
+    repos.preferences.queue_playlist(&u1, &playlists[0].0.id, false).await.unwrap();
+
     repos
         .auth_tokens
         .store_link_code(
@@ -271,7 +283,7 @@ async fn seeded(db_root: &Path, hash: &str) -> (Repos, Router) {
     let repos = Repos::connect(db_root).await.unwrap();
     seed(&repos, hash).await;
     let cfg = config(db_root);
-    let Built { state, stream, images, trickplay, .. } =
+    let Built { state, stream, images, trickplay, playlists, .. } =
         build_state(&repos, &cfg, &CancelRegistry::default()).unwrap();
     let capabilities = server_capabilities(CapabilityInputs {
         transcription: cfg.transcription_enabled,
@@ -286,7 +298,7 @@ async fn seeded(db_root: &Path, hash: &str) -> (Repos, Router) {
         hardware_transcode_enabled: false,
     });
     let limit = Duration::from_secs(90);
-    (repos, app(state, stream, images, trickplay, Vec::new(), capabilities, limit))
+    (repos, app(state, stream, images, trickplay, playlists, Vec::new(), capabilities, limit))
 }
 
 fn method(name: &str) -> Method {

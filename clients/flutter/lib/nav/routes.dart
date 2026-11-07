@@ -6,6 +6,7 @@ String homeRoute() => '/home';
 String moviesRoute() => '/movies';
 String seriesListRoute() => '/series';
 String collectionsRoute() => '/collections';
+String playlistsRoute() => '/playlists';
 String searchRoute() => '/search';
 
 String adminRoute() => '/admin';
@@ -30,14 +31,19 @@ String seriesRoute(String id) => '/title?type=series&id=${_enc(id)}';
 String personRoute(String id) => '/person?id=${_enc(id)}';
 String versionRoute(String id) => '/version?id=${_enc(id)}';
 String collectionRoute(String id) => '/collections?id=${_enc(id)}';
+String playlistRoute(String id) => '/playlists?id=${_enc(id)}';
+String queuePlayRoute(String entryId) =>
+    withQuery('/watch', <String, String?>{'queue': entryId});
 String watchRoute(
   String versionId, {
   Map<String, String?> controls = const <String, String?>{},
   int? atMs,
+  String? queue,
 }) => withQuery('/watch', <String, String?>{
   'version': versionId,
   ...controls,
   'at': atMs?.toString(),
+  'queue': queue,
 });
 
 String seasonRoute(String id, {String? series}) =>
@@ -68,6 +74,7 @@ const Set<String> rootPaths = <String>{
   '/movies',
   '/series',
   '/collections',
+  '/playlists',
   '/search',
   '/admin',
   '/account',

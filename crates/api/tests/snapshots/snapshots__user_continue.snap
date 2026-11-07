@@ -47,7 +47,46 @@ expression: value
     ],
     "next_episodes": [],
     "next_movies": [],
-    "now_playing": []
+    "now_playing": [],
+    "queue_next": {
+      "card": {
+        "added_at": "2023-11-14T22:13:21Z",
+        "artwork": {
+          "backdrops": [
+            {
+              "base": "/images/m1-backdrop",
+              "widths": [
+                480,
+                960
+              ]
+            }
+          ],
+          "posters": [
+            {
+              "base": "/images/m1-poster",
+              "widths": [
+                180,
+                480,
+                960
+              ]
+            }
+          ]
+        },
+        "content_rating": {
+          "code": "PG-13",
+          "system": "MPAA"
+        },
+        "id": "m1",
+        "manually_edited": false,
+        "overview": "overview",
+        "runtime_minutes": 100,
+        "title": "Alpha m1",
+        "type": "movie",
+        "updated_at": "2023-11-14T22:13:21Z",
+        "year": 2020
+      },
+      "id": "1"
+    }
   },
   "status": 200
 }

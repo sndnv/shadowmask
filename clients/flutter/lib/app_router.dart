@@ -29,6 +29,7 @@ import 'package:shadowmask/pages/viewer/home_page.dart';
 import 'package:shadowmask/pages/viewer/list_query.dart';
 import 'package:shadowmask/pages/viewer/movies_page.dart';
 import 'package:shadowmask/pages/viewer/person_page.dart';
+import 'package:shadowmask/pages/viewer/playlists_page.dart';
 import 'package:shadowmask/pages/viewer/search_page.dart';
 import 'package:shadowmask/pages/viewer/season_page.dart';
 import 'package:shadowmask/pages/viewer/series_page.dart';
@@ -81,6 +82,10 @@ class AppRouter {
       ),
     );
     _define(
+      '/playlists',
+      (Map<String, String> a) => PlaylistsPage(api: api, id: a['id']),
+    );
+    _define(
       '/search',
       (Map<String, String> a) => SearchPage(
         api: api,
@@ -123,6 +128,7 @@ class AppRouter {
         versionId: a['version'] ?? '',
         controls: PlaybackControls.fromQuery(a),
         startAtMs: startAtArg(a),
+        queueEntryId: a['queue'],
       ),
     );
     _define('/account', (Map<String, String> a) => AccountPage(api: api));

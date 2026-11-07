@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
+import 'package:shadowmask/api/playlist_api.dart';
 import 'package:shadowmask/components/card_menu.dart';
 import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/nav/nav_section.dart';
@@ -79,6 +80,7 @@ class _SectionPageState extends State<SectionPage> {
                   builder: (BuildContext context, SelfUser user) =>
                       CardMenuHost(
                         catalog: CatalogApi(widget.api),
+                        playlists: PlaylistApi(widget.api),
                         userId: user.id,
                         child: widget.bodyBuilder(context, user),
                       ),

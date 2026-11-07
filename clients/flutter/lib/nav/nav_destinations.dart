@@ -40,6 +40,13 @@ const List<NavDestination> navDestinations = <NavDestination>[
     selectedIcon: Icons.collections_bookmark,
   ),
   NavDestination(
+    NavSection.playlists,
+    Strings.navigationPlaylists,
+    '/playlists',
+    icon: Icons.playlist_play_outlined,
+    selectedIcon: Icons.playlist_play,
+  ),
+  NavDestination(
     NavSection.search,
     Strings.navigationSearch,
     '/search',

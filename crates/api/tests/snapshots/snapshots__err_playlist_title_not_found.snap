@@ -1,0 +1,13 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "error": {
+      "code": "title_not_found",
+      "message": "title not found"
+    }
+  },
+  "status": 404
+}

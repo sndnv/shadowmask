@@ -264,8 +264,16 @@ sub BuildBarButtons()
     end if
 
     timeline = m.playback.timeline
-    m.actions.buttons = PlayerButtons(timeline.playing, timeline.ended, EpisodeContext() <> invalid, m.previousTarget <> invalid, m.nextTarget <> invalid, m.playback.status.sent <> invalid)
+    m.actions.buttons = PlayerButtons(timeline.playing, timeline.ended, EpisodeContext() <> invalid, m.previousTarget <> invalid, m.nextTarget <> invalid, m.playback.status.sent <> invalid, InQueueMode())
 end sub
+
+function QueueEntryId() as string
+    return TextOrBlank(ValueAt(m.top.target, "queueEntryId", ""))
+end function
+
+function InQueueMode() as boolean
+    return not IsBlank(QueueEntryId())
+end function
 
 function FullDurationMs() as integer
     total = Int(ValueAt(m.version, "duration_ms", 0))
@@ -1217,11 +1225,42 @@ function EpisodeContext() as dynamic
 end function
 
 sub ResolveNext()
+    session = SessionFor(m.global)
+    if InQueueMode()
+        task = Ask(QueueRequest(session.serverUrl, session.token, session.userId), "onQueueNext")
+        task.AddFields({ entryId: QueueEntryId() })
+        return
+    end if
+
     context = EpisodeContext()
     if context = invalid then return
 
-    session = SessionFor(m.global)
     Ask(EpisodesRequest(session.serverUrl, session.token, context.seriesId, context.seasonId), "onNextEpisodes")
+end sub
+
+function AskedForThisEntry(event as object) as boolean
+    return TextOrBlank(event.GetRoSGNode().entryId) = QueueEntryId()
+end function
+
+sub onQueueNext(event as object)
+    parsed = Answered(event)
+    if m.released or not parsed.ok or not AskedForThisEntry(event) then return
+
+    entry = QueueNextEntry(ListItems(parsed.json), QueueEntryId())
+    if entry = invalid then return
+
+    m.queueNextCard = QueueCard(entry)
+    session = SessionFor(m.global)
+    task = Ask(CardVersionsRequest(session.serverUrl, session.token, m.queueNextCard), "onQueueNextVersions")
+    task.AddFields({ entryId: QueueEntryId() })
+end sub
+
+sub onQueueNextVersions(event as object)
+    parsed = Answered(event)
+    if m.released or not parsed.ok or not AskedForThisEntry(event) then return
+
+    m.nextTarget = QueuePlayTarget(m.queueNextCard, parsed.json)
+    if m.barVisible then BuildBarButtons()
 end sub
 
 sub onNextEpisodes(event as object)

@@ -17,20 +17,20 @@ use domain::diagnostics::{
 use domain::job::JobLogStore;
 use domain::media::{SubtitleProvider, SubtitleReader, SubtitleStore};
 use domain::repository::{CatalogRepository, ReportRepository};
-use domain::service::MaintenanceService;
+use domain::service::{MaintenanceService, PlaylistService};
 use domain::session::{DownloadTokens, PlayCommandTokens, StreamSource, StreamTokens};
 use tower_http::services::ServeDir;
 
 use crate::handlers::{
     admin, auth, catalog, diagnostics, discovery, download, image, job_log, library, maintenance,
-    play_on, report, server, server_log, sessions, stream, subtitle, trickplay, user_library,
-    users, version, webhook,
+    play_on, playlist, report, server, server_log, sessions, stream, subtitle, trickplay,
+    user_library, users, version, webhook,
 };
 use crate::middleware::{PREFER, jwt, timed_out, track_stream_bytes};
 use crate::state::{
     AppServices, DiagnosticsState, DownloadState, ImageState, JobLogState, MaintenanceState,
-    PlayOnState, ReportState, ServerLogState, StreamState, SubtitleSearchState, SubtitleState,
-    TrickplayState, WebhookClient, WebhookState,
+    PlayOnState, PlaylistState, ReportState, ServerLogState, StreamState, SubtitleSearchState,
+    SubtitleState, TrickplayState, WebhookClient, WebhookState,
 };
 
 pub fn router<S: AppServices>(state: S) -> Router {
@@ -251,6 +251,39 @@ pub fn maintenance_router<S: AppServices, M: MaintenanceService + Send + Sync + 
         .route("/api/v1/libraries/{id}/clean", post(maintenance::clean::<M>))
         .route("/api/v1/admin/clean", post(maintenance::clean_all::<M>))
         .route("/api/v1/libraries/{id}/jobs/cancel", post(maintenance::cancel_jobs::<M>))
+        .route_layer(from_fn_with_state(auth, jwt::<S>))
+        .with_state(state)
+}
+
+pub fn playlist_router<S: AppServices, P: PlaylistService + Send + Sync + 'static>(
+    auth: S,
+    state: PlaylistState<P>,
+) -> Router {
+    Router::new()
+        .route(
+            "/api/v1/users/{id}/playlists",
+            get(playlist::playlists::<P>).post(playlist::create::<P>),
+        )
+        .route(
+            "/api/v1/users/{id}/playlists/{pid}",
+            get(playlist::playlist::<P>).put(playlist::rename::<P>).delete(playlist::delete::<P>),
+        )
+        .route("/api/v1/users/{id}/playlists/{pid}/items", post(playlist::add_item::<P>))
+        .route(
+            "/api/v1/users/{id}/playlists/{pid}/items/{title_id}",
+            delete(playlist::remove_item::<P>),
+        )
+        .route(
+            "/api/v1/users/{id}/playlists/{pid}/items/{title_id}/position",
+            put(playlist::move_item::<P>),
+        )
+        .route(
+            "/api/v1/users/{id}/queue",
+            get(playlist::queue::<P>)
+                .post(playlist::queue_playlist::<P>)
+                .delete(playlist::clear_queue::<P>),
+        )
+        .route("/api/v1/users/{id}/queue/items/{item_id}", delete(playlist::remove_queued::<P>))
         .route_layer(from_fn_with_state(auth, jwt::<S>))
         .with_state(state)
 }

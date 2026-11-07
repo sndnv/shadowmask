@@ -15,6 +15,7 @@ abstract final class Strings {
   static const String navigationMovies = 'Movies';
   static const String navigationSeries = 'Series';
   static const String navigationCollections = 'Collections';
+  static const String navigationPlaylists = 'Playlists';
   static const String navigationSearch = 'Search';
   static const String navigationAccount = 'Account';
   static const String navigationPeople = 'People';
@@ -140,6 +141,9 @@ abstract final class Strings {
   static const String couldNotLoadCollections = 'Could not load collections.';
   static const String couldNotLoadCollection =
       'Could not load this collection.';
+  static const String couldNotLoadPlaylists = 'Could not load your playlists.';
+  static const String couldNotLoadPlaylist = 'Could not load this playlist.';
+  static const String couldNotLoadQueue = 'Could not load your queue.';
   static const String couldNotLoadSearch = 'Could not run the search.';
   static const String couldNotLoadTitle = 'Could not load this title.';
   static const String couldNotLoadSeason = 'Could not load this season.';
@@ -569,6 +573,7 @@ abstract final class Strings {
   static const String watchedLabel = 'Watched';
   static const String watchlistLabel = 'Watchlist';
   static const String favoriteLabel = 'Favorite';
+  static const String playlistLabel = 'Playlist';
 
   static const String markWatched = 'Mark watched';
   static const String markUnwatched = 'Mark unwatched';
@@ -600,6 +605,51 @@ abstract final class Strings {
       'Sign out of every device and browser on this account, including this one?';
   static String confirmSignOutUserEverywhere(String username) =>
       'Sign out $username of every device and browser?';
+
+  static const String queueHeading = 'Queue';
+  static const String playlistsHeading = 'Playlists';
+  static const String playlistTitlesHeading = 'Titles';
+  static const String queueEmpty =
+      'Your queue is empty. Add a playlist to it from the playlist\'s page.';
+  static const String playlistsEmpty =
+      'No playlists yet. Make one here, or from any title\'s menu.';
+  static const String playlistEmpty =
+      'This playlist is empty. Add titles from any title\'s menu.';
+  static const String playQueue = 'Play';
+  static const String clearQueue = 'Clear';
+  static const String clearQueueTitle = 'Clear the queue';
+  static const String confirmClearQueue =
+      'Remove every title from your queue. Your playlists stay as they are.';
+  static const String newPlaylist = 'New playlist';
+  static const String newPlaylistEllipsis = 'New playlist…';
+  static const String playlistName = 'Name';
+  static const String renamePlaylist = 'Rename playlist';
+  static const String deletePlaylist = 'Delete playlist';
+  static String confirmDeletePlaylist(String name) =>
+      'Delete the playlist $name. The titles in it stay in the catalog, and '
+      'what you already added to your queue stays there.';
+  static const String addToPlaylist = 'Add to playlist';
+  static const String addToPlaylistEllipsis = 'Add to playlist…';
+  static const String addToQueue = 'Add to queue';
+  static const String shuffleIntoQueue = 'Shuffle into queue';
+  static const String shufflePlay = 'Shuffle';
+  static const String removeFromPlaylist = 'Remove from playlist';
+  static const String removeFromQueue = 'Remove from queue';
+  static const String reorderHandle = 'Drag to reorder';
+  static String playlistItemCount(int n) => n == 1 ? '1 title' : '$n titles';
+  static String toastAddedToPlaylist(int n, String playlist) =>
+      n == 1 ? 'Added 1 title to $playlist.' : 'Added $n titles to $playlist.';
+  static String toastAlreadyInPlaylist(String playlist) =>
+      'Already in $playlist.';
+  static String toastAddedToQueue(int n) => n == 1
+      ? 'Added 1 title to your queue.'
+      : 'Added $n titles to your queue.';
+  static const String toastQueueCleared = 'Cleared your queue.';
+  static String toastRemovedFromPlaylist(String title) =>
+      'Removed $title from the playlist.';
+  static String toastRemovedFromQueue(String title) =>
+      'Removed $title from your queue.';
+  static String toastPlaylistDeleted(String name) => 'Deleted $name.';
 
   static String toastAddedWatchlist(String title) =>
       'Added $title to your watchlist.';

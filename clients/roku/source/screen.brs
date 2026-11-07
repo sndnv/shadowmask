@@ -164,6 +164,7 @@ function NavDestinations() as object
         { id: "MoviesScreen", label: Phrase("nav.movies"), icon: "movie", iconOn: "movie-on" },
         { id: "SeriesScreen", label: Phrase("nav.series"), icon: "tv", iconOn: "tv" },
         { id: "CollectionsScreen", label: Phrase("nav.collections"), icon: "collections", iconOn: "collections-on" },
+        { id: "PlaylistsScreen", label: Phrase("nav.playlists"), icon: "playlists", iconOn: "playlists-on" },
         { id: "SearchScreen", label: Phrase("nav.search"), icon: "search", iconOn: "search" },
         { id: "AccountScreen", label: Phrase("nav.account"), icon: "person", iconOn: "person-on" }
     ]
@@ -567,7 +568,8 @@ function ScreenForKind(kind as dynamic) as string
         "season": "SeasonScreen",
         "episode": "EpisodeScreen",
         "person": "PersonScreen",
-        "collection": "CollectionScreen"
+        "collection": "CollectionScreen",
+        "playlist": "PlaylistScreen"
     }
     key = LCase(TextOrBlank(kind))
     if screens.DoesExist(key) then return screens[key]

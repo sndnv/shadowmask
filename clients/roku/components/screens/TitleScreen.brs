@@ -264,6 +264,7 @@ sub BuildActions()
             buttons.Push(NextEpisodeButton(m.nextEpisode, m.nextSeasonNumber, m.nextProgress, true))
         end if
         buttons.Push(WatchedButton())
+        buttons.Push(PlaylistButton())
         if m.seasonCards.Count() > 0
             buttons.Push({ id: "random", label: Phrase("action.randomInSeries"), icon: "icon-shuffle" })
         end if
@@ -276,6 +277,7 @@ sub BuildActions()
         buttons.Push(WatchedButton())
         buttons.Push(WatchlistButton())
         buttons.Push(FavoriteButton())
+        buttons.Push(PlaylistButton())
     end if
 
     m.actions.theme = theme
@@ -631,6 +633,8 @@ sub onAction(event as object)
         ToggleFavorite()
     else if id = "random"
         PressRandom()
+    else if id = "playlist"
+        AskPlaylistFor({ kind: m.kind, id: m.id, title: TitleText() })
     else if id = "overview"
         ShowOverviewDialog(TitleText(), OverviewText())
     end if

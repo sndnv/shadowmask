@@ -13,6 +13,7 @@ function BuildStringTable() as object
         "nav.movies": "Movies",
         "nav.series": "Series",
         "nav.collections": "Collections",
+        "nav.playlists": "Playlists",
         "nav.search": "Search",
         "nav.account": "Account",
         "nav.people": "People",
@@ -60,6 +61,20 @@ function BuildStringTable() as object
         "action.randomInSeason": "Random",
         "action.random": "Random",
         "action.randomInCollection": "Random from this collection",
+        "action.playQueue": "Play queue",
+        "action.clearQueue": "Clear queue",
+        "action.addToPlaylist": "Add to playlist",
+        "action.playlistLabel": "Playlist",
+        "action.newPlaylist": "New playlist",
+        "action.renamePlaylist": "Rename playlist",
+        "action.deletePlaylist": "Delete playlist",
+        "action.addToQueue": "Add to queue",
+        "action.shuffleIntoQueue": "Shuffle into queue",
+        "action.shufflePlay": "Shuffle",
+        "action.removeFromQueue": "Remove from queue",
+        "action.removeFromPlaylist": "Remove from playlist",
+        "action.moveUp": "Move up",
+        "action.moveDown": "Move down",
         "action.loadMore": "Load more",
         "action.more": "… more.",
 
@@ -80,6 +95,8 @@ function BuildStringTable() as object
         "speech.at": "At {position} of {duration}",
 
         "confirm.clearHistory": "This removes every entry from your watch history. What you have marked as watched is not changed.",
+        "confirm.clearQueue": "Remove every title from your queue. Your playlists stay as they are.",
+        "confirm.deletePlaylist": "Delete the playlist {name}. The titles in it stay in the catalog, and what you already added to your queue stays there.",
         "confirm.signOut": "Sign out of this device? You will need a link code to sign back in.",
         "confirm.changeServer": "Connect this device to a different server? You will need a link code for it.",
         "help.profileReadOnly": "Preferences are changed from a phone or computer.",
@@ -112,6 +129,8 @@ function BuildStringTable() as object
         "empty.noMovies": "No movies found.",
         "empty.noSeries": "No series found.",
         "empty.noCollections": "No collections found.",
+        "empty.noPlaylists": "No playlists yet. Make one here, or from any title's menu.",
+        "empty.playlist": "This playlist is empty. Add titles from any title's menu.",
         "empty.noWatchlist": "Your watchlist is empty.",
         "empty.noFavorites": "You have no favorites yet.",
         "empty.noHistory": "No history found.",
@@ -136,6 +155,8 @@ function BuildStringTable() as object
         "error.couldNotLoadSearch": "Could not run the search.",
         "error.couldNotLoadTitle": "Could not load this title.",
         "error.couldNotLoadCollection": "Could not load this collection.",
+        "error.couldNotLoadPlaylists": "Could not load your playlists.",
+        "error.couldNotLoadPlaylist": "Could not load this playlist.",
         "error.couldNotLoadSeason": "Could not load this season.",
         "error.couldNotLoadEpisode": "Could not load this episode.",
         "error.couldNotLoadPerson": "Could not load this person.",
@@ -170,7 +191,16 @@ function BuildStringTable() as object
         "toast.ok.historyRemoved": "Removed from history.",
         "toast.ok.reportSent": "Report sent.",
         "toast.ok.historyCleared": "History cleared.",
+        "toast.ok.queueCleared": "Cleared your queue.",
+        "toast.ok.removedFromQueue": "Removed {title} from your queue.",
+        "toast.ok.removedFromPlaylist": "Removed {title} from the playlist.",
+        "toast.ok.playlistDeleted": "Deleted {name}.",
         "toast.ok.updated": "Updated {title}.",
+        "toast.ok.addedToPlaylist": "Added {count} titles to {name}.",
+        "toast.ok.addedToPlaylistOne": "Added 1 title to {name}.",
+        "toast.ok.alreadyInPlaylist": "Already in {name}.",
+        "toast.ok.addedToQueue": "Added {count} titles to your queue.",
+        "toast.ok.addedToQueueOne": "Added 1 title to your queue.",
         "toast.ok.childModeOn": "Child mode: {level}.",
         "toast.ok.childModeOff": "Child mode off.",
         "toast.err.actionFailed": "That did not work. Try again.",
@@ -236,6 +266,7 @@ function BuildStringTable() as object
         "player.offsetReset": "Reset",
         "player.previousEpisode": "Previous episode",
         "player.nextEpisode": "Next episode",
+        "player.nextInQueue": "Next in queue",
         "player.diagnostics": "Diagnostics",
         "player.playbackLog": "Playback log",
         "player.playbackLogEmpty": "Nothing logged yet.",
@@ -304,6 +335,8 @@ function BuildStringTable() as object
         "status.seasonCountOne": "1 season",
         "status.movieCount": "{count} movies",
         "status.movieCountOne": "1 movie",
+        "status.titleCount": "{count} titles",
+        "status.titleCountOne": "1 title",
         "status.count": "{noun} ({total})",
         "status.watchedCount": "{watched} of {total} watched",
         "status.unavailable": "Unavailable",
@@ -358,6 +391,8 @@ function BuildStringTable() as object
         "heading.seasons": "Seasons",
         "heading.movies": "Movies",
         "heading.episodes": "Episodes",
+        "heading.queue": "Queue",
+        "heading.titles": "Titles",
         "heading.filmography": "In this library",
         "heading.biography": "Biography",
         "heading.video": "Video",
@@ -468,6 +503,11 @@ end function
 function MovieCountText(count as dynamic) as string
     if Int(count) = 1 then return Phrase("status.movieCountOne")
     return PhraseWith("status.movieCount", { count: count })
+end function
+
+function TitleCountText(count as dynamic) as string
+    if Int(count) = 1 then return Phrase("status.titleCountOne")
+    return PhraseWith("status.titleCount", { count: count })
 end function
 
 function CountLabel(noun as string, total as dynamic) as string

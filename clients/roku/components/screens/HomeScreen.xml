@@ -34,6 +34,8 @@
         <field id="toastRequest" type="assocarray" alwaysNotify="true" />
         <field id="choiceRequest" type="assocarray" />
         <field id="choiceResult" type="assocarray" onChange="onChoice" />
+        <field id="keyboardRequest" type="assocarray" />
+        <field id="keyboardResult" type="assocarray" onChange="onCardMenuKeyboard" />
         <field id="revealed" type="boolean" alwaysNotify="true" onChange="onRevealed" />
         <field id="backdropUrl" type="string" alwaysNotify="true" />
     </interface>

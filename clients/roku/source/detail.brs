@@ -1111,6 +1111,8 @@ function CardMenuActions(card as dynamic, listKind = "" as dynamic) as object
         return actions
     end if
 
+    if kind = "playlist" then return PlaylistMenuActions(ValueAt(card, "itemCount", 0))
+
     leaf = kind = "movie" or kind = "episode"
     rollup = kind = "series" or kind = "season"
     if not leaf and not rollup then return actions
@@ -1149,7 +1151,101 @@ function CardMenuActions(card as dynamic, listKind = "" as dynamic) as object
         end if
     end if
 
+    actions.Push({ id: "playlist", label: Phrase("action.addToPlaylist"), icon: "icon-playlist-add" })
+
+    if not IsBlank(TextOrBlank(ValueAt(card, "queueEntryId", "")))
+        actions.Push({ id: "dequeue", label: Phrase("action.removeFromQueue"), icon: "icon-close", danger: true })
+    end if
+
     return actions
+end function
+
+function PlaylistMenuActions(itemCount as dynamic) as object
+    actions = []
+    if Int(itemCount) > 0
+        actions.Push({ id: "queue", label: Phrase("action.addToQueue"), icon: "icon-queue" })
+        actions.Push({ id: "shuffleQueue", label: Phrase("action.shuffleIntoQueue"), icon: "icon-shuffle" })
+        actions.Push({ id: "shuffle", label: Phrase("action.shufflePlay"), icon: "icon-shuffle" })
+    end if
+    actions.Push({ id: "rename", label: Phrase("action.renamePlaylist") })
+    actions.Push({ id: "delete", label: Phrase("action.deletePlaylist"), icon: "icon-trash", danger: true })
+    return actions
+end function
+
+function PlaylistButton() as object
+    return { id: "playlist", label: Phrase("action.playlistLabel"), icon: "icon-playlist-add", collapsible: true }
+end function
+
+function PlaylistsBarButtons(queueCount as integer) as object
+    empty = queueCount <= 0
+    return [
+        { id: "playQueue", label: Phrase("action.playQueue"), icon: "icon-play", style: "primary", disabled: empty },
+        { id: "clearQueue", label: Phrase("action.clearQueue"), icon: "icon-trash", disabled: empty },
+        { id: "newPlaylist", label: Phrase("action.newPlaylist"), icon: "icon-playlist-add" }
+    ]
+end function
+
+function PlaylistItemMenuActions(count as integer, index as integer) as object
+    actions = []
+    if index > 0 then actions.Push({ id: "moveUp", label: Phrase("action.moveUp"), icon: "chevron-up" })
+    if index < count - 1 then actions.Push({ id: "moveDown", label: Phrase("action.moveDown"), icon: "chevron-down" })
+    actions.Push({ id: "removeItem", label: Phrase("action.removeFromPlaylist"), icon: "icon-close", danger: true })
+    return actions
+end function
+
+function MovePosition(cards as dynamic, index as integer, stepBy as integer) as integer
+    if type(cards) <> "roArray" then return -1
+    if index < 0 or index >= cards.Count() then return -1
+
+    at = index + stepBy
+    if at < 0 or at >= cards.Count() or at = index then return -1
+    return Int(ValueAt(cards[at], "position", 0))
+end function
+
+function PlaylistPickOptions(playlists as dynamic) as object
+    options = []
+    if type(playlists) = "roArray"
+        for each playlist in playlists
+            options.Push({ label: TextOrBlank(ValueAt(playlist, "name", "")), detail: TitleCountText(ValueAt(playlist, "item_count", 0)) })
+        end for
+    end if
+    options.Push({ label: Phrase("action.newPlaylist"), icon: "icon-playlist-add" })
+    return options
+end function
+
+function PickedPlaylist(playlists as dynamic, index as integer) as dynamic
+    if type(playlists) <> "roArray" then return invalid
+    if index < 0 or index >= playlists.Count() then return invalid
+    return playlists[index]
+end function
+
+function AddedToPlaylistText(added as dynamic, name as dynamic) as string
+    count = Int(added)
+    if count <= 0 then return PhraseWith("toast.ok.alreadyInPlaylist", { name: TextOrBlank(name) })
+    if count = 1 then return PhraseWith("toast.ok.addedToPlaylistOne", { name: TextOrBlank(name) })
+    return PhraseWith("toast.ok.addedToPlaylist", { count: count, name: TextOrBlank(name) })
+end function
+
+function AddedToQueueText(added as dynamic) as string
+    count = Int(added)
+    if count = 1 then return Phrase("toast.ok.addedToQueueOne")
+    return PhraseWith("toast.ok.addedToQueue", { count: count })
+end function
+
+function QueuePlayTarget(card as dynamic, versions as dynamic) as dynamic
+    if card = invalid then return invalid
+
+    available = AvailableVersions(OrderedVersions(ListItems(versions)))
+    if available.Count() = 0 then return invalid
+
+    return {
+        versionId: TextOrBlank(ValueAt(ResolvePlayTarget(available, {}), "id", "")),
+        resolve: true,
+        percent: 0,
+        title: TextOrBlank(ValueAt(card, "title", "")),
+        label: QueueLabel(card),
+        queueEntryId: TextOrBlank(ValueAt(card, "queueEntryId", ""))
+    }
 end function
 
 function IsYearText(text as dynamic) as boolean

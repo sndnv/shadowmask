@@ -1,13 +1,13 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use domain::catalog::{
-    EpisodeCard, EpisodeContext, EpisodeId, Movie, MovieId, Series, SeriesCard, SeriesId,
-    SortOrder, TitleId, TitleListFilter, TitleSort,
+    EpisodeCard, EpisodeId, Movie, MovieId, SeriesCard, SeriesId, SortOrder, TitleId,
+    TitleListFilter, TitleSort,
 };
 use domain::common::{Page, PageRequest};
 use domain::discovery::{Audience, ContinueWatchingItem, Hub, HubItem, SearchKind, SearchResult};
 use domain::error::{DiscoveryError, RepositoryError};
-use domain::playback::{WatchlistItem, is_started};
+use domain::playback::{QueueCard, WatchlistItem, is_started};
 use domain::repository::{
     CatalogRepository, PreferencesRepository, ProgressRepository, SearchIndex, UserRepository,
 };
@@ -17,9 +17,10 @@ use domain::user::UserId;
 
 use crate::acl;
 use crate::discovery::{
-    EPISODE_WINDOW, RECENT_ROW, continue_watching, furthest_watched, home_hubs,
+    EPISODE_WINDOW, RECENT_ROW, continue_watching, episode_cards, furthest_watched, home_hubs,
     next_movie_candidates, next_movies, recently_added_movies, recently_added_shows, resume_card,
-    resume_card_from, watched_episode_ids, watched_movie_ids, watchlist_row,
+    resume_card_from, visible_cards, visible_titles, watched_episode_ids, watched_movie_ids,
+    watchlist_row,
 };
 
 #[derive(Clone)]
@@ -46,29 +47,7 @@ where
     U: UserRepository + Sync,
 {
     async fn viewer_filter(&self, audience: &Audience) -> Result<TitleListFilter, RepositoryError> {
-        let viewer = acl::viewer(&self.users, &audience.user).await?;
-        Ok(viewer.limited_to(audience.age_limit).filter(None))
-    }
-
-    async fn visible_titles(
-        &self,
-        titles: &[TitleId],
-        filter: &TitleListFilter,
-    ) -> Result<HashSet<TitleId>, RepositoryError> {
-        let mut movies = Vec::new();
-        let mut episodes = Vec::new();
-        for title in titles {
-            match title {
-                TitleId::Movie(id) => movies.push(id.clone()),
-                TitleId::Episode(id) => episodes.push(id.clone()),
-            }
-        }
-        let shown = self.catalog.visible_movies(&movies, filter).await?;
-        let mut visible: HashSet<TitleId> =
-            shown.into_iter().map(|movie| TitleId::Movie(movie.id)).collect();
-        let shown = self.catalog.visible_episodes(&episodes, filter).await?;
-        visible.extend(shown.into_iter().map(|context| TitleId::Episode(context.episode.id)));
-        Ok(visible)
+        acl::audience_filter(&self.users, audience).await
     }
 
     async fn recent_movies(&self, filter: &TitleListFilter) -> Result<Vec<Movie>, RepositoryError> {
@@ -95,33 +74,6 @@ where
         Ok(row)
     }
 
-    async fn cards_for(
-        &self,
-        contexts: Vec<EpisodeContext>,
-    ) -> Result<Vec<EpisodeCard>, RepositoryError> {
-        let mut parents: HashMap<SeriesId, Option<Series>> = HashMap::new();
-        let mut cards = Vec::with_capacity(contexts.len());
-        for context in contexts {
-            let parent = match parents.get(&context.series) {
-                Some(found) => found.clone(),
-                None => {
-                    let found = self.catalog.get_series(&context.series).await?;
-                    parents.insert(context.series.clone(), found.clone());
-                    found
-                }
-            };
-            cards.push(EpisodeCard {
-                episode: context.episode,
-                series: Some(context.series),
-                series_title: parent.as_ref().map(|s| s.title.clone()),
-                series_artwork: parent.map(|s| s.artwork).unwrap_or_default(),
-                season_number: Some(context.season_number),
-                season_title: context.season_title,
-            });
-        }
-        Ok(cards)
-    }
-
     async fn up_next(
         &self,
         user: &UserId,
@@ -138,7 +90,7 @@ where
                 found.push(next);
             }
         }
-        self.cards_for(found).await
+        episode_cards(&self.catalog, found).await
     }
 
     async fn on_deck(
@@ -169,7 +121,7 @@ where
         }
         let movies = self.catalog.visible_movies(&movie_ids, filter).await?;
         let contexts = self.catalog.visible_episodes(&episode_ids, filter).await?;
-        let cards = self.cards_for(contexts).await?;
+        let cards = episode_cards(&self.catalog, contexts).await?;
         Ok(watchlist_row(saved, &movies, &cards, RECENT_ROW))
     }
 
@@ -191,7 +143,7 @@ where
             items.push(ContinueWatchingItem { progress: entry, card });
         }
         let titles: Vec<TitleId> = items.iter().map(|item| item.card.title.clone()).collect();
-        let visible = self.visible_titles(&titles, filter).await?;
+        let visible = visible_titles(&self.catalog, &titles, filter).await?;
         items.retain(|item| visible.contains(&item.card.title));
         Ok(items)
     }
@@ -257,7 +209,7 @@ where
         if let Some(audience) = audience {
             let filter = self.viewer_filter(audience).await?;
             let titles: Vec<TitleId> = items.iter().map(|item| item.card.title.clone()).collect();
-            let visible = self.visible_titles(&titles, &filter).await?;
+            let visible = visible_titles(&self.catalog, &titles, &filter).await?;
             items.retain(|item| visible.contains(&item.card.title));
         }
         Ok(items)
@@ -302,13 +254,25 @@ where
 
         Ok(home_hubs(watchlist, recent_movies, recent_shows, on_deck, continue_row))
     }
+
+    async fn queue_next(&self, audience: &Audience) -> Result<Option<QueueCard>, DiscoveryError> {
+        let filter = self.viewer_filter(audience).await?;
+        let queue = self.preferences.list_queue(&audience.user).await?;
+        let titles: Vec<TitleId> = queue.iter().map(|entry| entry.title.clone()).collect();
+        let mut cards = visible_cards(&self.catalog, &titles, &filter).await?;
+        Ok(queue.into_iter().find_map(|entry| {
+            let card = cards.remove(&entry.title)?;
+            Some(QueueCard { entry, card })
+        }))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use domain::catalog::{
-        Collection, CollectionId, Episode, MovieId, Season, SeasonId, SeriesId, Version,
+        Collection, CollectionId, Episode, MovieId, Season, SeasonId, Series, SeriesId, TitleCard,
+        Version,
     };
     use domain::catalog::{EpisodeId, VersionId};
     use domain::common::Quality;
@@ -1037,6 +1001,43 @@ mod tests {
             vec!["m1".to_owned()],
             "an 18 rated title must not reach a capped account through the home rails"
         );
+    }
+
+    #[tokio::test]
+    async fn queue_next_is_the_first_entry_the_viewer_can_see() {
+        let catalog = gated();
+        catalog.add_series(series("s1"));
+        catalog.add_season(season("se1", "s1"));
+        catalog.add_episode(episode("e1", "se1", 1));
+        catalog.add_version(version("ev1", TitleId::Episode(EpisodeId("e1".into()))));
+        let preferences = MockPreferencesRepo::new();
+        let svc = |users| {
+            DiscoveryServiceImpl::new(
+                catalog.clone(),
+                MockSearchIndex::new(),
+                MockProgressRepo::new(),
+                preferences.clone(),
+                users,
+            )
+        };
+        let capped = svc(viewer(Some("pg"), &["lib1"]).await);
+        let open = svc(viewer(None, &["lib1"]).await);
+        assert!(capped.queue_next(&audience()).await.unwrap().is_none());
+
+        let m1 = TitleId::Movie(MovieId("m1".into()));
+        let m2 = TitleId::Movie(MovieId("m2".into()));
+        let e1 = TitleId::Episode(EpisodeId("e1".into()));
+        preferences.seed_queue(&user(), &[m2.clone(), e1, m1]);
+
+        let next = capped.queue_next(&audience()).await.unwrap().unwrap();
+        assert_eq!((next.entry.id.0.as_str(), next.entry.title.id()), ("3", "m1"));
+        let next = open.queue_next(&audience()).await.unwrap().unwrap();
+        assert_eq!(next.entry.id.0, "1");
+
+        preferences.remove_first_queued(&user(), &m2).await.unwrap();
+        let next = open.queue_next(&audience()).await.unwrap().unwrap();
+        let TitleCard::Episode(card) = next.card else { panic!("not an episode card") };
+        assert_eq!(card.series_title.as_deref(), Some("s1"));
     }
 
     #[tokio::test]

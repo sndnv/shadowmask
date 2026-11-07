@@ -86,7 +86,11 @@ class _LibraryListBlockState extends State<LibraryListBlock>
     then: widget.onChanged,
   );
 
-  void _menuAction(CatalogCard _, CardAction _) => widget.onChanged();
+  void _menuAction(CatalogCard _, CardAction action) {
+    if (action != CardAction.playlist) {
+      widget.onChanged();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

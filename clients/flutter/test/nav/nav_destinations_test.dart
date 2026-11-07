@@ -30,4 +30,18 @@ void main() {
     expect(_hasAdmin(destinationsFor(_user(UserRole.user))), isFalse);
     expect(_hasAdmin(destinationsFor(null)), isFalse);
   });
+
+  test('every account has Playlists, in the More sheet on a phone', () {
+    for (final UserRole role in <UserRole>[UserRole.user, UserRole.player]) {
+      final ({List<NavDestination> overflow, List<NavDestination> tabs}) split =
+          bottomNavSplit(_user(role));
+      final NavDestination playlists = destinationsFor(
+        _user(role),
+      ).singleWhere((NavDestination d) => d.section == NavSection.playlists);
+
+      expect(playlists.route, '/playlists');
+      expect(split.tabs, isNot(contains(playlists)));
+      expect(split.overflow, contains(playlists));
+    }
+  });
 }

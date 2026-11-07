@@ -184,6 +184,7 @@ where
             self.progress.set_watched_flags(user, &title, watched).await?;
             if watched {
                 self.preferences.remove_watchlist(user, title.id()).await?;
+                self.preferences.remove_first_queued(user, &title).await?;
             }
             for version in self.catalog.list_versions(&title, PageRequest::ALL).await?.items {
                 self.progress.delete(user, &version.id).await?;
@@ -757,6 +758,34 @@ mod tests {
             HashSet::from(["m1".to_owned()]),
             "the series sweeps its episodes and never touches a movie"
         );
+    }
+
+    #[tokio::test]
+    async fn marking_watched_takes_each_titles_earliest_queue_entry() {
+        let preferences = Arc::new(MockPreferencesRepo::new());
+        let catalog = Arc::new(MockCatalogRepo::new());
+        catalog.add_series(series("sr1"));
+        catalog.add_season(season("se1", "sr1"));
+        catalog.add_episode(episode("e1", "se1"));
+        catalog.add_episode(episode("e2", "se1"));
+        let svc = UserLibraryServiceImpl::new(
+            Arc::new(MockProgressRepo::new()),
+            Arc::clone(&preferences),
+            Arc::clone(&catalog),
+        );
+        let e1 = TitleId::Episode(EpisodeId("e1".into()));
+        let e2 = TitleId::Episode(EpisodeId("e2".into()));
+        let m1 = TitleId::Movie(MovieId("m1".into()));
+        preferences.seed_queue(&user(), &[e1.clone(), m1.clone(), e2.clone(), e1.clone()]);
+
+        svc.set_watched(&user(), &WatchTarget::Movie(MovieId("m1".into())), false).await.unwrap();
+        assert_eq!(preferences.list_queue(&user()).await.unwrap().len(), 4);
+
+        svc.set_watched(&user(), &WatchTarget::Season(SeasonId("se1".into())), true).await.unwrap();
+
+        let left: Vec<TitleId> =
+            preferences.list_queue(&user()).await.unwrap().into_iter().map(|e| e.title).collect();
+        assert_eq!(left, [m1, e1], "one entry per episode, the earliest of each");
     }
 
     #[tokio::test]

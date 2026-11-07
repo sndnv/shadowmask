@@ -374,6 +374,53 @@ Future<String> _autoplayIntoSeveral(
   return pushed.single;
 }
 
+http.Response? _queued(http.Request r) {
+  if (r.url.path == '/api/v1/users/u1/queue') {
+    return http.Response(
+      jsonEncode(<dynamic>[
+        <String, dynamic>{
+          'id': 'q1',
+          'card': <String, dynamic>{
+            'type': 'episode',
+            'id': 'e1',
+            'season_id': 'se1',
+            'number': 1,
+            'title': 'Pilot',
+          },
+        },
+        <String, dynamic>{
+          'id': 'q2',
+          'card': <String, dynamic>{
+            'type': 'movie',
+            'id': 'm5',
+            'title': 'Fifth',
+          },
+        },
+      ]),
+      200,
+    );
+  }
+  if (r.url.path == '/api/v1/movies/m5/versions') {
+    return http.Response(
+      jsonEncode(<String, dynamic>{
+        'items': <dynamic>[
+          <String, dynamic>{
+            'id': 'v5',
+            'title': <String, dynamic>{'type': 'movie', 'id': 'm5'},
+            'library_id': 'lib',
+            'quality': 'hd',
+            'container': 'mp4',
+            'available': true,
+          },
+        ],
+        'total': 1,
+      }),
+      200,
+    );
+  }
+  return null;
+}
+
 Map<String, dynamic> _movieVersion(String id, String quality) =>
     <String, dynamic>{
       'id': id,
@@ -562,6 +609,7 @@ Widget _app(
   bool toasts = false,
   PageDirector<String?>? backdrops,
   int? startAtMs,
+  String? queueEntryId,
 }) {
   int updates = 0;
   final ApiClient api = ApiClient(
@@ -627,6 +675,7 @@ Widget _app(
         versionId: 'v1',
         initialControls: controls,
         startAtMs: startAtMs,
+        queueEntryId: queueEntryId,
         controllerFactory: (_) => fake,
         wide: wide,
         touch: touch,
@@ -3639,6 +3688,133 @@ void main() {
     },
   );
 
+  testWidgets(
+    'in queue mode the next title is the queue\'s next entry and previous is off',
+    (WidgetTester tester) async {
+      final FakePlayerController fake = FakePlayerController();
+      await tester.pumpWidget(
+        _app(fake, episodic: true, queueEntryId: 'q1', intercept: _queued),
+      );
+      await tester.pumpAndSettle();
+      await _settled(tester);
+
+      fake.emit(ended: true);
+      await _shown(tester);
+
+      expect(find.byType(UpNextCard), findsOneWidget);
+      expect(find.text('Fifth'), findsOneWidget);
+      expect(find.text('S01E02 · Second'), findsNothing);
+      expect(find.byTooltip(Strings.noEarlierEpisode), findsNothing);
+      expect(find.byTooltip(Strings.nextNamed('Fifth')), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets('autoplay in queue mode plays the next entry with its queue id', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'shadowmask.player.autoplay': kAutoplayImmediately,
+    });
+    final FakePlayerController fake = FakePlayerController();
+    final List<String> pushed = <String>[];
+    await tester.pumpWidget(
+      _app(
+        fake,
+        episodic: true,
+        pushed: pushed,
+        queueEntryId: 'q1',
+        intercept: _queued,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _settled(tester);
+
+    fake.emit(ended: true);
+    await tester.pumpAndSettle();
+
+    final Uri next = Uri.parse(pushed.single);
+    expect(next.queryParameters['version'], 'v5');
+    expect(next.queryParameters['queue'], 'q2');
+  });
+
+  testWidgets('a movie in queue mode goes on to the next entry with no '
+      'previous button', (WidgetTester tester) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(
+      _app(
+        fake,
+        queueEntryId: 'q0',
+        intercept: (http.Request r) {
+          if (r.url.path == '/api/v1/movies/m1') {
+            return http.Response(
+              jsonEncode(<String, dynamic>{'id': 'm1', 'title': 'Alpha'}),
+              200,
+            );
+          }
+          if (r.url.path == '/api/v1/users/u1/queue') {
+            return http.Response(
+              jsonEncode(<dynamic>[
+                <String, dynamic>{
+                  'id': 'q0',
+                  'card': <String, dynamic>{
+                    'type': 'movie',
+                    'id': 'm1',
+                    'title': 'Alpha',
+                  },
+                },
+                <String, dynamic>{
+                  'id': 'q1',
+                  'card': <String, dynamic>{
+                    'type': 'movie',
+                    'id': 'm5',
+                    'title': 'Fifth',
+                  },
+                },
+              ]),
+              200,
+            );
+          }
+          return null;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _settled(tester);
+
+    fake.emit(ended: true);
+    await _shown(tester);
+
+    expect(find.byType(UpNextCard), findsOneWidget);
+    expect(find.text('Fifth'), findsOneWidget);
+    expect(find.byTooltip(Strings.nextNamed('Fifth')), findsOneWidget);
+    expect(find.byTooltip(Strings.noEarlierEpisode), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('the last queue entry has no next title', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    await tester.pumpWidget(
+      _app(fake, episodic: true, queueEntryId: 'q2', intercept: _queued),
+    );
+    await tester.pumpAndSettle();
+    await _settled(tester);
+
+    fake.emit(ended: true);
+    await _shown(tester);
+
+    expect(find.byType(UpNextCard), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('autoplay with the playback log open replaces the watch page', (
     WidgetTester tester,
   ) async {
@@ -5772,6 +5948,28 @@ void main() {
     expect(next.queryParameters['version'], 'v2');
     expect(next.queryParameters['at'], '61000');
     expect(next.queryParameters['alang'], 'en');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a version switch in queue mode keeps the queue', (
+    WidgetTester tester,
+  ) async {
+    final FakePlayerController fake = FakePlayerController();
+    final List<String> pushed = <String>[];
+    await tester.pumpWidget(
+      _app(fake, pushed: pushed, queueEntryId: 'q1', intercept: _twoVersions),
+    );
+    await tester.pumpAndSettle();
+    await _settled(tester);
+
+    await _pickVersion(tester, '2 · HD · mkv');
+    await tester.pumpAndSettle();
+
+    final Uri next = Uri.parse(pushed.single);
+    expect(next.queryParameters['version'], 'v2');
+    expect(next.queryParameters['queue'], 'q1');
 
     await tester.pumpWidget(const SizedBox());
     await tester.pumpAndSettle();

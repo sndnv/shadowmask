@@ -66,6 +66,9 @@ class _CatalogCardTileState extends State<CatalogCardTile> {
   bool get _dropsResume =>
       widget.onDismiss != null && widget.card.dismissVersionId != null;
 
+  bool get _dropsQueued =>
+      widget.onDismiss != null && widget.card.queueEntryId != null;
+
   void _openMenu(BuildContext context, Offset at) {
     final CardMenuHost? host = CardMenuHost.maybeOf(context);
     if (host == null) {
@@ -75,10 +78,12 @@ class _CatalogCardTileState extends State<CatalogCardTile> {
       showCardMenu(
         context,
         catalog: host.catalog,
+        playlists: host.playlists,
         userId: host.userId,
         card: widget.card,
         at: at,
         onDismiss: _dropsResume ? () => widget.onDismiss!(widget.card) : null,
+        onDequeue: _dropsQueued ? () => widget.onDismiss!(widget.card) : null,
         onChanged: (CardAction action) {
           if (mounted) {
             setState(() {});

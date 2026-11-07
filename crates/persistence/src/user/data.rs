@@ -42,7 +42,8 @@ mod tests {
     use super::*;
     use domain::catalog::{EpisodeId, MovieId, TitleId};
     use domain::playback::{
-        Favorite, PlaybackProgress, SubtitleTrackRef, UserSubtitleOffset, WatchlistItem,
+        Favorite, PlaybackProgress, Playlist, PlaylistId, SubtitleTrackRef, UserSubtitleOffset,
+        WatchlistItem,
     };
     use domain::repository::{PreferencesRepository, ProgressRepository};
     use jiff::Timestamp;
@@ -82,6 +83,20 @@ mod tests {
                 .await
                 .unwrap();
         }
+        let playlist = PlaylistId("p1".into());
+        let at = Timestamp::UNIX_EPOCH;
+        preferences
+            .save_playlist(
+                user,
+                Playlist { id: playlist.clone(), name: "p".into(), created_at: at, updated_at: at },
+            )
+            .await
+            .unwrap();
+        preferences
+            .add_playlist_items(user, &playlist, &[movie("m1"), episode("e1"), movie("m2")], at)
+            .await
+            .unwrap();
+        preferences.queue_playlist(user, &playlist, false).await.unwrap();
         for title in [movie("m1"), episode("e1"), movie("m2")] {
             progress.record_view(user, &title, Timestamp::UNIX_EPOCH).await.unwrap();
             preferences
@@ -138,6 +153,20 @@ mod tests {
         let liked: Vec<TitleId> =
             preferences.list_favorites(&user).await.unwrap().into_iter().map(|i| i.title).collect();
         assert_eq!(liked, [movie("m2")]);
+        let playlist = PlaylistId("p1".into());
+        let kept: Vec<TitleId> = preferences
+            .list_playlist_items(&user, &playlist)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|i| i.title)
+            .collect();
+        assert_eq!(kept, [movie("m2")]);
+        let queued: Vec<TitleId> =
+            preferences.list_queue(&user).await.unwrap().into_iter().map(|e| e.title).collect();
+        assert_eq!(queued, [movie("m2")]);
+        assert_eq!(preferences.list_queue(&other).await.unwrap().len(), 3);
+        assert_eq!(preferences.list_playlist_items(&other, &playlist).await.unwrap().len(), 3);
         let track = SubtitleTrackRef::Embedded(0);
         let v1 = VersionId("v1".into());
         let v2 = VersionId("v2".into());

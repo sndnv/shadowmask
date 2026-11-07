@@ -1,0 +1,118 @@
+---
+source: crates/api/tests/snapshots.rs
+expression: value
+---
+{
+  "body": {
+    "created_at": "[created_at]",
+    "id": "pl1",
+    "items": [
+      {
+        "added_at": "2023-11-14T22:14:10Z",
+        "card": {
+          "added_at": "2023-11-14T22:13:21Z",
+          "artwork": {
+            "backdrops": [
+              {
+                "base": "/images/m1-backdrop",
+                "widths": [
+                  480,
+                  960
+                ]
+              }
+            ],
+            "posters": [
+              {
+                "base": "/images/m1-poster",
+                "widths": [
+                  180,
+                  480,
+                  960
+                ]
+              }
+            ]
+          },
+          "content_rating": {
+            "code": "PG-13",
+            "system": "MPAA"
+          },
+          "id": "m1",
+          "manually_edited": false,
+          "overview": "overview",
+          "runtime_minutes": 100,
+          "title": "Alpha m1",
+          "type": "movie",
+          "updated_at": "2023-11-14T22:13:21Z",
+          "year": 2020
+        },
+        "position": 0
+      },
+      {
+        "added_at": "2023-11-14T22:14:10Z",
+        "card": {
+          "added_at": "2023-11-14T22:13:24Z",
+          "air_date": "2023-11-14T22:13:23Z",
+          "artwork": {
+            "backdrops": [
+              {
+                "base": "/images/e1-backdrop",
+                "widths": [
+                  480,
+                  960
+                ]
+              }
+            ],
+            "posters": [
+              {
+                "base": "/images/e1-poster",
+                "widths": [
+                  180,
+                  480,
+                  960
+                ]
+              }
+            ]
+          },
+          "id": "e1",
+          "manually_edited": false,
+          "number": 1,
+          "overview": null,
+          "runtime_minutes": 42,
+          "season_id": "se1",
+          "season_number": 1,
+          "season_title": "Season 1",
+          "series_artwork": {
+            "backdrops": [
+              {
+                "base": "/images/s1-backdrop",
+                "widths": [
+                  480,
+                  960
+                ]
+              }
+            ],
+            "posters": [
+              {
+                "base": "/images/s1-poster",
+                "widths": [
+                  180,
+                  480,
+                  960
+                ]
+              }
+            ]
+          },
+          "series_id": "s1",
+          "series_title": "Alpha s1",
+          "title": "Alpha e1",
+          "type": "episode",
+          "updated_at": "2023-11-14T22:13:24Z"
+        },
+        "position": 1
+      }
+    ],
+    "name": "Weekend",
+    "updated_at": "[updated_at]"
+  },
+  "status": 200
+}

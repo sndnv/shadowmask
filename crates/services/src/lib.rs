@@ -7,6 +7,7 @@ pub mod library;
 pub(crate) mod page;
 pub mod password;
 pub mod playback_prep_audit;
+pub mod playlist;
 pub mod session;
 pub mod user;
 pub mod user_library;
