@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 domain.workspace = true
 reqwest.workspace = true
+http-body-util.workspace = true
 image.workspace = true
 serde = { workspace = true }
 serde_json.workspace = true

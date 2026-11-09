@@ -17,6 +17,8 @@
       let fields = null;
       let formStatus = null;
       let tvOnly = null;
+      let titleCaption = null;
+      let libraryKinds = {};
 
       if (sm.requireAuth()) guard();
 
@@ -40,30 +42,28 @@
         fields = {
           url: sm.el("input", { autocomplete: "off", size: "60" }),
           library: sm.el("select", null, []),
-          kind: sm.el("select", null, [
-            sm.el("option", { value: "movie" }, "movie"),
-            sm.el("option", { value: "tv" }, "tv"),
-          ]),
           title: sm.el("input", { autocomplete: "off" }),
           externalId: sm.el("input", { autocomplete: "off", placeholder: "603 or tt0133093" }),
           season: sm.el("input", { type: "number", min: "0" }),
           episode: sm.el("input", { type: "number", min: "0" }),
+          episodeTitle: sm.el("input", { autocomplete: "off" }),
         };
         formStatus = sm.el("span", null);
         tvOnly = sm.el("div", null, [
           sm.el("label", null, ["Season ", fields.season]),
           " ",
           sm.el("label", null, ["Episode ", fields.episode]),
+          " ",
+          sm.el("label", null, ["Episode title ", fields.episodeTitle]),
         ]);
-        fields.kind.addEventListener("change", updateKind);
+        titleCaption = sm.el("span", null, "Title ");
+        fields.library.addEventListener("change", updateKind);
         const form = sm.el("form", null, [
           sm.el("label", null, ["Source URL ", fields.url]),
           sm.el("br"),
           sm.el("label", null, ["Target library ", fields.library]),
-          " ",
-          sm.el("label", null, ["Type ", fields.kind]),
           sm.el("br"),
-          sm.el("label", null, ["Title ", fields.title]),
+          sm.el("label", null, [titleCaption, fields.title]),
           " ",
           sm.el("label", null, ["TMDB or IMDb id (optional) ", fields.externalId]),
           sm.el("br"),
@@ -77,8 +77,13 @@
         updateKind();
       }
 
+      function isTv() {
+        return libraryKinds[fields.library.value] === "tv";
+      }
+
       function updateKind() {
-        tvOnly.style.display = fields.kind.value === "tv" ? "block" : "none";
+        tvOnly.style.display = isTv() ? "block" : "none";
+        titleCaption.textContent = isTv() ? "Series " : "Title ";
       }
 
       async function loadLibraries() {
@@ -93,8 +98,10 @@
             return;
           }
           external.forEach((l) => {
+            libraryKinds[l.id] = l.kind;
             fields.library.appendChild(sm.el("option", { value: l.id }, l.name + " (" + l.kind + ")"));
           });
+          updateKind();
         } catch (err) {
           fields.library.appendChild(sm.el("option", { value: "" }, "could not load"));
         }
@@ -107,22 +114,24 @@
 
       async function onSubmit(e) {
         e.preventDefault();
-        const isTv = fields.kind.value === "tv";
+        const tv = isTv();
         const body = {
           source_url: fields.url.value.trim(),
           library_id: fields.library.value,
-          kind: fields.kind.value,
           title: fields.title.value.trim(),
           external_id: fields.externalId.value.trim() ? fields.externalId.value.trim() : null,
-          season: isTv ? numberOrNull(fields.season.value) : null,
-          episode: isTv ? numberOrNull(fields.episode.value) : null,
+          season: tv ? numberOrNull(fields.season.value) : null,
+          episode: tv ? numberOrNull(fields.episode.value) : null,
+          episode_title: tv ? fields.episodeTitle.value.trim() : null,
         };
         if (!body.source_url || !body.library_id || !body.title) {
-          formStatus.textContent = "URL, library and title are required.";
+          formStatus.textContent = tv
+            ? "URL, library and series are required."
+            : "URL, library and title are required.";
           return;
         }
-        if (isTv && (body.season === null || body.episode === null)) {
-          formStatus.textContent = "Season and episode are required for tv.";
+        if (tv && (body.season === null || body.episode === null || !body.episode_title)) {
+          formStatus.textContent = "Season, episode and episode title are required for a TV library.";
           return;
         }
         formStatus.textContent = "";

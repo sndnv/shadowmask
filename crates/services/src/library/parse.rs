@@ -25,9 +25,10 @@ static FRAME_SIZE: LazyLock<Regex> =
 static CHECKSUM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[[0-9A-Fa-f]{8}\]").unwrap());
 static SEASON_EPISODE_X: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\b([0-9]{1,2})x([0-9]{1,3})\b").unwrap());
-static YEAR_PAREN: LazyLock<Regex> =
+pub(super) static YEAR_PAREN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[(\[]((?:19|20)[0-9]{2})[)\]]").unwrap());
-static YEAR_BARE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(?:19|20)[0-9]{2}\b").unwrap());
+pub(super) static YEAR_BARE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b(?:19|20)[0-9]{2}\b").unwrap());
 static JUNK: LazyLock<Regex> = LazyLock::new(|| {
     let mut tokens: Vec<&str> = FORMAT_TOKENS
         .iter()
@@ -38,9 +39,9 @@ static JUNK: LazyLock<Regex> = LazyLock::new(|| {
     let escaped: Vec<String> = tokens.into_iter().map(regex::escape).collect();
     Regex::new(&format!(r"(?i)\b({})\b", escaped.join("|"))).unwrap()
 });
-static RESOLUTION: LazyLock<Regex> =
+pub(super) static RESOLUTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\b(480p|576p|720p|1080p|2160p|4k)\b").unwrap());
-static PROVIDER_TAG: LazyLock<Regex> =
+pub(super) static PROVIDER_TAG: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\[(tmdbid|imdbid)-([a-z0-9]{1,24})\]").unwrap());
 static SEASON_DIR: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\bseasons?[ ._-]*([0-9]{1,3})\b").unwrap());
@@ -190,6 +191,7 @@ fn parse_stem(stem: &str) -> ParsedMedia {
         episode: season_episode.map(|(_, e, _)| e),
         quality: find_quality(stem),
         external_id: external_id.map(|(id, _)| id),
+        episode_title: None,
     }
 }
 
@@ -832,6 +834,7 @@ mod tests {
             episode: Some(2),
             quality: None,
             external_id: None,
+            episode_title: None,
         };
         let movie_year = ParsedMedia {
             title: "Movie".into(),
@@ -840,6 +843,7 @@ mod tests {
             episode: None,
             quality: None,
             external_id: None,
+            episode_title: None,
         };
         let movie_bare = ParsedMedia {
             title: "Movie".into(),
@@ -848,6 +852,7 @@ mod tests {
             episode: None,
             quality: None,
             external_id: None,
+            episode_title: None,
         };
         let tagged = ParsedMedia {
             external_id: Some(ExternalId { source: "tmdb".into(), value: "movie/603".into() }),
@@ -860,6 +865,7 @@ mod tests {
             episode: None,
             quality: None,
             external_id: None,
+            episode_title: None,
         };
         assert_eq!(confidence(&episodic), CONF_STRONG);
         assert_eq!(confidence(&movie_year), CONF_STRONG);

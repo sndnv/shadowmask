@@ -9,10 +9,17 @@ pub struct FetchSpec {
     pub filename_stem: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SiteDetails {
+    pub thumbnails: Vec<String>,
+    pub upload_date: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct FetchedMedia {
     pub path: String,
     pub size_bytes: u64,
+    pub site: SiteDetails,
 }
 
 pub trait MediaFetcher {

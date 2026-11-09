@@ -15,8 +15,8 @@ server image are credited from the *Third-party content* section of the
 
 | License | Crates |
 | --- | ---: |
-| Apache License 2.0 | 301 |
-| MIT License | 100 |
+| Apache License 2.0 | 304 |
+| MIT License | 96 |
 | Unicode License v3 | 20 |
 | ISC License | 7 |
 | BSD 3-Clause "New" or "Revised" License | 6 |
@@ -448,11 +448,14 @@ Used by:
 
 - [cmov 0.5.4](https://github.com/RustCrypto/utils)
 - [ctutils 0.4.8](https://github.com/RustCrypto/utils)
+- [multiversion-macros 0.8.1](https://github.com/calebzulawski/multiversion)
+- [multiversion 0.8.1](https://github.com/calebzulawski/multiversion)
 - [ndarray-npy 0.9.1](https://github.com/jturner314/ndarray-npy)
 - [py_literal 0.4.0](https://github.com/jturner314/py_literal)
 - [sentencepiece-sys 0.13.2](https://github.com/danieldk/sentencepiece.git)
 - [siphasher 1.0.4](https://github.com/jedisct1/rust-siphash)
 - [static_assertions 1.1.0](https://github.com/nvzqz/static-assertions-rs)
+- [target-features 0.1.6](https://github.com/calebzulawski/target-features)
 - [tinyvec 1.13.3](https://github.com/Lokathor/tinyvec)
 - [utf8_iter 1.1.0](https://github.com/hsivonen/utf8_iter)
 - [utf_types 1.0.0](https://github.com/hsivonen/utf_types)
@@ -3230,9 +3233,9 @@ Used by:
 - [clap_builder 4.6.7](https://github.com/clap-rs/clap)
 - [clap_derive 4.6.7](https://github.com/clap-rs/clap)
 - [clap_lex 1.1.1](https://github.com/clap-rs/clap)
-- [serde_spanned 1.1.2](https://github.com/toml-rs/toml)
-- [toml 1.2.0+spec-1.1.0](https://github.com/toml-rs/toml)
-- [toml_datetime 1.1.2+spec-1.1.0](https://github.com/toml-rs/toml)
+- [serde_spanned 1.1.3](https://github.com/toml-rs/toml)
+- [toml 1.2.1+spec-1.1.0](https://github.com/toml-rs/toml)
+- [toml_datetime 1.1.3+spec-1.1.0](https://github.com/toml-rs/toml)
 - [toml_parser 1.1.5+spec-1.1.0](https://github.com/toml-rs/toml)
 - [toml_writer 1.2.0+spec-1.1.0](https://github.com/toml-rs/toml)
 
@@ -6188,7 +6191,7 @@ limitations under the License.
 
 Used by:
 
-- [notify-types 2.2.0](https://github.com/notify-rs/notify.git)
+- [notify-types 2.3.0](https://github.com/notify-rs/notify.git)
 
 ````text
                               Apache License
@@ -7025,7 +7028,7 @@ limitations under the License.
 Used by:
 
 - [ahash 0.8.12](https://github.com/tkaitchuck/ahash)
-- [arc-swap 1.9.3](https://github.com/vorner/arc-swap)
+- [arc-swap 1.9.4](https://github.com/vorner/arc-swap)
 - [atomic-waker 1.1.2](https://github.com/smol-rs/atomic-waker)
 - [autocfg 1.5.1](https://github.com/cuviper/autocfg)
 - [base64 0.13.1](https://github.com/marshallpierce/rust-base64)
@@ -7034,7 +7037,7 @@ Used by:
 - [bitflags 1.3.2](https://github.com/bitflags/bitflags)
 - [bitflags 2.13.2](https://github.com/bitflags/bitflags)
 - [bumpalo 3.20.3](https://github.com/fitzgen/bumpalo)
-- [cc 1.11.0](https://github.com/rust-lang/cc-rs)
+- [cc 1.11.1](https://github.com/rust-lang/cc-rs)
 - [cfg-if 1.0.5](https://github.com/rust-lang/cfg-if)
 - [cmake 0.1.58](https://github.com/rust-lang/cmake-rs)
 - [core-foundation-sys 0.8.7](https://github.com/servo/core-foundation-rs)
@@ -7053,7 +7056,7 @@ Used by:
 - [fastrand 2.5.0](https://github.com/smol-rs/fastrand)
 - [filetime 0.2.29](https://github.com/alexcrichton/filetime)
 - [find-msvc-tools 0.1.15](https://github.com/rust-lang/cc-rs)
-- [flate2 1.1.10](https://github.com/rust-lang/flate2-rs)
+- [flate2 1.1.11](https://github.com/rust-lang/flate2-rs)
 - [fnv 1.0.7](https://github.com/servo/rust-fnv)
 - [form_urlencoded 1.2.2](https://github.com/servo/rust-url)
 - [hashbrown 0.16.1](https://github.com/rust-lang/hashbrown)
@@ -7115,7 +7118,7 @@ Used by:
 - [security-framework-sys 2.17.0](https://github.com/kornelski/rust-security-framework)
 - [security-framework 3.7.0](https://github.com/kornelski/rust-security-framework)
 - [signal-hook-registry 1.4.8](https://github.com/vorner/signal-hook)
-- [smallvec 1.16.4](https://github.com/servo/rust-smallvec)
+- [smallvec 1.16.5](https://github.com/servo/rust-smallvec)
 - [socket2 0.6.5](https://github.com/rust-lang/socket2)
 - [stable_deref_trait 1.2.1](https://github.com/storyyeller/stable_deref_trait)
 - [stacker 0.1.25](https://github.com/rust-lang/stacker)
@@ -7132,7 +7135,7 @@ Used by:
 - [unicode-width 0.1.14](https://github.com/unicode-rs/unicode-width)
 - [unicode-width 0.2.3](https://github.com/unicode-rs/unicode-width)
 - [url 2.5.8](https://github.com/servo/rust-url)
-- [uuid 1.29.0](https://github.com/uuid-rs/uuid)
+- [uuid 1.29.2](https://github.com/uuid-rs/uuid)
 - [version_check 0.9.5](https://github.com/SergioBenitez/version_check)
 
 ````text
@@ -10149,7 +10152,7 @@ Used by:
 - [image 0.24.9](https://github.com/image-rs/image)
 - [image 0.25.10](https://github.com/image-rs/image)
 - [isolang 2.4.0](https://github.com/humenda/isolang-rs)
-- [itoa 1.0.18](https://github.com/dtolnay/itoa)
+- [itoa 1.0.19](https://github.com/dtolnay/itoa)
 - [jiff-cron 0.3.0](https://github.com/jiff-cron/jiff-cron)
 - [libc 0.2.191](https://github.com/rust-lang/libc)
 - [link-cplusplus 1.0.12](https://github.com/dtolnay/link-cplusplus)
@@ -10190,7 +10193,7 @@ Used by:
 - [sqlx-macros 0.9.0](https://github.com/launchbadge/sqlx)
 - [sqlx-sqlite 0.9.0](https://github.com/launchbadge/sqlx)
 - [syn 2.0.119](https://github.com/dtolnay/syn)
-- [syn 3.0.9](https://github.com/dtolnay/syn)
+- [syn 3.0.10](https://github.com/dtolnay/syn)
 - [sync_wrapper 1.0.2](https://github.com/Actyx/sync_wrapper)
 - [thiserror-impl 1.0.69](https://github.com/dtolnay/thiserror)
 - [thiserror-impl 2.0.21](https://github.com/dtolnay/thiserror)
@@ -10392,7 +10395,7 @@ USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 Used by:
 
 - [aws-lc-sys 0.47.0](https://github.com/aws/aws-lc-rs)
-- [exr 1.74.2](https://github.com/johannesvollmer/exrs)
+- [exr 1.74.3](https://github.com/johannesvollmer/exrs)
 - [sha1_smol 1.0.1](https://github.com/mitsuhiko/sha1-smol)
 
 ````text
@@ -10413,7 +10416,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 ## Creative Commons Zero v1.0 Universal
 Used by:
 
-- [notify 8.2.1](https://github.com/notify-rs/notify.git)
+- [notify 8.2.2](https://github.com/notify-rs/notify.git)
 
 ````text
 Creative Commons CC0 1.0 Universal
@@ -11795,70 +11798,12 @@ SOFTWARE.
 
 Used by:
 
-- [pulp 0.22.3](https://github.com/sarah-quinones/pulp/)
-
-````text
-MIT License
-
-Copyright (c) 2021 sarah
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-````
-
-Used by:
-
 - [matchit 0.8.4](https://github.com/ibraheemdev/matchit)
 
 ````text
 MIT License
 
 Copyright (c) 2022 Ibraheem Ahmed
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-````
-
-Used by:
-
-- [reborrow 0.5.5](https://github.com/sarah-ek/reborrow/)
-
-````text
-MIT License
-
-Copyright (c) 2022 sarah
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -11906,33 +11851,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-````
-
-Used by:
-
-- [libm 0.2.16](https://github.com/rust-lang/compiler-builtins)
-- [pulp-wasm-simd-flag 0.1.1](https://github.com/sarah-quinones/pulp/)
-
-````text
-MIT License
-
-Copyright (c) <year> <copyright holders>
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
-associated documentation files (the "Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
-following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial
-portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
-LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
-EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ````
 
@@ -12181,8 +12099,8 @@ Used by:
 - [aho-corasick 1.1.5](https://github.com/BurntSushi/aho-corasick)
 - [byteorder-lite 0.1.0](https://github.com/image-rs/byteorder-lite)
 - [byteorder 1.5.0](https://github.com/BurntSushi/byteorder)
-- [jiff-core 0.1.2](https://github.com/BurntSushi/jiff)
-- [jiff 0.2.39](https://github.com/BurntSushi/jiff)
+- [jiff-core 0.1.4](https://github.com/BurntSushi/jiff)
+- [jiff 0.2.41](https://github.com/BurntSushi/jiff)
 - [memchr 2.8.3](https://github.com/BurntSushi/memchr)
 - [termcolor 1.4.1](https://github.com/BurntSushi/termcolor)
 - [walkdir 2.5.0](https://github.com/BurntSushi/walkdir)

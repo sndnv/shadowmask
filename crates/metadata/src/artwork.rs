@@ -2,10 +2,12 @@ use std::io::Cursor;
 
 use domain::error::ArtworkError;
 use domain::metadata::{ArtworkFormat, ArtworkPipeline, ArtworkSpec, ProcessedArtwork};
+use http_body_util::{BodyExt, Limited};
 use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, ImageFormat};
 
 const JPEG_QUALITY: u8 = 82;
+const MAX_THUMBNAIL_BYTES: usize = 20 * 1024 * 1024;
 
 pub struct ImageArtworkPipeline {
     client: reqwest::Client,
@@ -45,17 +47,32 @@ fn encode(
     Ok(ProcessedArtwork { width: resized.width(), height: resized.height(), bytes, format })
 }
 
+async fn render(
+    bytes: Vec<u8>,
+    specs: &[ArtworkSpec],
+) -> Result<Vec<ProcessedArtwork>, ArtworkError> {
+    let specs = specs.to_vec();
+    tokio::task::spawn_blocking(move || {
+        let image =
+            image::load_from_memory(&bytes).map_err(|e| ArtworkError::Decode(e.to_string()))?;
+        let format = if needs_alpha(&image) { ArtworkFormat::Png } else { ArtworkFormat::Jpeg };
+        specs.into_iter().map(|spec| encode(&image, spec, format)).collect()
+    })
+    .await
+    .map_err(|e| ArtworkError::Decode(e.to_string()))?
+}
+
 impl ImageArtworkPipeline {
-    async fn download(&self, url: &str) -> Result<Vec<u8>, ArtworkError> {
+    async fn download_at_most(&self, url: &str, limit: usize) -> Result<Vec<u8>, ArtworkError> {
         let response =
             self.client.get(url).send().await.map_err(|e| ArtworkError::Download(e.to_string()))?;
         if !response.status().is_success() {
             return Err(ArtworkError::Download(format!("http status {}", response.status())));
         }
-        response
-            .bytes()
+        Limited::new(reqwest::Body::from(response), limit)
+            .collect()
             .await
-            .map(|bytes| bytes.to_vec())
+            .map(|body| body.to_bytes().to_vec())
             .map_err(|e| ArtworkError::Download(e.to_string()))
     }
 }
@@ -66,16 +83,27 @@ impl ArtworkPipeline for ImageArtworkPipeline {
         url: &str,
         specs: &[ArtworkSpec],
     ) -> Result<Vec<ProcessedArtwork>, ArtworkError> {
-        let bytes = self.download(url).await?;
-        let specs = specs.to_vec();
-        tokio::task::spawn_blocking(move || {
-            let image =
-                image::load_from_memory(&bytes).map_err(|e| ArtworkError::Decode(e.to_string()))?;
-            let format = if needs_alpha(&image) { ArtworkFormat::Png } else { ArtworkFormat::Jpeg };
-            specs.into_iter().map(|spec| encode(&image, spec, format)).collect()
-        })
-        .await
-        .map_err(|e| ArtworkError::Decode(e.to_string()))?
+        render(self.download_at_most(url, usize::MAX).await?, specs).await
+    }
+
+    async fn process_jpeg(
+        &self,
+        url: &str,
+        specs: &[ArtworkSpec],
+    ) -> Result<Vec<ProcessedArtwork>, ArtworkError> {
+        let bytes = self.download_at_most(url, MAX_THUMBNAIL_BYTES).await?;
+        if image::guess_format(&bytes).ok() != Some(ImageFormat::Jpeg) {
+            return Err(ArtworkError::Decode(format!("the thumbnail at [{url}] is not a JPEG")));
+        }
+        render(bytes, specs).await
+    }
+
+    async fn process_bytes(
+        &self,
+        bytes: Vec<u8>,
+        specs: &[ArtworkSpec],
+    ) -> Result<Vec<ProcessedArtwork>, ArtworkError> {
+        render(bytes, specs).await
     }
 }
 
@@ -114,6 +142,19 @@ mod tests {
         let mut out = Cursor::new(Vec::new());
         image.write_to(&mut out, ImageFormat::Png).unwrap();
         out.into_inner()
+    }
+
+    fn jpeg_bytes(width: u32, height: u32) -> Vec<u8> {
+        let buffer = ImageBuffer::from_pixel(width, height, Rgb([200u8, 50, 25]));
+        let mut out = Vec::new();
+        JpegEncoder::new_with_quality(&mut out, 90).encode_image(&buffer).unwrap();
+        out
+    }
+
+    fn webp_bytes() -> Vec<u8> {
+        let mut out = b"RIFF\x1a\x00\x00\x00WEBPVP8L\x0d\x00\x00\x00".to_vec();
+        out.extend([0x2f, 0, 0, 0, 0x10, 0x07, 0x10, 0x11, 0x11, 0x88, 0x88, 0xfe, 0x07]);
+        out
     }
 
     fn one_spec(max_width: u32, max_height: u32) -> [ArtworkSpec; 1] {
@@ -217,6 +258,92 @@ mod tests {
         let server = serve(ResponseTemplate::new(200).set_body_string("not an image")).await;
         let url = format!("{}/bad.png", server.uri());
         let result = ImageArtworkPipeline::new().process_all(&url, &one_spec(50, 50)).await;
+        assert!(matches!(result, Err(ArtworkError::Decode(_))));
+    }
+
+    #[tokio::test]
+    async fn a_jpeg_thumbnail_from_a_url_without_an_extension_renders_every_rung() {
+        let server = serve(ResponseTemplate::new(200).set_body_bytes(jpeg_bytes(1280, 720))).await;
+        let url = format!("{}/video/x8abc/thumbnail", server.uri());
+
+        let rendered = ImageArtworkPipeline::new().process_jpeg(&url, &RUNGS).await.unwrap();
+
+        assert_eq!(rendered.len(), RUNGS.len());
+        for (art, spec) in rendered.iter().zip(RUNGS) {
+            assert!(art.width <= spec.max_width);
+            assert_eq!(art.format, ArtworkFormat::Jpeg);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_png_thumbnail_is_refused() {
+        let server = serve(ResponseTemplate::new(200).set_body_bytes(png_bytes(400, 300))).await;
+        let url = format!("{}/thumb.jpg", server.uri());
+        let result = ImageArtworkPipeline::new().process_jpeg(&url, &one_spec(50, 50)).await;
+        assert!(matches!(result, Err(ArtworkError::Decode(_))));
+    }
+
+    #[tokio::test]
+    async fn a_webp_thumbnail_is_refused() {
+        let server = serve(ResponseTemplate::new(200).set_body_bytes(webp_bytes())).await;
+        let url = format!("{}/thumb.webp", server.uri());
+        let result = ImageArtworkPipeline::new().process_jpeg(&url, &one_spec(50, 50)).await;
+        assert!(matches!(result, Err(ArtworkError::Decode(_))));
+    }
+
+    #[tokio::test]
+    async fn a_thumbnail_that_cannot_be_downloaded_is_a_download_error() {
+        let server = serve(ResponseTemplate::new(404)).await;
+        let url = format!("{}/thumb.jpg", server.uri());
+        let result = ImageArtworkPipeline::new().process_jpeg(&url, &one_spec(50, 50)).await;
+        assert!(matches!(result, Err(ArtworkError::Download(_))));
+    }
+
+    #[tokio::test]
+    async fn a_body_over_the_limit_is_a_download_error() {
+        let server = serve(ResponseTemplate::new(200).set_body_bytes(vec![0u8; 64])).await;
+        let url = format!("{}/thumb.jpg", server.uri());
+        let pipeline = ImageArtworkPipeline::new();
+        assert_eq!(pipeline.download_at_most(&url, 64).await.unwrap().len(), 64);
+        assert!(matches!(
+            pipeline.download_at_most(&url, 63).await,
+            Err(ArtworkError::Download(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_thumbnail_over_the_limit_is_a_download_error() {
+        let mut body = jpeg_bytes(16, 16);
+        body.resize(MAX_THUMBNAIL_BYTES + 1, 0);
+        let server = serve(ResponseTemplate::new(200).set_body_bytes(body)).await;
+        let url = format!("{}/thumb.jpg", server.uri());
+        let result = ImageArtworkPipeline::new().process_jpeg(&url, &one_spec(50, 50)).await;
+        assert!(matches!(result, Err(ArtworkError::Download(_))));
+    }
+
+    #[test]
+    fn the_thumbnail_limit_is_twenty_megabytes() {
+        assert_eq!(MAX_THUMBNAIL_BYTES, 20 * 1024 * 1024);
+    }
+
+    #[tokio::test]
+    async fn bytes_render_every_rung_without_a_request() {
+        let rendered = ImageArtworkPipeline::new()
+            .process_bytes(jpeg_bytes(1920, 1080), &RUNGS)
+            .await
+            .unwrap();
+
+        assert_eq!(rendered.len(), RUNGS.len());
+        for (art, spec) in rendered.iter().zip(RUNGS) {
+            assert!(art.width <= spec.max_width);
+            assert_eq!(image::load_from_memory(&art.bytes).unwrap().width(), art.width);
+        }
+    }
+
+    #[tokio::test]
+    async fn bytes_that_are_not_an_image_are_a_decode_error() {
+        let result =
+            ImageArtworkPipeline::new().process_bytes(b"not an image".to_vec(), &RUNGS).await;
         assert!(matches!(result, Err(ArtworkError::Decode(_))));
     }
 

@@ -11,6 +11,7 @@ pub mod playback_prep_store;
 pub mod probe;
 pub mod profile;
 pub mod scan;
+pub mod still;
 mod stream_metrics;
 pub mod stream_token;
 pub mod subtitle;

@@ -95,7 +95,7 @@ mod tests {
         CollectionId, EpisodeId, MovieId, SeasonId, SeriesId, TitleId, TitleSet,
     };
     use domain::job::JobPriority;
-    use domain::library::{LibraryKind, ResolveTarget, ScanMode, UnmatchedFileId};
+    use domain::library::{ResolveTarget, ScanMode, UnmatchedFileId};
     use domain::metadata::PersonId;
     use jiff::Timestamp;
 
@@ -162,12 +162,12 @@ mod tests {
                     FetchJobPayload {
                         library: lib(),
                         source_url: "https://example.org/a".into(),
-                        kind: LibraryKind::Movie,
                         title: "A".into(),
                         year: None,
                         external_id: None,
                         season: None,
                         episode: None,
+                        episode_title: None,
                     }
                     .encode(),
                 ),

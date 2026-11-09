@@ -369,7 +369,22 @@ they never all run at once and never block ordinary jobs. Each fetch is stored u
 external library you pick, so create one external library per destination directory (for example a
 "YouTube" library rooted at one path and another library rooted at a different path). The library
 root must be a writable path inside the container. Then use the admin "Fetch content" page (URL,
-type, title, optional IMDb id, and season and episode for TV). Override the binary location with
+title, target library, optional TMDB or IMDb id, and season, episode and episode title for a TV
+library; the app also takes an optional year for a movie library, but the basic client at
+`/ui/basic/` does not). The target library's kind decides whether the download is filed as a movie
+or as an episode. An episode's file is named `<Series> - S01E02 - <Episode title>.mkv`, with a
+` [tmdbid-…]` or ` [imdbid-…]` tag before the extension when the id is letters and digits only,
+and without the resolution words, years and id tags of the episode title; with a TMDB or IMDb id,
+an episode TMDB lists shows TMDB's name and the typed title only names the file. In folder and file
+names, characters a file name cannot hold and `$` become spaces, runs of spaces become one, and
+trailing dots are dropped; a title with nothing left after that is refused. A fetch that writes a
+title's details (a new title, or one TMDB resolves) also fills its art when TMDB has no poster or
+backdrop: an episode or movie with no artwork yet and a series the fetch creates get one
+backdrop, the first site thumbnail that is a JPEG of at most 20 MiB (up to three the site lists
+as `.jpg` or `.jpeg` with a size of at least 640 pixels wide and 16:10 or wider, best first, or
+the site's preferred one when it lists none), otherwise a frame from the downloaded video. The
+site's upload date becomes an episode's air date when TMDB gives none; a direct link to a file
+or a page with a plain `<video>` tag has none. Override the binary location with
 `SHADOWMASK_FETCH_PROVIDERS_YT_DLP_BINARY` if you mount your own.
 
 By default yt-dlp downloads the highest quality available (up to 4K). To cap the download resolution

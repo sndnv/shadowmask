@@ -9,7 +9,7 @@ use jiff::Timestamp;
 use uuid::Uuid;
 
 use super::{
-    ArtworkJobItem, ArtworkJobPayload, MetadataJobPayload, PlaybackPrepJobPayload,
+    ArtworkJobItem, ArtworkJobPayload, ArtworkSource, MetadataJobPayload, PlaybackPrepJobPayload,
     SubtitleJobPayload, TranscriptionJobPayload, TrickplayJobPayload, container_language,
     select_audio_track, translation_job,
 };
@@ -221,15 +221,24 @@ where
         artwork: Vec<Artwork>,
         parent: Option<&JobId>,
     ) -> Result<(), RepositoryError> {
-        let items: Vec<ArtworkJobItem> = artwork
+        self.enqueue_artwork_or(owner, artwork, Vec::new(), parent).await
+    }
+
+    pub(super) async fn enqueue_artwork_or(
+        &self,
+        owner: ArtworkOwner,
+        artwork: Vec<Artwork>,
+        fallback: Vec<ArtworkSource>,
+        parent: Option<&JobId>,
+    ) -> Result<(), RepositoryError> {
+        let mut items: Vec<ArtworkJobItem> = artwork
             .into_iter()
             .filter(|art| matches!(art.kind, ArtworkKind::Poster | ArtworkKind::Backdrop))
-            .map(|art| ArtworkJobItem {
-                id: ArtworkId(Uuid::new_v4().to_string()),
-                kind: art.kind,
-                url: art.url,
-            })
+            .map(|art| artwork_item(art.kind, vec![ArtworkSource::Provider(art.url)]))
             .collect();
+        if items.is_empty() && !fallback.is_empty() {
+            items.push(artwork_item(ArtworkKind::Backdrop, fallback));
+        }
         if items.is_empty() {
             return Ok(());
         }
@@ -237,4 +246,8 @@ where
         let now = Timestamp::now();
         self.jobs.enqueue(queued_job(JobKind::Artwork, JobPriority::Normal, raw, parent, now)).await
     }
+}
+
+fn artwork_item(kind: ArtworkKind, sources: Vec<ArtworkSource>) -> ArtworkJobItem {
+    ArtworkJobItem { id: ArtworkId(Uuid::new_v4().to_string()), kind, sources }
 }
