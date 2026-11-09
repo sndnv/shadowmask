@@ -1371,8 +1371,11 @@ abstract final class Strings {
   static const String requiredUrl = 'URL is required.';
   static const String requiredLibrary = 'Pick a library.';
   static const String requiredTitle = 'Title is required.';
+  static const String requiredSeries = 'Series is required.';
   static const String requiredSeason = 'Season is required for a TV library.';
   static const String requiredEpisode = 'Episode is required for a TV library.';
+  static const String requiredEpisodeTitle =
+      'Episode title is required for a TV library.';
   static const String requiredUsername = 'Username is required.';
   static const String requiredPassword = 'Password is required.';
   static const String requiredTargetLanguage = 'Pick a language.';
@@ -1480,17 +1483,16 @@ abstract final class Strings {
       'The page to download from. Paste the address of the page itself, not a '
       'link to the media file.';
   static const String fetchTitleHelp =
-      'What to call the result in your library. Leave it empty to keep the '
-      'title the source gives it.';
+      'What to call the movie in your library.';
+  static const String fetchSeriesHelp =
+      'The series this episode files under; use the same name for each '
+      'episode.';
   static const String fetchYearHelp =
       'Optional. The release year, which is kept in the file name and makes a '
       'later rematch far more reliable.';
-  static const String fetchKindHelp =
-      'Whether to file the result as a movie or as an episode. Choosing TV '
-      'asks for a season and episode.';
   static const String targetLibraryHelp =
-      'Which library receives the file. Only remote libraries can hold '
-      'downloads, so only those are listed.';
+      'Which remote library receives the file; a TV library asks for season, '
+      'episode and episode title.';
   static const String fetchExternalIdHelp =
       'Optional. Pin the result to a specific title instead of letting the '
       'server match it by name. A plain number is a TMDB id, and one starting '
@@ -1498,6 +1500,9 @@ abstract final class Strings {
   static const String seasonEpisodeHelp =
       'Where this file belongs in the series. Both are needed for a TV '
       'download, and both start at 1.';
+  static const String fetchEpisodeTitleHelp =
+      "What to call the episode; an episode found on TMDB shows TMDB's name "
+      'instead.';
   static const String kindHelp =
       'What this library holds. Movie keeps one entry per film. TV groups '
       'episodes under a season and a series.';
@@ -1519,9 +1524,11 @@ abstract final class Strings {
   static const String fieldSourceUrl = 'Source URL';
   static const String fieldTargetLibrary = 'Target library';
   static const String fieldTitle = 'Title';
+  static const String fieldSeries = 'Series';
   static const String fieldExternalId = 'External ID';
   static const String fieldSeason = 'Season';
   static const String fieldEpisode = 'Episode';
+  static const String fieldEpisodeTitle = 'Episode title';
   static const String fieldTargetHeight = 'Target height';
   static const String fieldSourceLanguage = 'Source language';
   static const String fieldTargetLanguage = 'Target language';

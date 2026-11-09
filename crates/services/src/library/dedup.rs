@@ -97,6 +97,7 @@ mod tests {
                 episode,
                 quality: None,
                 external_id: None,
+                episode_title: None,
             },
             confidence: 0.9,
             files,

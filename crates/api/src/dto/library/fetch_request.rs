@@ -2,12 +2,9 @@ use serde::Deserialize;
 
 use domain::library::FetchInput;
 
-use crate::dto::library::LibraryKindDto;
-
 #[derive(Debug, Deserialize)]
 pub struct FetchRequest {
     pub source_url: String,
-    pub kind: LibraryKindDto,
     pub library_id: String,
     pub title: String,
     #[serde(default)]
@@ -18,6 +15,8 @@ pub struct FetchRequest {
     pub season: Option<u16>,
     #[serde(default)]
     pub episode: Option<u16>,
+    #[serde(default)]
+    pub episode_title: Option<String>,
 }
 
 impl FetchRequest {
@@ -31,23 +30,18 @@ impl FetchRequest {
         if self.title.trim().is_empty() {
             return Err("title must not be empty");
         }
-        if matches!(self.kind, LibraryKindDto::Tv)
-            && (self.season.is_none() || self.episode.is_none())
-        {
-            return Err("season and episode are required for tv");
-        }
         Ok(())
     }
 
     pub fn into_input(self) -> FetchInput {
         FetchInput {
             source_url: self.source_url,
-            kind: self.kind.into(),
             title: self.title,
             year: self.year,
             external_id: self.external_id,
             season: self.season,
             episode: self.episode,
+            episode_title: self.episode_title,
         }
     }
 }
@@ -59,13 +53,13 @@ mod tests {
     fn base() -> FetchRequest {
         FetchRequest {
             source_url: "https://example.com/watch?v=abc".into(),
-            kind: LibraryKindDto::Movie,
             library_id: "ext".into(),
             title: "The Matrix".into(),
             year: None,
             external_id: None,
             season: None,
             episode: None,
+            episode_title: None,
         }
     }
 
@@ -75,7 +69,7 @@ mod tests {
         assert!(req.validate().is_ok());
         let input = req.into_input();
         assert_eq!(input.title, "The Matrix");
-        assert!(matches!(input.kind, domain::library::LibraryKind::Movie));
+        assert_eq!(input.source_url, "https://example.com/watch?v=abc");
     }
 
     #[test]
@@ -94,13 +88,27 @@ mod tests {
     }
 
     #[test]
-    fn tv_requires_season_and_episode() {
+    fn a_kind_sent_by_an_older_client_is_ignored() {
+        let req: FetchRequest = serde_json::from_value(serde_json::json!({
+            "source_url": "https://example.com/watch?v=abc",
+            "kind": "tv",
+            "library_id": "ext",
+            "title": "Great Show"
+        }))
+        .unwrap();
+        assert!(req.validate().is_ok());
+        assert_eq!(req.into_input().season, None);
+    }
+
+    #[test]
+    fn season_episode_and_title_pass_through() {
         let mut req = base();
-        req.kind = LibraryKindDto::Tv;
-        assert!(req.validate().is_err());
         req.season = Some(1);
         req.episode = Some(2);
-        assert!(req.validate().is_ok());
+        req.episode_title = Some("Pilot".into());
+        let input = req.into_input();
+        assert_eq!((input.season, input.episode), (Some(1), Some(2)));
+        assert_eq!(input.episode_title.as_deref(), Some("Pilot"));
     }
 
     #[test]

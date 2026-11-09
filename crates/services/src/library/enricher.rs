@@ -12,7 +12,7 @@ use domain::library::{
     DiscoveredFile, Library, LibraryId, LibraryKind, MatchedGroup, ParsedMedia, ResolveTarget,
     ScanReport, SkipReason,
 };
-use domain::media::{SubtitleFile, SubtitleFileId, SubtitleSource, sidecars_replaced};
+use domain::media::{SiteDetails, SubtitleFile, SubtitleFileId, SubtitleSource, sidecars_replaced};
 use domain::metadata::{
     CollectionMeta, Credit, ExternalId, Genre, GenreId, MediaKind, MetadataProvider, Person,
     PersonId, Studio, StudioId, TitleEnrichment, TitleMetadata,
@@ -27,8 +27,8 @@ use uuid::Uuid;
 use super::enrich_jobs::{EnrichmentJobs, SubtitleContext};
 use super::metadata_fetch::MetadataFetcher;
 use super::{
-    EnrichSummary, Matcher, discover_subtitles, find_duplicates, normalize_title, parse_filename,
-    quality_from_height,
+    ArtworkSource, EnrichSummary, Matcher, discover_subtitles, find_duplicates, normalize_title,
+    parse_filename, quality_from_height,
 };
 
 fn resolve_quality(file: &DiscoveredFile) -> Quality {
@@ -64,19 +64,24 @@ impl IngestMode<'_> {
 struct IngestPlan<'a> {
     mode: IngestMode<'a>,
     writes_title: bool,
+    site: Option<&'a SiteDetails>,
 }
 
 impl<'a> IngestPlan<'a> {
     fn explicit() -> Self {
-        Self { mode: IngestMode::Explicit, writes_title: true }
+        Self { mode: IngestMode::Explicit, writes_title: true, site: None }
     }
 
     fn scanned(mode: IngestMode<'a>, title_is_known: bool) -> Self {
-        Self { mode, writes_title: !title_is_known }
+        Self { mode, writes_title: !title_is_known, site: None }
     }
 
     fn unidentified(title_is_known: bool) -> Self {
-        Self { mode: IngestMode::Explicit, writes_title: !title_is_known }
+        Self { mode: IngestMode::Explicit, writes_title: !title_is_known, site: None }
+    }
+
+    fn fetched(self, site: &'a SiteDetails) -> Self {
+        Self { site: Some(site), ..self }
     }
 
     fn checks_entities(&self) -> bool {
@@ -132,6 +137,7 @@ pub trait ResolveIngester {
         library: &Library,
         file: &DiscoveredFile,
         parsed: &ParsedMedia,
+        site: &SiteDetails,
         parent: Option<&JobId>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }
@@ -437,7 +443,9 @@ where
             }
         }
         let artwork = metadata.map(|m| m.artwork).unwrap_or_default();
-        self.enqueue.enqueue_artwork(ArtworkOwner::Movie(movie_id), artwork, parent).await
+        let owner = ArtworkOwner::Movie(movie_id);
+        let fallback = self.unless_art_exists(&owner, site_artwork(plan.site, files)).await?;
+        self.enqueue.enqueue_artwork_or(owner, artwork, fallback, parent).await
     }
 
     async fn sorted_members(&self, members: &[MovieId]) -> Result<Vec<MovieId>, RepositoryError> {
@@ -568,12 +576,24 @@ where
             .and_then(|season| season.episodes.iter().find(|ep| ep.number == episode_no));
         let episode_title = matched_episode
             .and_then(|ep| ep.name.clone())
+            .or_else(|| parsed.episode_title.clone())
             .unwrap_or_else(|| format!("Episode {episode_no}"));
         let episode_overview = matched_episode.and_then(|ep| ep.overview.clone());
         let episode_runtime = matched_episode.and_then(|ep| ep.runtime_minutes);
-        let episode_air_date =
-            matched_episode.and_then(|ep| ep.air_date.as_deref()).and_then(parse_air_date);
+        let episode_air_date = matched_episode
+            .and_then(|ep| ep.air_date.as_deref())
+            .and_then(parse_air_date)
+            .or_else(|| site_air_date(plan.site));
         let episode_artwork = matched_episode.map(|ep| ep.artwork.clone()).unwrap_or_default();
+        let site_art = site_artwork(plan.site, files);
+        let series_art = if writes_series
+            && !site_art.is_empty()
+            && self.catalog.get_series(&series_id).await?.is_none()
+        {
+            site_art.clone()
+        } else {
+            Vec::new()
+        };
 
         let series_title = display_title(metadata.as_ref(), &parsed.title);
         if writes_series {
@@ -645,7 +665,9 @@ where
         }
         if writes_series {
             let artwork = metadata.map(|m| m.artwork).unwrap_or_default();
-            self.enqueue.enqueue_artwork(ArtworkOwner::Series(series_id), artwork, parent).await?;
+            self.enqueue
+                .enqueue_artwork_or(ArtworkOwner::Series(series_id), artwork, series_art, parent)
+                .await?;
         }
         if writes_season {
             self.enqueue
@@ -653,11 +675,22 @@ where
                 .await?;
         }
         if plan.writes_title {
-            self.enqueue
-                .enqueue_artwork(ArtworkOwner::Episode(episode_id), episode_artwork, parent)
-                .await?;
+            let owner = ArtworkOwner::Episode(episode_id);
+            let fallback = self.unless_art_exists(&owner, site_art).await?;
+            self.enqueue.enqueue_artwork_or(owner, episode_artwork, fallback, parent).await?;
         }
         Ok(())
+    }
+
+    async fn unless_art_exists(
+        &self,
+        owner: &ArtworkOwner,
+        site_art: Vec<ArtworkSource>,
+    ) -> Result<Vec<ArtworkSource>, RepositoryError> {
+        if site_art.is_empty() || !self.catalog.list_artwork(owner).await?.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(site_art)
     }
 
     async fn ingest_file(&self, ingest: FileIngest<'_>) -> Result<(), RepositoryError> {
@@ -1138,13 +1171,14 @@ where
         library: &Library,
         file: &DiscoveredFile,
         parsed: &ParsedMedia,
+        site: &SiteDetails,
         parent: Option<&JobId>,
     ) -> Result<(), RepositoryError> {
         let metadata = match parsed.external_id.as_ref() {
             Some(id) => self.fetch.fetch_by_id(id).await,
             None => None,
         };
-        let plan = self.explicit_plan(library, parsed, metadata.is_some()).await?;
+        let plan = self.explicit_plan(library, parsed, metadata.is_some()).await?.fetched(site);
         let files = std::slice::from_ref(file);
         match library.kind {
             LibraryKind::Movie => {
@@ -1331,17 +1365,35 @@ fn display_year(metadata: Option<&TitleMetadata>, parsed: Option<u16>) -> Option
 }
 
 fn parse_air_date(value: &str) -> Option<Timestamp> {
-    let date: jiff::civil::Date = value.parse().ok()?;
+    utc_midnight(value.parse().ok()?)
+}
+
+fn utc_midnight(date: jiff::civil::Date) -> Option<Timestamp> {
     date.to_zoned(jiff::tz::TimeZone::UTC).ok().map(|zoned| zoned.timestamp())
+}
+
+fn site_air_date(site: Option<&SiteDetails>) -> Option<Timestamp> {
+    utc_midnight(jiff::civil::Date::strptime("%Y%m%d", site?.upload_date.as_deref()?).ok()?)
+}
+
+fn site_artwork(site: Option<&SiteDetails>, files: &[DiscoveredFile]) -> Vec<ArtworkSource> {
+    let (Some(site), Some(file)) = (site, files.first()) else {
+        return Vec::new();
+    };
+    let thumbnails = site.thumbnails.iter().filter(|url| !url.trim().is_empty());
+    let frame =
+        ArtworkSource::Frame { path: file.path.clone(), offset_ms: file.probe.duration_ms / 10 };
+    thumbnails.cloned().map(ArtworkSource::Thumbnail).chain([frame]).collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::library::{
-        ArtworkJobPayload, MetadataJobPayload, SubtitleJobPayload, TranscriptionJobPayload,
-        TrickplayJobPayload,
+        ArtworkJobPayload, ArtworkSource, MetadataJobPayload, SubtitleJobPayload,
+        TranscriptionJobPayload, TrickplayJobPayload,
     };
+    use domain::catalog::{ArtworkId, ArtworkRef};
     use domain::error::MetadataError;
     use domain::job::{Job, JobKind, JobPriority, JobStatus};
     use domain::library::{
@@ -4274,7 +4326,9 @@ mod tests {
                 episode: Some(1),
                 quality: Some(Quality::Hd),
                 external_id: Some(ExternalId { source: "tmdb".into(), value: "tv/1399".into() }),
+                episode_title: None,
             },
+            &SiteDetails::default(),
             None,
         )
         .await
@@ -4288,6 +4342,733 @@ mod tests {
         assert_eq!(catalog.list_episodes(&seasons[0].id).await.unwrap().len(), 1);
     }
 
+    fn fetched_episode(number: u16, typed: &str, external_id: Option<ExternalId>) -> ParsedMedia {
+        ParsedMedia {
+            title: "Gamma".into(),
+            year: None,
+            season: Some(1),
+            episode: Some(number),
+            quality: None,
+            external_id,
+            episode_title: Some(typed.into()),
+        }
+    }
+
+    async fn only_episode_title(catalog: &MockCatalogRepo) -> String {
+        let series = catalog.list_series(page()).await.unwrap();
+        let season = catalog.list_seasons(&series.items[0].id).await.unwrap()[0].clone();
+        catalog.list_episodes(&season.id).await.unwrap()[0].title.clone()
+    }
+
+    fn gamma_season() -> ProviderMode {
+        let metadata = TitleMetadata {
+            title: "Gamma".into(),
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "tv/1399".into() }],
+            ..TitleMetadata::default()
+        };
+        let season = SeasonArtwork {
+            number: 1,
+            episodes: vec![EpisodeArtwork {
+                number: 1,
+                name: Some("Winter Arrives".into()),
+                ..EpisodeArtwork::default()
+            }],
+            ..SeasonArtwork::default()
+        };
+        ProviderMode::Season(Box::new(metadata), season)
+    }
+
+    fn gamma_id() -> Option<ExternalId> {
+        Some(ExternalId { source: "tmdb".into(), value: "tv/1399".into() })
+    }
+
+    #[tokio::test]
+    async fn a_fetched_episode_without_an_id_takes_the_typed_title() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+
+        svc.ingest_fetched(
+            &library(LibraryKind::Tv),
+            &discovered("/tv/Gamma/Season 01/Gamma - S01E02 - Pilot.mkv"),
+            &fetched_episode(2, "Pilot", None),
+            &SiteDetails::default(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(only_episode_title(&catalog).await, "Pilot");
+    }
+
+    #[tokio::test]
+    async fn tmdb_names_a_fetched_episode_it_lists() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider { mode: gamma_season() }),
+            MockJobStore::new(),
+        );
+
+        svc.ingest_fetched(
+            &library(LibraryKind::Tv),
+            &discovered("/tv/Gamma/Season 01/Gamma - S01E01 - My Pilot.mkv"),
+            &fetched_episode(1, "My Pilot", gamma_id()),
+            &SiteDetails::default(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(only_episode_title(&catalog).await, "Winter Arrives");
+    }
+
+    #[tokio::test]
+    async fn the_typed_title_names_an_episode_tmdb_does_not_list() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider { mode: gamma_season() }),
+            MockJobStore::new(),
+        );
+
+        svc.ingest_fetched(
+            &library(LibraryKind::Tv),
+            &discovered("/tv/Gamma/Season 01/Gamma - S01E05 - Bonus.mkv"),
+            &fetched_episode(5, "Bonus", gamma_id()),
+            &SiteDetails::default(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(only_episode_title(&catalog).await, "Bonus");
+    }
+
+    #[tokio::test]
+    async fn a_refetch_without_an_id_keeps_the_name_and_adds_a_version() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        let tv = library(LibraryKind::Tv);
+
+        for (path, typed) in [
+            ("/tv/Gamma/Season 01/Gamma - S01E02 - Pilot.mkv", "Pilot"),
+            ("/tv/Gamma/Season 01/Gamma - S01E02 - Pilot Redux.mkv", "Pilot Redux"),
+        ] {
+            svc.ingest_fetched(
+                &tv,
+                &discovered(path),
+                &fetched_episode(2, typed, None),
+                &SiteDetails::default(),
+                None,
+            )
+            .await
+            .unwrap();
+        }
+
+        assert_eq!(only_episode_title(&catalog).await, "Pilot");
+        assert_eq!(
+            catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap().total,
+            2
+        );
+    }
+
+    fn site() -> SiteDetails {
+        SiteDetails {
+            thumbnails: vec!["https://i.ytimg.com/vi/abc/maxresdefault.jpg".into()],
+            upload_date: Some("20260801".into()),
+        }
+    }
+
+    const PILOT: &str = "/tv/Gamma/Season 01/Gamma - S01E02 - Pilot.mkv";
+
+    fn thumbnail_then_frame(path: &str) -> Vec<(ArtworkKind, Vec<ArtworkSource>)> {
+        vec![(
+            ArtworkKind::Backdrop,
+            vec![
+                ArtworkSource::Thumbnail("https://i.ytimg.com/vi/abc/maxresdefault.jpg".into()),
+                ArtworkSource::Frame { path: path.into(), offset_ms: 100 },
+            ],
+        )]
+    }
+
+    async fn queued_artwork(
+        jobs: &MockJobStore,
+        owner: fn(&ArtworkOwner) -> bool,
+    ) -> Vec<Vec<(ArtworkKind, Vec<ArtworkSource>)>> {
+        jobs.list()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|job| job.kind == JobKind::Artwork)
+            .map(|job| ArtworkJobPayload::decode(&job.payload).unwrap())
+            .filter(|payload| owner(&payload.owner))
+            .map(|payload| {
+                payload.items.into_iter().map(|item| (item.kind, item.sources)).collect()
+            })
+            .collect()
+    }
+
+    fn is_episode(owner: &ArtworkOwner) -> bool {
+        matches!(owner, ArtworkOwner::Episode(_))
+    }
+
+    fn is_series(owner: &ArtworkOwner) -> bool {
+        matches!(owner, ArtworkOwner::Series(_))
+    }
+
+    fn is_season(owner: &ArtworkOwner) -> bool {
+        matches!(owner, ArtworkOwner::Season(_))
+    }
+
+    fn is_movie(owner: &ArtworkOwner) -> bool {
+        matches!(owner, ArtworkOwner::Movie(_))
+    }
+
+    async fn fetched_episode_row(catalog: &MockCatalogRepo) -> Episode {
+        let series = catalog.list_series(page()).await.unwrap();
+        let season = catalog.list_seasons(&series.items[0].id).await.unwrap()[0].clone();
+        catalog.list_episodes(&season.id).await.unwrap()[0].clone()
+    }
+
+    #[tokio::test]
+    async fn a_fetched_episode_without_an_id_gets_the_thumbnail_then_a_frame() {
+        let jobs = MockJobStore::new();
+        let svc = enricher(MockCatalogRepo::new(), None, jobs.clone());
+
+        svc.ingest_fetched(
+            &library(LibraryKind::Tv),
+            &discovered(PILOT),
+            &fetched_episode(2, "Pilot", None),
+            &site(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(queued_artwork(&jobs, is_episode).await, vec![thumbnail_then_frame(PILOT)]);
+        assert_eq!(queued_artwork(&jobs, is_series).await, vec![thumbnail_then_frame(PILOT)]);
+        assert!(queued_artwork(&jobs, is_season).await.is_empty(), "a season takes no site art");
+    }
+
+    #[tokio::test]
+    async fn a_fetched_episode_with_no_usable_thumbnail_gets_a_frame() {
+        for thumbnails in [Vec::new(), vec![" ".to_owned()]] {
+            let jobs = MockJobStore::new();
+            let svc = enricher(MockCatalogRepo::new(), None, jobs.clone());
+            let site = SiteDetails { thumbnails, ..site() };
+
+            svc.ingest_fetched(
+                &library(LibraryKind::Tv),
+                &discovered(PILOT),
+                &fetched_episode(2, "Pilot", None),
+                &site,
+                None,
+            )
+            .await
+            .unwrap();
+
+            let frame = vec![vec![(
+                ArtworkKind::Backdrop,
+                vec![ArtworkSource::Frame { path: PILOT.into(), offset_ms: 100 }],
+            )]];
+            assert_eq!(queued_artwork(&jobs, is_episode).await, frame);
+            assert_eq!(queued_artwork(&jobs, is_series).await, frame);
+        }
+    }
+
+    #[tokio::test]
+    async fn every_reported_thumbnail_is_tried_in_order_before_the_frame() {
+        let jobs = MockJobStore::new();
+        let svc = enricher(MockCatalogRepo::new(), None, jobs.clone());
+        let site = SiteDetails {
+            thumbnails: vec![
+                "https://i.ytimg.com/vi/abc/maxresdefault.jpg".into(),
+                "https://i.ytimg.com/vi/abc/hq720.jpg".into(),
+            ],
+            ..site()
+        };
+
+        svc.ingest_fetched(
+            &library(LibraryKind::Tv),
+            &discovered(PILOT),
+            &fetched_episode(2, "Pilot", None),
+            &site,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            queued_artwork(&jobs, is_episode).await,
+            vec![vec![(
+                ArtworkKind::Backdrop,
+                vec![
+                    ArtworkSource::Thumbnail("https://i.ytimg.com/vi/abc/maxresdefault.jpg".into()),
+                    ArtworkSource::Thumbnail("https://i.ytimg.com/vi/abc/hq720.jpg".into()),
+                    ArtworkSource::Frame { path: PILOT.into(), offset_ms: 100 },
+                ],
+            )]]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_video_of_unknown_length_is_framed_from_the_start() {
+        let jobs = MockJobStore::new();
+        let svc = enricher(MockCatalogRepo::new(), None, jobs.clone());
+        let mut file = discovered(PILOT);
+        file.probe.duration_ms = 0;
+
+        svc.ingest_fetched(
+            &library(LibraryKind::Tv),
+            &file,
+            &fetched_episode(2, "Pilot", None),
+            &SiteDetails::default(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            queued_artwork(&jobs, is_episode).await,
+            vec![vec![(
+                ArtworkKind::Backdrop,
+                vec![ArtworkSource::Frame { path: PILOT.into(), offset_ms: 0 }]
+            )]]
+        );
+    }
+
+    #[tokio::test]
+    async fn tmdb_artwork_leaves_the_site_and_the_frame_unused() {
+        let jobs = MockJobStore::new();
+        let metadata = TitleMetadata {
+            title: "Gamma".into(),
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "tv/1399".into() }],
+            artwork: vec![art(ArtworkKind::Poster), art(ArtworkKind::Backdrop)],
+            ..TitleMetadata::default()
+        };
+        let season = SeasonArtwork {
+            number: 1,
+            episodes: vec![EpisodeArtwork {
+                number: 2,
+                artwork: vec![art(ArtworkKind::Backdrop)],
+                ..EpisodeArtwork::default()
+            }],
+            ..SeasonArtwork::default()
+        };
+        let svc = enricher(
+            MockCatalogRepo::new(),
+            Some(MockProvider { mode: ProviderMode::Season(Box::new(metadata), season) }),
+            jobs.clone(),
+        );
+
+        svc.ingest_fetched(
+            &library(LibraryKind::Tv),
+            &discovered(PILOT),
+            &fetched_episode(2, "Pilot", gamma_id()),
+            &site(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let provider = |kind: ArtworkKind| {
+            (kind, vec![ArtworkSource::Provider(format!("https://cdn/{kind:?}.jpg"))])
+        };
+        assert_eq!(
+            queued_artwork(&jobs, is_episode).await,
+            vec![vec![provider(ArtworkKind::Backdrop)]]
+        );
+        assert_eq!(
+            queued_artwork(&jobs, is_series).await,
+            vec![vec![provider(ArtworkKind::Poster), provider(ArtworkKind::Backdrop)]]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_tmdb_episode_without_a_still_gets_the_thumbnail_then_a_frame() {
+        let jobs = MockJobStore::new();
+        let svc = enricher(
+            MockCatalogRepo::new(),
+            Some(MockProvider { mode: gamma_season() }),
+            jobs.clone(),
+        );
+        let path = "/tv/Gamma/Season 01/Gamma - S01E01 - My Pilot.mkv";
+
+        svc.ingest_fetched(
+            &library(LibraryKind::Tv),
+            &discovered(path),
+            &fetched_episode(1, "My Pilot", gamma_id()),
+            &site(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(queued_artwork(&jobs, is_episode).await, vec![thumbnail_then_frame(path)]);
+    }
+
+    #[tokio::test]
+    async fn a_series_created_by_an_earlier_fetch_keeps_its_art() {
+        let jobs = MockJobStore::new();
+        let svc = enricher(MockCatalogRepo::new(), None, jobs.clone());
+        let tv = library(LibraryKind::Tv);
+        let second = "/tv/Gamma/Season 01/Gamma - S01E03 - Harbour.mkv";
+
+        for (number, path, typed) in [(2, PILOT, "Pilot"), (3, second, "Harbour")] {
+            svc.ingest_fetched(
+                &tv,
+                &discovered(path),
+                &fetched_episode(number, typed, None),
+                &site(),
+                None,
+            )
+            .await
+            .unwrap();
+        }
+
+        assert_eq!(
+            queued_artwork(&jobs, is_series).await,
+            vec![thumbnail_then_frame(PILOT)],
+            "the series takes its art from the fetch that created it"
+        );
+        let episodes = queued_artwork(&jobs, is_episode).await;
+        assert_eq!(episodes.len(), 2);
+        assert!(episodes.contains(&thumbnail_then_frame(PILOT)));
+        assert!(episodes.contains(&thumbnail_then_frame(second)));
+    }
+
+    #[tokio::test]
+    async fn a_scanned_episode_gets_no_site_art() {
+        let jobs = MockJobStore::new();
+        let svc = enricher(MockCatalogRepo::new(), None, jobs.clone());
+
+        svc.enrich(&library(LibraryKind::Tv), &report(&[PILOT]), None).await;
+
+        assert!(queued_artwork(&jobs, |_| true).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_fetched_episode_without_an_id_takes_the_site_date_but_no_overview() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+
+        svc.ingest_fetched(
+            &library(LibraryKind::Tv),
+            &discovered(PILOT),
+            &fetched_episode(2, "Pilot", None),
+            &site(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let episode = fetched_episode_row(&catalog).await;
+        assert!(episode.overview.is_none(), "the site's description is not taken");
+        assert_eq!(episode.air_date, Some("2026-08-01T00:00:00Z".parse().unwrap()));
+        let series = catalog.list_series(page()).await.unwrap();
+        assert!(series.items[0].overview.is_none());
+    }
+
+    #[tokio::test]
+    async fn tmdb_air_date_wins_over_the_site() {
+        let catalog = MockCatalogRepo::new();
+        let metadata = TitleMetadata {
+            title: "Gamma".into(),
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "tv/1399".into() }],
+            ..TitleMetadata::default()
+        };
+        let season = SeasonArtwork {
+            number: 1,
+            episodes: vec![EpisodeArtwork {
+                number: 2,
+                overview: Some("It begins.".into()),
+                air_date: Some("2010-10-01".into()),
+                ..EpisodeArtwork::default()
+            }],
+            ..SeasonArtwork::default()
+        };
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider { mode: ProviderMode::Season(Box::new(metadata), season) }),
+            MockJobStore::new(),
+        );
+
+        svc.ingest_fetched(
+            &library(LibraryKind::Tv),
+            &discovered(PILOT),
+            &fetched_episode(2, "Pilot", gamma_id()),
+            &site(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let episode = fetched_episode_row(&catalog).await;
+        assert_eq!(episode.overview.as_deref(), Some("It begins."));
+        assert_eq!(episode.air_date, Some("2010-10-01T00:00:00Z".parse().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn a_date_that_does_not_parse_is_ignored() {
+        for upload_date in ["2026-08-01", "20261345", "202608011", ""] {
+            let catalog = MockCatalogRepo::new();
+            let svc = enricher(catalog.clone(), None, MockJobStore::new());
+            let site = SiteDetails { upload_date: Some(upload_date.into()), ..site() };
+
+            svc.ingest_fetched(
+                &library(LibraryKind::Tv),
+                &discovered(PILOT),
+                &fetched_episode(2, "Pilot", None),
+                &site,
+                None,
+            )
+            .await
+            .unwrap();
+
+            let episode = fetched_episode_row(&catalog).await;
+            assert!(episode.air_date.is_none(), "[{upload_date}] is not a YYYYMMDD date");
+        }
+    }
+
+    fn fetched_movie(external_id: Option<ExternalId>) -> ParsedMedia {
+        ParsedMedia {
+            title: "Neon Harbor".into(),
+            year: Some(2017),
+            season: None,
+            episode: None,
+            quality: None,
+            external_id,
+            episode_title: None,
+        }
+    }
+
+    const NEON_HARBOR: &str = "/m/Neon Harbor (2017).mkv";
+
+    #[tokio::test]
+    async fn a_fetched_movie_without_an_id_takes_the_site_art_but_no_overview() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog.clone(), None, jobs.clone());
+
+        svc.ingest_fetched(
+            &library(LibraryKind::Movie),
+            &discovered(NEON_HARBOR),
+            &fetched_movie(None),
+            &site(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(queued_artwork(&jobs, is_movie).await, vec![thumbnail_then_frame(NEON_HARBOR)]);
+        let movie = catalog.list_movies(page()).await.unwrap().items[0].clone();
+        assert!(movie.overview.is_none(), "the site's description is not taken");
+        assert_eq!(movie.year, Some(2017), "the upload date never names the movie");
+    }
+
+    #[tokio::test]
+    async fn tmdb_movie_artwork_wins_over_the_site() {
+        let catalog = MockCatalogRepo::new();
+        let jobs = MockJobStore::new();
+        let metadata = TitleMetadata {
+            title: "Neon Harbor".into(),
+            overview: Some("From TMDB".into()),
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "movie/42".into() }],
+            artwork: vec![art(ArtworkKind::Poster)],
+            ..TitleMetadata::default()
+        };
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider { mode: ProviderMode::ByIdOnly(Box::new(metadata)) }),
+            jobs.clone(),
+        );
+
+        svc.ingest_fetched(
+            &library(LibraryKind::Movie),
+            &discovered(NEON_HARBOR),
+            &fetched_movie(Some(ExternalId { source: "tmdb".into(), value: "movie/42".into() })),
+            &site(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            queued_artwork(&jobs, is_movie).await,
+            vec![vec![(
+                ArtworkKind::Poster,
+                vec![ArtworkSource::Provider("https://cdn/Poster.jpg".into())]
+            )]]
+        );
+        let movie = catalog.list_movies(page()).await.unwrap().items[0].clone();
+        assert_eq!(movie.overview.as_deref(), Some("From TMDB"));
+    }
+
+    #[tokio::test]
+    async fn a_tmdb_logo_alone_leaves_the_site_art_in_use() {
+        let jobs = MockJobStore::new();
+        let metadata = TitleMetadata {
+            title: "Neon Harbor".into(),
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "movie/42".into() }],
+            artwork: vec![art(ArtworkKind::Logo)],
+            ..TitleMetadata::default()
+        };
+        let svc = enricher(
+            MockCatalogRepo::new(),
+            Some(MockProvider { mode: ProviderMode::ByIdOnly(Box::new(metadata)) }),
+            jobs.clone(),
+        );
+
+        svc.ingest_fetched(
+            &library(LibraryKind::Movie),
+            &discovered(NEON_HARBOR),
+            &fetched_movie(Some(ExternalId { source: "tmdb".into(), value: "movie/42".into() })),
+            &site(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(queued_artwork(&jobs, is_movie).await, vec![thumbnail_then_frame(NEON_HARBOR)]);
+    }
+
+    async fn store_art(catalog: &MockCatalogRepo, owner: &ArtworkOwner) {
+        let stored = ArtworkRef {
+            id: ArtworkId("stored".into()),
+            kind: ArtworkKind::Backdrop,
+            widths: Vec::new(),
+        };
+        catalog.set_artwork(owner, &[stored]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_refetched_episode_keeps_its_art_when_the_season_lookup_fails() {
+        let catalog = MockCatalogRepo::new();
+        let tv = library(LibraryKind::Tv);
+        enricher(catalog.clone(), None, MockJobStore::new())
+            .ingest_fetched(
+                &tv,
+                &discovered(PILOT),
+                &fetched_episode(2, "Pilot", None),
+                &SiteDetails::default(),
+                None,
+            )
+            .await
+            .unwrap();
+        let episode = ArtworkOwner::Episode(fetched_episode_row(&catalog).await.id);
+        store_art(&catalog, &episode).await;
+        let jobs = MockJobStore::new();
+        let metadata = TitleMetadata {
+            title: "Gamma".into(),
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "tv/1399".into() }],
+            ..TitleMetadata::default()
+        };
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider { mode: ProviderMode::ByIdOnly(Box::new(metadata)) }),
+            jobs.clone(),
+        );
+
+        svc.ingest_fetched(
+            &tv,
+            &discovered(PILOT),
+            &fetched_episode(2, "Pilot", gamma_id()),
+            &site(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            queued_artwork(&jobs, is_episode).await.is_empty(),
+            "site art only fills an episode that has none"
+        );
+        assert_eq!(catalog.list_artwork(&episode).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_refetched_movie_keeps_its_art_when_tmdb_has_none() {
+        let catalog = MockCatalogRepo::new();
+        let movies = library(LibraryKind::Movie);
+        let tmdb = ExternalId { source: "tmdb".into(), value: "movie/42".into() };
+        enricher(catalog.clone(), None, MockJobStore::new())
+            .ingest_fetched(
+                &movies,
+                &discovered(NEON_HARBOR),
+                &fetched_movie(None),
+                &SiteDetails::default(),
+                None,
+            )
+            .await
+            .unwrap();
+        let movie =
+            ArtworkOwner::Movie(catalog.list_movies(page()).await.unwrap().items[0].id.clone());
+        store_art(&catalog, &movie).await;
+        let jobs = MockJobStore::new();
+        let metadata = TitleMetadata {
+            title: "Neon Harbor".into(),
+            external_ids: vec![tmdb.clone()],
+            ..TitleMetadata::default()
+        };
+        let svc = enricher(
+            catalog.clone(),
+            Some(MockProvider { mode: ProviderMode::ByIdOnly(Box::new(metadata)) }),
+            jobs.clone(),
+        );
+
+        svc.ingest_fetched(
+            &movies,
+            &discovered(NEON_HARBOR),
+            &fetched_movie(Some(tmdb)),
+            &site(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            queued_artwork(&jobs, is_movie).await.is_empty(),
+            "site art only fills a movie that has none"
+        );
+        assert_eq!(catalog.list_artwork(&movie).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_refetch_without_an_id_queues_no_site_art() {
+        for (kind, path, parsed) in [
+            (LibraryKind::Tv, PILOT, fetched_episode(2, "Pilot", None)),
+            (LibraryKind::Movie, NEON_HARBOR, fetched_movie(None)),
+        ] {
+            let catalog = MockCatalogRepo::new();
+            let target = library(kind);
+            enricher(catalog.clone(), None, MockJobStore::new())
+                .ingest_fetched(&target, &discovered(path), &parsed, &SiteDetails::default(), None)
+                .await
+                .unwrap();
+            let jobs = MockJobStore::new();
+
+            enricher(catalog.clone(), None, jobs.clone())
+                .ingest_fetched(&target, &discovered(path), &parsed, &site(), None)
+                .await
+                .unwrap();
+
+            assert!(
+                queued_artwork(&jobs, |_| true).await.is_empty(),
+                "a fetch that writes no title queues no art for it"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_scanned_episode_with_no_name_is_numbered() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+
+        svc.enrich(&library(LibraryKind::Tv), &report(&["/tv/Gamma S01E03 720p.mkv"]), None).await;
+
+        assert_eq!(only_episode_title(&catalog).await, "Episode 3");
+    }
+
     #[tokio::test]
     async fn a_fetched_file_that_names_no_episode_writes_nothing_to_a_tv_library() {
         let catalog = MockCatalogRepo::new();
@@ -4297,6 +5078,7 @@ mod tests {
             &library(LibraryKind::Tv),
             &discovered("/tv/Neon Harbor (2017).mkv"),
             &parse_filename("/tv/Neon Harbor (2017).mkv"),
+            &SiteDetails::default(),
             None,
         )
         .await
@@ -4328,7 +5110,9 @@ mod tests {
                 episode: None,
                 quality: None,
                 external_id: None,
+                episode_title: None,
             },
+            &SiteDetails::default(),
             None,
         )
         .await

@@ -971,7 +971,6 @@ async fn remote_content_cannot_be_fetched_into_a_local_library() {
         Some(ADMIN),
         Some(json!({
             "source_url": "https://x/v",
-            "kind": "movie",
             "library_id": "lib1",
             "title": "The Matrix"
         })),
@@ -1595,7 +1594,8 @@ async fn library_routes() {
         assert_eq!(status, StatusCode::BAD_REQUEST, "POST {uri}");
     }
     ctx.library_repo.insert_library(external_library("ext1"));
-    let fetch_body = json!({"source_url": "https://x/v", "kind": "movie", "library_id": "ext1", "title": "The Matrix"});
+    ctx.library_repo.insert_library(Library { kind: LibraryKind::Tv, ..external_library("tv1") });
+    let fetch_body = json!({"source_url": "https://x/v", "kind": "tv", "library_id": "ext1", "title": "The Matrix"});
     let (status, _) =
         call(ctx.app(), Method::POST, "/api/v1/admin/fetch", Some(USER), Some(fetch_body.clone()))
             .await;
@@ -1608,10 +1608,20 @@ async fn library_routes() {
         Method::POST,
         "/api/v1/admin/fetch",
         Some(ADMIN),
-        Some(json!({"source_url": "https://x/v", "kind": "tv", "library_id": "lib1", "title": "Show"})),
+        Some(json!({"source_url": "https://x/v", "library_id": "tv1", "title": "Show"})),
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+    let episode = json!({"source_url": "https://x/v", "library_id": "tv1", "title": "Show", "season": 1, "episode": 2});
+    let (status, _) =
+        call(ctx.app(), Method::POST, "/api/v1/admin/fetch", Some(ADMIN), Some(episode.clone()))
+            .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let mut titled = episode;
+    titled["episode_title"] = json!("Pilot");
+    let (status, _) =
+        call(ctx.app(), Method::POST, "/api/v1/admin/fetch", Some(ADMIN), Some(titled)).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
     let (status, _) =
         call(ctx.app(), Method::GET, "/api/v1/libraries/lib1/scan", Some(USER), None).await;
     assert_eq!(status, StatusCode::FORBIDDEN);

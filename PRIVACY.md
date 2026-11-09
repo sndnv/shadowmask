@@ -44,12 +44,12 @@ preferences (theme, player defaults, language). Signing out clears them.
 Shadowmask ships with every outbound integration **off**. When an operator enables one, these are
 the third parties involved, and each has its own privacy policy:
 
-| Integration               | Who it contacts                               | What is sent                                                                                  |
-|---------------------------|-----------------------------------------------|-----------------------------------------------------------------------------------------------|
-| Metadata (TMDB)           | `api.themoviedb.org`, `image.tmdb.org`        | Title and year search terms derived from your file names; artwork is downloaded by the server |
-| Metadata (OMDb)           | `www.omdbapi.com`                             | The same kind of search terms                                                                 |
-| Subtitles (OpenSubtitles) | `api.opensubtitles.com`                       | Search terms identifying the title you want subtitles for                                     |
-| Remote content fetch      | Whatever site an admin gives it, via `yt-dlp` | The request an admin explicitly asked for                                                     |
+| Integration               | Who it contacts                                                                 | What is sent                                                                                  |
+|---------------------------|---------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|
+| Metadata (TMDB)           | `api.themoviedb.org`, `image.tmdb.org`                                          | Title and year search terms derived from your file names; artwork is downloaded by the server |
+| Metadata (OMDb)           | `www.omdbapi.com`                                                               | The same kind of search terms                                                                 |
+| Subtitles (OpenSubtitles) | `api.opensubtitles.com`                                                         | Search terms identifying the title you want subtitles for                                     |
+| Remote content fetch      | Whatever site an admin gives it, via `yt-dlp`, and the thumbnail hosts it names | The request an admin explicitly asked for; the server downloads the site's thumbnails         |
 
 Two things worth knowing about how this is arranged:
 

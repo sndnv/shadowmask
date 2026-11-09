@@ -23,6 +23,7 @@ use jiff::Timestamp;
 use url::Url;
 use uuid::Uuid;
 
+use super::fetch_job::names_a_file;
 use super::{
     FetchJobPayload, IngestJobPayload, MetadataJobPayload, RelinkJobPayload, combine_job,
     container_language, parse_filename, queue_scan, transcription_job, translation_job_with_source,
@@ -453,6 +454,19 @@ where
         if target.origin != LibraryOrigin::External {
             return Err(LibraryError::Forbidden);
         }
+        let titled = input.episode_title.as_deref().is_some_and(|name| !name.trim().is_empty());
+        if target.kind == LibraryKind::Tv
+            && (input.season.is_none() || input.episode.is_none() || !titled)
+        {
+            return Err(LibraryError::InvalidRequest(
+                "season, episode and episode title are required for a tv library".to_owned(),
+            ));
+        }
+        if !names_a_file(&input.title) {
+            return Err(LibraryError::InvalidRequest(
+                "the title has nothing a file name can hold".to_owned(),
+            ));
+        }
         self.refuse_while_held(library).await?;
         let url = Url::parse(&input.source_url).map_err(|_| {
             LibraryError::InvalidRequest("source_url is not a valid URL".to_owned())
@@ -473,12 +487,12 @@ where
         let payload = FetchJobPayload {
             library: library.clone(),
             source_url: input.source_url,
-            kind: input.kind,
             title: input.title,
             year: input.year,
             external_id: input.external_id,
             season: input.season,
             episode: input.episode,
+            episode_title: input.episode_title,
         }
         .encode();
         let now = Timestamp::now();
@@ -1523,12 +1537,12 @@ mod tests {
     fn fetch_input() -> FetchInput {
         FetchInput {
             source_url: "https://example.com/watch?v=abc".into(),
-            kind: LibraryKind::Movie,
             title: "The Matrix".into(),
             year: Some(1999),
             external_id: Some("tt0133093".into()),
             season: None,
             episode: None,
+            episode_title: None,
         }
     }
 
@@ -1536,6 +1550,7 @@ mod tests {
         let libraries = MockLibraryRepo::new();
         libraries.insert_library(library("local"));
         libraries.insert_library(external_library("ext"));
+        libraries.insert_library(Library { kind: LibraryKind::Tv, ..external_library("shows") });
         LibraryServiceImpl::new(
             libraries,
             MockUserRepo::new(),
@@ -1596,6 +1611,78 @@ mod tests {
         let enqueued = jobs.list().await.unwrap();
         assert_eq!(enqueued.len(), 1);
         assert_eq!(enqueued[0].kind, JobKind::Fetch);
+    }
+
+    #[tokio::test]
+    async fn a_tv_library_refuses_a_fetch_without_season_episode_and_title() {
+        let jobs = MockJobStore::new();
+        let svc = fetch_svc(jobs.clone(), true);
+        let pilot = || Some("Pilot".to_owned());
+        for (season, episode, episode_title) in [
+            (None, None, None),
+            (Some(1), None, pilot()),
+            (None, Some(2), pilot()),
+            (Some(1), Some(2), None),
+            (Some(1), Some(2), Some("  ".to_owned())),
+        ] {
+            let input = FetchInput { season, episode, episode_title, ..fetch_input() };
+            assert!(matches!(
+                svc.create_fetch(&admin(), &LibraryId("shows".into()), input).await.unwrap_err(),
+                LibraryError::InvalidRequest(_)
+            ));
+        }
+        assert!(jobs.list().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_tv_library_queues_a_fetch_with_season_episode_and_title() {
+        let jobs = MockJobStore::new();
+        let svc = fetch_svc(jobs.clone(), true);
+        let input = FetchInput {
+            season: Some(1),
+            episode: Some(2),
+            episode_title: Some("Pilot".into()),
+            ..fetch_input()
+        };
+        svc.create_fetch(&admin(), &LibraryId("shows".into()), input).await.unwrap();
+        let enqueued = jobs.list().await.unwrap();
+        assert_eq!(enqueued.len(), 1);
+        let payload = FetchJobPayload::decode(&enqueued[0].payload).unwrap();
+        assert_eq!((payload.season, payload.episode), (Some(1), Some(2)));
+        assert_eq!(payload.episode_title.as_deref(), Some("Pilot"));
+    }
+
+    #[tokio::test]
+    async fn a_title_with_nothing_a_file_name_can_hold_is_refused() {
+        let jobs = MockJobStore::new();
+        let svc = fetch_svc(jobs.clone(), true);
+        let episode = FetchInput {
+            season: Some(1),
+            episode: Some(2),
+            episode_title: Some("Pilot".into()),
+            ..fetch_input()
+        };
+        for (library, base) in [("ext", fetch_input()), ("shows", episode)] {
+            for title in ["///", "CON:", "..\u{a0}"] {
+                let input = FetchInput { title: title.into(), ..base.clone() };
+                assert!(matches!(
+                    svc.create_fetch(&admin(), &LibraryId(library.into()), input)
+                        .await
+                        .unwrap_err(),
+                    LibraryError::InvalidRequest(_)
+                ));
+            }
+        }
+        assert!(jobs.list().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_movie_library_needs_no_season_or_episode() {
+        let jobs = MockJobStore::new();
+        let svc = fetch_svc(jobs.clone(), true);
+        svc.create_fetch(&admin(), &LibraryId("ext".into()), fetch_input()).await.unwrap();
+        let payload = FetchJobPayload::decode(&jobs.list().await.unwrap()[0].payload).unwrap();
+        assert_eq!((payload.season, payload.episode), (None, None));
     }
 
     #[tokio::test]

@@ -66,7 +66,7 @@ class _FetchBodyState extends State<_FetchBody> {
   final TextEditingController _externalId = TextEditingController();
   final TextEditingController _season = TextEditingController();
   final TextEditingController _episode = TextEditingController();
-  LibraryKind _kind = LibraryKind.movie;
+  final TextEditingController _episodeTitle = TextEditingController();
   String? _libraryId;
   bool _submitting = false;
   String? _urlError;
@@ -75,6 +75,7 @@ class _FetchBodyState extends State<_FetchBody> {
   String? _libraryError;
   String? _seasonError;
   String? _episodeError;
+  String? _episodeTitleError;
 
   void _clear(VoidCallback clear) => setState(clear);
 
@@ -92,6 +93,7 @@ class _FetchBodyState extends State<_FetchBody> {
     _externalId.dispose();
     _season.dispose();
     _episode.dispose();
+    _episodeTitle.dispose();
     super.dispose();
   }
 
@@ -106,44 +108,50 @@ class _FetchBodyState extends State<_FetchBody> {
     return (jobs: jobs, truncated: feed.page.total > feed.page.items.length);
   }
 
-  Future<void> _submit() async {
+  Future<void> _submit(bool tv) async {
     final String url = _sourceUrl.text.trim();
     final String title = _title.text.trim();
     final String? libraryId = _libraryId;
-    final bool tv = _kind == LibraryKind.tv;
     final int? season = int.tryParse(_season.text.trim());
     final int? episode = int.tryParse(_episode.text.trim());
+    final String episodeTitle = _episodeTitle.text.trim();
     final String yearText = _year.text.trim();
     final int? year = int.tryParse(yearText);
     final bool yearValid = year != null && year >= 1000 && year <= 9999;
     setState(() {
       _urlError = url.isEmpty ? Strings.requiredUrl : null;
-      _titleError = title.isEmpty ? Strings.requiredTitle : null;
+      _titleError = title.isEmpty
+          ? (tv ? Strings.requiredSeries : Strings.requiredTitle)
+          : null;
       _yearError = !tv && yearText.isNotEmpty && !yearValid
           ? Strings.invalidYear
           : null;
       _libraryError = libraryId == null ? Strings.requiredLibrary : null;
       _seasonError = tv && season == null ? Strings.requiredSeason : null;
       _episodeError = tv && episode == null ? Strings.requiredEpisode : null;
+      _episodeTitleError = tv && episodeTitle.isEmpty
+          ? Strings.requiredEpisodeTitle
+          : null;
     });
     if (_urlError != null ||
         _titleError != null ||
         _yearError != null ||
         _libraryError != null ||
         _seasonError != null ||
-        _episodeError != null) {
+        _episodeError != null ||
+        _episodeTitleError != null) {
       return;
     }
     final String externalId = _externalId.text.trim();
     final Map<String, dynamic> body = <String, dynamic>{
       'source_url': url,
-      'kind': libraryKindWire(_kind),
       'library_id': libraryId,
       'title': title,
       if (!tv && yearValid) 'year': year,
       if (externalId.isNotEmpty) 'external_id': externalId,
       if (tv) 'season': season,
       if (tv) 'episode': episode,
+      if (tv) 'episode_title': episodeTitle,
     };
     setState(() => _submitting = true);
     try {
@@ -175,7 +183,12 @@ class _FetchBodyState extends State<_FetchBody> {
         if (external.isNotEmpty) {
           _libraryId ??= external.first.id;
         }
-        final bool tv = _kind == LibraryKind.tv;
+        final bool tv =
+            external
+                .where((Library l) => l.id == _libraryId)
+                .firstOrNull
+                ?.kind ==
+            LibraryKind.tv;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -212,8 +225,12 @@ class _FetchBodyState extends State<_FetchBody> {
                           flex: 3,
                           child: LabelledTextField(
                             controller: _title,
-                            label: Strings.fieldTitle,
-                            help: Strings.fetchTitleHelp,
+                            label: tv
+                                ? Strings.fieldSeries
+                                : Strings.fieldTitle,
+                            help: tv
+                                ? Strings.fetchSeriesHelp
+                                : Strings.fetchTitleHelp,
                             error: _titleError,
                             onChanged: (_) => _clear(() => _titleError = null),
                           ),
@@ -233,39 +250,24 @@ class _FetchBodyState extends State<_FetchBody> {
                         ],
                       ],
                     ),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Expanded(
-                          child: LabelledDropdown<LibraryKind>(
-                            label: Strings.fieldKind,
-                            help: Strings.fetchKindHelp,
-                            value: _kind,
-                            items: <(LibraryKind, String)>[
-                              for (final LibraryKind k in LibraryKind.values)
-                                (k, libraryKindLabel(k)),
-                            ],
-                            onChanged: (LibraryKind v) =>
-                                setState(() => _kind = v),
-                          ),
-                        ),
-                        const SizedBox(width: Space.s3),
-                        Expanded(
-                          child: LabelledDropdown<String>(
-                            label: Strings.fieldTargetLibrary,
-                            help: Strings.targetLibraryHelp,
-                            value: _libraryId ?? '',
-                            items: <(String, String)>[
-                              for (final Library l in external) (l.id, l.name),
-                            ],
-                            error: _libraryError,
-                            onChanged: (String v) => setState(() {
-                              _libraryId = v;
-                              _libraryError = null;
-                            }),
-                          ),
-                        ),
+                    LabelledDropdown<String>(
+                      label: Strings.fieldTargetLibrary,
+                      help: Strings.targetLibraryHelp,
+                      value: _libraryId ?? '',
+                      items: <(String, String)>[
+                        for (final Library l in external)
+                          (l.id, '${l.name} (${libraryKindLabel(l.kind)})'),
                       ],
+                      error: _libraryError,
+                      onChanged: (String v) => setState(() {
+                        _libraryId = v;
+                        _libraryError = null;
+                        _titleError = null;
+                        _yearError = null;
+                        _seasonError = null;
+                        _episodeError = null;
+                        _episodeTitleError = null;
+                      }),
                     ),
                     LabelledTextField(
                       controller: _externalId,
@@ -299,13 +301,25 @@ class _FetchBodyState extends State<_FetchBody> {
                                   _clear(() => _episodeError = null),
                             ),
                           ),
+                          const SizedBox(width: Space.s3),
+                          Expanded(
+                            flex: 3,
+                            child: LabelledTextField(
+                              controller: _episodeTitle,
+                              label: Strings.fieldEpisodeTitle,
+                              help: Strings.fetchEpisodeTitleHelp,
+                              error: _episodeTitleError,
+                              onChanged: (_) =>
+                                  _clear(() => _episodeTitleError = null),
+                            ),
+                          ),
                         ],
                       ),
                     const SizedBox(height: Space.s2),
                     Align(
                       alignment: Alignment.centerLeft,
                       child: FilledButton.icon(
-                        onPressed: _submitting ? null : _submit,
+                        onPressed: _submitting ? null : () => _submit(tv),
                         icon: const Icon(Icons.cloud_download_outlined),
                         label: const Text(Strings.fetch),
                       ),

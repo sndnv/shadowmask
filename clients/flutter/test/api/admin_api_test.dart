@@ -570,7 +570,6 @@ void main() {
 
     await admin.createFetch(<String, dynamic>{
       'source_url': 'https://x',
-      'kind': 'movie',
       'library_id': 'l1',
       'title': 'The Matrix',
     });

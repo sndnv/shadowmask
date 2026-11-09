@@ -9,6 +9,7 @@ pub struct ParsedMedia {
     pub episode: Option<u16>,
     pub quality: Option<Quality>,
     pub external_id: Option<ExternalId>,
+    pub episode_title: Option<String>,
 }
 
 impl ParsedMedia {

@@ -30,7 +30,7 @@ mod translation_trigger;
 mod trickplay_job;
 mod upscale_job;
 
-pub use artwork_job::{ArtworkJobItem, ArtworkJobPayload};
+pub use artwork_job::{ArtworkJobItem, ArtworkJobPayload, ArtworkSource};
 pub use combine_job::{CombineJobPayload, combine_job};
 pub use cron::{next_daily_fire, next_fire_after};
 pub use debouncer::Debouncer;

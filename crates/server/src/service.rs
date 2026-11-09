@@ -30,6 +30,7 @@ use media::playback_prep::FfmpegPlaybackPreparer;
 use media::playback_prep_store::FsPlaybackPrepStore;
 use media::probe::FfprobeMediaProbe;
 use media::scan::WalkdirSourceWalker;
+use media::still::FfmpegStillExtractor;
 use media::subtitle_store::FsSubtitleStore;
 use media::transcode::VideoEncoder;
 use media::trickplay::{FfmpegTrickplayGenerator, TrickplayConfig};
@@ -65,7 +66,12 @@ type ServerEnricher =
 type ScanHandler =
     LibraryScanHandler<SqliteLibraryRepo, WalkdirSourceWalker, FfprobeMediaProbe, ServerEnricher>;
 type ReindexHandler = SearchReindexHandler<SqliteCatalogRepo>;
-type ArtworkHandler = ArtworkJobHandler<SqliteCatalogRepo, ImageArtworkPipeline, FsArtworkStore>;
+type ArtworkHandler = ArtworkJobHandler<
+    SqliteCatalogRepo,
+    ImageArtworkPipeline,
+    FsArtworkStore,
+    FfmpegStillExtractor,
+>;
 type TrickplayHandler = TrickplayJobHandler<SqliteCatalogRepo, FfmpegTrickplayGenerator>;
 type IngestHandler = IngestJobHandler<SqliteLibraryRepo, FfprobeMediaProbe, ServerEnricher>;
 type MetadataHandler = MetadataJobHandler<ServerEnricher>;
@@ -683,6 +689,7 @@ impl Runtime {
             repos.catalog.clone(),
             ImageArtworkPipeline::new(),
             artwork_store,
+            FfmpegStillExtractor::new(),
         );
         let trickplay = TrickplayJobHandler::new(
             repos.catalog.clone(),
