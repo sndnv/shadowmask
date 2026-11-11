@@ -23,7 +23,7 @@ use jiff::Timestamp;
 use url::Url;
 use uuid::Uuid;
 
-use super::fetch_job::names_a_file;
+use super::fetch_job::{checked_options, names_a_file};
 use super::{
     FetchJobPayload, IngestJobPayload, MetadataJobPayload, RelinkJobPayload, combine_job,
     container_language, parse_filename, queue_scan, transcription_job, translation_job_with_source,
@@ -467,6 +467,7 @@ where
                 "the title has nothing a file name can hold".to_owned(),
             ));
         }
+        let options = checked_options(input.options).map_err(LibraryError::InvalidRequest)?;
         self.refuse_while_held(library).await?;
         let url = Url::parse(&input.source_url).map_err(|_| {
             LibraryError::InvalidRequest("source_url is not a valid URL".to_owned())
@@ -493,6 +494,7 @@ where
             season: input.season,
             episode: input.episode,
             episode_title: input.episode_title,
+            options,
         }
         .encode();
         let now = Timestamp::now();
@@ -906,6 +908,7 @@ mod tests {
     use crate::library::ScanJobPayload;
     use domain::job::Job;
     use domain::library::WatcherStrategy;
+    use domain::media::FetchOptions;
     use domain::repository::JobRepository;
     use domain::user::{Role, User, UserId};
     use jiff::Timestamp;
@@ -1543,6 +1546,7 @@ mod tests {
             season: None,
             episode: None,
             episode_title: None,
+            options: FetchOptions::default(),
         }
     }
 
@@ -1650,6 +1654,46 @@ mod tests {
         let payload = FetchJobPayload::decode(&enqueued[0].payload).unwrap();
         assert_eq!((payload.season, payload.episode), (Some(1), Some(2)));
         assert_eq!(payload.episode_title.as_deref(), Some("Pilot"));
+    }
+
+    #[tokio::test]
+    async fn a_fetch_queues_its_checked_download_options() {
+        let jobs = MockJobStore::new();
+        let svc = fetch_svc(jobs.clone(), true);
+        let options = FetchOptions {
+            skip_note: Some(" Premium ".into()),
+            prefer_h264: true,
+            chapters: true,
+            ..FetchOptions::default()
+        };
+        let input = FetchInput { options, ..fetch_input() };
+        svc.create_fetch(&admin(), &LibraryId("ext".into()), input).await.unwrap();
+        let enqueued = jobs.list().await.unwrap();
+        assert_eq!(
+            FetchJobPayload::decode(&enqueued[0].payload).unwrap().options,
+            FetchOptions {
+                skip_note: Some("Premium".into()),
+                prefer_h264: true,
+                chapters: true,
+                ..FetchOptions::default()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn refused_download_options_queue_nothing_and_say_why() {
+        let jobs = MockJobStore::new();
+        let svc = fetch_svc(jobs.clone(), true);
+        let options = FetchOptions {
+            format: Some("bv+ba".into()),
+            skip_note: Some("Premium".into()),
+            ..FetchOptions::default()
+        };
+        let input = FetchInput { options, ..fetch_input() };
+        let error = svc.create_fetch(&admin(), &LibraryId("ext".into()), input).await.unwrap_err();
+        let LibraryError::InvalidRequest(reason) = error else { panic!("not an invalid request") };
+        assert!(reason.contains("cannot also skip noted streams"), "{reason}");
+        assert!(jobs.list().await.unwrap().is_empty());
     }
 
     #[tokio::test]

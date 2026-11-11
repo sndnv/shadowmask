@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -120,6 +122,17 @@ Future<void> _switchLibrary(WidgetTester tester, String from, String to) async {
 
 Future<void> _pickTvLibrary(WidgetTester tester) =>
     _switchLibrary(tester, 'Downloads (Movie)', 'Shows (TV)');
+
+Future<void> _toggleOptions(WidgetTester tester) async {
+  await tester.tap(find.text(Strings.downloadOptionsHeading));
+  await tester.pumpAndSettle();
+}
+
+const List<String> _boxes = <String>[
+  Strings.fieldPreferH264,
+  Strings.fieldSiteSubtitles,
+  Strings.fieldChapters,
+];
 
 Future<void> _fillEpisode(WidgetTester tester) async {
   await tester.enterText(
@@ -310,5 +323,225 @@ void main() {
     expect(find.text(Strings.requiredSeason), findsNothing);
     expect(find.text(Strings.requiredEpisode), findsNothing);
     expect(find.text(Strings.requiredEpisodeTitle), findsNothing);
+  });
+
+  testWidgets('download options are sent only once they are set', (
+    WidgetTester tester,
+  ) async {
+    const List<String> optionKeys = <String>[
+      'format',
+      'skip_note',
+      'prefer_h264',
+      'site_subtitles',
+      'chapters',
+    ];
+    final List<Map<String, dynamic>> posted = await _pump(tester);
+
+    await _fill(tester, url: 'https://example.com/watch', title: 'The Matrix');
+    await _submit(tester);
+    await _toggleOptions(tester);
+    await tester.enterText(_field(Strings.fieldFormat), '   ');
+    await tester.enterText(_field(Strings.fieldSkipNote), ' Premium ');
+    for (final String box in _boxes) {
+      await tester.tap(find.text(box));
+    }
+    await tester.pumpAndSettle();
+    await _submit(tester);
+
+    expect(posted, hasLength(2));
+    expect(posted.first.keys.where(optionKeys.contains), isEmpty);
+    expect(posted.last.containsKey('format'), isFalse);
+    expect(posted.last['skip_note'], 'Premium');
+    expect(posted.last['prefer_h264'], isTrue);
+    expect(posted.last['site_subtitles'], isTrue);
+    expect(posted.last['chapters'], isTrue);
+  });
+
+  testWidgets('a format and a note to skip together block the request', (
+    WidgetTester tester,
+  ) async {
+    final List<Map<String, dynamic>> posted = await _pump(tester);
+
+    await _fill(tester, url: 'https://example.com/watch', title: 'The Matrix');
+    await _toggleOptions(tester);
+    await tester.enterText(_field(Strings.fieldFormat), 'bv*+ba/b');
+    await tester.enterText(_field(Strings.fieldSkipNote), 'Premium');
+    await tester.pumpAndSettle();
+    await _toggleOptions(tester);
+    await _submit(tester);
+
+    expect(posted, isEmpty);
+    expect(find.text(Strings.formatOrSkipNote), findsOneWidget);
+
+    await tester.enterText(_field(Strings.fieldFormat), 'bv+ba');
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.formatOrSkipNote), findsNothing);
+    await _submit(tester);
+    expect(find.text(Strings.formatOrSkipNote), findsOneWidget);
+
+    await tester.enterText(_field(Strings.fieldSkipNote), '');
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.formatOrSkipNote), findsNothing);
+    await _submit(tester);
+
+    expect(posted, hasLength(1));
+    expect(posted.single['format'], 'bv+ba');
+    expect(posted.single.containsKey('skip_note'), isFalse);
+  });
+
+  testWidgets('the format and skip help each show their example', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester);
+    await _toggleOptions(tester);
+
+    for (final (String field, String example) in <(String, String)>[
+      (Strings.fieldFormat, Strings.fetchFormatExample),
+      (Strings.fieldSkipNote, Strings.fetchSkipNoteExample),
+    ]) {
+      await tester.tap(
+        find.byWidgetPredicate(
+          (Widget w) => w is FieldHelp && w.title == field,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(Strings.forExample), findsOneWidget);
+      expect(find.text(example), findsOneWidget);
+      await tester.tapAt(const Offset(4, 4));
+      await tester.pumpAndSettle();
+      expect(find.text(Strings.forExample), findsNothing);
+    }
+  });
+
+  testWidgets('download options start hidden and keep what was set', (
+    WidgetTester tester,
+  ) async {
+    final List<Map<String, dynamic>> posted = await _pump(tester);
+
+    expect(_field(Strings.fieldFormat), findsNothing);
+    expect(find.text(Strings.fieldChapters), findsNothing);
+    await _toggleOptions(tester);
+    expect(_field(Strings.fieldFormat), findsOneWidget);
+    await tester.tap(find.text(Strings.fieldChapters));
+    await tester.pumpAndSettle();
+    await _toggleOptions(tester);
+    expect(find.text(Strings.fieldChapters), findsNothing);
+
+    await _fill(tester, url: 'https://example.com/watch', title: 'The Matrix');
+    await _submit(tester);
+
+    expect(posted, hasLength(1));
+    expect(posted.single['chapters'], isTrue);
+  });
+
+  testWidgets('the tick boxes share a row and wrap only when tight', (
+    WidgetTester tester,
+  ) async {
+    double top(String box) => tester.getTopLeft(find.text(box)).dy;
+
+    await _pump(tester);
+    await _toggleOptions(tester);
+    expect(_boxes.map(top).toSet(), hasLength(1));
+
+    tester.view.physicalSize = const Size(360, 1600);
+    await tester.pumpAndSettle();
+    expect(_boxes.map(top).toSet(), hasLength(greaterThan(1)));
+  });
+
+  testWidgets('each tick box is one named checkbox beside its own help', (
+    WidgetTester tester,
+  ) async {
+    final SemanticsHandle semantics = tester.ensureSemantics();
+    await _pump(tester);
+    final Finder toggle = find.text(Strings.downloadOptionsHeading);
+
+    expect(
+      tester.getSemantics(toggle),
+      isSemantics(
+        label: Strings.downloadOptionsHeading,
+        isButton: true,
+        hasExpandedState: true,
+        isExpanded: false,
+        hasTapAction: true,
+      ),
+    );
+    await _toggleOptions(tester);
+    expect(
+      tester.getSemantics(toggle),
+      isSemantics(hasExpandedState: true, isExpanded: true),
+    );
+
+    for (final (int index, String label) in _boxes.indexed) {
+      final SemanticsNode box = tester.getSemantics(
+        find.byType(Checkbox).at(index),
+      );
+      final SemanticsNode help = tester.getSemantics(
+        find.descendant(
+          of: find.byWidgetPredicate(
+            (Widget w) => w is FieldHelp && w.title == label,
+          ),
+          matching: find.byType(InkWell),
+        ),
+      );
+      expect(
+        box,
+        isSemantics(
+          label: label,
+          hasCheckedState: true,
+          isChecked: false,
+          hasTapAction: true,
+        ),
+      );
+      expect(
+        help,
+        isSemantics(tooltip: Strings.whatIsThis, hasTapAction: true),
+      );
+      expect(help.id, isNot(box.id));
+    }
+    semantics.dispose();
+  });
+
+  testWidgets('the fetch form gets its own material so the ink stays visible', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester);
+
+    final Finder nearest = find
+        .ancestor(
+          of: find.descendant(
+            of: find.byWidgetPredicate(
+              (Widget w) => w is FieldHelp && w.title == Strings.fieldSourceUrl,
+            ),
+            matching: find.byType(InkWell),
+          ),
+          matching: find.byType(Material),
+        )
+        .first;
+    expect(tester.widget<Material>(nearest).type, MaterialType.transparency);
+  });
+
+  testWidgets('tab reaches each tick box once, on its checkbox', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester);
+    await _toggleOptions(tester);
+    await tester.tap(_field(Strings.fieldSkipNote));
+    await tester.pump();
+
+    for (final (int index, String label) in _boxes.indexed) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      final Element box = tester.element(find.byType(Checkbox).at(index));
+      bool onBox = false;
+      FocusManager.instance.primaryFocus?.context?.visitAncestorElements((
+        Element e,
+      ) {
+        onBox = e == box;
+        return !onBox;
+      });
+      expect(onBox, isTrue, reason: label);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+    }
   });
 }

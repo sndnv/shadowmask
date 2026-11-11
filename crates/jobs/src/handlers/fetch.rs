@@ -49,7 +49,12 @@ where
         tracing::info!("fetching [{}] into [{}]", payload.source_url, dest_dir);
         let fetched = self
             .fetcher
-            .fetch(&FetchSpec { url: payload.source_url.clone(), dest_dir, filename_stem: stem })
+            .fetch(&FetchSpec {
+                url: payload.source_url.clone(),
+                dest_dir,
+                filename_stem: stem,
+                options: payload.options.clone(),
+            })
             .await
             .map_err(fetch_error)?;
         let probe = self
@@ -81,6 +86,9 @@ fn fetch_error(err: FetchError) -> JobError {
     match err {
         FetchError::Spawn(m) | FetchError::NoOutput(m) => JobError::Permanent(m),
         FetchError::Download(m) | FetchError::Io(m) => JobError::Retryable(m),
+        refused @ (FetchError::Unsupported | FetchError::InvalidFormat(_)) => {
+            JobError::Permanent(refused.to_string())
+        }
     }
 }
 
@@ -90,26 +98,31 @@ mod tests {
     use domain::common::PageRequest;
     use domain::job::{JobId, JobKind, JobPriority, JobStatus};
     use domain::library::{Library, LibraryId, LibraryKind, LibraryOrigin, WatcherStrategy};
-    use domain::media::{FetchedMedia, SiteDetails};
+    use domain::media::{FetchOptions, FetchedMedia, SiteDetails};
     use domain::repository::{CatalogRepository, JobRepository};
     use jiff::Timestamp;
     use mocks::{
         MockCatalogRepo, MockJobStore, MockLibraryRepo, MockMediaProbe, MockMetadataProvider,
     };
     use services::library::Enricher;
+    use std::sync::Mutex;
 
     enum Outcome {
         Ok,
         Permanent,
         Retryable,
+        Unsupported,
+        InvalidFormat,
     }
 
     struct MockFetcher {
         outcome: Outcome,
+        seen: Mutex<Vec<FetchSpec>>,
     }
 
     impl MediaFetcher for MockFetcher {
         async fn fetch(&self, request: &FetchSpec) -> Result<FetchedMedia, FetchError> {
+            self.seen.lock().unwrap().push(request.clone());
             match self.outcome {
                 Outcome::Ok => Ok(FetchedMedia {
                     path: format!("{}/{}.mkv", request.dest_dir, request.filename_stem),
@@ -121,6 +134,10 @@ mod tests {
                 }),
                 Outcome::Permanent => Err(FetchError::NoOutput("no output".into())),
                 Outcome::Retryable => Err(FetchError::Download("network".into())),
+                Outcome::Unsupported => Err(FetchError::Unsupported),
+                Outcome::InvalidFormat => {
+                    Err(FetchError::InvalidFormat("Invalid format specification: x".into()))
+                }
             }
         }
     }
@@ -159,6 +176,7 @@ mod tests {
             season: None,
             episode: None,
             episode_title: None,
+            options: FetchOptions::default(),
         }
     }
 
@@ -205,7 +223,51 @@ mod tests {
             jobs.clone(),
             MockLibraryRepo::new(),
         );
-        (FetchJobHandler::new(repo, MockFetcher { outcome }, probe, ingester), catalog, jobs)
+        let fetcher = MockFetcher { outcome, seen: Mutex::new(Vec::new()) };
+        (FetchJobHandler::new(repo, fetcher, probe, ingester), catalog, jobs)
+    }
+
+    #[tokio::test]
+    async fn the_download_options_reach_the_fetcher() {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(external_library());
+        let (h, _, _) = handler(repo, Outcome::Ok, MockMediaProbe::new());
+        let options = FetchOptions {
+            skip_note: Some("Premium".into()),
+            site_subtitles: true,
+            ..FetchOptions::default()
+        };
+
+        let queued = FetchJobPayload { options: options.clone(), ..payload() };
+        h.handle(&job(queued.encode())).await.unwrap();
+
+        let seen = h.fetcher.seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].options, options);
+    }
+
+    #[tokio::test]
+    async fn an_unsupported_site_is_permanent_and_points_at_the_stream_link() {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(external_library());
+        let (h, _, _) = handler(repo, Outcome::Unsupported, MockMediaProbe::new());
+
+        let error = h.handle(&job(payload().encode())).await.unwrap_err();
+
+        let JobError::Permanent(message) = error else { panic!("not a permanent failure") };
+        assert!(message.contains("direct link to its stream (.m3u8, .mpd"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn a_format_yt_dlp_refuses_is_permanent_and_names_the_reason() {
+        let repo = MockLibraryRepo::new();
+        repo.insert_library(external_library());
+        let (h, _, _) = handler(repo, Outcome::InvalidFormat, MockMediaProbe::new());
+
+        let error = h.handle(&job(payload().encode())).await.unwrap_err();
+
+        let JobError::Permanent(message) = error else { panic!("not a permanent failure") };
+        assert_eq!(message, "the format is not valid: [Invalid format specification: x]");
     }
 
     #[tokio::test]

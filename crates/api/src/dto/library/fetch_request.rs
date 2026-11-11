@@ -1,6 +1,7 @@
 use serde::Deserialize;
 
 use domain::library::FetchInput;
+use domain::media::FetchOptions;
 
 #[derive(Debug, Deserialize)]
 pub struct FetchRequest {
@@ -17,6 +18,16 @@ pub struct FetchRequest {
     pub episode: Option<u16>,
     #[serde(default)]
     pub episode_title: Option<String>,
+    #[serde(default)]
+    pub format: Option<String>,
+    #[serde(default)]
+    pub skip_note: Option<String>,
+    #[serde(default)]
+    pub prefer_h264: bool,
+    #[serde(default)]
+    pub site_subtitles: bool,
+    #[serde(default)]
+    pub chapters: bool,
 }
 
 impl FetchRequest {
@@ -42,6 +53,13 @@ impl FetchRequest {
             season: self.season,
             episode: self.episode,
             episode_title: self.episode_title,
+            options: FetchOptions {
+                format: self.format,
+                skip_note: self.skip_note,
+                prefer_h264: self.prefer_h264,
+                site_subtitles: self.site_subtitles,
+                chapters: self.chapters,
+            },
         }
     }
 }
@@ -60,6 +78,11 @@ mod tests {
             season: None,
             episode: None,
             episode_title: None,
+            format: None,
+            skip_note: None,
+            prefer_h264: false,
+            site_subtitles: false,
+            chapters: false,
         }
     }
 
@@ -97,7 +120,34 @@ mod tests {
         }))
         .unwrap();
         assert!(req.validate().is_ok());
-        assert_eq!(req.into_input().season, None);
+        let input = req.into_input();
+        assert_eq!(input.season, None);
+        assert_eq!(input.options, FetchOptions::default());
+    }
+
+    #[test]
+    fn download_options_pass_through() {
+        let req: FetchRequest = serde_json::from_value(serde_json::json!({
+            "source_url": "https://example.com/watch?v=abc",
+            "library_id": "ext",
+            "title": "The Matrix",
+            "format": "bestvideo+bestaudio",
+            "skip_note": "Premium",
+            "prefer_h264": true,
+            "site_subtitles": true,
+            "chapters": true
+        }))
+        .unwrap();
+        assert_eq!(
+            req.into_input().options,
+            FetchOptions {
+                format: Some("bestvideo+bestaudio".into()),
+                skip_note: Some("Premium".into()),
+                prefer_h264: true,
+                site_subtitles: true,
+                chapters: true,
+            }
+        );
     }
 
     #[test]

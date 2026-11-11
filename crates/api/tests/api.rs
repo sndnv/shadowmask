@@ -12,7 +12,9 @@ use domain::common::Quality;
 use domain::discovery::*;
 use domain::job::{JobId, JobKind, JobPriority};
 use domain::library::*;
-use domain::media::{AudioTrack, SubtitleFile, SubtitleFileId, SubtitleFormat, SubtitleSource};
+use domain::media::{
+    AudioTrack, FetchOptions, SubtitleFile, SubtitleFileId, SubtitleFormat, SubtitleSource,
+};
 use domain::metadata::*;
 use domain::playback::*;
 use domain::repository::CatalogRepository;
@@ -21,7 +23,7 @@ use mocks::*;
 use services::catalog::CatalogServiceImpl;
 use services::discovery::DiscoveryServiceImpl;
 use services::job::JobServiceImpl;
-use services::library::LibraryServiceImpl;
+use services::library::{FetchJobPayload, LibraryServiceImpl};
 use services::user::UserServiceImpl;
 use services::user_library::UserLibraryServiceImpl;
 use std::sync::Arc;
@@ -982,6 +984,45 @@ async fn remote_content_cannot_be_fetched_into_a_local_library() {
         StatusCode::FORBIDDEN,
         "fetched content only belongs in a library that was declared external"
     );
+}
+
+#[tokio::test]
+async fn a_fetch_carries_its_download_options_into_the_queued_job() {
+    use domain::repository::JobRepository;
+    let ctx = Ctx::new();
+    ctx.library_repo.insert_library(external_library("ext1"));
+    let body = json!({
+        "source_url": "https://x/v",
+        "library_id": "ext1",
+        "title": "The Matrix",
+        "skip_note": "Premium",
+        "prefer_h264": true,
+        "site_subtitles": true,
+        "chapters": true
+    });
+
+    let (status, _) =
+        call(ctx.app(), Method::POST, "/api/v1/admin/fetch", Some(ADMIN), Some(body.clone())).await;
+
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let queued = ctx.jobs_repo.list().await.unwrap();
+    assert_eq!(
+        FetchJobPayload::decode(&queued[0].payload).unwrap().options,
+        FetchOptions {
+            format: None,
+            skip_note: Some("Premium".into()),
+            prefer_h264: true,
+            site_subtitles: true,
+            chapters: true,
+        }
+    );
+    let mut both = body;
+    both["format"] = json!("bv+ba");
+    let (status, response) =
+        call(ctx.app(), Method::POST, "/api/v1/admin/fetch", Some(ADMIN), Some(both)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(response.to_string().contains("cannot also skip noted streams"), "{response}");
+    assert_eq!(ctx.jobs_repo.list().await.unwrap().len(), 1);
 }
 
 #[tokio::test]

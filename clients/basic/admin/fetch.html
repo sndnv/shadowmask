@@ -18,6 +18,7 @@
       let formStatus = null;
       let tvOnly = null;
       let titleCaption = null;
+      let optionsBox = null;
       let libraryKinds = {};
 
       if (sm.requireAuth()) guard();
@@ -47,6 +48,15 @@
           season: sm.el("input", { type: "number", min: "0" }),
           episode: sm.el("input", { type: "number", min: "0" }),
           episodeTitle: sm.el("input", { autocomplete: "off" }),
+          format: sm.el("input", {
+            autocomplete: "off",
+            size: "40",
+            placeholder: "bv*[height<=720]+ba/b",
+          }),
+          skipNote: sm.el("input", { autocomplete: "off", placeholder: "Premium" }),
+          preferH264: sm.el("input", { type: "checkbox" }),
+          siteSubtitles: sm.el("input", { type: "checkbox" }),
+          chapters: sm.el("input", { type: "checkbox" }),
         };
         formStatus = sm.el("span", null);
         tvOnly = sm.el("div", null, [
@@ -57,6 +67,18 @@
           sm.el("label", null, ["Episode title ", fields.episodeTitle]),
         ]);
         titleCaption = sm.el("span", null, "Title ");
+        optionsBox = sm.el("details", null, [
+          sm.el("summary", null, "Download options"),
+          sm.el("label", null, ["Format (optional) ", fields.format]),
+          " ",
+          sm.el("label", null, ["Skip streams (optional) ", fields.skipNote]),
+          sm.el("br"),
+          sm.el("label", null, [fields.preferH264, " Prefer H.264"]),
+          " ",
+          sm.el("label", null, [fields.siteSubtitles, " Site subtitles"]),
+          " ",
+          sm.el("label", null, [fields.chapters, " Chapters"]),
+        ]);
         fields.library.addEventListener("change", updateKind);
         const form = sm.el("form", null, [
           sm.el("label", null, ["Source URL ", fields.url]),
@@ -68,6 +90,7 @@
           sm.el("label", null, ["TMDB or IMDb id (optional) ", fields.externalId]),
           sm.el("br"),
           tvOnly,
+          optionsBox,
           sm.el("button", { type: "submit" }, "Fetch"),
           " ",
           formStatus,
@@ -136,6 +159,21 @@
         }
         formStatus.textContent = "";
         try {
+          const { downloadOptions, optionsProblem } = await import("./fetch-options.js");
+          const options = downloadOptions({
+            format: fields.format.value,
+            skipNote: fields.skipNote.value,
+            preferH264: fields.preferH264.checked,
+            siteSubtitles: fields.siteSubtitles.checked,
+            chapters: fields.chapters.checked,
+          });
+          const problem = optionsProblem(options);
+          if (problem) {
+            optionsBox.open = true;
+            formStatus.textContent = problem;
+            return;
+          }
+          Object.assign(body, options);
           await sm.json("/api/v1/admin/fetch", { method: "POST", body: JSON.stringify(body) });
           sm.toast("Fetch queued. Track it under Jobs.", "ok");
         } catch (err) {

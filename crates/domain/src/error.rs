@@ -303,6 +303,13 @@ pub enum FetchError {
     NoOutput(String),
     #[error("fetch io error: {0}")]
     Io(String),
+    #[error(
+        "the site is not supported and its page has no video that can be found; fetch the \
+         direct link to its stream (.m3u8, .mpd or a video file) instead"
+    )]
+    Unsupported,
+    #[error("the format is not valid: [{0}]")]
+    InvalidFormat(String),
 }
 
 #[derive(Debug, Error)]

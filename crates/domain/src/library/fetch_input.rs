@@ -1,3 +1,5 @@
+use crate::media::FetchOptions;
+
 #[derive(Debug, Clone)]
 pub struct FetchInput {
     pub source_url: String,
@@ -7,4 +9,5 @@ pub struct FetchInput {
     pub season: Option<u16>,
     pub episode: Option<u16>,
     pub episode_title: Option<String>,
+    pub options: FetchOptions,
 }

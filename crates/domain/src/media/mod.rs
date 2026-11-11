@@ -54,7 +54,7 @@ pub use fingerprint::Fingerprint;
 pub use fingerprinted_version::FingerprintedVersion;
 pub use format_tokens::{FORMAT_TOKENS, FormatToken};
 pub use intro_marker::IntroMarker;
-pub use media_fetcher::{FetchSpec, FetchedMedia, MediaFetcher, SiteDetails};
+pub use media_fetcher::{FetchOptions, FetchSpec, FetchedMedia, MediaFetcher, SiteDetails};
 pub use playback_prep::PlaybackPrep;
 pub use playback_preparer::PlaybackPreparer;
 pub use probe::MediaProbe;
