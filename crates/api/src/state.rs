@@ -292,6 +292,11 @@ pub struct ServerCapabilities(pub Vec<crate::dto::server::Capability>);
 #[derive(Debug, Clone, Default)]
 pub struct ServerFonts(pub Option<crate::dto::server::FontSet>);
 
+#[derive(Debug, Clone, Default)]
+pub struct ServerTools {
+    pub yt_dlp: Option<String>,
+}
+
 pub trait AppServices: Clone + Send + Sync + 'static {
     type Auth: AuthService + Send + Sync;
     type Catalog: CatalogService + Send + Sync;

@@ -138,6 +138,13 @@ class _Server {
       'more': false,
     },
     this.logsStatus = 200,
+    this.software = const <String, dynamic>{
+      'version': '0.0.12',
+      'yt_dlp': null,
+      'features': <dynamic>[],
+    },
+    this.softwareStatus = 200,
+    this.capabilitiesStatus = 200,
   }) : capabilities = capabilities ?? <Map<String, dynamic>>[_ready()],
        benchmarks = benchmarks ?? <Map<String, dynamic>>[_benchmark('idle')];
 
@@ -145,6 +152,9 @@ class _Server {
   final int prepStatus;
   final Map<String, dynamic> logs;
   final int logsStatus;
+  final Map<String, dynamic> software;
+  final int softwareStatus;
+  final int capabilitiesStatus;
   final String role;
   final List<Map<String, dynamic>> capabilities;
   final List<Map<String, dynamic>> benchmarks;
@@ -173,8 +183,13 @@ class _Server {
         'username': 'pat',
         'role': role,
       }),
+      ('GET', '/api/v1/admin/server/software') => _json(
+        software,
+        softwareStatus,
+      ),
       ('GET', '/api/v1/admin/server/capabilities') => _json(
         _next(capabilities),
+        capabilitiesStatus,
       ),
       ('POST', '/api/v1/admin/server/capabilities/recheck') => http.Response(
         '',
@@ -289,6 +304,195 @@ OutlinePill _pill(WidgetTester tester, String name) => tester.widget(
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
+  testWidgets(
+    'the system shows every version and each feature state above the host',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        server: _Server(
+          software: <String, dynamic>{
+            'version': '0.0.12-SNAPSHOT',
+            'yt_dlp': '2026.10.26',
+            'features': <dynamic>[
+              <String, dynamic>{
+                'name': 'translation',
+                'available': true,
+                'enabled': true,
+              },
+              <String, dynamic>{
+                'name': 'tmdb',
+                'available': true,
+                'enabled': false,
+              },
+              <String, dynamic>{
+                'name': 'transcription',
+                'available': false,
+                'enabled': false,
+              },
+              <String, dynamic>{
+                'name': 'something_new',
+                'available': true,
+                'enabled': false,
+              },
+            ],
+          },
+        ),
+      );
+
+      expect(find.text('0.0.12-SNAPSHOT'), findsOneWidget);
+      expect(find.text('yt-dlp'), findsOneWidget);
+      expect(find.text('2026.10.26'), findsOneWidget);
+      expect(find.text('Translation'), findsOneWidget);
+      expect(find.text('Metadata'), findsOneWidget);
+      expect(find.text('Transcription'), findsOneWidget);
+      expect(find.text('something_new'), findsOneWidget);
+      expect(_pill(tester, 'Translation').icon, Icons.check);
+      expect(_pill(tester, 'Translation').active, isTrue);
+      expect(_pill(tester, 'Metadata').icon, Icons.remove);
+      expect(_pill(tester, 'Metadata').active, isFalse);
+      expect(_pill(tester, 'Transcription').icon, Icons.block);
+      expect(_pill(tester, 'Transcription').active, isFalse);
+      expect(find.byTooltip('On'), findsOneWidget);
+      expect(find.byTooltip('Off'), findsNWidgets(2));
+      expect(find.byTooltip('Not available'), findsOneWidget);
+      expect(find.text('Version'), findsNothing);
+      final double row = tester.getTopLeft(find.text('0.0.12-SNAPSHOT')).dy;
+      expect(tester.getTopLeft(find.text('5.1.6-0+deb12u1')).dy, row);
+      expect(tester.getTopLeft(find.text('2026.10.26')).dy, row);
+      expect(row, lessThan(tester.getTopLeft(find.text('Features')).dy));
+      expect(
+        tester.getTopLeft(find.text('Features')).dy,
+        lessThan(tester.getTopLeft(find.text('Host')).dy),
+      );
+    },
+  );
+
+  testWidgets('the software leaves out yt-dlp when the server has none', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester);
+
+    expect(find.text('0.0.12'), findsOneWidget);
+    expect(find.text('yt-dlp'), findsNothing);
+  });
+
+  testWidgets('every feature the server sends has a plain label', (
+    WidgetTester tester,
+  ) async {
+    const Map<String, String> labels = <String, String>{
+      'transcription': 'Transcription',
+      'translation': 'Translation',
+      'upscaling': 'Upscaling',
+      'opensubtitles': 'Subtitle search',
+      'tmdb': 'Metadata',
+      'tls': 'HTTPS',
+      'webhooks': 'Webhooks',
+      'content_fetch': 'Content fetch',
+      'hardware_transcode': 'Hardware transcoding',
+    };
+    await _pump(
+      tester,
+      server: _Server(
+        software: <String, dynamic>{
+          'version': '0.0.12',
+          'yt_dlp': null,
+          'features': <dynamic>[
+            for (final String name in labels.keys)
+              <String, dynamic>{
+                'name': name,
+                'available': true,
+                'enabled': true,
+              },
+          ],
+        },
+      ),
+    );
+
+    for (final String label in labels.values) {
+      expect(find.text(label), findsOneWidget, reason: label);
+    }
+    expect(find.byTooltip('On'), findsNWidgets(labels.length));
+  });
+
+  testWidgets('software that cannot be read says so', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, server: _Server(softwareStatus: 500));
+
+    expect(find.text('Could not load the software.'), findsOneWidget);
+    expect(find.text('12th Gen Intel(R) Core(TM) i3-1220P'), findsOneWidget);
+    expect(find.text('5.1.6-0+deb12u1'), findsOneWidget);
+  });
+
+  testWidgets('capabilities that cannot be read still show the software', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, server: _Server(capabilitiesStatus: 500));
+
+    expect(find.text('Could not load the capabilities.'), findsOneWidget);
+    expect(find.text('0.0.12'), findsOneWidget);
+    expect(find.text('Host'), findsNothing);
+  });
+
+  testWidgets('a system that cannot be read at all offers a retry', (
+    WidgetTester tester,
+  ) async {
+    final _Server server = await _pump(
+      tester,
+      server: _Server(softwareStatus: 500, capabilitiesStatus: 500),
+    );
+
+    expect(find.text('Could not load the system details.'), findsOneWidget);
+    expect(server.count('GET', '/api/v1/admin/server/software'), 1);
+
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(server.count('GET', '/api/v1/admin/server/software'), 2);
+    expect(server.count('GET', '/api/v1/admin/server/capabilities'), 2);
+  });
+
+  testWidgets('a refused capabilities read says the admin is not authorized', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, server: _Server(capabilitiesStatus: 403));
+
+    expect(find.text('Not Authorized.'), findsOneWidget);
+    expect(find.text('0.0.12'), findsNothing);
+  });
+
+  testWidgets('the system labels sit above their rows below the breakpoint', (
+    WidgetTester tester,
+  ) async {
+    final _Server server = _Server(
+      software: <String, dynamic>{
+        'version': '0.0.12',
+        'yt_dlp': null,
+        'features': <dynamic>[
+          <String, dynamic>{
+            'name': 'translation',
+            'available': true,
+            'enabled': true,
+          },
+        ],
+      },
+    );
+    await _pump(tester, server: server);
+
+    final double wideLabel = tester.getTopLeft(find.text('Features')).dx;
+    expect(
+      tester.getTopLeft(find.byType(OutlinePill).first).dx,
+      greaterThanOrEqualTo(wideLabel + 120),
+    );
+
+    await _pump(tester, server: server, size: const Size(600, 3000));
+
+    final Offset label = tester.getTopLeft(find.text('Features'));
+    final Offset pill = tester.getTopLeft(find.byType(OutlinePill).first);
+    expect(pill.dx, label.dx);
+    expect(pill.dy, greaterThan(label.dy));
+  });
+
   testWidgets('the capabilities show the host, ffmpeg and hardware', (
     WidgetTester tester,
   ) async {
@@ -336,25 +540,24 @@ void main() {
     }
   });
 
-  testWidgets(
-    'the capabilities start as close to their title as the benchmark',
-    (WidgetTester tester) async {
-      await _pump(
-        tester,
-        server: _Server(
-          benchmarks: <Map<String, dynamic>>[_benchmark('done', done: 6)],
-        ),
-      );
+  testWidgets('the system starts as close to its title as the benchmark', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      server: _Server(
+        benchmarks: <Map<String, dynamic>>[_benchmark('done', done: 6)],
+      ),
+    );
 
-      final double hostGap =
-          tester.getTopLeft(find.text('Host')).dy -
-          tester.getBottomLeft(find.text('Capabilities')).dy;
-      final double statusGap =
-          tester.getTopLeft(find.text('Status')).dy -
-          tester.getBottomLeft(find.text('Benchmark').first).dy;
-      expect(hostGap, lessThanOrEqualTo(statusGap));
-    },
-  );
+    final double versionsGap =
+        tester.getTopLeft(find.text('Versions')).dy -
+        tester.getBottomLeft(find.text('System')).dy;
+    final double statusGap =
+        tester.getTopLeft(find.text('Status')).dy -
+        tester.getBottomLeft(find.text('Benchmark').first).dy;
+    expect(versionsGap, lessThanOrEqualTo(statusGap));
+  });
 
   testWidgets('help buttons explain a fact, a pill list and a column', (
     WidgetTester tester,
@@ -451,7 +654,7 @@ void main() {
 
     final Offset host = tester.getTopLeft(find.text('Host'));
     final Offset hardware = tester.getTopLeft(find.text('Hardware encoding'));
-    final Offset ffmpeg = tester.getTopLeft(find.text('FFmpeg'));
+    final Offset ffmpeg = tester.getTopLeft(find.text('FFmpeg').last);
     expect(hardware.dy, host.dy);
     expect(ffmpeg.dy, host.dy);
     expect(host.dx, lessThan(hardware.dx));
@@ -463,7 +666,7 @@ void main() {
     final Offset narrowHardware = tester.getTopLeft(
       find.text('Hardware encoding'),
     );
-    final Offset narrowFfmpeg = tester.getTopLeft(find.text('FFmpeg'));
+    final Offset narrowFfmpeg = tester.getTopLeft(find.text('FFmpeg').last);
     expect(narrowHardware.dx, narrowHost.dx);
     expect(narrowFfmpeg.dx, narrowHost.dx);
     expect(narrowHost.dy, lessThan(narrowHardware.dy));
@@ -739,7 +942,7 @@ void main() {
     expect(find.text('Server ffmpeg: 9.0.2'), findsOneWidget);
     expect(
       tester.getTopLeft(find.text('Films')).dy,
-      lessThan(tester.getTopLeft(find.text('Capabilities')).dy),
+      lessThan(tester.getTopLeft(find.text('System')).dy),
     );
 
     await tester.tap(find.text('Shows'));

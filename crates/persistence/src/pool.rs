@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fmt::Display;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -155,7 +156,17 @@ impl UserPools {
         }
     }
 
+    fn store_dir(&self, user: &UserId) -> Result<PathBuf, RepositoryError> {
+        let id = &user.0;
+        if Path::new(id).file_name() == Some(OsStr::new(id)) {
+            Ok(self.base.join(id))
+        } else {
+            Err(backend(format!("refusing the user id [{id}]: not a plain directory name")))
+        }
+    }
+
     pub(crate) async fn get(&self, user: &UserId) -> Result<SqlitePool, RepositoryError> {
+        let dir = self.store_dir(user)?;
         let cell = {
             let mut cache = self.cache.lock().await;
             match cache.get(user) {
@@ -168,7 +179,6 @@ impl UserPools {
             }
         };
         cell.get_or_try_init(|| async {
-            let dir = self.base.join(&user.0);
             tokio::fs::create_dir_all(&dir).await.map_err(backend)?;
             open_with(
                 SqlitePoolOptions::new().max_connections(USER_POOL_MAX_CONNECTIONS),
@@ -182,6 +192,7 @@ impl UserPools {
     }
 
     pub(crate) async fn purge(&self, user: &UserId) -> Result<(), RepositoryError> {
+        let dir = self.store_dir(user)?;
         {
             let mut cache = self.cache.lock().await;
             if let Some(pool) = cache.pop(user).as_deref().and_then(OnceCell::get) {
@@ -189,7 +200,7 @@ impl UserPools {
                 pool.close().await;
             }
         }
-        match tokio::fs::remove_dir_all(self.base.join(&user.0)).await {
+        match tokio::fs::remove_dir_all(dir).await {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(backend(error)),
@@ -365,6 +376,49 @@ mod tests {
         assert!(!cache.cache.lock().await.contains(&user));
     }
 
+    fn escaping_ids(root: &Path) -> Vec<String> {
+        let absolute = root.join("escape").to_string_lossy().into_owned();
+        ["", ".", "..", "a/b", "../escape", "u1/", "u1/.", "./u1", absolute.as_str()]
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn an_id_that_is_not_one_plain_name_opens_nothing() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = pools(&root.path().join("users"), DEFAULT_USER_POOL_CAPACITY);
+
+        for id in escaping_ids(root.path()) {
+            let error = cache.get(&UserId(id.clone())).await.expect_err(&format!("[{id}]"));
+
+            let RepositoryError::Backend(message) = error else { panic!("[{id}]") };
+            assert!(message.contains(&format!("[{id}]")), "{message}");
+        }
+
+        assert!(cache.cache.lock().await.is_empty());
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+    }
+
+    #[tokio::test]
+    async fn purge_refuses_an_id_that_is_not_one_plain_name() {
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join("users");
+        std::fs::create_dir_all(base.join("a").join("b")).unwrap();
+        std::fs::create_dir(root.path().join("escape")).unwrap();
+        let cache = pools(&base, DEFAULT_USER_POOL_CAPACITY);
+
+        for id in escaping_ids(root.path()) {
+            let error = cache.purge(&UserId(id.clone())).await.expect_err(&format!("[{id}]"));
+
+            let RepositoryError::Backend(message) = error else { panic!("[{id}]") };
+            assert!(message.contains(&format!("[{id}]")), "{message}");
+        }
+
+        assert!(base.join("a").join("b").exists());
+        assert!(root.path().join("escape").exists());
+    }
+
     #[tokio::test]
     async fn purging_a_user_with_nothing_on_disk_is_fine() {
         let dir = tempfile::tempdir().unwrap();
@@ -373,8 +427,6 @@ mod tests {
         cache.purge(&UserId("never-seen".into())).await.unwrap();
     }
 
-    // Deleting an account is destructive, so a removal that fails for any reason other than
-    // the directory already being gone has to say so rather than report success.
     #[tokio::test]
     async fn a_purge_that_cannot_remove_the_directory_reports_it() {
         let dir = tempfile::tempdir().unwrap();

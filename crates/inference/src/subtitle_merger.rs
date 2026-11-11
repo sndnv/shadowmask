@@ -24,8 +24,8 @@ impl SubtitleCombiner for SubtitleMerger {
         top: &FetchedSubtitle,
         bottom: &FetchedSubtitle,
     ) -> Result<FetchedSubtitle, SubtitleError> {
-        let top_cues = parse(top)?;
-        let bottom_cues = parse(bottom)?;
+        let top_cues = parse(top, "top")?;
+        let bottom_cues = parse(bottom, "bottom")?;
 
         let segments: Vec<Segment> = top_cues
             .iter()
@@ -44,11 +44,12 @@ impl SubtitleCombiner for SubtitleMerger {
     }
 }
 
-fn parse(subtitle: &FetchedSubtitle) -> Result<Vec<Cue>, SubtitleError> {
+fn parse(subtitle: &FetchedSubtitle, side: &str) -> Result<Vec<Cue>, SubtitleError> {
     match subtitle.format {
         SubtitleFormat::Vtt => {
-            let vtt = WebVtt::parse(subtitle.content.as_str())
-                .map_err(|e| SubtitleError::Parse(format!("parse vtt: {e}")))?;
+            let vtt = WebVtt::parse(subtitle.content.as_str()).map_err(|e| {
+                SubtitleError::Parse(format!("the {side} subtitle: parse vtt: {e}"))
+            })?;
             Ok(vtt
                 .blocks
                 .into_iter()
@@ -73,8 +74,9 @@ fn parse(subtitle: &FetchedSubtitle) -> Result<Vec<Cue>, SubtitleError> {
                 .collect())
         }
         SubtitleFormat::Srt => {
-            let srt = SubRip::parse(subtitle.content.as_str())
-                .map_err(|e| SubtitleError::Parse(format!("parse srt: {e}")))?;
+            let srt = SubRip::parse(subtitle.content.as_str()).map_err(|e| {
+                SubtitleError::Parse(format!("the {side} subtitle: parse srt: {e}"))
+            })?;
             Ok(srt
                 .subtitles
                 .into_iter()
@@ -95,7 +97,9 @@ fn parse(subtitle: &FetchedSubtitle) -> Result<Vec<Cue>, SubtitleError> {
                 })
                 .collect())
         }
-        other => Err(SubtitleError::Backend(format!("unsupported subtitle format: {other:?}"))),
+        other => Err(SubtitleError::Backend(format!(
+            "the {side} subtitle: unsupported subtitle format: {other:?}"
+        ))),
     }
 }
 
@@ -231,7 +235,21 @@ mod tests {
 
         assert!(matches!(
             SubtitleMerger.combine(&top, &bottom).unwrap_err(),
-            SubtitleError::Parse(_)
+            SubtitleError::Parse(message) if message.starts_with("the top subtitle: parse srt")
+        ));
+    }
+
+    #[test]
+    fn a_bottom_cue_without_text_is_a_parse_error_naming_the_bottom() {
+        let top = vtt("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhello\n");
+        let bottom = vtt(
+            "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhello\n\n00:00:01.000 --> 00:00:02.000\n\n\n\
+             00:00:02.000 --> 00:00:03.000\nbye\n",
+        );
+
+        assert!(matches!(
+            SubtitleMerger.combine(&top, &bottom).unwrap_err(),
+            SubtitleError::Parse(message) if message.starts_with("the bottom subtitle: parse vtt")
         ));
     }
 
@@ -240,9 +258,10 @@ mod tests {
         let top = FetchedSubtitle { content: String::new(), format: SubtitleFormat::Ass };
         let bottom = vtt("WEBVTT\n");
 
+        let expected = "the top subtitle: unsupported subtitle format: Ass";
         assert!(matches!(
             SubtitleMerger.combine(&top, &bottom).unwrap_err(),
-            SubtitleError::Backend(_)
+            SubtitleError::Backend(message) if message == expected
         ));
     }
 }

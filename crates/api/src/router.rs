@@ -90,6 +90,7 @@ pub fn router<S: AppServices>(state: S) -> Router {
         .route("/people/{id}/refresh", post(catalog::refresh_person::<S>))
         .route("/genres", get(catalog::genres::<S>))
         .route("/server/info", get(server::info))
+        .route("/admin/server/software", get(server::software))
         .route("/libraries", get(library::libraries::<S>).post(library::create_library::<S>))
         .route(
             "/libraries/{id}",
