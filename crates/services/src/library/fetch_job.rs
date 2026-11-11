@@ -1,4 +1,5 @@
 use domain::library::{LibraryId, LibraryKind, ParsedMedia};
+use domain::media::FetchOptions;
 use domain::metadata::ExternalId;
 use serde::{Deserialize, Serialize};
 
@@ -7,6 +8,8 @@ use crate::job::encode_payload;
 use crate::library::parse_filename;
 
 const MAX_STEM_BYTES: usize = 200;
+const MAX_FORMAT_CHARS: usize = 200;
+const MAX_SKIP_NOTE_CHARS: usize = 40;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FetchJobPayload {
@@ -18,6 +21,7 @@ pub struct FetchJobPayload {
     pub season: Option<u16>,
     pub episode: Option<u16>,
     pub episode_title: Option<String>,
+    pub options: FetchOptions,
 }
 
 impl FetchJobPayload {
@@ -161,6 +165,44 @@ fn without_release_words(text: &str) -> String {
         .join(" ")
 }
 
+pub(super) fn checked_options(options: FetchOptions) -> Result<FetchOptions, String> {
+    let format = filled(options.format);
+    let skip_note = filled(options.skip_note);
+    if let Some(format) = &format {
+        if format.chars().count() > MAX_FORMAT_CHARS {
+            return Err(format!("the format is longer than {MAX_FORMAT_CHARS} characters"));
+        }
+        if format.chars().any(char::is_control) {
+            return Err("the format holds a control character".to_owned());
+        }
+        if format.starts_with('-') {
+            return Err("the format cannot start with a -".to_owned());
+        }
+    }
+    if let Some(note) = &skip_note {
+        if note.chars().count() > MAX_SKIP_NOTE_CHARS {
+            return Err(format!(
+                "the note to skip is longer than {MAX_SKIP_NOTE_CHARS} characters"
+            ));
+        }
+        if !note.chars().all(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_')) {
+            return Err(
+                "the note to skip may hold only letters, digits, spaces, - and _".to_owned()
+            );
+        }
+    }
+    if format.is_some() && skip_note.is_some() {
+        return Err(
+            "a format replaces the default choice, so it cannot also skip noted streams".to_owned()
+        );
+    }
+    Ok(FetchOptions { format, skip_note, ..options })
+}
+
+fn filled(text: Option<String>) -> Option<String> {
+    text.map(|text| text.trim().to_owned()).filter(|text| !text.is_empty())
+}
+
 #[derive(Serialize, Deserialize)]
 struct Wire {
     library: String,
@@ -173,10 +215,23 @@ struct Wire {
     episode: Option<u16>,
     #[serde(default)]
     episode_title: Option<String>,
+    #[serde(default)]
+    options: WireOptions,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct WireOptions {
+    format: Option<String>,
+    skip_note: Option<String>,
+    prefer_h264: bool,
+    site_subtitles: bool,
+    chapters: bool,
 }
 
 impl From<&FetchJobPayload> for Wire {
     fn from(payload: &FetchJobPayload) -> Self {
+        let options = &payload.options;
         Wire {
             library: payload.library.0.clone(),
             source_url: payload.source_url.clone(),
@@ -186,6 +241,13 @@ impl From<&FetchJobPayload> for Wire {
             season: payload.season,
             episode: payload.episode,
             episode_title: payload.episode_title.clone(),
+            options: WireOptions {
+                format: options.format.clone(),
+                skip_note: options.skip_note.clone(),
+                prefer_h264: options.prefer_h264,
+                site_subtitles: options.site_subtitles,
+                chapters: options.chapters,
+            },
         }
     }
 }
@@ -201,6 +263,13 @@ impl From<Wire> for FetchJobPayload {
             season: wire.season,
             episode: wire.episode,
             episode_title: wire.episode_title,
+            options: FetchOptions {
+                format: wire.options.format,
+                skip_note: wire.options.skip_note,
+                prefer_h264: wire.options.prefer_h264,
+                site_subtitles: wire.options.site_subtitles,
+                chapters: wire.options.chapters,
+            },
         }
     }
 }
@@ -226,6 +295,7 @@ mod tests {
             season: None,
             episode: None,
             episode_title: None,
+            options: FetchOptions::default(),
         }
     }
 
@@ -248,17 +318,99 @@ mod tests {
         }
     }
 
+    fn every_option() -> FetchOptions {
+        FetchOptions {
+            format: Some("bestvideo+bestaudio".into()),
+            skip_note: Some("Premium".into()),
+            prefer_h264: true,
+            site_subtitles: true,
+            chapters: true,
+        }
+    }
+
     #[test]
     fn round_trips_movie_and_tv() {
         round_trip(movie("The Matrix", Some(1999), Some("tt0133093")));
         round_trip(series("Great Show", Some(1), Some(2), None));
         round_trip(named(series("Great Show", Some(1), Some(2), None), "Pilot"));
+        round_trip(FetchJobPayload { options: every_option(), ..movie("The Matrix", None, None) });
     }
 
     #[test]
     fn a_payload_written_before_the_year_existed_still_decodes() {
         let legacy = r#"{"library":"lib1","source_url":"https://example.com/a","kind":"movie","title":"The Matrix","external_id":null,"season":null,"episode":null}"#;
         assert_eq!(FetchJobPayload::decode(legacy).unwrap().year, None);
+    }
+
+    #[test]
+    fn a_payload_queued_before_the_options_existed_decodes_with_every_option_off() {
+        let queued = r#"{"library":"lib1","source_url":"https://example.com/a","title":"The Matrix","year":null,"external_id":null,"season":null,"episode":null,"episode_title":null}"#;
+        assert_eq!(FetchJobPayload::decode(queued).unwrap().options, FetchOptions::default());
+        let partial = r#"{"library":"lib1","source_url":"https://example.com/a","title":"The Matrix","external_id":null,"season":null,"episode":null,"options":{"chapters":true}}"#;
+        assert_eq!(
+            FetchJobPayload::decode(partial).unwrap().options,
+            FetchOptions { chapters: true, ..FetchOptions::default() }
+        );
+    }
+
+    fn format(text: &str) -> FetchOptions {
+        FetchOptions { format: Some(text.into()), ..FetchOptions::default() }
+    }
+
+    fn skip_note(text: &str) -> FetchOptions {
+        FetchOptions { skip_note: Some(text.into()), ..FetchOptions::default() }
+    }
+
+    #[test]
+    fn options_with_nothing_typed_pass_unchanged_and_blank_text_is_unset() {
+        let ticked = FetchOptions { format: Some("  ".into()), ..every_option() };
+        assert_eq!(
+            checked_options(FetchOptions { skip_note: Some(" \t ".into()), ..ticked }),
+            Ok(FetchOptions { format: None, skip_note: None, ..every_option() })
+        );
+        assert_eq!(checked_options(FetchOptions::default()), Ok(FetchOptions::default()));
+    }
+
+    #[test]
+    fn a_format_is_trimmed_and_kept_within_its_limits() {
+        assert_eq!(checked_options(format("  bv*+ba/b ")), Ok(format("bv*+ba/b")));
+        assert_eq!(checked_options(format(&"b".repeat(200))), Ok(format(&"b".repeat(200))));
+        for (refused, reason) in [
+            ("b".repeat(201), "longer than 200 characters"),
+            ("bv\n+ba".to_owned(), "control character"),
+            ("bv\u{7f}".to_owned(), "control character"),
+            ("-o /etc/x".to_owned(), "cannot start with a -"),
+            (" --exec rm".to_owned(), "cannot start with a -"),
+        ] {
+            let error = checked_options(format(&refused)).unwrap_err();
+            assert!(error.contains(reason), "[{refused}] {error}");
+        }
+    }
+
+    #[test]
+    fn a_note_to_skip_takes_letters_of_any_script_digits_spaces_dashes_and_underscores() {
+        for allowed in ["Premium", "enhanced bitrate", "1080p_HDR-10", "プレミアム", "Премиум"]
+        {
+            assert_eq!(checked_options(skip_note(allowed)), Ok(skip_note(allowed)), "[{allowed}]");
+        }
+        assert_eq!(checked_options(skip_note(&"é".repeat(40))), Ok(skip_note(&"é".repeat(40))));
+        for refused in
+            ["pre\"mium", "pre\\mium", "pre.mium", "(?i)x", "a|b", "x]", "a*", "a\u{a0}b"]
+        {
+            let error = checked_options(skip_note(refused)).unwrap_err();
+            assert!(error.contains("may hold only"), "[{refused}] {error}");
+        }
+        let error = checked_options(skip_note(&"é".repeat(41))).unwrap_err();
+        assert!(error.contains("longer than 40 characters"), "{error}");
+    }
+
+    #[test]
+    fn a_format_and_a_note_to_skip_together_are_refused() {
+        let both = FetchOptions { skip_note: Some("Premium".into()), ..format("bv+ba") };
+        assert_eq!(
+            checked_options(both),
+            Err("a format replaces the default choice, so it cannot also skip noted streams".into())
+        );
     }
 
     #[test]

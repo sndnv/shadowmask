@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use domain::error::FetchError;
-use domain::media::{FetchSpec, FetchedMedia, MediaFetcher, SiteDetails};
+use domain::media::{FetchOptions, FetchSpec, FetchedMedia, MediaFetcher, SiteDetails};
 use domain::process::{OutputStream, ProcessSpawner};
 use serde::Deserialize;
 
@@ -132,9 +132,21 @@ fn build_args(
         REPORT_TEMPLATE.to_owned(),
         format!("{dir}/{stem}.{REPORT_SUFFIX}"),
     ];
-    if let Some(height) = max_height {
+    let options = &request.options;
+    if let Some(selector) = format_selector(options, max_height) {
         args.push("-f".to_owned());
-        args.push(format!("bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"));
+        args.push(selector);
+    }
+    if options.prefer_h264 {
+        args.extend(["-S", "vcodec:h264"].map(str::to_owned));
+    }
+    if options.site_subtitles {
+        args.extend(
+            ["--embed-subs", "--sub-langs", "all,-live_chat", "--ignore-errors"].map(str::to_owned),
+        );
+    }
+    if options.chapters {
+        args.push("--embed-chapters".to_owned());
     }
     if let Some(dir) = plugin_dir {
         args.push("--plugin-dirs".to_owned());
@@ -146,6 +158,38 @@ fn build_args(
     }
     args.push(request.url.clone());
     args
+}
+
+fn format_selector(options: &FetchOptions, max_height: Option<u32>) -> Option<String> {
+    if let Some(format) = &options.format {
+        return Some(format.clone());
+    }
+    let note = options
+        .skip_note
+        .as_deref()
+        .map(|note| format!("[format_note!~=?\"(?i){note}\"]"))
+        .unwrap_or_default();
+    match max_height {
+        Some(h) => Some(format!(
+            "bestvideo[height<={h}]{note}+bestaudio{note}/best[height<={h}]{note}/best{note}"
+        )),
+        None if note.is_empty() => None,
+        None => Some(format!("bestvideo*{note}+bestaudio{note}/best{note}")),
+    }
+}
+
+fn names_an_unsupported_site(line: &str) -> bool {
+    line.starts_with("ERROR:") && line.contains("Unsupported URL: ")
+}
+
+fn refused_format(stderr: &str) -> Option<String> {
+    stderr.lines().find_map(|line| {
+        let reason = line.strip_prefix("SyntaxError: ")?;
+        ["Invalid format specification", "Invalid filter specification"]
+            .iter()
+            .any(|refusal| reason.starts_with(refusal))
+            .then(|| reason.to_owned())
+    })
 }
 
 fn is_progress_line(line: &str) -> bool {
@@ -238,6 +282,12 @@ impl<P: ProcessSpawner> MediaFetcher for YtDlpFetcher<P> {
             .await
             .map_err(|e| FetchError::Spawn(e.to_string()))?;
         if !output.success {
+            if output.stderr.lines().any(names_an_unsupported_site) {
+                return Err(FetchError::Unsupported);
+            }
+            if let Some(reason) = refused_format(&output.stderr) {
+                return Err(FetchError::InvalidFormat(reason));
+            }
             return Err(FetchError::Download(format!(
                 "yt-dlp failed for [{}]: {}",
                 request.url,
@@ -266,6 +316,7 @@ mod tests {
         ReportIsADirectory,
         OkButEmpty,
         Fail,
+        FailWith(&'static str),
         Err,
         Version,
     }
@@ -324,7 +375,7 @@ mod tests {
         async fn run(&self, _program: &str, args: &[String]) -> std::io::Result<bool> {
             match self.mode {
                 Mode::Err => Err(std::io::Error::other("spawn failed")),
-                Mode::Fail => Ok(false),
+                Mode::Fail | Mode::FailWith(_) => Ok(false),
                 Mode::OkButEmpty | Mode::Version => Ok(true),
                 Mode::WriteThenOk
                 | Mode::ReportWith(_)
@@ -367,7 +418,11 @@ mod tests {
             let success = self.run(program, args).await?;
             on_line(OutputStream::Stderr, "[download]  50.0% of 1.00MiB at 1.00MiB/s");
             on_line(OutputStream::Stderr, "[debug] some verbose detail");
-            Ok(CommandOutput { success, ..CommandOutput::default() })
+            let stderr = match self.mode {
+                Mode::FailWith(stderr) => stderr.to_owned(),
+                _ => String::new(),
+            };
+            Ok(CommandOutput { success, stderr, ..CommandOutput::default() })
         }
     }
 
@@ -376,6 +431,16 @@ mod tests {
             url: "https://example.com/watch?v=abc".to_owned(),
             dest_dir,
             filename_stem: "Movie (2020)".to_owned(),
+            options: FetchOptions::default(),
+        }
+    }
+
+    fn spec(options: FetchOptions) -> FetchSpec {
+        FetchSpec {
+            url: "u".to_owned(),
+            dest_dir: "/d".to_owned(),
+            filename_stem: "x".to_owned(),
+            options,
         }
     }
 
@@ -389,6 +454,7 @@ mod tests {
             url: "https://x/v".to_owned(),
             dest_dir: "/d/job1".to_owned(),
             filename_stem: "Show - S01E02".to_owned(),
+            options: FetchOptions::default(),
         };
         let args = build_args(&req, Some(Path::new("/plugins")), None, None);
         assert!(args.contains(&"--no-playlist".to_owned()));
@@ -417,6 +483,7 @@ mod tests {
             url: "u".to_owned(),
             dest_dir: "/d/50%% Off/Season 01".to_owned(),
             filename_stem: "50%% Off - S01E02 %(id)s".to_owned(),
+            options: FetchOptions::default(),
         };
         let args = build_args(&req, None, None, None);
         assert_eq!(
@@ -431,22 +498,13 @@ mod tests {
 
     #[test]
     fn build_args_without_plugin_dir_omits_flag() {
-        let req = FetchSpec {
-            url: "u".to_owned(),
-            dest_dir: "/d".to_owned(),
-            filename_stem: "x".to_owned(),
-        };
-        let args = build_args(&req, None, None, None);
+        let args = build_args(&spec(FetchOptions::default()), None, None, None);
         assert!(!args.contains(&"--plugin-dirs".to_owned()));
     }
 
     #[test]
     fn build_args_adds_cookies_when_set() {
-        let req = FetchSpec {
-            url: "u".to_owned(),
-            dest_dir: "/d".to_owned(),
-            filename_stem: "x".to_owned(),
-        };
+        let req = spec(FetchOptions::default());
         let args = build_args(&req, None, None, Some(Path::new("/secrets/cookies.txt")));
         let cookies_index = args.iter().position(|a| a == "--cookies").expect("--cookies present");
         assert_eq!(args[cookies_index + 1], "/secrets/cookies.txt");
@@ -455,17 +513,168 @@ mod tests {
 
     #[test]
     fn build_args_caps_resolution_when_max_height_set() {
-        let req = FetchSpec {
-            url: "u".to_owned(),
-            dest_dir: "/d".to_owned(),
-            filename_stem: "x".to_owned(),
-        };
-        let args = build_args(&req, None, Some(1080), None);
+        let args = build_args(&spec(FetchOptions::default()), None, Some(1080), None);
         let format_index = args.iter().position(|a| a == "-f").expect("-f present");
         assert_eq!(
             args[format_index + 1],
             "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
         );
+    }
+
+    const OPTION_FLAGS: [&str; 7] = [
+        "-S",
+        "--embed-subs",
+        "--sub-langs",
+        "--ignore-errors",
+        "--embed-chapters",
+        "--write-subs",
+        "--write-auto-subs",
+    ];
+
+    fn premium() -> FetchOptions {
+        FetchOptions { skip_note: Some("Premium".into()), ..FetchOptions::default() }
+    }
+
+    #[test]
+    fn with_every_option_off_the_arguments_are_unchanged() {
+        let base = [
+            "--no-playlist",
+            "--newline",
+            "--verbose",
+            "--merge-output-format",
+            "mkv",
+            "-o",
+            "/d/x.%(ext)s",
+            "--print-to-file",
+            REPORT_TEMPLATE,
+            "/d/x.fetch.json",
+        ];
+        let capped = ["-f", "bestvideo[height<=720]+bestaudio/best[height<=720]/best"];
+        assert_eq!(
+            build_args(&spec(FetchOptions::default()), None, None, None),
+            [&base[..], &["u"][..]].concat()
+        );
+        assert_eq!(
+            build_args(&spec(FetchOptions::default()), None, Some(720), None),
+            [&base[..], &capped[..], &["u"][..]].concat()
+        );
+    }
+
+    #[test]
+    fn each_tick_box_adds_only_its_own_flags() {
+        let h264 = build_args(
+            &spec(FetchOptions { prefer_h264: true, ..FetchOptions::default() }),
+            None,
+            None,
+            None,
+        );
+        assert_eq!(arg_after(&h264, "-S", 1), "vcodec:h264");
+        let subtitles = build_args(
+            &spec(FetchOptions { site_subtitles: true, ..FetchOptions::default() }),
+            None,
+            None,
+            None,
+        );
+        assert!(subtitles.contains(&"--embed-subs".to_owned()));
+        assert!(subtitles.contains(&"--ignore-errors".to_owned()));
+        assert_eq!(arg_after(&subtitles, "--sub-langs", 1), "all,-live_chat");
+        let chapters = build_args(
+            &spec(FetchOptions { chapters: true, ..FetchOptions::default() }),
+            None,
+            None,
+            None,
+        );
+        assert!(chapters.contains(&"--embed-chapters".to_owned()));
+        for (args, own) in [
+            (&h264, &["-S"][..]),
+            (&subtitles, &["--embed-subs", "--sub-langs", "--ignore-errors"][..]),
+            (&chapters, &["--embed-chapters"][..]),
+        ] {
+            let flags: Vec<&str> =
+                args.iter().map(String::as_str).filter(|a| OPTION_FLAGS.contains(a)).collect();
+            assert_eq!(flags, own, "{args:?}");
+            assert!(!args.contains(&"-f".to_owned()));
+            assert_eq!(args.last().unwrap(), "u");
+        }
+    }
+
+    #[test]
+    fn a_noted_stream_is_skipped_by_every_choice_with_or_without_the_cap() {
+        let filter = "[format_note!~=?\"(?i)Premium\"]";
+        let uncapped = build_args(&spec(premium()), None, None, None);
+        assert_eq!(
+            arg_after(&uncapped, "-f", 1),
+            format!("bestvideo*{filter}+bestaudio{filter}/best{filter}")
+        );
+        let capped = build_args(&spec(premium()), None, Some(720), None);
+        let cap = "[height<=720]";
+        assert_eq!(
+            arg_after(&capped, "-f", 1),
+            format!("bestvideo{cap}{filter}+bestaudio{filter}/best{cap}{filter}/best{filter}")
+        );
+    }
+
+    #[test]
+    fn a_typed_format_replaces_the_cap_and_keeps_the_h264_preference() {
+        let options = FetchOptions {
+            format: Some("bv*[height<=480]+ba/b".into()),
+            prefer_h264: true,
+            ..FetchOptions::default()
+        };
+        let args = build_args(&spec(options), None, Some(1080), None);
+        assert_eq!(arg_after(&args, "-f", 1), "bv*[height<=480]+ba/b");
+        assert_eq!(args.iter().filter(|a| *a == "-f").count(), 1);
+        assert_eq!(arg_after(&args, "-S", 1), "vcodec:h264");
+    }
+
+    #[tokio::test]
+    async fn an_unsupported_site_fails_as_unsupported() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("job1").to_string_lossy().into_owned();
+        let stderr = "WARNING: [generic] Falling back on generic information extractor\n\
+                      ERROR: Unsupported URL: https://example.com/watch?v=abc\n";
+        let err = fetcher(Mode::FailWith(stderr)).fetch(&request(dest)).await.unwrap_err();
+        assert!(matches!(err, FetchError::Unsupported), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn a_format_yt_dlp_cannot_parse_fails_as_invalid_and_names_the_reason() {
+        for (stderr, reason) in [
+            (
+                "Traceback (most recent call last):\n  File \"YoutubeDL.py\", line 2445\n\
+                 SyntaxError: Invalid format specification: Expected a selector\n\tbv*+\n\t   ^\n",
+                "Invalid format specification: Expected a selector",
+            ),
+            (
+                "Traceback (most recent call last):\n\
+                 SyntaxError: Invalid filter specification 'height<>720'\n",
+                "Invalid filter specification 'height<>720'",
+            ),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let dest = dir.path().join("job1").to_string_lossy().into_owned();
+            let err = fetcher(Mode::FailWith(stderr)).fetch(&request(dest)).await.unwrap_err();
+            assert!(matches!(&err, FetchError::InvalidFormat(r) if r == reason), "{err:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn any_other_failure_stays_a_download_failure() {
+        for stderr in [
+            "ERROR: [generic] Unable to download webpage: HTTP Error 403: Forbidden\n",
+            "WARNING: Unsupported URL: https://example.com/a\nERROR: fragment 1 not found\n",
+            "ERROR: [youtube] abc: Requested format is not available. Use --list-formats\n",
+            "SyntaxError: invalid syntax\n",
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let dest = dir.path().join("job1").to_string_lossy().into_owned();
+            let err = fetcher(Mode::FailWith(stderr)).fetch(&request(dest)).await.unwrap_err();
+            let last = stderr.lines().last().unwrap();
+            assert!(
+                matches!(&err, FetchError::Download(detail) if detail.contains(last)),
+                "{err:?}"
+            );
+        }
     }
 
     #[tokio::test]

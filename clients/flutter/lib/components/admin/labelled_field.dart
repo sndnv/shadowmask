@@ -12,6 +12,7 @@ class LabelledTextField extends StatelessWidget {
     required this.controller,
     required this.label,
     this.help,
+    this.example,
     this.hint,
     this.error,
     this.enabled = true,
@@ -27,6 +28,7 @@ class LabelledTextField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
   final String? help;
+  final String? example;
   final String? hint;
   final String? error;
   final bool enabled;
@@ -42,6 +44,7 @@ class LabelledTextField extends StatelessWidget {
   Widget build(BuildContext context) => FieldLabel(
     label: label,
     help: help,
+    example: example,
     child: Semantics(
       label: label,
       child: TextField(

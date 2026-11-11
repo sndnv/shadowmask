@@ -50,6 +50,61 @@ void main() {
     );
   });
 
+  testWidgets('an example shows under the explanation, selectable with it', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        const FieldLabel(
+          label: 'Format',
+          help: 'Which streams to download.',
+          example: 'bv*+ba/b',
+          child: Text('body'),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byIcon(Icons.help_outline));
+    await tester.pumpAndSettle();
+
+    for (final String shown in <String>[Strings.forExample, 'bv*+ba/b']) {
+      expect(
+        find.ancestor(
+          of: find.text(shown),
+          matching: find.byType(SelectionArea),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        SelectionContainer.maybeOf(tester.element(find.text(shown))),
+        isNotNull,
+      );
+      expect(
+        tester.getTopLeft(find.text(shown)).dy,
+        greaterThanOrEqualTo(
+          tester.getBottomLeft(find.text('Which streams to download.')).dy,
+        ),
+      );
+    }
+    expect(find.byType(SelectableText), findsNothing);
+  });
+
+  testWidgets('a help without an example shows none', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        const FieldHelp(title: 'Watcher', body: 'How new files are noticed.'),
+      ),
+    );
+
+    await tester.tap(find.byIcon(Icons.help_outline));
+    await tester.pumpAndSettle();
+
+    expect(find.text('How new files are noticed.'), findsOneWidget);
+    expect(find.text(Strings.forExample), findsNothing);
+  });
+
   testWidgets('the help icon tooltips What is this', (
     WidgetTester tester,
   ) async {

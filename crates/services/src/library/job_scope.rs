@@ -168,6 +168,7 @@ mod tests {
                         season: None,
                         episode: None,
                         episode_title: None,
+                        options: Default::default(),
                     }
                     .encode(),
                 ),

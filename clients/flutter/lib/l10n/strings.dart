@@ -1395,6 +1395,9 @@ abstract final class Strings {
   static const String requiredEpisode = 'Episode is required for a TV library.';
   static const String requiredEpisodeTitle =
       'Episode title is required for a TV library.';
+  static const String formatOrSkipNote =
+      'A format replaces the default choice, so it cannot also skip noted '
+      'streams.';
   static const String requiredUsername = 'Username is required.';
   static const String requiredPassword = 'Password is required.';
   static const String requiredTargetLanguage = 'Pick a language.';
@@ -1499,8 +1502,8 @@ abstract final class Strings {
   static const String fieldScanSchedule = 'Scan schedule';
   static const String fieldMetadataSources = 'Metadata sources';
   static const String sourceUrlHelp =
-      'The page to download from. Paste the address of the page itself, not a '
-      'link to the media file.';
+      'The page to download from, or a direct link to its video stream when '
+      'the site is not supported.';
   static const String fetchTitleHelp =
       'What to call the movie in your library.';
   static const String fetchSeriesHelp =
@@ -1522,6 +1525,19 @@ abstract final class Strings {
   static const String fetchEpisodeTitleHelp =
       "What to call the episode; an episode found on TMDB shows TMDB's name "
       'instead.';
+  static const String fetchFormatHelp =
+      'Optional. Which streams to download, written as a downloader format; it '
+      'replaces the default choice.';
+  static const String fetchFormatExample = 'bv*[height<=720]+ba/b';
+  static const String fetchSkipNoteHelp =
+      'Optional. Leave out streams the site labels with this word.';
+  static const String fetchSkipNoteExample = 'Premium';
+  static const String fetchPreferH264Help =
+      'Choose streams more devices play without conversion, sometimes at a '
+      'lower resolution.';
+  static const String fetchSiteSubtitlesHelp =
+      'Keep the subtitles the site offers inside the file.';
+  static const String fetchChaptersHelp = "Keep the site's chapter marks.";
   static const String kindHelp =
       'What this library holds. Movie keeps one entry per film. TV groups '
       'episodes under a season and a series.';
@@ -1548,6 +1564,12 @@ abstract final class Strings {
   static const String fieldSeason = 'Season';
   static const String fieldEpisode = 'Episode';
   static const String fieldEpisodeTitle = 'Episode title';
+  static const String downloadOptionsHeading = 'Download options';
+  static const String fieldFormat = 'Format';
+  static const String fieldSkipNote = 'Skip streams';
+  static const String fieldPreferH264 = 'Prefer H.264';
+  static const String fieldSiteSubtitles = 'Site subtitles';
+  static const String fieldChapters = 'Chapters';
   static const String fieldTargetHeight = 'Target height';
   static const String fieldSourceLanguage = 'Source language';
   static const String fieldTargetLanguage = 'Target language';
@@ -1630,6 +1652,7 @@ abstract final class Strings {
       'Leading words moved to the end when sorting by title. Applies to titles '
       'on the next scan. Leave empty to sort on the full title.';
   static const String whatIsThis = 'What is this?';
+  static const String forExample = 'For example';
   static const String scheduleOff = 'Off';
   static const String scheduleHourly = 'Hourly';
   static const String scheduleSixHourly = 'Every 6 hours';

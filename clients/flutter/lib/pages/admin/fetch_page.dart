@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/library_api.dart';
+import 'package:shadowmask/components/admin/field_help.dart';
 import 'package:shadowmask/components/admin/job_status_chip.dart';
 import 'package:shadowmask/components/admin/labelled_field.dart';
 import 'package:shadowmask/components/page_actions.dart';
@@ -21,6 +22,7 @@ import 'package:shadowmask/components/crumb.dart';
 import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
 import 'package:shadowmask/theme/space.dart';
+import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/util/library_labels.dart';
 import 'package:shadowmask/view/failure_reason.dart';
 
@@ -67,6 +69,12 @@ class _FetchBodyState extends State<_FetchBody> {
   final TextEditingController _season = TextEditingController();
   final TextEditingController _episode = TextEditingController();
   final TextEditingController _episodeTitle = TextEditingController();
+  final TextEditingController _format = TextEditingController();
+  final TextEditingController _skipNote = TextEditingController();
+  bool _preferH264 = false;
+  bool _siteSubtitles = false;
+  bool _chapters = false;
+  bool _optionsOpen = false;
   String? _libraryId;
   bool _submitting = false;
   String? _urlError;
@@ -76,6 +84,7 @@ class _FetchBodyState extends State<_FetchBody> {
   String? _seasonError;
   String? _episodeError;
   String? _episodeTitleError;
+  String? _skipNoteError;
 
   void _clear(VoidCallback clear) => setState(clear);
 
@@ -94,6 +103,8 @@ class _FetchBodyState extends State<_FetchBody> {
     _season.dispose();
     _episode.dispose();
     _episodeTitle.dispose();
+    _format.dispose();
+    _skipNote.dispose();
     super.dispose();
   }
 
@@ -118,6 +129,8 @@ class _FetchBodyState extends State<_FetchBody> {
     final String yearText = _year.text.trim();
     final int? year = int.tryParse(yearText);
     final bool yearValid = year != null && year >= 1000 && year <= 9999;
+    final String format = _format.text.trim();
+    final String skipNote = _skipNote.text.trim();
     setState(() {
       _urlError = url.isEmpty ? Strings.requiredUrl : null;
       _titleError = title.isEmpty
@@ -132,6 +145,12 @@ class _FetchBodyState extends State<_FetchBody> {
       _episodeTitleError = tv && episodeTitle.isEmpty
           ? Strings.requiredEpisodeTitle
           : null;
+      _skipNoteError = format.isNotEmpty && skipNote.isNotEmpty
+          ? Strings.formatOrSkipNote
+          : null;
+      if (_skipNoteError != null) {
+        _optionsOpen = true;
+      }
     });
     if (_urlError != null ||
         _titleError != null ||
@@ -139,7 +158,8 @@ class _FetchBodyState extends State<_FetchBody> {
         _libraryError != null ||
         _seasonError != null ||
         _episodeError != null ||
-        _episodeTitleError != null) {
+        _episodeTitleError != null ||
+        _skipNoteError != null) {
       return;
     }
     final String externalId = _externalId.text.trim();
@@ -152,6 +172,11 @@ class _FetchBodyState extends State<_FetchBody> {
       if (tv) 'season': season,
       if (tv) 'episode': episode,
       if (tv) 'episode_title': episodeTitle,
+      if (format.isNotEmpty) 'format': format,
+      if (skipNote.isNotEmpty) 'skip_note': skipNote,
+      if (_preferH264) 'prefer_h264': true,
+      if (_siteSubtitles) 'site_subtitles': true,
+      if (_chapters) 'chapters': true,
     };
     setState(() => _submitting = true);
     try {
@@ -170,6 +195,68 @@ class _FetchBodyState extends State<_FetchBody> {
       }
     }
   }
+
+  Widget _downloadOptions() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    spacing: Space.s3,
+    children: <Widget>[
+      _OptionsToggle(
+        open: _optionsOpen,
+        onPressed: () => setState(() => _optionsOpen = !_optionsOpen),
+      ),
+      if (_optionsOpen) ...<Widget>[
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Expanded(
+              child: LabelledTextField(
+                controller: _format,
+                label: Strings.fieldFormat,
+                help: Strings.fetchFormatHelp,
+                example: Strings.fetchFormatExample,
+                onChanged: (_) => _clear(() => _skipNoteError = null),
+              ),
+            ),
+            const SizedBox(width: Space.s3),
+            Expanded(
+              child: LabelledTextField(
+                controller: _skipNote,
+                label: Strings.fieldSkipNote,
+                help: Strings.fetchSkipNoteHelp,
+                example: Strings.fetchSkipNoteExample,
+                error: _skipNoteError,
+                onChanged: (_) => _clear(() => _skipNoteError = null),
+              ),
+            ),
+          ],
+        ),
+        Wrap(
+          spacing: Space.s4,
+          runSpacing: Space.s1,
+          children: <Widget>[
+            _OptionBox(
+              label: Strings.fieldPreferH264,
+              help: Strings.fetchPreferH264Help,
+              value: _preferH264,
+              onChanged: (bool v) => setState(() => _preferH264 = v),
+            ),
+            _OptionBox(
+              label: Strings.fieldSiteSubtitles,
+              help: Strings.fetchSiteSubtitlesHelp,
+              value: _siteSubtitles,
+              onChanged: (bool v) => setState(() => _siteSubtitles = v),
+            ),
+            _OptionBox(
+              label: Strings.fieldChapters,
+              help: Strings.fetchChaptersHelp,
+              value: _chapters,
+              onChanged: (bool v) => setState(() => _chapters = v),
+            ),
+          ],
+        ),
+      ],
+    ],
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -207,124 +294,130 @@ class _FetchBodyState extends State<_FetchBody> {
             else
               SectionBlock(
                 title: Strings.fetch,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  spacing: Space.s3,
-                  children: <Widget>[
-                    LabelledTextField(
-                      controller: _sourceUrl,
-                      label: Strings.fieldSourceUrl,
-                      help: Strings.sourceUrlHelp,
-                      error: _urlError,
-                      onChanged: (_) => _clear(() => _urlError = null),
-                    ),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Expanded(
-                          flex: 3,
-                          child: LabelledTextField(
-                            controller: _title,
-                            label: tv
-                                ? Strings.fieldSeries
-                                : Strings.fieldTitle,
-                            help: tv
-                                ? Strings.fetchSeriesHelp
-                                : Strings.fetchTitleHelp,
-                            error: _titleError,
-                            onChanged: (_) => _clear(() => _titleError = null),
-                          ),
-                        ),
-                        if (!tv) ...<Widget>[
-                          const SizedBox(width: Space.s3),
-                          Expanded(
-                            child: LabelledTextField(
-                              controller: _year,
-                              label: Strings.fieldYear,
-                              help: Strings.fetchYearHelp,
-                              keyboardType: TextInputType.number,
-                              error: _yearError,
-                              onChanged: (_) => _clear(() => _yearError = null),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    LabelledDropdown<String>(
-                      label: Strings.fieldTargetLibrary,
-                      help: Strings.targetLibraryHelp,
-                      value: _libraryId ?? '',
-                      items: <(String, String)>[
-                        for (final Library l in external)
-                          (l.id, '${l.name} (${libraryKindLabel(l.kind)})'),
-                      ],
-                      error: _libraryError,
-                      onChanged: (String v) => setState(() {
-                        _libraryId = v;
-                        _libraryError = null;
-                        _titleError = null;
-                        _yearError = null;
-                        _seasonError = null;
-                        _episodeError = null;
-                        _episodeTitleError = null;
-                      }),
-                    ),
-                    LabelledTextField(
-                      controller: _externalId,
-                      label: Strings.fieldExternalId,
-                      help: Strings.fetchExternalIdHelp,
-                    ),
-                    if (tv)
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    spacing: Space.s3,
+                    children: <Widget>[
+                      LabelledTextField(
+                        controller: _sourceUrl,
+                        label: Strings.fieldSourceUrl,
+                        help: Strings.sourceUrlHelp,
+                        error: _urlError,
+                        onChanged: (_) => _clear(() => _urlError = null),
+                      ),
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
                           Expanded(
-                            child: LabelledTextField(
-                              controller: _season,
-                              label: Strings.fieldSeason,
-                              help: Strings.seasonEpisodeHelp,
-                              keyboardType: TextInputType.number,
-                              error: _seasonError,
-                              onChanged: (_) =>
-                                  _clear(() => _seasonError = null),
-                            ),
-                          ),
-                          const SizedBox(width: Space.s3),
-                          Expanded(
-                            child: LabelledTextField(
-                              controller: _episode,
-                              label: Strings.fieldEpisode,
-                              help: Strings.seasonEpisodeHelp,
-                              keyboardType: TextInputType.number,
-                              error: _episodeError,
-                              onChanged: (_) =>
-                                  _clear(() => _episodeError = null),
-                            ),
-                          ),
-                          const SizedBox(width: Space.s3),
-                          Expanded(
                             flex: 3,
                             child: LabelledTextField(
-                              controller: _episodeTitle,
-                              label: Strings.fieldEpisodeTitle,
-                              help: Strings.fetchEpisodeTitleHelp,
-                              error: _episodeTitleError,
+                              controller: _title,
+                              label: tv
+                                  ? Strings.fieldSeries
+                                  : Strings.fieldTitle,
+                              help: tv
+                                  ? Strings.fetchSeriesHelp
+                                  : Strings.fetchTitleHelp,
+                              error: _titleError,
                               onChanged: (_) =>
-                                  _clear(() => _episodeTitleError = null),
+                                  _clear(() => _titleError = null),
                             ),
                           ),
+                          if (!tv) ...<Widget>[
+                            const SizedBox(width: Space.s3),
+                            Expanded(
+                              child: LabelledTextField(
+                                controller: _year,
+                                label: Strings.fieldYear,
+                                help: Strings.fetchYearHelp,
+                                keyboardType: TextInputType.number,
+                                error: _yearError,
+                                onChanged: (_) =>
+                                    _clear(() => _yearError = null),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
-                    const SizedBox(height: Space.s2),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: FilledButton.icon(
-                        onPressed: _submitting ? null : () => _submit(tv),
-                        icon: const Icon(Icons.cloud_download_outlined),
-                        label: const Text(Strings.fetch),
+                      LabelledDropdown<String>(
+                        label: Strings.fieldTargetLibrary,
+                        help: Strings.targetLibraryHelp,
+                        value: _libraryId ?? '',
+                        items: <(String, String)>[
+                          for (final Library l in external)
+                            (l.id, '${l.name} (${libraryKindLabel(l.kind)})'),
+                        ],
+                        error: _libraryError,
+                        onChanged: (String v) => setState(() {
+                          _libraryId = v;
+                          _libraryError = null;
+                          _titleError = null;
+                          _yearError = null;
+                          _seasonError = null;
+                          _episodeError = null;
+                          _episodeTitleError = null;
+                        }),
                       ),
-                    ),
-                  ],
+                      LabelledTextField(
+                        controller: _externalId,
+                        label: Strings.fieldExternalId,
+                        help: Strings.fetchExternalIdHelp,
+                      ),
+                      if (tv)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Expanded(
+                              child: LabelledTextField(
+                                controller: _season,
+                                label: Strings.fieldSeason,
+                                help: Strings.seasonEpisodeHelp,
+                                keyboardType: TextInputType.number,
+                                error: _seasonError,
+                                onChanged: (_) =>
+                                    _clear(() => _seasonError = null),
+                              ),
+                            ),
+                            const SizedBox(width: Space.s3),
+                            Expanded(
+                              child: LabelledTextField(
+                                controller: _episode,
+                                label: Strings.fieldEpisode,
+                                help: Strings.seasonEpisodeHelp,
+                                keyboardType: TextInputType.number,
+                                error: _episodeError,
+                                onChanged: (_) =>
+                                    _clear(() => _episodeError = null),
+                              ),
+                            ),
+                            const SizedBox(width: Space.s3),
+                            Expanded(
+                              flex: 3,
+                              child: LabelledTextField(
+                                controller: _episodeTitle,
+                                label: Strings.fieldEpisodeTitle,
+                                help: Strings.fetchEpisodeTitleHelp,
+                                error: _episodeTitleError,
+                                onChanged: (_) =>
+                                    _clear(() => _episodeTitleError = null),
+                              ),
+                            ),
+                          ],
+                        ),
+                      _downloadOptions(),
+                      const SizedBox(height: Space.s2),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: FilledButton.icon(
+                          onPressed: _submitting ? null : () => _submit(tv),
+                          icon: const Icon(Icons.cloud_download_outlined),
+                          label: const Text(Strings.fetch),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             SectionBlock(
@@ -349,6 +442,82 @@ class _FetchBodyState extends State<_FetchBody> {
       },
     );
   }
+}
+
+class _OptionBox extends StatelessWidget {
+  const _OptionBox({
+    required this.label,
+    required this.help,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String help;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: <Widget>[
+      Flexible(
+        child: MergeSemantics(
+          child: InkWell(
+            canRequestFocus: false,
+            onTap: () => onChanged(!value),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Checkbox(
+                  value: value,
+                  onChanged: (bool? v) => onChanged(v ?? false),
+                ),
+                Flexible(child: Text(label)),
+                const SizedBox(width: Space.s1),
+              ],
+            ),
+          ),
+        ),
+      ),
+      FieldHelp(title: label, body: help),
+    ],
+  );
+}
+
+class _OptionsToggle extends StatelessWidget {
+  const _OptionsToggle({required this.open, required this.onPressed});
+
+  final bool open;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    expanded: open,
+    child: InkWell(
+      onTap: onPressed,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: Space.s3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Flexible(
+              child: Text(
+                Strings.downloadOptionsHeading,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            const SizedBox(width: Space.s1),
+            Icon(
+              open ? Icons.expand_less : Icons.expand_more,
+              color: context.tokens.muted,
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _QueuedFetches extends StatelessWidget {

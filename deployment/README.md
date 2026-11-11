@@ -397,10 +397,24 @@ SHADOWMASK_FETCH_PROVIDERS_MAX_HEIGHT=1080
 Unset means best quality. Playback still scales down to whatever the client requests, so a 1080 cap
 is a good fit if you never need the 4K source stored.
 
+### Download options
+
+Per-download options on the "Fetch content" page, all off by default:
+
+| Option             | Effect                                                                                                                                               | yt-dlp                                                    |
+|--------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|
+| Format             | [Format selection](https://github.com/yt-dlp/yt-dlp#format-selection); replaces the default and the height cap. Up to 200 characters, no leading `-` | `-f <format>`                                             |
+| Skip streams       | Skips streams whose format note contains the text, ignoring case. Letters, digits, spaces, `-` and `_`, up to 40 characters. Not with Format         | `[format_note!~=?"(?i)<text>"]`                           |
+| Prefer H.264       | Ranks H.264 video first                                                                                                                              | `-S vcodec:h264`                                          |
+| Site subtitles     | Embeds the uploader's subtitles; one that fails to download is left out                                                                              | `--embed-subs --sub-langs all,-live_chat --ignore-errors` |
+| Chapters           | Embeds the site's chapters                                                                                                                           | `--embed-chapters`                                        |
+
 ### Sites yt-dlp does not support natively
 
-For a site with no built-in yt-dlp extractor, supply a yt-dlp extractor plugin and mount its
-directory into the container:
+A page yt-dlp finds no video in fails with "the site is not supported", without retrying. The
+source URL can be the stream itself (`.m3u8`, `.mpd` or a video file).
+
+A yt-dlp extractor plugin can also be mounted into the container:
 
 ```
 SHADOWMASK_FETCH_PROVIDERS_YT_DLP_PLUGIN_DIR=/config/yt-dlp-plugins
