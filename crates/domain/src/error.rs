@@ -317,6 +317,8 @@ pub enum TranscriptionError {
 pub enum TranslationError {
     #[error("translation backend error: {0}")]
     Backend(String),
+    #[error("could not parse the source subtitle: {0}")]
+    Parse(String),
     #[error("unsupported translation request: {0}")]
     Unsupported(String),
 }

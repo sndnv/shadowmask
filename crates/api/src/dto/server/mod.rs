@@ -16,6 +16,7 @@ mod playback_prep_response;
 mod rating_system;
 mod server_info;
 mod server_log_response;
+mod software_response;
 mod start_benchmark_request;
 
 pub use benchmark_progress::BenchmarkProgress;
@@ -36,4 +37,5 @@ pub use playback_prep_response::PlaybackPrepResponse;
 pub use rating_system::RatingSystem;
 pub use server_info::ServerInfoResponse;
 pub use server_log_response::ServerLogResponse;
+pub use software_response::SoftwareResponse;
 pub use start_benchmark_request::StartBenchmarkRequest;

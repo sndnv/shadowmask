@@ -36,7 +36,7 @@ where
         request: &TranslationSpec,
     ) -> Result<FetchedSubtitle, TranslationError> {
         let mut vtt = WebVtt::parse(request.content.as_str())
-            .map_err(|e| TranslationError::Backend(format!("parse vtt: {e}")))?;
+            .map_err(|e| TranslationError::Parse(format!("parse vtt: {e}")))?;
         let texts: Vec<String> = vtt
             .blocks
             .iter()
@@ -54,7 +54,9 @@ where
             cue.payload = split_lines(&text);
         }
         vtt.blocks.retain(|block| match block {
-            VttBlock::Que(cue) => !is_hallucinated_text(&cue.payload.join(" ")),
+            VttBlock::Que(cue) => {
+                !cue.payload.is_empty() && !is_hallucinated_text(&cue.payload.join(" "))
+            }
             _ => true,
         });
         Ok(FetchedSubtitle { content: vtt.render(), format: SubtitleFormat::Vtt })
@@ -65,13 +67,15 @@ where
         request: &TranslationSpec,
     ) -> Result<FetchedSubtitle, TranslationError> {
         let mut srt = SubRip::parse(request.content.as_str())
-            .map_err(|e| TranslationError::Backend(format!("parse srt: {e}")))?;
+            .map_err(|e| TranslationError::Parse(format!("parse srt: {e}")))?;
         let texts: Vec<String> = srt.subtitles.iter().map(|s| s.text.join("\n")).collect();
         let translated = self.translate_texts(texts, request).await?;
         for (subtitle, text) in srt.subtitles.iter_mut().zip(translated) {
             subtitle.text = split_lines(&text);
         }
-        srt.subtitles.retain(|subtitle| !is_hallucinated_text(&subtitle.text.join(" ")));
+        srt.subtitles.retain(|subtitle| {
+            !subtitle.text.is_empty() && !is_hallucinated_text(&subtitle.text.join(" "))
+        });
         Ok(FetchedSubtitle { content: srt.render(), format: SubtitleFormat::Srt })
     }
 }
@@ -95,7 +99,11 @@ where
 }
 
 fn split_lines(text: &str) -> Vec<String> {
-    text.lines().map(|line| line.to_owned()).collect()
+    text.split(['\r', '\n'])
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 #[cfg(test)]
@@ -108,6 +116,7 @@ mod tests {
         Echo,
         Languages,
         Hallucinate,
+        Answers(Vec<&'static str>),
         Fail,
     }
 
@@ -122,7 +131,7 @@ mod tests {
             source_language: Option<String>,
             target_language: String,
         ) -> Result<Vec<String>, TranslationError> {
-            match self.mode {
+            match &self.mode {
                 EngineMode::Echo => {
                     Ok(texts.into_iter().map(|text| format!("{target_language}:{text}")).collect())
                 }
@@ -132,6 +141,9 @@ mod tests {
                 }
                 EngineMode::Hallucinate => {
                     Ok(texts.into_iter().map(|_| "Thanks for watching".into()).collect())
+                }
+                EngineMode::Answers(answers) => {
+                    Ok(answers.iter().map(|answer| (*answer).to_owned()).collect())
                 }
                 EngineMode::Fail => Err(TranslationError::Backend("boom".into())),
             }
@@ -209,6 +221,57 @@ mod tests {
         assert!(!subtitle.has_text());
     }
 
+    fn blank_answers() -> MockEngine {
+        MockEngine { mode: EngineMode::Answers(vec!["", "   ", "first\r\r second", "last"]) }
+    }
+
+    fn kept() -> Vec<(u8, Vec<String>)> {
+        vec![(2, vec!["first".to_owned(), "second".to_owned()]), (3, vec!["last".to_owned()])]
+    }
+
+    #[tokio::test]
+    async fn a_translated_vtt_cue_left_without_text_is_dropped_and_the_file_reads_back() {
+        let content = "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\none\n\n\
+                       00:00:01.000 --> 00:00:02.000\ntwo\n\n\
+                       00:00:02.000 --> 00:00:03.000\nthree\n\n\
+                       00:00:03.000 --> 00:00:04.000\nfour\n";
+        let provider = MtProvider::new(blank_answers());
+
+        let subtitle =
+            provider.translate(&request(content, SubtitleFormat::Vtt, Some("zh"))).await.unwrap();
+
+        let cues: Vec<(u8, Vec<String>)> = WebVtt::parse(subtitle.content.as_str())
+            .expect("the translation reads back")
+            .blocks
+            .into_iter()
+            .filter_map(|block| match block {
+                VttBlock::Que(cue) => Some((cue.timings.start.seconds, cue.payload)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(cues, kept(), "{}", subtitle.content);
+    }
+
+    #[tokio::test]
+    async fn a_translated_srt_cue_left_without_text_is_dropped_and_the_file_reads_back() {
+        let content = "1\n00:00:00,000 --> 00:00:01,000\none\n\n\
+                       2\n00:00:01,000 --> 00:00:02,000\ntwo\n\n\
+                       3\n00:00:02,000 --> 00:00:03,000\nthree\n\n\
+                       4\n00:00:03,000 --> 00:00:04,000\nfour\n";
+        let provider = MtProvider::new(blank_answers());
+
+        let subtitle =
+            provider.translate(&request(content, SubtitleFormat::Srt, Some("zh"))).await.unwrap();
+
+        let cues: Vec<(u8, Vec<String>)> = SubRip::parse(subtitle.content.as_str())
+            .expect("the translation reads back")
+            .subtitles
+            .into_iter()
+            .map(|subtitle| (subtitle.start.seconds, subtitle.text))
+            .collect();
+        assert_eq!(cues, kept(), "{}", subtitle.content);
+    }
+
     #[tokio::test]
     async fn engine_failure_is_backend() {
         let content = "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhello\n";
@@ -234,7 +297,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn malformed_vtt_is_backend() {
+    async fn malformed_vtt_is_parse() {
         let provider = MtProvider::new(MockEngine { mode: EngineMode::Echo });
 
         assert!(matches!(
@@ -242,12 +305,12 @@ mod tests {
                 .translate(&request("@@@ not a vtt @@@", SubtitleFormat::Vtt, None))
                 .await
                 .unwrap_err(),
-            TranslationError::Backend(_)
+            TranslationError::Parse(message) if message.starts_with("parse vtt: ")
         ));
     }
 
     #[tokio::test]
-    async fn malformed_srt_is_backend() {
+    async fn malformed_srt_is_parse() {
         let provider = MtProvider::new(MockEngine { mode: EngineMode::Echo });
 
         assert!(matches!(
@@ -255,7 +318,7 @@ mod tests {
                 .translate(&request("@@@ not an srt @@@", SubtitleFormat::Srt, None))
                 .await
                 .unwrap_err(),
-            TranslationError::Backend(_)
+            TranslationError::Parse(message) if message.starts_with("parse srt: ")
         ));
     }
 }

@@ -886,7 +886,26 @@ abstract final class Strings {
   static const String reportPanel = 'Diagnostics panel';
   static const String reportNothing = 'Nothing.';
 
-  static const String capabilitiesHeading = 'Capabilities';
+  static const String systemHeading = 'System';
+  static const String couldNotLoadSystem = 'Could not load the system details.';
+  static const String couldNotLoadSoftware = 'Could not load the software.';
+  static const String factVersions = 'Versions';
+  static const String featuresHeading = 'Features';
+  static const String factServer = 'Server';
+  static const String factYtDlp = 'yt-dlp';
+  static const String featureTranscription = 'Transcription';
+  static const String featureTranslation = 'Translation';
+  static const String featureUpscaling = 'Upscaling';
+  static const String featureSubtitleSearch = 'Subtitle search';
+  static const String featureMetadata = 'Metadata';
+  static const String featureHttps = 'HTTPS';
+  static const String featureWebhooks = 'Webhooks';
+  static const String featureContentFetch = 'Content fetch';
+  static const String featureHardwareTranscode = 'Hardware transcoding';
+  static const String featureOn = 'On';
+  static const String featureOff = 'Off';
+  static const String featureUnavailable = 'Not available';
+
   static const String recheck = 'Re-check';
   static const String errorRecheck = 'Could not start a check.';
   static const String noValue = '—';

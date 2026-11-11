@@ -1168,6 +1168,7 @@ async fn an_admins_linked_device_works_on_versions_and_nothing_else() {
         (Method::GET, job.as_str()),
         (Method::GET, "/api/v1/admin/versions"),
         (Method::POST, "/api/v1/admin/fetch"),
+        (Method::GET, "/api/v1/admin/server/software"),
         (Method::GET, "/api/v1/users"),
     ] {
         let (status, _) = call(ctx.app(), method.clone(), uri, Some(TV), Some(json!({}))).await;
@@ -1213,6 +1214,40 @@ async fn an_admins_linked_device_sees_a_versions_path_and_a_plain_one_does_not()
         call(ctx.app(), Method::GET, "/api/v1/movies/m1/versions", Some("device:u1"), None).await;
     assert_eq!(status, StatusCode::OK);
     assert!(page["items"][0].get("path").is_none(), "{page}");
+}
+
+#[tokio::test]
+async fn only_an_admin_reads_the_server_software_and_yt_dlp_shows_when_known() {
+    use api::{Capability, ServerCapabilities, ServerTools};
+    use axum::Extension;
+
+    const SOFTWARE: &str = "/api/v1/admin/server/software";
+    let ctx = Ctx::new();
+    let served = ctx
+        .app()
+        .layer(Extension(ServerCapabilities(vec![Capability::new("translation", true, false)])))
+        .layer(Extension(ServerTools { yt_dlp: Some("2026.10.26".to_owned()) }));
+
+    let (status, software) = call(served.clone(), Method::GET, SOFTWARE, Some(ADMIN), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(software["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(software["yt_dlp"], "2026.10.26");
+    assert_eq!(
+        software["features"],
+        json!([{ "name": "translation", "available": true, "enabled": false }])
+    );
+
+    let (status, info) = call(served, Method::GET, "/api/v1/server/info", Some(USER), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!info.to_string().contains("2026.10.26"), "{info}");
+
+    let (status, software) = call(ctx.app(), Method::GET, SOFTWARE, Some(ADMIN), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(software["yt_dlp"].is_null(), "{software}");
+    assert_eq!(software["features"], json!([]));
+
+    let (status, _) = call(ctx.app(), Method::GET, SOFTWARE, Some(USER), None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]

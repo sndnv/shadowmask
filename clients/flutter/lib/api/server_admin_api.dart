@@ -3,6 +3,7 @@ import 'package:shadowmask/model/server/benchmark_report.dart';
 import 'package:shadowmask/model/server/capabilities_report.dart';
 import 'package:shadowmask/model/server/playback_prep_report.dart';
 import 'package:shadowmask/model/server/server_log_page.dart';
+import 'package:shadowmask/model/server/server_software.dart';
 import 'package:shadowmask/model/server/transcode_totals.dart';
 import 'package:shadowmask/nav/routes.dart';
 import 'package:shadowmask/util/prometheus.dart';
@@ -11,6 +12,9 @@ class ServerAdminApi {
   ServerAdminApi(this._api);
 
   final ApiClient _api;
+
+  Future<ServerSoftware> software() =>
+      _api.getJson('/api/v1/admin/server/software', ServerSoftware.fromJson);
 
   Future<CapabilitiesReport> capabilities() => _api.getJson(
     '/api/v1/admin/server/capabilities',

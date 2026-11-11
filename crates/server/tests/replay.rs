@@ -214,8 +214,6 @@ async fn seed(repos: &Repos, hash: &str) {
         .set_library_access(&UserId("u1".into()), &[LibraryId("lib1".into())])
         .await
         .unwrap();
-    // Admin is no longer implicitly granted every library, so it is granted here
-    // the same way a real admin would be.
     repos
         .users
         .set_library_access(&UserId("admin".into()), &[LibraryId("lib1".into())])
@@ -459,6 +457,21 @@ async fn closed_pool_maps_to_internal_error() {
     let (status, body) = call(router, Method::GET, "/api/v1/movies", Some(&token), None).await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     snapshot("err_internal", status, body);
+}
+
+#[tokio::test]
+async fn an_admin_cannot_reach_a_user_store_outside_the_users_directory() {
+    let hash = password::hash("pw").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let (_repos, router) = seeded(dir.path(), &hash).await;
+    let token = login(&router, "admin").await.0;
+
+    let (status, body) =
+        call(router, Method::GET, "/api/v1/users/..%2Fescape/watchlist", Some(&token), None).await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(body, json!({"error": {"code": "internal", "message": "internal server error"}}));
+    assert!(!dir.path().join("escape").exists());
 }
 
 #[tokio::test]

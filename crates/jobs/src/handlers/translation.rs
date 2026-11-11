@@ -96,6 +96,12 @@ where
                     tracing::debug!("translation unsupported: {reason}");
                     continue;
                 }
+                Err(e @ TranslationError::Parse(_)) => {
+                    return Err(JobError::Permanent(format!(
+                        "could not translate [{}]: {e}",
+                        source.id.0
+                    )));
+                }
                 Err(e) => return Err(JobError::Retryable(e.to_string())),
             };
             if !translated.has_text() {
@@ -173,6 +179,7 @@ mod tests {
         Empty,
         Unsupported,
         Backend,
+        Parse,
     }
 
     struct MockProvider {
@@ -197,6 +204,7 @@ mod tests {
                 }
                 ProviderMode::Unsupported => Err(TranslationError::Unsupported("no engine".into())),
                 ProviderMode::Backend => Err(TranslationError::Backend("boom".into())),
+                ProviderMode::Parse => Err(TranslationError::Parse("parse vtt: bad".into())),
             }
         }
     }
@@ -542,6 +550,21 @@ mod tests {
         assert!(matches!(
             handler.handle(&job(payload(&["fr"]))).await.unwrap_err(),
             JobError::Retryable(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_source_is_permanent_and_names_it() {
+        let catalog = MockCatalogRepo::new();
+        seed(&catalog, &[sub("os-en", SubtitleSource::OpenSubtitles, Some("en"))]).await;
+        let handler = handler(ProviderMode::Parse, catalog, MockStore::default());
+        let expected = concat!(
+            "could not translate [os-en]: ",
+            "could not parse the source subtitle: parse vtt: bad"
+        );
+        assert!(matches!(
+            handler.handle(&job(payload(&["fr"]))).await.unwrap_err(),
+            JobError::Permanent(message) if message == expected
         ));
     }
 

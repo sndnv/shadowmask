@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/api/authentication_failure.dart';
+import 'package:shadowmask/api/authorization_failure.dart';
 import 'package:shadowmask/api/server_admin_api.dart';
 import 'package:shadowmask/components/admin/admin_column.dart';
 import 'package:shadowmask/components/admin/admin_header_split.dart';
@@ -36,7 +38,9 @@ import 'package:shadowmask/model/server/hardware_test.dart';
 import 'package:shadowmask/model/server/host_capabilities.dart';
 import 'package:shadowmask/model/server/library_prep.dart';
 import 'package:shadowmask/model/server/playback_prep_report.dart';
+import 'package:shadowmask/model/server/server_feature.dart';
 import 'package:shadowmask/model/server/server_log_page.dart';
+import 'package:shadowmask/model/server/server_software.dart';
 import 'package:shadowmask/model/server/transcode_totals.dart';
 import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/nav/nav_section.dart';
@@ -89,8 +93,8 @@ class _ServerBody extends StatefulWidget {
 }
 
 class _ServerBodyState extends State<_ServerBody> with Mutations<_ServerBody> {
-  final GlobalKey<_PolledState<CapabilitiesReport>> _capabilities =
-      GlobalKey<_PolledState<CapabilitiesReport>>();
+  final GlobalKey<_PolledState<_SystemReport>> _system =
+      GlobalKey<_PolledState<_SystemReport>>();
   final GlobalKey<_PolledState<BenchmarkReport>> _benchmark =
       GlobalKey<_PolledState<BenchmarkReport>>();
   final GlobalKey<_PolledState<TranscodeTotals>> _totals =
@@ -100,8 +104,21 @@ class _ServerBodyState extends State<_ServerBody> with Mutations<_ServerBody> {
     key: _kRecheck,
     () => widget.server.recheck(),
     errorText: Strings.errorRecheck,
-    then: () => _capabilities.currentState?.refresh(),
+    then: () => _system.currentState?.refresh(),
   );
+
+  Future<_SystemReport> _loadSystem() async {
+    final List<Object?> loaded = await Future.wait(<Future<Object?>>[
+      _orNull(widget.server.software),
+      _orNull(widget.server.capabilities),
+    ]);
+    final ServerSoftware? software = loaded[0] as ServerSoftware?;
+    final CapabilitiesReport? capabilities = loaded[1] as CapabilitiesReport?;
+    if (software == null && capabilities == null) {
+      throw const _NothingLoaded();
+    }
+    return (software: software, capabilities: capabilities);
+  }
 
   Future<void> _start(Version version) async {
     await mutate(
@@ -146,7 +163,7 @@ class _ServerBodyState extends State<_ServerBody> with Mutations<_ServerBody> {
               _PrepNotice(report: r),
         ),
         SectionBlock(
-          title: Strings.capabilitiesHeading,
+          title: Strings.systemHeading,
           actionItems: <PageAction>[
             PageAction(
               icon: Icons.refresh,
@@ -154,13 +171,14 @@ class _ServerBodyState extends State<_ServerBody> with Mutations<_ServerBody> {
               onPressed: busy(_kRecheck) ? null : _recheck,
             ),
           ],
-          child: _Polled<CapabilitiesReport>(
-            key: _capabilities,
-            fetch: widget.server.capabilities,
-            busy: (CapabilitiesReport r) => r.state == CheckState.checking,
-            errorText: Strings.couldNotLoadCapabilities,
-            builder: (BuildContext context, CapabilitiesReport r) =>
-                _CapabilitiesView(report: r),
+          child: _Polled<_SystemReport>(
+            key: _system,
+            fetch: _loadSystem,
+            busy: (_SystemReport r) =>
+                r.capabilities?.state == CheckState.checking,
+            errorText: Strings.couldNotLoadSystem,
+            builder: (BuildContext context, _SystemReport r) =>
+                _SystemView(report: r),
           ),
         ),
         SectionBlock(
@@ -380,6 +398,156 @@ class _PrepLine extends StatelessWidget {
   }
 }
 
+typedef _SystemReport = ({
+  ServerSoftware? software,
+  CapabilitiesReport? capabilities,
+});
+
+class _NothingLoaded implements Exception {
+  const _NothingLoaded();
+}
+
+Future<T?> _orNull<T extends Object>(Future<T> Function() fetch) async {
+  try {
+    return await fetch();
+  } on AuthenticationFailure {
+    rethrow;
+  } on AuthorizationFailure {
+    rethrow;
+  } catch (_) {
+    return null;
+  }
+}
+
+class _SystemView extends StatelessWidget {
+  const _SystemView({required this.report});
+
+  final _SystemReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    final ServerSoftware? software = report.software;
+    final CapabilitiesReport? capabilities = report.capabilities;
+    final String? ffmpeg = capabilities?.ffmpeg?.version;
+    final String? ytDlp = software?.ytDlp;
+    final List<Widget> versions = <Widget>[
+      if (software != null) _Version(Strings.factServer, software.version),
+      if (ffmpeg != null) _Version(Strings.ffmpegHeading, ffmpeg),
+      if (ytDlp != null) _Version(Strings.factYtDlp, ytDlp),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        if (versions.isNotEmpty)
+          _SystemRow(
+            Strings.factVersions,
+            Wrap(spacing: Space.s6, runSpacing: Space.s1, children: versions),
+          ),
+        if (software == null)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: Space.s1),
+            child: Text(Strings.couldNotLoadSoftware),
+          )
+        else
+          _SystemRow(Strings.featuresHeading, _FeaturePills(software.features)),
+        const SizedBox(height: Space.s4),
+        if (capabilities == null)
+          const Text(Strings.couldNotLoadCapabilities)
+        else
+          _CapabilitiesView(report: capabilities),
+      ],
+    );
+  }
+}
+
+class _SystemRow extends StatelessWidget {
+  const _SystemRow(this.label, this.child);
+
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (BuildContext context, BoxConstraints constraints) {
+      if (constraints.maxWidth >= kCapabilityColumnsBreakpoint) {
+        return _Fact.widget(label, child, labelWidth: _kCapabilityLabelWidth);
+      }
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: Space.s1),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            _Label(label),
+            const SizedBox(height: Space.s1),
+            child,
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class _FeaturePills extends StatelessWidget {
+  const _FeaturePills(this.features);
+
+  final List<ServerFeature> features;
+
+  @override
+  Widget build(BuildContext context) => Wrap(
+    spacing: Space.s2,
+    runSpacing: Space.s1,
+    children: <Widget>[
+      for (final ServerFeature f in features)
+        Tooltip(
+          message: _featureState(f),
+          child: OutlinePill(
+            icon: f.enabled
+                ? Icons.check
+                : (f.available ? Icons.remove : Icons.block),
+            text: _featureLabel(f.name),
+            active: f.enabled,
+          ),
+        ),
+    ],
+  );
+}
+
+class _Version extends StatelessWidget {
+  const _Version(this.label, this.value);
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: <Widget>[
+      _Label(label),
+      const SizedBox(width: Space.s2),
+      Flexible(
+        child: Text(value, style: Theme.of(context).textTheme.bodyMedium),
+      ),
+    ],
+  );
+}
+
+String _featureLabel(String name) => switch (name) {
+  'transcription' => Strings.featureTranscription,
+  'translation' => Strings.featureTranslation,
+  'upscaling' => Strings.featureUpscaling,
+  'opensubtitles' => Strings.featureSubtitleSearch,
+  'tmdb' => Strings.featureMetadata,
+  'tls' => Strings.featureHttps,
+  'webhooks' => Strings.featureWebhooks,
+  'content_fetch' => Strings.featureContentFetch,
+  'hardware_transcode' => Strings.featureHardwareTranscode,
+  _ => name,
+};
+
+String _featureState(ServerFeature feature) => feature.enabled
+    ? Strings.featureOn
+    : (feature.available ? Strings.featureOff : Strings.featureUnavailable);
+
 class _CapabilitiesView extends StatelessWidget {
   const _CapabilitiesView({required this.report});
 
@@ -458,11 +626,8 @@ class _CapabilitiesView extends StatelessWidget {
   }
 
   Widget _ffmpeg(Tokens t, FfmpegCapabilities ffmpeg) {
-    final String? version = ffmpeg.version;
     final String? error = ffmpeg.error;
     return _column(Strings.ffmpegHeading, <Widget>[
-      if (version != null)
-        _Fact(Strings.factVersion, version, labelWidth: _kCapabilityLabelWidth),
       if (error != null)
         _Fact(
           Strings.factError,

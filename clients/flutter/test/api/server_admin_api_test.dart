@@ -8,6 +8,7 @@ import 'package:shadowmask/api/server_admin_api.dart';
 import 'package:shadowmask/model/server/benchmark_report.dart';
 import 'package:shadowmask/model/server/capabilities_report.dart';
 import 'package:shadowmask/model/server/server_log_page.dart';
+import 'package:shadowmask/model/server/server_software.dart';
 import 'package:shadowmask/model/server/transcode_totals.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -27,6 +28,46 @@ ServerAdminApi _server(
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+
+  test('software GETs the versions and features', () async {
+    late http.Request seen;
+    final ServerSoftware software = await _server(
+      (http.Request req) => seen = req,
+      body: jsonEncode(<String, dynamic>{
+        'version': '0.0.12',
+        'yt_dlp': '2026.10.26',
+        'features': <dynamic>[
+          <String, dynamic>{
+            'name': 'webhooks',
+            'available': true,
+            'enabled': false,
+          },
+        ],
+      }),
+    ).software();
+
+    expect(seen.method, 'GET');
+    expect(seen.url.path, '/api/v1/admin/server/software');
+    expect(software.version, '0.0.12');
+    expect(software.ytDlp, '2026.10.26');
+    expect(software.features.single.name, 'webhooks');
+    expect(software.features.single.available, isTrue);
+    expect(software.features.single.enabled, isFalse);
+  });
+
+  test('software without yt-dlp has none', () async {
+    final ServerSoftware software = await _server(
+      (_) {},
+      body: jsonEncode(<String, dynamic>{
+        'version': '0.0.12',
+        'yt_dlp': null,
+        'features': <dynamic>[],
+      }),
+    ).software();
+
+    expect(software.ytDlp, isNull);
+    expect(software.features, isEmpty);
+  });
 
   test('capabilities GETs the report', () async {
     late http.Request seen;

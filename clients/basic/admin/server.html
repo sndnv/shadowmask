@@ -42,13 +42,13 @@
         main.appendChild(prepBody);
         loadPrep(prepBody);
 
-        const capsBody = sm.el("div");
-        const refreshCaps = poller(
-          capsBody,
-          () => sm.json("/api/v1/admin/server/capabilities"),
-          "Could not load the capabilities.",
-          renderCapabilities,
-          (r) => r.state === "checking",
+        const systemBody = sm.el("div");
+        const refreshSystem = poller(
+          systemBody,
+          loadSystem,
+          "Could not load the system details.",
+          renderSystem,
+          (s) => s.capabilities !== null && s.capabilities.state === "checking",
         );
         const recheck = sm.el("button", { type: "button" }, "Re-check");
         recheck.addEventListener("click", async () => {
@@ -57,9 +57,9 @@
           } catch (err) {
             sm.toast("Could not start a check.", "danger");
           }
-          await refreshCaps();
+          await refreshSystem();
         });
-        main.appendChild(section("Capabilities", [recheck], capsBody));
+        main.appendChild(section("System", [recheck], systemBody));
 
         const benchBody = sm.el("div");
         const refreshBench = poller(
@@ -87,7 +87,7 @@
         const follow = sm.el("a", { href: "server-logs.html" }, "Follow");
         main.appendChild(section("Recent logs", [follow], logsBody));
 
-        refreshCaps();
+        refreshSystem();
         refreshBench();
         refreshTotals();
         loadRecentLogs(logsBody);
@@ -101,6 +101,37 @@
         } catch (err) {
           body.textContent = "Could not load logs.";
         }
+      }
+
+      async function loadSystem() {
+        const [labels, software, capabilities] = await Promise.all([
+          import("./software.js"),
+          sm.json("/api/v1/admin/server/software").catch(() => null),
+          sm.json("/api/v1/admin/server/capabilities").catch(() => null),
+        ]);
+        if (!software && !capabilities) throw new Error("nothing loaded");
+        return { labels, software, capabilities };
+      }
+
+      function renderSystem(s) {
+        const out = sm.el("div");
+        const versions = s.labels.versionFacts(s.software, s.capabilities).filter(([, v]) => v);
+        if (versions.length) {
+          out.appendChild(sm.el("h3", { text: "Versions" }));
+          out.appendChild(facts(versions));
+        }
+        out.appendChild(sm.el("h3", { text: "Features" }));
+        out.appendChild(
+          s.software
+            ? facts(s.labels.featureFacts(s.software.features))
+            : sm.el("p", { text: "Could not load the software." }),
+        );
+        out.appendChild(
+          s.capabilities
+            ? renderCapabilities(s.capabilities)
+            : sm.el("p", { text: "Could not load the capabilities." }),
+        );
+        return out;
       }
 
       async function loadPrep(body) {
@@ -214,7 +245,6 @@
           out.appendChild(sm.el("h3", { text: "FFmpeg" }));
           out.appendChild(
             facts([
-              ["Version", f.version],
               ["Error", f.error],
               ["Accelerations", f.hwaccels.length ? f.hwaccels.join(", ") : "None"],
             ]),
